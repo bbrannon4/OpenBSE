@@ -1,0 +1,370 @@
+# OpenBSE Example: Simple Heating System with Controls
+#
+# This is a proof-of-concept model showing the clean YAML input format.
+# No nodes, branches, branch lists, or connector lists — just components
+# and what connects to what. The engine builds the graph internally.
+
+simulation:
+  timesteps_per_hour: 4
+  start_month: 1
+  start_day: 1
+  end_month: 1
+  end_day: 31  # Just January for quick testing
+
+weather_files:
+  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+
+design_days:
+  - name: Denver Heating Design Day
+    design_temp: -17.8    # 99.6% heating design temp [°C]
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -17.8
+    pressure: 83411.0     # Denver elevation pressure [Pa]
+    wind_speed: 2.3
+    month: 1
+    day: 21
+    day_type: winter
+
+air_loops:
+  - name: Main AHU
+    controls:
+      heating_supply_temp: 35.0      # Design heating supply air [°C]
+      cooling_supply_temp: 13.0      # Design cooling supply air [°C]
+      design_zone_flow: 0.5          # Design air flow per zone [kg/s]
+      cycling: proportional
+    equipment:
+      - type: heating_coil
+        name: Main Heating Coil
+        source: electric
+        capacity: 50000.0   # 50 kW
+        setpoint: 35.0      # Supply air temp [°C]
+      - type: fan
+        name: Supply Fan
+        source: constant_volume
+        design_flow_rate: 2.0    # m³/s
+        pressure_rise: 600.0     # Pa
+        impeller_efficiency: 0.78
+        motor_efficiency: 0.9
+        motor_in_airstream_fraction: 1.0
+    zones:
+      - zone: East Office
+      - zone: West Office
+      - zone: Conference Room
+
+# ─── Zone Groups ──────────────────────────────────────────────────────────────
+# Named lists of zones for referencing in thermostats and load definitions.
+
+zone_groups:
+  - name: Office Zones
+    zones:
+      - East Office
+      - West Office
+
+  - name: Conference Rooms
+    zones:
+      - Conference Room
+
+# ─── Thermostats ─────────────────────────────────────────────────────────────
+# Thermostat definitions with setpoints, assignable to zones or zone groups.
+
+thermostats:
+  - name: Office Thermostat
+    zones: [Office Zones]            # references zone group
+    heating_setpoint: 21.1           # 70°F
+    cooling_setpoint: 23.9           # 75°F
+
+  - name: Conference Thermostat
+    zones: [Conference Rooms]        # references zone group
+    heating_setpoint: 20.0           # Slightly cooler
+    cooling_setpoint: 24.4
+
+# ─── Controls ─────────────────────────────────────────────────────────────────
+# Explicit setpoint overrides — these override the component's default setpoint.
+
+controls:
+  - type: setpoint
+    name: Main Coil Setpoint
+    component: Main Heating Coil
+    value: 35.0                  # Off-coil temperature [°C]
+
+# ─── Plant Loop (uncomment to use) ────────────────────────────────────────────
+# plant_loops:
+#   - name: Hot Water Loop
+#     design_supply_temp: 82.0
+#     design_delta_t: 11.0
+#     supply_equipment:
+#       - type: boiler
+#         name: Main Boiler
+#         capacity: 100000.0   # 100 kW
+#         efficiency: 0.80
+#         design_outlet_temp: 82.0
+
+# ─── Plant Loop Controls (uncomment with plant loop above) ────────────────────
+# controls:
+#   - type: plant_loop_setpoint
+#     name: HW Loop Setpoint
+#     loop_name: Hot Water Loop
+#     supply_temp: 82.0          # Target supply water temperature [°C]
+
+# ─── Outputs ─────────────────────────────────────────────────────────────────
+# Define what simulation outputs to include. Each entry creates a CSV file.
+# If no outputs are specified, only the legacy results.csv is generated.
+
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - zone_infiltration_mass_flow
+      - site_outdoor_temperature
+
+summary_report: true
+
+# ─── Building Envelope (Phase 2) ─────────────────────────────────────────────
+# Materials, constructions, zones, and surfaces define the building shell.
+# The simulation couples envelope physics with HVAC: weather drives the
+# envelope, envelope reports zone temps to controls, controls drive HVAC.
+
+materials:
+  - name: Concrete
+    conductivity: 1.311     # W/(m·K)
+    density: 2240.0         # kg/m³
+    specific_heat: 836.8    # J/(kg·K)
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    visible_absorptance: 0.7
+    roughness: medium_rough
+
+  - name: Insulation
+    conductivity: 0.04
+    density: 30.0
+    specific_heat: 840.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    visible_absorptance: 0.7
+    roughness: rough
+
+  - name: Gypsum
+    conductivity: 0.16
+    density: 800.0
+    specific_heat: 830.0
+    solar_absorptance: 0.4
+    thermal_absorptance: 0.9
+    visible_absorptance: 0.4
+    roughness: smooth
+
+constructions:
+  - name: Exterior Wall
+    layers:
+      - material: Concrete          # outside
+        thickness: 0.2
+      - material: Insulation
+        thickness: 0.1
+      - material: Gypsum            # inside
+        thickness: 0.013
+
+  - name: Interior Wall
+    layers:
+      - material: Gypsum
+        thickness: 0.013
+      - material: Gypsum
+        thickness: 0.013
+
+  - name: Roof Assembly
+    layers:
+      - material: Concrete
+        thickness: 0.2
+      - material: Insulation
+        thickness: 0.1
+
+window_constructions:
+  - name: Double Pane
+    u_factor: 2.7         # W/(m²·K)
+    shgc: 0.39
+    visible_transmittance: 0.42
+
+zones:
+  - name: East Office
+    volume: 300.0         # m³
+    floor_area: 100.0     # m²
+
+  - name: West Office
+    volume: 300.0
+    floor_area: 100.0
+
+  - name: Conference Room
+    volume: 150.0
+    floor_area: 50.0
+
+# ─── Zone Loads ──────────────────────────────────────────────────────────────
+# Top-level objects assigned to zones by name. One definition can serve
+# multiple zones — no more copy-pasting identical gains.
+
+people:
+  - name: Office Occupants
+    zones: [East Office, West Office]
+    count: 5.0
+    activity_level: 120.0        # W/person (office work)
+    radiant_fraction: 0.3
+
+  - name: Conference Occupants
+    zones: [Conference Room]
+    count: 3.0
+    activity_level: 120.0
+    radiant_fraction: 0.3
+
+lights:
+  - name: Office Lights
+    zones: [East Office, West Office]
+    power: 500.0                # W (5 W/m² - unoccupied/minimal)
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+
+  - name: Conference Lights
+    zones: [Conference Room]
+    power: 250.0
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+
+equipment:
+  - name: Office Equipment
+    zones: [East Office, West Office]
+    power: 300.0                # W (3 W/m² - standby equipment)
+    radiant_fraction: 0.3
+
+infiltration:
+  - name: Office Infiltration
+    zones: [East Office, West Office]
+    design_flow_rate: 0.05      # m³/s at design conditions
+    constant_coefficient: 1.0
+
+  - name: Conference Infiltration
+    zones: [Conference Room]
+    design_flow_rate: 0.03
+    constant_coefficient: 1.0
+
+surfaces:
+  # ─── East Office Surfaces ──────────────────────────
+  - name: East Office South Wall
+    zone: East Office
+    type: wall
+    construction: Exterior Wall
+    area: 30.0            # m²
+    azimuth: 180.0        # south-facing
+    tilt: 90.0
+    boundary: outdoor
+
+  - name: East Office South Window
+    zone: East Office
+    type: window
+    construction: Double Pane
+    area: 8.0
+    azimuth: 180.0
+    tilt: 90.0
+    boundary: outdoor
+    parent_surface: East Office South Wall
+
+  - name: East Office East Wall
+    zone: East Office
+    type: wall
+    construction: Exterior Wall
+    area: 25.0
+    azimuth: 90.0
+    tilt: 90.0
+    boundary: outdoor
+
+  - name: East Office Roof
+    zone: East Office
+    type: roof
+    construction: Roof Assembly
+    area: 100.0
+    azimuth: 0.0
+    tilt: 0.0
+    boundary: outdoor
+
+  # ─── West Office Surfaces ──────────────────────────
+  - name: West Office South Wall
+    zone: West Office
+    type: wall
+    construction: Exterior Wall
+    area: 30.0
+    azimuth: 180.0
+    tilt: 90.0
+    boundary: outdoor
+
+  - name: West Office South Window
+    zone: West Office
+    type: window
+    construction: Double Pane
+    area: 8.0
+    azimuth: 180.0
+    tilt: 90.0
+    boundary: outdoor
+    parent_surface: West Office South Wall
+
+  - name: West Office West Wall
+    zone: West Office
+    type: wall
+    construction: Exterior Wall
+    area: 25.0
+    azimuth: 270.0
+    tilt: 90.0
+    boundary: outdoor
+
+  - name: West Office Roof
+    zone: West Office
+    type: roof
+    construction: Roof Assembly
+    area: 100.0
+    azimuth: 0.0
+    tilt: 0.0
+    boundary: outdoor
+
+  # ─── Conference Room Surfaces ──────────────────────
+  - name: Conference North Wall
+    zone: Conference Room
+    type: wall
+    construction: Exterior Wall
+    area: 20.0
+    azimuth: 0.0          # north-facing
+    tilt: 90.0
+    boundary: outdoor
+
+  - name: Conference North Window
+    zone: Conference Room
+    type: window
+    construction: Double Pane
+    area: 4.0
+    azimuth: 0.0
+    tilt: 90.0
+    boundary: outdoor
+    parent_surface: Conference North Wall
+
+  - name: Conference Roof
+    zone: Conference Room
+    type: roof
+    construction: Roof Assembly
+    area: 50.0
+    azimuth: 0.0
+    tilt: 0.0
+    boundary: outdoor
+
+# ─── Parametric Runs ──────────────────────────────────────────────────────────
+# Uncomment to run multiple scenarios automatically:
+#
+# parametrics:
+#   runs:
+#     - name: baseline
+#     - name: high_efficiency_fan
+#       overrides:
+#         "Supply Fan.total_efficiency": 0.85
+#     - name: larger_coil
+#       overrides:
+#         "Main Heating Coil.capacity": 75000.0
+#     - name: denver_2020_actual
+#       weather_file: "weather/Denver_2020_AMY.epw"
+#     - name: denver_2021_actual
+#       weather_file: "weather/Denver_2021_AMY.epw"

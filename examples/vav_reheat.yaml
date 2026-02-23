@@ -1,0 +1,737 @@
+# OpenBSE Example: VAV with Reheat (Medium Commercial Building)
+#
+# Medium commercial office building with a central Variable Air Volume (VAV)
+# air handling unit serving 4 zones, each with electric reheat VAV boxes.
+#
+# Zones:
+#   - South Perimeter  (200 m2, 3.5m ceiling = 700 m3) - high solar load
+#   - North Perimeter  (200 m2, 3.5m ceiling = 700 m3) - lower solar load
+#   - Core             (400 m2, 3.5m ceiling = 1400 m3) - interior, no walls
+#   - Conference       (100 m2, 3.5m ceiling = 350 m3)  - high occupancy density
+#
+# Systems:
+#   - VAV AHU: VAV fan + CHW cooling coil + HHW preheat coil
+#     Supply air: 13C cooling setpoint, 35C heating setpoint
+#   - Zone VAV boxes with electric reheat (modeled as zone-level electric coils)
+#   - HHW plant loop: natural gas boiler (AHU preheat)
+#   - CHW plant loop: air-cooled chiller (AHU cooling)
+#
+# Weather: Boulder, CO TMYx
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+
+# --- Design Days ---
+design_days:
+  - name: Boulder Heating 99.6%
+    design_temp: -17.8
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -17.8
+    pressure: 83411.0
+    wind_speed: 2.3
+    month: 1
+    day: 21
+    day_type: winter
+
+  - name: Boulder Cooling 0.4%
+    design_temp: 34.1
+    daily_range: 15.2
+    humidity_type: wetbulb
+    humidity_value: 15.7
+    pressure: 83411.0
+    wind_speed: 4.0
+    month: 7
+    day: 21
+    day_type: summer
+
+# --- Schedules ---
+schedules:
+  - name: Office Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.9, 1.0, 1.0, 1.0, 0.8, 1.0, 1.0, 1.0, 0.8, 0.4, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  - name: Office Lighting
+    weekday:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.3, 0.9, 1.0, 1.0, 1.0, 0.9, 1.0, 1.0, 1.0, 0.9, 0.5, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1]
+    weekend:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+
+  - name: Office Equipment
+    weekday:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.4, 0.9, 1.0, 1.0, 1.0, 0.8, 1.0, 1.0, 1.0, 0.8, 0.4, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1]
+    weekend:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+
+  - name: Conference Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 0.5, 0.5, 1.0, 1.0, 0.5, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+# --- Materials ---
+materials:
+  - name: CMU Block
+    conductivity: 0.89
+    density: 1920.0
+    specific_heat: 790.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Wall Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Gypsum Board
+    conductivity: 0.16
+    density: 800.0
+    specific_heat: 830.0
+    solar_absorptance: 0.4
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+  - name: Roof Membrane
+    conductivity: 0.16
+    density: 1120.0
+    specific_heat: 1460.0
+    solar_absorptance: 0.9
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Roof Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Concrete Slab
+    conductivity: 1.311
+    density: 2240.0
+    specific_heat: 836.8
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Slab Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+constructions:
+  - name: Exterior Wall
+    layers:
+      - material: CMU Block
+        thickness: 0.2032
+      - material: Wall Insulation
+        thickness: 0.0889
+      - material: Gypsum Board
+        thickness: 0.0159
+
+  - name: Flat Roof
+    layers:
+      - material: Roof Membrane
+        thickness: 0.0095
+      - material: Roof Insulation
+        thickness: 0.127
+      - material: Gypsum Board
+        thickness: 0.0159
+
+  - name: Ground Floor
+    layers:
+      - material: Slab Insulation
+        thickness: 0.0508
+      - material: Concrete Slab
+        thickness: 0.1016
+
+simple_constructions:
+  - name: Adiabatic Assembly
+    u_factor: 0.001
+    thickness: 0.2
+    thermal_capacity: 20000.0
+    solar_absorptance: 0.5
+    thermal_absorptance: 0.9
+
+  - name: Interior Partition
+    u_factor: 2.0
+    thickness: 0.13
+    thermal_capacity: 15000.0
+    solar_absorptance: 0.5
+    thermal_absorptance: 0.9
+
+window_constructions:
+  - name: Commercial Glazing
+    u_factor: 1.70
+    shgc: 0.35
+    visible_transmittance: 0.45
+
+# --- Zones ---
+# Building: 30m E-W x 30m N-S
+# South Perimeter: y=[0,7], full width
+# North Perimeter: y=[23,30], full width
+# Core:            y=[7,23], x=[0,30] minus Conference
+# Conference:      y=[7,17], x=[20,30]
+zones:
+  - name: South Perimeter
+    volume: 700.0
+    floor_area: 200.0
+
+  - name: North Perimeter
+    volume: 700.0
+    floor_area: 200.0
+
+  - name: Core
+    volume: 1400.0
+    floor_area: 400.0
+
+  - name: Conference
+    volume: 350.0
+    floor_area: 100.0
+
+# --- People ---
+people:
+  - name: Perimeter Office People
+    zones:
+      - South Perimeter
+      - North Perimeter
+    count: 20.0
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Office Occupancy
+
+  - name: Core Office People
+    zones:
+      - Core
+    count: 40.0
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Office Occupancy
+
+  - name: Conference People
+    zones:
+      - Conference
+    count: 30.0
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Conference Occupancy
+
+# --- Lights ---
+lights:
+  - name: Perimeter Office Lights
+    zones:
+      - South Perimeter
+      - North Perimeter
+    power: 240.0
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Office Lighting
+
+  - name: Core Office Lights
+    zones:
+      - Core
+    power: 480.0
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Office Lighting
+
+  - name: Conference Lights
+    zones:
+      - Conference
+    power: 120.0
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Office Lighting
+
+# --- Equipment ---
+equipment:
+  - name: Perimeter Office Equipment
+    zones:
+      - South Perimeter
+      - North Perimeter
+    power: 400.0
+    radiant_fraction: 0.3
+    schedule: Office Equipment
+
+  - name: Core Office Equipment
+    zones:
+      - Core
+    power: 800.0
+    radiant_fraction: 0.3
+    schedule: Office Equipment
+
+  - name: Conference Equipment
+    zones:
+      - Conference
+    power: 200.0
+    radiant_fraction: 0.3
+    schedule: Conference Occupancy
+
+# --- Infiltration ---
+infiltration:
+  - name: Perimeter Infiltration
+    zones:
+      - South Perimeter
+      - North Perimeter
+    air_changes_per_hour: 0.3
+
+  - name: Core Infiltration
+    zones:
+      - Core
+    air_changes_per_hour: 0.1
+
+  - name: Conference Infiltration
+    zones:
+      - Conference
+    air_changes_per_hour: 0.2
+
+# --- Outdoor Air ---
+outdoor_air:
+  - name: Office Ventilation
+    zones:
+      - South Perimeter
+      - North Perimeter
+      - Core
+      - Conference
+    per_person: 0.002360
+    per_area: 0.000305
+
+# --- Surfaces ---
+surfaces:
+  # South Perimeter (30m x 7m)
+  - name: SP South Wall
+    zone: South Perimeter
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 0.0, z: 0.0}
+      - {x: 30.0, y: 0.0, z: 0.0}
+      - {x: 30.0, y: 0.0, z: 3.5}
+      - {x: 0.0,  y: 0.0, z: 3.5}
+
+  - name: SP South Window
+    zone: South Perimeter
+    type: window
+    construction: Commercial Glazing
+    boundary: outdoor
+    parent_surface: SP South Wall
+    vertices:
+      - {x: 1.0,  y: 0.0, z: 0.5}
+      - {x: 29.0, y: 0.0, z: 0.5}
+      - {x: 29.0, y: 0.0, z: 3.0}
+      - {x: 1.0,  y: 0.0, z: 3.0}
+
+  - name: SP East Wall
+    zone: South Perimeter
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 30.0, y: 0.0, z: 0.0}
+      - {x: 30.0, y: 7.0, z: 0.0}
+      - {x: 30.0, y: 7.0, z: 3.5}
+      - {x: 30.0, y: 0.0, z: 3.5}
+
+  - name: SP West Wall
+    zone: South Perimeter
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 7.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 3.5}
+      - {x: 0.0, y: 7.0, z: 3.5}
+
+  - name: SP North Wall
+    zone: South Perimeter
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 30.0, y: 7.0, z: 0.0}
+      - {x: 0.0,  y: 7.0, z: 0.0}
+      - {x: 0.0,  y: 7.0, z: 3.5}
+      - {x: 30.0, y: 7.0, z: 3.5}
+
+  - name: SP Roof
+    zone: South Perimeter
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 0.0, z: 3.5}
+      - {x: 30.0, y: 0.0, z: 3.5}
+      - {x: 30.0, y: 7.0, z: 3.5}
+      - {x: 0.0,  y: 7.0, z: 3.5}
+
+  - name: SP Floor
+    zone: South Perimeter
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0,  y: 7.0, z: 0.0}
+      - {x: 30.0, y: 7.0, z: 0.0}
+      - {x: 30.0, y: 0.0, z: 0.0}
+      - {x: 0.0,  y: 0.0, z: 0.0}
+
+  # North Perimeter (30m x 7m)
+  - name: NP North Wall
+    zone: North Perimeter
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 30.0, y: 30.0, z: 0.0}
+      - {x: 0.0,  y: 30.0, z: 0.0}
+      - {x: 0.0,  y: 30.0, z: 3.5}
+      - {x: 30.0, y: 30.0, z: 3.5}
+
+  - name: NP East Wall
+    zone: North Perimeter
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 30.0, y: 23.0, z: 0.0}
+      - {x: 30.0, y: 30.0, z: 0.0}
+      - {x: 30.0, y: 30.0, z: 3.5}
+      - {x: 30.0, y: 23.0, z: 3.5}
+
+  - name: NP West Wall
+    zone: North Perimeter
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 30.0, z: 0.0}
+      - {x: 0.0, y: 23.0, z: 0.0}
+      - {x: 0.0, y: 23.0, z: 3.5}
+      - {x: 0.0, y: 30.0, z: 3.5}
+
+  - name: NP South Wall
+    zone: North Perimeter
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0,  y: 23.0, z: 0.0}
+      - {x: 30.0, y: 23.0, z: 0.0}
+      - {x: 30.0, y: 23.0, z: 3.5}
+      - {x: 0.0,  y: 23.0, z: 3.5}
+
+  - name: NP Roof
+    zone: North Perimeter
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 23.0, z: 3.5}
+      - {x: 30.0, y: 23.0, z: 3.5}
+      - {x: 30.0, y: 30.0, z: 3.5}
+      - {x: 0.0,  y: 30.0, z: 3.5}
+
+  - name: NP Floor
+    zone: North Perimeter
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0,  y: 30.0, z: 0.0}
+      - {x: 30.0, y: 30.0, z: 0.0}
+      - {x: 30.0, y: 23.0, z: 0.0}
+      - {x: 0.0,  y: 23.0, z: 0.0}
+
+  # Core (30m x 16m interior zone)
+  - name: Core West Wall
+    zone: Core
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 23.0, z: 0.0}
+      - {x: 0.0, y: 7.0,  z: 0.0}
+      - {x: 0.0, y: 7.0,  z: 3.5}
+      - {x: 0.0, y: 23.0, z: 3.5}
+
+  - name: Core East Wall
+    zone: Core
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 30.0, y: 7.0,  z: 0.0}
+      - {x: 30.0, y: 23.0, z: 0.0}
+      - {x: 30.0, y: 23.0, z: 3.5}
+      - {x: 30.0, y: 7.0,  z: 3.5}
+
+  - name: Core South Wall
+    zone: Core
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0,  y: 7.0, z: 0.0}
+      - {x: 30.0, y: 7.0, z: 0.0}
+      - {x: 30.0, y: 7.0, z: 3.5}
+      - {x: 0.0,  y: 7.0, z: 3.5}
+
+  - name: Core North Wall
+    zone: Core
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 30.0, y: 23.0, z: 0.0}
+      - {x: 0.0,  y: 23.0, z: 0.0}
+      - {x: 0.0,  y: 23.0, z: 3.5}
+      - {x: 30.0, y: 23.0, z: 3.5}
+
+  - name: Core Roof
+    zone: Core
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 7.0,  z: 3.5}
+      - {x: 30.0, y: 7.0,  z: 3.5}
+      - {x: 30.0, y: 23.0, z: 3.5}
+      - {x: 0.0,  y: 23.0, z: 3.5}
+
+  - name: Core Floor
+    zone: Core
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0,  y: 23.0, z: 0.0}
+      - {x: 30.0, y: 23.0, z: 0.0}
+      - {x: 30.0, y: 7.0,  z: 0.0}
+      - {x: 0.0,  y: 7.0,  z: 0.0}
+
+  # Conference (10m x 10m)
+  - name: Conf East Wall
+    zone: Conference
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 30.0, y: 7.0,  z: 0.0}
+      - {x: 30.0, y: 17.0, z: 0.0}
+      - {x: 30.0, y: 17.0, z: 3.5}
+      - {x: 30.0, y: 7.0,  z: 3.5}
+
+  - name: Conf South Wall
+    zone: Conference
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 20.0, y: 7.0, z: 0.0}
+      - {x: 30.0, y: 7.0, z: 0.0}
+      - {x: 30.0, y: 7.0, z: 3.5}
+      - {x: 20.0, y: 7.0, z: 3.5}
+
+  - name: Conf North Wall
+    zone: Conference
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 30.0, y: 17.0, z: 0.0}
+      - {x: 20.0, y: 17.0, z: 0.0}
+      - {x: 20.0, y: 17.0, z: 3.5}
+      - {x: 30.0, y: 17.0, z: 3.5}
+
+  - name: Conf West Wall
+    zone: Conference
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 20.0, y: 17.0, z: 0.0}
+      - {x: 20.0, y: 7.0,  z: 0.0}
+      - {x: 20.0, y: 7.0,  z: 3.5}
+      - {x: 20.0, y: 17.0, z: 3.5}
+
+  - name: Conf Roof
+    zone: Conference
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 20.0, y: 7.0,  z: 3.5}
+      - {x: 30.0, y: 7.0,  z: 3.5}
+      - {x: 30.0, y: 17.0, z: 3.5}
+      - {x: 20.0, y: 17.0, z: 3.5}
+
+  - name: Conf Floor
+    zone: Conference
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 20.0, y: 17.0, z: 0.0}
+      - {x: 30.0, y: 17.0, z: 0.0}
+      - {x: 30.0, y: 7.0,  z: 0.0}
+      - {x: 20.0, y: 7.0,  z: 0.0}
+
+# --- HVAC: Central VAV AHU ---
+air_loops:
+  - name: VAV AHU
+    min_vav_fraction: 0.30   # 30% minimum zone airflow (ventilation)
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 13.0
+      design_zone_flow: 0.6
+      cycling: proportional
+    equipment:
+      - type: fan
+        name: VAV Supply Fan
+        source: vav
+        design_flow_rate: autosize
+        pressure_rise: 750.0
+        impeller_efficiency: 0.72
+        motor_efficiency: 0.90
+        motor_in_airstream_fraction: 1.0
+
+      - type: heating_coil
+        name: AHU Preheat Coil
+        source: hot_water
+        capacity: autosize
+        setpoint: 35.0
+        efficiency: 1.0
+
+      - type: cooling_coil
+        name: AHU CHW Cooling Coil
+        capacity: autosize
+        cop: 4.0
+        shr: 0.80
+        rated_airflow: autosize
+        setpoint: 13.0
+
+    zones:
+      - zone: South Perimeter
+      - zone: North Perimeter
+      - zone: Core
+      - zone: Conference
+
+# --- Zone VAV Terminal Reheat Boxes ---
+# Each zone has an FCU-type loop acting as a zone terminal reheat box.
+# The reheat coil fires in heating mode (zone below heating setpoint).
+# These loops recirculate the supply air already delivered by the VAV AHU.
+
+  - name: VAV Box SP
+    system_type: fcu          # Zone-level reheat box
+    equipment:
+      - type: heating_coil
+        name: SP Reheat Coil
+        source: electric   # Electric reheat
+        capacity: autosize
+        setpoint: 35.0
+        efficiency: 1.0
+    zones:
+      - zone: South Perimeter
+
+  - name: VAV Box NP
+    system_type: fcu
+    equipment:
+      - type: heating_coil
+        name: NP Reheat Coil
+        source: electric
+        capacity: autosize
+        setpoint: 35.0
+        efficiency: 1.0
+    zones:
+      - zone: North Perimeter
+
+  - name: VAV Box Core
+    system_type: fcu
+    equipment:
+      - type: heating_coil
+        name: Core Reheat Coil
+        source: electric
+        capacity: autosize
+        setpoint: 35.0
+        efficiency: 1.0
+    zones:
+      - zone: Core
+
+  - name: VAV Box Conf
+    system_type: fcu
+    equipment:
+      - type: heating_coil
+        name: Conf Reheat Coil
+        source: electric
+        capacity: autosize
+        setpoint: 35.0
+        efficiency: 1.0
+    zones:
+      - zone: Conference
+
+# --- Plant Loops ---
+plant_loops:
+  - name: HHW Loop
+    design_supply_temp: 82.0
+    design_delta_t: 11.0
+    supply_equipment:
+      - type: boiler
+        name: HHW Boiler
+        capacity: autosize
+        efficiency: 0.85
+        design_outlet_temp: 82.0
+        design_water_flow_rate: autosize
+
+  - name: CHW Loop
+    design_supply_temp: 7.0
+    design_delta_t: 5.0
+    supply_equipment:
+      - type: chiller
+        name: Air-Cooled Chiller
+        capacity: autosize
+        cop: 3.8
+        chw_setpoint: 7.0
+        design_chw_flow: 0.0
+
+# --- Zone Groups ---
+zone_groups:
+  - name: VAV Zones
+    zones:
+      - South Perimeter
+      - North Perimeter
+      - Core
+      - Conference
+
+# --- Thermostats ---
+thermostats:
+  - name: VAV Thermostat
+    zones: [VAV Zones]
+    heating_setpoint: 21.0
+    cooling_setpoint: 24.0
+
+# --- Outputs ---
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - zone_infiltration_mass_flow
+      - zone_supply_air_temperature
+      - zone_supply_air_mass_flow
+      - site_outdoor_temperature
+      - site_direct_normal_radiation
+
+summary_report: true

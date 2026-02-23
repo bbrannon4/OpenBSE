@@ -1,0 +1,19 @@
+[package]
+name = "openbse-io"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "YAML/TOML input parsing and CSV/Parquet output"
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+csv = { workspace = true }
+log = { workspace = true }
+openbse-core = { workspace = true }
+openbse-components = { workspace = true }
+openbse-controls = { workspace = true }
+openbse-envelope = { workspace = true }
+openbse-weather = { workspace = true }
+openbse-psychrometrics = { workspace = true }

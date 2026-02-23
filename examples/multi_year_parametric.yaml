@@ -1,0 +1,78 @@
+# OpenBSE Example: Multi-Year Parametric Analysis
+#
+# This demonstrates the automation-first approach:
+# - Run the same model against 10 years of actual weather data
+# - Vary equipment parameters across runs
+# - All results land in separate CSV files for post-processing
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+# All weather files to run (each gets its own simulation)
+weather_files:
+  - "weather/Denver_2015_AMY.epw"
+  - "weather/Denver_2016_AMY.epw"
+  - "weather/Denver_2017_AMY.epw"
+  - "weather/Denver_2018_AMY.epw"
+  - "weather/Denver_2019_AMY.epw"
+  - "weather/Denver_2020_AMY.epw"
+  - "weather/Denver_2021_AMY.epw"
+  - "weather/Denver_2022_AMY.epw"
+  - "weather/Denver_2023_AMY.epw"
+  - "weather/Denver_2024_AMY.epw"
+
+design_days:
+  - name: Denver Heating 99.6%
+    design_temp: -17.8
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -17.8
+    pressure: 83411.0
+    wind_speed: 2.3
+    month: 1
+    day: 21
+    day_type: winter
+  - name: Denver Cooling 0.4%
+    design_temp: 34.1
+    daily_range: 15.2
+    humidity_type: wetbulb
+    humidity_value: 15.7
+    pressure: 83411.0
+    wind_speed: 4.0
+    month: 7
+    day: 21
+    day_type: summer
+
+air_loops:
+  - name: Main AHU
+    equipment:
+      - type: heating_coil
+        name: Main Heating Coil
+        source: electric
+        capacity: autosize
+        setpoint: 35.0
+      - type: fan
+        name: Supply Fan
+        source: vav
+        design_flow_rate: autosize
+        pressure_rise: 750.0
+        impeller_efficiency: 0.78
+        motor_efficiency: 0.9
+        motor_in_airstream_fraction: 1.0
+    zones:
+      - zone: Office Zone
+
+parametrics:
+  runs:
+    - name: baseline
+    - name: high_efficiency
+      overrides:
+        "Supply Fan.impeller_efficiency": 0.89   # Higher impeller efficiency
+        "Supply Fan.motor_efficiency": 0.95
+    - name: reduced_pressure
+      overrides:
+        "Supply Fan.pressure_rise": 500.0

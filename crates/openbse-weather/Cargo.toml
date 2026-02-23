@@ -1,0 +1,12 @@
+[package]
+name = "openbse-weather"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "EPW weather file reader and design day processing"
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+csv = { workspace = true }
+openbse-psychrometrics = { workspace = true }

@@ -1,0 +1,711 @@
+# OpenBSE Example: DOAS + Fan Coil Units (Commercial Office)
+#
+# 2-story commercial office building with dedicated outdoor air system (DOAS)
+# serving ventilation to all zones, plus fan coil units (FCUs) for zone
+# heating/cooling via chilled water and hot water plant loops.
+#
+# Zones:
+#   - Open Office   (400 m2, 3.0m ceiling = 1200 m3)
+#   - Conference    ( 80 m2, 3.0m ceiling =  240 m3)
+#   - Lobby         ( 60 m2, 3.0m ceiling =  180 m3)
+#
+# Systems:
+#   - DOAS air loop: 100% OA fan + CHW cooling coil + HHW heating coil
+#     pre-conditions ventilation air to ~18C (summer) / ~20C (winter)
+#   - FCU air loops: recirculating fan + CHW coil + electric heating coil per zone
+#   - HHW plant loop: natural gas boiler
+#   - CHW plant loop: air-cooled chiller
+#
+# Weather: Boulder, CO TMYx
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+
+# --- Design Days ---
+design_days:
+  - name: Boulder Heating 99.6%
+    design_temp: -17.8
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -17.8
+    pressure: 83411.0
+    wind_speed: 2.3
+    month: 1
+    day: 21
+    day_type: winter
+
+  - name: Boulder Cooling 0.4%
+    design_temp: 34.1
+    daily_range: 15.2
+    humidity_type: wetbulb
+    humidity_value: 15.7
+    pressure: 83411.0
+    wind_speed: 4.0
+    month: 7
+    day: 21
+    day_type: summer
+
+# --- Schedules ---
+schedules:
+  - name: Office Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.9, 1.0, 1.0, 1.0, 0.8, 1.0, 1.0, 1.0, 0.8, 0.4, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  - name: Office Lighting
+    weekday:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.3, 0.9, 1.0, 1.0, 1.0, 0.9, 1.0, 1.0, 1.0, 0.9, 0.5, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1]
+    weekend:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+
+  - name: Office Equipment
+    weekday:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.4, 0.9, 1.0, 1.0, 1.0, 0.8, 1.0, 1.0, 1.0, 0.8, 0.4, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1]
+    weekend:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+
+  - name: Conference Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 0.5, 0.5, 1.0, 1.0, 0.5, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  - name: Lobby Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.7, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.3, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+# --- Materials ---
+materials:
+  - name: CMU Block
+    conductivity: 0.89
+    density: 1920.0
+    specific_heat: 790.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Wall Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Gypsum Board
+    conductivity: 0.16
+    density: 800.0
+    specific_heat: 830.0
+    solar_absorptance: 0.4
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+  - name: Roof Membrane
+    conductivity: 0.16
+    density: 1120.0
+    specific_heat: 1460.0
+    solar_absorptance: 0.9
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Roof Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Concrete Slab
+    conductivity: 1.311
+    density: 2240.0
+    specific_heat: 836.8
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Slab Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+constructions:
+  - name: Exterior Wall
+    layers:
+      - material: CMU Block
+        thickness: 0.2032
+      - material: Wall Insulation
+        thickness: 0.0889
+      - material: Gypsum Board
+        thickness: 0.0159
+
+  - name: Flat Roof
+    layers:
+      - material: Roof Membrane
+        thickness: 0.0095
+      - material: Roof Insulation
+        thickness: 0.127
+      - material: Gypsum Board
+        thickness: 0.0159
+
+  - name: Ground Floor
+    layers:
+      - material: Slab Insulation
+        thickness: 0.0508
+      - material: Concrete Slab
+        thickness: 0.1016
+
+simple_constructions:
+  - name: Adiabatic Assembly
+    u_factor: 0.001
+    thickness: 0.2
+    thermal_capacity: 20000.0
+    solar_absorptance: 0.5
+    thermal_absorptance: 0.9
+
+  - name: Interior Partition
+    u_factor: 2.0
+    thickness: 0.13
+    thermal_capacity: 15000.0
+    solar_absorptance: 0.5
+    thermal_absorptance: 0.9
+
+window_constructions:
+  - name: Commercial Glazing
+    u_factor: 2.05
+    shgc: 0.40
+    visible_transmittance: 0.50
+
+# --- Zones ---
+# Building layout: 30m wide (E-W) x 18m deep (N-S), 3-story equiv
+# Open Office: x=[0,20], y=[0,20] (ground floor main area)
+# Conference:  x=[20,28], y=[0,10]
+# Lobby:       x=[20,28], y=[10,18] (entry lobby)
+zones:
+  - name: Open Office
+    volume: 1200.0
+    floor_area: 400.0
+
+  - name: Conference Room
+    volume: 240.0
+    floor_area: 80.0
+
+  - name: Lobby
+    volume: 180.0
+    floor_area: 60.0
+
+# --- People ---
+people:
+  - name: Open Office People
+    zones: [Open Office]
+    count: 40.0
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Office Occupancy
+
+  - name: Conference Room People
+    zones: [Conference Room]
+    count: 20.0
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Conference Occupancy
+
+  - name: Lobby People
+    zones: [Lobby]
+    count: 5.0
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Lobby Occupancy
+
+# --- Lights ---
+lights:
+  - name: Open Office Lights
+    zones: [Open Office]
+    power: 480.0
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Office Lighting
+
+  - name: Conference Room Lights
+    zones: [Conference Room]
+    power: 128.0
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Office Lighting
+
+  - name: Lobby Lights
+    zones: [Lobby]
+    power: 120.0
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Office Lighting
+
+# --- Equipment ---
+equipment:
+  - name: Open Office Equipment
+    zones: [Open Office]
+    power: 800.0
+    radiant_fraction: 0.3
+    schedule: Office Equipment
+
+  - name: Conference Room Equipment
+    zones: [Conference Room]
+    power: 120.0
+    radiant_fraction: 0.3
+    schedule: Conference Occupancy
+
+  - name: Lobby Equipment
+    zones: [Lobby]
+    power: 60.0
+    radiant_fraction: 0.3
+    schedule: Lobby Occupancy
+
+# --- Infiltration ---
+infiltration:
+  - name: Open Office Infiltration
+    zones: [Open Office]
+    air_changes_per_hour: 0.25
+
+  - name: Conference Room Infiltration
+    zones: [Conference Room]
+    air_changes_per_hour: 0.2
+
+  - name: Lobby Infiltration
+    zones: [Lobby]
+    air_changes_per_hour: 0.5
+
+# --- Outdoor Air ---
+outdoor_air:
+  - name: Office Building OA
+    zones: [Open Office, Conference Room, Lobby]
+    per_person: 0.002360
+    per_area: 0.000305
+
+# --- Surfaces ---
+surfaces:
+  # Open Office
+  - name: OO South Wall
+    zone: Open Office
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 0.0, z: 0.0}
+      - {x: 20.0, y: 0.0, z: 0.0}
+      - {x: 20.0, y: 0.0, z: 3.0}
+      - {x: 0.0,  y: 0.0, z: 3.0}
+
+  - name: OO South Window
+    zone: Open Office
+    type: window
+    construction: Commercial Glazing
+    boundary: outdoor
+    parent_surface: OO South Wall
+    vertices:
+      - {x: 1.0,  y: 0.0, z: 0.5}
+      - {x: 19.0, y: 0.0, z: 0.5}
+      - {x: 19.0, y: 0.0, z: 2.5}
+      - {x: 1.0,  y: 0.0, z: 2.5}
+
+  - name: OO North Wall
+    zone: Open Office
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 20.0, y: 20.0, z: 0.0}
+      - {x: 0.0,  y: 20.0, z: 0.0}
+      - {x: 0.0,  y: 20.0, z: 3.0}
+      - {x: 20.0, y: 20.0, z: 3.0}
+
+  - name: OO West Wall
+    zone: Open Office
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 20.0, z: 0.0}
+      - {x: 0.0, y: 0.0,  z: 0.0}
+      - {x: 0.0, y: 0.0,  z: 3.0}
+      - {x: 0.0, y: 20.0, z: 3.0}
+
+  - name: OO East Wall
+    zone: Open Office
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 20.0, y: 0.0,  z: 0.0}
+      - {x: 20.0, y: 20.0, z: 0.0}
+      - {x: 20.0, y: 20.0, z: 3.0}
+      - {x: 20.0, y: 0.0,  z: 3.0}
+
+  - name: OO Roof
+    zone: Open Office
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 0.0,  z: 3.0}
+      - {x: 20.0, y: 0.0,  z: 3.0}
+      - {x: 20.0, y: 20.0, z: 3.0}
+      - {x: 0.0,  y: 20.0, z: 3.0}
+
+  - name: OO Floor
+    zone: Open Office
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0,  y: 20.0, z: 0.0}
+      - {x: 20.0, y: 20.0, z: 0.0}
+      - {x: 20.0, y: 0.0,  z: 0.0}
+      - {x: 0.0,  y: 0.0,  z: 0.0}
+
+  # Conference Room
+  - name: Conf South Wall
+    zone: Conference Room
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 20.0, y: 0.0, z: 0.0}
+      - {x: 28.0, y: 0.0, z: 0.0}
+      - {x: 28.0, y: 0.0, z: 3.0}
+      - {x: 20.0, y: 0.0, z: 3.0}
+
+  - name: Conf South Window
+    zone: Conference Room
+    type: window
+    construction: Commercial Glazing
+    boundary: outdoor
+    parent_surface: Conf South Wall
+    vertices:
+      - {x: 21.0, y: 0.0, z: 0.5}
+      - {x: 27.0, y: 0.0, z: 0.5}
+      - {x: 27.0, y: 0.0, z: 2.5}
+      - {x: 21.0, y: 0.0, z: 2.5}
+
+  - name: Conf East Wall
+    zone: Conference Room
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 28.0, y: 0.0,  z: 0.0}
+      - {x: 28.0, y: 10.0, z: 0.0}
+      - {x: 28.0, y: 10.0, z: 3.0}
+      - {x: 28.0, y: 0.0,  z: 3.0}
+
+  - name: Conf North Wall
+    zone: Conference Room
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 28.0, y: 10.0, z: 0.0}
+      - {x: 20.0, y: 10.0, z: 0.0}
+      - {x: 20.0, y: 10.0, z: 3.0}
+      - {x: 28.0, y: 10.0, z: 3.0}
+
+  - name: Conf West Wall
+    zone: Conference Room
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 20.0, y: 10.0, z: 0.0}
+      - {x: 20.0, y: 0.0,  z: 0.0}
+      - {x: 20.0, y: 0.0,  z: 3.0}
+      - {x: 20.0, y: 10.0, z: 3.0}
+
+  - name: Conf Roof
+    zone: Conference Room
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 20.0, y: 0.0,  z: 3.0}
+      - {x: 28.0, y: 0.0,  z: 3.0}
+      - {x: 28.0, y: 10.0, z: 3.0}
+      - {x: 20.0, y: 10.0, z: 3.0}
+
+  - name: Conf Floor
+    zone: Conference Room
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 20.0, y: 10.0, z: 0.0}
+      - {x: 28.0, y: 10.0, z: 0.0}
+      - {x: 28.0, y: 0.0,  z: 0.0}
+      - {x: 20.0, y: 0.0,  z: 0.0}
+
+  # Lobby
+  - name: Lobby North Wall
+    zone: Lobby
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 28.0, y: 18.0, z: 0.0}
+      - {x: 20.0, y: 18.0, z: 0.0}
+      - {x: 20.0, y: 18.0, z: 3.0}
+      - {x: 28.0, y: 18.0, z: 3.0}
+
+  - name: Lobby East Wall
+    zone: Lobby
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 28.0, y: 10.0, z: 0.0}
+      - {x: 28.0, y: 18.0, z: 0.0}
+      - {x: 28.0, y: 18.0, z: 3.0}
+      - {x: 28.0, y: 10.0, z: 3.0}
+
+  - name: Lobby South Wall
+    zone: Lobby
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 20.0, y: 10.0, z: 0.0}
+      - {x: 28.0, y: 10.0, z: 0.0}
+      - {x: 28.0, y: 10.0, z: 3.0}
+      - {x: 20.0, y: 10.0, z: 3.0}
+
+  - name: Lobby West Wall
+    zone: Lobby
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 20.0, y: 18.0, z: 0.0}
+      - {x: 20.0, y: 10.0, z: 0.0}
+      - {x: 20.0, y: 10.0, z: 3.0}
+      - {x: 20.0, y: 18.0, z: 3.0}
+
+  - name: Lobby Roof
+    zone: Lobby
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 20.0, y: 10.0, z: 3.0}
+      - {x: 28.0, y: 10.0, z: 3.0}
+      - {x: 28.0, y: 18.0, z: 3.0}
+      - {x: 20.0, y: 18.0, z: 3.0}
+
+  - name: Lobby Floor
+    zone: Lobby
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 20.0, y: 18.0, z: 0.0}
+      - {x: 28.0, y: 18.0, z: 0.0}
+      - {x: 28.0, y: 10.0, z: 0.0}
+      - {x: 20.0, y: 10.0, z: 0.0}
+
+# --- HVAC Air Loops ---
+# DOAS: 100% OA, pre-conditions ventilation air
+air_loops:
+  - name: DOAS
+    controls:
+      heating_supply_temp: 20.0    # Neutral supply
+      cooling_supply_temp: 18.0
+      design_zone_flow: 0.5
+      minimum_damper_position: 1.0  # 100% outdoor air
+    equipment:
+      - type: fan
+        name: DOAS Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 750.0
+        impeller_efficiency: 0.72
+        motor_efficiency: 0.90
+        motor_in_airstream_fraction: 1.0
+
+      - type: heating_coil
+        name: DOAS HW Preheat Coil
+        source: hot_water
+        capacity: autosize
+        setpoint: 20.0
+        efficiency: 1.0
+
+      - type: cooling_coil
+        name: DOAS CHW Cooling Coil
+        capacity: autosize
+        cop: 4.0
+        shr: 0.80
+        rated_airflow: autosize
+        setpoint: 18.0
+
+    zones:
+      - zone: Open Office
+      - zone: Conference Room
+      - zone: Lobby
+
+  # FCU - Open Office
+  - name: FCU-Open Office
+    system_type: fcu         # Recirculating fan coil unit, per-zone thermostat
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 13.0
+      design_zone_flow: 0.5
+    equipment:
+      - type: fan
+        name: FCU-OO Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 200.0
+        impeller_efficiency: 0.65
+        motor_efficiency: 0.85
+        motor_in_airstream_fraction: 1.0
+
+      - type: heating_coil
+        name: FCU-OO Heating Coil
+        source: electric
+        capacity: autosize
+        setpoint: 35.0
+        efficiency: 1.0
+
+      - type: cooling_coil
+        name: FCU-OO Cooling Coil
+        capacity: autosize
+        cop: 4.2
+        shr: 0.80
+        rated_airflow: autosize
+        setpoint: 13.0
+
+    zones:
+      - zone: Open Office
+
+  # FCU - Conference Room
+  - name: FCU-Conference
+    system_type: fcu
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 13.0
+      design_zone_flow: 0.5
+    equipment:
+      - type: fan
+        name: FCU-Conf Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 200.0
+        impeller_efficiency: 0.65
+        motor_efficiency: 0.85
+        motor_in_airstream_fraction: 1.0
+
+      - type: heating_coil
+        name: FCU-Conf Heating Coil
+        source: electric
+        capacity: autosize
+        setpoint: 35.0
+        efficiency: 1.0
+
+      - type: cooling_coil
+        name: FCU-Conf Cooling Coil
+        capacity: autosize
+        cop: 4.2
+        shr: 0.80
+        rated_airflow: autosize
+        setpoint: 13.0
+
+    zones:
+      - zone: Conference Room
+
+  # FCU - Lobby
+  - name: FCU-Lobby
+    system_type: fcu
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 13.0
+      design_zone_flow: 0.5
+    equipment:
+      - type: fan
+        name: FCU-Lobby Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 200.0
+        impeller_efficiency: 0.65
+        motor_efficiency: 0.85
+        motor_in_airstream_fraction: 1.0
+
+      - type: heating_coil
+        name: FCU-Lobby Heating Coil
+        source: electric
+        capacity: autosize
+        setpoint: 35.0
+        efficiency: 1.0
+
+      - type: cooling_coil
+        name: FCU-Lobby Cooling Coil
+        capacity: autosize
+        cop: 4.2
+        shr: 0.80
+        rated_airflow: autosize
+        setpoint: 13.0
+
+    zones:
+      - zone: Lobby
+
+# --- Plant Loops ---
+plant_loops:
+  - name: HHW Loop
+    design_supply_temp: 82.0
+    design_delta_t: 11.0
+    supply_equipment:
+      - type: boiler
+        name: HHW Boiler
+        capacity: autosize
+        efficiency: 0.85
+        design_outlet_temp: 82.0
+        design_water_flow_rate: autosize
+
+  - name: CHW Loop
+    design_supply_temp: 7.0
+    design_delta_t: 5.0
+    supply_equipment:
+      - type: chiller
+        name: Air-Cooled Chiller
+        capacity: autosize
+        cop: 3.5
+        chw_setpoint: 7.0
+        design_chw_flow: 0.0
+
+# --- Zone Groups ---
+zone_groups:
+  - name: Office Zone Group
+    zones:
+      - Open Office
+      - Conference Room
+      - Lobby
+
+# --- Thermostats ---
+thermostats:
+  - name: Office Thermostat
+    zones: [Office Zone Group]
+    heating_setpoint: 21.0
+    cooling_setpoint: 24.0
+
+# --- Outputs ---
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - zone_infiltration_mass_flow
+      - zone_supply_air_temperature
+      - zone_supply_air_mass_flow
+      - site_outdoor_temperature
+      - site_direct_normal_radiation
+
+summary_report: true

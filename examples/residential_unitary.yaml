@@ -1,0 +1,387 @@
+# OpenBSE Example: Residential Unitary System
+#
+# A simple 3-bedroom house (~186 m2 / 2000 sqft):
+#   - Single zone "Living Space" conditioned by a gas furnace + DX split system
+#   - R-13 walls, R-30 attic, double-pane windows
+#   - Boulder, CO weather
+#
+# HVAC: PSZ-AC (residential split system)
+#   - Gas furnace heating coil (14 kW, 80% AFUE)
+#   - DX cooling coil (10.5 kW, COP 3.5)
+#   - Constant volume supply fan
+#   - Heating setpoint 21C, Cooling setpoint 25C
+#
+# Geometry: simple rectangular house 14m x 13m x 2.7m ceiling
+#   South wall has windows (double-pane, SHGC=0.35)
+#   Roof: exterior (attic equivalent R-30)
+#   Floor: ground contact slab
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+
+# --- Design Days ---
+design_days:
+  - name: Boulder Heating 99.6%
+    design_temp: -17.8
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -17.8
+    pressure: 83411.0
+    wind_speed: 2.3
+    month: 1
+    day: 21
+    day_type: winter
+
+  - name: Boulder Cooling 0.4%
+    design_temp: 34.1
+    daily_range: 15.2
+    humidity_type: wetbulb
+    humidity_value: 15.7
+    pressure: 83411.0
+    wind_speed: 4.0
+    month: 7
+    day: 21
+    day_type: summer
+
+# --- Schedules ---
+schedules:
+  - name: Residential Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.5, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0]
+
+  - name: Residential Lighting
+    weekday:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.5, 0.3, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.3, 0.5, 0.8, 1.0, 1.0, 0.8, 0.5, 0.2, 0.1]
+    weekend:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.7, 0.9, 1.0, 1.0, 0.8, 0.5, 0.2, 0.1]
+
+  - name: Residential Equipment
+    weekday:  [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.3, 0.6, 0.4, 0.3, 0.3, 0.3, 0.4, 0.3, 0.3, 0.4, 0.6, 0.8, 0.9, 1.0, 0.9, 0.7, 0.4, 0.2]
+    weekend:  [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.3, 0.5, 0.6, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.7, 0.8, 0.9, 1.0, 0.9, 0.7, 0.4, 0.2]
+
+# --- Materials ---
+materials:
+  # Exterior wall (wood frame, R-13 batt insulation)
+  - name: Wall Sheathing
+    conductivity: 0.115
+    density: 545.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: R13 Batt Insulation
+    conductivity: 0.036
+    density: 12.0
+    specific_heat: 840.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Interior Gypsum
+    conductivity: 0.16
+    density: 800.0
+    specific_heat: 830.0
+    solar_absorptance: 0.4
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+  # Attic roof (equivalent R-30 insulation)
+  - name: Roof Decking
+    conductivity: 0.115
+    density: 545.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.9
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: R30 Attic Insulation
+    conductivity: 0.036
+    density: 12.0
+    specific_heat: 840.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  # Slab on grade
+  - name: Concrete Slab
+    conductivity: 1.311
+    density: 2240.0
+    specific_heat: 836.8
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Slab Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+constructions:
+  - name: Exterior Wall
+    layers:
+      - material: Wall Sheathing
+        thickness: 0.0127
+      - material: R13 Batt Insulation
+        thickness: 0.0889
+      - material: Interior Gypsum
+        thickness: 0.0127
+
+  - name: Attic Roof
+    layers:
+      - material: Roof Decking
+        thickness: 0.019
+      - material: R30 Attic Insulation
+        thickness: 0.2032
+      - material: Interior Gypsum
+        thickness: 0.0127
+
+  - name: Ground Floor
+    layers:
+      - material: Slab Insulation
+        thickness: 0.0508
+      - material: Concrete Slab
+        thickness: 0.1016
+
+simple_constructions:
+  - name: Adiabatic Assembly
+    u_factor: 0.001
+    thickness: 0.2
+    thermal_capacity: 20000.0
+    solar_absorptance: 0.5
+    thermal_absorptance: 0.9
+
+window_constructions:
+  - name: Double Pane Window
+    u_factor: 2.05
+    shgc: 0.35
+    visible_transmittance: 0.50
+
+# --- Zones ---
+zones:
+  - name: Living Space
+    volume: 502.0
+    floor_area: 186.0
+
+# --- People ---
+people:
+  - name: Residential Occupants
+    zones:
+      - Living Space
+    count: 4.0
+    activity_level: 100.0
+    radiant_fraction: 0.3
+    schedule: Residential Occupancy
+
+# --- Lights ---
+lights:
+  - name: Residential Lights
+    zones:
+      - Living Space
+    power: 930.0
+    radiant_fraction: 0.6
+    return_air_fraction: 0.0
+    schedule: Residential Lighting
+
+# --- Equipment ---
+equipment:
+  - name: Residential Plug Loads
+    zones:
+      - Living Space
+    power: 1116.0
+    radiant_fraction: 0.3
+    schedule: Residential Equipment
+
+# --- Infiltration ---
+infiltration:
+  - name: Residential Infiltration
+    zones:
+      - Living Space
+    air_changes_per_hour: 0.35
+
+# --- Outdoor Air ---
+outdoor_air:
+  - name: Residential Outdoor Air
+    zones:
+      - Living Space
+    per_person: 0.002360
+    per_area: 0.000305
+
+# --- Surfaces ---
+# House: 14m wide (E-W) x 13m deep (N-S) x 2.7m ceiling
+# South wall has windows (low-e double pane)
+surfaces:
+  - name: South Wall
+    zone: Living Space
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 0.0, z: 0.0}
+      - {x: 14.0, y: 0.0, z: 0.0}
+      - {x: 14.0, y: 0.0, z: 2.7}
+      - {x: 0.0,  y: 0.0, z: 2.7}
+
+  - name: South Window 1
+    zone: Living Space
+    type: window
+    construction: Double Pane Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 1.0, y: 0.0, z: 0.5}
+      - {x: 4.0, y: 0.0, z: 0.5}
+      - {x: 4.0, y: 0.0, z: 2.2}
+      - {x: 1.0, y: 0.0, z: 2.2}
+
+  - name: South Window 2
+    zone: Living Space
+    type: window
+    construction: Double Pane Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 5.5, y: 0.0, z: 0.5}
+      - {x: 8.5, y: 0.0, z: 0.5}
+      - {x: 8.5, y: 0.0, z: 2.2}
+      - {x: 5.5, y: 0.0, z: 2.2}
+
+  - name: South Window 3
+    zone: Living Space
+    type: window
+    construction: Double Pane Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 10.0, y: 0.0, z: 0.5}
+      - {x: 13.0, y: 0.0, z: 0.5}
+      - {x: 13.0, y: 0.0, z: 2.2}
+      - {x: 10.0, y: 0.0, z: 2.2}
+
+  - name: North Wall
+    zone: Living Space
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 14.0, y: 13.0, z: 0.0}
+      - {x: 0.0,  y: 13.0, z: 0.0}
+      - {x: 0.0,  y: 13.0, z: 2.7}
+      - {x: 14.0, y: 13.0, z: 2.7}
+
+  - name: East Wall
+    zone: Living Space
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 14.0, y: 0.0,  z: 0.0}
+      - {x: 14.0, y: 13.0, z: 0.0}
+      - {x: 14.0, y: 13.0, z: 2.7}
+      - {x: 14.0, y: 0.0,  z: 2.7}
+
+  - name: West Wall
+    zone: Living Space
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 13.0, z: 0.0}
+      - {x: 0.0, y: 0.0,  z: 0.0}
+      - {x: 0.0, y: 0.0,  z: 2.7}
+      - {x: 0.0, y: 13.0, z: 2.7}
+
+  - name: Roof
+    zone: Living Space
+    type: roof
+    construction: Attic Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 0.0,  z: 2.7}
+      - {x: 14.0, y: 0.0,  z: 2.7}
+      - {x: 14.0, y: 13.0, z: 2.7}
+      - {x: 0.0,  y: 13.0, z: 2.7}
+
+  - name: Floor
+    zone: Living Space
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0,  y: 13.0, z: 0.0}
+      - {x: 14.0, y: 13.0, z: 0.0}
+      - {x: 14.0, y: 0.0,  z: 0.0}
+      - {x: 0.0,  y: 0.0,  z: 0.0}
+
+# --- HVAC: Gas Furnace + DX Split System ---
+air_loops:
+  - name: Residential Split System
+    controls:
+      heating_supply_temp: 40.0    # Gas furnace supply temp [°C]
+      cooling_supply_temp: 13.0    # DX coil supply temp [°C]
+      design_zone_flow: 0.35      # Design air flow per zone [kg/s]
+      cycling: proportional
+    equipment:
+      - type: fan
+        name: Supply Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 250.0
+        impeller_efficiency: 0.71
+        motor_efficiency: 0.85
+        motor_in_airstream_fraction: 1.0
+
+      - type: heating_coil
+        name: Gas Furnace
+        source: gas
+        capacity: autosize
+        setpoint: 40.0
+        efficiency: 0.80
+
+      - type: cooling_coil
+        name: DX Cooling Coil
+        capacity: autosize
+        cop: 3.5
+        shr: 0.78
+        rated_airflow: autosize
+        setpoint: 13.0
+
+    zones:
+      - zone: Living Space
+
+# --- Zone Groups ---
+zone_groups:
+  - name: Residential Zone
+    zones:
+      - Living Space
+
+# --- Thermostats ---
+thermostats:
+  - name: Residential Thermostat
+    zones: [Residential Zone]
+    heating_setpoint: 21.0
+    cooling_setpoint: 25.0
+
+# --- Outputs ---
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - zone_infiltration_mass_flow
+      - zone_supply_air_temperature
+      - zone_supply_air_mass_flow
+      - site_outdoor_temperature
+      - site_direct_normal_radiation
+
+summary_report: true

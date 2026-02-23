@@ -1,0 +1,38 @@
+[workspace]
+members = [
+    "crates/openbse-core",
+    "crates/openbse-components",
+    "crates/openbse-controls",
+    "crates/openbse-envelope",
+    "crates/openbse-weather",
+    "crates/openbse-psychrometrics",
+    "crates/openbse-io",
+    "crates/openbse-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/NatLabRockies/OpenBSE"
+
+[workspace.dependencies]
+# Internal crates
+openbse-core = { path = "crates/openbse-core" }
+openbse-components = { path = "crates/openbse-components" }
+openbse-controls = { path = "crates/openbse-controls" }
+openbse-envelope = { path = "crates/openbse-envelope" }
+openbse-weather = { path = "crates/openbse-weather" }
+openbse-psychrometrics = { path = "crates/openbse-psychrometrics" }
+openbse-io = { path = "crates/openbse-io" }
+
+# External dependencies
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+csv = "1"
+thiserror = "2"
+petgraph = "0.6"
+log = "0.4"
+env_logger = "0.11"
+approx = "0.5"

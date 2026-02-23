@@ -1,0 +1,761 @@
+# OpenBSE Example: Retail Store with RTU (Rooftop Unit)
+#
+# A simple retail building within a larger structure:
+#   - Sales Area (~80 m²): main retail space with south-facing storefront window
+#   - Office (~12 m²): small back office, conditioned by same RTU
+#   - Restroom (~6 m²): unconditioned, with exhaust fan
+#   - Storage (~15 m²): unconditioned
+#
+# Envelope assumptions:
+#   - South wall: storefront glazing (large window)
+#   - North wall: exterior wall (back of building)
+#   - East/West walls: adiabatic (shared with adjacent tenant spaces)
+#   - Roof: adiabatic (multi-story building, conditioned space above)
+#   - Floor: ground contact (slab on grade)
+#
+# HVAC: PSZ-AC (Packaged Single Zone Air Conditioner / RTU)
+#   - Gas furnace heating coil (15 kW, 80% efficiency)
+#   - DX cooling coil (10.5 kW, COP 3.5)
+#   - Constant volume supply fan
+#   - Thermostat in Sales Area controls both Sales + Office
+#
+# Ventilation: ASHRAE 62.1-2022 (retail + office rates)
+#
+# Weather: Boulder, CO (Denver area) TMYx
+#
+# Building Geometry (plan view, looking down):
+#
+#    North
+#   ┌─────────────────────────────────────────────────┐
+#   │  Office (4×3)  │ Restroom (2×3) │ Storage (5×3) │ y=8
+#   │                │                │               │
+#   ├────────────────┴────────────────┴───────────────┤ y=5
+#   │                                                 │
+#   │                Sales Area (12×5)                 │
+#   │                                                 │
+#   │              (12m wide × ~5m deep)              │
+#   │                                                 │
+#   └══════════════════════════════════════════════════┘ y=0
+#    x=0     South (storefront window)              x=12
+#
+# Coordinate system: X=East, Y=North, Z=Up
+# Ceiling height: 3.66m (12 ft) — typical retail
+# Vertices are CCW from outside per convention.
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+
+# ─── Design Days (for autosizing) ──────────────────────────────────────
+# Denver/Boulder climate zone 5B design conditions
+
+design_days:
+  - name: Boulder Heating 99.6%
+    design_temp: -17.8            # 99.6% heating design temp [°C]
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -17.8
+    pressure: 83411.0             # Boulder elevation pressure [Pa]
+    wind_speed: 2.3
+    month: 1
+    day: 21
+    day_type: winter
+
+  - name: Boulder Cooling 0.4%
+    design_temp: 34.1             # 0.4% cooling design temp [°C]
+    daily_range: 15.2
+    humidity_type: wetbulb
+    humidity_value: 15.7
+    pressure: 83411.0
+    wind_speed: 4.0
+    month: 7
+    day: 21
+    day_type: summer
+
+# ─── Schedules ──────────────────────────────────────────────────────────────
+# Typical retail operating schedules (hour index 0 = midnight-1am)
+
+schedules:
+  - name: Retail Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.3, 0.7, 0.9, 1.0, 0.8, 0.9, 1.0, 1.0, 1.0, 0.9, 0.7, 0.4, 0.2, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.5, 0.7, 0.7, 0.7, 0.7, 0.5, 0.3, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  - name: Retail Lighting
+    weekday:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.5, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9, 0.7, 0.4, 0.2, 0.1, 0.1]
+    weekend:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.5, 0.8, 1.0, 1.0, 1.0, 1.0, 0.8, 0.5, 0.3, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+
+  - name: Retail Equipment
+    weekday:  [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.4, 0.7, 0.9, 1.0, 1.0, 0.9, 1.0, 1.0, 1.0, 1.0, 0.9, 0.7, 0.4, 0.3, 0.2, 0.2, 0.2]
+    weekend:  [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.5, 0.7, 0.8, 0.8, 0.8, 0.8, 0.7, 0.4, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]
+
+  - name: Office Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.5, 1.0, 1.0, 1.0, 0.5, 1.0, 1.0, 1.0, 0.5, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  - name: Office Equipment
+    weekday:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.3, 0.8, 1.0, 1.0, 1.0, 0.8, 1.0, 1.0, 1.0, 0.8, 0.3, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+    weekend:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+
+  - name: Exhaust Fan Schedule
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.0, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+# ─── Materials ──────────────────────────────────────────────────────────────
+
+materials:
+  # Exterior wall (CMU with insulation, similar to DOE prototype)
+  - name: CMU Block
+    conductivity: 0.89
+    density: 1920.0
+    specific_heat: 790.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Wall Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Gypsum Board
+    conductivity: 0.16
+    density: 800.0
+    specific_heat: 830.0
+    solar_absorptance: 0.4
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+  # Interior partition wall
+  - name: Interior Gypsum
+    conductivity: 0.16
+    density: 800.0
+    specific_heat: 830.0
+    solar_absorptance: 0.4
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+  # Floor slab
+  - name: Concrete Slab
+    conductivity: 1.311
+    density: 2240.0
+    specific_heat: 836.8
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Slab Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+constructions:
+  - name: Exterior Wall
+    layers:
+      - material: CMU Block               # outside
+        thickness: 0.2032
+      - material: Wall Insulation
+        thickness: 0.0889
+      - material: Gypsum Board            # inside
+        thickness: 0.0159
+
+  - name: Interior Partition
+    layers:
+      - material: Interior Gypsum
+        thickness: 0.0127
+      - material: Interior Gypsum
+        thickness: 0.0127
+
+  - name: Ground Floor
+    layers:
+      - material: Slab Insulation         # outside (ground side)
+        thickness: 0.0508
+      - material: Concrete Slab           # inside (room side)
+        thickness: 0.1016
+
+# Simple construction for adiabatic surfaces (minimal thermal mass)
+simple_constructions:
+  - name: Adiabatic Assembly
+    u_factor: 0.001             # nearly zero heat flow
+    thickness: 0.2
+    thermal_capacity: 20000.0   # some thermal mass for stability
+    solar_absorptance: 0.5
+    thermal_absorptance: 0.9
+
+window_constructions:
+  - name: Storefront Glazing
+    u_factor: 2.56              # typical storefront double-pane
+    shgc: 0.40
+    visible_transmittance: 0.50
+
+# ─── Zones ──────────────────────────────────────────────────────────────────
+
+zones:
+  # ── Sales Area ──
+  # Main retail space: 12m × 5m × 3.66m = 219.6 m³
+  # South-facing storefront window
+  - name: Sales Area
+    volume: 219.6               # 12 × 5 × 3.66
+    floor_area: 60.0            # 12 × 5
+
+  # ── Office ──
+  # Back-of-house office: 4m × 3m × 3.66m = 43.92 m³
+  # Conditioned by same RTU as Sales Area
+  - name: Office
+    volume: 43.92               # 4 × 3 × 3.66
+    floor_area: 12.0            # 4 × 3
+
+  # ── Restroom ──
+  # Unconditioned restroom: 2m × 3m × 3.66m = 21.96 m³
+  # Has exhaust fan, no HVAC supply
+  - name: Restroom
+    volume: 21.96               # 2 × 3 × 3.66
+    floor_area: 6.0             # 2 × 3
+    conditioned: false
+
+  # ── Storage ──
+  # Unconditioned storage room: 6m × 3m × 3.66m = 65.88 m³
+  - name: Storage
+    volume: 65.88               # 6 × 3 × 3.66
+    floor_area: 18.0            # 6 × 3
+    conditioned: false
+
+# ─── People ───────────────────────────────────────────────────────────────────
+
+people:
+  - name: Sales Area People
+    zones: [Sales Area]
+    count: 13.0                  # ~4.6 m²/person (DOE retail density)
+    activity_level: 120.0        # W/person (standing/light work)
+    radiant_fraction: 0.3
+    schedule: Retail Occupancy
+
+  - name: Office People
+    zones: [Office]
+    count: 2.0                   # small office
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Office Occupancy
+
+# ─── Lights ───────────────────────────────────────────────────────────────────
+
+lights:
+  - name: Sales Area Lights
+    zones: [Sales Area]
+    power: 522.0                 # 8.7 W/m² × 60 m² (DOE retail LPD)
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Retail Lighting
+
+  - name: Office Lights
+    zones: [Office]
+    power: 96.0                  # 8.0 W/m² × 12 m²
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Office Equipment
+
+  - name: Restroom Lights
+    zones: [Restroom]
+    power: 36.0                  # 6.0 W/m² × 6 m²
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Retail Lighting
+
+  - name: Storage Lights
+    zones: [Storage]
+    power: 45.0                  # 2.5 W/m² × 18 m² (low for storage)
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Retail Equipment
+
+# ─── Equipment ────────────────────────────────────────────────────────────────
+
+equipment:
+  - name: Sales Area Equipment
+    zones: [Sales Area]
+    power: 240.0                 # 4.0 W/m² (POS systems, displays)
+    radiant_fraction: 0.3
+    schedule: Retail Equipment
+
+  - name: Office Equipment
+    zones: [Office]
+    power: 180.0                 # computer + printer
+    radiant_fraction: 0.3
+    schedule: Office Equipment
+
+# ─── Infiltration ─────────────────────────────────────────────────────────────
+
+infiltration:
+  - name: Sales and Storage Infiltration
+    zones: [Sales Area, Storage]
+    air_changes_per_hour: 0.3
+
+  - name: Office Infiltration
+    zones: [Office]
+    air_changes_per_hour: 0.2
+
+  - name: Restroom Infiltration
+    zones: [Restroom]
+    air_changes_per_hour: 0.5
+
+# ─── Outdoor Air ──────────────────────────────────────────────────────────────
+# ASHRAE 62.1-2022 ventilation rates
+
+outdoor_air:
+  - name: Sales Area Ventilation
+    zones: [Sales Area]
+    per_person: 0.003540         # 7.5 cfm/person = 0.003540 m³/s
+    per_area: 0.000610           # 0.12 cfm/ft² = 0.000610 m³/s-m²
+
+  - name: Office Ventilation
+    zones: [Office]
+    per_person: 0.002360         # 5 cfm/person
+    per_area: 0.000305           # 0.06 cfm/ft²
+
+# ─── Exhaust Fans ─────────────────────────────────────────────────────────────
+
+exhaust_fans:
+  - name: Restroom Exhaust Fan
+    zones: [Restroom]
+    flow_rate: 0.024             # ~50 cfm exhaust
+    schedule: Exhaust Fan Schedule
+
+# ─── Surfaces ───────────────────────────────────────────────────────────────
+# All surfaces use vertex-based geometry (CCW from outside).
+# Coordinate origin: SW corner of building at ground level.
+# X = East, Y = North, Z = Up
+# Ceiling height: 3.66 m
+#
+# Plan layout:
+#   Sales Area:   x=[0,12], y=[0,5]
+#   Office:       x=[0,4],  y=[5,8]
+#   Restroom:     x=[4,6],  y=[5,8]
+#   Storage:      x=[6,12], y=[5,8]
+
+surfaces:
+  # ════════════════════════════════════════════════════════
+  # SALES AREA SURFACES
+  # ════════════════════════════════════════════════════════
+
+  # South wall (storefront) — outdoor
+  - name: Sales South Wall
+    zone: Sales Area
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 0.0, z: 0.0}
+      - {x: 12.0, y: 0.0, z: 0.0}
+      - {x: 12.0, y: 0.0, z: 3.66}
+      - {x: 0.0,  y: 0.0, z: 3.66}
+
+  # Large storefront window (centered on south wall)
+  - name: Storefront Window
+    zone: Sales Area
+    type: window
+    construction: Storefront Glazing
+    boundary: outdoor
+    parent_surface: Sales South Wall
+    vertices:
+      - {x: 0.5, y: 0.0, z: 0.3}
+      - {x: 11.5, y: 0.0, z: 0.3}
+      - {x: 11.5, y: 0.0, z: 3.0}
+      - {x: 0.5, y: 0.0, z: 3.0}
+
+  # East wall — adiabatic (shared with adjacent tenant)
+  - name: Sales East Wall
+    zone: Sales Area
+    type: wall
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 12.0, y: 0.0, z: 0.0}
+      - {x: 12.0, y: 5.0, z: 0.0}
+      - {x: 12.0, y: 5.0, z: 3.66}
+      - {x: 12.0, y: 0.0, z: 3.66}
+
+  # West wall — adiabatic (shared with adjacent tenant)
+  - name: Sales West Wall
+    zone: Sales Area
+    type: wall
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 5.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 3.66}
+      - {x: 0.0, y: 5.0, z: 3.66}
+
+  # Roof — adiabatic (conditioned space above)
+  - name: Sales Roof
+    zone: Sales Area
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0,  y: 0.0, z: 3.66}
+      - {x: 12.0, y: 0.0, z: 3.66}
+      - {x: 12.0, y: 5.0, z: 3.66}
+      - {x: 0.0,  y: 5.0, z: 3.66}
+
+  # Floor — ground contact
+  - name: Sales Floor
+    zone: Sales Area
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0,  y: 5.0, z: 0.0}
+      - {x: 12.0, y: 5.0, z: 0.0}
+      - {x: 12.0, y: 0.0, z: 0.0}
+      - {x: 0.0,  y: 0.0, z: 0.0}
+
+  # Interior partition: Sales → Office (x=0 to x=4, y=5)
+  - name: Sales-Office Wall
+    zone: Sales Area
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Office"
+    vertices:
+      - {x: 0.0, y: 5.0, z: 0.0}
+      - {x: 4.0, y: 5.0, z: 0.0}
+      - {x: 4.0, y: 5.0, z: 3.66}
+      - {x: 0.0, y: 5.0, z: 3.66}
+
+  # Interior partition: Sales → Restroom (x=4 to x=6, y=5)
+  - name: Sales-Restroom Wall
+    zone: Sales Area
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Restroom"
+    vertices:
+      - {x: 4.0, y: 5.0, z: 0.0}
+      - {x: 6.0, y: 5.0, z: 0.0}
+      - {x: 6.0, y: 5.0, z: 3.66}
+      - {x: 4.0, y: 5.0, z: 3.66}
+
+  # Interior partition: Sales → Storage (x=6 to x=12, y=5)
+  - name: Sales-Storage Wall
+    zone: Sales Area
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Storage"
+    vertices:
+      - {x: 6.0,  y: 5.0, z: 0.0}
+      - {x: 12.0, y: 5.0, z: 0.0}
+      - {x: 12.0, y: 5.0, z: 3.66}
+      - {x: 6.0,  y: 5.0, z: 3.66}
+
+  # ════════════════════════════════════════════════════════
+  # OFFICE SURFACES
+  # ════════════════════════════════════════════════════════
+
+  # North wall (exterior)
+  - name: Office North Wall
+    zone: Office
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 4.0, y: 8.0, z: 0.0}
+      - {x: 0.0, y: 8.0, z: 0.0}
+      - {x: 0.0, y: 8.0, z: 3.66}
+      - {x: 4.0, y: 8.0, z: 3.66}
+
+  # West wall — adiabatic
+  - name: Office West Wall
+    zone: Office
+    type: wall
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 8.0, z: 0.0}
+      - {x: 0.0, y: 5.0, z: 0.0}
+      - {x: 0.0, y: 5.0, z: 3.66}
+      - {x: 0.0, y: 8.0, z: 3.66}
+
+  # South wall (interior partition to Sales Area)
+  - name: Office-Sales Wall
+    zone: Office
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Sales Area"
+    vertices:
+      - {x: 4.0, y: 5.0, z: 0.0}
+      - {x: 0.0, y: 5.0, z: 0.0}
+      - {x: 0.0, y: 5.0, z: 3.66}
+      - {x: 4.0, y: 5.0, z: 3.66}
+
+  # East wall (interior partition to Restroom)
+  - name: Office-Restroom Wall
+    zone: Office
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Restroom"
+    vertices:
+      - {x: 4.0, y: 5.0, z: 0.0}
+      - {x: 4.0, y: 8.0, z: 0.0}
+      - {x: 4.0, y: 8.0, z: 3.66}
+      - {x: 4.0, y: 5.0, z: 3.66}
+
+  # Roof — adiabatic
+  - name: Office Roof
+    zone: Office
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 5.0, z: 3.66}
+      - {x: 4.0, y: 5.0, z: 3.66}
+      - {x: 4.0, y: 8.0, z: 3.66}
+      - {x: 0.0, y: 8.0, z: 3.66}
+
+  # Floor — ground contact
+  - name: Office Floor
+    zone: Office
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 8.0, z: 0.0}
+      - {x: 4.0, y: 8.0, z: 0.0}
+      - {x: 4.0, y: 5.0, z: 0.0}
+      - {x: 0.0, y: 5.0, z: 0.0}
+
+  # ════════════════════════════════════════════════════════
+  # RESTROOM SURFACES
+  # ════════════════════════════════════════════════════════
+
+  # North wall (exterior)
+  - name: Restroom North Wall
+    zone: Restroom
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 6.0, y: 8.0, z: 0.0}
+      - {x: 4.0, y: 8.0, z: 0.0}
+      - {x: 4.0, y: 8.0, z: 3.66}
+      - {x: 6.0, y: 8.0, z: 3.66}
+
+  # West wall (interior partition to Office)
+  - name: Restroom-Office Wall
+    zone: Restroom
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Office"
+    vertices:
+      - {x: 4.0, y: 8.0, z: 0.0}
+      - {x: 4.0, y: 5.0, z: 0.0}
+      - {x: 4.0, y: 5.0, z: 3.66}
+      - {x: 4.0, y: 8.0, z: 3.66}
+
+  # South wall (interior partition to Sales Area)
+  - name: Restroom-Sales Wall
+    zone: Restroom
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Sales Area"
+    vertices:
+      - {x: 6.0, y: 5.0, z: 0.0}
+      - {x: 4.0, y: 5.0, z: 0.0}
+      - {x: 4.0, y: 5.0, z: 3.66}
+      - {x: 6.0, y: 5.0, z: 3.66}
+
+  # East wall (interior partition to Storage)
+  - name: Restroom-Storage Wall
+    zone: Restroom
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Storage"
+    vertices:
+      - {x: 6.0, y: 5.0, z: 0.0}
+      - {x: 6.0, y: 8.0, z: 0.0}
+      - {x: 6.0, y: 8.0, z: 3.66}
+      - {x: 6.0, y: 5.0, z: 3.66}
+
+  # Roof — adiabatic
+  - name: Restroom Roof
+    zone: Restroom
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 4.0, y: 5.0, z: 3.66}
+      - {x: 6.0, y: 5.0, z: 3.66}
+      - {x: 6.0, y: 8.0, z: 3.66}
+      - {x: 4.0, y: 8.0, z: 3.66}
+
+  # Floor — ground contact
+  - name: Restroom Floor
+    zone: Restroom
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 4.0, y: 8.0, z: 0.0}
+      - {x: 6.0, y: 8.0, z: 0.0}
+      - {x: 6.0, y: 5.0, z: 0.0}
+      - {x: 4.0, y: 5.0, z: 0.0}
+
+  # ════════════════════════════════════════════════════════
+  # STORAGE SURFACES
+  # ════════════════════════════════════════════════════════
+
+  # North wall (exterior)
+  - name: Storage North Wall
+    zone: Storage
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 12.0, y: 8.0, z: 0.0}
+      - {x: 6.0,  y: 8.0, z: 0.0}
+      - {x: 6.0,  y: 8.0, z: 3.66}
+      - {x: 12.0, y: 8.0, z: 3.66}
+
+  # East wall — adiabatic
+  - name: Storage East Wall
+    zone: Storage
+    type: wall
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 12.0, y: 5.0, z: 0.0}
+      - {x: 12.0, y: 8.0, z: 0.0}
+      - {x: 12.0, y: 8.0, z: 3.66}
+      - {x: 12.0, y: 5.0, z: 3.66}
+
+  # West wall (interior partition to Restroom)
+  - name: Storage-Restroom Wall
+    zone: Storage
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Restroom"
+    vertices:
+      - {x: 6.0, y: 8.0, z: 0.0}
+      - {x: 6.0, y: 5.0, z: 0.0}
+      - {x: 6.0, y: 5.0, z: 3.66}
+      - {x: 6.0, y: 8.0, z: 3.66}
+
+  # South wall (interior partition to Sales Area)
+  - name: Storage-Sales Wall
+    zone: Storage
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Sales Area"
+    vertices:
+      - {x: 12.0, y: 5.0, z: 0.0}
+      - {x: 6.0,  y: 5.0, z: 0.0}
+      - {x: 6.0,  y: 5.0, z: 3.66}
+      - {x: 12.0, y: 5.0, z: 3.66}
+
+  # Roof — adiabatic
+  - name: Storage Roof
+    zone: Storage
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 6.0,  y: 5.0, z: 3.66}
+      - {x: 12.0, y: 5.0, z: 3.66}
+      - {x: 12.0, y: 8.0, z: 3.66}
+      - {x: 6.0,  y: 8.0, z: 3.66}
+
+  # Floor — ground contact
+  - name: Storage Floor
+    zone: Storage
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 6.0,  y: 8.0, z: 0.0}
+      - {x: 12.0, y: 8.0, z: 0.0}
+      - {x: 12.0, y: 5.0, z: 0.0}
+      - {x: 6.0,  y: 5.0, z: 0.0}
+
+# ─── HVAC System (PSZ-AC / Rooftop Unit) ──────────────────────────────────
+# Single air loop serving Sales Area and Office.
+# Thermostat in Sales Area controls the system.
+
+air_loops:
+  - name: RTU-1
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 13.0
+      design_zone_flow: 0.28    # kg/s per zone (~0.56 kg/s total)
+      cycling: proportional
+    equipment:
+      - type: fan
+        name: RTU Supply Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 500.0
+        impeller_efficiency: 0.76
+        motor_efficiency: 0.85
+        motor_in_airstream_fraction: 1.0
+
+      - type: heating_coil
+        name: RTU Furnace
+        source: gas
+        capacity: autosize
+        setpoint: 35.0
+        efficiency: 0.80            # 80% AFUE
+
+      - type: cooling_coil
+        name: RTU DX Cooling
+        capacity: autosize
+        cop: 3.5
+        shr: 0.75
+        rated_airflow: autosize
+        setpoint: 13.0
+
+    zones:
+      - zone: Sales Area
+      - zone: Office
+
+# ─── Zone Groups ───────────────────────────────────────────────────────────
+# Defines which zones are grouped together for HVAC control.
+
+zone_groups:
+  - name: Retail RTU Zones
+    zones:
+      - Sales Area
+      - Office
+
+# ─── Thermostats ───────────────────────────────────────────────────────────
+# Thermostat in Sales Area controls both zones in the Retail RTU group.
+
+thermostats:
+  - name: Retail RTU Thermostat
+    zones: [Retail RTU Zones]
+    heating_setpoint: 21.1        # 70°F
+    cooling_setpoint: 23.9        # 75°F
+
+# ─── Outputs ────────────────────────────────────────────────────────────────
+
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - zone_infiltration_mass_flow
+      - zone_supply_air_temperature
+      - zone_supply_air_mass_flow
+      - site_outdoor_temperature
+      - site_direct_normal_radiation
+
+summary_report: true

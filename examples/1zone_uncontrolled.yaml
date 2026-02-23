@@ -1,0 +1,166 @@
+# 1ZoneUncontrolled — EnergyPlus Example File Replication
+#
+# Matches: /Applications/EnergyPlus-25-2-0/ExampleFiles/1ZoneUncontrolled.idf
+# Weather:  USA_CO_Golden-NREL.724666_TMY3.epw (Denver Centennial/Golden, CO)
+#
+# Simple 1-zone box building:
+#   - 15.24m × 15.24m × 4.572m (232.25 m² floor, 1063.1 m³ volume)
+#   - 4 walls: R-13 resistive (no mass), exposed to outdoor
+#   - 1 roof: R-31 resistive (no mass), exposed to outdoor
+#   - 1 floor: 4" HW concrete, adiabatic boundary
+#   - No windows, no infiltration, no internal gains, no HVAC
+#   - Free-float zone temperature (uncontrolled)
+#
+# E+ reference results (annual, hourly):
+#   Zone Mean Air Temp: min=-10.60°C, max=34.36°C, mean=14.34°C
+#
+# E+ settings:
+#   Timestep: 4 per hour
+#   Inside convection: TARP
+#   Outside convection: DOE-2
+#   Solar distribution: MinimalShadowing
+#   Heat balance: ConductionTransferFunction
+
+simulation:
+  timesteps_per_hour: 4
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - /Applications/EnergyPlus-25-2-0/WeatherData/USA_CO_Golden-NREL.724666_TMY3.epw
+
+summary_report: true
+
+# ─── Constructions ─────────────────────────────────────────────────────
+#
+# R13WALL and ROOF31 are Material:NoMass (resistance-only, zero thermal mass).
+# FLOOR is 4" HW concrete (has thermal mass but is adiabatic).
+#
+# For no-mass layers: use simple_constructions with thermal_capacity = 0.
+# For concrete floor: use simple_constructions with proper thermal capacity.
+
+simple_constructions:
+  # R13WALL: Material:NoMass, R=2.291 m²K/W
+  # U = 1/R = 1/2.291 = 0.4365 W/(m²K)
+  # Note: This is the material R-value only (no film coefficients).
+  # OpenBSE adds inside/outside film coefficients dynamically.
+  - name: R13WALL
+    u_factor: 0.4365          # 1/2.291 W/(m²K) - material only
+    thickness: 0.001          # Negligible (no-mass)
+    thermal_capacity: 0.0     # No thermal mass
+    solar_absorptance: 0.75
+    thermal_absorptance: 0.9
+    roughness: rough           # E+ IDF: Rough for R13LAYER
+
+  # ROOF31: Material:NoMass, R=5.456 m²K/W
+  # U = 1/R = 1/5.456 = 0.1833 W/(m²K)
+  - name: ROOF31
+    u_factor: 0.1833          # 1/5.456 W/(m²K) - material only
+    thickness: 0.001          # Negligible (no-mass)
+    thermal_capacity: 0.0     # No thermal mass
+    solar_absorptance: 0.75
+    thermal_absorptance: 0.9
+    roughness: rough           # E+ IDF: Rough for R31LAYER
+
+  # FLOOR: C5 - 4 IN HW CONCRETE
+  # k=1.729577 W/mK, ρ=2242.585 kg/m³, cp=836.8 J/kgK, t=0.1014984 m
+  # U = k/t = 1.729577/0.1014984 = 17.04 W/(m²K)
+  # thermal_capacity = ρ*cp*t = 2242.585 * 836.8 * 0.1014984 = 190,422 J/(m²K)
+  # solar_abs=0.65, thermal_abs=0.9
+  - name: FLOOR
+    u_factor: 17.04           # k/t (very high - concrete slab)
+    thickness: 0.1015         # 4 inches = 0.1015 m
+    thermal_capacity: 190422  # ρ*cp*t [J/(m²K)]
+    solar_absorptance: 0.65
+    thermal_absorptance: 0.9
+    roughness: medium_rough    # E+ IDF specifies MediumRough for C5 concrete
+
+# ─── Zone ──────────────────────────────────────────────────────────────
+#
+# Single zone, no HVAC, no infiltration, no internal gains.
+# The two OtherEquipment objects in the IDF (+352W and -352W) cancel out.
+
+zones:
+  - name: ZONE ONE
+    volume: 1063.1            # 15.24 * 15.24 * 4.572
+    floor_area: 232.26        # 15.24 * 15.24
+    conditioned: false        # Free-float, no HVAC
+
+# ─── Surfaces ──────────────────────────────────────────────────────────
+#
+# E+ geometry (UpperLeftCorner, CounterClockWise, World coords):
+# Zone origin at (0,0,0), 15.24m × 15.24m × 4.572m
+#
+# Wall001: South wall (y=0 plane, facing south = azimuth 180)
+# Wall002: East wall (x=15.24 plane, facing east = azimuth 90)
+# Wall003: North wall (y=15.24 plane, facing north = azimuth 0)
+# Wall004: West wall (x=0 plane, facing west = azimuth 270)
+# Flr001:  Floor (z=0 plane, adiabatic)
+# Roof001: Roof (z=4.572 plane)
+
+surfaces:
+  # ── South Wall (Wall001) ──
+  # Vertices: (0,0,4.572), (0,0,0), (15.24,0,0), (15.24,0,4.572)
+  # Area = 15.24 * 4.572 = 69.677 m²
+  - name: Wall001
+    zone: ZONE ONE
+    type: wall
+    construction: R13WALL
+    boundary: outdoor
+    area: 69.677
+    azimuth: 180.0            # South-facing
+    tilt: 90.0                # Vertical
+
+  # ── East Wall (Wall002) ──
+  # Area = 15.24 * 4.572 = 69.677 m²
+  - name: Wall002
+    zone: ZONE ONE
+    type: wall
+    construction: R13WALL
+    boundary: outdoor
+    area: 69.677
+    azimuth: 90.0             # East-facing
+    tilt: 90.0
+
+  # ── North Wall (Wall003) ──
+  - name: Wall003
+    zone: ZONE ONE
+    type: wall
+    construction: R13WALL
+    boundary: outdoor
+    area: 69.677
+    azimuth: 0.0              # North-facing
+    tilt: 90.0
+
+  # ── West Wall (Wall004) ──
+  - name: Wall004
+    zone: ZONE ONE
+    type: wall
+    construction: R13WALL
+    boundary: outdoor
+    area: 69.677
+    azimuth: 270.0            # West-facing
+    tilt: 90.0
+
+  # ── Floor (Flr001) ── Adiabatic ──
+  # 4" HW Concrete, boundary = adiabatic (T_outside = T_inside)
+  - name: Floor001
+    zone: ZONE ONE
+    type: floor
+    construction: FLOOR
+    boundary: adiabatic
+    area: 232.258
+    azimuth: 0.0
+    tilt: 180.0               # Floor faces down
+
+  # ── Roof (Roof001) ──
+  - name: Roof001
+    zone: ZONE ONE
+    type: roof
+    construction: ROOF31
+    boundary: outdoor
+    area: 232.258
+    azimuth: 0.0
+    tilt: 0.0                 # Horizontal, face up

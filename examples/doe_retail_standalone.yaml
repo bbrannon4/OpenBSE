@@ -1,0 +1,1505 @@
+# ============================================================================
+# OpenBSE Model: DOE ASHRAE 90.1-2019 Retail Standalone Prototype Building
+# ============================================================================
+#
+# Source: U.S. Department of Energy Commercial Prototype Building Models
+#         ASHRAE Standard 90.1-2019, Climate Zone 5B (Denver, CO)
+#         Building type: Retail Standalone (RetailStandalone_90.1-2019)
+#
+# Reference: https://www.energycodes.gov/prototype-building-models
+#
+# Building Description:
+#   - Single-story retail building, 2,294 m² (24,695 ft²) total floor area
+#   - 5 thermal zones: Back Space, Core Retail, Point of Sale, Front Entry,
+#     Front Retail
+#   - Floor-to-ceiling height: 6.096 m (20 ft)
+#   - Rectangular footprint: 54.27 m x 42.27 m
+#   - Mass exterior walls (200mm concrete + R-1.64 insulation + gypsum)
+#   - Insulated metal deck roof (built-up roofing + R-5.31 insulation)
+#   - 5 HVAC air loops: 4 PSZ-AC rooftop units + 1 unit heater (Front Entry)
+#   - Gas furnace heating, DX cooling
+#   - Denver climate zone 5B design conditions
+#
+# Coordinate System:
+#   Origin: Southwest corner of building at ground level
+#   X = East, Y = North, Z = Up
+#   Ceiling height: 6.096 m (20 ft)
+#
+# Zone Layout (plan view, looking down):
+#
+#                  North (Y=42.27)
+# ┌────────────────────────────────────────────────────┐ Y=42.27
+# │                  Back_Space                         │
+# │            54.27m x 7.0m  (379.89 m²)              │
+# │         Volume: 2,317.33 m³                         │
+# ├────────────────────────────────────────────────────┤ Y=35.27
+# │                                                     │
+# │                                                     │
+# │              Core_Retail                             │
+# │       54.27m x 29.27m  (1,600.48 m²)               │
+# │           Volume: 9,762.95 m³                       │
+# │                                                     │
+# │                                                     │
+# ├────────┬──────┬────────────────────────────────────┤ Y=6.0
+# │  POS   │Entry │         Front_Retail                │
+# │25.135x │4x3m  │        25.135x6.0m                  │
+# │ 6.0m   │12 m² │        150.81 m²                    │
+# │150.81m²│73.2m³│        919.94 m³                    │
+# │919.94m³│      │                                     │
+# └────────┴──────┴────────────────────────────────────┘ Y=0
+# X=0    X=25.135 X=29.135                          X=54.27
+#                  South
+#
+# ============================================================================
+
+# ─── Simulation Settings ────────────────────────────────────────────────────
+
+simulation:
+  timesteps_per_hour: 4       # 15-minute timestep (E+ uses 6/hr = 10-min)
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+# ─── Weather File ───────────────────────────────────────────────────────────
+# TMYx weather data for Boulder/Denver, CO (Climate Zone 5B)
+
+weather_files:
+  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+
+# ─── Design Days (ASHRAE 90.1-2019 Appendix B, Denver) ─────────────────────
+# Used for autosizing HVAC equipment capacity and airflow rates.
+
+design_days:
+  # Winter design day: 99.6% heating design temperature
+  - name: Denver Heating 99.6%
+    design_temp: -17.9          # 99.6% heating DB [C]
+    daily_range: 0.0            # No daily range for heating DD
+    humidity_type: wetbulb
+    humidity_value: -17.9
+    pressure: 82237.0           # Denver elevation station pressure [Pa]
+    wind_speed: 2.5
+    month: 12
+    day: 21
+    day_type: winter
+
+  # Summer design day: 0.4% cooling design temperature
+  - name: Denver Cooling 0.4%
+    design_temp: 33.9           # 0.4% cooling DB [C]
+    daily_range: 14.8           # Mean daily range [C]
+    humidity_type: wetbulb
+    humidity_value: 15.0        # MCWB [C]
+    pressure: 82237.0
+    wind_speed: 3.6
+    month: 7
+    day: 21
+    day_type: summer
+
+# ─── Schedules ──────────────────────────────────────────────────────────────
+# DOE Prototype schedules for retail standalone building.
+# Hour index 0 = midnight-1am ... hour index 23 = 11pm-midnight.
+
+schedules:
+  # BLDG_OCC_SCH - Building occupancy schedule
+  - name: Retail Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.2, 0.5, 0.5, 0.7, 0.7, 0.7, 0.7, 0.8, 0.7, 0.5, 0.5, 0.3, 0.3, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.2, 0.5, 0.6, 0.8, 0.8, 0.8, 0.6, 0.2, 0.2, 0.1, 0.0, 0.0, 0.0, 0.0]
+
+  # BLDG_LIGHT_BACK_SCH - Lighting schedule for Back Space (storage, lower fractions)
+  - name: Lighting Back Space
+    weekday:  [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.156409254, 0.312818508, 0.703841643, 0.703841643, 0.703841643, 0.703841643, 0.703841643, 0.703841643, 0.703841643, 0.703841643, 0.703841643, 0.391023135, 0.391023135, 0.391023135, 0.2, 0.05, 0.05]
+    saturday: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.078204627, 0.234613881, 0.469227762, 0.703841643, 0.703841643, 0.703841643, 0.703841643, 0.703841643, 0.703841643, 0.703841643, 0.703841643, 0.391023135, 0.234613881, 0.234613881, 0.078204627, 0.05, 0.05]
+    sunday:   [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.078204627, 0.312818508, 0.312818508, 0.469227762, 0.469227762, 0.469227762, 0.469227762, 0.469227762, 0.312818508, 0.156409254, 0.05, 0.05, 0.05, 0.05, 0.05]
+
+  # BLDG_LIGHT_CORE_SCH / BLDG_LIGHT_SCH - Lighting schedule for Core Retail and Point of Sale
+  - name: Lighting Core Retail
+    weekday:  [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.2, 0.4, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.5, 0.5, 0.5, 0.2, 0.05, 0.05]
+    saturday: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.1, 0.3, 0.6, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.5, 0.3, 0.3, 0.1, 0.05, 0.05]
+    sunday:   [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.1, 0.4, 0.4, 0.6, 0.6, 0.6, 0.6, 0.6, 0.4, 0.2, 0.05, 0.05, 0.05, 0.05, 0.05]
+
+  # BLDG_LIGHT_FRONT_SCH - Lighting schedule for Front Retail
+  - name: Lighting Front Retail
+    weekday:  [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.19364, 0.38728, 0.87138, 0.87138, 0.87138, 0.87138, 0.87138, 0.87138, 0.87138, 0.87138, 0.87138, 0.4841, 0.4841, 0.4841, 0.2, 0.05, 0.05]
+    saturday: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.09682, 0.29046, 0.58092, 0.87138, 0.87138, 0.87138, 0.87138, 0.87138, 0.87138, 0.87138, 0.87138, 0.4841, 0.29046, 0.29046, 0.09682, 0.05, 0.05]
+    sunday:   [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.09682, 0.38728, 0.38728, 0.58092, 0.58092, 0.58092, 0.58092, 0.58092, 0.38728, 0.19364, 0.05, 0.05, 0.05, 0.05, 0.05]
+
+  # BLDG_LIGHT_ENTRY_SCH - Lighting schedule for Front Entry
+  - name: Lighting Front Entry
+    weekday:  [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.164, 0.328, 0.738, 0.738, 0.738, 0.738, 0.738, 0.738, 0.738, 0.738, 0.738, 0.41, 0.41, 0.41, 0.2, 0.05, 0.05]
+    saturday: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.082, 0.246, 0.492, 0.738, 0.738, 0.738, 0.738, 0.738, 0.738, 0.738, 0.738, 0.41, 0.246, 0.246, 0.082, 0.05, 0.05]
+    sunday:   [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.082, 0.328, 0.328, 0.492, 0.492, 0.492, 0.492, 0.492, 0.328, 0.164, 0.05, 0.05, 0.05, 0.05, 0.05]
+
+  # BLDG_EQUIP_SCH - Plug/process equipment schedule (exact E+ values)
+  - name: Retail Equipment
+    weekday:  [0.1973725624, 0.1973725624, 0.1973725624, 0.1973725624, 0.1973725624, 0.1973725624, 0.1973725624, 0.3988803288, 0.5983204932, 0.8974807398, 0.8974807398, 0.8974807398, 0.8974807398, 0.8974807398, 0.8974807398, 0.8974807398, 0.8974807398, 0.8974807398, 0.8974807398, 0.6980405754, 0.6980405754, 0.1973725624, 0.1973725624, 0.1973725624]
+    saturday: [0.1480294218, 0.1480294218, 0.1480294218, 0.1480294218, 0.1480294218, 0.1480294218, 0.1480294218, 0.2991602466, 0.498600411, 0.7977606576, 0.8974807398, 0.8974807398, 0.8974807398, 0.8974807398, 0.8974807398, 0.8974807398, 0.8974807398, 0.8974807398, 0.6980405754, 0.498600411, 0.498600411, 0.2991602466, 0.1480294218, 0.1480294218]
+    sunday:   [0.1480294218, 0.1480294218, 0.1480294218, 0.1480294218, 0.1480294218, 0.1480294218, 0.1480294218, 0.1480294218, 0.1480294218, 0.2991602466, 0.5983204932, 0.5983204932, 0.7977606576, 0.7977606576, 0.7977606576, 0.7977606576, 0.7977606576, 0.5983204932, 0.3988803288, 0.1480294218, 0.1480294218, 0.1480294218, 0.1480294218, 0.1480294218]
+
+  # HVACOperationSchd - HVAC system availability schedule (on/off)
+  # Controls when PSZ-AC rooftop units and unit heater operate.
+  # During OFF hours, fans stop, no outdoor air, no heating/cooling.
+  # E+ also has NightCycle manager that can cycle ON if zone drifts >1C,
+  # but we don't model that yet.
+  - name: HVAC Operation
+    weekday:  [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0]
+    saturday: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0]
+    sunday:   [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]
+
+  # INFIL_SCH_PNNL - Infiltration schedule (reduced during HVAC operation)
+  # 1.0 = full infiltration (HVAC off), 0.25 = reduced (HVAC on)
+  - name: Infiltration Schedule
+    weekday:  [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 1.0, 1.0, 1.0]
+    weekend:  [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 1.0, 1.0, 1.0, 1.0, 1.0]
+
+  # INFIL_Door_Opening_SCH - Front Entry door opening schedule
+  # Controls vestibule door infiltration based on customer traffic patterns.
+  # 0.0 = doors closed (store closed), 0.131 = low traffic, 1.0 = peak traffic
+  - name: Door Opening Schedule
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.131, 0.131, 0.131, 0.131, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.131, 0.131, 0.0, 0.0, 0.0, 0.0]
+    saturday: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.131, 0.131, 0.131, 0.131, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.131, 0.131, 0.0, 0.0, 0.0, 0.0]
+    sunday:   [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.131, 0.131, 0.131, 1.0, 1.0, 1.0, 1.0, 1.0, 0.131, 0.131, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+# ─── Materials ──────────────────────────────────────────────────────────────
+# DOE Prototype opaque material definitions (90.1-2019, CZ 5B)
+
+materials:
+  # ── Exterior Wall Assembly ──
+  # Outside to inside: 200mm normalweight concrete, insulation board, 13mm gypsum
+
+  - name: Normalweight Concrete 200mm
+    conductivity: 2.31           # W/(m-K) normalweight concrete
+    density: 2322.0              # kg/m³
+    specific_heat: 832.0         # J/(kg-K)
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Wall Insulation Board
+    conductivity: 0.049          # Effective: thickness/R = 0.08/1.64
+    density: 30.0                # Lightweight insulation board
+    specific_heat: 1200.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Gypsum Board 13mm
+    conductivity: 0.16           # W/(m-K)
+    density: 800.0               # kg/m³
+    specific_heat: 1090.0        # J/(kg-K)
+    solar_absorptance: 0.4
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+  # ── Roof Assembly ──
+  # Outside to inside: built-up roofing, insulation board, metal deck
+
+  - name: Built-up Roofing
+    conductivity: 0.16
+    density: 1120.0
+    specific_heat: 1460.0
+    solar_absorptance: 0.77      # Dark roof membrane
+    thermal_absorptance: 0.9
+    roughness: very_rough
+
+  - name: Roof Insulation Board
+    conductivity: 0.019          # Effective: thickness/R = 0.1/5.31
+    density: 30.0
+    specific_heat: 1200.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Metal Deck
+    conductivity: 45.28          # Steel
+    density: 7824.0
+    specific_heat: 500.0
+    solar_absorptance: 0.5
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+  # ── Interior Partition ──
+  # Double layer 13mm gypsum (no stud cavity modeled)
+
+  - name: Interior Gypsum 13mm
+    conductivity: 0.16
+    density: 800.0
+    specific_heat: 1090.0
+    solar_absorptance: 0.4
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+  # ── Floor Slab Assembly ──
+  # Simplified from F-factor ground floor: concrete slab + carpet pad
+
+  - name: Concrete Slab 100mm
+    conductivity: 2.31
+    density: 2322.0
+    specific_heat: 832.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Carpet Pad
+    conductivity: 0.06
+    density: 288.0
+    specific_heat: 1380.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_smooth
+
+# ─── Constructions ──────────────────────────────────────────────────────────
+# Layered constructions: outside layer first, inside layer last.
+
+constructions:
+  # Mass exterior wall: concrete + insulation + gypsum
+  # U-factor approx 0.51 W/(m²K) per 90.1-2019 Table 5.5-3 (CZ 5B)
+  - name: Exterior Wall
+    layers:
+      - material: Normalweight Concrete 200mm    # outside (exposed)
+        thickness: 0.2032                        # 200mm (8 inches)
+      - material: Wall Insulation Board
+        thickness: 0.08                          # Effective thickness to achieve R-1.64 m²K/W
+      - material: Gypsum Board 13mm              # inside (room side)
+        thickness: 0.0127                        # 13mm (1/2 inch)
+
+  # Insulated metal deck roof
+  # U-factor approx 0.18 W/(m²K) per 90.1-2019 Table 5.5-3 (CZ 5B)
+  - name: Roof Assembly
+    layers:
+      - material: Built-up Roofing               # outside (exposed)
+        thickness: 0.0095                        # ~3/8 inch
+      - material: Roof Insulation Board
+        thickness: 0.1                           # Effective thickness to achieve R-5.31 m²K/W
+      - material: Metal Deck                     # inside (room side)
+        thickness: 0.0008                        # Thin metal deck
+
+  # Interior partition: double gypsum
+  - name: Interior Partition
+    layers:
+      - material: Interior Gypsum 13mm
+        thickness: 0.0127
+      - material: Interior Gypsum 13mm
+        thickness: 0.0127
+
+  # Ground floor slab with carpet (only for interior partitions or non-ground floors)
+  - name: Ground Floor
+    layers:
+      - material: Concrete Slab 100mm            # outside (ground side)
+        thickness: 0.1016                        # 100mm (4 inches)
+      - material: Carpet Pad                     # inside (room side)
+        thickness: 0.01
+
+# ─── Simple Constructions ─────────────────────────────────────────────────
+# F-factor slab-on-grade floor constructions per EnergyPlus.
+# E+ uses the GroundContact:FloorSlab:Settings method which computes
+# effective U-factors using Winkelmann's correlations for slab-on-grade
+# with insulation and soil thermal properties. These are MUCH lower than
+# the U-factor of just the concrete slab material alone.
+# Thermal capacity from 100mm concrete slab: 2322 * 832 * 0.1016 = 196,275 J/(m²K)
+
+simple_constructions:
+  # Back Space floor: F-factor = 1.264 W/(m-K), effective U = 0.162 W/(m²K)
+  - name: Ground Floor Back Space
+    u_factor: 0.162
+    thickness: 0.1016
+    thermal_capacity: 196275.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+
+  # Core Retail floor: F-factor = 0.730 W/(m-K), effective U = 0.033 W/(m²K)
+  # Very low because large core zone has high area-to-perimeter ratio
+  - name: Ground Floor Core Retail
+    u_factor: 0.033
+    thickness: 0.1016
+    thermal_capacity: 196275.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+
+  # POS / Front Retail floor: F-factor = 1.264, effective U = 0.186 W/(m²K)
+  - name: Ground Floor Perimeter
+    u_factor: 0.186
+    thickness: 0.1016
+    thermal_capacity: 196275.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+
+  # Front Entry floor: effective U = 0.300 W/(m²K)
+  - name: Ground Floor Entry
+    u_factor: 0.300
+    thickness: 0.1016
+    thermal_capacity: 196275.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+
+# ─── Window Constructions ───────────────────────────────────────────────────
+# Performance-based window definitions (U-factor + SHGC).
+
+window_constructions:
+  # Standard window per 90.1-2019 Table 5.5-3 (CZ 5B, nonmetal framing)
+  - name: Standard Window
+    u_factor: 2.0442             # W/(m²K)
+    shgc: 0.38
+    visible_transmittance: 0.418
+
+  # Skylight per 90.1-2019 Table 5.5-3 (CZ 5B)
+  - name: Skylight
+    u_factor: 2.8391
+    shgc: 0.40
+    visible_transmittance: 0.40
+
+# ─── Zones ──────────────────────────────────────────────────────────────────
+# 5 thermal zones per DOE prototype. Volume and floor area auto-calculated
+# from surface vertices (set to 0 or omitted).
+
+zones:
+  # ── Back Space ──
+  # Storage/receiving area along the north wall.
+  # 54.27m x 7.0m x 6.096m = 2,317.33 m³
+  - name: Back Space
+
+  # ── Core Retail ──
+  # Main sales floor occupying the building core.
+  # 54.27m x 29.27m x 6.096m = 9,762.95 m³
+  # 12 skylights provide daylighting to this interior zone.
+  - name: Core Retail
+
+  # ── Point of Sale ──
+  # Checkout area at the southwest corner of the building.
+  # 25.135m x 6.0m x 6.096m = 919.94 m³
+  - name: Point of Sale
+
+  # ── Front Retail ──
+  # Retail display area at the southeast corner of the building.
+  # 25.135m x 6.0m x 6.096m = 919.94 m³
+  - name: Front Retail
+
+  # ── Front Entry ──
+  # Vestibule/entry area between POS and Front Retail zones.
+  # 4.0m x 3.0m x 6.096m = 73.15 m³
+  # Heated only (unit heater), no cooling.
+  - name: Front Entry
+
+# ─── People ─────────────────────────────────────────────────────────────────
+# DOE prototype internal gains: people density = 6.193 m²/person
+# Activity level: 120 W/person (standing/light work, sensible + latent)
+# Using area_per_person [m²/person] — the engine computes count = floor_area / area_per_person
+
+people:
+  # All retail zones share the same occupant density (6.193 m²/person)
+  # Using area_per_person instead of specifying count per zone.
+  - name: Back Space People
+    zones: [Back Space]
+    area_per_person: 6.193       # m²/person (DOE prototype)
+    activity_level: 120.0        # W/person (standing/light work)
+    radiant_fraction: 0.3
+    schedule: Retail Occupancy
+
+  - name: Core Retail People
+    zones: [Core Retail]
+    area_per_person: 6.193
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Retail Occupancy
+
+  # Point of Sale and Front Retail share identical people properties
+  - name: Front Zone People
+    zones: [Point of Sale, Front Retail]
+    area_per_person: 6.193
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Retail Occupancy
+
+# ─── Lights ─────────────────────────────────────────────────────────────────
+# Lighting power density varies by zone (Back Space storage vs. retail floor).
+# Using watts_per_area [W/m²] — the engine computes power = watts_per_area × floor_area.
+
+lights:
+  # Back Space: lower lighting density (storage area)
+  - name: Back Space Lights
+    zones: [Back Space]
+    watts_per_area: 4.6739       # W/m² (storage LPD)
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Lighting Back Space
+
+  # Core Retail and Point of Sale share the same LPD
+  - name: Core Retail Lights
+    zones: [Core Retail]
+    watts_per_area: 11.3021      # W/m² (retail sales LPD)
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Lighting Core Retail
+
+  - name: Point of Sale Lights
+    zones: [Point of Sale]
+    watts_per_area: 11.3021      # W/m² (same as Core Retail)
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Lighting Core Retail
+
+  - name: Front Retail Lights
+    zones: [Front Retail]
+    watts_per_area: 11.3021      # W/m² (retail sales LPD)
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Lighting Front Retail
+
+  - name: Front Entry Lights
+    zones: [Front Entry]
+    watts_per_area: 9.0417       # W/m² (vestibule LPD)
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Lighting Front Entry
+
+# ─── Equipment ──────────────────────────────────────────────────────────────
+# Plug/process equipment loads from DOE prototype (exact E+ EquipmentLevel).
+
+equipment:
+  - name: Back Space Equipment
+    zones: [Back Space]
+    power: 3065.7123             # E+ EquipmentLevel (exact)
+    radiant_fraction: 0.5        # E+ Fraction Radiant = 0.5000
+    schedule: Retail Equipment
+
+  - name: Core Retail Equipment
+    zones: [Core Retail]
+    power: 5169.5598             # E+ EquipmentLevel (exact)
+    radiant_fraction: 0.5        # E+ Fraction Radiant = 0.5000
+    schedule: Retail Equipment
+
+  - name: Point of Sale Equipment
+    zones: [Point of Sale]
+    power: 3245.4312             # E+ EquipmentLevel (exact)
+    radiant_fraction: 0.5        # E+ Fraction Radiant = 0.5000
+    schedule: Retail Equipment
+
+  - name: Front Retail Equipment
+    zones: [Front Retail]
+    power: 487.1163              # E+ EquipmentLevel (exact)
+    radiant_fraction: 0.5        # E+ Fraction Radiant = 0.5000
+    schedule: Retail Equipment
+
+# ─── Infiltration ───────────────────────────────────────────────────────────
+# DOE prototype uses Flow/ExteriorWallArea method with PNNL schedule.
+# Using flow_per_exterior_wall_area [m³/(s·m²)] — the engine computes
+# design_flow_rate from the zone's outdoor-boundary wall surface areas.
+# Schedule reduces to 25% during HVAC operation hours.
+
+infiltration:
+  - name: Back Space Infiltration
+    zones: [Back Space]
+    flow_per_exterior_wall_area: 0.00029757  # m³/(s·m²) exterior wall
+    constant_coefficient: 0.0    # PNNL wind-driven model: no constant term
+    wind_coefficient: 0.224      # Wind speed coefficient [s/m]
+    schedule: Infiltration Schedule
+
+  - name: Core Retail Infiltration
+    zones: [Core Retail]
+    flow_per_exterior_wall_area: 0.00010355  # m³/(s·m²) exterior wall
+    constant_coefficient: 0.0    # PNNL wind-driven model
+    wind_coefficient: 0.224      # Wind speed coefficient [s/m]
+    schedule: Infiltration Schedule
+
+  - name: Point of Sale Infiltration
+    zones: [Point of Sale]
+    flow_per_exterior_wall_area: 0.00031691  # m³/(s·m²) exterior wall
+    constant_coefficient: 0.0    # PNNL wind-driven model
+    wind_coefficient: 0.224      # Wind speed coefficient [s/m]
+    schedule: Infiltration Schedule
+
+  - name: Front Retail Infiltration
+    zones: [Front Retail]
+    flow_per_exterior_wall_area: 0.00031691  # m³/(s·m²) exterior wall
+    constant_coefficient: 0.0    # PNNL wind-driven model
+    wind_coefficient: 0.224      # Wind speed coefficient [s/m]
+    schedule: Infiltration Schedule
+
+  # Front Entry has two infiltration sources:
+  # 1. Envelope cracks (wind-driven, flow per exterior wall area)
+  - name: Front Entry Envelope Infiltration
+    zones: [Front Entry]
+    flow_per_exterior_wall_area: 0.00038120  # m³/(s·m²) exterior wall
+    constant_coefficient: 0.0    # PNNL wind-driven model
+    wind_coefficient: 0.224      # Wind speed coefficient [s/m]
+    schedule: Infiltration Schedule
+
+  # 2. Door opening infiltration (customer traffic — absolute flow rate)
+  - name: Front Entry Door Infiltration
+    zones: [Front Entry]
+    design_flow_rate: 0.9373     # m³/s — entrance door traffic per E+ IDF
+    constant_coefficient: 1.0    # Constant (not wind-dependent)
+    schedule: Door Opening Schedule
+
+# ─── Outdoor Air ────────────────────────────────────────────────────────────
+# ASHRAE 62.1 ventilation rates, per_area method from DOE prototype.
+
+outdoor_air:
+  - name: Back Space Outdoor Air
+    zones: [Back Space]
+    per_area: 0.000609562        # m³/(s-m²) per ASHRAE 62.1 (storage)
+
+  # Core Retail, Point of Sale, Front Retail, and Front Entry share the
+  # same per-area outdoor air rate per ASHRAE 62.1 (retail)
+  - name: Retail Zones Outdoor Air
+    zones: [Core Retail, Point of Sale, Front Retail, Front Entry]
+    per_area: 0.001181026        # m³/(s-m²) per ASHRAE 62.1 (retail)
+
+# ─── Exhaust Fans ───────────────────────────────────────────────────────────
+# No exhaust fans in the DOE Retail Standalone prototype.
+
+exhaust_fans: []
+
+# ─── Surfaces ───────────────────────────────────────────────────────────────
+# All surfaces use vertex-based geometry (CCW from outside per convention).
+# Coordinate origin: SW corner of building at ground level.
+# X = East, Y = North, Z = Up.  Ceiling height H = 6.096 m.
+#
+# Zone coordinate boundaries:
+#   Back Space:     X=[0, 54.27], Y=[35.27, 42.27]
+#   Core Retail:    X=[0, 54.27], Y=[6.0, 35.27]
+#   Point of Sale:  X=[0, 25.135], Y=[0, 6.0]
+#   Front Entry:    X=[25.135, 29.135], Y=[0, 3.0]
+#   Front Retail:   X=[29.135, 54.27], Y=[0, 6.0]
+
+surfaces:
+  # ════════════════════════════════════════════════════════════════════════════
+  # BACK SPACE SURFACES
+  # Zone: X=[0, 54.27], Y=[35.27, 42.27], Z=[0, 6.096]
+  # Exterior walls: north, east (partial), west (partial)
+  # Interior wall: south (adjacent to Core Retail)
+  # ════════════════════════════════════════════════════════════════════════════
+
+  # Back Space - North Wall (exterior, faces north)
+  # Vertices CCW from outside (looking south at the wall from the north)
+  - name: Back Space North Wall
+    zone: Back Space
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 54.27, y: 42.27, z: 0.0}
+      - {x: 0.0,   y: 42.27, z: 0.0}
+      - {x: 0.0,   y: 42.27, z: 6.096}
+      - {x: 54.27, y: 42.27, z: 6.096}
+
+  # Back Space - North Wall Window (small strip window for daylighting)
+  - name: Back Space North Window
+    zone: Back Space
+    type: window
+    construction: Standard Window
+    boundary: outdoor
+    parent_surface: Back Space North Wall
+    vertices:
+      - {x: 50.0,  y: 42.27, z: 1.0}
+      - {x: 4.27,  y: 42.27, z: 1.0}
+      - {x: 4.27,  y: 42.27, z: 2.5}
+      - {x: 50.0,  y: 42.27, z: 2.5}
+
+  # Back Space - East Wall (exterior, faces east)
+  # Only the back space portion: Y=[35.27, 42.27]
+  - name: Back Space East Wall
+    zone: Back Space
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 54.27, y: 35.27, z: 0.0}
+      - {x: 54.27, y: 42.27, z: 0.0}
+      - {x: 54.27, y: 42.27, z: 6.096}
+      - {x: 54.27, y: 35.27, z: 6.096}
+
+  # Back Space - West Wall (exterior, faces west)
+  # Only the back space portion: Y=[35.27, 42.27]
+  - name: Back Space West Wall
+    zone: Back Space
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 42.27, z: 0.0}
+      - {x: 0.0, y: 35.27, z: 0.0}
+      - {x: 0.0, y: 35.27, z: 6.096}
+      - {x: 0.0, y: 42.27, z: 6.096}
+
+  # Back Space - South Wall (interior, adjacent to Core Retail)
+  - name: Back Space South Wall
+    zone: Back Space
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Core Retail"
+    vertices:
+      - {x: 0.0,   y: 35.27, z: 0.0}
+      - {x: 54.27, y: 35.27, z: 0.0}
+      - {x: 54.27, y: 35.27, z: 6.096}
+      - {x: 0.0,   y: 35.27, z: 6.096}
+
+  # Back Space - Roof (exterior, faces up)
+  - name: Back Space Roof
+    zone: Back Space
+    type: roof
+    construction: Roof Assembly
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,   y: 35.27, z: 6.096}
+      - {x: 54.27, y: 35.27, z: 6.096}
+      - {x: 54.27, y: 42.27, z: 6.096}
+      - {x: 0.0,   y: 42.27, z: 6.096}
+
+  # Back Space - Floor (ground contact, F-factor slab)
+  - name: Back Space Floor
+    zone: Back Space
+    type: floor
+    construction: Ground Floor Back Space
+    boundary: ground
+    vertices:
+      - {x: 0.0,   y: 42.27, z: 0.0}
+      - {x: 54.27, y: 42.27, z: 0.0}
+      - {x: 54.27, y: 35.27, z: 0.0}
+      - {x: 0.0,   y: 35.27, z: 0.0}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # CORE RETAIL SURFACES
+  # Zone: X=[0, 54.27], Y=[6.0, 35.27], Z=[0, 6.096]
+  # Exterior walls: east (partial), west (partial)
+  # Interior walls: north (Back Space), south split into 3 segments
+  #   (Point of Sale, Front Entry upper, Front Retail)
+  # 12 skylights in the roof (~40 m² total skylight area)
+  # ════════════════════════════════════════════════════════════════════════════
+
+  # Core Retail - East Wall (exterior, faces east)
+  # Y=[6.0, 35.27]
+  - name: Core Retail East Wall
+    zone: Core Retail
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 54.27, y: 6.0,   z: 0.0}
+      - {x: 54.27, y: 35.27, z: 0.0}
+      - {x: 54.27, y: 35.27, z: 6.096}
+      - {x: 54.27, y: 6.0,   z: 6.096}
+
+  # Core Retail - West Wall (exterior, faces west)
+  # Y=[6.0, 35.27]
+  - name: Core Retail West Wall
+    zone: Core Retail
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 35.27, z: 0.0}
+      - {x: 0.0, y: 6.0,   z: 0.0}
+      - {x: 0.0, y: 6.0,   z: 6.096}
+      - {x: 0.0, y: 35.27, z: 6.096}
+
+  # Core Retail - North Wall (interior, adjacent to Back Space)
+  - name: Core Retail North Wall
+    zone: Core Retail
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Back Space"
+    vertices:
+      - {x: 54.27, y: 35.27, z: 0.0}
+      - {x: 0.0,   y: 35.27, z: 0.0}
+      - {x: 0.0,   y: 35.27, z: 6.096}
+      - {x: 54.27, y: 35.27, z: 6.096}
+
+  # Core Retail - South Wall Segment 1 (interior, adjacent to Point of Sale)
+  # X=[0, 25.135], Y=6.0
+  - name: Core Retail South Wall POS
+    zone: Core Retail
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Point of Sale"
+    vertices:
+      - {x: 0.0,    y: 6.0, z: 0.0}
+      - {x: 25.135, y: 6.0, z: 0.0}
+      - {x: 25.135, y: 6.0, z: 6.096}
+      - {x: 0.0,    y: 6.0, z: 6.096}
+
+  # Core Retail - South Wall Segment 2 (interior, adjacent to Front Entry)
+  # The Front Entry is only 3m deep (Y=0 to Y=3), but Core Retail extends
+  # down to Y=6.0. This wall at Y=6.0 spans X=[25.135, 29.135].
+  # The Front Entry has a wall at Y=3.0 facing Core Retail, and another
+  # portion at Y=6.0 is handled by this wall with the entry extending
+  # only to Y=3.0. We model the wall above the entry (Y=3 to Y=6) as
+  # part of Core Retail's boundary.
+  - name: Core Retail South Wall Entry
+    zone: Core Retail
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Front Entry"
+    vertices:
+      - {x: 25.135, y: 6.0, z: 0.0}
+      - {x: 29.135, y: 6.0, z: 0.0}
+      - {x: 29.135, y: 6.0, z: 6.096}
+      - {x: 25.135, y: 6.0, z: 6.096}
+
+  # Core Retail - South Wall Segment 3 (interior, adjacent to Front Retail)
+  # X=[29.135, 54.27], Y=6.0
+  - name: Core Retail South Wall FR
+    zone: Core Retail
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Front Retail"
+    vertices:
+      - {x: 29.135, y: 6.0, z: 0.0}
+      - {x: 54.27,  y: 6.0, z: 0.0}
+      - {x: 54.27,  y: 6.0, z: 6.096}
+      - {x: 29.135, y: 6.0, z: 6.096}
+
+  # Core Retail - Roof (exterior)
+  - name: Core Retail Roof
+    zone: Core Retail
+    type: roof
+    construction: Roof Assembly
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,   y: 6.0,   z: 6.096}
+      - {x: 54.27, y: 6.0,   z: 6.096}
+      - {x: 54.27, y: 35.27, z: 6.096}
+      - {x: 0.0,   y: 35.27, z: 6.096}
+
+  # Core Retail - Skylights (12 units in a 4x3 grid pattern)
+  # Total skylight area: ~40 m², each skylight ~3.33 m² (1.83m x 1.83m)
+  # Grid: 4 columns along X (spaced at ~12m), 3 rows along Y (spaced at ~9m)
+  # Starting offsets: X=8.0, Y=10.0, spacing X=12.0, Y=9.0
+
+  # Row 1 (Y~10.7): 4 skylights
+  - name: Core Retail Skylight 1-1
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 7.085,  y: 9.785,  z: 6.096}
+      - {x: 8.915,  y: 9.785,  z: 6.096}
+      - {x: 8.915,  y: 11.615, z: 6.096}
+      - {x: 7.085,  y: 11.615, z: 6.096}
+
+  - name: Core Retail Skylight 1-2
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 19.085, y: 9.785,  z: 6.096}
+      - {x: 20.915, y: 9.785,  z: 6.096}
+      - {x: 20.915, y: 11.615, z: 6.096}
+      - {x: 19.085, y: 11.615, z: 6.096}
+
+  - name: Core Retail Skylight 1-3
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 31.085, y: 9.785,  z: 6.096}
+      - {x: 32.915, y: 9.785,  z: 6.096}
+      - {x: 32.915, y: 11.615, z: 6.096}
+      - {x: 31.085, y: 11.615, z: 6.096}
+
+  - name: Core Retail Skylight 1-4
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 43.085, y: 9.785,  z: 6.096}
+      - {x: 44.915, y: 9.785,  z: 6.096}
+      - {x: 44.915, y: 11.615, z: 6.096}
+      - {x: 43.085, y: 11.615, z: 6.096}
+
+  # Row 2 (Y~19.7): 4 skylights
+  - name: Core Retail Skylight 2-1
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 7.085,  y: 18.785, z: 6.096}
+      - {x: 8.915,  y: 18.785, z: 6.096}
+      - {x: 8.915,  y: 20.615, z: 6.096}
+      - {x: 7.085,  y: 20.615, z: 6.096}
+
+  - name: Core Retail Skylight 2-2
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 19.085, y: 18.785, z: 6.096}
+      - {x: 20.915, y: 18.785, z: 6.096}
+      - {x: 20.915, y: 20.615, z: 6.096}
+      - {x: 19.085, y: 20.615, z: 6.096}
+
+  - name: Core Retail Skylight 2-3
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 31.085, y: 18.785, z: 6.096}
+      - {x: 32.915, y: 18.785, z: 6.096}
+      - {x: 32.915, y: 20.615, z: 6.096}
+      - {x: 31.085, y: 20.615, z: 6.096}
+
+  - name: Core Retail Skylight 2-4
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 43.085, y: 18.785, z: 6.096}
+      - {x: 44.915, y: 18.785, z: 6.096}
+      - {x: 44.915, y: 20.615, z: 6.096}
+      - {x: 43.085, y: 20.615, z: 6.096}
+
+  # Row 3 (Y~28.7): 4 skylights
+  - name: Core Retail Skylight 3-1
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 7.085,  y: 27.785, z: 6.096}
+      - {x: 8.915,  y: 27.785, z: 6.096}
+      - {x: 8.915,  y: 29.615, z: 6.096}
+      - {x: 7.085,  y: 29.615, z: 6.096}
+
+  - name: Core Retail Skylight 3-2
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 19.085, y: 27.785, z: 6.096}
+      - {x: 20.915, y: 27.785, z: 6.096}
+      - {x: 20.915, y: 29.615, z: 6.096}
+      - {x: 19.085, y: 29.615, z: 6.096}
+
+  - name: Core Retail Skylight 3-3
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 31.085, y: 27.785, z: 6.096}
+      - {x: 32.915, y: 27.785, z: 6.096}
+      - {x: 32.915, y: 29.615, z: 6.096}
+      - {x: 31.085, y: 29.615, z: 6.096}
+
+  - name: Core Retail Skylight 3-4
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 43.085, y: 27.785, z: 6.096}
+      - {x: 44.915, y: 27.785, z: 6.096}
+      - {x: 44.915, y: 29.615, z: 6.096}
+      - {x: 43.085, y: 29.615, z: 6.096}
+
+  # Core Retail - Floor (ground contact, F-factor slab - very low U due to large area)
+  - name: Core Retail Floor
+    zone: Core Retail
+    type: floor
+    construction: Ground Floor Core Retail
+    boundary: ground
+    vertices:
+      - {x: 0.0,   y: 35.27, z: 0.0}
+      - {x: 54.27, y: 35.27, z: 0.0}
+      - {x: 54.27, y: 6.0,   z: 0.0}
+      - {x: 0.0,   y: 6.0,   z: 0.0}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # POINT OF SALE SURFACES
+  # Zone: X=[0, 25.135], Y=[0, 6.0], Z=[0, 6.096]
+  # Exterior walls: south, west
+  # Interior walls: north (Core Retail), east (Front Entry)
+  # ════════════════════════════════════════════════════════════════════════════
+
+  # Point of Sale - South Wall (exterior, faces south)
+  - name: POS South Wall
+    zone: Point of Sale
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,    y: 0.0, z: 0.0}
+      - {x: 25.135, y: 0.0, z: 0.0}
+      - {x: 25.135, y: 0.0, z: 6.096}
+      - {x: 0.0,    y: 0.0, z: 6.096}
+
+  # Point of Sale - South Wall Windows (storefront glazing)
+  # Two large windows on the south facade for customer visibility
+  - name: POS South Window 1
+    zone: Point of Sale
+    type: window
+    construction: Standard Window
+    boundary: outdoor
+    parent_surface: POS South Wall
+    vertices:
+      - {x: 1.0,  y: 0.0, z: 0.5}
+      - {x: 12.0, y: 0.0, z: 0.5}
+      - {x: 12.0, y: 0.0, z: 4.0}
+      - {x: 1.0,  y: 0.0, z: 4.0}
+
+  - name: POS South Window 2
+    zone: Point of Sale
+    type: window
+    construction: Standard Window
+    boundary: outdoor
+    parent_surface: POS South Wall
+    vertices:
+      - {x: 13.0,  y: 0.0, z: 0.5}
+      - {x: 24.135, y: 0.0, z: 0.5}
+      - {x: 24.135, y: 0.0, z: 4.0}
+      - {x: 13.0,   y: 0.0, z: 4.0}
+
+  # Point of Sale - West Wall (exterior, faces west)
+  - name: POS West Wall
+    zone: Point of Sale
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 6.096}
+      - {x: 0.0, y: 6.0, z: 6.096}
+
+  # Point of Sale - North Wall (interior, adjacent to Core Retail)
+  - name: POS North Wall
+    zone: Point of Sale
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Core Retail"
+    vertices:
+      - {x: 25.135, y: 6.0, z: 0.0}
+      - {x: 0.0,    y: 6.0, z: 0.0}
+      - {x: 0.0,    y: 6.0, z: 6.096}
+      - {x: 25.135, y: 6.0, z: 6.096}
+
+  # Point of Sale - East Wall (interior, adjacent to Front Entry)
+  # This wall spans X=25.135, Y=[0, 6.0] but Front Entry only occupies Y=[0, 3.0].
+  # The upper portion Y=[3.0, 6.0] faces Core Retail space above the entry.
+  # For simplicity, we treat the full wall as adjacent to Front Entry.
+  - name: POS East Wall
+    zone: Point of Sale
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Front Entry"
+    vertices:
+      - {x: 25.135, y: 0.0, z: 0.0}
+      - {x: 25.135, y: 6.0, z: 0.0}
+      - {x: 25.135, y: 6.0, z: 6.096}
+      - {x: 25.135, y: 0.0, z: 6.096}
+
+  # Point of Sale - Roof (exterior)
+  - name: POS Roof
+    zone: Point of Sale
+    type: roof
+    construction: Roof Assembly
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,    y: 0.0, z: 6.096}
+      - {x: 25.135, y: 0.0, z: 6.096}
+      - {x: 25.135, y: 6.0, z: 6.096}
+      - {x: 0.0,    y: 6.0, z: 6.096}
+
+  # Point of Sale - Floor (ground contact, F-factor slab)
+  - name: POS Floor
+    zone: Point of Sale
+    type: floor
+    construction: Ground Floor Perimeter
+    boundary: ground
+    vertices:
+      - {x: 0.0,    y: 6.0, z: 0.0}
+      - {x: 25.135, y: 6.0, z: 0.0}
+      - {x: 25.135, y: 0.0, z: 0.0}
+      - {x: 0.0,    y: 0.0, z: 0.0}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # FRONT ENTRY SURFACES
+  # Zone: X=[25.135, 29.135], Y=[0, 3.0], Z=[0, 6.096]
+  # Note: The entry vestibule is only 3m deep (Y=0 to Y=3), not the full 6m.
+  # Exterior wall: south (with large glass door/window)
+  # Interior walls: west (POS), east (Front Retail), north (Core Retail)
+  # ════════════════════════════════════════════════════════════════════════════
+
+  # Front Entry - South Wall (exterior, faces south - main entrance)
+  - name: Entry South Wall
+    zone: Front Entry
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 25.135, y: 0.0, z: 0.0}
+      - {x: 29.135, y: 0.0, z: 0.0}
+      - {x: 29.135, y: 0.0, z: 6.096}
+      - {x: 25.135, y: 0.0, z: 6.096}
+
+  # Front Entry - South Door/Window (large glass entrance)
+  # Nearly full-height glazing for the entrance
+  - name: Entry South Window
+    zone: Front Entry
+    type: window
+    construction: Standard Window
+    boundary: outdoor
+    parent_surface: Entry South Wall
+    vertices:
+      - {x: 25.335, y: 0.0, z: 0.1}
+      - {x: 28.935, y: 0.0, z: 0.1}
+      - {x: 28.935, y: 0.0, z: 5.0}
+      - {x: 25.335, y: 0.0, z: 5.0}
+
+  # Front Entry - West Wall (interior, adjacent to Point of Sale)
+  - name: Entry West Wall
+    zone: Front Entry
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Point of Sale"
+    vertices:
+      - {x: 25.135, y: 3.0, z: 0.0}
+      - {x: 25.135, y: 0.0, z: 0.0}
+      - {x: 25.135, y: 0.0, z: 6.096}
+      - {x: 25.135, y: 3.0, z: 6.096}
+
+  # Front Entry - East Wall (interior, adjacent to Front Retail)
+  - name: Entry East Wall
+    zone: Front Entry
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Front Retail"
+    vertices:
+      - {x: 29.135, y: 0.0, z: 0.0}
+      - {x: 29.135, y: 3.0, z: 0.0}
+      - {x: 29.135, y: 3.0, z: 6.096}
+      - {x: 29.135, y: 0.0, z: 6.096}
+
+  # Front Entry - North Wall (interior, adjacent to Core Retail)
+  # At Y=3.0, the back of the vestibule
+  - name: Entry North Wall
+    zone: Front Entry
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Core Retail"
+    vertices:
+      - {x: 29.135, y: 3.0, z: 0.0}
+      - {x: 25.135, y: 3.0, z: 0.0}
+      - {x: 25.135, y: 3.0, z: 6.096}
+      - {x: 29.135, y: 3.0, z: 6.096}
+
+  # Front Entry - Roof (exterior)
+  - name: Entry Roof
+    zone: Front Entry
+    type: roof
+    construction: Roof Assembly
+    boundary: outdoor
+    vertices:
+      - {x: 25.135, y: 0.0, z: 6.096}
+      - {x: 29.135, y: 0.0, z: 6.096}
+      - {x: 29.135, y: 3.0, z: 6.096}
+      - {x: 25.135, y: 3.0, z: 6.096}
+
+  # Front Entry - Floor (ground contact, F-factor slab)
+  - name: Entry Floor
+    zone: Front Entry
+    type: floor
+    construction: Ground Floor Entry
+    boundary: ground
+    vertices:
+      - {x: 25.135, y: 3.0, z: 0.0}
+      - {x: 29.135, y: 3.0, z: 0.0}
+      - {x: 29.135, y: 0.0, z: 0.0}
+      - {x: 25.135, y: 0.0, z: 0.0}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # FRONT RETAIL SURFACES
+  # Zone: X=[29.135, 54.27], Y=[0, 6.0], Z=[0, 6.096]
+  # Exterior walls: south, east
+  # Interior walls: west (Front Entry), north (Core Retail)
+  # ════════════════════════════════════════════════════════════════════════════
+
+  # Front Retail - South Wall (exterior, faces south)
+  - name: Front Retail South Wall
+    zone: Front Retail
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 29.135, y: 0.0, z: 0.0}
+      - {x: 54.27,  y: 0.0, z: 0.0}
+      - {x: 54.27,  y: 0.0, z: 6.096}
+      - {x: 29.135, y: 0.0, z: 6.096}
+
+  # Front Retail - South Wall Windows (storefront glazing)
+  - name: Front Retail South Window 1
+    zone: Front Retail
+    type: window
+    construction: Standard Window
+    boundary: outdoor
+    parent_surface: Front Retail South Wall
+    vertices:
+      - {x: 30.135, y: 0.0, z: 0.5}
+      - {x: 41.0,   y: 0.0, z: 0.5}
+      - {x: 41.0,   y: 0.0, z: 4.0}
+      - {x: 30.135, y: 0.0, z: 4.0}
+
+  - name: Front Retail South Window 2
+    zone: Front Retail
+    type: window
+    construction: Standard Window
+    boundary: outdoor
+    parent_surface: Front Retail South Wall
+    vertices:
+      - {x: 42.0,  y: 0.0, z: 0.5}
+      - {x: 53.27, y: 0.0, z: 0.5}
+      - {x: 53.27, y: 0.0, z: 4.0}
+      - {x: 42.0,  y: 0.0, z: 4.0}
+
+  # Front Retail - East Wall (exterior, faces east)
+  - name: Front Retail East Wall
+    zone: Front Retail
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 54.27, y: 0.0, z: 0.0}
+      - {x: 54.27, y: 6.0, z: 0.0}
+      - {x: 54.27, y: 6.0, z: 6.096}
+      - {x: 54.27, y: 0.0, z: 6.096}
+
+  # Front Retail - East Wall Window
+  - name: Front Retail East Window
+    zone: Front Retail
+    type: window
+    construction: Standard Window
+    boundary: outdoor
+    parent_surface: Front Retail East Wall
+    vertices:
+      - {x: 54.27, y: 0.5, z: 0.5}
+      - {x: 54.27, y: 5.5, z: 0.5}
+      - {x: 54.27, y: 5.5, z: 4.0}
+      - {x: 54.27, y: 0.5, z: 4.0}
+
+  # Front Retail - West Wall (interior, adjacent to Front Entry)
+  # Only the portion adjacent to the entry: Y=[0, 3.0]
+  # The rest Y=[3.0, 6.0] faces Core Retail space
+  - name: Front Retail West Wall Entry
+    zone: Front Retail
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Front Entry"
+    vertices:
+      - {x: 29.135, y: 3.0, z: 0.0}
+      - {x: 29.135, y: 0.0, z: 0.0}
+      - {x: 29.135, y: 0.0, z: 6.096}
+      - {x: 29.135, y: 3.0, z: 6.096}
+
+  # Front Retail - West Wall upper portion (interior, adjacent to Core Retail)
+  # Y=[3.0, 6.0] — above and behind the Front Entry
+  - name: Front Retail West Wall Core
+    zone: Front Retail
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Core Retail"
+    vertices:
+      - {x: 29.135, y: 6.0, z: 0.0}
+      - {x: 29.135, y: 3.0, z: 0.0}
+      - {x: 29.135, y: 3.0, z: 6.096}
+      - {x: 29.135, y: 6.0, z: 6.096}
+
+  # Front Retail - North Wall (interior, adjacent to Core Retail)
+  - name: Front Retail North Wall
+    zone: Front Retail
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Core Retail"
+    vertices:
+      - {x: 54.27,  y: 6.0, z: 0.0}
+      - {x: 29.135, y: 6.0, z: 0.0}
+      - {x: 29.135, y: 6.0, z: 6.096}
+      - {x: 54.27,  y: 6.0, z: 6.096}
+
+  # Front Retail - Roof (exterior)
+  - name: Front Retail Roof
+    zone: Front Retail
+    type: roof
+    construction: Roof Assembly
+    boundary: outdoor
+    vertices:
+      - {x: 29.135, y: 0.0, z: 6.096}
+      - {x: 54.27,  y: 0.0, z: 6.096}
+      - {x: 54.27,  y: 6.0, z: 6.096}
+      - {x: 29.135, y: 6.0, z: 6.096}
+
+  # Front Retail - Floor (ground contact, F-factor slab)
+  - name: Front Retail Floor
+    zone: Front Retail
+    type: floor
+    construction: Ground Floor Perimeter
+    boundary: ground
+    vertices:
+      - {x: 29.135, y: 6.0, z: 0.0}
+      - {x: 54.27,  y: 6.0, z: 0.0}
+      - {x: 54.27,  y: 0.0, z: 0.0}
+      - {x: 29.135, y: 0.0, z: 0.0}
+
+# ─── HVAC Systems ───────────────────────────────────────────────────────────
+# 5 air loops per DOE prototype:
+#   4 PSZ-AC rooftop units (packaged single-zone AC with gas furnace + DX cooling)
+#   1 unit heater for Front Entry (gas heating only, no cooling coil)
+#
+# Each PSZ-AC has: constant volume fan → gas furnace → DX cooling coil
+# ─── Performance Curves ──────────────────────────────────────────────────────
+# Reusable biquadratic curves for DX coil capacity and EIR modifiers.
+# Curves are f(T_wb_entering [°C], T_db_outdoor [°C]).
+# Coefficients from DOE prototype models (90.1-2019).
+
+performance_curves:
+  - name: DX Cool Cap fT
+    curve_type: biquadratic
+    coefficients: [0.942587793, 0.009543347, 0.000683770, -0.011042676, 0.000005249, -0.000009720]
+    min_x: 12.78
+    max_x: 23.89
+    min_y: 18.33
+    max_y: 46.11
+
+  - name: DX Cool EIR fT
+    curve_type: biquadratic
+    coefficients: [0.342414409, 0.034885008, -0.000623700, 0.004977216, 0.000437951, -0.000728028]
+    min_x: 12.78
+    max_x: 23.89
+    min_y: 18.33
+    max_y: 46.11
+
+# Equipment sizes from DOE prototype IDF (90.1-2019, CZ 5B)
+
+air_loops:
+  # ── PSZ-AC: Back Space ──
+  # Serves the storage/receiving zone along the north wall.
+  # Smaller unit with moderate heating load (exterior walls on 3 sides).
+  - name: PSZ-AC Back Space
+    availability_schedule: HVAC Operation
+    controls:
+      heating_supply_temp: 40.0
+      cooling_supply_temp: 12.8
+      design_zone_flow: 1.0
+    equipment:
+      - type: fan
+        name: Back Space Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 622.5       # Pa
+        impeller_efficiency: 0.65
+        motor_efficiency: 0.895
+      - type: heating_coil
+        name: Back Space Furnace
+        source: gas
+        capacity: autosize
+        setpoint: 40.0             # Supply air temp setpoint [C]
+        efficiency: 0.81           # Gas furnace thermal efficiency
+      - type: cooling_coil
+        name: Back Space DX
+        capacity: 32422.0          # 32.4 kW rated cooling (Speed 2 from IDF)
+        cop: 3.799
+        shr: 0.797
+        rated_airflow: autosize
+        setpoint: 12.8
+    zones:
+      - zone: Back Space
+
+  # ── PSZ-AC: Core Retail ──
+  # Serves the large main sales floor. Largest unit in the building.
+  # Interior zone with skylights — significant solar and internal gains.
+  - name: PSZ-AC Core Retail
+    availability_schedule: HVAC Operation
+    controls:
+      heating_supply_temp: 40.0
+      cooling_supply_temp: 12.8
+      design_zone_flow: 1.0
+    equipment:
+      - type: fan
+        name: Core Retail Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 1018.41     # Pa (higher for larger ductwork)
+        impeller_efficiency: 0.65
+        motor_efficiency: 0.93
+      - type: heating_coil
+        name: Core Retail Furnace
+        source: gas
+        capacity: autosize
+        setpoint: 40.0
+        efficiency: 0.80
+      - type: cooling_coil
+        name: Core Retail DX
+        capacity: 137784.0         # 137.8 kW rated cooling
+        cop: 3.399
+        shr: 0.789
+        rated_airflow: autosize
+        setpoint: 12.8
+        cap_ft_curve: DX Cool Cap fT
+        eir_ft_curve: DX Cool EIR fT
+    zones:
+      - zone: Core Retail
+
+  # ── PSZ-AC: Point of Sale ──
+  # Serves the checkout area at the southwest corner.
+  # Moderate equipment loads from POS terminals.
+  - name: PSZ-AC Point of Sale
+    availability_schedule: HVAC Operation
+    controls:
+      heating_supply_temp: 40.0
+      cooling_supply_temp: 12.8
+      design_zone_flow: 1.0
+    equipment:
+      - type: fan
+        name: POS Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 622.5
+        impeller_efficiency: 0.65
+        motor_efficiency: 0.865
+      - type: heating_coil
+        name: POS Furnace
+        source: gas
+        capacity: autosize
+        setpoint: 40.0
+        efficiency: 0.81
+      - type: cooling_coil
+        name: POS DX
+        capacity: 19866.0          # 19.9 kW rated cooling
+        cop: 3.799
+        shr: 0.799
+        rated_airflow: autosize
+        setpoint: 12.8
+    zones:
+      - zone: Point of Sale
+
+  # ── PSZ-AC: Front Retail ──
+  # Serves the display area at the southeast corner.
+  # Smaller equipment loads, significant glazing on south and east.
+  - name: PSZ-AC Front Retail
+    availability_schedule: HVAC Operation
+    controls:
+      heating_supply_temp: 40.0
+      cooling_supply_temp: 12.8
+      design_zone_flow: 1.0
+    equipment:
+      - type: fan
+        name: Front Retail Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 622.5
+        impeller_efficiency: 0.65
+        motor_efficiency: 0.865
+      - type: heating_coil
+        name: Front Retail Furnace
+        source: gas
+        capacity: autosize
+        setpoint: 40.0
+        efficiency: 0.81
+      - type: cooling_coil
+        name: Front Retail DX
+        capacity: 14678.0          # 14.7 kW rated cooling
+        cop: 4.117
+        shr: 0.799
+        rated_airflow: autosize
+        setpoint: 12.8
+    zones:
+      - zone: Front Retail
+
+  # ── Unit Heater: Front Entry ──
+  # Heating-only system for the entry vestibule.
+  # No cooling coil — only prevents freezing/maintains minimum comfort.
+  - name: Unit Heater Front Entry
+    availability_schedule: HVAC Operation
+    controls:
+      heating_supply_temp: 40.0
+      cooling_supply_temp: 12.8
+      design_zone_flow: 0.1
+    equipment:
+      - type: fan
+        name: Front Entry Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 622.5
+        impeller_efficiency: 0.65
+        motor_efficiency: 0.895
+      - type: heating_coil
+        name: Front Entry Heater
+        source: gas
+        capacity: autosize
+        setpoint: 40.0
+        efficiency: 0.81
+    zones:
+      - zone: Front Entry
+
+# ─── Zone Groups ───────────────────────────────────────────────────────────
+# Logical groupings of thermal zones for thermostat and HVAC control.
+
+zone_groups:
+  # Main retail zones: full comfort conditioning
+  - name: Retail Zones
+    zones:
+      - Back Space
+      - Core Retail
+      - Point of Sale
+      - Front Retail
+
+  # Entry vestibule: heating only, relaxed setpoints
+  - name: Entry Zone
+    zones:
+      - Front Entry
+
+# ─── Thermostats ───────────────────────────────────────────────────────────
+# Thermostat setpoints per DOE prototype:
+#   Occupied heating: 21.11 C (70 F)
+#   Occupied cooling: 23.89 C (75 F)
+# Front Entry: lower heating setpoint (16 C), no active cooling.
+
+thermostats:
+  # Retail zones thermostat: standard occupied/unoccupied setpoints
+  - name: Retail Thermostat
+    zones: [Retail Zones]
+    heating_setpoint: 21.11      # 70 F (occupied)
+    cooling_setpoint: 23.89      # 75 F (occupied)
+    unoccupied_heating_setpoint: 15.56  # 60 F (night setback per E+ HTGSETP_SCH)
+    unoccupied_cooling_setpoint: 29.44  # 85 F (night setup per E+ CLGSETP_SCH)
+
+  # Entry vestibule thermostat: heating only, relaxed setpoints
+  - name: Entry Thermostat
+    zones: [Entry Zone]
+    heating_setpoint: 16.0       # Minimum heating to prevent freezing
+    cooling_setpoint: 100.0      # Effectively no cooling (setpoint unreachable)
+    unoccupied_heating_setpoint: 15.56  # Night setback (close to occupied for entry)
+    unoccupied_cooling_setpoint: 100.0  # No cooling
+
+# ─── Outputs ────────────────────────────────────────────────────────────────
+
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - zone_infiltration_mass_flow
+      - site_outdoor_temperature
+
+summary_report: true

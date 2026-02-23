@@ -1,0 +1,24 @@
+[package]
+name = "openbse-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "openbse"
+path = "src/main.rs"
+
+[dependencies]
+openbse-core.workspace = true
+openbse-io.workspace = true
+openbse-weather.workspace = true
+openbse-envelope.workspace = true
+openbse-controls.workspace = true
+openbse-psychrometrics.workspace = true
+
+petgraph = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+env_logger.workspace = true
+log.workspace = true
+anyhow = "1"
