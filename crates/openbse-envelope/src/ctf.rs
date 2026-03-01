@@ -298,9 +298,9 @@ pub fn calculate_ctf_simple(u_factor: f64, thermal_capacity: f64, dt: f64, mass_
         let cp_insul = 840.0;   // J/(kg·K)
 
         if r_total > 5.0 {
-            // ── High-R floor: [insulation | timber interior] ─────────────
+            // ── High-R: [insulation | timber interior] ─────────────────
             // E+ LTFLOOR: R-25 NoMass insulation + 25mm Timber Flooring
-            // All thermal mass resides on the interior side.
+            // All specified thermal mass resides on the interior side.
             let k_int = 0.14;       // W/(m·K) timber
             let rho_int = 650.0;    // kg/m³
             let cp_int = 1200.0;    // J/(kg·K)
@@ -308,7 +308,15 @@ pub fn calculate_ctf_simple(u_factor: f64, thermal_capacity: f64, dt: f64, mass_
             let r_int = t_int / k_int;
             let r_insul_floor = (r_total - r_int).max(0.01);
 
-            let max_insul_mass = 0.1 * thermal_capacity;
+            // Insulation mass cap: 10% for very-high-R (floors, R > 10)
+            // where the real construction uses NoMass insulation, 20% for
+            // moderately-high-R (R 5-10, e.g. Case 680 walls at R=6.2).
+            // At 10%, Case 680 insulation k was artificially reduced from
+            // 0.04 to 0.026, making the wall too sluggish for free-float
+            // peaks (63°C vs expected 69-78°C).  At 20% the natural
+            // insulation mass (~15% of C) fits within the cap.
+            let cap_frac = if r_total > 10.0 { 0.10 } else { 0.20 };
+            let max_insul_mass = cap_frac * thermal_capacity;
             let max_insul_t = max_insul_mass / (rho_insul * cp_insul);
             let t_insul_raw = k_insul * r_insul_floor;
             let t_insul = t_insul_raw.max(0.001).min(max_insul_t.max(0.01));
