@@ -216,6 +216,188 @@ pub fn zone_floor_area(all_surface_verts: &[&[Point3D]]) -> f64 {
     total_area
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Interior view factors for rectangular box zones
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Box face indices for interior view factor model.
+pub const FACE_FLOOR: usize = 0;
+pub const FACE_CEILING: usize = 1;
+pub const FACE_SOUTH: usize = 2;
+pub const FACE_NORTH: usize = 3;
+pub const FACE_EAST: usize = 4;
+pub const FACE_WEST: usize = 5;
+
+/// View factor between two identical aligned parallel rectangles.
+///
+/// Each rectangle has dimensions `a × b`, separated by distance `c`.
+/// Uses Hottel's analytical formula (Incropera, Table 13.1, Configuration 1).
+///
+/// # Returns
+/// F₁₂ ∈ [0, 1]: fraction of radiation leaving one rectangle that reaches the other.
+pub fn vf_parallel_rectangles(a: f64, b: f64, c: f64) -> f64 {
+    if a <= 0.0 || b <= 0.0 || c <= 0.0 {
+        return 0.0;
+    }
+    let x = a / c;
+    let y = b / c;
+    let x2 = x * x;
+    let y2 = y * y;
+    let pi = std::f64::consts::PI;
+
+    let term1 = ((1.0 + x2) * (1.0 + y2) / (1.0 + x2 + y2)).sqrt().ln();
+    let term2 = x * (1.0 + y2).sqrt() * (x / (1.0 + y2).sqrt()).atan();
+    let term3 = y * (1.0 + x2).sqrt() * (y / (1.0 + x2).sqrt()).atan();
+    let term4 = x * x.atan();
+    let term5 = y * y.atan();
+
+    let f = (2.0 / (pi * x * y)) * (term1 + term2 + term3 - term4 - term5);
+    f.clamp(0.0, 1.0)
+}
+
+/// View factor from one perpendicular rectangle to another, sharing a common edge.
+///
+/// Rectangle 1 has dimensions `common × depth` (the "from" surface).
+/// Rectangle 2 has dimensions `common × height` (the "to" surface).
+/// They share the edge of length `common` and are at 90° to each other.
+///
+/// Uses the analytical formula from Incropera, Table 13.1, Configuration 2.
+///
+/// # Arguments
+/// * `common` — Length of shared edge [m]
+/// * `depth` — Dimension of Rectangle 1 perpendicular to shared edge [m]
+/// * `height` — Dimension of Rectangle 2 perpendicular to shared edge [m]
+///
+/// # Returns
+/// F₁→₂ ∈ [0, 1]: fraction of radiation leaving Rectangle 1 that reaches Rectangle 2.
+pub fn vf_perpendicular_rectangles(common: f64, depth: f64, height: f64) -> f64 {
+    if common <= 0.0 || depth <= 0.0 || height <= 0.0 {
+        return 0.0;
+    }
+    let h = depth / common;
+    let w = height / common;
+    let h2 = h * h;
+    let w2 = w * w;
+    let pi = std::f64::consts::PI;
+
+    let term1 = h * (1.0 / h).atan();
+    let term2 = w * (1.0 / w).atan();
+    let term3 = (h2 + w2).sqrt() * (1.0 / (h2 + w2).sqrt()).atan();
+
+    // Logarithmic term: ln[A × B^h² × C^w²]
+    // where A = (1+h²)(1+w²)/(1+h²+w²)
+    //       B = h²(1+h²+w²)/((1+h²)(h²+w²))
+    //       C = w²(1+h²+w²)/((1+w²)(h²+w²))
+    let a_val = (1.0 + h2) * (1.0 + w2) / (1.0 + h2 + w2);
+    let b_val = h2 * (1.0 + h2 + w2) / ((1.0 + h2) * (h2 + w2));
+    let c_val = w2 * (1.0 + h2 + w2) / ((1.0 + w2) * (h2 + w2));
+    let log_term = 0.25 * (a_val.ln() + h2 * b_val.ln() + w2 * c_val.ln());
+
+    let f = (1.0 / (pi * h)) * (term1 + term2 - term3 + log_term);
+    f.clamp(0.0, 1.0)
+}
+
+/// Classify a surface into one of 6 box faces based on tilt and azimuth.
+///
+/// Returns face index: 0=floor, 1=ceiling, 2=south, 3=north, 4=east, 5=west.
+/// Returns `None` if the surface geometry doesn't clearly map to a box face.
+pub fn classify_box_face(tilt: f64, azimuth: f64) -> Option<usize> {
+    if tilt > 150.0 {
+        Some(FACE_FLOOR)
+    } else if tilt < 30.0 {
+        Some(FACE_CEILING)
+    } else {
+        // Vertical (or near-vertical) wall: classify by azimuth
+        let az = ((azimuth % 360.0) + 360.0) % 360.0;
+        if az >= 135.0 && az < 225.0 {
+            Some(FACE_SOUTH)
+        } else if az >= 315.0 || az < 45.0 {
+            Some(FACE_NORTH)
+        } else if az >= 45.0 && az < 135.0 {
+            Some(FACE_EAST)
+        } else {
+            Some(FACE_WEST)
+        }
+    }
+}
+
+/// Compute the 6×6 face-to-face view factor matrix for a rectangular box zone.
+///
+/// # Arguments
+/// * `length` — Box X-dimension (east-west extent) [m]
+/// * `width` — Box Y-dimension (north-south extent) [m]
+/// * `height` — Box Z-dimension (vertical) [m]
+///
+/// # Returns
+/// 6×6 matrix where `vf[i][j]` = view factor from face i to face j.
+/// Indices: 0=floor, 1=ceiling, 2=south, 3=north, 4=east, 5=west.
+///
+/// Row sums are 1.0 (enclosure) and reciprocity A_i·F_ij = A_j·F_ji holds.
+pub fn compute_box_view_factors(length: f64, width: f64, height: f64) -> [[f64; 6]; 6] {
+    let mut vf = [[0.0_f64; 6]; 6];
+
+    // ── Parallel face pairs (opposite faces) ──────────────────────────
+    let f_fc = vf_parallel_rectangles(length, width, height);   // floor↔ceiling
+    let f_sn = vf_parallel_rectangles(length, height, width);   // south↔north
+    let f_ew = vf_parallel_rectangles(width, height, length);   // east↔west
+
+    vf[FACE_FLOOR][FACE_CEILING] = f_fc;
+    vf[FACE_CEILING][FACE_FLOOR] = f_fc;
+    vf[FACE_SOUTH][FACE_NORTH] = f_sn;
+    vf[FACE_NORTH][FACE_SOUTH] = f_sn;
+    vf[FACE_EAST][FACE_WEST] = f_ew;
+    vf[FACE_WEST][FACE_EAST] = f_ew;
+
+    // ── Adjacent face pairs (sharing an edge) ─────────────────────────
+    //
+    // vf_perpendicular_rectangles(common, depth, height):
+    //   F from rect (common × depth) to rect (common × height)
+
+    // Floor/Ceiling (L×W) ↔ South/North (L×H): common edge = L
+    let f_floor_south = vf_perpendicular_rectangles(length, width, height);
+    let f_south_floor = vf_perpendicular_rectangles(length, height, width);
+
+    vf[FACE_FLOOR][FACE_SOUTH] = f_floor_south;
+    vf[FACE_FLOOR][FACE_NORTH] = f_floor_south;
+    vf[FACE_CEILING][FACE_SOUTH] = f_floor_south;
+    vf[FACE_CEILING][FACE_NORTH] = f_floor_south;
+
+    vf[FACE_SOUTH][FACE_FLOOR] = f_south_floor;
+    vf[FACE_SOUTH][FACE_CEILING] = f_south_floor;
+    vf[FACE_NORTH][FACE_FLOOR] = f_south_floor;
+    vf[FACE_NORTH][FACE_CEILING] = f_south_floor;
+
+    // Floor/Ceiling (L×W) ↔ East/West (W×H): common edge = W
+    let f_floor_east = vf_perpendicular_rectangles(width, length, height);
+    let f_east_floor = vf_perpendicular_rectangles(width, height, length);
+
+    vf[FACE_FLOOR][FACE_EAST] = f_floor_east;
+    vf[FACE_FLOOR][FACE_WEST] = f_floor_east;
+    vf[FACE_CEILING][FACE_EAST] = f_floor_east;
+    vf[FACE_CEILING][FACE_WEST] = f_floor_east;
+
+    vf[FACE_EAST][FACE_FLOOR] = f_east_floor;
+    vf[FACE_EAST][FACE_CEILING] = f_east_floor;
+    vf[FACE_WEST][FACE_FLOOR] = f_east_floor;
+    vf[FACE_WEST][FACE_CEILING] = f_east_floor;
+
+    // South/North (L×H) ↔ East/West (W×H): common edge = H
+    let f_south_east = vf_perpendicular_rectangles(height, length, width);
+    let f_east_south = vf_perpendicular_rectangles(height, width, length);
+
+    vf[FACE_SOUTH][FACE_EAST] = f_south_east;
+    vf[FACE_SOUTH][FACE_WEST] = f_south_east;
+    vf[FACE_NORTH][FACE_EAST] = f_south_east;
+    vf[FACE_NORTH][FACE_WEST] = f_south_east;
+
+    vf[FACE_EAST][FACE_SOUTH] = f_east_south;
+    vf[FACE_EAST][FACE_NORTH] = f_east_south;
+    vf[FACE_WEST][FACE_SOUTH] = f_east_south;
+    vf[FACE_WEST][FACE_NORTH] = f_east_south;
+
+    vf
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -488,5 +670,94 @@ mod tests {
         assert_relative_eq!(c.x, 4.0, epsilon = 0.001);
         assert_relative_eq!(c.y, 3.0, epsilon = 0.001);
         assert_relative_eq!(c.z, 0.0, epsilon = 0.001);
+    }
+
+    // ── View factor tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_vf_parallel_unit_cube() {
+        // Unit cube: two 1×1 squares separated by 1
+        // Known value: F ≈ 0.1998
+        let f = vf_parallel_rectangles(1.0, 1.0, 1.0);
+        assert_relative_eq!(f, 0.1998, epsilon = 0.001);
+    }
+
+    #[test]
+    fn test_vf_perpendicular_unit_cube() {
+        // Unit cube: two 1×1 squares sharing an edge of length 1
+        // Known value: F ≈ 0.2000
+        let f = vf_perpendicular_rectangles(1.0, 1.0, 1.0);
+        assert_relative_eq!(f, 0.2000, epsilon = 0.001);
+    }
+
+    #[test]
+    fn test_vf_cube_row_sum() {
+        // For a cube, each face sees 5 other faces.
+        // F(parallel) + 4×F(perpendicular) should equal 1.0.
+        let f_par = vf_parallel_rectangles(1.0, 1.0, 1.0);
+        let f_perp = vf_perpendicular_rectangles(1.0, 1.0, 1.0);
+        let sum = f_par + 4.0 * f_perp;
+        assert_relative_eq!(sum, 1.0, epsilon = 0.002);
+    }
+
+    #[test]
+    fn test_vf_box_ashrae140_row_sums() {
+        // ASHRAE 140 room: 8×6×2.7m
+        // Each row of the VF matrix should sum to 1.0 (enclosure rule).
+        let vf = compute_box_view_factors(8.0, 6.0, 2.7);
+        for face in 0..6 {
+            let row_sum: f64 = vf[face].iter().sum();
+            assert_relative_eq!(row_sum, 1.0, epsilon = 0.003);
+        }
+    }
+
+    #[test]
+    fn test_vf_box_reciprocity() {
+        // A_i × F_ij = A_j × F_ji for all pairs.
+        let (l, w, h) = (8.0, 6.0, 2.7);
+        let vf = compute_box_view_factors(l, w, h);
+        let areas = [l * w, l * w, l * h, l * h, w * h, w * h];
+        for i in 0..6 {
+            for j in 0..6 {
+                let lhs = areas[i] * vf[i][j];
+                let rhs = areas[j] * vf[j][i];
+                assert_relative_eq!(lhs, rhs, epsilon = 0.01);
+            }
+        }
+    }
+
+    #[test]
+    fn test_vf_ashrae140_geometry() {
+        // In the wide, shallow ASHRAE 140 room (8×6×2.7m):
+        // - Floor sees the large ceiling (48m²) most (~0.49)
+        // - South wall sees floor much more than north wall
+        //   (floor is large and adjacent; north wall is far away)
+        let vf = compute_box_view_factors(8.0, 6.0, 2.7);
+
+        // Floor→Ceiling dominant (large parallel surface directly above)
+        let f_floor_ceiling = vf[FACE_FLOOR][FACE_CEILING];
+        assert!(f_floor_ceiling > 0.45,
+            "Floor→Ceiling ({:.4}) should be >0.45 for 8×6×2.7 room", f_floor_ceiling);
+
+        // South wall→Floor > South wall→North (adjacent floor is close and large)
+        let f_south_floor = vf[FACE_SOUTH][FACE_FLOOR];
+        let f_south_north = vf[FACE_SOUTH][FACE_NORTH];
+        assert!(f_south_floor > f_south_north,
+            "South→Floor ({:.4}) should exceed South→North ({:.4})",
+            f_south_floor, f_south_north);
+
+        // South wall sees floor and ceiling equally (symmetric)
+        let f_south_ceiling = vf[FACE_SOUTH][FACE_CEILING];
+        assert_relative_eq!(f_south_floor, f_south_ceiling, epsilon = 0.001);
+    }
+
+    #[test]
+    fn test_classify_box_face() {
+        assert_eq!(classify_box_face(180.0, 0.0), Some(FACE_FLOOR));
+        assert_eq!(classify_box_face(0.0, 0.0), Some(FACE_CEILING));
+        assert_eq!(classify_box_face(90.0, 180.0), Some(FACE_SOUTH));
+        assert_eq!(classify_box_face(90.0, 0.0), Some(FACE_NORTH));
+        assert_eq!(classify_box_face(90.0, 90.0), Some(FACE_EAST));
+        assert_eq!(classify_box_face(90.0, 270.0), Some(FACE_WEST));
     }
 }

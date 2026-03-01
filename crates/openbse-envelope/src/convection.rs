@@ -63,6 +63,27 @@ pub fn interior_convection(t_surface: f64, t_zone: f64, tilt_deg: f64) -> f64 {
     calc_natural_convection(t_surface - t_zone, -cos_tilt)
 }
 
+/// Exterior natural convection coefficient [W/(m²·K)].
+///
+/// Same TARP natural convection as interior, but WITHOUT negating cosTilt.
+/// Used for NoWind surfaces (EnergyPlus `NoWind` surface property).
+///
+/// For exterior surfaces, E+ uses cosTilt directly (not negated).
+/// This gives correct stability for exterior faces:
+///   - Warm roof exterior (face up) → unstable (enhanced)
+///   - Cool roof exterior (face up, night) → stable (reduced)
+///   - Warm floor exterior (face down) → stable
+///
+/// The previous code incorrectly used `interior_convection()` for NoWind
+/// surfaces, which negates cosTilt. For a floor exterior (cos_tilt = -1),
+/// this gave wrong stability: warm-in-winter floor appeared unstable
+/// instead of stable, over-predicting convection by ~2x.
+pub fn exterior_natural_convection(t_surface: f64, t_outdoor: f64, tilt_deg: f64) -> f64 {
+    let cos_tilt = tilt_deg.to_radians().cos();
+    // Exterior: do NOT negate cosTilt (E+ uses exterior cosTilt as-is)
+    calc_natural_convection(t_surface - t_outdoor, cos_tilt)
+}
+
 /// Compute wind speed at a given height above ground using the power-law
 /// wind profile, matching E+ `SetSurfaceWindSpeedAt()` (DataSurfaces.cc:635-660).
 ///

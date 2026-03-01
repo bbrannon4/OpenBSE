@@ -25,14 +25,25 @@ impl Default for Roughness {
 ///
 /// Materials define thermophysical properties only. Thickness is specified
 /// on the construction layer, not on the material (IES-VE convention).
+///
+/// For NoMass materials (matching EnergyPlus `Material:NoMass`), set
+/// `thermal_resistance` to the material's R-value [m²·K/W]. The material
+/// will have zero thermal mass — only its resistance matters. The
+/// `conductivity`, `density`, and `specific_heat` fields are ignored.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Material {
     pub name: String,
-    /// Thermal conductivity [W/(m·K)]
+    /// Thermal conductivity [W/(m·K)].
+    /// Ignored for NoMass materials (when `thermal_resistance` is set).
+    #[serde(default = "default_conductivity")]
     pub conductivity: f64,
-    /// Density [kg/m³]
+    /// Density [kg/m³].
+    /// Ignored for NoMass materials (when `thermal_resistance` is set).
+    #[serde(default = "default_density")]
     pub density: f64,
-    /// Specific heat [J/(kg·K)]
+    /// Specific heat [J/(kg·K)].
+    /// Ignored for NoMass materials (when `thermal_resistance` is set).
+    #[serde(default = "default_specific_heat")]
     pub specific_heat: f64,
     /// Solar absorptance [0-1]
     #[serde(default = "default_solar_absorptance")]
@@ -46,8 +57,22 @@ pub struct Material {
     /// Surface roughness
     #[serde(default)]
     pub roughness: Roughness,
+    /// Thermal resistance for NoMass materials [m²·K/W].
+    ///
+    /// When specified, this material has zero thermal mass — only resistance.
+    /// `conductivity`, `density`, and `specific_heat` are ignored.
+    /// Matches EnergyPlus `Material:NoMass`.
+    ///
+    /// In the CTF state-space, NoMass layers are NOT given finite-difference
+    /// nodes. Their resistance is added to the boundary conductance between
+    /// the surface and the first massed node.
+    #[serde(default)]
+    pub thermal_resistance: Option<f64>,
 }
 
+fn default_conductivity() -> f64 { 1.0 }
+fn default_density() -> f64 { 1.0 }
+fn default_specific_heat() -> f64 { 1000.0 }
 fn default_solar_absorptance() -> f64 { 0.7 }
 fn default_thermal_absorptance() -> f64 { 0.9 }
 fn default_visible_absorptance() -> f64 { 0.7 }
@@ -81,16 +106,49 @@ pub struct ResolvedLayer {
     pub density: f64,
     pub specific_heat: f64,
     pub thickness: f64,
+    /// If true, this layer has zero thermal mass (NoMass).
+    /// Only its resistance matters; no state-space nodes are created in the CTF.
+    /// Matches EnergyPlus `Material:NoMass` behavior.
+    pub no_mass: bool,
 }
 
 impl ResolvedLayer {
-    /// Create from a material reference and thickness.
-    pub fn from_material(mat: &Material, thickness: f64) -> Self {
+    /// Create a massed layer from physical properties.
+    pub fn new(conductivity: f64, density: f64, specific_heat: f64, thickness: f64) -> Self {
+        Self { conductivity, density, specific_heat, thickness, no_mass: false }
+    }
+
+    /// Create a NoMass (resistance-only) layer.
+    ///
+    /// The layer has the given thermal resistance and geometric thickness,
+    /// but zero thermal mass. In the CTF state-space, it contributes only
+    /// resistance to the boundary conductance — no finite-difference nodes.
+    ///
+    /// Matches EnergyPlus `Material:NoMass` behavior.
+    pub fn new_no_mass(thermal_resistance: f64, thickness: f64) -> Self {
+        let effective_k = if thermal_resistance > 0.0 && thickness > 0.0 {
+            thickness / thermal_resistance
+        } else {
+            1.0
+        };
         Self {
-            conductivity: mat.conductivity,
-            density: mat.density,
-            specific_heat: mat.specific_heat,
+            conductivity: effective_k,
+            density: 0.0,
+            specific_heat: 0.0,
             thickness,
+            no_mass: true,
+        }
+    }
+
+    /// Create from a material reference and thickness.
+    ///
+    /// If the material has `thermal_resistance` set, creates a NoMass layer
+    /// with zero thermal mass and the specified R-value.
+    pub fn from_material(mat: &Material, thickness: f64) -> Self {
+        if let Some(r) = mat.thermal_resistance {
+            Self::new_no_mass(r, thickness)
+        } else {
+            Self::new(mat.conductivity, mat.density, mat.specific_heat, thickness)
         }
     }
 
@@ -100,8 +158,16 @@ impl ResolvedLayer {
     }
 
     /// Thermal diffusivity [m²/s].
+    /// Panics if called on a NoMass layer (density and specific_heat are zero).
     pub fn diffusivity(&self) -> f64 {
+        debug_assert!(!self.no_mass, "diffusivity() called on NoMass layer");
         self.conductivity / (self.density * self.specific_heat)
+    }
+
+    /// Thermal capacitance per unit area [J/(m²·K)].
+    /// Returns 0 for NoMass layers.
+    pub fn capacitance(&self) -> f64 {
+        self.density * self.specific_heat * self.thickness
     }
 }
 
@@ -173,6 +239,60 @@ pub struct WindowConstruction {
     /// Remainder exits to outdoors. Default 0.5 (split equally).
     #[serde(default = "default_inside_absorbed_fraction")]
     pub inside_absorbed_fraction: f64,
+    /// Per-pane solar transmittance at normal incidence [0-1].
+    ///
+    /// When provided along with `pane_solar_reflectance`, enables accurate
+    /// angular SHGC(θ)/SHGC(0°) modifier computation using Fresnel optics
+    /// with the correct glass extinction coefficient and inward-absorbed
+    /// fraction (N_i). This properly accounts for the absorbed-inward
+    /// solar component that keeps SHGC higher at oblique angles than
+    /// transmittance alone.
+    ///
+    /// For ASHRAE 140 clear double-pane: τ_pane = 0.834 per 3mm pane.
+    /// Matches EnergyPlus `WindowMaterial:Glazing` detailed model.
+    #[serde(default)]
+    pub pane_solar_transmittance: Option<f64>,
+    /// Per-pane front solar reflectance at normal incidence [0-1].
+    ///
+    /// Used with `pane_solar_transmittance` to derive the system absorptance
+    /// and inward-flowing fraction N_i = (SHGC − τ_system) / α_system.
+    ///
+    /// For ASHRAE 140 clear double-pane: ρ_pane = 0.075 per 3mm pane.
+    #[serde(default)]
+    pub pane_solar_reflectance: Option<f64>,
+
+    // ── First-principles window thermal model ──────────────────────────
+    //
+    // When these properties are provided, the engine computes the glass
+    // conductance (u_glass) from ISO 15099 sealed-gas-gap model at each
+    // timestep instead of using NFRC film stripping. This matches the
+    // EnergyPlus layer-by-layer approach and accounts for temperature-
+    // dependent gap convection and radiation.
+    //
+    // If these fields are omitted, u_glass falls back to the NFRC film-
+    // stripped value from u_factor (existing behavior).
+
+    /// Number of glass panes (1=single, 2=double, 3=triple).
+    /// Required for first-principles thermal model.
+    #[serde(default)]
+    pub num_panes: Option<u32>,
+    /// Gas gap width between panes [m].
+    /// For ASHRAE 140 double-pane: 0.012 m (12 mm).
+    #[serde(default)]
+    pub gap_width: Option<f64>,
+    /// Pane thermal conductivity [W/(m·K)].
+    /// For standard glass: 1.0 W/(m·K).
+    #[serde(default)]
+    pub pane_conductivity: Option<f64>,
+    /// Pane thickness [m].
+    /// For ASHRAE 140: 0.003175 m (3.175 mm).
+    #[serde(default)]
+    pub pane_thickness: Option<f64>,
+    /// Glass LW emissivity for interior radiation and gap radiation.
+    /// Default 0.84 for uncoated clear glass. For low-e coatings, the
+    /// coated surface facing the gap may have ε ≈ 0.04–0.15.
+    #[serde(default)]
+    pub glass_emissivity: Option<f64>,
 }
 
 fn default_vt() -> f64 { 0.6 }
@@ -244,6 +364,7 @@ mod tests {
             thermal_absorptance: 0.9,
             visible_absorptance: 0.7,
             roughness: Roughness::MediumRough,
+            thermal_resistance: None,
         };
         let r = layer_resistance(&mat, 0.2);
         // R = 0.2 / 1.311 = 0.1526
@@ -262,6 +383,7 @@ mod tests {
             thermal_absorptance: 0.9,
             visible_absorptance: 0.7,
             roughness: Roughness::MediumRough,
+            thermal_resistance: None,
         });
         materials.insert("Insulation".to_string(), Material {
             name: "Insulation".to_string(),
@@ -272,6 +394,7 @@ mod tests {
             thermal_absorptance: 0.9,
             visible_absorptance: 0.7,
             roughness: Roughness::Rough,
+            thermal_resistance: None,
         });
 
         let construction = Construction {
@@ -300,6 +423,7 @@ mod tests {
             thermal_absorptance: 0.9,
             visible_absorptance: 0.7,
             roughness: Roughness::MediumRough,
+            thermal_resistance: None,
         };
         let resolved = ResolvedLayer::from_material(&mat, 0.2);
         assert!((resolved.resistance() - 0.1526).abs() < 0.001);

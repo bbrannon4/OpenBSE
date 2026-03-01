@@ -552,6 +552,12 @@ pub struct SummaryReport {
     peak_heating: (f64, u32, u32, u32), // (watts, month, day, hour)
     /// Peak cooling rate [W] and when it occurred
     peak_cooling: (f64, u32, u32, u32),
+    /// Total window transmitted solar energy [J] (for diagnostics)
+    total_transmitted_solar_j: f64,
+    /// Total window incident solar energy [J] (for diagnostics)
+    total_incident_solar_j: f64,
+    /// Monthly transmitted solar [J] (12 months)
+    monthly_transmitted_solar_j: [f64; 12],
 }
 
 impl SummaryReport {
@@ -570,6 +576,9 @@ impl SummaryReport {
             dt: 3600.0,
             peak_heating: (0.0, 0, 0, 0),
             peak_cooling: (0.0, 0, 0, 0),
+            total_transmitted_solar_j: 0.0,
+            total_incident_solar_j: 0.0,
+            monthly_transmitted_solar_j: [0.0; 12],
         }
     }
 
@@ -624,6 +633,19 @@ impl SummaryReport {
         for &pw in snapshot.zone_equipment_power.values() {
             me.equipment_j += pw * snapshot.dt;
         }
+
+        // Accumulate window solar data (transmitted solar is only non-zero for windows)
+        let total_transmitted: f64 = snapshot.surface_transmitted_solar.values().sum();
+        self.total_transmitted_solar_j += total_transmitted * snapshot.dt;
+        // Track incident solar on window surfaces only
+        for (surf_name, &trans_w) in &snapshot.surface_transmitted_solar {
+            if trans_w > 0.0 || surf_name.to_lowercase().contains("window") {
+                if let Some(&inc_w) = snapshot.surface_incident_solar.get(surf_name) {
+                    self.total_incident_solar_j += inc_w * snapshot.dt;
+                }
+            }
+        }
+        self.monthly_transmitted_solar_j[month_idx] += total_transmitted * snapshot.dt;
 
         // Unmet hours check
         // Use per-timestep setpoints (schedule-aware) when available,
@@ -769,6 +791,32 @@ impl SummaryReport {
             + annual_heat_gas_kwh + annual_plant_elec_kwh + annual_lighting_kwh + annual_equipment_kwh;
         writeln!(w, "  {:>22}  {:>12.1}", "Total", total_end_use)?;
         writeln!(w)?;
+
+        // -- Window Solar Diagnostics --
+        if self.total_transmitted_solar_j > 0.0 {
+            writeln!(w, "-- Window Solar Diagnostics -----------------------------------")?;
+            writeln!(w)?;
+            let trans_kwh = self.total_transmitted_solar_j / 3_600_000.0;
+            let inc_kwh = self.total_incident_solar_j / 3_600_000.0;
+            writeln!(w, "  Total transmitted solar: {:>10.1} kWh", trans_kwh)?;
+            writeln!(w, "  Total incident on windows: {:>7.1} kWh", inc_kwh)?;
+            if inc_kwh > 0.0 {
+                writeln!(w, "  Effective annual modifier: {:>7.4} (trans/incident)", trans_kwh / inc_kwh)?;
+            }
+            writeln!(w)?;
+            writeln!(w, "  {:>5}  {:>12}", "Month", "Trans[kWh]")?;
+            writeln!(w, "  -----  ------------")?;
+            let month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            for (i, &mj) in self.monthly_transmitted_solar_j.iter().enumerate() {
+                if mj > 0.0 {
+                    writeln!(w, "  {:>5}  {:>12.1}", month_names[i], mj / 3_600_000.0)?;
+                }
+            }
+            writeln!(w, "  -----  ------------")?;
+            writeln!(w, "  {:>5}  {:>12.1}", "Total", trans_kwh)?;
+            writeln!(w)?;
+        }
 
         // -- Simulation Statistics --
         writeln!(w, "-- Simulation Statistics ---------------------------------------")?;

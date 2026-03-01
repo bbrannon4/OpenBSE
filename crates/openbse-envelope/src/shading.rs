@@ -791,7 +791,7 @@ pub fn polygon_area_2d(poly: &[Point2D]) -> f64 {
 ///
 /// Returns `None` if the ray is parallel to the plane or the shadow
 /// falls behind the receiving surface (t < 0).
-fn project_point_onto_plane(
+pub fn project_point_onto_plane(
     point: &Point3D,
     plane_point: &Point3D,
     plane_normal: &Vec3,
@@ -821,7 +821,7 @@ fn project_point_onto_plane(
 ///
 /// Returns the projected polygon vertices in 3D (all on the receiving plane),
 /// or `None` if any vertex cannot be projected.
-fn project_polygon_onto_plane(
+pub fn project_polygon_onto_plane(
     casting_verts: &[Point3D],
     plane_point: &Point3D,
     plane_normal: &Vec3,
@@ -845,7 +845,7 @@ fn project_polygon_onto_plane(
 /// vectors in the plane of the surface:
 /// - `u`: along the first edge of the polygon
 /// - `v`: perpendicular to both normal and u (in-plane)
-fn build_local_coords(vertices: &[Point3D], normal: &Vec3) -> (Point3D, Vec3, Vec3) {
+pub fn build_local_coords(vertices: &[Point3D], normal: &Vec3) -> (Point3D, Vec3, Vec3) {
     let origin = vertices[0];
     // u-axis: along first edge, normalized
     let edge = Vec3::new(
@@ -860,7 +860,7 @@ fn build_local_coords(vertices: &[Point3D], normal: &Vec3) -> (Point3D, Vec3, Ve
 }
 
 /// Transform a 3D point (assumed on the surface plane) to 2D local coordinates.
-fn to_local_2d(point: &Point3D, origin: &Point3D, u: &Vec3, v: &Vec3) -> Point2D {
+pub fn to_local_2d(point: &Point3D, origin: &Point3D, u: &Vec3, v: &Vec3) -> Point2D {
     let d = Vec3::new(
         point.x - origin.x,
         point.y - origin.y,

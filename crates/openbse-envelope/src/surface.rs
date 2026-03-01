@@ -77,7 +77,20 @@ pub struct SurfaceInput {
     /// simplified parameters relative to the parent window geometry.
     #[serde(default)]
     pub shading: Option<crate::shading::WindowShadingInput>,
+    /// Whether exterior surface receives solar radiation (default: true).
+    /// Set to false for slab-on-grade floors per ASHRAE 140.
+    /// Matches EnergyPlus `NoSun` surface property.
+    #[serde(default = "default_true")]
+    pub sun_exposure: bool,
+    /// Whether exterior surface is exposed to wind-driven convection (default: true).
+    /// Set to false for slab-on-grade floors per ASHRAE 140.
+    /// When false, only natural convection is used.
+    /// Matches EnergyPlus `NoWind` surface property.
+    #[serde(default = "default_true")]
+    pub wind_exposure: bool,
 }
+
+fn default_true() -> bool { true }
 
 fn default_tilt() -> f64 { 90.0 }
 
@@ -122,6 +135,10 @@ pub struct SurfaceState {
     pub absorbed_solar_outside: f64,
     /// Transmitted solar through window [W]
     pub transmitted_solar: f64,
+    /// Beam component of transmitted solar [W]
+    pub transmitted_solar_beam: f64,
+    /// Diffuse component of transmitted solar [W]
+    pub transmitted_solar_diffuse: f64,
     /// Solar absorbed by window glazing that flows into the zone [W]
     /// (fraction of glass absorptance × incident; adds to zone heat balance)
     pub absorbed_solar_inside_window: f64,
@@ -145,6 +162,29 @@ pub struct SurfaceState {
     pub u_glass: f64,
     /// Window SHGC
     pub shgc: f64,
+    /// Glass extinction coefficient × thickness per pane (K·d) for Fresnel
+    /// angular SHGC model. Pre-computed from per-pane glass properties or
+    /// estimated from SHGC via the E+ SimpleGlazingSystem correlation.
+    pub glass_kd: f64,
+    /// Inward-flowing fraction of absorbed solar (N_i).
+    /// Used in SHGC(θ) = τ(θ) + N_i × α(θ) angular modifier computation.
+    pub glass_ni: f64,
+    /// Effective refractive index for the Fresnel angular SHGC model.
+    /// Derived from per-pane τ and ρ to match both transmittance and reflectance
+    /// at normal incidence. Falls back to 1.526 (soda-lime glass) when per-pane
+    /// properties are not provided.
+    pub glass_n: f64,
+    // ── First-principles window gap thermal model ─────────────────────
+    /// Gap width [m] for dynamic ISO 15099 window thermal model.
+    /// When > 0, u_glass is recomputed each timestep from pane + gap
+    /// properties instead of using the fixed NFRC film-stripped value.
+    pub gap_width: f64,
+    /// Pane thickness [m] for gap thermal model.
+    pub pane_thickness: f64,
+    /// Pane thermal conductivity [W/(m·K)] for gap thermal model.
+    pub pane_conductivity: f64,
+    /// Glass emissivity for gap inter-pane radiation exchange.
+    pub gap_emissivity: f64,
     /// Cosine of tilt angle
     pub cos_tilt: f64,
     /// Sine of tilt angle
@@ -165,4 +205,8 @@ pub struct SurfaceState {
     /// horizon brightening, but vertical fins do.
     /// Matches EnergyPlus DifShdgRatioHoriz.
     pub diffuse_horizon_shading_ratio: f64,
+    /// Box face index for interior view factor model.
+    /// 0=floor, 1=ceiling, 2=south, 3=north, 4=east, 5=west.
+    /// `None` for surfaces in zones without view factor support.
+    pub box_face: Option<usize>,
 }
