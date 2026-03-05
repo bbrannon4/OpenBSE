@@ -1025,3 +1025,81 @@ mod tests {
         assert_relative_eq!(m, 1.0, max_relative = 0.02);
     }
 }
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+
+    /// Compare OpenBSE angular SHGC model against Berkeley Lab WINDOW 7 reference data
+    /// for the ASHRAE 140 double-pane clear window (SHGC=0.769).
+    ///
+    /// WINDOW 7 data from: Case600-W7-DblPaneClr-ID23.txt
+    #[test]
+    fn ashrae140_angular_vs_window7() {
+        // ASHRAE 140 double-pane clear window
+        let shgc = 0.769_f64;
+        let (kd, ni, n) = compute_glass_angular_params(shgc, Some(0.834), Some(0.075));
+        
+        println!("\n=== ASHRAE 140 Window Angular Properties ===");
+        println!("Derived parameters: kd={:.6}, ni={:.6}, n_eff={:.6}", kd, ni, n);
+        
+        // WINDOW 7 reference SHGCc values at each angle:
+        // 0°=0.769, 10°=0.768, 20°=0.766, 30°=0.761, 40°=0.748, 50°=0.718, 60°=0.651, 70°=0.509, 80°=0.267, 90°=0.000
+        let w7_shgc = [0.769, 0.768, 0.766, 0.761, 0.748, 0.718, 0.651, 0.509, 0.267, 0.000];
+        let w7_tsol = [0.703, 0.702, 0.699, 0.692, 0.678, 0.646, 0.577, 0.438, 0.208, 0.000];
+        
+        println!("\nAngle  W7-SHGC  W7-Mod   OpenBSE-Mod  Diff    W7-Tsol  OpenBSE-Tsol  Diff");
+        println!("-----  -------  ------   -----------  ------  -------  ------------  ------");
+        for i in 0..10 {
+            let angle_deg = i as f64 * 10.0;
+            let cos_i = (angle_deg * std::f64::consts::PI / 180.0).cos();
+            let ob_mod = angular_shgc_modifier(cos_i, shgc, kd, ni, n);
+            let w7_mod = w7_shgc[i] / w7_shgc[0]; // W7 modifier
+            let ob_tsol = double_pane_transmittance(cos_i, n, kd);
+            let diff = ob_mod - w7_mod;
+            let diff_t = ob_tsol - w7_tsol[i];
+            println!("{:>3}°   {:.3}    {:.4}    {:.4}       {:+.4}   {:.3}    {:.4}        {:+.4}",
+                angle_deg, w7_shgc[i], w7_mod, ob_mod, diff, w7_tsol[i], ob_tsol, diff_t);
+        }
+        
+        // Hemispherical SHGC modifier (diffuse)
+        let ob_diff_mod = diffuse_shgc_modifier(shgc, kd, ni, n);
+        let w7_hemis_mod = 0.670 / 0.769;  // From WINDOW 7 data: Hemis=0.670
+        println!("\nDiffuse/Hemispherical SHGC modifier:");
+        println!("  WINDOW 7:  {:.4} (hemis SHGC=0.670 / normal SHGC=0.769)", w7_hemis_mod);
+        println!("  OpenBSE:   {:.4}", ob_diff_mod);
+        println!("  Diff:      {:+.4} ({:+.2}%)", ob_diff_mod - w7_hemis_mod, (ob_diff_mod - w7_hemis_mod) / w7_hemis_mod * 100.0);
+        
+        // Also compute total solar transmittance hemispherical
+        let w7_hemis_tsol = 0.601;
+        let w7_hemis_tsol_mod = w7_hemis_tsol / w7_tsol[0];
+        // Compute our hemispherical transmittance
+        let n_samp = 200;
+        let mut num_t = 0.0_f64;
+        let mut den_t = 0.0_f64;
+        for j in 0..n_samp {
+            let theta = (j as f64 + 0.5) / n_samp as f64 * std::f64::consts::PI / 2.0;
+            let cos_t = theta.cos();
+            let w = cos_t * theta.sin();
+            num_t += double_pane_transmittance(cos_t, n, kd) * w;
+            den_t += w;
+        }
+        let ob_hemis_tsol = num_t / den_t;
+        println!("\nHemispherical Tsol:");
+        println!("  WINDOW 7:  {:.4}", w7_hemis_tsol);
+        println!("  OpenBSE:   {:.4} (computed hemispherical average)", ob_hemis_tsol);
+        println!("  Diff:      {:+.4}", ob_hemis_tsol - w7_hemis_tsol);
+        
+        // Compute the actual SHGC at each angle to compare with W7
+        let tau_sys_0 = double_pane_transmittance(1.0, n, kd);
+        let rho_sys_0 = double_pane_reflectance(1.0, n, kd);
+        let alpha_sys_0 = 1.0 - tau_sys_0 - rho_sys_0;
+        let shgc_reconstructed = tau_sys_0 + ni * alpha_sys_0;
+        println!("\nReconstructed SHGC at normal:");
+        println!("  tau_sys(0)  = {:.4}", tau_sys_0);
+        println!("  rho_sys(0)  = {:.4}", rho_sys_0);
+        println!("  alpha_sys(0)= {:.4}", alpha_sys_0);
+        println!("  ni          = {:.4}", ni);
+        println!("  SHGC(0°)    = {:.4} (target: 0.769)", shgc_reconstructed);
+    }
+}

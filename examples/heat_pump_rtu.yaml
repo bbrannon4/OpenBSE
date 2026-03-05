@@ -1,0 +1,393 @@
+# OpenBSE Example: PSZ-HP Rooftop Heat Pump with DHW (System 4)
+#
+# ASHRAE 90.1 Appendix G System 4: Packaged Single-Zone Heat Pump (PSZ-HP)
+# serving a single-zone retail building, with a simple domestic hot water
+# system for a break room sink.
+#
+# Building: single-zone standalone retail store
+#   - Retail Space (200 m2, 3.66m ceiling = 732 m3)
+#   ~2,150 sqft, typical small retail / big-box end-cap
+#
+# HVAC System:
+#   - PSZ-HP: constant volume fan + DX cooling coil (COP 4.0)
+#     + heat pump heating coil (COP 3.2) with supplemental electric resistance
+#     + compressor lockout at -17.78C (0F)
+#   - Thermostat: heating 21.1C (70F), cooling 23.9C (75F)
+#
+# DHW System:
+#   - Electric storage tank water heater (75 L, 4500 W, 98% efficiency)
+#   - Break room hot water load (0.0001 L/s peak)
+#
+# Envelope:
+#   - South wall: storefront glazing
+#   - East/West walls: exterior CMU
+#   - North wall: exterior CMU (back of building)
+#   - Roof: flat, exposed (single story)
+#   - Floor: slab on grade
+#
+# Weather: Denver-Stapleton, CO
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+
+# --- Design Days (Denver, CO) ---
+design_days:
+  - name: Denver Heating 99.6%
+    design_temp: -17.8
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -17.8
+    pressure: 83411.0
+    wind_speed: 2.3
+    month: 1
+    day: 21
+    day_type: winter
+
+  - name: Denver Cooling 0.4%
+    design_temp: 34.1
+    daily_range: 15.2
+    humidity_type: wetbulb
+    humidity_value: 15.7
+    pressure: 83411.0
+    wind_speed: 4.0
+    month: 7
+    day: 21
+    day_type: summer
+
+# --- Schedules ---
+schedules:
+  - name: Retail Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.3, 0.7, 0.9, 1.0, 0.8, 0.9, 1.0, 1.0, 1.0, 0.9, 0.7, 0.4, 0.2, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.5, 0.7, 0.7, 0.7, 0.7, 0.5, 0.3, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  - name: Retail Lighting
+    weekday:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.5, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9, 0.7, 0.4, 0.2, 0.1, 0.1]
+    weekend:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.5, 0.8, 1.0, 1.0, 1.0, 1.0, 0.8, 0.5, 0.3, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+
+  - name: Retail Equipment
+    weekday:  [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.4, 0.7, 0.9, 1.0, 1.0, 0.9, 1.0, 1.0, 1.0, 1.0, 0.9, 0.7, 0.4, 0.3, 0.2, 0.2, 0.2]
+    weekend:  [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.5, 0.7, 0.8, 0.8, 0.8, 0.8, 0.7, 0.4, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]
+
+  - name: DHW Draw Schedule
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.3, 0.5, 0.5, 0.8, 1.0, 0.8, 0.5, 0.5, 0.3, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.3, 0.5, 0.5, 0.5, 0.3, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+# --- Materials ---
+materials:
+  - name: CMU Block
+    conductivity: 0.89
+    density: 1920.0
+    specific_heat: 790.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Wall Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Gypsum Board
+    conductivity: 0.16
+    density: 800.0
+    specific_heat: 830.0
+    solar_absorptance: 0.4
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+  - name: Roof Membrane
+    conductivity: 0.16
+    density: 1120.0
+    specific_heat: 1460.0
+    solar_absorptance: 0.9
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Roof Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Concrete Slab
+    conductivity: 1.311
+    density: 2240.0
+    specific_heat: 836.8
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Slab Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+constructions:
+  - name: Exterior Wall
+    layers:
+      - material: CMU Block
+        thickness: 0.2032
+      - material: Wall Insulation
+        thickness: 0.0889
+      - material: Gypsum Board
+        thickness: 0.0159
+
+  - name: Flat Roof
+    layers:
+      - material: Roof Membrane
+        thickness: 0.0095
+      - material: Roof Insulation
+        thickness: 0.127
+      - material: Gypsum Board
+        thickness: 0.0159
+
+  - name: Ground Floor
+    layers:
+      - material: Slab Insulation
+        thickness: 0.0508
+      - material: Concrete Slab
+        thickness: 0.1016
+
+window_constructions:
+  - name: Storefront Glazing
+    u_factor: 2.56
+    shgc: 0.40
+    visible_transmittance: 0.50
+
+# --- Zones ---
+# Retail space: 20m (E-W) x 10m (N-S) x 3.66m ceiling (12 ft)
+# Single zone, standalone building
+zones:
+  - name: Retail Space
+    volume: 732.0
+    floor_area: 200.0
+
+# --- People ---
+people:
+  - name: Retail Customers and Staff
+    zones: [Retail Space]
+    count: 22.0
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Retail Occupancy
+
+# --- Lights ---
+lights:
+  - name: Retail Lights
+    zones: [Retail Space]
+    watts_per_area: 1.5
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Retail Lighting
+
+# --- Equipment ---
+equipment:
+  - name: Retail Equipment
+    zones: [Retail Space]
+    watts_per_area: 1.0
+    radiant_fraction: 0.3
+    schedule: Retail Equipment
+
+# --- Infiltration ---
+infiltration:
+  - name: Retail Infiltration
+    zones: [Retail Space]
+    air_changes_per_hour: 0.3
+
+# --- Outdoor Air ---
+outdoor_air:
+  - name: Retail Ventilation
+    zones: [Retail Space]
+    per_person: 0.003540
+    per_area: 0.000610
+
+# --- Surfaces ---
+# Building: 20m (E-W) x 10m (N-S), ceiling 3.66m
+# Origin at SW corner, X=East, Y=North, Z=Up
+# South wall: storefront with large window
+# All other walls: exterior CMU
+
+surfaces:
+  # ---- South Wall (storefront) ----
+  - name: South Wall
+    zone: Retail Space
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 0.0, z: 0.0}
+      - {x: 20.0, y: 0.0, z: 0.0}
+      - {x: 20.0, y: 0.0, z: 3.66}
+      - {x: 0.0,  y: 0.0, z: 3.66}
+
+  - name: Storefront Window
+    zone: Retail Space
+    type: window
+    construction: Storefront Glazing
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 0.5,  y: 0.0, z: 0.3}
+      - {x: 19.5, y: 0.0, z: 0.3}
+      - {x: 19.5, y: 0.0, z: 3.0}
+      - {x: 0.5,  y: 0.0, z: 3.0}
+
+  # ---- East Wall ----
+  - name: East Wall
+    zone: Retail Space
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 20.0, y: 0.0,  z: 0.0}
+      - {x: 20.0, y: 10.0, z: 0.0}
+      - {x: 20.0, y: 10.0, z: 3.66}
+      - {x: 20.0, y: 0.0,  z: 3.66}
+
+  # ---- North Wall (back of building) ----
+  - name: North Wall
+    zone: Retail Space
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 20.0, y: 10.0, z: 0.0}
+      - {x: 0.0,  y: 10.0, z: 0.0}
+      - {x: 0.0,  y: 10.0, z: 3.66}
+      - {x: 20.0, y: 10.0, z: 3.66}
+
+  # ---- West Wall ----
+  - name: West Wall
+    zone: Retail Space
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 10.0, z: 0.0}
+      - {x: 0.0, y: 0.0,  z: 0.0}
+      - {x: 0.0, y: 0.0,  z: 3.66}
+      - {x: 0.0, y: 10.0, z: 3.66}
+
+  # ---- Roof ----
+  - name: Roof
+    zone: Retail Space
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 0.0,  z: 3.66}
+      - {x: 20.0, y: 0.0,  z: 3.66}
+      - {x: 20.0, y: 10.0, z: 3.66}
+      - {x: 0.0,  y: 10.0, z: 3.66}
+
+  # ---- Floor (slab on grade) ----
+  - name: Floor
+    zone: Retail Space
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0,  y: 10.0, z: 0.0}
+      - {x: 20.0, y: 10.0, z: 0.0}
+      - {x: 20.0, y: 0.0,  z: 0.0}
+      - {x: 0.0,  y: 0.0,  z: 0.0}
+
+# --- HVAC: PSZ-HP (Packaged Rooftop Heat Pump) ---
+air_loops:
+  - name: HP RTU-1
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 13.0
+      design_zone_flow: autosize
+      cycling: proportional
+    equipment:
+      - type: fan
+        name: RTU Supply Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 500.0
+        impeller_efficiency: 0.76
+        motor_efficiency: 0.85
+        motor_in_airstream_fraction: 1.0
+
+      - type: cooling_coil
+        name: DX Cooling Coil
+        capacity: autosize
+        cop: 4.0
+        shr: 0.75
+        rated_airflow: autosize
+        setpoint: 13.0
+
+      - type: heating_coil
+        name: HP Heating Coil
+        source: heat_pump
+        capacity: autosize
+        cop: 3.2
+        setpoint: 35.0
+        supplemental_capacity: 10000
+        lockout_temp: -17.78
+
+    zones:
+      - zone: Retail Space
+
+# --- Domestic Hot Water System ---
+dhw_systems:
+  - name: Store DHW
+    mains_temperature: 10.0
+    water_heater:
+      name: Electric Water Heater
+      fuel_type: electric
+      tank_volume: 75
+      capacity: 4500
+      efficiency: 0.98
+      setpoint: 60.0
+      ua_standby: 1.5
+    loads:
+      - name: Break Room Hot Water
+        peak_flow_rate: 0.0001
+        use_temperature: 43.3
+        schedule: DHW Draw Schedule
+
+# --- Zone Groups ---
+zone_groups:
+  - name: Retail Zone
+    zones:
+      - Retail Space
+
+# --- Thermostats ---
+thermostats:
+  - name: Retail Thermostat
+    zones: [Retail Zone]
+    heating_setpoint: 21.1
+    cooling_setpoint: 23.9
+
+# --- Outputs ---
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - zone_infiltration_mass_flow
+      - zone_supply_air_temperature
+      - zone_supply_air_mass_flow
+      - site_outdoor_temperature
+      - site_direct_normal_radiation
+
+summary_report: true

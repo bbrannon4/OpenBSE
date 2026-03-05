@@ -62,6 +62,9 @@ struct LoopInfo {
     cooling_supply_temp: f64,
     /// Capacity control method (from air loop controls)
     cycling: openbse_io::input::CyclingMethod,
+    /// Terminal box component names per zone (zone_name -> component_name).
+    /// Only populated for loops with VAV/PFP terminal boxes defined in YAML.
+    terminal_boxes: HashMap<String, String>,
 }
 
 fn build_loop_infos(
@@ -103,6 +106,18 @@ fn build_loop_infos(
             }),
         };
 
+        // Build terminal box map: zone_name -> component_name
+        let mut terminal_boxes: HashMap<String, String> = HashMap::new();
+        for zc in &al.zones {
+            if let Some(ref terminal) = zc.terminal {
+                let term_name = match terminal {
+                    openbse_io::input::TerminalInput::VavBox(vb) => vb.name.clone(),
+                    openbse_io::input::TerminalInput::PfpBox(pb) => pb.name.clone(),
+                };
+                terminal_boxes.insert(zc.zone.clone(), term_name);
+            }
+        }
+
         LoopInfo {
             name: al.name.clone(),
             system_type,
@@ -114,6 +129,7 @@ fn build_loop_infos(
             heating_supply_temp: al.controls.heating_supply_temp,
             cooling_supply_temp: al.controls.cooling_supply_temp,
             cycling: al.controls.cycling,
+            terminal_boxes,
         }
     }).collect()
 }
@@ -249,6 +265,32 @@ fn main() -> Result<()> {
             li.served_zones.join(", "),
             li.min_oa_fraction * 100.0,
         );
+    }
+
+    // ── 4b. Build DHW systems ────────────────────────────────────────────
+    let mut dhw_systems: Vec<openbse_components::water_heater::WaterHeater> = model.dhw_systems.iter()
+        .map(|dhw_input| {
+            use openbse_components::water_heater::{WaterHeater, WaterHeaterFuel};
+            let fuel = match dhw_input.water_heater.fuel_type.as_str() {
+                "electric" | "Electric" => WaterHeaterFuel::Electric,
+                "heat_pump" | "HeatPump" | "hpwh" => WaterHeaterFuel::HeatPump,
+                _ => WaterHeaterFuel::Gas,
+            };
+            let mut wh = WaterHeater::new(
+                &dhw_input.water_heater.name,
+                fuel,
+                dhw_input.water_heater.tank_volume,
+                dhw_input.water_heater.capacity,
+                dhw_input.water_heater.efficiency,
+                dhw_input.water_heater.setpoint,
+                dhw_input.water_heater.ua_standby,
+            );
+            wh.deadband = dhw_input.water_heater.deadband;
+            wh
+        })
+        .collect();
+    if !dhw_systems.is_empty() {
+        info!("DHW systems built: {}", dhw_systems.len());
     }
 
     // ── 5. Set up simulation timing ─────────────────────────────────────────
@@ -467,6 +509,45 @@ fn main() -> Result<()> {
                     }
                 }
             }
+
+            // ── Terminal Box Sizing ───────────────────────────────────────
+            //
+            // Terminal boxes (VAV boxes, PFP boxes) are per-zone components
+            // that need zone-specific sizing for airflow and reheat capacity.
+            //
+            // Unlike AHU components (sized to system-wide peaks), terminals
+            // are sized to their individual zone's peak loads:
+            //   max_air_flow    = zone peak design airflow [kg/s]
+            //   reheat_capacity = zone peak heating load [W] × 1.25 safety factor
+            for li in &loop_infos {
+                for (zone_name, term_name) in &li.terminal_boxes {
+                    if let Some(node_idx) = graph.node_by_name(term_name) {
+                        if let GraphComponent::Air(comp) = graph.component_mut(node_idx) {
+                            // Size terminal max_air_flow from zone design airflow
+                            if comp.design_air_flow_rate().is_none() {
+                                let zone_flow = sizing_result.zone_design_airflow
+                                    .get(zone_name).copied().unwrap_or(0.1);
+                                // Convert from kg/s to m³/s for set_design_air_flow_rate
+                                let zone_flow_m3 = zone_flow / air_density;
+                                comp.set_design_air_flow_rate(zone_flow_m3);
+                                info!("Autosized terminal '{}' max airflow: {:.4} kg/s ({:.4} m³/s)",
+                                    term_name, zone_flow, zone_flow_m3);
+                            }
+
+                            // Size terminal reheat capacity from zone peak heating load
+                            if let Some(cap) = comp.nominal_capacity() {
+                                if is_autosize(cap) {
+                                    let zone_heat = sizing_result.zone_peak_heating
+                                        .get(zone_name).copied().unwrap_or(0.0) * 1.25;
+                                    comp.set_nominal_capacity(zone_heat);
+                                    info!("Autosized terminal '{}' reheat capacity: {:.0} W ({:.1} kW)",
+                                        term_name, zone_heat, zone_heat / 1000.0);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -615,7 +696,7 @@ fn main() -> Result<()> {
 
                     for _hvac_iter in 0..MAX_HVAC_ITER {
                         // Step 1: Run HVAC with current zone temps and loads
-                        let (hvac_result, zone_supply_conditions) = simulate_all_loops(
+                        let (mut hvac_result, zone_supply_conditions) = simulate_all_loops(
                             &mut graph,
                             &ctx,
                             &loop_infos,
@@ -634,6 +715,62 @@ fn main() -> Result<()> {
                             &current_cooling_loads,
                             &current_heating_loads,
                         );
+
+                        // Step 1b: Run plant loops (single-pass coupling).
+                        //
+                        // Collect water-side demand from air components (CHW coils,
+                        // HW reheat coils, etc.) and pass to plant equipment. Plant
+                        // supply water feeds back to coils on the NEXT iteration.
+                        if !model.plant_loops.is_empty() {
+                            // Collect thermal demand per plant loop from air-side coils.
+                            // For now, scan component outputs for thermal_output and
+                            // assign to plant loops based on coil→plant_loop mappings.
+                            for plant_loop in &model.plant_loops {
+                                let mut total_load = 0.0_f64;
+
+                                // Sum thermal output from all air components whose names
+                                // match coils that reference this plant loop.
+                                for al in &model.air_loops {
+                                    for eq in &al.equipment {
+                                        let (coil_name, coil_plant) = match eq {
+                                            openbse_io::input::EquipmentInput::CoolingCoil(c) => {
+                                                (c.name.as_str(), c.plant_loop.as_deref())
+                                            }
+                                            _ => ("", None),
+                                        };
+                                        if coil_plant == Some(plant_loop.name.as_str()) {
+                                            if let Some(outputs) = hvac_result.component_outputs.get(coil_name) {
+                                                total_load += outputs.get("thermal_output")
+                                                    .copied().unwrap_or(0.0);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Simulate plant equipment with collected load
+                                if total_load.abs() > 0.0 {
+                                    for equip in &plant_loop.supply_equipment {
+                                        let equip_name = match equip {
+                                            openbse_io::input::PlantEquipmentInput::Boiler(b) => &b.name,
+                                            openbse_io::input::PlantEquipmentInput::Chiller(c) => &c.name,
+                                        };
+                                        if let Some(node_idx) = graph.node_by_name(equip_name) {
+                                            if let GraphComponent::Plant(component) = graph.component_mut(node_idx) {
+                                                let inlet = WaterPort::default_water();
+                                                let _outlet = component.simulate_plant(&inlet, total_load, &ctx);
+
+                                                // Record plant outputs
+                                                let mut plant_outputs: HashMap<String, f64> = HashMap::new();
+                                                plant_outputs.insert("electric_power".to_string(), component.power_consumption());
+                                                plant_outputs.insert("fuel_power".to_string(), component.fuel_consumption());
+                                                plant_outputs.insert("thermal_output".to_string(), total_load);
+                                                hvac_result.component_outputs.insert(equip_name.clone(), plant_outputs);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                         // Step 2: Deliver HVAC supply air to envelope
                         let mut hvac_conds = ZoneHvacConditions::default();
@@ -789,6 +926,30 @@ fn main() -> Result<()> {
                     snapshot.zone_equipment_power.insert(zone.input.name.clone(), zone.equipment_power);
                 }
 
+                // ── DHW simulation ─────────────────────────────────────
+                // Simulate domestic hot water systems and add energy to snapshot.
+                let dhw_dow = openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
+                for (dhw_sys, dhw_input) in dhw_systems.iter_mut().zip(&model.dhw_systems) {
+                    // Compute current draw rate from schedule
+                    let total_draw: f64 = dhw_input.loads.iter().map(|load| {
+                        let frac = load.schedule.as_ref().map(|sched_name| {
+                            env.schedule_manager.fraction(sched_name, hour, dhw_dow)
+                        }).unwrap_or(1.0);
+                        load.peak_flow_rate * frac
+                    }).sum();
+
+                    dhw_sys.simulate(total_draw, dhw_input.mains_temperature, dt);
+
+                    let ep = dhw_sys.electric_power();
+                    let fp = dhw_sys.fuel_power();
+                    if ep > 0.0 {
+                        snapshot.component_electric_power.insert(dhw_sys.name.clone(), ep);
+                    }
+                    if fp > 0.0 {
+                        snapshot.component_fuel_power.insert(dhw_sys.name.clone(), fp);
+                    }
+                }
+
                 for writer in &mut output_writers {
                     writer.add_snapshot(&snapshot);
                 }
@@ -850,6 +1011,22 @@ fn main() -> Result<()> {
                     }
                     if let Some(&pw) = vars.get("fuel_power") {
                         snapshot.component_fuel_power.insert(comp_name.clone(), pw);
+                    }
+                }
+
+                // ── DHW simulation (HVAC-only mode) ────────────────────
+                for (dhw_sys, dhw_input) in dhw_systems.iter_mut().zip(&model.dhw_systems) {
+                    let total_draw: f64 = dhw_input.loads.iter()
+                        .map(|load| load.peak_flow_rate)
+                        .sum();  // No schedule manager in HVAC-only mode
+                    dhw_sys.simulate(total_draw, dhw_input.mains_temperature, dt);
+                    let ep = dhw_sys.electric_power();
+                    let fp = dhw_sys.fuel_power();
+                    if ep > 0.0 {
+                        snapshot.component_electric_power.insert(dhw_sys.name.clone(), ep);
+                    }
+                    if fp > 0.0 {
+                        snapshot.component_fuel_power.insert(dhw_sys.name.clone(), fp);
                     }
                 }
 
@@ -1183,43 +1360,88 @@ fn simulate_all_loops(
             all_outputs.insert(k, v);
         }
 
-        // Distribute supply air to served zones
+        // Distribute supply air to served zones.
+        //
+        // For zones with terminal boxes (VAV/PFP), the AHU supply air passes
+        // through the terminal component first — the terminal modulates flow
+        // and applies reheat. The terminal's outlet becomes the zone supply.
         if let Some(supply) = supply_air {
             let supply_temp = supply.state.t_db;
             // Apply PLR to flow distribution (zone receives time-averaged flow)
             let effective_flow = supply.mass_flow * loop_plr;
 
             for zone_name in &li.served_zones {
-                // How much flow does this zone get from this loop?
-                let zone_flow = match li.system_type {
-                    AirLoopSystemType::PszAc => {
-                        // Split total flow proportionally among served zones
-                        let n = li.served_zones.len().max(1) as f64;
-                        effective_flow / n
-                    }
-                    AirLoopSystemType::Doas => {
-                        // Ventilation flow = design ventilation per zone
-                        // Use a per-zone OA flow: design_zone_flow * min_oa_fraction
-                        // (simplified: equal share of total DOAS flow)
-                        let n = li.served_zones.len().max(1) as f64;
-                        effective_flow / n
-                    }
-                    AirLoopSystemType::Fcu => {
-                        // Single zone: all flow goes here
-                        effective_flow
-                    }
-                    AirLoopSystemType::Vav => {
-                        // Flow was modulated per zone; read from zone_air_flows
-                        signals.zone_air_flows.get(zone_name)
-                            .copied()
-                            .unwrap_or(effective_flow / li.served_zones.len().max(1) as f64)
-                            * loop_plr
-                    }
-                };
+                // Check if this zone has a terminal box
+                if let Some(term_name) = li.terminal_boxes.get(zone_name) {
+                    // Simulate the terminal box with AHU supply as inlet.
+                    // Set control signal: positive = heating demand, negative = cooling demand.
+                    let zone_temp = zone_temps.get(zone_name).copied().unwrap_or(21.0);
+                    let heat_sp = active_heat_sp.get(zone_name).copied().unwrap_or(21.1);
+                    let cool_sp = active_cool_sp.get(zone_name).copied().unwrap_or(23.9);
 
-                zone_supply.entry(zone_name.clone())
-                    .or_default()
-                    .push((supply_temp, zone_flow));
+                    let control_signal = if zone_temp < heat_sp {
+                        // Heating: positive signal proportional to error
+                        ((heat_sp - zone_temp) / 5.0).clamp(0.0, 1.0)
+                    } else if zone_temp > cool_sp {
+                        // Cooling: negative signal proportional to error
+                        -((zone_temp - cool_sp) / 5.0).clamp(0.0, 1.0)
+                    } else {
+                        0.0  // Deadband
+                    };
+
+                    if let Some(node_idx) = graph.node_by_name(term_name) {
+                        // Set control signal on the terminal box
+                        if let GraphComponent::Air(component) = graph.component_mut(node_idx) {
+                            component.set_setpoint(control_signal);
+                        }
+                        // Simulate with AHU supply as inlet
+                        let term_inlet = AirPort::new(supply.state, effective_flow / li.served_zones.len().max(1) as f64);
+                        if let GraphComponent::Air(component) = graph.component_mut(node_idx) {
+                            let term_outlet = component.simulate_air(&term_inlet, ctx);
+
+                            // Record terminal outputs
+                            let mut term_outputs = HashMap::new();
+                            term_outputs.insert("outlet_temp".to_string(), term_outlet.state.t_db);
+                            term_outputs.insert("outlet_w".to_string(), term_outlet.state.w);
+                            term_outputs.insert("mass_flow".to_string(), term_outlet.mass_flow);
+                            term_outputs.insert("electric_power".to_string(), component.power_consumption());
+                            term_outputs.insert("thermal_output".to_string(), component.thermal_output());
+                            all_outputs.insert(term_name.clone(), term_outputs);
+
+                            // Terminal outlet → zone supply
+                            let term_supply_temp = term_outlet.state.t_db;
+                            let term_flow = term_outlet.mass_flow * loop_plr;
+                            zone_supply.entry(zone_name.clone())
+                                .or_default()
+                                .push((term_supply_temp, term_flow));
+                        }
+                    }
+                } else {
+                    // No terminal box — distribute AHU supply directly
+                    let zone_flow = match li.system_type {
+                        AirLoopSystemType::PszAc => {
+                            let n = li.served_zones.len().max(1) as f64;
+                            effective_flow / n
+                        }
+                        AirLoopSystemType::Doas => {
+                            let n = li.served_zones.len().max(1) as f64;
+                            effective_flow / n
+                        }
+                        AirLoopSystemType::Fcu => {
+                            effective_flow
+                        }
+                        AirLoopSystemType::Vav => {
+                            signals.zone_air_flows.get(zone_name)
+                                .copied()
+                                .unwrap_or(effective_flow / li.served_zones.len().max(1) as f64)
+                                * loop_plr
+                        }
+                    };
+
+                    zone_supply.entry(zone_name.clone())
+                        .or_default()
+                        .push((supply_temp, zone_flow));
+                }
             }
         }
     }

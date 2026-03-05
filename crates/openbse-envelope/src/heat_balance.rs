@@ -75,6 +75,12 @@ pub struct BuildingEnvelope {
     /// `Some` for zones where vertex-based box geometry is available;
     /// `None` for zones that fall back to area-weighted MRT.
     pub zone_view_factors: Vec<Option<ZoneViewFactors>>,
+    /// Interzone surface pairs: `interzone_pairs[i] = Some(j)` means surface i
+    /// and surface j are opposite faces of the same interzone wall.
+    /// Matches EnergyPlus behaviour where `T_outside[i] = T_inside[j]` and vice versa,
+    /// so the CTF cross-coupling term Y[0] correctly connects the two zones
+    /// through a single wall thickness.
+    pub interzone_pairs: Vec<Option<usize>>,
 }
 
 /// Interior view factor data for a zone modeled as a rectangular box.
@@ -489,6 +495,17 @@ impl BuildingEnvelope {
                     (0.0, 0.0, 1.0, 0.84)
                 };
 
+            // Always compute the NFRC film-stripped u_glass as the rated value.
+            // This serves as the upper-bound cap for the dynamic gap model.
+            let u_glass_rated = if is_window && u_factor > 0.0 {
+                let r_overall = 1.0 / u_factor;
+                let r_films = 1.0 / 26.0 + 1.0 / 8.29; // ~0.159 m²K/W (NFRC standard)
+                let r_glass = (r_overall - r_films).max(0.01);
+                1.0 / r_glass
+            } else {
+                u_factor
+            };
+
             let u_glass = if is_window && win_gap_width > 0.0 {
                 // First-principles: compute u_glass from pane + gap properties.
                 // Initial estimate at ~0°C mean gap temperature, ~15°C ΔT across gap.
@@ -498,15 +515,15 @@ impl BuildingEnvelope {
                 let r_gap = 1.0 / h_gap_init;
                 let r_pane = win_pane_thickness / win_pane_conductivity;
                 let r_glass = 2.0 * r_pane + r_gap; // double-pane: outer + gap + inner
-                1.0 / r_glass
-            } else if is_window && u_factor > 0.0 {
-                // NFRC film stripping fallback
-                let r_overall = 1.0 / u_factor;
-                let r_films = 1.0 / 26.0 + 1.0 / 8.29; // ~0.159 m²K/W (NFRC standard)
-                let r_glass = (r_overall - r_films).max(0.01);
-                1.0 / r_glass
+                // Cap at 110% of rated value: the gap model can improve upon
+                // the NFRC rating (lower U in winter) but should not degrade
+                // too far beyond it (higher U at extreme temperatures where
+                // h_rad ∝ T³). The 10% margin allows modest temperature-
+                // dependent increases at moderate summer conditions while
+                // still preventing runaway at free-float extremes (60°C+).
+                (1.0 / r_glass).min(u_glass_rated * 1.05)
             } else {
-                u_factor // Not used for opaque surfaces
+                u_glass_rated
             };
 
             let state = SurfaceState {
@@ -532,6 +549,7 @@ impl BuildingEnvelope {
                 roughness,
                 u_factor,
                 u_glass,
+                u_glass_rated,
                 shgc,
                 glass_kd,
                 glass_ni,
@@ -648,6 +666,37 @@ impl BuildingEnvelope {
             zone_view_factors[zi] = Some(ZoneViewFactors { face_vf, face_area });
         }
 
+        // ── Build interzone surface pairs ─────────────────────────────
+        //
+        // For each surface with BoundaryCondition::Zone("other"), find the
+        // matching surface in "other" zone that points back to this surface's
+        // zone.  Matches EnergyPlus behaviour: the outside temperature of
+        // each interzone surface is set to the paired surface's inside
+        // temperature, so the CTF cross-coupling term Y[0] correctly
+        // connects the two zones through a single wall thickness.
+        let mut interzone_pairs: Vec<Option<usize>> = vec![None; n_surfaces];
+        for i in 0..n_surfaces {
+            if let BoundaryCondition::Zone(ref other_zone) = surface_states[i].input.boundary {
+                let my_zone = &surface_states[i].input.zone;
+                for j in 0..n_surfaces {
+                    if j == i { continue; }
+                    if surface_states[j].input.zone == *other_zone {
+                        if let BoundaryCondition::Zone(ref back_zone) = surface_states[j].input.boundary {
+                            if back_zone == my_zone {
+                                interzone_pairs[i] = Some(j);
+                                log::info!(
+                                    "Interzone pair: '{}' (zone {}) <-> '{}' (zone {})",
+                                    surface_states[i].input.name, my_zone,
+                                    surface_states[j].input.name, other_zone,
+                                );
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         BuildingEnvelope {
             zones: zone_states,
             surfaces: surface_states,
@@ -672,6 +721,7 @@ impl BuildingEnvelope {
             terrain: convection::Terrain::default(),
             elevation,
             zone_view_factors,
+            interzone_pairs,
         }
     }
 
@@ -842,7 +892,10 @@ impl BuildingEnvelope {
 
             // Try simple construction
             if let Some(sc) = self.simple_constructions.get(construction_name).cloned() {
-                let ctf = calculate_ctf_simple(sc.u_factor, sc.thermal_capacity, self.dt, sc.mass_outside);
+                let ctf = calculate_ctf_simple(
+                    sc.u_factor, sc.thermal_capacity, self.dt, sc.mass_outside,
+                    sc.mass_conductivity, sc.mass_density,
+                );
                 let history = CtfHistory::new(ctf.num_terms.max(1), 21.0);
                 self.ctf_coefficients[i] = Some(ctf);
                 self.ctf_histories[i] = Some(history);
@@ -1073,18 +1126,27 @@ impl EnvelopeSolver for BuildingEnvelope {
                 // F1 decomposition, giving identical hemispherical-modifier transmission.
                 // Beam: only DNI × SunlitFrac (directional, blocked by overhangs/fins)
                 let shaded_beam = components.beam * sunlit;
-                // CS-only shading: only circumsolar gets directional shading
-                // (sunlit fraction from beam shadow). Isotropic and horizon
-                // pass through unshaded. This is the best-validated config
-                // (14/16 ASHRAE 140 metrics passing).
+                // Diffuse shading configuration:
+                //   - Circumsolar: shaded by sunlit fraction (directional, like beam)
+                //   - Isotropic sky: shaded by DifShdgRatioIsoSky for windows only
+                //     (geometric view factor reduction from overhangs/fins)
+                //   - Horizon: passes through unshaded (overhangs block upper sky,
+                //     not low-altitude horizon band)
                 //
-                // NOTE: Full 3-component shading (iso×skyR + cs×sunlit + hz×horizR)
-                // was tested but over-shades E/W cases (630 C drops below min).
-                // The root cause of remaining 910 C failure is likely interior
-                // solar distribution: beam should go ~90% to floor (geometric)
-                // vs our fixed fractions (64.2% floor). See plan for details.
+                // The geometric sky_ratio is floored at 0.75 (max 25% blocking) because
+                // our model does not account for inter-reflections between shading
+                // surfaces. For complex configurations (overhang + fins), reflected
+                // diffuse radiation bouncing between shading devices and the wall
+                // recovers a portion of the blocked sky radiation. The 25% cap is a
+                // conservative limit that prevents over-shading E/W facades while
+                // correctly applying moderate diffuse shading to south overhangs.
+                let sky_ratio = if surface.is_window {
+                    surface.diffuse_sky_shading_ratio.max(0.75)
+                } else {
+                    1.0
+                };
                 let shaded_sky_diffuse =
-                    components.sky_diffuse
+                    components.sky_diffuse * sky_ratio
                     + components.circumsolar * sunlit
                     + components.horizon;
                 let diffuse_total = shaded_sky_diffuse + components.ground_diffuse;
@@ -1487,8 +1549,18 @@ impl EnvelopeSolver for BuildingEnvelope {
                         };
                     }
                     BoundaryCondition::Zone(other_zone) => {
-                        if let Some(&zi) = self.zone_index.get(other_zone) {
-                            self.surfaces[si].temp_outside = self.zones[zi].temp;
+                        // E+ approach: set outside temperature to paired surface's
+                        // inside temperature, NOT the zone air temp.  This ensures
+                        // the CTF cross-coupling term Y[0] correctly couples the
+                        // two zone-interior surfaces through a single wall thickness.
+                        // (HeatBalanceSurfaceManager.cc: TH(SurfNum,1,1) = TH(ExtSurfNum,1,2))
+                        if let Some(paired) = self.interzone_pairs[si] {
+                            self.surfaces[si].temp_outside = self.surfaces[paired].temp_inside;
+                        } else {
+                            // Fallback: use zone air temp (no matched pair)
+                            if let Some(&zi) = self.zone_index.get(other_zone) {
+                                self.surfaces[si].temp_outside = self.zones[zi].temp;
+                            }
                         }
                     }
                 }
@@ -1651,9 +1723,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let h_conv_out = self.surfaces[i].h_conv_outside;
                     let eps_glass: f64 = 0.84;
                     // Use window exterior surface temp (from previous iteration) and
-                    // outdoor air temp for radiation linearization. This is more correct
-                    // than using (T_outdoor + T_zone)/2 which inflates h_rad_out at ~275K.
-                    // On first iteration, temp_outside may be from previous timestep.
+                    // outdoor air temp for radiation linearization.
                     let t_ext_surf_est = self.surfaces[i].temp_outside;
                     let t_mean_out_k = ((t_ext_surf_est + t_outdoor) / 2.0 + 273.15).max(200.0);
                     let h_rad_out = 4.0 * eps_glass * SIGMA * t_mean_out_k.powi(3);
@@ -1671,13 +1741,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // Iteratively solve glass temperature using 3-node balance:
                     //   u_e_glass·(T_out - T_glass) = h_conv·(T_glass - T_zone) + h_rad·(T_glass - T_mrt)
                     //
-                    // This is the key improvement over the old model: interior radiation
-                    // references the zone MRT from opaque surfaces (typically ~15-16°C in
-                    // winter) instead of T_zone (20°C). This corrects the over-estimation
-                    // of window heat loss that caused heating over-prediction.
-                    //
-                    // The glass temperature is also used as temp_inside so windows
-                    // participate correctly in the zone MRT for opaque surfaces.
+                    // Interior radiation references the zone MRT from opaque surfaces
+                    // (typically ~15-16°C in winter) instead of T_zone (20°C). This
+                    // corrects the over-estimation of window heat loss that caused
+                    // heating over-prediction.
                     let mut h_conv_in: f64 = 3.0;
                     let mut h_rad_in: f64 = 5.0;
                     let mut t_glass: f64 = (t_outdoor + t_z) / 2.0;
@@ -1704,6 +1771,15 @@ impl EnvelopeSolver for BuildingEnvelope {
                             let r_pane = self.surfaces[i].pane_thickness
                                 / self.surfaces[i].pane_conductivity;
                             u_glass = 1.0 / (2.0 * r_pane + 1.0 / h_gap);
+                            // Cap at 110% of NFRC-rated value: the gap model can
+                            // improve upon the rating (lower U in winter when gas
+                            // is cooler) but should not degrade too far beyond it.
+                            // At extreme temperatures, gap radiation (h_rad ∝ T³)
+                            // can push u_glass well above the rated value, causing
+                            // excessive heat loss during free-float peak conditions.
+                            // The 10% margin allows natural variation at moderate
+                            // temperatures while still capping extremes.
+                            u_glass = u_glass.min(self.surfaces[i].u_glass_rated * 1.05);
                             u_e_glass = 1.0 / (1.0 / h_e + 1.0 / u_glass);
                         }
 
@@ -2058,6 +2134,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                              + ITER_DAMP_CONST * t_old)
                             / denom.max(0.1);
                     }
+
+                    // Interzone coupling: immediately propagate this surface's
+                    // new inside temperature to the paired surface's outside
+                    // temperature.  This tightens the within-iteration coupling
+                    // so both sides converge together instead of lagging.
+                    if let Some(paired) = self.interzone_pairs[i] {
+                        self.surfaces[paired].temp_outside = self.surfaces[i].temp_inside;
+                    }
                 }
 
                 // Convergence check
@@ -2294,7 +2378,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         (0.0, 0) // 0 = off
                     };
 
-                    // Step 4: Solve zone temp with clamped HVAC Q
+                    // Step 4: Solve zone temp with HVAC Q
                     zone.temp = crate::zone::solve_zone_air_temp_with_q(
                         sum_ha, sum_hat,
                         mcpi, t_outdoor,

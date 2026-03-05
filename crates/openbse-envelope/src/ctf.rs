@@ -236,7 +236,14 @@ pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
 ///   C = ρ·cp·thickness  →  ρ·cp = C / thickness
 ///
 /// We pick reasonable ρ and cp values that give the correct product.
-pub fn calculate_ctf_simple(u_factor: f64, thermal_capacity: f64, dt: f64, mass_outside: bool) -> CtfCoefficients {
+pub fn calculate_ctf_simple(
+    u_factor: f64,
+    thermal_capacity: f64,
+    dt: f64,
+    mass_outside: bool,
+    mass_conductivity: Option<f64>,
+    mass_density: Option<f64>,
+) -> CtfCoefficients {
     if u_factor <= 0.0 {
         return CtfCoefficients {
             x: vec![0.0], y: vec![0.0], z: vec![0.0],
@@ -290,17 +297,24 @@ pub fn calculate_ctf_simple(u_factor: f64, thermal_capacity: f64, dt: f64, mass_
     // free-float peak temperatures well below the acceptance range.
     //
     // The fix uses physically-correct layer properties:
-    //   - High-R floor (R > 5): 2-layer [insulation | timber], Z₀ ≈ 34
-    //   - Moderate-R wall/roof: 3-layer [wood | insul | plasterboard], Z₀ ≈ 80
+    //   - Very-high-R floor (R > 20): 2-layer [insulation | timber], Z₀ ≈ 34
+    //     E+ LTFLOOR uses NoMass insulation (R ≈ 25) + timber flooring.
+    //   - Wall/roof (R ≤ 20): 3-layer [wood | insul | plasterboard], Z₀ ≈ 80
+    //     E+ LTWALL/LTROOF always have plasterboard interior finish.
+    //     Case 680 roof (R=10.2) was incorrectly using the 2-layer floor
+    //     model, giving timber interior instead of plasterboard — this
+    //     changed the surface CTF coefficients and suppressed free-float
+    //     peaks by ~7°C.
     if thermal_capacity < 30000.0 && !mass_outside {
         let k_insul = 0.04;     // W/(m·K) fiberglass
         let rho_insul = 12.0;   // kg/m³ (E+ fiberglass quilt)
         let cp_insul = 840.0;   // J/(kg·K)
 
-        if r_total > 5.0 {
-            // ── High-R: [insulation | timber interior] ─────────────────
+        if r_total > 20.0 {
+            // ── Very-high-R floor: [insulation | timber interior] ─────
             // E+ LTFLOOR: R-25 NoMass insulation + 25mm Timber Flooring
             // All specified thermal mass resides on the interior side.
+            // Only used for R > 20 (floor constructions with NoMass insulation).
             let k_int = 0.14;       // W/(m·K) timber
             let rho_int = 650.0;    // kg/m³
             let cp_int = 1200.0;    // J/(kg·K)
@@ -308,15 +322,8 @@ pub fn calculate_ctf_simple(u_factor: f64, thermal_capacity: f64, dt: f64, mass_
             let r_int = t_int / k_int;
             let r_insul_floor = (r_total - r_int).max(0.01);
 
-            // Insulation mass cap: 10% for very-high-R (floors, R > 10)
-            // where the real construction uses NoMass insulation, 20% for
-            // moderately-high-R (R 5-10, e.g. Case 680 walls at R=6.2).
-            // At 10%, Case 680 insulation k was artificially reduced from
-            // 0.04 to 0.026, making the wall too sluggish for free-float
-            // peaks (63°C vs expected 69-78°C).  At 20% the natural
-            // insulation mass (~15% of C) fits within the cap.
-            let cap_frac = if r_total > 10.0 { 0.10 } else { 0.20 };
-            let max_insul_mass = cap_frac * thermal_capacity;
+            // 10% cap for NoMass-like floor insulation (real mass ≈ 0).
+            let max_insul_mass = 0.10 * thermal_capacity;
             let max_insul_t = max_insul_mass / (rho_insul * cp_insul);
             let t_insul_raw = k_insul * r_insul_floor;
             let t_insul = t_insul_raw.max(0.001).min(max_insul_t.max(0.01));
@@ -327,9 +334,10 @@ pub fn calculate_ctf_simple(u_factor: f64, thermal_capacity: f64, dt: f64, mass_
             return calculate_ctf(&[insul_layer, int_layer], dt);
         }
 
-        // ── Moderate-R wall/roof: [wood ext | insulation | plasterboard int]
+        // ── Wall/roof: [wood ext | insulation | plasterboard int] ───────
         // E+ LTWALL: Wood Siding 9mm + Fiberglass 66mm + Plasterboard 12mm
         // E+ LTROOF: Roof Deck 19mm + Fiberglass 112mm + Plasterboard 10mm
+        // Also handles Case 680 increased-insulation variants (R up to ~10).
         //
         // Interior plasterboard sets Z₀ ≈ 80 W/(m²K), matching EnergyPlus.
         // Remaining mass goes to exterior wood finish, buffering outdoor
@@ -352,7 +360,11 @@ pub fn calculate_ctf_simple(u_factor: f64, thermal_capacity: f64, dt: f64, mass_
         let r_ext_lw = t_ext / k_ext;
         let r_insul_wr = (r_total - r_int_lw - r_ext_lw).max(0.01);
 
-        let max_insul_mass = 0.1 * thermal_capacity;
+        // Insulation mass cap: 20% for R ≤ 15 (real fiberglass, mass ≈ 15-19%),
+        // 10% for R > 15.  Case 680 roof (R=10.2) has 400mm fiberglass
+        // whose mass is 19% of total C — fits within 20% but not 10%.
+        let cap_frac = if r_insul_wr > 15.0 { 0.10 } else { 0.20 };
+        let max_insul_mass = cap_frac * thermal_capacity;
         let max_insul_t = max_insul_mass / (rho_insul * cp_insul);
         let t_insul_raw = k_insul * r_insul_wr;
         let t_insul = t_insul_raw.max(0.001).min(max_insul_t.max(0.01));
@@ -366,7 +378,17 @@ pub fn calculate_ctf_simple(u_factor: f64, thermal_capacity: f64, dt: f64, mass_
 
     // ─── Heavyweight / mass-outside constructions ────────────────────────────
     // Concrete/masonry mass (C ≥ 30 kJ/m²K or mass_outside = true).
-    let (k_mass, rho_mass, cp_mass) = (1.0, 2000.0, 1000.0);
+    //
+    // The mass material properties significantly affect transient response:
+    //   - Z[0] (interior surface CTF) ∝ sqrt(k × ρ × cp)
+    //   - Higher k and ρ → more surface thermal dampening → lower peak temps
+    //
+    // Defaults (k=1.0, ρ=2000) represent dense concrete. For concrete block
+    // (CMU), use k=0.51, ρ=1400 which gives 50% lower surface admittance
+    // and more realistic peak temperature predictions.
+    let k_mass = mass_conductivity.unwrap_or(1.0);
+    let rho_mass = mass_density.unwrap_or(2000.0);
+    let cp_mass = 1000.0;
     let t_mass = (thermal_capacity / (rho_mass * cp_mass)).max(0.01);
     let r_mass = t_mass / k_mass;
 
@@ -1262,7 +1284,7 @@ mod tests {
         // SimpleConstruction parameters:
         // u_factor = k/t = 1.729577/0.1014984 = 17.04
         // thermal_capacity = rho*cp*t = 2242.585 * 836.8 * 0.1014984 = 190422
-        let ctf_simple = calculate_ctf_simple(17.04, 190422.0, dt, false);
+        let ctf_simple = calculate_ctf_simple(17.04, 190422.0, dt, false, None, None);
 
         // Both should have multiple terms
         assert!(ctf_layered.num_terms >= 2);
@@ -1283,7 +1305,7 @@ mod tests {
     #[test]
     fn test_no_mass_construction() {
         // R13WALL: no thermal mass → steady-state CTF
-        let ctf = calculate_ctf_simple(0.4365, 0.0, 900.0, false);
+        let ctf = calculate_ctf_simple(0.4365, 0.0, 900.0, false, None, None);
         assert_eq!(ctf.num_terms, 1);
         assert_relative_eq!(ctf.x[0], 0.4365, max_relative = 0.01);
         assert_relative_eq!(ctf.y[0], 0.4365, max_relative = 0.01);
@@ -1527,7 +1549,7 @@ mod tests {
         let dt = 900.0;
 
         // Simple construction: U=0.559, C=14534
-        let ctf_simple = calculate_ctf_simple(0.559, 14534.0, dt, false);
+        let ctf_simple = calculate_ctf_simple(0.559, 14534.0, dt, false, None, None);
 
         // Layered construction: exact LTWALL layers
         let layers = vec![
@@ -1649,5 +1671,109 @@ mod tests {
         // At steady state (step 9), both should converge to U * ΔT
         // The NoMass version reaches steady state faster because it has
         // ~52% less thermal mass (19500 vs 29530 J/(m²K))
+    }
+
+    #[test]
+    fn test_hwwall_simple_vs_layered_ctf() {
+        // Compare Case 900 heavyweight wall: simplified (U+C) vs E+ explicit layers
+        //
+        // E+ HWWALL (from outside to inside):
+        //   Wood Siding 9mm (k=0.14, ρ=530, cp=900)
+        //   Foam Insulation 61.5mm (k=0.04, ρ=10, cp=1400)
+        //   Concrete Block 100mm (k=0.51, ρ=1400, cp=1000)
+        //
+        // Total R = 0.009/0.14 + 0.0615/0.04 + 0.1/0.51 = 0.064 + 1.538 + 0.196 = 1.798
+        // Total C = 530*900*0.009 + 10*1400*0.0615 + 1400*1000*0.1 = 4293 + 861 + 140000 = 145154
+        // U = 1/1.798 = 0.556 W/(m²K)
+
+        let dt = 900.0;
+
+        // E+ explicit layers
+        let layers = vec![
+            ResolvedLayer::new(0.14, 530.0, 900.0, 0.009),    // Wood Siding
+            ResolvedLayer::new(0.04, 10.0, 1400.0, 0.0615),   // Foam Insulation
+            ResolvedLayer::new(0.51, 1400.0, 1000.0, 0.1),    // Concrete Block
+        ];
+        let ctf_layered = calculate_ctf(&layers, dt);
+
+        // Simplified from U+C (what YAML currently uses)
+        // Current default (k=1.0, ρ=2000) — shows the difference
+        let ctf_simple = calculate_ctf_simple(0.556, 145154.0, dt, false, None, None);
+
+        // With E+ concrete block properties (k=0.51, ρ=1400)
+        let ctf_block = calculate_ctf_simple(0.556, 145154.0, dt, false,
+            Some(0.51), Some(1400.0));
+
+        println!("\n=== HWWALL: simple(U+C) vs block(k=0.51) vs layered(E+ materials) CTF ===");
+        println!("  Simple:  num_terms={}, Z[0]={:.4}, Y[0]={:.6}, X[0]={:.4}",
+            ctf_simple.num_terms, ctf_simple.z[0], ctf_simple.y[0], ctf_simple.x[0]);
+        println!("  Block:   num_terms={}, Z[0]={:.4}, Y[0]={:.6}, X[0]={:.4}",
+            ctf_block.num_terms, ctf_block.z[0], ctf_block.y[0], ctf_block.x[0]);
+        println!("  Layered: num_terms={}, Z[0]={:.4}, Y[0]={:.6}, X[0]={:.4}",
+            ctf_layered.num_terms, ctf_layered.z[0], ctf_layered.y[0], ctf_layered.x[0]);
+
+        let sum_y_s: f64 = ctf_simple.y.iter().sum();
+        let sum_z_s: f64 = ctf_simple.z.iter().sum();
+        let sum_phi_s: f64 = ctf_simple.phi.iter().sum();
+        let u_s = sum_y_s / (1.0 - sum_phi_s);
+        let u_z_s = sum_z_s / (1.0 - sum_phi_s);
+
+        let sum_y_l: f64 = ctf_layered.y.iter().sum();
+        let sum_z_l: f64 = ctf_layered.z.iter().sum();
+        let sum_phi_l: f64 = ctf_layered.phi.iter().sum();
+        let u_l = sum_y_l / (1.0 - sum_phi_l);
+        let u_z_l = sum_z_l / (1.0 - sum_phi_l);
+
+        println!("  Simple  U_y={:.4}, U_z={:.4}, sum(Phi)={:.6}", u_s, u_z_s, sum_phi_s);
+        println!("  Layered U_y={:.4}, U_z={:.4}, sum(Phi)={:.6}", u_l, u_z_l, sum_phi_l);
+
+        // Print CTF coefficients side by side
+        let max_terms = ctf_simple.num_terms.max(ctf_layered.num_terms);
+        println!("\n  j    Z_simple     Z_layered    Y_simple     Y_layered    X_simple     X_layered");
+        for j in 0..max_terms {
+            let zs = if j < ctf_simple.z.len() { ctf_simple.z[j] } else { 0.0 };
+            let zl = if j < ctf_layered.z.len() { ctf_layered.z[j] } else { 0.0 };
+            let ys = if j < ctf_simple.y.len() { ctf_simple.y[j] } else { 0.0 };
+            let yl = if j < ctf_layered.y.len() { ctf_layered.y[j] } else { 0.0 };
+            let xs = if j < ctf_simple.x.len() { ctf_simple.x[j] } else { 0.0 };
+            let xl = if j < ctf_layered.x.len() { ctf_layered.x[j] } else { 0.0 };
+            println!("  {j}  {zs:>12.4}  {zl:>12.4}  {ys:>12.4}  {yl:>12.4}  {xs:>12.4}  {xl:>12.4}");
+        }
+        println!("\n  j    Phi_simple    Phi_layered");
+        for j in 0..ctf_simple.phi.len().max(ctf_layered.phi.len()) {
+            let ps = if j < ctf_simple.phi.len() { ctf_simple.phi[j] } else { 0.0 };
+            let pl = if j < ctf_layered.phi.len() { ctf_layered.phi[j] } else { 0.0 };
+            println!("  {j}  {ps:>14.8}  {pl:>14.8}");
+        }
+
+        // Key diagnostic: surface thermal admittance
+        // Y_0_surface = Z[0] - Y[0] for interior surface response
+        let admit_s = ctf_simple.z[0] - ctf_simple.y[0];
+        let admit_b = ctf_block.z[0] - ctf_block.y[0];
+        let admit_l = ctf_layered.z[0] - ctf_layered.y[0];
+        println!("\n  Interior surface admittance Z[0]-Y[0]:");
+        println!("    Simple (k=1.0):  {:.4}", admit_s);
+        println!("    Block  (k=0.51): {:.4}", admit_b);
+        println!("    Layered (E+):    {:.4}", admit_l);
+        println!("    Simple/Layered:  {:.3}", admit_s / admit_l);
+        println!("    Block/Layered:   {:.3}", admit_b / admit_l);
+
+        // Step response comparison
+        let mut hist_s = CtfHistory::new(ctf_simple.num_terms.max(1), 20.0);
+        let mut hist_l = CtfHistory::new(ctf_layered.num_terms.max(1), 20.0);
+
+        println!("\n  Step response: T_out = 0°C, T_in = 20°C (heavy-mass wall)");
+        println!("  Step  q_in_simple  q_in_layered  ratio");
+        for step in 0..40 {
+            let t_out = if step == 0 { 20.0 } else { 0.0 };
+            let (q_s, qo_s) = apply_ctf(&ctf_simple, &hist_s, t_out, 20.0);
+            let (q_l, qo_l) = apply_ctf(&ctf_layered, &hist_l, t_out, 20.0);
+            let ratio = if q_l.abs() > 0.01 { q_s / q_l } else { 0.0 };
+            if step <= 15 || step % 5 == 0 || step == 39 {
+                println!("  {:>4}   {:>10.3}   {:>10.3}    {:.3}", step, q_s, q_l, ratio);
+            }
+            hist_s.shift(t_out, 20.0, q_s, qo_s);
+            hist_l.shift(t_out, 20.0, q_l, qo_l);
+        }
     }
 }

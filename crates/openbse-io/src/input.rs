@@ -7,10 +7,14 @@
 
 use openbse_components::boiler::Boiler;
 use openbse_components::chiller::AirCooledChiller;
+use openbse_components::chw_cooling_coil::CoolingCoilCHW;
 use openbse_components::cooling_coil::CoolingCoilDX;
 use openbse_components::fan::{Fan, FanType};
+use openbse_components::heat_pump_coil::HeatPumpHeatingCoil;
 use openbse_components::heat_recovery::HeatRecovery;
 use openbse_components::heating_coil::HeatingCoil;
+use openbse_components::pfp_box::PFPBox;
+use openbse_components::vav_box::{VAVBox, ReheatType};
 use openbse_controls::thermostat::{ZoneGroup, ZoneThermostat};
 use openbse_controls::setpoint::{SetpointController, PlantLoopSetpoint};
 use openbse_controls::Controller;
@@ -111,6 +115,12 @@ pub struct ModelInput {
     /// Ideal loads definitions (assignable to zones)
     #[serde(default)]
     pub ideal_loads: Vec<openbse_envelope::IdealLoadsTopLevel>,
+
+    // ─── Domestic Hot Water ──────────────────────────────────────────────────
+
+    /// Domestic hot water system definitions
+    #[serde(default)]
+    pub dhw_systems: Vec<DhwSystemInput>,
 
     // ─── Outputs ────────────────────────────────────────────────────────────
 
@@ -434,7 +444,7 @@ fn default_motor_in_airstream() -> f64 { 1.0 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HeatingCoilInput {
     pub name: String,
-    /// Heating coil source: "electric", "gas", "hot_water"
+    /// Heating coil source: "electric", "gas", "hot_water", "heat_pump"
     #[serde(default = "default_heating_source")]
     pub source: String,
     /// Nominal heating capacity [W]. Use `autosize` to let the engine calculate.
@@ -443,11 +453,32 @@ pub struct HeatingCoilInput {
     pub setpoint: f64,
     #[serde(default = "default_efficiency")]
     pub efficiency: f64,
+
+    // ─── Heat pump fields (only used when source: heat_pump) ────────
+    /// Rated COP for heat pump (default 3.0)
+    #[serde(default = "default_hp_cop")]
+    pub cop: f64,
+    /// Rated airflow [m³/s] for heat pump
+    #[serde(default)]
+    pub rated_airflow: f64,
+    /// Supplemental electric resistance capacity [W] (0 = none)
+    #[serde(default)]
+    pub supplemental_capacity: f64,
+    /// Compressor lockout temperature [°C] (default: -17.78 / 0°F)
+    #[serde(default)]
+    pub lockout_temp: Option<f64>,
+    /// Performance curve name for capacity f(T_outdoor)
+    #[serde(default)]
+    pub cap_ft_curve: Option<String>,
+    /// Performance curve name for EIR f(T_outdoor)
+    #[serde(default)]
+    pub eir_ft_curve: Option<String>,
 }
 
 fn default_heating_source() -> String { "electric".to_string() }
 fn default_setpoint() -> f64 { 35.0 }
 fn default_efficiency() -> f64 { 1.0 }
+fn default_hp_cop() -> f64 { 3.0 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CoolingCoilInput {
@@ -457,7 +488,7 @@ pub struct CoolingCoilInput {
     pub source: String,
     /// Rated total cooling capacity [W]. Use `autosize` to let the engine calculate.
     pub capacity: AutosizeValue,
-    /// Rated COP (coefficient of performance)
+    /// Rated COP (coefficient of performance) — used for DX source only
     #[serde(default = "default_cop")]
     pub cop: f64,
     /// Rated sensible heat ratio [0-1]
@@ -475,12 +506,28 @@ pub struct CoolingCoilInput {
     /// Reference to a top-level performance curve name for EIR f(T)
     #[serde(default)]
     pub eir_ft_curve: Option<String>,
+
+    // ─── Chilled water fields (only used when source: chilled_water) ──
+    /// Design chilled water flow rate [m³/s]
+    #[serde(default)]
+    pub design_water_flow_rate: f64,
+    /// Design CHW supply temperature [°C] (default 6.7 / 44°F)
+    #[serde(default = "default_chw_supply_temp")]
+    pub design_water_inlet_temp: f64,
+    /// Design CHW return temperature [°C] (default 12.2 / 54°F)
+    #[serde(default = "default_chw_return_temp")]
+    pub design_water_outlet_temp: f64,
+    /// Plant loop name this coil connects to
+    #[serde(default)]
+    pub plant_loop: Option<String>,
 }
 
 fn default_cooling_source() -> String { "dx".to_string() }
 fn default_cop() -> f64 { 3.5 }
 fn default_shr() -> f64 { 0.8 }
 fn default_dx_coil_setpoint() -> f64 { 13.0 }
+fn default_chw_supply_temp() -> f64 { 6.7 }
+fn default_chw_return_temp() -> f64 { 12.2 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HeatRecoveryInput {
@@ -499,12 +546,109 @@ pub struct HeatRecoveryInput {
 fn default_hr_source() -> String { "wheel".to_string() }
 fn default_sensible_effectiveness() -> f64 { 0.76 }
 
+/// Zone connection — links a zone to an air loop, optionally with a terminal box.
+///
+/// ```yaml
+/// zones:
+///   - zone: South Perimeter
+///     terminal:
+///       type: vav_box
+///       name: VAV Box South
+///       max_air_flow: autosize
+///       min_flow_fraction: 0.30
+///       reheat_type: hot_water
+///       reheat_capacity: autosize
+/// ```
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ZoneConnection {
     pub zone: String,
+    /// Terminal box for this zone (VAV box, PFP box, or omitted for direct connection)
     #[serde(default)]
-    pub terminal: Option<String>,
+    pub terminal: Option<TerminalInput>,
 }
+
+/// Terminal box types for zone connections.
+///
+/// Terminal boxes sit between the AHU supply duct and the zone.
+/// They modulate airflow, provide reheat, and optionally add
+/// secondary fan power (PFP boxes).
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum TerminalInput {
+    /// Variable Air Volume box with optional reheat
+    #[serde(rename = "vav_box")]
+    VavBox(VavBoxInput),
+    /// Parallel Fan-Powered box with electric reheat
+    #[serde(rename = "pfp_box")]
+    PfpBox(PfpBoxInput),
+}
+
+/// VAV box input — variable air volume terminal with optional reheat coil.
+///
+/// ```yaml
+/// terminal:
+///   type: vav_box
+///   name: VAV Box South
+///   max_air_flow: autosize
+///   min_flow_fraction: 0.30
+///   reheat_type: hot_water       # "none", "electric", "hot_water"
+///   reheat_capacity: autosize
+///   max_reheat_temp: 35.0
+///   plant_loop: HHW Loop         # required for hot_water reheat
+/// ```
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VavBoxInput {
+    pub name: String,
+    /// Maximum primary air flow [kg/s]. Use `autosize` to let the engine calculate.
+    pub max_air_flow: AutosizeValue,
+    /// Minimum flow fraction [0-1] (default 0.30)
+    #[serde(default = "default_min_flow_fraction")]
+    pub min_flow_fraction: f64,
+    /// Reheat coil type: "none", "electric", "hot_water" (default: "none")
+    #[serde(default = "default_reheat_type")]
+    pub reheat_type: String,
+    /// Reheat coil capacity [W]. Use `autosize` to let the engine calculate.
+    #[serde(default)]
+    pub reheat_capacity: AutosizeValue,
+    /// Maximum reheat discharge air temperature [°C] (default 35.0)
+    #[serde(default)]
+    pub max_reheat_temp: Option<f64>,
+    /// Plant loop name for hot water reheat
+    #[serde(default)]
+    pub plant_loop: Option<String>,
+}
+
+/// Parallel fan-powered box input — secondary fan + electric reheat.
+///
+/// ```yaml
+/// terminal:
+///   type: pfp_box
+///   name: PFP Box Core
+///   max_primary_flow: autosize
+///   min_primary_fraction: 0.30
+///   secondary_fan_flow: 0.5
+///   reheat_capacity: 5000
+/// ```
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PfpBoxInput {
+    pub name: String,
+    /// Maximum primary air flow [kg/s]. Use `autosize` to let the engine calculate.
+    pub max_primary_flow: AutosizeValue,
+    /// Minimum primary flow fraction [0-1] (default 0.30)
+    #[serde(default = "default_min_flow_fraction")]
+    pub min_primary_fraction: f64,
+    /// Secondary fan flow rate [kg/s]. Use `autosize` to let the engine calculate.
+    pub secondary_fan_flow: AutosizeValue,
+    /// Electric reheat coil capacity [W]. Use `autosize` to let the engine calculate.
+    #[serde(default)]
+    pub reheat_capacity: AutosizeValue,
+    /// Secondary air (plenum) temperature [°C] (default: zone return air temp)
+    #[serde(default)]
+    pub secondary_air_temp: Option<f64>,
+}
+
+fn default_min_flow_fraction() -> f64 { 0.30 }
+fn default_reheat_type() -> String { "none".to_string() }
 
 /// Plant loop input definition.
 #[derive(Debug, Serialize, Deserialize)]
@@ -653,6 +797,99 @@ pub struct ParametricRun {
     pub overrides: std::collections::HashMap<String, f64>,
 }
 
+// ─── Domestic Hot Water ──────────────────────────────────────────────────────
+
+/// Domestic hot water system definition.
+///
+/// A DHW system consists of a water heater, one or more draw profiles (loads),
+/// and a cold water inlet (mains) temperature. The water heater maintains a
+/// storage tank at a setpoint temperature; loads draw hot water and replace it
+/// with cold mains water.
+///
+/// ```yaml
+/// dhw_systems:
+///   - name: Residential DHW
+///     mains_temperature: 10.0
+///     water_heater:
+///       name: Gas Water Heater
+///       fuel_type: gas
+///       tank_volume: 189
+///       capacity: 11720
+///       efficiency: 0.80
+///       setpoint: 60.0
+///       ua_standby: 2.0
+///     loads:
+///       - name: Domestic Hot Water
+///         peak_flow_rate: 0.0003
+///         schedule: DHW Schedule
+///         use_temperature: 43.3
+/// ```
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DhwSystemInput {
+    pub name: String,
+    /// Water heater equipment
+    pub water_heater: WaterHeaterInput,
+    /// Hot water draw profiles
+    #[serde(default)]
+    pub loads: Vec<DhwLoadInput>,
+    /// Cold water mains temperature [°C] (default 10.0)
+    #[serde(default = "default_mains_temp")]
+    pub mains_temperature: f64,
+}
+
+/// Water heater equipment input.
+///
+/// Models a storage tank water heater with deadband thermostat control.
+/// Fuel types: gas (burner), electric (resistance element), or heat_pump (HPWH).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WaterHeaterInput {
+    pub name: String,
+    /// Fuel type: "gas", "electric", "heat_pump" (default: "gas")
+    #[serde(default = "default_dhw_fuel")]
+    pub fuel_type: String,
+    /// Tank storage volume [liters]
+    pub tank_volume: f64,
+    /// Burner/element input capacity [W]
+    pub capacity: f64,
+    /// Thermal efficiency [0-1] for gas/electric, COP for heat_pump (default 0.80)
+    #[serde(default = "default_wh_efficiency")]
+    pub efficiency: f64,
+    /// Tank setpoint temperature [°C] (default 60.0)
+    #[serde(default = "default_wh_setpoint")]
+    pub setpoint: f64,
+    /// Standby loss coefficient [W/K] (default 2.0)
+    #[serde(default = "default_wh_ua")]
+    pub ua_standby: f64,
+    /// Thermostat deadband [°C] (default 5.0)
+    #[serde(default = "default_wh_deadband")]
+    pub deadband: f64,
+}
+
+/// DHW draw profile (load).
+///
+/// Each load represents a hot water end use (showers, sinks, laundry, etc.)
+/// with a peak flow rate and a schedule that modulates it over time.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DhwLoadInput {
+    pub name: String,
+    /// Peak hot water draw rate [L/s]
+    pub peak_flow_rate: f64,
+    /// Schedule name (fraction 0-1 of peak flow). If absent, always at peak.
+    #[serde(default)]
+    pub schedule: Option<String>,
+    /// Target use temperature at the fixture [°C] (default 43.3 / 110°F)
+    #[serde(default = "default_use_temp")]
+    pub use_temperature: f64,
+}
+
+fn default_mains_temp() -> f64 { 10.0 }
+fn default_dhw_fuel() -> String { "gas".to_string() }
+fn default_wh_efficiency() -> f64 { 0.80 }
+fn default_wh_setpoint() -> f64 { 60.0 }
+fn default_wh_ua() -> f64 { 2.0 }
+fn default_wh_deadband() -> f64 { 5.0 }
+fn default_use_temp() -> f64 { 43.3 }
+
 // ─── Model Builder ───────────────────────────────────────────────────────────
 
 /// Parse a YAML model file and build the simulation graph.
@@ -708,42 +945,105 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                 }
                 EquipmentInput::HeatingCoil(c) => {
                     let cap = c.capacity.to_f64();
-                    let coil = match c.source.as_str() {
-                        "hot_water" | "HotWater" => HeatingCoil::hot_water(
-                            &c.name,
-                            cap,
-                            c.setpoint,
-                            0.001,  // default water flow
-                            82.0,   // default water inlet temp
-                            71.0,   // default water outlet temp
-                        ),
-                        "gas" | "Gas" | "furnace" | "Furnace" => HeatingCoil::gas(
-                            &c.name,
-                            cap,
-                            c.setpoint,
-                            c.efficiency,
-                        ),
-                        _ => HeatingCoil::electric(&c.name, cap, c.setpoint),
-                    };
-                    graph.add_air_component(Box::new(coil))
+                    match c.source.as_str() {
+                        "heat_pump" | "HeatPump" | "hp" => {
+                            // Air-source heat pump DX heating coil
+                            let rated_airflow = if c.rated_airflow > 0.0 {
+                                c.rated_airflow
+                            } else {
+                                // Default: derive from capacity (500 CFM/ton ≈ 0.0568 m³/s per 3517W)
+                                cap / 3517.0 * 0.0568
+                            };
+                            let mut coil = HeatPumpHeatingCoil::new(
+                                &c.name,
+                                cap,
+                                c.cop,
+                                rated_airflow,
+                                c.setpoint,
+                            );
+                            if c.supplemental_capacity > 0.0 {
+                                coil = coil.with_supplemental(c.supplemental_capacity);
+                            }
+                            if let Some(lockout) = c.lockout_temp {
+                                coil = coil.with_lockout_temp(lockout);
+                            }
+                            // Look up optional performance curves by name
+                            let cap_curve = c.cap_ft_curve.as_ref().and_then(|name| {
+                                model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                            });
+                            let eir_curve = c.eir_ft_curve.as_ref().and_then(|name| {
+                                model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                            });
+                            coil = coil.with_curves(cap_curve, eir_curve);
+                            graph.add_air_component(Box::new(coil))
+                        }
+                        "hot_water" | "HotWater" => {
+                            let coil = HeatingCoil::hot_water(
+                                &c.name,
+                                cap,
+                                c.setpoint,
+                                0.001,  // default water flow
+                                82.0,   // default water inlet temp
+                                71.0,   // default water outlet temp
+                            );
+                            graph.add_air_component(Box::new(coil))
+                        }
+                        "gas" | "Gas" | "furnace" | "Furnace" => {
+                            let coil = HeatingCoil::gas(
+                                &c.name,
+                                cap,
+                                c.setpoint,
+                                c.efficiency,
+                            );
+                            graph.add_air_component(Box::new(coil))
+                        }
+                        _ => {
+                            let coil = HeatingCoil::electric(&c.name, cap, c.setpoint);
+                            graph.add_air_component(Box::new(coil))
+                        }
+                    }
                 }
                 EquipmentInput::CoolingCoil(c) => {
-                    // Look up optional performance curves by name
-                    let cap_curve = c.cap_ft_curve.as_ref().and_then(|name| {
-                        model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
-                    });
-                    let eir_curve = c.eir_ft_curve.as_ref().and_then(|name| {
-                        model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
-                    });
-                    let coil = CoolingCoilDX::new(
-                        &c.name,
-                        c.capacity.to_f64(),
-                        c.cop,
-                        c.shr,
-                        c.rated_airflow.to_f64(),
-                        c.setpoint,
-                    ).with_curves(cap_curve, eir_curve);
-                    graph.add_air_component(Box::new(coil))
+                    match c.source.as_str() {
+                        "chilled_water" | "ChilledWater" | "chw" => {
+                            // Chilled water cooling coil (connected to CHW plant loop)
+                            let water_flow = if c.design_water_flow_rate > 0.0 {
+                                c.design_water_flow_rate
+                            } else {
+                                // Default: derive from capacity (2.4 GPM/ton ≈ 0.000151 m³/s per 3517W)
+                                let cap = c.capacity.to_f64();
+                                if cap > 0.0 { cap / 3517.0 * 0.000151 } else { 0.001 }
+                            };
+                            let coil = CoolingCoilCHW::new(
+                                &c.name,
+                                c.capacity.to_f64(),
+                                c.shr,
+                                c.setpoint,
+                                water_flow,
+                                c.design_water_inlet_temp,
+                                c.design_water_outlet_temp,
+                            );
+                            graph.add_air_component(Box::new(coil))
+                        }
+                        _ => {
+                            // DX cooling coil (default)
+                            let cap_curve = c.cap_ft_curve.as_ref().and_then(|name| {
+                                model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                            });
+                            let eir_curve = c.eir_ft_curve.as_ref().and_then(|name| {
+                                model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                            });
+                            let coil = CoolingCoilDX::new(
+                                &c.name,
+                                c.capacity.to_f64(),
+                                c.cop,
+                                c.shr,
+                                c.rated_airflow.to_f64(),
+                                c.setpoint,
+                            ).with_curves(cap_curve, eir_curve);
+                            graph.add_air_component(Box::new(coil))
+                        }
+                    }
                 }
                 EquipmentInput::HeatRecovery(hr) => {
                     let erv = match hr.source.as_str() {
@@ -768,6 +1068,48 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                 graph.connect_air(prev, node);
             }
             prev_node = Some(node);
+        }
+
+        // Build terminal boxes from zone connections.
+        // Terminal boxes are air components that sit between the AHU supply duct
+        // and each zone. They are connected after the last supply-side component.
+        for zc in &air_loop.zones {
+            if let Some(ref terminal) = zc.terminal {
+                let terminal_node = match terminal {
+                    TerminalInput::VavBox(vb) => {
+                        let reheat = match vb.reheat_type.as_str() {
+                            "electric" | "Electric" => ReheatType::Electric,
+                            "hot_water" | "HotWater" | "hw" => ReheatType::HotWater,
+                            _ => ReheatType::None,
+                        };
+                        let box_component = VAVBox::new(
+                            &vb.name,
+                            &zc.zone,
+                            vb.max_air_flow.to_f64(),
+                            vb.min_flow_fraction,
+                            reheat,
+                            vb.reheat_capacity.to_f64(),
+                        );
+                        graph.add_air_component(Box::new(box_component))
+                    }
+                    TerminalInput::PfpBox(pb) => {
+                        let box_component = PFPBox::new(
+                            &pb.name,
+                            &zc.zone,
+                            pb.max_primary_flow.to_f64(),
+                            pb.min_primary_fraction,
+                            pb.secondary_fan_flow.to_f64(),
+                            pb.reheat_capacity.to_f64(),
+                        );
+                        graph.add_air_component(Box::new(box_component))
+                    }
+                };
+
+                // Connect terminal to the last supply-side component
+                if let Some(prev) = prev_node {
+                    graph.connect_air(prev, terminal_node);
+                }
+            }
         }
     }
 

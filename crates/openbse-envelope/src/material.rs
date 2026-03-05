@@ -344,6 +344,16 @@ pub struct SimpleConstruction {
     /// ASHRAE 140 Case 900 where concrete block is on the exterior.
     #[serde(default)]
     pub mass_outside: bool,
+    /// Thermal conductivity of the mass layer [W/(m·K)].
+    /// Optional — defaults to 1.0 (generic concrete). Set to 0.51 for
+    /// concrete block (CMU), 1.4 for poured concrete, etc. Only applies
+    /// to heavyweight constructions (thermal_capacity ≥ 30 kJ/m²K).
+    pub mass_conductivity: Option<f64>,
+    /// Density of the mass layer [kg/m³].
+    /// Optional — defaults to 2000 (generic concrete). Set to 1400 for
+    /// concrete block (CMU), 2300 for poured concrete, etc. Only applies
+    /// to heavyweight constructions (thermal_capacity ≥ 30 kJ/m²K).
+    pub mass_density: Option<f64>,
 }
 
 fn default_simple_thickness() -> f64 { 0.2 }

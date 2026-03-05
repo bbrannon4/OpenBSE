@@ -175,6 +175,12 @@ pub struct SurfaceState {
     /// properties are not provided.
     pub glass_n: f64,
     // ── First-principles window gap thermal model ─────────────────────
+    /// Rated glass-only conductance [W/(m²·K)] — NFRC-derived value.
+    /// Used as an upper cap for the dynamic gap model to prevent the
+    /// window from becoming more conductive than its NFRC rating at
+    /// extreme temperatures (radiation through the gap scales as T³).
+    /// Equal to u_glass when no gap model is used.
+    pub u_glass_rated: f64,
     /// Gap width [m] for dynamic ISO 15099 window thermal model.
     /// When > 0, u_glass is recomputed each timestep from pane + gap
     /// properties instead of using the fixed NFRC film-stripped value.

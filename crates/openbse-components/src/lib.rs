@@ -1,7 +1,14 @@
 pub mod fan;
 pub mod heating_coil;
 pub mod cooling_coil;
+pub mod chw_cooling_coil;
+pub mod heat_pump_coil;
+pub mod vav_box;
+pub mod pfp_box;
 pub mod heat_recovery;
 pub mod performance_curve;
 pub mod boiler;
 pub mod chiller;
+pub mod pump;
+pub mod cooling_tower;
+pub mod water_heater;

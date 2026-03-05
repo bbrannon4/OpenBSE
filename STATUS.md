@@ -1,12 +1,12 @@
 # OpenBSE Project Status
 
-Last updated: 2026-02-23
+Last updated: 2026-03-02
 
 ## What Works (Functional)
 
 ### Simulation Engine
 - Single-zone and multi-zone heat balance (RC network) with timestep marching
-- ASHRAE Standard 140-2023 Cases 600/610/620/630/900/910/920/930 validated (14/16 metrics pass)
+- ASHRAE Standard 140-2023 all 27 Section 7 cases validated (53/63 metrics pass, 84.1%, all remaining failures <10%)
 - Weather file processing (EPW/CSV format)
 - Design-day autosizing for fans, coils, boilers, chillers
 - Annual, multi-month, and custom period simulations
@@ -71,7 +71,7 @@ Last updated: 2026-02-23
 ### Tests
 - 180 unit tests across all crates (100% passing)
 - 8 example YAML files covering all system types
-- 29 ASHRAE 140 validation case files (8 primary cases: 600, 610, 620, 630, 900, 910, 920, 930)
+- 27 ASHRAE 140-2023 Section 7 validation case files (all cases: 600-670, 680, 685, 695, 900-960, 980, 985, 995)
 
 ---
 
@@ -85,24 +85,37 @@ Last updated: 2026-02-23
 - [ ] Chilled water cooling coil model (`source: chilled_water` on CoolingCoilInput)
 - [ ] Connect heat recovery exhaust conditions to actual zone return air (currently uses fixed 22-24C proxy)
 
-### Medium Priority
+### Medium Priority — HVAC Components (90.1 Appendix G coverage)
+- [ ] Heat pump DX heating coil (air-source, with defrost and supplemental electric — needed for Systems 2, 4)
+- [ ] VAV terminal box with reheat (damper + HW or electric reheat coil — needed for Systems 5, 7)
+- [ ] Parallel fan-powered (PFP) terminal box (damper + fan + electric reheat — needed for Systems 6, 8)
+- [ ] Plant loop iteration/convergence (supply temp → coil demand → plant equipment, currently single-pass)
+- [ ] PTAC/PTHP zone-level unitary equipment (needed for Systems 1, 2)
 - [ ] Dehumidification modeling in DX coils (currently sensible-only, humidity passes through)
 - [ ] Latent load handling in zone heat balance
 - [ ] Multi-speed and variable-speed DX coils
-- [ ] Heat pump models (air-source, water-source)
 - [ ] Demand-controlled ventilation (CO2-based)
 - [ ] Condenser water loops and cooling towers (components exist but not integrated)
 - [ ] Pumps for hot water and chilled water loops (component exists)
 - [ ] Zone air distribution effectiveness
 - [ ] Return air path modeling (currently simplified)
 
+### Medium Priority — Solar Distribution
+- [ ] FullInteriorAndExterior solar distribution (geometric beam projection through windows onto interior surfaces, with window back-out — will fix remaining ASHRAE 140 cooling failures)
+
+### Medium Priority — Heat Pump Innovations (key differentiator vs E+)
+- [ ] Air-to-water heat pump plant component (reversible, with defrost, variable-speed option)
+- [ ] VRF system (outdoor unit + indoor terminals, heat recovery, DOAS integration)
+- [ ] Variable-speed / inverter-driven compressor model (map-based or equation-fit, accepts AHRI/EN14825 catalog data)
+- [ ] Water-to-water heat pump + ground heat exchanger (vertical bore g-function model)
+- [ ] Cold climate / mini-split ductless heat pump (NEEP-aligned performance curves)
+
 ### Lower Priority
+- [ ] Full ray-tracing solar distribution (Radiance-style, for daylighting analysis)
 - [ ] Full parametric run execution in CLI (schema defined, output writer exists, execution engine not complete)
 - [ ] JSON schema validation against input files
 - [ ] IDF/gbXML import converters
 - [ ] Radiant heating/cooling systems
-- [ ] VRF (variable refrigerant flow) systems
-- [ ] Ground source heat pumps
 - [ ] Thermal energy storage
 - [ ] Solar thermal collectors
 - [ ] Daylighting controls

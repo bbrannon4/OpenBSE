@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 openbse-core.workspace = true
 openbse-io.workspace = true
+openbse-components.workspace = true
 openbse-weather.workspace = true
 openbse-envelope.workspace = true
 openbse-controls.workspace = true
