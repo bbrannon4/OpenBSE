@@ -272,6 +272,7 @@ def build_model():
                     'heating_supply_temp': 32.2,
                     'cooling_supply_temp': 12.8,
                     'design_zone_flow': 'autosize',
+                    'minimum_damper_position': 0.0,
                 },
                 'equipment': [
                     {
@@ -329,6 +330,7 @@ def build_model():
                     'heating_supply_temp': 32.2,
                     'cooling_supply_temp': 12.8,
                     'design_zone_flow': 'autosize',
+                    'minimum_damper_position': 0.0,
                 },
                 'equipment': [
                     {

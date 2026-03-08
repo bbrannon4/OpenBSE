@@ -2418,10 +2418,15 @@ impl EnvelopeSolver for BuildingEnvelope {
                     .copied()
                     .unwrap_or(true); // default: suppress OA when HVAC is running
 
-                let oa_to_zone = if ctx.is_sizing {
-                    // Sizing: exclude OA so HVAC equipment is sized without
-                    // ventilation load (ERV/DOAS handles it separately)
+                let oa_to_zone = if ctx.is_sizing && hvac_handles_oa {
+                    // Sizing: exclude zone OA when HVAC handles it (VAV/PSZ-AC
+                    // mix OA into the supply stream, sized via coil ΔT)
                     0.0
+                } else if ctx.is_sizing && !hvac_handles_oa {
+                    // Sizing with separate ventilation (ERV/DOAS handles OA
+                    // independently): include zone OA so equipment is sized
+                    // for the full ventilation load
+                    zone.outdoor_air_mass_flow
                 } else if zone.supply_air_mass_flow > 0.0 && hvac_handles_oa {
                     // External HVAC loop handles OA: suppress zone OA
                     0.0

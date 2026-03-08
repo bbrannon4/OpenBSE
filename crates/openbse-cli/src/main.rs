@@ -910,6 +910,13 @@ fn main() -> Result<()> {
                         hvac_conds.supply_temps.insert(zone_name.clone(), *supply_temp);
                         hvac_conds.supply_mass_flows.insert(zone_name.clone(), *mass_flow);
                     }
+                    // Populate OA handling flags for warmup too
+                    for li in &loop_infos {
+                        let handles_oa = li.min_oa_fraction > 0.001;
+                        for zone_name in &li.served_zones {
+                            hvac_conds.oa_handled_by_hvac.insert(zone_name.clone(), handles_oa);
+                        }
+                    }
                     hvac_conds.cooling_setpoints = zone_cooling_setpoints.clone();
                     hvac_conds.heating_setpoints = zone_heating_setpoints.clone();
 
@@ -1319,6 +1326,16 @@ fn main() -> Result<()> {
                             if zone_conditioned {
                                 hvac_conds.supply_temps.insert(zone_name.clone(), *supply_temp);
                                 hvac_conds.supply_mass_flows.insert(zone_name.clone(), *mass_flow);
+                            }
+                        }
+                        // Tell the envelope which zones have HVAC-handled OA.
+                        // If a zone's air loop has min_oa_fraction > 0, HVAC handles OA
+                        // and zone-level OA should be suppressed. If min_oa_fraction == 0,
+                        // zone OA flows directly (like E+ separate ERV configuration).
+                        for li in &loop_infos {
+                            let handles_oa = li.min_oa_fraction > 0.001;
+                            for zone_name in &li.served_zones {
+                                hvac_conds.oa_handled_by_hvac.insert(zone_name.clone(), handles_oa);
                             }
                         }
                         // Pass setpoints so envelope can compute ideal loads at setpoint
@@ -1976,7 +1993,7 @@ fn simulate_all_loops(
                 } else if mode == HvacMode::Heating {
                     1.0
                 } else {
-                    // True deadband: maintain minimum OA ventilation.
+                    // True deadband: maintain minimum OA ventilation
                     effective_min_oa
                 }
             } else {
@@ -2448,12 +2465,13 @@ fn build_fcu_signals(
 
     let mode = hvac_mode(zone_temp, heat_sp, cool_sp);
 
-    // PTAC: Fan:OnOff runs at full design flow continuously (E+ "COMPACT
-    // HVAC-ALWAYS 1" = continuous fan mode). Coils cycle to meet load.
+    // PTAC Fan:OnOff — fan runs continuously at design flow (E+ continuous mode).
+    // With PTAC OA=0 and zone OA flowing directly (ERV equivalent), the fan
+    // recirculates zone air only, adding fan heat. Fan cycling requires an
+    // ERV component to properly decouple ventilation from PTAC operation.
     // FCU: modulates fan speed proportionally.
     let is_ptac = li.system_type == AirLoopSystemType::Ptac;
     let flow = if is_ptac {
-        // PTAC: constant volume fan at full design flow
         design_flow
     } else {
         // FCU modulates fan speed: deadband = 20%, heating/cooling = proportional
@@ -2474,13 +2492,10 @@ fn build_fcu_signals(
         }
     };
 
-    // PTAC: mixes outdoor air (OA fraction from design) with return air.
-    // Although E+ IDF shows PTAC OA = 0 with a separate ERV, our model
-    // handles this equivalently by mixing OA directly in the PTAC supply
-    // stream and suppressing zone OA when the PTAC runs. This avoids the
-    // issue of ventilation OA entering continuously during non-conditioning
-    // periods (which the ideal-load approach can't properly account for).
-    // FCU: recirculates zone air only (OA fraction = 0).
+    // PTAC OA = 0 (matching E+): PTAC recirculates zone air only.
+    // Zone ventilation is handled independently by zone outdoor_air spec
+    // (equivalent to E+ separate ERV with 0% effectiveness).
+    // FCU: also recirculates zone air only (OA fraction = 0).
     let oa_frac = if is_ptac { li.min_oa_fraction } else { 0.0 };
     let mixed_air_temp = (1.0 - oa_frac) * zone_temp + oa_frac * t_outdoor;
 

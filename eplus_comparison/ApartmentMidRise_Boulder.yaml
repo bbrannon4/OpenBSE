@@ -5094,6 +5094,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan G SW Apt
@@ -5125,6 +5126,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan G S1 Apt
@@ -5156,6 +5158,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan G S2 Apt
@@ -5187,6 +5190,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan Office
@@ -5218,6 +5222,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan G NW Apt
@@ -5249,6 +5254,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan G N1 Apt
@@ -5280,6 +5286,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan G N2 Apt
@@ -5311,6 +5318,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan G NE Apt
@@ -5342,6 +5350,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan M SW Apt
@@ -5373,6 +5382,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan M S1 Apt
@@ -5404,6 +5414,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan M S2 Apt
@@ -5435,6 +5446,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan M SE Apt
@@ -5466,6 +5478,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan M NW Apt
@@ -5497,6 +5510,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan M N1 Apt
@@ -5528,6 +5542,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan M N2 Apt
@@ -5559,6 +5574,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan M NE Apt
@@ -5590,6 +5606,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan T SW Apt
@@ -5621,6 +5638,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan T S1 Apt
@@ -5652,6 +5670,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan T S2 Apt
@@ -5683,6 +5702,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan T SE Apt
@@ -5714,6 +5734,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan T NW Apt
@@ -5745,6 +5766,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan T N1 Apt
@@ -5776,6 +5798,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan T N2 Apt
@@ -5807,6 +5830,7 @@ air_loops:
     heating_supply_temp: 32.2
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
+    minimum_damper_position: 0.0
   equipment:
   - type: fan
     name: Fan T NE Apt
