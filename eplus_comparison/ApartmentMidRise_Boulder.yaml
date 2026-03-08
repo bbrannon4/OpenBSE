@@ -8,8 +8,6 @@ simulation:
   start_day: 1
   end_month: 12
   end_day: 31
-  # E+ default Site:GroundTemperature:BuildingSurface = 18°C for all months
-  ground_surface_temperatures: [18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18]
 weather_files:
 - Boulder.epw
 design_days:
@@ -595,60 +593,6 @@ schedules:
   - 1
   - 1
   - 1
-# Natural ventilation availability schedule (sliding doors open 6am-10pm)
-# E+ Schedule: Sliding_Doors_Ventilation_Availability_SCH
-# Design days: 0 (handled in code — nat vent skipped during sizing)
-- name: Sliding Door Vent
-  weekday:
-  - 0  # 00:00
-  - 0  # 01:00
-  - 0  # 02:00
-  - 0  # 03:00
-  - 0  # 04:00
-  - 0  # 05:00
-  - 1  # 06:00
-  - 1  # 07:00
-  - 1  # 08:00
-  - 1  # 09:00
-  - 1  # 10:00
-  - 1  # 11:00
-  - 1  # 12:00
-  - 1  # 13:00
-  - 1  # 14:00
-  - 1  # 15:00
-  - 1  # 16:00
-  - 1  # 17:00
-  - 1  # 18:00
-  - 1  # 19:00
-  - 1  # 20:00
-  - 1  # 21:00
-  - 0  # 22:00
-  - 0  # 23:00
-  weekend:
-  - 0
-  - 0
-  - 0
-  - 0
-  - 0
-  - 0
-  - 1
-  - 1
-  - 1
-  - 1
-  - 1
-  - 1
-  - 1
-  - 1
-  - 1
-  - 1
-  - 1
-  - 1
-  - 1
-  - 1
-  - 1
-  - 1
-  - 0
-  - 0
 materials:
 - name: Stucco
   conductivity: 0.72
@@ -720,21 +664,9 @@ materials:
   solar_absorptance: 0.7
   thermal_absorptance: 0.9
   roughness: rough
-# Virtual insulation layer representing ground thermal resistance.
-# Matches E+ F-Factor ground floor: F=1.264 W/(m·K), Area=88.28 m², Perimeter=37.68 m.
-# Effective R_total = Area/(F×Peri) = 1.855 m²·K/W.
-# R_ground_insul = 1.855 - 0.11(film) - 0.217(carpet) - 0.155(conc) = 1.373 m²·K/W.
 - name: Slab Ground Insulation
   conductivity: 0.04
   density: 28
-  specific_heat: 1210
-  solar_absorptance: 0.7
-  thermal_absorptance: 0.9
-  roughness: medium_smooth
-# Internal thermal mass material (furniture, contents, partitions)
-- name: Std Wood 6inch
-  conductivity: 0.12
-  density: 540
   specific_heat: 1210
   solar_absorptance: 0.7
   thermal_absorptance: 0.9
@@ -776,19 +708,6 @@ constructions:
     thickness: 0.1
   - material: Metal Deck
     thickness: 0.0008
-- name: Ground Floor Slab
-  layers:
-  - material: Carpet Pad
-    thickness: 0.013
-  - material: Concrete 8in HW
-    thickness: 0.2032
-  - material: Slab Ground Insulation
-    thickness: 0.055
-# Internal thermal mass construction (furniture, contents)
-- name: InteriorFurnishings
-  layers:
-  - material: Std Wood 6inch
-    thickness: 0.15
 simple_constructions:
 - name: Interior Partition
   u_factor: 4.0
@@ -802,6 +721,12 @@ simple_constructions:
   thermal_capacity: 200000.0
   solar_absorptance: 0.7
   thermal_absorptance: 0.9
+- name: Ground Floor Slab
+  u_factor: 0.2
+  thickness: 0.27
+  thermal_capacity: 400000.0
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
 window_constructions:
 - name: Res Window
   u_factor: 3.237
@@ -811,142 +736,27 @@ zones:
 - name: G SW Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 180.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: G S1 Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 180.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: G S2 Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 180.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: Office
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
 - name: G NW Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 0.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: G N1 Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 0.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: G N2 Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 0.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: G NE Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 0.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: G Corridor
   volume: 236.7
   floor_area: 77.6
@@ -955,319 +765,63 @@ zones:
   volume: 269.0
   floor_area: 88.3
   multiplier: 2
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 176.5
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 180.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: M S1 Apt
   volume: 269.0
   floor_area: 88.3
   multiplier: 2
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 176.5
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 180.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: M S2 Apt
   volume: 269.0
   floor_area: 88.3
   multiplier: 2
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 176.5
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 180.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: M SE Apt
   volume: 269.0
   floor_area: 88.3
   multiplier: 2
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 176.5
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 180.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: M NW Apt
   volume: 269.0
   floor_area: 88.3
   multiplier: 2
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 176.5
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 0.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: M N1 Apt
   volume: 269.0
   floor_area: 88.3
   multiplier: 2
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 176.5
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 0.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: M N2 Apt
   volume: 269.0
   floor_area: 88.3
   multiplier: 2
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 176.5
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 0.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: M NE Apt
   volume: 269.0
   floor_area: 88.3
   multiplier: 2
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 176.5
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 0.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: M Corridor
   volume: 236.7
   floor_area: 77.6
-  multiplier: 2
   conditioned: false
+  multiplier: 2
 - name: T SW Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 180.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: T S1 Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 180.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: T S2 Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 180.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: T SE Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 180.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: T NW Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 0.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: T N1 Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 0.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: T N2 Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 0.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: T NE Apt
   volume: 269.0
   floor_area: 88.3
-  internal_mass:
-  - construction: InteriorFurnishings
-    area: 88.25
-  natural_ventilation:
-    opening_area: 0.0374
-    effective_angle: 0.0
-    height_difference: 6.0957
-    min_indoor_temp: 18.89
-    max_indoor_temp: 25.56
-    min_outdoor_temp: 15.56
-    max_outdoor_temp: 23.89
-    schedule: Sliding Door Vent
-    setpoint_reset:
-      heating_setpoint: 12.78
-      cooling_setpoint: 32.22
-      ramp_timesteps: 4
 - name: T Corridor
   volume: 236.7
   floor_area: 77.6
@@ -1528,7 +1082,7 @@ surfaces:
   zone: G SW Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'G Corridor'
   vertices:
   - x: 11.582
     y: 7.62
@@ -1674,7 +1228,7 @@ surfaces:
   zone: G S1 Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'G Corridor'
   vertices:
   - x: 23.164
     y: 7.62
@@ -1801,7 +1355,7 @@ surfaces:
   zone: G S2 Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'G Corridor'
   vertices:
   - x: 34.746
     y: 7.62
@@ -1928,7 +1482,7 @@ surfaces:
   zone: Office
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'G Corridor'
   vertices:
   - x: 46.328
     y: 7.62
@@ -2037,7 +1591,7 @@ surfaces:
   zone: G NW Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'G Corridor'
   vertices:
   - x: 0
     y: 9.296
@@ -2183,7 +1737,7 @@ surfaces:
   zone: G N1 Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'G Corridor'
   vertices:
   - x: 11.582
     y: 9.296
@@ -2310,7 +1864,7 @@ surfaces:
   zone: G N2 Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'G Corridor'
   vertices:
   - x: 23.164
     y: 9.296
@@ -2437,7 +1991,7 @@ surfaces:
   zone: G NE Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'G Corridor'
   vertices:
   - x: 34.746
     y: 9.296
@@ -2579,42 +2133,6 @@ surfaces:
   - x: 34.746
     y: 16.916
     z: 3.048
-- name: G Corridor South Wall
-  zone: G Corridor
-  type: wall
-  construction: Interior Partition
-  boundary: adiabatic
-  vertices:
-  - x: 0.0
-    y: 7.62
-    z: 0.0
-  - x: 46.328
-    y: 7.62
-    z: 0.0
-  - x: 46.328
-    y: 7.62
-    z: 3.048
-  - x: 0.0
-    y: 7.62
-    z: 3.048
-- name: G Corridor North Wall
-  zone: G Corridor
-  type: wall
-  construction: Interior Partition
-  boundary: adiabatic
-  vertices:
-  - x: 46.328
-    y: 9.296
-    z: 0.0
-  - x: 0.0
-    y: 9.296
-    z: 0.0
-  - x: 0.0
-    y: 9.296
-    z: 3.048
-  - x: 46.328
-    y: 9.296
-    z: 3.048
 - name: G Corridor West Wall
   zone: G Corridor
   type: wall
@@ -2650,6 +2168,150 @@ surfaces:
     z: 3.048
   - x: 46.328
     y: 7.62
+    z: 3.048
+- name: G Corridor South Wall (G SW Apt)
+  zone: G Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'G SW Apt'
+  vertices:
+  - x: 0
+    y: 7.62
+    z: 0.0
+  - x: 11.582
+    y: 7.62
+    z: 0.0
+  - x: 11.582
+    y: 7.62
+    z: 3.048
+  - x: 0
+    y: 7.62
+    z: 3.048
+- name: G Corridor South Wall (G S1 Apt)
+  zone: G Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'G S1 Apt'
+  vertices:
+  - x: 11.582
+    y: 7.62
+    z: 0.0
+  - x: 23.164
+    y: 7.62
+    z: 0.0
+  - x: 23.164
+    y: 7.62
+    z: 3.048
+  - x: 11.582
+    y: 7.62
+    z: 3.048
+- name: G Corridor South Wall (G S2 Apt)
+  zone: G Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'G S2 Apt'
+  vertices:
+  - x: 23.164
+    y: 7.62
+    z: 0.0
+  - x: 34.746
+    y: 7.62
+    z: 0.0
+  - x: 34.746
+    y: 7.62
+    z: 3.048
+  - x: 23.164
+    y: 7.62
+    z: 3.048
+- name: G Corridor South Wall (Office)
+  zone: G Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Office'
+  vertices:
+  - x: 34.746
+    y: 7.62
+    z: 0.0
+  - x: 46.328
+    y: 7.62
+    z: 0.0
+  - x: 46.328
+    y: 7.62
+    z: 3.048
+  - x: 34.746
+    y: 7.62
+    z: 3.048
+- name: G Corridor North Wall (G NW Apt)
+  zone: G Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'G NW Apt'
+  vertices:
+  - x: 11.582
+    y: 9.296
+    z: 0.0
+  - x: 0
+    y: 9.296
+    z: 0.0
+  - x: 0
+    y: 9.296
+    z: 3.048
+  - x: 11.582
+    y: 9.296
+    z: 3.048
+- name: G Corridor North Wall (G N1 Apt)
+  zone: G Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'G N1 Apt'
+  vertices:
+  - x: 23.164
+    y: 9.296
+    z: 0.0
+  - x: 11.582
+    y: 9.296
+    z: 0.0
+  - x: 11.582
+    y: 9.296
+    z: 3.048
+  - x: 23.164
+    y: 9.296
+    z: 3.048
+- name: G Corridor North Wall (G N2 Apt)
+  zone: G Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'G N2 Apt'
+  vertices:
+  - x: 34.746
+    y: 9.296
+    z: 0.0
+  - x: 23.164
+    y: 9.296
+    z: 0.0
+  - x: 23.164
+    y: 9.296
+    z: 3.048
+  - x: 34.746
+    y: 9.296
+    z: 3.048
+- name: G Corridor North Wall (G NE Apt)
+  zone: G Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'G NE Apt'
+  vertices:
+  - x: 46.328
+    y: 9.296
+    z: 0.0
+  - x: 34.746
+    y: 9.296
+    z: 0.0
+  - x: 34.746
+    y: 9.296
+    z: 3.048
+  - x: 46.328
+    y: 9.296
     z: 3.048
 - name: G Corridor Floor
   zone: G Corridor
@@ -2728,7 +2390,7 @@ surfaces:
   zone: M SW Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'M Corridor'
   vertices:
   - x: 11.582
     y: 7.62
@@ -2874,7 +2536,7 @@ surfaces:
   zone: M S1 Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'M Corridor'
   vertices:
   - x: 23.164
     y: 7.62
@@ -3001,7 +2663,7 @@ surfaces:
   zone: M S2 Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'M Corridor'
   vertices:
   - x: 34.746
     y: 7.62
@@ -3128,7 +2790,7 @@ surfaces:
   zone: M SE Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'M Corridor'
   vertices:
   - x: 46.328
     y: 7.62
@@ -3237,7 +2899,7 @@ surfaces:
   zone: M NW Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'M Corridor'
   vertices:
   - x: 0
     y: 9.296
@@ -3383,7 +3045,7 @@ surfaces:
   zone: M N1 Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'M Corridor'
   vertices:
   - x: 11.582
     y: 9.296
@@ -3510,7 +3172,7 @@ surfaces:
   zone: M N2 Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'M Corridor'
   vertices:
   - x: 23.164
     y: 9.296
@@ -3637,7 +3299,7 @@ surfaces:
   zone: M NE Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'M Corridor'
   vertices:
   - x: 34.746
     y: 9.296
@@ -3779,42 +3441,6 @@ surfaces:
   - x: 34.746
     y: 16.916
     z: 6.096
-- name: M Corridor South Wall
-  zone: M Corridor
-  type: wall
-  construction: Interior Partition
-  boundary: adiabatic
-  vertices:
-  - x: 0.0
-    y: 7.62
-    z: 3.048
-  - x: 46.328
-    y: 7.62
-    z: 3.048
-  - x: 46.328
-    y: 7.62
-    z: 6.096
-  - x: 0.0
-    y: 7.62
-    z: 6.096
-- name: M Corridor North Wall
-  zone: M Corridor
-  type: wall
-  construction: Interior Partition
-  boundary: adiabatic
-  vertices:
-  - x: 46.328
-    y: 9.296
-    z: 3.048
-  - x: 0.0
-    y: 9.296
-    z: 3.048
-  - x: 0.0
-    y: 9.296
-    z: 6.096
-  - x: 46.328
-    y: 9.296
-    z: 6.096
 - name: M Corridor West Wall
   zone: M Corridor
   type: wall
@@ -3850,6 +3476,150 @@ surfaces:
     z: 6.096
   - x: 46.328
     y: 7.62
+    z: 6.096
+- name: M Corridor South Wall (M SW Apt)
+  zone: M Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M SW Apt'
+  vertices:
+  - x: 0
+    y: 7.62
+    z: 3.048
+  - x: 11.582
+    y: 7.62
+    z: 3.048
+  - x: 11.582
+    y: 7.62
+    z: 6.096
+  - x: 0
+    y: 7.62
+    z: 6.096
+- name: M Corridor South Wall (M S1 Apt)
+  zone: M Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M S1 Apt'
+  vertices:
+  - x: 11.582
+    y: 7.62
+    z: 3.048
+  - x: 23.164
+    y: 7.62
+    z: 3.048
+  - x: 23.164
+    y: 7.62
+    z: 6.096
+  - x: 11.582
+    y: 7.62
+    z: 6.096
+- name: M Corridor South Wall (M S2 Apt)
+  zone: M Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M S2 Apt'
+  vertices:
+  - x: 23.164
+    y: 7.62
+    z: 3.048
+  - x: 34.746
+    y: 7.62
+    z: 3.048
+  - x: 34.746
+    y: 7.62
+    z: 6.096
+  - x: 23.164
+    y: 7.62
+    z: 6.096
+- name: M Corridor South Wall (M SE Apt)
+  zone: M Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M SE Apt'
+  vertices:
+  - x: 34.746
+    y: 7.62
+    z: 3.048
+  - x: 46.328
+    y: 7.62
+    z: 3.048
+  - x: 46.328
+    y: 7.62
+    z: 6.096
+  - x: 34.746
+    y: 7.62
+    z: 6.096
+- name: M Corridor North Wall (M NW Apt)
+  zone: M Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M NW Apt'
+  vertices:
+  - x: 11.582
+    y: 9.296
+    z: 3.048
+  - x: 0
+    y: 9.296
+    z: 3.048
+  - x: 0
+    y: 9.296
+    z: 6.096
+  - x: 11.582
+    y: 9.296
+    z: 6.096
+- name: M Corridor North Wall (M N1 Apt)
+  zone: M Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M N1 Apt'
+  vertices:
+  - x: 23.164
+    y: 9.296
+    z: 3.048
+  - x: 11.582
+    y: 9.296
+    z: 3.048
+  - x: 11.582
+    y: 9.296
+    z: 6.096
+  - x: 23.164
+    y: 9.296
+    z: 6.096
+- name: M Corridor North Wall (M N2 Apt)
+  zone: M Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M N2 Apt'
+  vertices:
+  - x: 34.746
+    y: 9.296
+    z: 3.048
+  - x: 23.164
+    y: 9.296
+    z: 3.048
+  - x: 23.164
+    y: 9.296
+    z: 6.096
+  - x: 34.746
+    y: 9.296
+    z: 6.096
+- name: M Corridor North Wall (M NE Apt)
+  zone: M Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M NE Apt'
+  vertices:
+  - x: 46.328
+    y: 9.296
+    z: 3.048
+  - x: 34.746
+    y: 9.296
+    z: 3.048
+  - x: 34.746
+    y: 9.296
+    z: 6.096
+  - x: 46.328
+    y: 9.296
     z: 6.096
 - name: M Corridor Floor
   zone: M Corridor
@@ -3928,7 +3698,7 @@ surfaces:
   zone: T SW Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'T Corridor'
   vertices:
   - x: 11.582
     y: 7.62
@@ -4074,7 +3844,7 @@ surfaces:
   zone: T S1 Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'T Corridor'
   vertices:
   - x: 23.164
     y: 7.62
@@ -4201,7 +3971,7 @@ surfaces:
   zone: T S2 Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'T Corridor'
   vertices:
   - x: 34.746
     y: 7.62
@@ -4328,7 +4098,7 @@ surfaces:
   zone: T SE Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'T Corridor'
   vertices:
   - x: 46.328
     y: 7.62
@@ -4437,7 +4207,7 @@ surfaces:
   zone: T NW Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'T Corridor'
   vertices:
   - x: 0
     y: 9.296
@@ -4583,7 +4353,7 @@ surfaces:
   zone: T N1 Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'T Corridor'
   vertices:
   - x: 11.582
     y: 9.296
@@ -4710,7 +4480,7 @@ surfaces:
   zone: T N2 Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'T Corridor'
   vertices:
   - x: 23.164
     y: 9.296
@@ -4837,7 +4607,7 @@ surfaces:
   zone: T NE Apt
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'T Corridor'
   vertices:
   - x: 34.746
     y: 9.296
@@ -4979,42 +4749,6 @@ surfaces:
   - x: 34.746
     y: 16.916
     z: 12.192
-- name: T Corridor South Wall
-  zone: T Corridor
-  type: wall
-  construction: Interior Partition
-  boundary: adiabatic
-  vertices:
-  - x: 0.0
-    y: 7.62
-    z: 9.144
-  - x: 46.328
-    y: 7.62
-    z: 9.144
-  - x: 46.328
-    y: 7.62
-    z: 12.192
-  - x: 0.0
-    y: 7.62
-    z: 12.192
-- name: T Corridor North Wall
-  zone: T Corridor
-  type: wall
-  construction: Interior Partition
-  boundary: adiabatic
-  vertices:
-  - x: 46.328
-    y: 9.296
-    z: 9.144
-  - x: 0.0
-    y: 9.296
-    z: 9.144
-  - x: 0.0
-    y: 9.296
-    z: 12.192
-  - x: 46.328
-    y: 9.296
-    z: 12.192
 - name: T Corridor West Wall
   zone: T Corridor
   type: wall
@@ -5050,6 +4784,150 @@ surfaces:
     z: 12.192
   - x: 46.328
     y: 7.62
+    z: 12.192
+- name: T Corridor South Wall (T SW Apt)
+  zone: T Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'T SW Apt'
+  vertices:
+  - x: 0
+    y: 7.62
+    z: 9.144
+  - x: 11.582
+    y: 7.62
+    z: 9.144
+  - x: 11.582
+    y: 7.62
+    z: 12.192
+  - x: 0
+    y: 7.62
+    z: 12.192
+- name: T Corridor South Wall (T S1 Apt)
+  zone: T Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'T S1 Apt'
+  vertices:
+  - x: 11.582
+    y: 7.62
+    z: 9.144
+  - x: 23.164
+    y: 7.62
+    z: 9.144
+  - x: 23.164
+    y: 7.62
+    z: 12.192
+  - x: 11.582
+    y: 7.62
+    z: 12.192
+- name: T Corridor South Wall (T S2 Apt)
+  zone: T Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'T S2 Apt'
+  vertices:
+  - x: 23.164
+    y: 7.62
+    z: 9.144
+  - x: 34.746
+    y: 7.62
+    z: 9.144
+  - x: 34.746
+    y: 7.62
+    z: 12.192
+  - x: 23.164
+    y: 7.62
+    z: 12.192
+- name: T Corridor South Wall (T SE Apt)
+  zone: T Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'T SE Apt'
+  vertices:
+  - x: 34.746
+    y: 7.62
+    z: 9.144
+  - x: 46.328
+    y: 7.62
+    z: 9.144
+  - x: 46.328
+    y: 7.62
+    z: 12.192
+  - x: 34.746
+    y: 7.62
+    z: 12.192
+- name: T Corridor North Wall (T NW Apt)
+  zone: T Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'T NW Apt'
+  vertices:
+  - x: 11.582
+    y: 9.296
+    z: 9.144
+  - x: 0
+    y: 9.296
+    z: 9.144
+  - x: 0
+    y: 9.296
+    z: 12.192
+  - x: 11.582
+    y: 9.296
+    z: 12.192
+- name: T Corridor North Wall (T N1 Apt)
+  zone: T Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'T N1 Apt'
+  vertices:
+  - x: 23.164
+    y: 9.296
+    z: 9.144
+  - x: 11.582
+    y: 9.296
+    z: 9.144
+  - x: 11.582
+    y: 9.296
+    z: 12.192
+  - x: 23.164
+    y: 9.296
+    z: 12.192
+- name: T Corridor North Wall (T N2 Apt)
+  zone: T Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'T N2 Apt'
+  vertices:
+  - x: 34.746
+    y: 9.296
+    z: 9.144
+  - x: 23.164
+    y: 9.296
+    z: 9.144
+  - x: 23.164
+    y: 9.296
+    z: 12.192
+  - x: 34.746
+    y: 9.296
+    z: 12.192
+- name: T Corridor North Wall (T NE Apt)
+  zone: T Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'T NE Apt'
+  vertices:
+  - x: 46.328
+    y: 9.296
+    z: 9.144
+  - x: 34.746
+    y: 9.296
+    z: 9.144
+  - x: 34.746
+    y: 9.296
+    z: 12.192
+  - x: 46.328
+    y: 9.296
     z: 12.192
 - name: T Corridor Floor
   zone: T Corridor
@@ -5883,8 +5761,8 @@ dhw_systems:
     capacity: 53912.0
     efficiency: 0.8
     setpoint: 60.0
-    deadband: 0.1
     ua_standby: 10.0
+    deadband: 0.1
   loads:
   - name: Apartment DHW Load
     peak_flow_rate: 0.1135
@@ -5893,9 +5771,9 @@ dhw_systems:
 exterior_equipment:
 - name: Exterior Facade Lighting
   power: 5317.0
+  schedule: Exterior Lights Schedule
   fuel: electricity
   subcategory: exterior_lights
-  astronomical_clock: true
 zone_groups:
 - name: Apartment Zones
   zones:

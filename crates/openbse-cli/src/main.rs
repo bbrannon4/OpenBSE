@@ -1458,8 +1458,12 @@ fn main() -> Result<()> {
                     snapshot.surface_inside_temperature.insert(name.clone(), surface.temp_inside);
                     snapshot.surface_outside_temperature.insert(name.clone(), surface.temp_outside);
                     snapshot.surface_inside_convection_coefficient.insert(name.clone(), surface.h_conv_inside);
-                    snapshot.surface_incident_solar.insert(name.clone(), surface.incident_solar);
-                    snapshot.surface_transmitted_solar.insert(name.clone(), surface.transmitted_solar);
+                    // Apply zone multiplier to solar diagnostics so building totals
+                    // correctly count multiplied zones (e.g., M floor mult=2).
+                    let surf_mult = zone_multipliers.get(&surface.input.zone)
+                        .copied().unwrap_or(1.0);
+                    snapshot.surface_incident_solar.insert(name.clone(), surface.incident_solar * surf_mult);
+                    snapshot.surface_transmitted_solar.insert(name.clone(), surface.transmitted_solar * surf_mult);
                 }
 
                 for (comp_name, vars) in &result.component_outputs {
@@ -2019,14 +2023,12 @@ fn simulate_all_loops(
 
         if loop_plr < 1.0 {
             for (comp_name, outputs) in &mut loop_result {
-                // E+ PTAC uses Fan:OnOff in *continuous* mode (Supply Air
-                // Fan Operating Mode Schedule = "ALWAYS 1", i.e. value > 0).
-                // In continuous mode the fan runs at design flow whenever
-                // the system is available — coils cycle on/off based on
-                // PLR but the fan does NOT cycle.
+                // E+ PTAC uses Fan:OnOff in continuous mode (schedule=1).
+                // Fan runs at design flow whenever the system is active;
+                // coils cycle on/off based on PLR but fan does NOT cycle.
                 //
-                // Therefore: scale COIL outputs by loop_plr, but leave
-                // fan outputs at full power (no PLR scaling for fans).
+                // Scale COIL outputs by loop_plr, but leave fan outputs
+                // at full power (no PLR scaling for fans).
                 let is_fan = comp_name.starts_with("Fan ");
                 if is_fan {
                     continue; // fan runs continuously — no PLR scaling
@@ -2476,10 +2478,15 @@ fn build_fcu_signals(
 
     let mode = hvac_mode(zone_temp, heat_sp, cool_sp);
 
-    // PTAC Fan:OnOff — fan runs continuously at design flow (E+ continuous mode).
-    // With PTAC OA=0 and zone OA flowing directly (ERV equivalent), the fan
-    // recirculates zone air only, adding fan heat. Fan cycling requires an
-    // ERV component to properly decouple ventilation from PTAC operation.
+    // PTAC Fan:OnOff — E+ IDF has No Load Supply Air Flow Rate = 0, but
+    // the ERV has 0% effectiveness (OA enters zone at outdoor temp).
+    // Fan-off during deadband causes zone oscillation because raw OA
+    // rapidly cools/heats the zone without HVAC to compensate.
+    // Fan runs at design flow in all modes for stability.
+    //
+    // E+ avoids oscillation via predictor-corrector iteration; OpenBSE
+    // uses explicit timestep coupling so continuous fan is needed.
+    //
     // FCU: modulates fan speed proportionally.
     let is_ptac = li.system_type == AirLoopSystemType::Ptac;
     let flow = if is_ptac {

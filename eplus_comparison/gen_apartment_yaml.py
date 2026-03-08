@@ -2,6 +2,12 @@
 """Generate OpenBSE YAML for DOE Prototype Mid-Rise Apartment."""
 import yaml
 
+
+class ZoneBoundary:
+    """Represents a !zone "ZoneName" YAML tag for serde_yaml enum deserialization."""
+    def __init__(self, zone_name):
+        self.zone_name = zone_name
+
 # ─── Building geometry constants ───────────────────────────────────────────
 APT_W = 11.582    # apartment width (x)
 APT_D = 7.620     # apartment depth (y)
@@ -133,8 +139,13 @@ def r(v, decimals=3):
     return round(v, decimals)
 
 
-def gen_zone_surfaces(zone_name, floor_key, col_idx, row, ext_walls, is_corridor=False):
-    """Generate surfaces for a zone."""
+def gen_zone_surfaces(zone_name, floor_key, col_idx, row, ext_walls,
+                      is_corridor=False, corridor_zone=None):
+    """Generate surfaces for a zone.
+
+    corridor_zone: for apartments, the name of the adjacent corridor zone.
+                   The wall facing the corridor gets boundary: zone: <corridor>.
+    """
     z_bot, z_top = FLOORS[floor_key]
     surfaces = []
 
@@ -154,16 +165,36 @@ def gen_zone_surfaces(zone_name, floor_key, col_idx, row, ext_walls, is_corridor
 
     wall_cons_ext = 'Res Exterior Wall' if not is_corridor else 'Nonres Exterior Wall'
 
+    # Determine which interior wall faces the corridor (interzone boundary)
+    # South apartments: north wall faces corridor
+    # North apartments: south wall faces corridor
+    corridor_dir = None
+    if corridor_zone and not is_corridor:
+        corridor_dir = 'north' if row == 'S' else 'south'
+
     all_dirs = ['south', 'north', 'west', 'east']
     for d in all_dirs:
         is_ext = d in ext_walls
         wall_name = f"{zone_name} {d.title()} Wall"
+
+        # Determine boundary condition
+        if is_ext:
+            boundary = 'outdoor'
+            construction = wall_cons_ext
+        elif corridor_zone and d == corridor_dir:
+            # Wall facing corridor: interzone boundary (E+ uses Zone boundary)
+            boundary = ZoneBoundary(corridor_zone)
+            construction = 'Interior Partition'
+        else:
+            boundary = 'adiabatic'
+            construction = 'Interior Partition'
+
         surf = {
             'name': wall_name,
             'zone': zone_name,
             'type': 'wall',
-            'construction': wall_cons_ext if is_ext else 'Interior Partition',
-            'boundary': 'outdoor' if is_ext else 'adiabatic',
+            'construction': construction,
+            'boundary': boundary,
             'vertices': wall_vertices(d, x1, x2, y1, y2, z_bot, z_top),
         }
         surfaces.append(surf)
@@ -239,6 +270,11 @@ def build_model():
 
     for floor_key in ['G', 'M', 'T']:
         mult = 2 if floor_key == 'M' else 1
+        cor_name = f"{floor_key} Corridor"
+
+        # Track apartment names for corridor interzone walls
+        south_apt_names = []
+        north_apt_names = []
 
         # South row apartments
         for suffix, col_idx, row, ext_walls, sched_type in SOUTH_ZONES:
@@ -250,12 +286,15 @@ def build_model():
                 zone_name = f"{floor_key} {suffix}"
                 stype = sched_type
 
+            south_apt_names.append((zone_name, col_idx))
+
             z = {'name': zone_name, 'volume': r(APT_VOL, 1), 'floor_area': r(APT_AREA, 1)}
             if mult > 1:
                 z['multiplier'] = mult
             zones.append(z)
 
-            surfs = gen_zone_surfaces(zone_name, floor_key, col_idx, row, ext_walls)
+            surfs = gen_zone_surfaces(zone_name, floor_key, col_idx, row, ext_walls,
+                                     corridor_zone=cor_name)
             all_surfaces.extend(surfs)
 
             if stype == 'working':
@@ -265,6 +304,8 @@ def build_model():
             all_apt_zones.append(zone_name)
 
             # Air loop (PTAC)
+            # E+ Coil:Heating:Water rated outlet air temp = 40°C.
+            # BlowThrough fan placement (fan → coils) preserves cooling capacity.
             air_loops.append({
                 'name': f"PTAC {zone_name}",
                 'system_type': 'ptac',
@@ -310,19 +351,21 @@ def build_model():
         # North row apartments
         for suffix, col_idx, row, ext_walls, sched_type in NORTH_ZONES:
             zone_name = f"{floor_key} {suffix}"
+            north_apt_names.append((zone_name, col_idx))
 
             z = {'name': zone_name, 'volume': r(APT_VOL, 1), 'floor_area': r(APT_AREA, 1)}
             if mult > 1:
                 z['multiplier'] = mult
             zones.append(z)
 
-            surfs = gen_zone_surfaces(zone_name, floor_key, col_idx, row, ext_walls)
+            surfs = gen_zone_surfaces(zone_name, floor_key, col_idx, row, ext_walls,
+                                     corridor_zone=cor_name)
             all_surfaces.extend(surfs)
 
             apt_zones_stayhome.append(zone_name)
             all_apt_zones.append(zone_name)
 
-            # Air loop (PTAC)
+            # Air loop (PTAC) — BlowThrough, same as south row
             air_loops.append({
                 'name': f"PTAC {zone_name}",
                 'system_type': 'ptac',
@@ -366,16 +409,89 @@ def build_model():
             })
 
         # Corridor (unconditioned — matches E+ where corridors have no HVAC)
-        cor_name = f"{floor_key} Corridor"
+        # Generate corridor surfaces with per-apartment interzone wall segments
+        # instead of single big walls, matching E+ Zone boundary condition.
         z = {'name': cor_name, 'volume': r(COR_VOL, 1), 'floor_area': r(COR_AREA, 1),
              'conditioned': False}
         if mult > 1:
             z['multiplier'] = mult
         zones.append(z)
 
-        cor_ext = ['west', 'east']
-        surfs = gen_zone_surfaces(cor_name, floor_key, 0, 'S', cor_ext, is_corridor=True)
-        all_surfaces.extend(surfs)
+        z_bot, z_top = FLOORS[floor_key]
+        z_bot, z_top = r(z_bot), r(z_top)
+        cor_y1, cor_y2 = r(Y_SC), r(Y_CN)
+
+        # West and east exterior walls (full corridor width)
+        for d in ['west', 'east']:
+            all_surfaces.append({
+                'name': f"{cor_name} {d.title()} Wall",
+                'zone': cor_name,
+                'type': 'wall',
+                'construction': 'Nonres Exterior Wall',
+                'boundary': 'outdoor',
+                'vertices': wall_vertices(d, r(0.0), r(COR_W), cor_y1, cor_y2, z_bot, z_top),
+            })
+
+        # South wall segments — one per south-row apartment (interzone)
+        for apt_name, col_idx in south_apt_names:
+            x1, x2 = r(COL_X[col_idx]), r(COL_X[col_idx + 1])
+            all_surfaces.append({
+                'name': f"{cor_name} South Wall ({apt_name})",
+                'zone': cor_name,
+                'type': 'wall',
+                'construction': 'Interior Partition',
+                'boundary': ZoneBoundary(apt_name),
+                'vertices': wall_vertices('south', x1, x2, cor_y1, cor_y2, z_bot, z_top),
+            })
+
+        # North wall segments — one per north-row apartment (interzone)
+        for apt_name, col_idx in north_apt_names:
+            x1, x2 = r(COL_X[col_idx]), r(COL_X[col_idx + 1])
+            all_surfaces.append({
+                'name': f"{cor_name} North Wall ({apt_name})",
+                'zone': cor_name,
+                'type': 'wall',
+                'construction': 'Interior Partition',
+                'boundary': ZoneBoundary(apt_name),
+                'vertices': wall_vertices('north', x1, x2, cor_y1, cor_y2, z_bot, z_top),
+            })
+
+        # Floor
+        if floor_key == 'G':
+            floor_cons = 'Ground Floor Slab'
+            floor_bnd = 'ground'
+        else:
+            floor_cons = 'Interzone Floor'
+            floor_bnd = 'adiabatic'
+        all_surfaces.append({
+            'name': f"{cor_name} Floor",
+            'zone': cor_name,
+            'type': 'floor',
+            'construction': floor_cons,
+            'boundary': floor_bnd,
+            'vertices': floor_vertices(r(0.0), r(COR_W), cor_y1, cor_y2, z_bot),
+        })
+
+        # Ceiling or roof
+        if floor_key == 'T':
+            all_surfaces.append({
+                'name': f"{cor_name} Roof",
+                'zone': cor_name,
+                'type': 'roof',
+                'construction': 'Nonres Roof',
+                'boundary': 'outdoor',
+                'vertices': roof_vertices(r(0.0), r(COR_W), cor_y1, cor_y2, z_top),
+            })
+        else:
+            all_surfaces.append({
+                'name': f"{cor_name} Ceiling",
+                'zone': cor_name,
+                'type': 'ceiling',
+                'construction': 'Interzone Floor',
+                'boundary': 'adiabatic',
+                'vertices': roof_vertices(r(0.0), r(COR_W), cor_y1, cor_y2, z_top),
+            })
+
         corridor_zones.append(cor_name)
 
     # ─── People ────────────────────────────────────────────────────────────
@@ -458,30 +574,34 @@ def build_model():
         })
 
     # ─── Elevator Equipment (Interior Equipment per E+ classification) ────
-    # E+ defines elevator loads as ElectricEquipment in corridor zones.
-    # Total elevator load is split across corridor zones.
-    num_corridors = len(corridor_zones)
-    if num_corridors > 0:
-        equipment.append({
-            'name': 'Elevator Running',
-            'zones': corridor_zones,
-            'power': 38362.0 / num_corridors,
-            'radiant_fraction': 0.0,
-            'schedule': 'Elevator Running',
-        })
-        equipment.append({
-            'name': 'Elevator Standby',
-            'zones': corridor_zones,
-            'power': 1600.0 / num_corridors,
-            'radiant_fraction': 0.0,
-            'schedule': 'Elevator Standby',
-        })
-        equipment.append({
-            'name': 'Elevator Lights Fan',
-            'zones': corridor_zones,
-            'power': 162.0 / num_corridors,
-            'radiant_fraction': 0.0,
-        })
+    # E+ assigns ALL elevator loads to G Corridor only (not split across floors).
+    # E+ Fraction Lost = 0.95: only 5% of heat enters the zone (elevator
+    # motor/drive heat is mostly exhausted to outside, not to the corridor).
+    # Assigning to G Corridor only (multiplier=1) avoids overcounting via
+    # M Corridor's multiplier=2.
+    equipment.append({
+        'name': 'Elevator Running',
+        'zones': ['G Corridor'],
+        'power': 38362.0,
+        'radiant_fraction': 0.0,
+        'lost_fraction': 0.95,
+        'schedule': 'Elevator Running',
+    })
+    equipment.append({
+        'name': 'Elevator Standby',
+        'zones': ['G Corridor'],
+        'power': 1600.0,
+        'radiant_fraction': 0.0,
+        'lost_fraction': 0.95,
+        'schedule': 'Elevator Standby',
+    })
+    equipment.append({
+        'name': 'Elevator Lights Fan',
+        'zones': ['G Corridor'],
+        'power': 162.0,
+        'radiant_fraction': 0.0,
+        'lost_fraction': 0.95,
+    })
 
     # ─── Infiltration ──────────────────────────────────────────────────────
     all_zone_names = [z['name'] for z in zones]
@@ -651,19 +771,27 @@ def build_model():
             {'material': 'Roof Insulation', 'thickness': 0.10},
             {'material': 'Metal Deck', 'thickness': 0.0008},
         ]},
-        {'name': 'Ground Floor Slab', 'layers': [
-            {'material': 'Carpet Pad', 'thickness': 0.013},
-            {'material': 'Concrete 8in HW', 'thickness': 0.2032},
-            {'material': 'Slab Ground Insulation', 'thickness': 0.055},
-        ]},
+        # Ground Floor Slab removed from layered constructions.
+        # Now defined as simple_construction with F-factor-equivalent U-value
+        # to match E+ Construction:FfactorGroundFloor method.
     ]
 
     # Simple constructions
+    # Ground Floor Slab uses E+ F-factor-equivalent U-value.
+    # E+ uses Construction:FfactorGroundFloor with F = 1.26 W/(m·K).
+    # F-factor heat loss is perimeter-based (Q = F × P × ΔT), much lower
+    # than area-based U-value conduction (Q = U × A × ΔT).
+    # Weighted average across apartments:
+    #   Corner (P≈19.2m, A≈88.25m²): U_eq = 1.26 × 19.2 / 88.25 = 0.275
+    #   Interior (P≈11.58m, A≈88.25m²): U_eq = 1.26 × 11.58 / 88.25 = 0.166
+    #   Building weighted avg ≈ 0.20 W/(m²·K)
     model['simple_constructions'] = [
         {'name': 'Interior Partition', 'u_factor': 4.0, 'thickness': 0.0254,
          'thermal_capacity': 22000.0, 'solar_absorptance': 0.4, 'thermal_absorptance': 0.9},
         {'name': 'Interzone Floor', 'u_factor': 3.0, 'thickness': 0.12,
          'thermal_capacity': 200000.0, 'solar_absorptance': 0.7, 'thermal_absorptance': 0.9},
+        {'name': 'Ground Floor Slab', 'u_factor': 0.20, 'thickness': 0.27,
+         'thermal_capacity': 400000.0, 'solar_absorptance': 0.7, 'thermal_absorptance': 0.9},
     ]
 
     # Window constructions
@@ -726,13 +854,14 @@ def build_model():
                 'efficiency': 0.80,
                 'setpoint': 60.0,
                 'ua_standby': 10.0,
+                'deadband': 0.1,  # E+ uses 0.1°C deadband
             },
             'loads': [
                 {
                     'name': 'Apartment DHW Load',
                     'peak_flow_rate': 0.1135,  # L/s (= 0.00011346 m3/s = 0.1135 L/s)
                     'schedule': 'DHW Schedule',
-                    'use_temperature': 43.3,
+                    'use_temperature': 60.0,  # E+ target temp = setpoint = 60°C (no mixing)
                 },
             ],
         },
@@ -782,7 +911,6 @@ def build_model():
 
 def dump_yaml(model, path):
     """Write model as YAML with nice formatting."""
-    # Custom representer to handle 'autosize' strings in numeric contexts
     class CustomDumper(yaml.SafeDumper):
         pass
 
@@ -791,11 +919,18 @@ def dump_yaml(model, path):
             return dumper.represent_scalar('tag:yaml.org,2002:float', f'{value:.1f}')
         return dumper.represent_scalar('tag:yaml.org,2002:float', f'{value}')
 
+    def represent_zone_boundary(dumper, data):
+        """Emit !zone "ZoneName" tag matching serde_yaml 0.9 externally-tagged enum."""
+        return dumper.represent_scalar('!zone', data.zone_name)
+
+    CustomDumper.add_representer(float, represent_float)
+    CustomDumper.add_representer(ZoneBoundary, represent_zone_boundary)
+
     with open(path, 'w') as f:
         f.write("# OpenBSE: DOE Prototype Mid-Rise Apartment (ASHRAE 90.1-2022 Appendix G)\n")
         f.write("# 3-story (4 effective via multiplier), 27 zones, PTAC per zone, HW boiler\n")
         f.write("# Boulder, CO (TMYx weather)\n\n")
-        yaml.safe_dump(model, f, default_flow_style=False, sort_keys=False, width=120)
+        yaml.dump(model, f, Dumper=CustomDumper, default_flow_style=False, sort_keys=False, width=120)
 
 
 if __name__ == '__main__':
