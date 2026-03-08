@@ -210,6 +210,7 @@ fn run_single_design_day(
     weather_hours: &[WeatherHour],
     zone_setpoints: &HashMap<String, f64>,  // setpoint to hold zone at
     num_warmup_days: usize,
+    oa_handled_by_hvac: &HashMap<String, bool>,
 ) -> Vec<(u32, HashMap<String, (f64, f64)>)> {
     let is_heating_dd = is_heating_design_day(dd);
     let rh = if is_heating_dd { 0.5 } else { 0.3 };
@@ -268,6 +269,10 @@ fn run_single_design_day(
                     hvac.supply_mass_flows.insert(zone.input.name.clone(), 10.0);
                 }
             }
+            // Propagate OA handling flags so the envelope includes zone OA
+            // in the sizing load calculation when HVAC doesn't handle it
+            // (e.g. PTAC with min_oa_fraction=0, zone OA enters directly).
+            hvac.oa_handled_by_hvac = oa_handled_by_hvac.clone();
 
             let result = env.solve_timestep(&ctx, wh, &hvac);
 
@@ -303,6 +308,7 @@ fn run_zone_sizing(
     latitude: f64,
     heating_sizing_factor: f64,
     cooling_sizing_factor: f64,
+    oa_handled_by_hvac: &HashMap<String, bool>,
 ) -> ZoneSizingResult {
     let cp_air = 1005.0;
     let num_warmup_days = 5;
@@ -336,6 +342,7 @@ fn run_zone_sizing(
 
         let hourly_loads = run_single_design_day(
             env, dd, &weather_hours, zone_heating_setpoints, num_warmup_days,
+            oa_handled_by_hvac,
         );
 
         // Update peaks (take max across all heating design days)
@@ -362,6 +369,7 @@ fn run_zone_sizing(
 
         let hourly_loads = run_single_design_day(
             env, dd, &weather_hours, zone_cooling_setpoints, num_warmup_days,
+            oa_handled_by_hvac,
         );
 
         // Update peaks (take max across all cooling design days)
@@ -446,6 +454,7 @@ fn run_system_sizing(
     zone_heating_setpoints: &HashMap<String, f64>,
     zone_cooling_setpoints: &HashMap<String, f64>,
     latitude: f64,
+    oa_handled_by_hvac: &HashMap<String, bool>,
 ) -> SystemSizingResult {
     let num_warmup_days = 5;
 
@@ -467,6 +476,7 @@ fn run_system_sizing(
 
         let hourly_loads = run_single_design_day(
             env, dd, &weather_hours, zone_heating_setpoints, num_warmup_days,
+            oa_handled_by_hvac,
         );
 
         for (hour, zone_loads) in &hourly_loads {
@@ -491,6 +501,7 @@ fn run_system_sizing(
 
         let hourly_loads = run_single_design_day(
             env, dd, &weather_hours, zone_cooling_setpoints, num_warmup_days,
+            oa_handled_by_hvac,
         );
 
         for (hour, zone_loads) in &hourly_loads {
@@ -658,6 +669,7 @@ pub fn run_sizing(
     supply_temps: Option<(f64, f64)>,
     heating_sizing_factor: f64,
     cooling_sizing_factor: f64,
+    oa_handled_by_hvac: &HashMap<String, bool>,
 ) -> SizingResult {
     let rho_air = 1.2; // kg/m³ for volume flow conversion
 
@@ -731,6 +743,7 @@ pub fn run_sizing(
         latitude,
         heating_sizing_factor,
         cooling_sizing_factor,
+        oa_handled_by_hvac,
     );
 
     // Log zone sizing results
@@ -761,6 +774,7 @@ pub fn run_sizing(
         &zone_heating_setpoints,
         &zone_cooling_setpoints,
         latitude,
+        oa_handled_by_hvac,
     );
 
     // System capacities with sizing factors

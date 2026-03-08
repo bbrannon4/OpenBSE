@@ -403,6 +403,16 @@ fn main() -> Result<()> {
         })
         .collect();
 
+    // Build OA handling flags for sizing: zones served by HVAC with
+    // min_oa_fraction=0 (e.g. PTAC with separate ERV) have zone OA flowing
+    // directly, so sizing must include that OA load.
+    let sizing_oa_handled: HashMap<String, bool> = loop_infos.iter()
+        .flat_map(|li| {
+            let handles_oa = li.min_oa_fraction > 0.001;
+            li.served_zones.iter().map(move |z| (z.clone(), handles_oa))
+        })
+        .collect();
+
     // ── Design Day Sizing Run ──────────────────────────────────────────
     // Two-stage ASHRAE-compliant sizing:
     //   Stage 1: Zone sizing — peak loads per zone from ALL design days
@@ -436,6 +446,7 @@ fn main() -> Result<()> {
                 supply_temps,
                 model.simulation.heating_sizing_factor,
                 model.simulation.cooling_sizing_factor,
+                &sizing_oa_handled,
             );
 
             // Apply sized zone airflows (override design_zone_flow)
