@@ -250,6 +250,11 @@ impl AirComponent for CoolingCoilDX {
     fn power_consumption(&self) -> f64 {
         self.power_consumption
     }
+
+    fn thermal_output(&self) -> f64 {
+        // Negative = cooling (convention: positive = heating, negative = cooling)
+        -self.cooling_rate
+    }
 }
 
 #[cfg(test)]
@@ -273,6 +278,7 @@ mod tests {
             outdoor_air: MoistAirState::from_tdb_rh(t_outdoor, 0.4, 101325.0),
             day_type: DayType::WeatherDay,
             is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
         }
     }
 

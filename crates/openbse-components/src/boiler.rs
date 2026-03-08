@@ -184,6 +184,10 @@ impl PlantComponent for Boiler {
         self.fuel_used
     }
 
+    fn thermal_output(&self) -> f64 {
+        self.boiler_load
+    }
+
     fn nominal_capacity(&self) -> Option<f64> {
         if is_autosize(self.nominal_capacity) {
             None
@@ -218,6 +222,7 @@ mod tests {
             outdoor_air: MoistAirState::from_tdb_rh(0.0, 0.5, 101325.0),
             day_type: DayType::WeatherDay,
             is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
         }
     }
 

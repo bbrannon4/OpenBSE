@@ -98,6 +98,9 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
         ("zone_heating_energy", "J", "Zone heating energy (integrated from rate)"),
         ("zone_cooling_energy", "J", "Zone cooling energy (integrated from rate)"),
         ("zone_infiltration_mass_flow", "kg/s", "Zone infiltration air mass flow rate"),
+        ("zone_nat_vent_flow", "m³/s", "Zone natural ventilation volume flow rate"),
+        ("zone_nat_vent_mass_flow", "kg/s", "Zone natural ventilation mass flow rate"),
+        ("zone_nat_vent_active", "", "Zone natural ventilation active (1=yes, 0=no)"),
         ("zone_internal_gains_convective", "W", "Zone convective internal gains"),
         ("zone_internal_gains_radiative", "W", "Zone radiative internal gains"),
         ("zone_supply_air_temperature", "°C", "HVAC supply air temperature to zone"),
@@ -177,6 +180,9 @@ pub struct OutputSnapshot {
     pub zone_heating_rate: HashMap<String, f64>,
     pub zone_cooling_rate: HashMap<String, f64>,
     pub zone_infiltration_mass_flow: HashMap<String, f64>,
+    pub zone_nat_vent_flow: HashMap<String, f64>,
+    pub zone_nat_vent_mass_flow: HashMap<String, f64>,
+    pub zone_nat_vent_active: HashMap<String, f64>,
     pub zone_internal_gains_convective: HashMap<String, f64>,
     pub zone_internal_gains_radiative: HashMap<String, f64>,
     pub zone_supply_air_temperature: HashMap<String, f64>,
@@ -205,6 +211,16 @@ pub struct OutputSnapshot {
     // Internal gains by type (zone_name -> watts)
     pub zone_lighting_power: HashMap<String, f64>,
     pub zone_equipment_power: HashMap<String, f64>,
+
+    // Typed end-use maps — separate from generic component_electric/fuel_power
+    // so the summary report can categorize without fragile name-matching
+    pub dhw_electric_power: HashMap<String, f64>,
+    pub dhw_fuel_power: HashMap<String, f64>,
+    pub ext_lighting_power: HashMap<String, f64>,
+    pub ext_equipment_power: HashMap<String, f64>,
+    pub pump_electric_power: HashMap<String, f64>,
+    pub heat_rejection_power: HashMap<String, f64>,
+    pub humidification_power: HashMap<String, f64>,
 }
 
 impl OutputSnapshot {
@@ -222,6 +238,9 @@ impl OutputSnapshot {
             zone_heating_rate: HashMap::new(),
             zone_cooling_rate: HashMap::new(),
             zone_infiltration_mass_flow: HashMap::new(),
+            zone_nat_vent_flow: HashMap::new(),
+            zone_nat_vent_mass_flow: HashMap::new(),
+            zone_nat_vent_active: HashMap::new(),
             zone_internal_gains_convective: HashMap::new(),
             zone_internal_gains_radiative: HashMap::new(),
             zone_supply_air_temperature: HashMap::new(),
@@ -240,6 +259,13 @@ impl OutputSnapshot {
             component_fuel_power: HashMap::new(),
             zone_lighting_power: HashMap::new(),
             zone_equipment_power: HashMap::new(),
+            dhw_electric_power: HashMap::new(),
+            dhw_fuel_power: HashMap::new(),
+            ext_lighting_power: HashMap::new(),
+            ext_equipment_power: HashMap::new(),
+            pump_electric_power: HashMap::new(),
+            heat_rejection_power: HashMap::new(),
+            humidification_power: HashMap::new(),
         }
     }
 
@@ -274,6 +300,9 @@ impl OutputSnapshot {
                     .collect()
             }
             "zone_infiltration_mass_flow" => self.zone_infiltration_mass_flow.clone(),
+            "zone_nat_vent_flow" => self.zone_nat_vent_flow.clone(),
+            "zone_nat_vent_mass_flow" => self.zone_nat_vent_mass_flow.clone(),
+            "zone_nat_vent_active" => self.zone_nat_vent_active.clone(),
             "zone_internal_gains_convective" => self.zone_internal_gains_convective.clone(),
             "zone_internal_gains_radiative" => self.zone_internal_gains_radiative.clone(),
             "zone_supply_air_temperature" => self.zone_supply_air_temperature.clone(),
@@ -516,18 +545,27 @@ impl OutputWriter {
 // ─── Summary Report ─────────────────────────────────────────────────────────
 
 /// Monthly energy data for the summary report.
+/// Matches the 13 standard EnergyPlus end-use categories.
 #[derive(Debug, Clone, Default)]
 struct MonthlyEnergy {
-    heating_j: f64,   // Total heating energy [J]
-    cooling_j: f64,   // Total cooling energy [J]
-    hours: f64,       // Number of hours in data
-    fan_j: f64,         // Fan electric energy [J]
-    cool_elec_j: f64,   // Cooling electric energy [J] (compressor)
-    heat_elec_j: f64,   // Electric heating energy [J]
-    heat_gas_j: f64,    // Gas heating energy [J]
-    plant_elec_j: f64,  // Plant (chiller/pump) electric energy [J]
-    lighting_j: f64,    // Lighting energy [J]
-    equipment_j: f64,   // Equipment/plug load energy [J]
+    heating_j: f64,               // Total zone heating loads [J]
+    cooling_j: f64,               // Total zone cooling loads [J]
+    hours: f64,                   // Number of hours in data
+    // Electric end uses
+    fan_elec_j: f64,              // Fan electric [J]
+    cool_elec_j: f64,             // Cooling electric (DX compressor, chiller) [J]
+    heat_elec_j: f64,             // Heating electric (electric coil, HP compressor) [J]
+    pump_elec_j: f64,             // Pump electric [J]
+    heat_rejection_elec_j: f64,   // Cooling tower fan electric [J]
+    humidification_elec_j: f64,   // Humidifier electric [J]
+    dhw_elec_j: f64,              // DHW electric (water heater) [J]
+    lighting_j: f64,              // Interior lighting [J]
+    ext_lighting_j: f64,          // Exterior lighting [J]
+    equipment_j: f64,             // Interior equipment/plug loads [J]
+    ext_equipment_j: f64,         // Exterior equipment [J]
+    // Gas end uses
+    heat_gas_j: f64,              // Heating gas (boiler, gas furnace) [J]
+    dhw_gas_j: f64,               // DHW gas (gas water heater) [J]
 }
 
 /// Summary report generator — produces a standard text report with
@@ -606,27 +644,68 @@ impl SummaryReport {
             self.peak_cooling = (total_cooling, snapshot.month, snapshot.day, snapshot.hour);
         }
 
-        // Accumulate energy end-use breakdown
+        // Accumulate energy end-use breakdown using typed snapshot fields
+        // (avoids fragile name-based matching for DHW, ext equip, pumps, etc.)
+
+        // 1. Typed end-use maps — DHW, exterior, pumps, heat rejection, humidification
+        for &pw in snapshot.dhw_electric_power.values() {
+            let energy = pw * snapshot.dt;
+            if energy.is_finite() { me.dhw_elec_j += energy; }
+        }
+        for &pw in snapshot.dhw_fuel_power.values() {
+            let energy = pw * snapshot.dt;
+            if energy.is_finite() { me.dhw_gas_j += energy; }
+        }
+        for &pw in snapshot.ext_lighting_power.values() {
+            let energy = pw * snapshot.dt;
+            if energy.is_finite() { me.ext_lighting_j += energy; }
+        }
+        for &pw in snapshot.ext_equipment_power.values() {
+            let energy = pw * snapshot.dt;
+            if energy.is_finite() { me.ext_equipment_j += energy; }
+        }
+        for &pw in snapshot.pump_electric_power.values() {
+            let energy = pw * snapshot.dt;
+            if energy.is_finite() { me.pump_elec_j += energy; }
+        }
+        for &pw in snapshot.heat_rejection_power.values() {
+            let energy = pw * snapshot.dt;
+            if energy.is_finite() { me.heat_rejection_elec_j += energy; }
+        }
+        for &pw in snapshot.humidification_power.values() {
+            let energy = pw * snapshot.dt;
+            if energy.is_finite() { me.humidification_elec_j += energy; }
+        }
+
+        // 2. Generic HVAC component power — name-based matching for fans, coils, plant equip
+        //    Pumps, ext equipment, DHW, etc. are handled by typed maps above.
+        //    Unknown components are ignored (no fallback to cooling).
         for (comp_name, &pw) in &snapshot.component_electric_power {
             let lname = comp_name.to_lowercase();
             let energy = pw * snapshot.dt;
+            if !energy.is_finite() { continue; }
             if lname.contains("fan") {
-                me.fan_j += energy;
-            } else if lname.contains("cool") || lname.contains("dx") || lname.contains("chiller") {
+                me.fan_elec_j += energy;
+            } else if lname.contains("cool") || lname.contains("dx") || lname.contains("chiller")
+                    || lname.starts_with("cc ") || lname.starts_with("cc_") {
                 me.cool_elec_j += energy;
-            } else if lname.contains("heat") || lname.contains("furnace") {
+            } else if lname.contains("heat") || lname.contains("furnace")
+                    || lname.starts_with("hc ") || lname.starts_with("hc_") {
                 me.heat_elec_j += energy;
-            } else {
-                me.plant_elec_j += energy;
             }
+            // else: unrecognized components are not categorized
+            // (pumps, ext equipment, DHW handled via typed snapshot fields)
         }
         for (comp_name, &pw) in &snapshot.component_fuel_power {
             let lname = comp_name.to_lowercase();
             let energy = pw * snapshot.dt;
+            if !energy.is_finite() { continue; }
             if lname.contains("boiler") || lname.contains("heat") || lname.contains("furnace") {
                 me.heat_gas_j += energy;
             }
         }
+
+        // 3. Zone internal gains — interior lighting and equipment
         for &pw in snapshot.zone_lighting_power.values() {
             me.lighting_j += pw * snapshot.dt;
         }
@@ -766,29 +845,47 @@ impl SummaryReport {
         }
         writeln!(w)?;
 
-        // -- Energy End-Use Summary --
+        // -- Energy End-Use Summary (matches EnergyPlus categories) --
         writeln!(w, "-- Energy End-Use Summary -------------------------------------")?;
         writeln!(w)?;
-        let annual_fan_kwh: f64 = self.monthly.iter().map(|m| m.fan_j).sum::<f64>() / 3_600_000.0;
-        let annual_cool_elec_kwh: f64 = self.monthly.iter().map(|m| m.cool_elec_j).sum::<f64>() / 3_600_000.0;
-        let annual_heat_elec_kwh: f64 = self.monthly.iter().map(|m| m.heat_elec_j).sum::<f64>() / 3_600_000.0;
-        let annual_heat_gas_kwh: f64 = self.monthly.iter().map(|m| m.heat_gas_j).sum::<f64>() / 3_600_000.0;
-        let annual_plant_elec_kwh: f64 = self.monthly.iter().map(|m| m.plant_elec_j).sum::<f64>() / 3_600_000.0;
-        let annual_lighting_kwh: f64 = self.monthly.iter().map(|m| m.lighting_j).sum::<f64>() / 3_600_000.0;
-        let annual_equipment_kwh: f64 = self.monthly.iter().map(|m| m.equipment_j).sum::<f64>() / 3_600_000.0;
+
+        let j_to_kwh = 1.0 / 3_600_000.0;
+        let annual_lighting_kwh: f64 = self.monthly.iter().map(|m| m.lighting_j).sum::<f64>() * j_to_kwh;
+        let annual_ext_lighting_kwh: f64 = self.monthly.iter().map(|m| m.ext_lighting_j).sum::<f64>() * j_to_kwh;
+        let annual_equipment_kwh: f64 = self.monthly.iter().map(|m| m.equipment_j).sum::<f64>() * j_to_kwh;
+        let annual_ext_equipment_kwh: f64 = self.monthly.iter().map(|m| m.ext_equipment_j).sum::<f64>() * j_to_kwh;
+        let annual_fan_kwh: f64 = self.monthly.iter().map(|m| m.fan_elec_j).sum::<f64>() * j_to_kwh;
+        let annual_pump_kwh: f64 = self.monthly.iter().map(|m| m.pump_elec_j).sum::<f64>() * j_to_kwh;
+        let annual_cool_elec_kwh: f64 = self.monthly.iter().map(|m| m.cool_elec_j).sum::<f64>() * j_to_kwh;
+        let annual_heat_elec_kwh: f64 = self.monthly.iter().map(|m| m.heat_elec_j).sum::<f64>() * j_to_kwh;
+        let annual_heat_gas_kwh: f64 = self.monthly.iter().map(|m| m.heat_gas_j).sum::<f64>() * j_to_kwh;
+        let annual_heat_rejection_kwh: f64 = self.monthly.iter().map(|m| m.heat_rejection_elec_j).sum::<f64>() * j_to_kwh;
+        let annual_humidification_kwh: f64 = self.monthly.iter().map(|m| m.humidification_elec_j).sum::<f64>() * j_to_kwh;
+        let annual_dhw_elec_kwh: f64 = self.monthly.iter().map(|m| m.dhw_elec_j).sum::<f64>() * j_to_kwh;
+        let annual_dhw_gas_kwh: f64 = self.monthly.iter().map(|m| m.dhw_gas_j).sum::<f64>() * j_to_kwh;
 
         writeln!(w, "  {:>22}  {:>12}", "End Use", "Annual [kWh]")?;
         writeln!(w, "  ----------------------  ------------")?;
+        writeln!(w, "  {:>22}  {:>12.1}", "Interior Lighting", annual_lighting_kwh)?;
+        writeln!(w, "  {:>22}  {:>12.1}", "Exterior Lighting", annual_ext_lighting_kwh)?;
+        writeln!(w, "  {:>22}  {:>12.1}", "Interior Equipment", annual_equipment_kwh)?;
+        writeln!(w, "  {:>22}  {:>12.1}", "Exterior Equipment", annual_ext_equipment_kwh)?;
         writeln!(w, "  {:>22}  {:>12.1}", "Fans (Electric)", annual_fan_kwh)?;
+        writeln!(w, "  {:>22}  {:>12.1}", "Pumps (Electric)", annual_pump_kwh)?;
         writeln!(w, "  {:>22}  {:>12.1}", "Cooling (Electric)", annual_cool_elec_kwh)?;
         writeln!(w, "  {:>22}  {:>12.1}", "Heating (Electric)", annual_heat_elec_kwh)?;
         writeln!(w, "  {:>22}  {:>12.1}", "Heating (Gas)", annual_heat_gas_kwh)?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Plant Equip (Electric)", annual_plant_elec_kwh)?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Lighting", annual_lighting_kwh)?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Equipment/Plug Loads", annual_equipment_kwh)?;
+        writeln!(w, "  {:>22}  {:>12.1}", "Heat Rejection", annual_heat_rejection_kwh)?;
+        writeln!(w, "  {:>22}  {:>12.1}", "Humidification", annual_humidification_kwh)?;
+        writeln!(w, "  {:>22}  {:>12.1}", "DHW (Electric)", annual_dhw_elec_kwh)?;
+        writeln!(w, "  {:>22}  {:>12.1}", "DHW (Gas)", annual_dhw_gas_kwh)?;
         writeln!(w, "  ----------------------  ------------")?;
-        let total_end_use = annual_fan_kwh + annual_cool_elec_kwh + annual_heat_elec_kwh
-            + annual_heat_gas_kwh + annual_plant_elec_kwh + annual_lighting_kwh + annual_equipment_kwh;
+        let total_end_use = annual_lighting_kwh + annual_ext_lighting_kwh
+            + annual_equipment_kwh + annual_ext_equipment_kwh
+            + annual_fan_kwh + annual_pump_kwh
+            + annual_cool_elec_kwh + annual_heat_elec_kwh + annual_heat_gas_kwh
+            + annual_heat_rejection_kwh + annual_humidification_kwh
+            + annual_dhw_elec_kwh + annual_dhw_gas_kwh;
         writeln!(w, "  {:>22}  {:>12.1}", "Total", total_end_use)?;
         writeln!(w)?;
 

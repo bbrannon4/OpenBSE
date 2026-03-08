@@ -5,7 +5,46 @@
 //! - Components declare their ports via traits; the graph builder validates connections.
 
 use openbse_psychrometrics::{FluidState, MoistAirState};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+// ─── Sizing Internal Gains Mode ─────────────────────────────────────────────
+
+/// Controls how internal gains (people, lights, equipment) are handled
+/// during design day sizing simulations.
+///
+/// Each design day can specify its own mode. The choice affects which loads
+/// the sizing calculation sees, and therefore how large the HVAC equipment
+/// is sized:
+///
+/// - **Heating design days** typically use `Off` (0% gains) so that heating
+///   equipment is sized for worst-case heating demand without internal gains
+///   offsetting the load.
+/// - **Cooling design days** typically use `Full` (100% gains) so that cooling
+///   equipment captures the worst-case cooling demand with all heat sources
+///   active.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SizingInternalGains {
+    /// No internal gains (0%). Use for heating design days to maximize
+    /// heating load (most conservative).
+    Off,
+
+    /// Full design-level gains (100%) at all hours, ignoring schedules.
+    /// Use for cooling design days to maximize cooling load (most conservative).
+    /// This is the EnergyPlus default for SummerDesignDay.
+    Full,
+
+    /// Follow the normal occupancy/lighting/equipment schedules.
+    /// Gains vary hour-by-hour according to the assigned schedule profiles.
+    Scheduled,
+
+    /// Full design-level gains during occupied hours (schedule fraction > 0),
+    /// zero gains during unoccupied hours (schedule fraction = 0).
+    /// A middle ground: captures peak occupied loads without inflating
+    /// unoccupied periods.
+    FullWhenOccupied,
+}
 
 // ─── Port Types ──────────────────────────────────────────────────────────────
 
@@ -161,6 +200,12 @@ pub trait PlantComponent: std::fmt::Debug {
         0.0
     }
 
+    /// Thermal output (heating or cooling delivered) [W].
+    /// Positive = heating, negative = cooling.
+    fn thermal_output(&self) -> f64 {
+        0.0
+    }
+
     /// Nominal capacity [W]. Returns None if not applicable.
     fn nominal_capacity(&self) -> Option<f64> {
         None
@@ -181,6 +226,11 @@ pub struct SimulationContext {
     pub day_type: crate::types::DayType,
     /// Is this a sizing run?
     pub is_sizing: bool,
+    /// How internal gains are handled during sizing design days.
+    ///
+    /// Only meaningful when `is_sizing == true`. During normal simulation,
+    /// schedules are always used regardless of this setting.
+    pub sizing_internal_gains: SizingInternalGains,
 }
 
 // ─── Envelope Solver Interface ──────────────────────────────────────────────
@@ -196,6 +246,11 @@ pub struct ZoneHvacConditions {
     pub cooling_setpoints: HashMap<String, f64>,
     /// Zone heating setpoints [°C] — used to compute ideal loads at setpoint
     pub heating_setpoints: HashMap<String, f64>,
+    /// Zones where outdoor air (ventilation) is handled by the HVAC supply stream.
+    /// When true, the zone's own outdoor_air specification is suppressed to avoid
+    /// double-counting. When false (e.g., PTAC/FCU with separate ERV), the zone
+    /// receives outdoor air directly at outdoor temperature.
+    pub oa_handled_by_hvac: HashMap<String, bool>,
 }
 
 /// Results that the envelope produces each timestep.

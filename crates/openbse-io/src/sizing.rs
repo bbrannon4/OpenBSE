@@ -137,9 +137,12 @@ fn generate_cooling_design_weather(dd: &DesignDayInput, latitude: f64) -> Vec<We
 
     for h in 1..=24u32 {
         // ASHRAE sinusoidal temperature profile
-        // Peak at hour 15 (3 PM), minimum at hour 4 (4 AM)
+        // Peak at hour 15 (3 PM), minimum at hour 3-5 (pre-dawn)
+        // T(h) = T_max - DR × f(h), where f(h) = 0.5 × (1 - cos(angle))
+        //   f = 0 at h=15 → T = T_max (design temperature)
+        //   f = 1 at h=3  → T = T_max - DR (minimum)
         let hour_angle = std::f64::consts::PI * (h as f64 - 15.0) / 12.0;
-        let t_db = dd.design_temp - dd.daily_range * 0.5 * (1.0 + hour_angle.cos());
+        let t_db = dd.design_temp - dd.daily_range * 0.5 * (1.0 - hour_angle.cos());
 
         // Simple clear-sky solar estimate
         let doy = {
@@ -208,7 +211,19 @@ fn run_single_design_day(
     zone_setpoints: &HashMap<String, f64>,  // setpoint to hold zone at
     num_warmup_days: usize,
 ) -> Vec<(u32, HashMap<String, (f64, f64)>)> {
-    let rh = if is_heating_design_day(dd) { 0.5 } else { 0.3 };
+    let is_heating_dd = is_heating_design_day(dd);
+    let rh = if is_heating_dd { 0.5 } else { 0.3 };
+
+    // Internal gains mode: use the design day's explicit setting, or default
+    // based on day_type (heating → Off, cooling → Full).
+    use openbse_core::ports::SizingInternalGains;
+    let gains_mode = dd.internal_gains.unwrap_or_else(|| {
+        if is_heating_dd {
+            SizingInternalGains::Off
+        } else {
+            SizingInternalGains::Full
+        }
+    });
 
     // Reset zone temperatures to setpoint
     for zone in &mut env.zones {
@@ -239,6 +254,7 @@ fn run_single_design_day(
                 ),
                 day_type: DayType::SizingDay,
                 is_sizing: true,
+                sizing_internal_gains: gains_mode,
             };
 
             // Supply air at zone setpoint temp with large flow to hold at setpoint.
@@ -285,6 +301,8 @@ fn run_zone_sizing(
     heating_supply_temp: f64,
     cooling_supply_temp: f64,
     latitude: f64,
+    heating_sizing_factor: f64,
+    cooling_sizing_factor: f64,
 ) -> ZoneSizingResult {
     let cp_air = 1005.0;
     let num_warmup_days = 5;
@@ -360,6 +378,13 @@ fn run_zone_sizing(
     }
 
     // ── Calculate zone airflows from peak loads ─────────────────────────
+    //
+    // Apply sizing factors (matching E+ Sizing:Parameters behaviour):
+    //   - Heating sizing factor scales the heating design load & airflow
+    //   - Cooling sizing factor scales the cooling design load & airflow
+    //
+    // This ensures equipment is oversized by the specified safety margin,
+    // reducing unmet hours during the annual simulation.
     let mut zone_heating_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_cooling_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_design_airflow: HashMap<String, f64> = HashMap::new();
@@ -370,7 +395,8 @@ fn run_zone_sizing(
         let cool_sp = zone_cooling_setpoints.get(name).copied().unwrap_or(24.0);
 
         // Heating airflow: Q = m_dot * Cp * (T_supply - T_zone)
-        let heat_load = zone_peak_heating.get(name).copied().unwrap_or(0.0);
+        // Apply heating sizing factor to load before computing airflow
+        let heat_load = zone_peak_heating.get(name).copied().unwrap_or(0.0) * heating_sizing_factor;
         let dt_heating = (heating_supply_temp - heat_sp).max(5.0);
         let m_heat = if heat_load > 0.0 {
             heat_load / (cp_air * dt_heating)
@@ -379,7 +405,8 @@ fn run_zone_sizing(
         };
 
         // Cooling airflow: Q = m_dot * Cp * (T_zone - T_supply)
-        let cool_load = zone_peak_cooling.get(name).copied().unwrap_or(0.0);
+        // Apply cooling sizing factor to load before computing airflow
+        let cool_load = zone_peak_cooling.get(name).copied().unwrap_or(0.0) * cooling_sizing_factor;
         let dt_cooling = (cool_sp - cooling_supply_temp).max(5.0);
         let m_cool = if cool_load > 0.0 {
             cool_load / (cp_air * dt_cooling)
@@ -596,6 +623,7 @@ fn generate_monthly_cooling_dds(
             month,
             day,
             day_type: anchor.day_type.clone(),
+            internal_gains: anchor.internal_gains.clone(),
         });
 
         log::info!(
@@ -627,17 +655,21 @@ pub fn run_sizing(
     weather_hours: &[WeatherHour],
     output_dir: &Path,
     input_stem: &str,
+    supply_temps: Option<(f64, f64)>,
+    heating_sizing_factor: f64,
+    cooling_sizing_factor: f64,
 ) -> SizingResult {
-    let sizing_factor = 1.25; // 25% safety margin
     let rho_air = 1.2; // kg/m³ for volume flow conversion
+
+    log::info!("Sizing factors: heating={:.2}, cooling={:.2}",
+        heating_sizing_factor, cooling_sizing_factor);
 
     // ── Gather setpoints from resolved thermostats ───────────────────────
     let mut zone_heating_setpoints: HashMap<String, f64> = HashMap::new();
     let mut zone_cooling_setpoints: HashMap<String, f64> = HashMap::new();
-    // Supply temps come from air loop controls, not thermostats.
-    // Use standard defaults — the caller can override via loop-specific sizing later.
-    let heating_supply_temp = 35.0_f64;
-    let cooling_supply_temp = 13.0_f64;
+    // Supply temps from air loop controls.  If the caller provides them
+    // (extracted from air_loops), use those; otherwise fall back to defaults.
+    let (heating_supply_temp, cooling_supply_temp) = supply_temps.unwrap_or((35.0, 13.0));
 
     for tstat in thermostats {
         for zone_name in &tstat.zones {
@@ -697,6 +729,8 @@ pub fn run_sizing(
         heating_supply_temp,
         cooling_supply_temp,
         latitude,
+        heating_sizing_factor,
+        cooling_sizing_factor,
     );
 
     // Log zone sizing results
@@ -729,9 +763,9 @@ pub fn run_sizing(
         latitude,
     );
 
-    // System capacities with sizing factor
-    let system_heating_capacity = system_sizing.coincident_peak_heating * sizing_factor;
-    let system_cooling_capacity = system_sizing.coincident_peak_cooling * sizing_factor;
+    // System capacities with sizing factors
+    let system_heating_capacity = system_sizing.coincident_peak_heating * heating_sizing_factor;
+    let system_cooling_capacity = system_sizing.coincident_peak_cooling * cooling_sizing_factor;
     let system_airflow: f64 = zone_sizing.zone_design_airflow.values().sum();
     let system_volume_flow = system_airflow / rho_air;
 
@@ -747,9 +781,9 @@ pub fn run_sizing(
         system_sizing.cooling_peak_dd,
         system_sizing.cooling_peak_hour);
     log::info!("  System heating capacity (×{:.0}%): {:.0} W ({:.1} kW)",
-        sizing_factor * 100.0, system_heating_capacity, system_heating_capacity / 1000.0);
+        heating_sizing_factor * 100.0, system_heating_capacity, system_heating_capacity / 1000.0);
     log::info!("  System cooling capacity (×{:.0}%): {:.0} W ({:.1} kW)",
-        sizing_factor * 100.0, system_cooling_capacity, system_cooling_capacity / 1000.0);
+        cooling_sizing_factor * 100.0, system_cooling_capacity, system_cooling_capacity / 1000.0);
     log::info!("  System airflow: {:.3} kg/s ({:.4} m³/s, {:.0} CFM)",
         system_airflow, system_volume_flow, system_volume_flow * 2118.88);
     log::info!("══════════════════════════════════════════════════════════");
@@ -760,7 +794,7 @@ pub fn run_sizing(
         &zone_sizing, &system_sizing,
         system_heating_capacity, system_cooling_capacity,
         system_airflow, system_volume_flow,
-        sizing_factor, output_dir, input_stem,
+        heating_sizing_factor, cooling_sizing_factor, output_dir, input_stem,
     );
 
     // Reset zone temperatures for the real simulation
@@ -838,7 +872,8 @@ fn write_system_sizing_csv(
     system_cooling_cap: f64,
     system_airflow: f64,
     system_volume_flow: f64,
-    sizing_factor: f64,
+    heating_sizing_factor: f64,
+    cooling_sizing_factor: f64,
     output_dir: &Path,
     input_stem: &str,
 ) {
@@ -846,7 +881,8 @@ fn write_system_sizing_csv(
     let mut lines = Vec::new();
 
     lines.push("Parameter,Value,Unit,Notes".to_string());
-    lines.push(format!("Sizing Factor,{:.2},,", sizing_factor));
+    lines.push(format!("Heating Sizing Factor,{:.2},,", heating_sizing_factor));
+    lines.push(format!("Cooling Sizing Factor,{:.2},,", cooling_sizing_factor));
     lines.push(String::new());
 
     // Zone summary
@@ -879,10 +915,10 @@ fn write_system_sizing_csv(
 
     lines.push("--- Sized System Capacities ---,,,".to_string());
     lines.push(format!("System Heating Capacity,{:.1},W,(coincident peak x {:.0}%)",
-        system_heating_cap, sizing_factor * 100.0));
+        system_heating_cap, heating_sizing_factor * 100.0));
     lines.push(format!("System Heating Capacity,{:.2},kW,", system_heating_cap / 1000.0));
     lines.push(format!("System Cooling Capacity,{:.1},W,(coincident peak x {:.0}%)",
-        system_cooling_cap, sizing_factor * 100.0));
+        system_cooling_cap, cooling_sizing_factor * 100.0));
     lines.push(format!("System Cooling Capacity,{:.2},kW,", system_cooling_cap / 1000.0));
     lines.push(format!("System Cooling Capacity,{:.2},tons,", system_cooling_cap / 3517.0));
     lines.push(format!("System Airflow,{:.4},kg/s,(sum of zone design airflows)",

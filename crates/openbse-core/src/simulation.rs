@@ -147,6 +147,7 @@ impl SimulationRunner {
                     outdoor_air: *outdoor_air,
                     day_type: DayType::WeatherDay,
                     is_sizing: false,
+                    sizing_internal_gains: SizingInternalGains::Full,
                 };
 
                 let result = self.simulate_timestep(graph, &ctx, signals)?;
@@ -211,6 +212,7 @@ impl SimulationRunner {
                     outdoor_air,
                     day_type: DayType::WeatherDay,
                     is_sizing: false,
+                    sizing_internal_gains: SizingInternalGains::Full,
                 };
 
                 // Build HVAC conditions from control signals for envelope

@@ -11,9 +11,14 @@ use serde::{Deserialize, Serialize};
 pub enum InternalGainInput {
     People {
         count: f64,
-        /// Activity level [W/person]
+        /// Activity level [W/person] — total metabolic heat output
         #[serde(default = "default_activity")]
         activity_level: f64,
+        /// Sensible fraction of metabolic heat [0-1] (default 0.6).
+        /// Sensible heat = activity_level × sensible_fraction.
+        /// Latent heat  = activity_level × (1 - sensible_fraction).
+        #[serde(default = "default_sensible_fraction")]
+        sensible_fraction: f64,
         /// Fraction of gain that is radiant [0-1]
         #[serde(default = "default_people_radiant")]
         radiant_fraction: f64,
@@ -40,6 +45,11 @@ pub enum InternalGainInput {
         /// Fraction radiant [0-1]
         #[serde(default = "default_equip_radiant")]
         radiant_fraction: f64,
+        /// Fraction of heat that is "lost" (does not enter the zone) [0-1] (default 0.0).
+        /// Matches E+ ElectricEquipment "Fraction Lost" field.
+        /// Example: elevator with lost_fraction=0.95 means only 5% of heat enters the zone.
+        #[serde(default)]
+        lost_fraction: f64,
         /// Schedule name for time-varying equipment (default: always on)
         #[serde(default)]
         schedule: Option<String>,
@@ -47,6 +57,7 @@ pub enum InternalGainInput {
 }
 
 fn default_activity() -> f64 { 120.0 }
+fn default_sensible_fraction() -> f64 { 0.6 }
 fn default_people_radiant() -> f64 { 0.3 }
 fn default_lights_radiant() -> f64 { 0.7 }
 fn default_equip_radiant() -> f64 { 0.3 }
@@ -54,11 +65,11 @@ fn default_equip_radiant() -> f64 { 0.3 }
 /// Resolved internal gain for a timestep [W].
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ResolvedGain {
-    /// Total convective gain to zone air [W]
+    /// Total convective gain to zone air [W] (sensible only)
     pub convective: f64,
-    /// Total radiative gain to zone surfaces [W]
+    /// Total radiative gain to zone surfaces [W] (sensible only)
     pub radiative: f64,
-    /// Total gain [W]
+    /// Total sensible gain [W] (convective + radiative)
     pub total: f64,
     /// Lighting electric power this timestep [W] (scheduled)
     pub lighting_power: f64,
@@ -66,6 +77,8 @@ pub struct ResolvedGain {
     pub equipment_power: f64,
     /// People sensible heat this timestep [W] (scheduled)
     pub people_heat: f64,
+    /// People latent heat this timestep [W] (scheduled, for humidity modeling)
+    pub people_latent: f64,
 }
 
 /// Resolve all gains for a zone at this timestep.
@@ -91,13 +104,16 @@ pub fn resolve_gains_scheduled(
 
     for gain in gains {
         match gain {
-            InternalGainInput::People { count, activity_level, radiant_fraction, schedule } => {
+            InternalGainInput::People { count, activity_level, sensible_fraction, radiant_fraction, schedule } => {
                 let frac = schedule_fraction(schedule, schedule_mgr, hour, day_of_week);
-                let total = count * activity_level * frac;
-                result.radiative += total * radiant_fraction;
-                result.convective += total * (1.0 - radiant_fraction);
-                result.total += total;
-                result.people_heat += total;
+                let total_metabolic = count * activity_level * frac;
+                let sensible = total_metabolic * sensible_fraction;
+                let latent = total_metabolic * (1.0 - sensible_fraction);
+                result.radiative += sensible * radiant_fraction;
+                result.convective += sensible * (1.0 - radiant_fraction);
+                result.total += sensible;
+                result.people_heat += sensible;
+                result.people_latent += latent;
             }
             InternalGainInput::Lights { power, radiant_fraction, return_air_fraction, schedule } => {
                 let frac = schedule_fraction(schedule, schedule_mgr, hour, day_of_week);
@@ -108,12 +124,15 @@ pub fn resolve_gains_scheduled(
                 result.total += total;
                 result.lighting_power += total;
             }
-            InternalGainInput::Equipment { power, radiant_fraction, schedule } => {
+            InternalGainInput::Equipment { power, radiant_fraction, lost_fraction, schedule } => {
                 let frac = schedule_fraction(schedule, schedule_mgr, hour, day_of_week);
                 let total = power * frac;
-                result.radiative += total * radiant_fraction;
-                result.convective += total * (1.0 - radiant_fraction);
-                result.total += total;
+                // Only the non-lost portion enters the zone as heat
+                let to_zone = total * (1.0 - lost_fraction);
+                result.radiative += to_zone * radiant_fraction;
+                result.convective += to_zone * (1.0 - radiant_fraction);
+                result.total += to_zone;
+                // Report full electric power for energy accounting
                 result.equipment_power += total;
             }
         }
@@ -145,13 +164,15 @@ mod tests {
         let gains = vec![InternalGainInput::People {
             count: 10.0,
             activity_level: 120.0,
+            sensible_fraction: 0.6,
             radiant_fraction: 0.3,
             schedule: None,
         }];
         let resolved = resolve_gains(&gains);
-        assert_relative_eq!(resolved.total, 1200.0);
-        assert_relative_eq!(resolved.radiative, 360.0);
-        assert_relative_eq!(resolved.convective, 840.0);
+        // 10 people × 120 W/person × 0.6 sensible = 720 W sensible
+        assert_relative_eq!(resolved.total, 720.0);
+        assert_relative_eq!(resolved.radiative, 216.0);  // 720 × 0.3
+        assert_relative_eq!(resolved.convective, 504.0); // 720 × 0.7
     }
 
     #[test]
@@ -173,11 +194,11 @@ mod tests {
     #[test]
     fn test_combined_gains() {
         let gains = vec![
-            InternalGainInput::People { count: 5.0, activity_level: 120.0, radiant_fraction: 0.3, schedule: None },
-            InternalGainInput::Equipment { power: 500.0, radiant_fraction: 0.3, schedule: None },
+            InternalGainInput::People { count: 5.0, activity_level: 120.0, sensible_fraction: 0.6, radiant_fraction: 0.3, schedule: None },
+            InternalGainInput::Equipment { power: 500.0, radiant_fraction: 0.3, lost_fraction: 0.0, schedule: None },
         ];
         let resolved = resolve_gains(&gains);
-        assert_relative_eq!(resolved.total, 1100.0); // 600 + 500
+        assert_relative_eq!(resolved.total, 860.0); // 5×120×0.6=360 + 500
     }
 
     #[test]
@@ -198,6 +219,7 @@ mod tests {
         let gains = vec![InternalGainInput::Equipment {
             power: 1000.0,
             radiant_fraction: 0.3,
+            lost_fraction: 0.0,
             schedule: Some("half".to_string()),
         }];
 
@@ -208,5 +230,24 @@ mod tests {
         // Weekend: 0% schedule → 0W
         let resolved = resolve_gains_scheduled(&gains, Some(&schedules), 12, 6);
         assert_relative_eq!(resolved.total, 0.0);
+    }
+
+    #[test]
+    fn test_equipment_lost_fraction() {
+        // Elevator with 95% heat lost (only 5% enters zone)
+        let gains = vec![InternalGainInput::Equipment {
+            power: 1000.0,
+            radiant_fraction: 0.3,
+            lost_fraction: 0.95,
+            schedule: None,
+        }];
+        let resolved = resolve_gains(&gains);
+        // 1000W total, 950W lost, 50W to zone
+        // Of 50W: 15W radiant, 35W convective
+        assert_relative_eq!(resolved.total, 50.0, epsilon = 1e-10);
+        assert_relative_eq!(resolved.radiative, 15.0, epsilon = 1e-10);
+        assert_relative_eq!(resolved.convective, 35.0, epsilon = 1e-10);
+        // Full 1000W reported for electricity accounting
+        assert_relative_eq!(resolved.equipment_power, 1000.0);
     }
 }

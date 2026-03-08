@@ -322,6 +322,43 @@ impl BuildingEnvelope {
             }
         }
 
+        // ── Generate synthetic adiabatic surfaces for internal mass ──────
+        //
+        // EnergyPlus `InternalMass` objects represent furniture, contents, and
+        // internal partitions that add thermal capacitance to a zone.  They are
+        // modeled as adiabatic surfaces: both sides face the same zone, so
+        // T_outside = T_inside at every timestep.  CTF coefficients capture the
+        // thermal lag through the mass.
+        //
+        // Without internal mass the zone air responds almost instantly to solar
+        // gains and outdoor temperature swings, producing HVAC loads 2-7× too
+        // high compared to EnergyPlus.
+        for zone in &zone_states {
+            for (im_idx, im) in zone.input.internal_mass.iter().enumerate() {
+                let name = format!("{} IntMass {}", zone.input.name, im_idx + 1);
+                log::info!(
+                    "Zone '{}': adding internal mass surface '{}' — {:.1} m², construction '{}'",
+                    zone.input.name, name, im.area, im.construction,
+                );
+                let surf = SurfaceInput {
+                    name,
+                    zone: zone.input.name.clone(),
+                    surface_type: SurfaceType::Wall, // arbitrary; adiabatic ignores orientation
+                    construction: im.construction.clone(),
+                    area: im.area,
+                    azimuth: 0.0,
+                    tilt: 90.0,
+                    boundary: BoundaryCondition::Adiabatic,
+                    parent_surface: None,
+                    vertices: None,
+                    shading: None,
+                    sun_exposure: false,
+                    wind_exposure: false,
+                };
+                surfaces.push(surf);
+            }
+        }
+
         // Auto-calculate solar distribution if not specified
         for zone in &mut zone_states {
             if zone.input.solar_distribution.is_none() {
@@ -990,15 +1027,55 @@ impl EnvelopeSolver for BuildingEnvelope {
             }
         }
 
-        // 3. Internal gains (schedule-aware)
+        // 3. Internal gains — mode depends on sizing context
+        //
+        // During normal simulation: use schedules (time-varying fractions).
+        // During sizing: behavior is controlled by the design day's
+        // `internal_gains` mode (Off / Full / Scheduled / FullWhenOccupied).
+        use openbse_core::ports::SizingInternalGains;
         let dow = day_of_week(ctx.timestep.month, ctx.timestep.day, self.jan1_dow);
         for zone in &mut self.zones {
-            let gains = internal_gains::resolve_gains_scheduled(
-                &zone.input.internal_gains,
-                Some(&self.schedule_manager),
-                hour,
-                dow,
-            );
+            let gains = if ctx.is_sizing {
+                match ctx.sizing_internal_gains {
+                    SizingInternalGains::Off => {
+                        // Zero internal gains (heating design days: conservative).
+                        internal_gains::ResolvedGain::default()
+                    }
+                    SizingInternalGains::Full => {
+                        // 100% design-level gains at all hours (cooling DDs: conservative).
+                        // Passing None for schedule_mgr → fraction = 1.0 for all gains.
+                        internal_gains::resolve_gains_scheduled(
+                            &zone.input.internal_gains, None, hour, dow,
+                        )
+                    }
+                    SizingInternalGains::Scheduled => {
+                        // Follow normal schedules, same as annual simulation.
+                        internal_gains::resolve_gains_scheduled(
+                            &zone.input.internal_gains, Some(&self.schedule_manager), hour, dow,
+                        )
+                    }
+                    SizingInternalGains::FullWhenOccupied => {
+                        // Check scheduled gains to determine if this hour is "occupied".
+                        // If any gain is active (schedule > 0), use full design gains.
+                        // If unoccupied (all schedules = 0), use zero gains.
+                        let scheduled = internal_gains::resolve_gains_scheduled(
+                            &zone.input.internal_gains, Some(&self.schedule_manager), hour, dow,
+                        );
+                        if scheduled.total > 0.0 {
+                            internal_gains::resolve_gains_scheduled(
+                                &zone.input.internal_gains, None, hour, dow,
+                            )
+                        } else {
+                            internal_gains::ResolvedGain::default()
+                        }
+                    }
+                }
+            } else {
+                // Normal simulation: always use schedules
+                internal_gains::resolve_gains_scheduled(
+                    &zone.input.internal_gains, Some(&self.schedule_manager), hour, dow,
+                )
+            };
             zone.q_internal_conv = gains.convective;
             zone.q_internal_rad = gains.radiative;
             zone.lighting_power = gains.lighting_power;
@@ -1041,6 +1118,84 @@ impl EnvelopeSolver for BuildingEnvelope {
                 zone.exhaust_mass_flow = exhaust.flow_rate * rho_outdoor * exhaust_frac;
             } else {
                 zone.exhaust_mass_flow = 0.0;
+            }
+
+            // Natural ventilation (wind + stack driven through operable openings)
+            //
+            // EnergyPlus ZoneVentilation:WindandStackOpenArea model:
+            //   V = sqrt(V_wind² + V_stack²)
+            // where:
+            //   V_wind  = Cw × A_opening × v_wind
+            //   V_stack = Cd × A_opening × sqrt(2·g·ΔH·|Tz-To|/(Tz+273.15))
+            //
+            // Opening effectiveness Cw depends on windward/leeward orientation:
+            //   Cw = 0.55 if windward (wind hits the opening face)
+            //   Cw = 0.30 if leeward  (wind is behind the opening)
+            //
+            // Natural ventilation is disabled during sizing (design day) runs.
+            if let Some(ref nv) = zone.input.natural_ventilation.clone() {
+                // Schedule check (disabled during design days)
+                let sched_frac = if ctx.is_sizing {
+                    0.0
+                } else {
+                    match &nv.schedule {
+                        Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                        None => 1.0,
+                    }
+                };
+
+                // Temperature and wind speed conditions
+                let t_zone = zone.temp;
+                let temp_ok = t_zone >= nv.min_indoor_temp
+                    && t_zone <= nv.max_indoor_temp
+                    && t_outdoor >= nv.min_outdoor_temp
+                    && t_outdoor <= nv.max_outdoor_temp
+                    && wind_speed_met <= nv.max_wind_speed;
+
+                if sched_frac > 0.0 && temp_ok {
+                    // Wind-driven component
+                    // Determine windward/leeward: the opening is windward if the
+                    // angle between wind direction and the outward normal of the
+                    // opening is < 90°.
+                    let angle_diff = {
+                        let mut d = (wind_direction - nv.effective_angle).abs() % 360.0;
+                        if d > 180.0 { d = 360.0 - d; }
+                        d
+                    };
+                    let cw = if angle_diff <= 90.0 { 0.55 } else { 0.30 };
+                    let v_wind = cw * nv.opening_area * sched_frac * wind_speed_met;
+
+                    // Stack-driven component
+                    let dt_abs = (t_zone - t_outdoor).abs();
+                    let t_zone_k = t_zone + 273.15;
+                    let v_stack = if nv.height_difference > 0.0 && dt_abs > 0.01 {
+                        let cd = nv.discharge_coefficient;
+                        cd * nv.opening_area * sched_frac
+                            * (2.0 * 9.81 * nv.height_difference * dt_abs / t_zone_k).sqrt()
+                    } else {
+                        0.0
+                    };
+
+                    // Combined flow (root-sum-of-squares)
+                    let v_total = (v_wind * v_wind + v_stack * v_stack).sqrt();
+
+                    zone.nat_vent_flow = v_total;
+                    zone.nat_vent_mass_flow = v_total * rho_outdoor;
+                    zone.nat_vent_active = true;
+                    zone.nat_vent_off_timesteps = 0;
+                } else {
+                    zone.nat_vent_flow = 0.0;
+                    zone.nat_vent_mass_flow = 0.0;
+                    zone.nat_vent_active = false;
+                    // Increment off-timestep counter (saturate to avoid overflow)
+                    if zone.nat_vent_off_timesteps < u32::MAX {
+                        zone.nat_vent_off_timesteps = zone.nat_vent_off_timesteps.saturating_add(1);
+                    }
+                }
+            } else {
+                zone.nat_vent_flow = 0.0;
+                zone.nat_vent_mass_flow = 0.0;
+                zone.nat_vent_active = false;
             }
 
             // ASHRAE 62.1 outdoor air (calculated from people count + floor area)
@@ -1156,7 +1311,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // Windows: beam uses angular SHGC modifier,
                     //          all diffuse (incl. cs) uses hemispherical SHGC modifier
                     //          (matches E+ SkyDiffuse × DiffTrans treatment)
-                    surface.incident_solar = effective_incident;
+                    // Store incident in [W] (not W/m²) so it matches transmitted_solar
+                    // units for the summary report diagnostic ratio.
+                    surface.incident_solar = effective_incident * surface.net_area;
                     let (beam_trans, diff_trans) = solar::window_transmitted_solar_split(
                         surface.shgc,
                         surface.net_area,
@@ -2239,23 +2396,45 @@ impl EnvelopeSolver for BuildingEnvelope {
                 // NOT at outdoor temp. So we exclude outdoor_air_mass_flow from mcpi
                 // to avoid double-counting the OA ventilation load.
                 //
-                // EXCEPTION: During sizing, the HVAC supply air is a synthetic flow
-                // to hold the zone at setpoint. The OA load must be included in mcpi
-                // so that zone loads reflect the ventilation heating/cooling load
-                // that the real HVAC system must handle.
+                // Outdoor air handling depends on whether the zone is connected
+                // to an air loop and whether we're sizing or running:
                 //
-                // For ideal-loads zones, outdoor_air_mass_flow enters directly at outdoor temp.
-                let oa_to_zone = if zone.supply_air_mass_flow > 0.0 && !ctx.is_sizing {
-                    // External HVAC loop (runtime): OA already in supply stream
+                // During SIZING: Exclude outdoor_air from zone load. This matches
+                // E+ behavior where dedicated ventilation systems (ERVs) are OFF
+                // during design days.  The PTAC/PSZ-AC is sized for envelope +
+                // internal gains + infiltration only, without the ventilation load.
+                //
+                // During RUNTIME with air loop: OA is suppressed because the air
+                // loop handles ventilation mixing in its supply stream.
+                //
+                // During RUNTIME without air loop (ideal loads, free-float): OA
+                // enters the zone directly at outdoor temperature.
+                // Determine whether zone outdoor air should enter the zone directly.
+                // If HVAC handles OA mixing (VAV with economizer, PSZ-AC), suppress
+                // zone OA to avoid double-counting. If HVAC is recirculation-only
+                // (PTAC/FCU with separate ERV), allow zone OA through.
+                let hvac_handles_oa = hvac.oa_handled_by_hvac
+                    .get(&zone.input.name)
+                    .copied()
+                    .unwrap_or(true); // default: suppress OA when HVAC is running
+
+                let oa_to_zone = if ctx.is_sizing {
+                    // Sizing: exclude OA so HVAC equipment is sized without
+                    // ventilation load (ERV/DOAS handles it separately)
+                    0.0
+                } else if zone.supply_air_mass_flow > 0.0 && hvac_handles_oa {
+                    // External HVAC loop handles OA: suppress zone OA
                     0.0
                 } else {
-                    // Ideal loads, free-float, or sizing: OA enters at outdoor temp
+                    // No HVAC, or HVAC doesn't handle OA (ERV/DOAS provides it
+                    // separately): OA enters zone at outdoor temp
                     zone.outdoor_air_mass_flow
                 };
                 let total_outdoor_mass_flow = zone.infiltration_mass_flow
                     + zone.ventilation_mass_flow
                     + zone.exhaust_mass_flow
-                    + oa_to_zone;
+                    + oa_to_zone
+                    + zone.nat_vent_mass_flow;
                 let mcpi = total_outdoor_mass_flow * cp_air;
 
                 let q_conv_total = zone.q_internal_conv + q_solar_to_air + q_window_cond + q_window_absorbed;
@@ -2351,7 +2530,34 @@ impl EnvelopeSolver for BuildingEnvelope {
                     );
 
                     // Step 2: Get active setpoints (may vary by schedule)
-                    let (heat_sp, cool_sp) = zone.input.active_setpoints(hour);
+                    let (mut heat_sp, mut cool_sp) = zone.input.active_setpoints(hour);
+
+                    // Step 2b: Natural ventilation setpoint reset.
+                    //
+                    // When natural ventilation is active, widen the thermostat
+                    // deadband so HVAC does not fight the outdoor air coming
+                    // through open windows. When nat vent stops, linearly ramp
+                    // back to normal setpoints over N timesteps.
+                    if let Some(ref nv_input) = zone.input.natural_ventilation {
+                        if let Some(ref reset) = nv_input.setpoint_reset {
+                            if zone.nat_vent_active {
+                                // Fully overridden setpoints
+                                heat_sp = reset.heating_setpoint;
+                                cool_sp = reset.cooling_setpoint;
+                            } else if reset.ramp_timesteps > 0
+                                && zone.nat_vent_off_timesteps <= reset.ramp_timesteps as u32
+                            {
+                                // Ramp back: linearly blend from override to normal
+                                let frac = zone.nat_vent_off_timesteps as f64
+                                    / reset.ramp_timesteps as f64;
+                                let (normal_heat, normal_cool) = (heat_sp, cool_sp);
+                                heat_sp = reset.heating_setpoint
+                                    + frac * (normal_heat - reset.heating_setpoint);
+                                cool_sp = reset.cooling_setpoint
+                                    + frac * (normal_cool - reset.cooling_setpoint);
+                            }
+                        }
+                    }
 
                     // Step 3: Determine mode and compute ideal Q
                     let (q_hvac, hvac_mode) = if t_free < heat_sp {
@@ -2452,37 +2658,25 @@ impl EnvelopeSolver for BuildingEnvelope {
                 // the cooling/heating setpoint. This is used for load-based
                 // PLR calculations in the HVAC control layer.
                 //
-                // Q_ideal uses the current surface temperatures (sum_ha, sum_hat)
-                // but evaluates the zone energy balance at T_zone = setpoint.
+                // Uses ACTUAL surface temperatures (sum_hat from CTF solution)
+                // so the ideal load correctly accounts for envelope conduction
+                // losses through walls/windows. Setting sum_hat = sum_ha*sp
+                // would zero out envelope conduction, drastically underestimating
+                // heating loads in winter and cooling loads in summer.
+                //
+                // Uses t_prev = sp (assume zone was already at setpoint) to avoid
+                // adding a thermal mass recovery term that causes PLR overshoot.
+                // Recovery from off-setpoint happens naturally: the system
+                // delivers the maintenance load, but since the zone is colder
+                // (winter), the actual losses are smaller → excess goes into
+                // warming thermal mass toward setpoint.
                 let cool_sp = hvac.cooling_setpoints.get(&zone.input.name).copied();
                 let heat_sp = hvac.heating_setpoints.get(&zone.input.name).copied();
 
-                // Correct for surface temperature lag: surfaces track the actual
-                // zone temp, but at setpoint the surfaces would be closer to setpoint.
-                //
-                // For an adiabatic massless surface, T_surface = T_zone exactly.
-                // For a surface with thermal mass, the surface temp lags but the
-                // convective coupling would adjust. We estimate the steady-state
-                // correction: at T_setpoint, sum_hat_ideal ≈ sum_hat + sum_ha × (T_sp - T_zone)
-                // which simplifies to using sum_hat_sp = sum_ha × T_sp when surfaces
-                // are in quasi-equilibrium with zone air.
-                //
-                // A conservative approach: use sum_hat_corrected that partially
-                // adjusts for the zone-temp difference, proportional to how well
-                // surfaces track zone air. For near-adiabatic surfaces the correction
-                // factor is ~1.0; for heavy exterior walls it's smaller.
-                //
-                // We use the simple correction: assume surfaces would be at setpoint
-                // if the zone were at setpoint (sum_hat_ideal = sum_ha × T_sp).
-                // This is exact for adiabatic massless surfaces and a reasonable
-                // approximation for others in quasi-steady-state.
-
                 zone.ideal_cooling_load = if let Some(sp) = cool_sp {
-                    let sum_hat_at_sp = sum_ha * sp; // surfaces at setpoint equilibrium
-                    let t_prev_at_sp = sp; // at steady state, t_prev ≈ t_zone ≈ setpoint
                     let q = crate::zone::compute_ideal_q_hvac(
-                        sum_ha, sum_hat_at_sp, mcpi, t_outdoor, q_conv_total,
-                        rho_air, zone.input.volume, cp_air, dt, t_prev_at_sp, sp,
+                        sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
+                        rho_air, zone.input.volume, cp_air, dt, sp, sp,
                     );
                     // Negative Q = cooling needed; convert to positive cooling load
                     (-q).max(0.0)
@@ -2491,11 +2685,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                 };
 
                 zone.ideal_heating_load = if let Some(sp) = heat_sp {
-                    let sum_hat_at_sp = sum_ha * sp;
-                    let t_prev_at_sp = sp;
                     let q = crate::zone::compute_ideal_q_hvac(
-                        sum_ha, sum_hat_at_sp, mcpi, t_outdoor, q_conv_total,
-                        rho_air, zone.input.volume, cp_air, dt, t_prev_at_sp, sp,
+                        sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
+                        rho_air, zone.input.volume, cp_air, dt, sp, sp,
                     );
                     // Positive Q = heating needed
                     q.max(0.0)
@@ -2546,6 +2738,9 @@ impl EnvelopeSolver for BuildingEnvelope {
             outputs.insert("ventilation_mass_flow".to_string(), zone.ventilation_mass_flow);
             outputs.insert("exhaust_mass_flow".to_string(), zone.exhaust_mass_flow);
             outputs.insert("outdoor_air_mass_flow".to_string(), zone.outdoor_air_mass_flow);
+            outputs.insert("nat_vent_flow".to_string(), zone.nat_vent_flow);
+            outputs.insert("nat_vent_mass_flow".to_string(), zone.nat_vent_mass_flow);
+            outputs.insert("nat_vent_active".to_string(), if zone.nat_vent_active { 1.0 } else { 0.0 });
             outputs.insert("q_internal_conv".to_string(), zone.q_internal_conv);
             outputs.insert("q_internal_rad".to_string(), zone.q_internal_rad);
             outputs.insert("supply_air_temp".to_string(), zone.supply_air_temp);
@@ -2564,7 +2759,7 @@ impl EnvelopeSolver for BuildingEnvelope {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openbse_core::ports::SimulationContext;
+    use openbse_core::ports::{SimulationContext, SizingInternalGains};
     use openbse_core::types::{TimeStep, DayType};
     use openbse_psychrometrics::MoistAirState;
     use crate::zone::IdealLoadsAirSystem;
@@ -2632,9 +2827,11 @@ mod tests {
                 crate::internal_gains::InternalGainInput::Equipment {
                     power: 500.0,
                     radiant_fraction: 0.3,
+                    lost_fraction: 0.0,
                     schedule: None,
                 },
             ],
+            internal_mass: vec![],
             multiplier: 1,
             ideal_loads: None,
             thermostat_schedule: vec![],
@@ -2642,6 +2839,7 @@ mod tests {
             solar_distribution: None,
             exhaust_fan: None,
             outdoor_air: None,
+            natural_ventilation: None,
             conditioned: true,
         }];
 
@@ -2723,6 +2921,7 @@ mod tests {
             outdoor_air: MoistAirState::from_tdb_rh(0.0, 0.5, 101325.0),
             day_type: DayType::WeatherDay,
             is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
         }
     }
 
@@ -2789,6 +2988,7 @@ mod tests {
                 ..Default::default()
             }],
             internal_gains: vec![], // No internal gains
+            internal_mass: vec![],
             multiplier: 1,
             ideal_loads: None,
             thermostat_schedule: vec![],
@@ -2796,6 +2996,7 @@ mod tests {
             solar_distribution: None,
             exhaust_fan: None,
             outdoor_air: None,
+            natural_ventilation: None,
             conditioned: true,
         }];
         let surfaces = vec![
@@ -2830,6 +3031,7 @@ mod tests {
             outdoor_air: MoistAirState::from_tdb_rh(0.0, 0.5, 101325.0),
             day_type: DayType::WeatherDay,
             is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
         };
         let mut weather = make_weather_hour(0.0);
         weather.global_horiz_rad = 0.0;
@@ -2902,6 +3104,7 @@ mod tests {
                 ..Default::default()
             }],
             internal_gains: vec![],
+            internal_mass: vec![],
             multiplier: 1,
             ideal_loads: Some(IdealLoadsAirSystem {
                 heating_setpoint: 20.0,
@@ -2914,6 +3117,7 @@ mod tests {
             solar_distribution: None,
             exhaust_fan: None,
             outdoor_air: None,
+            natural_ventilation: None,
             conditioned: true,
         }];
         let surfaces = vec![
@@ -2947,6 +3151,7 @@ mod tests {
             outdoor_air: MoistAirState::from_tdb_rh(-10.0, 0.5, 101325.0),
             day_type: DayType::WeatherDay,
             is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
         };
         let mut weather = make_weather_hour(-10.0);
         weather.global_horiz_rad = 0.0;
@@ -3000,9 +3205,11 @@ mod tests {
                 crate::internal_gains::InternalGainInput::Equipment {
                     power: 2000.0, // Large internal gains to force cooling
                     radiant_fraction: 0.3,
+                    lost_fraction: 0.0,
                     schedule: None,
                 },
             ],
+            internal_mass: vec![],
             multiplier: 1,
             ideal_loads: Some(IdealLoadsAirSystem {
                 heating_setpoint: 20.0,
@@ -3015,6 +3222,7 @@ mod tests {
             solar_distribution: None,
             exhaust_fan: None,
             outdoor_air: None,
+            natural_ventilation: None,
             conditioned: true,
         }];
         let surfaces = vec![
@@ -3048,6 +3256,7 @@ mod tests {
             outdoor_air: MoistAirState::from_tdb_rh(35.0, 0.3, 101325.0),
             day_type: DayType::WeatherDay,
             is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
         };
         let weather = make_weather_hour(35.0);
         let hvac = ZoneHvacConditions::default();
@@ -3088,6 +3297,7 @@ mod tests {
             volume: 130.0, floor_area: 48.0,
             infiltration: vec![crate::infiltration::InfiltrationInput::default()],
             internal_gains: vec![],
+            internal_mass: vec![],
             multiplier: 1,
             ideal_loads: Some(IdealLoadsAirSystem {
                 heating_setpoint: 20.0,
@@ -3100,6 +3310,7 @@ mod tests {
             solar_distribution: None,
             exhaust_fan: None,
             outdoor_air: None,
+            natural_ventilation: None,
             conditioned: true,
         }];
         let surfaces = vec![
@@ -3126,6 +3337,7 @@ mod tests {
             outdoor_air: MoistAirState::from_tdb_rh(23.0, 0.5, 101325.0),
             day_type: DayType::WeatherDay,
             is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
         };
         let mut weather = make_weather_hour(23.0);
         weather.global_horiz_rad = 0.0;

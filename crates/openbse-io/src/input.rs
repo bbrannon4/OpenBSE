@@ -122,6 +122,12 @@ pub struct ModelInput {
     #[serde(default)]
     pub dhw_systems: Vec<DhwSystemInput>,
 
+    // ─── Exterior Equipment ─────────────────────────────────────────────────
+
+    /// Exterior equipment (facility-level loads not in any zone)
+    #[serde(default)]
+    pub exterior_equipment: Vec<ExteriorEquipmentInput>,
+
     // ─── Outputs ────────────────────────────────────────────────────────────
 
     /// Custom output file definitions
@@ -166,8 +172,37 @@ pub struct SimulationSettings {
     /// - `ocean`: Unobstructed ocean or large lake exposure.
     #[serde(default)]
     pub terrain: openbse_envelope::convection::Terrain,
+
+    /// Monthly ground surface temperatures [°C] for surfaces with `boundary: ground`.
+    ///
+    /// 12 values, January through December. Matches EnergyPlus
+    /// `Site:GroundTemperature:BuildingSurface`. Default: 18°C all months
+    /// (E+ default when no BuildingSurface object is present).
+    ///
+    /// ```yaml
+    /// ground_surface_temperatures: [18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18]
+    /// ```
+    #[serde(default = "default_ground_surface_temps")]
+    pub ground_surface_temperatures: Vec<f64>,
+
+    /// Heating sizing factor applied to zone design loads and airflows.
+    ///
+    /// Matches EnergyPlus `Sizing:Parameters` → `Heating Sizing Factor`.
+    /// A value of 1.25 means 25% safety margin.  Default: 1.25.
+    #[serde(default = "default_heating_sizing_factor")]
+    pub heating_sizing_factor: f64,
+
+    /// Cooling sizing factor applied to zone design loads and airflows.
+    ///
+    /// Matches EnergyPlus `Sizing:Parameters` → `Cooling Sizing Factor`.
+    /// A value of 1.15 means 15% safety margin.  Default: 1.15.
+    #[serde(default = "default_cooling_sizing_factor")]
+    pub cooling_sizing_factor: f64,
 }
 
+fn default_ground_surface_temps() -> Vec<f64> { vec![18.0; 12] }
+fn default_heating_sizing_factor() -> f64 { 1.25 }
+fn default_cooling_sizing_factor() -> f64 { 1.15 }
 fn default_timesteps_per_hour() -> u32 { 1 }
 fn default_start_month() -> u32 { 1 }
 fn default_start_day() -> u32 { 1 }
@@ -206,6 +241,7 @@ pub enum AirLoopSystemType {
     PszAc,
     Doas,
     Fcu,
+    Ptac,
     Vav,
 }
 
@@ -413,7 +449,35 @@ pub enum EquipmentInput {
     CoolingCoil(CoolingCoilInput),
     #[serde(rename = "heat_recovery")]
     HeatRecovery(HeatRecoveryInput),
+    #[serde(rename = "humidifier")]
+    Humidifier(HumidifierInput),
 }
+
+/// Electric steam humidifier.
+///
+/// ```yaml
+/// - type: humidifier
+///   name: DC Humidifier
+///   rated_power: 100000
+///   min_rh_setpoint: 0.30
+/// ```
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HumidifierInput {
+    pub name: String,
+    /// Maximum electric power [W] (e.g., 100000). Use `autosize` for autosizing.
+    #[serde(default = "default_humidifier_power")]
+    pub rated_power: f64,
+    /// Minimum relative humidity setpoint [0-1] (e.g., 0.30 for 30% RH)
+    #[serde(default = "default_min_rh")]
+    pub min_rh_setpoint: f64,
+    /// Zone cooling setpoint temperature [°C] used as reference for RH→w conversion.
+    /// Should match the cooling thermostat setpoint of the zone served (default 24.0).
+    #[serde(default = "default_zone_cooling_sp")]
+    pub zone_cooling_setpoint: f64,
+}
+fn default_humidifier_power() -> f64 { 100_000.0 }
+fn default_min_rh() -> f64 { 0.30 }
+fn default_zone_cooling_sp() -> f64 { 24.0 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FanInput {
@@ -433,6 +497,11 @@ pub struct FanInput {
     pub impeller_efficiency: f64,
     #[serde(default = "default_motor_in_airstream")]
     pub motor_in_airstream_fraction: f64,
+    /// VAV fan power curve coefficients [C1..C5].
+    /// Power = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4
+    /// Default matches typical ASHRAE forward-curved centrifugal fan.
+    #[serde(default)]
+    pub vav_coefficients: Option<[f64; 5]>,
 }
 
 fn default_fan_source() -> String { "constant_volume".to_string() }
@@ -473,6 +542,11 @@ pub struct HeatingCoilInput {
     /// Performance curve name for EIR f(T_outdoor)
     #[serde(default)]
     pub eir_ft_curve: Option<String>,
+
+    // ─── Hot water fields (only used when source: hot_water) ─────────
+    /// Plant loop name this coil connects to (for hot_water source)
+    #[serde(default)]
+    pub plant_loop: Option<String>,
 }
 
 fn default_heating_source() -> String { "electric".to_string() }
@@ -671,7 +745,55 @@ pub enum PlantEquipmentInput {
     Boiler(BoilerInput),
     #[serde(rename = "chiller")]
     Chiller(ChillerInput),
+    #[serde(rename = "pump")]
+    Pump(PumpInput),
 }
+
+/// Pump definition for plant water loops.
+///
+/// Design power = Q × H / (motor_efficiency × impeller_efficiency).
+/// In EnergyPlus, impeller_efficiency is an internal default (~0.667) that
+/// accounts for hydraulic/mechanical losses in the pump impeller, distinct
+/// from motor losses. The effective "total efficiency" ≈ 0.9 × 0.667 = 0.60.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PumpInput {
+    pub name: String,
+    /// Pump type: "constant_speed" or "variable_speed" (default: "variable_speed")
+    #[serde(default = "default_pump_type")]
+    pub pump_type: String,
+    /// Design water flow rate [m³/s]. Use `autosize` to let the engine calculate.
+    pub design_flow_rate: AutosizeValue,
+    /// Design pump head [Pa] (default: 179352 Pa ≈ 60 ft H2O)
+    #[serde(default = "default_pump_head")]
+    pub design_head: f64,
+    /// Motor efficiency [0-1] (default: 0.9).
+    /// Controls fraction of motor heat going to fluid stream.
+    #[serde(default = "default_pump_motor_eff")]
+    pub motor_efficiency: f64,
+    /// Impeller/hydraulic efficiency [0-1] (default: 0.667).
+    /// Combined with motor efficiency gives total pump efficiency.
+    /// Design power = Q × H / (motor_eff × impeller_eff).
+    #[serde(default = "default_impeller_eff")]
+    pub impeller_efficiency: f64,
+    /// Number of pumps in headered configuration (default: 1).
+    /// For HeaderedPumps: pumps stage on/off to match demand.
+    /// Each individual pump's design flow = total design flow / num_pumps.
+    #[serde(default = "default_num_pumps")]
+    pub num_pumps: u32,
+    /// Part-load power curve coefficients [c1, c2, c3, c4] for variable speed pumps.
+    /// power_frac = c1 + c2*PLR + c3*PLR² + c4*PLR³
+    /// Default: [0, 0, 0, 1] (pure cubic / affinity laws).
+    /// E+ common curve: [0, 0.5726, -0.3010, 0.7347]
+    #[serde(default)]
+    pub power_curve: Option<Vec<f64>>,
+}
+
+fn default_num_pumps() -> u32 { 1 }
+fn default_impeller_eff() -> f64 { 0.667 }
+
+fn default_pump_type() -> String { "variable_speed".to_string() }
+fn default_pump_head() -> f64 { 179_352.0 }
+fn default_pump_motor_eff() -> f64 { 0.9 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BoilerInput {
@@ -690,6 +812,28 @@ pub struct BoilerInput {
 fn default_boiler_efficiency() -> f64 { 0.80 }
 fn default_boiler_outlet_temp() -> f64 { 82.0 }
 
+/// Performance curve coefficients for YAML input.
+///
+/// Supports biquadratic (6 coefficients) and quadratic (3 coefficients).
+/// The curve type is inferred from the number of coefficients:
+///   - 3 coefficients → quadratic: f(x) = c1 + c2*x + c3*x²
+///   - 6 coefficients → biquadratic: f(x,y) = c1 + c2*x + c3*x² + c4*y + c5*y² + c6*x*y
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CurveInput {
+    pub coefficients: Vec<f64>,
+    #[serde(default = "default_curve_min")]
+    pub min_x: f64,
+    #[serde(default = "default_curve_max")]
+    pub max_x: f64,
+    #[serde(default = "default_curve_min")]
+    pub min_y: f64,
+    #[serde(default = "default_curve_max")]
+    pub max_y: f64,
+}
+
+fn default_curve_min() -> f64 { -100.0 }
+fn default_curve_max() -> f64 { 100.0 }
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChillerInput {
     pub name: String,
@@ -704,10 +848,45 @@ pub struct ChillerInput {
     /// Design CHW flow rate [m3/s]. Calculated from capacity if not specified.
     #[serde(default)]
     pub design_chw_flow: f64,
+    /// Condenser type: "air_cooled" (default) or "water_cooled"
+    #[serde(default = "default_condenser_type")]
+    pub condenser_type: String,
+    /// For water-cooled: fixed condenser entering water temperature [°C].
+    /// Matches E+ SetpointManager:Scheduled on the condenser loop.
+    /// If not set, falls back to outdoor wet-bulb + tower_approach.
+    #[serde(default)]
+    pub condenser_entering_temp: Option<f64>,
+    /// For water-cooled (fallback): approach offset from outdoor wet-bulb to
+    /// condenser entering water temperature [°C]. Default 5.56°C (10°F).
+    /// Only used when condenser_entering_temp is not set.
+    #[serde(default = "default_tower_approach")]
+    pub tower_approach: f64,
+    /// Minimum part load ratio (default 0.25, matching E+ typical value)
+    #[serde(default = "default_chiller_min_plr")]
+    pub min_plr: f64,
+    /// CAPFT: Capacity as function of temperature (biquadratic).
+    /// x = leaving CHW temp [°C], y = entering condenser fluid temp [°C].
+    #[serde(default)]
+    pub capft: Option<CurveInput>,
+    /// EIRFT: EIR as function of temperature (biquadratic).
+    /// x = leaving CHW temp [°C], y = entering condenser fluid temp [°C].
+    #[serde(default)]
+    pub eirft: Option<CurveInput>,
+    /// EIRFPLR: EIR as function of part load ratio (quadratic).
+    /// x = PLR [0-1].
+    #[serde(default)]
+    pub eirfplr: Option<CurveInput>,
+    /// Name of the condenser water plant loop (for water-cooled chillers).
+    /// When set, the chiller's condenser heat rejection drives demand on this loop.
+    #[serde(default)]
+    pub condenser_plant_loop: Option<String>,
 }
 
 fn default_chiller_cop() -> f64 { 3.5 }
 fn default_chw_setpoint() -> f64 { 7.0 }
+fn default_condenser_type() -> String { "air_cooled".to_string() }
+fn default_tower_approach() -> f64 { 5.56 }
+fn default_chiller_min_plr() -> f64 { 0.25 }
 
 /// Design day input.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -722,6 +901,16 @@ pub struct DesignDayInput {
     pub month: u32,
     pub day: u32,
     pub day_type: String,
+    /// How internal gains are handled during this design day.
+    ///
+    /// - `off`: No internal gains (0%). Best for heating design days.
+    /// - `full`: Full design-level gains at all hours (100%). Best for cooling design days.
+    /// - `scheduled`: Follow normal schedules hour-by-hour.
+    /// - `full_when_occupied`: Full gains when schedule > 0, zero when unoccupied.
+    ///
+    /// If omitted, defaults based on `day_type`: heating → `off`, cooling → `full`.
+    #[serde(default)]
+    pub internal_gains: Option<openbse_core::ports::SizingInternalGains>,
 }
 
 // ─── Zone Group Input ─────────────────────────────────────────────────────────
@@ -835,6 +1024,10 @@ pub struct DhwSystemInput {
     /// Cold water mains temperature [°C] (default 10.0)
     #[serde(default = "default_mains_temp")]
     pub mains_temperature: f64,
+    /// Optional circulation pump for the SWH loop.
+    /// Runs whenever there is a DHW draw (flow > 0).
+    #[serde(default)]
+    pub pump: Option<PumpInput>,
 }
 
 /// Water heater equipment input.
@@ -890,6 +1083,35 @@ fn default_wh_ua() -> f64 { 2.0 }
 fn default_wh_deadband() -> f64 { 5.0 }
 fn default_use_temp() -> f64 { 43.3 }
 
+// ─── Exterior Equipment ─────────────────────────────────────────────────────
+
+/// Exterior equipment definition — facility-level loads not assigned to any zone.
+///
+/// Examples: parking lot lighting, signage, exterior landscape lighting.
+/// The power draw is added to facility electricity (or gas) consumption
+/// without contributing to any zone's internal gains.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExteriorEquipmentInput {
+    pub name: String,
+    /// Design power [W]
+    pub power: f64,
+    /// Schedule name (fraction 0-1). If absent, always at full power.
+    #[serde(default)]
+    pub schedule: Option<String>,
+    /// Fuel type: "electricity" or "natural_gas" (default: "electricity")
+    #[serde(default = "default_exterior_fuel")]
+    pub fuel: String,
+    /// Subcategory label for end-use reporting
+    #[serde(default)]
+    pub subcategory: Option<String>,
+    /// When true, power is only applied during nighttime (solar altitude ≤ 0).
+    /// Matches E+ Exterior:Lights AstronomicalClock control option.
+    #[serde(default)]
+    pub astronomical_clock: bool,
+}
+
+fn default_exterior_fuel() -> String { "electricity".to_string() }
+
 // ─── Model Builder ───────────────────────────────────────────────────────────
 
 /// Parse a YAML model file and build the simulation graph.
@@ -941,6 +1163,10 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                         ),
                     };
                     fan.fan_type = fan_type;
+                    // Apply custom VAV curve coefficients if provided
+                    if let Some(coeffs) = f.vav_coefficients {
+                        fan.vav_coefficients = coeffs;
+                    }
                     graph.add_air_component(Box::new(fan))
                 }
                 EquipmentInput::HeatingCoil(c) => {
@@ -1061,6 +1287,15 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                     };
                     graph.add_air_component(Box::new(erv))
                 }
+                EquipmentInput::Humidifier(h) => {
+                    let hum = openbse_components::humidifier::Humidifier::new(
+                        &h.name,
+                        h.rated_power,
+                        h.min_rh_setpoint,
+                        h.zone_cooling_setpoint,
+                    );
+                    graph.add_air_component(Box::new(hum))
+                }
             };
 
             // Connect to previous component in sequence
@@ -1140,14 +1375,82 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                     } else {
                         ci.design_chw_flow
                     };
-                    let chiller = AirCooledChiller::new(
+                    let is_water_cooled = ci.condenser_type == "water_cooled";
+                    let mut chiller = AirCooledChiller::new(
                         &ci.name,
                         capacity,
                         ci.cop,
                         ci.chw_setpoint,
                         chw_flow,
                     );
+                    chiller.min_plr = ci.min_plr;
+                    chiller.water_cooled = is_water_cooled;
+                    chiller.condenser_entering_temp = ci.condenser_entering_temp;
+                    chiller.tower_approach = ci.tower_approach;
+                    // Convert CurveInput → PerformanceCurve for CAPFT
+                    if let Some(ref c) = ci.capft {
+                        use openbse_components::performance_curve::{PerformanceCurve, CurveType};
+                        let ct = if c.coefficients.len() >= 6 { CurveType::Biquadratic } else { CurveType::Quadratic };
+                        chiller.capft_curve = Some(PerformanceCurve {
+                            name: format!("{}_capft", ci.name),
+                            curve_type: ct,
+                            coefficients: c.coefficients.clone(),
+                            min_x: c.min_x, max_x: c.max_x,
+                            min_y: c.min_y, max_y: c.max_y,
+                            min_output: None, max_output: None,
+                        });
+                    }
+                    // Convert CurveInput → PerformanceCurve for EIRFT
+                    if let Some(ref c) = ci.eirft {
+                        use openbse_components::performance_curve::{PerformanceCurve, CurveType};
+                        let ct = if c.coefficients.len() >= 6 { CurveType::Biquadratic } else { CurveType::Quadratic };
+                        chiller.eirft_curve = Some(PerformanceCurve {
+                            name: format!("{}_eirft", ci.name),
+                            curve_type: ct,
+                            coefficients: c.coefficients.clone(),
+                            min_x: c.min_x, max_x: c.max_x,
+                            min_y: c.min_y, max_y: c.max_y,
+                            min_output: None, max_output: None,
+                        });
+                    }
+                    // Convert CurveInput → PerformanceCurve for EIRFPLR
+                    if let Some(ref c) = ci.eirfplr {
+                        use openbse_components::performance_curve::{PerformanceCurve, CurveType};
+                        chiller.eirfplr_curve = Some(PerformanceCurve {
+                            name: format!("{}_eirfplr", ci.name),
+                            curve_type: CurveType::Quadratic,
+                            coefficients: c.coefficients.clone(),
+                            min_x: c.min_x, max_x: c.max_x,
+                            min_y: 0.0, max_y: 0.0,
+                            min_output: None, max_output: None,
+                        });
+                    }
                     graph.add_plant_component(Box::new(chiller))
+                }
+                PlantEquipmentInput::Pump(p) => {
+                    let pump_type = match p.pump_type.as_str() {
+                        "constant_speed" => openbse_components::pump::PumpType::ConstantSpeed,
+                        _ => openbse_components::pump::PumpType::VariableSpeed,
+                    };
+                    // Convert optional Vec<f64> power curve to [f64; 4]
+                    let power_curve = p.power_curve.as_ref().and_then(|v| {
+                        if v.len() >= 4 {
+                            Some([v[0], v[1], v[2], v[3]])
+                        } else {
+                            None
+                        }
+                    });
+                    let pump = openbse_components::pump::Pump::new_headered(
+                        &p.name,
+                        pump_type,
+                        p.design_flow_rate.to_f64(),
+                        p.design_head,
+                        p.motor_efficiency,
+                        p.impeller_efficiency,
+                        p.num_pumps,
+                        power_curve,
+                    );
+                    graph.add_plant_component(Box::new(pump))
                 }
             };
 
@@ -1350,6 +1653,7 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                 zone.internal_gains.push(InternalGainInput::People {
                     count,
                     activity_level: people.activity_level,
+                    sensible_fraction: people.sensible_fraction,
                     radiant_fraction: people.radiant_fraction,
                     schedule: people.schedule.clone(),
                 });
@@ -1391,6 +1695,7 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                 zone.internal_gains.push(InternalGainInput::Equipment {
                     power,
                     radiant_fraction: equip.radiant_fraction,
+                    lost_fraction: equip.lost_fraction,
                     schedule: equip.schedule.clone(),
                 });
             }
@@ -1524,6 +1829,7 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                 zone.outdoor_air = Some(OutdoorAirInput {
                     per_person: oa.per_person,
                     per_area: oa.per_area,
+                    oa_method: oa.oa_method.clone(),
                 });
             }
         }
@@ -1595,7 +1901,12 @@ pub fn compute_oa_fraction(
                     }
                 }).sum();
 
-                total_oa_flow += oa.per_person * people_count + oa.per_area * floor_area;
+                let person_flow = oa.per_person * people_count;
+                let area_flow = oa.per_area * floor_area;
+                total_oa_flow += match oa.oa_method {
+                    openbse_envelope::zone_loads::OaMethod::Sum => person_flow + area_flow,
+                    openbse_envelope::zone_loads::OaMethod::Maximum => person_flow.max(area_flow),
+                };
             }
         } else if let Some(zi) = zone_input {
             // Zone not in envelope — use raw model input
@@ -1610,7 +1921,12 @@ pub fn compute_oa_fraction(
                     }
                 }).sum();
 
-                total_oa_flow += oa.per_person * people_count + oa.per_area * floor_area;
+                let person_flow = oa.per_person * people_count;
+                let area_flow = oa.per_area * floor_area;
+                total_oa_flow += match oa.oa_method {
+                    openbse_envelope::zone_loads::OaMethod::Sum => person_flow + area_flow,
+                    openbse_envelope::zone_loads::OaMethod::Maximum => person_flow.max(area_flow),
+                };
             }
         }
     }

@@ -217,7 +217,8 @@ impl AirComponent for CoolingCoilCHW {
     }
 
     fn thermal_output(&self) -> f64 {
-        self.cooling_rate
+        // Negative = cooling demand (convention: positive = heating, negative = cooling)
+        -self.cooling_rate
     }
 }
 
@@ -242,6 +243,7 @@ mod tests {
             outdoor_air: MoistAirState::from_tdb_rh(35.0, 0.4, 101325.0),
             day_type: DayType::WeatherDay,
             is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
         }
     }
 

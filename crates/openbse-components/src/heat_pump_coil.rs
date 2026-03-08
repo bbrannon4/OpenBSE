@@ -393,6 +393,7 @@ mod tests {
             outdoor_air: MoistAirState::from_tdb_rh(t_outdoor, 0.5, 101325.0),
             day_type: DayType::WeatherDay,
             is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
         }
     }
 

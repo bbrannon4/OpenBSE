@@ -36,9 +36,17 @@ pub struct PeopleInput {
     /// Alternative: floor area per person [m²/person] (zone floor area / this = count)
     #[serde(default)]
     pub area_per_person: Option<f64>,
-    /// Activity level [W/person] (default 120)
+    /// Activity level [W/person] — total metabolic heat output (default 120).
+    /// This is split into sensible and latent components using `sensible_fraction`.
     #[serde(default = "default_activity")]
     pub activity_level: f64,
+    /// Sensible fraction of metabolic heat [0-1] (default 0.6).
+    /// Sensible heat = activity_level × sensible_fraction.
+    /// Latent heat  = activity_level × (1 - sensible_fraction).
+    /// Typical values by activity: 0.62 seated/quiet, 0.58 moderate office,
+    /// 0.50 walking, 0.38 heavy exercise (per ASHRAE Fundamentals Ch.18).
+    #[serde(default = "default_sensible_fraction")]
+    pub sensible_fraction: f64,
     /// Fraction of gain that is radiant [0-1] (default 0.3)
     #[serde(default = "default_people_radiant")]
     pub radiant_fraction: f64,
@@ -48,6 +56,7 @@ pub struct PeopleInput {
 }
 
 fn default_activity() -> f64 { 120.0 }
+fn default_sensible_fraction() -> f64 { 0.6 }
 fn default_people_radiant() -> f64 { 0.3 }
 
 /// Top-level lights definition, assignable to zones or zone groups.
@@ -90,6 +99,11 @@ pub struct EquipmentGainInput {
     /// Fraction radiant [0-1] (default 0.3)
     #[serde(default = "default_equip_radiant")]
     pub radiant_fraction: f64,
+    /// Fraction of heat that is "lost" (does not enter the zone) [0-1] (default 0.0).
+    /// Matches E+ ElectricEquipment "Fraction Lost" field.
+    /// Example: elevator with Lost=0.95 means only 5% of heat enters the zone.
+    #[serde(default)]
+    pub lost_fraction: f64,
     /// Schedule name for time-varying equipment
     #[serde(default)]
     pub schedule: Option<String>,
@@ -245,6 +259,17 @@ pub struct ExhaustFanTopLevel {
     pub schedule: Option<String>,
 }
 
+/// Method for combining per-person and per-area outdoor air rates.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum OaMethod {
+    /// Total OA = per_person × people + per_area × floor_area (default, ASHRAE 62.1)
+    Sum,
+    /// Total OA = max(per_person × people, per_area × floor_area)
+    Maximum,
+}
+impl Default for OaMethod { fn default() -> Self { OaMethod::Sum } }
+
 /// Top-level outdoor air definition, assignable to zones or zone groups.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutdoorAirTopLevel {
@@ -257,6 +282,9 @@ pub struct OutdoorAirTopLevel {
     /// Outdoor air per floor area [m³/s/m²]
     #[serde(default)]
     pub per_area: f64,
+    /// Method for combining per-person and per-area rates: "sum" (default) or "maximum"
+    #[serde(default)]
+    pub oa_method: OaMethod,
 }
 
 /// Top-level ideal loads definition, assignable to zones or zone groups.

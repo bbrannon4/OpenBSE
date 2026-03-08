@@ -49,6 +49,11 @@ pub struct VAVBox {
     pub reheat_capacity: f64,
     /// Maximum reheat outlet air temperature [°C] (typically 35-50)
     pub max_reheat_temp: f64,
+    /// Maximum flow fraction during reheat [0-1] (E+ "ReverseWithLimits").
+    /// In heating mode, the damper opens from min_flow_fraction toward this
+    /// value to deliver more reheat energy. Typically 0.5 (ASHRAE G36
+    /// dual-maximum). Default: 0.5.
+    pub max_reheat_fraction: f64,
 
     // ─── Hot water reheat parameters ─────────────────────────────────────
     /// Design hot water flow rate [m³/s] (for HotWater reheat)
@@ -112,7 +117,8 @@ impl VAVBox {
             min_flow_fraction: min_flow_fraction.clamp(0.0, 1.0),
             reheat_type,
             reheat_capacity,
-            max_reheat_temp: 35.0,
+            max_reheat_temp: 40.0,  // E+ default Maximum Reheat Air Temperature
+            max_reheat_fraction: 0.5,
             design_hw_flow_rate: 0.0,
             design_hw_inlet_temp: 82.0,
             design_hw_outlet_temp: 71.0,
@@ -180,8 +186,13 @@ impl AirComponent for VAVBox {
             let flow = min_flow + cooling_frac * (self.max_air_flow - min_flow);
             (flow, false)
         } else if self.control_signal > 0.0 {
-            // HEATING MODE: minimum flow + reheat
-            (min_flow, true)
+            // HEATING MODE: dual-maximum (ReverseWithLimits)
+            // Damper opens from min_flow toward max_reheat_fraction for more
+            // reheat capacity. Higher heating demand → wider damper.
+            let heat_max_flow = self.max_air_flow * self.max_reheat_fraction;
+            let heat_frac = self.control_signal.clamp(0.0, 1.0);
+            let flow = min_flow + heat_frac * (heat_max_flow - min_flow);
+            (flow, true)
         } else {
             // DEADBAND: minimum flow, no reheat
             (min_flow, false)
@@ -334,6 +345,7 @@ mod tests {
             outdoor_air: MoistAirState::from_tdb_rh(35.0, 0.4, 101325.0),
             day_type: DayType::WeatherDay,
             is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
         }
     }
 
