@@ -950,6 +950,7 @@ zones:
 - name: G Corridor
   volume: 236.7
   floor_area: 77.6
+  conditioned: false
 - name: M SW Apt
   volume: 269.0
   floor_area: 88.3
@@ -1114,6 +1115,7 @@ zones:
   volume: 236.7
   floor_area: 77.6
   multiplier: 2
+  conditioned: false
 - name: T SW Apt
   volume: 269.0
   floor_area: 88.3
@@ -1269,6 +1271,7 @@ zones:
 - name: T Corridor
   volume: 236.7
   floor_area: 77.6
+  conditioned: false
 people:
 - name: Working Family People
   zones:
@@ -5333,37 +5336,6 @@ air_loops:
     setpoint: 12.8
   zones:
   - zone: G NE Apt
-- name: PTAC G Corridor
-  system_type: ptac
-  controls:
-    heating_supply_temp: 32.2
-    cooling_supply_temp: 12.8
-    design_zone_flow: autosize
-  equipment:
-  - type: fan
-    name: Fan G Corridor
-    source: on_off
-    design_flow_rate: autosize
-    pressure_rise: 331.17
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.8
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: HC G Corridor
-    source: hot_water
-    capacity: autosize
-    setpoint: 40.0
-    efficiency: 1.0
-    plant_loop: HHW Loop
-  - type: cooling_coil
-    name: CC G Corridor
-    capacity: autosize
-    cop: 3.2
-    shr: 0.75
-    rated_airflow: autosize
-    setpoint: 12.8
-  zones:
-  - zone: G Corridor
 - name: PTAC M SW Apt
   system_type: ptac
   controls:
@@ -5612,37 +5584,6 @@ air_loops:
     setpoint: 12.8
   zones:
   - zone: M NE Apt
-- name: PTAC M Corridor
-  system_type: ptac
-  controls:
-    heating_supply_temp: 32.2
-    cooling_supply_temp: 12.8
-    design_zone_flow: autosize
-  equipment:
-  - type: fan
-    name: Fan M Corridor
-    source: on_off
-    design_flow_rate: autosize
-    pressure_rise: 331.17
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.8
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: HC M Corridor
-    source: hot_water
-    capacity: autosize
-    setpoint: 40.0
-    efficiency: 1.0
-    plant_loop: HHW Loop
-  - type: cooling_coil
-    name: CC M Corridor
-    capacity: autosize
-    cop: 3.2
-    shr: 0.75
-    rated_airflow: autosize
-    setpoint: 12.8
-  zones:
-  - zone: M Corridor
 - name: PTAC T SW Apt
   system_type: ptac
   controls:
@@ -5891,37 +5832,6 @@ air_loops:
     setpoint: 12.8
   zones:
   - zone: T NE Apt
-- name: PTAC T Corridor
-  system_type: ptac
-  controls:
-    heating_supply_temp: 32.2
-    cooling_supply_temp: 12.8
-    design_zone_flow: autosize
-  equipment:
-  - type: fan
-    name: Fan T Corridor
-    source: on_off
-    design_flow_rate: autosize
-    pressure_rise: 331.17
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.8
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: HC T Corridor
-    source: hot_water
-    capacity: autosize
-    setpoint: 40.0
-    efficiency: 1.0
-    plant_loop: HHW Loop
-  - type: cooling_coil
-    name: CC T Corridor
-    capacity: autosize
-    cop: 3.2
-    shr: 0.75
-    rated_airflow: autosize
-    setpoint: 12.8
-  zones:
-  - zone: T Corridor
 plant_loops:
 - name: HHW Loop
   design_supply_temp: 82.0
@@ -5995,11 +5905,6 @@ thermostats:
 - name: Apartment Thermostat
   zones:
   - Apartment Zones
-  heating_setpoint: 21.1
-  cooling_setpoint: 24.0
-- name: Corridor Thermostat
-  zones:
-  - Corridor Zones
   heating_setpoint: 21.1
   cooling_setpoint: 24.0
 outputs:

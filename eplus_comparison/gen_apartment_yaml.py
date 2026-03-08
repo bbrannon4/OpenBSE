@@ -363,9 +363,10 @@ def build_model():
                 'zones': [{'zone': zone_name}],
             })
 
-        # Corridor
+        # Corridor (unconditioned — matches E+ where corridors have no HVAC)
         cor_name = f"{floor_key} Corridor"
-        z = {'name': cor_name, 'volume': r(COR_VOL, 1), 'floor_area': r(COR_AREA, 1)}
+        z = {'name': cor_name, 'volume': r(COR_VOL, 1), 'floor_area': r(COR_AREA, 1),
+             'conditioned': False}
         if mult > 1:
             z['multiplier'] = mult
         zones.append(z)
@@ -374,48 +375,6 @@ def build_model():
         surfs = gen_zone_surfaces(cor_name, floor_key, 0, 'S', cor_ext, is_corridor=True)
         all_surfaces.extend(surfs)
         corridor_zones.append(cor_name)
-
-        # Corridor PTAC
-        air_loops.append({
-            'name': f"PTAC {cor_name}",
-            'system_type': 'ptac',
-            'controls': {
-                'heating_supply_temp': 32.2,
-                'cooling_supply_temp': 12.8,
-                'design_zone_flow': 'autosize',
-            },
-            'equipment': [
-                {
-                    'type': 'fan',
-                    'name': f"Fan {cor_name}",
-                    'source': 'on_off',
-                    'design_flow_rate': 'autosize',
-                    'pressure_rise': 331.17,
-                    'impeller_efficiency': 0.65,
-                    'motor_efficiency': 0.8,
-                    'motor_in_airstream_fraction': 1.0,
-                },
-                {
-                    'type': 'heating_coil',
-                    'name': f"HC {cor_name}",
-                    'source': 'hot_water',
-                    'capacity': 'autosize',
-                    'setpoint': 40.0,
-                    'efficiency': 1.0,
-                    'plant_loop': 'HHW Loop',
-                },
-                {
-                    'type': 'cooling_coil',
-                    'name': f"CC {cor_name}",
-                    'capacity': 'autosize',
-                    'cop': 3.2,
-                    'shr': 0.75,
-                    'rated_airflow': 'autosize',
-                    'setpoint': 12.8,
-                },
-            ],
-            'zones': [{'zone': cor_name}],
-        })
 
     # ─── People ────────────────────────────────────────────────────────────
     people.append({
@@ -798,8 +757,7 @@ def build_model():
     model['thermostats'] = [
         {'name': 'Apartment Thermostat', 'zones': ['Apartment Zones'],
          'heating_setpoint': 21.1, 'cooling_setpoint': 24.0},
-        {'name': 'Corridor Thermostat', 'zones': ['Corridor Zones'],
-         'heating_setpoint': 21.1, 'cooling_setpoint': 24.0},
+        # Corridors are unconditioned — no thermostat needed (matches E+)
     ]
 
     # Outputs
