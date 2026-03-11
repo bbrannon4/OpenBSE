@@ -1,0 +1,2585 @@
+# OpenBSE: DOE Prototype Large Office Building (ASHRAE 90.1-2019 Appendix G)
+#
+# Building: 12-story + basement, 73.1m x 48.7m footprint, 3.96m floor-to-floor
+# Location: Boulder, CO (Climate Zone 5B)
+# HVAC: 3 VAV AHUs (bot/mid/top) + 1 CAV (basement) + PSZ-AC (data centers)
+# Plant: HHW gas boiler + CHW air-cooled chiller
+# DHW: Electric water heater
+#
+# All numeric values extracted from DOE Prototype LargeOffice_Denver.idf
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+  terrain: city
+
+weather_files:
+  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+
+# --- Design Days (Denver/Boulder, CO — from IDF SizingPeriod:DesignDay) ---
+design_days:
+  - name: Denver Heating 99.6%
+    design_temp: -17.9
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -17.9
+    pressure: 82237.0
+    wind_speed: 2.3
+    month: 12
+    day: 21
+    day_type: winter
+
+  - name: Denver Cooling 0.4%
+    design_temp: 33.9
+    daily_range: 14.8
+    humidity_type: wetbulb
+    humidity_value: 15.7
+    pressure: 82237.0
+    wind_speed: 4.0
+    month: 7
+    day: 21
+    day_type: summer
+
+# =============================================================================
+# SCHEDULES
+# =============================================================================
+schedules:
+  # --- Occupancy ---
+  - name: BLDG_OCC_SCH
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.2, 0.95, 0.95, 0.95, 0.95, 0.5, 0.95, 0.95, 0.95, 0.95, 0.3, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05]
+    saturday: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.1, 0.3, 0.3, 0.3, 0.3, 0.1, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0]
+    sunday:   [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+
+  # --- Lighting ---
+  - name: BLDG_LIGHT_SCH
+    weekday:  [0.05, 0.05, 0.05, 0.05, 0.05, 0.1, 0.1, 0.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.5, 0.3, 0.3, 0.2, 0.2, 0.1, 0.05]
+    saturday: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.1, 0.1, 0.3, 0.3, 0.3, 0.3, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.05, 0.05, 0.05, 0.05, 0.05]
+    sunday:   [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+
+  # --- HVAC Operation (E+ HVACOperationSchd) ---
+  # Weekdays: ON 06:00-22:00, Saturday: ON 06:00-18:00, Sunday: OFF
+  - name: HVACOperationSchd
+    weekday:  [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0]
+    saturday: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0]
+    sunday:   [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+  # --- Equipment ---
+  - name: BLDG_EQUIP_SCH
+    weekday:  [0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.380, 0.380, 0.854, 0.854, 0.854, 0.854, 0.759, 0.854, 0.854, 0.854, 0.854, 0.475, 0.380, 0.380, 0.380, 0.380, 0.380, 0.380]
+    saturday: [0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.380, 0.380, 0.380, 0.380, 0.380, 0.380, 0.380, 0.380, 0.380, 0.380, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295]
+    sunday:   [0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295]
+
+  # --- Data Center Equipment (quarterly ramp: 0.25 -> 0.5 -> 0.75 -> 1.0 cycling) ---
+  # Simplified to average annual fraction = 0.625
+  - name: DataCenter_EQUIP_SCH
+    weekday:  [0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625, 0.625]
+
+  # --- Basement Equipment (always on) ---
+  - name: BLDG_EQUIP_SCH_Basement
+    weekday:  [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+
+  # --- DHW Schedule ---
+  - name: BLDG_SWH_SCH
+    weekday:  [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.07, 0.19, 0.35, 0.38, 0.39, 0.47, 0.57, 0.54, 0.34, 0.33, 0.44, 0.26, 0.21, 0.15, 0.17, 0.08, 0.05, 0.05]
+    saturday: [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.07, 0.11, 0.15, 0.21, 0.19, 0.23, 0.20, 0.19, 0.15, 0.13, 0.14, 0.07, 0.07, 0.07, 0.07, 0.09, 0.05, 0.05]
+    sunday:   [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.07, 0.04, 0.04, 0.04, 0.04, 0.06, 0.06, 0.09, 0.06, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.07, 0.04, 0.04]
+
+  # --- Elevator Running ---
+  - name: Elevator_Running_Sch
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.09926, 0.26126, 0.26126, 0.09926, 0.09926, 0.26126, 0.09926, 0.09926, 0.09926, 0.26126, 0.26126, 0.26126, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    saturday: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.09926, 0.26126, 0.26126, 0.09926, 0.09926, 0.26126, 0.09926, 0.09926, 0.09926, 0.26126, 0.26126, 0.26126, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    sunday:   [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  # --- Elevator Standby ---
+  - name: Elevator_Standby_Sch
+    weekday:  [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.85, 0.60517, 0.60517, 0.85, 0.85, 0.60517, 0.85, 0.85, 0.85, 0.60517, 0.60517, 0.60517, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    saturday: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.85, 0.60517, 0.60517, 0.85, 0.85, 0.60517, 0.85, 0.85, 0.85, 0.60517, 0.60517, 0.60517, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    sunday:   [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+
+# =============================================================================
+# MATERIALS (from IDF Material and Material:NoMass objects)
+# =============================================================================
+materials:
+  # F07 25mm stucco
+  - name: F07 25mm Stucco
+    conductivity: 0.72
+    density: 1856.0
+    specific_heat: 840.0
+    solar_absorptance: 0.92
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+  # G01 16mm gypsum board
+  - name: G01 16mm Gypsum Board
+    conductivity: 0.16
+    density: 800.0
+    specific_heat: 1090.0
+    solar_absorptance: 0.4
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+  # F13 Built-up roofing
+  - name: F13 Built-up Roofing
+    conductivity: 0.16
+    density: 1120.0
+    specific_heat: 1460.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  # F08 Metal surface (roof deck)
+  - name: F08 Metal Surface
+    conductivity: 45.28
+    density: 7824.0
+    specific_heat: 500.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+  # M10 200mm concrete block basement wall
+  - name: M10 200mm Concrete Block
+    conductivity: 1.326
+    density: 1842.0
+    specific_heat: 912.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  # 100mm Normalweight concrete floor
+  - name: 100mm Normalweight Concrete
+    conductivity: 2.31
+    density: 2322.0
+    specific_heat: 832.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  # 200mm Normalweight concrete floor
+  - name: 200mm Normalweight Concrete
+    conductivity: 2.31
+    density: 2322.0
+    specific_heat: 832.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  # --- Synthetic insulation materials (from IDF Material:NoMass) ---
+  # Created with k=0.036 W/mK (typical rigid insulation) so that
+  # thickness = k * R_value matches the IDF thermal resistance.
+
+  # Wall insulation (R=1.7128 m2K/W)
+  - name: Wall Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  # Roof insulation (R=2.5986 m2K/W)
+  - name: Roof Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  # Floor insulation (R=2.8829 m2K/W)
+  - name: Floor Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  # Carpet pad (R=0.21648 m2K/W)
+  - name: Carpet Pad
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.5
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+# =============================================================================
+# CONSTRUCTIONS
+# =============================================================================
+constructions:
+  # nonres_ext_wall: F07 stucco + G01 gypsum + insulation(R=1.7128) + G01 gypsum
+  # Insulation R=1.7128 m2K/W, approximate as material layer:
+  #   k=0.036, thickness = k*R = 0.036*1.7128 = 0.0617 m
+  - name: Exterior Wall
+    layers:
+      - material: F07 25mm Stucco
+        thickness: 0.0254
+      - material: G01 16mm Gypsum Board
+        thickness: 0.0159
+      - material: Wall Insulation
+        thickness: 0.0617
+      - material: G01 16mm Gypsum Board
+        thickness: 0.0159
+
+  # nonres_roof: F13 built-up roofing + insulation(R=2.5986) + F08 metal deck
+  # Insulation R=2.5986, thickness = 0.036*2.5986 = 0.0936 m
+  - name: Flat Roof
+    layers:
+      - material: F13 Built-up Roofing
+        thickness: 0.0095
+      - material: Roof Insulation
+        thickness: 0.0936
+      - material: F08 Metal Surface
+        thickness: 0.0008
+
+  # Basement wall: M10 200mm concrete block
+  - name: Basement Wall
+    layers:
+      - material: M10 200mm Concrete Block
+        thickness: 0.2032
+
+  # int_slab_floor: 100mm concrete + carpet pad (R=0.21648)
+  # Carpet as thin insulation: thickness = 0.036*0.21648 = 0.0078 m
+  - name: Interior Floor
+    layers:
+      - material: 100mm Normalweight Concrete
+        thickness: 0.1016
+      - material: Carpet Pad
+        thickness: 0.0078
+
+  # ext_slab_8in_with_carpet: 200mm concrete + carpet pad
+  - name: Ground Floor
+    layers:
+      - material: 200mm Normalweight Concrete
+        thickness: 0.2032
+      - material: Carpet Pad
+        thickness: 0.0078
+
+  # Basement floor: 200mm normalweight concrete + floor insulation (R=2.8829)
+  # Insulation thickness = 0.036*2.8829 = 0.1038 m
+  - name: Basement Floor
+    layers:
+      - material: 200mm Normalweight Concrete
+        thickness: 0.2032
+      - material: Floor Insulation
+        thickness: 0.1038
+
+simple_constructions:
+  # Interior partition: G01 13mm gypsum + G01 13mm gypsum
+  # U = 1/(0.013/0.16 + 0.013/0.16) = 1/0.1625 = 6.15 W/m2K
+  - name: Interior Partition
+    u_factor: 6.15
+    thickness: 0.026
+    thermal_capacity: 15000.0
+    solar_absorptance: 0.4
+    thermal_absorptance: 0.9
+
+  # Adiabatic floor/ceiling (for interzone)
+  - name: Adiabatic Assembly
+    u_factor: 0.01
+    thickness: 0.4
+    thermal_capacity: 200000.0
+    solar_absorptance: 0.5
+    thermal_absorptance: 0.9
+
+window_constructions:
+  # WindowMaterial:SimpleGlazingSystem: U=3.2366 W/m2K, SHGC=0.39, VT=0.429
+  - name: Office Glazing
+    u_factor: 3.2366
+    shgc: 0.39
+    visible_transmittance: 0.429
+
+# =============================================================================
+# ZONES  (22 conditioned zones; plenums omitted; data center zones included)
+# =============================================================================
+#
+# Building footprint: 73.1072m (E-W) x 48.7381m (N-S)
+# Floor-to-floor height: 3.9624m (13 ft), ceiling height ~2.7432m (9 ft)
+# Perimeter depth: 4.5732m
+# Zones with multiplier=10 represent 10 identical floors (floors 2-11)
+#
+zones:
+  # --- Bottom floor (floor 1) ---
+  - name: Core_bottom
+    volume: 10034.1
+    floor_area: 2532.3
+
+  - name: Perimeter_bot_ZN_1
+    volume: 1324.8
+    floor_area: 334.3
+
+  - name: Perimeter_bot_ZN_2
+    volume: 883.2
+    floor_area: 222.9
+
+  - name: Perimeter_bot_ZN_3
+    volume: 1324.8
+    floor_area: 334.3
+
+  - name: Perimeter_bot_ZN_4
+    volume: 883.2
+    floor_area: 222.9
+
+  # --- Mid floors (floor 2-11, multiplier=10) ---
+  - name: Core_mid
+    volume: 10034.1
+    floor_area: 2532.3
+    multiplier: 10
+
+  - name: Perimeter_mid_ZN_1
+    volume: 1324.8
+    floor_area: 334.3
+    multiplier: 10
+
+  - name: Perimeter_mid_ZN_2
+    volume: 883.2
+    floor_area: 222.9
+    multiplier: 10
+
+  - name: Perimeter_mid_ZN_3
+    volume: 1324.8
+    floor_area: 334.3
+    multiplier: 10
+
+  - name: Perimeter_mid_ZN_4
+    volume: 883.2
+    floor_area: 222.9
+    multiplier: 10
+
+  # --- Top floor (floor 12) ---
+  - name: Core_top
+    volume: 10034.1
+    floor_area: 2532.3
+
+  - name: Perimeter_top_ZN_1
+    volume: 1324.8
+    floor_area: 334.3
+
+  - name: Perimeter_top_ZN_2
+    volume: 883.2
+    floor_area: 222.9
+
+  - name: Perimeter_top_ZN_3
+    volume: 1324.8
+    floor_area: 334.3
+
+  - name: Perimeter_top_ZN_4
+    volume: 883.2
+    floor_area: 222.9
+
+  # --- Basement ---
+  - name: Basement
+    volume: 7261.2
+    floor_area: 2977.1
+
+  # --- Data Center zones ---
+  - name: DataCenter_basement_ZN_6
+    volume: 1429.3
+    floor_area: 586.0
+
+  - name: DataCenter_bot_ZN_6
+    volume: 2322.0
+    floor_area: 586.0
+
+  - name: DataCenter_mid_ZN_6
+    volume: 2322.0
+    floor_area: 586.0
+    multiplier: 10
+
+  - name: DataCenter_top_ZN_6
+    volume: 2322.0
+    floor_area: 586.0
+
+# =============================================================================
+# ZONE GROUPS
+# =============================================================================
+zone_groups:
+  - name: Office Zones Bottom
+    zones:
+      - Core_bottom
+      - Perimeter_bot_ZN_1
+      - Perimeter_bot_ZN_2
+      - Perimeter_bot_ZN_3
+      - Perimeter_bot_ZN_4
+
+  - name: Office Zones Mid
+    zones:
+      - Core_mid
+      - Perimeter_mid_ZN_1
+      - Perimeter_mid_ZN_2
+      - Perimeter_mid_ZN_3
+      - Perimeter_mid_ZN_4
+
+  - name: Office Zones Top
+    zones:
+      - Core_top
+      - Perimeter_top_ZN_1
+      - Perimeter_top_ZN_2
+      - Perimeter_top_ZN_3
+      - Perimeter_top_ZN_4
+
+  - name: Basement Zone
+    zones:
+      - Basement
+
+  - name: DataCenter Zones
+    zones:
+      - DataCenter_bot_ZN_6
+      - DataCenter_mid_ZN_6
+      - DataCenter_top_ZN_6
+      - DataCenter_basement_ZN_6
+
+# =============================================================================
+# PEOPLE  (18.5788 m2/person from IDF, 120 W/person activity)
+# =============================================================================
+people:
+  - name: Office People Bottom
+    zones: [Office Zones Bottom]
+    area_per_person: 18.5788
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: BLDG_OCC_SCH
+
+  - name: Office People Mid
+    zones: [Office Zones Mid]
+    area_per_person: 18.5788
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: BLDG_OCC_SCH
+
+  - name: Office People Top
+    zones: [Office Zones Top]
+    area_per_person: 18.5788
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: BLDG_OCC_SCH
+
+  - name: Basement People
+    zones: [Basement Zone]
+    area_per_person: 18.5788
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: BLDG_OCC_SCH
+
+# =============================================================================
+# LIGHTS  (11.651 W/m2 office, 22.36738 W/m2 data center)
+# =============================================================================
+lights:
+  - name: Office Lights Bottom
+    zones: [Office Zones Bottom]
+    watts_per_area: 11.651
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: BLDG_LIGHT_SCH
+
+  - name: Office Lights Mid
+    zones: [Office Zones Mid]
+    watts_per_area: 11.651
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: BLDG_LIGHT_SCH
+
+  - name: Office Lights Top
+    zones: [Office Zones Top]
+    watts_per_area: 11.651
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: BLDG_LIGHT_SCH
+
+  - name: Basement Lights
+    zones: [Basement Zone]
+    watts_per_area: 11.651
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: BLDG_LIGHT_SCH
+
+  - name: DataCenter Lights Bot
+    zones: [DataCenter_bot_ZN_6]
+    watts_per_area: 22.36738
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: BLDG_LIGHT_SCH
+
+  - name: DataCenter Lights Mid
+    zones: [DataCenter_mid_ZN_6]
+    watts_per_area: 22.36738
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: BLDG_LIGHT_SCH
+
+  - name: DataCenter Lights Top
+    zones: [DataCenter_top_ZN_6]
+    watts_per_area: 22.36738
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: BLDG_LIGHT_SCH
+
+# =============================================================================
+# EQUIPMENT  (IDF uses EquipmentLevel for office zones, W/m2 for data centers)
+# =============================================================================
+equipment:
+  # Core zones: ~20142.8 W each (EquipmentLevel)
+  - name: Core Equipment Bottom
+    zones: [Core_bottom]
+    power: 20142.8
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  - name: Core Equipment Mid
+    zones: [Core_mid]
+    power: 20142.8
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  - name: Core Equipment Top
+    zones: [Core_top]
+    power: 20142.8
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  # Perimeter ZN_1 (South) and ZN_3 (North): ~2529.2 W each
+  - name: Perimeter ZN_1 Equipment Bottom
+    zones: [Perimeter_bot_ZN_1]
+    power: 2529.2
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  - name: Perimeter ZN_3 Equipment Bottom
+    zones: [Perimeter_bot_ZN_3]
+    power: 2529.2
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  - name: Perimeter ZN_1 Equipment Mid
+    zones: [Perimeter_mid_ZN_1]
+    power: 2529.2
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  - name: Perimeter ZN_3 Equipment Mid
+    zones: [Perimeter_mid_ZN_3]
+    power: 2529.2
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  - name: Perimeter ZN_1 Equipment Top
+    zones: [Perimeter_top_ZN_1]
+    power: 2529.2
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  - name: Perimeter ZN_3 Equipment Top
+    zones: [Perimeter_top_ZN_3]
+    power: 2529.2
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  # Perimeter ZN_2 (East) and ZN_4 (West): ~1629.9 W each
+  - name: Perimeter ZN_2 Equipment Bottom
+    zones: [Perimeter_bot_ZN_2]
+    power: 1629.9
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  - name: Perimeter ZN_4 Equipment Bottom
+    zones: [Perimeter_bot_ZN_4]
+    power: 1629.9
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  - name: Perimeter ZN_2 Equipment Mid
+    zones: [Perimeter_mid_ZN_2]
+    power: 1629.9
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  - name: Perimeter ZN_4 Equipment Mid
+    zones: [Perimeter_mid_ZN_4]
+    power: 1629.9
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  - name: Perimeter ZN_2 Equipment Top
+    zones: [Perimeter_top_ZN_2]
+    power: 1629.9
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  - name: Perimeter ZN_4 Equipment Top
+    zones: [Perimeter_top_ZN_4]
+    power: 1629.9
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH
+
+  # Basement equipment: 13457.544 W (always on)
+  - name: Basement Equipment
+    zones: [Basement Zone]
+    power: 13457.544
+    radiant_fraction: 0.3
+    schedule: BLDG_EQUIP_SCH_Basement
+
+  # Data Center equipment: 215.299 W/m2 (bot/mid/top), 484.423 W/m2 (basement)
+  - name: DataCenter Equipment Basement
+    zones: [DataCenter_basement_ZN_6]
+    watts_per_area: 484.423
+    radiant_fraction: 0.3
+    schedule: DataCenter_EQUIP_SCH
+
+  - name: DataCenter Equipment Bot
+    zones: [DataCenter_bot_ZN_6]
+    watts_per_area: 215.299
+    radiant_fraction: 0.3
+    schedule: DataCenter_EQUIP_SCH
+
+  - name: DataCenter Equipment Mid
+    zones: [DataCenter_mid_ZN_6]
+    watts_per_area: 215.299
+    radiant_fraction: 0.3
+    schedule: DataCenter_EQUIP_SCH
+
+  - name: DataCenter Equipment Top
+    zones: [DataCenter_top_ZN_6]
+    watts_per_area: 215.299
+    radiant_fraction: 0.3
+    schedule: DataCenter_EQUIP_SCH
+
+# =============================================================================
+# INFILTRATION  (0.000569572 m3/s per exterior wall area, wind coeff 0.224)
+# =============================================================================
+infiltration:
+  - name: Perimeter Infiltration Bottom
+    zones: [Perimeter_bot_ZN_1, Perimeter_bot_ZN_2, Perimeter_bot_ZN_3, Perimeter_bot_ZN_4]
+    flow_per_exterior_wall_area: 0.000569572
+    constant_coefficient: 0.0
+    temperature_coefficient: 0.0
+    wind_coefficient: 0.224
+
+  - name: Perimeter Infiltration Mid
+    zones: [Perimeter_mid_ZN_1, Perimeter_mid_ZN_2, Perimeter_mid_ZN_3, Perimeter_mid_ZN_4]
+    flow_per_exterior_wall_area: 0.000569572
+    constant_coefficient: 0.0
+    temperature_coefficient: 0.0
+    wind_coefficient: 0.224
+
+  - name: Perimeter Infiltration Top
+    zones: [Perimeter_top_ZN_1, Perimeter_top_ZN_2, Perimeter_top_ZN_3, Perimeter_top_ZN_4]
+    flow_per_exterior_wall_area: 0.000569572
+    constant_coefficient: 0.0
+    temperature_coefficient: 0.0
+    wind_coefficient: 0.224
+
+  - name: Basement Infiltration
+    zones: [Basement Zone]
+    flow_per_exterior_wall_area: 0.000569572
+    constant_coefficient: 0.0
+    temperature_coefficient: 0.0
+    wind_coefficient: 0.224
+
+# =============================================================================
+# OUTDOOR AIR  (ASHRAE 62.1: 0.002360 m3/s/person + 0.000305 m3/s/m2)
+# =============================================================================
+outdoor_air:
+  - name: Office Ventilation
+    zones: [Office Zones Bottom, Office Zones Mid, Office Zones Top]
+    per_person: 0.002360
+    per_area: 0.000305
+
+  - name: Basement Ventilation
+    zones: [Basement Zone]
+    per_person: 0.002360
+    per_area: 0.000305
+
+# =============================================================================
+# SURFACES
+# =============================================================================
+# Simplified surface model: representative exterior walls, roof, floor per zone.
+# Building origin at (0, 0), extends to (73.1072, 48.7381).
+# Perimeter depth = 4.5732m. Floor-to-floor height = 3.9624m.
+# Window-to-wall ratio = 0.4 on all orientations.
+#
+# Bottom floor z=0..3.9624, Mid floor z=3.9624..7.9248 (x10), Top z=43.5864..47.5488
+# For mid zones with multiplier=10, surfaces are defined at z=3.9624..7.9248
+
+surfaces:
+  # =========================================================================
+  # BOTTOM FLOOR - Core
+  # =========================================================================
+  - name: Core_bot South IW
+    zone: Core_bottom
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 4.5732, z: 0.0}
+      - {x: 68.534, y: 4.5732, z: 0.0}
+      - {x: 68.534, y: 4.5732, z: 3.9624}
+      - {x: 4.5732, y: 4.5732, z: 3.9624}
+
+  - name: Core_bot North IW
+    zone: Core_bottom
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 44.1649, z: 0.0}
+      - {x: 4.5732, y: 44.1649, z: 0.0}
+      - {x: 4.5732, y: 44.1649, z: 3.9624}
+      - {x: 68.534, y: 44.1649, z: 3.9624}
+
+  - name: Core_bot East IW
+    zone: Core_bottom
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 4.5732, z: 0.0}
+      - {x: 68.534, y: 44.1649, z: 0.0}
+      - {x: 68.534, y: 44.1649, z: 3.9624}
+      - {x: 68.534, y: 4.5732, z: 3.9624}
+
+  - name: Core_bot West IW
+    zone: Core_bottom
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 44.1649, z: 0.0}
+      - {x: 4.5732, y: 4.5732, z: 0.0}
+      - {x: 4.5732, y: 4.5732, z: 3.9624}
+      - {x: 4.5732, y: 44.1649, z: 3.9624}
+
+  - name: Core_bot Floor
+    zone: Core_bottom
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 4.5732, y: 44.1649, z: 0.0}
+      - {x: 68.534, y: 44.1649, z: 0.0}
+      - {x: 68.534, y: 4.5732, z: 0.0}
+      - {x: 4.5732, y: 4.5732, z: 0.0}
+
+  - name: Core_bot Ceiling
+    zone: Core_bottom
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 4.5732, z: 3.9624}
+      - {x: 68.534, y: 4.5732, z: 3.9624}
+      - {x: 68.534, y: 44.1649, z: 3.9624}
+      - {x: 4.5732, y: 44.1649, z: 3.9624}
+
+  # =========================================================================
+  # BOTTOM FLOOR - Perimeter ZN_1 (South)
+  # =========================================================================
+  - name: P_bot_ZN1 South Wall
+    zone: Perimeter_bot_ZN_1
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 73.1072, y: 0.0, z: 0.0}
+      - {x: 73.1072, y: 0.0, z: 3.9624}
+      - {x: 0.0, y: 0.0, z: 3.9624}
+
+  - name: P_bot_ZN1 South Window
+    zone: Perimeter_bot_ZN_1
+    type: window
+    construction: Office Glazing
+    boundary: outdoor
+    parent_surface: P_bot_ZN1 South Wall
+    vertices:
+      - {x: 3.0, y: 0.0, z: 0.8}
+      - {x: 70.0, y: 0.0, z: 0.8}
+      - {x: 70.0, y: 0.0, z: 2.4}
+      - {x: 3.0, y: 0.0, z: 2.4}
+
+  - name: P_bot_ZN1 North IW
+    zone: Perimeter_bot_ZN_1
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 4.5732, z: 0.0}
+      - {x: 4.5732, y: 4.5732, z: 0.0}
+      - {x: 4.5732, y: 4.5732, z: 3.9624}
+      - {x: 68.534, y: 4.5732, z: 3.9624}
+
+  - name: P_bot_ZN1 Floor
+    zone: Perimeter_bot_ZN_1
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 4.5732, z: 0.0}
+      - {x: 73.1072, y: 4.5732, z: 0.0}
+      - {x: 73.1072, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+
+  - name: P_bot_ZN1 Ceiling
+    zone: Perimeter_bot_ZN_1
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 0.0, z: 3.9624}
+      - {x: 73.1072, y: 0.0, z: 3.9624}
+      - {x: 73.1072, y: 4.5732, z: 3.9624}
+      - {x: 0.0, y: 4.5732, z: 3.9624}
+
+  # =========================================================================
+  # BOTTOM FLOOR - Perimeter ZN_2 (East)
+  # =========================================================================
+  - name: P_bot_ZN2 East Wall
+    zone: Perimeter_bot_ZN_2
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 73.1072, y: 0.0, z: 0.0}
+      - {x: 73.1072, y: 48.7381, z: 0.0}
+      - {x: 73.1072, y: 48.7381, z: 3.9624}
+      - {x: 73.1072, y: 0.0, z: 3.9624}
+
+  - name: P_bot_ZN2 East Window
+    zone: Perimeter_bot_ZN_2
+    type: window
+    construction: Office Glazing
+    boundary: outdoor
+    parent_surface: P_bot_ZN2 East Wall
+    vertices:
+      - {x: 73.1072, y: 3.0, z: 0.8}
+      - {x: 73.1072, y: 45.7, z: 0.8}
+      - {x: 73.1072, y: 45.7, z: 2.4}
+      - {x: 73.1072, y: 3.0, z: 2.4}
+
+  - name: P_bot_ZN2 West IW
+    zone: Perimeter_bot_ZN_2
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 44.1649, z: 0.0}
+      - {x: 68.534, y: 4.5732, z: 0.0}
+      - {x: 68.534, y: 4.5732, z: 3.9624}
+      - {x: 68.534, y: 44.1649, z: 3.9624}
+
+  - name: P_bot_ZN2 Floor
+    zone: Perimeter_bot_ZN_2
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 68.534, y: 48.7381, z: 0.0}
+      - {x: 73.1072, y: 48.7381, z: 0.0}
+      - {x: 73.1072, y: 0.0, z: 0.0}
+      - {x: 68.534, y: 0.0, z: 0.0}
+
+  - name: P_bot_ZN2 Ceiling
+    zone: Perimeter_bot_ZN_2
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 0.0, z: 3.9624}
+      - {x: 73.1072, y: 0.0, z: 3.9624}
+      - {x: 73.1072, y: 48.7381, z: 3.9624}
+      - {x: 68.534, y: 48.7381, z: 3.9624}
+
+  # =========================================================================
+  # BOTTOM FLOOR - Perimeter ZN_3 (North)
+  # =========================================================================
+  - name: P_bot_ZN3 North Wall
+    zone: Perimeter_bot_ZN_3
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 73.1072, y: 48.7381, z: 0.0}
+      - {x: 0.0, y: 48.7381, z: 0.0}
+      - {x: 0.0, y: 48.7381, z: 3.9624}
+      - {x: 73.1072, y: 48.7381, z: 3.9624}
+
+  - name: P_bot_ZN3 North Window
+    zone: Perimeter_bot_ZN_3
+    type: window
+    construction: Office Glazing
+    boundary: outdoor
+    parent_surface: P_bot_ZN3 North Wall
+    vertices:
+      - {x: 70.0, y: 48.7381, z: 0.8}
+      - {x: 3.0, y: 48.7381, z: 0.8}
+      - {x: 3.0, y: 48.7381, z: 2.4}
+      - {x: 70.0, y: 48.7381, z: 2.4}
+
+  - name: P_bot_ZN3 South IW
+    zone: Perimeter_bot_ZN_3
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 44.1649, z: 0.0}
+      - {x: 68.534, y: 44.1649, z: 0.0}
+      - {x: 68.534, y: 44.1649, z: 3.9624}
+      - {x: 4.5732, y: 44.1649, z: 3.9624}
+
+  - name: P_bot_ZN3 Floor
+    zone: Perimeter_bot_ZN_3
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 48.7381, z: 0.0}
+      - {x: 0.0, y: 44.1649, z: 0.0}
+      - {x: 73.1072, y: 44.1649, z: 0.0}
+      - {x: 73.1072, y: 48.7381, z: 0.0}
+
+  - name: P_bot_ZN3 Ceiling
+    zone: Perimeter_bot_ZN_3
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 44.1649, z: 3.9624}
+      - {x: 0.0, y: 48.7381, z: 3.9624}
+      - {x: 73.1072, y: 48.7381, z: 3.9624}
+      - {x: 73.1072, y: 44.1649, z: 3.9624}
+
+  # =========================================================================
+  # BOTTOM FLOOR - Perimeter ZN_4 (West)
+  # =========================================================================
+  - name: P_bot_ZN4 West Wall
+    zone: Perimeter_bot_ZN_4
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 48.7381, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 3.9624}
+      - {x: 0.0, y: 48.7381, z: 3.9624}
+
+  - name: P_bot_ZN4 West Window
+    zone: Perimeter_bot_ZN_4
+    type: window
+    construction: Office Glazing
+    boundary: outdoor
+    parent_surface: P_bot_ZN4 West Wall
+    vertices:
+      - {x: 0.0, y: 45.7, z: 0.8}
+      - {x: 0.0, y: 3.0, z: 0.8}
+      - {x: 0.0, y: 3.0, z: 2.4}
+      - {x: 0.0, y: 45.7, z: 2.4}
+
+  - name: P_bot_ZN4 East IW
+    zone: Perimeter_bot_ZN_4
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 4.5732, z: 0.0}
+      - {x: 4.5732, y: 44.1649, z: 0.0}
+      - {x: 4.5732, y: 44.1649, z: 3.9624}
+      - {x: 4.5732, y: 4.5732, z: 3.9624}
+
+  - name: P_bot_ZN4 Floor
+    zone: Perimeter_bot_ZN_4
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 48.7381, z: 0.0}
+      - {x: 4.5732, y: 48.7381, z: 0.0}
+      - {x: 4.5732, y: 0.0, z: 0.0}
+
+  - name: P_bot_ZN4 Ceiling
+    zone: Perimeter_bot_ZN_4
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 0.0, z: 3.9624}
+      - {x: 4.5732, y: 0.0, z: 3.9624}
+      - {x: 4.5732, y: 48.7381, z: 3.9624}
+      - {x: 0.0, y: 48.7381, z: 3.9624}
+
+  # =========================================================================
+  # MID FLOORS - Core (multiplier=10 on zone, surfaces at z=3.9624..7.9248)
+  # =========================================================================
+  - name: Core_mid South IW
+    zone: Core_mid
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 4.5732, z: 3.9624}
+      - {x: 68.534, y: 4.5732, z: 3.9624}
+      - {x: 68.534, y: 4.5732, z: 7.9248}
+      - {x: 4.5732, y: 4.5732, z: 7.9248}
+
+  - name: Core_mid North IW
+    zone: Core_mid
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 44.1649, z: 3.9624}
+      - {x: 4.5732, y: 44.1649, z: 3.9624}
+      - {x: 4.5732, y: 44.1649, z: 7.9248}
+      - {x: 68.534, y: 44.1649, z: 7.9248}
+
+  - name: Core_mid East IW
+    zone: Core_mid
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 4.5732, z: 3.9624}
+      - {x: 68.534, y: 44.1649, z: 3.9624}
+      - {x: 68.534, y: 44.1649, z: 7.9248}
+      - {x: 68.534, y: 4.5732, z: 7.9248}
+
+  - name: Core_mid West IW
+    zone: Core_mid
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 44.1649, z: 3.9624}
+      - {x: 4.5732, y: 4.5732, z: 3.9624}
+      - {x: 4.5732, y: 4.5732, z: 7.9248}
+      - {x: 4.5732, y: 44.1649, z: 7.9248}
+
+  - name: Core_mid Floor
+    zone: Core_mid
+    type: floor
+    construction: Interior Floor
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 44.1649, z: 3.9624}
+      - {x: 68.534, y: 44.1649, z: 3.9624}
+      - {x: 68.534, y: 4.5732, z: 3.9624}
+      - {x: 4.5732, y: 4.5732, z: 3.9624}
+
+  - name: Core_mid Ceiling
+    zone: Core_mid
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 4.5732, z: 7.9248}
+      - {x: 68.534, y: 4.5732, z: 7.9248}
+      - {x: 68.534, y: 44.1649, z: 7.9248}
+      - {x: 4.5732, y: 44.1649, z: 7.9248}
+
+  # =========================================================================
+  # MID FLOORS - Perimeter ZN_1 (South, multiplier=10)
+  # =========================================================================
+  - name: P_mid_ZN1 South Wall
+    zone: Perimeter_mid_ZN_1
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 3.9624}
+      - {x: 73.1072, y: 0.0, z: 3.9624}
+      - {x: 73.1072, y: 0.0, z: 7.9248}
+      - {x: 0.0, y: 0.0, z: 7.9248}
+
+  - name: P_mid_ZN1 South Window
+    zone: Perimeter_mid_ZN_1
+    type: window
+    construction: Office Glazing
+    boundary: outdoor
+    parent_surface: P_mid_ZN1 South Wall
+    vertices:
+      - {x: 3.0, y: 0.0, z: 4.7624}
+      - {x: 70.0, y: 0.0, z: 4.7624}
+      - {x: 70.0, y: 0.0, z: 6.3624}
+      - {x: 3.0, y: 0.0, z: 6.3624}
+
+  - name: P_mid_ZN1 North IW
+    zone: Perimeter_mid_ZN_1
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 4.5732, z: 3.9624}
+      - {x: 4.5732, y: 4.5732, z: 3.9624}
+      - {x: 4.5732, y: 4.5732, z: 7.9248}
+      - {x: 68.534, y: 4.5732, z: 7.9248}
+
+  - name: P_mid_ZN1 Floor
+    zone: Perimeter_mid_ZN_1
+    type: floor
+    construction: Interior Floor
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 4.5732, z: 3.9624}
+      - {x: 73.1072, y: 4.5732, z: 3.9624}
+      - {x: 73.1072, y: 0.0, z: 3.9624}
+      - {x: 0.0, y: 0.0, z: 3.9624}
+
+  - name: P_mid_ZN1 Ceiling
+    zone: Perimeter_mid_ZN_1
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 0.0, z: 7.9248}
+      - {x: 73.1072, y: 0.0, z: 7.9248}
+      - {x: 73.1072, y: 4.5732, z: 7.9248}
+      - {x: 0.0, y: 4.5732, z: 7.9248}
+
+  # =========================================================================
+  # MID FLOORS - Perimeter ZN_2 (East, multiplier=10)
+  # =========================================================================
+  - name: P_mid_ZN2 East Wall
+    zone: Perimeter_mid_ZN_2
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 73.1072, y: 0.0, z: 3.9624}
+      - {x: 73.1072, y: 48.7381, z: 3.9624}
+      - {x: 73.1072, y: 48.7381, z: 7.9248}
+      - {x: 73.1072, y: 0.0, z: 7.9248}
+
+  - name: P_mid_ZN2 East Window
+    zone: Perimeter_mid_ZN_2
+    type: window
+    construction: Office Glazing
+    boundary: outdoor
+    parent_surface: P_mid_ZN2 East Wall
+    vertices:
+      - {x: 73.1072, y: 3.0, z: 4.7624}
+      - {x: 73.1072, y: 45.7, z: 4.7624}
+      - {x: 73.1072, y: 45.7, z: 6.3624}
+      - {x: 73.1072, y: 3.0, z: 6.3624}
+
+  - name: P_mid_ZN2 West IW
+    zone: Perimeter_mid_ZN_2
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 44.1649, z: 3.9624}
+      - {x: 68.534, y: 4.5732, z: 3.9624}
+      - {x: 68.534, y: 4.5732, z: 7.9248}
+      - {x: 68.534, y: 44.1649, z: 7.9248}
+
+  - name: P_mid_ZN2 Floor
+    zone: Perimeter_mid_ZN_2
+    type: floor
+    construction: Interior Floor
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 48.7381, z: 3.9624}
+      - {x: 73.1072, y: 48.7381, z: 3.9624}
+      - {x: 73.1072, y: 0.0, z: 3.9624}
+      - {x: 68.534, y: 0.0, z: 3.9624}
+
+  - name: P_mid_ZN2 Ceiling
+    zone: Perimeter_mid_ZN_2
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 0.0, z: 7.9248}
+      - {x: 73.1072, y: 0.0, z: 7.9248}
+      - {x: 73.1072, y: 48.7381, z: 7.9248}
+      - {x: 68.534, y: 48.7381, z: 7.9248}
+
+  # =========================================================================
+  # MID FLOORS - Perimeter ZN_3 (North, multiplier=10)
+  # =========================================================================
+  - name: P_mid_ZN3 North Wall
+    zone: Perimeter_mid_ZN_3
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 73.1072, y: 48.7381, z: 3.9624}
+      - {x: 0.0, y: 48.7381, z: 3.9624}
+      - {x: 0.0, y: 48.7381, z: 7.9248}
+      - {x: 73.1072, y: 48.7381, z: 7.9248}
+
+  - name: P_mid_ZN3 North Window
+    zone: Perimeter_mid_ZN_3
+    type: window
+    construction: Office Glazing
+    boundary: outdoor
+    parent_surface: P_mid_ZN3 North Wall
+    vertices:
+      - {x: 70.0, y: 48.7381, z: 4.7624}
+      - {x: 3.0, y: 48.7381, z: 4.7624}
+      - {x: 3.0, y: 48.7381, z: 6.3624}
+      - {x: 70.0, y: 48.7381, z: 6.3624}
+
+  - name: P_mid_ZN3 South IW
+    zone: Perimeter_mid_ZN_3
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 44.1649, z: 3.9624}
+      - {x: 68.534, y: 44.1649, z: 3.9624}
+      - {x: 68.534, y: 44.1649, z: 7.9248}
+      - {x: 4.5732, y: 44.1649, z: 7.9248}
+
+  - name: P_mid_ZN3 Floor
+    zone: Perimeter_mid_ZN_3
+    type: floor
+    construction: Interior Floor
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 48.7381, z: 3.9624}
+      - {x: 0.0, y: 44.1649, z: 3.9624}
+      - {x: 73.1072, y: 44.1649, z: 3.9624}
+      - {x: 73.1072, y: 48.7381, z: 3.9624}
+
+  - name: P_mid_ZN3 Ceiling
+    zone: Perimeter_mid_ZN_3
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 44.1649, z: 7.9248}
+      - {x: 0.0, y: 48.7381, z: 7.9248}
+      - {x: 73.1072, y: 48.7381, z: 7.9248}
+      - {x: 73.1072, y: 44.1649, z: 7.9248}
+
+  # =========================================================================
+  # MID FLOORS - Perimeter ZN_4 (West, multiplier=10)
+  # =========================================================================
+  - name: P_mid_ZN4 West Wall
+    zone: Perimeter_mid_ZN_4
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 48.7381, z: 3.9624}
+      - {x: 0.0, y: 0.0, z: 3.9624}
+      - {x: 0.0, y: 0.0, z: 7.9248}
+      - {x: 0.0, y: 48.7381, z: 7.9248}
+
+  - name: P_mid_ZN4 West Window
+    zone: Perimeter_mid_ZN_4
+    type: window
+    construction: Office Glazing
+    boundary: outdoor
+    parent_surface: P_mid_ZN4 West Wall
+    vertices:
+      - {x: 0.0, y: 45.7, z: 4.7624}
+      - {x: 0.0, y: 3.0, z: 4.7624}
+      - {x: 0.0, y: 3.0, z: 6.3624}
+      - {x: 0.0, y: 45.7, z: 6.3624}
+
+  - name: P_mid_ZN4 East IW
+    zone: Perimeter_mid_ZN_4
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 4.5732, z: 3.9624}
+      - {x: 4.5732, y: 44.1649, z: 3.9624}
+      - {x: 4.5732, y: 44.1649, z: 7.9248}
+      - {x: 4.5732, y: 4.5732, z: 7.9248}
+
+  - name: P_mid_ZN4 Floor
+    zone: Perimeter_mid_ZN_4
+    type: floor
+    construction: Interior Floor
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 0.0, z: 3.9624}
+      - {x: 0.0, y: 48.7381, z: 3.9624}
+      - {x: 4.5732, y: 48.7381, z: 3.9624}
+      - {x: 4.5732, y: 0.0, z: 3.9624}
+
+  - name: P_mid_ZN4 Ceiling
+    zone: Perimeter_mid_ZN_4
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 0.0, z: 7.9248}
+      - {x: 4.5732, y: 0.0, z: 7.9248}
+      - {x: 4.5732, y: 48.7381, z: 7.9248}
+      - {x: 0.0, y: 48.7381, z: 7.9248}
+
+  # =========================================================================
+  # TOP FLOOR - Core (z=43.5864..47.5488)
+  # =========================================================================
+  - name: Core_top South IW
+    zone: Core_top
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 4.5732, z: 43.5864}
+      - {x: 68.534, y: 4.5732, z: 43.5864}
+      - {x: 68.534, y: 4.5732, z: 47.5488}
+      - {x: 4.5732, y: 4.5732, z: 47.5488}
+
+  - name: Core_top North IW
+    zone: Core_top
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 44.1649, z: 43.5864}
+      - {x: 4.5732, y: 44.1649, z: 43.5864}
+      - {x: 4.5732, y: 44.1649, z: 47.5488}
+      - {x: 68.534, y: 44.1649, z: 47.5488}
+
+  - name: Core_top East IW
+    zone: Core_top
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 4.5732, z: 43.5864}
+      - {x: 68.534, y: 44.1649, z: 43.5864}
+      - {x: 68.534, y: 44.1649, z: 47.5488}
+      - {x: 68.534, y: 4.5732, z: 47.5488}
+
+  - name: Core_top West IW
+    zone: Core_top
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 44.1649, z: 43.5864}
+      - {x: 4.5732, y: 4.5732, z: 43.5864}
+      - {x: 4.5732, y: 4.5732, z: 47.5488}
+      - {x: 4.5732, y: 44.1649, z: 47.5488}
+
+  - name: Core_top Floor
+    zone: Core_top
+    type: floor
+    construction: Interior Floor
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 44.1649, z: 43.5864}
+      - {x: 68.534, y: 44.1649, z: 43.5864}
+      - {x: 68.534, y: 4.5732, z: 43.5864}
+      - {x: 4.5732, y: 4.5732, z: 43.5864}
+
+  - name: Core_top Roof
+    zone: Core_top
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 4.5732, y: 4.5732, z: 47.5488}
+      - {x: 68.534, y: 4.5732, z: 47.5488}
+      - {x: 68.534, y: 44.1649, z: 47.5488}
+      - {x: 4.5732, y: 44.1649, z: 47.5488}
+
+  # =========================================================================
+  # TOP FLOOR - Perimeter ZN_1 (South)
+  # =========================================================================
+  - name: P_top_ZN1 South Wall
+    zone: Perimeter_top_ZN_1
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 43.5864}
+      - {x: 73.1072, y: 0.0, z: 43.5864}
+      - {x: 73.1072, y: 0.0, z: 47.5488}
+      - {x: 0.0, y: 0.0, z: 47.5488}
+
+  - name: P_top_ZN1 South Window
+    zone: Perimeter_top_ZN_1
+    type: window
+    construction: Office Glazing
+    boundary: outdoor
+    parent_surface: P_top_ZN1 South Wall
+    vertices:
+      - {x: 3.0, y: 0.0, z: 44.3864}
+      - {x: 70.0, y: 0.0, z: 44.3864}
+      - {x: 70.0, y: 0.0, z: 45.9864}
+      - {x: 3.0, y: 0.0, z: 45.9864}
+
+  - name: P_top_ZN1 North IW
+    zone: Perimeter_top_ZN_1
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 4.5732, z: 43.5864}
+      - {x: 4.5732, y: 4.5732, z: 43.5864}
+      - {x: 4.5732, y: 4.5732, z: 47.5488}
+      - {x: 68.534, y: 4.5732, z: 47.5488}
+
+  - name: P_top_ZN1 Floor
+    zone: Perimeter_top_ZN_1
+    type: floor
+    construction: Interior Floor
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 4.5732, z: 43.5864}
+      - {x: 73.1072, y: 4.5732, z: 43.5864}
+      - {x: 73.1072, y: 0.0, z: 43.5864}
+      - {x: 0.0, y: 0.0, z: 43.5864}
+
+  - name: P_top_ZN1 Roof
+    zone: Perimeter_top_ZN_1
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 47.5488}
+      - {x: 73.1072, y: 0.0, z: 47.5488}
+      - {x: 73.1072, y: 4.5732, z: 47.5488}
+      - {x: 0.0, y: 4.5732, z: 47.5488}
+
+  # =========================================================================
+  # TOP FLOOR - Perimeter ZN_2 (East)
+  # =========================================================================
+  - name: P_top_ZN2 East Wall
+    zone: Perimeter_top_ZN_2
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 73.1072, y: 0.0, z: 43.5864}
+      - {x: 73.1072, y: 48.7381, z: 43.5864}
+      - {x: 73.1072, y: 48.7381, z: 47.5488}
+      - {x: 73.1072, y: 0.0, z: 47.5488}
+
+  - name: P_top_ZN2 East Window
+    zone: Perimeter_top_ZN_2
+    type: window
+    construction: Office Glazing
+    boundary: outdoor
+    parent_surface: P_top_ZN2 East Wall
+    vertices:
+      - {x: 73.1072, y: 3.0, z: 44.3864}
+      - {x: 73.1072, y: 45.7, z: 44.3864}
+      - {x: 73.1072, y: 45.7, z: 45.9864}
+      - {x: 73.1072, y: 3.0, z: 45.9864}
+
+  - name: P_top_ZN2 West IW
+    zone: Perimeter_top_ZN_2
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 44.1649, z: 43.5864}
+      - {x: 68.534, y: 4.5732, z: 43.5864}
+      - {x: 68.534, y: 4.5732, z: 47.5488}
+      - {x: 68.534, y: 44.1649, z: 47.5488}
+
+  - name: P_top_ZN2 Floor
+    zone: Perimeter_top_ZN_2
+    type: floor
+    construction: Interior Floor
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 48.7381, z: 43.5864}
+      - {x: 73.1072, y: 48.7381, z: 43.5864}
+      - {x: 73.1072, y: 0.0, z: 43.5864}
+      - {x: 68.534, y: 0.0, z: 43.5864}
+
+  - name: P_top_ZN2 Roof
+    zone: Perimeter_top_ZN_2
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 68.534, y: 0.0, z: 47.5488}
+      - {x: 73.1072, y: 0.0, z: 47.5488}
+      - {x: 73.1072, y: 48.7381, z: 47.5488}
+      - {x: 68.534, y: 48.7381, z: 47.5488}
+
+  # =========================================================================
+  # TOP FLOOR - Perimeter ZN_3 (North)
+  # =========================================================================
+  - name: P_top_ZN3 North Wall
+    zone: Perimeter_top_ZN_3
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 73.1072, y: 48.7381, z: 43.5864}
+      - {x: 0.0, y: 48.7381, z: 43.5864}
+      - {x: 0.0, y: 48.7381, z: 47.5488}
+      - {x: 73.1072, y: 48.7381, z: 47.5488}
+
+  - name: P_top_ZN3 North Window
+    zone: Perimeter_top_ZN_3
+    type: window
+    construction: Office Glazing
+    boundary: outdoor
+    parent_surface: P_top_ZN3 North Wall
+    vertices:
+      - {x: 70.0, y: 48.7381, z: 44.3864}
+      - {x: 3.0, y: 48.7381, z: 44.3864}
+      - {x: 3.0, y: 48.7381, z: 45.9864}
+      - {x: 70.0, y: 48.7381, z: 45.9864}
+
+  - name: P_top_ZN3 South IW
+    zone: Perimeter_top_ZN_3
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 44.1649, z: 43.5864}
+      - {x: 68.534, y: 44.1649, z: 43.5864}
+      - {x: 68.534, y: 44.1649, z: 47.5488}
+      - {x: 4.5732, y: 44.1649, z: 47.5488}
+
+  - name: P_top_ZN3 Floor
+    zone: Perimeter_top_ZN_3
+    type: floor
+    construction: Interior Floor
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 48.7381, z: 43.5864}
+      - {x: 0.0, y: 44.1649, z: 43.5864}
+      - {x: 73.1072, y: 44.1649, z: 43.5864}
+      - {x: 73.1072, y: 48.7381, z: 43.5864}
+
+  - name: P_top_ZN3 Roof
+    zone: Perimeter_top_ZN_3
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 44.1649, z: 47.5488}
+      - {x: 0.0, y: 48.7381, z: 47.5488}
+      - {x: 73.1072, y: 48.7381, z: 47.5488}
+      - {x: 73.1072, y: 44.1649, z: 47.5488}
+
+  # =========================================================================
+  # TOP FLOOR - Perimeter ZN_4 (West)
+  # =========================================================================
+  - name: P_top_ZN4 West Wall
+    zone: Perimeter_top_ZN_4
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 48.7381, z: 43.5864}
+      - {x: 0.0, y: 0.0, z: 43.5864}
+      - {x: 0.0, y: 0.0, z: 47.5488}
+      - {x: 0.0, y: 48.7381, z: 47.5488}
+
+  - name: P_top_ZN4 West Window
+    zone: Perimeter_top_ZN_4
+    type: window
+    construction: Office Glazing
+    boundary: outdoor
+    parent_surface: P_top_ZN4 West Wall
+    vertices:
+      - {x: 0.0, y: 45.7, z: 44.3864}
+      - {x: 0.0, y: 3.0, z: 44.3864}
+      - {x: 0.0, y: 3.0, z: 45.9864}
+      - {x: 0.0, y: 45.7, z: 45.9864}
+
+  - name: P_top_ZN4 East IW
+    zone: Perimeter_top_ZN_4
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 4.5732, y: 4.5732, z: 43.5864}
+      - {x: 4.5732, y: 44.1649, z: 43.5864}
+      - {x: 4.5732, y: 44.1649, z: 47.5488}
+      - {x: 4.5732, y: 4.5732, z: 47.5488}
+
+  - name: P_top_ZN4 Floor
+    zone: Perimeter_top_ZN_4
+    type: floor
+    construction: Interior Floor
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 0.0, z: 43.5864}
+      - {x: 0.0, y: 48.7381, z: 43.5864}
+      - {x: 4.5732, y: 48.7381, z: 43.5864}
+      - {x: 4.5732, y: 0.0, z: 43.5864}
+
+  - name: P_top_ZN4 Roof
+    zone: Perimeter_top_ZN_4
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 47.5488}
+      - {x: 4.5732, y: 0.0, z: 47.5488}
+      - {x: 4.5732, y: 48.7381, z: 47.5488}
+      - {x: 0.0, y: 48.7381, z: 47.5488}
+
+  # =========================================================================
+  # BASEMENT (z = -3.9624 .. 0)
+  # =========================================================================
+  - name: Basement North Wall
+    zone: Basement
+    type: wall
+    construction: Basement Wall
+    boundary: ground
+    vertices:
+      - {x: 57.028, y: 48.7381, z: -3.9624}
+      - {x: 0.0, y: 48.7381, z: -3.9624}
+      - {x: 0.0, y: 48.7381, z: 0.0}
+      - {x: 57.028, y: 48.7381, z: 0.0}
+
+  - name: Basement South Wall
+    zone: Basement
+    type: wall
+    construction: Basement Wall
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 0.0, z: -3.9624}
+      - {x: 57.028, y: 0.0, z: -3.9624}
+      - {x: 57.028, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+
+  - name: Basement East Wall
+    zone: Basement
+    type: wall
+    construction: Basement Wall
+    boundary: ground
+    vertices:
+      - {x: 57.028, y: 0.0, z: -3.9624}
+      - {x: 57.028, y: 48.7381, z: -3.9624}
+      - {x: 57.028, y: 48.7381, z: 0.0}
+      - {x: 57.028, y: 0.0, z: 0.0}
+
+  - name: Basement West Wall
+    zone: Basement
+    type: wall
+    construction: Basement Wall
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 48.7381, z: -3.9624}
+      - {x: 0.0, y: 0.0, z: -3.9624}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 48.7381, z: 0.0}
+
+  - name: Basement Floor
+    zone: Basement
+    type: floor
+    construction: Basement Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 48.7381, z: -3.9624}
+      - {x: 57.028, y: 48.7381, z: -3.9624}
+      - {x: 57.028, y: 0.0, z: -3.9624}
+      - {x: 0.0, y: 0.0, z: -3.9624}
+
+  - name: Basement Ceiling
+    zone: Basement
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 57.028, y: 0.0, z: 0.0}
+      - {x: 57.028, y: 48.7381, z: 0.0}
+      - {x: 0.0, y: 48.7381, z: 0.0}
+
+  # =========================================================================
+  # DATA CENTER BASEMENT (z = -3.9624 .. 0)
+  # =========================================================================
+  - name: DC_basement North Wall
+    zone: DataCenter_basement_ZN_6
+    type: wall
+    construction: Basement Wall
+    boundary: ground
+    vertices:
+      - {x: 73.1072, y: 48.7381, z: -3.9624}
+      - {x: 57.028, y: 48.7381, z: -3.9624}
+      - {x: 57.028, y: 48.7381, z: 0.0}
+      - {x: 73.1072, y: 48.7381, z: 0.0}
+
+  - name: DC_basement South Wall
+    zone: DataCenter_basement_ZN_6
+    type: wall
+    construction: Basement Wall
+    boundary: ground
+    vertices:
+      - {x: 57.028, y: 0.0, z: -3.9624}
+      - {x: 73.1072, y: 0.0, z: -3.9624}
+      - {x: 73.1072, y: 0.0, z: 0.0}
+      - {x: 57.028, y: 0.0, z: 0.0}
+
+  - name: DC_basement East Wall
+    zone: DataCenter_basement_ZN_6
+    type: wall
+    construction: Basement Wall
+    boundary: ground
+    vertices:
+      - {x: 73.1072, y: 0.0, z: -3.9624}
+      - {x: 73.1072, y: 48.7381, z: -3.9624}
+      - {x: 73.1072, y: 48.7381, z: 0.0}
+      - {x: 73.1072, y: 0.0, z: 0.0}
+
+  - name: DC_basement West IW
+    zone: DataCenter_basement_ZN_6
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 57.028, y: 48.7381, z: -3.9624}
+      - {x: 57.028, y: 0.0, z: -3.9624}
+      - {x: 57.028, y: 0.0, z: 0.0}
+      - {x: 57.028, y: 48.7381, z: 0.0}
+
+  - name: DC_basement Floor
+    zone: DataCenter_basement_ZN_6
+    type: floor
+    construction: Basement Floor
+    boundary: ground
+    vertices:
+      - {x: 57.028, y: 48.7381, z: -3.9624}
+      - {x: 73.1072, y: 48.7381, z: -3.9624}
+      - {x: 73.1072, y: 0.0, z: -3.9624}
+      - {x: 57.028, y: 0.0, z: -3.9624}
+
+  - name: DC_basement Ceiling
+    zone: DataCenter_basement_ZN_6
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 57.028, y: 0.0, z: 0.0}
+      - {x: 73.1072, y: 0.0, z: 0.0}
+      - {x: 73.1072, y: 48.7381, z: 0.0}
+      - {x: 57.028, y: 48.7381, z: 0.0}
+
+  # =========================================================================
+  # DATA CENTER BOT/MID/TOP (small zones carved from core)
+  # These are tiny zones (~36.2 m2) so simplified to adiabatic boxes
+  # =========================================================================
+  - name: DC_bot Floor
+    zone: DataCenter_bot_ZN_6
+    type: floor
+    construction: Interior Floor
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 4.5732, z: 0.0}
+      - {x: 69.448, y: 4.5732, z: 0.0}
+      - {x: 69.448, y: 44.1649, z: 0.0}
+      - {x: 68.534, y: 44.1649, z: 0.0}
+
+  - name: DC_bot Ceiling
+    zone: DataCenter_bot_ZN_6
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 44.1649, z: 3.9624}
+      - {x: 69.448, y: 44.1649, z: 3.9624}
+      - {x: 69.448, y: 4.5732, z: 3.9624}
+      - {x: 68.534, y: 4.5732, z: 3.9624}
+
+  - name: DC_bot Walls
+    zone: DataCenter_bot_ZN_6
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 4.5732, z: 0.0}
+      - {x: 69.448, y: 4.5732, z: 0.0}
+      - {x: 69.448, y: 4.5732, z: 3.9624}
+      - {x: 68.534, y: 4.5732, z: 3.9624}
+
+  - name: DC_mid Floor
+    zone: DataCenter_mid_ZN_6
+    type: floor
+    construction: Interior Floor
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 4.5732, z: 3.9624}
+      - {x: 69.448, y: 4.5732, z: 3.9624}
+      - {x: 69.448, y: 44.1649, z: 3.9624}
+      - {x: 68.534, y: 44.1649, z: 3.9624}
+
+  - name: DC_mid Ceiling
+    zone: DataCenter_mid_ZN_6
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 44.1649, z: 7.9248}
+      - {x: 69.448, y: 44.1649, z: 7.9248}
+      - {x: 69.448, y: 4.5732, z: 7.9248}
+      - {x: 68.534, y: 4.5732, z: 7.9248}
+
+  - name: DC_mid Walls
+    zone: DataCenter_mid_ZN_6
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 4.5732, z: 3.9624}
+      - {x: 69.448, y: 4.5732, z: 3.9624}
+      - {x: 69.448, y: 4.5732, z: 7.9248}
+      - {x: 68.534, y: 4.5732, z: 7.9248}
+
+  - name: DC_top Floor
+    zone: DataCenter_top_ZN_6
+    type: floor
+    construction: Interior Floor
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 4.5732, z: 43.5864}
+      - {x: 69.448, y: 4.5732, z: 43.5864}
+      - {x: 69.448, y: 44.1649, z: 43.5864}
+      - {x: 68.534, y: 44.1649, z: 43.5864}
+
+  - name: DC_top Ceiling
+    zone: DataCenter_top_ZN_6
+    type: roof
+    construction: Adiabatic Assembly
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 44.1649, z: 47.5488}
+      - {x: 69.448, y: 44.1649, z: 47.5488}
+      - {x: 69.448, y: 4.5732, z: 47.5488}
+      - {x: 68.534, y: 4.5732, z: 47.5488}
+
+  - name: DC_top Walls
+    zone: DataCenter_top_ZN_6
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 68.534, y: 4.5732, z: 43.5864}
+      - {x: 69.448, y: 4.5732, z: 43.5864}
+      - {x: 69.448, y: 4.5732, z: 47.5488}
+      - {x: 68.534, y: 4.5732, z: 47.5488}
+
+# =============================================================================
+# HVAC: AIR LOOPS
+# =============================================================================
+air_loops:
+  # =========================================================================
+  # VAV_bot WITH REHEAT — serves bottom floor office zones
+  # =========================================================================
+  - name: VAV_bot
+    system_type: vav
+    min_vav_fraction: 0.30
+    availability_schedule: HVACOperationSchd
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 12.8
+      design_zone_flow: autosize
+      cycling: proportional
+      economizer:
+        economizer_type: differential_dry_bulb
+    equipment:
+      - type: fan
+        name: VAV_bot Supply Fan
+        source: vav
+        design_flow_rate: autosize
+        pressure_rise: 1337.13
+        impeller_efficiency: 0.6502
+        motor_efficiency: 0.945
+        motor_in_airstream_fraction: 1.0
+        vav_coefficients: [0.0013, 0.147, 0.9506, -0.0998, 0.0]
+
+      - type: heating_coil
+        name: VAV_bot Preheat Coil
+        source: hot_water
+        capacity: autosize
+        setpoint: 35.0
+        plant_loop: HHW Loop
+
+      - type: cooling_coil
+        name: VAV_bot CHW Cooling Coil
+        source: chilled_water
+        capacity: autosize
+        shr: 0.80
+        setpoint: 12.8
+        plant_loop: CHW Loop
+
+    zone_terminals:
+      - zone: Core_bottom
+        terminal:
+          type: vav_box
+          name: VAV Box Core_bottom
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+      - zone: Perimeter_bot_ZN_1
+        terminal:
+          type: vav_box
+          name: VAV Box P_bot_ZN1
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+      - zone: Perimeter_bot_ZN_2
+        terminal:
+          type: vav_box
+          name: VAV Box P_bot_ZN2
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+      - zone: Perimeter_bot_ZN_3
+        terminal:
+          type: vav_box
+          name: VAV Box P_bot_ZN3
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+      - zone: Perimeter_bot_ZN_4
+        terminal:
+          type: vav_box
+          name: VAV Box P_bot_ZN4
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+  # =========================================================================
+  # VAV_mid WITH REHEAT — serves mid floor office zones (x10 multiplier)
+  # =========================================================================
+  - name: VAV_mid
+    system_type: vav
+    min_vav_fraction: 0.30
+    availability_schedule: HVACOperationSchd
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 12.8
+      design_zone_flow: autosize
+      cycling: proportional
+      economizer:
+        economizer_type: differential_dry_bulb
+    equipment:
+      - type: fan
+        name: VAV_mid Supply Fan
+        source: vav
+        design_flow_rate: autosize
+        pressure_rise: 1337.13
+        impeller_efficiency: 0.6502
+        motor_efficiency: 0.945
+        vav_coefficients: [0.0013, 0.147, 0.9506, -0.0998, 0.0]
+        motor_in_airstream_fraction: 1.0
+
+      - type: heating_coil
+        name: VAV_mid Preheat Coil
+        source: hot_water
+        capacity: autosize
+        setpoint: 35.0
+        plant_loop: HHW Loop
+
+      - type: cooling_coil
+        name: VAV_mid CHW Cooling Coil
+        source: chilled_water
+        capacity: autosize
+        shr: 0.80
+        setpoint: 12.8
+        plant_loop: CHW Loop
+
+    zone_terminals:
+      - zone: Core_mid
+        terminal:
+          type: vav_box
+          name: VAV Box Core_mid
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+      - zone: Perimeter_mid_ZN_1
+        terminal:
+          type: vav_box
+          name: VAV Box P_mid_ZN1
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+      - zone: Perimeter_mid_ZN_2
+        terminal:
+          type: vav_box
+          name: VAV Box P_mid_ZN2
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+      - zone: Perimeter_mid_ZN_3
+        terminal:
+          type: vav_box
+          name: VAV Box P_mid_ZN3
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+      - zone: Perimeter_mid_ZN_4
+        terminal:
+          type: vav_box
+          name: VAV Box P_mid_ZN4
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+  # =========================================================================
+  # VAV_top WITH REHEAT — serves top floor office zones
+  # =========================================================================
+  - name: VAV_top
+    system_type: vav
+    min_vav_fraction: 0.30
+    availability_schedule: HVACOperationSchd
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 12.8
+      design_zone_flow: autosize
+      cycling: proportional
+      economizer:
+        economizer_type: differential_dry_bulb
+    equipment:
+      # E+ IDF: Fan:VariableVolume, total_eff=0.6175, motor_eff=0.95
+      - type: fan
+        name: VAV_top Supply Fan
+        source: vav
+        design_flow_rate: autosize
+        pressure_rise: 1337.13
+        impeller_efficiency: 0.65
+        motor_efficiency: 0.95
+        vav_coefficients: [0.0013, 0.147, 0.9506, -0.0998, 0.0]
+        motor_in_airstream_fraction: 1.0
+
+      - type: heating_coil
+        name: VAV_top Preheat Coil
+        source: hot_water
+        capacity: autosize
+        setpoint: 35.0
+        plant_loop: HHW Loop
+
+      - type: cooling_coil
+        name: VAV_top CHW Cooling Coil
+        source: chilled_water
+        capacity: autosize
+        shr: 0.80
+        setpoint: 12.8
+        plant_loop: CHW Loop
+
+    zone_terminals:
+      - zone: Core_top
+        terminal:
+          type: vav_box
+          name: VAV Box Core_top
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+      - zone: Perimeter_top_ZN_1
+        terminal:
+          type: vav_box
+          name: VAV Box P_top_ZN1
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+      - zone: Perimeter_top_ZN_2
+        terminal:
+          type: vav_box
+          name: VAV Box P_top_ZN2
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+      - zone: Perimeter_top_ZN_3
+        terminal:
+          type: vav_box
+          name: VAV Box P_top_ZN3
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+      - zone: Perimeter_top_ZN_4
+        terminal:
+          type: vav_box
+          name: VAV Box P_top_ZN4
+          max_air_flow: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          reheat_capacity: autosize
+          plant_loop: HHW Loop
+
+  # =========================================================================
+  # CAV_bas — constant volume AHU serving basement
+  # =========================================================================
+  - name: CAV_bas
+    system_type: psz_ac
+    availability_schedule: HVACOperationSchd
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 12.8
+      design_zone_flow: autosize
+      cycling: proportional
+      economizer:
+        economizer_type: differential_dry_bulb
+    equipment:
+      - type: fan
+        name: CAV_bas Supply Fan
+        source: vav
+        design_flow_rate: autosize
+        pressure_rise: 1337.13
+        impeller_efficiency: 0.65
+        motor_efficiency: 0.936
+        vav_coefficients: [0.0013, 0.147, 0.9506, -0.0998, 0.0]
+        motor_in_airstream_fraction: 1.0
+
+      - type: heating_coil
+        name: CAV_bas Preheat Coil
+        source: hot_water
+        capacity: autosize
+        setpoint: 35.0
+        plant_loop: HHW Loop
+
+      - type: cooling_coil
+        name: CAV_bas Cooling Coil
+        source: chilled_water
+        capacity: autosize
+        shr: 0.80
+        setpoint: 12.8
+        plant_loop: CHW Loop
+
+    zone_terminals:
+      - zone: Basement
+
+  # =========================================================================
+  # PSZ-AC Data Center Systems (DX cooling)
+  # =========================================================================
+  - name: AirLoop_DataCenter_bot
+    system_type: psz_ac
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 12.8
+      design_zone_flow: autosize
+      cycling: proportional
+    equipment:
+      # E+ IDF: Fan:SystemModel, pressure_rise=966.867, total_eff=0.58175, motor_eff=0.895
+      - type: fan
+        name: DC_bot Supply Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 966.867
+        impeller_efficiency: 0.65
+        motor_efficiency: 0.895
+        motor_in_airstream_fraction: 1.0
+
+      - type: heating_coil
+        name: DC_bot Heating Coil
+        source: electric
+        capacity: autosize
+        setpoint: 35.0
+        efficiency: 1.0
+
+      - type: cooling_coil
+        name: DC_bot DX Cooling Coil
+        source: dx
+        capacity: autosize
+        cop: 3.0
+        shr: 0.80
+        setpoint: 12.8
+
+    zone_terminals:
+      - zone: DataCenter_bot_ZN_6
+
+  - name: AirLoop_DataCenter_mid
+    system_type: psz_ac
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 12.8
+      design_zone_flow: autosize
+      cycling: proportional
+    equipment:
+      # E+ IDF: Fan:SystemModel, pressure_rise=966.867, total_eff=0.56225, motor_eff=0.865
+      - type: fan
+        name: DC_mid Supply Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 966.867
+        impeller_efficiency: 0.65
+        motor_efficiency: 0.865
+        motor_in_airstream_fraction: 1.0
+
+      - type: heating_coil
+        name: DC_mid Heating Coil
+        source: electric
+        capacity: autosize
+        setpoint: 35.0
+        efficiency: 1.0
+
+      - type: cooling_coil
+        name: DC_mid DX Cooling Coil
+        source: dx
+        capacity: autosize
+        cop: 3.5
+        shr: 0.80
+        setpoint: 12.8
+
+    zone_terminals:
+      - zone: DataCenter_mid_ZN_6
+
+  - name: AirLoop_DataCenter_top
+    system_type: psz_ac
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 12.8
+      design_zone_flow: autosize
+      cycling: proportional
+    equipment:
+      # E+ IDF: Fan:SystemModel, pressure_rise=966.867, total_eff=0.58175, motor_eff=0.895
+      - type: fan
+        name: DC_top Supply Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 966.867
+        impeller_efficiency: 0.65
+        motor_efficiency: 0.895
+        motor_in_airstream_fraction: 1.0
+
+      - type: heating_coil
+        name: DC_top Heating Coil
+        source: electric
+        capacity: autosize
+        setpoint: 35.0
+        efficiency: 1.0
+
+      - type: cooling_coil
+        name: DC_top DX Cooling Coil
+        source: dx
+        capacity: autosize
+        cop: 3.0
+        shr: 0.80
+        setpoint: 12.8
+
+    zone_terminals:
+      - zone: DataCenter_top_ZN_6
+
+  # E+ IDF: SingleZoneVAV with Coil:Cooling:Water + Coil:Heating:Water + Fan:VariableVolume
+  # connected to CoolSys1 (CHW Loop) and HeatSys1 (HHW Loop)
+  - name: AirLoop_DataCenter_basement
+    system_type: psz_ac
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 12.8
+      design_zone_flow: autosize
+      cycling: proportional
+      economizer:
+        economizer_type: differential_dry_bulb
+    equipment:
+      # E+ IDF: Fan:VariableVolume, pressure_rise=637.689, total_eff=0.6175, motor_eff=0.95
+      - type: fan
+        name: DC_basement Supply Fan
+        source: variable_volume
+        design_flow_rate: autosize
+        pressure_rise: 637.689
+        impeller_efficiency: 0.65
+        motor_efficiency: 0.95
+        vav_coefficients: [0.0013, 0.147, 0.9506, -0.0998, 0.0]
+        motor_in_airstream_fraction: 1.0
+
+      - type: heating_coil
+        name: DC_basement Heating Coil
+        source: hot_water
+        capacity: autosize
+        setpoint: 35.0
+        plant_loop: HHW Loop
+
+      - type: cooling_coil
+        name: DC_basement CHW Cooling Coil
+        source: chilled_water
+        capacity: autosize
+        shr: 0.80
+        setpoint: 12.8
+        plant_loop: CHW Loop
+
+      # E+ IDF: Humidifier:Steam:Electric, rated_power=100,000 W, 30% RH min setpoint
+      - type: humidifier
+        name: DataCenter_basement_ZN_6 Humidifier
+        rated_power: 100000
+        min_rh_setpoint: 0.30
+
+    zone_terminals:
+      - zone: DataCenter_basement_ZN_6
+
+# =============================================================================
+# PLANT LOOPS
+# =============================================================================
+plant_loops:
+  # --- Hot Water Loop ---
+  # E+ IDF: Pump:VariableSpeed "HeatSys1 Pump", head=180705.7 Pa, eff=0.9
+  # Curve: C1=0, C2=0.5726, C3=-0.3010, C4=0.7347
+  - name: HHW Loop
+    design_supply_temp: 82.0
+    design_delta_t: 11.0
+    supply_equipment:
+      - type: pump
+        name: HHW Pump
+        pump_type: variable_speed
+        design_flow_rate: autosize
+        design_head: 180705.7
+        motor_efficiency: 0.9
+        power_curve: [0.0, 0.5726, -0.3010, 0.7347]
+
+      - type: boiler
+        name: HHW Boiler
+        capacity: 3160025.0
+        efficiency: 0.7925
+        design_outlet_temp: 82.0
+        design_water_flow_rate: autosize
+
+  # --- Chilled Water Loop ---
+  # E+ IDF: Primary-secondary pumping:
+  #   Primary: 2× Pump:ConstantSpeed per chiller, head=123258.429 Pa, eff=0.9
+  #     Each pump: design_flow=0.055642 m3/s, design_power=10583.99 W
+  #   Secondary: Pump:VariableSpeed, head=133527.825 Pa, eff=0.9
+  #     Curve: C1=0, C2=0.5726, C3=-0.3010, C4=0.7347
+  - name: CHW Loop
+    design_supply_temp: 6.67
+    design_delta_t: 6.67
+    supply_equipment:
+      # Primary pumps (E+ has 2 constant speed pumps dedicated per-chiller;
+      # modeled as single CS pump at combined flow since we can't couple
+      # individual pumps to individual chillers)
+      - type: pump
+        name: CHW Primary Pump
+        pump_type: constant_speed
+        design_flow_rate: autosize
+        design_head: 123258.429
+        motor_efficiency: 0.9
+
+      # Secondary pump (variable speed, E+ demand-side pump)
+      - type: pump
+        name: CHW Secondary Pump
+        pump_type: variable_speed
+        design_flow_rate: autosize
+        design_head: 133527.825
+        motor_efficiency: 0.9
+        power_curve: [0.0, 0.5726, -0.3010, 0.7347]
+
+      - type: chiller
+        name: CHW Chiller 1
+        capacity: 1570096.545
+        cop: 6.11
+        chw_setpoint: 6.67
+        design_chw_flow: 0.0
+        condenser_type: water_cooled
+        condenser_entering_temp: 21.1
+        tower_approach: 5.22
+        min_plr: 0.25
+        condenser_plant_loop: Condenser Water Loop
+        # CAPFT: cap-f-t biquadratic (x=T_chw_leaving, y=T_cond_entering)
+        capft:
+          coefficients: [0.988289399105446, 0.031127718217927, -0.00154986412921254, -0.00334864255828258, -0.000146694443912943, 0.000502974958539996]
+          min_x: 4.0
+          max_x: 16.0
+          min_y: 12.8
+          max_y: 40.0
+        # EIRFT: eir-f-t biquadratic (x=T_chw_leaving, y=T_cond_entering)
+        eirft:
+          coefficients: [0.563967192309392, -0.034330681975216, 0.00101506219660673, 0.0339405925147554, -0.000431970984586658, -0.0000252410848639146]
+          min_x: 4.0
+          max_x: 16.0
+          min_y: 12.8
+          max_y: 40.0
+        # EIRFPLR: eir-f-plr quadratic (x=PLR)
+        eirfplr:
+          coefficients: [0.309752375539755, 0.153649268551135, 0.536462254009109]
+          min_x: 0.0
+          max_x: 1.0
+
+      - type: chiller
+        name: CHW Chiller 2
+        capacity: 1570096.545
+        cop: 6.11
+        chw_setpoint: 6.67
+        design_chw_flow: 0.0
+        condenser_type: water_cooled
+        condenser_entering_temp: 21.1
+        tower_approach: 5.22
+        min_plr: 0.25
+        condenser_plant_loop: Condenser Water Loop
+        capft:
+          coefficients: [0.988289399105446, 0.031127718217927, -0.00154986412921254, -0.00334864255828258, -0.000146694443912943, 0.000502974958539996]
+          min_x: 4.0
+          max_x: 16.0
+          min_y: 12.8
+          max_y: 40.0
+        eirft:
+          coefficients: [0.563967192309392, -0.034330681975216, 0.00101506219660673, 0.0339405925147554, -0.000431970984586658, -0.0000252410848639146]
+          min_x: 4.0
+          max_x: 16.0
+          min_y: 12.8
+          max_y: 40.0
+        eirfplr:
+          coefficients: [0.309752375539755, 0.153649268551135, 0.536462254009109]
+          min_x: 0.0
+          max_x: 1.0
+
+  # --- Condenser Water Loop ---
+  # E+ IDF: HeaderedPumps:VariableSpeed "TowerWaterSys Pump", 2 pumps
+  #   head=209234.683 Pa, motor_eff=0.9
+  #   Curve: C1=0, C2=0.0216, C3=-0.0325, C4=1.0095
+  #   design_flow=0.158030 m3/s, design_power=55105.28 W
+  # Condenser water carries chiller heat rejection (Q_evap + W_compressor).
+  - name: Condenser Water Loop
+    design_supply_temp: 21.1
+    design_delta_t: 5.56
+    supply_equipment:
+      - type: pump
+        name: CW Pump
+        pump_type: variable_speed
+        design_flow_rate: autosize
+        design_head: 209234.683
+        motor_efficiency: 0.9
+        num_pumps: 2
+        power_curve: [0.0, 0.0216, -0.0325, 1.0095]
+
+# =============================================================================
+# THERMOSTATS
+# =============================================================================
+thermostats:
+  # Office zones: 21.0C heating / 24.0C cooling (occupied), 15.6C / 26.7C (unoccupied)
+  - name: Office Thermostat
+    zones: [Office Zones Bottom, Office Zones Mid, Office Zones Top, Basement Zone]
+    heating_setpoint: 21.0
+    cooling_setpoint: 24.0
+    unoccupied_heating_setpoint: 15.6
+    unoccupied_cooling_setpoint: 26.7
+
+  # Data center zones: constant cooling
+  - name: DataCenter Thermostat
+    zones: [DataCenter Zones]
+    heating_setpoint: 15.6
+    cooling_setpoint: 24.0
+    unoccupied_heating_setpoint: 15.6
+    unoccupied_cooling_setpoint: 24.0
+
+# =============================================================================
+# DOMESTIC HOT WATER
+# =============================================================================
+dhw_systems:
+  - name: SWHSys1
+    mains_temperature: 10.0
+    water_heater:
+      name: SWHSys1 Water Heater
+      fuel_type: electric
+      tank_volume: 1135.624
+      capacity: 87921.32
+      efficiency: 1.0
+      setpoint: 60.0
+      ua_standby: 4.74118
+      deadband: 0.1
+    # E+ IDF: Pump:ConstantSpeed "SWHSys1 Pump", head=29891 Pa, motor_eff=0.3
+    # E+ design_flow=0.000440 m3/s, design_power=56.21 W
+    pump:
+      name: SWH Pump
+      pump_type: constant_speed
+      design_flow_rate: 0.000440
+      design_head: 29891.0
+      motor_efficiency: 0.3
+    loads:
+      - name: Core_bottom DHW
+        peak_flow_rate: 0.03667
+        schedule: BLDG_SWH_SCH
+        use_temperature: 43.3
+
+      # Core_mid zone has multiplier=10 in E+ IDF; flow scaled accordingly
+      - name: Core_mid DHW
+        peak_flow_rate: 0.36667
+        schedule: BLDG_SWH_SCH
+        use_temperature: 43.3
+
+      - name: Core_top DHW
+        peak_flow_rate: 0.03667
+        schedule: BLDG_SWH_SCH
+        use_temperature: 43.3
+
+# =============================================================================
+# EXTERIOR EQUIPMENT
+# =============================================================================
+exterior_equipment:
+  - name: Exterior_Lights
+    power: 64082.8
+    fuel: electricity
+    subcategory: Exterior Lights
+    astronomical_clock: true
+
+  - name: Elevator_Lift_Running
+    power: 834376.0
+    schedule: Elevator_Running_Sch
+    fuel: electricity
+    subcategory: ElevatorLift
+
+  - name: Elevator_Lift_Standby
+    power: 19200.0
+    schedule: Elevator_Standby_Sch
+    fuel: electricity
+    subcategory: ElevatorLift
+
+  - name: Elevators_Lights_Fan
+    power: 1944.0
+    fuel: electricity
+    subcategory: ElevatorLightsFan
+
+# =============================================================================
+# OUTPUTS
+# =============================================================================
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - zone_infiltration_mass_flow
+      - zone_supply_air_temperature
+      - zone_supply_air_mass_flow
+      - site_outdoor_temperature
+      - site_direct_normal_radiation
+
+  - file: "hvac_results.csv"
+    frequency: hourly
+    variables:
+      - zone_heating_rate
+      - zone_cooling_rate
+      - zone_supply_air_temperature
+      - zone_supply_air_mass_flow
+
+summary_report: true

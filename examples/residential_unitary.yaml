@@ -171,6 +171,12 @@ zones:
     volume: 502.0
     floor_area: 186.0
 
+# --- Zone Groups ---
+zone_groups:
+  - name: Residential Zone
+    zones:
+      - Living Space
+
 # --- People ---
 people:
   - name: Residential Occupants
@@ -354,14 +360,8 @@ air_loops:
         rated_airflow: autosize
         setpoint: 13.0
 
-    zones:
+    zone_terminals:
       - zone: Living Space
-
-# --- Zone Groups ---
-zone_groups:
-  - name: Residential Zone
-    zones:
-      - Living Space
 
 # --- Thermostats ---
 thermostats:

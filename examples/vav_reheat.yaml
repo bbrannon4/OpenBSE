@@ -198,6 +198,15 @@ zones:
     volume: 350.0
     floor_area: 100.0
 
+# --- Zone Groups ---
+zone_groups:
+  - name: VAV Zones
+    zones:
+      - South Perimeter
+      - North Perimeter
+      - Core
+      - Conference
+
 # --- People ---
 people:
   - name: Perimeter Office People
@@ -611,7 +620,6 @@ air_loops:
         source: hot_water
         capacity: autosize
         setpoint: 35.0
-        efficiency: 1.0
 
       - type: cooling_coil
         name: AHU CHW Cooling Coil
@@ -621,7 +629,7 @@ air_loops:
         rated_airflow: autosize
         setpoint: 13.0
 
-    zones:
+    zone_terminals:
       - zone: South Perimeter
       - zone: North Perimeter
       - zone: Core
@@ -641,7 +649,7 @@ air_loops:
         capacity: autosize
         setpoint: 35.0
         efficiency: 1.0
-    zones:
+    zone_terminals:
       - zone: South Perimeter
 
   - name: VAV Box NP
@@ -653,7 +661,7 @@ air_loops:
         capacity: autosize
         setpoint: 35.0
         efficiency: 1.0
-    zones:
+    zone_terminals:
       - zone: North Perimeter
 
   - name: VAV Box Core
@@ -665,7 +673,7 @@ air_loops:
         capacity: autosize
         setpoint: 35.0
         efficiency: 1.0
-    zones:
+    zone_terminals:
       - zone: Core
 
   - name: VAV Box Conf
@@ -677,7 +685,7 @@ air_loops:
         capacity: autosize
         setpoint: 35.0
         efficiency: 1.0
-    zones:
+    zone_terminals:
       - zone: Conference
 
 # --- Plant Loops ---
@@ -703,15 +711,6 @@ plant_loops:
         cop: 3.8
         chw_setpoint: 7.0
         design_chw_flow: 0.0
-
-# --- Zone Groups ---
-zone_groups:
-  - name: VAV Zones
-    zones:
-      - South Perimeter
-      - North Perimeter
-      - Core
-      - Conference
 
 # --- Thermostats ---
 thermostats:

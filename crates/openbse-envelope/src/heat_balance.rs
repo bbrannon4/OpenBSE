@@ -41,6 +41,8 @@ pub struct BuildingEnvelope {
     pub constructions: HashMap<String, Construction>,
     pub window_constructions: HashMap<String, WindowConstruction>,
     pub simple_constructions: HashMap<String, SimpleConstruction>,
+    /// F-factor ground floor constructions.
+    pub f_factor_constructions: HashMap<String, crate::material::FFactorConstruction>,
     pub zone_index: HashMap<String, usize>,
     /// Ground temperature model (Kusuda-Achenbach)
     pub ground_temp_model: Option<GroundTempModel>,
@@ -81,6 +83,9 @@ pub struct BuildingEnvelope {
     /// so the CTF cross-coupling term Y[0] correctly connects the two zones
     /// through a single wall thickness.
     pub interzone_pairs: Vec<Option<usize>>,
+    /// Gross wall and window areas by cardinal direction (N, E, S, W).
+    /// Used for window-to-wall ratio reporting.
+    pub envelope_areas: crate::geometry::EnvelopeAreas,
 }
 
 /// Interior view factor data for a zone modeled as a rectangular box.
@@ -235,7 +240,7 @@ impl BuildingEnvelope {
         time_zone: f64,
     ) -> Self {
         Self::from_input_full(
-            materials, constructions, window_constructions, vec![],
+            materials, constructions, window_constructions, vec![], vec![],
             zones, surfaces, latitude, longitude, time_zone, 0.0,
         )
     }
@@ -246,6 +251,7 @@ impl BuildingEnvelope {
         constructions: Vec<Construction>,
         window_constructions: Vec<WindowConstruction>,
         simple_constructions: Vec<SimpleConstruction>,
+        f_factor_constructions: Vec<crate::material::FFactorConstruction>,
         zones: Vec<ZoneInput>,
         mut surfaces: Vec<SurfaceInput>,
         latitude: f64,
@@ -261,6 +267,8 @@ impl BuildingEnvelope {
             .into_iter().map(|w| (w.name.clone(), w)).collect();
         let simple_map: HashMap<String, SimpleConstruction> = simple_constructions
             .into_iter().map(|s| (s.name.clone(), s)).collect();
+        let f_factor_map: HashMap<String, crate::material::FFactorConstruction> =
+            f_factor_constructions.into_iter().map(|f| (f.name.clone(), f)).collect();
 
         let initial_temp = 21.0;
 
@@ -277,33 +285,41 @@ impl BuildingEnvelope {
             zone_states.push(ZoneState::new(z, initial_temp));
         }
 
-        // Auto-calculate zone volume and floor area from surface vertices
+        // Auto-calculate zone floor area and volume from surface vertices.
+        //
+        // Floor area: sum of floor-type surface areas (Newell's method — correct
+        // for arbitrary planar polygons including non-convex shapes).
+        //
+        // Volume: floor_area × height, where height = max(z) - min(z) across all
+        // zone surface vertices.  This is far more robust than the divergence
+        // theorem, which requires a fully closed polyhedron (all 6 faces present
+        // with consistent outward normals).  Most zone geometries have missing
+        // interior walls, so the divergence theorem produces wrong results.
         for zone in &mut zone_states {
             let zone_surfaces: Vec<&SurfaceInput> = surfaces.iter()
                 .filter(|s| s.zone == zone.input.name)
                 .collect();
 
-            // Auto-calculate volume if not specified (volume == 0)
-            if zone.input.volume <= 0.0 {
-                let all_have_verts = zone_surfaces.iter()
-                    .all(|s| s.vertices.as_ref().map(|v| v.len() >= 3).unwrap_or(false));
-                if all_have_verts && !zone_surfaces.is_empty() {
-                    let vert_sets: Vec<Vec<geometry::Point3D>> = zone_surfaces.iter()
-                        .filter(|s| s.surface_type != SurfaceType::Window) // exclude windows
-                        .filter_map(|s| s.vertices.clone())
-                        .collect();
-                    let refs: Vec<&[geometry::Point3D]> = vert_sets.iter()
-                        .map(|v| v.as_slice())
-                        .collect();
-                    let vol = geometry::zone_volume_from_surfaces(&refs);
-                    if vol > 0.0 {
-                        zone.input.volume = vol;
-                        log::info!("Auto-calculated zone '{}' volume: {:.1} m³", zone.input.name, vol);
-                    }
-                }
+            if zone_surfaces.is_empty() {
+                continue;
             }
 
-            // Auto-calculate floor area if not specified
+            // ── Collect all vertex z-coordinates to determine zone height ──
+            let all_verts: Vec<&Vec<geometry::Point3D>> = zone_surfaces.iter()
+                .filter(|s| s.surface_type != SurfaceType::Window)
+                .filter_map(|s| s.vertices.as_ref())
+                .filter(|v| v.len() >= 3)
+                .collect();
+
+            let z_min = all_verts.iter()
+                .flat_map(|vs| vs.iter().map(|v| v.z))
+                .fold(f64::INFINITY, f64::min);
+            let z_max = all_verts.iter()
+                .flat_map(|vs| vs.iter().map(|v| v.z))
+                .fold(f64::NEG_INFINITY, f64::max);
+            let zone_height = if z_max > z_min { z_max - z_min } else { 0.0 };
+
+            // ── Auto-calculate floor area (from floor-type surfaces) ──
             if zone.input.floor_area <= 0.0 {
                 let floor_verts: Vec<Vec<geometry::Point3D>> = zone_surfaces.iter()
                     .filter(|s| s.surface_type == SurfaceType::Floor)
@@ -316,8 +332,42 @@ impl BuildingEnvelope {
                     let area = geometry::zone_floor_area(&refs);
                     if area > 0.0 {
                         zone.input.floor_area = area;
-                        log::info!("Auto-calculated zone '{}' floor area: {:.1} m²", zone.input.name, area);
+                        log::info!("Auto-calculated zone '{}' floor area: {:.1} m²",
+                            zone.input.name, area);
                     }
+                }
+            }
+
+            // ── Auto-calculate volume ──
+            if zone.input.volume <= 0.0 {
+                // Primary method: floor_area × height (works for any zone with
+                // a floor surface and identifiable height, even with missing walls)
+                if zone.input.floor_area > 0.0 && zone_height > 0.0 {
+                    zone.input.volume = zone.input.floor_area * zone_height;
+                    log::info!("Auto-calculated zone '{}' volume: {:.1} m³ (floor_area {:.1} × height {:.2})",
+                        zone.input.name, zone.input.volume, zone.input.floor_area, zone_height);
+                } else if !all_verts.is_empty() {
+                    // Fallback: divergence theorem (only reliable for closed polyhedra)
+                    let vert_sets: Vec<Vec<geometry::Point3D>> = zone_surfaces.iter()
+                        .filter(|s| s.surface_type != SurfaceType::Window)
+                        .filter_map(|s| s.vertices.clone())
+                        .collect();
+                    let refs: Vec<&[geometry::Point3D]> = vert_sets.iter()
+                        .map(|v| v.as_slice())
+                        .collect();
+                    let vol = geometry::zone_volume_from_surfaces(&refs);
+                    if vol > 0.0 {
+                        zone.input.volume = vol;
+                        log::warn!("Zone '{}': using divergence-theorem volume ({:.1} m³) — \
+                            no floor surfaces found for floor_area × height method. \
+                            Result may be inaccurate if zone is not a closed polyhedron.",
+                            zone.input.name, vol);
+                    }
+                }
+
+                if zone.input.volume <= 0.0 {
+                    log::warn!("Zone '{}': could not auto-calculate volume (no surfaces with vertices)",
+                        zone.input.name);
                 }
             }
         }
@@ -354,6 +404,7 @@ impl BuildingEnvelope {
                     shading: None,
                     sun_exposure: false,
                     wind_exposure: false,
+                    exposed_perimeter: None,
                 };
                 surfaces.push(surf);
             }
@@ -460,6 +511,29 @@ impl BuildingEnvelope {
                     // Simple construction
                     (sc.solar_absorptance, sc.thermal_absorptance,
                      sc.solar_absorptance, sc.roughness, sc.u_factor, 0.0)
+                } else if let Some(fc) = f_factor_map.get(&surf_input.construction) {
+                    // F-factor ground floor construction.
+                    // Compute effective U = F × P / A for this surface.
+                    let perimeter = surf_input.exposed_perimeter.unwrap_or_else(|| {
+                        log::warn!(
+                            "Surface '{}' uses F-factor construction '{}' but has no exposed_perimeter; \
+                             defaulting to sqrt(area)*2",
+                            surf_input.name, surf_input.construction
+                        );
+                        // Rough estimate: square floor
+                        surf_input.area.sqrt() * 2.0
+                    });
+                    let u_eff = if surf_input.area > 0.0 {
+                        fc.f_factor * perimeter / surf_input.area
+                    } else {
+                        0.5 // fallback
+                    };
+                    log::info!(
+                        "F-factor floor '{}': F={:.3} W/(m·K), P={:.2}m, A={:.2}m² → U_eff={:.4} W/(m²·K)",
+                        surf_input.name, fc.f_factor, perimeter, surf_input.area, u_eff
+                    );
+                    (fc.solar_absorptance, fc.thermal_absorptance,
+                     fc.solar_absorptance, Roughness::Rough, u_eff, 0.0)
                 } else {
                     (0.7, 0.9, 0.7, Roughness::MediumRough, 5.0, 0.0)
                 };
@@ -601,6 +675,28 @@ impl BuildingEnvelope {
                 diffuse_sky_shading_ratio: 1.0, // Updated by compute_diffuse_shading_ratios()
                 diffuse_horizon_shading_ratio: 1.0, // Updated by compute_diffuse_shading_ratios()
                 box_face: None, // Set after zone VF computation below
+                f_factor_ground_temps: {
+                    // Store F-factor ground temperatures on the surface state
+                    // so the heat balance uses FCfactorMethod temps instead of
+                    // building-level BuildingSurface temps.
+                    if let Some(fc) = f_factor_map.get(&surf_input.construction) {
+                        if let Some(ref temps) = fc.ground_temperatures {
+                            if temps.len() == 12 {
+                                let mut arr = [0.0_f64; 12];
+                                arr.copy_from_slice(temps);
+                                Some(arr)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                },
+                q_cond_inside: 0.0,
+                q_cond_outside: 0.0,
             };
             surface_states.push(state);
         }
@@ -610,6 +706,20 @@ impl BuildingEnvelope {
             if let Some(&zi) = zone_index.get(&surf.input.zone) {
                 zone_states[zi].surface_indices.push(surf_idx);
             }
+        }
+
+        // Compute zone centroid height (area-weighted average of surface centroid heights).
+        // EnergyPlus uses the zone centroid Z for infiltration wind speed correction.
+        for zone in &mut zone_states {
+            let mut sum_az = 0.0_f64;
+            let mut sum_a = 0.0_f64;
+            for &si in &zone.surface_indices {
+                let area = surface_states[si].input.area;
+                let ch = surface_states[si].centroid_height;
+                sum_az += area * ch;
+                sum_a += area;
+            }
+            zone.centroid_height = if sum_a > 0.0 { sum_az / sum_a } else { 1.5 };
         }
 
         // Subtract window areas from parent surfaces
@@ -734,6 +844,26 @@ impl BuildingEnvelope {
             }
         }
 
+        // ── Compute envelope areas by cardinal direction ──────────────
+        let mut envelope_areas = crate::geometry::EnvelopeAreas::default();
+        for ss in &surface_states {
+            // Only count exterior (outdoor boundary) walls and windows
+            if ss.input.boundary != BoundaryCondition::Outdoor {
+                continue;
+            }
+            let dir = crate::geometry::azimuth_to_cardinal(ss.input.azimuth);
+            match ss.input.surface_type {
+                SurfaceType::Wall => {
+                    // Use gross area (before window subtraction)
+                    envelope_areas.add_wall(dir, ss.input.area);
+                }
+                SurfaceType::Window => {
+                    envelope_areas.add_window(dir, ss.input.area);
+                }
+                _ => {} // floors, roofs, ceilings don't contribute to WWR
+            }
+        }
+
         BuildingEnvelope {
             zones: zone_states,
             surfaces: surface_states,
@@ -743,6 +873,7 @@ impl BuildingEnvelope {
             constructions: construction_map,
             window_constructions: window_map,
             simple_constructions: simple_map,
+            f_factor_constructions: f_factor_map,
             zone_index,
             ground_temp_model: None,
             schedule_manager: ScheduleManager::new(),
@@ -759,6 +890,7 @@ impl BuildingEnvelope {
             elevation,
             zone_view_factors,
             interzone_pairs,
+            envelope_areas,
         }
     }
 
@@ -936,6 +1068,19 @@ impl BuildingEnvelope {
                 let history = CtfHistory::new(ctf.num_terms.max(1), 21.0);
                 self.ctf_coefficients[i] = Some(ctf);
                 self.ctf_histories[i] = Some(history);
+                continue;
+            }
+
+            // Try F-factor ground floor construction
+            if let Some(fc) = self.f_factor_constructions.get(construction_name).cloned() {
+                // Effective U = F × P / A (already computed and stored in surface u_factor)
+                let u_eff = self.surfaces[i].u_factor;
+                let ctf = calculate_ctf_simple(
+                    u_eff, fc.thermal_capacity, self.dt, false, None, None,
+                );
+                let history = CtfHistory::new(ctf.num_terms.max(1), 21.0);
+                self.ctf_coefficients[i] = Some(ctf);
+                self.ctf_histories[i] = Some(history);
             }
         }
     }
@@ -1086,6 +1231,17 @@ impl EnvelopeSolver for BuildingEnvelope {
         // 4. Infiltration + scheduled ventilation + exhaust + outdoor air
         let rho_outdoor = psych::rho_air_fn_pb_tdb_w(p_b, t_outdoor, 0.008);
         for zone in &mut self.zones {
+            // Local wind speed at zone centroid height for infiltration.
+            // EnergyPlus applies terrain + height correction to met station wind speed
+            // for infiltration calculations (HeatBalanceAirManager.cc).
+            let wind_speed_local = convection::wind_speed_at_height(
+                wind_speed_met,
+                zone.centroid_height,
+                convection::DEFAULT_WEATHER_WIND_MOD_COEFF,
+                self.terrain.wind_exp(),
+                self.terrain.wind_bl_height(),
+            );
+
             // Sum infiltration from all objects (envelope cracks + door opening, etc.)
             zone.infiltration_mass_flow = 0.0;
             for infil in &zone.input.infiltration {
@@ -1098,7 +1254,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     zone.input.volume,
                     zone.temp,
                     t_outdoor,
-                    wind_speed_met,
+                    wind_speed_local,
                     rho_outdoor,
                 ) * sched_mult;
             }
@@ -1699,11 +1855,18 @@ impl EnvelopeSolver for BuildingEnvelope {
                         self.surfaces[si].temp_outside = self.surfaces[si].temp_inside;
                     }
                     BoundaryCondition::Ground => {
-                        self.surfaces[si].temp_outside = if let Some(ref gt) = self.ground_temp_model {
-                            gt.temperature(doy as f64)
-                        } else {
-                            10.0
-                        };
+                        // F-factor ground floors use FCfactorMethod temps;
+                        // standard ground floors use building-level ground temp model.
+                        self.surfaces[si].temp_outside =
+                            if let Some(ref temps) = self.surfaces[si].f_factor_ground_temps {
+                                // E+ holds FCfactorMethod temps constant for
+                                // the entire month (step function, no interpolation).
+                                GroundTempModel::monthly_step_static(temps, ctx.timestep.month)
+                            } else if let Some(ref gt) = self.ground_temp_model {
+                                gt.temperature(doy as f64)
+                            } else {
+                                10.0
+                            };
                     }
                     BoundaryCondition::Zone(other_zone) => {
                         // E+ approach: set outside temperature to paired surface's
@@ -2330,6 +2493,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                     );
                     ctf_q_inside[i] = q_in;
                     ctf_q_outside[i] = q_out;
+                    self.surfaces[i].q_cond_inside = q_in;
+                    self.surfaces[i].q_cond_outside = q_out;
                 }
 
                 let t_zone = t_zone_vec.get(pc.zi).copied().unwrap_or(21.0);
@@ -2669,19 +2834,19 @@ impl EnvelopeSolver for BuildingEnvelope {
                 // would zero out envelope conduction, drastically underestimating
                 // heating loads in winter and cooling loads in summer.
                 //
-                // Uses t_prev = sp (assume zone was already at setpoint) to avoid
-                // adding a thermal mass recovery term that causes PLR overshoot.
-                // Recovery from off-setpoint happens naturally: the system
-                // delivers the maintenance load, but since the zone is colder
-                // (winter), the actual losses are smaller → excess goes into
-                // warming thermal mass toward setpoint.
+                // Uses t_prev = zone.temp (the actual zone temperature) so
+                // the thermal mass term provides natural damping:
+                //   - Zone warm (T > sp): Cap*(sp-T) < 0 → reduces heating load
+                //   - Zone cold (T < sp): Cap*(sp-T) > 0 → increases heating load
+                // This prevents the PLR from being the same regardless of
+                // zone state, which caused undamped oscillation.
                 let cool_sp = hvac.cooling_setpoints.get(&zone.input.name).copied();
                 let heat_sp = hvac.heating_setpoints.get(&zone.input.name).copied();
 
                 zone.ideal_cooling_load = if let Some(sp) = cool_sp {
                     let q = crate::zone::compute_ideal_q_hvac(
                         sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
-                        rho_air, zone.input.volume, cp_air, dt, sp, sp,
+                        rho_air, zone.input.volume, cp_air, dt, zone.temp, sp,
                     );
                     // Negative Q = cooling needed; convert to positive cooling load
                     (-q).max(0.0)
@@ -2692,7 +2857,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                 zone.ideal_heating_load = if let Some(sp) = heat_sp {
                     let q = crate::zone::compute_ideal_q_hvac(
                         sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
-                        rho_air, zone.input.volume, cp_air, dt, sp, sp,
+                        rho_air, zone.input.volume, cp_air, dt, zone.temp, sp,
                     );
                     // Positive Q = heating needed
                     q.max(0.0)
@@ -2863,6 +3028,7 @@ mod tests {
                 shading: None,
                 sun_exposure: true,
                 wind_exposure: true,
+                exposed_perimeter: None,
             },
             SurfaceInput {
                 name: "South Window".to_string(),
@@ -2878,6 +3044,7 @@ mod tests {
                 shading: None,
                 sun_exposure: true,
                 wind_exposure: true,
+                exposed_perimeter: None,
             },
             SurfaceInput {
                 name: "Floor".to_string(),
@@ -2893,6 +3060,7 @@ mod tests {
                 shading: None,
                 sun_exposure: false,
                 wind_exposure: false,
+                exposed_perimeter: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(),
@@ -2908,6 +3076,7 @@ mod tests {
                 shading: None,
                 sun_exposure: true,
                 wind_exposure: true,
+                exposed_perimeter: None,
             },
         ];
 
@@ -3011,7 +3180,7 @@ mod tests {
                 area: 30.0, azimuth: 180.0, tilt: 90.0,
                 boundary: BoundaryCondition::Outdoor, parent_surface: None,
                 vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true,
+                sun_exposure: true, wind_exposure: true, exposed_perimeter: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(), zone: "TestZone".to_string(),
@@ -3019,7 +3188,7 @@ mod tests {
                 area: 50.0, azimuth: 0.0, tilt: 0.0,
                 boundary: BoundaryCondition::Outdoor, parent_surface: None,
                 vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true,
+                sun_exposure: true, wind_exposure: true, exposed_perimeter: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
@@ -3132,7 +3301,7 @@ mod tests {
                 area: 60.0, azimuth: 180.0, tilt: 90.0,
                 boundary: BoundaryCondition::Outdoor, parent_surface: None,
                 vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true,
+                sun_exposure: true, wind_exposure: true, exposed_perimeter: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(), zone: "IdealZone".to_string(),
@@ -3140,7 +3309,7 @@ mod tests {
                 area: 48.0, azimuth: 0.0, tilt: 0.0,
                 boundary: BoundaryCondition::Outdoor, parent_surface: None,
                 vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true,
+                sun_exposure: true, wind_exposure: true, exposed_perimeter: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
@@ -3237,7 +3406,7 @@ mod tests {
                 area: 60.0, azimuth: 180.0, tilt: 90.0,
                 boundary: BoundaryCondition::Outdoor, parent_surface: None,
                 vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true,
+                sun_exposure: true, wind_exposure: true, exposed_perimeter: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(), zone: "IdealZone".to_string(),
@@ -3245,7 +3414,7 @@ mod tests {
                 area: 48.0, azimuth: 0.0, tilt: 0.0,
                 boundary: BoundaryCondition::Outdoor, parent_surface: None,
                 vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true,
+                sun_exposure: true, wind_exposure: true, exposed_perimeter: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
@@ -3325,7 +3494,7 @@ mod tests {
                 area: 60.0, azimuth: 180.0, tilt: 90.0,
                 boundary: BoundaryCondition::Outdoor, parent_surface: None,
                 vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true,
+                sun_exposure: true, wind_exposure: true, exposed_perimeter: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(

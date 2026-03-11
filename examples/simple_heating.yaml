@@ -47,23 +47,10 @@ air_loops:
         impeller_efficiency: 0.78
         motor_efficiency: 0.9
         motor_in_airstream_fraction: 1.0
-    zones:
+    zone_terminals:
       - zone: East Office
       - zone: West Office
       - zone: Conference Room
-
-# ─── Zone Groups ──────────────────────────────────────────────────────────────
-# Named lists of zones for referencing in thermostats and load definitions.
-
-zone_groups:
-  - name: Office Zones
-    zones:
-      - East Office
-      - West Office
-
-  - name: Conference Rooms
-    zones:
-      - Conference Room
 
 # ─── Thermostats ─────────────────────────────────────────────────────────────
 # Thermostat definitions with setpoints, assignable to zones or zone groups.
@@ -198,6 +185,19 @@ zones:
   - name: Conference Room
     volume: 150.0
     floor_area: 50.0
+
+# ─── Zone Groups ──────────────────────────────────────────────────────────────
+# Named lists of zones for referencing in thermostats and load definitions.
+
+zone_groups:
+  - name: Office Zones
+    zones:
+      - East Office
+      - West Office
+
+  - name: Conference Rooms
+    zones:
+      - Conference Room
 
 # ─── Zone Loads ──────────────────────────────────────────────────────────────
 # Top-level objects assigned to zones by name. One definition can serve

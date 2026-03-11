@@ -112,6 +112,8 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
         ("surface_inside_convection_coefficient", "W/(m²·K)", "Inside convection coefficient"),
         ("surface_incident_solar", "W/m²", "Incident solar radiation on surface"),
         ("surface_transmitted_solar", "W", "Solar transmitted through window"),
+        ("surface_conduction_inside", "W", "Conduction heat flux on inside face of surface"),
+        ("surface_convection_inside", "W", "Convective heat flux from inside surface to zone"),
 
         // Site/weather variables
         ("site_outdoor_temperature", "°C", "Outdoor dry-bulb temperature"),
@@ -194,6 +196,8 @@ pub struct OutputSnapshot {
     pub surface_inside_convection_coefficient: HashMap<String, f64>,
     pub surface_incident_solar: HashMap<String, f64>,
     pub surface_transmitted_solar: HashMap<String, f64>,
+    pub surface_conduction_inside: HashMap<String, f64>,
+    pub surface_convection_inside: HashMap<String, f64>,
 
     // Per-zone active setpoints for this timestep (zone_name -> value)
     // Used by summary report for schedule-aware unmet hours
@@ -250,6 +254,8 @@ impl OutputSnapshot {
             surface_inside_convection_coefficient: HashMap::new(),
             surface_incident_solar: HashMap::new(),
             surface_transmitted_solar: HashMap::new(),
+            surface_conduction_inside: HashMap::new(),
+            surface_convection_inside: HashMap::new(),
             zone_heating_setpoint: HashMap::new(),
             zone_cooling_setpoint: HashMap::new(),
             air_loop_outlet_temperature: HashMap::new(),
@@ -314,6 +320,8 @@ impl OutputSnapshot {
             "surface_inside_convection_coefficient" => self.surface_inside_convection_coefficient.clone(),
             "surface_incident_solar" => self.surface_incident_solar.clone(),
             "surface_transmitted_solar" => self.surface_transmitted_solar.clone(),
+            "surface_conduction_inside" => self.surface_conduction_inside.clone(),
+            "surface_convection_inside" => self.surface_convection_inside.clone(),
 
             // Air loop / HVAC
             "air_loop_outlet_temperature" => self.air_loop_outlet_temperature.clone(),
@@ -596,6 +604,8 @@ pub struct SummaryReport {
     total_incident_solar_j: f64,
     /// Monthly transmitted solar [J] (12 months)
     monthly_transmitted_solar_j: [f64; 12],
+    /// Wall and window areas by cardinal direction for WWR reporting
+    envelope_areas: Option<openbse_envelope::EnvelopeAreas>,
 }
 
 impl SummaryReport {
@@ -617,7 +627,13 @@ impl SummaryReport {
             total_transmitted_solar_j: 0.0,
             total_incident_solar_j: 0.0,
             monthly_transmitted_solar_j: [0.0; 12],
+            envelope_areas: None,
         }
+    }
+
+    /// Set envelope area data for WWR reporting.
+    pub fn set_envelope_areas(&mut self, areas: openbse_envelope::EnvelopeAreas) {
+        self.envelope_areas = Some(areas);
     }
 
     /// Process one timestep snapshot.
@@ -888,6 +904,42 @@ impl SummaryReport {
             + annual_dhw_elec_kwh + annual_dhw_gas_kwh;
         writeln!(w, "  {:>22}  {:>12.1}", "Total", total_end_use)?;
         writeln!(w)?;
+
+        // -- Building Envelope Summary (Wall/Window Areas + WWR) --
+        if let Some(ref ea) = self.envelope_areas {
+            let total_wall = ea.total_wall_area();
+            if total_wall > 0.0 {
+                writeln!(w, "-- Building Envelope Summary ----------------------------------")?;
+                writeln!(w)?;
+                use openbse_envelope::CardinalDirection;
+                let dirs = [
+                    CardinalDirection::North,
+                    CardinalDirection::East,
+                    CardinalDirection::South,
+                    CardinalDirection::West,
+                ];
+                writeln!(w, "  {:>10}  {:>12}  {:>12}  {:>8}",
+                    "Direction", "Wall [m²]", "Window [m²]", "WWR")?;
+                writeln!(w, "  ----------  ------------  ------------  --------")?;
+                for dir in &dirs {
+                    let i = match dir {
+                        CardinalDirection::North => 0,
+                        CardinalDirection::East  => 1,
+                        CardinalDirection::South => 2,
+                        CardinalDirection::West  => 3,
+                    };
+                    writeln!(w, "  {:>10}  {:>12.1}  {:>12.1}  {:>7.1}%",
+                        dir,
+                        ea.wall_area[i],
+                        ea.window_area[i],
+                        ea.wwr(*dir) * 100.0)?;
+                }
+                writeln!(w, "  ----------  ------------  ------------  --------")?;
+                writeln!(w, "  {:>10}  {:>12.1}  {:>12.1}  {:>7.1}%",
+                    "Total", total_wall, ea.total_window_area(), ea.total_wwr() * 100.0)?;
+                writeln!(w)?;
+            }
+        }
 
         // -- Window Solar Diagnostics --
         if self.total_transmitted_solar_j > 0.0 {

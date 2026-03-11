@@ -25,6 +25,14 @@ pub enum InternalGainInput {
         /// Schedule name for time-varying occupancy (default: always on)
         #[serde(default)]
         schedule: Option<String>,
+        /// Alternative: explicit sensible gain [W/person].
+        /// When set, overrides `activity_level × sensible_fraction`.
+        #[serde(default)]
+        sensible_gain_per_person: Option<f64>,
+        /// Alternative: explicit latent gain [W/person].
+        /// When set, overrides `activity_level × (1 - sensible_fraction)`.
+        #[serde(default)]
+        latent_gain_per_person: Option<f64>,
     },
     Lights {
         /// Total installed power [W]
@@ -104,11 +112,15 @@ pub fn resolve_gains_scheduled(
 
     for gain in gains {
         match gain {
-            InternalGainInput::People { count, activity_level, sensible_fraction, radiant_fraction, schedule } => {
+            InternalGainInput::People { count, activity_level, sensible_fraction, radiant_fraction, schedule,
+                                         sensible_gain_per_person, latent_gain_per_person } => {
                 let frac = schedule_fraction(schedule, schedule_mgr, hour, day_of_week);
-                let total_metabolic = count * activity_level * frac;
-                let sensible = total_metabolic * sensible_fraction;
-                let latent = total_metabolic * (1.0 - sensible_fraction);
+                let sensible_per_person = sensible_gain_per_person
+                    .unwrap_or(activity_level * sensible_fraction);
+                let latent_per_person = latent_gain_per_person
+                    .unwrap_or(activity_level * (1.0 - sensible_fraction));
+                let sensible = count * sensible_per_person * frac;
+                let latent = count * latent_per_person * frac;
                 result.radiative += sensible * radiant_fraction;
                 result.convective += sensible * (1.0 - radiant_fraction);
                 result.total += sensible;
@@ -167,6 +179,8 @@ mod tests {
             sensible_fraction: 0.6,
             radiant_fraction: 0.3,
             schedule: None,
+            sensible_gain_per_person: None,
+            latent_gain_per_person: None,
         }];
         let resolved = resolve_gains(&gains);
         // 10 people × 120 W/person × 0.6 sensible = 720 W sensible
@@ -194,7 +208,7 @@ mod tests {
     #[test]
     fn test_combined_gains() {
         let gains = vec![
-            InternalGainInput::People { count: 5.0, activity_level: 120.0, sensible_fraction: 0.6, radiant_fraction: 0.3, schedule: None },
+            InternalGainInput::People { count: 5.0, activity_level: 120.0, sensible_fraction: 0.6, radiant_fraction: 0.3, schedule: None, sensible_gain_per_person: None, latent_gain_per_person: None },
             InternalGainInput::Equipment { power: 500.0, radiant_fraction: 0.3, lost_fraction: 0.0, schedule: None },
         ];
         let resolved = resolve_gains(&gains);
@@ -213,6 +227,12 @@ mod tests {
                 saturday: None,
                 sunday: None,
                 holiday: None,
+                monday: None,
+                tuesday: None,
+                wednesday: None,
+                thursday: None,
+                friday: None,
+                compact: None,
             },
         ]);
 

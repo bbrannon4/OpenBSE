@@ -185,6 +185,14 @@ zones:
     volume: 457.5
     floor_area: 150.0
 
+# --- Zone Groups ---
+zone_groups:
+  - name: VAV Office Zones
+    zones:
+      - South Perimeter
+      - North Perimeter
+      - Core
+
 # --- People ---
 people:
   - name: South Perimeter People
@@ -246,8 +254,9 @@ infiltration:
 outdoor_air:
   - name: Office Ventilation
     zones: [South Perimeter, North Perimeter, Core]
-    per_person: 0.002360
-    per_area: 0.000305
+    per_person: 0.002360     # m³/s per person (ASHRAE 62.1 Rp)
+    per_area: 0.000305       # m³/s per m² (ASHRAE 62.1 Ra)
+    oa_method: sum            # "sum" (default, ASHRAE 62.1 VRP) or "maximum"
 
 # --- Surfaces ---
 # Building: 25m (E-W) x 20m (N-S), ceiling 3.05m
@@ -493,7 +502,6 @@ air_loops:
         source: hot_water
         capacity: autosize
         setpoint: 35.0
-        efficiency: 1.0
 
       - type: cooling_coil
         name: AHU CHW Cooling Coil
@@ -503,7 +511,7 @@ air_loops:
         setpoint: 13.0
         plant_loop: CHW Loop
 
-    zones:
+    zone_terminals:
       - zone: South Perimeter
         terminal:
           type: vav_box
@@ -557,14 +565,6 @@ plant_loops:
         cop: 3.5
         chw_setpoint: 7.0
         design_chw_flow: 0.0
-
-# --- Zone Groups ---
-zone_groups:
-  - name: VAV Office Zones
-    zones:
-      - South Perimeter
-      - North Perimeter
-      - Core
 
 # --- Thermostats ---
 thermostats:

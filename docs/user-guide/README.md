@@ -26,6 +26,7 @@ OpenBSE (**Open Building Simulation Engine**) is a modern, open-source building 
 - [Autosizing](#autosizing)
 - [Units Reference](#units-reference)
 - [Example Models](#example-models)
+- [Future Improvements](#future-improvements)
 
 ---
 
@@ -131,7 +132,7 @@ air_loops:
         name: Supply Fan
         source: constant_volume
         design_flow_rate: 2.0
-    zones:
+    zone_terminals:
       - zone: Office
 
 zone_groups:
@@ -216,7 +217,41 @@ Each schedule has 24 hourly values (index 0 = midnight to 1am, index 23 = 11pm t
 |-------|---------|-------------|
 | `weekday` | all 1.0 | Hourly fractions for Monday-Friday |
 | `weekend` | same as weekday | Hourly fractions for Saturday-Sunday |
+| `saturday` | same as weekend | Override for Saturday only |
+| `sunday` | same as weekend | Override for Sunday only |
+| `monday`..`friday` | same as weekday | Override for a specific weekday |
 | `holiday` | same as weekend | Hourly fractions for holidays |
+
+#### Compact Schedule Format
+
+As an alternative to listing 24 values, schedules support a compact string notation inspired by EnergyPlus `Schedule:Compact`. Use the `compact` field instead of explicit arrays:
+
+```yaml
+schedules:
+  - name: Office Occupancy
+    compact:
+      weekday: "0 until 8:00, 1.0 until 18:00, 0.5 until 22:00, 0"
+      weekend: "0 until 10:00, 0.5 until 14:00, 0"
+      holiday: "0"
+      monday: "0 until 7:00, 1.0 until 19:00, 0"
+      friday: "0 until 8:00, 0.8 until 16:00, 0"
+```
+
+**Compact syntax rules:**
+
+- Comma-separated list of `<value> [until HH:MM]` pairs
+- The first value starts at hour 0 (midnight)
+- `until HH:MM` means the preceding value applies from the previous boundary up to that hour
+- A bare value without `until` sets the value for remaining hours (must be last)
+- A single value (e.g., `"0"` or `"1"`) means constant all day
+
+**Day type resolution order:**
+
+1. Individual day overrides (`monday`, `tuesday`, ..., `friday`, `saturday`, `sunday`) take highest priority
+2. Group defaults (`weekday` for Mon–Fri, `weekend` for Sat–Sun) apply when no individual override exists
+3. `holiday` applies on holidays
+
+Both formats can coexist in the same model — some schedules can use compact notation while others use explicit arrays. The `compact` field and explicit arrays cannot both be specified on the same schedule.
 
 Internal gains can reference schedules by name using the `schedule` field:
 
@@ -238,7 +273,7 @@ Two built-in schedules are always available: `always_on` (1.0 at all times) and 
 
 ### Air Loops
 
-An air loop defines a series of supply-side equipment and the zones it serves. Equipment is connected in the order listed — air flows through them sequentially. System behavior (PSZ-AC, DOAS, FCU, VAV) is auto-detected from the equipment and controls configuration.
+An air loop defines a series of supply-side equipment and the zone terminals it serves. Equipment is connected in the order listed — air flows through them sequentially. System behavior (PSZ-AC, DOAS, FCU, VAV, PTAC) is auto-detected from the equipment and controls configuration. Zone connections are listed under `zone_terminals:` (the legacy key `zones:` is accepted as an alias).
 
 ```yaml
 air_loops:
@@ -281,21 +316,71 @@ air_loops:
         source: wheel                 # wheel or plate
         sensible_effectiveness: 0.76
         latent_effectiveness: 0.68
-    zones:
+    zone_terminals:
       - zone: East Office
       - zone: West Office
 ```
 
+#### Equipment Order (Supply Air Path)
+
+The `equipment:` list defines the supply-side airflow path. Components are connected in series — air flows through them in the order listed. The ordering convention follows the physical path air takes from outdoor air intake to supply duct:
+
+```yaml
+equipment:
+  # 1. Heat recovery (if present) — pre-conditions outdoor air using exhaust
+  - type: heat_recovery
+    name: Energy Recovery Wheel
+    source: wheel
+    sensible_effectiveness: 0.76
+    latent_effectiveness: 0.68
+
+  # 2. Outdoor air mixer — blends outdoor air with return air
+  #    (automatic — controlled by minimum_damper_position and economizer settings)
+
+  # 3. Heating coil — first-stage heating (preheat in VAV systems)
+  - type: heating_coil
+    name: Preheat Coil
+    source: hot_water
+    capacity: autosize
+
+  # 4. Cooling coil — cools mixed air to supply temperature
+  - type: cooling_coil
+    name: DX Cooling Coil
+    source: dx
+    capacity: autosize
+    cop: 3.5
+
+  # 5. Supplemental heating coil (optional) — reheat after cooling for humidity control
+  - type: heating_coil
+    name: Reheat Coil
+    source: electric
+    capacity: autosize
+
+  # 6. Humidifier (if present) — adds moisture to supply air
+  - type: humidifier
+    name: Steam Humidifier
+    capacity: 5.0
+
+  # 7. Fan — moves air through the system (last before supply duct)
+  - type: fan
+    name: Supply Fan
+    source: vav
+    design_flow_rate: autosize
+```
+
+This ordering matters because each component modifies the air state for downstream components. For example, placing the cooling coil before the heating coil ensures the cooling coil sees the mixed (not preheated) air temperature, matching typical AHU configurations.
+
 #### System type auto-detection
 
-The engine determines the air loop's control behavior from its equipment and controls:
+The engine determines the air loop's control behavior from its equipment and controls. You can use either the short codes or descriptive aliases for `system_type`:
 
-| Detected Behavior | Condition |
-|-------|-------------|
-| **PSZ-AC** | Default — single-zone packaged unit with return-air mixing |
-| **DOAS** | `minimum_damper_position: 1.0` (100% outdoor air) |
-| **FCU** | Must be specified with `system_type: fcu` (no outdoor air mixing) |
-| **VAV** | Equipment includes a fan with `source: vav` |
+| Detected Behavior | Short Code | Descriptive Alias | Condition |
+|-------|------------|-------------------|-------------|
+| **PSZ-AC** | `psz_ac` | `packaged_single_zone` | Default — single-zone packaged unit with return-air mixing |
+| **DOAS** | `doas` | `dedicated_outdoor_air` | `minimum_damper_position: 1.0` (100% outdoor air) |
+| **FCU** | `fcu` | `fan_coil_unit` | Must be specified with `system_type: fcu` (no outdoor air mixing) |
+| **VAV** | `vav` | `variable_air_volume` | Equipment includes a fan with `source: vav` |
+| **PTAC** | `ptac` | `packaged_terminal` | Packaged terminal air conditioner / heat pump |
 
 #### Air loop controls defaults
 
@@ -331,7 +416,7 @@ Fan `source` values: `constant_volume`, `vav`, `on_off`.
 | `setpoint` | 35.0 °C |
 | `efficiency` | 1.0 |
 
-Heating coil `source` values: `electric`, `hot_water`, `gas`. For gas coils, `efficiency` represents burner efficiency (e.g., 0.80 for 80%):
+Heating coil `source` values: `electric`, `hot_water`, `gas`. For gas coils, `efficiency` represents burner efficiency (e.g., 0.80 for 80%). For `hot_water` coils, `efficiency` is ignored because the boiler on the plant loop handles combustion efficiency:
 
 ```yaml
 - type: heating_coil
@@ -340,6 +425,12 @@ Heating coil `source` values: `electric`, `hot_water`, `gas`. For gas coils, `ef
   capacity: 15000.0       # [W] or autosize
   setpoint: 35.0          # [°C]
   efficiency: 0.80        # Burner efficiency for gas
+
+- type: heating_coil
+  name: HW Coil
+  source: hot_water
+  capacity: autosize       # Boiler handles efficiency
+  setpoint: 35.0
 ```
 
 #### Cooling coil defaults
@@ -421,9 +512,38 @@ plant_loops:
 | `chw_setpoint` | 7.0 °C |
 | `design_chw_flow` | Auto-calculated from capacity if 0 or not specified |
 
+#### Pumps
+
+Pumps circulate water through plant loops. They can be added alongside boilers and chillers in the `supply_equipment` list.
+
+```yaml
+supply_equipment:
+  - type: pump
+    name: HW Pump
+    pump_type: variable_speed         # constant_speed or variable_speed
+    design_flow_rate: autosize        # [m³/s]
+    design_head: 179352.0             # [Pa] (~60 ft H2O)
+    motor_efficiency: 0.9
+    impeller_efficiency: 0.667
+    role: single                      # single, primary, secondary, or headered
+    control_strategy: demand          # demand, continuous, or staged
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `pump_type` | `variable_speed` | `constant_speed` or `variable_speed` |
+| `design_flow_rate` | (required, or `autosize`) | Design water flow rate [m³/s] |
+| `design_head` | 179352.0 Pa | Design pump head (~60 ft H2O) |
+| `motor_efficiency` | 0.9 | Motor efficiency [0-1] |
+| `impeller_efficiency` | 0.667 | Impeller efficiency [0-1]; total = motor * impeller |
+| `role` | `single` | `single`, `primary`, `secondary`, or `headered` |
+| `control_strategy` | `demand` | `demand` (follows load), `continuous` (constant speed), `staged` (plant-controlled) |
+| `num_pumps` | 1 | Number of pumps in headered configuration |
+| `power_curve` | [0,0,0,1] | Part-load curve [c1,c2,c3,c4]: power_frac = c1 + c2*PLR + c3*PLR^2 + c4*PLR^3 |
+
 ### Zone Groups
 
-Zone groups are purely organizational — they group zones together so thermostats can reference them by name. Supply air temperatures and design flows are configured on the air loop's `controls` section.
+Zone groups are named collections of zones that can be referenced by name from thermostats, people, lights, equipment, infiltration, ventilation, outdoor air, and exhaust fan definitions. They reduce repetition when multiple zones share the same loads or setpoints. Define zone groups before people/lights/equipment in the YAML for clarity.
 
 ```yaml
 zone_groups:
@@ -431,6 +551,17 @@ zone_groups:
     zones:
       - East Office
       - West Office
+
+# Zone groups can be referenced anywhere a zone list is expected:
+people:
+  - name: Office Occupants
+    zones: [Office Zones]             # Applies to all zones in the group
+    people_per_area: 0.0538
+
+lights:
+  - name: Office Lighting
+    zones: [Office Zones]
+    watts_per_area: 10.76
 
 thermostats:
   - name: Office Thermostat
@@ -551,7 +682,7 @@ window_constructions:
 
 ### Zones
 
-Define thermal zones with their volume, infiltration, internal gains, and advanced features. Volume and floor area can be set to 0 (or omitted) to auto-calculate from surface vertices.
+Define thermal zones with their volume, infiltration, internal gains, and advanced features. Volume and floor area default to 0, which triggers auto-calculation from surface vertices: volume is computed from the zone's enclosed floor polygon extruded to ceiling height, and floor area is the sum of floor-type surface areas. You only need to specify explicit values when the geometry is not modeled or when overriding the auto-calculation.
 
 ```yaml
 zones:
@@ -580,6 +711,9 @@ zones:
       - type: people
         count: 10.0
         activity_level: 120.0       # [W/person]
+        # Alternative: specify sensible/latent gains directly instead of activity_level
+        # sensible_gain_per_person: 73.0   # [W/person]
+        # latent_gain_per_person: 47.0     # [W/person]
         radiant_fraction: 0.3       # [0-1]
         schedule: Occupancy Schedule  # Optional schedule reference
       - type: lights
@@ -621,12 +755,23 @@ You can specify infiltration as either `design_flow_rate` (m³/s) or `air_change
 
 #### Outdoor air (ASHRAE 62.1)
 
-Calculates minimum outdoor air based on occupancy and floor area: `Total OA = (per_person * people_count) + (per_area * floor_area)`.
+Calculates minimum outdoor air based on occupancy and floor area. The `oa_method` field controls how the per-person and per-area contributions are combined:
+
+- **`sum`** (default): `Total OA = (per_person * people_count) + (per_area * floor_area)`
+- **`maximum`**: `Total OA = max(per_person * people_count, per_area * floor_area)`
+
+```yaml
+outdoor_air:
+  per_person: 0.003539606    # [m³/s-person] (7.5 cfm/person)
+  per_area: 0.000609599      # [m³/s-m²] (0.12 cfm/ft²)
+  oa_method: sum             # sum (default) or maximum
+```
 
 | Field | Default | Description |
 |-------|---------|-------------|
 | `per_person` | 0.0 | Outdoor air per person [m³/s-person] |
 | `per_area` | 0.0 | Outdoor air per floor area [m³/s-m²] |
+| `oa_method` | `sum` | Combining method: `sum` or `maximum` |
 
 #### Exhaust fan
 
@@ -881,3 +1026,33 @@ Eight example models are provided in the `examples/` directory, demonstrating di
 | [`doe_retail_standalone.yaml`](../../examples/doe_retail_standalone.yaml) | DOE reference building with schedules, multiple zones, performance curves for DX coils, and economizer controls. |
 | [`multi_year_parametric.yaml`](../../examples/multi_year_parametric.yaml) | Multi-year parametric runs with weather file and parameter overrides. |
 | [`1zone_uncontrolled.yaml`](../../examples/1zone_uncontrolled.yaml) | Single-zone free-floating model — no HVAC, just building envelope. |
+
+---
+
+## Future Improvements
+
+The following features are planned for future releases:
+
+### Design Day Climate Database
+
+Auto-populate design day conditions from ASHRAE Climatic Design Conditions by location name or weather station ID, rather than requiring manual entry of design temperatures, humidity, and pressure. Example of the envisioned syntax:
+
+```yaml
+design_days:
+  - location: Boulder, CO
+    heating: 99.6%     # Auto-lookup heating design conditions
+    cooling: 0.4%      # Auto-lookup cooling design conditions
+```
+
+### YAML Includes
+
+An `include:` directive for reusable material, schedule, and construction libraries. This would allow standard libraries to be maintained independently and shared across projects:
+
+```yaml
+includes:
+  - standards/ashrae_90.1_2019_constructions.yaml
+  - standards/doe_prototype_schedules.yaml
+  - project/common_materials.yaml
+```
+
+Included files would be merged into the main model before parsing, with local definitions taking precedence over included ones for name conflicts.

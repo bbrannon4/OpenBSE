@@ -359,6 +359,51 @@ pub struct SimpleConstruction {
 fn default_simple_thickness() -> f64 { 0.2 }
 fn default_thermal_capacity() -> f64 { 50000.0 } // light construction ~50 kJ/(m²·K)
 
+/// F-factor ground floor construction.
+///
+/// Models ground-contact floor heat loss using the ASHRAE F-factor method:
+///     Q = F × P × (T_zone - T_ground)
+/// where F is the slab edge heat loss coefficient [W/(m·K)] and P is the
+/// exposed perimeter [m] (specified per surface, not per construction).
+///
+/// This is the standard approach for slab-on-grade and basement floors in
+/// ASHRAE 90.1 and EnergyPlus `Construction:FfactorGroundFloor`.
+///
+/// ```yaml
+/// f_factor_constructions:
+///   - name: Ground Floor
+///     f_factor: 1.264           # W/(m·K)
+///     thermal_capacity: 400000  # J/(m²·K), concrete slab mass
+///     ground_temperatures: [7.1, 3.0, -1.0, 0.8, -0.2, 4.8, 6.1, 13.7, 22.2, 22.7, 21.7, 18.5]
+/// ```
+///
+/// Each surface using this construction must specify `exposed_perimeter` [m].
+/// The engine converts to an effective U-factor per surface:
+///     U_eff = F × P / A
+/// and uses the construction's ground temperatures for the soil boundary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FFactorConstruction {
+    pub name: String,
+    /// F-factor (slab edge heat loss coefficient) [W/(m·K)]
+    pub f_factor: f64,
+    /// Thermal capacity per unit area [J/(m²·K)] = ρ·cp·thickness of slab
+    #[serde(default = "default_ffactor_thermal_capacity")]
+    pub thermal_capacity: f64,
+    /// Inside solar absorptance [0-1] (floor surface)
+    #[serde(default = "default_solar_absorptance")]
+    pub solar_absorptance: f64,
+    /// Thermal (LW) absorptance [0-1]
+    #[serde(default = "default_thermal_absorptance")]
+    pub thermal_absorptance: f64,
+    /// Monthly ground temperatures [°C], January through December.
+    /// Matches EnergyPlus `Site:GroundTemperature:FCfactorMethod`.
+    /// If omitted, uses the building-level ground temperature model.
+    #[serde(default)]
+    pub ground_temperatures: Option<Vec<f64>>,
+}
+
+fn default_ffactor_thermal_capacity() -> f64 { 400_000.0 } // ~200mm concrete slab
+
 #[cfg(test)]
 mod tests {
     use super::*;

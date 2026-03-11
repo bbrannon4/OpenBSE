@@ -76,6 +76,14 @@ pub struct ModelInput {
     /// Simple construction definitions (U-factor + thermal capacity based)
     #[serde(default)]
     pub simple_constructions: Vec<openbse_envelope::SimpleConstruction>,
+    /// F-factor ground floor construction definitions.
+    ///
+    /// Models ground-contact floor heat loss using perimeter-based F-factor method:
+    ///     Q = F × P × (T_zone - T_ground)
+    /// Matches EnergyPlus `Construction:FfactorGroundFloor`.
+    /// Surfaces using these constructions must specify `exposed_perimeter`.
+    #[serde(default)]
+    pub f_factor_constructions: Vec<openbse_envelope::FFactorConstruction>,
     /// Zone definitions (envelope thermal zones)
     #[serde(default)]
     pub zones: Vec<openbse_envelope::ZoneInput>,
@@ -235,13 +243,26 @@ impl SimulationSettings {
 /// - `vav`:    Variable air volume AHU. Central cold-deck at fixed cooling setpoint.
 ///             Per-zone airflow modulation via VAV boxes. Zone reheat coils
 ///             (if present in the zone terminal) fire when zone needs heat.
+/// Air loop system type — determines airflow control behavior, OA handling,
+/// and zone connection topology.
+///
+/// - `psz_ac` / `packaged_single_zone`: Single-zone packaged AC/RTU — one thermostat drives mode
+/// - `vav` / `variable_air_volume`: Central VAV AHU — per-zone airflow modulation via VAV boxes
+/// - `doas` / `dedicated_outdoor_air`: 100% outdoor air system — fixed supply temp, no zone recirculation
+/// - `ptac` / `packaged_terminal`: Packaged terminal AC — one unit per zone
+/// - `fcu` / `fan_coil_unit`: Per-zone recirculating fan coil (no OA mixing)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AirLoopSystemType {
+    #[serde(alias = "packaged_single_zone")]
     PszAc,
+    #[serde(alias = "dedicated_outdoor_air")]
     Doas,
+    #[serde(alias = "fan_coil_unit")]
     Fcu,
+    #[serde(alias = "packaged_terminal")]
     Ptac,
+    #[serde(alias = "variable_air_volume")]
     Vav,
 }
 
@@ -296,6 +317,11 @@ pub struct AirLoopControls {
     /// Economizer settings (optional — absent = no economizer)
     #[serde(default)]
     pub economizer: Option<EconomizerControls>,
+    /// Fan operating mode: cycling (default) or continuous.
+    /// Cycling: fan cycles with coils (off during deadband).
+    /// Continuous: fan runs at full speed always, coils cycle.
+    #[serde(default)]
+    pub fan_operating_mode: FanOperatingMode,
 }
 
 impl Default for AirLoopControls {
@@ -308,6 +334,7 @@ impl Default for AirLoopControls {
             design_zone_flow: AutosizeValue::Value(0.5),
             minimum_damper_position: None,
             economizer: None,
+            fan_operating_mode: FanOperatingMode::default(),
         }
     }
 }
@@ -329,6 +356,31 @@ pub enum CyclingMethod {
 
 impl Default for CyclingMethod {
     fn default() -> Self { CyclingMethod::Proportional }
+}
+
+/// Fan operating mode for unitary systems (PTAC, PSZ-AC).
+///
+/// In E+, the PTAC field "Supply Air Fan Operating Mode Schedule Name"
+/// controls whether the fan cycles with the compressor or runs continuously:
+///   - Schedule value = 0 → cycling fan (fan cycles with coils)
+///   - Schedule value ≠ 0 → continuous fan (fan runs at full speed always)
+///
+/// The DOE prototype Mid-Rise Apartment uses "COMPACT HVAC-ALWAYS 1"
+/// (value=1 → continuous fan mode): fans run at rated power for all 8760
+/// hours and coils cycle ON/OFF as needed.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum FanOperatingMode {
+    /// Fan cycles ON/OFF with coils. During deadband, fan is OFF.
+    /// Average fan power = rated × PLR.
+    Cycling,
+    /// Fan runs at full speed continuously. Coils cycle ON/OFF.
+    /// Fan power = rated (always). Fan heat is always delivered to the zone.
+    Continuous,
+}
+
+impl Default for FanOperatingMode {
+    fn default() -> Self { FanOperatingMode::Cycling }
 }
 
 /// Economizer controls for outdoor air mixing.
@@ -390,9 +442,10 @@ pub struct AirLoopInput {
     pub availability_schedule: Option<String>,
     /// Supply-side equipment in order (air flows through them sequentially)
     pub equipment: Vec<EquipmentInput>,
-    /// Zones served by this air loop
-    #[serde(default)]
-    pub zones: Vec<ZoneConnection>,
+    /// Zone terminal connections — links zones to this air loop,
+    /// optionally with terminal boxes (VAV, PFP).
+    #[serde(default, alias = "zones")]
+    pub zone_terminals: Vec<ZoneConnection>,
 }
 
 impl AirLoopInput {
@@ -520,6 +573,10 @@ pub struct HeatingCoilInput {
     pub capacity: AutosizeValue,
     #[serde(default = "default_setpoint")]
     pub setpoint: f64,
+    /// Burner/conversion efficiency [0-1] (default 1.0).
+    /// Applies to `gas` coils (burner efficiency, e.g. 0.80) and `electric` (1.0).
+    /// Ignored for `hot_water` coils — boiler efficiency is set on the boiler.
+    /// Ignored for `heat_pump` coils — use `cop` instead.
     #[serde(default = "default_efficiency")]
     pub efficiency: f64,
 
@@ -749,6 +806,34 @@ pub enum PlantEquipmentInput {
     Pump(PumpInput),
 }
 
+/// Pump role in the plant loop — determines staging and control behavior.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PumpRole {
+    /// Single pump or unspecified (default behavior)
+    #[default]
+    Single,
+    /// Primary-loop pump (constant flow through chiller/boiler)
+    Primary,
+    /// Secondary/distribution pump (variable flow to demand side)
+    Secondary,
+    /// Headered pump bank (multiple pumps stage on/off)
+    Headered,
+}
+
+/// Pump control strategy — how the pump modulates flow.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PumpControlStrategy {
+    /// Pump follows load — flow varies with demand (default for variable_speed)
+    #[default]
+    Demand,
+    /// Pump runs at constant speed whenever plant is active
+    Continuous,
+    /// Pump is OFF unless staged on by plant controller
+    Staged,
+}
+
 /// Pump definition for plant water loops.
 ///
 /// Design power = Q × H / (motor_efficiency × impeller_efficiency).
@@ -786,6 +871,14 @@ pub struct PumpInput {
     /// E+ common curve: [0, 0.5726, -0.3010, 0.7347]
     #[serde(default)]
     pub power_curve: Option<Vec<f64>>,
+    /// Pump role in the plant loop (default: single).
+    /// Use `primary`/`secondary` for primary-secondary pumping configurations.
+    #[serde(default)]
+    pub role: PumpRole,
+    /// Control strategy (default: demand — follows load).
+    /// Use `continuous` for constant-speed primary pumps.
+    #[serde(default)]
+    pub control_strategy: PumpControlStrategy,
 }
 
 fn default_num_pumps() -> u32 { 1 }
@@ -1308,7 +1401,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
         // Build terminal boxes from zone connections.
         // Terminal boxes are air components that sit between the AHU supply duct
         // and each zone. They are connected after the last supply-side component.
-        for zc in &air_loop.zones {
+        for zc in &air_loop.zone_terminals {
             if let Some(ref terminal) = zc.terminal {
                 let terminal_node = match terminal {
                     TerminalInput::VavBox(vb) => {
@@ -1497,7 +1590,7 @@ pub fn build_controllers(model: &ModelInput) -> Vec<Box<dyn Controller>> {
         // Find the first air loop that serves any of this thermostat's zones.
         let (heat_supply, cool_supply, zone_flow) = model.air_loops.iter()
             .find(|al| {
-                al.zones.iter().any(|zc| tstat.zones.contains(&zc.zone))
+                al.zone_terminals.iter().any(|zc| tstat.zones.contains(&zc.zone))
             })
             .map(|al| {
                 (
@@ -1567,6 +1660,7 @@ pub fn build_envelope(
         model.constructions.clone(),
         model.window_constructions.clone(),
         model.simple_constructions.clone(),
+        model.f_factor_constructions.clone(),
         zones,
         model.surfaces.clone(),
         latitude,
@@ -1656,6 +1750,8 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                     sensible_fraction: people.sensible_fraction,
                     radiant_fraction: people.radiant_fraction,
                     schedule: people.schedule.clone(),
+                    sensible_gain_per_person: people.sensible_gain_per_person,
+                    latent_gain_per_person: people.latent_gain_per_person,
                 });
             }
         }
@@ -1747,10 +1843,10 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                 zone.infiltration.push(InfiltrationInput {
                     design_flow_rate: resolved_flow,
                     air_changes_per_hour: resolved_ach,
-                    coeff_a: infil.constant_coefficient,
-                    coeff_b: infil.temperature_coefficient,
-                    coeff_c: infil.wind_coefficient,
-                    coeff_d: infil.wind_squared_coefficient,
+                    constant_coefficient: infil.constant_coefficient,
+                    temperature_coefficient: infil.temperature_coefficient,
+                    wind_coefficient: infil.wind_coefficient,
+                    wind_squared_coefficient: infil.wind_squared_coefficient,
                     schedule: infil.schedule.clone(),
                 });
             }
@@ -1871,7 +1967,7 @@ pub fn compute_oa_fraction(
     resolved_zones: &[openbse_envelope::ZoneInput],
     default_fraction: f64,
 ) -> f64 {
-    let served_zone_names: Vec<String> = air_loop.zones.iter()
+    let served_zone_names: Vec<String> = air_loop.zone_terminals.iter()
         .map(|zc| zc.zone.clone())
         .collect();
 
@@ -1996,6 +2092,228 @@ pub enum InputError {
     GraphError(String),
     #[error("Validation error: {0}")]
     ValidationError(String),
+}
+
+// ─── Model Validation ─────────────────────────────────────────────────────────
+//
+// Validates all cross-references in a parsed model: zone names, schedule names,
+// construction names, etc.  Returns a list of diagnostics (warnings and errors)
+// that should be written to an .err file.
+
+/// Severity level for a diagnostic message.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DiagSeverity {
+    /// Non-fatal issue (simulation continues but results may be wrong)
+    Warning,
+    /// Fatal issue (simulation should not proceed)
+    Severe,
+}
+
+/// A single diagnostic message from model validation.
+#[derive(Debug, Clone)]
+pub struct DiagMessage {
+    pub severity: DiagSeverity,
+    pub message: String,
+}
+
+impl std::fmt::Display for DiagMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.severity {
+            DiagSeverity::Warning => write!(f, "** Warning ** {}", self.message),
+            DiagSeverity::Severe  => write!(f, "** Severe  ** {}", self.message),
+        }
+    }
+}
+
+/// Result of model validation.
+pub struct ValidationResult {
+    pub diagnostics: Vec<DiagMessage>,
+}
+
+impl ValidationResult {
+    pub fn new() -> Self {
+        Self { diagnostics: Vec::new() }
+    }
+
+    fn warn(&mut self, msg: String) {
+        self.diagnostics.push(DiagMessage { severity: DiagSeverity::Warning, message: msg });
+    }
+
+    fn severe(&mut self, msg: String) {
+        self.diagnostics.push(DiagMessage { severity: DiagSeverity::Severe, message: msg });
+    }
+
+    /// Number of severe errors.
+    pub fn error_count(&self) -> usize {
+        self.diagnostics.iter().filter(|d| d.severity == DiagSeverity::Severe).count()
+    }
+
+    /// Number of warnings.
+    pub fn warning_count(&self) -> usize {
+        self.diagnostics.iter().filter(|d| d.severity == DiagSeverity::Warning).count()
+    }
+
+    /// Format the full error file content (E+-style).
+    pub fn to_err_file(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push("OpenBSE Error File".to_string());
+        lines.push(format!("Errors: {}, Warnings: {}", self.error_count(), self.warning_count()));
+        lines.push(String::new());
+        for diag in &self.diagnostics {
+            lines.push(diag.to_string());
+        }
+        if self.error_count() > 0 {
+            lines.push(format!(
+                "**  Fatal  ** Simulation cancelled: {} severe error(s) found",
+                self.error_count()
+            ));
+        } else {
+            lines.push("** Summary ** Simulation can proceed".to_string());
+        }
+        lines.push(String::new());
+        lines.join("\n")
+    }
+}
+
+/// Validate all cross-references in a parsed model.
+///
+/// Checks that every zone name, zone group name, and schedule name referenced
+/// by people, lights, equipment, infiltration, ventilation, exhaust fans,
+/// outdoor air, ideal loads, thermostats, and air loop zone_terminals actually
+/// exists in the model definitions.
+///
+/// Returns a `ValidationResult` containing all warnings and errors found.
+pub fn validate_model(model: &ModelInput) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    // ── Build lookup sets ──────────────────────────────────────────────────
+
+    let zone_names: std::collections::HashSet<&str> = model.zones.iter()
+        .map(|z| z.name.as_str())
+        .collect();
+
+    let zone_group_map: std::collections::HashMap<&str, &[String]> = model.zone_groups.iter()
+        .map(|zg| (zg.name.as_str(), zg.zones.as_slice()))
+        .collect();
+
+    let schedule_names: std::collections::HashSet<&str> = model.schedules.iter()
+        .map(|s| s.name.as_str())
+        .collect();
+
+    // Built-in schedules that are always available
+    let builtin_schedules: std::collections::HashSet<&str> =
+        ["always_on", "always_off"].iter().copied().collect();
+
+    // ── Helper: validate a list of zone/zone-group references ──────────────
+
+    let check_zone_refs = |refs: &[String], obj_type: &str, obj_name: &str, result: &mut ValidationResult| {
+        for name in refs {
+            if zone_names.contains(name.as_str()) {
+                continue; // valid zone
+            }
+            if let Some(group_zones) = zone_group_map.get(name.as_str()) {
+                // Valid zone group — check that all zones in the group exist
+                for gz in *group_zones {
+                    if !zone_names.contains(gz.as_str()) {
+                        result.severe(format!(
+                            "Zone '{}' in zone_group '{}' (referenced by {} '{}') not found in zones list",
+                            gz, name, obj_type, obj_name
+                        ));
+                    }
+                }
+            } else {
+                result.severe(format!(
+                    "Zone '{}' referenced by {} '{}' not found in zones list (and not a zone_group)",
+                    name, obj_type, obj_name
+                ));
+            }
+        }
+    };
+
+    let check_schedule = |sched: &Option<String>, obj_type: &str, obj_name: &str, result: &mut ValidationResult| {
+        if let Some(name) = sched {
+            if !schedule_names.contains(name.as_str()) && !builtin_schedules.contains(name.as_str()) {
+                result.warn(format!(
+                    "Schedule '{}' referenced by {} '{}' not found (will default to always-on)",
+                    name, obj_type, obj_name
+                ));
+            }
+        }
+    };
+
+    // ── Validate people ────────────────────────────────────────────────────
+
+    for p in &model.people {
+        check_zone_refs(&p.zones, "People", &p.name, &mut result);
+        check_schedule(&p.schedule, "People", &p.name, &mut result);
+    }
+
+    // ── Validate lights ────────────────────────────────────────────────────
+
+    for l in &model.lights {
+        check_zone_refs(&l.zones, "Lights", &l.name, &mut result);
+        check_schedule(&l.schedule, "Lights", &l.name, &mut result);
+    }
+
+    // ── Validate equipment ─────────────────────────────────────────────────
+
+    for e in &model.equipment {
+        check_zone_refs(&e.zones, "Equipment", &e.name, &mut result);
+        check_schedule(&e.schedule, "Equipment", &e.name, &mut result);
+    }
+
+    // ── Validate infiltration ──────────────────────────────────────────────
+
+    for inf in &model.infiltration {
+        check_zone_refs(&inf.zones, "Infiltration", &inf.name, &mut result);
+        check_schedule(&inf.schedule, "Infiltration", &inf.name, &mut result);
+    }
+
+    // ── Validate ventilation ───────────────────────────────────────────────
+
+    for v in &model.ventilation {
+        check_zone_refs(&v.zones, "Ventilation", &v.name, &mut result);
+    }
+
+    // ── Validate exhaust fans ──────────────────────────────────────────────
+
+    for ef in &model.exhaust_fans {
+        check_zone_refs(&ef.zones, "ExhaustFan", &ef.name, &mut result);
+        check_schedule(&ef.schedule, "ExhaustFan", &ef.name, &mut result);
+    }
+
+    // ── Validate outdoor air ───────────────────────────────────────────────
+
+    for oa in &model.outdoor_air {
+        check_zone_refs(&oa.zones, "OutdoorAir", &oa.name, &mut result);
+    }
+
+    // ── Validate ideal loads ───────────────────────────────────────────────
+
+    for il in &model.ideal_loads {
+        check_zone_refs(&il.zones, "IdealLoads", &il.name, &mut result);
+    }
+
+    // ── Validate thermostats ───────────────────────────────────────────────
+
+    for t in &model.thermostats {
+        check_zone_refs(&t.zones, "Thermostat", &t.name, &mut result);
+    }
+
+    // ── Validate air loop zone_terminals ────────────────────────────────────
+
+    for al in &model.air_loops {
+        for zt in &al.zone_terminals {
+            if !zone_names.contains(zt.zone.as_str()) {
+                result.severe(format!(
+                    "Zone '{}' in AirLoop '{}' zone_terminal not found in zones list",
+                    zt.zone, al.name
+                ));
+            }
+        }
+    }
+
+    result
 }
 
 #[cfg(test)]

@@ -169,16 +169,21 @@ impl AirComponent for CoolingCoilDX {
         let available_cap = self.available_capacity(t_outdoor, t_wb_inlet);
         let available_cop = self.available_cop(t_outdoor, t_wb_inlet);
 
-        // Total capacity = sensible / SHR (sensible is a fraction of total)
-        let shr = self.rated_shr.clamp(0.5, 1.0);
-        let available_sensible = available_cap * shr;
+        // Simplified model: no dehumidification (humidity ratio passes through).
+        // All cooling is sensible — the full coil capacity is available for
+        // sensible cooling.  This matches E+ behavior in dry climates where
+        // the actual SHR approaches 1.0 (coil surface stays dry or nearly so).
+        //
+        // PLR = sensible_load / total_available_capacity
+        //
+        // The rated_shr field is retained for future dehumidification modeling
+        // and for capacity reporting, but does NOT reduce available sensible
+        // capacity or inflate electric power consumption.
+        let plr = (q_sensible_required / available_cap).clamp(0.0, 1.0);
 
-        // Part-load ratio: fraction of available capacity needed
-        let plr = (q_sensible_required / available_sensible).clamp(0.0, 1.0);
-
-        // Actual sensible cooling delivered
-        let q_sensible = available_sensible * plr;
-        let q_total = available_cap * plr;
+        // Actual sensible cooling delivered (= total, since no latent)
+        let q_sensible = available_cap * plr;
+        let q_total = q_sensible;
 
         // Calculate outlet temperature
         let dt = q_sensible / (inlet.mass_flow * cp_air);

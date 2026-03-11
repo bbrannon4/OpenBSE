@@ -167,6 +167,23 @@ impl GroundTempModel {
         self.t_mean - self.amplitude * damping * cos_arg.cos()
     }
 
+    /// Static version of monthly interpolation for use without a GroundTempModel instance.
+    ///
+    /// Used by F-factor ground floors that store their own FCfactorMethod temperatures.
+    pub fn interpolate_monthly_static(temps: &[f64; 12], day_of_year: f64) -> f64 {
+        Self::interpolate_monthly(temps, day_of_year)
+    }
+
+    /// Return the constant monthly ground temperature for the given day of year.
+    ///
+    /// Matches EnergyPlus behavior for `Site:GroundTemperature:FCfactorMethod`:
+    /// the monthly value is held constant for the entire month (step function,
+    /// no interpolation between months).
+    pub fn monthly_step_static(temps: &[f64; 12], month: u32) -> f64 {
+        let idx = (month.saturating_sub(1) as usize).min(11);
+        temps[idx]
+    }
+
     /// Linear interpolation of monthly ground temperatures.
     ///
     /// Each month's value is anchored at mid-month. Between mid-month points,

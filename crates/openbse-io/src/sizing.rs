@@ -226,6 +226,36 @@ fn run_single_design_day(
         }
     });
 
+    // ── Enable ideal loads on all conditioned zones during sizing ─────────
+    //
+    // The ideal loads approach computes the exact Q_HVAC needed to hold each
+    // zone at its setpoint, matching E+'s sizing methodology. The previous
+    // approach (massive supply flow at zone setpoint temperature) only captured
+    // ~88% of the true load because:
+    //   T_zone = (numerator + MCPSYS × T_sp) / (denom + MCPSYS)
+    // With finite MCPSYS, T_zone ≠ T_sp exactly, and calc_zone_loads reports
+    // Q = MCPSYS × (T_zone − T_sp), which is less than the true ideal load.
+    //
+    // Save the original ideal_loads state so we can restore it after sizing.
+    use openbse_envelope::zone::IdealLoadsAirSystem;
+
+    let original_ideal_loads: Vec<Option<IdealLoadsAirSystem>> = env.zones
+        .iter()
+        .map(|z| z.input.ideal_loads.clone())
+        .collect();
+
+    for zone in &mut env.zones {
+        if zone.input.conditioned && zone.input.ideal_loads.is_none() {
+            let sp = zone_setpoints.get(&zone.input.name).copied().unwrap_or(21.0);
+            zone.input.ideal_loads = Some(IdealLoadsAirSystem {
+                heating_capacity: 1_000_000.0,
+                cooling_capacity: 1_000_000.0,
+                heating_setpoint: sp,
+                cooling_setpoint: sp, // Hold at the provided setpoint for both
+            });
+        }
+    }
+
     // Reset zone temperatures to setpoint
     for zone in &mut env.zones {
         let sp = zone_setpoints.get(&zone.input.name).copied().unwrap_or(21.0);
@@ -258,20 +288,11 @@ fn run_single_design_day(
                 sizing_internal_gains: gains_mode,
             };
 
-            // Supply air at zone setpoint temp with large flow to hold at setpoint.
-            // This ensures the "external HVAC" branch runs in the envelope solver,
-            // which computes zone loads correctly (what Q_HVAC is needed).
-            let mut hvac = ZoneHvacConditions::default();
-            for zone in &env.zones {
-                if zone.input.conditioned {
-                    let sp = zone_setpoints.get(&zone.input.name).copied().unwrap_or(21.0);
-                    hvac.supply_temps.insert(zone.input.name.clone(), sp);
-                    hvac.supply_mass_flows.insert(zone.input.name.clone(), 10.0);
-                }
-            }
-            // Propagate OA handling flags so the envelope includes zone OA
+            // No supply air — ideal loads handles HVAC directly.
+            // Only propagate OA handling flags so the envelope includes zone OA
             // in the sizing load calculation when HVAC doesn't handle it
             // (e.g. PTAC with min_oa_fraction=0, zone OA enters directly).
+            let mut hvac = ZoneHvacConditions::default();
             hvac.oa_handled_by_hvac = oa_handled_by_hvac.clone();
 
             let result = env.solve_timestep(&ctx, wh, &hvac);
@@ -288,6 +309,11 @@ fn run_single_design_day(
                 last_day_results.push((hour, hour_loads));
             }
         }
+    }
+
+    // ── Restore original ideal_loads state ────────────────────────────────
+    for (zone, orig) in env.zones.iter_mut().zip(original_ideal_loads.into_iter()) {
+        zone.input.ideal_loads = orig;
     }
 
     last_day_results

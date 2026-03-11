@@ -196,24 +196,129 @@ pub fn zone_volume_from_surfaces(surface_verts: &[&[Point3D]]) -> f64 {
     (volume / 3.0).abs()
 }
 
-/// Sum the areas of floor polygons (tilt ≈ 180°, i.e., face-down normals).
+/// Sum the areas of floor surface polygons.
 ///
-/// Identifies floors by checking if the surface normal points downward
-/// (tilt > 150°).
+/// Computes the area of each polygon using Newell's method (correct for
+/// arbitrary planar polygons, including non-convex shapes).  The caller
+/// is expected to pre-filter to floor-type surfaces; this function sums
+/// all provided polygon areas regardless of normal direction, so both
+/// upward-facing (tilt ≈ 0°) and downward-facing (tilt ≈ 180°) vertex
+/// winding orders are handled correctly.
 pub fn zone_floor_area(all_surface_verts: &[&[Point3D]]) -> f64 {
     let mut total_area = 0.0;
     for verts in all_surface_verts {
         if verts.len() < 3 {
             continue;
         }
-        let normal = newell_normal(verts);
-        let tilt = tilt_from_normal(&normal);
-        // Floors have tilt ≈ 180° (normal pointing down)
-        if tilt > 150.0 {
-            total_area += normal.magnitude() / 2.0;
-        }
+        total_area += polygon_area(verts);
     }
     total_area
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Cardinal direction classification and wall/window area utilities
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Cardinal direction for surface orientation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CardinalDirection {
+    North,
+    East,
+    South,
+    West,
+}
+
+impl std::fmt::Display for CardinalDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CardinalDirection::North => write!(f, "North"),
+            CardinalDirection::East => write!(f, "East"),
+            CardinalDirection::South => write!(f, "South"),
+            CardinalDirection::West => write!(f, "West"),
+        }
+    }
+}
+
+/// Classify an azimuth angle (degrees from north, clockwise) into a cardinal direction.
+///
+/// Uses 90° sectors centered on each cardinal:
+///   - North: 315°–360° and 0°–45°
+///   - East:  45°–135°
+///   - South: 135°–225°
+///   - West:  225°–315°
+pub fn azimuth_to_cardinal(azimuth: f64) -> CardinalDirection {
+    let az = ((azimuth % 360.0) + 360.0) % 360.0; // normalize to [0, 360)
+    if az >= 315.0 || az < 45.0 {
+        CardinalDirection::North
+    } else if az < 135.0 {
+        CardinalDirection::East
+    } else if az < 225.0 {
+        CardinalDirection::South
+    } else {
+        CardinalDirection::West
+    }
+}
+
+/// Wall and window areas by cardinal direction.
+#[derive(Debug, Clone, Default)]
+pub struct EnvelopeAreas {
+    /// Gross wall area [m²] by direction (N, E, S, W)
+    pub wall_area: [f64; 4],
+    /// Window area [m²] by direction (N, E, S, W)
+    pub window_area: [f64; 4],
+}
+
+impl EnvelopeAreas {
+    /// Index for a cardinal direction in the arrays.
+    fn dir_index(dir: CardinalDirection) -> usize {
+        match dir {
+            CardinalDirection::North => 0,
+            CardinalDirection::East  => 1,
+            CardinalDirection::South => 2,
+            CardinalDirection::West  => 3,
+        }
+    }
+
+    /// Total gross wall area (all orientations).
+    pub fn total_wall_area(&self) -> f64 {
+        self.wall_area.iter().sum()
+    }
+
+    /// Total window area (all orientations).
+    pub fn total_window_area(&self) -> f64 {
+        self.window_area.iter().sum()
+    }
+
+    /// Window-to-wall ratio for a specific direction.
+    /// Returns 0.0 if there is no wall area in that direction.
+    pub fn wwr(&self, dir: CardinalDirection) -> f64 {
+        let i = Self::dir_index(dir);
+        if self.wall_area[i] > 0.0 {
+            self.window_area[i] / self.wall_area[i]
+        } else {
+            0.0
+        }
+    }
+
+    /// Overall window-to-wall ratio (all directions combined).
+    pub fn total_wwr(&self) -> f64 {
+        let tw = self.total_wall_area();
+        if tw > 0.0 {
+            self.total_window_area() / tw
+        } else {
+            0.0
+        }
+    }
+
+    /// Add a wall area for the given direction.
+    pub fn add_wall(&mut self, dir: CardinalDirection, area: f64) {
+        self.wall_area[Self::dir_index(dir)] += area;
+    }
+
+    /// Add a window area for the given direction.
+    pub fn add_window(&mut self, dir: CardinalDirection, area: f64) {
+        self.window_area[Self::dir_index(dir)] += area;
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -632,30 +737,42 @@ mod tests {
 
     #[test]
     fn test_zone_floor_area() {
-        // Floor polygon with normal pointing down (tilt ≈ 180°)
-        let floor = vec![
+        // Floor polygon (downward-facing normal — CW winding from above)
+        let floor_down = vec![
             Point3D::new(0.0, 6.0, 0.0),
             Point3D::new(8.0, 6.0, 0.0),
             Point3D::new(8.0, 0.0, 0.0),
             Point3D::new(0.0, 0.0, 0.0),
         ];
-        // Roof (should not count as floor)
-        let roof = vec![
-            Point3D::new(0.0, 0.0, 2.7),
-            Point3D::new(8.0, 0.0, 2.7),
-            Point3D::new(8.0, 6.0, 2.7),
-            Point3D::new(0.0, 6.0, 2.7),
-        ];
-        // Wall (should not count as floor)
-        let wall = vec![
+        // Floor polygon (upward-facing normal — CCW winding from above)
+        // Both winding orders should produce correct area.
+        let floor_up = vec![
             Point3D::new(0.0, 0.0, 0.0),
             Point3D::new(8.0, 0.0, 0.0),
-            Point3D::new(8.0, 0.0, 2.7),
-            Point3D::new(0.0, 0.0, 2.7),
+            Point3D::new(8.0, 6.0, 0.0),
+            Point3D::new(0.0, 6.0, 0.0),
         ];
-        let surfaces: Vec<&[Point3D]> = vec![&floor[..], &roof[..], &wall[..]];
+
+        // Single floor surface
+        let surfaces: Vec<&[Point3D]> = vec![&floor_down[..]];
         let area = zone_floor_area(&surfaces);
         assert_relative_eq!(area, 48.0, max_relative = 0.001);
+
+        // Floor with opposite winding order — same area
+        let surfaces: Vec<&[Point3D]> = vec![&floor_up[..]];
+        let area = zone_floor_area(&surfaces);
+        assert_relative_eq!(area, 48.0, max_relative = 0.001);
+
+        // Multiple floor surfaces (e.g., L-shaped zone with two floor polygons)
+        let floor_2 = vec![
+            Point3D::new(8.0, 0.0, 0.0),
+            Point3D::new(12.0, 0.0, 0.0),
+            Point3D::new(12.0, 3.0, 0.0),
+            Point3D::new(8.0, 3.0, 0.0),
+        ];
+        let surfaces: Vec<&[Point3D]> = vec![&floor_down[..], &floor_2[..]];
+        let area = zone_floor_area(&surfaces);
+        assert_relative_eq!(area, 48.0 + 12.0, max_relative = 0.001);
     }
 
     #[test]
@@ -759,5 +876,50 @@ mod tests {
         assert_eq!(classify_box_face(90.0, 0.0), Some(FACE_NORTH));
         assert_eq!(classify_box_face(90.0, 90.0), Some(FACE_EAST));
         assert_eq!(classify_box_face(90.0, 270.0), Some(FACE_WEST));
+    }
+
+    #[test]
+    fn test_azimuth_to_cardinal() {
+        // Exact cardinal directions
+        assert_eq!(azimuth_to_cardinal(0.0), CardinalDirection::North);
+        assert_eq!(azimuth_to_cardinal(90.0), CardinalDirection::East);
+        assert_eq!(azimuth_to_cardinal(180.0), CardinalDirection::South);
+        assert_eq!(azimuth_to_cardinal(270.0), CardinalDirection::West);
+
+        // Boundary cases (edges of sectors)
+        assert_eq!(azimuth_to_cardinal(44.9), CardinalDirection::North);
+        assert_eq!(azimuth_to_cardinal(45.0), CardinalDirection::East);
+        assert_eq!(azimuth_to_cardinal(134.9), CardinalDirection::East);
+        assert_eq!(azimuth_to_cardinal(135.0), CardinalDirection::South);
+        assert_eq!(azimuth_to_cardinal(224.9), CardinalDirection::South);
+        assert_eq!(azimuth_to_cardinal(225.0), CardinalDirection::West);
+        assert_eq!(azimuth_to_cardinal(314.9), CardinalDirection::West);
+        assert_eq!(azimuth_to_cardinal(315.0), CardinalDirection::North);
+
+        // Wrap-around
+        assert_eq!(azimuth_to_cardinal(360.0), CardinalDirection::North);
+        assert_eq!(azimuth_to_cardinal(720.0), CardinalDirection::North);
+        assert_eq!(azimuth_to_cardinal(-90.0), CardinalDirection::West);
+    }
+
+    #[test]
+    fn test_envelope_areas_wwr() {
+        let mut ea = EnvelopeAreas::default();
+        ea.add_wall(CardinalDirection::South, 100.0);
+        ea.add_window(CardinalDirection::South, 40.0);
+        ea.add_wall(CardinalDirection::North, 100.0);
+        ea.add_window(CardinalDirection::North, 20.0);
+        ea.add_wall(CardinalDirection::East, 50.0);
+        ea.add_wall(CardinalDirection::West, 50.0);
+        ea.add_window(CardinalDirection::West, 10.0);
+
+        assert_relative_eq!(ea.wwr(CardinalDirection::South), 0.40);
+        assert_relative_eq!(ea.wwr(CardinalDirection::North), 0.20);
+        assert_relative_eq!(ea.wwr(CardinalDirection::East), 0.0);
+        assert_relative_eq!(ea.wwr(CardinalDirection::West), 0.20);
+
+        assert_relative_eq!(ea.total_wall_area(), 300.0);
+        assert_relative_eq!(ea.total_window_area(), 70.0);
+        assert_relative_eq!(ea.total_wwr(), 70.0 / 300.0, max_relative = 1e-10);
     }
 }

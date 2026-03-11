@@ -197,6 +197,14 @@ zones:
     volume: 180.0
     floor_area: 60.0
 
+# --- Zone Groups ---
+zone_groups:
+  - name: Office Zone Group
+    zones:
+      - Open Office
+      - Conference Room
+      - Lobby
+
 # --- People ---
 people:
   - name: Open Office People
@@ -535,7 +543,6 @@ air_loops:
         source: hot_water
         capacity: autosize
         setpoint: 20.0
-        efficiency: 1.0
 
       - type: cooling_coil
         name: DOAS CHW Cooling Coil
@@ -545,7 +552,7 @@ air_loops:
         rated_airflow: autosize
         setpoint: 18.0
 
-    zones:
+    zone_terminals:
       - zone: Open Office
       - zone: Conference Room
       - zone: Lobby
@@ -582,7 +589,7 @@ air_loops:
         rated_airflow: autosize
         setpoint: 13.0
 
-    zones:
+    zone_terminals:
       - zone: Open Office
 
   # FCU - Conference Room
@@ -617,7 +624,7 @@ air_loops:
         rated_airflow: autosize
         setpoint: 13.0
 
-    zones:
+    zone_terminals:
       - zone: Conference Room
 
   # FCU - Lobby
@@ -652,7 +659,7 @@ air_loops:
         rated_airflow: autosize
         setpoint: 13.0
 
-    zones:
+    zone_terminals:
       - zone: Lobby
 
 # --- Plant Loops ---
@@ -678,14 +685,6 @@ plant_loops:
         cop: 3.5
         chw_setpoint: 7.0
         design_chw_flow: 0.0
-
-# --- Zone Groups ---
-zone_groups:
-  - name: Office Zone Group
-    zones:
-      - Open Office
-      - Conference Room
-      - Lobby
 
 # --- Thermostats ---
 thermostats:

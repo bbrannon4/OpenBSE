@@ -501,6 +501,10 @@ pub struct ZoneState {
     pub nat_vent_active: bool,
     /// Timesteps since natural ventilation stopped (for setpoint ramp-back)
     pub nat_vent_off_timesteps: u32,
+    /// Zone centroid height above ground [m].
+    /// Used for wind speed correction in infiltration calculation.
+    /// Computed as area-weighted average of zone surface centroid heights.
+    pub centroid_height: f64,
 }
 
 impl ZoneState {
@@ -532,6 +536,7 @@ impl ZoneState {
             nat_vent_mass_flow: 0.0,
             nat_vent_active: false,
             nat_vent_off_timesteps: u32::MAX, // large value = long since stopped
+            centroid_height: 0.0, // set after surface assignment
         }
     }
 }

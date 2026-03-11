@@ -5,7 +5,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use log::{info, warn};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use openbse_core::graph::{GraphComponent, SimulationGraph};
@@ -47,6 +47,8 @@ struct LoopInfo {
     system_type: AirLoopSystemType,
     /// Component names in simulation order (fan → coils)
     component_names: Vec<String>,
+    /// Names of fan components in this loop (for PLR-exempt identification)
+    fan_names: HashSet<String>,
     /// Zones served by this loop
     served_zones: Vec<String>,
     /// Minimum outdoor air fraction [0-1]. DOAS always 1.0.
@@ -62,9 +64,15 @@ struct LoopInfo {
     cooling_supply_temp: f64,
     /// Capacity control method (from air loop controls)
     cycling: openbse_io::input::CyclingMethod,
+    /// Fan operating mode: cycling (fan cycles with coils) or continuous
+    /// (fan runs at full speed always, coils cycle ON/OFF).
+    fan_operating_mode: openbse_io::input::FanOperatingMode,
     /// Terminal box component names per zone (zone_name -> component_name).
     /// Only populated for loops with VAV/PFP terminal boxes defined in YAML.
     terminal_boxes: HashMap<String, String>,
+    /// True when the user explicitly set `minimum_damper_position` in YAML.
+    /// Prevents post-sizing auto-recalculation from overriding the user value.
+    explicit_min_oa: bool,
 }
 
 fn build_loop_infos(
@@ -83,7 +91,15 @@ fn build_loop_infos(
             }
         }).collect();
 
-        let served_zones: Vec<String> = al.zones.iter()
+        let fan_names: HashSet<String> = al.equipment.iter().filter_map(|eq| {
+            use openbse_io::input::EquipmentInput;
+            match eq {
+                EquipmentInput::Fan(f) => Some(f.name.clone()),
+                _ => None,
+            }
+        }).collect();
+
+        let served_zones: Vec<String> = al.zone_terminals.iter()
             .map(|zc| zc.zone.clone())
             .collect();
 
@@ -95,6 +111,8 @@ fn build_loop_infos(
         //   2. Explicit controls.minimum_damper_position
         //   3. Auto-calculate from zone outdoor air requirements
         //   4. Fallback: 20%
+        let explicit_min_oa = system_type != AirLoopSystemType::Doas
+            && al.minimum_damper_position().is_some();
         let min_oa_fraction = match system_type {
             AirLoopSystemType::Doas => 1.0,
             _ => al.minimum_damper_position().unwrap_or_else(|| {
@@ -109,7 +127,7 @@ fn build_loop_infos(
 
         // Build terminal box map: zone_name -> component_name
         let mut terminal_boxes: HashMap<String, String> = HashMap::new();
-        for zc in &al.zones {
+        for zc in &al.zone_terminals {
             if let Some(ref terminal) = zc.terminal {
                 let term_name = match terminal {
                     openbse_io::input::TerminalInput::VavBox(vb) => vb.name.clone(),
@@ -123,13 +141,16 @@ fn build_loop_infos(
             name: al.name.clone(),
             system_type,
             component_names,
+            fan_names,
             served_zones,
             min_oa_fraction,
+            explicit_min_oa,
             min_vav_fraction: al.min_vav_fraction,
             availability_schedule: al.availability_schedule.clone(),
             heating_supply_temp: al.controls.heating_supply_temp,
             cooling_supply_temp: al.controls.cooling_supply_temp,
             cycling: al.controls.cycling,
+            fan_operating_mode: al.controls.fan_operating_mode,
             terminal_boxes,
         }
     }).collect()
@@ -170,6 +191,36 @@ fn main() -> Result<()> {
         model.plant_loops.len(),
         model.zone_groups.len()
     );
+
+    // ── 1b. Validate model cross-references ────────────────────────────────
+    let validation = openbse_io::validate_model(&model);
+
+    // Write .err file (always, even if no errors — matches E+ behavior)
+    let err_path = args.input.with_extension("err");
+    if let Err(e) = std::fs::write(&err_path, validation.to_err_file()) {
+        warn!("Could not write error file {}: {}", err_path.display(), e);
+    }
+
+    // Log all diagnostics to console
+    for diag in &validation.diagnostics {
+        match diag.severity {
+            openbse_io::DiagSeverity::Warning => warn!("{}", diag.message),
+            openbse_io::DiagSeverity::Severe  => log::error!("{}", diag.message),
+        }
+    }
+
+    // Abort if there are severe errors
+    if validation.error_count() > 0 {
+        anyhow::bail!(
+            "Model validation failed: {} severe error(s), {} warning(s). See {}",
+            validation.error_count(),
+            validation.warning_count(),
+            err_path.display()
+        );
+    }
+    if validation.warning_count() > 0 {
+        warn!("{} validation warning(s) — see {}", validation.warning_count(), err_path.display());
+    }
 
     // ── 2. Load weather data ────────────────────────────────────────────────
     if model.weather_files.is_empty() {
@@ -372,7 +423,7 @@ fn main() -> Result<()> {
     // Each air loop's controls.design_zone_flow applies to all zones it serves.
     for al in &model.air_loops {
         let flow = al.controls.design_zone_flow.to_f64();
-        for zc in &al.zones {
+        for zc in &al.zone_terminals {
             zone_design_flows.insert(zc.zone.clone(), flow);
         }
     }
@@ -474,23 +525,22 @@ fn main() -> Result<()> {
                     AirLoopSystemType::PszAc => {
                         // PSZ-AC: each unit serves its own zone(s) independently.
                         // Size from served zone peak loads (like FCU), not system-wide.
+                        // Do NOT apply zone multiplier: each PSZ-AC is one physical unit
+                        // per zone instance; multiplier represents N identical units.
                         let zone_airflow: f64 = li.served_zones.iter()
                             .map(|z| {
-                                let m = zone_multipliers.get(z).copied().unwrap_or(1.0);
-                                sizing_result.zone_design_airflow.get(z).copied().unwrap_or(0.1) * m
+                                sizing_result.zone_design_airflow.get(z).copied().unwrap_or(0.1)
                             })
                             .sum();
                         let zone_flow_m3 = zone_airflow / air_density;
                         let zone_heat: f64 = li.served_zones.iter()
                             .map(|z| {
-                                let m = zone_multipliers.get(z).copied().unwrap_or(1.0);
-                                sizing_result.zone_peak_heating.get(z).copied().unwrap_or(0.0) * m
+                                sizing_result.zone_peak_heating.get(z).copied().unwrap_or(0.0)
                             })
                             .sum::<f64>() * model.simulation.heating_sizing_factor;
                         let zone_cool: f64 = li.served_zones.iter()
                             .map(|z| {
-                                let m = zone_multipliers.get(z).copied().unwrap_or(1.0);
-                                sizing_result.zone_peak_cooling.get(z).copied().unwrap_or(0.0) * m
+                                sizing_result.zone_peak_cooling.get(z).copied().unwrap_or(0.0)
                             })
                             .sum::<f64>() * model.simulation.cooling_sizing_factor;
                         (zone_flow_m3, zone_heat, zone_cool)
@@ -565,10 +615,11 @@ fn main() -> Result<()> {
                         // FCU/PTAC: sized to its served zone(s)
                         // Coil capacity must include ventilation heating/cooling load
                         // (outdoor air mixed with return air before entering the coil).
+                        // Do NOT apply zone multiplier: each FCU/PTAC is one physical unit
+                        // per zone instance; multiplier represents N identical units.
                         let zone_airflow: f64 = li.served_zones.iter()
                             .map(|z| {
-                                let m = zone_multipliers.get(z).copied().unwrap_or(1.0);
-                                sizing_result.zone_design_airflow.get(z).copied().unwrap_or(0.1) * m
+                                sizing_result.zone_design_airflow.get(z).copied().unwrap_or(0.1)
                             })
                             .sum();
                         let zone_flow_m3 = zone_airflow / air_density;
@@ -576,14 +627,12 @@ fn main() -> Result<()> {
                         // Zone peak loads (envelope + internal gains only)
                         let zone_peak_heat: f64 = li.served_zones.iter()
                             .map(|z| {
-                                let m = zone_multipliers.get(z).copied().unwrap_or(1.0);
-                                sizing_result.zone_peak_heating.get(z).copied().unwrap_or(0.0) * m
+                                sizing_result.zone_peak_heating.get(z).copied().unwrap_or(0.0)
                             })
                             .sum::<f64>();
                         let zone_peak_cool: f64 = li.served_zones.iter()
                             .map(|z| {
-                                let m = zone_multipliers.get(z).copied().unwrap_or(1.0);
-                                sizing_result.zone_peak_cooling.get(z).copied().unwrap_or(0.0) * m
+                                sizing_result.zone_peak_cooling.get(z).copied().unwrap_or(0.0)
                             })
                             .sum::<f64>();
 
@@ -756,7 +805,7 @@ fn main() -> Result<()> {
                             }
                         }
                     }
-                    if has_oa {
+                    if has_oa && !li.explicit_min_oa {
                         let new_frac = (total_oa_flow / flow_m3s).clamp(0.0, 1.0);
                         if (new_frac - li.min_oa_fraction).abs() > 0.001 {
                             info!("Air loop '{}': OA fraction updated {:.1}% → {:.1}% (after sizing)",
@@ -796,10 +845,15 @@ fn main() -> Result<()> {
         .collect();
 
     let mut summary_report = if model.summary_report {
-        Some(SummaryReport::new(
+        let mut report = SummaryReport::new(
             zone_heating_setpoints.clone(),
             zone_cooling_setpoints.clone(),
-        ))
+        );
+        // Pass envelope area data for WWR reporting
+        if let Some(ref env) = envelope {
+            report.set_envelope_areas(env.envelope_areas.clone());
+        }
+        Some(report)
     } else {
         None
     };
@@ -1134,7 +1188,7 @@ fn main() -> Result<()> {
                                         }
                                     }
                                     // Check terminal boxes (VAV box reheat coils)
-                                    for zc in &al.zones {
+                                    for zc in &al.zone_terminals {
                                         if let Some(ref terminal) = zc.terminal {
                                             let (term_name, term_plant) = match terminal {
                                                 openbse_io::input::TerminalInput::VavBox(vb) => {
@@ -1464,6 +1518,10 @@ fn main() -> Result<()> {
                         .copied().unwrap_or(1.0);
                     snapshot.surface_incident_solar.insert(name.clone(), surface.incident_solar * surf_mult);
                     snapshot.surface_transmitted_solar.insert(name.clone(), surface.transmitted_solar * surf_mult);
+                    // q_cond_inside from apply_ctf is W/m², multiply by net_area for total [W]
+                    snapshot.surface_conduction_inside.insert(name.clone(), surface.q_cond_inside * surface.net_area * surf_mult);
+                    // q_conv_inside is also W/m², multiply by net_area for total [W]
+                    snapshot.surface_convection_inside.insert(name.clone(), surface.q_conv_inside * surface.net_area * surf_mult);
                 }
 
                 for (comp_name, vars) in &result.component_outputs {
@@ -1907,6 +1965,44 @@ fn simulate_all_loops(
         let active_heat_sp = if is_unoccupied { zone_unocc_heat_sp } else { zone_heat_sp };
         let active_cool_sp = if is_unoccupied { zone_unocc_cool_sp } else { zone_cool_sp };
 
+        // ── Predictor Mode ─────────────────────────────────────────────
+        //
+        // Determine HVAC mode from the FROZEN ideal loads (E+ predictor
+        // equivalent), NOT from the iterating zone temperature.  This
+        // prevents mode flip-flopping at the setpoint boundary during the
+        // HVAC↔envelope iteration loop.
+        //
+        // The frozen ideal loads represent: "what Q is needed to maintain
+        // setpoint given current envelope conditions?"  If heating_load > 0,
+        // the zone needs heating regardless of where the iterating zone
+        // temp currently sits.
+        //
+        // For each served zone, compute a predictor mode and store it.
+        // PTAC/FCU (single-zone) use the single zone's mode.
+        // PSZ-AC uses the control zone's mode.
+        let predictor_modes: HashMap<String, HvacMode> = li.served_zones.iter()
+            .map(|z| {
+                let hload = zone_heating_loads.get(z).copied().unwrap_or(0.0);
+                let cload = zone_cooling_loads.get(z).copied().unwrap_or(0.0);
+                let zt = zone_temps.get(z).copied().unwrap_or(21.0);
+                let hsp = active_heat_sp.get(z).copied().unwrap_or(21.1);
+                let csp = active_cool_sp.get(z).copied().unwrap_or(23.9);
+                // Primary: use ideal loads (predictor)
+                // Fallback: if both loads are zero (e.g., first timestep),
+                // use zone temp vs setpoints
+                let mode = if hload > 10.0 && hload > cload {
+                    HvacMode::Heating
+                } else if cload > 10.0 && cload > hload {
+                    HvacMode::Cooling
+                } else {
+                    // Fallback to zone-temp method for initial timesteps
+                    // or when loads are truly zero (deadband)
+                    hvac_mode(zt, hsp, csp)
+                };
+                (z.clone(), mode)
+            })
+            .collect();
+
         let signals = match li.system_type {
             // ──────────────────────────────────────────────────────────────
             // PSZ-AC: single-zone thermostat, mixed return + outdoor air.
@@ -1915,7 +2011,7 @@ fn simulate_all_loops(
             AirLoopSystemType::PszAc => {
                 build_psz_signals(li, zone_temps, active_heat_sp, active_cool_sp,
                     zone_design_flows, t_outdoor, zone_cooling_loads, zone_heating_loads,
-                    effective_min_oa)
+                    effective_min_oa, &predictor_modes)
             }
 
             // ──────────────────────────────────────────────────────────────
@@ -1932,7 +2028,8 @@ fn simulate_all_loops(
             // ──────────────────────────────────────────────────────────────
             AirLoopSystemType::Fcu | AirLoopSystemType::Ptac => {
                 build_fcu_signals(li, zone_temps, active_heat_sp, active_cool_sp,
-                    zone_design_flows, t_outdoor, zone_heating_loads, zone_cooling_loads)
+                    zone_design_flows, t_outdoor, zone_heating_loads, zone_cooling_loads,
+                    &predictor_modes)
             }
 
             // ──────────────────────────────────────────────────────────────
@@ -1951,7 +2048,39 @@ fn simulate_all_loops(
             graph, ctx, &li.component_names, &signals
         );
 
-        // ── Load-Based PLR for PSZ-AC ON/OFF Fan Cycling ──
+        // ── Pre-compute continuous fan heat for PLR correction ──
+        //
+        // In continuous fan mode the fan runs at full speed regardless of PLR.
+        // During the off-cycle (1-PLR fraction) the fan delivers
+        //   Q_fan = m_dot * cp * dT_fan
+        // of heat to the zone.  This must be subtracted from the heating
+        // PLR numerator (fan already covers part of the load) and added to
+        // the cooling PLR numerator (fan heat is an extra cooling burden).
+        // Without this correction the system persistently over-delivers in
+        // heating, pushing the zone above setpoint into deadband, where it
+        // then cools and re-enters heating — the classic oscillation.
+        let continuous_fan_heat_rise_pre = if li.fan_operating_mode
+            == openbse_io::input::FanOperatingMode::Continuous
+        {
+            let fan_power: f64 = li.fan_names.iter()
+                .filter_map(|fn_name| {
+                    loop_result.get(fn_name)
+                        .and_then(|o| o.get("electric_power"))
+                        .copied()
+                })
+                .sum();
+            let mass_flow = supply_air.as_ref().map(|s| s.mass_flow).unwrap_or(0.0);
+            let cp_air_fan = 1006.0_f64;
+            if mass_flow > 0.001 {
+                fan_power / (mass_flow * cp_air_fan)
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        // ── Mode-Based PLR for PSZ-AC / PTAC ON/OFF Cycling ──
         //
         // Components were simulated at full design flow. Now compute PLR
         // from the zone load and the system's actual net cooling/heating
@@ -1975,7 +2104,10 @@ fn simulate_all_loops(
             let control_temp = zone_temps.get(control_zone).copied().unwrap_or(21.0);
             let heat_sp = active_heat_sp.get(control_zone).copied().unwrap_or(21.1);
             let cool_sp = active_cool_sp.get(control_zone).copied().unwrap_or(23.9);
-            let mode = hvac_mode(control_temp, heat_sp, cool_sp);
+            // Use predictor mode (from frozen ideal loads) — stable across
+            // HVAC iterations, preventing mode flip-flop at setpoint boundary.
+            let mode = predictor_modes.get(control_zone).copied()
+                .unwrap_or_else(|| hvac_mode(control_temp, heat_sp, cool_sp));
 
             let cp_air = 1006.0_f64; // J/(kg·K)
 
@@ -1983,33 +2115,55 @@ fn simulate_all_loops(
                 let supply_temp = supply.state.t_db;
                 let supply_flow = supply.mass_flow;
 
-                // Cycling fan PLR for ON/OFF coil cycling (PTAC / PSZ-AC).
+                // Mode-based PLR with continuous fan heat correction.
                 //
-                // E+ IDF confirms: PTAC has No Load Supply Air Flow Rate = 0
-                // and all OA flow rates = 0 (pure recirculation). The fan
-                // cycles WITH the coils — off during deadband and off-cycle.
+                // The mode (heating/cooling/deadband) is determined by zone
+                // temp vs setpoints.  Within each mode, PLR uses the frozen
+                // ideal load adjusted for fan heat.  When ideal loads are
+                // stale (transients), a proportional zone-error fallback
+                // prevents full-capacity overshoot.
                 //
-                // With recirculation (T_mixed = T_zone), the continuous-fan
-                // formula simplifies to the simple ratio:
-                //   PLR = Zone_Load / Q_on
-                //
-                // For PLR stability, use SETPOINT as the reference temperature
-                // (not actual zone temp) so capacity calculation is consistent
-                // with the ideal load.
-                let q_cool_capacity = supply_flow * cp_air * (cool_sp - supply_temp);
-                let q_heat_capacity = supply_flow * cp_air * (supply_temp - heat_sp);
+                // Continuous fan correction:
+                //   Heating: PLR = (Q_load - Q_fan) / (Q_cap - Q_fan)
+                //   Cooling: PLR = (Q_load + Q_fan) / (Q_cap + Q_fan)
+                // The fan delivers dT_fan of heating regardless of PLR; the
+                // coils need only make up the difference.
+                let q_fan = supply_flow * cp_air * continuous_fan_heat_rise_pre;
 
-                if zone_cool_load > 0.0 && q_cool_capacity > 100.0 {
-                    (zone_cool_load / q_cool_capacity).clamp(0.0, 1.0)
-                } else if zone_heat_load > 0.0 && q_heat_capacity > 100.0 {
-                    (zone_heat_load / q_heat_capacity).clamp(0.0, 1.0)
-                } else if mode == HvacMode::Cooling {
-                    1.0
-                } else if mode == HvacMode::Heating {
-                    1.0
-                } else {
-                    // True deadband: maintain minimum OA ventilation
-                    effective_min_oa
+                match mode {
+                    HvacMode::Heating => {
+                        // E+ PTAC/PSZ-AC: PLR = Q_zone / Q_capacity.
+                        // Fan cycles with coils (Fan:OnOff).
+                        // Fan heat correction only applies in continuous fan mode.
+                        let q_capacity = supply_flow * cp_air * (supply_temp - heat_sp);
+                        if zone_heat_load > 10.0 && q_capacity > 100.0 {
+                            let adj_load = (zone_heat_load - q_fan).max(0.0);
+                            let adj_cap = (q_capacity - q_fan).max(1.0);
+                            (adj_load / adj_cap).clamp(effective_min_oa, 1.0)
+                        } else {
+                            // Fallback: proportional zone error for transients
+                            let error = (heat_sp - control_temp).max(0.0);
+                            let max_dt = (supply_temp - heat_sp).max(1.0);
+                            (error / max_dt).clamp(effective_min_oa, 1.0)
+                        }
+                    }
+                    HvacMode::Cooling => {
+                        let q_capacity = supply_flow * cp_air * (cool_sp - supply_temp);
+                        if zone_cool_load > 10.0 && q_capacity > 100.0 {
+                            // Add fan heat: fan adds extra cooling burden
+                            let adj_load = zone_cool_load + q_fan;
+                            let adj_cap = q_capacity + q_fan;
+                            (adj_load / adj_cap).clamp(effective_min_oa, 1.0)
+                        } else {
+                            let error = (control_temp - cool_sp).max(0.0);
+                            let max_dt = (cool_sp - supply_temp).max(1.0);
+                            (error / max_dt).clamp(effective_min_oa, 1.0)
+                        }
+                    }
+                    HvacMode::Deadband => {
+                        // No active heating or cooling; fan only (if continuous).
+                        effective_min_oa
+                    }
                 }
             } else {
                 effective_min_oa
@@ -2022,31 +2176,41 @@ fn simulate_all_loops(
         } * nightcycle_duty;
 
         if loop_plr < 1.0 {
+            let is_continuous_fan = li.fan_operating_mode
+                == openbse_io::input::FanOperatingMode::Continuous;
+
             for (comp_name, outputs) in &mut loop_result {
-                // E+ PTAC uses Fan:OnOff in continuous mode (schedule=1).
-                // Fan runs at design flow whenever the system is active;
-                // coils cycle on/off based on PLR but fan does NOT cycle.
-                //
-                // Scale COIL outputs by loop_plr, but leave fan outputs
-                // at full power (no PLR scaling for fans).
-                let is_fan = comp_name.starts_with("Fan ");
-                if is_fan {
-                    continue; // fan runs continuously — no PLR scaling
-                }
-                if let Some(ep) = outputs.get_mut("electric_power") {
-                    *ep *= loop_plr;
-                }
-                if let Some(fp) = outputs.get_mut("fuel_power") {
-                    *fp *= loop_plr;
-                }
-                if let Some(to) = outputs.get_mut("thermal_output") {
-                    *to *= loop_plr;
-                }
-                if let Some(mf) = outputs.get_mut("mass_flow") {
-                    *mf *= loop_plr;
+                let is_fan = li.fan_names.contains(comp_name);
+
+                if is_continuous_fan && is_fan {
+                    // Continuous fan mode: fan runs at full speed always.
+                    // Fan power and thermal output are NOT scaled by PLR.
+                    // Mass flow is NOT scaled — fan pushes air continuously.
+                    // (No changes needed — outputs stay at full rated values.)
+                } else {
+                    // Cycling fan mode: all outputs scale with PLR.
+                    // Also applies to coil outputs in continuous fan mode
+                    // (coils cycle ON/OFF, average output = rated × PLR).
+                    if let Some(ep) = outputs.get_mut("electric_power") {
+                        *ep *= loop_plr;
+                    }
+                    if let Some(fp) = outputs.get_mut("fuel_power") {
+                        *fp *= loop_plr;
+                    }
+                    if let Some(to) = outputs.get_mut("thermal_output") {
+                        *to *= loop_plr;
+                    }
+                    if let Some(mf) = outputs.get_mut("mass_flow") {
+                        *mf *= loop_plr;
+                    }
                 }
             }
         }
+
+        // Reuse the pre-computed fan heat rise (computed before PLR for the
+        // fan heat correction).  In continuous fan mode the fan power is NOT
+        // scaled by PLR, so the value is the same before and after scaling.
+        let continuous_fan_heat_rise = continuous_fan_heat_rise_pre;
 
         // Store PLR for reporting
         all_outputs.entry("__loop_plr__".to_string())
@@ -2066,14 +2230,28 @@ fn simulate_all_loops(
         if let Some(supply) = supply_air {
             let supply_temp = supply.state.t_db;
 
-            // PTAC/PSZ-AC use cycling fan model: fan cycles with coils.
-            // E+ IDF confirms No Load Supply Air Flow Rate = 0 for PTAC.
-            // With recirculation-only (OA = 0), T_mixed = T_zone, so
-            // continuous fan and cycling fan give identical results anyway.
-            //
-            // All systems use PLR-scaled flow at supply temp.
-            let (effective_flow, effective_supply_temp) =
-                (supply.mass_flow * loop_plr, supply_temp);
+            let (effective_flow, effective_supply_temp) = if li.fan_operating_mode
+                == openbse_io::input::FanOperatingMode::Continuous
+            {
+                // Continuous fan mode: fan runs at full speed always.
+                // Full mass flow delivered at a weighted-average supply temp:
+                //   ON-cycle  (PLR fraction):   T = supply_temp (coils active + fan heat)
+                //   OFF-cycle (1-PLR fraction): T = T_zone + ΔT_fan (recirculated + fan heat)
+                //
+                // Average supply temp = PLR × T_supply + (1-PLR) × (T_zone + ΔT_fan)
+                //
+                // Since OA=0 for PTAC, T_mixed = T_zone (return air = zone air).
+                let control_zone = li.served_zones.first()
+                    .map(|s| s.as_str()).unwrap_or("");
+                let t_zone = zone_temps.get(control_zone).copied().unwrap_or(21.0);
+                let t_off = t_zone + continuous_fan_heat_rise;
+                let t_avg = loop_plr * supply_temp + (1.0 - loop_plr) * t_off;
+                (supply.mass_flow, t_avg)
+            } else {
+                // Cycling fan mode: PLR-scaled flow at full supply temp.
+                // Fan cycles with coils: air only flows for PLR fraction of timestep.
+                (supply.mass_flow * loop_plr, supply_temp)
+            };
 
             for zone_name in &li.served_zones {
                 // Check if this zone has a terminal box
@@ -2223,6 +2401,7 @@ fn build_psz_signals(
     zone_cooling_loads: &HashMap<String, f64>,
     zone_heating_loads: &HashMap<String, f64>,
     effective_min_oa: f64,
+    predictor_modes: &HashMap<String, HvacMode>,
 ) -> ControlSignals {
     let mut signals = ControlSignals::default();
 
@@ -2234,31 +2413,23 @@ fn build_psz_signals(
     let zone_cool_load = zone_cooling_loads.get(control_zone).copied().unwrap_or(0.0);
     let zone_heat_load = zone_heating_loads.get(control_zone).copied().unwrap_or(0.0);
 
-    // Determine HVAC mode from both temperature AND loads.
-    //
-    // Temperature-only mode misses the case where the zone is right at setpoint
-    // but still has a net load (e.g. 5400W internal gain at 22.2°C). The zone
-    // is "in deadband" by temperature but needs cooling to stay there.
-    //
-    // Temperature-based mode selection with load-informed deadband tiebreaker.
-    //
-    // Priority: temperature relative to setpoints determines mode.
-    // In the deadband zone, loads break the tie (e.g. internal gains may
-    // push zone toward cooling even though temp is between setpoints).
-    let mode = if control_temp > cool_sp {
-        HvacMode::Cooling
-    } else if control_temp < heat_sp {
-        HvacMode::Heating
-    } else {
-        // Deadband: use net load to decide if system should preemptively run
-        if zone_cool_load > zone_heat_load && zone_cool_load > 100.0 {
-            HvacMode::Cooling
-        } else if zone_heat_load > zone_cool_load && zone_heat_load > 100.0 {
-            HvacMode::Heating
-        } else {
-            HvacMode::Deadband
-        }
-    };
+    // Use predictor mode (from frozen ideal loads) to prevent mode
+    // flip-flopping during HVAC↔envelope iteration loop.
+    let mode = predictor_modes.get(control_zone).copied()
+        .unwrap_or_else(|| {
+            // Fallback: temperature-based with load-informed deadband tiebreaker
+            if control_temp > cool_sp {
+                HvacMode::Cooling
+            } else if control_temp < heat_sp {
+                HvacMode::Heating
+            } else if zone_cool_load > zone_heat_load && zone_cool_load > 100.0 {
+                HvacMode::Cooling
+            } else if zone_heat_load > zone_cool_load && zone_heat_load > 100.0 {
+                HvacMode::Heating
+            } else {
+                HvacMode::Deadband
+            }
+        });
 
     // Total design flow (single instance — zone multiplier applied in snapshot output)
     let mut total_flow = 0.0f64;
@@ -2463,8 +2634,9 @@ fn build_fcu_signals(
     zone_cool_sp: &HashMap<String, f64>,
     zone_design_flows: &HashMap<String, f64>,
     t_outdoor: f64,
-    _zone_heating_loads: &HashMap<String, f64>,
-    _zone_cooling_loads: &HashMap<String, f64>,
+    zone_heating_loads: &HashMap<String, f64>,
+    zone_cooling_loads: &HashMap<String, f64>,
+    predictor_modes: &HashMap<String, HvacMode>,
 ) -> ControlSignals {
     let mut signals = ControlSignals::default();
 
@@ -2476,21 +2648,34 @@ fn build_fcu_signals(
 
     let design_flow = zone_design_flows.get(zone_name).copied().unwrap_or(0.3);
 
-    let mode = hvac_mode(zone_temp, heat_sp, cool_sp);
+    // Use predictor mode (from frozen ideal loads) to prevent mode
+    // flip-flopping during HVAC↔envelope iteration.
+    let mode = predictor_modes.get(zone_name).copied()
+        .unwrap_or_else(|| hvac_mode(zone_temp, heat_sp, cool_sp));
 
-    // PTAC Fan:OnOff — E+ IDF has No Load Supply Air Flow Rate = 0, but
-    // the ERV has 0% effectiveness (OA enters zone at outdoor temp).
-    // Fan-off during deadband causes zone oscillation because raw OA
-    // rapidly cools/heats the zone without HVAC to compensate.
-    // Fan runs at design flow in all modes for stability.
-    //
-    // E+ avoids oscillation via predictor-corrector iteration; OpenBSE
-    // uses explicit timestep coupling so continuous fan is needed.
+    // PTAC: Fan runs at design flow when heating or cooling (mode != Deadband).
+    // In deadband with cycling fan the system is off.
+    // In deadband with continuous fan, fan runs at design flow recirculating
+    // zone air (fan heat only — coils disabled).  This matches E+ behaviour
+    // where Supply Air Fan Operating Mode Schedule = 1 (continuous).
+    // E+ PTAC heating uses water coil modulation (PLR=1, valve throttles).
+    // E+ PTAC cooling uses DX ON/OFF cycling (PLR < 1).
     //
     // FCU: modulates fan speed proportionally.
     let is_ptac = li.system_type == AirLoopSystemType::Ptac;
+    let is_continuous_fan_mode = li.fan_operating_mode
+        == openbse_io::input::FanOperatingMode::Continuous;
     let flow = if is_ptac {
-        design_flow
+        match mode {
+            HvacMode::Deadband => {
+                if is_continuous_fan_mode {
+                    design_flow  // continuous fan: recirculate zone air
+                } else {
+                    0.0  // cycling fan: system off
+                }
+            }
+            _ => design_flow,
+        }
     } else {
         // FCU modulates fan speed: deadband = 20%, heating/cooling = proportional
         match mode {
@@ -2525,9 +2710,23 @@ fn build_fcu_signals(
     for name in &li.component_names {
         let lname = name.to_lowercase();
         if is_ptac {
-            // PTAC: fixed supply temps, PLR handles modulation
+            // PTAC control matching EnergyPlus:
+            //
+            // Heating (Coil:Heating:Water): E+ modulates water flow rate
+            // to deliver exactly the zone load.  We approximate this by
+            // computing the supply temp target from the predictor load:
+            //   T_target = T_zone + Q_heat / (m_dot * cp)
+            // The coil modulates internally to meet this target.  PLR = 1
+            // for heating (no ON/OFF cycling for water coils).
+            //
+            // Cooling (DX coil): E+ cycles the compressor ON/OFF.  We
+            // run the DX at full capacity and set PLR = Q_cool / Q_cap
+            // after component simulation.
             match mode {
                 HvacMode::Heating => {
+                    // E+ PTAC (Fan:OnOff cycling): run heating coil at
+                    // design supply temp during ON-period, off during
+                    // OFF-period.  PLR sets the duty cycle.
                     if lname.contains("heat") || lname.contains("reheat")
                         || lname.starts_with("hc ") || lname.starts_with("hc_") {
                         signals.coil_setpoints.insert(name.clone(), li.heating_supply_temp);
@@ -2537,6 +2736,7 @@ fn build_fcu_signals(
                     }
                 }
                 HvacMode::Cooling => {
+                    // DX cooling: run at full capacity, PLR handles cycling.
                     if lname.contains("cool") || lname.contains("dx")
                         || lname.starts_with("cc ") || lname.starts_with("cc_") {
                         signals.coil_setpoints.insert(name.clone(), li.cooling_supply_temp);

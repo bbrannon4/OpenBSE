@@ -348,8 +348,7 @@ window_constructions:
     visible_transmittance: 0.40
 
 # ─── Zones ──────────────────────────────────────────────────────────────────
-# 5 thermal zones per DOE prototype. Volume and floor area auto-calculated
-# from surface vertices (set to 0 or omitted).
+# 5 thermal zones per DOE prototype.
 
 zones:
   # ── Back Space ──
@@ -378,6 +377,23 @@ zones:
   # 4.0m x 3.0m x 6.096m = 73.15 m³
   # Heated only (unit heater), no cooling.
   - name: Front Entry
+
+# ─── Zone Groups ───────────────────────────────────────────────────────────
+# Logical groupings of thermal zones for thermostat and HVAC control.
+
+zone_groups:
+  # Main retail zones: full comfort conditioning
+  - name: Retail Zones
+    zones:
+      - Back Space
+      - Core Retail
+      - Point of Sale
+      - Front Retail
+
+  # Entry vestibule: heating only, relaxed setpoints
+  - name: Entry Zone
+    zones:
+      - Front Entry
 
 # ─── People ─────────────────────────────────────────────────────────────────
 # DOE prototype internal gains: people density = 6.193 m²/person
@@ -1320,7 +1336,7 @@ air_loops:
         shr: 0.797
         rated_airflow: autosize
         setpoint: 12.8
-    zones:
+    zone_terminals:
       - zone: Back Space
 
   # ── PSZ-AC: Core Retail ──
@@ -1355,7 +1371,7 @@ air_loops:
         setpoint: 12.8
         cap_ft_curve: DX Cool Cap fT
         eir_ft_curve: DX Cool EIR fT
-    zones:
+    zone_terminals:
       - zone: Core Retail
 
   # ── PSZ-AC: Point of Sale ──
@@ -1388,7 +1404,7 @@ air_loops:
         shr: 0.799
         rated_airflow: autosize
         setpoint: 12.8
-    zones:
+    zone_terminals:
       - zone: Point of Sale
 
   # ── PSZ-AC: Front Retail ──
@@ -1421,7 +1437,7 @@ air_loops:
         shr: 0.799
         rated_airflow: autosize
         setpoint: 12.8
-    zones:
+    zone_terminals:
       - zone: Front Retail
 
   # ── Unit Heater: Front Entry ──
@@ -1447,25 +1463,8 @@ air_loops:
         capacity: autosize
         setpoint: 40.0
         efficiency: 0.81
-    zones:
+    zone_terminals:
       - zone: Front Entry
-
-# ─── Zone Groups ───────────────────────────────────────────────────────────
-# Logical groupings of thermal zones for thermostat and HVAC control.
-
-zone_groups:
-  # Main retail zones: full comfort conditioning
-  - name: Retail Zones
-    zones:
-      - Back Space
-      - Core Retail
-      - Point of Sale
-      - Front Retail
-
-  # Entry vestibule: heating only, relaxed setpoints
-  - name: Entry Zone
-    zones:
-      - Front Entry
 
 # ─── Thermostats ───────────────────────────────────────────────────────────
 # Thermostat setpoints per DOE prototype:

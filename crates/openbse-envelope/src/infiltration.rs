@@ -8,6 +8,12 @@
 use serde::{Deserialize, Serialize};
 
 /// Infiltration specification for a zone.
+///
+/// EnergyPlus "Design Flow Rate" model:
+///   `Infiltration = Q_design × (A + B·|ΔT| + C·V_wind + D·V_wind²) × schedule`
+///
+/// where A = constant_coefficient, B = temperature_coefficient,
+/// C = wind_coefficient [s/m], D = wind_squared_coefficient [s²/m²].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InfiltrationInput {
     /// Design infiltration volume flow rate [m³/s]
@@ -17,17 +23,17 @@ pub struct InfiltrationInput {
     #[serde(default)]
     pub air_changes_per_hour: f64,
     /// Constant coefficient A (default 1.0)
-    #[serde(default = "default_a", alias = "constant_coefficient")]
-    pub coeff_a: f64,
-    /// Temperature coefficient B [1/°C]
-    #[serde(default, alias = "temperature_coefficient")]
-    pub coeff_b: f64,
-    /// Wind speed coefficient C [s/m]
-    #[serde(default, alias = "wind_coefficient")]
-    pub coeff_c: f64,
-    /// Wind speed squared coefficient D [s²/m²]
-    #[serde(default, alias = "wind_squared_coefficient")]
-    pub coeff_d: f64,
+    #[serde(default = "default_a", alias = "coeff_a")]
+    pub constant_coefficient: f64,
+    /// Temperature difference coefficient B [1/°C] — multiplied by |T_zone − T_outdoor|
+    #[serde(default, alias = "coeff_b")]
+    pub temperature_coefficient: f64,
+    /// Wind speed coefficient C [s/m] — multiplied by wind speed V
+    #[serde(default, alias = "coeff_c")]
+    pub wind_coefficient: f64,
+    /// Wind speed squared coefficient D [s²/m²] — multiplied by V²
+    #[serde(default, alias = "coeff_d")]
+    pub wind_squared_coefficient: f64,
     /// Schedule name for time-varying infiltration multiplier.
     /// The schedule fraction (0.0-1.0) multiplies the computed flow rate.
     /// E.g., PNNL infiltration schedule: 1.0 when HVAC off, 0.25 when on.
@@ -42,10 +48,10 @@ impl Default for InfiltrationInput {
         Self {
             design_flow_rate: 0.0,
             air_changes_per_hour: 0.0,
-            coeff_a: 1.0,
-            coeff_b: 0.0,
-            coeff_c: 0.0,
-            coeff_d: 0.0,
+            constant_coefficient: 1.0,
+            temperature_coefficient: 0.0,
+            wind_coefficient: 0.0,
+            wind_squared_coefficient: 0.0,
             schedule: None,
         }
     }
@@ -68,10 +74,10 @@ pub fn calc_infiltration_flow(
     };
 
     let dt = (t_zone - t_outdoor).abs();
-    let factor = input.coeff_a
-        + input.coeff_b * dt
-        + input.coeff_c * wind_speed
-        + input.coeff_d * wind_speed * wind_speed;
+    let factor = input.constant_coefficient
+        + input.temperature_coefficient * dt
+        + input.wind_coefficient * wind_speed
+        + input.wind_squared_coefficient * wind_speed * wind_speed;
 
     (base_flow * factor).max(0.0)
 }
@@ -119,8 +125,8 @@ mod tests {
     fn test_wind_dependent_infiltration() {
         let input = InfiltrationInput {
             design_flow_rate: 0.05,
-            coeff_a: 0.0,
-            coeff_c: 0.01,
+            constant_coefficient: 0.0,
+            wind_coefficient: 0.01,
             ..Default::default()
         };
         let flow_calm = calc_infiltration_flow(&input, 100.0, 21.0, 0.0, 1.0);

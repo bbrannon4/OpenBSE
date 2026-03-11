@@ -230,8 +230,8 @@
 
     "AirLoopSystemType": {
       "type": "string",
-      "enum": ["psz_ac", "doas", "fcu", "vav"],
-      "description": "HVAC system type hint. Usually auto-detected from equipment and controls."
+      "enum": ["psz_ac", "doas", "fcu", "vav", "ptac", "variable_air_volume", "dedicated_outdoor_air", "fan_coil_unit", "packaged_terminal", "packaged_single_zone"],
+      "description": "HVAC system type hint. Usually auto-detected from equipment and controls. Descriptive aliases are accepted: variable_air_volume (=vav), dedicated_outdoor_air (=doas), fan_coil_unit (=fcu), packaged_terminal (=ptac), packaged_single_zone (=psz_ac)."
     },
 
     "CyclingMethod": {
@@ -307,7 +307,7 @@
         },
         "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Nominal heating capacity [W]." },
         "setpoint": { "type": "number", "default": 35.0, "description": "Outlet air temperature setpoint [C]." },
-        "efficiency": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Heating efficiency [0-1]. 1.0 for electric, <1.0 for gas." }
+        "efficiency": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Heating efficiency [0-1]. 1.0 for electric, <1.0 for gas. Ignored for hot_water source (boiler handles efficiency)." }
       }
     },
 
@@ -390,11 +390,11 @@
           "items": { "$ref": "#/$defs/Equipment" },
           "description": "Supply-side equipment in air flow order."
         },
-        "zones": {
+        "zone_terminals": {
           "type": "array",
           "items": { "$ref": "#/$defs/ZoneConnection" },
           "default": [],
-          "description": "Zones served by this air loop."
+          "description": "Zone terminal connections served by this air loop. (Alias: 'zones' is accepted for backward compatibility.)"
         }
       }
     },
@@ -427,10 +427,53 @@
       }
     },
 
+    "PumpRole": {
+      "type": "string",
+      "enum": ["single", "primary", "secondary", "headered"],
+      "default": "single",
+      "description": "Pump role in the plant loop. 'single' = standalone pump, 'primary' = constant flow through boiler/chiller, 'secondary' = variable flow distribution pump, 'headered' = staged pump bank."
+    },
+
+    "PumpControlStrategy": {
+      "type": "string",
+      "enum": ["demand", "continuous", "staged"],
+      "default": "demand",
+      "description": "Pump control strategy. 'demand' = flow varies with load, 'continuous' = constant speed when plant is active, 'staged' = OFF unless staged on by plant controller."
+    },
+
+    "Pump": {
+      "type": "object",
+      "required": ["type", "name", "design_flow_rate"],
+      "description": "Plant water loop pump.",
+      "properties": {
+        "type": { "type": "string", "const": "pump" },
+        "name": { "type": "string" },
+        "pump_type": {
+          "type": "string",
+          "enum": ["constant_speed", "variable_speed"],
+          "default": "variable_speed",
+          "description": "Pump motor type."
+        },
+        "design_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design water flow rate [m3/s]." },
+        "design_head": { "type": "number", "default": 179352.0, "description": "Design pump head [Pa]. Default ~60 ft H2O." },
+        "motor_efficiency": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Motor efficiency [0-1]." },
+        "impeller_efficiency": { "type": "number", "default": 0.667, "minimum": 0, "maximum": 1, "description": "Impeller/hydraulic efficiency [0-1]. Total efficiency = motor_efficiency * impeller_efficiency." },
+        "num_pumps": { "type": "integer", "default": 1, "minimum": 1, "description": "Number of pumps in headered configuration. Each pump's flow = total / num_pumps." },
+        "power_curve": {
+          "type": "array",
+          "items": { "type": "number" },
+          "description": "Part-load power curve coefficients [c1, c2, c3, c4]. power_frac = c1 + c2*PLR + c3*PLR^2 + c4*PLR^3. Default: [0, 0, 0, 1] (affinity laws)."
+        },
+        "role": { "$ref": "#/$defs/PumpRole" },
+        "control_strategy": { "$ref": "#/$defs/PumpControlStrategy" }
+      }
+    },
+
     "PlantEquipment": {
       "oneOf": [
         { "$ref": "#/$defs/Boiler" },
-        { "$ref": "#/$defs/Chiller" }
+        { "$ref": "#/$defs/Chiller" },
+        { "$ref": "#/$defs/Pump" }
       ],
       "description": "Plant-side equipment. Discriminated by the 'type' field."
     },
@@ -720,6 +763,8 @@
         "people_per_area": { "type": "number", "description": "Occupant density [people/m2]." },
         "area_per_person": { "type": "number", "description": "Area per occupant [m2/person]." },
         "activity_level": { "type": "number", "default": 120.0, "description": "Metabolic rate [W/person]." },
+        "sensible_gain_per_person": { "type": "number", "description": "Sensible heat gain per person [W/person]. Alternative to activity_level * sensible_fraction. Overrides activity_level when specified." },
+        "latent_gain_per_person": { "type": "number", "description": "Latent heat gain per person [W/person]. Alternative to activity_level * (1 - sensible_fraction). Overrides activity_level when specified." },
         "radiant_fraction": { "type": "number", "default": 0.3, "minimum": 0, "maximum": 1, "description": "Fraction of heat gain that is radiant [0-1]." },
         "schedule": { "type": "string", "description": "Occupancy schedule name." }
       }
@@ -811,6 +856,13 @@
       }
     },
 
+    "OaMethod": {
+      "type": "string",
+      "enum": ["sum", "maximum"],
+      "default": "sum",
+      "description": "Method for combining per-person and per-area outdoor air rates. 'sum' adds both contributions; 'maximum' takes the larger of the two."
+    },
+
     "OutdoorAir": {
       "type": "object",
       "required": ["name", "zones"],
@@ -819,7 +871,8 @@
         "name": { "type": "string" },
         "zones": { "type": "array", "items": { "type": "string" }, "description": "Zone or zone group names." },
         "per_person": { "type": "number", "default": 0, "description": "OA per person [m3/s per person]." },
-        "per_area": { "type": "number", "default": 0, "description": "OA per floor area [m3/s per m2]." }
+        "per_area": { "type": "number", "default": 0, "description": "OA per floor area [m3/s per m2]." },
+        "oa_method": { "$ref": "#/$defs/OaMethod", "description": "Method for combining per-person and per-area rates. Default: 'sum'." }
       }
     },
 

@@ -177,6 +177,12 @@ zones:
     volume: 732.0
     floor_area: 200.0
 
+# --- Zone Groups ---
+zone_groups:
+  - name: Retail Zone
+    zones:
+      - Retail Space
+
 # --- People ---
 people:
   - name: Retail Customers and Staff
@@ -342,7 +348,7 @@ air_loops:
         supplemental_capacity: 10000
         lockout_temp: -17.78
 
-    zones:
+    zone_terminals:
       - zone: Retail Space
 
 # --- Domestic Hot Water System ---
@@ -362,12 +368,6 @@ dhw_systems:
         peak_flow_rate: 0.0001
         use_temperature: 43.3
         schedule: DHW Draw Schedule
-
-# --- Zone Groups ---
-zone_groups:
-  - name: Retail Zone
-    zones:
-      - Retail Space
 
 # --- Thermostats ---
 thermostats:

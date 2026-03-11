@@ -8,6 +8,7 @@ simulation:
   start_day: 1
   end_month: 12
   end_day: 31
+  terrain: city
 weather_files:
 - Boulder.epw
 design_days:
@@ -31,6 +32,24 @@ design_days:
   month: 7
   day: 21
   day_type: summer
+
+# E+ PTU performance curves for Coil:Cooling:DX:SingleSpeed
+performance_curves:
+- name: PTU_CapFT
+  curve_type: biquadratic
+  coefficients: [0.942587793, 0.009543347, 0.00068377, -0.011042676, 0.000005249, -0.00000972]
+  min_x: 12.77778
+  max_x: 23.88889
+  min_y: 23.88889
+  max_y: 46.11111
+- name: PTU_EIRFT
+  curve_type: biquadratic
+  coefficients: [0.342414409, 0.034885008, -0.0006237, 0.004977216, 0.000437951, -0.000728028]
+  min_x: 12.77778
+  max_x: 23.88889
+  min_y: 23.88889
+  max_y: 46.11111
+
 schedules:
 - name: Working Family Occupancy
   weekday:
@@ -598,7 +617,7 @@ materials:
   conductivity: 0.72
   density: 1856
   specific_heat: 840
-  solar_absorptance: 0.92
+  solar_absorptance: 0.7
   thermal_absorptance: 0.9
   roughness: smooth
 - name: Gypsum 16mm
@@ -721,12 +740,25 @@ simple_constructions:
   thermal_capacity: 200000.0
   solar_absorptance: 0.7
   thermal_absorptance: 0.9
+f_factor_constructions:
 - name: Ground Floor Slab
-  u_factor: 0.2
-  thickness: 0.27
+  f_factor: 1.264
   thermal_capacity: 400000.0
   solar_absorptance: 0.7
   thermal_absorptance: 0.9
+  ground_temperatures:
+  - 7.1
+  - 3.0
+  - -1.0
+  - 0.8
+  - -0.2
+  - 4.8
+  - 6.1
+  - 13.7
+  - 22.2
+  - 22.7
+  - 21.7
+  - 18.5
 window_constructions:
 - name: Res Window
   u_factor: 3.237
@@ -826,6 +858,38 @@ zones:
   volume: 236.7
   floor_area: 77.6
   conditioned: false
+zone_groups:
+- name: Apartment Zones
+  zones:
+  - G SW Apt
+  - G S1 Apt
+  - G S2 Apt
+  - M SW Apt
+  - M S1 Apt
+  - M S2 Apt
+  - M SE Apt
+  - T SW Apt
+  - T S1 Apt
+  - T S2 Apt
+  - T SE Apt
+  - G NW Apt
+  - G N1 Apt
+  - G N2 Apt
+  - G NE Apt
+  - M NW Apt
+  - M N1 Apt
+  - M N2 Apt
+  - M NE Apt
+  - T NW Apt
+  - T N1 Apt
+  - T N2 Apt
+  - T NE Apt
+  - Office
+- name: Corridor Zones
+  zones:
+  - G Corridor
+  - M Corridor
+  - T Corridor
 people:
 - name: Working Family People
   zones:
@@ -1020,7 +1084,6 @@ outdoor_air:
   - G N1 Apt
   - G N2 Apt
   - G NE Apt
-  - G Corridor
   - M SW Apt
   - M S1 Apt
   - M S2 Apt
@@ -1029,7 +1092,6 @@ outdoor_air:
   - M N1 Apt
   - M N2 Apt
   - M NE Apt
-  - M Corridor
   - T SW Apt
   - T S1 Apt
   - T S2 Apt
@@ -1038,7 +1100,6 @@ outdoor_air:
   - T N1 Apt
   - T N2 Apt
   - T NE Apt
-  - T Corridor
   per_area: 0.000294
 surfaces:
 - name: G SW Apt South Wall
@@ -1169,6 +1230,7 @@ surfaces:
   - x: 0
     y: 0.0
     z: 0.0
+  exposed_perimeter: 19.2
 - name: G SW Apt Ceiling
   zone: G SW Apt
   type: ceiling
@@ -1296,6 +1358,7 @@ surfaces:
   - x: 11.582
     y: 0.0
     z: 0.0
+  exposed_perimeter: 11.58
 - name: G S1 Apt Ceiling
   zone: G S1 Apt
   type: ceiling
@@ -1423,6 +1486,7 @@ surfaces:
   - x: 23.164
     y: 0.0
     z: 0.0
+  exposed_perimeter: 11.58
 - name: G S2 Apt Ceiling
   zone: G S2 Apt
   type: ceiling
@@ -1569,6 +1633,7 @@ surfaces:
   - x: 34.746
     y: 0.0
     z: 0.0
+  exposed_perimeter: 19.2
 - name: Office Ceiling
   zone: Office
   type: ceiling
@@ -1715,6 +1780,7 @@ surfaces:
   - x: 0
     y: 9.296
     z: 0.0
+  exposed_perimeter: 19.2
 - name: G NW Apt Ceiling
   zone: G NW Apt
   type: ceiling
@@ -1842,6 +1908,7 @@ surfaces:
   - x: 11.582
     y: 9.296
     z: 0.0
+  exposed_perimeter: 11.58
 - name: G N1 Apt Ceiling
   zone: G N1 Apt
   type: ceiling
@@ -1969,6 +2036,7 @@ surfaces:
   - x: 23.164
     y: 9.296
     z: 0.0
+  exposed_perimeter: 11.58
 - name: G N2 Apt Ceiling
   zone: G N2 Apt
   type: ceiling
@@ -2115,6 +2183,7 @@ surfaces:
   - x: 34.746
     y: 9.296
     z: 0.0
+  exposed_perimeter: 19.2
 - name: G NE Apt Ceiling
   zone: G NE Apt
   type: ceiling
@@ -2331,6 +2400,7 @@ surfaces:
   - x: 0.0
     y: 7.62
     z: 0.0
+  exposed_perimeter: 3.35
 - name: G Corridor Ceiling
   zone: G Corridor
   type: ceiling
@@ -4973,6 +5043,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan G SW Apt
@@ -4987,7 +5058,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC G SW Apt
@@ -4996,7 +5066,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: G SW Apt
 - name: PTAC G S1 Apt
   system_type: ptac
@@ -5005,6 +5077,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan G S1 Apt
@@ -5019,7 +5092,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC G S1 Apt
@@ -5028,7 +5100,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: G S1 Apt
 - name: PTAC G S2 Apt
   system_type: ptac
@@ -5037,6 +5111,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan G S2 Apt
@@ -5051,7 +5126,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC G S2 Apt
@@ -5060,7 +5134,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: G S2 Apt
 - name: PTAC Office
   system_type: ptac
@@ -5069,6 +5145,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan Office
@@ -5083,7 +5160,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC Office
@@ -5092,7 +5168,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: Office
 - name: PTAC G NW Apt
   system_type: ptac
@@ -5101,6 +5179,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan G NW Apt
@@ -5115,7 +5194,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC G NW Apt
@@ -5124,7 +5202,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: G NW Apt
 - name: PTAC G N1 Apt
   system_type: ptac
@@ -5133,6 +5213,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan G N1 Apt
@@ -5147,7 +5228,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC G N1 Apt
@@ -5156,7 +5236,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: G N1 Apt
 - name: PTAC G N2 Apt
   system_type: ptac
@@ -5165,6 +5247,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan G N2 Apt
@@ -5179,7 +5262,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC G N2 Apt
@@ -5188,7 +5270,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: G N2 Apt
 - name: PTAC G NE Apt
   system_type: ptac
@@ -5197,6 +5281,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan G NE Apt
@@ -5211,7 +5296,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC G NE Apt
@@ -5220,7 +5304,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: G NE Apt
 - name: PTAC M SW Apt
   system_type: ptac
@@ -5229,6 +5315,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan M SW Apt
@@ -5243,7 +5330,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC M SW Apt
@@ -5252,7 +5338,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: M SW Apt
 - name: PTAC M S1 Apt
   system_type: ptac
@@ -5261,6 +5349,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan M S1 Apt
@@ -5275,7 +5364,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC M S1 Apt
@@ -5284,7 +5372,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: M S1 Apt
 - name: PTAC M S2 Apt
   system_type: ptac
@@ -5293,6 +5383,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan M S2 Apt
@@ -5307,7 +5398,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC M S2 Apt
@@ -5316,7 +5406,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: M S2 Apt
 - name: PTAC M SE Apt
   system_type: ptac
@@ -5325,6 +5417,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan M SE Apt
@@ -5339,7 +5432,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC M SE Apt
@@ -5348,7 +5440,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: M SE Apt
 - name: PTAC M NW Apt
   system_type: ptac
@@ -5357,6 +5451,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan M NW Apt
@@ -5371,7 +5466,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC M NW Apt
@@ -5380,7 +5474,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: M NW Apt
 - name: PTAC M N1 Apt
   system_type: ptac
@@ -5389,6 +5485,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan M N1 Apt
@@ -5403,7 +5500,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC M N1 Apt
@@ -5412,7 +5508,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: M N1 Apt
 - name: PTAC M N2 Apt
   system_type: ptac
@@ -5421,6 +5519,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan M N2 Apt
@@ -5435,7 +5534,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC M N2 Apt
@@ -5444,7 +5542,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: M N2 Apt
 - name: PTAC M NE Apt
   system_type: ptac
@@ -5453,6 +5553,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan M NE Apt
@@ -5467,7 +5568,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC M NE Apt
@@ -5476,7 +5576,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: M NE Apt
 - name: PTAC T SW Apt
   system_type: ptac
@@ -5485,6 +5587,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan T SW Apt
@@ -5499,7 +5602,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC T SW Apt
@@ -5508,7 +5610,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: T SW Apt
 - name: PTAC T S1 Apt
   system_type: ptac
@@ -5517,6 +5621,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan T S1 Apt
@@ -5531,7 +5636,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC T S1 Apt
@@ -5540,7 +5644,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: T S1 Apt
 - name: PTAC T S2 Apt
   system_type: ptac
@@ -5549,6 +5655,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan T S2 Apt
@@ -5563,7 +5670,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC T S2 Apt
@@ -5572,7 +5678,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: T S2 Apt
 - name: PTAC T SE Apt
   system_type: ptac
@@ -5581,6 +5689,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan T SE Apt
@@ -5595,7 +5704,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC T SE Apt
@@ -5604,7 +5712,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: T SE Apt
 - name: PTAC T NW Apt
   system_type: ptac
@@ -5613,6 +5723,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan T NW Apt
@@ -5627,7 +5738,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC T NW Apt
@@ -5636,7 +5746,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: T NW Apt
 - name: PTAC T N1 Apt
   system_type: ptac
@@ -5645,6 +5757,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan T N1 Apt
@@ -5659,7 +5772,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC T N1 Apt
@@ -5668,7 +5780,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: T N1 Apt
 - name: PTAC T N2 Apt
   system_type: ptac
@@ -5677,6 +5791,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan T N2 Apt
@@ -5691,7 +5806,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC T N2 Apt
@@ -5700,7 +5814,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: T N2 Apt
 - name: PTAC T NE Apt
   system_type: ptac
@@ -5709,6 +5825,7 @@ air_loops:
     cooling_supply_temp: 12.8
     design_zone_flow: autosize
     minimum_damper_position: 0.0
+    fan_operating_mode: continuous
   equipment:
   - type: fan
     name: Fan T NE Apt
@@ -5723,7 +5840,6 @@ air_loops:
     source: hot_water
     capacity: autosize
     setpoint: 40.0
-    efficiency: 1.0
     plant_loop: HHW Loop
   - type: cooling_coil
     name: CC T NE Apt
@@ -5732,7 +5848,9 @@ air_loops:
     shr: 0.75
     rated_airflow: autosize
     setpoint: 12.8
-  zones:
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
   - zone: T NE Apt
 plant_loops:
 - name: HHW Loop
@@ -5753,7 +5871,7 @@ plant_loops:
     design_water_flow_rate: autosize
 dhw_systems:
 - name: Apartment DHW
-  mains_temperature: 10.0
+  mains_temperature: 12.0
   water_heater:
     name: Gas Water Heater
     fuel_type: gas
@@ -5774,35 +5892,6 @@ exterior_equipment:
   schedule: Exterior Lights Schedule
   fuel: electricity
   subcategory: exterior_lights
-zone_groups:
-- name: Apartment Zones
-  zones:
-  - G SW Apt
-  - G S1 Apt
-  - G S2 Apt
-  - M SW Apt
-  - M S1 Apt
-  - M S2 Apt
-  - M SE Apt
-  - T SW Apt
-  - T S1 Apt
-  - T S2 Apt
-  - T SE Apt
-  - G NW Apt
-  - G N1 Apt
-  - G N2 Apt
-  - G NE Apt
-  - M NW Apt
-  - M N1 Apt
-  - M N2 Apt
-  - M NE Apt
-  - T NW Apt
-  - T N1 Apt
-  - T N2 Apt
-  - T NE Apt
-  - Office
-- name: Corridor Zones
-  zones: *id002
 thermostats:
 - name: Apartment Thermostat
   zones:
@@ -5819,5 +5908,15 @@ outputs:
   - zone_infiltration_mass_flow
   - zone_supply_air_temperature
   - zone_supply_air_mass_flow
+  - site_outdoor_temperature
+- file: surface_results.csv
+  frequency: hourly
+  variables:
+  - surface_inside_temperature
+  - surface_outside_temperature
+  - surface_conduction_inside
+  - surface_convection_inside
+  - surface_transmitted_solar
+  - surface_incident_solar
   - site_outdoor_temperature
 summary_report: true

@@ -217,17 +217,35 @@ def gen_zone_surfaces(zone_name, floor_key, col_idx, row, ext_walls,
     if floor_key == 'G':
         floor_cons = 'Ground Floor Slab'
         floor_bnd = 'ground'
+        # Compute exposed perimeter for F-factor method.
+        # Only exterior wall edges contribute to exposed perimeter.
+        exposed_peri = 0.0
+        width = x2 - x1
+        depth = y2 - y1
+        for d in ext_walls:
+            if d in ('south', 'north'):
+                exposed_peri += width
+            elif d in ('west', 'east'):
+                exposed_peri += depth
+        # For corridors, ext_walls is passed differently; calculate from corridor geometry
+        if is_corridor:
+            # Corridor has only west and east exterior walls (short sides)
+            exposed_peri = 2 * depth  # both short ends
     else:
         floor_cons = 'Interzone Floor'
         floor_bnd = 'adiabatic'
-    surfaces.append({
+        exposed_peri = None
+    floor_entry = {
         'name': f"{zone_name} Floor",
         'zone': zone_name,
         'type': 'floor',
         'construction': floor_cons,
         'boundary': floor_bnd,
         'vertices': floor_vertices(x1, x2, y1, y2, z_bot),
-    })
+    }
+    if exposed_peri is not None:
+        floor_entry['exposed_perimeter'] = r(exposed_peri, 2)
+    surfaces.append(floor_entry)
 
     # Ceiling/Roof
     if floor_key == 'T':
@@ -314,6 +332,7 @@ def build_model():
                     'cooling_supply_temp': 12.8,
                     'design_zone_flow': 'autosize',
                     'minimum_damper_position': 0.0,
+                    'fan_operating_mode': 'continuous',
                 },
                 'equipment': [
                     {
@@ -332,7 +351,6 @@ def build_model():
                         'source': 'hot_water',
                         'capacity': 'autosize',
                         'setpoint': 40.0,
-                        'efficiency': 1.0,
                         'plant_loop': 'HHW Loop',
                     },
                     {
@@ -345,7 +363,7 @@ def build_model():
                         'setpoint': 12.8,
                     },
                 ],
-                'zones': [{'zone': zone_name}],
+                'zone_terminals': [{'zone': zone_name}],
             })
 
         # North row apartments
@@ -374,6 +392,7 @@ def build_model():
                     'cooling_supply_temp': 12.8,
                     'design_zone_flow': 'autosize',
                     'minimum_damper_position': 0.0,
+                    'fan_operating_mode': 'continuous',
                 },
                 'equipment': [
                     {
@@ -392,7 +411,6 @@ def build_model():
                         'source': 'hot_water',
                         'capacity': 'autosize',
                         'setpoint': 40.0,
-                        'efficiency': 1.0,
                         'plant_loop': 'HHW Loop',
                     },
                     {
@@ -405,7 +423,7 @@ def build_model():
                         'setpoint': 12.8,
                     },
                 ],
-                'zones': [{'zone': zone_name}],
+                'zone_terminals': [{'zone': zone_name}],
             })
 
         # Corridor (unconditioned — matches E+ where corridors have no HVAC)
@@ -460,17 +478,24 @@ def build_model():
         if floor_key == 'G':
             floor_cons = 'Ground Floor Slab'
             floor_bnd = 'ground'
+            # Corridor exposed perimeter: only the two short (east/west) ends.
+            # E+ IDF shows gFloorC_Ffactor with P=3.35m.
+            cor_floor_peri = r(2 * COR_D, 2)  # 2 × 1.676 = 3.352 m
         else:
             floor_cons = 'Interzone Floor'
             floor_bnd = 'adiabatic'
-        all_surfaces.append({
+            cor_floor_peri = None
+        cor_floor_entry = {
             'name': f"{cor_name} Floor",
             'zone': cor_name,
             'type': 'floor',
             'construction': floor_cons,
             'boundary': floor_bnd,
             'vertices': floor_vertices(r(0.0), r(COR_W), cor_y1, cor_y2, z_bot),
-        })
+        }
+        if cor_floor_peri is not None:
+            cor_floor_entry['exposed_perimeter'] = cor_floor_peri
+        all_surfaces.append(cor_floor_entry)
 
         # Ceiling or roof
         if floor_key == 'T':
@@ -718,7 +743,7 @@ def build_model():
     # Materials
     model['materials'] = [
         {'name': 'Stucco', 'conductivity': 0.72, 'density': 1856, 'specific_heat': 840,
-         'solar_absorptance': 0.92, 'thermal_absorptance': 0.9, 'roughness': 'smooth'},
+         'solar_absorptance': 0.7, 'thermal_absorptance': 0.9, 'roughness': 'smooth'},
         {'name': 'Gypsum 16mm', 'conductivity': 0.16, 'density': 800, 'specific_heat': 1090,
          'solar_absorptance': 0.4, 'thermal_absorptance': 0.9, 'roughness': 'medium_smooth'},
         {'name': 'Gypsum 13mm', 'conductivity': 0.16, 'density': 800, 'specific_heat': 1090,
@@ -777,21 +802,26 @@ def build_model():
     ]
 
     # Simple constructions
-    # Ground Floor Slab uses E+ F-factor-equivalent U-value.
-    # E+ uses Construction:FfactorGroundFloor with F = 1.26 W/(m·K).
-    # F-factor heat loss is perimeter-based (Q = F × P × ΔT), much lower
-    # than area-based U-value conduction (Q = U × A × ΔT).
-    # Weighted average across apartments:
-    #   Corner (P≈19.2m, A≈88.25m²): U_eq = 1.26 × 19.2 / 88.25 = 0.275
-    #   Interior (P≈11.58m, A≈88.25m²): U_eq = 1.26 × 11.58 / 88.25 = 0.166
-    #   Building weighted avg ≈ 0.20 W/(m²·K)
     model['simple_constructions'] = [
         {'name': 'Interior Partition', 'u_factor': 4.0, 'thickness': 0.0254,
          'thermal_capacity': 22000.0, 'solar_absorptance': 0.4, 'thermal_absorptance': 0.9},
         {'name': 'Interzone Floor', 'u_factor': 3.0, 'thickness': 0.12,
          'thermal_capacity': 200000.0, 'solar_absorptance': 0.7, 'thermal_absorptance': 0.9},
-        {'name': 'Ground Floor Slab', 'u_factor': 0.20, 'thickness': 0.27,
-         'thermal_capacity': 400000.0, 'solar_absorptance': 0.7, 'thermal_absorptance': 0.9},
+    ]
+
+    # F-factor ground floor construction (matching E+ Construction:FfactorGroundFloor).
+    # Heat loss = F × P × (T_zone - T_ground), perimeter-based, NOT area-based.
+    # Each surface specifies its own exposed_perimeter.
+    # Ground temperatures from E+ Site:GroundTemperature:FCfactorMethod for Denver/Boulder.
+    model['f_factor_constructions'] = [
+        {
+            'name': 'Ground Floor Slab',
+            'f_factor': 1.264,             # W/(m·K), from E+ IDF
+            'thermal_capacity': 400000.0,   # J/(m²·K), ~200mm concrete slab
+            'solar_absorptance': 0.7,
+            'thermal_absorptance': 0.9,
+            'ground_temperatures': [7.1, 3.0, -1.0, 0.8, -0.2, 4.8, 6.1, 13.7, 22.2, 22.7, 21.7, 18.5],
+        },
     ]
 
     # Window constructions
@@ -806,8 +836,10 @@ def build_model():
     model['infiltration'] = infiltration
 
     # Outdoor air
+    # Only apartment zones get mechanical ventilation (ERV in E+).
+    # Corridors have NO ERVs or mechanical ventilation in E+ — only infiltration.
     model['outdoor_air'] = [
-        {'name': 'Apartment Ventilation', 'zones': [z['name'] for z in zones],
+        {'name': 'Apartment Ventilation', 'zones': all_apt_zones,
          'per_area': 0.000294},
     ]
 

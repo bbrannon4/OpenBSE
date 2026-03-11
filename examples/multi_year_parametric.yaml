@@ -63,7 +63,7 @@ air_loops:
         impeller_efficiency: 0.78
         motor_efficiency: 0.9
         motor_in_airstream_fraction: 1.0
-    zones:
+    zone_terminals:
       - zone: Office Zone
 
 parametrics:

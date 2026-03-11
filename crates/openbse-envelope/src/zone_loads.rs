@@ -53,6 +53,14 @@ pub struct PeopleInput {
     /// Schedule name for time-varying occupancy
     #[serde(default)]
     pub schedule: Option<String>,
+    /// Alternative: explicit sensible gain [W/person].
+    /// When set, overrides `activity_level × sensible_fraction`.
+    #[serde(default)]
+    pub sensible_gain_per_person: Option<f64>,
+    /// Alternative: explicit latent gain [W/person].
+    /// When set, overrides `activity_level × (1 - sensible_fraction)`.
+    #[serde(default)]
+    pub latent_gain_per_person: Option<f64>,
 }
 
 fn default_activity() -> f64 { 120.0 }

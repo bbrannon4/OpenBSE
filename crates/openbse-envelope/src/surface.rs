@@ -88,6 +88,13 @@ pub struct SurfaceInput {
     /// Matches EnergyPlus `NoWind` surface property.
     #[serde(default = "default_true")]
     pub wind_exposure: bool,
+    /// Exposed perimeter [m] for F-factor ground floor constructions.
+    ///
+    /// Required when the surface uses an `f_factor_constructions` construction.
+    /// The effective U-factor is computed as: U_eff = F × P / A.
+    /// Matches EnergyPlus `Construction:FfactorGroundFloor` PerimeterExposed.
+    #[serde(default)]
+    pub exposed_perimeter: Option<f64>,
 }
 
 fn default_true() -> bool { true }
@@ -215,4 +222,14 @@ pub struct SurfaceState {
     /// 0=floor, 1=ceiling, 2=south, 3=north, 4=east, 5=west.
     /// `None` for surfaces in zones without view factor support.
     pub box_face: Option<usize>,
+    /// Monthly ground temperatures [°C] for F-factor ground floors.
+    /// When `Some`, these override the building-level ground temperature model
+    /// for this surface. Matches EnergyPlus `Site:GroundTemperature:FCfactorMethod`.
+    pub f_factor_ground_temps: Option<[f64; 12]>,
+    /// Conduction heat flux into zone from inside face of surface [W] (total, not per m²).
+    /// Stored from the CTF apply_ctf() result each timestep.
+    pub q_cond_inside: f64,
+    /// Conduction heat flux from outside into surface [W] (total, not per m²).
+    /// Stored from the CTF apply_ctf() result each timestep.
+    pub q_cond_outside: f64,
 }

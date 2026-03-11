@@ -200,36 +200,41 @@ window_constructions:
     visible_transmittance: 0.50
 
 # ─── Zones ──────────────────────────────────────────────────────────────────
-
 zones:
   # ── Sales Area ──
-  # Main retail space: 12m × 5m × 3.66m = 219.6 m³
+  # Main retail space: 12m × 5m × 3.66m
   # South-facing storefront window
   - name: Sales Area
-    volume: 219.6               # 12 × 5 × 3.66
-    floor_area: 60.0            # 12 × 5
+    volume: 219.6        # 12 × 5 × 3.66
+    floor_area: 60.0     # 12 × 5
 
-  # ── Office ──
   # Back-of-house office: 4m × 3m × 3.66m = 43.92 m³
   # Conditioned by same RTU as Sales Area
   - name: Office
-    volume: 43.92               # 4 × 3 × 3.66
-    floor_area: 12.0            # 4 × 3
+    volume: 43.92        # 4 × 3 × 3.66
+    floor_area: 12.0     # 4 × 3
 
-  # ── Restroom ──
   # Unconditioned restroom: 2m × 3m × 3.66m = 21.96 m³
   # Has exhaust fan, no HVAC supply
   - name: Restroom
-    volume: 21.96               # 2 × 3 × 3.66
-    floor_area: 6.0             # 2 × 3
+    volume: 21.96        # 2 × 3 × 3.66
+    floor_area: 6.0      # 2 × 3
     conditioned: false
 
-  # ── Storage ──
-  # Unconditioned storage room: 6m × 3m × 3.66m = 65.88 m³
+  # Unconditioned storage room: 6m × 3m × 3.66m
   - name: Storage
-    volume: 65.88               # 6 × 3 × 3.66
-    floor_area: 18.0            # 6 × 3
+    volume: 65.88        # 6 × 3 × 3.66
+    floor_area: 18.0     # 6 × 3
     conditioned: false
+
+# ─── Zone Groups ───────────────────────────────────────────────────────────
+# Defines which zones are grouped together for HVAC control.
+
+zone_groups:
+  - name: Retail RTU Zones
+    zones:
+      - Sales Area
+      - Office
 
 # ─── People ───────────────────────────────────────────────────────────────────
 
@@ -721,18 +726,9 @@ air_loops:
         rated_airflow: autosize
         setpoint: 13.0
 
-    zones:
+    zone_terminals:
       - zone: Sales Area
       - zone: Office
-
-# ─── Zone Groups ───────────────────────────────────────────────────────────
-# Defines which zones are grouped together for HVAC control.
-
-zone_groups:
-  - name: Retail RTU Zones
-    zones:
-      - Sales Area
-      - Office
 
 # ─── Thermostats ───────────────────────────────────────────────────────────
 # Thermostat in Sales Area controls both zones in the Retail RTU group.

@@ -26,7 +26,7 @@ pub mod zone_loads;
 pub mod shading;
 
 pub use heat_balance::BuildingEnvelope;
-pub use material::{Material, Construction, ConstructionLayer, ResolvedLayer, WindowConstruction, SimpleConstruction};
+pub use material::{Material, Construction, ConstructionLayer, ResolvedLayer, WindowConstruction, SimpleConstruction, FFactorConstruction};
 pub use zone_loads::{PeopleInput, LightsInput, EquipmentGainInput, InfiltrationTopLevel,
     VentilationTopLevel, VentilationCombiningMethod, ExhaustFanTopLevel, OutdoorAirTopLevel,
     IdealLoadsTopLevel, ThermostatInput};
@@ -36,6 +36,6 @@ pub use zone::{ZoneInput, IdealLoadsAirSystem, ThermostatScheduleEntry,
 pub use infiltration::InfiltrationInput;
 pub use internal_gains::InternalGainInput;
 pub use schedule::{ScheduleInput, ScheduleManager, day_of_week};
-pub use geometry::Point3D;
+pub use geometry::{Point3D, CardinalDirection, EnvelopeAreas, azimuth_to_cardinal};
 pub use ground_temp::GroundTempModel;
 pub use shading::{ShadingSurfaceInput, WindowShadingInput, OverhangInput, FinInput, ShadingCalculation};

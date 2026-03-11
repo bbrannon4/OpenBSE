@@ -565,14 +565,21 @@ pub fn angular_shgc_modifier(cos_incidence: f64, shgc: f64, kd: f64, ni: f64, n:
         return 0.0;
     }
 
-    if shgc >= 0.55 {
-        // Clear glass: Fresnel optics with full SHGC(θ) = τ(θ) + N_i × α(θ)
+    // When kd and ni are both zero (Method 3 fallback — no real per-pane
+    // optical properties), the Fresnel model produces meaningless results
+    // (pure glass τ ≈ 0.847, modifier clamped to 1.0). In that case, use
+    // the polynomial model which was designed for low-e/tinted glass.
+    let have_fresnel_params = kd > 1e-12 || ni > 1e-12;
+
+    if shgc >= 0.55 && have_fresnel_params {
+        // Clear glass with real Fresnel parameters: full SHGC(θ) = τ(θ) + N_i × α(θ)
         fresnel_double_pane_modifier(c, shgc, kd, ni, n)
-    } else if shgc <= 0.25 {
-        // Low-e / coated glass: use polynomial
+    } else if shgc <= 0.25 || !have_fresnel_params {
+        // Low-e / coated glass, or any glass without per-pane optical data:
+        // use polynomial angular model
         polynomial_angular_modifier(c)
     } else {
-        // Intermediate: blend between Fresnel (clear) and polynomial (low-e)
+        // Intermediate SHGC with real per-pane properties: blend Fresnel ↔ polynomial
         let blend = (shgc - 0.25) / (0.55 - 0.25);
         let clear_mod = fresnel_double_pane_modifier(c, shgc, kd, ni, n);
         let lowe_mod = polynomial_angular_modifier(c);
