@@ -63,6 +63,14 @@ pub struct WaterHeater {
     pub ua_standby: f64,
     /// Ambient temperature around the tank [degC].
     pub ambient_temp: f64,
+    /// Constant parasitic fuel/electricity consumption [W].
+    ///
+    /// This represents continuous fuel draw that does NOT heat the tank
+    /// (e.g., pilot light, jacket heaters, controls). It is added to
+    /// fuel_power/electric_power output regardless of burner on/off state.
+    /// Matches the EnergyPlus Off-Cycle and On-Cycle Parasitic fields
+    /// when both have the same value and zero heat fraction to tank.
+    pub parasitic_power: f64,
 
     // ---- Runtime state (not serialised) ------------------------------------
     /// Current average tank temperature [degC].
@@ -109,6 +117,7 @@ impl WaterHeater {
             deadband: 5.0,
             ua_standby,
             ambient_temp: 20.0,
+            parasitic_power: 0.0,
             // Initialise tank at setpoint
             tank_temp: setpoint,
             heating_rate: 0.0,
@@ -165,7 +174,9 @@ impl WaterHeater {
 
         // Store runtime outputs
         self.heating_rate = q_input;
-        self.energy_input = energy_input;
+        // Include constant parasitic draw (pilot light, controls, etc.)
+        // Parasitic does NOT heat the tank — it is pure fuel waste.
+        self.energy_input = energy_input + self.parasitic_power;
     }
 
     /// Electric power consumption [W].

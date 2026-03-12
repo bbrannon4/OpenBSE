@@ -141,6 +141,13 @@ impl AirComponent for HeatingCoil {
         // Only heat, don't cool
         let q_required = q_required.max(0.0);
 
+        // Guard against AUTOSIZE sentinel (-99999) that was never resolved
+        if self.nominal_capacity < 0.0 {
+            self.heating_rate = 0.0;
+            self.energy_consumption = 0.0;
+            return *inlet;
+        }
+
         match self.coil_type {
             HeatingCoilType::Electric => {
                 // Limit by capacity

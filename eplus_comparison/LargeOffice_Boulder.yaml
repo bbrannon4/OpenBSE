@@ -9,12 +9,15 @@
 # All numeric values extracted from DOE Prototype LargeOffice_Denver.idf
 
 simulation:
-  timesteps_per_hour: 1
+  timesteps_per_hour: 6
   start_month: 1
   start_day: 1
   end_month: 12
   end_day: 31
   terrain: city
+  # E+ Site:GroundTemperature:FCfactorMethod for Denver/Boulder.
+  # Used by basement walls (only remaining ground-boundary surfaces).
+  ground_surface_temperatures: [7.1, 3.0, -1.0, 0.8, -0.2, 4.8, 6.1, 13.7, 22.2, 22.7, 21.7, 18.5]
 
 weather_files:
   - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
@@ -278,9 +281,15 @@ simple_constructions:
     thermal_absorptance: 0.9
 
   # Adiabatic floor/ceiling (for interzone)
+  # U=3.0 is typical for a concrete slab. Since these surfaces have
+  # boundary: adiabatic (T_outside = T_inside), U doesn't affect
+  # steady-state heat flux — it only controls the CTF transient
+  # response and thermal mass coupling to zone air.
+  # U=0.01 caused NaN in CTF at sub-hourly timesteps (state-space
+  # matrix too large from 2m synthetic insulation layer).
   - name: Adiabatic Assembly
-    u_factor: 0.01
-    thickness: 0.4
+    u_factor: 3.0
+    thickness: 0.1
     thermal_capacity: 200000.0
     solar_absorptance: 0.5
     thermal_absorptance: 0.9
@@ -303,95 +312,96 @@ window_constructions:
 #
 zones:
   # --- Bottom floor (floor 1) ---
+  # Volumes and areas from E+ eplustbl.csv Zone Information table
   - name: Core_bottom
-    volume: 10034.1
-    floor_area: 2532.3
+    volume: 6849.4
+    floor_area: 2496.12
 
   - name: Perimeter_bot_ZN_1
-    volume: 1324.8
-    floor_area: 334.3
+    volume: 860.0
+    floor_area: 313.42
 
   - name: Perimeter_bot_ZN_2
-    volume: 883.2
-    floor_area: 222.9
+    volume: 554.2
+    floor_area: 201.98
 
   - name: Perimeter_bot_ZN_3
-    volume: 1324.8
-    floor_area: 334.3
+    volume: 860.0
+    floor_area: 313.41
 
   - name: Perimeter_bot_ZN_4
-    volume: 883.2
-    floor_area: 222.9
+    volume: 554.2
+    floor_area: 201.98
 
   # --- Mid floors (floor 2-11, multiplier=10) ---
   - name: Core_mid
-    volume: 10034.1
-    floor_area: 2532.3
+    volume: 6849.4
+    floor_area: 2496.12
     multiplier: 10
 
   - name: Perimeter_mid_ZN_1
-    volume: 1324.8
-    floor_area: 334.3
+    volume: 860.0
+    floor_area: 313.42
     multiplier: 10
 
   - name: Perimeter_mid_ZN_2
-    volume: 883.2
-    floor_area: 222.9
+    volume: 554.2
+    floor_area: 201.98
     multiplier: 10
 
   - name: Perimeter_mid_ZN_3
-    volume: 1324.8
-    floor_area: 334.3
+    volume: 860.0
+    floor_area: 313.41
     multiplier: 10
 
   - name: Perimeter_mid_ZN_4
-    volume: 883.2
-    floor_area: 222.9
+    volume: 554.2
+    floor_area: 201.98
     multiplier: 10
 
   # --- Top floor (floor 12) ---
   - name: Core_top
-    volume: 10034.1
-    floor_area: 2532.3
+    volume: 6849.4
+    floor_area: 2496.12
 
   - name: Perimeter_top_ZN_1
-    volume: 1324.8
-    floor_area: 334.3
+    volume: 860.0
+    floor_area: 313.42
 
   - name: Perimeter_top_ZN_2
-    volume: 883.2
-    floor_area: 222.9
+    volume: 554.2
+    floor_area: 201.98
 
   - name: Perimeter_top_ZN_3
-    volume: 1324.8
-    floor_area: 334.3
+    volume: 860.0
+    floor_area: 313.41
 
   - name: Perimeter_top_ZN_4
-    volume: 883.2
-    floor_area: 222.9
+    volume: 554.2
+    floor_area: 201.98
 
   # --- Basement ---
   - name: Basement
-    volume: 7261.2
-    floor_area: 2977.1
+    volume: 6779.0
+    floor_area: 2779.43
 
   # --- Data Center zones ---
   - name: DataCenter_basement_ZN_6
-    volume: 1429.3
-    floor_area: 586.0
+    volume: 1911.4
+    floor_area: 783.68
 
   - name: DataCenter_bot_ZN_6
-    volume: 2322.0
-    floor_area: 586.0
+    volume: 99.3
+    floor_area: 36.20
 
   - name: DataCenter_mid_ZN_6
-    volume: 2322.0
-    floor_area: 586.0
+    volume: 99.3
+    floor_area: 36.20
     multiplier: 10
 
   - name: DataCenter_top_ZN_6
-    volume: 2322.0
-    floor_area: 586.0
+    volume: 99.3
+    floor_area: 36.20
 
 # =============================================================================
 # ZONE GROUPS
@@ -491,6 +501,13 @@ lights:
 
   - name: Basement Lights
     zones: [Basement Zone]
+    watts_per_area: 11.651
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: BLDG_LIGHT_SCH
+
+  - name: DataCenter Lights Basement
+    zones: [DataCenter_basement_ZN_6]
     watts_per_area: 11.651
     radiant_fraction: 0.7
     return_air_fraction: 0.0
@@ -755,7 +772,9 @@ surfaces:
     zone: Core_bottom
     type: floor
     construction: Ground Floor
-    boundary: ground
+    # In E+, this floor is interzone (Surface) to Basement ceiling.
+    # Use adiabatic as approximation since basement is conditioned (~21°C).
+    boundary: adiabatic
     vertices:
       - {x: 4.5732, y: 44.1649, z: 0.0}
       - {x: 68.534, y: 44.1649, z: 0.0}
@@ -784,8 +803,8 @@ surfaces:
     vertices:
       - {x: 0.0, y: 0.0, z: 0.0}
       - {x: 73.1072, y: 0.0, z: 0.0}
-      - {x: 73.1072, y: 0.0, z: 3.9624}
-      - {x: 0.0, y: 0.0, z: 3.9624}
+      - {x: 73.1072, y: 0.0, z: 2.744}
+      - {x: 0.0, y: 0.0, z: 2.744}
 
   - name: P_bot_ZN1 South Window
     zone: Perimeter_bot_ZN_1
@@ -814,7 +833,7 @@ surfaces:
     zone: Perimeter_bot_ZN_1
     type: floor
     construction: Ground Floor
-    boundary: ground
+    boundary: adiabatic  # E+ interzone to basement → adiabatic approx
     vertices:
       - {x: 0.0, y: 4.5732, z: 0.0}
       - {x: 73.1072, y: 4.5732, z: 0.0}
@@ -843,8 +862,8 @@ surfaces:
     vertices:
       - {x: 73.1072, y: 0.0, z: 0.0}
       - {x: 73.1072, y: 48.7381, z: 0.0}
-      - {x: 73.1072, y: 48.7381, z: 3.9624}
-      - {x: 73.1072, y: 0.0, z: 3.9624}
+      - {x: 73.1072, y: 48.7381, z: 2.744}
+      - {x: 73.1072, y: 0.0, z: 2.744}
 
   - name: P_bot_ZN2 East Window
     zone: Perimeter_bot_ZN_2
@@ -873,7 +892,7 @@ surfaces:
     zone: Perimeter_bot_ZN_2
     type: floor
     construction: Ground Floor
-    boundary: ground
+    boundary: adiabatic  # E+ interzone to basement → adiabatic approx
     vertices:
       - {x: 68.534, y: 48.7381, z: 0.0}
       - {x: 73.1072, y: 48.7381, z: 0.0}
@@ -902,8 +921,8 @@ surfaces:
     vertices:
       - {x: 73.1072, y: 48.7381, z: 0.0}
       - {x: 0.0, y: 48.7381, z: 0.0}
-      - {x: 0.0, y: 48.7381, z: 3.9624}
-      - {x: 73.1072, y: 48.7381, z: 3.9624}
+      - {x: 0.0, y: 48.7381, z: 2.744}
+      - {x: 73.1072, y: 48.7381, z: 2.744}
 
   - name: P_bot_ZN3 North Window
     zone: Perimeter_bot_ZN_3
@@ -932,7 +951,7 @@ surfaces:
     zone: Perimeter_bot_ZN_3
     type: floor
     construction: Ground Floor
-    boundary: ground
+    boundary: adiabatic  # E+ interzone to basement → adiabatic approx
     vertices:
       - {x: 0.0, y: 48.7381, z: 0.0}
       - {x: 0.0, y: 44.1649, z: 0.0}
@@ -961,8 +980,8 @@ surfaces:
     vertices:
       - {x: 0.0, y: 48.7381, z: 0.0}
       - {x: 0.0, y: 0.0, z: 0.0}
-      - {x: 0.0, y: 0.0, z: 3.9624}
-      - {x: 0.0, y: 48.7381, z: 3.9624}
+      - {x: 0.0, y: 0.0, z: 2.744}
+      - {x: 0.0, y: 48.7381, z: 2.744}
 
   - name: P_bot_ZN4 West Window
     zone: Perimeter_bot_ZN_4
@@ -991,7 +1010,7 @@ surfaces:
     zone: Perimeter_bot_ZN_4
     type: floor
     construction: Ground Floor
-    boundary: ground
+    boundary: adiabatic  # E+ interzone to basement → adiabatic approx
     vertices:
       - {x: 0.0, y: 0.0, z: 0.0}
       - {x: 0.0, y: 48.7381, z: 0.0}
@@ -1089,8 +1108,8 @@ surfaces:
     vertices:
       - {x: 0.0, y: 0.0, z: 3.9624}
       - {x: 73.1072, y: 0.0, z: 3.9624}
-      - {x: 73.1072, y: 0.0, z: 7.9248}
-      - {x: 0.0, y: 0.0, z: 7.9248}
+      - {x: 73.1072, y: 0.0, z: 6.7064}
+      - {x: 0.0, y: 0.0, z: 6.7064}
 
   - name: P_mid_ZN1 South Window
     zone: Perimeter_mid_ZN_1
@@ -1148,8 +1167,8 @@ surfaces:
     vertices:
       - {x: 73.1072, y: 0.0, z: 3.9624}
       - {x: 73.1072, y: 48.7381, z: 3.9624}
-      - {x: 73.1072, y: 48.7381, z: 7.9248}
-      - {x: 73.1072, y: 0.0, z: 7.9248}
+      - {x: 73.1072, y: 48.7381, z: 6.7064}
+      - {x: 73.1072, y: 0.0, z: 6.7064}
 
   - name: P_mid_ZN2 East Window
     zone: Perimeter_mid_ZN_2
@@ -1207,8 +1226,8 @@ surfaces:
     vertices:
       - {x: 73.1072, y: 48.7381, z: 3.9624}
       - {x: 0.0, y: 48.7381, z: 3.9624}
-      - {x: 0.0, y: 48.7381, z: 7.9248}
-      - {x: 73.1072, y: 48.7381, z: 7.9248}
+      - {x: 0.0, y: 48.7381, z: 6.7064}
+      - {x: 73.1072, y: 48.7381, z: 6.7064}
 
   - name: P_mid_ZN3 North Window
     zone: Perimeter_mid_ZN_3
@@ -1266,8 +1285,8 @@ surfaces:
     vertices:
       - {x: 0.0, y: 48.7381, z: 3.9624}
       - {x: 0.0, y: 0.0, z: 3.9624}
-      - {x: 0.0, y: 0.0, z: 7.9248}
-      - {x: 0.0, y: 48.7381, z: 7.9248}
+      - {x: 0.0, y: 0.0, z: 6.7064}
+      - {x: 0.0, y: 48.7381, z: 6.7064}
 
   - name: P_mid_ZN4 West Window
     zone: Perimeter_mid_ZN_4
@@ -1394,8 +1413,8 @@ surfaces:
     vertices:
       - {x: 0.0, y: 0.0, z: 43.5864}
       - {x: 73.1072, y: 0.0, z: 43.5864}
-      - {x: 73.1072, y: 0.0, z: 47.5488}
-      - {x: 0.0, y: 0.0, z: 47.5488}
+      - {x: 73.1072, y: 0.0, z: 46.3304}
+      - {x: 0.0, y: 0.0, z: 46.3304}
 
   - name: P_top_ZN1 South Window
     zone: Perimeter_top_ZN_1
@@ -1453,8 +1472,8 @@ surfaces:
     vertices:
       - {x: 73.1072, y: 0.0, z: 43.5864}
       - {x: 73.1072, y: 48.7381, z: 43.5864}
-      - {x: 73.1072, y: 48.7381, z: 47.5488}
-      - {x: 73.1072, y: 0.0, z: 47.5488}
+      - {x: 73.1072, y: 48.7381, z: 46.3304}
+      - {x: 73.1072, y: 0.0, z: 46.3304}
 
   - name: P_top_ZN2 East Window
     zone: Perimeter_top_ZN_2
@@ -1512,8 +1531,8 @@ surfaces:
     vertices:
       - {x: 73.1072, y: 48.7381, z: 43.5864}
       - {x: 0.0, y: 48.7381, z: 43.5864}
-      - {x: 0.0, y: 48.7381, z: 47.5488}
-      - {x: 73.1072, y: 48.7381, z: 47.5488}
+      - {x: 0.0, y: 48.7381, z: 46.3304}
+      - {x: 73.1072, y: 48.7381, z: 46.3304}
 
   - name: P_top_ZN3 North Window
     zone: Perimeter_top_ZN_3
@@ -1571,8 +1590,8 @@ surfaces:
     vertices:
       - {x: 0.0, y: 48.7381, z: 43.5864}
       - {x: 0.0, y: 0.0, z: 43.5864}
-      - {x: 0.0, y: 0.0, z: 47.5488}
-      - {x: 0.0, y: 48.7381, z: 47.5488}
+      - {x: 0.0, y: 0.0, z: 46.3304}
+      - {x: 0.0, y: 48.7381, z: 46.3304}
 
   - name: P_top_ZN4 West Window
     zone: Perimeter_top_ZN_4
@@ -1670,7 +1689,7 @@ surfaces:
     zone: Basement
     type: floor
     construction: Basement Floor
-    boundary: ground
+    boundary: adiabatic  # Matches E+ (Adiabatic basement slab)
     vertices:
       - {x: 0.0, y: 48.7381, z: -3.9624}
       - {x: 57.028, y: 48.7381, z: -3.9624}
@@ -1739,7 +1758,7 @@ surfaces:
     zone: DataCenter_basement_ZN_6
     type: floor
     construction: Basement Floor
-    boundary: ground
+    boundary: adiabatic  # Matches E+ (Adiabatic basement slab)
     vertices:
       - {x: 57.028, y: 48.7381, z: -3.9624}
       - {x: 73.1072, y: 48.7381, z: -3.9624}
@@ -1877,7 +1896,8 @@ air_loops:
       design_zone_flow: autosize
       cycling: proportional
       economizer:
-        economizer_type: differential_dry_bulb
+        economizer_type: fixed_dry_bulb
+        high_limit: 23.889
     equipment:
       - type: fan
         name: VAV_bot Supply Fan
@@ -1968,7 +1988,8 @@ air_loops:
       design_zone_flow: autosize
       cycling: proportional
       economizer:
-        economizer_type: differential_dry_bulb
+        economizer_type: fixed_dry_bulb
+        high_limit: 23.889
     equipment:
       - type: fan
         name: VAV_mid Supply Fan
@@ -2059,7 +2080,8 @@ air_loops:
       design_zone_flow: autosize
       cycling: proportional
       economizer:
-        economizer_type: differential_dry_bulb
+        economizer_type: fixed_dry_bulb
+        high_limit: 23.889
     equipment:
       # E+ IDF: Fan:VariableVolume, total_eff=0.6175, motor_eff=0.95
       - type: fan
@@ -2150,7 +2172,8 @@ air_loops:
       design_zone_flow: autosize
       cycling: proportional
       economizer:
-        economizer_type: differential_dry_bulb
+        economizer_type: fixed_dry_bulb
+        high_limit: 23.889
     equipment:
       - type: fan
         name: CAV_bas Supply Fan
@@ -2190,6 +2213,8 @@ air_loops:
       cooling_supply_temp: 12.8
       design_zone_flow: autosize
       cycling: proportional
+      economizer:
+        economizer_type: no_economizer
     equipment:
       # E+ IDF: Fan:SystemModel, pressure_rise=966.867, total_eff=0.58175, motor_eff=0.895
       - type: fan
@@ -2226,6 +2251,8 @@ air_loops:
       cooling_supply_temp: 12.8
       design_zone_flow: autosize
       cycling: proportional
+      economizer:
+        economizer_type: no_economizer
     equipment:
       # E+ IDF: Fan:SystemModel, pressure_rise=966.867, total_eff=0.56225, motor_eff=0.865
       - type: fan
@@ -2262,6 +2289,8 @@ air_loops:
       cooling_supply_temp: 12.8
       design_zone_flow: autosize
       cycling: proportional
+      economizer:
+        economizer_type: no_economizer
     equipment:
       # E+ IDF: Fan:SystemModel, pressure_rise=966.867, total_eff=0.58175, motor_eff=0.895
       - type: fan
@@ -2399,11 +2428,10 @@ plant_loops:
         cop: 6.11
         chw_setpoint: 6.67
         design_chw_flow: 0.0
-        condenser_type: water_cooled
-        condenser_entering_temp: 21.1
-        tower_approach: 5.22
+        # Air-cooled: condenser temp = outdoor dry-bulb.
+        # Matches simplified E+ IDF (AirCooled, no condenser water loop).
+        condenser_type: air_cooled
         min_plr: 0.25
-        condenser_plant_loop: Condenser Water Loop
         # CAPFT: cap-f-t biquadratic (x=T_chw_leaving, y=T_cond_entering)
         capft:
           coefficients: [0.988289399105446, 0.031127718217927, -0.00154986412921254, -0.00334864255828258, -0.000146694443912943, 0.000502974958539996]
@@ -2430,11 +2458,8 @@ plant_loops:
         cop: 6.11
         chw_setpoint: 6.67
         design_chw_flow: 0.0
-        condenser_type: water_cooled
-        condenser_entering_temp: 21.1
-        tower_approach: 5.22
+        condenser_type: air_cooled
         min_plr: 0.25
-        condenser_plant_loop: Condenser Water Loop
         capft:
           coefficients: [0.988289399105446, 0.031127718217927, -0.00154986412921254, -0.00334864255828258, -0.000146694443912943, 0.000502974958539996]
           min_x: 4.0

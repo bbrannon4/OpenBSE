@@ -82,6 +82,8 @@ pub struct ControlSignals {
     pub zone_supply_temps: HashMap<String, f64>,
     /// Zone air flows: zone_name -> mass_flow [kg/s]
     pub zone_air_flows: HashMap<String, f64>,
+    /// SAT setpoint from VAV signal builder [°C], used for HR credit cap.
+    pub sat_setpoint: f64,
 }
 
 /// The simulation runner.

@@ -73,6 +73,35 @@ struct LoopInfo {
     /// True when the user explicitly set `minimum_damper_position` in YAML.
     /// Prevents post-sizing auto-recalculation from overriding the user value.
     explicit_min_oa: bool,
+    /// Name of the heat recovery component (if any) in this loop.
+    /// Used for pre-processing heat recovery before the signal builder.
+    heat_recovery_name: Option<String>,
+    /// Efficiency of the boiler serving this loop's HW coils.
+    /// Used to convert HR thermal credit to gas savings.
+    hhw_boiler_efficiency: f64,
+    /// Demand-controlled ventilation enabled for this loop.
+    dcv: bool,
+    /// Per-zone OA data for ASHRAE 62.1 VRP and DCV calculations.
+    /// Always populated from zone connections (per_person_oa, per_area_oa).
+    zone_oa_data: Vec<ZoneOaData>,
+    /// Design supply air flow rate [m³/s] for this loop (used to compute dynamic OA fraction)
+    design_supply_flow: f64,
+    /// Economizer type for this loop.
+    economizer_type: openbse_io::input::EconomizerType,
+    /// Economizer high-limit shutoff temperature [°C] (for FixedDryBulb).
+    economizer_high_limit: Option<f64>,
+}
+
+/// Per-zone data for ASHRAE 62.1 ventilation rate procedure.
+/// Used for both DCV (dynamic occupancy) and multi-zone VRP (Ev correction).
+#[derive(Debug, Clone)]
+struct ZoneOaData {
+    zone_name: String,
+    design_people: f64,
+    per_person_oa: f64,  // [m³/s per person]
+    per_area_oa: f64,    // [m³/s per m²]
+    floor_area: f64,     // [m²]
+    people_schedule: Option<String>,
 }
 
 fn build_loop_infos(
@@ -98,6 +127,15 @@ fn build_loop_infos(
                 _ => None,
             }
         }).collect();
+
+        // Detect heat recovery component in this loop (if any)
+        let heat_recovery_name: Option<String> = al.equipment.iter().find_map(|eq| {
+            use openbse_io::input::EquipmentInput;
+            match eq {
+                EquipmentInput::HeatRecovery(hr) => Some(hr.name.clone()),
+                _ => None,
+            }
+        });
 
         let served_zones: Vec<String> = al.zone_terminals.iter()
             .map(|zc| zc.zone.clone())
@@ -137,6 +175,39 @@ fn build_loop_infos(
             }
         }
 
+        // Find the boiler efficiency for the HHW plant loop serving this
+        // loop's hot water coils (used for HR gas credit calculation).
+        let hhw_boiler_efficiency = {
+            use openbse_io::input::{EquipmentInput, PlantEquipmentInput};
+            // Find the plant loop name from the first HW coil's plant_loop field
+            let hw_plant_loop: Option<&str> = al.equipment.iter().find_map(|eq| {
+                if let EquipmentInput::HeatingCoil(c) = eq {
+                    if c.source == "hot_water" {
+                        c.plant_loop.as_deref()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            });
+            // Find the boiler on that plant loop
+            let eff = hw_plant_loop.and_then(|pl_name| {
+                model.plant_loops.iter()
+                    .find(|pl| pl.name == pl_name)
+                    .and_then(|pl| {
+                        pl.supply_equipment.iter().find_map(|eq| {
+                            if let PlantEquipmentInput::Boiler(b) = eq {
+                                Some(b.efficiency)
+                            } else {
+                                None
+                            }
+                        })
+                    })
+            });
+            eff.unwrap_or(0.80) // Default 80% if no boiler found
+        };
+
         LoopInfo {
             name: al.name.clone(),
             system_type,
@@ -152,6 +223,50 @@ fn build_loop_infos(
             cycling: al.controls.cycling,
             fan_operating_mode: al.controls.fan_operating_mode,
             terminal_boxes,
+            heat_recovery_name,
+            hhw_boiler_efficiency,
+            dcv: al.dcv,
+            // Always populate per-zone OA data from zone connections.
+            // Needed for ASHRAE 62.1 VRP multi-zone Ev correction (even without DCV)
+            // and for DCV occupancy-based OA modulation when dcv: true.
+            zone_oa_data: al.zone_terminals.iter().filter_map(|zc| {
+                let pp_oa = zc.per_person_oa.unwrap_or(0.0);
+                let pa_oa = zc.per_area_oa.unwrap_or(0.0);
+                if pp_oa == 0.0 && pa_oa == 0.0 { return None; }
+
+                let zone = resolved_zones.iter().find(|z| z.name == zc.zone)?;
+                let (design_people, people_sched) = zone.internal_gains.iter()
+                    .find_map(|g| {
+                        if let openbse_envelope::InternalGainInput::People { count, schedule, .. } = g {
+                            Some((*count, schedule.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or((0.0, None));
+                Some(ZoneOaData {
+                    zone_name: zc.zone.clone(),
+                    design_people,
+                    per_person_oa: pp_oa,
+                    per_area_oa: pa_oa,
+                    floor_area: zone.floor_area,
+                    people_schedule: people_sched,
+                })
+            }).collect(),
+            economizer_type: al.controls.economizer.as_ref()
+                .map(|e| e.economizer_type)
+                .unwrap_or(openbse_io::input::EconomizerType::NoEconomizer),
+            economizer_high_limit: al.controls.economizer.as_ref()
+                .and_then(|e| e.high_limit),
+            design_supply_flow: al.equipment.iter().find_map(|eq| {
+                use openbse_io::input::EquipmentInput;
+                if let EquipmentInput::Fan(f) = eq {
+                    let flow = f.design_flow_rate.to_f64();
+                    if flow > 0.0 { Some(flow) } else { None }
+                } else {
+                    None
+                }
+            }).unwrap_or(1.0),
         }
     }).collect()
 }
@@ -338,6 +453,7 @@ fn main() -> Result<()> {
                 dhw_input.water_heater.ua_standby,
             );
             wh.deadband = dhw_input.water_heater.deadband;
+            wh.parasitic_power = dhw_input.water_heater.parasitic_power;
             wh
         })
         .collect();
@@ -365,6 +481,15 @@ fn main() -> Result<()> {
         .flat_map(|al| al.equipment.iter())
         .filter_map(|eq| match eq {
             openbse_io::input::EquipmentInput::Humidifier(h) => Some(h.name.clone()),
+            _ => None,
+        })
+        .collect();
+
+    // Collect heat recovery names from air loops for end-use routing
+    let heat_recovery_names: std::collections::HashSet<String> = model.air_loops.iter()
+        .flat_map(|al| al.equipment.iter())
+        .filter_map(|eq| match eq {
+            openbse_io::input::EquipmentInput::HeatRecovery(hr) => Some(hr.name.clone()),
             _ => None,
         })
         .collect();
@@ -704,6 +829,7 @@ fn main() -> Result<()> {
                 // Autosize coil capacities
                 if lname.contains("heat") || lname.contains("furnace")
                     || lname.contains("preheat") || lname.contains("reheat")
+                    || (lname.contains("hw") && !lname.contains("chw"))
                     || lname.starts_with("hc ") || lname.starts_with("hc_") {
                     if let Some(cap) = comp.nominal_capacity() {
                         if is_autosize(cap) {
@@ -1547,6 +1673,8 @@ fn main() -> Result<()> {
                             snapshot.pump_electric_power.insert(comp_name.clone(), pw_mult);
                         } else if humidifier_names.contains(comp_name) {
                             snapshot.humidification_power.insert(comp_name.clone(), pw_mult);
+                        } else if heat_recovery_names.contains(comp_name) {
+                            snapshot.heat_recovery_power.insert(comp_name.clone(), pw_mult);
                         } else {
                             snapshot.component_electric_power.insert(comp_name.clone(), pw_mult);
                         }
@@ -1724,6 +1852,8 @@ fn main() -> Result<()> {
                             snapshot.pump_electric_power.insert(comp_name.clone(), pw_mult);
                         } else if humidifier_names.contains(comp_name) {
                             snapshot.humidification_power.insert(comp_name.clone(), pw_mult);
+                        } else if heat_recovery_names.contains(comp_name) {
+                            snapshot.heat_recovery_power.insert(comp_name.clone(), pw_mult);
                         } else {
                             snapshot.component_electric_power.insert(comp_name.clone(), pw_mult);
                         }
@@ -1895,59 +2025,24 @@ fn simulate_all_loops(
             if let Some(mgr) = schedule_mgr {
                 let avail = mgr.fraction(sched_name, hour, day_of_week);
                 if avail < 0.5 {
-                    // System scheduled OFF — check night-cycle timer first.
+                    // System scheduled OFF — no night-cycle (matches E+
+                    // simplified model without AvailabilityManager:NightCycle).
                     //
-                    // If timer > 0, the system was already triggered and must
-                    // keep running until the cycling_run_time expires.
-                    let timer = nightcycle_timers.get(&li.name).copied().unwrap_or(0.0);
-
-                    if timer > 0.0 {
-                        // Still within cycling run time — keep system ON.
-                        // Decrement timer by this timestep duration.
-                        nightcycle_timers.insert(li.name.clone(), (timer - dt).max(0.0));
-                        is_unoccupied = true;
-                        // Night-cycle duty: system only runs for cycling_run_time
-                        // out of each timestep (e.g. 30 min out of 60 min = 0.5).
-                        nightcycle_duty = (cycling_run_time / dt).min(1.0);
-                    } else {
-                        // Timer expired or was never set — check if night-cycle
-                        // should trigger based on zone temperatures.
-                        let needs_nightcycle = li.served_zones.iter().any(|z| {
-                            let zt = zone_temps.get(z).copied().unwrap_or(21.0);
-                            let unocc_heat = zone_unocc_heat_sp.get(z).copied().unwrap_or(15.56);
-                            let unocc_cool = zone_unocc_cool_sp.get(z).copied().unwrap_or(29.44);
-                            zt < (unocc_heat - nightcycle_tolerance)
-                                || zt > (unocc_cool + nightcycle_tolerance)
-                        });
-
-                        if needs_nightcycle {
-                            // Start new night-cycle run.
-                            // Timer = cycling_run_time minus this timestep (we're running now).
-                            nightcycle_timers.insert(
-                                li.name.clone(),
-                                (cycling_run_time - dt).max(0.0),
-                            );
-                            is_unoccupied = true;
-                            // Night-cycle duty: system only runs for cycling_run_time
-                            // out of each timestep (e.g. 30 min out of 60 min = 0.5).
-                            nightcycle_duty = (cycling_run_time / dt).min(1.0);
-                        } else {
-                            // System is OFF and no night-cycle needed — skip entirely.
-                            nightcycle_timers.insert(li.name.clone(), 0.0);
-                            for comp_name in &li.component_names {
-                                let mut comp_outputs = HashMap::new();
-                                comp_outputs.insert("outlet_temp".to_string(), t_outdoor);
-                                comp_outputs.insert("outlet_w".to_string(), ctx.outdoor_air.w);
-                                comp_outputs.insert("mass_flow".to_string(), 0.0);
-                                comp_outputs.insert("outlet_enthalpy".to_string(), ctx.outdoor_air.h);
-                                comp_outputs.insert("electric_power".to_string(), 0.0);
-                                comp_outputs.insert("fuel_power".to_string(), 0.0);
-                                comp_outputs.insert("thermal_output".to_string(), 0.0);
-                                all_outputs.insert(comp_name.clone(), comp_outputs);
-                            }
-                            continue; // Skip this loop entirely
-                        }
+                    // Night-cycle availability management is tracked as a
+                    // future feature in the README.
+                    nightcycle_timers.insert(li.name.clone(), 0.0);
+                    for comp_name in &li.component_names {
+                        let mut comp_outputs = HashMap::new();
+                        comp_outputs.insert("outlet_temp".to_string(), t_outdoor);
+                        comp_outputs.insert("outlet_w".to_string(), ctx.outdoor_air.w);
+                        comp_outputs.insert("mass_flow".to_string(), 0.0);
+                        comp_outputs.insert("outlet_enthalpy".to_string(), ctx.outdoor_air.h);
+                        comp_outputs.insert("electric_power".to_string(), 0.0);
+                        comp_outputs.insert("fuel_power".to_string(), 0.0);
+                        comp_outputs.insert("thermal_output".to_string(), 0.0);
+                        all_outputs.insert(comp_name.clone(), comp_outputs);
                     }
+                    continue; // Skip this loop entirely
                 } else {
                     // System is occupied/ON — clear any night-cycle timer
                     nightcycle_timers.insert(li.name.clone(), 0.0);
@@ -1959,11 +2054,113 @@ fn simulate_all_loops(
         // E+ sets minimum outdoor air to 0 during unoccupied hours.
         // During night-cycle, the system recirculates return air only —
         // no cold outdoor air is mixed in, dramatically reducing reheat.
-        let effective_min_oa = if is_unoccupied { 0.0 } else { li.min_oa_fraction };
+        let effective_min_oa = if is_unoccupied {
+            0.0
+        } else if li.dcv && !li.zone_oa_data.is_empty() {
+            // ── Demand-Controlled Ventilation ──────────────────────────
+            //
+            // ASHRAE 62.1 Ventilation Rate Procedure with real-time occupancy:
+            //   OA = Σ (per_person × design_people × schedule_frac + per_area × area)
+            //
+            // The per_area component is always required (dilution ventilation for
+            // building materials), but the per_person component scales with actual
+            // occupancy.
+            //
+            // IMPORTANT: The minimum_damper_position (min_oa_fraction) represents
+            // the DESIGN outdoor air fraction at full occupancy.  It already
+            // accounts for ASHRAE 62.1/170 requirements.  DCV can only REDUCE
+            // OA during partial occupancy — never INCREASE it above the design
+            // level.  Without this cap, the per_person_oa/per_area_oa rates
+            // may compute higher fractions than the original design, inflating
+            // heating, cooling, and humidification loads.
+            //
+            // At full occupancy:  effective_min_oa = min_oa_fraction (design level)
+            // At zero occupancy:  effective_min_oa = area_floor (building dilution)
+            let mut dynamic_oa_flow = 0.0_f64;
+            for dcv in &li.zone_oa_data {
+                let occ_frac = if let Some(ref sched_name) = dcv.people_schedule {
+                    schedule_mgr
+                        .map(|sm| sm.fraction(sched_name, hour, day_of_week))
+                        .unwrap_or(1.0)
+                } else {
+                    1.0 // No schedule → always full occupancy
+                };
+                let person_flow = dcv.per_person_oa * dcv.design_people * occ_frac;
+                let area_flow = dcv.per_area_oa * dcv.floor_area;
+                dynamic_oa_flow += person_flow + area_flow;
+            }
+            let dcv_frac = if li.design_supply_flow > 0.0 {
+                (dynamic_oa_flow / li.design_supply_flow).clamp(0.0, 1.0)
+            } else {
+                li.min_oa_fraction
+            };
+            // Area-based floor: absolute minimum per ASHRAE 62.1
+            let area_only_flow: f64 = li.zone_oa_data.iter()
+                .map(|d| d.per_area_oa * d.floor_area)
+                .sum();
+            let area_floor = if li.design_supply_flow > 0.0 {
+                (area_only_flow / li.design_supply_flow).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            // Cap at min_oa_fraction (design OA); floor at area-only dilution
+            dcv_frac.max(area_floor).min(li.min_oa_fraction)
+        } else {
+            li.min_oa_fraction
+        };
 
         // Select active setpoints based on occupied/unoccupied state
         let active_heat_sp = if is_unoccupied { zone_unocc_heat_sp } else { zone_heat_sp };
         let active_cool_sp = if is_unoccupied { zone_unocc_cool_sp } else { zone_cool_sp };
+
+        // ── Heat Recovery Pre-Processing ────────────────────────────────
+        //
+        // If this loop has a heat recovery component, compute the effective
+        // outdoor air temperature and humidity AFTER the HR wheel.  The HR
+        // pre-conditions outdoor air using exhaust (return) air:
+        //
+        //   T_effective = T_outdoor + ε_s × (T_return - T_outdoor)
+        //   W_effective = W_outdoor + ε_l × (W_return - W_outdoor)
+        //
+        // ── Credit-based approach ───────────────────────────────────
+        //
+        // The HR is NOT included in the signal builder or component chain.
+        // Instead, the simulation runs as if there's no HR (using raw
+        // outdoor temp for ALL control decisions and mixed air calculations).
+        // After the component chain runs, we compute the HR's thermal
+        // recovery and apply it as a gas credit.
+        //
+        // This approach is necessary because the inline approach (using
+        // effective_t_outdoor in mixed air) causes paradoxical heating gas
+        // increases: warmer mixed air triggers cooling mode more often,
+        // dropping SAT to 12.8°C, which then requires massive terminal
+        // reheat from the boiler.  Until per-zone VAV flow modulation is
+        // implemented, the credit approach is more accurate.
+        //
+        // EXHAUST CONDITIONS: Use the zone HEATING SETPOINT (~21°C) as
+        // the design exhaust temperature.  Zones can be unrealistically
+        // cold (–60 to –140°C) because the simulation runs without HR.
+        // The setpoint represents the intended operating point.
+        if let Some(ref hr_name) = li.heat_recovery_name {
+            let avg_return_temp = if li.served_zones.is_empty() {
+                22.0
+            } else {
+                li.served_zones.iter()
+                    .map(|z| active_heat_sp.get(z).copied().unwrap_or(21.0))
+                    .sum::<f64>() / li.served_zones.len() as f64
+            };
+            let avg_return_w = openbse_psychrometrics::MoistAirState::from_tdb_rh(
+                avg_return_temp, 0.50, ctx.outdoor_air.p_b,
+            ).w;
+            if let Some(node_idx) = graph.node_by_name(hr_name) {
+                match graph.component_mut(node_idx) {
+                    GraphComponent::Air(ref mut comp) => {
+                        comp.set_exhaust_conditions(avg_return_temp, avg_return_w);
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         // ── Predictor Mode ─────────────────────────────────────────────
         //
@@ -2003,7 +2200,7 @@ fn simulate_all_loops(
             })
             .collect();
 
-        let signals = match li.system_type {
+        let mut signals = match li.system_type {
             // ──────────────────────────────────────────────────────────────
             // PSZ-AC: single-zone thermostat, mixed return + outdoor air.
             // The control zone is the first served zone.
@@ -2038,15 +2235,124 @@ fn simulate_all_loops(
             // by separate FCU-type loops defined in the YAML.
             // ──────────────────────────────────────────────────────────────
             AirLoopSystemType::Vav => {
+                // All controls use raw t_outdoor. HR credit is applied post-chain.
                 build_vav_signals(li, zone_temps, active_heat_sp, active_cool_sp,
-                    zone_design_flows, &zone_multipliers, t_outdoor, effective_min_oa)
+                    zone_design_flows, &zone_multipliers, t_outdoor, effective_min_oa,
+                    false, t_outdoor, schedule_mgr, hour, day_of_week)
             }
+        };
+
+        // Filter heat recovery out of the component chain — it was already
+        // pre-processed above and its effect is baked into effective_t_outdoor.
+        let chain_components: Vec<String> = if let Some(ref hr_name) = li.heat_recovery_name {
+            li.component_names.iter()
+                .filter(|n| n.as_str() != hr_name.as_str())
+                .cloned()
+                .collect()
+        } else {
+            li.component_names.clone()
         };
 
         // Run this loop's components in order (at full capacity, PLR=1.0)
         let (mut loop_result, supply_air) = simulate_loop_components(
-            graph, ctx, &li.component_names, &signals
+            graph, ctx, &chain_components, &signals
         );
+
+        // ── Post-process heat recovery: credit-based approach ─────────
+        //
+        // The simulation ran as if there's no HR (raw t_outdoor for all
+        // controls).  Now compute what the HR would recover and apply it
+        // as a gas/electric credit via virtual components.
+        if let Some(ref hr_name) = li.heat_recovery_name {
+            let oa_frac = signals.coil_setpoints.get("__oa_fraction__")
+                .copied().unwrap_or(effective_min_oa);
+            let total_flow = supply_air.as_ref().map(|s| s.mass_flow).unwrap_or(0.0);
+            let oa_mass_flow = total_flow * oa_frac;
+
+            let mut hr_out = HashMap::new();
+            let mut hr_thermal = 0.0_f64;
+
+            if oa_mass_flow > 0.0 {
+                if let Some(node_idx) = graph.node_by_name(hr_name) {
+                    match graph.component_mut(node_idx) {
+                        GraphComponent::Air(ref mut comp) => {
+                            let oa_inlet = AirPort::new(ctx.outdoor_air, oa_mass_flow);
+                            let hr_outlet = comp.simulate_air(&oa_inlet, ctx);
+
+                            hr_thermal = comp.thermal_output();
+                            let hr_electric = comp.power_consumption();
+
+                            hr_out.insert("outlet_temp".to_string(), hr_outlet.state.t_db);
+                            hr_out.insert("outlet_w".to_string(), hr_outlet.state.w);
+                            hr_out.insert("mass_flow".to_string(), oa_mass_flow);
+                            hr_out.insert("outlet_enthalpy".to_string(), hr_outlet.state.h);
+                            hr_out.insert("electric_power".to_string(), hr_electric);
+                            hr_out.insert("fuel_power".to_string(), 0.0);
+                            hr_out.insert("thermal_output".to_string(), hr_thermal);
+                        }
+                        _ => {}
+                    }
+                }
+            } else {
+                hr_out.insert("outlet_temp".to_string(), t_outdoor);
+                hr_out.insert("outlet_w".to_string(), ctx.outdoor_air.w);
+                hr_out.insert("mass_flow".to_string(), 0.0);
+                hr_out.insert("outlet_enthalpy".to_string(), ctx.outdoor_air.h);
+                hr_out.insert("electric_power".to_string(), 0.0);
+                hr_out.insert("fuel_power".to_string(), 0.0);
+                hr_out.insert("thermal_output".to_string(), 0.0);
+            }
+
+            // ── Apply HR credit via virtual components ────────────────
+            //
+            // Cap credit at the AHU coil's heating/cooling load to prevent
+            // overcrediting.  The coil load = m_dot × cp × ΔT where ΔT
+            // is the difference between SAT and mixed air temp.
+            if hr_thermal > 0.0 {
+                // Winter heating credit: cap at what AHU coil actually provides
+                let avg_zt = if li.served_zones.is_empty() { 22.0 }
+                    else { li.served_zones.iter()
+                        .map(|z| zone_temps.get(z).copied().unwrap_or(22.0))
+                        .sum::<f64>() / li.served_zones.len() as f64 };
+                let t_mixed = avg_zt * (1.0 - oa_frac) + t_outdoor * oa_frac;
+                // Use actual SAT setpoint from VAV signal builder (12.8-15.6°C)
+                // instead of heating_supply_temp (40°C) which is for terminal reheat.
+                // This prevents over-crediting HR by 6x.
+                let sat = if signals.sat_setpoint > 0.0 {
+                    signals.sat_setpoint
+                } else {
+                    li.heating_supply_temp
+                };
+                let coil_load = total_flow * 1005.0 * (sat - t_mixed).max(0.0);
+                let capped = hr_thermal.min(coil_load);
+                let gas_credit = capped / li.hhw_boiler_efficiency;
+                let credit_name = format!("{} HR Heat Savings", li.name);
+                let mut c = HashMap::new();
+                c.insert("fuel_power".to_string(), -gas_credit);
+                c.insert("electric_power".to_string(), 0.0);
+                c.insert("thermal_output".to_string(), 0.0);
+                loop_result.insert(credit_name, c);
+            } else if hr_thermal < 0.0 {
+                // Summer cooling credit
+                let avg_zt = if li.served_zones.is_empty() { 22.0 }
+                    else { li.served_zones.iter()
+                        .map(|z| zone_temps.get(z).copied().unwrap_or(22.0))
+                        .sum::<f64>() / li.served_zones.len() as f64 };
+                let t_mixed = avg_zt * (1.0 - oa_frac) + t_outdoor * oa_frac;
+                let sat = li.cooling_supply_temp;
+                let coil_load = total_flow * 1005.0 * (t_mixed - sat).max(0.0);
+                let capped = hr_thermal.abs().min(coil_load);
+                let elec_credit = capped / 3.5; // chiller COP
+                let credit_name = format!("{} HR Cool Savings", li.name);
+                let mut c = HashMap::new();
+                c.insert("fuel_power".to_string(), 0.0);
+                c.insert("electric_power".to_string(), -elec_credit);
+                c.insert("thermal_output".to_string(), 0.0);
+                loop_result.insert(credit_name, c);
+            }
+
+            loop_result.insert(hr_name.clone(), hr_out);
+        }
 
         // ── Pre-compute continuous fan heat for PLR correction ──
         //
@@ -2300,8 +2606,18 @@ fn simulate_all_loops(
                         if let GraphComponent::Air(component) = graph.component_mut(node_idx) {
                             component.set_setpoint(control_signal);
                         }
-                        // Simulate with AHU supply as inlet
-                        let term_inlet = AirPort::new(supply.state, effective_flow / li.served_zones.len().max(1) as f64);
+                        // Use per-zone design flow as terminal inlet. The terminal
+                        // box's internal damper modulates between min_flow and
+                        // max_flow based on the control signal, producing the actual
+                        // demanded flow for this zone. This matches E+'s approach:
+                        // duct delivers up to design flow, VAV box takes what it
+                        // needs. zone_design_flows[zone] == terminal.max_air_flow
+                        // (both set from the sizing run).
+                        let term_inlet_flow = zone_design_flows
+                            .get(zone_name)
+                            .copied()
+                            .unwrap_or(effective_flow / li.served_zones.len().max(1) as f64);
+                        let term_inlet = AirPort::new(supply.state, term_inlet_flow);
                         if let GraphComponent::Air(component) = graph.component_mut(node_idx) {
                             let term_outlet = component.simulate_air(&term_inlet, ctx);
 
@@ -2475,15 +2791,24 @@ fn build_psz_signals(
     // The coil's actual outlet temp is limited by its available capacity.
     let cooling_coil_sp = if mode == HvacMode::Cooling { -10.0 } else { 99.0 };
 
-    // ── Economizer: modulating differential dry-bulb (ASHRAE 90.1 §6.5.1) ──
-    // In cooling mode: modulate OA fraction to achieve the economizer target DAT.
-    // If OA can fully satisfy the target, DX coil stays off (free cooling).
-    // If OA is too cold, mix with return air to reach target.
-    // If OA is too warm, use minimum OA and let DX coil handle it.
+    // ── Economizer: respects loop economizer type ──
+    // FixedDryBulb: OA used when OAT < high_limit
+    // DifferentialDryBulb: OA used when OAT < return air temp
+    // NoEconomizer: always minimum OA
     let return_air_temp = control_temp;
+    use openbse_io::input::EconomizerType;
+    let psz_econ_available = match li.economizer_type {
+        EconomizerType::NoEconomizer => false,
+        EconomizerType::FixedDryBulb => {
+            let limit = li.economizer_high_limit.unwrap_or(23.889);
+            t_outdoor < limit
+        }
+        EconomizerType::DifferentialDryBulb => t_outdoor < return_air_temp,
+        EconomizerType::DifferentialEnthalpy => t_outdoor < return_air_temp,
+    };
     let oa_frac = match mode {
-        HvacMode::Cooling if t_outdoor < return_air_temp => {
-            // Economizer available: OA is cooler than return air.
+        HvacMode::Cooling if psz_econ_available => {
+            // Economizer available: OA can help cooling.
             // Modulate to achieve economizer target.
             let delta = return_air_temp - t_outdoor;
             if delta > 0.1 {
@@ -2505,7 +2830,7 @@ fn build_psz_signals(
                 // based on zone heating error. At small errors, furnace delivers
                 // warm but not hot air; at large errors, full-fire to recover.
                 if lname.contains("heat") || lname.contains("furnace")
-                    || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                    || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
                     signals.coil_setpoints.insert(name.clone(), heating_dat);
                 } else if lname.contains("cool") || lname.contains("dx")
                     || lname.starts_with("cc ") || lname.starts_with("cc_") {
@@ -2519,13 +2844,13 @@ fn build_psz_signals(
                     || lname.starts_with("cc ") || lname.starts_with("cc_") {
                     signals.coil_setpoints.insert(name.clone(), cooling_coil_sp);
                 } else if lname.contains("heat") || lname.contains("furnace")
-                    || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                    || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
                     signals.coil_setpoints.insert(name.clone(), -99.0);
                 }
             }
             HvacMode::Deadband => {
                 if lname.contains("heat") || lname.contains("furnace")
-                    || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                    || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
                     signals.coil_setpoints.insert(name.clone(), -99.0);
                 } else if lname.contains("cool") || lname.contains("dx")
                     || lname.starts_with("cc ") || lname.starts_with("cc_") {
@@ -2544,6 +2869,10 @@ fn build_psz_signals(
     signals.coil_setpoints.insert(
         "__oa_fraction__".to_string(),
         oa_frac,
+    );
+    signals.coil_setpoints.insert(
+        "__return_air_temp__".to_string(),
+        return_air_temp,
     );
     signals.coil_setpoints.insert(
         "__plr__".to_string(),
@@ -2598,7 +2927,7 @@ fn build_doas_signals(
     for name in &li.component_names {
         let lname = name.to_lowercase();
         if lname.contains("heat") || lname.contains("preheat")
-            || lname.starts_with("hc ") || lname.starts_with("hc_") {
+            || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
             // Fire only if OA is below heating target
             if t_outdoor < t_supply_heat {
                 signals.coil_setpoints.insert(name.clone(), t_supply_heat);
@@ -2728,7 +3057,7 @@ fn build_fcu_signals(
                     // design supply temp during ON-period, off during
                     // OFF-period.  PLR sets the duty cycle.
                     if lname.contains("heat") || lname.contains("reheat")
-                        || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                        || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
                         signals.coil_setpoints.insert(name.clone(), li.heating_supply_temp);
                     } else if lname.contains("cool") || lname.contains("dx")
                         || lname.starts_with("cc ") || lname.starts_with("cc_") {
@@ -2741,13 +3070,13 @@ fn build_fcu_signals(
                         || lname.starts_with("cc ") || lname.starts_with("cc_") {
                         signals.coil_setpoints.insert(name.clone(), li.cooling_supply_temp);
                     } else if lname.contains("heat") || lname.contains("reheat")
-                        || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                        || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
                         signals.coil_setpoints.insert(name.clone(), -99.0);
                     }
                 }
                 HvacMode::Deadband => {
                     if lname.contains("heat") || lname.contains("reheat")
-                        || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                        || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
                         signals.coil_setpoints.insert(name.clone(), -99.0);
                     } else if lname.contains("cool") || lname.contains("dx")
                         || lname.starts_with("cc ") || lname.starts_with("cc_") {
@@ -2762,7 +3091,7 @@ fn build_fcu_signals(
                     let error = heat_sp - zone_temp;
                     let target = (heat_sp + error.min(14.0)).clamp(heat_sp, 45.0);
                     if lname.contains("heat") || lname.contains("reheat")
-                        || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                        || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
                         signals.coil_setpoints.insert(name.clone(), target);
                     } else if lname.contains("cool") || lname.contains("dx")
                         || lname.starts_with("cc ") || lname.starts_with("cc_") {
@@ -2776,13 +3105,13 @@ fn build_fcu_signals(
                         || lname.starts_with("cc ") || lname.starts_with("cc_") {
                         signals.coil_setpoints.insert(name.clone(), target);
                     } else if lname.contains("heat") || lname.contains("reheat")
-                        || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                        || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
                         signals.coil_setpoints.insert(name.clone(), -99.0);
                     }
                 }
                 HvacMode::Deadband => {
                     if lname.contains("heat") || lname.contains("reheat")
-                        || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                        || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
                         signals.coil_setpoints.insert(name.clone(), -99.0);
                     } else if lname.contains("cool") || lname.contains("dx")
                         || lname.starts_with("cc ") || lname.starts_with("cc_") {
@@ -2830,6 +3159,11 @@ fn build_vav_signals(
     zone_multipliers: &HashMap<String, f64>,
     t_outdoor: f64,
     effective_min_oa: f64,
+    economizer_lockout: bool,
+    raw_t_outdoor: f64,
+    schedule_mgr: Option<&ScheduleManager>,
+    hour: u32,
+    day_of_week: u32,
 ) -> ControlSignals {
     let mut signals = ControlSignals::default();
 
@@ -2881,6 +3215,66 @@ fn build_vav_signals(
     }
     total_flow = total_flow.max(0.05);
 
+    // ── ASHRAE 62.1 §6.2.5 Multi-Zone VRP: System Ventilation Efficiency ──
+    //
+    // In a multi-zone recirculating system (VAV), all zones share the same
+    // mixed air (same OA fraction). When zones are at part load (minimum
+    // flow), they receive less absolute OA than needed. The VRP corrects
+    // by increasing the system OA fraction based on the "critical zone"
+    // — the zone with the highest required discharge OA fraction (Zd).
+    //
+    // E+ implements this via Controller:MechanicalVentilation.
+    let vrp_min_oa = if !li.zone_oa_data.is_empty() {
+        let air_density = 1.204_f64; // kg/m³ at standard conditions
+        let mut vou = 0.0_f64;       // uncorrected total OA [m³/s]
+        let mut max_zd = 0.0_f64;    // critical zone discharge OA fraction
+
+        for oa in &li.zone_oa_data {
+            // Occupancy fraction from people schedule (design occupancy if no schedule)
+            let occ_frac = if let Some(ref sched_name) = oa.people_schedule {
+                schedule_mgr
+                    .map(|sm| sm.fraction(sched_name, hour, day_of_week))
+                    .unwrap_or(1.0)
+            } else {
+                1.0
+            };
+
+            // Breathing zone OA [m³/s]: ASHRAE 62.1 Eq 6-1
+            let vbz = oa.per_person_oa * oa.design_people * occ_frac
+                    + oa.per_area_oa * oa.floor_area;
+            // Zone OA with distribution effectiveness: Voz = Vbz / Ez
+            // Ez = 1.0 for well-mixed ceiling supply (ASHRAE 62.1 Table 6-2)
+            let voz = vbz;
+            vou += voz;
+
+            // Zone discharge OA fraction: Zd = Voz / Vdz
+            // Vdz = actual zone airflow [m³/s]
+            let vdz_kg = signals.zone_air_flows.get(&oa.zone_name)
+                .copied()
+                .unwrap_or(0.1);
+            let vdz = vdz_kg / air_density; // kg/s → m³/s
+            if vdz > 0.001 {
+                let zd = voz / vdz;
+                max_zd = max_zd.max(zd);
+            }
+        }
+
+        // System ventilation efficiency: ASHRAE 62.1 Eq 6-6
+        // Ev = 1 + Xs - max(Zd)
+        let vps = total_flow / air_density; // total supply [m³/s]
+        let xs = if vps > 0.01 { vou / vps } else { 0.0 };
+        let ev = (1.0 + xs - max_zd).clamp(0.15, 1.0);
+
+        // Corrected system OA: Vot = Vou / Ev
+        let vot = vou / ev;
+        let ys = if vps > 0.01 { vot / vps } else { effective_min_oa };
+
+        // VRP OA fraction: never less than the original design OA
+        ys.clamp(effective_min_oa, 1.0)
+    } else {
+        effective_min_oa
+    };
+
     // ── SAT Reset (E+ SetpointManager:Warmest, MaximumTemperature) ──
     //
     // E+ finds the HIGHEST supply air temp that satisfies all zones.
@@ -2910,19 +3304,42 @@ fn build_vav_signals(
     // ── Economizer: modulating differential dry-bulb ──
     // In cooling mode: modulate OA fraction to achieve SAT setpoint.
     // If OA can fully satisfy SAT, no mechanical cooling needed (free cooling).
+    //
+    // IMPORTANT: The economizer decides OA fraction based on RAW outdoor
+    // temperature (not post-HR effective temperature).  The economizer benefits
+    // from cold OA for free cooling — the HR's preheating effect would mislead
+    // the economizer into thinking OA is warmer than it actually is.
+    //
+    // The mixed air calculation then uses effective_t_outdoor (= t_outdoor param)
+    // which already includes the HR preheating effect.
     let any_cooling = max_cooling_demand > 0.0;
-    let oa_frac = if any_cooling && t_outdoor < avg_zone_temp {
-        let delta = avg_zone_temp - t_outdoor;
+    use openbse_io::input::EconomizerType;
+    let econ_available = match li.economizer_type {
+        EconomizerType::NoEconomizer => false,
+        EconomizerType::FixedDryBulb => {
+            let limit = li.economizer_high_limit.unwrap_or(23.889);
+            raw_t_outdoor < limit
+        }
+        EconomizerType::DifferentialDryBulb => raw_t_outdoor < avg_zone_temp,
+        EconomizerType::DifferentialEnthalpy => raw_t_outdoor < avg_zone_temp, // approximate
+    };
+    let oa_frac = if economizer_lockout {
+        // HR active → economizer locked to minimum OA (E+ EconomizerLockout: Yes)
+        vrp_min_oa
+    } else if any_cooling && econ_available {
+        // Use RAW outdoor temp for economizer decisions
+        let delta = avg_zone_temp - raw_t_outdoor;
         if delta > 0.1 {
             // Modulate OA to reach SAT setpoint as mixed air target
             let needed = (avg_zone_temp - sat_setpoint) / delta;
-            needed.clamp(effective_min_oa, 1.0)
+            needed.clamp(vrp_min_oa, 1.0)
         } else {
-            effective_min_oa
+            vrp_min_oa
         }
     } else {
-        effective_min_oa
+        vrp_min_oa
     };
+    // Mixed air uses effective (post-HR) outdoor temperature
     let mixed_air_temp = avg_zone_temp * (1.0 - oa_frac) + t_outdoor * oa_frac;
 
     // ── AHU coil control ──
@@ -2938,7 +3355,7 @@ fn build_vav_signals(
                 signals.coil_setpoints.insert(name.clone(), 99.0);
             }
         } else if lname.contains("preheat") || lname.contains("heat")
-            || lname.starts_with("hc ") || lname.starts_with("hc_") {
+            || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
             // AHU heating coil (E+ SetpointManager:Warmest, MaximumTemperature).
             //
             // The heating coil targets the SAT setpoint to temper mixed air:
@@ -2973,6 +3390,13 @@ fn build_vav_signals(
         "__oa_fraction__".to_string(),
         oa_frac,
     );
+    signals.coil_setpoints.insert(
+        "__return_air_temp__".to_string(),
+        avg_zone_temp,
+    );
+
+    // Store SAT setpoint for heat recovery credit cap calculation
+    signals.sat_setpoint = sat_setpoint;
 
     signals
 }
@@ -3005,15 +3429,16 @@ fn simulate_loop_components(
     // Build inlet air state with proper humidity blending
     let mut inlet_air = AirPort::new(ctx.outdoor_air, 1.0);
     if let Some(override_temp) = inlet_temp_override {
-        // Blend humidity: w_mixed = OA_frac * w_outdoor + (1 - OA_frac) * w_indoor
-        // For recirculated air (FCU, OA_frac=0): uses zone humidity (approximated by outdoor for now)
-        // For mixed air (PSZ-AC, VAV): proper OA/RA blend
-        // Blend humidity: OA fraction × outdoor humidity + (1 - OA fraction) × indoor humidity.
-        // Indoor humidity approximated from the zone temperature using a typical RH of ~50%.
+        // Blend humidity: w_mixed = OA_frac * w_oa + (1 - OA_frac) * w_indoor
+        // When heat recovery is present, use the post-HR outdoor humidity (effective OA w)
+        // instead of raw outdoor humidity. This accounts for moisture transfer in the ERV.
+        let w_oa = signals.coil_setpoints.get("__effective_oa_w__")
+            .copied()
+            .unwrap_or(ctx.outdoor_air.w);
         let w_indoor = openbse_psychrometrics::MoistAirState::from_tdb_rh(
             inlet_temp_override.unwrap_or(ctx.outdoor_air.t_db), 0.50, ctx.outdoor_air.p_b,
         ).w;
-        let w_mixed = oa_fraction * ctx.outdoor_air.w + (1.0 - oa_fraction) * w_indoor;
+        let w_mixed = oa_fraction * w_oa + (1.0 - oa_fraction) * w_indoor;
         let mixed_state = openbse_psychrometrics::MoistAirState::new(
             override_temp,
             w_mixed,

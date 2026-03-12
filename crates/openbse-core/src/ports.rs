@@ -163,6 +163,11 @@ pub trait AirComponent: std::fmt::Debug {
     fn thermal_output(&self) -> f64 {
         0.0
     }
+
+    /// Set exhaust (return) air conditions for heat recovery components.
+    /// Called each timestep by the simulation driver before `simulate_air()`.
+    /// Default implementation is a no-op (most components don't need exhaust air).
+    fn set_exhaust_conditions(&mut self, _temp: f64, _w: f64) {}
 }
 
 /// Trait for plant-side components (boilers, chillers, pumps, etc.).

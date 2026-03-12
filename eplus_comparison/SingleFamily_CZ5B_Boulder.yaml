@@ -1,0 +1,851 @@
+# OpenBSE: Residential Single-Family House (IECC 2024, Climate Zone 5B)
+# 2-story with unheated basement, gas furnace + DX cooling, tankless gas DHW
+# Based on US+SF+CZ5B+gasfurnace+unheatedbsmt+IECC_2024.idf
+# Boulder, CO weather
+
+simulation:
+  timesteps_per_hour: 6
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+  terrain: suburbs
+summary_report: true
+weather_files:
+- Boulder.epw
+design_days:
+- name: Denver Heating 99.6%
+  design_temp: -17.9
+  daily_range: 0.0
+  humidity_type: wetbulb
+  humidity_value: -17.9
+  pressure: 82237.0
+  wind_speed: 2.5
+  month: 12
+  day: 21
+  day_type: winter
+- name: Denver Cooling 0.4%
+  design_temp: 33.9
+  daily_range: 14.8
+  humidity_type: wetbulb
+  humidity_value: 15.0
+  pressure: 82237.0
+  wind_speed: 3.6
+  month: 7
+  day: 21
+  day_type: summer
+
+# ── Performance Curves ────────────────────────────────────────────
+# DX cooling curves from IDF
+performance_curves:
+- name: Cool-Cap-fT
+  curve_type: biquadratic
+  coefficients: [1.55360, -0.07530, 0.00311, 0.00241, -0.00005, -0.00043]
+  min_x: 13.0
+  max_x: 24.0
+  min_y: 24.0
+  max_y: 46.0
+- name: Cool-EIR-fT
+  curve_type: biquadratic
+  coefficients: [-0.41588, 0.06553, -0.00148, -0.00417, 0.00041, -0.00021]
+  min_x: 13.0
+  max_x: 24.0
+  min_y: 24.0
+  max_y: 46.0
+
+# ── Schedules ─────────────────────────────────────────────────────
+# All values taken directly from IDF schedule definitions (exact, not rounded)
+schedules:
+- name: Occupancy
+  # AllDays identical (OccupancyDay)
+  weekday: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.88310,
+            0.40861, 0.24189, 0.24189, 0.24189, 0.24189, 0.24189,
+            0.24189, 0.24189, 0.29498, 0.55310, 0.89693, 0.89693,
+            0.89693, 1.0, 1.0, 1.0]
+
+- name: Interior Lighting
+  # AllDays identical (InteriorLightingHE / LightingDay_EELighting)
+  weekday: [0.06875, 0.06875, 0.06875, 0.06875, 0.20625, 0.4296875,
+            0.48125, 0.4296875, 0.1890625, 0.12890625, 0.12890625,
+            0.12890625, 0.12890625, 0.12890625, 0.12890625, 0.2234375,
+            0.48125, 0.6703125, 0.90234375, 1.0, 1.0, 0.75625,
+            0.42109375, 0.171875]
+
+- name: Refrigerator
+  # AllDays identical (RefrigeratorDay)
+  weekday: [0.80, 0.78269618, 0.76559356, 0.74285714, 0.73138833,
+            0.73138833, 0.75995976, 0.80, 0.81710262, 0.82857143,
+            0.80, 0.80, 0.83983903, 0.83983903, 0.82857143,
+            0.83983903, 0.88571429, 0.97142857, 1.0, 0.97142857,
+            0.94285714, 0.92555332, 0.88571429, 0.82857143]
+
+- name: Misc Plug Load
+  # AllDays identical (MiscPlugLoadDay)
+  weekday: [0.60749027, 0.55933852, 0.55285344, 0.54507134, 0.52448119,
+            0.58527886, 0.67623217, 0.71854734, 0.60749027, 0.51702335,
+            0.52918288, 0.52934501, 0.52042802, 0.53842412, 0.56874189,
+            0.60035668, 0.71011673, 0.86267834, 0.93660830, 0.96676394,
+            1.0, 0.97665370, 0.84516861, 0.73443580]
+
+- name: Cooking Range
+  # AllDays identical (CookingRangeDay)
+  weekday: [0.04715848, 0.04715848, 0.02354589, 0.02354589, 0.04715848,
+            0.07070438, 0.16508805, 0.28301761, 0.30656350, 0.32077108,
+            0.28301761, 0.33017609, 0.37733458, 0.30656350, 0.29242263,
+            0.37733458, 0.61319370, 1.0, 0.77834845, 0.40094717,
+            0.23585912, 0.16508805, 0.10372199, 0.07070438]
+
+- name: DishWasher
+  # Weekday / Weekend profiles (DishwasherWeekday_equip_sch / DishwasherWeekend_equip_sch)
+  weekday: [0.12916216, 0.05738671, 0.04299796, 0.02869335, 0.02869335,
+            0.08608006, 0.17224426, 0.25840846, 0.48820772, 0.54559442,
+            0.47381897, 0.40204351, 0.34457266, 0.38765477, 0.31587931,
+            0.30149056, 0.31587931, 0.41634812, 0.73231158, 0.93333333,
+            0.76100493, 0.55998317, 0.37326602, 0.25840846]
+  weekend: [0.13838803, 0.06148576, 0.04606924, 0.03074288, 0.03074288,
+            0.09222863, 0.18454742, 0.27686621, 0.52307970, 0.58456545,
+            0.50766318, 0.43076091, 0.36918500, 0.41534439, 0.33844212,
+            0.32302560, 0.33844212, 0.44608727, 0.78461955, 1.0,
+            0.81536242, 0.59998197, 0.39992788, 0.27686621]
+
+- name: ClothesWasher
+  # Weekday / Weekend profiles (ClothesWasherWeekday_equip_sch / ClothesWasherWeekend_equip_sch)
+  weekday: [0.08879315, 0.07101550, 0.03546022, 0.03546022, 0.07101550,
+            0.10657090, 0.21314158, 0.46193351, 0.69294780, 0.81739130,
+            0.79961366, 0.71072545, 0.63961488, 0.56859937, 0.49748880,
+            0.46193351, 0.47971116, 0.46193351, 0.46193351, 0.46193351,
+            0.46193351, 0.44415587, 0.30202979, 0.15990372]
+  weekend: [0.10862991, 0.08688067, 0.04338218, 0.04338218, 0.08688067,
+            0.13037916, 0.26075832, 0.56513143, 0.84775529, 1.0,
+            0.97825076, 0.86950454, 0.78250756, 0.69562689, 0.60862991,
+            0.56513143, 0.58688067, 0.56513143, 0.56513143, 0.56513143,
+            0.56513143, 0.54338218, 0.36950454, 0.19562689]
+
+- name: ClothesDryer
+  # Weekday / Weekend profiles (ClothesDryerWeekday / ClothesDryerWeekend)
+  weekday: [0.09968187, 0.05980912, 0.03987275, 0.01993637, 0.03987275,
+            0.05980912, 0.15949099, 0.31898197, 0.48642737, 0.68579110,
+            0.78547297, 0.81739130, 0.74560022, 0.67783669, 0.61007316,
+            0.57815483, 0.55821845, 0.54623649, 0.51834571, 0.51039129,
+            0.52630012, 0.54623649, 0.43860021, 0.23923648]
+  weekend: [0.12195122, 0.07317073, 0.04878049, 0.02439024, 0.04878049,
+            0.07317073, 0.19512195, 0.39024390, 0.59509731, 0.83899975,
+            0.96095097, 1.0, 0.91217049, 0.82926829, 0.74636610,
+            0.70731707, 0.68292683, 0.66826805, 0.63414634, 0.62441488,
+            0.64387780, 0.66826805, 0.53658537, 0.29268293]
+
+# ── DHW Flow Schedules ──────────────────────────────────────────
+- name: BA Sinks
+  # AllDays identical (Schedule:Compact)
+  weekday: [0.00244871, 0.00122436, 0.00087454, 0.00087454, 0.00122436,
+            0.00314834, 0.00734613, 0.01084429, 0.01154392, 0.01084429,
+            0.00944503, 0.00874539, 0.00857049, 0.00787086, 0.00752104,
+            0.00717122, 0.00839558, 0.01136901, 0.01311809, 0.01206864,
+            0.00996975, 0.00839558, 0.00699632, 0.00472251]
+
+- name: BA Showers
+  # AllDays identical (Schedule:Compact)
+  weekday: [0.00110418, 0.00050190, 0.00030114, 0.00050190, 0.00140532,
+            0.00521976, 0.01184484, 0.01174446, 0.00953610, 0.00742812,
+            0.00602280, 0.00471786, 0.00341292, 0.00291102, 0.00260988,
+            0.00250950, 0.00301140, 0.00391482, 0.00421596, 0.00421596,
+            0.00421596, 0.00411558, 0.00291102, 0.00210798]
+
+- name: BA Baths
+  # AllDays identical (Schedule:Compact)
+  weekday: [0.00010309, 0.00005155, 0.00005155, 0.00005155, 0.00010309,
+            0.00024484, 0.00059277, 0.00074741, 0.00085050, 0.00074741,
+            0.00059277, 0.00045102, 0.00039948, 0.00029639, 0.00029639,
+            0.00029639, 0.00050257, 0.00059277, 0.00099225, 0.00128864,
+            0.00128864, 0.00099225, 0.00085050, 0.00050257]
+
+- name: ClothesWasher Flow
+  # Weekday / Weekend profiles
+  weekday: [0.05034571, 0.04026579, 0.02010594, 0.02010594, 0.04026579,
+            0.06042564, 0.12085128, 0.26191630, 0.39290140, 0.46346087,
+            0.45338095, 0.40298133, 0.36266163, 0.32239584, 0.28207615,
+            0.26191630, 0.27199623, 0.26191630, 0.26191630, 0.26191630,
+            0.26191630, 0.25183638, 0.17125089, 0.09066541]
+  weekend: [0.06159316, 0.04926134, 0.02459770, 0.02459770, 0.04926134,
+            0.07392498, 0.14784997, 0.32042952, 0.48067725, 0.56700000,
+            0.55466818, 0.49300907, 0.44368179, 0.39442045, 0.34509316,
+            0.32042952, 0.33276134, 0.32042952, 0.32042952, 0.32042952,
+            0.32042952, 0.30809770, 0.20950907, 0.11092045]
+
+- name: Dishwasher Flow
+  # Weekday / Weekend profiles
+  weekday: [0.07323494, 0.03253826, 0.02437984, 0.01626913, 0.01626913,
+            0.04880739, 0.09766250, 0.14651760, 0.27681378, 0.30935204,
+            0.26865536, 0.22795867, 0.19537270, 0.21980025, 0.17910357,
+            0.17094515, 0.17910357, 0.23606938, 0.41522066, 0.52920000,
+            0.43148979, 0.31751046, 0.21164183, 0.14651760]
+  weekend: [0.07846601, 0.03486242, 0.02612126, 0.01743121, 0.01743121,
+            0.05229364, 0.10463839, 0.15698314, 0.29658619, 0.33144861,
+            0.28784502, 0.24424144, 0.20932789, 0.23550027, 0.19189668,
+            0.18315552, 0.19189668, 0.25293148, 0.44487928, 0.56700000,
+            0.46231049, 0.34018978, 0.22675911, 0.15698314]
+
+# ── Materials ─────────────────────────────────────────────────────
+materials:
+# Exterior wall layers
+- name: syn_stucco
+  conductivity: 0.0865
+  density: 400.0
+  specific_heat: 878.64
+  roughness: medium_smooth
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.7
+
+- name: sheathing_consol_layer
+  conductivity: 0.035329
+  density: 20.1
+  specific_heat: 1465.415
+  roughness: rough
+
+- name: OSB_7/16in
+  conductivity: 0.1163
+  density: 544.63
+  specific_heat: 1213.36
+  roughness: medium_smooth
+
+- name: wall_consol_layer
+  conductivity: 0.057165
+  density: 120.801
+  specific_heat: 1036.258
+  roughness: rough
+
+- name: Drywall_1/2in
+  conductivity: 0.16009
+  density: 800.92
+  specific_heat: 1087.84
+  roughness: medium_smooth
+
+# Ceiling insulation
+- name: ceil_consol_layer
+  conductivity: 0.061718
+  density: 41.929
+  specific_heat: 776.251
+  roughness: rough
+
+# Floor insulation
+- name: floor_consol_layer
+  conductivity: 0.051552
+  density: 55.074
+  specific_heat: 916.931
+  roughness: rough
+
+- name: Plywood_3/4in
+  conductivity: 0.11546
+  density: 544.68
+  specific_heat: 674.54
+  roughness: rough
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+
+- name: Carpet_n_pad
+  conductivity: 0.06013
+  density: 32.037
+  specific_heat: 836.8
+  roughness: medium_smooth
+
+# Roof
+- name: Asphalt_shingle
+  conductivity: 0.08186
+  density: 1121.29
+  specific_heat: 1255.2
+  roughness: medium_rough
+  solar_absorptance: 0.75
+  thermal_absorptance: 0.9
+
+- name: OSB_1/2in
+  conductivity: 0.1163
+  density: 544.63
+  specific_heat: 1213.36
+  roughness: medium_smooth
+
+# Gable end
+- name: cement_stucco
+  conductivity: 0.721
+  density: 1865.58
+  specific_heat: 878.64
+  roughness: medium_smooth
+
+- name: OSB_5/8in
+  conductivity: 0.1163
+  density: 544.63
+  specific_heat: 1213.36
+  roughness: medium_smooth
+
+# Door
+- name: door_const
+  conductivity: 0.07201
+  density: 512.64
+  specific_heat: 767.58
+  roughness: smooth
+
+# Basement wall
+- name: bsmtwall_consol_layer
+  conductivity: 10.844
+  density: 120.801
+  specific_heat: 1036.258
+  roughness: rough
+
+# Interior furnishings (internal mass)
+- name: Std Wood 6inch
+  conductivity: 0.12
+  density: 540.0
+  specific_heat: 1210.0
+  roughness: medium_smooth
+
+# ── Constructions ─────────────────────────────────────────────────
+constructions:
+- name: Exterior Wall
+  layers:
+  - material: syn_stucco
+    thickness: 0.003048
+  - material: sheathing_consol_layer
+    thickness: 0.031115
+  - material: OSB_7/16in
+    thickness: 0.011113
+  - material: wall_consol_layer
+    thickness: 0.1397
+  - material: Drywall_1/2in
+    thickness: 0.01270
+
+- name: Interior Floor
+  layers:
+  - material: Plywood_3/4in
+    thickness: 0.01905
+  - material: Carpet_n_pad
+    thickness: 0.02540
+
+- name: Exterior Floor
+  layers:
+  - material: floor_consol_layer
+    thickness: 0.23495
+  - material: Plywood_3/4in
+    thickness: 0.01905
+  - material: Carpet_n_pad
+    thickness: 0.02540
+
+- name: Interior Ceiling
+  layers:
+  - material: ceil_consol_layer
+    thickness: 0.400206
+  - material: Drywall_1/2in
+    thickness: 0.01270
+
+- name: Attic Floor
+  layers:
+  - material: Drywall_1/2in
+    thickness: 0.01270
+  - material: ceil_consol_layer
+    thickness: 0.400206
+
+- name: Exterior Roof
+  layers:
+  - material: Asphalt_shingle
+    thickness: 0.00634
+  - material: OSB_1/2in
+    thickness: 0.01270
+
+- name: Exterior Door
+  layers:
+  - material: door_const
+    thickness: 0.05072
+
+- name: Basement Wall
+  layers:
+  - material: Plywood_3/4in
+    thickness: 0.01905
+  - material: bsmtwall_consol_layer
+    thickness: 0.000254
+  - material: Plywood_3/4in
+    thickness: 0.01905
+
+- name: InteriorFurnishings
+  layers:
+  - material: Std Wood 6inch
+    thickness: 0.15
+
+# Gable end uses air gap as NoMass material — approximate with simple construction
+simple_constructions:
+- name: Gable End
+  u_factor: 1.8
+  thickness: 0.05
+  thermal_capacity: 5000.0
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+
+# ── Window Constructions ──────────────────────────────────────────
+window_constructions:
+- name: Exterior Window
+  u_factor: 1.41965
+  shgc: 0.3344
+  visible_transmittance: 0.88
+
+# ── Zone Groups ───────────────────────────────────────────────────
+zone_groups:
+- name: Living
+  zones: [living_unit1]
+
+# ── Thermostats ───────────────────────────────────────────────────
+thermostats:
+- name: Living Thermostat
+  zones: [Living]
+  heating_setpoint: 22.222    # 72 F constant
+  cooling_setpoint: 23.889    # 75 F constant
+
+# ── People ────────────────────────────────────────────────────────
+people:
+- name: Occupants
+  zones: [Living]
+  count: 3.0
+  activity_level: 117.28
+  radiant_fraction: 0.0
+  schedule: Occupancy
+
+# ── Lights ────────────────────────────────────────────────────────
+lights:
+- name: Interior Lighting
+  zones: [Living]
+  power: 337.990378    # 232.336176 + 105.654202 W hardwired + plug-in
+  radiant_fraction: 0.6
+  visible_fraction: 0.2
+  schedule: Interior Lighting
+
+# ── Equipment ─────────────────────────────────────────────────────
+equipment:
+# ── Electric Equipment (all 6 non-zero objects from IDF) ────────
+# Note: OpenBSE radiant_fraction is relative to zone gain (1-lost).
+# Conversion: radiant_fraction = E+_frac_radiant / (1 - E+_frac_lost)
+# E+ latent fractions are absorbed into convective (no latent tracking).
+
+- name: Dishwasher
+  zones: [Living]
+  power: 37.141034          # E+ dishwasher1
+  radiant_fraction: 0.80    # E+ 0.6/(1-0.25)
+  lost_fraction: 0.25
+  schedule: DishWasher
+
+- name: Refrigerator
+  zones: [Living]
+  power: 84.388186          # E+ refrigerator1
+  radiant_fraction: 1.0
+  lost_fraction: 0.0
+  schedule: Refrigerator
+
+- name: Clothes Washer
+  zones: [Living]
+  power: 12.693247          # E+ clotheswasher1
+  radiant_fraction: 1.0     # E+ 0.8/(1-0.2)
+  lost_fraction: 0.2
+  schedule: ClothesWasher
+
+- name: Gas Dryer Electric
+  zones: [Living]
+  power: 19.418219          # E+ gas_dryer1 (electric component)
+  radiant_fraction: 1.0
+  lost_fraction: 0.0
+  schedule: ClothesDryer
+
+- name: Misc Plug Loads
+  zones: [Living]
+  power: 507.149798         # E+ gas_mels1 (electric)
+  radiant_fraction: 0.92    # E+ 0.69/(1-0.25)
+  lost_fraction: 0.25
+  schedule: Misc Plug Load
+
+- name: IECC Adjustment
+  zones: [Living]
+  power: 505.399625         # E+ IECC_Adj1
+  radiant_fraction: 0.54993 # E+ 0.41191/(1-0.25105)
+  lost_fraction: 0.25105
+  schedule: Misc Plug Load
+
+# ── Gas Equipment (full input power with lost_fraction) ─────────
+# OpenBSE has no separate GasEquipment type. Using full gas input
+# power with appropriate lost_fraction ensures:
+#   1) equipment_power counter tracks total fuel input (matches E+)
+#   2) zone gain = power*(1-lost) is correct for HVAC loads
+- name: Gas Range
+  zones: [Living]
+  power: 540.941345         # E+ gas_range1 (full gas input)
+  radiant_fraction: 0.92    # E+ 0.69/(1-0.25)
+  lost_fraction: 0.25
+  schedule: Cooking Range
+
+- name: Gas Dryer
+  zones: [Living]
+  power: 395.595892         # E+ gas_dryer1 (gas component)
+  radiant_fraction: 0.6667  # E+ 0.1/(1-0.85)
+  lost_fraction: 0.85
+  schedule: ClothesDryer
+
+- name: Gas Misc
+  zones: [Living]
+  power: 61.125464          # E+ gas_mels1 (gas component)
+  radiant_fraction: 0.92    # E+ 0.69/(1-0.25)
+  lost_fraction: 0.25
+  schedule: Misc Plug Load
+
+# ── Infiltration ──────────────────────────────────────────────────
+# E+ model uses AirflowNetwork (ELA-based multizone). We approximate with
+# a design flow rate equivalent to ~3 ACH50 = ~0.15 ACH natural (Sherman-Grimsrud).
+# Living zone volume ≈ 220.82 * 2.591 * 2 floors / 2.591 ≈ 572 m3 (2-story)
+# 0.15 ACH natural ≈ 0.0238 m3/s
+infiltration:
+- name: Living Infiltration
+  zones: [Living]
+  design_flow_rate: 0.0238
+  constant_coefficient: 1.0
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.0
+
+# NOTE: Basement and attic infiltration not modeled (unconditioned zones
+# not fully implemented in single-zone simplification)
+
+# ── Ventilation / Outdoor Air ─────────────────────────────────────
+# 60 cfm = 0.02832 m3/s mechanical ventilation via exhaust fan
+exhaust_fans:
+- name: Ventilation Exhaust
+  zones: [Living]
+  flow_rate: 0.02832
+
+# ── Air Loops ─────────────────────────────────────────────────────
+air_loops:
+- name: Central System
+  controls:
+    cooling_supply_temp: 12.0
+    heating_supply_temp: 50.0
+    cycling: on_off
+    design_zone_flow: autosize
+    minimum_damper_position: 0.0   # No OA through AHU (exhaust-only ventilation)
+  equipment:
+  - type: heating_coil
+    name: Gas Furnace
+    source: gas
+    capacity: autosize
+    efficiency: 0.80
+    setpoint: 50.0
+  - type: cooling_coil
+    name: DX Cooling
+    source: dx
+    capacity: autosize
+    cop: 4.0926
+    shr: 0.75
+    rated_airflow: autosize
+    setpoint: 12.0
+    cap_ft_curve: Cool-Cap-fT
+    eir_ft_curve: Cool-EIR-fT
+  - type: fan
+    name: Supply Fan
+    source: on_off
+    design_flow_rate: autosize
+    pressure_rise: 400.0
+    motor_efficiency: 0.863
+    impeller_efficiency: 0.58    # total_eff = 0.50054 = motor_eff * impeller_eff
+    motor_in_airstream_fraction: 1.0
+  zone_terminals:
+  - zone: living_unit1
+
+# ── DHW ───────────────────────────────────────────────────────────
+# Tankless gas water heater, 0.97 thermal efficiency
+# 5 separate DHW loads matching E+ WaterUse:Equipment objects exactly
+dhw_systems:
+- name: Residential DHW
+  mains_temperature: 10.0
+  water_heater:
+    name: Tankless Gas WH
+    fuel_type: gas
+    # NOTE: E+ model is tankless (1 gal), but OpenBSE mixed-tank model needs
+    # a reasonable volume for numerical stability at 600s timesteps.
+    # Using 100L equivalent with low standby loss to approximate tankless.
+    tank_volume: 100.0        # 100 L (stabilized tankless approximation)
+    capacity: 1500            # 1.5 kW — reduced to prevent overshoot
+                              # (OpenBSE uses on/off, E+ uses modulating)
+    efficiency: 0.97
+    setpoint: 48.0            # 118.4 F
+    ua_standby: 0.0           # E+ IDF has UA=0 for this tankless heater
+    deadband: 2.0
+  loads:
+  - name: Sinks
+    peak_flow_rate: 0.071934  # 7.1934e-05 m³/s → 0.071934 L/s
+    schedule: BA Sinks
+    use_temperature: 40.556   # 105 F (SSBWaterTempSchedule)
+  - name: Showers
+    peak_flow_rate: 0.141975  # 1.41975e-04 m³/s → 0.141975 L/s
+    schedule: BA Showers
+    use_temperature: 40.556   # 105 F (SSBWaterTempSchedule)
+  - name: Baths
+    peak_flow_rate: 0.27764   # 2.7764e-04 m³/s → 0.27764 L/s
+    schedule: BA Baths
+    use_temperature: 40.556   # 105 F (SSBWaterTempSchedule)
+  - name: Clothes Washer DHW
+    peak_flow_rate: 0.001622  # 1.6219e-06 m³/s → 0.001622 L/s
+    schedule: ClothesWasher Flow
+    use_temperature: 48.889   # 120 F (CWWaterTempSchedule)
+  - name: Dishwasher DHW
+    peak_flow_rate: 0.000637  # 6.367e-07 m³/s → 0.000637 L/s
+    schedule: Dishwasher Flow
+    use_temperature: 48.889   # 120 F (DWWaterTempSchedule)
+
+# ── Zones ─────────────────────────────────────────────────────────
+# Single conditioned zone representing the 2-story living space
+# E+ model uses AirflowNetwork for inter-zone coupling; we simplify to
+# a single zone with equivalent volume and floor area.
+zones:
+- name: living_unit1
+  volume: 572.2        # 220.82 m2 CFA * 2.591 m ceiling height
+  floor_area: 220.82   # Conditioned floor area (2 stories)
+  conditioned: true
+
+# ── Surfaces ──────────────────────────────────────────────────────
+# 2-story house geometry. Dimensions: 12.133m x 9.100m, 2.591m per floor.
+# Total height = 5.182m. Front faces south (azimuth 180).
+
+surfaces:
+# ── First floor exterior walls ──
+- name: Wall South 1F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 0.0, y: 0.0, z: 0.0}
+  - {x: 6.037, y: 0.0, z: 0.0}
+  - {x: 6.037, y: 0.0, z: 2.591}
+  - {x: 0.0, y: 0.0, z: 2.591}
+
+- name: Wall East 1F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 12.133, y: 0.0, z: 0.0}
+  - {x: 12.133, y: 9.100, z: 0.0}
+  - {x: 12.133, y: 9.100, z: 2.591}
+  - {x: 12.133, y: 0.0, z: 2.591}
+
+- name: Wall North 1F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 12.133, y: 9.100, z: 0.0}
+  - {x: 0.0, y: 9.100, z: 0.0}
+  - {x: 0.0, y: 9.100, z: 2.591}
+  - {x: 12.133, y: 9.100, z: 2.591}
+
+- name: Wall West 1F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 0.0, y: 9.100, z: 0.0}
+  - {x: 0.0, y: 0.0, z: 0.0}
+  - {x: 0.0, y: 0.0, z: 2.591}
+  - {x: 0.0, y: 9.100, z: 2.591}
+
+# ── First floor windows (one per wall, 2.707m x 1.524m = 4.126 m2) ──
+- name: Window South 1F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  azimuth: 180.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall South 1F
+
+- name: Window East 1F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  azimuth: 90.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall East 1F
+
+- name: Window North 1F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  azimuth: 0.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall North 1F
+
+- name: Window West 1F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  azimuth: 270.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall West 1F
+
+# ── Second floor exterior walls ──
+- name: Wall South 2F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 0.0, y: 0.0, z: 2.591}
+  - {x: 12.133, y: 0.0, z: 2.591}
+  - {x: 12.133, y: 0.0, z: 5.182}
+  - {x: 0.0, y: 0.0, z: 5.182}
+
+- name: Wall East 2F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 12.133, y: 0.0, z: 2.591}
+  - {x: 12.133, y: 9.100, z: 2.591}
+  - {x: 12.133, y: 9.100, z: 5.182}
+  - {x: 12.133, y: 0.0, z: 5.182}
+
+- name: Wall North 2F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 12.133, y: 9.100, z: 2.591}
+  - {x: 0.0, y: 9.100, z: 2.591}
+  - {x: 0.0, y: 9.100, z: 5.182}
+  - {x: 12.133, y: 9.100, z: 5.182}
+
+- name: Wall West 2F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 0.0, y: 9.100, z: 2.591}
+  - {x: 0.0, y: 0.0, z: 2.591}
+  - {x: 0.0, y: 0.0, z: 5.182}
+  - {x: 0.0, y: 9.100, z: 5.182}
+
+# ── Second floor windows ──
+- name: Window South 2F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  azimuth: 180.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall South 2F
+
+- name: Window East 2F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  azimuth: 90.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall East 2F
+
+- name: Window North 2F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  azimuth: 0.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall North 2F
+
+- name: Window West 2F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  azimuth: 270.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall West 2F
+
+# ── Floor (above basement — modeled as ground boundary) ──
+- name: Floor
+  zone: living_unit1
+  type: floor
+  construction: Exterior Floor
+  boundary: ground
+  vertices:
+  - {x: 0.0, y: 0.0, z: 0.0}
+  - {x: 0.0, y: 9.100, z: 0.0}
+  - {x: 12.133, y: 9.100, z: 0.0}
+  - {x: 12.133, y: 0.0, z: 0.0}
+
+# ── Ceiling/Roof (below attic — modeled as outdoor with ceiling construction) ──
+- name: Ceiling
+  zone: living_unit1
+  type: roof
+  construction: Interior Ceiling
+  boundary: outdoor
+  vertices:
+  - {x: 0.0, y: 0.0, z: 5.182}
+  - {x: 12.133, y: 0.0, z: 5.182}
+  - {x: 12.133, y: 9.100, z: 5.182}
+  - {x: 0.0, y: 9.100, z: 5.182}
+
+# ── Inter-floor slab (adiabatic — internal between 1F and 2F) ──
+- name: Inter-floor Slab
+  zone: living_unit1
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  area: 110.41   # half of CFA per floor
+  azimuth: 0.0
+  tilt: 180.0
+
+# ── Door (back wall, 1st floor) ──
+# 1.742m x 2.134m = 3.718 m2 — modeled as opaque wall section
+# (door construction is similar to wall in thermal behavior)
+
+# ══════════════════════════════════════════════════════════════════
+# MISSING FUNCTIONALITY FLAGS:
+#
+# 1. DUCT COMPONENT: The IDF uses AirflowNetwork:DistributionSystem with
+#    ducts running through the unheated basement. Duct conduction losses
+#    (U=0.71 W/m2-K) and leakage (8% total) significantly affect energy use.
+#    OpenBSE does NOT currently have a duct component.
+#
+# 2. AIRFLOWNETWORK INFILTRATION: The IDF uses ELA-based multizone
+#    infiltration (AirflowNetwork). We approximate with design flow rate.
+#    Missing: pressure-driven, wind-dependent, stack-driven infiltration.
+#
+# 3. GAS EQUIPMENT: No native GasEquipment type — gas range, dryer,
+#    misc gas gains are modeled as equipment with full input power and
+#    lost_fraction. Energy tracking includes gas, but fuel type is not
+#    distinguished from electric in the end-use summary.
+#
+# 4. UNCONDITIONED ZONES: Garage, attic, and basement are not modeled
+#    as separate zones. Their thermal buffering effect is approximated by
+#    using boundary conditions (ground for floor, outdoor for ceiling).
+#
+# 5. GROUND HEAT TRANSFER: IDF uses Basement/Slab preprocessors for
+#    detailed ground coupling. We use simplified ground boundary condition.
+#
+# 6. INTERNAL MASS: IDF has InteriorFurnishings (9.9 m2 of 6" wood).
+#    OpenBSE supports this but it's not included in this simplified model.
+#
+# 7. LATENT GAINS: Several equipment items have latent fractions
+#    (dishwasher 0.15, gas range 0.06). OpenBSE doesn't model latent gains
+#    from equipment separately.
+#
+# 8. EXTERIOR LIGHTING: 43.24 W exterior + 7.16 W garage lights.
+#    Not included in this model.
+# ══════════════════════════════════════════════════════════════════

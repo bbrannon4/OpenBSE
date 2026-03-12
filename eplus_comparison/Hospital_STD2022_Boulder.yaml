@@ -1,0 +1,3193 @@
+# OpenBSE: DOE Prototype Hospital (ASHRAE 90.1-2022)
+# 5-story + basement, 55 zones (simplified to 22 representative zones)
+# 8 VAV air loops, CHW/HHW plant, gas boiler, water-cooled chillers
+# Boulder, CO (TMYx weather)
+#
+# Zones have been consolidated: multiplied zones are combined into single
+# larger zones with volumes/areas/loads scaled by the multiplier count.
+
+simulation:
+  timesteps_per_hour: 6
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+  terrain: city
+  ground_surface_temperatures: [7.1, 3.0, -1.0, 0.8, -0.2, 4.8, 6.1, 13.7, 22.2, 22.7, 21.7, 18.5]
+
+weather_files:
+- Boulder.epw
+
+design_days:
+- name: Boulder Heating 99.6%
+  design_temp: -17.9
+  daily_range: 0.0
+  humidity_type: wetbulb
+  humidity_value: -17.9
+  pressure: 82237.0
+  wind_speed: 2.3
+  month: 12
+  day: 21
+  day_type: winter
+- name: Boulder Cooling 0.4%
+  design_temp: 33.9
+  daily_range: 14.8
+  humidity_type: wetbulb
+  humidity_value: 15.0
+  pressure: 82237.0
+  wind_speed: 4.0
+  month: 7
+  day: 21
+  day_type: summer
+
+# ─── Schedules ───────────────────────────────────────────────────────────────
+
+schedules:
+- name: BLDG_OCC_SCH
+  weekday:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.1
+  - 0.5
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.5
+  - 0.3
+  - 0.1
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  weekend:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.1
+  - 0.2
+  - 0.2
+  - 0.2
+  - 0.2
+  - 0.2
+  - 0.2
+  - 0.2
+  - 0.1
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+- name: BLDG_OCC_EXTD_SCH
+  weekday:
+  - 0.4
+  - 0.4
+  - 0.4
+  - 0.4
+  - 0.4
+  - 0.4
+  - 0.4
+  - 0.5
+  - 0.6
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.6
+  - 0.5
+  - 0.5
+  - 0.4
+  - 0.4
+  - 0.4
+  - 0.4
+  weekend:
+  - 0.4
+  - 0.4
+  - 0.4
+  - 0.4
+  - 0.4
+  - 0.4
+  - 0.4
+  - 0.5
+  - 0.6
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.8
+  - 0.6
+  - 0.5
+  - 0.5
+  - 0.4
+  - 0.4
+  - 0.4
+  - 0.4
+- name: BLDG_EQUIP_SCH
+  weekday:  [0.3493, 0.3493, 0.3493, 0.3493, 0.3493, 0.3493, 0.3493, 0.6818, 0.8766, 0.8766, 0.8766, 0.8766, 0.8766, 0.8766, 0.8766, 0.8766, 0.5844, 0.5844, 0.5844, 0.5844, 0.5844, 0.5844, 0.5239, 0.3493]
+  saturday: [0.3493, 0.3493, 0.3493, 0.3493, 0.3493, 0.3493, 0.3493, 0.4870, 0.6331, 0.6331, 0.6331, 0.6331, 0.6331, 0.6331, 0.6331, 0.6331, 0.6331, 0.6331, 0.3493, 0.3493, 0.3493, 0.3493, 0.3493, 0.3493]
+  sunday:   [0.2620, 0.2620, 0.2620, 0.2620, 0.2620, 0.2620, 0.2620, 0.2620, 0.3493, 0.3493, 0.3493, 0.3493, 0.3493, 0.3493, 0.3493, 0.3493, 0.2620, 0.2620, 0.2620, 0.2620, 0.2620, 0.2620, 0.2620, 0.2620]
+- name: BLDG_EQUIP_EXTD_SCH
+  weekday:  [0.40, 0.40, 0.40, 0.40, 0.40, 0.40, 0.40, 0.70, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.40]
+  saturday: [0.40, 0.40, 0.40, 0.40, 0.40, 0.40, 0.40, 0.50, 0.65, 0.65, 0.65, 0.65, 0.65, 0.65, 0.65, 0.65, 0.65, 0.65, 0.40, 0.40, 0.40, 0.40, 0.40, 0.40]
+  sunday:   [0.40, 0.40, 0.40, 0.40, 0.40, 0.40, 0.40, 0.40, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.40, 0.40, 0.40, 0.40, 0.40, 0.40, 0.40, 0.40]
+- name: LTG Basement
+  weekday:  [0.0691, 0.0691, 0.0691, 0.0691, 0.0691, 0.0691, 0.0691, 0.3456, 0.6220, 0.6220, 0.6220, 0.6220, 0.6220, 0.6220, 0.6220, 0.6220, 0.2073, 0.2073, 0.2073, 0.2073, 0.2073, 0.2073, 0.2073, 0.0691]
+  saturday: [0.0691, 0.0691, 0.0691, 0.0691, 0.0691, 0.0691, 0.0691, 0.1382, 0.2765, 0.2765, 0.2765, 0.2765, 0.2765, 0.2765, 0.2765, 0.2765, 0.2765, 0.2765, 0.0691, 0.0691, 0.0691, 0.0691, 0.0691, 0.0691]
+  sunday:   [0.0346, 0.0346, 0.0346, 0.0346, 0.0346, 0.0346, 0.0346, 0.0346, 0.0691, 0.0691, 0.0691, 0.0691, 0.0691, 0.0691, 0.0691, 0.0691, 0.0346, 0.0346, 0.0346, 0.0346, 0.0346, 0.0346, 0.0346, 0.0346]
+- name: LTG Office
+  weekday:  [0.0590, 0.0590, 0.0590, 0.0590, 0.0590, 0.0590, 0.0590, 0.2949, 0.5309, 0.5309, 0.5309, 0.5309, 0.5309, 0.5309, 0.5309, 0.5309, 0.1770, 0.1770, 0.1770, 0.1770, 0.1770, 0.1770, 0.1770, 0.0590]
+  saturday: [0.0590, 0.0590, 0.0590, 0.0590, 0.0590, 0.0590, 0.0590, 0.1180, 0.2359, 0.2359, 0.2359, 0.2359, 0.2359, 0.2359, 0.2359, 0.2359, 0.2359, 0.2359, 0.0590, 0.0590, 0.0590, 0.0590, 0.0590, 0.0590]
+  sunday:   [0.0295, 0.0295, 0.0295, 0.0295, 0.0295, 0.0295, 0.0295, 0.0295, 0.0590, 0.0590, 0.0590, 0.0590, 0.0590, 0.0590, 0.0590, 0.0590, 0.0295, 0.0295, 0.0295, 0.0295, 0.0295, 0.0295, 0.0295, 0.0295]
+- name: LTG 24hr Clinical
+  weekday:  [0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.7644, 0.7644, 0.7644, 0.7644, 0.7644, 0.7644, 0.7644, 0.7644, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247]
+  saturday: [0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.6795, 0.6795, 0.6795, 0.6795, 0.6795, 0.6795, 0.6795, 0.6795, 0.6795, 0.6795, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247]
+  sunday:   [0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.5946, 0.5946, 0.5946, 0.5946, 0.5946, 0.5946, 0.5946, 0.5946, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247, 0.4247]
+- name: LTG Records
+  weekday:  [0.0714, 0.0714, 0.0714, 0.0714, 0.0714, 0.0714, 0.0714, 0.3569, 0.6423, 0.6423, 0.6423, 0.6423, 0.6423, 0.6423, 0.6423, 0.6423, 0.2141, 0.2141, 0.2141, 0.2141, 0.2141, 0.2141, 0.2141, 0.0714]
+  saturday: [0.0714, 0.0714, 0.0714, 0.0714, 0.0714, 0.0714, 0.0714, 0.1427, 0.2855, 0.2855, 0.2855, 0.2855, 0.2855, 0.2855, 0.2855, 0.2855, 0.2855, 0.2855, 0.0714, 0.0714, 0.0714, 0.0714, 0.0714, 0.0714]
+  sunday:   [0.0357, 0.0357, 0.0357, 0.0357, 0.0357, 0.0357, 0.0357, 0.0357, 0.0714, 0.0714, 0.0714, 0.0714, 0.0714, 0.0714, 0.0714, 0.0714, 0.0357, 0.0357, 0.0357, 0.0357, 0.0357, 0.0357, 0.0357, 0.0357]
+- name: LTG Corridor
+  weekday:  [0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.6130, 0.6130, 0.6130, 0.6130, 0.6130, 0.6130, 0.6130, 0.6130, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405]
+  saturday: [0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.5449, 0.5449, 0.5449, 0.5449, 0.5449, 0.5449, 0.5449, 0.5449, 0.5449, 0.5449, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405]
+  sunday:   [0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.4767, 0.4767, 0.4767, 0.4767, 0.4767, 0.4767, 0.4767, 0.4767, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405, 0.3405]
+- name: LTG ER NurseStn
+  weekday:  [0.0798, 0.0798, 0.0798, 0.0798, 0.0798, 0.0798, 0.0798, 0.3992, 0.7186, 0.7186, 0.7186, 0.7186, 0.7186, 0.7186, 0.7186, 0.7186, 0.2395, 0.2395, 0.2395, 0.2395, 0.2395, 0.2395, 0.2395, 0.0798]
+  saturday: [0.0798, 0.0798, 0.0798, 0.0798, 0.0798, 0.0798, 0.0798, 0.1597, 0.3194, 0.3194, 0.3194, 0.3194, 0.3194, 0.3194, 0.3194, 0.3194, 0.3194, 0.3194, 0.0798, 0.0798, 0.0798, 0.0798, 0.0798, 0.0798]
+  sunday:   [0.0399, 0.0399, 0.0399, 0.0399, 0.0399, 0.0399, 0.0399, 0.0399, 0.0798, 0.0798, 0.0798, 0.0798, 0.0798, 0.0798, 0.0798, 0.0798, 0.0399, 0.0399, 0.0399, 0.0399, 0.0399, 0.0399, 0.0399, 0.0399]
+- name: LTG OR
+  weekday:  [0.0849, 0.0849, 0.0849, 0.0849, 0.0849, 0.0849, 0.0849, 0.4247, 0.7644, 0.7644, 0.7644, 0.7644, 0.7644, 0.7644, 0.7644, 0.7644, 0.2548, 0.2548, 0.2548, 0.2548, 0.2548, 0.2548, 0.2548, 0.0849]
+  saturday: [0.0849, 0.0849, 0.0849, 0.0849, 0.0849, 0.0849, 0.0849, 0.1699, 0.3398, 0.3398, 0.3398, 0.3398, 0.3398, 0.3398, 0.3398, 0.3398, 0.3398, 0.3398, 0.0849, 0.0849, 0.0849, 0.0849, 0.0849, 0.0849]
+  sunday:   [0.0425, 0.0425, 0.0425, 0.0425, 0.0425, 0.0425, 0.0425, 0.0425, 0.0849, 0.0849, 0.0849, 0.0849, 0.0849, 0.0849, 0.0849, 0.0849, 0.0425, 0.0425, 0.0425, 0.0425, 0.0425, 0.0425, 0.0425, 0.0425]
+- name: LTG NurseStn Lobby
+  weekday:  [0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.6931, 0.6931, 0.6931, 0.6931, 0.6931, 0.6931, 0.6931, 0.6931, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851]
+  saturday: [0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.6161, 0.6161, 0.6161, 0.6161, 0.6161, 0.6161, 0.6161, 0.6161, 0.6161, 0.6161, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851]
+  sunday:   [0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.5391, 0.5391, 0.5391, 0.5391, 0.5391, 0.5391, 0.5391, 0.5391, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851, 0.3851]
+- name: LTG Dining
+  weekday:  [0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.5521, 0.5521, 0.5521, 0.5521, 0.5521, 0.5521, 0.5521, 0.5521, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067]
+  saturday: [0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.4908, 0.4908, 0.4908, 0.4908, 0.4908, 0.4908, 0.4908, 0.4908, 0.4908, 0.4908, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067]
+  sunday:   [0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.4294, 0.4294, 0.4294, 0.4294, 0.4294, 0.4294, 0.4294, 0.4294, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067, 0.3067]
+- name: LTG Kitchen
+  weekday:  [0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.5946, 0.5946, 0.5946, 0.5946, 0.5946, 0.5946, 0.5946, 0.5946, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303]
+  saturday: [0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.5285, 0.5285, 0.5285, 0.5285, 0.5285, 0.5285, 0.5285, 0.5285, 0.5285, 0.5285, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303]
+  sunday:   [0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.4624, 0.4624, 0.4624, 0.4624, 0.4624, 0.4624, 0.4624, 0.4624, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303, 0.3303]
+- name: Kitchen Exhaust SCH
+  weekday:
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  weekend:
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+# SWH flow fraction schedules — from IDF Schedule:Compact
+# BLDG_SWH_SCH: OR, Lab, PhysTherapy zones (daytime only)
+- name: BLDG_SWH_SCH
+  weekday:  [0, 0, 0, 0, 0, 0, 0, 0.17, 0.58, 0.66, 0.78, 0.82, 0.71, 0.82, 0.78, 0.74, 0.63, 0.41, 0.18, 0.18, 0.18, 0.10, 0, 0]
+  saturday: [0, 0, 0, 0, 0, 0, 0, 0.01, 0.20, 0.28, 0.30, 0.30, 0.24, 0.24, 0.23, 0.23, 0.23, 0.10, 0.10, 0, 0, 0, 0, 0]
+  sunday:   [0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0, 0, 0, 0, 0, 0, 0, 0]
+# BLDG_SWH_EXTD_SCH: ER, PatRoom, Kitchen, Radiology, Triage (24-hr baseline)
+- name: BLDG_SWH_EXTD_SCH
+  weekday:  [0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.50, 0.58, 0.66, 0.78, 0.82, 0.71, 0.82, 0.78, 0.74, 0.63, 0.41, 0.35, 0.35, 0.35, 0.30, 0.30, 0.30]
+  saturday: [0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.40, 0.50, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.50, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30]
+  sunday:   [0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.40, 0.50, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.50, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30]
+# LAUNDRY_SWH_SCH: Laundry system (daytime block, all days)
+- name: LAUNDRY_SWH_SCH
+  weekday:  [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  weekend:  [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+- name: Always On
+  weekday:
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  weekend:
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+
+# ─── Materials ───────────────────────────────────────────────────────────────
+# Thickness is specified on construction layers, NOT on materials.
+
+materials:
+- name: F07 25mm Stucco
+  conductivity: 0.72
+  density: 1856
+  specific_heat: 840
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: smooth
+- name: 200mm NW Concrete
+  conductivity: 2.31
+  density: 2322
+  specific_heat: 832
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: medium_rough
+- name: G01 13mm Gypsum
+  conductivity: 0.16
+  density: 800
+  specific_heat: 1090
+  solar_absorptance: 0.4
+  thermal_absorptance: 0.9
+  roughness: smooth
+- name: F13 Built-up Roofing
+  conductivity: 0.16
+  density: 1120
+  specific_heat: 1460
+  solar_absorptance: 0.75
+  thermal_absorptance: 0.9
+  roughness: rough
+- name: F08 Metal Deck
+  conductivity: 45.28
+  density: 7824
+  specific_heat: 500
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: smooth
+- name: 100mm Concrete Floor
+  conductivity: 2.31
+  density: 2322
+  specific_heat: 832
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: medium_rough
+- name: AC02 Acoustic Ceiling
+  conductivity: 0.057
+  density: 288
+  specific_heat: 1339
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: medium_smooth
+- name: M10 200mm Conc Block
+  conductivity: 1.326
+  density: 1842
+  specific_heat: 912
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: medium_rough
+# NoMass insulation materials (thermal_resistance replaces conductivity/density/cp)
+- name: Nonres Roof Insulation
+  thermal_resistance: 5.307
+  roughness: medium_rough
+- name: Nonres Ext Wall Insulation
+  thermal_resistance: 1.402
+  roughness: medium_rough
+- name: Nonres Floor Insulation
+  thermal_resistance: 4.131
+  roughness: medium_rough
+# Carpet pad - modeled as NoMass for simplicity (R-0.216)
+- name: CP02 Carpet Pad
+  thermal_resistance: 0.216
+  roughness: smooth
+
+# ─── Constructions ───────────────────────────────────────────────────────────
+
+constructions:
+- name: Ext Wall
+  layers:
+  - material: F07 25mm Stucco
+    thickness: 0.0254
+  - material: 200mm NW Concrete
+    thickness: 0.2032
+  - material: Nonres Ext Wall Insulation
+    thickness: 0.001
+  - material: G01 13mm Gypsum
+    thickness: 0.0127
+- name: Nonres Roof
+  layers:
+  - material: F13 Built-up Roofing
+    thickness: 0.0095
+  - material: Nonres Roof Insulation
+    thickness: 0.001
+  - material: F08 Metal Deck
+    thickness: 0.0008
+
+simple_constructions:
+- name: Int Slab Floor
+  u_factor: 3.0
+  thickness: 0.12
+  thermal_capacity: 200000.0
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+- name: Int Wall
+  u_factor: 4.0
+  thickness: 0.0254
+  thermal_capacity: 22000.0
+  solar_absorptance: 0.4
+  thermal_absorptance: 0.9
+
+f_factor_constructions:
+- name: Basement Slab
+  f_factor: 1.264
+  thermal_capacity: 400000.0
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  ground_temperatures:
+  - 7.1
+  - 3.0
+  - -1.0
+  - 0.8
+  - -0.2
+  - 4.8
+  - 6.1
+  - 13.7
+  - 22.2
+  - 22.7
+  - 21.7
+  - 18.5
+
+window_constructions:
+- name: Nonres Window
+  u_factor: 1.408
+  shgc: 0.21
+  visible_transmittance: 0.29
+- name: Nonres Window East
+  u_factor: 2.067
+  shgc: 0.378
+  visible_transmittance: 0.416
+
+# ─── Zones ───────────────────────────────────────────────────────────────────
+# Building footprint: ~104m (N-S after -90 rotation) x ~36m (E-W)
+# Floors: Basement (2.439m), Floors 1-5 (4.2683m each)
+# Zones consolidated by multiplier. Volumes = sum(individual * multiplier).
+# Floor areas = volume / ceiling_height.
+#
+# Coordinate system: x = E-W (0..36), y = N-S (0..104)
+# Basement z=0..2.439, Flr1 z=2.439..6.707, Flr2 z=6.707..10.976,
+# Flr3 z=10.976..15.244, Flr4 z=15.244..19.513, Flr5 z=19.513..23.781
+
+zones:
+# --- Basement ---
+- name: Basement
+  volume: 9120.27
+  floor_area: 3739.8
+# --- Floor 1 ---
+# ER rooms combined: 14 small rooms (4+1+4+1+4 = 14 rooms, ~27.87 m2 each)
+- name: ER Rooms Flr1
+  volume: 1664.3
+  floor_area: 389.9
+# Office Floor 1: 5 rooms x 27.87 m2 each
+- name: Office Flr1
+  volume: 594.8
+  floor_area: 139.4
+- name: Lobby Records
+  volume: 6294.92
+  floor_area: 1474.7
+- name: Corridor Flr1
+  volume: 2428.79
+  floor_area: 569.1
+- name: ER NurseStn Lobby
+  volume: 5273.95
+  floor_area: 1235.5
+# --- Floor 2 ---
+# OR rooms combined: 8 rooms (1+5+1+1)
+- name: OR Rooms Flr2
+  volume: 1856.8
+  floor_area: 435.0
+# ICU rooms combined: 12 rooms (5+1+6)
+- name: ICU Rooms Flr2
+  volume: 1069.1
+  floor_area: 250.5
+- name: ICU Zone
+  volume: 2637.63
+  floor_area: 617.9
+- name: ICU NurseStn
+  volume: 2854.51
+  floor_area: 668.9
+- name: Corridor Flr2
+  volume: 2428.79
+  floor_area: 569.1
+- name: OR NurseStn
+  volume: 4322.24
+  floor_area: 1012.7
+# --- Floor 3 ---
+# Patient rooms combined: 44 rooms (10+1+10+1+10+1+10+1)
+- name: PatRooms Flr3
+  volume: 3911.7
+  floor_area: 916.4
+- name: PhysTherapy
+  volume: 2081.82
+  floor_area: 487.8
+- name: NurseStn Flr3
+  volume: 3866.25
+  floor_area: 905.8
+- name: Lab Flr3
+  volume: 1129.43
+  floor_area: 264.6
+- name: Corridors Flr3
+  volume: 4837.76
+  floor_area: 1133.4
+# --- Floor 4 ---
+- name: PatRooms Flr4
+  volume: 3911.7
+  floor_area: 916.4
+- name: Radiology
+  volume: 2081.82
+  floor_area: 487.8
+- name: NurseStn Flr4
+  volume: 3866.25
+  floor_area: 905.8
+- name: Lab Flr4
+  volume: 1129.43
+  floor_area: 264.6
+- name: Corridors Flr4
+  volume: 4837.76
+  floor_area: 1133.4
+# --- Floor 5 ---
+- name: Dining
+  volume: 2974.04
+  floor_area: 696.8
+- name: Kitchen
+  volume: 3965.37
+  floor_area: 929.0
+- name: NurseStn Flr5
+  volume: 4441.23
+  floor_area: 1040.6
+# Offices combined: 1+5+1+6 = 13 offices
+- name: Offices Flr5
+  volume: 2084.1
+  floor_area: 488.4
+- name: Corridor Flr5
+  volume: 2141.32
+  floor_area: 501.6
+
+# ─── Zone Groups ─────────────────────────────────────────────────────────────
+
+zone_groups:
+- name: VAV1 Zones
+  zones:
+  - Basement
+  - Office Flr1
+  - Lobby Records
+  - Corridor Flr1
+  - Corridor Flr2
+  - ER NurseStn Lobby
+  - ICU NurseStn
+  - OR NurseStn
+- name: VAV2 Zones
+  zones:
+  - PhysTherapy
+  - NurseStn Flr3
+  - Corridors Flr3
+  - NurseStn Flr4
+  - Corridors Flr4
+  - Radiology
+  - Dining
+  - NurseStn Flr5
+  - Offices Flr5
+  - Corridor Flr5
+- name: VAV ER Zones
+  zones:
+  - ER Rooms Flr1
+- name: VAV OR Zones
+  zones:
+  - OR Rooms Flr2
+- name: VAV ICU Zones
+  zones:
+  - ICU Rooms Flr2
+  - ICU Zone
+- name: VAV PatRms Zones
+  zones:
+  - PatRooms Flr3
+  - PatRooms Flr4
+- name: VAV Labs Zones
+  zones:
+  - Lab Flr3
+  - Lab Flr4
+- name: Kitchen Zone
+  zones:
+  - Kitchen
+- name: All Zones
+  zones:
+  - Basement
+  - ER Rooms Flr1
+  - Office Flr1
+  - Lobby Records
+  - Corridor Flr1
+  - ER NurseStn Lobby
+  - OR Rooms Flr2
+  - ICU Rooms Flr2
+  - ICU Zone
+  - ICU NurseStn
+  - Corridor Flr2
+  - OR NurseStn
+  - PatRooms Flr3
+  - PhysTherapy
+  - NurseStn Flr3
+  - Lab Flr3
+  - Corridors Flr3
+  - PatRooms Flr4
+  - Radiology
+  - NurseStn Flr4
+  - Lab Flr4
+  - Corridors Flr4
+  - Dining
+  - Kitchen
+  - NurseStn Flr5
+  - Offices Flr5
+  - Corridor Flr5
+
+# ─── People ──────────────────────────────────────────────────────────────────
+
+people:
+- name: Basement People
+  zones:
+  - Basement
+  count: 100.6
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: ER Rooms People
+  zones:
+  - ER Rooms Flr1
+  count: 28.0
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_EXTD_SCH
+- name: Office Flr1 People
+  zones:
+  - Office Flr1
+  count: 9.5
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: Lobby Records People
+  zones:
+  - Lobby Records
+  count: 21.2
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: Corridor Flr1 People
+  zones:
+  - Corridor Flr1
+  count: 2.8
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: ER NurseStn People
+  zones:
+  - ER NurseStn Lobby
+  count: 17.7
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_EXTD_SCH
+- name: OR Rooms People
+  zones:
+  - OR Rooms Flr2
+  count: 20.0
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_EXTD_SCH
+- name: ICU Rooms People
+  zones:
+  - ICU Rooms Flr2
+  count: 18.0
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_EXTD_SCH
+- name: ICU Zone People
+  zones:
+  - ICU Zone
+  count: 33.2
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_EXTD_SCH
+- name: ICU NurseStn People
+  zones:
+  - ICU NurseStn
+  count: 10.5
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_EXTD_SCH
+- name: Corridor Flr2 People
+  zones:
+  - Corridor Flr2
+  count: 2.8
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: OR NurseStn People
+  zones:
+  - OR NurseStn
+  count: 14.5
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_EXTD_SCH
+- name: PatRooms Flr3 People
+  zones:
+  - PatRooms Flr3
+  count: 66.0
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_EXTD_SCH
+- name: PhysTherapy People
+  zones:
+  - PhysTherapy
+  count: 7.0
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: NurseStn Flr3 People
+  zones:
+  - NurseStn Flr3
+  count: 13.0
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_EXTD_SCH
+- name: Lab Flr3 People
+  zones:
+  - Lab Flr3
+  count: 3.8
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: Corridors Flr3 People
+  zones:
+  - Corridors Flr3
+  count: 5.6
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: PatRooms Flr4 People
+  zones:
+  - PatRooms Flr4
+  count: 66.0
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_EXTD_SCH
+- name: Radiology People
+  zones:
+  - Radiology
+  count: 7.0
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: NurseStn Flr4 People
+  zones:
+  - NurseStn Flr4
+  count: 13.0
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_EXTD_SCH
+- name: Lab Flr4 People
+  zones:
+  - Lab Flr4
+  count: 3.8
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: Corridors Flr4 People
+  zones:
+  - Corridors Flr4
+  count: 5.6
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: Dining People
+  zones:
+  - Dining
+  count: 75.0
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: Kitchen People
+  zones:
+  - Kitchen
+  count: 50.0
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: NurseStn Flr5 People
+  zones:
+  - NurseStn Flr5
+  count: 14.9
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_EXTD_SCH
+- name: Offices Flr5 People
+  zones:
+  - Offices Flr5
+  count: 19.5
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: Corridor Flr5 People
+  zones:
+  - Corridor Flr5
+  count: 2.5
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+
+# ─── Lights ──────────────────────────────────────────────────────────────────
+
+lights:
+- name: Basement Lights
+  zones:
+  - Basement
+  watts_per_area: 6.41
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG Basement
+- name: ER Rooms Lights
+  zones:
+  - ER Rooms Flr1
+  watts_per_area: 13.60
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG 24hr Clinical
+- name: Office Flr1 Lights
+  zones:
+  - Office Flr1
+  watts_per_area: 7.46
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG Office
+- name: Lobby Records Lights
+  zones:
+  - Lobby Records
+  watts_per_area: 7.94
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG Records
+- name: Corridor Flr1 Lights
+  zones:
+  - Corridor Flr1
+  watts_per_area: 6.11
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG Corridor
+- name: ER NurseStn Lights
+  zones:
+  - ER NurseStn Lobby
+  watts_per_area: 9.8371265
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG ER NurseStn
+- name: OR Rooms Lights
+  zones:
+  - OR Rooms Flr2
+  watts_per_area: 23.62
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG OR
+- name: ICU Rooms Lights
+  zones:
+  - ICU Rooms Flr2
+  watts_per_area: 12.07
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG 24hr Clinical
+- name: ICU Zone Lights
+  zones:
+  - ICU Zone
+  watts_per_area: 12.07
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG 24hr Clinical
+- name: ICU NurseStn Lights
+  zones:
+  - ICU NurseStn
+  watts_per_area: 10.9415015
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG 24hr Clinical
+- name: Corridor Flr2 Lights
+  zones:
+  - Corridor Flr2
+  watts_per_area: 6.11
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG Corridor
+- name: OR NurseStn Lights
+  zones:
+  - OR NurseStn
+  watts_per_area: 9.284939
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG NurseStn Lobby
+- name: PatRooms Flr3 Lights
+  zones:
+  - PatRooms Flr3
+  watts_per_area: 7.98
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG 24hr Clinical
+- name: PhysTherapy Lights
+  zones:
+  - PhysTherapy
+  watts_per_area: 8.39
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG OR
+- name: NurseStn Flr3 Lights
+  zones:
+  - NurseStn Flr3
+  watts_per_area: 9.284939
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG NurseStn Lobby
+- name: Lab Flr3 Lights
+  zones:
+  - Lab Flr3
+  watts_per_area: 12.37
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG OR
+- name: Corridors Flr3 Lights
+  zones:
+  - Corridors Flr3
+  watts_per_area: 6.11
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG Corridor
+- name: PatRooms Flr4 Lights
+  zones:
+  - PatRooms Flr4
+  watts_per_area: 7.98
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG 24hr Clinical
+- name: Radiology Lights
+  zones:
+  - Radiology
+  watts_per_area: 9.61
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG OR
+- name: NurseStn Flr4 Lights
+  zones:
+  - NurseStn Flr4
+  watts_per_area: 9.284939
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG NurseStn Lobby
+- name: Lab Flr4 Lights
+  zones:
+  - Lab Flr4
+  watts_per_area: 12.37
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG OR
+- name: Corridors Flr4 Lights
+  zones:
+  - Corridors Flr4
+  watts_per_area: 6.11
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG Corridor
+- name: Dining Lights
+  zones:
+  - Dining
+  watts_per_area: 3.68
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG Dining
+- name: Kitchen Lights
+  zones:
+  - Kitchen
+  watts_per_area: 12.17
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG Kitchen
+- name: NurseStn Flr5 Lights
+  zones:
+  - NurseStn Flr5
+  watts_per_area: 9.284939
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG NurseStn Lobby
+- name: Offices Flr5 Lights
+  zones:
+  - Offices Flr5
+  watts_per_area: 7.46
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG Office
+- name: Corridor Flr5 Lights
+  zones:
+  - Corridor Flr5
+  watts_per_area: 6.11
+  radiant_fraction: 0.6
+  return_air_fraction: 0.0
+  schedule: LTG Corridor
+
+# ─── Equipment ───────────────────────────────────────────────────────────────
+
+equipment:
+- name: Basement Equipment
+  zones:
+  - Basement
+  power: 30177.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: ER Rooms Equipment
+  zones:
+  - ER Rooms Flr1
+  power: 8398.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_EXTD_SCH
+- name: Office Flr1 Equipment
+  zones:
+  - Office Flr1
+  power: 825.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Lobby Records Equipment
+  zones:
+  - Lobby Records
+  power: 1593.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: ER NurseStn Equipment
+  zones:
+  - ER NurseStn Lobby
+  power: 18077.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_EXTD_SCH
+- name: OR Rooms Equipment
+  zones:
+  - OR Rooms Flr2
+  power: 26390.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: ICU Rooms Equipment
+  zones:
+  - ICU Rooms Flr2
+  power: 8322.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_EXTD_SCH
+- name: ICU Zone Equipment
+  zones:
+  - ICU Zone
+  power: 19948.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_EXTD_SCH
+- name: ICU NurseStn Equipment
+  zones:
+  - ICU NurseStn
+  power: 14392.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_EXTD_SCH
+- name: OR NurseStn Equipment
+  zones:
+  - OR NurseStn
+  power: 11331.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_EXTD_SCH
+- name: PatRooms Flr3 Equipment
+  zones:
+  - PatRooms Flr3
+  power: 20393.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_EXTD_SCH
+- name: PhysTherapy Equipment
+  zones:
+  - PhysTherapy
+  power: 7872.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: NurseStn Flr3 Equipment
+  zones:
+  - NurseStn Flr3
+  power: 10136.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_EXTD_SCH
+- name: Lab Flr3 Equipment
+  zones:
+  - Lab Flr3
+  power: 11396.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: PatRooms Flr4 Equipment
+  zones:
+  - PatRooms Flr4
+  power: 20393.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_EXTD_SCH
+- name: Radiology Equipment
+  zones:
+  - Radiology
+  power: 52500.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: NurseStn Flr4 Equipment
+  zones:
+  - NurseStn Flr4
+  power: 10136.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_EXTD_SCH
+- name: Lab Flr4 Equipment
+  zones:
+  - Lab Flr4
+  power: 11396.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Dining Equipment
+  zones:
+  - Dining
+  power: 7497.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_EXTD_SCH
+- name: Kitchen Equipment
+  zones:
+  - Kitchen
+  power: 75998.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_EXTD_SCH
+- name: Kitchen Gas Equipment
+  zones:
+  - Kitchen
+  power: 149946.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_EXTD_SCH
+- name: NurseStn Flr5 Equipment
+  zones:
+  - NurseStn Flr5
+  power: 11643.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Offices Flr5 Equipment
+  zones:
+  - Offices Flr5
+  power: 6148.0
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+
+# ─── Infiltration ────────────────────────────────────────────────────────────
+# 0.000570 m3/s per m2 exterior wall area, constant coefficient 0.25
+# design_flow_rate = flow_per_ext_wall_area * ext_wall_area
+# For simplified model, we use flow_per_exterior_wall_area with the 0.25 constant
+
+infiltration:
+- name: Basement Infiltration
+  zones:
+  - Basement
+  design_flow_rate: 0.01
+  constant_coefficient: 1.0
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.0
+  wind_squared_coefficient: 0.0
+- name: Floor 1 Infiltration
+  zones:
+  - ER Rooms Flr1
+  - Office Flr1
+  - Lobby Records
+  - Corridor Flr1
+  - ER NurseStn Lobby
+  flow_per_exterior_wall_area: 0.000570
+  constant_coefficient: 0.25
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.0
+  wind_squared_coefficient: 0.0
+- name: Floor 2 Infiltration
+  zones:
+  - OR Rooms Flr2
+  - ICU Rooms Flr2
+  - ICU Zone
+  - ICU NurseStn
+  - Corridor Flr2
+  - OR NurseStn
+  flow_per_exterior_wall_area: 0.000570
+  constant_coefficient: 0.25
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.0
+  wind_squared_coefficient: 0.0
+- name: Floor 3 Infiltration
+  zones:
+  - PatRooms Flr3
+  - PhysTherapy
+  - NurseStn Flr3
+  - Lab Flr3
+  - Corridors Flr3
+  flow_per_exterior_wall_area: 0.000570
+  constant_coefficient: 0.25
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.0
+  wind_squared_coefficient: 0.0
+- name: Floor 4 Infiltration
+  zones:
+  - PatRooms Flr4
+  - Radiology
+  - NurseStn Flr4
+  - Lab Flr4
+  - Corridors Flr4
+  flow_per_exterior_wall_area: 0.000570
+  constant_coefficient: 0.25
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.0
+  wind_squared_coefficient: 0.0
+- name: Floor 5 Infiltration
+  zones:
+  - Dining
+  - Kitchen
+  - NurseStn Flr5
+  - Offices Flr5
+  - Corridor Flr5
+  flow_per_exterior_wall_area: 0.000570
+  constant_coefficient: 0.25
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.0
+  wind_squared_coefficient: 0.0
+
+# ─── Surfaces ────────────────────────────────────────────────────────────────
+# Building footprint: ~104m (N-S) x ~36m (E-W), north_axis = -90
+# After rotation: Long walls face E (az=90) and W (az=270), short walls face N (az=0) and S (az=180)
+# Each floor height: 4.2683m (except basement 2.439m)
+# Window-to-wall ratio: ~37% on all orientations
+# Using area/azimuth/tilt geometry mode for simplicity.
+
+surfaces:
+# ========== BASEMENT (z = 0 to 2.439) ==========
+# No exterior walls (below grade), only ground floor and ceiling
+- name: Basement Floor
+  zone: Basement
+  type: floor
+  construction: Basement Slab
+  boundary: ground
+  area: 3739.8
+  azimuth: 0
+  tilt: 180
+  exposed_perimeter: 280.0
+- name: Basement Ceiling
+  zone: Basement
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 3739.8
+  azimuth: 0
+  tilt: 0
+# Basement exterior walls (above grade portion, minimal)
+- name: Basement East Wall
+  zone: Basement
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 25.4
+  azimuth: 90
+  tilt: 90
+- name: Basement West Wall
+  zone: Basement
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 25.4
+  azimuth: 270
+  tilt: 90
+- name: Basement North Wall
+  zone: Basement
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 8.8
+  azimuth: 0
+  tilt: 90
+- name: Basement South Wall
+  zone: Basement
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 8.8
+  azimuth: 180
+  tilt: 90
+
+# ========== FLOOR 1 (z = 2.439 to 6.707) ==========
+# --- ER Rooms Flr1 (interior, minimal exterior) ---
+- name: ER Rooms Flr1 Floor
+  zone: ER Rooms Flr1
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 389.9
+  azimuth: 0
+  tilt: 180
+- name: ER Rooms Flr1 Ceiling
+  zone: ER Rooms Flr1
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 389.9
+  azimuth: 0
+  tilt: 0
+- name: ER Rooms Flr1 Int Wall
+  zone: ER Rooms Flr1
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 400.0
+  azimuth: 0
+  tilt: 90
+
+# --- Office Flr1 ---
+- name: Office Flr1 South Wall
+  zone: Office Flr1
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 80.6
+  azimuth: 180
+  tilt: 90
+- name: Office Flr1 South Window
+  zone: Office Flr1
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: Office Flr1 South Wall
+  area: 29.8
+  azimuth: 180
+  tilt: 90
+- name: Office Flr1 Floor
+  zone: Office Flr1
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 139.4
+  azimuth: 0
+  tilt: 180
+- name: Office Flr1 Ceiling
+  zone: Office Flr1
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 139.4
+  azimuth: 0
+  tilt: 0
+- name: Office Flr1 Int Wall
+  zone: Office Flr1
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 150.0
+  azimuth: 0
+  tilt: 90
+
+# --- Lobby Records (large, has exterior walls) ---
+- name: Lobby Records East Wall
+  zone: Lobby Records
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 222.6
+  azimuth: 90
+  tilt: 90
+- name: Lobby Records East Window
+  zone: Lobby Records
+  type: window
+  construction: Nonres Window East
+  boundary: outdoor
+  parent_surface: Lobby Records East Wall
+  area: 82.4
+  azimuth: 90
+  tilt: 90
+- name: Lobby Records South Wall
+  zone: Lobby Records
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 153.7
+  azimuth: 180
+  tilt: 90
+- name: Lobby Records South Window
+  zone: Lobby Records
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: Lobby Records South Wall
+  area: 56.9
+  azimuth: 180
+  tilt: 90
+- name: Lobby Records Floor
+  zone: Lobby Records
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 1474.7
+  azimuth: 0
+  tilt: 180
+- name: Lobby Records Ceiling
+  zone: Lobby Records
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 1474.7
+  azimuth: 0
+  tilt: 0
+- name: Lobby Records Int Wall
+  zone: Lobby Records
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 400.0
+  azimuth: 0
+  tilt: 90
+
+# --- Corridor Flr1 (interior zone) ---
+- name: Corridor Flr1 Floor
+  zone: Corridor Flr1
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 569.1
+  azimuth: 0
+  tilt: 180
+- name: Corridor Flr1 Ceiling
+  zone: Corridor Flr1
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 569.1
+  azimuth: 0
+  tilt: 0
+- name: Corridor Flr1 Int Wall
+  zone: Corridor Flr1
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 600.0
+  azimuth: 0
+  tilt: 90
+
+# --- ER NurseStn Lobby (large, has exterior walls) ---
+- name: ER NurseStn North Wall
+  zone: ER NurseStn Lobby
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 153.7
+  azimuth: 0
+  tilt: 90
+- name: ER NurseStn North Window
+  zone: ER NurseStn Lobby
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: ER NurseStn North Wall
+  area: 56.9
+  azimuth: 0
+  tilt: 90
+- name: ER NurseStn West Wall
+  zone: ER NurseStn Lobby
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 222.6
+  azimuth: 270
+  tilt: 90
+- name: ER NurseStn West Window
+  zone: ER NurseStn Lobby
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: ER NurseStn West Wall
+  area: 82.4
+  azimuth: 270
+  tilt: 90
+- name: ER NurseStn Floor
+  zone: ER NurseStn Lobby
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 1235.5
+  azimuth: 0
+  tilt: 180
+- name: ER NurseStn Ceiling
+  zone: ER NurseStn Lobby
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 1235.5
+  azimuth: 0
+  tilt: 0
+- name: ER NurseStn Int Wall
+  zone: ER NurseStn Lobby
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 400.0
+  azimuth: 180
+  tilt: 90
+
+# ========== FLOOR 2 (z = 6.707 to 10.976) ==========
+# --- OR Rooms Flr2 (mostly interior) ---
+- name: OR Rooms Flr2 Floor
+  zone: OR Rooms Flr2
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 435.0
+  azimuth: 0
+  tilt: 180
+- name: OR Rooms Flr2 Ceiling
+  zone: OR Rooms Flr2
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 435.0
+  azimuth: 0
+  tilt: 0
+- name: OR Rooms Flr2 Int Wall
+  zone: OR Rooms Flr2
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 500.0
+  azimuth: 0
+  tilt: 90
+
+# --- ICU Rooms Flr2 (mostly interior) ---
+- name: ICU Rooms Flr2 Floor
+  zone: ICU Rooms Flr2
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 250.5
+  azimuth: 0
+  tilt: 180
+- name: ICU Rooms Flr2 Ceiling
+  zone: ICU Rooms Flr2
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 250.5
+  azimuth: 0
+  tilt: 0
+- name: ICU Rooms Flr2 Int Wall
+  zone: ICU Rooms Flr2
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 350.0
+  azimuth: 0
+  tilt: 90
+
+# --- ICU Zone ---
+- name: ICU Zone East Wall
+  zone: ICU Zone
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 110.3
+  azimuth: 90
+  tilt: 90
+- name: ICU Zone East Window
+  zone: ICU Zone
+  type: window
+  construction: Nonres Window East
+  boundary: outdoor
+  parent_surface: ICU Zone East Wall
+  area: 40.8
+  azimuth: 90
+  tilt: 90
+- name: ICU Zone Floor
+  zone: ICU Zone
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 617.9
+  azimuth: 0
+  tilt: 180
+- name: ICU Zone Ceiling
+  zone: ICU Zone
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 617.9
+  azimuth: 0
+  tilt: 0
+- name: ICU Zone Int Wall
+  zone: ICU Zone
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 350.0
+  azimuth: 180
+  tilt: 90
+
+# --- ICU NurseStn ---
+- name: ICU NurseStn South Wall
+  zone: ICU NurseStn
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 76.9
+  azimuth: 180
+  tilt: 90
+- name: ICU NurseStn South Window
+  zone: ICU NurseStn
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: ICU NurseStn South Wall
+  area: 28.5
+  azimuth: 180
+  tilt: 90
+- name: ICU NurseStn Floor
+  zone: ICU NurseStn
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 668.9
+  azimuth: 0
+  tilt: 180
+- name: ICU NurseStn Ceiling
+  zone: ICU NurseStn
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 668.9
+  azimuth: 0
+  tilt: 0
+- name: ICU NurseStn Int Wall
+  zone: ICU NurseStn
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 350.0
+  azimuth: 0
+  tilt: 90
+
+# --- Corridor Flr2 (interior) ---
+- name: Corridor Flr2 Floor
+  zone: Corridor Flr2
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 569.1
+  azimuth: 0
+  tilt: 180
+- name: Corridor Flr2 Ceiling
+  zone: Corridor Flr2
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 569.1
+  azimuth: 0
+  tilt: 0
+- name: Corridor Flr2 Int Wall
+  zone: Corridor Flr2
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 600.0
+  azimuth: 0
+  tilt: 90
+
+# --- OR NurseStn ---
+- name: OR NurseStn North Wall
+  zone: OR NurseStn
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 153.7
+  azimuth: 0
+  tilt: 90
+- name: OR NurseStn North Window
+  zone: OR NurseStn
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: OR NurseStn North Wall
+  area: 56.9
+  azimuth: 0
+  tilt: 90
+- name: OR NurseStn West Wall
+  zone: OR NurseStn
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 110.3
+  azimuth: 270
+  tilt: 90
+- name: OR NurseStn West Window
+  zone: OR NurseStn
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: OR NurseStn West Wall
+  area: 40.8
+  azimuth: 270
+  tilt: 90
+- name: OR NurseStn Floor
+  zone: OR NurseStn
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 1012.7
+  azimuth: 0
+  tilt: 180
+- name: OR NurseStn Ceiling
+  zone: OR NurseStn
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 1012.7
+  azimuth: 0
+  tilt: 0
+- name: OR NurseStn Int Wall
+  zone: OR NurseStn
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 400.0
+  azimuth: 180
+  tilt: 90
+
+# ========== FLOOR 3 (z = 10.976 to 15.244) ==========
+# --- PatRooms Flr3 (exterior on both long sides) ---
+- name: PatRooms Flr3 East Wall
+  zone: PatRooms Flr3
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 222.6
+  azimuth: 90
+  tilt: 90
+- name: PatRooms Flr3 East Window
+  zone: PatRooms Flr3
+  type: window
+  construction: Nonres Window East
+  boundary: outdoor
+  parent_surface: PatRooms Flr3 East Wall
+  area: 82.4
+  azimuth: 90
+  tilt: 90
+- name: PatRooms Flr3 West Wall
+  zone: PatRooms Flr3
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 222.6
+  azimuth: 270
+  tilt: 90
+- name: PatRooms Flr3 West Window
+  zone: PatRooms Flr3
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: PatRooms Flr3 West Wall
+  area: 82.4
+  azimuth: 270
+  tilt: 90
+- name: PatRooms Flr3 Floor
+  zone: PatRooms Flr3
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 916.4
+  azimuth: 0
+  tilt: 180
+- name: PatRooms Flr3 Ceiling
+  zone: PatRooms Flr3
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 916.4
+  azimuth: 0
+  tilt: 0
+- name: PatRooms Flr3 Int Wall
+  zone: PatRooms Flr3
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 500.0
+  azimuth: 0
+  tilt: 90
+
+# --- PhysTherapy ---
+- name: PhysTherapy South Wall
+  zone: PhysTherapy
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 76.9
+  azimuth: 180
+  tilt: 90
+- name: PhysTherapy South Window
+  zone: PhysTherapy
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: PhysTherapy South Wall
+  area: 28.5
+  azimuth: 180
+  tilt: 90
+- name: PhysTherapy Floor
+  zone: PhysTherapy
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 487.8
+  azimuth: 0
+  tilt: 180
+- name: PhysTherapy Ceiling
+  zone: PhysTherapy
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 487.8
+  azimuth: 0
+  tilt: 0
+- name: PhysTherapy Int Wall
+  zone: PhysTherapy
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 250.0
+  azimuth: 0
+  tilt: 90
+
+# --- NurseStn Flr3 ---
+- name: NurseStn Flr3 North Wall
+  zone: NurseStn Flr3
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 153.7
+  azimuth: 0
+  tilt: 90
+- name: NurseStn Flr3 North Window
+  zone: NurseStn Flr3
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: NurseStn Flr3 North Wall
+  area: 56.9
+  azimuth: 0
+  tilt: 90
+- name: NurseStn Flr3 Floor
+  zone: NurseStn Flr3
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 905.8
+  azimuth: 0
+  tilt: 180
+- name: NurseStn Flr3 Ceiling
+  zone: NurseStn Flr3
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 905.8
+  azimuth: 0
+  tilt: 0
+- name: NurseStn Flr3 Int Wall
+  zone: NurseStn Flr3
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 350.0
+  azimuth: 180
+  tilt: 90
+
+# --- Lab Flr3 ---
+- name: Lab Flr3 Floor
+  zone: Lab Flr3
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 264.6
+  azimuth: 0
+  tilt: 180
+- name: Lab Flr3 Ceiling
+  zone: Lab Flr3
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 264.6
+  azimuth: 0
+  tilt: 0
+- name: Lab Flr3 Int Wall
+  zone: Lab Flr3
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 200.0
+  azimuth: 0
+  tilt: 90
+
+# --- Corridors Flr3 ---
+- name: Corridors Flr3 Floor
+  zone: Corridors Flr3
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 1133.4
+  azimuth: 0
+  tilt: 180
+- name: Corridors Flr3 Ceiling
+  zone: Corridors Flr3
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 1133.4
+  azimuth: 0
+  tilt: 0
+- name: Corridors Flr3 Int Wall
+  zone: Corridors Flr3
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 700.0
+  azimuth: 0
+  tilt: 90
+
+# ========== FLOOR 4 (z = 15.244 to 19.513) ==========
+# --- PatRooms Flr4 (same layout as Flr3) ---
+- name: PatRooms Flr4 East Wall
+  zone: PatRooms Flr4
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 222.6
+  azimuth: 90
+  tilt: 90
+- name: PatRooms Flr4 East Window
+  zone: PatRooms Flr4
+  type: window
+  construction: Nonres Window East
+  boundary: outdoor
+  parent_surface: PatRooms Flr4 East Wall
+  area: 82.4
+  azimuth: 90
+  tilt: 90
+- name: PatRooms Flr4 West Wall
+  zone: PatRooms Flr4
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 222.6
+  azimuth: 270
+  tilt: 90
+- name: PatRooms Flr4 West Window
+  zone: PatRooms Flr4
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: PatRooms Flr4 West Wall
+  area: 82.4
+  azimuth: 270
+  tilt: 90
+- name: PatRooms Flr4 Floor
+  zone: PatRooms Flr4
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 916.4
+  azimuth: 0
+  tilt: 180
+- name: PatRooms Flr4 Ceiling
+  zone: PatRooms Flr4
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 916.4
+  azimuth: 0
+  tilt: 0
+- name: PatRooms Flr4 Int Wall
+  zone: PatRooms Flr4
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 500.0
+  azimuth: 0
+  tilt: 90
+
+# --- Radiology ---
+- name: Radiology South Wall
+  zone: Radiology
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 76.9
+  azimuth: 180
+  tilt: 90
+- name: Radiology South Window
+  zone: Radiology
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: Radiology South Wall
+  area: 28.5
+  azimuth: 180
+  tilt: 90
+- name: Radiology Floor
+  zone: Radiology
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 487.8
+  azimuth: 0
+  tilt: 180
+- name: Radiology Ceiling
+  zone: Radiology
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 487.8
+  azimuth: 0
+  tilt: 0
+- name: Radiology Int Wall
+  zone: Radiology
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 250.0
+  azimuth: 0
+  tilt: 90
+
+# --- NurseStn Flr4 ---
+- name: NurseStn Flr4 North Wall
+  zone: NurseStn Flr4
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 153.7
+  azimuth: 0
+  tilt: 90
+- name: NurseStn Flr4 North Window
+  zone: NurseStn Flr4
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: NurseStn Flr4 North Wall
+  area: 56.9
+  azimuth: 0
+  tilt: 90
+- name: NurseStn Flr4 Floor
+  zone: NurseStn Flr4
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 905.8
+  azimuth: 0
+  tilt: 180
+- name: NurseStn Flr4 Ceiling
+  zone: NurseStn Flr4
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 905.8
+  azimuth: 0
+  tilt: 0
+- name: NurseStn Flr4 Int Wall
+  zone: NurseStn Flr4
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 350.0
+  azimuth: 180
+  tilt: 90
+
+# --- Lab Flr4 ---
+- name: Lab Flr4 Floor
+  zone: Lab Flr4
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 264.6
+  azimuth: 0
+  tilt: 180
+- name: Lab Flr4 Ceiling
+  zone: Lab Flr4
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 264.6
+  azimuth: 0
+  tilt: 0
+- name: Lab Flr4 Int Wall
+  zone: Lab Flr4
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 200.0
+  azimuth: 0
+  tilt: 90
+
+# --- Corridors Flr4 ---
+- name: Corridors Flr4 Floor
+  zone: Corridors Flr4
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 1133.4
+  azimuth: 0
+  tilt: 180
+- name: Corridors Flr4 Ceiling
+  zone: Corridors Flr4
+  type: ceiling
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 1133.4
+  azimuth: 0
+  tilt: 0
+- name: Corridors Flr4 Int Wall
+  zone: Corridors Flr4
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 700.0
+  azimuth: 0
+  tilt: 90
+
+# ========== FLOOR 5 (z = 19.513 to 23.781) — TOP FLOOR with ROOF ==========
+# --- Dining ---
+- name: Dining East Wall
+  zone: Dining
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 110.3
+  azimuth: 90
+  tilt: 90
+- name: Dining East Window
+  zone: Dining
+  type: window
+  construction: Nonres Window East
+  boundary: outdoor
+  parent_surface: Dining East Wall
+  area: 40.8
+  azimuth: 90
+  tilt: 90
+- name: Dining South Wall
+  zone: Dining
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 76.9
+  azimuth: 180
+  tilt: 90
+- name: Dining South Window
+  zone: Dining
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: Dining South Wall
+  area: 28.5
+  azimuth: 180
+  tilt: 90
+- name: Dining Floor
+  zone: Dining
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 696.8
+  azimuth: 0
+  tilt: 180
+- name: Dining Roof
+  zone: Dining
+  type: roof
+  construction: Nonres Roof
+  boundary: outdoor
+  area: 696.8
+  azimuth: 0
+  tilt: 0
+- name: Dining Int Wall
+  zone: Dining
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 200.0
+  azimuth: 0
+  tilt: 90
+
+# --- Kitchen ---
+- name: Kitchen West Wall
+  zone: Kitchen
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 110.3
+  azimuth: 270
+  tilt: 90
+- name: Kitchen West Window
+  zone: Kitchen
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: Kitchen West Wall
+  area: 40.8
+  azimuth: 270
+  tilt: 90
+- name: Kitchen South Wall
+  zone: Kitchen
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 76.9
+  azimuth: 180
+  tilt: 90
+- name: Kitchen South Window
+  zone: Kitchen
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: Kitchen South Wall
+  area: 28.5
+  azimuth: 180
+  tilt: 90
+- name: Kitchen Floor
+  zone: Kitchen
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 929.0
+  azimuth: 0
+  tilt: 180
+- name: Kitchen Roof
+  zone: Kitchen
+  type: roof
+  construction: Nonres Roof
+  boundary: outdoor
+  area: 929.0
+  azimuth: 0
+  tilt: 0
+- name: Kitchen Int Wall
+  zone: Kitchen
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 300.0
+  azimuth: 0
+  tilt: 90
+
+# --- NurseStn Flr5 ---
+- name: NurseStn Flr5 North Wall
+  zone: NurseStn Flr5
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 153.7
+  azimuth: 0
+  tilt: 90
+- name: NurseStn Flr5 North Window
+  zone: NurseStn Flr5
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: NurseStn Flr5 North Wall
+  area: 56.9
+  azimuth: 0
+  tilt: 90
+- name: NurseStn Flr5 East Wall
+  zone: NurseStn Flr5
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 110.3
+  azimuth: 90
+  tilt: 90
+- name: NurseStn Flr5 East Window
+  zone: NurseStn Flr5
+  type: window
+  construction: Nonres Window East
+  boundary: outdoor
+  parent_surface: NurseStn Flr5 East Wall
+  area: 40.8
+  azimuth: 90
+  tilt: 90
+- name: NurseStn Flr5 Floor
+  zone: NurseStn Flr5
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 1040.6
+  azimuth: 0
+  tilt: 180
+- name: NurseStn Flr5 Roof
+  zone: NurseStn Flr5
+  type: roof
+  construction: Nonres Roof
+  boundary: outdoor
+  area: 1040.6
+  azimuth: 0
+  tilt: 0
+- name: NurseStn Flr5 Int Wall
+  zone: NurseStn Flr5
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 350.0
+  azimuth: 180
+  tilt: 90
+
+# --- Offices Flr5 ---
+- name: Offices Flr5 West Wall
+  zone: Offices Flr5
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 110.3
+  azimuth: 270
+  tilt: 90
+- name: Offices Flr5 West Window
+  zone: Offices Flr5
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: Offices Flr5 West Wall
+  area: 40.8
+  azimuth: 270
+  tilt: 90
+- name: Offices Flr5 North Wall
+  zone: Offices Flr5
+  type: wall
+  construction: Ext Wall
+  boundary: outdoor
+  area: 76.9
+  azimuth: 0
+  tilt: 90
+- name: Offices Flr5 North Window
+  zone: Offices Flr5
+  type: window
+  construction: Nonres Window
+  boundary: outdoor
+  parent_surface: Offices Flr5 North Wall
+  area: 28.5
+  azimuth: 0
+  tilt: 90
+- name: Offices Flr5 Floor
+  zone: Offices Flr5
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 488.4
+  azimuth: 0
+  tilt: 180
+- name: Offices Flr5 Roof
+  zone: Offices Flr5
+  type: roof
+  construction: Nonres Roof
+  boundary: outdoor
+  area: 488.4
+  azimuth: 0
+  tilt: 0
+- name: Offices Flr5 Int Wall
+  zone: Offices Flr5
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 250.0
+  azimuth: 180
+  tilt: 90
+
+# --- Corridor Flr5 ---
+- name: Corridor Flr5 Floor
+  zone: Corridor Flr5
+  type: floor
+  construction: Int Slab Floor
+  boundary: adiabatic
+  area: 501.6
+  azimuth: 0
+  tilt: 180
+- name: Corridor Flr5 Roof
+  zone: Corridor Flr5
+  type: roof
+  construction: Nonres Roof
+  boundary: outdoor
+  area: 501.6
+  azimuth: 0
+  tilt: 0
+- name: Corridor Flr5 Int Wall
+  zone: Corridor Flr5
+  type: wall
+  construction: Int Wall
+  boundary: adiabatic
+  area: 500.0
+  azimuth: 0
+  tilt: 90
+
+# ─── Air Loops ───────────────────────────────────────────────────────────────
+
+air_loops:
+# --- VAV_1: General zones (Basement, Office, Lobby, Corridors, NurseStns) ---
+- name: VAV_1
+  system_type: vav
+  dcv: false
+  min_vav_fraction: 0.30
+  controls:
+    cooling_supply_temp: 12.8
+    heating_supply_temp: 40.0
+    design_zone_flow: autosize
+    cycling: proportional
+    minimum_damper_position: 0.3
+    economizer:
+      economizer_type: differential_dry_bulb
+  equipment:
+  - type: heat_recovery
+    name: VAV1 ERV
+    source: wheel
+    sensible_effectiveness: 0.70
+    latent_effectiveness: 0.60
+    parasitic_power: 3154.0
+  - type: heating_coil
+    name: VAV1 HW Coil
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: cooling_coil
+    name: VAV1 CHW Coil
+    source: chilled_water
+    capacity: autosize
+    shr: 0.80
+    setpoint: 12.8
+    plant_loop: CHW Loop
+  - type: humidifier
+    name: VAV1 Humidifier
+    rated_power: 6000.0
+    min_rh_setpoint: 0.30
+  - type: fan
+    name: VAV1 Fan
+    source: vav
+    design_flow_rate: autosize
+    pressure_rise: 1389.0
+    motor_efficiency: 0.91
+    impeller_efficiency: 0.68
+    motor_in_airstream_fraction: 1.0
+  zone_terminals:
+  - zone: Basement
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box Basement
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: Office Flr1
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box Office Flr1
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: Lobby Records
+    per_person_oa: 0.0038
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box Lobby Records
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: Corridor Flr1
+    per_person_oa: 0.0
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box Corridor Flr1
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: Corridor Flr2
+    per_person_oa: 0.0
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box Corridor Flr2
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: ER NurseStn Lobby
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box ER NurseStn
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: ICU NurseStn
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box ICU NurseStn
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: OR NurseStn
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box OR NurseStn
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+
+# --- VAV_2: Therapy, NurseStns, Corridors upper floors, Radiology, Dining, Offices ---
+- name: VAV_2
+  system_type: vav
+  dcv: false
+  min_vav_fraction: 0.30
+  controls:
+    cooling_supply_temp: 12.8
+    heating_supply_temp: 40.0
+    design_zone_flow: autosize
+    cycling: proportional
+    minimum_damper_position: 0.3
+    economizer:
+      economizer_type: differential_dry_bulb
+  equipment:
+  - type: heat_recovery
+    name: VAV2 ERV
+    source: wheel
+    sensible_effectiveness: 0.70
+    latent_effectiveness: 0.60
+    parasitic_power: 2500.0
+  - type: heating_coil
+    name: VAV2 HW Coil
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: cooling_coil
+    name: VAV2 CHW Coil
+    source: chilled_water
+    capacity: autosize
+    shr: 0.80
+    setpoint: 12.8
+    plant_loop: CHW Loop
+  - type: humidifier
+    name: VAV2 Humidifier
+    rated_power: 6000.0
+    min_rh_setpoint: 0.30
+  - type: fan
+    name: VAV2 Fan
+    source: vav
+    design_flow_rate: autosize
+    pressure_rise: 1389.0
+    motor_efficiency: 0.91
+    impeller_efficiency: 0.68
+    motor_in_airstream_fraction: 1.0
+  zone_terminals:
+  - zone: PhysTherapy
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box PhysTherapy
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: NurseStn Flr3
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box NurseStn Flr3
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: Corridors Flr3
+    per_person_oa: 0.0
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box Corridors Flr3
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: NurseStn Flr4
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box NurseStn Flr4
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: Corridors Flr4
+    per_person_oa: 0.0
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box Corridors Flr4
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: Radiology
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box Radiology
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: Dining
+    per_person_oa: 0.0038
+    per_area_oa: 0.0009
+    terminal:
+      type: vav_box
+      name: VAV Box Dining
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: NurseStn Flr5
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box NurseStn Flr5
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: Offices Flr5
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box Offices Flr5
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: Corridor Flr5
+    per_person_oa: 0.0
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box Corridor Flr5
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+
+# --- VAV_ER: Emergency rooms (high OA) ---
+- name: VAV_ER
+  system_type: vav
+  dcv: false
+  min_vav_fraction: 0.30
+  controls:
+    cooling_supply_temp: 12.8
+    heating_supply_temp: 40.0
+    design_zone_flow: autosize
+    cycling: proportional
+    minimum_damper_position: 0.8
+  equipment:
+  - type: heat_recovery
+    name: VAV_ER ERV
+    source: wheel
+    sensible_effectiveness: 0.70
+    latent_effectiveness: 0.60
+    parasitic_power: 1500.0
+  - type: heating_coil
+    name: VAV_ER HW Coil
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: humidifier
+    name: VAV_ER Humidifier
+    rated_power: 100000.0
+    min_rh_setpoint: 0.30
+  - type: cooling_coil
+    name: VAV_ER CHW Coil
+    source: chilled_water
+    capacity: autosize
+    shr: 0.80
+    setpoint: 12.8
+    plant_loop: CHW Loop
+  - type: fan
+    name: VAV_ER Fan
+    source: vav
+    design_flow_rate: autosize
+    pressure_rise: 1389.0
+    motor_efficiency: 0.91
+    impeller_efficiency: 0.68
+    motor_in_airstream_fraction: 1.0
+  zone_terminals:
+  - zone: ER Rooms Flr1
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box ER Rooms
+      max_air_flow: autosize
+      min_flow_fraction: 0.50
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+
+# --- VAV_OR: Operating rooms (high OA) ---
+- name: VAV_OR
+  system_type: vav
+  dcv: false
+  min_vav_fraction: 0.30
+  controls:
+    cooling_supply_temp: 12.8
+    heating_supply_temp: 40.0
+    design_zone_flow: autosize
+    cycling: proportional
+    minimum_damper_position: 0.8
+  equipment:
+  - type: heat_recovery
+    name: VAV_OR ERV
+    source: wheel
+    sensible_effectiveness: 0.70
+    latent_effectiveness: 0.60
+    parasitic_power: 1200.0
+  - type: heating_coil
+    name: VAV_OR HW Coil
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: humidifier
+    name: VAV_OR Humidifier
+    rated_power: 100000.0
+    min_rh_setpoint: 0.30
+  - type: cooling_coil
+    name: VAV_OR CHW Coil
+    source: chilled_water
+    capacity: autosize
+    shr: 0.80
+    setpoint: 12.8
+    plant_loop: CHW Loop
+  - type: fan
+    name: VAV_OR Fan
+    source: vav
+    design_flow_rate: autosize
+    pressure_rise: 1389.0
+    motor_efficiency: 0.91
+    impeller_efficiency: 0.68
+    motor_in_airstream_fraction: 1.0
+  zone_terminals:
+  - zone: OR Rooms Flr2
+    per_person_oa: 0.015
+    per_area_oa: 0.0009
+    terminal:
+      type: vav_box
+      name: VAV Box OR Rooms
+      max_air_flow: autosize
+      min_flow_fraction: 0.50
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+
+# --- VAV_ICU: ICU zones (high OA) ---
+- name: VAV_ICU
+  system_type: vav
+  dcv: false
+  min_vav_fraction: 0.30
+  controls:
+    cooling_supply_temp: 12.8
+    heating_supply_temp: 40.0
+    design_zone_flow: autosize
+    cycling: proportional
+    minimum_damper_position: 0.8
+  equipment:
+  - type: heat_recovery
+    name: VAV_ICU ERV
+    source: wheel
+    sensible_effectiveness: 0.70
+    latent_effectiveness: 0.60
+    parasitic_power: 1540.0
+  - type: heating_coil
+    name: VAV_ICU HW Coil
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: humidifier
+    name: VAV_ICU Humidifier
+    rated_power: 100000.0
+    min_rh_setpoint: 0.30
+  - type: cooling_coil
+    name: VAV_ICU CHW Coil
+    source: chilled_water
+    capacity: autosize
+    shr: 0.80
+    setpoint: 12.8
+    plant_loop: CHW Loop
+  - type: fan
+    name: VAV_ICU Fan
+    source: vav
+    design_flow_rate: autosize
+    pressure_rise: 1389.0
+    motor_efficiency: 0.91
+    impeller_efficiency: 0.68
+    motor_in_airstream_fraction: 1.0
+  zone_terminals:
+  - zone: ICU Rooms Flr2
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box ICU Rooms
+      max_air_flow: autosize
+      min_flow_fraction: 0.50
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: ICU Zone
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box ICU Zone
+      max_air_flow: autosize
+      min_flow_fraction: 0.50
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+
+# --- VAV_PATRMS: Patient rooms ---
+- name: VAV_PATRMS
+  system_type: vav
+  dcv: false
+  min_vav_fraction: 0.30
+  controls:
+    cooling_supply_temp: 12.8
+    heating_supply_temp: 40.0
+    design_zone_flow: autosize
+    cycling: proportional
+    minimum_damper_position: 0.5
+  equipment:
+  - type: heat_recovery
+    name: VAV_PATRMS ERV
+    source: wheel
+    sensible_effectiveness: 0.70
+    latent_effectiveness: 0.60
+    parasitic_power: 3000.0
+  - type: heating_coil
+    name: VAV_PATRMS HW Coil
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: cooling_coil
+    name: VAV_PATRMS CHW Coil
+    source: chilled_water
+    capacity: autosize
+    shr: 0.80
+    setpoint: 12.8
+    plant_loop: CHW Loop
+  - type: fan
+    name: VAV_PATRMS Fan
+    source: vav
+    design_flow_rate: autosize
+    pressure_rise: 1389.0
+    motor_efficiency: 0.91
+    impeller_efficiency: 0.68
+    motor_in_airstream_fraction: 1.0
+  zone_terminals:
+  - zone: PatRooms Flr3
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box PatRooms Flr3
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: PatRooms Flr4
+    per_person_oa: 0.0025
+    per_area_oa: 0.0003
+    terminal:
+      type: vav_box
+      name: VAV Box PatRooms Flr4
+      max_air_flow: autosize
+      min_flow_fraction: 0.30
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+
+# --- VAV_LABS: Laboratory zones (100% OA) ---
+- name: VAV_LABS
+  system_type: vav
+  dcv: false
+  min_vav_fraction: 0.30
+  controls:
+    cooling_supply_temp: 12.8
+    heating_supply_temp: 40.0
+    design_zone_flow: autosize
+    cycling: proportional
+    minimum_damper_position: 1.0
+  equipment:
+  - type: heat_recovery
+    name: VAV_LABS ERV
+    source: wheel
+    sensible_effectiveness: 0.70
+    latent_effectiveness: 0.60
+    parasitic_power: 1500.0
+  - type: heating_coil
+    name: VAV_LABS HW Coil
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: cooling_coil
+    name: VAV_LABS CHW Coil
+    source: chilled_water
+    capacity: autosize
+    shr: 0.80
+    setpoint: 12.8
+    plant_loop: CHW Loop
+  - type: fan
+    name: VAV_LABS Fan
+    source: vav
+    design_flow_rate: autosize
+    pressure_rise: 1389.0
+    motor_efficiency: 0.91
+    impeller_efficiency: 0.68
+    motor_in_airstream_fraction: 1.0
+  zone_terminals:
+  - zone: Lab Flr3
+    per_person_oa: 0.0025
+    per_area_oa: 0.0009
+    terminal:
+      type: vav_box
+      name: VAV Box Lab Flr3
+      max_air_flow: autosize
+      min_flow_fraction: 0.50
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+  - zone: Lab Flr4
+    per_person_oa: 0.0025
+    per_area_oa: 0.0009
+    terminal:
+      type: vav_box
+      name: VAV Box Lab Flr4
+      max_air_flow: autosize
+      min_flow_fraction: 0.50
+      reheat_type: hot_water
+      reheat_capacity: autosize
+      plant_loop: HHW Loop
+
+# --- CAV_KITCHEN: Kitchen (constant volume) ---
+- name: CAV_KITCHEN
+  system_type: psz_ac
+  controls:
+    cooling_supply_temp: 12.8
+    heating_supply_temp: 12.8
+    design_zone_flow: autosize
+    cycling: proportional
+    minimum_damper_position: 0.3
+    economizer:
+      economizer_type: differential_dry_bulb
+  equipment:
+  - type: heating_coil
+    name: Kitchen HW Coil
+    source: hot_water
+    capacity: autosize
+    setpoint: 12.8
+    plant_loop: HHW Loop
+  - type: cooling_coil
+    name: Kitchen CHW Coil
+    source: chilled_water
+    capacity: autosize
+    shr: 0.80
+    setpoint: 12.8
+    plant_loop: CHW Loop
+  - type: fan
+    name: Kitchen Fan
+    source: constant_volume
+    design_flow_rate: autosize
+    pressure_rise: 1018.0
+    motor_efficiency: 0.91
+    impeller_efficiency: 0.68
+    motor_in_airstream_fraction: 1.0
+  zone_terminals:
+  - zone: Kitchen
+    per_person_oa: 0.0038
+    per_area_oa: 0.0009
+
+# ─── Plant Loops ─────────────────────────────────────────────────────────────
+
+plant_loops:
+# --- Hot Water Loop ---
+- name: HHW Loop
+  design_supply_temp: 48.89
+  design_delta_t: 11.0
+  supply_equipment:
+  - type: pump
+    name: HHW Pump
+    pump_type: variable_speed
+    design_flow_rate: autosize
+    design_head: 180706.0
+    motor_efficiency: 0.909
+  - type: boiler
+    name: HW Boiler
+    capacity: 1549201.0
+    efficiency: 0.945
+    design_outlet_temp: 48.89
+    design_water_flow_rate: autosize
+# --- Chilled Water Loop ---
+- name: CHW Loop
+  design_supply_temp: 6.67
+  design_delta_t: 5.56
+  supply_equipment:
+  - type: pump
+    name: CHW Primary Pump
+    pump_type: variable_speed
+    design_flow_rate: autosize
+    design_head: 105798.0
+    motor_efficiency: 0.909
+  - type: chiller
+    name: Chiller 1
+    capacity: 669868.0
+    cop: 5.5965
+    chw_setpoint: 6.67
+    design_chw_flow: 0.0
+    condenser_type: water_cooled
+    tower_approach: 5.56
+  - type: chiller
+    name: Chiller 2
+    capacity: 669868.0
+    cop: 5.5965
+    chw_setpoint: 6.67
+    design_chw_flow: 0.0
+    condenser_type: water_cooled
+    tower_approach: 5.56
+
+# ─── DHW Systems ─────────────────────────────────────────────────────────────
+
+dhw_systems:
+# System 1: SWHSys1 — main hospital DHW (plant loop with 30 WaterUse:Equipment)
+# Total peak flow from IDF: 1.0173e-04 m³/s = 0.10173 L/s
+# Split into two load groups by schedule type
+- name: Hospital SWHSys1
+  mains_temperature: 10.0
+  water_heater:
+    name: SWHSys1 Water Heater
+    fuel_type: gas
+    tank_volume: 2271.0       # 2.271247 m³ = 2271 L (~600 gal)
+    capacity: 175843.0        # 175,842.64 W
+    efficiency: 0.95
+    setpoint: 60.0
+    ua_standby: 15.601        # W/K (on-cycle and off-cycle)
+    deadband: 2.0             # IDF deadband delta temp
+    parasitic_power: 14490.0  # W — constant gas parasitic (pilot/controls), no heat to tank
+  loads:
+  # Group 1: OR, Lab, PhysTherapy — BLDG_SWH_SCH (daytime schedule)
+  # OR1(2.111e-6) + OR2_Mult5(2.111e-6) + OR3(2.111e-6) + OR4(6.306e-6)
+  # + PhysTherapy(1.056e-6) + Lab_Flr3(2.111e-6) + Lab_Flr4(2.111e-6) = 1.792e-5 m³/s
+  - name: Standard Zones (OR Lab PhysTherapy)
+    peak_flow_rate: 0.01792   # L/s (sum of 7 WaterUse:Equipment)
+    schedule: BLDG_SWH_SCH
+    use_temperature: 60.0     # all target temps = 60°C
+  # Group 2: ER, PatRoom, Kitchen, Radiology, Triage — BLDG_SWH_EXTD_SCH (24hr)
+  # 2×ER_Exam(1.056e-6) + 2×ER_Trauma(1.056e-6) + ER_Triage(1.056e-6)
+  # + 16×PatRoom(1.056e-6) + Kitchen(6.059e-5) + Radiology(1.056e-6) = 8.381e-5 m³/s
+  - name: Extended Zones (ER PatRoom Kitchen)
+    peak_flow_rate: 0.08381   # L/s (sum of 23 WaterUse:Equipment)
+    schedule: BLDG_SWH_EXTD_SCH
+    use_temperature: 60.0
+# System 2: Laundry — stand-alone gas water heater (not on SWHSys1 plant loop)
+- name: Laundry SWH
+  mains_temperature: 10.0
+  water_heater:
+    name: SWH Laundry Water Heater
+    fuel_type: gas
+    tank_volume: 1136.0       # 1.1356235 m³ = 1136 L (~300 gal)
+    capacity: 87921.0         # 87,921.32 W
+    efficiency: 0.95
+    setpoint: 82.22           # 180°F laundry
+    ua_standby: 11.254        # W/K
+    deadband: 2.0
+  loads:
+  - name: Laundry
+    peak_flow_rate: 0.17665   # 1.766525e-4 m³/s = 0.17665 L/s
+    schedule: LAUNDRY_SWH_SCH
+    use_temperature: 82.22    # same as setpoint — 100% hot draw
+
+# ─── Thermostats ─────────────────────────────────────────────────────────────
+
+thermostats:
+- name: Hospital Thermostat
+  zones:
+  - All Zones
+  heating_setpoint: 21.0
+  cooling_setpoint: 24.0
+
+# ─── Outputs ─────────────────────────────────────────────────────────────────
+
+outputs:
+- file: zone_results.csv
+  frequency: hourly
+  variables:
+  - zone_temperature
+  - zone_heating_rate
+  - zone_cooling_rate
+  - zone_infiltration_mass_flow
+  - zone_supply_air_temperature
+  - zone_supply_air_mass_flow
+  - site_outdoor_temperature
+
+summary_report: true
+
+# ─── NOT MODELED (limitations) ───────────────────────────────────────────────
+# The following building features from the E+ prototype are not represented:
+#
+# 1. Zone multipliers (manually expanded into combined zones above)
+# 2. Heat recovery chiller (94 kW, COP 2.84)
+# 3. Primary/secondary CHW pumping (simplified to single variable-speed pump)
+# 4. DCV: Infrastructure exists (dcv flag, per_person_oa/per_area_oa on zone
+#    connections) but disabled because ASHRAE 62.1 rates don't match ASHRAE 170
+#    minimums for healthcare, causing cooling/humidification inflation.
+# 5. Rooftop PV system (84.5 kW)
+# 6. Refrigeration equipment (walk-in freezer, display cases)
+# 7. Elevators (34,668 W exterior equipment)
+# 8. Booster water heater (electric, 3 kW, for dishwashing — small, ~DHW:Electricity)
+# 9. C-factor underground walls for basement (modeled as minimal ext walls above grade)
+# 10. Cooling towers on condenser loop (approximated via tower_approach on chillers)
+# 11. Kitchen exhaust fans and makeup air
+# 12. Interzone heat transfer between adjacent zones (all interior walls adiabatic)
+# 13. Per-zone VAV flow modulation (flow currently divided equally among zones,
+#     causing unrealistic temps for high-OA zones like ER/OR/ICU/Labs)
+#
+# MODELED via credit-based approach (not inline):
+# - Heat recovery (6 enthalpy wheels): Uses credit-based approach because inline
+#   HR causes paradoxical gas increase via SAT/reheat interaction. Credits are
+#   capped at AHU coil heating load and aggregate gas is floored at zero.
+# - Humidifiers: 5 electric steam humidifiers (VAV_1, VAV_2, VAV_ER, VAV_OR, VAV_ICU)

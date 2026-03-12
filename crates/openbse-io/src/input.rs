@@ -440,6 +440,13 @@ pub struct AirLoopInput {
     /// runs every hour. Default: None (always available).
     #[serde(default)]
     pub availability_schedule: Option<String>,
+    /// Demand-controlled ventilation: modulates outdoor air based on real-time
+    /// occupancy.  When `true`, the minimum OA fraction is recalculated each
+    /// timestep from each zone's current occupancy schedule value × per-person
+    /// OA rate + per-area OA rate (ASHRAE 62.1 Ventilation Rate Procedure).
+    /// Default: false (fixed minimum OA fraction from sizing).
+    #[serde(default)]
+    pub dcv: bool,
     /// Supply-side equipment in order (air flows through them sequentially)
     pub equipment: Vec<EquipmentInput>,
     /// Zone terminal connections — links zones to this air loop,
@@ -672,6 +679,9 @@ pub struct HeatRecoveryInput {
     /// Latent effectiveness at design conditions [0-1] (0.0 for sensible-only)
     #[serde(default)]
     pub latent_effectiveness: f64,
+    /// Parasitic electric power [W] (wheel motor, controls). Default 0.0.
+    #[serde(default)]
+    pub parasitic_power: f64,
 }
 
 fn default_hr_source() -> String { "wheel".to_string() }
@@ -696,6 +706,14 @@ pub struct ZoneConnection {
     /// Terminal box for this zone (VAV box, PFP box, or omitted for direct connection)
     #[serde(default)]
     pub terminal: Option<TerminalInput>,
+    /// DCV: outdoor air per person [m³/s-person] (ASHRAE 62.1 Rp component).
+    /// Only used when `dcv: true` on the air loop.
+    #[serde(default)]
+    pub per_person_oa: Option<f64>,
+    /// DCV: outdoor air per floor area [m³/s-m²] (ASHRAE 62.1 Ra component).
+    /// Only used when `dcv: true` on the air loop.
+    #[serde(default)]
+    pub per_area_oa: Option<f64>,
 }
 
 /// Terminal box types for zone connections.
@@ -1149,6 +1167,13 @@ pub struct WaterHeaterInput {
     /// Thermostat deadband [°C] (default 5.0)
     #[serde(default = "default_wh_deadband")]
     pub deadband: f64,
+    /// Constant parasitic fuel consumption [W] (default 0.0).
+    ///
+    /// Represents continuous fuel draw that does NOT heat the tank
+    /// (pilot light, jacket heaters, controls). Added to fuel consumption
+    /// regardless of burner state. Matches E+ Off/On Cycle Parasitic fields.
+    #[serde(default)]
+    pub parasitic_power: f64,
 }
 
 /// DHW draw profile (load).
@@ -1369,13 +1394,13 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                         "plate" | "plate_hx" => HeatRecovery::plate_hx(
                             &hr.name,
                             hr.sensible_effectiveness,
-                            0.0, // no parasitic power by default
+                            hr.parasitic_power,
                         ),
                         _ => HeatRecovery::enthalpy_wheel(
                             &hr.name,
                             hr.sensible_effectiveness,
                             hr.latent_effectiveness,
-                            0.0, // no parasitic power by default
+                            hr.parasitic_power,
                         ),
                     };
                     graph.add_air_component(Box::new(erv))

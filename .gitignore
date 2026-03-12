@@ -39,6 +39,19 @@ summary_report.txt
 
 # ─── EnergyPlus Validation Output ────────────────────────────────────────────
 validation/eplus_output/
+eplus_comparison/output_*/
+eplus_comparison/*.err
+
+# ─── Node.js ─────────────────────────────────────────────────────────────────
+node_modules/
+package-lock.json
+package.json
+
+# ─── Debug / Temporary ───────────────────────────────────────────────────────
+debug_output.txt
+next_session_prompt.md
+*.stderr.txt
+apt_stderr.txt
 
 # ─── Weather Files ───────────────────────────────────────────────────────────
 # EPW files are large and user-specific (local paths).

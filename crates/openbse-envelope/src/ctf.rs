@@ -200,6 +200,25 @@ pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
     // Compute CTF from state-space
     let result = compute_ctf_from_state_space(&a_mat, &b_vec, &c_vec, &d_vec, rcmax, dt);
 
+    // Safety guard: if state-space produced NaN (extreme constructions with
+    // very high R and thick synthetic layers), fall back to lumped 1-node RC.
+    let has_nan = result.x.iter().any(|v| v.is_nan())
+        || result.y.iter().any(|v| v.is_nan())
+        || result.z.iter().any(|v| v.is_nan())
+        || result.phi.iter().any(|v| v.is_nan());
+    if has_nan {
+        eprintln!("[CTF WARN] NaN in state-space CTF (rcmax={}), falling back to lumped RC", rcmax);
+        let u = 1.0 / total_r;
+        let tau = total_r * total_c;
+        let alpha = (-dt / tau).exp();
+        let c0 = u * (1.0 - alpha);
+        return CtfCoefficients {
+            x: vec![c0], y: vec![c0], z: vec![c0],
+            phi: vec![alpha],
+            num_terms: 1,
+        };
+    }
+
     // Diagnostic: verify steady-state U-value from CTF coefficients
     // At steady state: q*(1-ΣΦ) = ΣY*Tout - ΣZ*Tin → U = ΣZ/(1-ΣΦ)
     let sum_z: f64 = result.z.iter().sum();

@@ -118,15 +118,27 @@ ASHRAE Standard 140-2023 validation cases are maintained in a separate repositor
 
 ## What's Not Yet Implemented
 
+### Envelope
 - Geometry import (gbXML, IDF vertices)
 - Separate beam/diffuse interior solar distribution (beam geometric to floor, diffuse uniform)
 - Neighboring-building shading
 - Full state-space CTF (currently using lumped RC)
-- Moisture balance (latent loads, humidity control)
-- Advanced controls (optimal start/stop, MPC)
-- Plant loop integration (cooling tower, pump, heat recovery wiring into simulation graph)
+
+### HVAC
+- Cooling tower integration into condenser water plant loop (component model written, loop wiring pending)
+- Variable-speed pump integration into plant loops (component model written, loop wiring pending)
+- Heat recovery integration into plant loops (component model written, loop wiring pending)
+- OA damper scheduling (close OA outside occupied hours)
+- Economizer lockout with heating (disable economizer during heating mode)
+- Part-load boiler efficiency curves (EMS-style cubic PLR curves with skin loss)
+- Chiller lead/lag sequencing with pump staging
+- Optimum start/stop controls
+- Moisture balance (latent loads, zone humidity tracking for humidifier control)
+
+### General
 - Python bindings (PyO3)
 - Parametric run execution
+- EMS-style programmable controls
 
 ## Phased Development Plan
 

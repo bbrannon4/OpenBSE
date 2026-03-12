@@ -9,6 +9,7 @@ members = [
     "crates/openbse-io",
     "crates/openbse-cli",
 ]
+exclude = ["tools/editor/src-tauri"]
 resolver = "2"
 
 [workspace.package]

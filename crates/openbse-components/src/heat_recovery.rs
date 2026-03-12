@@ -184,6 +184,11 @@ impl AirComponent for HeatRecovery {
         // Total recovery = sensible + latent
         self.sensible_recovery + self.latent_recovery
     }
+
+    fn set_exhaust_conditions(&mut self, temp: f64, w: f64) {
+        self.exhaust_air_temp = temp;
+        self.exhaust_air_w = w;
+    }
 }
 
 #[cfg(test)]
