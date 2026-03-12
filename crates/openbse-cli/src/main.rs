@@ -630,6 +630,40 @@ fn main() -> Result<()> {
                 zone_design_flows.insert(zone_name.clone(), flow);
             }
 
+            // ── Per-loop cooling SAT override ──
+            // Zone sizing uses the global min cooling_supply_temp.  Loops
+            // with a higher cooling SAT (e.g., data center at 15.89°C vs
+            // 12.8°C for offices) need proportionally more airflow.
+            // Recalculate zone design airflows for those loops.
+            let global_cool_sat = supply_temps.map(|t| t.1).unwrap_or(13.0);
+            let cp_air_sz = 1005.0_f64;
+            for li in &loop_infos {
+                if (li.cooling_supply_temp - global_cool_sat).abs() > 0.5 {
+                    for zone_name in &li.served_zones {
+                        let cool_sp = resolved_thermostats.iter()
+                            .find(|t| t.zones.contains(zone_name))
+                            .map(|t| t.cooling_setpoint)
+                            .unwrap_or(24.0);
+                        let cool_load = sizing_result.zone_peak_cooling
+                            .get(zone_name).copied().unwrap_or(0.0)
+                            * model.simulation.cooling_sizing_factor;
+                        let dt = (cool_sp - li.cooling_supply_temp).max(5.0);
+                        let new_flow = if cool_load > 0.0 {
+                            cool_load / (cp_air_sz * dt)
+                        } else {
+                            zone_design_flows.get(zone_name).copied().unwrap_or(0.01)
+                        };
+                        let old_flow = zone_design_flows.get(zone_name).copied().unwrap_or(0.01);
+                        if new_flow > old_flow {
+                            log::info!("Per-loop SAT override: {} airflow {:.2} → {:.2} kg/s \
+                                (loop {} SAT={:.1}°C)", zone_name, old_flow, new_flow,
+                                li.name, li.cooling_supply_temp);
+                            zone_design_flows.insert(zone_name.clone(), new_flow);
+                        }
+                    }
+                }
+            }
+
             // Apply sized capacities to HVAC components.
             //
             // Sizing is loop-aware:
@@ -2781,12 +2815,12 @@ fn build_psz_signals(
         .clamp(heat_sp, max_heating_dat);
 
     // ── Cooling control ──
-    // Two separate targets:
-    // 1. Economizer target: proportional DAT for OA mixing (12°C to cool_sp)
-    // 2. Coil setpoint: very low so coil runs at full capacity when ON.
-    //    For ON/OFF cycling, PLR controls runtime, not the coil setpoint.
-    let cooling_error = (control_temp - cool_sp).max(0.0);
-    let econ_target = (cool_sp - cooling_error.min(10.0)).clamp(12.0, cool_sp);
+    // Economizer target: modulate OA to achieve the supply air temperature
+    // (SAT) in the mixed air, minimizing cooling coil work.  This matches
+    // E+'s Controller:OutdoorAir behavior where the OA damper targets the
+    // mixed-air setpoint derived from the cooling-coil leaving-air temp.
+    // Use the loop's cooling SAT as the economizer target.
+    let econ_target = li.cooling_supply_temp;
     // Coil setpoint: -10°C forces the DX coil to run at full physical capacity.
     // The coil's actual outlet temp is limited by its available capacity.
     let cooling_coil_sp = if mode == HvacMode::Cooling { -10.0 } else { 99.0 };
@@ -2806,19 +2840,21 @@ fn build_psz_signals(
         EconomizerType::DifferentialDryBulb => t_outdoor < return_air_temp,
         EconomizerType::DifferentialEnthalpy => t_outdoor < return_air_temp,
     };
-    let oa_frac = match mode {
-        HvacMode::Cooling if psz_econ_available => {
-            // Economizer available: OA can help cooling.
-            // Modulate to achieve economizer target.
-            let delta = return_air_temp - t_outdoor;
-            if delta > 0.1 {
-                let needed = (return_air_temp - econ_target) / delta;
-                needed.clamp(effective_min_oa, 1.0)
-            } else {
-                effective_min_oa
-            }
+    let oa_frac = if psz_econ_available && mode != HvacMode::Heating {
+        // Economizer: modulate OA to approach SAT target in mixed air.
+        // Active in both Cooling and Deadband — provides free cooling from
+        // outdoor air, reducing or eliminating mechanical cooling.  Matches
+        // E+'s economizer which operates whenever OA conditions are favorable,
+        // regardless of whether the cooling coil is currently active.
+        let delta = return_air_temp - t_outdoor;
+        if delta > 0.1 {
+            let needed = (return_air_temp - econ_target) / delta;
+            needed.clamp(effective_min_oa, 1.0)
+        } else {
+            effective_min_oa
         }
-        _ => effective_min_oa,
+    } else {
+        effective_min_oa
     };
     let mixed_air_temp = return_air_temp * (1.0 - oa_frac) + t_outdoor * oa_frac;
 

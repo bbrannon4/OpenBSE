@@ -2326,7 +2326,7 @@ air_loops:
     system_type: psz_ac
     controls:
       heating_supply_temp: 35.0
-      cooling_supply_temp: 12.8
+      cooling_supply_temp: 15.89
       design_zone_flow: autosize
       cycling: proportional
       economizer:
@@ -2358,11 +2358,9 @@ air_loops:
         setpoint: 12.8
         plant_loop: CHW Loop
 
+      # Humidifier removed: zone moisture balance not yet implemented in OpenBSE.
+      # E+ humidifier also disabled for equivalent comparison.
       # E+ IDF: Humidifier:Steam:Electric, rated_power=100,000 W, 30% RH min setpoint
-      - type: humidifier
-        name: DataCenter_basement_ZN_6 Humidifier
-        rated_power: 100000
-        min_rh_setpoint: 0.30
 
     zone_terminals:
       - zone: DataCenter_basement_ZN_6
@@ -2384,6 +2382,7 @@ plant_loops:
         design_flow_rate: autosize
         design_head: 180705.7
         motor_efficiency: 0.9
+        motor_heat_to_fluid_fraction: 0.0
         power_curve: [0.0, 0.5726, -0.3010, 0.7347]
 
       - type: boiler
@@ -2412,6 +2411,9 @@ plant_loops:
         design_flow_rate: autosize
         design_head: 123258.429
         motor_efficiency: 0.9
+        impeller_efficiency: 0.72
+        motor_heat_to_fluid_fraction: 0.0
+        num_pumps: 2
 
       # Secondary pump (variable speed, E+ demand-side pump)
       - type: pump
@@ -2420,6 +2422,8 @@ plant_loops:
         design_flow_rate: autosize
         design_head: 133527.825
         motor_efficiency: 0.9
+        impeller_efficiency: 0.72
+        motor_heat_to_fluid_fraction: 0.0
         power_curve: [0.0, 0.5726, -0.3010, 0.7347]
 
       - type: chiller
@@ -2493,6 +2497,7 @@ plant_loops:
         design_flow_rate: autosize
         design_head: 209234.683
         motor_efficiency: 0.9
+        motor_heat_to_fluid_fraction: 0.0
         num_pumps: 2
         power_curve: [0.0, 0.0216, -0.0325, 1.0095]
 
@@ -2521,7 +2526,9 @@ thermostats:
 # =============================================================================
 dhw_systems:
   - name: SWHSys1
-    mains_temperature: 10.0
+    # E+ Site:WaterMainsTemperature Correlation: annual_avg=9.95°C, max_diff=23.7°C
+    # Hendron/Burch correlation average ≈ 13.3°C (offset=6°F≈3.3°C above annual OA avg)
+    mains_temperature: 13.3
     water_heater:
       name: SWHSys1 Water Heater
       fuel_type: electric
@@ -2539,22 +2546,26 @@ dhw_systems:
       design_flow_rate: 0.000440
       design_head: 29891.0
       motor_efficiency: 0.3
+      motor_heat_to_fluid_fraction: 0.0
     loads:
+      # E+ WaterUse:Equipment: target_temp=60°C, hot_supply_temp=55°C
+      # Since target ≥ hot_supply, E+ draws 100% of fixture flow from tank (no cold mixing)
+      # Set use_temperature = setpoint so hot_frac = 1.0 to match E+ behavior
       - name: Core_bottom DHW
         peak_flow_rate: 0.03667
         schedule: BLDG_SWH_SCH
-        use_temperature: 43.3
+        use_temperature: 60.0
 
       # Core_mid zone has multiplier=10 in E+ IDF; flow scaled accordingly
       - name: Core_mid DHW
         peak_flow_rate: 0.36667
         schedule: BLDG_SWH_SCH
-        use_temperature: 43.3
+        use_temperature: 60.0
 
       - name: Core_top DHW
         peak_flow_rate: 0.03667
         schedule: BLDG_SWH_SCH
-        use_temperature: 43.3
+        use_temperature: 60.0
 
 # =============================================================================
 # EXTERIOR EQUIPMENT

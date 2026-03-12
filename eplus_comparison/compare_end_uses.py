@@ -125,6 +125,65 @@ pct_total = (total_ob - total_ep) / total_ep * 100
 print(f'{"TOTAL":<22} {total_ep:>12,.1f} {total_ob:>12,.1f} {pct_total:>+9.1f}%')
 
 
+# ── Large Office (Boulder, ASHRAE 90.1-2019) ─────────────────────────────
+# EnergyPlus reference values (GJ → kWh: ×277.778)
+# Source: LargeOffice_Denver_simplified.idf (output_office_simplified/eplustbl.csv)
+eplus_office_gj = {
+    'Heating\n(Gas)':       1457.05,
+    'Cooling\n(Elec)':      1990.56,
+    'Interior\nLighting':   5610.74,
+    'Exterior\nLighting':   1006.07,
+    'Interior\nEquipment': 14676.40,
+    'Exterior\nEquipment':  2567.07,
+    'Fans':                 3637.15,
+    'Pumps':                 467.17,
+    'DHW\n(Elec)':           450.48,
+}
+eplus_office = {k: v * 277.778 for k, v in eplus_office_gj.items()}
+
+# OpenBSE results (kWh) from LargeOffice_Boulder_summary.txt
+openbse_office = {
+    'Heating\n(Gas)':       515597.8,
+    'Cooling\n(Elec)':      743359.9,
+    'Interior\nLighting':  1605569.1,
+    'Exterior\nLighting':   296814.9,
+    'Interior\nEquipment': 4120788.7,
+    'Exterior\nEquipment':  711724.4,
+    'Fans':                 814510.7,
+    'Pumps':                123896.8,
+    'DHW\n(Elec)':          131925.9,
+}
+
+cats_o = list(eplus_office.keys())
+ev_o = [eplus_office[c] for c in cats_o]
+ov_o = [openbse_office[c] for c in cats_o]
+
+make_comparison_chart(
+    cats_o, ev_o, ov_o,
+    'Large Office (Boulder, ASHRAE 90.1-2019) — Energy End-Use Comparison',
+    'LargeOffice_Boulder_comparison.png',
+    figsize=(14, 6)
+)
+
+print('\n' + '='*70)
+print('Large Office — Energy End-Use Comparison (kWh)')
+print('='*70)
+print(f'{"End Use":<22} {"EnergyPlus":>12} {"OpenBSE":>12} {"Diff":>10}')
+print('-'*56)
+total_ep_o, total_ob_o = 0, 0
+for c in cats_o:
+    ep_val = eplus_office[c]
+    ob_val = openbse_office[c]
+    total_ep_o += ep_val
+    total_ob_o += ob_val
+    pct = (ob_val - ep_val) / ep_val * 100 if ep_val > 0 else 0
+    c_flat = c.replace('\n', ' ')
+    print(f'{c_flat:<22} {ep_val:>12,.1f} {ob_val:>12,.1f} {pct:>+9.1f}%')
+print('-'*56)
+pct_total_o = (total_ob_o - total_ep_o) / total_ep_o * 100
+print(f'{"TOTAL":<22} {total_ep_o:>12,.1f} {total_ob_o:>12,.1f} {pct_total_o:>+9.1f}%')
+
+
 # ── Hospital (placeholder — will be filled after simulation) ──────────────
 # EnergyPlus reference values (GJ → kWh: ×277.778)
 eplus_hosp_gj = {

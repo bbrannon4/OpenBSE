@@ -883,6 +883,11 @@ pub struct PumpInput {
     /// Each individual pump's design flow = total design flow / num_pumps.
     #[serde(default = "default_num_pumps")]
     pub num_pumps: u32,
+    /// Fraction of motor inefficiency heat added to the fluid stream [0-1] (default: 1.0).
+    /// E+ field: "Fraction of Motor Inefficiencies to Fluid Stream".
+    /// Set to 0.0 to match E+ models where pump heat doesn't warm the water.
+    #[serde(default = "default_motor_heat_to_fluid")]
+    pub motor_heat_to_fluid_fraction: f64,
     /// Part-load power curve coefficients [c1, c2, c3, c4] for variable speed pumps.
     /// power_frac = c1 + c2*PLR + c3*PLR² + c4*PLR³
     /// Default: [0, 0, 0, 1] (pure cubic / affinity laws).
@@ -901,6 +906,7 @@ pub struct PumpInput {
 
 fn default_num_pumps() -> u32 { 1 }
 fn default_impeller_eff() -> f64 { 0.667 }
+fn default_motor_heat_to_fluid() -> f64 { 1.0 }
 
 fn default_pump_type() -> String { "variable_speed".to_string() }
 fn default_pump_head() -> f64 { 179_352.0 }
@@ -1558,7 +1564,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             None
                         }
                     });
-                    let pump = openbse_components::pump::Pump::new_headered(
+                    let mut pump = openbse_components::pump::Pump::new_headered(
                         &p.name,
                         pump_type,
                         p.design_flow_rate.to_f64(),
@@ -1568,6 +1574,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                         p.num_pumps,
                         power_curve,
                     );
+                    pump.motor_heat_to_fluid_fraction = p.motor_heat_to_fluid_fraction;
                     graph.add_plant_component(Box::new(pump))
                 }
             };
