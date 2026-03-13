@@ -169,6 +169,12 @@ pub struct SurfaceState {
     pub u_glass: f64,
     /// Window SHGC
     pub shgc: f64,
+    /// Ratio τ_sol / SHGC: fraction of total window solar gain (SHGC × I)
+    /// that is directly transmitted to interior surfaces. The remainder
+    /// (1 − ratio) × SHGC × I is absorbed by the glass and re-emitted
+    /// inward. Computed from E+ SimpleGlazingSystem correlations or from
+    /// per-pane optical properties when available.
+    pub solar_transmittance_ratio: f64,
     /// Glass extinction coefficient × thickness per pane (K·d) for Fresnel
     /// angular SHGC model. Pre-computed from per-pane glass properties or
     /// estimated from SHGC via the E+ SimpleGlazingSystem correlation.
@@ -181,6 +187,9 @@ pub struct SurfaceState {
     /// at normal incidence. Falls back to 1.526 (soda-lime glass) when per-pane
     /// properties are not provided.
     pub glass_n: f64,
+    /// E+ SimpleGlazingSystem angular model (LBNL-2804E curves + layer properties).
+    /// Present for SGS windows (no per-pane optical data); None for detailed windows.
+    pub sgs_model: Option<crate::solar::SgsAngularModel>,
     // ── First-principles window gap thermal model ─────────────────────
     /// Rated glass-only conductance [W/(m²·K)] — NFRC-derived value.
     /// Used as an upper cap for the dynamic gap model to prevent the

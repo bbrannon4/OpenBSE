@@ -24,6 +24,9 @@ use openbse_core::types::AutosizeValue;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+// Re-export SolarDistributionMethod from the envelope crate.
+pub use openbse_envelope::SolarDistributionMethod;
+
 /// Top-level model definition.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ModelInput {
@@ -206,6 +209,20 @@ pub struct SimulationSettings {
     /// A value of 1.15 means 15% safety margin.  Default: 1.15.
     #[serde(default = "default_cooling_sizing_factor")]
     pub cooling_sizing_factor: f64,
+
+    /// Solar distribution method for interior beam solar radiation.
+    ///
+    /// Matches EnergyPlus `Building` → `Solar Distribution` field.
+    ///
+    /// - `full_exterior` (default): All beam solar is assumed to fall on
+    ///   the floor, where it is absorbed and slowly released from the
+    ///   thermal mass.  Matches E+ "FullExterior" behavior.
+    /// - `full_interior_and_exterior`: Beam solar is geometrically projected
+    ///   through windows onto interior surfaces (walls, floor, ceiling) using
+    ///   ray-tracing.  More physically accurate but requires convex zones
+    ///   with complete vertex data.  Matches E+ "FullInteriorAndExterior".
+    #[serde(default)]
+    pub solar_distribution: SolarDistributionMethod,
 }
 
 fn default_ground_surface_temps() -> Vec<f64> { vec![18.0; 12] }
@@ -511,6 +528,8 @@ pub enum EquipmentInput {
     HeatRecovery(HeatRecoveryInput),
     #[serde(rename = "humidifier")]
     Humidifier(HumidifierInput),
+    #[serde(rename = "duct")]
+    Duct(DuctInput),
 }
 
 /// Electric steam humidifier.
@@ -538,6 +557,40 @@ pub struct HumidifierInput {
 fn default_humidifier_power() -> f64 { 100_000.0 }
 fn default_min_rh() -> f64 { 0.30 }
 fn default_zone_cooling_sp() -> f64 { 24.0 }
+
+/// Air duct with conduction losses and leakage.
+///
+/// ```yaml
+/// - type: duct
+///   name: Supply Duct
+///   length: 15.0
+///   diameter: 0.3
+///   u_value: 0.71
+///   leakage_fraction: 0.04
+///   ambient_zone: basement
+/// ```
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DuctInput {
+    pub name: String,
+    /// Duct length [m]
+    pub length: f64,
+    /// Duct hydraulic diameter [m]
+    #[serde(default = "default_duct_diameter")]
+    pub diameter: f64,
+    /// Overall U-value [W/(m²·K)] (default 0.71 = R-8 insulation)
+    #[serde(default = "default_duct_u_value")]
+    pub u_value: f64,
+    /// Fraction of air lost through leaks [0-1] (default 0.04)
+    #[serde(default = "default_duct_leakage")]
+    pub leakage_fraction: f64,
+    /// Zone surrounding the duct: "outdoor", "ground", or a zone name
+    #[serde(default = "default_duct_ambient")]
+    pub ambient_zone: String,
+}
+fn default_duct_diameter() -> f64 { 0.3 }
+fn default_duct_u_value() -> f64 { 0.71 }
+fn default_duct_leakage() -> f64 { 0.04 }
+fn default_duct_ambient() -> String { "outdoor".to_string() }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FanInput {
@@ -1420,6 +1473,17 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                     );
                     graph.add_air_component(Box::new(hum))
                 }
+                EquipmentInput::Duct(d) => {
+                    let duct = openbse_components::duct::Duct::new(
+                        &d.name,
+                        d.length,
+                        d.diameter,
+                        d.u_value,
+                        d.leakage_fraction,
+                        &d.ambient_zone,
+                    );
+                    graph.add_air_component(Box::new(duct))
+                }
             };
 
             // Connect to previous component in sequence
@@ -1699,6 +1763,7 @@ pub fn build_envelope(
         longitude,
         time_zone,
         elevation,
+        model.simulation.solar_distribution,
     );
 
     // Set up schedule manager from model schedules

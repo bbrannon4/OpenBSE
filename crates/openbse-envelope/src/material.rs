@@ -312,6 +312,110 @@ impl WindowConstruction {
             ((1.0 - self.shgc) * 0.15).clamp(0.02, 0.30)
         })
     }
+
+    /// Compute the fraction of SHGC that is direct solar transmittance (τ_sol/SHGC).
+    ///
+    /// For a glazing system, SHGC = τ_sol + N_in × α_sol, where:
+    ///   τ_sol = direct solar transmittance through the glass
+    ///   α_sol = solar absorptance of the glass
+    ///   N_in  = inward-flowing fraction of absorbed solar
+    ///
+    /// EnergyPlus models this split internally for SimpleGlazingSystem windows.
+    /// This method estimates the ratio τ_sol/SHGC from the SHGC and U-factor
+    /// using the E+ SimpleGlazingSystem correlations for initial τ and ρ, then
+    /// computing N_in from the center-of-glass absorption model.
+    ///
+    /// When `pane_solar_transmittance` is provided, derives the ratio directly
+    /// from the known system transmittance.
+    pub fn solar_transmittance_ratio(&self) -> f64 {
+        // If per-pane transmittance is known, derive system τ_sol directly.
+        // For a double-pane system: τ_system ≈ τ_pane² / (1 - ρ_pane²)
+        // For single-pane: τ_system ≈ τ_pane × (1 - ρ_pane)² / (1 - ρ_pane² × τ_pane²)
+        // With N_in from the SHGC definition: ratio = τ_system / SHGC
+        if let (Some(tau_pane), Some(rho_pane)) =
+            (self.pane_solar_transmittance, self.pane_solar_reflectance)
+        {
+            // Multi-bounce system transmittance for double-pane
+            let num_panes = self.num_panes.unwrap_or(2);
+            let tau_system = if num_panes == 1 {
+                tau_pane * (1.0 - rho_pane).powi(2)
+                    / (1.0 - rho_pane.powi(2) * tau_pane.powi(2)).max(0.001)
+            } else {
+                // Double-pane: simplified two-pane transmittance
+                let tau_single = tau_pane * (1.0 - rho_pane).powi(2)
+                    / (1.0 - rho_pane.powi(2) * tau_pane.powi(2)).max(0.001);
+                tau_single.powi(2) / (1.0 - rho_pane.powi(2)).max(0.001)
+            };
+            return if self.shgc > 0.0 {
+                (tau_system / self.shgc).clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+        }
+
+        // Otherwise, estimate from SHGC and U-factor using E+ correlations.
+        compute_solar_transmittance_ratio(self.shgc, self.u_factor)
+    }
+}
+
+/// Estimate τ_sol/SHGC ratio from SHGC and U-factor.
+///
+/// Uses EnergyPlus SimpleGlazingSystem U-factor-dependent correlations to
+/// compute the solar transmittance Tsol directly from SHGC. The ratio
+/// τ_sol/SHGC determines the split between directly transmitted solar
+/// (distributed to zone surfaces) and absorbed-inward solar (heats glass).
+///
+/// Three U-factor regimes match E+ exactly:
+/// - U > 4.5424: high-U (single-pane) correlations
+/// - U < 3.4068: low-U (double/triple-pane) correlations
+/// - 3.4068 ≤ U ≤ 4.5424: linear interpolation of both
+///
+/// Reference: Arasteh, Kohler, & Griffith (2009), "Modeling Windows in
+/// Energy-Plus with Simple Performance Indices", LBNL-2804E.
+pub fn compute_solar_transmittance_ratio(shgc: f64, u_factor: f64) -> f64 {
+    if shgc <= 0.0 || u_factor <= 0.0 {
+        return 1.0;
+    }
+
+    let tsol = sgs_tsol_from_shgc(shgc, u_factor);
+    (tsol / shgc).clamp(0.0, 1.0)
+}
+
+/// Compute solar transmittance Tsol from SHGC and U-factor using the
+/// EnergyPlus SimpleGlazingSystem correlations (LBNL-2804E).
+///
+/// Returns the normal-incidence solar transmittance of the equivalent layer.
+pub fn sgs_tsol_from_shgc(shgc: f64, u_factor: f64) -> f64 {
+    if shgc <= 0.0 {
+        return 0.0;
+    }
+
+    // High-U correlations (U > 4.5424, single-pane regime)
+    let tsol_high = if shgc < 0.7206 {
+        0.939998 * shgc.powi(2) + 0.20332 * shgc
+    } else {
+        (1.30415 * shgc - 0.30515).max(0.0)
+    };
+
+    // Low-U correlations (U < 3.4068, double/triple-pane regime)
+    let tsol_low = if shgc <= 0.15 {
+        0.41040 * shgc
+    } else {
+        0.085775 * shgc.powi(2) + 0.963954 * shgc - 0.084958
+    };
+
+    // Select or interpolate based on U-factor (E+ boundary values)
+    let tsol = if u_factor > 4.5424 {
+        tsol_high
+    } else if u_factor < 3.4068 {
+        tsol_low
+    } else {
+        // Linear interpolation between low-U and high-U regimes
+        let frac = (u_factor - 3.4068) / (4.5424 - 3.4068);
+        tsol_low + frac * (tsol_high - tsol_low)
+    };
+
+    tsol.clamp(0.0, shgc)
 }
 
 /// Simplified opaque construction defined by overall properties.

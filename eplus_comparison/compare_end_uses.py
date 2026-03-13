@@ -16,24 +16,25 @@ EPLUS_COLOR   = '#FF9800'  # Orange
 
 # ── Residential Single-Family ──────────────────────────────────────────────
 # EnergyPlus reference values (kBtu) → convert to kWh (÷ 3.412)
-# Source: US+SF+CZ5B+gasfurnace+unheatedbsmt+IECC_2024.idf
+# Source: Simplified IDF (no AirflowNetwork) — eplus_sf_run/in.idf
+# Values from eplus_sf_run/eplustbl.csv "End Uses" table
 eplus_res_kbtu = {
-    'Heating\n(Gas)':       28818,
-    'Cooling\n(Elec)':       6430,
+    'Heating\n(Gas)':       22822,
+    'Cooling\n(Elec)':       5459,
     'Interior\nLighting':    3543,
     'Interior\nEquipment':  34405,
-    'Fans':                  3337,
-    'DHW\n(Gas)':            7362,
+    'Fans':                  2907,
+    'DHW\n(Gas)':            7363,
 }
 eplus_res = {k: v / 3.412 for k, v in eplus_res_kbtu.items()}
 
 # OpenBSE results (kWh) from summary report
 openbse_res = {
-    'Heating\n(Gas)':       7931.0,
-    'Cooling\n(Elec)':       739.5,
+    'Heating\n(Gas)':       9899.1,
+    'Cooling\n(Elec)':      1830.0,
     'Interior\nLighting':   1037.6,
     'Interior\nEquipment': 10076.5,
-    'Fans':                 2441.4,
+    'Fans':                 1187.4,
     'DHW\n(Gas)':           2172.8,
 }
 
@@ -143,14 +144,14 @@ eplus_office = {k: v * 277.778 for k, v in eplus_office_gj.items()}
 
 # OpenBSE results (kWh) from LargeOffice_Boulder_summary.txt
 openbse_office = {
-    'Heating\n(Gas)':       515597.8,
-    'Cooling\n(Elec)':      743359.9,
+    'Heating\n(Gas)':       517439.6,
+    'Cooling\n(Elec)':      743351.0,
     'Interior\nLighting':  1605569.1,
     'Exterior\nLighting':   296814.9,
     'Interior\nEquipment': 4120788.7,
     'Exterior\nEquipment':  711724.4,
-    'Fans':                 814510.7,
-    'Pumps':                123896.8,
+    'Fans':                 813859.0,
+    'Pumps':                124105.5,
     'DHW\n(Elec)':          131925.9,
 }
 

@@ -25,7 +25,7 @@ pub mod ground_temp;
 pub mod zone_loads;
 pub mod shading;
 
-pub use heat_balance::BuildingEnvelope;
+pub use heat_balance::{BuildingEnvelope, SolarDistributionMethod};
 pub use material::{Material, Construction, ConstructionLayer, ResolvedLayer, WindowConstruction, SimpleConstruction, FFactorConstruction};
 pub use zone_loads::{PeopleInput, LightsInput, EquipmentGainInput, InfiltrationTopLevel,
     VentilationTopLevel, VentilationCombiningMethod, ExhaustFanTopLevel, OutdoorAirTopLevel,

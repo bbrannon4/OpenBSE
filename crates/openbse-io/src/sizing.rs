@@ -697,7 +697,14 @@ pub fn run_sizing(
     cooling_sizing_factor: f64,
     oa_handled_by_hvac: &HashMap<String, bool>,
 ) -> SizingResult {
-    let rho_air = 1.2; // kg/m³ for volume flow conversion
+    // Compute standard air density at site altitude using the design-day
+    // barometric pressure.  E+ uses this same approach (ρ = P / (R·T) at 20 °C).
+    // Without this, high-altitude sites like Denver (1612 m, ~83 kPa) would
+    // undersize airflow by ~20%.
+    let site_pressure = design_days.first()
+        .map(|dd| dd.pressure)
+        .unwrap_or(101325.0);
+    let rho_air = site_pressure / (287.042 * 293.15); // ideal gas at 20°C
 
     log::info!("Sizing factors: heating={:.2}, cooling={:.2}",
         heating_sizing_factor, cooling_sizing_factor);
@@ -829,7 +836,7 @@ pub fn run_sizing(
     log::info!("══════════════════════════════════════════════════════════");
 
     // ── Write sizing output files ────────────────────────────────────────
-    write_zone_sizing_csv(&zone_sizing, &env.zones, output_dir, input_stem);
+    write_zone_sizing_csv(&zone_sizing, &env.zones, output_dir, input_stem, rho_air);
     write_system_sizing_csv(
         &zone_sizing, &system_sizing,
         system_heating_capacity, system_cooling_capacity,
@@ -867,6 +874,7 @@ fn write_zone_sizing_csv(
     zones: &[openbse_envelope::zone::ZoneState],
     output_dir: &Path,
     input_stem: &str,
+    rho_air: f64,
 ) {
     let path = output_dir.join(format!("{}_zone_sizing.csv", input_stem));
     let mut lines = Vec::new();
@@ -889,7 +897,7 @@ fn write_zone_sizing_csv(
         let mh = zone_sizing.zone_heating_airflow.get(name).unwrap_or(&0.0);
         let mc = zone_sizing.zone_cooling_airflow.get(name).unwrap_or(&0.0);
         let md = zone_sizing.zone_design_airflow.get(name).unwrap_or(&0.0);
-        let vol_flow = md / 1.2; // kg/s to m³/s
+        let vol_flow = md / rho_air; // kg/s to m³/s
         let cfm = vol_flow * 2118.88;
 
         lines.push(format!(

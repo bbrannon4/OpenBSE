@@ -37,6 +37,13 @@ pub struct CoolingCoilDX {
     /// Optional EIR modifier curve: f(T_wb_entering, T_db_outdoor)
     #[serde(skip)]
     pub eir_ft_curve: Option<PerformanceCurve>,
+    /// Normalization factor for EIR curve: 1 / eir_curve(19.44, 35).
+    /// Per E+ docs, EIR-fT should equal 1.0 at ARI rated conditions
+    /// (19.44°C WB entering, 35°C outdoor).  If the curve isn't
+    /// normalized, this factor corrects it so rated_COP equals the
+    /// actual COP at rated conditions.
+    #[serde(skip)]
+    eir_normalization: f64,
 
     // ─── Runtime state ──────────────────────────────────────────────────
     /// Total cooling rate delivered to air [W] (positive = cooling)
@@ -77,6 +84,7 @@ impl CoolingCoilDX {
             outlet_temp_setpoint: setpoint,
             cap_ft_curve: None,
             eir_ft_curve: None,
+            eir_normalization: 1.0,
             cooling_rate: 0.0,
             sensible_cooling_rate: 0.0,
             power_consumption: 0.0,
@@ -84,11 +92,23 @@ impl CoolingCoilDX {
     }
 
     /// Attach performance curves for capacity and EIR modifiers.
+    ///
+    /// Auto-normalizes the EIR curve so that it evaluates to 1.0 at
+    /// ARI rated conditions (19.44 °C entering WB, 35 °C outdoor DB).
+    /// This matches the E+ convention where the rated COP directly
+    /// represents the COP at rated conditions.
     pub fn with_curves(
         mut self,
         cap_ft: Option<PerformanceCurve>,
         eir_ft: Option<PerformanceCurve>,
     ) -> Self {
+        // Compute normalization factor for EIR curve
+        if let Some(ref curve) = eir_ft {
+            let eir_at_rated = curve.evaluate(19.44, 35.0);
+            if eir_at_rated > 0.01 {
+                self.eir_normalization = 1.0 / eir_at_rated;
+            }
+        }
         self.cap_ft_curve = cap_ft;
         self.eir_ft_curve = eir_ft;
         self
@@ -119,7 +139,9 @@ impl CoolingCoilDX {
     /// then COP = rated_COP / EIR_modifier. Otherwise falls back to linear.
     fn available_cop(&self, t_outdoor: f64, t_wb_inlet: f64) -> f64 {
         if let Some(ref curve) = self.eir_ft_curve {
-            let eir_modifier = curve.evaluate(t_wb_inlet, t_outdoor);
+            let eir_raw = curve.evaluate(t_wb_inlet, t_outdoor);
+            // Normalize so eir = 1.0 at ARI rated conditions
+            let eir_modifier = eir_raw * self.eir_normalization;
             if eir_modifier > 0.0 {
                 self.rated_cop / eir_modifier
             } else {

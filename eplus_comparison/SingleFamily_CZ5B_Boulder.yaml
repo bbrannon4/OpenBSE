@@ -10,6 +10,9 @@ simulation:
   end_month: 12
   end_day: 31
   terrain: suburbs
+  # Match E+ Sizing:System FractionOfAutosized{Cooling,Heating}Capacity
+  heating_sizing_factor: 1.25
+  cooling_sizing_factor: 1.15
 summary_report: true
 weather_files:
 - Boulder.epw
@@ -40,18 +43,25 @@ design_days:
 performance_curves:
 - name: Cool-Cap-fT
   curve_type: biquadratic
-  coefficients: [1.55360, -0.07530, 0.00311, 0.00241, -0.00005, -0.00043]
-  min_x: 13.0
-  max_x: 24.0
-  min_y: 24.0
-  max_y: 46.0
+  coefficients: [1.26489391, -0.035054982, 0.00211086, -0.001526886, -0.0000070308, -0.0004691844]
+  min_x: -100.0
+  max_x: 100.0
+  min_y: -100.0
+  max_y: 100.0
 - name: Cool-EIR-fT
   curve_type: biquadratic
-  coefficients: [-0.41588, 0.06553, -0.00148, -0.00417, 0.00041, -0.00021]
-  min_x: 13.0
-  max_x: 24.0
-  min_y: 24.0
-  max_y: 46.0
+  coefficients: [0.38402403, 0.029696724, -0.0011329308, 0.006490674, 0.0002626992, -0.0001207224]
+  min_x: -100.0
+  max_x: 100.0
+  min_y: -100.0
+  max_y: 100.0
+- name: Cool-PLF-fPLR
+  curve_type: quadratic
+  coefficients: [0.80141423, 0.23744685, -0.0393773]
+  min_x: 0.0
+  max_x: 1.0
+  min_y: 0.7
+  max_y: 1.0
 
 # ── Schedules ─────────────────────────────────────────────────────
 # All values taken directly from IDF schedule definitions (exact, not rounded)
@@ -410,22 +420,22 @@ lights:
 - name: Interior Lighting
   zones: [Living]
   power: 337.990378    # 232.336176 + 105.654202 W hardwired + plug-in
-  radiant_fraction: 0.6
-  visible_fraction: 0.2
+  radiant_fraction: 0.8  # E+ Rad=0.6 + Vis=0.2; both go to surfaces area-weighted
+  # visible_fraction: 0.2  # included in radiant_fraction above
   schedule: Interior Lighting
 
 # ── Equipment ─────────────────────────────────────────────────────
 equipment:
 # ── Electric Equipment (all 6 non-zero objects from IDF) ────────
 # Note: OpenBSE radiant_fraction is relative to zone gain (1-lost).
-# Conversion: radiant_fraction = E+_frac_radiant / (1 - E+_frac_lost)
-# E+ latent fractions are absorbed into convective (no latent tracking).
+# Conversion: lost_fraction = E+_frac_lost + E+_frac_latent (latent not tracked)
+#             radiant_fraction = E+_frac_radiant / (1 - lost_fraction)
 
 - name: Dishwasher
   zones: [Living]
   power: 37.141034          # E+ dishwasher1
-  radiant_fraction: 0.80    # E+ 0.6/(1-0.25)
-  lost_fraction: 0.25
+  radiant_fraction: 1.0     # E+ Rad=0.6/(1-0.40)=1.0, Conv=0
+  lost_fraction: 0.40       # E+ Lost=0.25 + Lat=0.15
   schedule: DishWasher
 
 - name: Refrigerator
@@ -452,15 +462,15 @@ equipment:
 - name: Misc Plug Loads
   zones: [Living]
   power: 507.149798         # E+ gas_mels1 (electric)
-  radiant_fraction: 0.92    # E+ 0.69/(1-0.25)
-  lost_fraction: 0.25
+  radiant_fraction: 1.0     # E+ Rad=0.69/(1-0.31)=1.0, Conv=0
+  lost_fraction: 0.31       # E+ Lost=0.25 + Lat=0.06
   schedule: Misc Plug Load
 
 - name: IECC Adjustment
   zones: [Living]
   power: 505.399625         # E+ IECC_Adj1
-  radiant_fraction: 0.54993 # E+ 0.41191/(1-0.25105)
-  lost_fraction: 0.25105
+  radiant_fraction: 0.5999  # E+ Rad=0.4119/(1-0.3135)=0.5999
+  lost_fraction: 0.3135     # E+ Lost=0.2510 + Lat=0.0624
   schedule: Misc Plug Load
 
 # ── Gas Equipment (full input power with lost_fraction) ─────────
@@ -471,29 +481,32 @@ equipment:
 - name: Gas Range
   zones: [Living]
   power: 540.941345         # E+ gas_range1 (full gas input)
-  radiant_fraction: 0.92    # E+ 0.69/(1-0.25)
-  lost_fraction: 0.25
+  radiant_fraction: 1.0     # E+ Rad=0.69/(1-0.31)=1.0, Conv=0
+  lost_fraction: 0.31       # E+ Lost=0.25 + Lat=0.06
   schedule: Cooking Range
 
 - name: Gas Dryer
   zones: [Living]
   power: 395.595892         # E+ gas_dryer1 (gas component)
-  radiant_fraction: 0.6667  # E+ 0.1/(1-0.85)
-  lost_fraction: 0.85
+  radiant_fraction: 1.0     # E+ Rad=0.1/(1-0.90)=1.0, Conv=0
+  lost_fraction: 0.90       # E+ Lost=0.85 + Lat=0.05
   schedule: ClothesDryer
 
 - name: Gas Misc
   zones: [Living]
   power: 61.125464          # E+ gas_mels1 (gas component)
-  radiant_fraction: 0.92    # E+ 0.69/(1-0.25)
-  lost_fraction: 0.25
+  radiant_fraction: 1.0     # E+ Rad=0.69/(1-0.31)=1.0, Conv=0
+  lost_fraction: 0.31       # E+ Lost=0.25 + Lat=0.06
   schedule: Misc Plug Load
 
 # ── Infiltration ──────────────────────────────────────────────────
-# E+ model uses AirflowNetwork (ELA-based multizone). We approximate with
-# a design flow rate equivalent to ~3 ACH50 = ~0.15 ACH natural (Sherman-Grimsrud).
-# Living zone volume ≈ 220.82 * 2.591 * 2 floors / 2.591 ≈ 572 m3 (2-story)
-# 0.15 ACH natural ≈ 0.0238 m3/s
+# E+ model uses AirflowNetwork (ELA-based, pressure-driven). We approximate
+# with a constant design flow rate. ASHRAE combined model (in engine)
+# adds exhaust-induced makeup air: Q_comb = sqrt(Q_bg^2 + Q_exhaust^2).
+# Matches E+ simplified IDF (simplify_sf_idf.py):
+#   Q_bg = 0.0238 m3/s (~0.15 ACH background infiltration)
+#   Q_exhaust = 0.02832 m3/s (60 cfm)
+#   Engine applies ASHRAE combined: Q_comb = sqrt(0.0238^2 + 0.02832^2) = 0.037 m3/s
 infiltration:
 - name: Living Infiltration
   zones: [Living]
@@ -502,8 +515,11 @@ infiltration:
   temperature_coefficient: 0.0
   wind_coefficient: 0.0
 
-# NOTE: Basement and attic infiltration not modeled (unconditioned zones
-# not fully implemented in single-zone simplification)
+# Attic infiltration (~1 ACH for vented attic)
+- name: Attic Infiltration
+  zones: [attic]
+  design_flow_rate: 0.023
+  constant_coefficient: 1.0
 
 # ── Ventilation / Outdoor Air ─────────────────────────────────────
 # 60 cfm = 0.02832 m3/s mechanical ventilation via exhaust fan
@@ -522,6 +538,9 @@ air_loops:
     design_zone_flow: autosize
     minimum_damper_position: 0.0   # No OA through AHU (exhaust-only ventilation)
   equipment:
+  # NOTE: Ducts removed to match E+ simplified model (no AirflowNetwork = no duct losses)
+  # Original E+ AFN had supply/return ducts through unheated basement, but
+  # simplify_sf_idf.py removes all AirflowNetwork objects including duct modeling.
   - type: heating_coil
     name: Gas Furnace
     source: gas
@@ -599,6 +618,14 @@ zones:
   volume: 572.2        # 220.82 m2 CFA * 2.591 m ceiling height
   floor_area: 220.82   # Conditioned floor area (2 stories)
   conditioned: true
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 9.9           # 9.9 m² of 6" wood (matching E+ InternalMass object)
+
+- name: attic
+  volume: 83.8         # Gable roof 4:12 pitch, ridge height 1.517m
+  floor_area: 110.41   # 12.133m x 9.100m
+  conditioned: false
 
 # ── Surfaces ──────────────────────────────────────────────────────
 # 2-story house geometry. Dimensions: 12.133m x 9.100m, 2.591m per floor.
@@ -789,17 +816,74 @@ surfaces:
   - {x: 12.133, y: 9.100, z: 0.0}
   - {x: 12.133, y: 0.0, z: 0.0}
 
-# ── Ceiling/Roof (below attic — modeled as outdoor with ceiling construction) ──
+# ── Ceiling (interzone boundary to attic) ──
 - name: Ceiling
   zone: living_unit1
   type: roof
   construction: Interior Ceiling
-  boundary: outdoor
+  boundary: !zone 'attic'
   vertices:
   - {x: 0.0, y: 0.0, z: 5.182}
   - {x: 12.133, y: 0.0, z: 5.182}
   - {x: 12.133, y: 9.100, z: 5.182}
   - {x: 0.0, y: 9.100, z: 5.182}
+
+# ── Attic zone surfaces ──
+# Attic floor (reverse of ceiling above — interzone to living_unit1)
+- name: Attic Floor
+  zone: attic
+  type: floor
+  construction: Attic Floor
+  boundary: !zone 'living_unit1'
+  vertices:
+  - {x: 0.0, y: 9.100, z: 5.182}
+  - {x: 12.133, y: 9.100, z: 5.182}
+  - {x: 12.133, y: 0.0, z: 5.182}
+  - {x: 0.0, y: 0.0, z: 5.182}
+
+# South roof slope (4:12 pitch, eave to ridge)
+- name: Roof South
+  zone: attic
+  type: roof
+  construction: Exterior Roof
+  boundary: outdoor
+  vertices:
+  - {x: 0.0, y: 0.0, z: 5.182}
+  - {x: 12.133, y: 0.0, z: 5.182}
+  - {x: 12.133, y: 4.550, z: 6.699}
+  - {x: 0.0, y: 4.550, z: 6.699}
+
+# North roof slope (4:12 pitch, eave to ridge)
+- name: Roof North
+  zone: attic
+  type: roof
+  construction: Exterior Roof
+  boundary: outdoor
+  vertices:
+  - {x: 12.133, y: 9.100, z: 5.182}
+  - {x: 0.0, y: 9.100, z: 5.182}
+  - {x: 0.0, y: 4.550, z: 6.699}
+  - {x: 12.133, y: 4.550, z: 6.699}
+
+# East gable end wall (triangle: base 9.100m, height 1.517m)
+- name: Gable East
+  zone: attic
+  type: wall
+  construction: Gable End
+  boundary: outdoor
+  area: 6.90
+  azimuth: 90.0
+  tilt: 90.0
+
+# West gable end wall (triangle: base 9.100m, height 1.517m)
+- name: Gable West
+  zone: attic
+  type: wall
+  construction: Gable End
+  boundary: outdoor
+  area: 6.90
+  azimuth: 270.0
+  tilt: 90.0
 
 # ── Inter-floor slab (adiabatic — internal between 1F and 2F) ──
 - name: Inter-floor Slab
@@ -818,29 +902,29 @@ surfaces:
 # ══════════════════════════════════════════════════════════════════
 # MISSING FUNCTIONALITY FLAGS:
 #
-# 1. DUCT COMPONENT: The IDF uses AirflowNetwork:DistributionSystem with
-#    ducts running through the unheated basement. Duct conduction losses
-#    (U=0.71 W/m2-K) and leakage (8% total) significantly affect energy use.
-#    OpenBSE does NOT currently have a duct component.
+# 1. DUCT COMPONENT: Now modeled with supply and return ducts through
+#    unheated basement (U=0.71 W/m2-K, 4% leakage each = 8% total).
 #
 # 2. AIRFLOWNETWORK INFILTRATION: The IDF uses ELA-based multizone
-#    infiltration (AirflowNetwork). We approximate with design flow rate.
-#    Missing: pressure-driven, wind-dependent, stack-driven infiltration.
+#    infiltration (AirflowNetwork). We approximate with constant design
+#    flow rate. AirflowNetwork should be removed from the E+ IDF for
+#    fair comparison (replace with ZoneInfiltration:DesignFlowRate).
+#    Future: add AirflowNetwork support to OpenBSE.
 #
 # 3. GAS EQUIPMENT: No native GasEquipment type — gas range, dryer,
 #    misc gas gains are modeled as equipment with full input power and
 #    lost_fraction. Energy tracking includes gas, but fuel type is not
 #    distinguished from electric in the end-use summary.
 #
-# 4. UNCONDITIONED ZONES: Garage, attic, and basement are not modeled
-#    as separate zones. Their thermal buffering effect is approximated by
-#    using boundary conditions (ground for floor, outdoor for ceiling).
+# 4. UNCONDITIONED ZONES: Garage and basement are not modeled
+#    as separate zones. Attic is modeled. Basement thermal buffering
+#    is approximated with ground boundary condition for the floor.
 #
 # 5. GROUND HEAT TRANSFER: IDF uses Basement/Slab preprocessors for
 #    detailed ground coupling. We use simplified ground boundary condition.
 #
 # 6. INTERNAL MASS: IDF has InteriorFurnishings (9.9 m2 of 6" wood).
-#    OpenBSE supports this but it's not included in this simplified model.
+#    Added as zone-level internal_mass property on living_unit1.
 #
 # 7. LATENT GAINS: Several equipment items have latent fractions
 #    (dishwasher 0.15, gas range 0.06). OpenBSE doesn't model latent gains

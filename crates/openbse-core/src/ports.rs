@@ -168,6 +168,15 @@ pub trait AirComponent: std::fmt::Debug {
     /// Called each timestep by the simulation driver before `simulate_air()`.
     /// Default implementation is a no-op (most components don't need exhaust air).
     fn set_exhaust_conditions(&mut self, _temp: f64, _w: f64) {}
+
+    /// Set the ambient temperature surrounding this component [°C].
+    /// Used by duct components to model conduction losses to the surrounding space.
+    fn set_ambient_temp(&mut self, _temp: f64) {}
+
+    /// Name of the ambient zone for this component, if applicable.
+    /// Returns `Some("outdoor")`, `Some("ground")`, or `Some(zone_name)`
+    /// for duct components. Returns `None` for all other components.
+    fn ambient_zone(&self) -> Option<&str> { None }
 }
 
 /// Trait for plant-side components (boilers, chillers, pumps, etc.).
@@ -273,6 +282,9 @@ pub struct EnvelopeResults {
     pub ideal_cooling_loads: HashMap<String, f64>,
     /// Ideal heating load at setpoint [W] — what HVAC must deliver to hold zone at heating setpoint
     pub ideal_heating_loads: HashMap<String, f64>,
+    /// E+-style predictor: free-floating zone temps WITHOUT HVAC [°C].
+    /// Used for mode determination (Heating / Cooling / Deadband).
+    pub predictor_temps: HashMap<String, f64>,
     /// Per-zone output variables for reporting
     pub zone_outputs: HashMap<String, HashMap<String, f64>>,
 }

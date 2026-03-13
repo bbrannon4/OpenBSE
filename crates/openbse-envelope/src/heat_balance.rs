@@ -86,6 +86,9 @@ pub struct BuildingEnvelope {
     /// Gross wall and window areas by cardinal direction (N, E, S, W).
     /// Used for window-to-wall ratio reporting.
     pub envelope_areas: crate::geometry::EnvelopeAreas,
+    /// Solar distribution method for interior beam solar radiation.
+    /// FullExterior: all beam to floor.  FullInteriorAndExterior: geometric projection.
+    pub solar_distribution_method: SolarDistributionMethod,
 }
 
 /// Interior view factor data for a zone modeled as a rectangular box.
@@ -104,6 +107,26 @@ pub struct ZoneViewFactors {
     pub face_vf: [[f64; 6]; 6],
     /// Total area of each face [m²] (sum of all surfaces on that face).
     pub face_area: [f64; 6],
+}
+
+/// Solar distribution method for interior beam solar radiation.
+///
+/// Matches EnergyPlus `Building` → `Solar Distribution` field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SolarDistributionMethod {
+    /// All beam solar falls on the floor (E+ "FullExterior").
+    /// This is the default and most common E+ setting.
+    FullExterior,
+    /// Beam solar is geometrically projected onto interior surfaces
+    /// (E+ "FullInteriorAndExterior").
+    FullInteriorAndExterior,
+}
+
+impl Default for SolarDistributionMethod {
+    fn default() -> Self {
+        SolarDistributionMethod::FullExterior
+    }
 }
 
 /// Sealed air gap conductance using ISO 15099 model.
@@ -242,6 +265,7 @@ impl BuildingEnvelope {
         Self::from_input_full(
             materials, constructions, window_constructions, vec![], vec![],
             zones, surfaces, latitude, longitude, time_zone, 0.0,
+            SolarDistributionMethod::default(),
         )
     }
 
@@ -258,6 +282,7 @@ impl BuildingEnvelope {
         longitude: f64,
         time_zone: f64,
         elevation: f64,
+        solar_distribution_method: SolarDistributionMethod,
     ) -> Self {
         let material_map: HashMap<String, Material> = materials
             .into_iter().map(|m| (m.name.clone(), m)).collect();
@@ -461,6 +486,14 @@ impl BuildingEnvelope {
         for surf_input in &surfaces {
             let is_window = surf_input.surface_type == SurfaceType::Window;
 
+            // Window solar transmittance ratio (τ_sol / SHGC)
+            let win_solar_trans_ratio = if is_window {
+                let wc = window_map.get(&surf_input.construction);
+                wc.map(|w| w.solar_transmittance_ratio()).unwrap_or(1.0)
+            } else {
+                1.0
+            };
+
             // Window-specific absorptance properties (used below)
             let (win_solar_absorptance, win_inside_fraction) = if is_window {
                 let wc = window_map.get(&surf_input.construction);
@@ -485,6 +518,16 @@ impl BuildingEnvelope {
                 }).unwrap_or((0.0, 0.0, 1.526))
             } else {
                 (0.0, 0.0, 1.526)
+            };
+
+            // Build E+ SimpleGlazingSystem angular model for windows without
+            // per-pane optical properties (Method 3 in compute_glass_angular_params).
+            // When per-pane properties are available, the Fresnel model is used instead.
+            let sgs_model = if is_window && glass_kd < 1e-12 && glass_ni < 1e-12 {
+                let wc = window_map.get(&surf_input.construction);
+                wc.map(|w| solar::SgsAngularModel::new(w.shgc, w.u_factor))
+            } else {
+                None
             };
 
             let (solar_abs_out, thermal_abs_out, solar_abs_in, roughness, u_factor, shgc) =
@@ -662,9 +705,11 @@ impl BuildingEnvelope {
                 u_glass,
                 u_glass_rated,
                 shgc,
+                solar_transmittance_ratio: win_solar_trans_ratio,
                 glass_kd,
                 glass_ni,
                 glass_n,
+                sgs_model,
                 gap_width: win_gap_width,
                 pane_thickness: win_pane_thickness,
                 pane_conductivity: win_pane_conductivity,
@@ -891,6 +936,7 @@ impl BuildingEnvelope {
             zone_view_factors,
             interzone_pairs,
             envelope_areas,
+            solar_distribution_method,
         }
     }
 
@@ -1470,24 +1516,73 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // Store incident in [W] (not W/m²) so it matches transmitted_solar
                     // units for the summary report diagnostic ratio.
                     surface.incident_solar = effective_incident * surface.net_area;
-                    let (beam_trans, diff_trans) = solar::window_transmitted_solar_split(
-                        surface.shgc,
-                        surface.net_area,
-                        shaded_beam,
-                        diffuse_total,
-                        components.cos_aoi,
-                        surface.glass_kd,
-                        surface.glass_ni,
-                        surface.glass_n,
-                    );
-                    surface.transmitted_solar = beam_trans + diff_trans;
-                    surface.transmitted_solar_beam = beam_trans;
-                    surface.transmitted_solar_diffuse = diff_trans;
-                    // Note: SHGC already includes absorbed-inward solar gain
-                    // (SHGC = τ_solar + N_i × α_solar), so we do NOT add
-                    // absorbed_solar_inside_window separately — that would
-                    // double-count the absorbed portion.
-                    surface.absorbed_solar_inside_window = 0.0;
+
+                    if let Some(ref sgs) = surface.sgs_model {
+                        // E+ SimpleGlazingSystem angular model (LBNL-2804E curves).
+                        //
+                        // Uses the exact E+ angular curves for transmittance and
+                        // reflectance, selected from the 28-bin U/SHGC mapping.
+                        //
+                        // Beam modifier: evaluated at actual angle of incidence.
+                        // Diffuse modifier: precomputed hemispherical average.
+                        let beam_mod = solar::sgs_angular_shgc_modifier(
+                            components.cos_aoi, surface.shgc,
+                            sgs.tsol, sgs.rsol, sgs.ni,
+                            &sgs.trans_curve, &sgs.refl_curve,
+                        );
+                        let diff_mod = sgs.diff_modifier;
+
+                        let beam_shgc = (surface.shgc * beam_mod * surface.net_area * shaded_beam).max(0.0);
+                        let diff_shgc = (surface.shgc * diff_mod * surface.net_area * diffuse_total).max(0.0);
+                        let total_shgc_gain = beam_shgc + diff_shgc;
+
+                        // Split: Tsol portion → surfaces, remainder → glass absorption.
+                        let ratio = surface.solar_transmittance_ratio;
+                        surface.transmitted_solar = total_shgc_gain * ratio;
+                        surface.transmitted_solar_beam = beam_shgc * ratio;
+                        surface.transmitted_solar_diffuse = diff_shgc * ratio;
+                    } else {
+                        // Fresnel model (per-pane optical properties available) or
+                        // polynomial fallback for legacy paths.
+                        let (beam_shgc, diff_shgc) = solar::window_transmitted_solar_split(
+                            surface.shgc,
+                            surface.net_area,
+                            shaded_beam,
+                            diffuse_total,
+                            components.cos_aoi,
+                            surface.glass_kd,
+                            surface.glass_ni,
+                            surface.glass_n,
+                            surface.u_factor,
+                        );
+                        let total_shgc_gain = beam_shgc + diff_shgc;
+
+                        let ratio = surface.solar_transmittance_ratio;
+                        surface.transmitted_solar = total_shgc_gain * ratio;
+                        surface.transmitted_solar_beam = beam_shgc * ratio;
+                        surface.transmitted_solar_diffuse = diff_shgc * ratio;
+                    }
+
+                    // Total SHGC gain (transmitted + absorbed-inward combined).
+                    let total_shgc_gain = surface.transmitted_solar / surface.solar_transmittance_ratio.max(0.001);
+
+                    // Split into transmitted (τ_sol) and absorbed-inward (N_in × α_sol).
+                    //
+                    // SHGC = τ_sol + N_in × α_sol. EnergyPlus routes τ_sol to interior
+                    // surfaces and heats the glass with the absorbed portion. The ratio
+                    // τ_sol/SHGC is pre-computed from the E+ SimpleGlazingSystem
+                    // correlations (or from per-pane optical properties when available).
+                    //
+                    // The absorbed-inward portion warms the glass (reducing conduction
+                    // loss through the window), which is the primary effect this split
+                    // captures. Any residual not delivered to the zone through the glass
+                    // warming is added directly via q_window_absorbed.
+                    // Absorbed-inward solar: heats the glass, reducing conduction loss.
+                    // This value is added to the glass temperature equation as a source
+                    // term. After the glass heat balance, any portion that does not
+                    // reach the zone through the glass (due to lumped-model limitations)
+                    // is kept here for direct injection via q_window_absorbed.
+                    surface.absorbed_solar_inside_window = total_shgc_gain - surface.transmitted_solar;
                     surface.absorbed_solar_outside = 0.0;
                 } else {
                     // Opaque surfaces: beam reduced by sunlit fraction
@@ -1521,19 +1616,21 @@ impl EnvelopeSolver for BuildingEnvelope {
         let mut has_geometric_distribution: Vec<bool> = vec![false; self.zones.len()];
 
         for (zi, zone) in self.zones.iter().enumerate() {
-            // Only apply geometric distribution if zone has solar_distribution configured
-            // AND surfaces have vertex data
+            // Only apply solar distribution if zone has solar_distribution configured
             if zone.input.solar_distribution.is_none() {
                 continue;
             }
 
-            // Check if all opaque surfaces in this zone have vertices
-            let all_have_vertices = zone.surface_indices.iter().all(|&si| {
-                self.surfaces[si].is_window ||
-                self.surfaces[si].input.vertices.as_ref().map_or(false, |v| v.len() >= 3)
-            });
-            if !all_have_vertices {
-                continue; // Fall back to fixed-fraction for this zone
+            // FullInteriorAndExterior requires vertex data for geometric projection.
+            // FullExterior only needs floor surfaces by type (no vertices needed).
+            if self.solar_distribution_method == SolarDistributionMethod::FullInteriorAndExterior {
+                let all_have_vertices = zone.surface_indices.iter().all(|&si| {
+                    self.surfaces[si].is_window ||
+                    self.surfaces[si].input.vertices.as_ref().map_or(false, |v| v.len() >= 3)
+                });
+                if !all_have_vertices {
+                    continue; // Fall back to fixed-fraction for this zone
+                }
             }
 
             // Collect window beam and diffuse totals
@@ -1551,111 +1648,130 @@ impl EnvelopeSolver for BuildingEnvelope {
                 continue; // No solar to distribute
             }
 
-            // --- Phase 1: Geometric beam distribution ---
-            // For each window with beam > 0, project window vertices along sun_dir
-            // onto each opaque interior surface, clip, and compute overlap area.
+            // --- Phase 1: Beam distribution ---
+            //
+            // FullExterior (default, matches E+): ALL beam solar falls on the floor.
+            //   The floor's high thermal mass absorbs and slowly releases the energy,
+            //   preventing rapid zone temperature swings.  Reflected beam joins diffuse pool.
+            //
+            // FullInteriorAndExterior: Geometric projection of beam through windows onto
+            //   all interior surfaces (walls, floor, ceiling) using Sutherland-Hodgman clipping.
+            //   More physically accurate but beam on low-mass walls convects to air faster.
             let mut beam_landing: Vec<f64> = vec![0.0; self.surfaces.len()];
 
             if total_beam > 0.01 && sol_pos.is_sunup {
-                for &wi in &zone.surface_indices {
-                    if !self.surfaces[wi].is_window {
-                        continue;
-                    }
-                    let beam_w = self.surfaces[wi].transmitted_solar_beam;
-                    if beam_w < 0.01 {
-                        continue;
-                    }
+                match self.solar_distribution_method {
+                    SolarDistributionMethod::FullExterior => {
+                        // All beam solar goes to floor surfaces, weighted by area.
+                        // This matches E+ "FullExterior" / "FullInteriorAndExteriorWithReflections"
+                        // default behavior where beam is assumed to strike the floor.
+                        let total_floor_area: f64 = zone.surface_indices.iter()
+                            .filter(|&&si| !self.surfaces[si].is_window
+                                && self.surfaces[si].input.surface_type == SurfaceType::Floor)
+                            .map(|&si| self.surfaces[si].net_area)
+                            .sum();
 
-                    let win_verts = match self.surfaces[wi].input.vertices.as_ref() {
-                        Some(v) if v.len() >= 3 => v,
-                        _ => continue,
-                    };
-                    let win_normal = geometry::newell_normal(win_verts).normalize();
-                    let win_area = geometry::polygon_area(win_verts);
-                    if win_area < 1e-6 {
-                        continue;
-                    }
-
-                    // Check sun hits window front face (sun_dir · win_normal < 0 means
-                    // sun is on the exterior side for outward-pointing normal)
-                    let cos_sun_win = sun_dir.dot(&win_normal);
-                    if cos_sun_win.abs() < 1e-6 {
-                        continue; // Sun parallel to window
-                    }
-
-                    // Find parent wall (coplanar surface with same normal)
-                    let parent_wall_name = self.surfaces[wi].input.parent_surface.clone();
-
-                    let beam_flux = beam_w / win_area; // W/m² in window plane
-
-                    for &ri in &zone.surface_indices {
-                        if ri == wi || self.surfaces[ri].is_window {
-                            continue; // Skip self and other windows
-                        }
-                        // Skip parent wall
-                        if let Some(ref parent) = parent_wall_name {
-                            if self.surfaces[ri].input.name == *parent {
-                                continue;
+                        if total_floor_area > 0.0 {
+                            for &si in &zone.surface_indices {
+                                if !self.surfaces[si].is_window
+                                    && self.surfaces[si].input.surface_type == SurfaceType::Floor
+                                {
+                                    let frac = self.surfaces[si].net_area / total_floor_area;
+                                    beam_landing[si] = total_beam * frac;
+                                }
                             }
                         }
+                        // If no floor surfaces, beam_landing stays zero → all beam
+                        // joins diffuse pool in Phase 2 (reflected_beam = total_beam).
+                    }
+                    SolarDistributionMethod::FullInteriorAndExterior => {
+                        // Geometric projection: project window beam onto all interior surfaces.
+                        for &wi in &zone.surface_indices {
+                            if !self.surfaces[wi].is_window {
+                                continue;
+                            }
+                            let beam_w = self.surfaces[wi].transmitted_solar_beam;
+                            if beam_w < 0.01 {
+                                continue;
+                            }
 
-                        let recv_verts = match self.surfaces[ri].input.vertices.as_ref() {
-                            Some(v) if v.len() >= 3 => v,
-                            _ => continue,
-                        };
-                        let recv_normal = geometry::newell_normal(recv_verts).normalize();
+                            let win_verts = match self.surfaces[wi].input.vertices.as_ref() {
+                                Some(v) if v.len() >= 3 => v,
+                                _ => continue,
+                            };
+                            let win_normal = geometry::newell_normal(win_verts).normalize();
+                            let win_area = geometry::polygon_area(win_verts);
+                            if win_area < 1e-6 {
+                                continue;
+                            }
 
-                        // Sun must hit the interior side of the receiving surface.
-                        // Interior side = opposite of outward normal.
-                        // sun_dir · recv_normal > 0 means sun hits interior side.
-                        if sun_dir.dot(&recv_normal) <= 0.0 {
-                            continue;
+                            let cos_sun_win = sun_dir.dot(&win_normal);
+                            if cos_sun_win.abs() < 1e-6 {
+                                continue;
+                            }
+
+                            let parent_wall_name = self.surfaces[wi].input.parent_surface.clone();
+                            let beam_flux = beam_w / win_area;
+
+                            for &ri in &zone.surface_indices {
+                                if ri == wi || self.surfaces[ri].is_window {
+                                    continue;
+                                }
+                                if let Some(ref parent) = parent_wall_name {
+                                    if self.surfaces[ri].input.name == *parent {
+                                        continue;
+                                    }
+                                }
+
+                                let recv_verts = match self.surfaces[ri].input.vertices.as_ref() {
+                                    Some(v) if v.len() >= 3 => v,
+                                    _ => continue,
+                                };
+                                let recv_normal = geometry::newell_normal(recv_verts).normalize();
+
+                                if sun_dir.dot(&recv_normal) <= 0.0 {
+                                    continue;
+                                }
+
+                                let projected = match shading::project_polygon_onto_plane(
+                                    win_verts,
+                                    &recv_verts[0],
+                                    &recv_normal,
+                                    &sun_dir,
+                                ) {
+                                    Some(p) => p,
+                                    None => continue,
+                                };
+
+                                let (origin, u_axis, v_axis) = shading::build_local_coords(recv_verts, &recv_normal);
+                                let proj_2d: Vec<shading::Point2D> = projected.iter()
+                                    .map(|v| shading::to_local_2d(v, &origin, &u_axis, &v_axis))
+                                    .collect();
+                                let recv_2d: Vec<shading::Point2D> = recv_verts.iter()
+                                    .map(|v| shading::to_local_2d(v, &origin, &u_axis, &v_axis))
+                                    .collect();
+
+                                let clipped = shading::sutherland_hodgman_clip(&proj_2d, &recv_2d);
+                                if clipped.len() < 3 {
+                                    continue;
+                                }
+
+                                let overlap_area_recv = shading::polygon_area_2d(&clipped);
+                                if overlap_area_recv < 1e-8 {
+                                    continue;
+                                }
+
+                                let cos_recv = sun_dir.dot(&recv_normal).abs();
+                                let cos_win = cos_sun_win.abs();
+                                let overlap_area_win = if cos_win > 1e-6 {
+                                    overlap_area_recv * cos_recv / cos_win
+                                } else {
+                                    0.0
+                                };
+
+                                beam_landing[ri] += beam_flux * overlap_area_win;
+                            }
                         }
-
-                        // Project window vertices onto receiving surface plane
-                        let projected = match shading::project_polygon_onto_plane(
-                            win_verts,
-                            &recv_verts[0],
-                            &recv_normal,
-                            &sun_dir,
-                        ) {
-                            Some(p) => p,
-                            None => continue,
-                        };
-
-                        // Transform to local 2D on receiving surface
-                        let (origin, u_axis, v_axis) = shading::build_local_coords(recv_verts, &recv_normal);
-                        let proj_2d: Vec<shading::Point2D> = projected.iter()
-                            .map(|v| shading::to_local_2d(v, &origin, &u_axis, &v_axis))
-                            .collect();
-                        let recv_2d: Vec<shading::Point2D> = recv_verts.iter()
-                            .map(|v| shading::to_local_2d(v, &origin, &u_axis, &v_axis))
-                            .collect();
-
-                        // Clip projected polygon against receiving surface
-                        let clipped = shading::sutherland_hodgman_clip(&proj_2d, &recv_2d);
-                        if clipped.len() < 3 {
-                            continue;
-                        }
-
-                        // Compute overlap area on receiving surface
-                        let overlap_area_recv = shading::polygon_area_2d(&clipped);
-                        if overlap_area_recv < 1e-8 {
-                            continue;
-                        }
-
-                        // Convert receiving-surface area to window-plane area:
-                        // A_window = A_recv × |n_recv · sun_dir| / |n_win · sun_dir|
-                        let cos_recv = sun_dir.dot(&recv_normal).abs();
-                        let cos_win = cos_sun_win.abs();
-                        let overlap_area_win = if cos_win > 1e-6 {
-                            overlap_area_recv * cos_recv / cos_win
-                        } else {
-                            0.0
-                        };
-
-                        // Beam power landing on this surface [W]
-                        beam_landing[ri] += beam_flux * overlap_area_win;
                     }
                 }
             }
@@ -1707,8 +1823,26 @@ impl EnvelopeSolver for BuildingEnvelope {
         let mut ctf_q_inside: Vec<f64> = vec![0.0; n_surf];
         let mut ctf_q_outside: Vec<f64> = vec![0.0; n_surf];
 
+        // Save original window absorbed-inward solar values before the iteration
+        // loop. These are set by the solar calculation (step 5) and must NOT be
+        // modified during iteration — each iteration should see the same solar
+        // source. Without this, the residual correction in the glass heat balance
+        // would cascade: iteration N overwrites absorbed_solar_inside_window with
+        // the residual, then iteration N+1 reads the residual as the "original"
+        // value, causing exponential decay toward zero.
+        let original_window_absorbed: Vec<f64> = self.surfaces.iter()
+            .map(|s| s.absorbed_solar_inside_window)
+            .collect();
+
         let max_iterations = 5;
         for _iter in 0..max_iterations {
+            // Restore original absorbed-inward solar for windows
+            for si in 0..self.surfaces.len() {
+                if self.surfaces[si].is_window {
+                    self.surfaces[si].absorbed_solar_inside_window =
+                        original_window_absorbed[si];
+                }
+            }
             // 6a. Outside surface temperatures
             // For outdoor opaque surfaces, the exterior surface energy balance is:
             //   q_solar_abs + h_conv*(T_air - T_s) + h_rad_sky*(T_sky - T_s)
@@ -2038,16 +2172,56 @@ impl EnvelopeSolver for BuildingEnvelope {
                     };
 
                     // Dynamic exterior combined coefficient: h_conv (already computed
-                    // in the exterior loop above) + approximate exterior radiation.
-                    // Glass emissivity ≈ 0.84 (clear glass, uncoated exterior face).
+                    // in the exterior loop above) + exterior longwave radiation split
+                    // between sky and ground, matching E+ and the opaque surface model.
+                    //
+                    // Previously, window exterior radiation used T_outdoor as the
+                    // reference temperature for all radiation. But vertical windows
+                    // see the cold sky (F_sky=0.5 for vertical), and sky depression
+                    // in Boulder winter is ~16°C. Using T_outdoor overestimates the
+                    // effective exterior temperature by 2-3°C, reducing window heat
+                    // loss by ~600-900 kWh/year.
                     let h_conv_out = self.surfaces[i].h_conv_outside;
                     let eps_glass: f64 = 0.84;
-                    // Use window exterior surface temp (from previous iteration) and
-                    // outdoor air temp for radiation linearization.
                     let t_ext_surf_est = self.surfaces[i].temp_outside;
-                    let t_mean_out_k = ((t_ext_surf_est + t_outdoor) / 2.0 + 273.15).max(200.0);
-                    let h_rad_out = 4.0 * eps_glass * SIGMA * t_mean_out_k.powi(3);
-                    let h_e = h_conv_out + h_rad_out;
+                    let cos_tilt = self.surfaces[i].cos_tilt;
+
+                    // View factors to sky and ground (same as opaque surfaces)
+                    let f_sky = (1.0 + cos_tilt) / 2.0;
+                    let f_gnd = 1.0 - f_sky;
+
+                    // E+ SurfAirSkyRadSplit: fraction of sky hemisphere that is
+                    // actual sky (cold) vs atmosphere (at air temperature)
+                    let air_sky_rad_split = (0.5 * (1.0 + cos_tilt)).sqrt();
+
+                    let t_s_k = (t_ext_surf_est + 273.15).max(200.0);
+                    let t_sky_k = (t_sky + 273.15).max(200.0);
+                    let t_air_k = (t_outdoor + 273.15).max(200.0);
+
+                    // Linearized radiation coefficients for each environment
+                    let h_rad_base = |t1: f64, t2: f64, f_view: f64| -> f64 {
+                        let dt = (t1 - t2).abs();
+                        if dt > 0.1 {
+                            SIGMA * eps_glass * f_view * (t1.powi(4) - t2.powi(4)).abs() / dt
+                        } else {
+                            4.0 * SIGMA * eps_glass * f_view * ((t1 + t2) / 2.0).powi(3)
+                        }
+                    };
+
+                    let h_sky = h_rad_base(t_s_k, t_sky_k, f_sky * air_sky_rad_split);
+                    let h_air = h_rad_base(t_s_k, t_air_k, f_sky * (1.0 - air_sky_rad_split));
+                    let h_gnd = h_rad_base(t_s_k, t_air_k, f_gnd);
+                    let h_rad_total = h_sky + h_air + h_gnd;
+                    let h_e = h_conv_out + h_rad_total;
+
+                    // Effective exterior driving temperature: conductance-weighted
+                    // average of sky, air, and ground temperatures
+                    let t_ext_eff = if h_e > 1.0e-10 {
+                        (h_conv_out * t_outdoor + h_sky * t_sky + h_air * t_outdoor
+                            + h_gnd * t_outdoor) / h_e
+                    } else {
+                        t_outdoor
+                    };
 
                     let mut u_glass = self.surfaces[i].u_glass;
                     let tilt = self.surfaces[i].input.tilt;
@@ -2058,18 +2232,33 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // Whether this window uses first-principles gap thermal model
                     let has_gap_model = self.surfaces[i].gap_width > 0.0;
 
-                    // Iteratively solve glass temperature using 3-node balance:
-                    //   u_e_glass·(T_out - T_glass) = h_conv·(T_glass - T_zone) + h_rad·(T_glass - T_mrt)
+                    // Absorbed-inward solar source for the glass heat balance [W/m²].
                     //
-                    // Interior radiation references the zone MRT from opaque surfaces
-                    // (typically ~15-16°C in winter) instead of T_zone (20°C). This
-                    // corrects the over-estimation of window heat loss that caused
-                    // heating over-prediction.
+                    // The absorbed-inward solar (N_in × α × I) warms the glass interior
+                    // surface, reducing the temperature difference and hence the net
+                    // conduction loss through the window. This is the primary mechanism
+                    // by which the SHGC → τ_sol split affects heating energy.
+                    let q_solar_abs_per_area = if self.surfaces[i].net_area > 0.0 {
+                        self.surfaces[i].absorbed_solar_inside_window
+                            / self.surfaces[i].net_area
+                    } else {
+                        0.0
+                    };
+
+                    // Iteratively solve glass temperature using 3-node balance:
+                    //   u_e_glass·(T_ext_eff - T_glass) = h_conv·(T_glass - T_zone)
+                    //       + h_rad·(T_glass - T_mrt) - q_solar_abs
+                    //
+                    // The exterior effective temperature accounts for sky radiation
+                    // (T_sky << T_air for vertical windows with F_sky=0.5), pulling
+                    // the glass exterior colder and increasing conduction loss.
+                    // Interior radiation references the zone MRT from opaque surfaces.
                     let mut h_conv_in: f64 = 3.0;
                     let mut h_rad_in: f64 = 5.0;
-                    let mut t_glass: f64 = (t_outdoor + t_z) / 2.0;
+                    let mut t_glass: f64 = (t_ext_eff + t_z) / 2.0;
                     for _ in 0..5 {
-                        t_glass = (u_e_glass * t_outdoor + h_conv_in * t_z + h_rad_in * t_mrt)
+                        t_glass = (u_e_glass * t_ext_eff + h_conv_in * t_z
+                            + h_rad_in * t_mrt + q_solar_abs_per_area)
                             / (u_e_glass + h_conv_in + h_rad_in);
 
                         // Dynamic gap thermal model (ISO 15099): recompute u_glass
@@ -2152,6 +2341,32 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // This enters sum_ha and sum_hat in the zone air balance, coupling
                     // zone air to the cold window glass via convection.
                     self.surfaces[i].h_conv_inside = h_conv_in;
+
+                    // Residual correction for absorbed-inward solar.
+                    //
+                    // The lumped glass model distributes the absorbed solar source
+                    // between inward (h_conv+h_rad) and outward (u_e_glass) paths.
+                    // The lumped inward fraction N_lumped = (h_conv+h_rad)/(total) is
+                    // typically ~0.83 for a resistive window, higher than the physical
+                    // N_in ≈ 0.44. Since all of absorbed_inward should reach the zone
+                    // (it IS the inward fraction by definition), any portion NOT
+                    // delivered through the glass warming is added directly to the
+                    // zone via q_window_absorbed.
+                    let absorbed_inward_total =
+                        self.surfaces[i].absorbed_solar_inside_window;
+                    if absorbed_inward_total > 0.0 {
+                        let h_total = u_e_glass + h_conv_in + h_rad_in;
+                        let n_lumped = if h_total > 1.0e-10 {
+                            (h_conv_in + h_rad_in) / h_total
+                        } else {
+                            1.0
+                        };
+                        // Portion delivered through glass warming to the zone
+                        let delivered_through_glass = n_lumped * absorbed_inward_total;
+                        // Residual goes directly to zone air via q_window_absorbed
+                        let residual = (absorbed_inward_total - delivered_through_glass).max(0.0);
+                        self.surfaces[i].absorbed_solar_inside_window = residual;
+                    }
 
                     // Radiative component goes through q_conv_inside → q_window_cond.
                     // Sign: negative = heat loss from zone (T_mrt > T_glass in winter).
@@ -2600,14 +2815,68 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // separately): OA enters zone at outdoor temp
                     zone.outdoor_air_mass_flow
                 };
-                let total_outdoor_mass_flow = zone.infiltration_mass_flow
+                // ASHRAE combined infiltration model: when exhaust fans create
+                // unbalanced flow, outdoor air enters through envelope cracks
+                // rather than adding independently.  Reference: ASHRAE Handbook
+                // of Fundamentals, "Residential Ventilation" chapter.
+                //   Q_combined = sqrt(Q_infiltration² + Q_unbalanced²)
+                // where Q_unbalanced = max(0, exhaust − balanced_supply).
+                // HVAC outdoor air (oa_to_zone) partially balances exhaust.
+                let unbalanced_exhaust =
+                    (zone.exhaust_mass_flow - oa_to_zone).max(0.0);
+                let combined_infil_exhaust = (zone.infiltration_mass_flow.powi(2)
+                    + unbalanced_exhaust.powi(2))
+                .sqrt();
+                let total_outdoor_mass_flow = combined_infil_exhaust
                     + zone.ventilation_mass_flow
-                    + zone.exhaust_mass_flow
                     + oa_to_zone
                     + zone.nat_vent_mass_flow;
                 let mcpi = total_outdoor_mass_flow * cp_air;
 
                 let q_conv_total = zone.q_internal_conv + q_solar_to_air + q_window_cond + q_window_absorbed;
+
+                // ─── E+-style higher-order backward difference ─────────
+                //
+                // EnergyPlus ZoneTempPredictorCorrector uses a 3rd-order
+                // backward difference for dT/dt, ramping from 1st to 3rd
+                // order as temperature history accumulates.  This provides
+                // better numerical stability and smoother transient response
+                // than simple backward Euler, reducing spurious heating/
+                // cooling mode switches.
+                //
+                // Rather than changing every solve function, we fold the
+                // higher-order coefficients into an effective timestep
+                // (dt_eff) and effective previous temperature (t_prev_eff),
+                // preserving the 1st-order formula structure.
+                let (dt_eff, t_prev_eff) = crate::zone::backward_diff_effective(
+                    zone.temp_order,
+                    dt,
+                    zone.temp_prev,
+                    zone.temp_prev2,
+                    zone.temp_prev3,
+                );
+
+                // ─── Predictor: free-floating zone temp without HVAC ─────
+                //
+                // E+-style predictor: what temperature would the zone reach
+                // at the end of this timestep if HVAC were turned off?
+                // Uses CURRENT surface temps, solar gains, and outdoor
+                // conditions — not stale values from the previous timestep.
+                //
+                // This is used by the HVAC control layer to determine
+                // whether the zone actually needs heating/cooling or can
+                // coast in the deadband on its thermal mass.
+                {
+                    let cap_term = rho_air * zone.input.volume * cp_air / dt_eff;
+                    let denom = sum_ha + mcpi + cap_term;
+                    zone.temp_no_hvac = if denom > 1e-10 {
+                        (sum_hat + mcpi * t_outdoor + q_conv_total
+                            + cap_term * t_prev_eff)
+                            / denom
+                    } else {
+                        zone.temp_prev
+                    };
+                }
 
                 // ═══ DIAGNOSTIC: Print heat balance for Jan 4, Hour 1 ═══
                 if ctx.timestep.month == 1 && ctx.timestep.day == 4 && ctx.timestep.hour == 1
@@ -2696,7 +2965,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         mcpi, t_outdoor,
                         q_conv_total,
                         0.0, // no HVAC
-                        rho_air, zone.input.volume, cp_air, dt, zone.temp_prev,
+                        rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
                     );
 
                     // Step 2: Get active setpoints (may vary by schedule)
@@ -2734,7 +3003,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         // HEATING needed
                         let q_needed = crate::zone::compute_ideal_q_hvac(
                             sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
-                            rho_air, zone.input.volume, cp_air, dt, zone.temp_prev,
+                            rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
                             heat_sp,
                         );
                         let q_clamped = q_needed.min(ideal_loads.heating_capacity).max(0.0);
@@ -2743,7 +3012,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         // COOLING needed
                         let q_needed = crate::zone::compute_ideal_q_hvac(
                             sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
-                            rho_air, zone.input.volume, cp_air, dt, zone.temp_prev,
+                            rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
                             cool_sp,
                         );
                         // q_needed will be negative for cooling
@@ -2760,7 +3029,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         mcpi, t_outdoor,
                         q_conv_total,
                         q_hvac,
-                        rho_air, zone.input.volume, cp_air, dt, zone.temp_prev,
+                        rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
                     );
 
                     // Step 5: Record loads and rates
@@ -2789,12 +3058,12 @@ impl EnvelopeSolver for BuildingEnvelope {
                         mcpi, t_outdoor,
                         mcpsys, zone.supply_air_temp,
                         q_conv_total,
-                        rho_air, zone.input.volume, cp_air, dt, zone.temp_prev,
+                        rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
                     );
 
                     let (hl, cl) = crate::zone::calc_zone_loads(
                         zone.temp, sum_ha, sum_hat, mcpi, t_outdoor,
-                        q_conv_total, rho_air, zone.input.volume, cp_air, dt, zone.temp_prev,
+                        q_conv_total, rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
                     );
                     zone.heating_load = hl;
                     zone.cooling_load = cl;
@@ -2810,16 +3079,71 @@ impl EnvelopeSolver for BuildingEnvelope {
                         mcpi, t_outdoor,
                         q_conv_total,
                         0.0, // no HVAC
-                        rho_air, zone.input.volume, cp_air, dt, zone.temp_prev,
+                        rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
                     );
                     let (hl, cl) = crate::zone::calc_zone_loads(
                         zone.temp, sum_ha, sum_hat, mcpi, t_outdoor,
-                        q_conv_total, rho_air, zone.input.volume, cp_air, dt, zone.temp_prev,
+                        q_conv_total, rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
                     );
                     zone.heating_load = hl;
                     zone.cooling_load = cl;
                     zone.hvac_heating_rate = 0.0;
                     zone.hvac_cooling_rate = 0.0;
+                }
+
+                // ─── Diagnostic accumulators ─────────────────────────────
+                // Accumulate annual heat balance components for comparison
+                // with E+ zone-level energy balance.
+                //
+                // Strategy: every HVAC iteration overwrites "pending" values
+                // so we always capture the LAST (converged) iteration.  When
+                // the physical timestep advances (sim_time_s changes) we
+                // commit the pending values from the previous timestep into
+                // the running accumulators.
+                if !ctx.is_sizing {
+                    // Commit previous timestep's pending values when time advances
+                    if ctx.timestep.sim_time_s != zone.diag_last_sim_time {
+                        if zone.diag_last_sim_time >= 0.0 {
+                            // Previous timestep had valid pending values — commit
+                            zone.diag_surface_loss_kwh += zone.diag_pending_surface;
+                            zone.diag_infil_loss_kwh += zone.diag_pending_infil;
+                            zone.diag_q_conv_kwh += zone.diag_pending_q_conv;
+                            zone.diag_solar_trans_kwh += zone.diag_pending_solar;
+                            zone.diag_internal_conv_kwh += zone.diag_pending_internal;
+                            zone.diag_window_cond_kwh += zone.diag_pending_wincond;
+                            zone.diag_window_conv_kwh += zone.diag_pending_wincond_conv;
+                            zone.diag_hvac_net_kwh += zone.diag_pending_hvac;
+                        }
+                        zone.diag_last_sim_time = ctx.timestep.sim_time_s;
+                    }
+
+                    // Overwrite pending with THIS iteration's values (last wins)
+                    let dt_kwh = dt / 3_600_000.0; // seconds → kWh factor
+
+                    // Compute window-only convective exchange for diagnostics
+                    let mut win_ha = 0.0_f64;
+                    let mut win_hat = 0.0_f64;
+                    for &si in &zone.surface_indices {
+                        if self.surfaces[si].is_window {
+                            let ha = self.surfaces[si].h_conv_inside * self.surfaces[si].net_area;
+                            win_ha += ha;
+                            win_hat += ha * self.surfaces[si].temp_inside;
+                        }
+                    }
+                    zone.diag_pending_wincond_conv = (win_ha * zone.temp - win_hat) * dt_kwh;
+
+                    zone.diag_pending_surface = (sum_ha * zone.temp - sum_hat) * dt_kwh;
+                    zone.diag_pending_infil = mcpi * (zone.temp - t_outdoor) * dt_kwh;
+                    zone.diag_pending_q_conv = q_conv_total * dt_kwh;
+                    zone.diag_pending_solar = q_solar_transmitted * dt_kwh;
+                    zone.diag_pending_internal = zone.q_internal_conv * dt_kwh;
+                    zone.diag_pending_wincond = q_window_cond * dt_kwh;
+                    let cap = rho_air * zone.input.volume * cp_air / dt_eff;
+                    let q_hvac_delivered = cap * (zone.temp - t_prev_eff)
+                        + (sum_ha * zone.temp - sum_hat)
+                        + mcpi * (zone.temp - t_outdoor)
+                        - q_conv_total;
+                    zone.diag_pending_hvac = q_hvac_delivered * dt_kwh;
                 }
 
                 // ─── Ideal Loads at Setpoint ──────────────────────────────
@@ -2846,7 +3170,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                 zone.ideal_cooling_load = if let Some(sp) = cool_sp {
                     let q = crate::zone::compute_ideal_q_hvac(
                         sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
-                        rho_air, zone.input.volume, cp_air, dt, zone.temp, sp,
+                        rho_air, zone.input.volume, cp_air, dt_eff, zone.temp, sp,
                     );
                     // Negative Q = cooling needed; convert to positive cooling load
                     (-q).max(0.0)
@@ -2857,7 +3181,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                 zone.ideal_heating_load = if let Some(sp) = heat_sp {
                     let q = crate::zone::compute_ideal_q_hvac(
                         sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
-                        rho_air, zone.input.volume, cp_air, dt, zone.temp, sp,
+                        rho_air, zone.input.volume, cp_air, dt_eff, zone.temp, sp,
                     );
                     // Positive Q = heating needed
                     q.max(0.0)
@@ -2883,9 +3207,67 @@ impl EnvelopeSolver for BuildingEnvelope {
             }
         }
 
-        // 8. Update zone previous temperatures
+        // 8. Update zone temperature history (3rd-order backward difference)
         for zone in &mut self.zones {
+            zone.temp_prev3 = zone.temp_prev2;
+            zone.temp_prev2 = zone.temp_prev;
             zone.temp_prev = zone.temp;
+            zone.temp_order = (zone.temp_order + 1).min(3);
+        }
+
+        // 8b. Print diagnostic accumulators at end of year
+        if ctx.timestep.month == 12 && ctx.timestep.day == 31 && ctx.timestep.hour == 24
+            && !ctx.is_sizing
+        {
+            // Commit the final pending values (last timestep of the year)
+            for zone in &mut self.zones {
+                zone.diag_surface_loss_kwh += zone.diag_pending_surface;
+                zone.diag_infil_loss_kwh += zone.diag_pending_infil;
+                zone.diag_q_conv_kwh += zone.diag_pending_q_conv;
+                zone.diag_solar_trans_kwh += zone.diag_pending_solar;
+                zone.diag_internal_conv_kwh += zone.diag_pending_internal;
+                zone.diag_window_cond_kwh += zone.diag_pending_wincond;
+                zone.diag_window_conv_kwh += zone.diag_pending_wincond_conv;
+                zone.diag_hvac_net_kwh += zone.diag_pending_hvac;
+                // Zero out pending so they aren't double-committed
+                zone.diag_pending_surface = 0.0;
+                zone.diag_pending_infil = 0.0;
+                zone.diag_pending_q_conv = 0.0;
+                zone.diag_pending_solar = 0.0;
+                zone.diag_pending_internal = 0.0;
+                zone.diag_pending_wincond = 0.0;
+                zone.diag_pending_wincond_conv = 0.0;
+                zone.diag_pending_hvac = 0.0;
+            }
+            for zone in &self.zones {
+                if zone.input.conditioned {
+                    let opaque_conv = zone.diag_surface_loss_kwh - zone.diag_window_conv_kwh;
+                    let total_window = zone.diag_solar_trans_kwh + zone.diag_window_cond_kwh - zone.diag_window_conv_kwh;
+                    let q_win_absorbed = zone.diag_q_conv_kwh - zone.diag_internal_conv_kwh
+                        - zone.diag_window_cond_kwh;
+                    eprintln!("═══ ANNUAL HEAT BALANCE: {} ═══", zone.input.name);
+                    eprintln!("  Surface conv (all):   {:>10.1} kWh (air→surf, neg=gain)", zone.diag_surface_loss_kwh);
+                    eprintln!("    Opaque surf conv:   {:>10.1} kWh               E+: -7569", opaque_conv);
+                    eprintln!("    Window convective:  {:>10.1} kWh", zone.diag_window_conv_kwh);
+                    eprintln!("  Infiltration loss:    {:>10.1} kWh               E+: -4644", zone.diag_infil_loss_kwh);
+                    eprintln!("  q_conv_total:         {:>10.1} kWh (internal+wincond+absorbed)", zone.diag_q_conv_kwh);
+                    eprintln!("    Internal conv:      {:>10.1} kWh", zone.diag_internal_conv_kwh);
+                    eprintln!("    Window rad(cond):   {:>10.1} kWh", zone.diag_window_cond_kwh);
+                    eprintln!("    Window absorbed:    {:>10.1} kWh", q_win_absorbed);
+                    eprintln!("  Transmitted solar:    {:>10.1} kWh               E+: +7850", zone.diag_solar_trans_kwh);
+                    eprintln!("  ── Window total ──");
+                    eprintln!("    Solar trans:        {:>10.1} kWh", zone.diag_solar_trans_kwh);
+                    eprintln!("    + rad(cond):        {:>10.1} kWh", zone.diag_window_cond_kwh);
+                    eprintln!("    − convective:       {:>10.1} kWh", zone.diag_window_conv_kwh);
+                    eprintln!("    + absorbed:         {:>10.1} kWh", q_win_absorbed);
+                    eprintln!("    = NET window:       {:>10.1} kWh   E+: +4221 (+7850-3629)", total_window + q_win_absorbed);
+                    eprintln!("  HVAC net delivered:   {:>10.1} kWh   E+: -628 (+5639-6267)", zone.diag_hvac_net_kwh);
+                    eprintln!("  ── E+ comparison (kWh) ──");
+                    eprintln!("    Opaque cond: -7569  |  Infil: -4644  |  Internal: +8624");
+                    eprintln!("    Window net: +4221   |  HVAC heat: +5639  |  HVAC cool: -6267");
+                    eprintln!("═══════════════════════════════════");
+                }
+            }
         }
 
         // 9. Build results
@@ -2897,6 +3279,7 @@ impl EnvelopeSolver for BuildingEnvelope {
             results.zone_cooling_loads.insert(zone.input.name.clone(), zone.cooling_load);
             results.ideal_cooling_loads.insert(zone.input.name.clone(), zone.ideal_cooling_load);
             results.ideal_heating_loads.insert(zone.input.name.clone(), zone.ideal_heating_load);
+            results.predictor_temps.insert(zone.input.name.clone(), zone.temp_no_hvac);
 
             let mut outputs = HashMap::new();
             outputs.insert("zone_temp".to_string(), zone.temp);

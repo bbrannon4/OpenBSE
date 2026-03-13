@@ -560,6 +560,16 @@ fn derive_kd_from_system_tau(target_tau: f64, n: f64) -> f64 {
 /// * `kd` — glass extinction coefficient × thickness per pane (from `compute_glass_angular_params`)
 /// * `ni` — inward-flowing fraction of absorbed solar (from `compute_glass_angular_params`)
 pub fn angular_shgc_modifier(cos_incidence: f64, shgc: f64, kd: f64, ni: f64, n: f64) -> f64 {
+    angular_shgc_modifier_u(cos_incidence, shgc, kd, ni, n, 5.8)
+}
+
+/// Angular SHGC modifier with U-factor for proper double-pane classification.
+///
+/// For double-pane windows (U < 3.4), uses the E+ SimpleGlazingSystem angular
+/// correlation which produces a gentler curve than single-pane tinted glass.
+/// The coefficients were derived to match EnergyPlus LBNL-2804E Step 7
+/// Curve J (triple-coated low-e, applicable to SHGC < 0.55, U < 3.4).
+pub fn angular_shgc_modifier_u(cos_incidence: f64, shgc: f64, kd: f64, ni: f64, n: f64, u_factor: f64) -> f64 {
     let c = cos_incidence.clamp(0.0, 1.0);
     if c < 0.01 {
         return 0.0;
@@ -576,32 +586,438 @@ pub fn angular_shgc_modifier(cos_incidence: f64, shgc: f64, kd: f64, ni: f64, n:
         fresnel_double_pane_modifier(c, shgc, kd, ni, n)
     } else if shgc <= 0.25 || !have_fresnel_params {
         // Low-e / coated glass, or any glass without per-pane optical data:
-        // use polynomial angular model
-        polynomial_angular_modifier(c)
+        // use polynomial angular model.
+        // Double-pane (U < 3.4) uses a gentler curve matching E+ LBNL-2804E.
+        polynomial_angular_modifier(c, u_factor)
     } else {
         // Intermediate SHGC with real per-pane properties: blend Fresnel ↔ polynomial
         let blend = (shgc - 0.25) / (0.55 - 0.25);
         let clear_mod = fresnel_double_pane_modifier(c, shgc, kd, ni, n);
-        let lowe_mod = polynomial_angular_modifier(c);
+        let lowe_mod = polynomial_angular_modifier(c, u_factor);
         blend * clear_mod + (1.0 - blend) * lowe_mod
     }
 }
 
-/// Polynomial angular modifier for low-e / coated glass.
+// ─── EnergyPlus SimpleGlazingSystem Angular Model (LBNL-2804E) ──────────────
+//
+// The E+ SimpleGlazingSystem uses 10 angular transmittance curves (A–J) and
+// 10 corresponding reflectance curves, selected from a 28-bin mapping based
+// on U-factor and SHGC.  Three composite curves (FGHI, FH, BDCD) are averages
+// of individual curves for intermediate bins.
+//
+// Transmittance: τ(cs) = a₀ + a₁·cs + a₂·cs² + a₃·cs³ + a₄·cs⁴
+// where cs = cos(angle_of_incidence).  Normalized so τ(cs=1) = 1.0.
+//
+// Reflectance: computed as R_poly(cs) − τ(cs), where R_poly uses a separate
+// set of coefficients.  The final reflectance at angle θ is:
+//   R(θ) = Rsol × (1 − ReflTmp) + ReflTmp
+// where ReflTmp = R_poly(cs) − τ(cs).
+//
+// Reference: Arasteh, Kohler, & Griffith (2009), "Modeling Windows in
+// Energy-Plus with Simple Performance Indices", LBNL-2804E.
+
+/// Transmittance curve coefficients [a₀, a₁, a₂, a₃, a₄] for curves A–J.
+/// τ(cs) = a₀ + a₁·cs + a₂·cs² + a₃·cs³ + a₄·cs⁴
+const SGS_TRANS: [[f64; 5]; 10] = [
+    [0.0,  3.36, -3.85,  1.49,  0.01],  // A: single 3mm clear
+    [0.0,  2.83, -2.42,  0.04,  0.55],  // B: single 3mm bronze
+    [0.0,  2.45, -1.58, -0.64,  0.77],  // C: single 6mm bronze
+    [0.0,  2.85, -2.58,  0.40,  0.35],  // D: single 3mm coated
+    [0.0,  1.51,  2.49, -5.87,  2.88],  // E: double 3mm clear
+    [0.0,  1.21,  3.14, -6.37,  3.03],  // F: double coated 3mm clear
+    [0.0,  1.09,  3.54, -6.84,  3.23],  // G: double tinted 3mm clear
+    [0.0,  0.98,  3.83, -7.13,  3.33],  // H: double coated 6mm clear
+    [0.0,  0.79,  3.93, -6.86,  3.15],  // I: double tinted 6mm clear
+    [0.0,  0.08,  6.02, -8.84,  3.74],  // J: triple coated-clear-coated
+];
+
+/// Reflectance polynomial coefficients [b₀, b₁, b₂, b₃, b₄] for curves A–J.
+/// ReflTmp(cs) = (b₀ + b₁·cs + b₂·cs² + b₃·cs³ + b₄·cs⁴) − τ(cs)
+const SGS_REFL: [[f64; 5]; 10] = [
+    [1.0, -0.70,  2.57, -3.20,  1.33],  // A
+    [1.0, -1.87,  6.50, -7.86,  3.23],  // B
+    [1.0, -2.52,  8.40, -9.86,  3.99],  // C
+    [1.0, -1.85,  6.40, -7.64,  3.11],  // D
+    [1.0, -1.57,  5.60, -6.82,  2.80],  // E
+    [1.0, -3.15, 10.98,-13.14,  5.32],  // F
+    [1.0, -3.25, 11.32,-13.54,  5.49],  // G
+    [1.0, -3.39, 11.70,-13.94,  5.64],  // H
+    [1.0, -4.06, 13.55,-15.74,  6.27],  // I
+    [1.0, -4.35, 14.27,-16.32,  6.39],  // J
+];
+
+/// Curve indices for named curves.
+const CURVE_A: usize = 0;
+const CURVE_B: usize = 1;
+const CURVE_C: usize = 2;
+const CURVE_D: usize = 3;
+const CURVE_E: usize = 4;
+const CURVE_F: usize = 5;
+const CURVE_G: usize = 6;
+const CURVE_H: usize = 7;
+const CURVE_I: usize = 8;
+const CURVE_J: usize = 9;
+
+/// Average composite curves (precomputed for performance).
+fn avg_curves(indices: &[usize]) -> [f64; 5] {
+    let n = indices.len() as f64;
+    let mut result = [0.0; 5];
+    for &i in indices {
+        for j in 0..5 {
+            result[j] += SGS_TRANS[i][j] / n;
+        }
+    }
+    result
+}
+
+fn avg_refl_curves(indices: &[usize]) -> [f64; 5] {
+    let n = indices.len() as f64;
+    let mut result = [0.0; 5];
+    for &i in indices {
+        for j in 0..5 {
+            result[j] += SGS_REFL[i][j] / n;
+        }
+    }
+    result
+}
+
+/// Evaluate a 4th-degree polynomial in cos(theta).
+fn eval_curve(cs: f64, coeffs: &[f64; 5]) -> f64 {
+    let cs2 = cs * cs;
+    let cs3 = cs2 * cs;
+    let cs4 = cs3 * cs;
+    coeffs[0] + coeffs[1]*cs + coeffs[2]*cs2 + coeffs[3]*cs3 + coeffs[4]*cs4
+}
+
+/// Linearly interpolate between two sets of coefficients.
+fn lerp_curves(a: &[f64; 5], b: &[f64; 5], t: f64) -> [f64; 5] {
+    let mut result = [0.0; 5];
+    for i in 0..5 {
+        result[i] = a[i] + t * (b[i] - a[i]);
+    }
+    result
+}
+
+/// E+ SimpleGlazingSystem 28-bin angular curve selection.
 ///
-/// Five-term polynomial with steeper falloff than Fresnel, matching WINDOW 7
-/// generic low-e product data. Low-e coatings preferentially reflect at
-/// oblique angles, producing a steeper angular curve than clear glass.
+/// Returns (transmittance_curve, reflectance_curve) coefficients for the
+/// given U-factor and SHGC combination.  Matches the `TransAndReflAtPhi`
+/// function in EnergyPlus WindowManager.cc (lines 4881–5374).
 ///
-///   modifier(cos θ) = Σ aₙ · cosⁿ(θ),  n = 1..5
-///   Σ = 3.5 - 8.0 + 9.0 - 5.0 + 1.5 = 1.000 ✓
-fn polynomial_angular_modifier(c: f64) -> f64 {
-    const A: [f64; 5] = [3.5, -8.0, 9.0, -5.0, 1.5];
-    let c2 = c * c;
-    let c3 = c2 * c;
-    let c4 = c3 * c;
-    let c5 = c4 * c;
-    (A[0]*c + A[1]*c2 + A[2]*c3 + A[3]*c4 + A[4]*c5).clamp(0.0, 1.0)
+/// The U-factor/SHGC space is divided into 5 U-bands with up to 8 SHGC
+/// sub-bands each, producing 28 cells total.
+pub fn sgs_select_curves(u: f64, shgc: f64) -> ([f64; 5], [f64; 5]) {
+    // Composite curves
+    let fghi_t = avg_curves(&[CURVE_F, CURVE_G, CURVE_H, CURVE_I]);
+    let fghi_r = avg_refl_curves(&[CURVE_F, CURVE_G, CURVE_H, CURVE_I]);
+    let fh_t = avg_curves(&[CURVE_F, CURVE_H]);
+    let fh_r = avg_refl_curves(&[CURVE_F, CURVE_H]);
+    let bdcd_t = avg_curves(&[CURVE_B, CURVE_D, CURVE_C, CURVE_D]);
+    let bdcd_r = avg_refl_curves(&[CURVE_B, CURVE_D, CURVE_C, CURVE_D]);
+
+    // Band 1: U < 1.4195 (triple-pane territory)
+    if u < 1.4195 {
+        if shgc > 0.45 {
+            (SGS_TRANS[CURVE_E], SGS_REFL[CURVE_E])
+        } else if shgc >= 0.35 {
+            let t = (0.45 - shgc) / (0.45 - 0.35);
+            (lerp_curves(&SGS_TRANS[CURVE_E], &SGS_TRANS[CURVE_J], t),
+             lerp_curves(&SGS_REFL[CURVE_E], &SGS_REFL[CURVE_J], t))
+        } else {
+            (SGS_TRANS[CURVE_J], SGS_REFL[CURVE_J])
+        }
+    }
+    // Band 2: 1.4195 <= U <= 1.7034
+    else if u <= 1.7034 {
+        let u_frac = (u - 1.4195) / (1.7034 - 1.4195);
+        if shgc > 0.55 {
+            (SGS_TRANS[CURVE_E], SGS_REFL[CURVE_E])
+        } else if shgc > 0.50 {
+            // 4-way blend: corners = E, E, FGHI, E
+            let s_frac = (0.55 - shgc) / (0.55 - 0.50);
+            let lo_curve_t = lerp_curves(&SGS_TRANS[CURVE_E], &fghi_t, u_frac);
+            let lo_curve_r = lerp_curves(&SGS_REFL[CURVE_E], &fghi_r, u_frac);
+            (lerp_curves(&SGS_TRANS[CURVE_E], &lo_curve_t, s_frac),
+             lerp_curves(&SGS_REFL[CURVE_E], &lo_curve_r, s_frac))
+        } else if shgc > 0.45 {
+            (lerp_curves(&SGS_TRANS[CURVE_E], &fghi_t, u_frac),
+             lerp_curves(&SGS_REFL[CURVE_E], &fghi_r, u_frac))
+        } else if shgc > 0.35 {
+            // 4-way: J, E, FGHI, FGHI
+            let lo_t = lerp_curves(&SGS_TRANS[CURVE_J], &fghi_t, u_frac);
+            let lo_r = lerp_curves(&SGS_REFL[CURVE_J], &fghi_r, u_frac);
+            let hi_t = lerp_curves(&SGS_TRANS[CURVE_E], &fghi_t, u_frac);
+            let hi_r = lerp_curves(&SGS_REFL[CURVE_E], &fghi_r, u_frac);
+            let s_frac = (0.45 - shgc) / (0.45 - 0.35);
+            (lerp_curves(&hi_t, &lo_t, s_frac),
+             lerp_curves(&hi_r, &lo_r, s_frac))
+        } else if shgc > 0.30 {
+            (lerp_curves(&SGS_TRANS[CURVE_J], &fghi_t, u_frac),
+             lerp_curves(&SGS_REFL[CURVE_J], &fghi_r, u_frac))
+        } else if shgc > 0.25 {
+            // 4-way: J, J, FH, FGHI
+            let lo_t = lerp_curves(&SGS_TRANS[CURVE_J], &fh_t, u_frac);
+            let lo_r = lerp_curves(&SGS_REFL[CURVE_J], &fh_r, u_frac);
+            let hi_t = lerp_curves(&SGS_TRANS[CURVE_J], &fghi_t, u_frac);
+            let hi_r = lerp_curves(&SGS_REFL[CURVE_J], &fghi_r, u_frac);
+            let s_frac = (0.30 - shgc) / (0.30 - 0.25);
+            (lerp_curves(&hi_t, &lo_t, s_frac),
+             lerp_curves(&hi_r, &lo_r, s_frac))
+        } else {
+            (lerp_curves(&SGS_TRANS[CURVE_J], &fh_t, u_frac),
+             lerp_curves(&SGS_REFL[CURVE_J], &fh_r, u_frac))
+        }
+    }
+    // Band 3: 1.7034 < U < 3.4068
+    else if u < 3.4068 {
+        if shgc > 0.55 {
+            (SGS_TRANS[CURVE_E], SGS_REFL[CURVE_E])
+        } else if shgc >= 0.50 {
+            let t = (0.55 - shgc) / (0.55 - 0.50);
+            (lerp_curves(&SGS_TRANS[CURVE_E], &fghi_t, t),
+             lerp_curves(&SGS_REFL[CURVE_E], &fghi_r, t))
+        } else if shgc > 0.30 {
+            (fghi_t, fghi_r)
+        } else if shgc >= 0.25 {
+            let t = (0.30 - shgc) / (0.30 - 0.25);
+            (lerp_curves(&fghi_t, &fh_t, t),
+             lerp_curves(&fghi_r, &fh_r, t))
+        } else {
+            (fh_t, fh_r)
+        }
+    }
+    // Band 4: 3.4068 <= U <= 4.5424
+    else if u <= 4.5424 {
+        let u_frac = (u - 3.4068) / (4.5424 - 3.4068);
+        if shgc > 0.65 {
+            (lerp_curves(&SGS_TRANS[CURVE_E], &SGS_TRANS[CURVE_A], u_frac),
+             lerp_curves(&SGS_REFL[CURVE_E], &SGS_REFL[CURVE_A], u_frac))
+        } else if shgc > 0.60 {
+            let lo_t = lerp_curves(&SGS_TRANS[CURVE_E], &bdcd_t, u_frac);
+            let lo_r = lerp_curves(&SGS_REFL[CURVE_E], &bdcd_r, u_frac);
+            let hi_t = lerp_curves(&SGS_TRANS[CURVE_E], &SGS_TRANS[CURVE_A], u_frac);
+            let hi_r = lerp_curves(&SGS_REFL[CURVE_E], &SGS_REFL[CURVE_A], u_frac);
+            let s_frac = (0.65 - shgc) / (0.65 - 0.60);
+            (lerp_curves(&hi_t, &lo_t, s_frac),
+             lerp_curves(&hi_r, &lo_r, s_frac))
+        } else if shgc > 0.55 {
+            (lerp_curves(&SGS_TRANS[CURVE_E], &bdcd_t, u_frac),
+             lerp_curves(&SGS_REFL[CURVE_E], &bdcd_r, u_frac))
+        } else if shgc > 0.50 {
+            let lo_t = lerp_curves(&fghi_t, &bdcd_t, u_frac);
+            let lo_r = lerp_curves(&fghi_r, &bdcd_r, u_frac);
+            let hi_t = lerp_curves(&SGS_TRANS[CURVE_E], &bdcd_t, u_frac);
+            let hi_r = lerp_curves(&SGS_REFL[CURVE_E], &bdcd_r, u_frac);
+            let s_frac = (0.55 - shgc) / (0.55 - 0.50);
+            (lerp_curves(&hi_t, &lo_t, s_frac),
+             lerp_curves(&hi_r, &lo_r, s_frac))
+        } else if shgc > 0.45 {
+            (lerp_curves(&fghi_t, &bdcd_t, u_frac),
+             lerp_curves(&fghi_r, &bdcd_r, u_frac))
+        } else if shgc > 0.30 {
+            let lo_t = lerp_curves(&fghi_t, &SGS_TRANS[CURVE_D], u_frac);
+            let lo_r = lerp_curves(&fghi_r, &SGS_REFL[CURVE_D], u_frac);
+            let hi_t = lerp_curves(&fghi_t, &bdcd_t, u_frac);
+            let hi_r = lerp_curves(&fghi_r, &bdcd_r, u_frac);
+            let s_frac = (0.45 - shgc) / (0.45 - 0.30);
+            (lerp_curves(&hi_t, &lo_t, s_frac),
+             lerp_curves(&hi_r, &lo_r, s_frac))
+        } else if shgc > 0.25 {
+            let lo_t = lerp_curves(&fh_t, &SGS_TRANS[CURVE_D], u_frac);
+            let lo_r = lerp_curves(&fh_r, &SGS_REFL[CURVE_D], u_frac);
+            let hi_t = lerp_curves(&fghi_t, &SGS_TRANS[CURVE_D], u_frac);
+            let hi_r = lerp_curves(&fghi_r, &SGS_REFL[CURVE_D], u_frac);
+            let s_frac = (0.30 - shgc) / (0.30 - 0.25);
+            (lerp_curves(&hi_t, &lo_t, s_frac),
+             lerp_curves(&hi_r, &lo_r, s_frac))
+        } else {
+            (lerp_curves(&fh_t, &SGS_TRANS[CURVE_D], u_frac),
+             lerp_curves(&fh_r, &SGS_REFL[CURVE_D], u_frac))
+        }
+    }
+    // Band 5: U > 4.5424 (single-pane territory)
+    else {
+        if shgc > 0.65 {
+            (SGS_TRANS[CURVE_A], SGS_REFL[CURVE_A])
+        } else if shgc >= 0.60 {
+            let t = (0.65 - shgc) / (0.65 - 0.60);
+            (lerp_curves(&SGS_TRANS[CURVE_A], &bdcd_t, t),
+             lerp_curves(&SGS_REFL[CURVE_A], &bdcd_r, t))
+        } else if shgc > 0.45 {
+            (bdcd_t, bdcd_r)
+        } else if shgc >= 0.30 {
+            let t = (0.45 - shgc) / (0.45 - 0.30);
+            (lerp_curves(&bdcd_t, &SGS_TRANS[CURVE_D], t),
+             lerp_curves(&bdcd_r, &SGS_REFL[CURVE_D], t))
+        } else {
+            (SGS_TRANS[CURVE_D], SGS_REFL[CURVE_D])
+        }
+    }
+}
+
+/// E+ SimpleGlazingSystem angular SHGC modifier.
+///
+/// Computes the effective SHGC modifier at a given angle using E+'s angular
+/// curves for both transmittance and reflectance. The total solar heat gain
+/// at angle θ is:
+///
+///   SHG(θ) = Tsol × τ_curve(cos θ) + N_i × α(θ)
+///   α(θ) = 1 − Tsol × τ_curve(cos θ) − R(θ)
+///
+/// The modifier is SHG(θ) / SHGC(0°).
+///
+/// Parameters `tsol`, `rsol`, `ni` are the equivalent layer properties from
+/// the E+ SimpleGlazingSystem model.
+pub fn sgs_angular_shgc_modifier(
+    cos_theta: f64,
+    shgc: f64,
+    tsol: f64,
+    rsol: f64,
+    ni: f64,
+    trans_curve: &[f64; 5],
+    refl_curve: &[f64; 5],
+) -> f64 {
+    let cs = cos_theta.clamp(0.0, 1.0);
+    if cs < 0.01 || shgc <= 0.0 {
+        return 0.0;
+    }
+
+    // Transmittance at this angle (normalized, so τ_norm(cs=1)=1.0)
+    let tau_norm = eval_curve(cs, trans_curve).clamp(0.0, 1.0);
+    let t_angle = tsol * tau_norm;
+
+    // Reflectance at this angle using E+ method:
+    //   ReflTmp = R_poly(cs) - T_poly(cs)
+    //   R(θ) = Rsol × (1 - ReflTmp) + ReflTmp
+    let r_poly = eval_curve(cs, refl_curve);
+    let t_poly = eval_curve(cs, trans_curve);
+    let refl_tmp = (r_poly - t_poly).clamp(0.0, 1.0);
+    let r_angle = rsol * (1.0 - refl_tmp) + refl_tmp;
+
+    // Absorptance at this angle
+    let alpha_angle = (1.0 - t_angle - r_angle).max(0.0);
+
+    // Total SHGC at this angle = transmitted + absorbed-inward
+    let shgc_angle = t_angle + ni * alpha_angle;
+
+    (shgc_angle / shgc).clamp(0.0, 1.0)
+}
+
+/// Hemispherical (diffuse) average of the E+ SGS angular SHGC modifier.
+pub fn sgs_diffuse_shgc_modifier(
+    shgc: f64,
+    tsol: f64,
+    rsol: f64,
+    ni: f64,
+    trans_curve: &[f64; 5],
+    refl_curve: &[f64; 5],
+) -> f64 {
+    const N_SAMPLES: usize = 200;
+    let mut num = 0.0_f64;
+    let mut den = 0.0_f64;
+    for i in 0..N_SAMPLES {
+        let theta = (i as f64 + 0.5) / N_SAMPLES as f64 * PI / 2.0;
+        let cos_t = theta.cos();
+        let w = cos_t * theta.sin();
+        num += sgs_angular_shgc_modifier(cos_t, shgc, tsol, rsol, ni, trans_curve, refl_curve) * w;
+        den += w;
+    }
+    if den > 0.0 { (num / den).clamp(0.0, 1.0) } else { 0.88 }
+}
+
+/// Precomputed E+ SimpleGlazingSystem angular model parameters.
+///
+/// Stored on each SGS window surface for efficient per-timestep evaluation.
+#[derive(Debug, Clone)]
+pub struct SgsAngularModel {
+    /// Solar transmittance at normal incidence (from E+ Tsol correlation)
+    pub tsol: f64,
+    /// Solar reflectance at normal incidence
+    pub rsol: f64,
+    /// Inward-flowing fraction of absorbed solar
+    pub ni: f64,
+    /// Transmittance curve coefficients [5] from 28-bin selection
+    pub trans_curve: [f64; 5],
+    /// Reflectance polynomial coefficients [5] from 28-bin selection
+    pub refl_curve: [f64; 5],
+    /// Precomputed hemispherical (diffuse) SHGC modifier
+    pub diff_modifier: f64,
+}
+
+impl SgsAngularModel {
+    /// Create an SGS angular model for a window with given U-factor and SHGC.
+    ///
+    /// Uses E+ SimpleGlazingSystem correlations to determine Tsol, Rsol, N_i,
+    /// and selects the appropriate angular curves from the 28-bin mapping.
+    pub fn new(shgc: f64, u_factor: f64) -> Self {
+        use crate::material::sgs_tsol_from_shgc;
+
+        let tsol = sgs_tsol_from_shgc(shgc, u_factor);
+
+        // Compute Rsol and N_i using E+'s thermal resistance model.
+        // Frac_inward = (R_out + 0.5*R_glass) / (R_out + R_glass + R_in)
+        // with summer film coefficients for solar gain conditions.
+        let h_in: f64 = 8.29;   // NFRC/E+ interior film (summer) [W/(m²·K)]
+        let h_out: f64 = 26.0;  // NFRC/E+ exterior film (summer) [W/(m²·K)]
+        let r_glass = (1.0 / u_factor - 1.0 / h_in - 1.0 / h_out).max(0.001);
+        let r_inner = r_glass / 2.0 + 1.0 / h_in;
+        let r_outer = r_glass / 2.0 + 1.0 / h_out;
+        let frac_inward = r_outer / (r_inner + r_outer);
+
+        // Rsol = 1 - Tsol - (SHGC - Tsol) / Frac_inward
+        // This ensures SHGC = Tsol + Frac_inward × α_sol at normal incidence.
+        let rsol = if frac_inward > 0.01 {
+            (1.0 - tsol - (shgc - tsol) / frac_inward).clamp(0.0, 1.0 - tsol)
+        } else {
+            (1.0 - shgc).max(0.0) // Fallback: all absorbed goes inward
+        };
+
+        // N_i = inward flowing fraction of absorbed solar
+        let alpha_sol = (1.0 - tsol - rsol).max(0.0);
+        let ni = if alpha_sol > 0.001 {
+            ((shgc - tsol) / alpha_sol).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        let (trans_curve, refl_curve) = sgs_select_curves(u_factor, shgc);
+
+        let diff_modifier = sgs_diffuse_shgc_modifier(
+            shgc, tsol, rsol, ni, &trans_curve, &refl_curve,
+        );
+
+        Self {
+            tsol,
+            rsol,
+            ni,
+            trans_curve,
+            refl_curve,
+            diff_modifier,
+        }
+    }
+}
+
+/// Angular SHGC modifier using E+ SGS model or polynomial fallback.
+///
+/// For SGS windows (no per-pane optical properties, SHGC < 0.55), uses the
+/// full E+ LBNL-2804E angular model with proper curve selection.  For clear
+/// glass with per-pane properties, uses the Fresnel model.
+fn polynomial_angular_modifier(c: f64, u_factor: f64) -> f64 {
+    // Fallback for cases where no SGS model is available.
+    // This should rarely be reached — SGS model is preferred.
+    if u_factor < 3.4 {
+        // Curve J (triple coated, most common for low-U SGS)
+        let c2 = c * c;
+        let c3 = c2 * c;
+        let c4 = c3 * c;
+        (0.08*c + 6.02*c2 - 8.84*c3 + 3.74*c4).clamp(0.0, 1.0)
+    } else {
+        // Curve D (single coated, common for high-U SGS)
+        let c2 = c * c;
+        let c3 = c2 * c;
+        let c4 = c3 * c;
+        (2.85*c - 2.58*c2 + 0.40*c3 + 0.35*c4).clamp(0.0, 1.0)
+    }
 }
 
 // ─── Fresnel Optics for Clear Glass ─────────────────────────────────────────
@@ -745,6 +1161,11 @@ fn fresnel_reflectance(cos_theta: f64, cos_theta_p: f64, n: f64) -> f64 {
 ///
 /// Typically ≈ 0.84–0.90 depending on SHGC/coating type.
 pub fn diffuse_shgc_modifier(shgc: f64, kd: f64, ni: f64, n: f64) -> f64 {
+    diffuse_shgc_modifier_u(shgc, kd, ni, n, 5.8)
+}
+
+/// Hemispherical diffuse SHGC modifier with U-factor for double-pane classification.
+pub fn diffuse_shgc_modifier_u(shgc: f64, kd: f64, ni: f64, n: f64, u_factor: f64) -> f64 {
     const N_SAMPLES: usize = 200;
     let mut num = 0.0_f64;
     let mut den = 0.0_f64;
@@ -752,7 +1173,7 @@ pub fn diffuse_shgc_modifier(shgc: f64, kd: f64, ni: f64, n: f64) -> f64 {
         let theta = (i as f64 + 0.5) / N_SAMPLES as f64 * PI / 2.0;
         let cos_t = theta.cos();
         let w = cos_t * theta.sin(); // cosine-weighted solid angle element
-        num += angular_shgc_modifier(cos_t, shgc, kd, ni, n) * w;
+        num += angular_shgc_modifier_u(cos_t, shgc, kd, ni, n, u_factor) * w;
         den += w;
     }
     if den > 0.0 { (num / den).clamp(0.0, 1.0) } else { 0.88 }
@@ -785,9 +1206,10 @@ pub fn window_transmitted_solar_angular(
     kd: f64,
     ni: f64,
     n: f64,
+    u_factor: f64,
 ) -> f64 {
-    let beam_mod = angular_shgc_modifier(cos_aoi, shgc, kd, ni, n);
-    let diff_mod = diffuse_shgc_modifier(shgc, kd, ni, n);
+    let beam_mod = angular_shgc_modifier_u(cos_aoi, shgc, kd, ni, n, u_factor);
+    let diff_mod = diffuse_shgc_modifier_u(shgc, kd, ni, n, u_factor);
     let beam_transmitted = shgc * beam_mod * area * beam_incident;
     let diff_transmitted = shgc * diff_mod * area * diffuse_incident;
     (beam_transmitted + diff_transmitted).max(0.0)
@@ -807,9 +1229,10 @@ pub fn window_transmitted_solar_split(
     kd: f64,
     ni: f64,
     n: f64,
+    u_factor: f64,
 ) -> (f64, f64) {
-    let beam_mod = angular_shgc_modifier(cos_aoi, shgc, kd, ni, n);
-    let diff_mod = diffuse_shgc_modifier(shgc, kd, ni, n);
+    let beam_mod = angular_shgc_modifier_u(cos_aoi, shgc, kd, ni, n, u_factor);
+    let diff_mod = diffuse_shgc_modifier_u(shgc, kd, ni, n, u_factor);
     let beam_transmitted = (shgc * beam_mod * area * beam_incident).max(0.0);
     let diff_transmitted = (shgc * diff_mod * area * diffuse_incident).max(0.0);
     (beam_transmitted, diff_transmitted)
@@ -959,17 +1382,18 @@ mod tests {
         let (kd, ni, n) = compute_glass_angular_params(shgc, None, None);
 
         // Normal incidence should be close to flat SHGC model
-        let q_angular = window_transmitted_solar_angular(shgc, 5.0, 300.0, 0.0, 1.0, kd, ni, n);
+        let u_factor = 5.8; // single-pane clear glass
+        let q_angular = window_transmitted_solar_angular(shgc, 5.0, 300.0, 0.0, 1.0, kd, ni, n, u_factor);
         let q_flat = window_transmitted_solar(shgc, 5.0, 300.0);
         assert_relative_eq!(q_angular, q_flat, max_relative = 0.02);
 
         // With diffuse-only radiation, should use the SHGC-dependent diffuse modifier
-        let q_diffuse = window_transmitted_solar_angular(shgc, 5.0, 0.0, 200.0, 1.0, kd, ni, n);
+        let q_diffuse = window_transmitted_solar_angular(shgc, 5.0, 0.0, 200.0, 1.0, kd, ni, n, u_factor);
         let expected = shgc * diffuse_shgc_modifier(shgc, kd, ni, n) * 5.0 * 200.0;
         assert_relative_eq!(q_diffuse, expected, max_relative = 0.01);
 
         // At 60° beam incidence, total should be less than flat model
-        let q_angled = window_transmitted_solar_angular(shgc, 5.0, 300.0, 0.0, 0.5, kd, ni, n);
+        let q_angled = window_transmitted_solar_angular(shgc, 5.0, 300.0, 0.0, 0.5, kd, ni, n, u_factor);
         assert!(q_angled < q_flat, "Angular model at 60° should give less than flat model");
     }
 

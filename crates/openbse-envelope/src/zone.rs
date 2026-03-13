@@ -453,8 +453,16 @@ pub struct ZoneState {
     pub input: ZoneInput,
     /// Current zone air temperature [°C]
     pub temp: f64,
-    /// Previous timestep zone air temperature [°C]
+    /// Previous timestep zone air temperature [°C] (T_n)
     pub temp_prev: f64,
+    /// Two timesteps ago zone air temperature [°C] (T_{n-1})
+    pub temp_prev2: f64,
+    /// Three timesteps ago zone air temperature [°C] (T_{n-2})
+    pub temp_prev3: f64,
+    /// Order of backward difference scheme (1, 2, or 3).
+    /// Starts at 1 and increments each timestep until reaching 3.
+    /// Matches E+'s ZoneTempPredictorCorrector ramp-up strategy.
+    pub temp_order: u8,
     /// Current zone humidity ratio [kg/kg]
     pub humidity_ratio: f64,
     /// Indices into the surface array for surfaces in this zone
@@ -505,6 +513,37 @@ pub struct ZoneState {
     /// Used for wind speed correction in infiltration calculation.
     /// Computed as area-weighted average of zone surface centroid heights.
     pub centroid_height: f64,
+    /// Predicted zone air temperature WITHOUT HVAC [°C].
+    ///
+    /// E+-style predictor: what temperature would the zone reach at the end
+    /// of this timestep if HVAC were turned off?  Used by the control layer
+    /// for mode determination (Heating / Cooling / Deadband).
+    ///
+    /// T_no_hvac = (SumHAT + MCPI·Tout + Qconv + Cap·T_prev)
+    ///           / (SumHA + MCPI + Cap)
+    pub temp_no_hvac: f64,
+
+    // ─── Diagnostic accumulators (annual kWh) ─────────────────────
+    /// Last sim_time_s when accumulators were committed
+    pub diag_last_sim_time: f64,
+    /// Pending per-timestep values (overwritten each HVAC iteration, committed on next timestep)
+    pub diag_pending_surface: f64,
+    pub diag_pending_infil: f64,
+    pub diag_pending_q_conv: f64,
+    pub diag_pending_solar: f64,
+    pub diag_pending_hvac: f64,
+    pub diag_pending_internal: f64,
+    pub diag_pending_wincond: f64,
+    pub diag_pending_wincond_conv: f64,
+    /// Cumulative annual values [kWh]
+    pub diag_surface_loss_kwh: f64,
+    pub diag_infil_loss_kwh: f64,
+    pub diag_q_conv_kwh: f64,
+    pub diag_solar_trans_kwh: f64,
+    pub diag_hvac_net_kwh: f64,
+    pub diag_internal_conv_kwh: f64,
+    pub diag_window_cond_kwh: f64,
+    pub diag_window_conv_kwh: f64,
 }
 
 impl ZoneState {
@@ -513,6 +552,9 @@ impl ZoneState {
             input,
             temp: initial_temp,
             temp_prev: initial_temp,
+            temp_prev2: initial_temp,
+            temp_prev3: initial_temp,
+            temp_order: 1,
             humidity_ratio: 0.008,
             surface_indices: Vec::new(),
             heating_load: 0.0,
@@ -537,6 +579,70 @@ impl ZoneState {
             nat_vent_active: false,
             nat_vent_off_timesteps: u32::MAX, // large value = long since stopped
             centroid_height: 0.0, // set after surface assignment
+            temp_no_hvac: initial_temp,
+            diag_last_sim_time: -1.0,
+            diag_pending_surface: 0.0,
+            diag_pending_infil: 0.0,
+            diag_pending_q_conv: 0.0,
+            diag_pending_solar: 0.0,
+            diag_pending_hvac: 0.0,
+            diag_pending_internal: 0.0,
+            diag_pending_wincond: 0.0,
+            diag_pending_wincond_conv: 0.0,
+            diag_surface_loss_kwh: 0.0,
+            diag_infil_loss_kwh: 0.0,
+            diag_q_conv_kwh: 0.0,
+            diag_solar_trans_kwh: 0.0,
+            diag_hvac_net_kwh: 0.0,
+            diag_internal_conv_kwh: 0.0,
+            diag_window_cond_kwh: 0.0,
+            diag_window_conv_kwh: 0.0,
+        }
+    }
+}
+
+/// Compute effective `dt` and `t_prev` for the E+-style backward difference.
+///
+/// EnergyPlus uses a 3rd-order backward difference for the zone air energy
+/// balance, ramping from 1st-order on the first timestep to 3rd-order once
+/// three timesteps of history are available.  Rather than changing every
+/// solve function's signature, we fold the higher-order coefficients into
+/// an effective timestep (`dt_eff`) and effective previous temperature
+/// (`t_prev_eff`), keeping the same 1st-order formula.
+///
+/// ```text
+///   Order 1: dT/dt ≈ (T_{n+1} - T_n) / dt
+///            cap_mult = 1,  t_eff = T_n
+///   Order 2: dT/dt ≈ (3/2·T_{n+1} - 2·T_n + 1/2·T_{n-1}) / dt
+///            cap_mult = 3/2,  t_eff = (4·T_n - T_{n-1}) / 3
+///   Order 3: dT/dt ≈ (11/6·T_{n+1} - 3·T_n + 3/2·T_{n-1} - 1/3·T_{n-2}) / dt
+///            cap_mult = 11/6,  t_eff = (18·T_n - 9·T_{n-1} + 2·T_{n-2}) / 11
+/// ```
+///
+/// Using `dt_eff = dt / cap_mult` in the solve functions yields
+/// `cap_term = ρ·V·cp / dt_eff = cap_mult × ρ·V·cp / dt`, which is the
+/// correct coefficient for the higher-order scheme.
+pub fn backward_diff_effective(
+    order: u8,
+    dt: f64,
+    t_prev: f64,
+    t_prev2: f64,
+    t_prev3: f64,
+) -> (f64, f64) {
+    match order.min(3) {
+        3 => {
+            let cap_mult = 11.0 / 6.0;
+            let t_eff = (18.0 * t_prev - 9.0 * t_prev2 + 2.0 * t_prev3) / 11.0;
+            (dt / cap_mult, t_eff)
+        }
+        2 => {
+            let cap_mult = 1.5;
+            let t_eff = (4.0 * t_prev - t_prev2) / 3.0;
+            (dt / cap_mult, t_eff)
+        }
+        _ => {
+            // 1st-order backward Euler (original behavior)
+            (dt, t_prev)
         }
     }
 }

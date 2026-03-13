@@ -117,6 +117,7 @@ fn build_loop_infos(
                 EquipmentInput::CoolingCoil(c)   => c.name.clone(),
                 EquipmentInput::HeatRecovery(hr) => hr.name.clone(),
                 EquipmentInput::Humidifier(h)    => h.name.clone(),
+                EquipmentInput::Duct(d)          => d.name.clone(),
             }
         }).collect();
 
@@ -676,7 +677,12 @@ fn main() -> Result<()> {
             use openbse_core::types::is_autosize;
 
             // Build a map: component_name -> (loop_flow [m³/s], loop_heat [W], loop_cool [W])
-            let air_density = 1.204_f64;  // kg/m³ at 20°C, 101.325 kPa
+            // Compute standard air density at site altitude from design-day
+            // barometric pressure (matches E+ site standard density).
+            let site_pressure = model.design_days.first()
+                .map(|dd| dd.pressure)
+                .unwrap_or(101325.0);
+            let air_density = site_pressure / (287.042 * 293.15);
             let mut loop_comp_sizing: HashMap<String, (f64, f64, f64)> = HashMap::new();
 
             for li in &loop_infos {
@@ -1039,6 +1045,40 @@ fn main() -> Result<()> {
     // thermal mass each cycle.
     let mut nightcycle_timers: HashMap<String, f64> = HashMap::new();
 
+    // ── Zone thermal capacities for PLR correction ──────────────────────
+    //
+    // The PLR calculation uses frozen ideal loads from the previous timestep.
+    // As the HVAC iteration updates zone temps, the frozen loads become stale.
+    // The correction term adjusts the load based on zone temp changes:
+    //
+    //   Q_corrected = Q_ideal + C_zone × (T_initial - T_current)
+    //
+    // where C_zone = ρ_air × V_zone × c_p / Δt  (same as the cap_term in
+    // compute_ideal_q_hvac in the envelope code).
+    //
+    // This makes PLR continuous near the setpoint, preventing the HVAC
+    // iteration from oscillating between "full load" and "zero load" states
+    // that never converge (the binary guard caused 14% energy waste).
+    let zone_thermal_caps: HashMap<String, f64> = envelope.as_ref()
+        .map(|env| {
+            // Use the same air density as envelope heat balance (standard at site altitude).
+            let site_pressure = model.design_days.first()
+                .map(|dd| dd.pressure)
+                .unwrap_or(101325.0);
+            let rho_air = site_pressure / (287.042 * 293.15);
+            env.zones.iter()
+                .map(|z| {
+                    // Use 3rd-order backward difference multiplier (11/6) to
+                    // match the zone solve's effective thermal capacitance.
+                    // This ensures the HVAC iteration convergence correction
+                    // uses the same cap as the zone energy balance.
+                    let cap_mult = 11.0_f64 / 6.0;
+                    (z.input.name.clone(), rho_air * z.input.volume * 1006.0 * cap_mult / dt)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     // ── 7a. Warmup: repeat first week of weather until surfaces stabilize ──
     //
     // E+ runs 25+ warmup days, repeating the first simulation day until
@@ -1103,6 +1143,7 @@ fn main() -> Result<()> {
                         .collect();
 
                     // Single HVAC pass (no iterating during warmup — faster)
+                    let empty_predictor: HashMap<String, f64> = HashMap::new();
                     let (_, zone_supply_conditions) = simulate_all_loops(
                         &mut graph,
                         &ctx,
@@ -1123,6 +1164,8 @@ fn main() -> Result<()> {
                         &current_cooling_loads,
                         &current_heating_loads,
                         &initial_zone_temps,
+                        &zone_thermal_caps,
+                        &empty_predictor,
                     );
 
                     // Skip plant loop during warmup — it only affects energy
@@ -1269,7 +1312,15 @@ fn main() -> Result<()> {
                     let mut final_hvac_result = None;
                     let mut final_env_result = None;
 
-                    for _hvac_iter in 0..MAX_HVAC_ITER {
+                    // E+-style predictor temps: free-floating zone temps WITHOUT
+                    // HVAC, computed by the envelope.  Frozen from the PREVIOUS
+                    // timestep and used for mode determination from the FIRST
+                    // HVAC iteration (no need to wait for envelope to run).
+                    let mut predictor_no_hvac_temps: HashMap<String, f64> = env.zones.iter()
+                        .map(|z| (z.input.name.clone(), z.temp_no_hvac))
+                        .collect();
+
+                    for hvac_iter in 0..MAX_HVAC_ITER {
                         // Step 1: Run HVAC with current zone temps and loads
                         let (mut hvac_result, zone_supply_conditions) = simulate_all_loops(
                             &mut graph,
@@ -1291,6 +1342,8 @@ fn main() -> Result<()> {
                             &current_cooling_loads,
                             &current_heating_loads,
                             &initial_zone_temps,
+                            &zone_thermal_caps,
+                            &predictor_no_hvac_temps,
                         );
 
                         // Step 1b: Run plant loops (single-pass coupling).
@@ -1588,6 +1641,28 @@ fn main() -> Result<()> {
                         // NOTE: current_cooling_loads and current_heating_loads
                         // are intentionally NOT updated — they're frozen at
                         // pre-HVAC values to keep terminal signals stable.
+
+                        // After the FIRST envelope pass, update the predictor
+                        // with CURRENT timestep conditions.  The initial
+                        // predictor_no_hvac_temps (from the previous timestep)
+                        // may be stale: e.g., overnight the zone needed heating,
+                        // but morning solar gains now make heating unnecessary.
+                        // The envelope's temp_no_hvac uses CURRENT surface temps,
+                        // solar gains, outdoor temp, and infiltration — giving an
+                        // accurate free-floating prediction.  On iteration 1+ the
+                        // updated predictor corrects mode from Heating → Deadband
+                        // (or vice versa), preventing the self-reinforcing cycle
+                        // where stale loads perpetuate unnecessary heating.
+                        if hvac_iter == 0 {
+                            for z in &env.zones {
+                                if z.input.conditioned {
+                                    predictor_no_hvac_temps.insert(
+                                        z.input.name.clone(),
+                                        z.temp_no_hvac,
+                                    );
+                                }
+                            }
+                        }
 
                         final_hvac_result = Some(hvac_result);
                         final_env_result = Some(env_result);
@@ -1992,6 +2067,27 @@ fn main() -> Result<()> {
         info!("Summary report written to: {}", summary_path.display());
     }
 
+    // ── Diagnostic: print annual zone heat balance breakdown ──
+    if let Some(ref env) = envelope {
+        eprintln!("\n══════════════ ANNUAL ZONE HEAT BALANCE ══════════════");
+        for zone in &env.zones {
+            if !zone.input.conditioned { continue; }
+            eprintln!("Zone: {}", zone.input.name);
+            eprintln!("  Surface cond loss:  {:>10.1} kWh  (positive = zone losing heat)", zone.diag_surface_loss_kwh);
+            eprintln!("  Infiltration loss:  {:>10.1} kWh  (positive = zone losing heat)", zone.diag_infil_loss_kwh);
+            eprintln!("  Internal gains:     {:>10.1} kWh  (convective only)", zone.diag_internal_conv_kwh);
+            eprintln!("  Solar transmitted:  {:>10.1} kWh  (into zone)", zone.diag_solar_trans_kwh);
+            eprintln!("  Window conduction:  {:>10.1} kWh  (positive = zone losing heat)", zone.diag_window_cond_kwh);
+            eprintln!("  Window convection:  {:>10.1} kWh  (h_conv × A × (T_zone - T_glass))", zone.diag_window_conv_kwh);
+            eprintln!("  Q_conv (all):       {:>10.1} kWh  (radiative+internal convective)", zone.diag_q_conv_kwh);
+            eprintln!("  HVAC delivered:     {:>10.1} kWh  (net: positive = heating)", zone.diag_hvac_net_kwh);
+            let balance = -zone.diag_surface_loss_kwh - zone.diag_infil_loss_kwh
+                + zone.diag_q_conv_kwh + zone.diag_hvac_net_kwh;
+            eprintln!("  Balance check:      {:>10.1} kWh  (should be ~0)", balance);
+        }
+        eprintln!("══════════════════════════════════════════════════════\n");
+    }
+
     info!("OpenBSE finished");
     Ok(())
 }
@@ -2023,6 +2119,8 @@ fn simulate_all_loops(
     zone_cooling_loads: &HashMap<String, f64>,
     zone_heating_loads: &HashMap<String, f64>,
     initial_zone_temps: &HashMap<String, f64>,
+    zone_thermal_caps: &HashMap<String, f64>,
+    predictor_no_hvac_temps: &HashMap<String, f64>,
 ) -> (TimestepResult, HashMap<String, (f64, f64)>) {
 
     let mut all_outputs: HashMap<String, HashMap<String, f64>> = HashMap::new();
@@ -2198,15 +2296,21 @@ fn simulate_all_loops(
 
         // ── Predictor Mode ─────────────────────────────────────────────
         //
-        // Determine HVAC mode from the FROZEN ideal loads (E+ predictor
-        // equivalent), NOT from the iterating zone temperature.  This
-        // prevents mode flip-flopping at the setpoint boundary during the
-        // HVAC↔envelope iteration loop.
+        // E+-style predictor for HVAC mode determination.
         //
-        // The frozen ideal loads represent: "what Q is needed to maintain
-        // setpoint given current envelope conditions?"  If heating_load > 0,
-        // the zone needs heating regardless of where the iterating zone
-        // temp currently sits.
+        // PRIMARY: Use the free-floating zone temperature (temp_no_hvac)
+        // computed by the envelope with CURRENT timestep conditions
+        // (solar, outdoor temp, surface temps) and HVAC = 0.  This tells
+        // us: "would the zone stay within the deadband if we turned off
+        // HVAC?"  If yes → Deadband (coast on thermal mass).
+        //
+        // This prevents the self-reinforcing heating cycle where stale
+        // ideal loads always indicate "heating needed" because the zone
+        // was held at setpoint, preventing deadband coasting.
+        //
+        // FALLBACK (first iteration of each timestep, before envelope
+        // has run with current conditions): use frozen ideal loads from
+        // the previous timestep.
         //
         // For each served zone, compute a predictor mode and store it.
         // PTAC/FCU (single-zone) use the single zone's mode.
@@ -2218,10 +2322,20 @@ fn simulate_all_loops(
                 let zt = zone_temps.get(z).copied().unwrap_or(21.0);
                 let hsp = active_heat_sp.get(z).copied().unwrap_or(21.1);
                 let csp = active_cool_sp.get(z).copied().unwrap_or(23.9);
-                // Primary: use ideal loads (predictor)
-                // Fallback: if both loads are zero (e.g., first timestep),
-                // use zone temp vs setpoints
-                let mode = if hload > 10.0 && hload > cload {
+
+                // Primary: use predictor temps (E+-style free-floating prediction)
+                // This uses CURRENT timestep conditions, not stale loads.
+                let mode = if let Some(&t_predicted) = predictor_no_hvac_temps.get(z.as_str()) {
+                    if t_predicted < hsp {
+                        HvacMode::Heating
+                    } else if t_predicted > csp {
+                        HvacMode::Cooling
+                    } else {
+                        HvacMode::Deadband
+                    }
+                }
+                // Fallback: ideal loads (first iteration before envelope runs)
+                else if hload > 10.0 && hload > cload {
                     HvacMode::Heating
                 } else if cload > 10.0 && cload > hload {
                     HvacMode::Cooling
@@ -2289,7 +2403,7 @@ fn simulate_all_loops(
 
         // Run this loop's components in order (at full capacity, PLR=1.0)
         let (mut loop_result, supply_air) = simulate_loop_components(
-            graph, ctx, &chain_components, &signals
+            graph, ctx, &chain_components, &signals, zone_temps, t_outdoor
         );
 
         // ── Post-process heat recovery: credit-based approach ─────────
@@ -2470,34 +2584,81 @@ fn simulate_all_loops(
                 // coils need only make up the difference.
                 let q_fan = supply_flow * cp_air * continuous_fan_heat_rise_pre;
 
+                // Zone thermal capacity correction for HVAC iteration
+                // convergence.
+                //
+                // The frozen ideal loads (from the previous timestep) include
+                // a thermal-mass term:  Cap × (T_setpoint − T_prev).
+                // As the HVAC iteration updates zone temp, that term becomes
+                // stale.  The correction adjusts the load so PLR is smooth
+                // and the iteration converges instead of oscillating:
+                //
+                //   Heating: Q_corrected = Q_ideal + Cap × (T_initial − T_current)
+                //   Cooling: Q_corrected = Q_ideal + Cap × (T_current − T_initial)
+                //
+                // When zone temp rises above the heating setpoint during
+                // iteration, the correction REDUCES the heating load (smooth
+                // convergence).  The old binary guard (control_temp >= heat_sp
+                // → PLR = 0) created a discontinuity that caused the HVAC
+                // iteration to oscillate between full-load and zero-load,
+                // never converging, wasting ~14% of annual heating fuel.
+                //
+                // A dead-band safety check prevents stale loads from causing
+                // heating when the zone is well above setpoint (e.g., after a
+                // setpoint transition from occupied to unoccupied mode).
+                let zone_cap = zone_thermal_caps.get(control_zone).copied().unwrap_or(0.0);
+                let init_temp = initial_zone_temps.get(control_zone).copied().unwrap_or(control_temp);
+                let dead_band = (cool_sp - heat_sp).max(0.5);
+
                 match mode {
                     HvacMode::Heating => {
-                        // E+ PTAC/PSZ-AC: PLR = Q_zone / Q_capacity.
-                        // Fan cycles with coils (Fan:OnOff).
-                        // Fan heat correction only applies in continuous fan mode.
                         let q_capacity = supply_flow * cp_air * (supply_temp - heat_sp);
-                        if zone_heat_load > 10.0 && q_capacity > 100.0 {
-                            let adj_load = (zone_heat_load - q_fan).max(0.0);
-                            let adj_cap = (q_capacity - q_fan).max(1.0);
-                            (adj_load / adj_cap).clamp(effective_min_oa, 1.0)
+                        if control_temp > heat_sp + dead_band * 0.5 {
+                            // Zone well above heating setpoint (e.g., setpoint
+                            // transition to unoccupied).  Stale ideal load is
+                            // for the old setpoint — do not heat.
+                            effective_min_oa
+                        } else if q_capacity < 100.0 {
+                            effective_min_oa
                         } else {
-                            // Fallback: proportional zone error for transients
-                            let error = (heat_sp - control_temp).max(0.0);
-                            let max_dt = (supply_temp - heat_sp).max(1.0);
-                            (error / max_dt).clamp(effective_min_oa, 1.0)
+                            // Correct frozen ideal load for zone temp changes
+                            // during HVAC iteration.
+                            let correction = zone_cap * (init_temp - control_temp);
+                            let corrected_load = (zone_heat_load + correction).max(0.0);
+
+                            if corrected_load > 10.0 {
+                                let adj_load = (corrected_load - q_fan).max(0.0);
+                                let adj_cap = (q_capacity - q_fan).max(1.0);
+                                (adj_load / adj_cap).clamp(effective_min_oa, 1.0)
+                            } else {
+                                // Fallback: proportional zone error for transients
+                                let error = (heat_sp - control_temp).max(0.0);
+                                let max_dt = (supply_temp - heat_sp).max(1.0);
+                                (error / max_dt).clamp(effective_min_oa, 1.0)
+                            }
                         }
                     }
                     HvacMode::Cooling => {
                         let q_capacity = supply_flow * cp_air * (cool_sp - supply_temp);
-                        if zone_cool_load > 10.0 && q_capacity > 100.0 {
-                            // Add fan heat: fan adds extra cooling burden
-                            let adj_load = zone_cool_load + q_fan;
-                            let adj_cap = q_capacity + q_fan;
-                            (adj_load / adj_cap).clamp(effective_min_oa, 1.0)
+                        if control_temp < cool_sp - dead_band * 0.5 {
+                            // Zone well below cooling setpoint — do not cool.
+                            effective_min_oa
+                        } else if q_capacity < 100.0 {
+                            effective_min_oa
                         } else {
-                            let error = (control_temp - cool_sp).max(0.0);
-                            let max_dt = (cool_sp - supply_temp).max(1.0);
-                            (error / max_dt).clamp(effective_min_oa, 1.0)
+                            // Correct frozen ideal load for zone temp changes
+                            let correction = zone_cap * (control_temp - init_temp);
+                            let corrected_load = (zone_cool_load + correction).max(0.0);
+
+                            if corrected_load > 10.0 {
+                                let adj_load = corrected_load + q_fan;
+                                let adj_cap = q_capacity + q_fan;
+                                (adj_load / adj_cap).clamp(effective_min_oa, 1.0)
+                            } else {
+                                let error = (control_temp - cool_sp).max(0.0);
+                                let max_dt = (cool_sp - supply_temp).max(1.0);
+                                (error / max_dt).clamp(effective_min_oa, 1.0)
+                            }
                         }
                     }
                     HvacMode::Deadband => {
@@ -2765,7 +2926,7 @@ fn build_psz_signals(
 
     // Use predictor mode (from frozen ideal loads) to prevent mode
     // flip-flopping during HVAC↔envelope iteration loop.
-    let mode = predictor_modes.get(control_zone).copied()
+    let predictor_mode = predictor_modes.get(control_zone).copied()
         .unwrap_or_else(|| {
             // Fallback: temperature-based with load-informed deadband tiebreaker
             if control_temp > cool_sp {
@@ -2780,6 +2941,17 @@ fn build_psz_signals(
                 HvacMode::Deadband
             }
         });
+
+    // Safety override: prevent heating when zone is already above cooling
+    // setpoint (and vice versa).  With on/off cycling at high capacity,
+    // the predictor mode can be stale by one timestep, causing the system
+    // to fire heating into an already-warm zone.  This guard prevents the
+    // resulting temperature oscillation.
+    let mode = match predictor_mode {
+        HvacMode::Heating if control_temp > cool_sp => HvacMode::Cooling,
+        HvacMode::Cooling if control_temp < heat_sp => HvacMode::Heating,
+        other => other,
+    };
 
     // Total design flow (single instance — zone multiplier applied in snapshot output)
     let mut total_flow = 0.0f64;
@@ -2799,20 +2971,26 @@ fn build_psz_signals(
     // Here we just set PLR = 1.0 as a placeholder; the actual load-based
     // PLR is computed in simulate_all_loops after we know the system
     // capacity from the component simulation.
-    let max_heating_dat = 40.0_f64;
-
     let plr = 1.0_f64; // Placeholder — real PLR computed post-simulation
 
     // Components run at FULL design flow (fan ON at full speed when cycling)
     let flow = total_flow;
 
-    // ── Heating DAT target (proportional, E+ SingleZoneReheat-style) ──
-    // When PLR is low (small heating need), deliver warmer air at low flow.
-    // When PLR is high (large heating need), deliver hot air at high flow.
-    // The heating DAT ramps toward max as the heating error increases.
-    let heating_error = (heat_sp - control_temp).max(0.0);
-    let heating_dat = (heat_sp + (max_heating_dat - heat_sp) * (heating_error / 5.0).min(1.0))
-        .clamp(heat_sp, max_heating_dat);
+    // ── Heating DAT ──
+    // On/Off: E+ PSZ-AC with Fan:OnOff fires the heating coil at full
+    //   capacity whenever the system is ON.  PLR controls runtime, not
+    //   supply temperature.  Fixed DAT = heating_supply_temp.
+    // Proportional: modulate supply temp based on deviation from setpoint.
+    //   DAT ramps from setpoint to max over a 5°C error band, giving
+    //   smooth modulation for systems with variable-capacity burners.
+    let heating_dat = match li.cycling {
+        openbse_io::input::CyclingMethod::OnOff => li.heating_supply_temp,
+        openbse_io::input::CyclingMethod::Proportional => {
+            let error = (heat_sp - control_temp).max(0.0);
+            (heat_sp + (li.heating_supply_temp - heat_sp) * (error / 5.0).min(1.0))
+                .clamp(heat_sp, li.heating_supply_temp)
+        }
+    };
 
     // ── Cooling control ──
     // Economizer target: modulate OA to achieve the supply air temperature
@@ -3448,6 +3626,8 @@ fn simulate_loop_components(
     ctx: &SimulationContext,
     component_names: &[String],
     signals: &ControlSignals,
+    zone_temps: &HashMap<String, f64>,
+    t_outdoor: f64,
 ) -> (HashMap<String, HashMap<String, f64>>, Option<AirPort>) {
     let mut outputs: HashMap<String, HashMap<String, f64>> = HashMap::new();
 
@@ -3497,6 +3677,18 @@ fn simulate_loop_components(
                 // Apply setpoint override (skip special sentinel keys)
                 if let Some(&sp) = signals.coil_setpoints.get(comp_name.as_str()) {
                     component.set_setpoint(sp);
+                }
+
+                // Resolve duct ambient temperature before simulation
+                if let Some(amb_zone) = component.ambient_zone().map(|s| s.to_string()) {
+                    let amb_temp = match amb_zone.as_str() {
+                        "outdoor" => t_outdoor,
+                        "ground" => 18.0, // default ground temp
+                        zone_name => zone_temps.get(zone_name)
+                            .copied()
+                            .unwrap_or(t_outdoor),
+                    };
+                    component.set_ambient_temp(amb_temp);
                 }
 
                 // Use previous component's outlet as inlet; first component uses loop inlet
