@@ -10,7 +10,7 @@ simulation:
   end_day: 31
   terrain: city
 weather_files:
-- Boulder.epw
+- ../Boulder.epw
 design_days:
 - name: Boulder Heating 99.6%
   design_temp: -17.8

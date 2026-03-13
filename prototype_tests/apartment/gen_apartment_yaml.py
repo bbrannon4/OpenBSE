@@ -967,7 +967,7 @@ def dump_yaml(model, path):
 
 if __name__ == '__main__':
     model = build_model()
-    path = '/Users/benjaminbrannon/Documents/GitHub/OpenBSE/eplus_comparison/ApartmentMidRise_Boulder.yaml'
+    path = '/Users/benjaminbrannon/Documents/GitHub/OpenBSE/prototype_tests/apartment/ApartmentMidRise_Boulder.yaml'
     dump_yaml(model, path)
 
     # Count

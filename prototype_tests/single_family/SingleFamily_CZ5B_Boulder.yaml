@@ -16,7 +16,7 @@ simulation:
   cooling_sizing_factor: 1.15
 summary_report: true
 weather_files:
-- Boulder.epw
+- ../Boulder.epw
 design_days:
 - name: Denver Heating 99.6%
   design_temp: -17.9

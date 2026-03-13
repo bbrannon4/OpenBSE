@@ -15,7 +15,7 @@ import csv
 import sys
 from collections import OrderedDict
 
-CSV_PATH = "/Users/benjaminbrannon/Documents/GitHub/OpenBSE/eplus_comparison/output_office_simplified/eplusout.csv"
+CSV_PATH = "/Users/benjaminbrannon/Documents/GitHub/OpenBSE/prototype_tests/large_office/eplus_run/eplusout.csv"
 
 # Zone multipliers: mid-floor zones are multiplied by 10
 # (they represent 10 identical floors in the Large Office DOE prototype)

@@ -54,8 +54,8 @@ Last updated: 2026-03-13
 ### Tests
 - 82 unit tests across all crates (81 passing, 1 pre-existing VAV box failure)
 - 8 example YAML files covering all system types
-- 27 ASHRAE 140 validation cases in tests/ashrae140/
-- DOE prototype comparisons in eplus_comparison/
+- 27 ASHRAE 140 validation cases in 140_tests/
+- DOE prototype comparisons in prototype_tests/
 
 ---
 

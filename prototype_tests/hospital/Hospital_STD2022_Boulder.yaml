@@ -16,7 +16,7 @@ simulation:
   ground_surface_temperatures: [7.1, 3.0, -1.0, 0.8, -0.2, 4.8, 6.1, 13.7, 22.2, 22.7, 21.7, 18.5]
 
 weather_files:
-- Boulder.epw
+- ../Boulder.epw
 
 design_days:
 - name: Boulder Heating 99.6%

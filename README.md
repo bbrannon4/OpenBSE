@@ -119,13 +119,13 @@ No circular dependencies. Components implement traits (`AirComponent`, `PlantCom
 
 ### ASHRAE Standard 140-2023
 
-Test cases are in [`tests/ashrae140/`](tests/ashrae140/). 27 cases from Section 7 (Building Thermal Envelope) plus Case CE100 (Cooling Equipment) have been implemented. Current status: **48 of 63 metrics pass** (76.2%) against the standard's prescribed acceptance ranges.
+Test cases are in [`140_tests/`](140_tests/). 27 cases from Section 7 (Building Thermal Envelope) plus Case CE100 (Cooling Equipment) have been implemented. Current status: **48 of 63 metrics pass** (76.2%) against the standard's prescribed acceptance ranges.
 
 Cases 600, 610, 620, 630 (low-mass) pass all metrics. Case 900 series (high-mass) has some failures attributed to the simplified wall construction model.
 
 ### DOE Prototype Comparison (EnergyPlus)
 
-DOE prototype building models are being validated against EnergyPlus using the simplified IDFs in [`eplus_comparison/`](eplus_comparison/). Current status for the Single-Family house (CZ5B Boulder):
+DOE prototype building models are being validated against EnergyPlus using the simplified IDFs in [`prototype_tests/`](prototype_tests/). Current status for the Single-Family house (CZ5B Boulder):
 
 | End Use | EnergyPlus | OpenBSE | Diff |
 |---------|-----------|---------|------|
@@ -164,8 +164,8 @@ Lighting, equipment, and DHW match within 1%. Heating and fan gaps are under act
 OpenBSE has three categories of tests:
 
 1. **Unit tests** — Inline `#[cfg(test)]` modules in Rust source files. Run with `cargo test --workspace`.
-2. **ASHRAE 140 validation** — Standard test cases in [`tests/ashrae140/`](tests/ashrae140/). Run individual cases with `./target/release/openbse tests/ashrae140/cases/ashrae140_case600.yaml`.
-3. **E+ prototype comparison** — DOE prototype models in [`eplus_comparison/`](eplus_comparison/). Each model has a YAML input file and Python comparison scripts.
+2. **ASHRAE 140 validation** — Standard test cases in [`140_tests/`](140_tests/). Run individual cases with `./target/release/openbse 140_tests/cases/ashrae140_case600.yaml`.
+3. **E+ prototype comparison** — DOE prototype models in [`prototype_tests/`](prototype_tests/). Each model has a YAML input file and Python comparison scripts.
 
 ## License
 

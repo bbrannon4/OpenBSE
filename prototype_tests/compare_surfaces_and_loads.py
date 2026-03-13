@@ -9,7 +9,7 @@ import csv
 import math
 import os
 
-BASE = "/Users/benjaminbrannon/Documents/GitHub/OpenBSE/eplus_comparison"
+BASE = "/Users/benjaminbrannon/Documents/GitHub/OpenBSE/prototype_tests/apartment"
 YAML_FILE = os.path.join(BASE, "ApartmentMidRise_Boulder.yaml")
 EPLUS_CSV = os.path.join(BASE, "output_apartment/eplustbl.csv")
 ZONE_RESULTS = os.path.join(BASE, "ApartmentMidRise_Boulder_zone_results.csv")

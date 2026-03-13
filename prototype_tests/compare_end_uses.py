@@ -16,8 +16,8 @@ EPLUS_COLOR   = '#FF9800'  # Orange
 
 # ── Residential Single-Family ──────────────────────────────────────────────
 # EnergyPlus reference values (kBtu) → convert to kWh (÷ 3.412)
-# Source: Simplified IDF (no AirflowNetwork) — eplus_sf_run/in.idf
-# Values from eplus_sf_run/eplustbl.csv "End Uses" table
+# Source: Simplified IDF (no AirflowNetwork) — single_family/eplus_run/in.idf
+# Values from single_family/eplus_run/eplustbl.csv "End Uses" table
 eplus_res_kbtu = {
     'Heating\n(Gas)':       22822,
     'Cooling\n(Elec)':       5459,
@@ -104,7 +104,7 @@ ov = [openbse_res[c] for c in cats]
 make_comparison_chart(
     cats, ev, ov,
     'Single-Family House (CZ5B Boulder) — Energy End-Use Comparison',
-    'SingleFamily_CZ5B_comparison.png'
+    'single_family/SingleFamily_CZ5B_comparison.png'
 )
 
 # Print tabular summary
@@ -129,7 +129,7 @@ print(f'{"TOTAL":<22} {total_ep:>12,.1f} {total_ob:>12,.1f} {pct_total:>+9.1f}%'
 
 # ── Large Office (Boulder, ASHRAE 90.1-2019) ─────────────────────────────
 # EnergyPlus reference values (GJ → kWh: ×277.778)
-# Source: LargeOffice_Denver_simplified.idf (output_office_simplified/eplustbl.csv)
+# Source: LargeOffice_Denver_simplified.idf (large_office/eplus_run/eplustbl.csv)
 eplus_office_gj = {
     'Heating\n(Gas)':       1457.05,
     'Cooling\n(Elec)':      1990.56,
@@ -143,7 +143,7 @@ eplus_office_gj = {
 }
 eplus_office = {k: v * 277.778 for k, v in eplus_office_gj.items()}
 
-# OpenBSE results (kWh) from LargeOffice_Boulder_summary.txt
+# OpenBSE results (kWh) from large_office/LargeOffice_Boulder_summary.txt
 openbse_office = {
     'Heating\n(Gas)':       517439.6,
     'Cooling\n(Elec)':      743351.0,
@@ -163,7 +163,7 @@ ov_o = [openbse_office[c] for c in cats_o]
 make_comparison_chart(
     cats_o, ev_o, ov_o,
     'Large Office (Boulder, ASHRAE 90.1-2019) — Energy End-Use Comparison',
-    'LargeOffice_Boulder_comparison.png',
+    'large_office/LargeOffice_Boulder_comparison.png',
     figsize=(14, 6)
 )
 
@@ -202,7 +202,7 @@ eplus_hosp_gj = {
 eplus_hosp = {k: v * 277.778 for k, v in eplus_hosp_gj.items()}
 
 # Check if hospital results exist
-hosp_summary = os.path.join(os.path.dirname(__file__), 'Hospital_STD2022_Boulder_summary.txt')
+hosp_summary = os.path.join(os.path.dirname(__file__), 'hospital', 'Hospital_STD2022_Boulder_summary.txt')
 if os.path.exists(hosp_summary):
     print('\n\nHospital results found — parsing...')
     # Parse the summary file for end-use values
@@ -259,7 +259,7 @@ if os.path.exists(hosp_summary):
         make_comparison_chart(
             cats_h, ev_h, ov_h,
             'Hospital (ASHRAE 90.1-2022, Boulder) — Energy End-Use Comparison',
-            'Hospital_STD2022_comparison.png',
+            'hospital/Hospital_STD2022_comparison.png',
             figsize=(14, 6)
         )
 

@@ -38,17 +38,16 @@ summary_report.txt
 /openbse_schema.json
 
 # ─── EnergyPlus Validation Output ────────────────────────────────────────────
-validation/eplus_output/
-eplus_comparison/output_*/
-eplus_comparison/*.err
+prototype_tests/output_*/
+prototype_tests/*.err
 
 # ─── ASHRAE 140 Test Outputs (reproducible from running OpenBSE) ────────────
-tests/ashrae140/cases/*_results.csv
-tests/ashrae140/cases/*_summary.txt
-tests/ashrae140/cases/*_zone_results.csv
-tests/ashrae140/cases/*_energy_monthly.csv
-tests/ashrae140/cases/*_hvac_results.csv
-tests/ashrae140/reference_idfs/*_out/
+140_tests/cases/*_results.csv
+140_tests/cases/*_summary.txt
+140_tests/cases/*_zone_results.csv
+140_tests/cases/*_energy_monthly.csv
+140_tests/cases/*_hvac_results.csv
+140_tests/reference_idfs/*_out/
 
 # ─── Node.js ─────────────────────────────────────────────────────────────────
 node_modules/
@@ -64,8 +63,9 @@ apt_stderr.txt
 # ─── Weather Files ───────────────────────────────────────────────────────────
 # EPW files are large and user-specific (local paths).
 *.epw
-# Exception: ASHRAE 140 prescribed weather file must be committed
-!tests/ashrae140/weather/*.epw
+# Exception: ASHRAE 140 weather file and aggregated results must be committed
+!140_tests/weather/*.epw
+!140_tests/results/FULL_140_RESULTS.csv
 
 # ─── Environment / Secrets ───────────────────────────────────────────────────
 .env

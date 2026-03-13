@@ -17,7 +17,7 @@ already include their x10 multiplier.
 import csv
 from collections import OrderedDict
 
-CSV_PATH = "/Users/benjaminbrannon/Documents/GitHub/OpenBSE/eplus_comparison/LargeOffice_Boulder_zone_results.csv"
+CSV_PATH = "/Users/benjaminbrannon/Documents/GitHub/OpenBSE/prototype_tests/large_office/LargeOffice_Boulder_zone_results.csv"
 
 TIMESTEP_HR = 1.0  # hourly data
 

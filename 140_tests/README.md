@@ -19,10 +19,10 @@ See `results/FULL_140_RESULTS.csv` for the complete pass/fail matrix.
 cargo build --release
 
 # Run a single case
-./target/release/openbse tests/ashrae140/cases/ashrae140_case600.yaml
+./target/release/openbse 140_tests/cases/ashrae140_case600.yaml
 
 # Run all cases and generate results CSV
-cd tests/ashrae140/scripts
+cd 140_tests/scripts
 python3 build_140_csv.py
 ```
 

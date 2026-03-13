@@ -56,16 +56,18 @@ openbse-cli              ← Depends on all above. Binary entry point, simulatio
 ```
 crates/                      Rust source code (8 crates)
 examples/                    Example YAML model files (simple_heating, vav_reheat, etc.)
-tests/ashrae140/             ASHRAE Standard 140-2023 validation test cases
+140_tests/                   ASHRAE Standard 140-2023 validation test cases
   cases/                       31 YAML input files
   weather/                     Prescribed weather data (Denver EPW)
   reference_idfs/              EnergyPlus IDFs for cross-reference
   scripts/                     Python validation scripts
   results/                     Aggregated pass/fail results
-eplus_comparison/            DOE prototype building comparisons vs EnergyPlus
-  SingleFamily_CZ5B_Boulder.yaml   Residential house model
-  LargeOffice_Boulder.yaml         Large office model
-  compare_end_uses.py               End-use comparison charts
+prototype_tests/             DOE prototype building comparisons vs EnergyPlus
+  single_family/                 Residential house model + E+ run outputs
+  large_office/                  Large office model + E+ run outputs
+  hospital/                      Hospital model
+  apartment/                     Mid-rise apartment model
+  compare_end_uses.py            End-use comparison charts
 docs/                        Documentation
   AI_CONTEXT.md                This file
   STATUS.md                    Feature status and TODO tracking
@@ -104,4 +106,4 @@ Be explicit about these — do not guess or approximate:
 - **Unit tests verify against known references**, not arbitrary values. Each test should document what it validates and where the reference value comes from.
 - **`psych::CP_AIR` is private** — use `openbse_psychrometrics::cp_air_fn_w(w)` instead.
 - **VAV box test `test_vav_heating_mode_with_electric_reheat`** is a pre-existing failure — do not try to "fix" it by changing expected values without understanding the physics.
-- **Weather files (*.epw) are gitignored** except the ASHRAE 140 prescribed weather file in `tests/ashrae140/weather/`.
+- **Weather files (*.epw) are gitignored** except the ASHRAE 140 prescribed weather file in `140_tests/weather/`.

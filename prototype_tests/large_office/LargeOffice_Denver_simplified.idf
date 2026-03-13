@@ -14350,8 +14350,8 @@
   Humidifier:Steam:Electric,
     DataCenter_basement_ZN_6 Humidifier,  !- Name
     Always_On,               !- Availability Schedule Name
-    0.0000372,               !- Rated Capacity {m3/s}
-    100000,                  !- Rated Power {W}
+    0,                       !- Rated Capacity {m3/s}
+    0,                       !- Rated Power {W}
     0,                       !- Rated Fan Power {W}
     0,                       !- Standby Power {W}
     AirLoop DataCenter Basement Supply Fan Outlet,  !- Air Inlet Node Name

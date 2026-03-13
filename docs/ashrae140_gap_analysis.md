@@ -6,7 +6,7 @@ Last updated: 2026-03-13
 
 ### Full Results: 27 Cases, 48/63 Pass (76.2%)
 
-Results from `tests/ashrae140/results/FULL_140_RESULTS.csv`.
+Results from `140_tests/results/FULL_140_RESULTS.csv`.
 
 #### Load Cases (600 Series — Low-Mass)
 
