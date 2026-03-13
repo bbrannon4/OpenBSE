@@ -76,7 +76,7 @@ No circular dependencies. Components implement traits (`AirComponent`, `PlantCom
 - **CTF** — full Seem (1987) state-space conduction transfer functions matching EnergyPlus, with NoMass layer support and lumped RC fallback
 - **Exterior Convection** — DOE-2 (MoWiTT) algorithm with roughness correction
 - **Interior Convection** — ASHRAE/Walton natural convection correlations
-- **Solar** — position (Spencer 1971), Hay-Davies anisotropic sky model (circumsolar + isotropic), angular SHGC transmission (28-bin mapping per LBNL-2804E), FullExterior distribution
+- **Solar** — position (Spencer 1971), Hay-Davies anisotropic sky model (circumsolar + isotropic), angular SHGC transmission (28-bin mapping per LBNL-2804E), FullExterior and FullInteriorAndExterior distribution with beam/diffuse split and VMULT redistribution
 - **External Shading** — overhangs and fins with geometric beam shadow calculation (Sutherland-Hodgman polygon clipping), diffuse sky view factor reduction, 8x8 grid sampling for multi-caster union
 - **Sky Longwave Radiation** — Berdahl-Martin sky emissivity model with cloud cover correction
 - **Interior Longwave Radiation** — MRT-based surface radiation exchange
@@ -142,7 +142,6 @@ Lighting, equipment, and DHW match within 1%. Heating and fan gaps are under act
 ## What's Not Yet Implemented
 
 ### Envelope
-- Separate beam/diffuse interior solar distribution
 - Geometry import (gbXML, IDF vertices)
 - Moisture transport through envelope
 

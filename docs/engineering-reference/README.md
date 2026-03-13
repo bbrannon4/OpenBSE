@@ -38,6 +38,7 @@ This document describes the algorithms, equations, and physics models implemente
   - [Interior Convection](#interior-convection)
   - [Exterior Convection](#exterior-convection)
   - [Solar Position and Incident Radiation](#solar-position-and-incident-radiation)
+  - [Interior Solar Distribution](#interior-solar-distribution)
   - [Infiltration](#infiltration)
   - [Internal Gains](#internal-gains)
   - [Schedules](#schedules)
@@ -1677,6 +1678,50 @@ Q_beam = SHGC · beam_mod · Area · I_beam
 Q_diffuse = SHGC · diff_mod · Area · I_diffuse
 Q_total = Q_beam + Q_diffuse
 ```
+
+---
+
+### Interior Solar Distribution
+
+**Module:** `envelope.rs` (solar distribution logic within the zone heat balance)
+
+**Purpose:** Distributes transmitted window solar gains onto interior zone surfaces. Two methods are implemented, selected via the `solar_distribution` YAML field.
+
+#### FullExterior (Default)
+
+All transmitted beam solar is distributed to floor surfaces, weighted by floor area:
+
+```
+Q_beam_floor_i = Q_beam_total × (A_floor_i / A_floor_total)
+```
+
+Diffuse transmitted solar is distributed to all interior surfaces using a VMULT factor:
+
+```
+VMULT = 1 / Σ(A_i × α_i)    for all interior surfaces
+Q_diffuse_surface_i = Q_diffuse_total × A_i × α_i × VMULT
+```
+
+where `α_i` is the interior solar absorptance of surface `i`. This matches the EnergyPlus FullExterior algorithm.
+
+#### FullInteriorAndExterior
+
+Beam solar is geometrically projected through each window onto interior surfaces using the actual sun direction vector. The algorithm:
+
+1. For each window, project a beam rectangle onto the plane of each interior surface using the solar direction vector.
+2. Clip the projected rectangle against the receiving surface polygon using Sutherland-Hodgman polygon clipping.
+3. Assign beam solar proportional to the clipped area on each surface.
+4. Any beam solar that doesn't hit a surface (e.g., exits through another window) falls back to the FullExterior floor distribution.
+
+Diffuse distribution uses the same VMULT method as FullExterior.
+
+#### Reflected Beam Handling (Deliberate Deviation from EnergyPlus)
+
+After beam solar is absorbed by its target surface (absorptance `α`), the reflected fraction `(1 - α)` enters the diffuse pool for redistribution via VMULT. This differs from EnergyPlus, which keeps reflected beam localized to the surface that received it.
+
+**Rationale:** In reality, reflected beam bounces multiple times off interior surfaces. The infinite-bounce solution converges to a distribution governed by the radiosity equation `(I - ρF)⁻¹`, where `F` is the view factor matrix. Placing reflected beam into the diffuse pool (area-weighted) is a closer approximation to this converged state than E+'s single-bounce localization. The approximation omits view-factor weighting between surfaces, which is acceptable for typical rectangular rooms but could diverge for unusual geometries.
+
+OpenBSE also omits E+'s direct solar-to-zone-air fraction, which E+ uses to account for solar absorbed by unmodeled interior objects (furniture, carpets) that release heat convectively with minimal time lag. This is a known simplification — see STATUS.md for details.
 
 ---
 

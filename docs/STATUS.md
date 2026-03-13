@@ -16,7 +16,7 @@ Last updated: 2026-03-13
 - Simple constructions (U-factor + lumped thermal capacity)
 - Window constructions (U-factor + SHGC, angular model matching E+ SimpleGlazingSystem/LBNL-2804E)
 - Solar heat gains through windows (beam + diffuse, Hay-Davies anisotropic sky, angular SHGC with 28-bin mapping)
-- FullExterior solar distribution
+- FullExterior and FullInteriorAndExterior solar distribution with beam/diffuse split and VMULT redistribution
 - External shading (overhangs and fins with geometric beam shadow calculation, diffuse sky view factor reduction)
 - Ground-coupled floors (monthly table or Kusuda-Achenbach model, F-factor construction support)
 - Adiabatic and interzone boundary conditions
@@ -79,7 +79,7 @@ Last updated: 2026-03-13
 
 ### Lower Priority
 - [ ] Geometry import (gbXML, IDF vertices)
-- [ ] Separate beam/diffuse interior solar distribution
+- [x] Beam/diffuse interior solar distribution — FullExterior (beam→floor) and FullInteriorAndExterior (geometric projection with polygon clipping), VMULT diffuse redistribution. Reflected beam enters diffuse pool (deliberate improvement over E+'s single-bounce localization; approaches infinite-bounce radiosity solution). No direct solar-to-air fraction (E+ shortcut for unmodeled interior mass).
 - [ ] Python bindings (PyO3)
 - [ ] Parametric run execution
 - [ ] VRF systems, ground-source heat pumps, radiant systems
