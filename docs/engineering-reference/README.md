@@ -1421,35 +1421,26 @@ Sign convention: `q_inside` positive = heat flowing into the zone.
 | Z[j] | Inside | Relate inside surface temperature to inside heat flux |
 | Φ[j] | Flux history | Weight previous flux values for transient response |
 
-#### POC Implementation: Lumped RC Model
+#### Implementation: Full State-Space Method (Seem 1987)
 
-For the proof-of-concept, OpenBSE uses a first-order lumped RC model rather than the full state-space method. This gives correct steady-state behavior and first-order transient response, and is upgradeable to the full Seem method without changing the CTF interface.
+OpenBSE implements the full Seem (1987) state-space CTF method, matching EnergyPlus. This is implemented in `ctf.rs`.
 
-**Time constant:**
-```
-τ = R_total · C_total
-```
+**Key steps:**
 
-where:
-- `R_total = Σ(thickness_i / conductivity_i)` — total thermal resistance [m²·K/W]
-- `C_total = Σ(density_i · specific_heat_i · thickness_i)` — total thermal capacitance [J/(m²·K)]
+1. **Layer discretization**: Each material layer is divided into nodes with spacing `dx = sqrt(2·α·dt)`, minimum 6 nodes per layer.
 
-**Discrete decay factor:**
-```
-α = exp(−dt / τ)
-```
+2. **State-space matrix construction**: The A (node coupling), B (boundary input), C (output), and D (feedthrough) matrices are assembled from layer thermal properties. NoMass layers are folded into boundary conductance terms.
 
-**CTF coefficients:**
-```
-X[0] = Y[0] = Z[0] = U · (1 − α)
-Φ[0] = α
-```
+3. **Matrix exponential**: `exp(A·dt)` computed via Taylor series with scaling and squaring for numerical stability.
 
-where `U = 1/R_total` [W/(m²·K)].
+4. **CTF coefficient extraction**: The R-matrix recurrence iteratively computes X, Y, Z, and Φ coefficient vectors (up to 18 terms) until convergence.
 
-**Steady-state verification:** The steady-state gain is `Y[0] / (1 − Φ[0]) = U`, which correctly equals the construction U-factor.
+5. **Reciprocity enforcement**: Cross-term symmetry `average(|s(0,1)|, |s(1,0)|)` ensures energy conservation.
 
-**Low thermal mass:** For constructions with negligible thermal mass (`C_total < 1 J/(m²·K)`), a pure steady-state CTF is used: `X=Y=Z=U`, no flux history terms.
+**Fallback modes:**
+- **Low thermal mass** (`C_total < 1 kJ/m²·K`): Pure steady-state CTF (`X=Y=Z=U`, no flux history)
+- **Degenerate cases**: First-order lumped RC as fallback if the state-space method produces NaN
+- **Synthetic constructions**: Heuristic layer synthesis for `SimpleConstruction` inputs that lack explicit material layers
 
 #### CTF History
 

@@ -93,11 +93,11 @@ Be explicit about these — do not guess or approximate:
 
 - **No moisture balance**: Zone humidity is not tracked. DX coils are sensible-only. No dehumidification.
 - **No latent loads**: Equipment latent fractions are parsed but not applied to zone humidity.
-- **Simplified CTF**: Lumped RC model, not full state-space. Multi-layer constructions with insulation outside mass can have numerical issues.
 - **No airflow network**: Infiltration uses constant design flow rates, not pressure-driven multizone airflow.
 - **No geometry import**: Surfaces must be specified as 3D vertices in YAML. No gbXML/IDF/BIM import.
 - **No VRF, ground-source heat pumps, or radiant systems**.
-- **Plant loop integration incomplete**: Cooling towers, pumps, and heat recovery components exist but aren't wired into plant loop simulation yet.
+- **No water-source heat pumps** (air-source HP is implemented).
+- **Plant loop wiring incomplete**: Cooling towers and heat recovery components exist but aren't wired into plant loop simulation yet. Pumps are fully integrated.
 
 ## Conventions
 

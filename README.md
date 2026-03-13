@@ -73,7 +73,7 @@ No circular dependencies. Components implement traits (`AirComponent`, `PlantCom
 ### Building Envelope
 - **Materials & Constructions** — multi-layer opaque walls, U-factor windows with E+ SimpleGlazingSystem angular model (LBNL-2804E), simple constructions, F-factor ground floors
 - **Vertex Geometry** — 3D polygon vertices with automatic area, azimuth, tilt, volume calculation
-- **CTF** — conduction transfer functions (lumped RC model)
+- **CTF** — full Seem (1987) state-space conduction transfer functions matching EnergyPlus, with NoMass layer support and lumped RC fallback
 - **Exterior Convection** — DOE-2 (MoWiTT) algorithm with roughness correction
 - **Interior Convection** — ASHRAE/Walton natural convection correlations
 - **Solar** — position (Spencer 1971), Hay-Davies anisotropic sky model (circumsolar + isotropic), angular SHGC transmission (28-bin mapping per LBNL-2804E), FullExterior distribution
@@ -93,12 +93,13 @@ No circular dependencies. Components implement traits (`AirComponent`, `PlantCom
 - **Fan** — constant volume, VAV with power curve, on/off cycling
 - **Heating Coil** — electric resistance, hot water, gas burner (with efficiency)
 - **Cooling Coil** — DX single-speed with COP, performance curves (Cap-fT, EIR-fT, PLF-fPLR), outdoor temp derating
+- **Heat Pump Coil** — air-source heat pump heating with defrost and performance curves
 - **Duct** — NTU conduction model with leakage fraction and ambient zone coupling
 - **Boiler** — efficiency curves, part-load ratio limits
 - **Chiller** — electric chiller with COP and condenser modeling
-- **Cooling Tower** — single-speed with approach temperature (source written, plant loop integration pending)
-- **Heat Recovery** — sensible effectiveness heat exchanger (source written, plant loop integration pending)
-- **Pump** — constant/variable speed with power curve (source written, plant loop integration pending)
+- **Cooling Tower** — single-speed with approach temperature (component written, plant loop wiring pending)
+- **Heat Recovery** — sensible effectiveness heat exchanger (air-side integrated, plant loop wiring pending)
+- **Pump** — constant/variable speed with power curves, headered staging, heat-to-fluid modeling
 
 ### Controls
 - **PSZ-AC** — ASHRAE 90.1 modulating economizer, on/off and proportional cycling, gas furnace with fixed heating DAT
@@ -141,22 +142,21 @@ Lighting, equipment, and DHW match within 1%. Heating and fan gaps are under act
 ## What's Not Yet Implemented
 
 ### Envelope
-- Full state-space CTF (currently using lumped RC)
 - Separate beam/diffuse interior solar distribution
 - Geometry import (gbXML, IDF vertices)
 - Moisture transport through envelope
 
 ### HVAC
-- Plant loop integration for cooling towers, pumps, heat recovery (component models written, wiring pending)
+- Plant loop wiring for cooling towers and heat recovery (component models written, loop integration pending)
 - Multi-speed and variable-speed DX coils
 - Dehumidification modeling in DX coils (currently sensible-only)
-- Heat pump models (air-source, water-source)
+- Water-source heat pump models (air-source implemented)
 - Chiller lead/lag sequencing
 - VRF systems
 
 ### General
 - Python bindings (PyO3)
-- Parametric run execution
+- Parametric run execution (data structure defined, execution not wired)
 - EMS-style programmable controls
 
 ## Test Organization

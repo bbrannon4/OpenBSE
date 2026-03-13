@@ -71,10 +71,11 @@ Last updated: 2026-03-13
 - [ ] Dehumidification modeling in DX coils (currently sensible-only)
 - [ ] Latent load handling in zone heat balance
 - [ ] Multi-speed and variable-speed DX coils
-- [ ] Heat pump models (air-source, water-source)
+- [x] Air-source heat pump heating coil (implemented with defrost and performance curves)
+- [ ] Water-source heat pump models
 - [ ] Condenser water loops and cooling towers (components exist, loop wiring pending)
-- [ ] Pumps for hot water and chilled water loops (component exists, wiring pending)
-- [ ] Full state-space CTF (currently lumped RC)
+- [x] Pumps — constant/variable speed, headered staging, power curves (fully implemented)
+- [x] Full state-space CTF — Seem (1987) method matching EnergyPlus (implemented)
 
 ### Lower Priority
 - [ ] Geometry import (gbXML, IDF vertices)
