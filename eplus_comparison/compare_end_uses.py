@@ -29,12 +29,13 @@ eplus_res_kbtu = {
 eplus_res = {k: v / 3.412 for k, v in eplus_res_kbtu.items()}
 
 # OpenBSE results (kWh) from summary report
+# 4-zone model: living + attic + basement + garage
 openbse_res = {
-    'Heating\n(Gas)':       9899.1,
-    'Cooling\n(Elec)':      1830.0,
+    'Heating\n(Gas)':      10354.7,
+    'Cooling\n(Elec)':      2156.8,
     'Interior\nLighting':   1037.6,
     'Interior\nEquipment': 10076.5,
-    'Fans':                 1187.4,
+    'Fans':                 1131.3,
     'DHW\n(Gas)':           2172.8,
 }
 

@@ -1,6 +1,7 @@
 # OpenBSE: Residential Single-Family House (IECC 2024, Climate Zone 5B)
-# 2-story with unheated basement, gas furnace + DX cooling, tankless gas DHW
-# Based on US+SF+CZ5B+gasfurnace+unheatedbsmt+IECC_2024.idf
+# 4 zones: conditioned living (2-story), unheated basement, garage, attic
+# Gas furnace + DX cooling, tankless gas DHW
+# Based on US+SF+CZ5B+gasfurnace+unheatedbsmt+IECC_2024.idf (simplified)
 # Boulder, CO weather
 
 simulation:
@@ -373,6 +374,30 @@ constructions:
   - material: Plywood_3/4in
     thickness: 0.01905
 
+# Reversed Exterior Floor (for basement ceiling — viewed from below)
+- name: Basement Ceiling
+  layers:
+  - material: Carpet_n_pad
+    thickness: 0.02540
+  - material: Plywood_3/4in
+    thickness: 0.01905
+  - material: floor_consol_layer
+    thickness: 0.23495
+
+# Reversed Exterior Wall (for garage side of interzone wall)
+- name: Reversed Exterior Wall
+  layers:
+  - material: Drywall_1/2in
+    thickness: 0.01270
+  - material: wall_consol_layer
+    thickness: 0.1397
+  - material: OSB_7/16in
+    thickness: 0.011113
+  - material: sheathing_consol_layer
+    thickness: 0.031115
+  - material: syn_stucco
+    thickness: 0.003048
+
 - name: InteriorFurnishings
   layers:
   - material: Std Wood 6inch
@@ -521,6 +546,22 @@ infiltration:
   design_flow_rate: 0.023
   constant_coefficient: 1.0
 
+# Basement infiltration (from E+ simplified IDF: 0.020 m3/s constant)
+- name: Basement Infiltration
+  zones: [unheatedbsmt]
+  design_flow_rate: 0.020
+  constant_coefficient: 1.0
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.0
+
+# Garage infiltration (from E+ simplified IDF: 0.020 m3/s constant)
+- name: Garage Infiltration
+  zones: [garage]
+  design_flow_rate: 0.020
+  constant_coefficient: 1.0
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.0
+
 # ── Ventilation / Outdoor Air ─────────────────────────────────────
 # 60 cfm = 0.02832 m3/s mechanical ventilation via exhaust fan
 exhaust_fans:
@@ -610,9 +651,11 @@ dhw_systems:
     use_temperature: 48.889   # 120 F (DWWaterTempSchedule)
 
 # ── Zones ─────────────────────────────────────────────────────────
-# Single conditioned zone representing the 2-story living space
-# E+ model uses AirflowNetwork for inter-zone coupling; we simplify to
-# a single zone with equivalent volume and floor area.
+# 4 zones matching E+ simplified model:
+#   living_unit1 — conditioned 2-story living space (HVAC served)
+#   attic        — unconditioned vented attic
+#   unheatedbsmt — unconditioned basement below living zone
+#   garage       — unconditioned attached garage (south-east corner)
 zones:
 - name: living_unit1
   volume: 572.2        # 220.82 m2 CFA * 2.591 m ceiling height
@@ -625,6 +668,19 @@ zones:
 - name: attic
   volume: 83.8         # Gable roof 4:12 pitch, ridge height 1.517m
   floor_area: 110.41   # 12.133m x 9.100m
+  conditioned: false
+
+# Unheated basement: full footprint below living zone, 2.124m depth below grade
+- name: unheatedbsmt
+  volume: 234.5        # 12.133 x 9.100 x 2.124 m
+  floor_area: 110.41   # 12.133 x 9.100 m (same footprint as living zone)
+  conditioned: false
+
+# Garage: 6.096m x 6.096m, attached to south-east corner of house
+# Gable roof with ridge 1.006m above walls
+- name: garage
+  volume: 115.0        # 37.16 m2 x 2.591m + gable (18.7 m3)
+  floor_area: 37.16    # 6.096 x 6.096 m
   conditioned: false
 
 # ── Surfaces ──────────────────────────────────────────────────────
@@ -804,12 +860,33 @@ surfaces:
   boundary: outdoor
   parent_surface: Wall West 2F
 
-# ── Floor (above basement — modeled as ground boundary) ──
+# ── Interzone wall to garage (1F south wall, right portion: x=6.037 to x=12.133) ──
+# Net wall area = 6.096 x 2.591 - 1.95 (interzone door) = 13.84 m²
+- name: Wall South 1F Garage
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: !zone 'garage'
+  area: 13.84
+  azimuth: 180.0
+  tilt: 90.0
+
+# Interzone door from living to garage (0.914m x 2.134m = 1.95 m²)
+- name: Door to Garage
+  zone: living_unit1
+  type: wall
+  construction: Exterior Door
+  boundary: !zone 'garage'
+  area: 1.95
+  azimuth: 180.0
+  tilt: 90.0
+
+# ── Floor (above unheated basement — interzone boundary) ──
 - name: Floor
   zone: living_unit1
   type: floor
   construction: Exterior Floor
-  boundary: ground
+  boundary: !zone 'unheatedbsmt'
   vertices:
   - {x: 0.0, y: 0.0, z: 0.0}
   - {x: 0.0, y: 9.100, z: 0.0}
@@ -900,6 +977,217 @@ surfaces:
 # (door construction is similar to wall in thermal behavior)
 
 # ══════════════════════════════════════════════════════════════════
+# ── Basement zone surfaces ──
+# ══════════════════════════════════════════════════════════════════
+# Unheated basement below living zone. Footprint 12.133 x 9.100 m,
+# depth 2.124 m below grade. All walls use ground boundary (the IDF
+# splits each side into a tiny above-grade sliver + below-grade portion;
+# we simplify to full-height ground-boundary walls since the above-grade
+# slivers total <0.5% of wall area).
+
+# Basement ceiling (interzone to living zone above)
+- name: Basement Ceiling
+  zone: unheatedbsmt
+  type: roof
+  construction: Basement Ceiling
+  boundary: !zone 'living_unit1'
+  vertices:
+  - {x: 12.133, y: 0.0, z: 0.0}
+  - {x: 0.0, y: 0.0, z: 0.0}
+  - {x: 0.0, y: 9.100, z: 0.0}
+  - {x: 12.133, y: 9.100, z: 0.0}
+
+# Basement south wall (ground boundary)
+- name: Bsmt Wall South
+  zone: unheatedbsmt
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - {x: 0.0, y: 0.0, z: -2.124}
+  - {x: 12.133, y: 0.0, z: -2.124}
+  - {x: 12.133, y: 0.0, z: 0.0}
+  - {x: 0.0, y: 0.0, z: 0.0}
+
+# Basement east wall (ground boundary)
+- name: Bsmt Wall East
+  zone: unheatedbsmt
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - {x: 12.133, y: 0.0, z: -2.124}
+  - {x: 12.133, y: 9.100, z: -2.124}
+  - {x: 12.133, y: 9.100, z: 0.0}
+  - {x: 12.133, y: 0.0, z: 0.0}
+
+# Basement north wall (ground boundary)
+- name: Bsmt Wall North
+  zone: unheatedbsmt
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - {x: 12.133, y: 9.100, z: -2.124}
+  - {x: 0.0, y: 9.100, z: -2.124}
+  - {x: 0.0, y: 9.100, z: 0.0}
+  - {x: 12.133, y: 9.100, z: 0.0}
+
+# Basement west wall (ground boundary)
+- name: Bsmt Wall West
+  zone: unheatedbsmt
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - {x: 0.0, y: 9.100, z: -2.124}
+  - {x: 0.0, y: 0.0, z: -2.124}
+  - {x: 0.0, y: 0.0, z: 0.0}
+  - {x: 0.0, y: 9.100, z: 0.0}
+
+# Basement floor (ground boundary, at z = -2.124)
+- name: Bsmt Floor
+  zone: unheatedbsmt
+  type: floor
+  construction: Interior Floor
+  boundary: ground
+  vertices:
+  - {x: 0.0, y: 0.0, z: -2.124}
+  - {x: 0.0, y: 9.100, z: -2.124}
+  - {x: 12.133, y: 9.100, z: -2.124}
+  - {x: 12.133, y: 0.0, z: -2.124}
+
+# ══════════════════════════════════════════════════════════════════
+# ── Garage zone surfaces ──
+# ══════════════════════════════════════════════════════════════════
+# Garage: 6.096 x 6.096 m, attached to south-east corner of house.
+# Origin at (6.037, -6.096, 0) in building coordinates.
+# Front faces south, back wall shared with living zone.
+# Gable roof: eave at z=2.591, ridge at z=3.597 (y=-3.048 in global).
+
+# Garage south wall (front, minus garage door area)
+# Total wall area = 6.096 x 2.591 = 15.79 m², door = 10.41 m², net = 5.38 m²
+- name: Garage Wall South
+  zone: garage
+  type: wall
+  construction: Gable End
+  boundary: outdoor
+  area: 5.38
+  azimuth: 180.0
+  tilt: 90.0
+
+# Garage door (exterior, on front wall: 4.877m x 2.134m = 10.41 m²)
+- name: Garage Door
+  zone: garage
+  type: wall
+  construction: Exterior Door
+  boundary: outdoor
+  area: 10.41
+  azimuth: 180.0
+  tilt: 90.0
+
+# Garage east wall (full rectangle, no sub-surfaces)
+- name: Garage Wall East
+  zone: garage
+  type: wall
+  construction: Gable End
+  boundary: outdoor
+  vertices:
+  - {x: 12.133, y: -6.096, z: 0.0}
+  - {x: 12.133, y: 0.0, z: 0.0}
+  - {x: 12.133, y: 0.0, z: 2.591}
+  - {x: 12.133, y: -6.096, z: 2.591}
+
+# Garage west wall (full rectangle, no sub-surfaces)
+- name: Garage Wall West
+  zone: garage
+  type: wall
+  construction: Gable End
+  boundary: outdoor
+  vertices:
+  - {x: 6.037, y: 0.0, z: 0.0}
+  - {x: 6.037, y: -6.096, z: 0.0}
+  - {x: 6.037, y: -6.096, z: 2.591}
+  - {x: 6.037, y: 0.0, z: 2.591}
+
+# Garage back wall (interzone to living zone, reversed construction)
+# Net wall area = 6.096 x 2.591 - 1.95 (door) = 13.84 m²
+- name: Garage Wall North
+  zone: garage
+  type: wall
+  construction: Reversed Exterior Wall
+  boundary: !zone 'living_unit1'
+  area: 13.84
+  azimuth: 0.0
+  tilt: 90.0
+
+# Garage interzone door (from garage to living, reversed side)
+- name: Garage Door to Living
+  zone: garage
+  type: wall
+  construction: Exterior Door
+  boundary: !zone 'living_unit1'
+  area: 1.95
+  azimuth: 0.0
+  tilt: 90.0
+
+# Garage south roof slope (eave to ridge)
+- name: Garage Roof South
+  zone: garage
+  type: roof
+  construction: Exterior Roof
+  boundary: outdoor
+  vertices:
+  - {x: 6.037, y: -6.096, z: 2.591}
+  - {x: 12.133, y: -6.096, z: 2.591}
+  - {x: 12.133, y: -3.048, z: 3.597}
+  - {x: 6.037, y: -3.048, z: 3.597}
+
+# Garage north roof slope (eave to ridge)
+- name: Garage Roof North
+  zone: garage
+  type: roof
+  construction: Exterior Roof
+  boundary: outdoor
+  vertices:
+  - {x: 12.133, y: 0.0, z: 2.591}
+  - {x: 6.037, y: 0.0, z: 2.591}
+  - {x: 6.037, y: -3.048, z: 3.597}
+  - {x: 12.133, y: -3.048, z: 3.597}
+
+# Garage east gable end (triangle: base 6.096m, height 1.006m)
+- name: Garage Gable East
+  zone: garage
+  type: wall
+  construction: Gable End
+  boundary: outdoor
+  area: 3.07
+  azimuth: 90.0
+  tilt: 90.0
+
+# Garage west gable end (triangle: base 6.096m, height 1.006m)
+- name: Garage Gable West
+  zone: garage
+  type: wall
+  construction: Gable End
+  boundary: outdoor
+  area: 3.07
+  azimuth: 270.0
+  tilt: 90.0
+
+# Garage floor (slab on grade)
+- name: Garage Floor
+  zone: garage
+  type: floor
+  construction: Interior Floor
+  boundary: ground
+  vertices:
+  - {x: 6.037, y: -6.096, z: 0.0}
+  - {x: 6.037, y: 0.0, z: 0.0}
+  - {x: 12.133, y: 0.0, z: 0.0}
+  - {x: 12.133, y: -6.096, z: 0.0}
+
+# ══════════════════════════════════════════════════════════════════
 # MISSING FUNCTIONALITY FLAGS:
 #
 # 1. DUCT COMPONENT: Now modeled with supply and return ducts through
@@ -916,9 +1204,9 @@ surfaces:
 #    lost_fraction. Energy tracking includes gas, but fuel type is not
 #    distinguished from electric in the end-use summary.
 #
-# 4. UNCONDITIONED ZONES: Garage and basement are not modeled
-#    as separate zones. Attic is modeled. Basement thermal buffering
-#    is approximated with ground boundary condition for the floor.
+# 4. UNCONDITIONED ZONES: Garage, basement, and attic are all modeled
+#    as unconditioned free-floating zones with interzone coupling to
+#    the conditioned living space.
 #
 # 5. GROUND HEAT TRANSFER: IDF uses Basement/Slab preprocessors for
 #    detailed ground coupling. We use simplified ground boundary condition.
