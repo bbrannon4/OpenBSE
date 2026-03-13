@@ -1,0 +1,239 @@
+# OpenBSE ASHRAE Standard 140 — Case 680
+#
+# Case 695: Increased Insulation + 20/20 Thermostat
+#
+# Single-zone low-mass building in Denver, CO (Golden, CO weather)
+# Reference: ASHRAE Standard 140-2023, Section 7.2.1
+#
+# Building: 8m (E-W) x 6m (N-S) x 2.7m height = 129.6 m3
+# Same as Case 600 except walls and roof have increased insulation:
+#   Walls: U = 0.161 W/(m2K) (vs 0.559 in Case 600)
+#   Roof:  U = 0.098 W/(m2K) (vs 0.334 in Case 600)
+#   Floor: unchanged at U = 0.040 W/(m2K)
+#
+# Two south-facing windows: each 3m wide x 2m tall
+# Low-mass construction, 0.5 ACH infiltration, 200W internal gains
+#
+# Coordinate system: X=East, Y=North, Z=Up
+# Origin: SW corner of floor at ground level
+#
+# HVAC: Ideal loads air system, nonproportional thermostat
+#   Heat ON if T < 20C, Cool ON if T > 27C
+#   Capacity: 1 MW each (effectively unlimited)
+#   All energy 100% convective to zone air
+#
+# Vertex order: Counter-clockwise from outside (Newell convention)
+
+simulation:
+  timesteps_per_hour: 4
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+  terrain: country
+
+weather_files:
+  - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
+
+# ─── Simple Constructions ───────────────────────────────────────────────────
+# Case 680: Increased insulation on walls and roof.
+
+simple_constructions:
+  # Case 695 Wall: Increased insulation (same as Case 680)
+  # Wood Siding 9mm (k=0.14, rho=530, Cp=900)
+  # + Foam Insulation 250mm (k=0.04, rho=10, Cp=1400)
+  # + Plasterboard 12mm (k=0.16, rho=950, Cp=840)
+  # R = 0.009/0.14 + 0.250/0.04 + 0.012/0.16 = 0.0643 + 6.25 + 0.075 = 6.389
+  # U = 1/6.389 = 0.157 W/(m2K)
+  # C = 530*900*0.009 + 10*1400*0.250 + 950*840*0.012 = 4293 + 3500 + 9576 = 17369 J/(m2K)
+  - name: Case695 Wall
+    u_factor: 0.157
+    thickness: 0.271
+    thermal_capacity: 17369.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  # Case 680 Roof: Increased insulation
+  # Roof Deck 19mm + Fiberglass 400mm + Plasterboard 10mm
+  # U = 0.098 W/(m2K) (vs Case 600's 0.334), R = 10.198 m2K/W
+  # C = 9063 + 4032 + 7980 = 21075 J/(m2K)
+  - name: Case695 Roof
+    u_factor: 0.098
+    thickness: 0.429
+    thermal_capacity: 21075.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  # Case 680 Floor: Same as Case 600 (already heavily insulated)
+  - name: Case600 Floor
+    u_factor: 0.040
+    thickness: 1.028
+    thermal_capacity: 19500.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+
+window_constructions:
+  - name: Case600 Window
+    u_factor: 3.0
+    shgc: 0.769
+    visible_transmittance: 0.74
+    pane_solar_transmittance: 0.834
+    pane_solar_reflectance: 0.075
+    # ISO 15099 first-principles gap thermal model properties
+    num_panes: 2
+    gap_width: 0.012
+    pane_conductivity: 1.0
+    pane_thickness: 0.003175
+    glass_emissivity: 0.84
+
+# ─── Outputs ──────────────────────────────────────────────────────────────────
+
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - site_outdoor_temperature
+
+  - file: "energy_monthly.csv"
+    frequency: monthly
+    aggregation: sum
+    variables:
+      - zone_heating_energy
+      - zone_cooling_energy
+
+summary_report: true
+
+# ─── Zone ────────────────────────────────────────────────────────────────────
+
+zones:
+  - name: Case695 Zone
+    solar_distribution:
+      floor_fraction: 0.642
+      wall_fraction: 0.191
+      ceiling_fraction: 0.167
+
+equipment:
+  - name: Internal Gains
+    zones: [Case695 Zone]
+    power: 200.0
+    radiant_fraction: 0.6
+
+infiltration:
+  - name: Zone Infiltration
+    zones: [Case695 Zone]
+    air_changes_per_hour: 0.5
+
+ideal_loads:
+  - name: Zone Ideal Loads
+    zones: [Case695 Zone]
+    heating_setpoint: 20.0
+    cooling_setpoint: 20.0
+    heating_capacity: 1000000.0
+    cooling_capacity: 1000000.0
+
+# ─── Surfaces with 3D Vertices ──────────────────────────────────────────────
+# Same geometry as Case 600, but with Case 680 constructions for walls and roof.
+
+surfaces:
+  # ── South Wall (faces south, normal = -Y) ──────────────────────────
+  - name: South Wall
+    zone: Case695 Zone
+    type: wall
+    construction: Case695 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 0.0, z: 2.7}
+
+  # ── South Window 1 (west side) ─────────────────────────────────────
+  - name: South Window 1
+    zone: Case695 Zone
+    type: window
+    construction: Case600 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 0.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 2.2}
+      - {x: 0.5, y: 0.0, z: 2.2}
+
+  # ── South Window 2 (east side) ─────────────────────────────────────
+  - name: South Window 2
+    zone: Case695 Zone
+    type: window
+    construction: Case600 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 4.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 2.2}
+      - {x: 4.5, y: 0.0, z: 2.2}
+
+  # ── North Wall (faces north, normal = +Y) ──────────────────────────
+  - name: North Wall
+    zone: Case695 Zone
+    type: wall
+    construction: Case695 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+
+  # ── East Wall (faces east, normal = +X) ────────────────────────────
+  - name: East Wall
+    zone: Case695 Zone
+    type: wall
+    construction: Case695 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+
+  # ── West Wall (faces west, normal = -X) ────────────────────────────
+  - name: West Wall
+    zone: Case695 Zone
+    type: wall
+    construction: Case695 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # ── Roof (faces up, normal = +Z) ───────────────────────────────────
+  - name: Roof
+    zone: Case695 Zone
+    type: roof
+    construction: Case695 Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # ── Floor (faces down, normal = -Z) ────────────────────────────────
+  - name: Floor
+    zone: Case695 Zone
+    type: floor
+    construction: Case600 Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}

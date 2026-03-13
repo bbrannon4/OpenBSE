@@ -1,0 +1,242 @@
+# OpenBSE ASHRAE Standard 140 — Case 910
+#
+# Case 910: High-Mass South Overhang
+#
+# Single-zone high-mass building in Denver, CO (Golden, CO weather)
+# Reference: ASHRAE Standard 140-2023, Section 7.2.2.1.2
+#
+# Building: 8m (E-W) x 6m (N-S) x 2.7m height = 129.6 m3
+# Same as Case 900 PLUS a horizontal overhang above the south windows.
+# (Case 910 is to Case 900 as Case 610 is to Case 600.)
+#
+# Overhang geometry (same as Case 610):
+#   Depth: 1.0m (projection south from wall)
+#   Width: 8.0m (full south wall width)
+#   Height: z = 2.7m (0.5m above window top at z=2.2m)
+#
+# Coordinate system: X=East, Y=North, Z=Up
+# Origin: SW corner of floor at ground level
+#
+# HVAC: Ideal loads air system, nonproportional thermostat
+#   Heat ON if T < 20C, Cool ON if T > 27C
+#   Capacity: 1 MW each (effectively unlimited)
+#
+# Vertex order: Counter-clockwise from outside (Newell convention)
+
+simulation:
+  timesteps_per_hour: 4
+  terrain: country
+  shading_calculation: detailed
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
+
+# ─── Simple Constructions ───────────────────────────────────────────────────
+# High-mass constructions (Case 900 series).
+
+simple_constructions:
+  - name: Case900 Wall
+    u_factor: 0.556
+    thickness: 0.1
+    thermal_capacity: 145154.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    mass_conductivity: 0.51
+    mass_density: 1400.0
+    roughness: rough
+
+  - name: Case900 Roof
+    u_factor: 0.334
+    thickness: 0.141
+    thermal_capacity: 18170.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Case900 Floor
+    u_factor: 0.0396
+    thickness: 0.08
+    thermal_capacity: 112000.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    mass_conductivity: 1.13
+    mass_density: 1400.0
+
+window_constructions:
+  - name: Case900 Window
+    u_factor: 3.0
+    shgc: 0.769
+    pane_solar_transmittance: 0.834
+    pane_solar_reflectance: 0.075
+    # ISO 15099 first-principles gap thermal model properties
+    num_panes: 2
+    gap_width: 0.012
+    pane_conductivity: 1.0
+    pane_thickness: 0.003175
+    glass_emissivity: 0.84
+    visible_transmittance: 0.74
+
+# ─── Outputs ──────────────────────────────────────────────────────────────────
+
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - site_outdoor_temperature
+
+  - file: "energy_monthly.csv"
+    frequency: monthly
+    aggregation: sum
+    variables:
+      - zone_heating_energy
+      - zone_cooling_energy
+
+summary_report: true
+
+# ─── Zone ────────────────────────────────────────────────────────────────────
+
+zones:
+  - name: Case910 Zone
+    solar_distribution:
+      floor_fraction: 0.642
+      wall_fraction: 0.191
+      ceiling_fraction: 0.167
+
+equipment:
+  - name: Internal Gains
+    zones: [Case910 Zone]
+    power: 200.0
+    radiant_fraction: 0.6
+
+infiltration:
+  - name: Zone Infiltration
+    zones: [Case910 Zone]
+    air_changes_per_hour: 0.5
+
+ideal_loads:
+  - name: Zone Ideal Loads
+    zones: [Case910 Zone]
+    heating_setpoint: 20.0
+    cooling_setpoint: 27.0
+    heating_capacity: 1000000.0
+    cooling_capacity: 1000000.0
+
+# ─── Shading Surfaces ─────────────────────────────────────────────────────────
+# Same overhang as Case 610.
+
+shading_surfaces:
+  - name: South Overhang
+    vertices:
+      - {x: 0.0, y:  0.0, z: 2.7}
+      - {x: 0.0, y: -1.0, z: 2.7}
+      - {x: 8.0, y: -1.0, z: 2.7}
+      - {x: 8.0, y:  0.0, z: 2.7}
+
+# ─── Surfaces with 3D Vertices ──────────────────────────────────────────────
+# Same geometry as Case 900 (south-facing windows, high-mass).
+
+surfaces:
+  # ── South Wall (faces south, normal = -Y) ──────────────────────────
+  - name: South Wall
+    zone: Case910 Zone
+    type: wall
+    construction: Case900 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 0.0, z: 2.7}
+
+  # ── South Window 1 (west side) ─────────────────────────────────────
+  - name: South Window 1
+    zone: Case910 Zone
+    type: window
+    construction: Case900 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 0.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 2.2}
+      - {x: 0.5, y: 0.0, z: 2.2}
+
+  # ── South Window 2 (east side) ─────────────────────────────────────
+  - name: South Window 2
+    zone: Case910 Zone
+    type: window
+    construction: Case900 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 4.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 2.2}
+      - {x: 4.5, y: 0.0, z: 2.2}
+
+  # ── North Wall (faces north, normal = +Y) ──────────────────────────
+  - name: North Wall
+    zone: Case910 Zone
+    type: wall
+    construction: Case900 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+
+  # ── East Wall (faces east, normal = +X) ────────────────────────────
+  - name: East Wall
+    zone: Case910 Zone
+    type: wall
+    construction: Case900 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+
+  # ── West Wall (faces west, normal = -X) ────────────────────────────
+  - name: West Wall
+    zone: Case910 Zone
+    type: wall
+    construction: Case900 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # ── Roof (faces up, normal = +Z) ───────────────────────────────────
+  - name: Roof
+    zone: Case910 Zone
+    type: roof
+    construction: Case900 Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # ── Floor (faces down, normal = -Z) ────────────────────────────────
+  - name: Floor
+    zone: Case910 Zone
+    type: floor
+    construction: Case900 Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}

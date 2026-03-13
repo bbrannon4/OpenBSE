@@ -1,0 +1,238 @@
+# OpenBSE ASHRAE Standard 140 — Case 620
+#
+# Case 620: East/West Window Orientation
+#
+# Single-zone low-mass building in Denver, CO (Golden, CO weather)
+# Reference: ASHRAE Standard 140-2023, Section 7.2.1
+#
+# Building: 8m (E-W) x 6m (N-S) x 2.7m height = 129.6 m3
+# Same as Case 600 except windows moved from south wall to east and west walls.
+# One 3m wide x 2m tall window on east wall, one on west wall.
+# Total glazing area remains 12 m2 (2 x 6 m2).
+#
+# Coordinate system: X=East, Y=North, Z=Up
+# Origin: SW corner of floor at ground level
+#
+# HVAC: Ideal loads air system, nonproportional thermostat
+#   Heat ON if T < 20C, Cool ON if T > 27C
+#   Capacity: 1 MW each (effectively unlimited)
+#   All energy 100% convective to zone air
+#
+# Vertex order: Counter-clockwise from outside (Newell convention)
+
+simulation:
+  timesteps_per_hour: 4
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+  terrain: country
+
+weather_files:
+  - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
+
+# ─── Simple Constructions ───────────────────────────────────────────────────
+# Same constructions as Case 600.
+
+simple_constructions:
+  - name: Case600 Wall
+    u_factor: 0.559
+    thickness: 0.087
+    thermal_capacity: 14534.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Case600 Roof
+    u_factor: 0.334
+    thickness: 0.141
+    thermal_capacity: 18170.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Case600 Floor
+    u_factor: 0.040
+    thickness: 1.028
+    thermal_capacity: 19500.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+
+window_constructions:
+  - name: Case600 Window
+    u_factor: 3.0
+    shgc: 0.769
+    visible_transmittance: 0.74
+    pane_solar_transmittance: 0.834
+    pane_solar_reflectance: 0.075
+    # ISO 15099 first-principles gap thermal model properties
+    num_panes: 2
+    gap_width: 0.012
+    pane_conductivity: 1.0
+    pane_thickness: 0.003175
+    glass_emissivity: 0.84
+
+# ─── Outputs ──────────────────────────────────────────────────────────────────
+
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - site_outdoor_temperature
+
+  - file: "energy_monthly.csv"
+    frequency: monthly
+    aggregation: sum
+    variables:
+      - zone_heating_energy
+      - zone_cooling_energy
+
+summary_report: true
+
+# ─── Zone ────────────────────────────────────────────────────────────────────
+
+zones:
+  - name: Case620 Zone
+    solar_distribution:
+      floor_fraction: 0.642
+      wall_fraction: 0.191
+      ceiling_fraction: 0.167
+
+equipment:
+  - name: Internal Gains
+    zones: [Case620 Zone]
+    power: 200.0
+    radiant_fraction: 0.6
+
+infiltration:
+  - name: Zone Infiltration
+    zones: [Case620 Zone]
+    air_changes_per_hour: 0.5
+
+ideal_loads:
+  - name: Zone Ideal Loads
+    zones: [Case620 Zone]
+    heating_setpoint: 20.0
+    cooling_setpoint: 27.0
+    heating_capacity: 1000000.0
+    cooling_capacity: 1000000.0
+
+# ─── Surfaces with 3D Vertices ──────────────────────────────────────────────
+# Case 620: Windows moved from south wall to east and west walls.
+# South wall is now opaque (no windows).
+# East wall has one 3m x 2m window, west wall has one 3m x 2m window.
+
+surfaces:
+  # ── South Wall (faces south, normal = -Y) ──────────────────────────
+  # 8m wide x 2.7m tall = 21.6 m2 (no windows in Case 620)
+  - name: South Wall
+    zone: Case620 Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 0.0, z: 2.7}
+
+  # ── North Wall (faces north, normal = +Y) ──────────────────────────
+  - name: North Wall
+    zone: Case620 Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+
+  # ── East Wall (faces east, normal = +X) ────────────────────────────
+  # 6m wide x 2.7m tall = 16.2 m2 gross
+  # Net = 16.2 - 6.0 = 10.2 m2 (after subtracting one 3x2m window)
+  - name: East Wall
+    zone: Case620 Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+
+  # ── East Window (on east wall) ────────────────────────────────────
+  # 3m wide x 2m tall, centered on east wall
+  # East wall is at x=8.0, y ranges 0-6, z ranges 0-2.7
+  # Window centered: y from 1.5 to 4.5, z from 0.2 to 2.2
+  # Vertices CCW from outside (looking west at east wall exterior)
+  - name: East Window
+    zone: Case620 Zone
+    type: window
+    construction: Case600 Window
+    boundary: outdoor
+    parent_surface: East Wall
+    vertices:
+      - {x: 8.0, y: 1.5, z: 0.2}
+      - {x: 8.0, y: 4.5, z: 0.2}
+      - {x: 8.0, y: 4.5, z: 2.2}
+      - {x: 8.0, y: 1.5, z: 2.2}
+
+  # ── West Wall (faces west, normal = -X) ────────────────────────────
+  # 6m wide x 2.7m tall = 16.2 m2 gross
+  # Net = 16.2 - 6.0 = 10.2 m2 (after subtracting one 3x2m window)
+  - name: West Wall
+    zone: Case620 Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # ── West Window (on west wall) ────────────────────────────────────
+  # 3m wide x 2m tall, centered on west wall
+  # West wall is at x=0.0, y ranges 0-6 (from south to north), z ranges 0-2.7
+  # Window centered: y from 1.5 to 4.5, z from 0.2 to 2.2
+  # Vertices CCW from outside (looking east at west wall exterior)
+  - name: West Window
+    zone: Case620 Zone
+    type: window
+    construction: Case600 Window
+    boundary: outdoor
+    parent_surface: West Wall
+    vertices:
+      - {x: 0.0, y: 4.5, z: 0.2}
+      - {x: 0.0, y: 1.5, z: 0.2}
+      - {x: 0.0, y: 1.5, z: 2.2}
+      - {x: 0.0, y: 4.5, z: 2.2}
+
+  # ── Roof (faces up, normal = +Z) ───────────────────────────────────
+  - name: Roof
+    zone: Case620 Zone
+    type: roof
+    construction: Case600 Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # ── Floor (faces down, normal = -Z) ────────────────────────────────
+  - name: Floor
+    zone: Case620 Zone
+    type: floor
+    construction: Case600 Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}

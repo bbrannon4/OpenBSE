@@ -42,6 +42,14 @@ validation/eplus_output/
 eplus_comparison/output_*/
 eplus_comparison/*.err
 
+# ─── ASHRAE 140 Test Outputs (reproducible from running OpenBSE) ────────────
+tests/ashrae140/cases/*_results.csv
+tests/ashrae140/cases/*_summary.txt
+tests/ashrae140/cases/*_zone_results.csv
+tests/ashrae140/cases/*_energy_monthly.csv
+tests/ashrae140/cases/*_hvac_results.csv
+tests/ashrae140/reference_idfs/*_out/
+
 # ─── Node.js ─────────────────────────────────────────────────────────────────
 node_modules/
 package-lock.json
@@ -56,6 +64,8 @@ apt_stderr.txt
 # ─── Weather Files ───────────────────────────────────────────────────────────
 # EPW files are large and user-specific (local paths).
 *.epw
+# Exception: ASHRAE 140 prescribed weather file must be committed
+!tests/ashrae140/weather/*.epw
 
 # ─── Environment / Secrets ───────────────────────────────────────────────────
 .env

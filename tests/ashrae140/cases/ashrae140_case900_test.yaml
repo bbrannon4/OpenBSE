@@ -1,0 +1,251 @@
+# OpenBSE ASHRAE Standard 140 — Case 900
+#
+# Single-zone high-mass building in Denver, CO
+# Reference: ASHRAE Standard 140-2023, Section 7.2.1
+#
+# Building: 8m (E-W) x 6m (N-S) x 2.7m height = 129.6 m3
+# Two south-facing windows: each 3m wide x 2m tall
+# High-mass construction, 0.5 ACH infiltration, 200W internal gains
+#
+# Coordinate system: X=East, Y=North, Z=Up
+# Origin: SW corner of floor at ground level
+#
+# HVAC: Ideal loads air system, nonproportional thermostat
+#   Heat ON if T < 20C, Cool ON if T > 27C
+#   Capacity: 1 MW each (effectively unlimited)
+#   All energy 100% convective to zone air
+#
+# Target annual results (ASHRAE 140-2023 acceptance range):
+#   Heating: 1.170 - 2.041 MWh
+#   Cooling: 2.132 - 3.415 MWh
+#
+# Vertex order: Counter-clockwise from outside (Newell convention)
+
+simulation:
+  timesteps_per_hour: 4
+  terrain: country
+  shading_calculation: detailed
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
+
+# ─── Simple Constructions ───────────────────────────────────────────────────
+# Case 900 uses high-mass constructions.
+# Wall layer order from E+ IDF: Wood Siding (outside) / Foam / Concrete Block (inside)
+# Thermal capacity: WoodSiding(4293) + Foam(861) + Concrete(140000) = 145,154 J/(m²K)
+
+simple_constructions:
+  - name: Case900 Wall
+    u_factor: 0.556
+    thickness: 0.1
+    thermal_capacity: 145154.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    mass_outside: false
+    mass_conductivity: 0.51
+    mass_density: 1400.0
+    roughness: rough
+
+  # Case 900 Roof: Same as Case 600 (low-mass roof)
+  - name: Case900 Roof
+    u_factor: 0.334
+    thickness: 0.141
+    thermal_capacity: 18170.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  # Case 900 Floor: High-mass concrete floor with insulation
+  - name: Case900 Floor
+    u_factor: 0.0396
+    thickness: 0.08
+    thermal_capacity: 112000.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    mass_conductivity: 1.13
+    mass_density: 1400.0
+
+window_constructions:
+  # Case 900 Window: double-pane clear glass (same as Case 600)
+  # U = 3.0 W/(m2K), SHGC = 0.769 at normal incidence
+  - name: Case900 Window
+    u_factor: 3.0
+    shgc: 0.769
+    pane_solar_transmittance: 0.834
+    pane_solar_reflectance: 0.075
+    # ISO 15099 first-principles gap thermal model properties
+    num_panes: 2
+    gap_width: 0.012
+    pane_conductivity: 1.0
+    pane_thickness: 0.003175
+    glass_emissivity: 0.84
+    visible_transmittance: 0.74
+
+# ─── No air loops needed ─────────────────────────────────────────────────────
+# Ideal loads air system handles HVAC internally in the envelope solver.
+# No air_loops, zone_groups, or controls needed for ASHRAE 140.
+
+# ─── Outputs ──────────────────────────────────────────────────────────────────
+
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - site_outdoor_temperature
+
+  - file: "energy_monthly.csv"
+    frequency: monthly
+    aggregation: sum
+    variables:
+      - zone_heating_energy
+      - zone_cooling_energy
+
+summary_report: true
+
+# ─── Zone ────────────────────────────────────────────────────────────────────
+# Volume and floor area will be auto-calculated from surface vertices.
+
+zones:
+  - name: Case900 Zone
+    # volume: auto-calculated (129.6 m3)
+    # floor_area: auto-calculated (48.0 m2)
+    # Interior solar distribution (ASHRAE 140 Section 7.2.1.13)
+    solar_distribution:
+      floor_fraction: 1.0
+      wall_fraction: 0.0
+      ceiling_fraction: 0.0
+
+equipment:
+  - name: Internal Gains
+    zones: [Case900 Zone]
+    power: 200.0              # 200W continuous, 60% radiant
+    radiant_fraction: 0.6
+
+infiltration:
+  - name: Zone Infiltration
+    zones: [Case900 Zone]
+    air_changes_per_hour: 0.5
+
+# Ideal loads air system — nonproportional thermostat
+ideal_loads:
+  - name: Zone Ideal Loads
+    zones: [Case900 Zone]
+    heating_setpoint: 20.0      # Heat ON if T < 20C
+    cooling_setpoint: 27.0      # Cool ON if T > 27C
+    heating_capacity: 1000000.0 # 1 MW (effectively unlimited)
+    cooling_capacity: 1000000.0 # 1 MW (effectively unlimited)
+
+# ─── Surfaces with 3D Vertices ──────────────────────────────────────────────
+# All vertices are CCW when viewed from outside (outward normal convention).
+# Coordinate system: X=East, Y=North, Z=Up. Origin at SW floor corner.
+
+surfaces:
+  # ── South Wall (faces south, normal = -Y) ──────────────────────────
+  # 8m wide x 2.7m tall = 21.6 m2 gross
+  # Net = 21.6 - 2*6.0 = 9.6 m2 (after subtracting two 3x2m windows)
+  - name: South Wall
+    zone: Case900 Zone
+    type: wall
+    construction: Case900 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 0.0, z: 2.7}
+
+  # ── South Window 1 (west side) ─────────────────────────────────────
+  # 3m wide x 2m tall, sill at 0.2m, starting at x=0.5m
+  - name: South Window 1
+    zone: Case900 Zone
+    type: window
+    construction: Case900 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 0.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 2.2}
+      - {x: 0.5, y: 0.0, z: 2.2}
+
+  # ── South Window 2 (east side) ─────────────────────────────────────
+  - name: South Window 2
+    zone: Case900 Zone
+    type: window
+    construction: Case900 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 4.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 2.2}
+      - {x: 4.5, y: 0.0, z: 2.2}
+
+  # ── North Wall (faces north, normal = +Y) ──────────────────────────
+  - name: North Wall
+    zone: Case900 Zone
+    type: wall
+    construction: Case900 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+
+  # ── East Wall (faces east, normal = +X) ────────────────────────────
+  - name: East Wall
+    zone: Case900 Zone
+    type: wall
+    construction: Case900 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+
+  # ── West Wall (faces west, normal = -X) ────────────────────────────
+  - name: West Wall
+    zone: Case900 Zone
+    type: wall
+    construction: Case900 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # ── Roof (faces up, normal = +Z) ───────────────────────────────────
+  - name: Roof
+    zone: Case900 Zone
+    type: roof
+    construction: Case900 Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # ── Floor (faces down, normal = -Z) ────────────────────────────────
+  # ASHRAE 140 Case 900: high-mass concrete floor, heavily insulated
+  # Using outdoor boundary (the insulation makes it nearly adiabatic)
+  - name: Floor
+    zone: Case900 Zone
+    type: floor
+    construction: Case900 Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}

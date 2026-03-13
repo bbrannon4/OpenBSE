@@ -40,7 +40,7 @@ OpenBSE (**Open Building Simulation Engine**) is a modern, open-source building 
 ### Build from Source
 
 ```bash
-git clone https://github.com/NatLabRockies/OpenBSE.git
+git clone https://github.com/bbrannon4/OpenBSE.git
 cd OpenBSE
 cargo build --release
 ```

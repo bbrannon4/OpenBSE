@@ -10,19 +10,22 @@ OpenBSE is a ground-up reimplementation of building energy simulation using vali
 - **Full building envelope physics** — CTF, convection, solar, longwave radiation, infiltration, internal gains
 - **Generic component contracts** — any component can go on any loop if fluid types match
 - **Multi-format weather support** — EPW and TMY3 CSV (ASHRAE Standard 140 prescribed format)
-- **Built for AI and parametric workflows**
 
 ## Why This Exists
 
 EnergyPlus is the DOE's flagship building energy simulation tool. Its physics are well-validated, but its software architecture — inherited from 1970s-era BLAST and DOE-2 Fortran — creates serious usability problems: redundant HVAC topology specification, rigid system templates, simulation order baked into user input, and controls tightly coupled to specific system types.
 
-OpenBSE preserves the validated physics while fundamentally rethinking the system topology, HVAC modeling framework, and user input paradigm.
+OpenBSE preserves the validated physics while fundamentally rethinking the system topology, HVAC modeling framework, and user input paradigm. EnergyPlus math is the reference standard — every algorithm is implemented to match E+ behavior, and deviations are treated as bugs.
+
+> **For AI assistants**: See [`docs/AI_CONTEXT.md`](docs/AI_CONTEXT.md) for a comprehensive project overview designed as initial context.
 
 ## Quick Start
 
 ### Build
 
 ```bash
+git clone https://github.com/bbrannon4/OpenBSE.git
+cd OpenBSE
 cargo build --release
 ```
 
@@ -32,7 +35,7 @@ cargo build --release
 cargo test --workspace
 ```
 
-**180 tests, 0 warnings** across 8 crates.
+**82 tests** across 8 crates (81 passing, 1 pre-existing VAV box test failure being investigated).
 
 ### Run a Simulation
 
@@ -49,7 +52,7 @@ OpenBSE is a Rust workspace with 8 crates:
 | `openbse-psychrometrics` | Moist air property calculations (Hyland & Wexler) |
 | `openbse-weather` | EPW and TMY3 CSV weather file parsing |
 | `openbse-core` | Simulation graph, timestep loop, component traits |
-| `openbse-components` | HVAC component models (fan, coils, boiler, chiller) |
+| `openbse-components` | HVAC component models (fan, coils, boiler, chiller, duct) |
 | `openbse-controls` | Decoupled control framework (thermostats, setpoints) |
 | `openbse-envelope` | Building envelope heat balance physics |
 | `openbse-io` | YAML parsing, CSV output, design day sizing, summary reports |
@@ -68,41 +71,41 @@ No circular dependencies. Components implement traits (`AirComponent`, `PlantCom
 ## What's Implemented
 
 ### Building Envelope
-- **Materials & Constructions** — multi-layer opaque walls, U-factor windows, simple constructions
+- **Materials & Constructions** — multi-layer opaque walls, U-factor windows with E+ SimpleGlazingSystem angular model (LBNL-2804E), simple constructions, F-factor ground floors
 - **Vertex Geometry** — 3D polygon vertices with automatic area, azimuth, tilt, volume calculation
 - **CTF** — conduction transfer functions (lumped RC model)
 - **Exterior Convection** — DOE-2 (MoWiTT) algorithm with roughness correction
 - **Interior Convection** — ASHRAE/Walton natural convection correlations
-- **Solar** — position (Spencer 1971), Hay-Davies anisotropic sky model (circumsolar + isotropic), Fresnel angular SHGC transmission
+- **Solar** — position (Spencer 1971), Hay-Davies anisotropic sky model (circumsolar + isotropic), angular SHGC transmission (28-bin mapping per LBNL-2804E), FullExterior distribution
 - **External Shading** — overhangs and fins with geometric beam shadow calculation (Sutherland-Hodgman polygon clipping), diffuse sky view factor reduction, 8x8 grid sampling for multi-caster union
 - **Sky Longwave Radiation** — Berdahl-Martin sky emissivity model with cloud cover correction
 - **Interior Longwave Radiation** — MRT-based surface radiation exchange
-- **Infiltration** — EnergyPlus design flow rate model with wind dependence
-- **Internal Gains** — people, lights, equipment with radiant/convective split
-- **Zone Air Balance** — predictor-corrector with thermal capacitance
+- **Infiltration** — EnergyPlus design flow rate model with wind dependence, ASHRAE combined infiltration model
+- **Internal Gains** — people, lights, equipment with radiant/convective/lost fraction split
+- **Zone Air Balance** — 3rd-order backward difference predictor-corrector (matching E+ ZoneTempPredictorCorrector)
 - **Ideal Loads** — nonproportional thermostat for ASHRAE 140 validation
-- **Ground Temperature** — Kusuda-Achenbach model computed from weather data
+- **Ground Temperature** — monthly table or Kusuda-Achenbach model from weather data
 - **Thermostat Schedules** — time-of-day heating/cooling setpoint variation
 - **Conditional Night Ventilation** — schedule-driven with temperature conditions
 - **Free-Float Mode** — no-HVAC simulation for temperature drift analysis
 
 ### HVAC Components
-- **Fan** — constant volume, VAV with power curve
-- **Heating Coil** — electric resistance, hot water
-- **Gas Heating Coil** — burner efficiency modeling
-- **Cooling Coil** — DX single-speed with COP, sensible heat ratio (SHR)
+- **Fan** — constant volume, VAV with power curve, on/off cycling
+- **Heating Coil** — electric resistance, hot water, gas burner (with efficiency)
+- **Cooling Coil** — DX single-speed with COP, performance curves (Cap-fT, EIR-fT, PLF-fPLR), outdoor temp derating
+- **Duct** — NTU conduction model with leakage fraction and ambient zone coupling
 - **Boiler** — efficiency curves, part-load ratio limits
 - **Chiller** — electric chiller with COP and condenser modeling
-- **Cooling Tower** — single-speed with approach temperature (source written, integration pending)
-- **Heat Recovery** — sensible effectiveness heat exchanger (source written, integration pending)
-- **Pump** — constant/variable speed with power curve (source written, integration pending)
+- **Cooling Tower** — single-speed with approach temperature (source written, plant loop integration pending)
+- **Heat Recovery** — sensible effectiveness heat exchanger (source written, plant loop integration pending)
+- **Pump** — constant/variable speed with power curve (source written, plant loop integration pending)
 
 ### Controls
-- **PSZ-AC** — ASHRAE 90.1 modulating economizer, fixed heating DAT (35C), proportional cooling DAT
+- **PSZ-AC** — ASHRAE 90.1 modulating economizer, on/off and proportional cycling, gas furnace with fixed heating DAT
 - **DOAS** — 100% outdoor air, fixed supply setpoints, always-on pre-conditioning
 - **FCU** — per-zone recirculating fan coil, proportional fan speed modulation
-- **VAV** — ASHRAE Guideline 36 dual-maximum, SAT reset (13-18C), modulating economizer, preheat frost protection
-- **Design Day Autosizing** — two-stage ASHRAE-compliant sizing (zone peak + system coincident), auto-generated monthly cooling DDs
+- **VAV** — ASHRAE Guideline 36 dual-maximum, SAT reset (13-18°C), modulating economizer, preheat frost protection
+- **Design Day Autosizing** — two-stage ASHRAE-compliant sizing (zone peak + system coincident), configurable oversize factors
 
 ### Simulation
 - Graph-based execution order (topological sort)
@@ -114,40 +117,55 @@ No circular dependencies. Components implement traits (`AirComponent`, `PlantCom
 
 ## Validation
 
-ASHRAE Standard 140-2023 validation cases are maintained in a separate repository (`OpenBSE-140_Tests`). Cases 600, 610, 620, 630, 900, 910, 920, and 930 have been tested against the standard's prescribed TMY3 weather data (Denver, WMO 725650). **14 of 16 metrics pass** (annual heating + cooling for all 8 cases). The two remaining failures are Case 900 cooling (12 kWh over max, <1%) and Case 910 cooling (168 kWh over max, attributed to simplified interior solar distribution).
+### ASHRAE Standard 140-2023
+
+Test cases are in [`tests/ashrae140/`](tests/ashrae140/). 27 cases from Section 7 (Building Thermal Envelope) plus Case CE100 (Cooling Equipment) have been implemented. Current status: **48 of 63 metrics pass** (76.2%) against the standard's prescribed acceptance ranges.
+
+Cases 600, 610, 620, 630 (low-mass) pass all metrics. Case 900 series (high-mass) has some failures attributed to the simplified wall construction model.
+
+### DOE Prototype Comparison (EnergyPlus)
+
+DOE prototype building models are being validated against EnergyPlus using the simplified IDFs in [`eplus_comparison/`](eplus_comparison/). Current status for the Single-Family house (CZ5B Boulder):
+
+| End Use | EnergyPlus | OpenBSE | Diff |
+|---------|-----------|---------|------|
+| Heating (Gas) | 6,689 kWh | 9,907 kWh | +48% |
+| Cooling (Elec) | 1,600 kWh | 1,817 kWh | +14% |
+| Interior Lighting | 1,038 kWh | 1,038 kWh | 0% |
+| Interior Equipment | 10,084 kWh | 10,077 kWh | 0% |
+| Fans | 852 kWh | 1,179 kWh | +38% |
+| DHW (Gas) | 2,158 kWh | 2,173 kWh | +1% |
+
+Lighting, equipment, and DHW match within 1%. Heating and fan gaps are under active investigation — primary cause is the missing basement/garage zone modeling (E+ models 4 zones; our model has 2). Large Office, Hospital, and Mid-Rise Apartment prototypes are also in progress.
 
 ## What's Not Yet Implemented
 
 ### Envelope
-- Geometry import (gbXML, IDF vertices)
-- Separate beam/diffuse interior solar distribution (beam geometric to floor, diffuse uniform)
-- Neighboring-building shading
 - Full state-space CTF (currently using lumped RC)
+- Separate beam/diffuse interior solar distribution
+- Geometry import (gbXML, IDF vertices)
+- Moisture transport through envelope
 
 ### HVAC
-- Cooling tower integration into condenser water plant loop (component model written, loop wiring pending)
-- Variable-speed pump integration into plant loops (component model written, loop wiring pending)
-- Heat recovery integration into plant loops (component model written, loop wiring pending)
-- OA damper scheduling (close OA outside occupied hours)
-- Economizer lockout with heating (disable economizer during heating mode)
-- Part-load boiler efficiency curves (EMS-style cubic PLR curves with skin loss)
-- Chiller lead/lag sequencing with pump staging
-- Optimum start/stop controls
-- Moisture balance (latent loads, zone humidity tracking for humidifier control)
+- Plant loop integration for cooling towers, pumps, heat recovery (component models written, wiring pending)
+- Multi-speed and variable-speed DX coils
+- Dehumidification modeling in DX coils (currently sensible-only)
+- Heat pump models (air-source, water-source)
+- Chiller lead/lag sequencing
+- VRF systems
 
 ### General
 - Python bindings (PyO3)
 - Parametric run execution
 - EMS-style programmable controls
 
-## Phased Development Plan
+## Test Organization
 
-1. **Phase 1: Foundation** — Core graph framework, psychrometrics, weather reader, simulation loop, output *(complete)*
-2. **Phase 2: Envelope** — Surface heat balance, zone air balance, solar, infiltration, internal gains *(complete)*
-3. **Phase 3: Envelope Validation** — Vertex geometry, external shading (overhangs/fins), ASHRAE 140 Cases 600/610/620/630/900/910/920/930 — 14/16 metrics passing *(complete)*
-4. **Phase 4: Air-Side HVAC** — DX cooling coils, PSZ-AC, DOAS, FCU, VAV, design day autosizing *(complete)*
-5. **Phase 5: Plant-Side HVAC** — Chillers, cooling towers, heat pumps, generic plant mixing *(partial: component models written, loop integration in progress)*
-6. **Phase 6: Controls & Polish** — Advanced controls, Python API, documentation
+OpenBSE has three categories of tests:
+
+1. **Unit tests** — Inline `#[cfg(test)]` modules in Rust source files. Run with `cargo test --workspace`.
+2. **ASHRAE 140 validation** — Standard test cases in [`tests/ashrae140/`](tests/ashrae140/). Run individual cases with `./target/release/openbse tests/ashrae140/cases/ashrae140_case600.yaml`.
+3. **E+ prototype comparison** — DOE prototype models in [`eplus_comparison/`](eplus_comparison/). Each model has a YAML input file and Python comparison scripts.
 
 ## License
 
@@ -162,5 +180,6 @@ MIT OR Apache-2.0
 - Interior Convection: Walton (1983)
 - Solar Position: Spencer (1971)
 - Sky Emissivity: Berdahl & Martin (1984)
+- Window Angular Properties: LBNL-2804E (Curcija et al.)
 - ASHRAE Standard 140-2023
 - California Simulation Engine (CSE): https://github.com/cse-sim/cse

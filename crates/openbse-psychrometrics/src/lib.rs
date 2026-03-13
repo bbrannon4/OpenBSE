@@ -4,7 +4,7 @@
 //! for saturation pressure, ASHRAE relationships for derived properties).
 //!
 //! Reference: EnergyPlus Engineering Reference, Chapter "Psychrometric Services"
-//! Source: github.com/NatLabRockies/EnergyPlus/src/EnergyPlus/Psychrometrics.cc
+//! Source: github.com/NREL/EnergyPlus/src/EnergyPlus/Psychrometrics.cc
 
 /// Kelvin offset from Celsius
 const KELVIN: f64 = 273.15;

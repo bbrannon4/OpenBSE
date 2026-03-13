@@ -1,0 +1,221 @@
+# OpenBSE ASHRAE Standard 140 — Case 900FF
+#
+# Case 900FF: High-Mass Free-Float (No HVAC)
+#
+# Single-zone high-mass building in Denver, CO (Golden, CO weather)
+# Reference: ASHRAE Standard 140-2023, Section 7.2.1
+#
+# Building: 8m (E-W) x 6m (N-S) x 2.7m height = 129.6 m3
+# Same as Case 900 except NO HVAC system — zone temperature free-floats.
+# This tests the high-mass building envelope thermal performance without active
+# heating or cooling, providing free-float temperature profiles.
+#
+# Two south-facing windows: each 3m wide x 2m tall
+# High-mass construction, 0.5 ACH infiltration, 200W internal gains
+#
+# Coordinate system: X=East, Y=North, Z=Up
+# Origin: SW corner of floor at ground level
+#
+# HVAC: NONE (free-float)
+#   No heating or cooling — zone temperature responds only to
+#   weather, solar gains, internal gains, and infiltration.
+#
+# Target annual results (ASHRAE 140-2023 acceptance range):
+#   Maximum zone temperature
+#   Minimum zone temperature
+#   Mean zone temperature
+#
+# Vertex order: Counter-clockwise from outside (Newell convention)
+
+simulation:
+  timesteps_per_hour: 4
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+  terrain: country
+
+weather_files:
+  - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
+
+# ─── Simple Constructions ───────────────────────────────────────────────────
+# High-mass constructions from Case 900.
+
+simple_constructions:
+  - name: Case900 Wall
+    u_factor: 0.556
+    thickness: 0.1
+    thermal_capacity: 145154.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    mass_conductivity: 0.51
+    mass_density: 1400.0
+    roughness: rough
+
+  - name: Case900 Roof
+    u_factor: 0.334
+    thickness: 0.141
+    thermal_capacity: 18170.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Case900 Floor
+    u_factor: 0.0396
+    thickness: 0.08
+    thermal_capacity: 112000.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    mass_conductivity: 1.13
+    mass_density: 1400.0
+
+window_constructions:
+  - name: Case900 Window
+    u_factor: 3.0
+    shgc: 0.769
+    visible_transmittance: 0.74
+    pane_solar_transmittance: 0.834
+    pane_solar_reflectance: 0.075
+    # ISO 15099 first-principles gap thermal model properties
+    num_panes: 2
+    gap_width: 0.012
+    pane_conductivity: 1.0
+    pane_thickness: 0.003175
+    glass_emissivity: 0.84
+
+# ─── Outputs ──────────────────────────────────────────────────────────────────
+# No heating/cooling rate outputs since there is no HVAC system.
+
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - site_outdoor_temperature
+
+summary_report: true
+
+# ─── Zone ────────────────────────────────────────────────────────────────────
+# No ideal_loads — zone free-floats with no temperature control.
+
+zones:
+  - name: Case900FF Zone
+    solar_distribution:
+      floor_fraction: 0.642
+      wall_fraction: 0.191
+      ceiling_fraction: 0.167
+
+equipment:
+  - name: Internal Gains
+    zones: [Case900FF Zone]
+    power: 200.0
+    radiant_fraction: 0.6
+
+infiltration:
+  - name: Zone Infiltration
+    zones: [Case900FF Zone]
+    air_changes_per_hour: 0.5
+
+# Free-float case: No HVAC system, zone temperature floats freely
+
+# ─── Surfaces with 3D Vertices ──────────────────────────────────────────────
+# Same geometry as Case 900 (identical to Case 600).
+
+surfaces:
+  # ── South Wall (faces south, normal = -Y) ──────────────────────────
+  - name: South Wall
+    zone: Case900FF Zone
+    type: wall
+    construction: Case900 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 0.0, z: 2.7}
+
+  # ── South Window 1 (west side) ─────────────────────────────────────
+  - name: South Window 1
+    zone: Case900FF Zone
+    type: window
+    construction: Case900 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 0.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 2.2}
+      - {x: 0.5, y: 0.0, z: 2.2}
+
+  # ── South Window 2 (east side) ─────────────────────────────────────
+  - name: South Window 2
+    zone: Case900FF Zone
+    type: window
+    construction: Case900 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 4.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 2.2}
+      - {x: 4.5, y: 0.0, z: 2.2}
+
+  # ── North Wall (faces north, normal = +Y) ──────────────────────────
+  - name: North Wall
+    zone: Case900FF Zone
+    type: wall
+    construction: Case900 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+
+  # ── East Wall (faces east, normal = +X) ────────────────────────────
+  - name: East Wall
+    zone: Case900FF Zone
+    type: wall
+    construction: Case900 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+
+  # ── West Wall (faces west, normal = -X) ────────────────────────────
+  - name: West Wall
+    zone: Case900FF Zone
+    type: wall
+    construction: Case900 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # ── Roof (faces up, normal = +Z) ───────────────────────────────────
+  - name: Roof
+    zone: Case900FF Zone
+    type: roof
+    construction: Case900 Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # ── Floor (faces down, normal = -Z) ────────────────────────────────
+  - name: Floor
+    zone: Case900FF Zone
+    type: floor
+    construction: Case900 Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}

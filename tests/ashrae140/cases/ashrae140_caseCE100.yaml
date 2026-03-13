@@ -1,0 +1,220 @@
+# ASHRAE Standard 140-2023 — Case CE100
+# Section 9.2: Cooling Equipment Performance Tests
+#
+# CASEE100: Analytical Verification Base Case
+# - Single zone, adiabatic walls (near-zero U-factor)
+# - Constant internal load: 5400 W (100% sensible, 100% convective)
+# - Constant outdoor temp: 46.1°C
+# - DX cooling coil: 8181 W rated, COP 4.161, SHR 0.7774
+# - On/Off cycling fan: 0.425 m³/s, 271 Pa, 50% total efficiency
+# - Cooling setpoint: 22.2°C
+# - No outdoor air (100% recirculated)
+# - No solar, no infiltration, no people, no lights
+# - Run period: Jan 1 - Mar 31 (91 days)
+#
+# Expected: Zone maintained at ~22.2°C by cycling DX system
+# Total electricity consumed over 3 months = compressor + fan energy
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 3
+  end_day: 31
+
+weather_files:
+  - "CE100A.csv"
+
+# ─── Construction ─────────────────────────────────────────────────────────────
+# All surfaces: heavily insulated (R=100 m²K/W), effectively adiabatic.
+# Low-mass construction to eliminate thermal storage effects.
+
+simple_constructions:
+  - name: Adiabatic Wall
+    u_factor: 0.01            # R=100 m²K/W (near-adiabatic)
+    thickness: 0.01
+    thermal_capacity: 0.0     # Zero thermal mass — truly adiabatic, massless shell
+    solar_absorptance: 0.1    # External solar absorptance (irrelevant - no solar)
+    thermal_absorptance: 0.9
+    roughness: rough
+
+# ─── Zone ─────────────────────────────────────────────────────────────────────
+# 8m × 6m × 2.7m = 129.6 m³
+
+zones:
+  - name: CE100 Zone
+    volume: 129.6
+    floor_area: 48.0
+
+# ─── Internal Gains ──────────────────────────────────────────────────────────
+# 5400 W constant sensible load, 100% convective (no radiant, no latent)
+
+equipment:
+  - name: CE100 Internal Load
+    zones: [CE100 Zone]
+    power: 5400.0
+    radiant_fraction: 0.0
+
+# ─── Surfaces ─────────────────────────────────────────────────────────────────
+# Six surfaces enclosing the zone, all adiabatic (outdoor boundary but R=100).
+# Minimal heat transfer through these walls — the zone load is dominated by
+# the 5400W internal load.
+
+surfaces:
+  # All walls/roof/floor: ADIABATIC boundary (zero heat transfer)
+  # This ensures the ONLY zone load is the 5400 W internal gain.
+
+  # North Wall
+  - name: CE100 North Wall
+    zone: CE100 Zone
+    type: wall
+    construction: Adiabatic Wall
+    boundary: adiabatic
+    vertices:
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+
+  # South Wall
+  - name: CE100 South Wall
+    zone: CE100 Zone
+    type: wall
+    construction: Adiabatic Wall
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 0.0, z: 2.7}
+
+  # East Wall
+  - name: CE100 East Wall
+    zone: CE100 Zone
+    type: wall
+    construction: Adiabatic Wall
+    boundary: adiabatic
+    vertices:
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+
+  # West Wall
+  - name: CE100 West Wall
+    zone: CE100 Zone
+    type: wall
+    construction: Adiabatic Wall
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # Roof
+  - name: CE100 Roof
+    zone: CE100 Zone
+    type: roof
+    construction: Adiabatic Wall
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # Floor
+  - name: CE100 Floor
+    zone: CE100 Zone
+    type: floor
+    construction: Adiabatic Wall
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+
+# ─── HVAC System ──────────────────────────────────────────────────────────────
+# Window Air Conditioner: PSZ-AC with cycling fan + DX compressor
+# 0% outdoor air (100% recirculated zone air)
+#
+# Fan: On/Off (cycles with compressor)
+#   - 0.425 m³/s rated flow, 271 Pa, 50% total efficiency
+#   - Motor efficiency: 1.0 (ideal motor, 100% of waste heat to air)
+#   - Fan power at design: 271 × 0.425 / 0.5 ≈ 230 W
+#
+# DX Coil: Single-speed
+#   - 8181 W rated total capacity at ARI conditions (35°C ODB)
+#   - COP 4.161 at rated conditions
+#   - SHR 0.7774 (sensible heat ratio)
+#   - At 46.1°C outdoor: capacity derates, COP degrades
+
+air_loops:
+  - name: Window AC
+    controls:
+      cooling_supply_temp: 13.0
+      heating_supply_temp: 40.0
+      cycling: proportional
+      deadband: 1.0
+      minimum_damper_position: 0.0   # No outdoor air (100% recirculated)
+      design_zone_flow: 0.51         # 0.425 m³/s × 1.204 kg/m³ ≈ 0.51 kg/s
+    # Draw-through configuration (coil before fan, matching CASEE100 spec):
+    # Return air → DX Cooling Coil → Supply Fan → Zone
+    equipment:
+      - type: cooling_coil
+        name: CE100 DX Cooling Coil
+        source: dx
+        capacity: 8181.0
+        cop: 4.161
+        shr: 0.7774
+        rated_airflow: 0.425
+        setpoint: 13.0          # Will be overridden by PSZ-AC control logic
+
+      - type: fan
+        name: CE100 Supply Fan
+        source: on_off
+        design_flow_rate: 0.425
+        pressure_rise: 271.0
+        motor_efficiency: 1.0
+        impeller_efficiency: 0.5
+        motor_in_airstream_fraction: 1.0
+
+    zones:
+      - zone: CE100 Zone
+
+# ─── Zone Groups & Thermostats ───────────────────────────────────────────────
+
+zone_groups:
+  - name: CE100 Zone Group
+    zones:
+      - CE100 Zone
+
+thermostats:
+  - name: CE100 Thermostat
+    zones: [CE100 Zone Group]
+    cooling_setpoint: 22.2      # 72°F
+    heating_setpoint: 15.0      # Low setpoint (no heating needed)
+
+# ─── Outputs ──────────────────────────────────────────────────────────────────
+
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_cooling_rate
+      - zone_heating_rate
+      - zone_supply_air_temperature
+      - zone_supply_air_mass_flow
+      - site_outdoor_temperature
+
+  - file: "hvac_results.csv"
+    frequency: hourly
+    variables:
+      - component_electric_power
+      - air_loop_outlet_temperature
+      - air_loop_mass_flow
+
+summary_report: true

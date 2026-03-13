@@ -1,0 +1,1031 @@
+!-Generator IDFEditor 1.20
+!-NOTE: All comments with '!-' are ignored by the IDFEditor and are generated automatically.
+!-      Use '!' comments if they need to be retained when using the IDFEditor.
+!-   ===========  ALL OBJECTS IN CLASS: BUILDING ===========
+! Building Name
+! Building Azimuth
+! Building Terrain {1=FlatOpenCountry | 2=RoughWoodedCountryTownsSuburbs | 3=CityCenter}
+! Loads Convergence Tolerance
+! Temperature Convergence Tolerance
+! Solar Distribution {-1=MinimalShadowing | 0=FullExterior | 1=FullInteriorAndExterior}
+! Date:     August 2014
+! Spec:     ASHRAE 140-2011  Section 5.2 revised
+
+  VERSION,9.0;
+
+  Building,
+    BESTEST Case 300,        !- Name
+    0.0000000E+00,           !- North Axis {deg}
+    Country,                 !- Terrain
+    0.04,                    !- Loads Convergence Tolerance Value
+    0.4,                     !- Temperature Convergence Tolerance Value {deltaC}
+    FullInteriorAndExterior, !- Solar Distribution
+    ,                        !- Maximum Number of Warmup Days
+    6;                       !- Minimum Number of Warmup Days
+
+!-   ===========  ALL OBJECTS IN CLASS: TIMESTEP IN HOUR ===========
+
+  Timestep,6;
+
+!-   ===========  ALL OBJECTS IN CLASS: INSIDE CONVECTION ALGORITHM ===========
+
+  SurfaceConvectionAlgorithm:Inside,TARP;
+
+!-   ===========  ALL OBJECTS IN CLASS: OUTSIDE CONVECTION ALGORITHM ===========
+
+  SurfaceConvectionAlgorithm:Outside,DOE-2;
+
+!-   ===========  ALL OBJECTS IN CLASS: SHADOWING CALCULATIONS ===========
+
+  ShadowCalculation,
+    AverageOverDaysInFrequency,  !- Calculation Method
+    1;                       !- Calculation Frequency
+
+!-   ===========  ALL OBJECTS IN CLASS: ZONE VOLUME CAPACITANCE MULTIPLIER ===========
+! Used for Stability in Predictor Corrector Step by Increasing Reactive Capacity
+  ! ZoneCapacitanceMultiplier,1;
+!-   ===========  ALL OBJECTS IN CLASS: RUNPERIOD ===========
+! Annual simulation
+! Start month
+! Start day
+! End month
+! End day
+! Start day of week, use day on weather file
+
+  RunPeriod,
+    ,                        !- Name
+    1,                       !- Begin Month
+    1,                       !- Begin Day of Month
+    ,                        !- Begin Year
+    12,                      !- End Month
+    31,                      !- End Day of Month
+    ,                        !- End Year
+    ,                        !- Day of Week for Start Day
+    ,                        !- Use Weather File Holidays and Special Days
+    ,                        !- Use Weather File Daylight Saving Period
+    ,                        !- Apply Weekend Holiday Rule
+    ,                        !- Use Weather File Rain Indicators
+    ,                        !- Use Weather File Snow Indicators
+    ;                        !- Treat Weather as Actual
+
+!-   ===========  ALL OBJECTS IN CLASS: LOCATION ===========
+! BESTEST Case 300.idf
+! Basic file description: BESTEST Low-Mass building loads test.
+! Author:   R. H. Henninger,  GARD Analytics, Inc.
+! Date:     February 20, 2001
+! Run:      Annual run for Denver, CO location
+! Building: Diagonstic test for shading
+!           Fictional 1 zone building with resistive walls and window.
+!           Windows on east and west walls only, no shading
+!           20C heating, 20C cooling
+! Internal: None.
+! System:   None.
+! Plant:    None.
+! Modified: Conforms with Beta 5 input
+! Location Name
+! Latitude {N+ S-}
+! Longitude {W- E+}
+! TimeZoneNumber {GMT+/-}
+! Elevation {m}
+
+  Site:Location,
+    Denver COLORADO,         !- Name
+    39.833,                  !- Latitude {deg}
+    -104.650,                !- Longitude {deg}
+    -7.000000,               !- Time Zone {hr}
+    1650.;                   !- Elevation {m}
+
+!-   ===========  ALL OBJECTS IN CLASS: GROUNDREFLECTANCES ===========
+! Monthly ground reflectances
+
+  Site:GroundReflectance,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2;
+
+!-   ===========  ALL OBJECTS IN CLASS: MATERIAL:REGULAR ===========
+! DesignDay,
+!   DENVER CONSTANT WINTER-NOSUN,     ! Design Day Name
+!     -17.22222    ,     ! Max Dry-Bulb {C}
+!     0.0000000E+00,     ! Daily Temp Range {C}
+!     -17.22222    ,     ! Wet-Bulb at Max {C}
+!      83442.47    ,     ! Barometric Pressure {N/M**2}
+!      4.115816    ,     ! Wind Speed {M/Sec}
+!      169.0000    ,     ! Wind Direction {Degrees N=0, S=180}
+!     0.0000000E+00,     ! Clearness {0.0 to 1.1}
+!                 0,     ! Rain {0-no,1-yes}
+!                 0,     ! Snow on ground {0-no,1-yes}
+!                21,     ! Day of Month
+!                 1,     ! Month
+!            Monday,     ! Day Type
+!                 0;     ! Daylight Savings Time Indicator
+!
+! DesignDay,
+!  DENVER CONSTANT SUMMER-NOSUN,     ! Design Day Name
+!     32.77778    ,     ! Max Dry-Bulb {C}
+!     0.000000    ,     ! Daily Temp Range {C}
+!     15.00000    ,     ! Wet-Bulb at Max {C}
+!     84139.90    ,     ! Barometric Pressure {N/M**2}
+!     3.971544    ,     ! Wind Speed {M/Sec}
+!     146.0000    ,     ! Wind Direction {Degrees N=0, S=180}
+!     0.0000      ,     ! Clearness {0.0 to 1.1}
+!                0,     ! Rain {0-no,1-yes}
+!                0,     ! Snow on ground {0-no,1-yes}
+!               21,     ! Day of Month
+!                7,     ! Month
+!           Monday,     ! Day Type
+!                0;     ! Daylight Savings Time Indicator
+! Material Name
+! Roughness
+! Thickness {m}
+! Conductivity {W/M-K}
+! Density  {Kg/M3
+! Specific Heat {J/Kg-K}
+! Thermal Emissivity
+! Solar Absorptance
+! Visible Absorptance
+
+  Material,
+    PLASTERBOARD-1,          !- Name
+    Smooth,                  !- Roughness
+    0.01200,                 !- Thickness {m}
+    0.16000,                 !- Conductivity {W/m-K}
+    950.000,                 !- Density {kg/m3}
+    840.00,                  !- Specific Heat {J/kg-K}
+    0.9000000,               !- Thermal Absorptance
+    0.900000,                !- Solar Absorptance
+    0.900000;                !- Visible Absorptance
+
+! Material Name
+! Roughness
+! Thickness {m}
+! Conductivity {W/M-K}
+! Density  {Kg/M3
+! Specific Heat {J/Kg-K}
+! Thermal Emissivity
+! Solar Absorptance
+! Visible Absorptance
+
+  Material,
+    FIBERGLASS QUILT-1,      !- Name
+    Rough,                   !- Roughness
+    0.066,                   !- Thickness {m}
+    0.040,                   !- Conductivity {W/m-K}
+    12.000,                  !- Density {kg/m3}
+    840.00,                  !- Specific Heat {J/kg-K}
+    0.9000000,               !- Thermal Absorptance
+    0.100000,                !- Solar Absorptance
+    0.100000;                !- Visible Absorptance
+
+! Material Name
+! Roughness
+! Thickness {m}
+! Conductivity {W/M-K}
+! Density  {Kg/M3
+! Specific Heat {J/Kg-K}
+! Thermal Emissivity
+! Solar Absorptance
+! Visible Absorptance
+
+  Material,
+    WOOD SIDING-1,           !- Name
+    Rough,                   !- Roughness
+    0.00900,                 !- Thickness {m}
+    0.14000,                 !- Conductivity {W/m-K}
+    530.000,                 !- Density {kg/m3}
+    900.00,                  !- Specific Heat {J/kg-K}
+    0.9000000,               !- Thermal Absorptance
+    0.100000,                !- Solar Absorptance
+    0.100000;                !- Visible Absorptance
+
+! Material Name
+! Roughness
+! Thickness {m}
+! Conductivity {W/M-K}
+! Density  {Kg/M3
+! Specific Heat {J/Kg-K}
+! Thermal Emissivity
+! Solar Absorptance
+! Visible Absorptance
+
+  Material,
+    TIMBER FLOORING,         !- Name
+    Smooth,                  !- Roughness
+    0.02500,                 !- Thickness {m}
+    0.14000,                 !- Conductivity {W/m-K}
+    650.000,                 !- Density {kg/m3}
+    1200.0,                  !- Specific Heat {J/kg-K}
+    0.9000000,               !- Thermal Absorptance
+    0.900000,                !- Solar Absorptance
+    0.900000;                !- Visible Absorptance
+
+! Material Name
+! Roughness
+! Thickness {m}
+! Conductivity {W/M-K}
+! Density  {Kg/M3
+! Specific Heat {J/Kg-K}
+! Thermal Emissivity
+! Solar Absorptance
+! Visible Absorptance
+
+  Material,
+    PLASTERBOARD-2,          !- Name
+    Smooth,                  !- Roughness
+    0.01000,                 !- Thickness {m}
+    0.16000,                 !- Conductivity {W/m-K}
+    950.000,                 !- Density {kg/m3}
+    840.00,                  !- Specific Heat {J/kg-K}
+    0.9000000,               !- Thermal Absorptance
+    0.900000,                !- Solar Absorptance
+    0.900000;                !- Visible Absorptance
+
+! Material Name
+! Roughness
+! Thickness {m}
+! Conductivity {W/M-K}
+! Density  {Kg/M3
+! Specific Heat {J/Kg-K}
+! Thermal Emissivity
+! Solar Absorptance
+! Visible Absorptance
+
+  Material,
+    FIBERGLASS QUILT-2,      !- Name
+    Rough,                   !- Roughness
+    0.1118,                  !- Thickness {m}
+    0.040,                   !- Conductivity {W/m-K}
+    12.000,                  !- Density {kg/m3}
+    840.00,                  !- Specific Heat {J/kg-K}
+    0.9000000,               !- Thermal Absorptance
+    0.100000,                !- Solar Absorptance
+    0.100000;                !- Visible Absorptance
+
+! Material Name
+! Roughness
+! Thickness {m}
+! Conductivity {W/M-K}
+! Density  {Kg/M3
+! Specific Heat {J/Kg-K}
+! Thermal Emissivity
+! Solar Absorptance
+! Visible Absorptance
+
+  Material,
+    ROOF DECK,               !- Name
+    Rough,                   !- Roughness
+    0.01900,                 !- Thickness {m}
+    0.14000,                 !- Conductivity {W/m-K}
+    530.000,                 !- Density {kg/m3}
+    900.00,                  !- Specific Heat {J/kg-K}
+    0.9000000,               !- Thermal Absorptance
+    0.100000,                !- Solar Absorptance
+    0.100000;                !- Visible Absorptance
+
+!-   ===========  ALL OBJECTS IN CLASS: MATERIAL:REGULAR-R ===========
+! Material Name
+! Roughness
+! Thermal Resistance {M2-K/W}
+! Thermal Emissivity
+! Solar Absorptance
+! Visible Absorptance
+
+  Material:NoMass,
+    R-25 INSULATION,         !- Name
+    Rough,                   !- Roughness
+    25.075,                  !- Thermal Resistance {m2-K/W}
+    0.9000000,               !- Thermal Absorptance
+    0.100000,                !- Solar Absorptance
+    0.100000;                !- Visible Absorptance
+
+!-   ===========  ALL OBJECTS IN CLASS: MATERIAL:WINDOWGLASS ===========
+!BESTEST CLEAR 1/8 IN, A1 [Name]
+! Optical data type {SpectralAverage or Spectral}
+! Name of spectral data set when Optical Data Type = Spectral
+!N1 [Thickness {m}] 1/8"
+!N2 [Solar transmittance at normal incidence]
+!N3 [Solar reflectance at normal incidence: front side, calc from n=1.526, Tsol=.86156]
+!N4 [Solar reflectance at normal incidence: back side]
+!N5 [Visible transmittance at normal incidence, scaled from Window4 ID=1]
+!N6 [Visible reflectance at normal incidence: front side, based on Window4 ID=14]
+!N7 [Visible reflectance at normal incidence: back side]
+!N8 [IR transmittance at normal incidence]
+!N9 [IR emittance: front side]
+!N10 [IR emittance: back side]
+!N11 [Conductivity {W/m-K}]
+
+  WindowMaterial:Glazing,
+    Glass Type 1,            !- Name
+    SpectralAverage,         !- Optical Data Type
+    ,                        !- Window Glass Spectral Data Set Name
+    0.003048,                !- Thickness {m}
+    0.834,                   !- Solar Transmittance at Normal Incidence
+    0.075,                   !- Front Side Solar Reflectance at Normal Incidence
+    0.075,                   !- Back Side Solar Reflectance at Normal Incidence
+    0.91325,                 !- Visible Transmittance at Normal Incidence
+    0.08200,                 !- Front Side Visible Reflectance at Normal Incidence
+    0.08200,                 !- Back Side Visible Reflectance at Normal Incidence
+    0.0,                     !- Infrared Transmittance at Normal Incidence
+    0.84,                    !- Front Side Infrared Hemispherical Emissivity
+    0.84,                    !- Back Side Infrared Hemispherical Emissivity
+    1.00;                    !- Conductivity {W/m-K}
+
+!-   ===========  ALL OBJECTS IN CLASS: MATERIAL:WINDOWGAS ===========
+!BESTEST AIR GAP 1/2 IN, A1 [Name]
+!A2 [Gas type (Air - Argon - Krypton - Xenon - SF6 - Custom)]
+!N1 [Gap width {m}] 1/2 inch
+
+  WindowMaterial:Gas,
+    Air Space Resistance,    !- Name
+    AIR,                     !- Gas Type
+    0.012;                   !- Thickness {m}
+
+!-   ===========  ALL OBJECTS IN CLASS: CONSTRUCTION ===========
+! Construction Name
+! Material layer names follow:
+
+  Construction,
+    LTWALL,                  !- Name
+    WOOD SIDING-1,           !- Outside Layer
+    FIBERGLASS QUILT-1,      !- Layer 2
+    PLASTERBOARD-1;          !- Layer 3
+
+! Construction Name
+! Material layer names follow:
+
+  Construction,
+    LTFLOOR,                 !- Name
+    R-25 INSULATION,         !- Outside Layer
+    TIMBER FLOORING;         !- Layer 2
+
+! Construction Name
+! Material layer names follow:
+
+  Construction,
+    LTROOF,                  !- Name
+    ROOF DECK,               !- Outside Layer
+    FIBERGLASS QUILT-2,      !- Layer 2
+    PLASTERBOARD-2;          !- Layer 3
+
+!         0.,       !N2 [Density at 273K {kg/m3}] Used for type=CUSTOM
+!         0.,       !N3 [Density temperature derivative {kg/m3-K}] Used for type=CUSTOM
+!         0.,       !N4 [Conductivity {W/m-K}] Used for type=CUSTOM
+!         0.,       !N5 [Conductivity temperature derivative {W/m-K2}] Used for type=CUSTOM
+!         0.,       !N6 [Viscosity {kg/ms}] Used for type=CUSTOM
+!         0.,       !N7 [Viscosity temperature derivative {kg/m-s-K}] Used for type=CUSTOM
+!         0.,       !N8 [Prandtl number at 273K] Used for type=CUSTOM
+!         0.;       !N9 [Prandtl number temperature derivative {1/K}] Used for type=CUSTOM
+! Construction Name
+! Material layer names follow:
+
+  Construction,
+    Double Pane Window,      !- Name
+    Glass Type 1,            !- Outside Layer
+    Air Space Resistance,    !- Layer 2
+    Glass Type 1;            !- Layer 3
+
+!-   ===========  ALL OBJECTS IN CLASS: ZONE ===========
+! Zone Name
+! Zone North Axis (relative to Building)
+! Zone X Origin {m}
+! Zone Y Origin {m}
+! Zone Z Origin {m}
+! Zone Type (1 is the only valid value right now)
+! Zone Multiplier
+! Zone Ceiling Height {m}
+! Zone Volume {m**3}
+
+  Zone,
+    ZONE ONE,                !- Name
+    0.0000000E+00,           !- Direction of Relative North {deg}
+    0.0000000E+00,           !- X Origin {m}
+    0.0000000E+00,           !- Y Origin {m}
+    0.0000000E+00,           !- Z Origin {m}
+    1,                       !- Type
+    1,                       !- Multiplier
+    2.7000,                  !- Ceiling Height {m}
+    129.6;                   !- Volume {m3}
+
+!-   ===========  ALL OBJECTS IN CLASS: SURFACEGEOMETRY ===========
+
+  GlobalGeometryRules,
+    UpperLeftCorner,         !- Starting Vertex Position
+    Counterclockwise,        !- Vertex Entry Direction
+    WorldCoordinateSystem;   !- Coordinate System
+
+!-   ===========  ALL OBJECTS IN CLASS: SURFACE:HEATTRANSFER ===========
+
+  BuildingSurface:Detailed,
+    ZONE SURFACE NORTH,      !- Name
+    Wall,                    !- Surface Type
+    LTWALL,                  !- Construction Name
+    ZONE ONE,                !- Zone Name
+    Outdoors,                !- Outside Boundary Condition
+    ,                        !- Outside Boundary Condition Object
+    SunExposed,              !- Sun Exposure
+    WindExposed,             !- Wind Exposure
+    0.5000000,               !- View Factor to Ground
+    4,                       !- Number of Vertices
+    8.000000,6.000000,2.700000,  !- X,Y,Z ==> Vertex 1 {m}
+    8.000000,6.000000,0.0000000E+00,  !- X,Y,Z ==> Vertex 2 {m}
+    0.0000000E+00,6.000000,0.0000000E+00,  !- X,Y,Z ==> Vertex 3 {m}
+    0.0000000E+00,6.000000,2.700000;  !- X,Y,Z ==> Vertex 4 {m}
+
+  BuildingSurface:Detailed,
+    ZONE SURFACE EAST,       !- Name
+    Wall,                    !- Surface Type
+    LTWALL,                  !- Construction Name
+    ZONE ONE,                !- Zone Name
+    Outdoors,                !- Outside Boundary Condition
+    ,                        !- Outside Boundary Condition Object
+    SunExposed,              !- Sun Exposure
+    WindExposed,             !- Wind Exposure
+    0.5000000,               !- View Factor to Ground
+    4,                       !- Number of Vertices
+    8.000000,0.0000000E+00,2.700000,  !- X,Y,Z ==> Vertex 1 {m}
+    8.000000,0.0000000E+00,0.0000000E+00,  !- X,Y,Z ==> Vertex 2 {m}
+    8.000000,6.000000,0.0000000E+00,  !- X,Y,Z ==> Vertex 3 {m}
+    8.000000,6.000000,2.700000;  !- X,Y,Z ==> Vertex 4 {m}
+
+  BuildingSurface:Detailed,
+    ZONE SURFACE SOUTH,      !- Name
+    Wall,                    !- Surface Type
+    LTWALL,                  !- Construction Name
+    ZONE ONE,                !- Zone Name
+    Outdoors,                !- Outside Boundary Condition
+    ,                        !- Outside Boundary Condition Object
+    SunExposed,              !- Sun Exposure
+    WindExposed,             !- Wind Exposure
+    0.5000000,               !- View Factor to Ground
+    4,                       !- Number of Vertices
+    0.0000000E+00,0.0000000E+00,2.700000,  !- X,Y,Z ==> Vertex 1 {m}
+    0.0000000E+00,0.0000000E+00,0.0000000E+00,  !- X,Y,Z ==> Vertex 2 {m}
+    8.000000,0.0000000E+00,0.0000000E+00,  !- X,Y,Z ==> Vertex 3 {m}
+    8.000000,0.0000000E+00,2.700000;  !- X,Y,Z ==> Vertex 4 {m}
+
+  BuildingSurface:Detailed,
+    ZONE SURFACE WEST,       !- Name
+    Wall,                    !- Surface Type
+    LTWALL,                  !- Construction Name
+    ZONE ONE,                !- Zone Name
+    Outdoors,                !- Outside Boundary Condition
+    ,                        !- Outside Boundary Condition Object
+    SunExposed,              !- Sun Exposure
+    WindExposed,             !- Wind Exposure
+    0.5000000,               !- View Factor to Ground
+    4,                       !- Number of Vertices
+    0.0000000E+00,6.000000,2.700000,  !- X,Y,Z ==> Vertex 1 {m}
+    0.0000000E+00,6.000000,0.0000000E+00,  !- X,Y,Z ==> Vertex 2 {m}
+    0.0000000E+00,0.0000000E+00,0.0000000E+00,  !- X,Y,Z ==> Vertex 3 {m}
+    0.0000000E+00,0.0000000E+00,2.700000;  !- X,Y,Z ==> Vertex 4 {m}
+
+  BuildingSurface:Detailed,
+    ZONE SURFACE FLOOR,      !- Name
+    Floor,                   !- Surface Type
+    LTFLOOR,                 !- Construction Name
+    ZONE ONE,                !- Zone Name
+    Outdoors,                !- Outside Boundary Condition
+    ,                        !- Outside Boundary Condition Object
+    NoSun,                   !- Sun Exposure
+    NoWind,                  !- Wind Exposure
+    0.0000000E+00,           !- View Factor to Ground
+    4,                       !- Number of Vertices
+    0.0000000E+00,0.0000000E+00,0.0000000E+00,  !- X,Y,Z ==> Vertex 1 {m}
+    0.0000000E+00,6.000000,0.0000000E+00,  !- X,Y,Z ==> Vertex 2 {m}
+    8.000000,6.000000,0.0000000E+00,  !- X,Y,Z ==> Vertex 3 {m}
+    8.000000,0.0000000E+00,0.0000000E+00;  !- X,Y,Z ==> Vertex 4 {m}
+
+  BuildingSurface:Detailed,
+    ZONE SURFACE ROOF,       !- Name
+    Roof,                    !- Surface Type
+    LTROOF,                  !- Construction Name
+    ZONE ONE,                !- Zone Name
+    Outdoors,                !- Outside Boundary Condition
+    ,                        !- Outside Boundary Condition Object
+    SunExposed,              !- Sun Exposure
+    WindExposed,             !- Wind Exposure
+    0.0000000E+00,           !- View Factor to Ground
+    4,                       !- Number of Vertices
+    0.0000000E+00,6.000000,2.700000,  !- X,Y,Z ==> Vertex 1 {m}
+    0.0000000E+00,0.0000000E+00,2.700000,  !- X,Y,Z ==> Vertex 2 {m}
+    8.000000,0.0000000E+00,2.700000,  !- X,Y,Z ==> Vertex 3 {m}
+    8.000000,6.000000,2.700000;  !- X,Y,Z ==> Vertex 4 {m}
+
+!-   ===========  ALL OBJECTS IN CLASS: SURFACE:HEATTRANSFER:SUB ===========
+! Multiplier
+
+  FenestrationSurface:Detailed,
+    ZONE SUBSURFACE 1 EAST WINDOW,  !- Name
+    Window,                  !- Surface Type
+    DOUBLE PANE WINDOW,      !- Construction Name
+    ZONE SURFACE EAST,       !- Building Surface Name
+    ,                        !- Outside Boundary Condition Object
+    0.5000000,               !- View Factor to Ground
+    ,                        !- Frame and Divider Name
+    1,                       !- Multiplier
+    4,                       !- Number of Vertices
+    8.000000,1.500000,2.200000,  !- X,Y,Z ==> Vertex 1 {m}
+    8.000000,1.500000,0.2000000,  !- X,Y,Z ==> Vertex 2 {m}
+    8.000000,4.500000,0.2000000,  !- X,Y,Z ==> Vertex 3 {m}
+    8.000000,4.500000,2.200000;  !- X,Y,Z ==> Vertex 4 {m}
+
+! Multiplier
+
+  FenestrationSurface:Detailed,
+    ZONE SUBSURFACE 2 WEST WINDOW,  !- Name
+    Window,                  !- Surface Type
+    DOUBLE PANE WINDOW,      !- Construction Name
+    ZONE SURFACE WEST,       !- Building Surface Name
+    ,                        !- Outside Boundary Condition Object
+    0.5000000,               !- View Factor to Ground
+    ,                        !- Frame and Divider Name
+    1,                       !- Multiplier
+    4,                       !- Number of Vertices
+    0.0000000E+00,4.500000,2.200000,  !- X,Y,Z ==> Vertex 1 {m}
+    0.0000000E+00,4.500000,0.2000000,  !- X,Y,Z ==> Vertex 2 {m}
+    0.0000000E+00,1.500000,0.2000000,  !- X,Y,Z ==> Vertex 3 {m}
+    0.0000000E+00,1.500000,2.200000;  !- X,Y,Z ==> Vertex 4 {m}
+
+!-   ===========  ALL OBJECTS IN CLASS: SCHEDULETYPE ===========
+
+  ScheduleTypeLimits,
+    Fraction,                !- Name
+    0.0,                     !- Lower Limit Value
+    1.0,                     !- Upper Limit Value
+    Continuous;              !- Numeric Type
+
+  ScheduleTypeLimits,
+    Temperature,             !- Name
+    -60,                     !- Lower Limit Value
+    200,                     !- Upper Limit Value
+    Continuous;              !- Numeric Type
+
+  ScheduleTypeLimits,
+    Control Type,            !- Name
+    0,                       !- Lower Limit Value
+    4,                       !- Upper Limit Value
+    Discrete;                !- Numeric Type
+
+!-   ===========  ALL OBJECTS IN CLASS: DAYSCHEDULE ===========
+! Day schedule name
+!
+
+  Schedule:Day:Hourly,
+    Day Sch 1,               !- Name
+    Fraction,                !- Schedule Type Limits Name
+    1,                       !- Hour 1
+    1,                       !- Hour 2
+    1,                       !- Hour 3
+    1,                       !- Hour 4
+    1,                       !- Hour 5
+    1,                       !- Hour 6
+    1,                       !- Hour 7
+    1,                       !- Hour 8
+    1,                       !- Hour 9
+    1,                       !- Hour 10
+    1,                       !- Hour 11
+    1,                       !- Hour 12
+    1,                       !- Hour 13
+    1,                       !- Hour 14
+    1,                       !- Hour 15
+    1,                       !- Hour 16
+    1,                       !- Hour 17
+    1,                       !- Hour 18
+    1,                       !- Hour 19
+    1,                       !- Hour 20
+    1,                       !- Hour 21
+    1,                       !- Hour 22
+    1,                       !- Hour 23
+    1;                       !- Hour 24
+
+! Name
+! Type of schedule -- e.g. Fraction on/off etc.
+! Next Arguments represent each hour of day
+
+  Schedule:Day:Hourly,
+    Zone Heating Setpoint All Days,  !- Name
+    Temperature,             !- Schedule Type Limits Name
+    20.,                     !- Hour 1
+    20.,                     !- Hour 2
+    20.,                     !- Hour 3
+    20.,                     !- Hour 4
+    20.,                     !- Hour 5
+    20.,                     !- Hour 6
+    20.,                     !- Hour 7
+    20.,                     !- Hour 8
+    20.,                     !- Hour 9
+    20.,                     !- Hour 10
+    20.,                     !- Hour 11
+    20.,                     !- Hour 12
+    20.,                     !- Hour 13
+    20.,                     !- Hour 14
+    20.,                     !- Hour 15
+    20.,                     !- Hour 16
+    20.,                     !- Hour 17
+    20.,                     !- Hour 18
+    20.,                     !- Hour 19
+    20.,                     !- Hour 20
+    20.,                     !- Hour 21
+    20.,                     !- Hour 22
+    20.,                     !- Hour 23
+    20.;                     !- Hour 24
+
+! Name
+! Type of schedule -- e.g. Fraction on/off etc.
+! Next Arguments represent each hour of day
+
+  Schedule:Day:Hourly,
+    Zone Cooling Setpoint All Days,  !- Name
+    Temperature,             !- Schedule Type Limits Name
+    20.,                     !- Hour 1
+    20.,                     !- Hour 2
+    20.,                     !- Hour 3
+    20.,                     !- Hour 4
+    20.,                     !- Hour 5
+    20.,                     !- Hour 6
+    20.,                     !- Hour 7
+    20.,                     !- Hour 8
+    20.,                     !- Hour 9
+    20.,                     !- Hour 10
+    20.,                     !- Hour 11
+    20.,                     !- Hour 12
+    20.,                     !- Hour 13
+    20.,                     !- Hour 14
+    20.,                     !- Hour 15
+    20.,                     !- Hour 16
+    20.,                     !- Hour 17
+    20.,                     !- Hour 18
+    20.,                     !- Hour 19
+    20.,                     !- Hour 20
+    20.,                     !- Hour 21
+    20.,                     !- Hour 22
+    20.,                     !- Hour 23
+    20.;                     !- Hour 24
+
+! Name
+! Type of schedule -- e.g. Fraction on/off etc.
+! Next Arguments represent each hour of day
+
+  Schedule:Day:Hourly,
+    Control Type All Days,   !- Name
+    Control Type,            !- Schedule Type Limits Name
+    4,                       !- Hour 1
+    4,                       !- Hour 2
+    4,                       !- Hour 3
+    4,                       !- Hour 4
+    4,                       !- Hour 5
+    4,                       !- Hour 6
+    4,                       !- Hour 7
+    4,                       !- Hour 8
+    4,                       !- Hour 9
+    4,                       !- Hour 10
+    4,                       !- Hour 11
+    4,                       !- Hour 12
+    4,                       !- Hour 13
+    4,                       !- Hour 14
+    4,                       !- Hour 15
+    4,                       !- Hour 16
+    4,                       !- Hour 17
+    4,                       !- Hour 18
+    4,                       !- Hour 19
+    4,                       !- Hour 20
+    4,                       !- Hour 21
+    4,                       !- Hour 22
+    4,                       !- Hour 23
+    4;                       !- Hour 24
+
+!-   ===========  ALL OBJECTS IN CLASS: WEEKSCHEDULE ===========
+! Week schedule name
+
+  Schedule:Week:Daily,
+    Week Sch 1,              !- Name
+    Day Sch 1,               !- Sunday Schedule:Day Name
+    Day Sch 1,               !- Monday Schedule:Day Name
+    Day Sch 1,               !- Tuesday Schedule:Day Name
+    Day Sch 1,               !- Wednesday Schedule:Day Name
+    Day Sch 1,               !- Thursday Schedule:Day Name
+    Day Sch 1,               !- Friday Schedule:Day Name
+    Day Sch 1,               !- Saturday Schedule:Day Name
+    Day Sch 1,               !- Holiday Schedule:Day Name
+    Day Sch 1,               !- SummerDesignDay Schedule:Day Name
+    Day Sch 1,               !- WinterDesignDay Schedule:Day Name
+    Day Sch 1,               !- CustomDay1 Schedule:Day Name
+    Day Sch 1;               !- CustomDay2 Schedule:Day Name
+
+! Name
+! Next arguments are names (DaySchedules) for the days
+! Sunday
+! Monday
+! Tuesday
+! Wednesday
+! Thursday
+! Friday
+! Saturday
+! Holiday
+! Summer Design Day
+! Winter Design Day
+! Special Day1
+! Special Day2
+
+  Schedule:Week:Daily,
+    Zone Heating Setpoint All Weeks,  !- Name
+    Zone Heating Setpoint All Days,  !- Sunday Schedule:Day Name
+    Zone Heating Setpoint All Days,  !- Monday Schedule:Day Name
+    Zone Heating Setpoint All Days,  !- Tuesday Schedule:Day Name
+    Zone Heating Setpoint All Days,  !- Wednesday Schedule:Day Name
+    Zone Heating Setpoint All Days,  !- Thursday Schedule:Day Name
+    Zone Heating Setpoint All Days,  !- Friday Schedule:Day Name
+    Zone Heating Setpoint All Days,  !- Saturday Schedule:Day Name
+    Zone Heating Setpoint All Days,  !- Holiday Schedule:Day Name
+    Zone Heating Setpoint All Days,  !- SummerDesignDay Schedule:Day Name
+    Zone Heating Setpoint All Days,  !- WinterDesignDay Schedule:Day Name
+    Zone Heating Setpoint All Days,  !- CustomDay1 Schedule:Day Name
+    Zone Heating Setpoint All Days;  !- CustomDay2 Schedule:Day Name
+
+! Name
+! Next arguments are names (DaySchedules) for the days
+! Sunday
+! Monday
+! Tuesday
+! Wednesday
+! Thursday
+! Friday
+! Saturday
+! Holiday
+! Summer Design Day
+! Winter Design Day
+! Special Day1
+! Special Day2
+
+  Schedule:Week:Daily,
+    Zone Cooling Setpoint All Weeks,  !- Name
+    Zone Cooling Setpoint All Days,  !- Sunday Schedule:Day Name
+    Zone Cooling Setpoint All Days,  !- Monday Schedule:Day Name
+    Zone Cooling Setpoint All Days,  !- Tuesday Schedule:Day Name
+    Zone Cooling Setpoint All Days,  !- Wednesday Schedule:Day Name
+    Zone Cooling Setpoint All Days,  !- Thursday Schedule:Day Name
+    Zone Cooling Setpoint All Days,  !- Friday Schedule:Day Name
+    Zone Cooling Setpoint All Days,  !- Saturday Schedule:Day Name
+    Zone Cooling Setpoint All Days,  !- Holiday Schedule:Day Name
+    Zone Cooling Setpoint All Days,  !- SummerDesignDay Schedule:Day Name
+    Zone Cooling Setpoint All Days,  !- WinterDesignDay Schedule:Day Name
+    Zone Cooling Setpoint All Days,  !- CustomDay1 Schedule:Day Name
+    Zone Cooling Setpoint All Days;  !- CustomDay2 Schedule:Day Name
+
+! Name
+! Next arguments are names (DaySchedules) for the days
+! Sunday
+! Monday
+! Tuesday
+! Wednesday
+! Thursday
+! Friday
+! Saturday
+! Holiday
+! Summer Design Day
+! Winter Design Day
+! Special Day1
+! Special Day2
+
+  Schedule:Week:Daily,
+    Control Type All Weeks,  !- Name
+    Control Type All Days,   !- Sunday Schedule:Day Name
+    Control Type All Days,   !- Monday Schedule:Day Name
+    Control Type All Days,   !- Tuesday Schedule:Day Name
+    Control Type All Days,   !- Wednesday Schedule:Day Name
+    Control Type All Days,   !- Thursday Schedule:Day Name
+    Control Type All Days,   !- Friday Schedule:Day Name
+    Control Type All Days,   !- Saturday Schedule:Day Name
+    Control Type All Days,   !- Holiday Schedule:Day Name
+    Control Type All Days,   !- SummerDesignDay Schedule:Day Name
+    Control Type All Days,   !- WinterDesignDay Schedule:Day Name
+    Control Type All Days,   !- CustomDay1 Schedule:Day Name
+    Control Type All Days;   !- CustomDay2 Schedule:Day Name
+
+!-   ===========  ALL OBJECTS IN CLASS: SCHEDULE ===========
+! Schedule name
+!
+! Week schedule name
+! Starting month
+! Starting day of month
+! Ending month
+! Ending day of month
+
+  Schedule:Year,
+    Sch 1,                   !- Name
+    Fraction,                !- Schedule Type Limits Name
+    Week Sch 1,              !- Schedule:Week Name 1
+    1,                       !- Start Month 1
+    1,                       !- Start Day 1
+    12,                      !- End Month 1
+    31;                      !- End Day 1
+
+! Name
+! Type of schedule -- e.g. Fraction on/off etc.
+! remaining arguments are grouped [Name (WeekSchedules),startmonth,startday,endmonth,endday]
+! 18 periods allowed
+! Name of WeekSchedule
+! startmonth,startday
+! endmonth,endday
+
+  Schedule:Year,
+    Heating Setpoints,       !- Name
+    Temperature,             !- Schedule Type Limits Name
+    Zone Heating Setpoint All Weeks,  !- Schedule:Week Name 1
+    1,                       !- Start Month 1
+    1,                       !- Start Day 1
+    12,                      !- End Month 1
+    31;                      !- End Day 1
+
+! Name
+! Type of schedule -- e.g. Fraction on/off etc.
+! remaining arguments are grouped [Name (WeekSchedules),startmonth,startday,endmonth,endday]
+! 18 periods allowed
+! Name of WeekSchedule
+! startmonth,startday
+! endmonth,endday
+
+  Schedule:Year,
+    Cooling Setpoints,       !- Name
+    Temperature,             !- Schedule Type Limits Name
+    Zone Cooling Setpoint All Weeks,  !- Schedule:Week Name 1
+    1,                       !- Start Month 1
+    1,                       !- Start Day 1
+    12,                      !- End Month 1
+    31;                      !- End Day 1
+
+! Name
+! Type of schedule -- e.g. Fraction on/off etc.
+! remaining arguments are grouped [Name (WeekSchedules),startmonth,startday,endmonth,endday]
+! 18 periods allowed
+! startmonth,startday
+! endmonth,endday
+
+  Schedule:Year,
+    Zone Control Type Sched, !- Name
+    Control Type,            !- Schedule Type Limits Name
+    Control Type All Weeks,  !- Schedule:Week Name 1
+    1,                       !- Start Month 1
+    1,                       !- Start Day 1
+    12,                      !- End Month 1
+    31;                      !- End Day 1
+
+!-   ===========  ALL OBJECTS IN CLASS: OTHER EQUIPMENT ===========
+! Zone Name
+! Schedule Name
+! Design Level {W)
+! Fraction latent
+! Fraction radiant
+! Fraction lost
+
+  OtherEquipment,
+    ZONE ONE OthEq 1,        !- Name
+    None,                    !- Fuel Type
+    ZONE ONE,                !- Zone or ZoneList Name
+    Sch 1,                   !- Schedule Name
+    EquipmentLevel,          !- Design Level Calculation Method
+    0.0,                     !- Design Level {W}
+    ,                        !- Power per Zone Floor Area {W/m2}
+    ,                        !- Power per Person {W/person}
+    0.000,                   !- Fraction Latent
+    0.600,                   !- Fraction Radiant
+    0.000;                   !- Fraction Lost
+
+!-   ===========  ALL OBJECTS IN CLASS: NODE LIST ===========
+! Node List Name
+! Node_ID_1
+
+  NodeList,
+    Zone1Inlets,             !- Name
+    NODE_1;                  !- Node 1 Name
+
+!-   ===========  ALL OBJECTS IN CLASS: CONTROLLED ZONE EQUIP CONFIGURATION ===========
+!*****************ZONE EQUIPMENT SPECIFICATION*********************
+!Zone Heating and Cooling Equipment are attached to zones by the following statements:
+! Zone Name
+! List Name: Zone Equipment
+! List Name: Zone Inlet Nodes
+! List Name: Zone Exhaust Nodes
+! Zone Air Node Name
+! Zone Return Air Node Name
+
+  ZoneHVAC:EquipmentConnections,
+    ZONE ONE,                !- Zone Name
+    Zone1Equipment,          !- Zone Conditioning Equipment List Name
+    Zone1Inlets,             !- Zone Air Inlet Node or NodeList Name
+    ,                        !- Zone Air Exhaust Node or NodeList Name
+    NODE_2,                  !- Zone Air Node Name
+    NODE_3;                  !- Zone Return Air Node or NodeList Name
+
+!-   ===========  ALL OBJECTS IN CLASS: ZONE EQUIPMENT LIST ===========
+! Name
+!List equipment in simulation order
+! KEY--Zone Equipment Type 1, Type Name 1, Cooling Priority, Heating Priority
+
+  ZoneHVAC:EquipmentList,
+    Zone1Equipment,          !- Name
+    SequentialLoad,          !- Load Distribution Scheme
+    ZoneHVAC:IdealLoadsAirSystem,  !- Zone Equipment 1 Object Type
+    Zone1Air,                !- Zone Equipment 1 Name
+    1,                       !- Zone Equipment 1 Cooling Sequence
+    1;                       !- Zone Equipment 1 Heating or No-Load Sequence
+
+!-   ===========  ALL OBJECTS IN CLASS: PURCHASED AIR ===========
+! PURCHASED AIR,
+!    A1 [Purchased Air Name],
+!    N1 [Zone Supply Air Node Number],
+!    N2 [Heating Supply Air Temp],
+!    N3 [Cooling Supply Air Temp],
+!    N4 [Heating Supply Air Humidity Ratio],
+!    N5 [Cooling Supply Air Humidity Ratio];
+!
+! Purchased Air Name
+! Zone Supply Air Node Name
+! Heating Supply Air Temp {C}
+! Cooling Supply Air Temp {C}
+! Heating Supply Air Humidity Ratio {kg/kg}
+! Cooling Supply Air Humidity Ratio {kg/kg}
+
+  ZoneHVAC:IdealLoadsAirSystem,
+    Zone1Air,                !- Name
+    ,                        !- Availability Schedule Name
+    NODE_1,                  !- Zone Supply Air Node Name
+    ,                        !- Zone Exhaust Air Node Name
+    ,                        !- System Inlet Air Node Name
+    50,                      !- Maximum Heating Supply Air Temperature {C}
+    13,                      !- Minimum Cooling Supply Air Temperature {C}
+    0.010,                   !- Maximum Heating Supply Air Humidity Ratio {kgWater/kgDryAir}
+    0.010,                   !- Minimum Cooling Supply Air Humidity Ratio {kgWater/kgDryAir}
+    ,                        !- Heating Limit
+    ,                        !- Maximum Heating Air Flow Rate {m3/s}
+    ,                        !- Maximum Sensible Heating Capacity {W}
+    ,                        !- Cooling Limit
+    ,                        !- Maximum Cooling Air Flow Rate {m3/s}
+    ,                        !- Maximum Total Cooling Capacity {W}
+    ,                        !- Heating Availability Schedule Name
+    ,                        !- Cooling Availability Schedule Name
+    None,                    !- Dehumidification Control Type
+    ,                        !- Cooling Sensible Heat Ratio {dimensionless}
+    None,                    !- Humidification Control Type
+    ,                        !- Design Specification Outdoor Air Object Name
+    ,                        !- Outdoor Air Inlet Node Name
+    ,                        !- Demand Controlled Ventilation Type
+    ,                        !- Outdoor Air Economizer Type
+    ,                        !- Heat Recovery Type
+    ,                        !- Sensible Heat Recovery Effectiveness {dimensionless}
+    ;                        !- Latent Heat Recovery Effectiveness {dimensionless}
+
+!-   ===========  ALL OBJECTS IN CLASS: ZONE CONTROL:THERMOSTATIC ===========
+! Thermostat Name
+! Zone Name
+! Control Type SCHEDULE Name
+! Control Type
+! Control Type Name
+
+  ZoneControl:Thermostat,
+    Zone 1 Thermostat,       !- Name
+    ZONE ONE,                !- Zone or ZoneList Name
+    Zone Control Type Sched, !- Control Type Schedule Name
+    ThermostatSetpoint:DualSetpoint,  !- Control 1 Object Type
+    Heating Cooling Setpoints;  !- Control 1 Name
+
+!-   ===========  ALL OBJECTS IN CLASS: SINGLE HEATING COOLING SETPOINT ===========
+!-   ===========  ALL OBJECTS IN CLASS: DUAL SETPOINT WITH DEADBAND ===========
+! Name
+! Heating Setpoint Temperature SCHEDULE Name
+! Cooling Setpoint Temperature SCHEDULE Name
+
+  ThermostatSetpoint:DualSetpoint,
+    Heating Cooling Setpoints,  !- Name
+    Heating Setpoints,       !- Heating Setpoint Temperature Schedule Name
+    Cooling Setpoints;       !- Cooling Setpoint Temperature Schedule Name
+
+!-   ===========  ALL OBJECTS IN CLASS: REPORT VARIABLE ===========
+!  These are report variables Linda uses to trace changes
+!report variable,,outdoor dry bulb,hourly;
+
+  Output:Variable,*,Zone Mean Air Temperature,Hourly;
+
+!report variable,,zone latent load,hourly;
+!report variable,,lights return air load,hourly;
+!report variable,,electric load,hourly;
+!report variable,,Electric Load,hourly;
+!report variable,,Mean Radiant Temperature,hourly;
+!report variable,,Surface Inside face Temperature,hourly;
+!report variable,,Surface Outside face Temperature,hourly;
+
+  Output:Variable,*,Zone Air System Sensible Heating Energy,Hourly;
+
+  Output:Variable,*,Zone Air System Sensible Cooling Energy,Hourly;
+
+!-   ===========  ALL OBJECTS IN CLASS: REPORT ===========
+!report variable,,Zone/Sys Sensible Heating Rate,hourly;
+!report variable,,Zone/Sys Sensible Cooling Rate,hourly;
+!report variable,,Zone/Sys Air Temp,hourly;
+!report variable,,Zone Air Humidity Ratio,hourly;
+!report variable,,System Node Temp,hourly;
+!report variable,,System Node MassFlowRate,hourly;
+!report variable,,System Node Humidity Ratio,hourly;
+!report variable,,SimAir Iterations,hourly;
+
+  Output:Surfaces:Drawing,DXF;
+
+  Output:Constructions,Constructions;
+

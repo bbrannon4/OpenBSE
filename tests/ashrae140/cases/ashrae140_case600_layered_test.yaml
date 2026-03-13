@@ -1,0 +1,296 @@
+# OpenBSE ASHRAE Standard 140 — Case 600
+#
+# Single-zone low-mass building in Denver, CO
+# Reference: ASHRAE Standard 140-2023, Section 7.2.1
+#
+# Building: 8m (E-W) x 6m (N-S) x 2.7m height = 129.6 m3
+# Two south-facing windows: each 3m wide x 2m tall
+# Low-mass construction, 0.5 ACH infiltration, 200W internal gains
+#
+# Coordinate system: X=East, Y=North, Z=Up
+# Origin: SW corner of floor at ground level
+#
+# HVAC: Ideal loads air system, nonproportional thermostat
+#   Heat ON if T < 20C, Cool ON if T > 27C
+#   Capacity: 1 MW each (effectively unlimited)
+#   All energy 100% convective to zone air
+#
+# Target annual results (ASHRAE 140-2023 acceptance range):
+#   Heating: 4.296 - 5.709 MWh
+#   Cooling: 6.137 - 8.448 MWh
+#
+# Vertex order: Counter-clockwise from outside (Newell convention)
+
+simulation:
+  timesteps_per_hour: 4
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+  terrain: country
+
+weather_files:
+  - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
+
+# ─── Layered Constructions (exact E+ materials) ──────────────────────────────
+# Using exact material properties from EnergyPlus Case600.idf
+
+materials:
+  # Wall exterior: WOOD SIDING-1
+  - name: WoodSiding
+    conductivity: 0.14
+    density: 530.0
+    specific_heat: 900.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  # Wall insulation: FIBERGLASS QUILT-1
+  - name: FiberglassQuilt
+    conductivity: 0.04
+    density: 12.0
+    specific_heat: 840.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+
+  # Wall interior: PLASTERBOARD-1
+  - name: Plasterboard
+    conductivity: 0.16
+    density: 950.0
+    specific_heat: 840.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+
+  # Roof exterior: ROOF DECK
+  - name: RoofDeck
+    conductivity: 0.14
+    density: 530.0
+    specific_heat: 900.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  # Roof insulation: FIBERGLASS QUILT-2 (same material, thicker)
+  # (reuses FiberglassQuilt)
+
+  # Roof interior: PLASTERBOARD-2 (same material, thinner)
+  # (reuses Plasterboard)
+
+  # Floor insulation: INS — EnergyPlus Material:NoMass
+  # Zero thermal mass, R = 25.075 m²K/W (matching E+ exactly)
+  - name: FloorInsulation
+    thermal_resistance: 25.075
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  # Floor interior: TIMBER FLOORING
+  - name: TimberFlooring
+    conductivity: 0.14
+    density: 650.0
+    specific_heat: 1200.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+
+constructions:
+  # LTWALL: Wood Siding 9mm / Fiberglass 66mm / Plasterboard 12mm
+  - name: Case600 Wall
+    layers:
+      - { material: WoodSiding, thickness: 0.009 }
+      - { material: FiberglassQuilt, thickness: 0.066 }
+      - { material: Plasterboard, thickness: 0.012 }
+
+  # LTROOF: Roof Deck 19mm / Fiberglass 111.8mm / Plasterboard 10mm
+  - name: Case600 Roof
+    layers:
+      - { material: RoofDeck, thickness: 0.019 }
+      - { material: FiberglassQuilt, thickness: 0.1118 }
+      - { material: Plasterboard, thickness: 0.010 }
+
+  # LTFLOOR: Insulation 1003mm / Timber Flooring 25mm
+  # E+ uses NoMass for insulation (R=25.075). We use physical insulation.
+  - name: Case600 Floor
+    layers:
+      - { material: FloorInsulation, thickness: 1.003 }
+      - { material: TimberFlooring, thickness: 0.025 }
+
+window_constructions:
+  # Case 600 Window: double-pane clear glass
+  # U = 3.0 W/(m2K), SHGC = 0.769 at normal incidence
+  - name: Case600 Window
+    u_factor: 3.0
+    shgc: 0.769
+    visible_transmittance: 0.74
+    pane_solar_transmittance: 0.834
+    pane_solar_reflectance: 0.075
+    # ISO 15099 first-principles gap thermal model properties
+    num_panes: 2
+    gap_width: 0.012
+    pane_conductivity: 1.0
+    pane_thickness: 0.003175
+    glass_emissivity: 0.84
+
+# ─── No air loops needed ─────────────────────────────────────────────────────
+# Ideal loads air system handles HVAC internally in the envelope solver.
+# No air_loops, zone_groups, or controls needed for ASHRAE 140.
+
+# ─── Outputs ──────────────────────────────────────────────────────────────────
+
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - site_outdoor_temperature
+
+  - file: "energy_monthly.csv"
+    frequency: monthly
+    aggregation: sum
+    variables:
+      - zone_heating_energy
+      - zone_cooling_energy
+
+summary_report: true
+
+# ─── Zone ────────────────────────────────────────────────────────────────────
+# Volume and floor area will be auto-calculated from surface vertices.
+
+zones:
+  - name: Case600 Zone
+    # volume: auto-calculated (129.6 m3)
+    # floor_area: auto-calculated (48.0 m2)
+    # Interior solar distribution (ASHRAE 140 Section 7.2.1.13)
+    solar_distribution:
+      floor_fraction: 0.642
+      wall_fraction: 0.191
+      ceiling_fraction: 0.167
+
+equipment:
+  - name: Internal Gains
+    zones: [Case600 Zone]
+    power: 200.0              # 200W continuous, 60% radiant
+    radiant_fraction: 0.6
+
+infiltration:
+  - name: Zone Infiltration
+    zones: [Case600 Zone]
+    air_changes_per_hour: 0.5
+
+# Ideal loads air system — nonproportional thermostat
+ideal_loads:
+  - name: Zone Ideal Loads
+    zones: [Case600 Zone]
+    heating_setpoint: 20.0      # Heat ON if T < 20C
+    cooling_setpoint: 27.0      # Cool ON if T > 27C
+    heating_capacity: 1000000.0 # 1 MW (effectively unlimited)
+    cooling_capacity: 1000000.0 # 1 MW (effectively unlimited)
+
+# ─── Surfaces with 3D Vertices ──────────────────────────────────────────────
+# All vertices are CCW when viewed from outside (outward normal convention).
+# Coordinate system: X=East, Y=North, Z=Up. Origin at SW floor corner.
+
+surfaces:
+  # ── South Wall (faces south, normal = -Y) ──────────────────────────
+  # 8m wide x 2.7m tall = 21.6 m2 gross
+  # Net = 21.6 - 2*6.0 = 9.6 m2 (after subtracting two 3x2m windows)
+  - name: South Wall
+    zone: Case600 Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 0.0, z: 2.7}
+
+  # ── South Window 1 (west side) ─────────────────────────────────────
+  # 3m wide x 2m tall, sill at 0.2m, starting at x=0.5m
+  - name: South Window 1
+    zone: Case600 Zone
+    type: window
+    construction: Case600 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 0.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 2.2}
+      - {x: 0.5, y: 0.0, z: 2.2}
+
+  # ── South Window 2 (east side) ─────────────────────────────────────
+  - name: South Window 2
+    zone: Case600 Zone
+    type: window
+    construction: Case600 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 4.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 2.2}
+      - {x: 4.5, y: 0.0, z: 2.2}
+
+  # ── North Wall (faces north, normal = +Y) ──────────────────────────
+  - name: North Wall
+    zone: Case600 Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+
+  # ── East Wall (faces east, normal = +X) ────────────────────────────
+  - name: East Wall
+    zone: Case600 Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+
+  # ── West Wall (faces west, normal = -X) ────────────────────────────
+  - name: West Wall
+    zone: Case600 Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # ── Roof (faces up, normal = +Z) ───────────────────────────────────
+  - name: Roof
+    zone: Case600 Zone
+    type: roof
+    construction: Case600 Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # ── Floor (faces down, normal = -Z) ────────────────────────────────
+  # ASHRAE 140 Case 600: raised floor, heavily insulated
+  # Using outdoor boundary (the insulation makes it nearly adiabatic)
+  - name: Floor
+    zone: Case600 Zone
+    type: floor
+    construction: Case600 Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}

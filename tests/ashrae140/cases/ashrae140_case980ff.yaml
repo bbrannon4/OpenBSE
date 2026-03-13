@@ -1,0 +1,227 @@
+# OpenBSE ASHRAE Standard 140 — Case 980FF
+#
+# Case 980FF: High-Mass Increased Insulation Free-Float
+#
+# Single-zone high-mass building in Denver, CO (Golden, CO weather)
+# Reference: ASHRAE Standard 140-2023, Section 7.2.2.2
+#
+# Building: 8m (E-W) x 6m (N-S) x 2.7m height = 129.6 m3
+# Same as Case 980 except no HVAC system — zone temperature floats freely.
+#
+# (Case 980FF is to Case 900FF as Case 680FF is to Case 600FF.)
+#
+# High-mass construction with increased insulation (Table 7-31):
+#   Walls: U = 0.156 W/(m2K) surface-to-surface
+#     Concrete Block 100mm + Foam Insulation 245.2mm + Wood Siding 9mm
+#   Roof:  U = 0.098 W/(m2K) surface-to-surface
+#     Plasterboard 10mm + Fiberglass quilt 400mm + Roofdeck 19mm
+#   Floor: Same as Case 900 (U = 0.040)
+#
+# Two south-facing windows: each 3m wide x 2m tall
+# 0.5 ACH infiltration, 200W internal gains
+#
+# No HVAC — free-float mode
+#
+# Vertex order: Counter-clockwise from outside (Newell convention)
+
+simulation:
+  timesteps_per_hour: 4
+  terrain: country
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
+
+# --- Simple Constructions -------------------------------------------------------
+# Case 980: High-mass with increased insulation (Table 7-31).
+
+simple_constructions:
+  # Case 980 Wall (Table 7-31)
+  # Concrete Block (k=0.51, t=0.100) + Foam Insulation (k=0.04, t=0.2452) + Wood Siding (k=0.14, t=0.009)
+  # Surface-to-surface U = 0.156 W/(m2K), R = 6.390 m2K/W (Table 7-32)
+  # Thermal capacity: 0.100*1400*1000 + 0.2452*10*1400 + 0.009*530*900 = 147726 J/(m2K)
+  - name: Case980FF Wall
+    u_factor: 0.156
+    thickness: 0.1
+    thermal_capacity: 147726.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    mass_conductivity: 0.51
+    mass_density: 1400.0
+    roughness: rough
+
+  # Case 980 Roof (Table 7-31, same as low-mass Case 680 roof)
+  # Plasterboard (k=0.16, t=0.010) + Fiberglass quilt (k=0.04, t=0.400) + Roofdeck (k=0.14, t=0.019)
+  # Surface-to-surface U = 0.098 W/(m2K), R = 10.198 m2K/W (Table 7-32)
+  # Thermal capacity: 0.010*950*840 + 0.400*12*840 + 0.019*530*900 = 21075 J/(m2K)
+  - name: Case980FF Roof
+    u_factor: 0.098
+    thickness: 0.429
+    thermal_capacity: 21075.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  # Case 980 Floor: Same as Case 900
+  # U = 0.0396 W/(m2K), thermal capacity = 112000 J/(m2K)
+  - name: Case900 Floor
+    u_factor: 0.0396
+    thickness: 0.08
+    thermal_capacity: 112000.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    mass_conductivity: 1.13
+    mass_density: 1400.0
+
+window_constructions:
+  # Double-pane clear glass (same as Case 900)
+  - name: Case900 Window
+    u_factor: 3.0
+    shgc: 0.769
+    pane_solar_transmittance: 0.834
+    pane_solar_reflectance: 0.075
+    # ISO 15099 first-principles gap thermal model properties
+    num_panes: 2
+    gap_width: 0.012
+    pane_conductivity: 1.0
+    pane_thickness: 0.003175
+    glass_emissivity: 0.84
+    visible_transmittance: 0.74
+
+# --- Outputs ---------------------------------------------------------------------
+
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - site_outdoor_temperature
+
+  - file: "energy_monthly.csv"
+    frequency: monthly
+    aggregation: sum
+    variables:
+      - zone_heating_energy
+      - zone_cooling_energy
+
+summary_report: true
+
+# --- Zone ------------------------------------------------------------------------
+
+zones:
+  - name: Case980FF Zone
+    solar_distribution:
+      floor_fraction: 0.642
+      wall_fraction: 0.191
+      ceiling_fraction: 0.167
+
+equipment:
+  - name: Internal Gains
+    zones: [Case980FF Zone]
+    power: 200.0
+    radiant_fraction: 0.6
+
+infiltration:
+  - name: Zone Infiltration
+    zones: [Case980FF Zone]
+    air_changes_per_hour: 0.5
+
+# Free-float case: No HVAC system, zone temperature floats freely
+
+# --- Surfaces with 3D Vertices --------------------------------------------------
+
+surfaces:
+  - name: South Wall
+    zone: Case980FF Zone
+    type: wall
+    construction: Case980FF Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 0.0, z: 2.7}
+
+  - name: South Window 1
+    zone: Case980FF Zone
+    type: window
+    construction: Case900 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 0.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 2.2}
+      - {x: 0.5, y: 0.0, z: 2.2}
+
+  - name: South Window 2
+    zone: Case980FF Zone
+    type: window
+    construction: Case900 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 4.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 2.2}
+      - {x: 4.5, y: 0.0, z: 2.2}
+
+  - name: North Wall
+    zone: Case980FF Zone
+    type: wall
+    construction: Case980FF Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+
+  - name: East Wall
+    zone: Case980FF Zone
+    type: wall
+    construction: Case980FF Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+
+  - name: West Wall
+    zone: Case980FF Zone
+    type: wall
+    construction: Case980FF Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  - name: Roof
+    zone: Case980FF Zone
+    type: roof
+    construction: Case980FF Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  - name: Floor
+    zone: Case980FF Zone
+    type: floor
+    construction: Case900 Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}

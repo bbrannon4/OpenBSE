@@ -1,0 +1,385 @@
+# OpenBSE ASHRAE Standard 140 — Case 960
+#
+# Case 960: Sunspace (Two-Zone)
+#
+# Reference: ASHRAE Standard 140-2023, Section 7.2.2.1.6
+#
+# Two thermal zones:
+#   Back Zone: 8m (E-W) x 6m (N-S) x 2.7m = 129.6 m3, conditioned
+#   Sun Zone:  8m (E-W) x 2m (N-S) x 2.7m =  43.2 m3, unconditioned
+#
+# Sun Zone is attached to the south side of Back Zone.
+# Common wall: 200mm concrete block (no insulation), high thermal mass.
+# Two south-facing clear double-pane windows (same as Case 600) in Sun Zone.
+#
+# Back Zone: lightweight (Case 600) walls/floor, lightweight roof, 0.5 ACH, 200W internal gains
+# Sun Zone:  heavyweight (Case 900) walls/floor, lightweight roof, 0.5 ACH, no internal gains
+#
+# HVAC: Ideal loads in Back Zone only (heat < 20C, cool > 27C)
+#       Sun Zone floats freely.
+#
+# Coordinate system: X=East, Y=North, Z=Up
+# Back Zone: (0,0) to (8,6)
+# Sun Zone:  (0,-2) to (8,0)
+# Origin: SW corner of Back Zone floor
+#
+# Construction notes (verified against E+ reference IDF Case960.idf):
+#   Back Zone N/E/W walls: LTWALL (wood siding + fiberglass + plasterboard), lightweight
+#   Back Zone floor: LTFLOOR (R-25 insulation + timber flooring), lightweight
+#   Back Zone roof: LTROOF (roof deck + fiberglass + plasterboard), lightweight
+#   Sun Zone S/E/W walls: HWWALL (wood siding + foam + concrete block), heavyweight
+#   Sun Zone floor: HWFLOOR (R-25 insulation + concrete slab), heavyweight
+#   Sun Zone roof: LTROOF (same as back zone), lightweight
+#   Common wall: 200mm concrete block single layer
+#   Sun Zone windows: double-pane clear glass (U=3.0, SHGC=0.769)
+#
+# NOTE: Back Zone uses LIGHTWEIGHT construction (same as Case 600),
+#       NOT heavyweight. The E+ IDF confirms LTWALL/LTFLOOR for Back Zone.
+
+simulation:
+  timesteps_per_hour: 4
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+  terrain: country
+
+weather_files:
+  - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
+
+# ─── Constructions ─────────────────────────────────────────────────────────────
+
+simple_constructions:
+  # Case 600 Wall (lightweight): Wood Siding 9mm / Fiberglass 66mm / Plasterboard 12mm
+  # U = 0.559 W/(m2K), C = 14534 J/(m2K)
+  # Used for Back Zone N/E/W walls (per E+ IDF: LTWALL)
+  - name: Case600 Wall
+    u_factor: 0.559
+    thickness: 0.087
+    thermal_capacity: 14534.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  # Case 600 Floor (lightweight): R-25 Insulation / Timber Flooring 25mm
+  # U = 0.040 W/(m2K), C = 19500 J/(m2K)
+  # Used for Back Zone floor (per E+ IDF: LTFLOOR)
+  - name: Case600 Floor
+    u_factor: 0.040
+    thickness: 1.028
+    thermal_capacity: 19500.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+
+  # Case 600/900 Roof (lightweight): Roof Deck 19mm / Fiberglass 112mm / Plasterboard 10mm
+  # U = 0.334 W/(m2K), C = 18170 J/(m2K)
+  # Used for both zones
+  - name: Case900 Roof
+    u_factor: 0.334
+    thickness: 0.141
+    thermal_capacity: 18170.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  # Sun Zone Wall (heavyweight): Wood Siding 9mm / Foam 61.5mm / Concrete Block 100mm
+  # U = 0.556 W/(m2K), C = 145154 J/(m2K)
+  # Interior surface is concrete block with solar_absorptance = 0.75
+  # Used for Sun Zone S/E/W exterior walls
+  - name: SunZone Wall
+    u_factor: 0.556
+    thickness: 0.1
+    thermal_capacity: 145154.0
+    solar_absorptance: 0.75
+    thermal_absorptance: 0.9
+    mass_conductivity: 0.51
+    mass_density: 1400.0
+    roughness: rough
+
+  # Sun Zone Floor (heavyweight): R-25 Insulation / Concrete Slab 80mm
+  # U = 0.0396 W/(m2K), C = 112000 J/(m2K)
+  # Interior surface is concrete slab with solar_absorptance = 0.75
+  - name: SunZone Floor
+    u_factor: 0.0396
+    thickness: 0.08
+    thermal_capacity: 112000.0
+    solar_absorptance: 0.75
+    thermal_absorptance: 0.9
+    mass_conductivity: 1.13
+    mass_density: 1400.0
+
+  # Common Wall: 200mm Concrete Block (no insulation)
+  # Separates Back Zone from Sun Zone
+  # U = k/t = 0.51/0.200 = 2.55 W/(m2K)
+  # C = rho*cp*t = 1400*1000*0.200 = 280000 J/(m2K)
+  # Solar absorptance = 0.6 (matches E+ reference)
+  - name: Common Wall
+    u_factor: 2.55
+    thickness: 0.200
+    thermal_capacity: 280000.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    mass_conductivity: 0.51
+    mass_density: 1400.0
+
+window_constructions:
+  # Case 600 Window: double-pane clear glass (same as Case 600 standard glass)
+  # U = 3.0 W/(m2K), SHGC = 0.769 at normal incidence
+  - name: Case600 Window
+    u_factor: 3.0
+    shgc: 0.769
+    visible_transmittance: 0.74
+    pane_solar_transmittance: 0.834
+    pane_solar_reflectance: 0.075
+    # ISO 15099 first-principles gap thermal model properties
+    num_panes: 2
+    gap_width: 0.012
+    pane_conductivity: 1.0
+    pane_thickness: 0.003175
+    glass_emissivity: 0.84
+
+# ─── Outputs ──────────────────────────────────────────────────────────────────
+
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - site_outdoor_temperature
+
+  - file: "energy_monthly.csv"
+    frequency: monthly
+    aggregation: sum
+    variables:
+      - zone_heating_energy
+      - zone_cooling_energy
+
+summary_report: true
+
+# ─── Zones ────────────────────────────────────────────────────────────────────
+
+zones:
+  - name: Back Zone
+    solar_distribution:
+      floor_fraction: 0.642
+      wall_fraction: 0.191
+      ceiling_fraction: 0.167
+
+  - name: Sun Zone
+    # Sunspace: 2m deep with south windows at Denver (40°N).
+    # Winter (low sun): beam penetrates 2m+ → hits common wall and floor
+    # Summer (high sun): beam hits floor near south wall
+    # Annual average: ~25% floor, ~70% wall, ~5% ceiling
+    solar_distribution:
+      floor_fraction: 0.25
+      wall_fraction: 0.70
+      ceiling_fraction: 0.05
+
+# ─── Equipment, Infiltration, HVAC ────────────────────────────────────────────
+
+equipment:
+  - name: Internal Gains
+    zones: [Back Zone]
+    power: 200.0
+    radiant_fraction: 0.6
+
+infiltration:
+  - name: Back Zone Infiltration
+    zones: [Back Zone]
+    air_changes_per_hour: 0.5
+  - name: Sun Zone Infiltration
+    zones: [Sun Zone]
+    air_changes_per_hour: 0.5
+
+# Only Back Zone is conditioned; Sun Zone floats freely
+ideal_loads:
+  - name: Back Zone Ideal Loads
+    zones: [Back Zone]
+    heating_setpoint: 20.0
+    cooling_setpoint: 27.0
+    heating_capacity: 1000000.0
+    cooling_capacity: 1000000.0
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SURFACES
+# ═══════════════════════════════════════════════════════════════════════════════
+# Vertices are CCW from outside (Newell convention).
+# Back Zone: (0,0)–(8,6), Sun Zone: (0,-2)–(8,0)
+
+surfaces:
+  # ═══ BACK ZONE ══════════════════════════════════════════════════════════════
+
+  # ── South Wall (interzone, facing Sun Zone) ─────────────────────────────
+  # Common wall: 200mm concrete block, high thermal mass
+  - name: Back South Wall
+    zone: Back Zone
+    type: wall
+    construction: Common Wall
+    boundary: !zone "Sun Zone"
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 0.0, z: 2.7}
+
+  # ── North Wall (outdoor, lightweight) ───────────────────────────────────
+  - name: Back North Wall
+    zone: Back Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+
+  # ── East Wall (outdoor, lightweight) ────────────────────────────────────
+  - name: Back East Wall
+    zone: Back Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+
+  # ── West Wall (outdoor, lightweight) ────────────────────────────────────
+  - name: Back West Wall
+    zone: Back Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # ── Roof (outdoor, lightweight) ─────────────────────────────────────────
+  - name: Back Roof
+    zone: Back Zone
+    type: roof
+    construction: Case900 Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+
+  # ── Floor (ground, lightweight) ─────────────────────────────────────────
+  - name: Back Floor
+    zone: Back Zone
+    type: floor
+    construction: Case600 Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+
+  # ═══ SUN ZONE (Sunspace) ═══════════════════════════════════════════════
+
+  # ── North Wall (interzone, facing Back Zone — reciprocal of Back South) ─
+  - name: Sun North Wall
+    zone: Sun Zone
+    type: wall
+    construction: Common Wall
+    boundary: !zone "Back Zone"
+    vertices:
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+
+  # ── South Wall (outdoor, heavyweight, with two clear windows) ───────────
+  - name: Sun South Wall
+    zone: Sun Zone
+    type: wall
+    construction: SunZone Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: -2.0, z: 0.0}
+      - {x: 8.0, y: -2.0, z: 0.0}
+      - {x: 8.0, y: -2.0, z: 2.7}
+      - {x: 0.0, y: -2.0, z: 2.7}
+
+  # ── South Window 1 (west side, sill=0.5m, head=2.5m per E+ ref) ────────
+  - name: Sun Window 1
+    zone: Sun Zone
+    type: window
+    construction: Case600 Window
+    boundary: outdoor
+    parent_surface: Sun South Wall
+    vertices:
+      - {x: 0.5, y: -2.0, z: 0.5}
+      - {x: 3.5, y: -2.0, z: 0.5}
+      - {x: 3.5, y: -2.0, z: 2.5}
+      - {x: 0.5, y: -2.0, z: 2.5}
+
+  # ── South Window 2 (east side, sill=0.5m, head=2.5m per E+ ref) ────────
+  - name: Sun Window 2
+    zone: Sun Zone
+    type: window
+    construction: Case600 Window
+    boundary: outdoor
+    parent_surface: Sun South Wall
+    vertices:
+      - {x: 4.5, y: -2.0, z: 0.5}
+      - {x: 7.5, y: -2.0, z: 0.5}
+      - {x: 7.5, y: -2.0, z: 2.5}
+      - {x: 4.5, y: -2.0, z: 2.5}
+
+  # ── East Wall (outdoor, heavyweight, sun zone depth = 2m) ──────────────
+  - name: Sun East Wall
+    zone: Sun Zone
+    type: wall
+    construction: SunZone Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: -2.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: -2.0, z: 2.7}
+
+  # ── West Wall (outdoor, heavyweight, sun zone depth = 2m) ──────────────
+  - name: Sun West Wall
+    zone: Sun Zone
+    type: wall
+    construction: SunZone Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: -2.0, z: 0.0}
+      - {x: 0.0, y: -2.0, z: 2.7}
+      - {x: 0.0, y: 0.0, z: 2.7}
+
+  # ── Roof (outdoor, lightweight) ─────────────────────────────────────────
+  - name: Sun Roof
+    zone: Sun Zone
+    type: roof
+    construction: Case900 Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: -2.0, z: 2.7}
+      - {x: 8.0, y: -2.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 0.0, z: 2.7}
+
+  # ── Floor (ground, heavyweight) ─────────────────────────────────────────
+  - name: Sun Floor
+    zone: Sun Zone
+    type: floor
+    construction: SunZone Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: -2.0, z: 0.0}
+      - {x: 0.0, y: -2.0, z: 0.0}
