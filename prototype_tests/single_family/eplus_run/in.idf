@@ -5279,6 +5279,177 @@ air loop outlet node_unit1;        !- Air Outlet Node Name
 Output:VariableDictionary,
     Regular;                 !- Key Field
 
+!-   ===========  PER-SURFACE CONDUCTION OUTPUTS FOR VALIDATION ===========
+
+Output:Variable,
+    *,                       !- Key Value
+    Surface Inside Face Conduction Heat Transfer Energy,  !- Variable Name
+    RunPeriod;               !- Reporting Frequency
+
+Output:Variable,
+    *,                       !- Key Value
+    Surface Inside Face Convection Heat Transfer Energy,  !- Variable Name
+    RunPeriod;               !- Reporting Frequency
+
+Output:Variable,
+    *,                       !- Key Value
+    Surface Window Heat Gain Energy,  !- Variable Name
+    RunPeriod;               !- Reporting Frequency
+
+Output:Variable,
+    *,                       !- Key Value
+    Surface Window Heat Loss Energy,  !- Variable Name
+    RunPeriod;               !- Reporting Frequency
+
+!-   ===========  ZONE TEMPERATURES FOR VALIDATION ===========
+
+Output:Variable,
+    *,                       !- Key Value
+    Zone Mean Air Temperature,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    *,                       !- Key Value
+    Zone Mean Air Temperature,  !- Variable Name
+    RunPeriod;               !- Reporting Frequency
+
+!-   ===========  MONTHLY WALL CONDUCTION FOR DIAGNOSTICS ===========
+
+Output:Variable,
+    Wall_ldf_1.unit1,        !- Key Value
+    Surface Inside Face Conduction Heat Transfer Energy,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldb_1.unit1,        !- Key Value
+    Surface Inside Face Conduction Heat Transfer Energy,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    ceiling_unit1,           !- Key Value
+    Surface Inside Face Conduction Heat Transfer Energy,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+!-   ===========  SURFACE TEMPERATURE DIAGNOSTICS ===========
+
+Output:Variable,
+    Wall_ldf_1.unit1,        !- Key Value
+    Surface Inside Face Temperature,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldf_1.unit1,        !- Key Value
+    Surface Outside Face Temperature,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldb_1.unit1,        !- Key Value
+    Surface Inside Face Temperature,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldb_1.unit1,        !- Key Value
+    Surface Outside Face Temperature,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldf_1.unit1,        !- Key Value
+    Surface Outside Face Incident Solar Radiation Rate per Area,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldb_1.unit1,        !- Key Value
+    Surface Outside Face Incident Solar Radiation Rate per Area,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+!-   ===========  SOLAR COMPONENT DIAGNOSTICS ===========
+
+Output:Variable,
+    Wall_ldf_1.unit1,        !- Key Value
+    Surface Outside Face Incident Beam Solar Radiation Rate per Area,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldf_1.unit1,        !- Key Value
+    Surface Outside Face Incident Sky Diffuse Solar Radiation Rate per Area,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldf_1.unit1,        !- Key Value
+    Surface Outside Face Incident Ground Diffuse Solar Radiation Rate per Area,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldf_1.unit1,        !- Key Value
+    Surface Outside Face Beam Solar Incident Angle Cosine Value,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldb_1.unit1,        !- Key Value
+    Surface Outside Face Incident Beam Solar Radiation Rate per Area,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldb_1.unit1,        !- Key Value
+    Surface Outside Face Incident Sky Diffuse Solar Radiation Rate per Area,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldb_1.unit1,        !- Key Value
+    Surface Outside Face Incident Ground Diffuse Solar Radiation Rate per Area,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+
+!-   ===========  SELF-SHADING DIAGNOSTICS ===========
+
+Output:Variable,
+    Wall_ldf_1.unit1,        !- Key Value
+    Surface Outside Face Sunlit Fraction,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldb_1.unit1,        !- Key Value
+    Surface Outside Face Sunlit Fraction,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldf_1.unit1,        !- Key Value
+    Debug Surface Solar Shading Model DifShdgRatioIsoSky,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldb_1.unit1,        !- Key Value
+    Debug Surface Solar Shading Model DifShdgRatioIsoSky,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldf_2.unit1,        !- Key Value
+    Debug Surface Solar Shading Model DifShdgRatioIsoSky,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Variable,
+    Wall_ldf_2.unit1,        !- Key Value
+    Surface Outside Face Sunlit Fraction,  !- Variable Name
+    Monthly;                 !- Reporting Frequency
+
+! ── Monthly energy meters for heating/cooling/fan comparison ──
+Output:Meter, Heating:NaturalGas, Monthly;
+Output:Meter, Cooling:Electricity, Monthly;
+Output:Meter, Fans:Electricity, Monthly;
+
+! ── Zone heating/cooling loads ──
+Output:Variable, *, Zone Ideal Loads Supply Air Total Heating Energy, Monthly;
+Output:Variable, *, Zone Ideal Loads Supply Air Total Cooling Energy, Monthly;
+
+! ── Coil energy ──
+Output:Variable, *, Heating Coil Heating Energy, Monthly;
+Output:Variable, *, Heating Coil NaturalGas Energy, Monthly;
+Output:Variable, *, Cooling Coil Total Cooling Energy, Monthly;
+Output:Variable, *, Cooling Coil Electricity Energy, Monthly;
+
+! ── Zone infiltration ──
+Output:Variable, Living Infiltration, Zone Infiltration Sensible Heat Loss Energy, Monthly;
+Output:Variable, Living Infiltration, Zone Infiltration Sensible Heat Gain Energy, Monthly;
 
 !-   ===========  ALL OBJECTS IN CLASS: OUTPUT:CONSTRUCTIONS ===========
 

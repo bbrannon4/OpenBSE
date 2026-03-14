@@ -11,6 +11,7 @@ simulation:
   end_month: 12
   end_day: 31
   terrain: suburbs
+  shading_calculation: detailed
   # Match E+ Sizing:System FractionOfAutosized{Cooling,Heating}Capacity
   heating_sizing_factor: 1.25
   cooling_sizing_factor: 1.15
@@ -374,15 +375,18 @@ constructions:
   - material: Plywood_3/4in
     thickness: 0.01905
 
-# Reversed Exterior Floor (for basement ceiling — viewed from below)
+# Basement ceiling (matches IDF fndn_roof: Carpet / Plywood / ceil_consol_layer)
+# NOTE: The IDF uses ceil_consol_layer (R-49) here, not the reversed Exterior Floor's
+# floor_consol_layer (R-30). This is physically inconsistent with the living zone
+# floor (which uses R-30 from above), but we match E+ exactly.
 - name: Basement Ceiling
   layers:
   - material: Carpet_n_pad
     thickness: 0.02540
   - material: Plywood_3/4in
     thickness: 0.01905
-  - material: floor_consol_layer
-    thickness: 0.23495
+  - material: ceil_consol_layer
+    thickness: 0.400206
 
 # Reversed Exterior Wall (for garage side of interzone wall)
 - name: Reversed Exterior Wall
@@ -527,11 +531,8 @@ equipment:
 # ── Infiltration ──────────────────────────────────────────────────
 # E+ model uses AirflowNetwork (ELA-based, pressure-driven). We approximate
 # with a constant design flow rate. ASHRAE combined model (in engine)
-# adds exhaust-induced makeup air: Q_comb = sqrt(Q_bg^2 + Q_exhaust^2).
-# Matches E+ simplified IDF (simplify_sf_idf.py):
-#   Q_bg = 0.0238 m3/s (~0.15 ACH background infiltration)
-#   Q_exhaust = 0.02832 m3/s (60 cfm)
-#   Engine applies ASHRAE combined: Q_comb = sqrt(0.0238^2 + 0.02832^2) = 0.037 m3/s
+# Background infiltration only (no exhaust fan).
+# Matches E+ simplified IDF: Q_bg = 0.0238 m3/s (~0.15 ACH background infiltration)
 infiltration:
 - name: Living Infiltration
   zones: [Living]
@@ -562,12 +563,20 @@ infiltration:
   temperature_coefficient: 0.0
   wind_coefficient: 0.0
 
-# ── Ventilation / Outdoor Air ─────────────────────────────────────
-# 60 cfm = 0.02832 m3/s mechanical ventilation via exhaust fan
+# ── Exhaust Fans ──────────────────────────────────────────────────
+# Zone exhaust fan: 60 cfm (0.02832 m³/s), matching E+ Fan:ZoneExhaust.
+# Fan power uses same physics as supply/return fans:
+#   Power = MassFlow × PressureRise / (TotalEff × ρ)
+# ASHRAE combined infiltration in engine:
+#   Q_combined = sqrt(Q_bg² + Q_unbalanced²)
 exhaust_fans:
-- name: Ventilation Exhaust
+- name: Zone Exhaust Fan
   zones: [Living]
-  flow_rate: 0.02832
+  flow_rate: 0.0283168          # 60 cfm
+  pressure_rise: 454.046        # Pa (from E+ Fan:ZoneExhaust)
+  total_efficiency: 0.6         # E+ Fan Total Efficiency
+  motor_efficiency: 0.863       # same as supply fan
+  motor_in_airstream_fraction: 1.0  # motor in exhaust stream → heat exits
 
 # ── Air Loops ─────────────────────────────────────────────────────
 air_loops:
@@ -598,6 +607,7 @@ air_loops:
     setpoint: 12.0
     cap_ft_curve: Cool-Cap-fT
     eir_ft_curve: Cool-EIR-fT
+    plf_curve: Cool-PLF-fPLR
   - type: fan
     name: Supply Fan
     source: on_off
@@ -663,7 +673,7 @@ zones:
   conditioned: true
   internal_mass:
   - construction: InteriorFurnishings
-    area: 9.9           # 9.9 m² of 6" wood (matching E+ InternalMass object)
+    area: 9.896          # 9.89591 m² of 6" wood (matching E+ InternalMass object)
 
 - name: attic
   volume: 83.8         # Gable roof 4:12 pitch, ridge height 1.517m
@@ -711,16 +721,26 @@ surfaces:
   - {x: 12.133, y: 9.100, z: 2.591}
   - {x: 12.133, y: 0.0, z: 2.591}
 
+# North 1F wall: gross = 12.133 x 2.591 = 31.43 m², minus door 3.717 m² = 27.71 m²
+# Window (4.126 m²) subtracts via parent_surface → net opaque = 23.58 m²
 - name: Wall North 1F
   zone: living_unit1
   type: wall
   construction: Exterior Wall
   boundary: outdoor
-  vertices:
-  - {x: 12.133, y: 9.100, z: 0.0}
-  - {x: 0.0, y: 9.100, z: 0.0}
-  - {x: 0.0, y: 9.100, z: 2.591}
-  - {x: 12.133, y: 9.100, z: 2.591}
+  area: 27.71
+  azimuth: 0.0
+  tilt: 90.0
+
+# Back door (IDF Door_ldb_unit1: 1.742m x 2.134m = 3.717 m²)
+- name: Back Door
+  zone: living_unit1
+  type: wall
+  construction: Exterior Door
+  boundary: outdoor
+  area: 3.717
+  azimuth: 0.0
+  tilt: 90.0
 
 - name: Wall West 1F
   zone: living_unit1
@@ -972,9 +992,7 @@ surfaces:
   azimuth: 0.0
   tilt: 180.0
 
-# ── Door (back wall, 1st floor) ──
-# 1.742m x 2.134m = 3.718 m2 — modeled as opaque wall section
-# (door construction is similar to wall in thermal behavior)
+# ── Back door now modeled above as "Back Door" (3.717 m²) ──
 
 # ══════════════════════════════════════════════════════════════════
 # ── Basement zone surfaces ──
@@ -1190,13 +1208,12 @@ surfaces:
 # ══════════════════════════════════════════════════════════════════
 # MISSING FUNCTIONALITY FLAGS:
 #
-# 1. DUCT COMPONENT: Now modeled with supply and return ducts through
-#    unheated basement (U=0.71 W/m2-K, 4% leakage each = 8% total).
+# 1. EXHAUST FAN POWER: ✓ IMPLEMENTED — ExhaustFanInput now has full fan
+#    math (same as supply/return fans). Power, pressure, efficiency all modeled.
 #
-# 2. AIRFLOWNETWORK INFILTRATION: The IDF uses ELA-based multizone
-#    infiltration (AirflowNetwork). We approximate with constant design
-#    flow rate. AirflowNetwork should be removed from the E+ IDF for
-#    fair comparison (replace with ZoneInfiltration:DesignFlowRate).
+# 2. DX COIL SHR: E+ uses autosize for SHR. YAML hardcodes 0.75.
+#    Since OpenBSE is sensible-only, this mainly affects rated capacity
+#    decomposition. Consider adding autosize SHR support.
 #    Future: add AirflowNetwork support to OpenBSE.
 #
 # 3. GAS EQUIPMENT: No native GasEquipment type — gas range, dryer,

@@ -37,6 +37,11 @@ pub struct CoolingCoilDX {
     /// Optional EIR modifier curve: f(T_wb_entering, T_db_outdoor)
     #[serde(skip)]
     pub eir_ft_curve: Option<PerformanceCurve>,
+    /// Optional PLF curve: PLF = f(PLR). Maps part-load ratio to part-load
+    /// fraction, accounting for cycling losses (compressor on/off).
+    /// If None, uses default: PLF = 1 - 0.15 × (1 - PLR).
+    #[serde(skip)]
+    pub plf_curve: Option<PerformanceCurve>,
     /// Normalization factor for EIR curve: 1 / eir_curve(19.44, 35).
     /// Per E+ docs, EIR-fT should equal 1.0 at ARI rated conditions
     /// (19.44°C WB entering, 35°C outdoor).  If the curve isn't
@@ -84,6 +89,7 @@ impl CoolingCoilDX {
             outlet_temp_setpoint: setpoint,
             cap_ft_curve: None,
             eir_ft_curve: None,
+            plf_curve: None,
             eir_normalization: 1.0,
             cooling_rate: 0.0,
             sensible_cooling_rate: 0.0,
@@ -111,6 +117,12 @@ impl CoolingCoilDX {
         }
         self.cap_ft_curve = cap_ft;
         self.eir_ft_curve = eir_ft;
+        self
+    }
+
+    /// Attach a part-load fraction curve: PLF = f(PLR).
+    pub fn with_plf_curve(mut self, plf: PerformanceCurve) -> Self {
+        self.plf_curve = Some(plf);
         self
     }
 
@@ -211,17 +223,14 @@ impl AirComponent for CoolingCoilDX {
         let dt = q_sensible / (inlet.mass_flow * cp_air);
         let outlet_t = inlet.state.t_db - dt;
 
-        // Electric power consumption
-        // At part load, COP degrades slightly (simplified PLF curve)
-        // PLF = 1 - Cd * (1 - PLR), where Cd ≈ 0.15 for typical DX
-        let plf = if plr > 0.0 {
-            1.0 - 0.15 * (1.0 - plr)
-        } else {
-            1.0
-        };
-        let runtime_fraction = if plf > 0.0 { plr / plf } else { 0.0 };
+        // Electric power consumption.
+        //
+        // The DX coil reports steady-state power at the current PLR.
+        // Cycling losses (PLF) are applied at the system level in main.rs
+        // via RTF = loop_plr / PLF(loop_plr), matching E+'s approach where
+        // the PLF curve is a system-level attribute, not a coil-level one.
         self.power_consumption = if available_cop > 0.0 {
-            available_cap * runtime_fraction / available_cop
+            available_cap * plr / available_cop
         } else {
             0.0
         };

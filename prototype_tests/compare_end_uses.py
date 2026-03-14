@@ -16,27 +16,33 @@ EPLUS_COLOR   = '#FF9800'  # Orange
 
 # ── Residential Single-Family ──────────────────────────────────────────────
 # EnergyPlus reference values (kBtu) → convert to kWh (÷ 3.412)
-# Source: Simplified IDF (no AirflowNetwork) — single_family/eplus_run/in.idf
-# Values from single_family/eplus_run/eplustbl.csv "End Uses" table
+# Source: Simplified IDF (no AirflowNetwork, Ground BC for slab, WITH exhaust fan)
+# Values from single_family/eplus_out/eplustbl.csv "End Uses" table
+# E+ v25.2.0, run 2026-03-14
+# NOTE: E+ with ZoneInfiltration:DesignFlowRate does NOT increase infiltration
+# for exhaust fan (no AirflowNetwork). OpenBSE uses ASHRAE combined model:
+#   Q_combined = sqrt(Q_infil² + Q_exhaust²) which IS more correct but creates
+#   heating/cooling differences vs E+'s simplified approach.
 eplus_res_kbtu = {
-    'Heating\n(Gas)':       22822,
-    'Cooling\n(Elec)':       5459,
+    'Heating\n(Gas)':       19669,
+    'Cooling\n(Elec)':       5599,
     'Interior\nLighting':    3543,
     'Interior\nEquipment':  34405,
-    'Fans':                  2907,
-    'DHW\n(Gas)':            7363,
+    'Fans':                  2861,
+    'DHW\n(Gas)':            7362,
 }
 eplus_res = {k: v / 3.412 for k, v in eplus_res_kbtu.items()}
 
 # OpenBSE results (kWh) from summary report
 # 4-zone model: living + attic + basement + garage
+# WITH exhaust fan (60 cfm, 454 Pa, eff=0.6)
 openbse_res = {
-    'Heating\n(Gas)':      10354.7,
-    'Cooling\n(Elec)':      2156.8,
-    'Interior\nLighting':   1037.6,
+    'Heating\n(Gas)':      5701.5,
+    'Cooling\n(Elec)':     1659.6,
+    'Interior\nLighting':  1037.6,
     'Interior\nEquipment': 10076.5,
-    'Fans':                 1131.3,
-    'DHW\n(Gas)':           2172.8,
+    'Fans':                 830.9,
+    'DHW\n(Gas)':          2172.8,
 }
 
 def make_comparison_chart(categories, eplus_vals, openbse_vals, title, filename,

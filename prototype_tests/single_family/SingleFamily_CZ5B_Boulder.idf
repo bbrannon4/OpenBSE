@@ -719,8 +719,8 @@ BuildingSurface:Detailed,
     Interior Floor,  !- Construction Name
     garage1,  !- Zone Name
 	,                        !- Space Name
-    GroundSlabPreprocessorAverage,  !- Outside Boundary Condition
-    surfPropOthSdCoefSlabAverage,  !- Outside Boundary Condition Object
+    Ground,                      !- Outside Boundary Condition
+    ,                            !- Outside Boundary Condition Object
     NoSun,  !- Sun Exposure
     NoWind,  !- Wind Exposure
     0.0,  !- View Factor to Ground
@@ -2427,6 +2427,11 @@ Schedule:Compact,
 !-   ===========  ALL OBJECTS IN CLASS: SCHEDULE:CONSTANT ===========
 
 Schedule:Constant,
+    always_on,               !- Name
+    Fraction,                !- Schedule Type Limits Name
+    1.0;                     !- Hourly Value
+
+Schedule:Constant,
     DWWaterTempSchedule,     !- Name
     Temperature,             !- Schedule Type Limits Name
     48.8888888888889;        !- Hourly Value
@@ -2705,7 +2710,7 @@ Material,
     MediumSmooth,            !- Roughness
     1.905E-02,    	         !- Thickness {m}
     0.721,                   !- Conductivity {W/m-K}
-    1865.58	   ,             !- Density {kg/m3}
+    1865.58,             !- Density {kg/m3}
     878.640006648665;        !- Specific Heat {J/kg-K}
 
 !- VM: Used perlite plaster from 2009 HOF, Tbl 4/chp 26, back-calculated thickness to meet R0.2 based on Reid's note dtd. 3/28/2013
@@ -2714,7 +2719,7 @@ Material,
     MediumSmooth,            !- Roughness
     0.3048E-02,    	         !- Thickness {m}
     8.65E-02,                !- Conductivity {W/m-K}
-    400	   ,                 !- Density {kg/m3}
+    400,                 !- Density {kg/m3}
     878.640006648665,        !- Specific Heat {J/kg-K} # VM: Kept sp.heat same as cement_stucco due to lack of data
     0.7;    !- Thermal Absorptance
 
@@ -3076,196 +3081,196 @@ WindowMaterial:Blind,
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:CONTROL ===========
 
-GroundHeatTransfer:Control,
-    gtp_control,             !- Name
-    yes,             !- Run Basement Preprocessor
-    yes;             !- Run Slab Preprocessor
+!GroundHeatTransfer:Control,
+!    gtp_control,             !- Name
+!    yes,             !- Run Basement Preprocessor
+!    yes;             !- Run Slab Preprocessor
 
 
 
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:SLAB:MATERIALS ===========
 
-GroundHeatTransfer:Slab:Materials,
-    2,                       !- NMAT: Number of materials
-    0.16,                    !- ALBEDO: Surface Albedo: No Snow
-    0.4,                     !- ALBEDO: Surface Albedo: Snow
-    0.9,                     !- EPSLW: Surface Emissivity: No Snow 
-    0.9,                     !- EPSLW: Surface Emissivity: Snow
-    0.75,                    !- Z0: Surface Roughness: No Snow {cm}
-    0.05,                    !- Z0: Surface Roughness: Snow {cm}
-    6,                       !- HIN: Indoor HConv: Downward Flow {W/m2-K}
-    9;                       !- HIN: Indoor HConv: Upward {W/m2-K}
+!GroundHeatTransfer:Slab:Materials,
+!    2,                       !- NMAT: Number of materials
+!    0.16,                    !- ALBEDO: Surface Albedo: No Snow
+!    0.4,                     !- ALBEDO: Surface Albedo: Snow
+!    0.9,                     !- EPSLW: Surface Emissivity: No Snow 
+!    0.9,                     !- EPSLW: Surface Emissivity: Snow
+!    0.75,                    !- Z0: Surface Roughness: No Snow {cm}
+!    0.05,                    !- Z0: Surface Roughness: Snow {cm}
+!    6,                       !- HIN: Indoor HConv: Downward Flow {W/m2-K}
+!    9;                       !- HIN: Indoor HConv: Upward {W/m2-K}
 
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:SLAB:MATLPROPS ===========
 
-GroundHeatTransfer:Slab:MatlProps,
-    2300,                    !- RHO: Slab Material density {kg/m3}
-    1200,                    !- RHO: Soil Density {kg/m3}
-    650,                     !- CP: Slab CP {J/kg-K}
-    1200,                    !- CP: Soil CP {J/kg-K}
-    0.9,                     !- TCON: Slab k {W/m-K}
-    1;                       !- TCON: Soil k {W/m-K}
+!GroundHeatTransfer:Slab:MatlProps,
+!    2300,                    !- RHO: Slab Material density {kg/m3}
+!    1200,                    !- RHO: Soil Density {kg/m3}
+!    650,                     !- CP: Slab CP {J/kg-K}
+!    1200,                    !- CP: Soil CP {J/kg-K}
+!    0.9,                     !- TCON: Slab k {W/m-K}
+!    1;                       !- TCON: Soil k {W/m-K}
 
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:SLAB:BOUNDCONDS ===========
 
-GroundHeatTransfer:Slab:BoundConds,
-    FALSE,                   !- EVTR: Is surface evapotranspiration modeled
-    TRUE,                    !- FIXBC: is the lower boundary at a fixed temperature
-    10,                      !- TDEEPin {C}
-    FALSE;                   !- USRHflag: Is the ground surface h specified by the user?
+!GroundHeatTransfer:Slab:BoundConds,
+!    FALSE,                   !- EVTR: Is surface evapotranspiration modeled
+!    TRUE,                    !- FIXBC: is the lower boundary at a fixed temperature
+!    10,                      !- TDEEPin {C}
+!    FALSE;                   !- USRHflag: Is the ground surface h specified by the user?
 
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:SLAB:BLDGPROPS ===========
 
-GroundHeatTransfer:Slab:BldgProps,
-    10,                      !- IYRS: Number of years to iterate
-    0,                       !- Shape: Slab shape
-    4,                       !- HBLDG: Building height {m}
-    22.22,                   !- TIN1: January Indoor Average Temperature Setpoint {C}
-    22.22,                   !- TIN2: February Indoor Average Temperature Setpoint {C}
-    22.22,                   !- TIN3: March Indoor Average Temperature Setpoint {C}
-    22.22,                   !- TIN4: April Indoor Average Temperature Setpoint {C}
-    22.22,                   !- TIN5: May Indoor Average Temperature Setpoint {C}
-    23.88,                   !- TIN6: June Indoor Average Temperature Setpoint {C}
-    23.88,                   !- TIN7: July Indoor Average Temperature Setpoint {C}
-    23.88,                   !- TIN8: August Indoor Average Temperature Setpoint {C}
-    23.88,                   !- TIN9: September Indoor Average Temperature Setpoint {C}
-    22.22,                   !- TIN10: October Indoor Average Temperature Setpoint {C}
-    22.22,                   !- TIN11: NovemberIndoor Average Temperature Setpoint {C}
-    22.22,                   !- TIN12: December Indoor Average Temperature Setpoint {C}
-    0,                       !- TINAmp: Daily Indoor sine wave variation amplitude {deltaC}
-    0.1;                     !- ConvTol: Convergence Tolerance
+!GroundHeatTransfer:Slab:BldgProps,
+!    10,                      !- IYRS: Number of years to iterate
+!    0,                       !- Shape: Slab shape
+!    4,                       !- HBLDG: Building height {m}
+!    22.22,                   !- TIN1: January Indoor Average Temperature Setpoint {C}
+!    22.22,                   !- TIN2: February Indoor Average Temperature Setpoint {C}
+!    22.22,                   !- TIN3: March Indoor Average Temperature Setpoint {C}
+!    22.22,                   !- TIN4: April Indoor Average Temperature Setpoint {C}
+!    22.22,                   !- TIN5: May Indoor Average Temperature Setpoint {C}
+!    23.88,                   !- TIN6: June Indoor Average Temperature Setpoint {C}
+!    23.88,                   !- TIN7: July Indoor Average Temperature Setpoint {C}
+!    23.88,                   !- TIN8: August Indoor Average Temperature Setpoint {C}
+!    23.88,                   !- TIN9: September Indoor Average Temperature Setpoint {C}
+!    22.22,                   !- TIN10: October Indoor Average Temperature Setpoint {C}
+!    22.22,                   !- TIN11: NovemberIndoor Average Temperature Setpoint {C}
+!    22.22,                   !- TIN12: December Indoor Average Temperature Setpoint {C}
+!    0,                       !- TINAmp: Daily Indoor sine wave variation amplitude {deltaC}
+!    0.1;                     !- ConvTol: Convergence Tolerance
 
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:SLAB:INSULATION ===========
 
-GroundHeatTransfer:Slab:Insulation,
-    0,                       			!- RINS: R value of under slab insulation {m2-K/W}
-    0,                       			!- DINS: Width of strip of under slab insulation {m}
-    0,       			!- RVINS: R value of vertical insulation {m2-K/W}
-    1.5,       !- ZVINS: Depth of vertical insulation {m}  
-    0;		!- IVINS: Flag: Is there vertical insulation
+!GroundHeatTransfer:Slab:Insulation,
+!    0,                       			!- RINS: R value of under slab insulation {m2-K/W}
+!    0,                       			!- DINS: Width of strip of under slab insulation {m}
+!    0,       			!- RVINS: R value of vertical insulation {m2-K/W}
+!    1.5,       !- ZVINS: Depth of vertical insulation {m}  
+!    0;		!- IVINS: Flag: Is there vertical insulation
 
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:SLAB:EQUIVALENTSLAB ===========
 
 
-GroundHeatTransfer:Slab:EquivalentSlab,
-2.59994805991784,        !- APRatio: The area to perimeter ratio for this slab {m}
-
-    0.1,                     !- SLABDEPTH: Thickness of slab on grade {m}
-    15,                      !- CLEARANCE: Distance from edge of slab to domain edge {m}
-    15;                      !- ZCLEARANCE: Distance from bottom of slab to domain bottom {m}
+!GroundHeatTransfer:Slab:EquivalentSlab,
+!2.59994805991784,        !- APRatio: The area to perimeter ratio for this slab {m}
+!
+!    0.1,                     !- SLABDEPTH: Thickness of slab on grade {m}
+!    15,                      !- CLEARANCE: Distance from edge of slab to domain edge {m}
+!    15;                      !- ZCLEARANCE: Distance from bottom of slab to domain bottom {m}
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:BASEMENT:SIMPARAMETERS ===========
 
-GroundHeatTransfer:Basement:SimParameters,
-    0.1,                     !- F: Multiplier for the ADI solution:
-    15;                      !- IYRS: Maximum number of yearly iterations:
+!GroundHeatTransfer:Basement:SimParameters,
+!    0.1,                     !- F: Multiplier for the ADI solution:
+!    15;                      !- IYRS: Maximum number of yearly iterations:
 
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:BASEMENT:MATLPROPS ===========
 
-GroundHeatTransfer:Basement:MatlProps,
-    6,                       !- NMAT: Number of materials in this domain
-    2243,                    !- Density for Foundation Wall {kg/m3}
-    2243,                    !- density for Floor Slab {kg/m3}
-    311,                     !- density for Ceiling {kg/m3}
-    1500,                    !- density for Soil {kg/m3}
-    2000,                    !- density for Gravel {kg/m3}
-    449,                     !- density for Wood {kg/m3}
-    880,                     !- Specific heat for foundation wall {J/kg-K}
-    880,                     !- Specific heat for floor slab {J/kg-K}
-    1530,                    !- Specific heat for ceiling {J/kg-K}
-    840,                     !- Specific heat for soil {J/kg-K}
-    720,                     !- Specific heat for gravel {J/kg-K}
-    1530,                    !- Specific heat for wood {J/kg-K}
-    1.4,                     !- Thermal conductivity for foundation wall {W/m-K}
-    1.4,                     !- Thermal conductivity for floor slab {W/m-K}
-    0.09,                    !- Thermal conductivity for ceiling {W/m-K}
-    1.1,                     !- thermal conductivity for soil {W/m-K}
-    1.9,                     !- thermal conductivity for gravel {W/m-K}
-    0.12;                    !- thermal conductivity for wood {W/m-K}
+!GroundHeatTransfer:Basement:MatlProps,
+!    6,                       !- NMAT: Number of materials in this domain
+!    2243,                    !- Density for Foundation Wall {kg/m3}
+!    2243,                    !- density for Floor Slab {kg/m3}
+!    311,                     !- density for Ceiling {kg/m3}
+!    1500,                    !- density for Soil {kg/m3}
+!    2000,                    !- density for Gravel {kg/m3}
+!    449,                     !- density for Wood {kg/m3}
+!    880,                     !- Specific heat for foundation wall {J/kg-K}
+!    880,                     !- Specific heat for floor slab {J/kg-K}
+!    1530,                    !- Specific heat for ceiling {J/kg-K}
+!    840,                     !- Specific heat for soil {J/kg-K}
+!    720,                     !- Specific heat for gravel {J/kg-K}
+!    1530,                    !- Specific heat for wood {J/kg-K}
+!    1.4,                     !- Thermal conductivity for foundation wall {W/m-K}
+!    1.4,                     !- Thermal conductivity for floor slab {W/m-K}
+!    0.09,                    !- Thermal conductivity for ceiling {W/m-K}
+!    1.1,                     !- thermal conductivity for soil {W/m-K}
+!    1.9,                     !- thermal conductivity for gravel {W/m-K}
+!    0.12;                    !- thermal conductivity for wood {W/m-K}
 
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:BASEMENT:INSULATION ===========
 !- $r_bsmtwall_SI = $r_bsmtwall/5.6786;
 !- 0.0001;
 
-GroundHeatTransfer:Basement:Insulation,
-    1.76099742894375e-05,   		!- REXT: R Value of any exterior insulation {m2-K/W} # Rvalue has to be > 0
-    True;                   		!- INSFULL: Flag: Is the wall fully insulated?
+!GroundHeatTransfer:Basement:Insulation,
+!    1.76099742894375e-05,   		!- REXT: R Value of any exterior insulation {m2-K/W} # Rvalue has to be > 0
+!    True;                   		!- INSFULL: Flag: Is the wall fully insulated?
 
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:BASEMENT:SURFACEPROPS ===========
 
-GroundHeatTransfer:Basement:SurfaceProps,
-    0.16,                    !- ALBEDO: Surface albedo for No snow conditions
-    0.4,                     !- ALBEDO: Surface albedo for snow conditions
-    0.94,                    !- EPSLN: Surface emissivity No Snow
-    0.86,                    !- EPSLN: Surface emissivity with Snow
-    6,                       !- VEGHT: Surface roughness No snow conditions {cm}
-    0.25,                    !- VEGHT: Surface roughness Snow conditions {cm}
-    False;                   !- PET: Flag, Potential evapotranspiration on?
+!GroundHeatTransfer:Basement:SurfaceProps,
+!    0.16,                    !- ALBEDO: Surface albedo for No snow conditions
+!    0.4,                     !- ALBEDO: Surface albedo for snow conditions
+!    0.94,                    !- EPSLN: Surface emissivity No Snow
+!    0.86,                    !- EPSLN: Surface emissivity with Snow
+!    6,                       !- VEGHT: Surface roughness No snow conditions {cm}
+!    0.25,                    !- VEGHT: Surface roughness Snow conditions {cm}
+!    False;                   !- PET: Flag, Potential evapotranspiration on?
 
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:BASEMENT:BLDGDATA ===========
 
-GroundHeatTransfer:Basement:BldgData,
-    0.200000006162114,       !- DWALL: Wall thickness {m}
-    0.243828108701145,       !- DSLAB: Floor slab thickness {m}
-    0.3,                     !- DGRAVXY: Width of gravel pit beside basement wall {m}
-    0.2,                     !- DGRAVZN: Gravel depth extending above the floor slab {m}
-    0.1;                     !- DGRAVZP: Gravel depth below the floor slab {m}
+!GroundHeatTransfer:Basement:BldgData,
+!    0.200000006162114,       !- DWALL: Wall thickness {m}
+!    0.243828108701145,       !- DSLAB: Floor slab thickness {m}
+!    0.3,                     !- DGRAVXY: Width of gravel pit beside basement wall {m}
+!    0.2,                     !- DGRAVZN: Gravel depth extending above the floor slab {m}
+!    0.1;                     !- DGRAVZP: Gravel depth below the floor slab {m}
 
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:BASEMENT:INTERIOR ===========
 
-GroundHeatTransfer:Basement:Interior,
-    True,                    !- COND: Flag: Is the basement conditioned?
-    0.92,                    !- HIN: Downward convection only heat transfer coefficient {W/m2-K}
-    4.04,                    !- HIN: Upward convection only heat transfer coefficient {W/m2-K}
-    3.08,                    !- HIN: Horizontal convection only heat transfer coefficient {W/m2-K}
-    6.13,                    !- HIN: Downward combined (convection and radiation) heat transfer coefficient {W/m2-K}
-    9.26,                    !- HIN: Upward combined (convection and radiation) heat transfer coefficient {W/m2-K}
-    8.29;                    !- HIN: Horizontal combined (convection and radiation) heat transfer coefficient {W/m2-K}
+!GroundHeatTransfer:Basement:Interior,
+!    True,                    !- COND: Flag: Is the basement conditioned?
+!    0.92,                    !- HIN: Downward convection only heat transfer coefficient {W/m2-K}
+!    4.04,                    !- HIN: Upward convection only heat transfer coefficient {W/m2-K}
+!    3.08,                    !- HIN: Horizontal convection only heat transfer coefficient {W/m2-K}
+!    6.13,                    !- HIN: Downward combined (convection and radiation) heat transfer coefficient {W/m2-K}
+!    9.26,                    !- HIN: Upward combined (convection and radiation) heat transfer coefficient {W/m2-K}
+!    8.29;                    !- HIN: Horizontal combined (convection and radiation) heat transfer coefficient {W/m2-K}
 
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:BASEMENT:COMBLDG ===========
 
-GroundHeatTransfer:Basement:ComBldg,
-    21,                      !- January average temperature {C}
-    21,                      !- February average temperature {C}
-    21,                      !- March average temperature {C}
-    21,                      !- April average temperature {C}
-    24,                      !- May average temperature {C}
-    24,                      !- June average temperature {C}
-    24,                      !- July average temperature {C}
-    24,                      !- August average temperature {C}
-    24,                      !- September average temperature {C}
-    24,                      !- October average temperature {C}
-    21,                      !- November average temperature {C}
-    21,                      !- December average temperature {C}
-    21;                      !- Daily variation sine wave amplitude {deltaC}
+!GroundHeatTransfer:Basement:ComBldg,
+!    21,                      !- January average temperature {C}
+!    21,                      !- February average temperature {C}
+!    21,                      !- March average temperature {C}
+!    21,                      !- April average temperature {C}
+!    24,                      !- May average temperature {C}
+!    24,                      !- June average temperature {C}
+!    24,                      !- July average temperature {C}
+!    24,                      !- August average temperature {C}
+!    24,                      !- September average temperature {C}
+!    24,                      !- October average temperature {C}
+!    21,                      !- November average temperature {C}
+!    21,                      !- December average temperature {C}
+!    21;                      !- Daily variation sine wave amplitude {deltaC}
 
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:BASEMENT:EQUIVSLAB ===========
 
 
-GroundHeatTransfer:Basement:EquivSlab,
-2.59994805991784,        !- APRatio: The area to perimeter ratio for this slab {m}
-    True;                    				!- EquivSizing: Flag
+!GroundHeatTransfer:Basement:EquivSlab,
+!2.59994805991784,        !- APRatio: The area to perimeter ratio for this slab {m}
+!    True;                    				!- EquivSizing: Flag
 
 
 !-   ===========  ALL OBJECTS IN CLASS: GROUNDHEATTRANSFER:BASEMENT:EQUIVAUTOGRID ===========
 
-GroundHeatTransfer:Basement:EquivAutoGrid,
-    15,                      !- CLEARANCE: Distance from outside of wall to edge of 3-D ground domain {m}
-    0.1,                     !- SlabDepth: Thickness of the floor slab {m}
-    1.21914054350572;        !- BaseDepth: Depth of the basement wall below grade {m}
+!GroundHeatTransfer:Basement:EquivAutoGrid,
+!    15,                      !- CLEARANCE: Distance from outside of wall to edge of 3-D ground domain {m}
+!    0.1,                     !- SlabDepth: Thickness of the floor slab {m}
+!    1.21914054350572;        !- BaseDepth: Depth of the basement wall below grade {m}
     
 
 
@@ -4414,22 +4419,22 @@ Curve:Biquadratic,
 
 !-   ===========  ALL OBJECTS IN CLASS: AIRFLOWNETWORK:SIMULATIONCONTROL ===========
 
-AirflowNetwork:SimulationControl,
-    House AirflowNetwork,    !- Name
-    MultizoneWithDistribution,  !- AirflowNetwork Control
-    SurfaceAverageCalculation,  !- Wind Pressure Coefficient Type
-    ,                        !- Height Selection for Local Wind Speed Calculation
-    LOWRISE,                 !- Building Type
-    500,                     !- Maximum Number of Iterations {dimensionless}
-    ,                        !- Initialization Type  # YLX: is there an impact of this parameter
-    0.001,                   !- Relative Airflow Convergence Tolerance {dimensionless}
-    1e-05,   !- Absolute Airflow Convergence Tolerance {kg/s}
-    0,       !- Convergence Acceleration Limit {dimensionless} 
-    0,           !- Azimuth Angle of Long Axis of Building {deg}
-    0.75,   !- Ratio of Building Width Along Short Axis to Width Along Long Axis
-	,                        !- Height Dependence of External Node Temperature
-    ,                        !- Solver
-    Yes;                     !- Allow Unsupported Zone Equipment
+!AirflowNetwork:SimulationControl,
+!    House AirflowNetwork,    !- Name
+!    MultizoneWithDistribution,  !- AirflowNetwork Control
+!    SurfaceAverageCalculation,  !- Wind Pressure Coefficient Type
+!    ,                        !- Height Selection for Local Wind Speed Calculation
+!    LOWRISE,                 !- Building Type
+!    500,                     !- Maximum Number of Iterations {dimensionless}
+!    ,                        !- Initialization Type  # YLX: is there an impact of this parameter
+!    0.001,                   !- Relative Airflow Convergence Tolerance {dimensionless}
+!    1e-05,   !- Absolute Airflow Convergence Tolerance {kg/s}
+!    0,       !- Convergence Acceleration Limit {dimensionless} 
+!    0,           !- Azimuth Angle of Long Axis of Building {deg}
+!    0.75,   !- Ratio of Building Width Along Short Axis to Width Along Long Axis
+!	,                        !- Height Dependence of External Node Temperature
+!    ,                        !- Solver
+!    Yes;                     !- Allow Unsupported Zone Equipment
 
 !-   ===========  ALL OBJECTS IN CLASS: AVAILABILITYMANAGER:SCHEDULED ===========
 
@@ -4448,119 +4453,119 @@ AvailabilityManagerAssignmentList,
 
 !-   ===========  ALL OBJECTS IN CLASS: AIRFLOWNETWORK:MULTIZONE:SURFACE:EFFECTIVELEAKAGEAREA ===========
 
-AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
-    ZoneLeak_LongWall,                   !- Name
-    0.00340012477060435,           !- Effective Leakage Area {m2}
-    1.15,                          !- Discharge Coefficient {dimensionless} # YLX: change from the implementation of IECC2021
-    4,                          !- Reference Pressure Difference {Pa}
-    0.65;                       !- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
+!    ZoneLeak_LongWall,                   !- Name
+!    0.00340012477060435,           !- Effective Leakage Area {m2}
+!    1.15,                          !- Discharge Coefficient {dimensionless} # YLX: change from the implementation of IECC2021
+!    4,                          !- Reference Pressure Difference {Pa}
+!    0.65;                       !- Air Mass Flow Exponent {dimensionless}
 
-AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
-    ZoneLeak_ShortWall,                   !- Name
-    0.00255009357795326,           !- Effective Leakage Area {m2}
-    1.15,                          !- Discharge Coefficient {dimensionless}
-    4,                          !- Reference Pressure Difference {Pa}
-    0.65;                       !- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
+!    ZoneLeak_ShortWall,                   !- Name
+!    0.00255009357795326,           !- Effective Leakage Area {m2}
+!    1.15,                          !- Discharge Coefficient {dimensionless}
+!    4,                          !- Reference Pressure Difference {Pa}
+!    0.65;                       !- Air Mass Flow Exponent {dimensionless}
 
-AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
-    ZoneLeak_Ceiling,                   !- Name
-    0.011939399618037,           !- Effective Leakage Area {m2}
-    1.15,                          !- Discharge Coefficient {dimensionless}
-    4,                          !- Reference Pressure Difference {Pa}
-    0.65;                       !- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
+!    ZoneLeak_Ceiling,                   !- Name
+!    0.011939399618037,           !- Effective Leakage Area {m2}
+!    1.15,                          !- Discharge Coefficient {dimensionless}
+!    4,                          !- Reference Pressure Difference {Pa}
+!    0.65;                       !- Air Mass Flow Exponent {dimensionless}
 
-AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
-    ZoneLeak_Floor,                   !- Name
-    0.00001,           !- Effective Leakage Area {m2}
-    1.15,                          !- Discharge Coefficient {dimensionless}
-    4,                          !- Reference Pressure Difference {Pa}
-    0.65;                       !- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
+!    ZoneLeak_Floor,                   !- Name
+!    0.00001,           !- Effective Leakage Area {m2}
+!    1.15,                          !- Discharge Coefficient {dimensionless}
+!    4,                          !- Reference Pressure Difference {Pa}
+!    0.65;                       !- Air Mass Flow Exponent {dimensionless}
 
-AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
-    AtticVent,                  !- Name
-    0.37,    		!- Effective Leakage Area {m2}	# modulated to yield 4.6 ach across the board...
-    1.15,                          !- Discharge Coefficient {dimensionless}
-    4,                          !- Reference Pressure Difference {Pa}
-    0.65;                       !- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
+!    AtticVent,                  !- Name
+!    0.37,    		!- Effective Leakage Area {m2}	# modulated to yield 4.6 ach across the board...
+!    1.15,                          !- Discharge Coefficient {dimensionless}
+!    4,                          !- Reference Pressure Difference {Pa}
+!    0.65;                       !- Air Mass Flow Exponent {dimensionless}
 
-AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
-    CrawlVent,                  !- Name
-    0.37,    			!- Effective Leakage Area {m2}	# dummy 
-    1.15,                          !- Discharge Coefficient {dimensionless}
-    4,                          !- Reference Pressure Difference {Pa}
-    0.65;                       !- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
+!    CrawlVent,                  !- Name
+!    0.37,    			!- Effective Leakage Area {m2}	# dummy 
+!    1.15,                          !- Discharge Coefficient {dimensionless}
+!    4,                          !- Reference Pressure Difference {Pa}
+!    0.65;                       !- Air Mass Flow Exponent {dimensionless}
 
-AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
-    ZoneLeak_GarageSharedWall,                   !- Name
-    0.00170831659412835,           !- Effective Leakage Area {m2}
-    1.15,                          !- Discharge Coefficient {dimensionless} 
-    4,                          !- Reference Pressure Difference {Pa}
-    0.65;                       !- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
+!    ZoneLeak_GarageSharedWall,                   !- Name
+!    0.00170831659412835,           !- Effective Leakage Area {m2}
+!    1.15,                          !- Discharge Coefficient {dimensionless} 
+!    4,                          !- Reference Pressure Difference {Pa}
+!    0.65;                       !- Air Mass Flow Exponent {dimensionless}
 
-AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
-    ZoneLeak_NonGarageWall,                   !- Name
-    0.001691808176476,           !- Effective Leakage Area {m2}
-    1.15,                          !- Discharge Coefficient {dimensionless}
-    4,                          !- Reference Pressure Difference {Pa}
-    0.65;                       !- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
+!    ZoneLeak_NonGarageWall,                   !- Name
+!    0.001691808176476,           !- Effective Leakage Area {m2}
+!    1.15,                          !- Discharge Coefficient {dimensionless}
+!    4,                          !- Reference Pressure Difference {Pa}
+!    0.65;                       !- Air Mass Flow Exponent {dimensionless}
 
-AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
-    ZoneLeak_GarageLongWall,                   !- Name
-    0.0037228631762373,           !- Effective Leakage Area {m2}
-    1.15,                          !- Discharge Coefficient {dimensionless}
-    4,                          !- Reference Pressure Difference {Pa}
-    0.65;                       !- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
+!    ZoneLeak_GarageLongWall,                   !- Name
+!    0.0037228631762373,           !- Effective Leakage Area {m2}
+!    1.15,                          !- Discharge Coefficient {dimensionless}
+!    4,                          !- Reference Pressure Difference {Pa}
+!    0.65;                       !- Air Mass Flow Exponent {dimensionless}
 
-AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
-    ZoneLeak_GarageShortWall,                   !- Name
-    0.0037228631762373,           !- Effective Leakage Area {m2}
-    1.15,                          !- Discharge Coefficient {dimensionless}
-    4,                          !- Reference Pressure Difference {Pa}
-    0.65;                       !- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
+!    ZoneLeak_GarageShortWall,                   !- Name
+!    0.0037228631762373,           !- Effective Leakage Area {m2}
+!    1.15,                          !- Discharge Coefficient {dimensionless}
+!    4,                          !- Reference Pressure Difference {Pa}
+!    0.65;                       !- Air Mass Flow Exponent {dimensionless}
 
-AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
-    ZoneLeak_GarageRoof,                   !- Name
-    0.0037228631762373,           !- Effective Leakage Area {m2}
-    1.15,                          !- Discharge Coefficient {dimensionless}
-    4,                          !- Reference Pressure Difference {Pa}
-    0.65;                       !- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
+!    ZoneLeak_GarageRoof,                   !- Name
+!    0.0037228631762373,           !- Effective Leakage Area {m2}
+!    1.15,                          !- Discharge Coefficient {dimensionless}
+!    4,                          !- Reference Pressure Difference {Pa}
+!    0.65;                       !- Air Mass Flow Exponent {dimensionless}
 
-AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
-    ZoneLeak_GarageGable,                   !- Name
-    0.00186143158811865,           !- Effective Leakage Area {m2}
-    1.15,                          !- Discharge Coefficient {dimensionless}
-    4,                          !- Reference Pressure Difference {Pa}
-    0.65;                       !- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:MultiZone:Surface:EffectiveLeakageArea,
+!    ZoneLeak_GarageGable,                   !- Name
+!    0.00186143158811865,           !- Effective Leakage Area {m2}
+!    1.15,                          !- Discharge Coefficient {dimensionless}
+!    4,                          !- Reference Pressure Difference {Pa}
+!    0.65;                       !- Air Mass Flow Exponent {dimensionless}
 
 !-   ===========  ALL OBJECTS IN CLASS: AIRFLOWNETWORK:DISTRIBUTION:COMPONENT:LEAKAGERATIO ===========
 
-AirflowNetwork:Distribution:Component:LeakageRatio,
-    SupplyLeak1,                 	!- Name
-    0.0283968942589578,       	!- Effective Leakage Ratio {dimensionless} # 9% return leak..BA Benchmark 2010 Table 6/Pg 11
-    0.566,          		!- Maximum Flow Rate {m3/s}
-    25,                         	!- Reference Pressure Difference {Pa}
-    0.65;                       	!- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:Distribution:Component:LeakageRatio,
+!    SupplyLeak1,                 	!- Name
+!    0.0283968942589578,       	!- Effective Leakage Ratio {dimensionless} # 9% return leak..BA Benchmark 2010 Table 6/Pg 11
+!    0.566,          		!- Maximum Flow Rate {m3/s}
+!    25,                         	!- Reference Pressure Difference {Pa}
+!    0.65;                       	!- Air Mass Flow Exponent {dimensionless}
 
-AirflowNetwork:Distribution:Component:LeakageRatio,
-    SupplyLeak2,                 	!- Name
-    0.0112266791256345,       	!- Effective Leakage Ratio {dimensionless} # 9% return leak..BA Benchmark 2010 Table 6/Pg 11
-    0.566,          		!- Maximum Flow Rate {m3/s}
-    25,                         	!- Reference Pressure Difference {Pa}
-    0.65;                       	!- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:Distribution:Component:LeakageRatio,
+!    SupplyLeak2,                 	!- Name
+!    0.0112266791256345,       	!- Effective Leakage Ratio {dimensionless} # 9% return leak..BA Benchmark 2010 Table 6/Pg 11
+!    0.566,          		!- Maximum Flow Rate {m3/s}
+!    25,                         	!- Reference Pressure Difference {Pa}
+!    0.65;                       	!- Air Mass Flow Exponent {dimensionless}
 
-AirflowNetwork:Distribution:Component:LeakageRatio,
-    ReturnLeak1,                 	!- Name
-    0.0111441300144166,       	!- Effective Leakage Ratio {dimensionless} # 1% return leak..BA Benchmark 2010 Table 6/Pg 11
-    0.566,          		!- Maximum Flow Rate {m3/s}
-    25,                         	!- Reference Pressure Difference {Pa}
-    0.65;                       	!- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:Distribution:Component:LeakageRatio,
+!    ReturnLeak1,                 	!- Name
+!    0.0111441300144166,       	!- Effective Leakage Ratio {dimensionless} # 1% return leak..BA Benchmark 2010 Table 6/Pg 11
+!    0.566,          		!- Maximum Flow Rate {m3/s}
+!    25,                         	!- Reference Pressure Difference {Pa}
+!    0.65;                       	!- Air Mass Flow Exponent {dimensionless}
 
-AirflowNetwork:Distribution:Component:LeakageRatio,
-    ReturnLeak2,                 	!- Name
-    0.0284794433701757,       	!- Effective Leakage Ratio {dimensionless} # 1% return leak..BA Benchmark 2010 Table 6/Pg 11
-    0.566,          		!- Maximum Flow Rate {m3/s}
-    25,                         	!- Reference Pressure Difference {Pa}
-    0.65;                       	!- Air Mass Flow Exponent {dimensionless}
+!AirflowNetwork:Distribution:Component:LeakageRatio,
+!    ReturnLeak2,                 	!- Name
+!    0.0284794433701757,       	!- Effective Leakage Ratio {dimensionless} # 1% return leak..BA Benchmark 2010 Table 6/Pg 11
+!    0.566,          		!- Maximum Flow Rate {m3/s}
+!    25,                         	!- Reference Pressure Difference {Pa}
+!    0.65;                       	!- Air Mass Flow Exponent {dimensionless}
 
 
 !-   ===========  ALL OBJECTS IN CLASS: SIZING:ZONE ===========
@@ -4641,640 +4646,640 @@ ZoneControl:Thermostat,
     thermostat_living Dual SP Control;  !- Control 1 Name
 
 
-AirflowNetwork:MultiZone:Zone,
-    living_unit1,           !- Zone Name
-    NoVent,                  !- Ventilation Control Mode
-    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
-    0,                       !- Minimum Venting Open Factor {dimensionless}
-    0.0,                     !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
-    100.0,                   !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
-    0.0,                     !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
-    300000.0;                !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
+!AirflowNetwork:MultiZone:Zone,
+!    living_unit1,           !- Zone Name
+!    NoVent,                  !- Ventilation Control Mode
+!    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
+!    0,                       !- Minimum Venting Open Factor {dimensionless}
+!    0.0,                     !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
+!    100.0,                   !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
+!    0.0,                     !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
+!    300000.0;                !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
 
 !-   ===========  ALL OBJECTS IN CLASS: ZONEINFILTRATION:EFFECTIVELEAKAGEAREA ===========
 
-AirflowNetwork:MultiZone:Zone,
-    unheatedbsmt_unit1,         !- Zone Name
-    Constant,                !- Ventilation Control Mode
-    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
-    ,                        !- Minimum Venting Open Factor {dimensionless}
-    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
-    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
-    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
-    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
-    inf_sch;                 !- Venting Availability Schedule Name
+!AirflowNetwork:MultiZone:Zone,
+!    unheatedbsmt_unit1,         !- Zone Name
+!    Constant,                !- Ventilation Control Mode
+!    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
+!    ,                        !- Minimum Venting Open Factor {dimensionless}
+!    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
+!    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
+!    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
+!    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
+!    inf_sch;                 !- Venting Availability Schedule Name
 
 
-AirflowNetwork:MultiZone:Surface,
-    BGWall_upper_ldf, !- Surface Name
-    CrawlVent,               !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    Constant,                !- Ventilation Control Mode
-    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
-    ,                        !- Minimum Venting Open Factor {dimensionless}
-    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
-    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
-    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
-    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
-    inf_sch;                 !- Venting Availability Schedule Name
+!AirflowNetwork:MultiZone:Surface,
+!    BGWall_upper_ldf, !- Surface Name
+!    CrawlVent,               !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    Constant,                !- Ventilation Control Mode
+!    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
+!    ,                        !- Minimum Venting Open Factor {dimensionless}
+!    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
+!    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
+!    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
+!    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
+!    inf_sch;                 !- Venting Availability Schedule Name
 
-AirflowNetwork:MultiZone:Surface,
-    BGWall_upper_ldb, !- Surface Name
-    CrawlVent,               !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    Constant,                !- Ventilation Control Mode
-    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
-    ,                        !- Minimum Venting Open Factor {dimensionless}
-    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
-    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
-    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
-    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
-    inf_sch;                 !- Venting Availability Schedule Name
+!AirflowNetwork:MultiZone:Surface,
+!    BGWall_upper_ldb, !- Surface Name
+!    CrawlVent,               !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    Constant,                !- Ventilation Control Mode
+!    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
+!    ,                        !- Minimum Venting Open Factor {dimensionless}
+!    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
+!    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
+!    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
+!    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
+!    inf_sch;                 !- Venting Availability Schedule Name
 
-AirflowNetwork:MultiZone:Surface,
-    BGWall_upper_sdl, !- Surface Name
-    CrawlVent,               !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    Constant,                !- Ventilation Control Mode
-    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
-    ,                        !- Minimum Venting Open Factor {dimensionless}
-    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
-    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
-    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
-    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
-    inf_sch;                 !- Venting Availability Schedule Name
+!AirflowNetwork:MultiZone:Surface,
+!    BGWall_upper_sdl, !- Surface Name
+!    CrawlVent,               !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    Constant,                !- Ventilation Control Mode
+!    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
+!    ,                        !- Minimum Venting Open Factor {dimensionless}
+!    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
+!    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
+!    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
+!    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
+!    inf_sch;                 !- Venting Availability Schedule Name
 
-AirflowNetwork:MultiZone:Surface,
-    BGWall_upper_sdr, !- Surface Name
-    CrawlVent,               !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    Constant,                !- Ventilation Control Mode
-    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
-    ,                        !- Minimum Venting Open Factor {dimensionless}
-    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
-    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
-    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
-    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
-    inf_sch;                 !- Venting Availability Schedule Name
+!AirflowNetwork:MultiZone:Surface,
+!    BGWall_upper_sdr, !- Surface Name
+!    CrawlVent,               !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    Constant,                !- Ventilation Control Mode
+!    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
+!    ,                        !- Minimum Venting Open Factor {dimensionless}
+!    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
+!    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
+!    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
+!    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
+!    inf_sch;                 !- Venting Availability Schedule Name
 
 
 
 !-   ===========  ALL OBJECTS IN CLASS: ZONEINFILTRATION:EFFECTIVELEAKAGEAREA ===========
 
-AirflowNetwork:MultiZone:Zone,
-    attic_unit1,            !- Zone Name
-    Constant,                !- Ventilation Control Mode
-    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
-    ,                        !- Minimum Venting Open Factor {dimensionless}
-    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
-    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
-    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
-    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
-    inf_sch;                 !- Venting Availability Schedule Name
+!AirflowNetwork:MultiZone:Zone,
+!    attic_unit1,            !- Zone Name
+!    Constant,                !- Ventilation Control Mode
+!    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
+!    ,                        !- Minimum Venting Open Factor {dimensionless}
+!    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
+!    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
+!    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
+!    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
+!    inf_sch;                 !- Venting Availability Schedule Name
     
-AirflowNetwork:MultiZone:Surface,
-    Roof_front_unit1,       !- Surface Name
-    AtticVent,               !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    Constant,                !- Ventilation Control Mode
-    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
-    0,                       !- Minimum Venting Open Factor {dimensionless}
-    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
-    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
-    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
-    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
-    inf_sch;                 !- Venting Availability Schedule Name
+!AirflowNetwork:MultiZone:Surface,
+!    Roof_front_unit1,       !- Surface Name
+!    AtticVent,               !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    Constant,                !- Ventilation Control Mode
+!    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
+!    0,                       !- Minimum Venting Open Factor {dimensionless}
+!    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
+!    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
+!    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
+!    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
+!    inf_sch;                 !- Venting Availability Schedule Name
 
-AirflowNetwork:MultiZone:Surface,
-    Roof_back_unit1,        !- Surface Name
-    AtticVent,               !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    Constant,                !- Ventilation Control Mode
-    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
-    ,                        !- Minimum Venting Open Factor {dimensionless}
-    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
-    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
-    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
-    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
-    inf_sch;                 !- Venting Availability Schedule Name
+!AirflowNetwork:MultiZone:Surface,
+!    Roof_back_unit1,        !- Surface Name
+!    AtticVent,               !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    Constant,                !- Ventilation Control Mode
+!    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
+!    ,                        !- Minimum Venting Open Factor {dimensionless}
+!    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
+!    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
+!    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
+!    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
+!    inf_sch;                 !- Venting Availability Schedule Name
 
-AirflowNetwork:MultiZone:Surface,
-    Roof_right_unit1,       !- Surface Name
-    AtticVent,               !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    Constant,                !- Ventilation Control Mode
-    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
-    ,                        !- Minimum Venting Open Factor {dimensionless}
-    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
-    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
-    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
-    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
-    inf_sch;                 !- Venting Availability Schedule Name
+!AirflowNetwork:MultiZone:Surface,
+!    Roof_right_unit1,       !- Surface Name
+!    AtticVent,               !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    Constant,                !- Ventilation Control Mode
+!    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
+!    ,                        !- Minimum Venting Open Factor {dimensionless}
+!    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
+!    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
+!    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
+!    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
+!    inf_sch;                 !- Venting Availability Schedule Name
 
-AirflowNetwork:MultiZone:Surface,
-    Roof_left_unit1,        !- Surface Name
-    AtticVent,               !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    Constant,                !- Ventilation Control Mode
-    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
-    ,                        !- Minimum Venting Open Factor {dimensionless}
-    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
-    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
-    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
-    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
-    inf_sch;                 !- Venting Availability Schedule Name
-    
-
-AirflowNetwork:MultiZone:Zone,
-    garage1,            !- Zone Name
-    NoVent,                  !- Ventilation Control Mode
-    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
-    0,                       !- Minimum Venting Open Factor {dimensionless}
-    0.0,                     !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
-    100.0,                   !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
-    0.0,                     !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
-    300000.0;                !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
-
-AirflowNetwork:MultiZone:Surface,
-    Roof_front_garage1,       !- Surface Name
-    ZoneLeak_GarageRoof,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
-
-AirflowNetwork:MultiZone:Surface,
-    Roof_back_garage1,        !- Surface Name
-    ZoneLeak_GarageRoof,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
-
-AirflowNetwork:MultiZone:Surface,
-    Roof_right_garage1,       !- Surface Name
-    ZoneLeak_GarageGable,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
-
-AirflowNetwork:MultiZone:Surface,
-    Roof_left_garage1,        !- Surface Name
-    ZoneLeak_GarageGable,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
-
-AirflowNetwork:MultiZone:Surface,
-    Wall_ldf_1.garage1,       !- Surface Name
-    ZoneLeak_GarageShortWall,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
-
-AirflowNetwork:MultiZone:Surface,
-    Wall_ldb_1.garage1,       !- Surface Name
-    ZoneLeak_GarageSharedWall,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
-
-AirflowNetwork:MultiZone:Surface,
-    Wall_sdl_1.garage1,       !- Surface Name
-    ZoneLeak_GarageLongWall,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
-
- 
-AirflowNetwork:MultiZone:Surface,
-    Wall_sdr_1.garage1,       !- Surface Name
-    ZoneLeak_GarageLongWall,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
-
-AirflowNetwork:MultiZone:Surface,
-    Floor_unit1,            !- Surface Name
-    ZoneLeak_Floor,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
-
-AirflowNetwork:MultiZone:Surface,
-    ceiling_unit1,       !- Surface Name
-    ZoneLeak_Ceiling,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
-
-
-AirflowNetwork:MultiZone:Surface,
-    Wall_ldf_1.unit1,       !- Surface Name
-    ZoneLeak_LongWall,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
-
-AirflowNetwork:MultiZone:Surface,
-    Wall_ldb_1.unit1,       !- Surface Name
-    ZoneLeak_LongWall,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
-
-AirflowNetwork:MultiZone:Surface,
-    Wall_sdl_1.unit1,       !- Surface Name
-    ZoneLeak_ShortWall,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
-
- 
-AirflowNetwork:MultiZone:Surface,
-    Wall_sdr_1.unit1,       !- Surface Name
-    ZoneLeak_ShortWall,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
- 
+!AirflowNetwork:MultiZone:Surface,
+!    Roof_left_unit1,        !- Surface Name
+!    AtticVent,               !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    Constant,                !- Ventilation Control Mode
+!    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
+!    ,                        !- Minimum Venting Open Factor {dimensionless}
+!    ,                        !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
+!    100,                     !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
+!    ,                        !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
+!    300000,                  !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
+!    inf_sch;                 !- Venting Availability Schedule Name
     
 
-AirflowNetwork:MultiZone:Surface,
-    Wall_ldf_2.unit1,       !- Surface Name
-    ZoneLeak_LongWall,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
+!AirflowNetwork:MultiZone:Zone,
+!    garage1,            !- Zone Name
+!    NoVent,                  !- Ventilation Control Mode
+!    ,                        !- Ventilation Control Zone Temperature Setpoint Schedule Name
+!    0,                       !- Minimum Venting Open Factor {dimensionless}
+!    0.0,                     !- Indoor and Outdoor Temperature Difference Lower Limit For Maximum Venting Open Factor {deltaC}
+!    100.0,                   !- Indoor and Outdoor Temperature Difference Upper Limit for Minimun Venting Open Factor {deltaC}
+!    0.0,                     !- Indoor and Outdoor Enthalpy Difference Lower Limit For Maximum Venting Open Factor {deltaJ/kg}
+!    300000.0;                !- Indoor and Outdoor Enthalpy Difference Upper Limit for Minimun Venting Open Factor {deltaJ/kg}
 
-AirflowNetwork:MultiZone:Surface,
-    Wall_ldb_2.unit1,       !- Surface Name
-    ZoneLeak_LongWall,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
+!AirflowNetwork:MultiZone:Surface,
+!    Roof_front_garage1,       !- Surface Name
+!    ZoneLeak_GarageRoof,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
+
+!AirflowNetwork:MultiZone:Surface,
+!    Roof_back_garage1,        !- Surface Name
+!    ZoneLeak_GarageRoof,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
+
+!AirflowNetwork:MultiZone:Surface,
+!    Roof_right_garage1,       !- Surface Name
+!    ZoneLeak_GarageGable,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
+
+!AirflowNetwork:MultiZone:Surface,
+!    Roof_left_garage1,        !- Surface Name
+!    ZoneLeak_GarageGable,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
+
+!AirflowNetwork:MultiZone:Surface,
+!    Wall_ldf_1.garage1,       !- Surface Name
+!    ZoneLeak_GarageShortWall,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
+
+!AirflowNetwork:MultiZone:Surface,
+!    Wall_ldb_1.garage1,       !- Surface Name
+!    ZoneLeak_GarageSharedWall,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
+
+!AirflowNetwork:MultiZone:Surface,
+!    Wall_sdl_1.garage1,       !- Surface Name
+!    ZoneLeak_GarageLongWall,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
 
  
-AirflowNetwork:MultiZone:Surface,
-    Wall_sdr_2.unit1,       !- Surface Name
-    ZoneLeak_ShortWall,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode
+!AirflowNetwork:MultiZone:Surface,
+!    Wall_sdr_1.garage1,       !- Surface Name
+!    ZoneLeak_GarageLongWall,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
 
-AirflowNetwork:MultiZone:Surface,
-    Wall_sdl_2.unit1,       !- Surface Name
-    ZoneLeak_ShortWall,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    NoVent;                  !- Ventilation Control Mode    
+!AirflowNetwork:MultiZone:Surface,
+!    Floor_unit1,            !- Surface Name
+!    ZoneLeak_Floor,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
+
+!AirflowNetwork:MultiZone:Surface,
+!    ceiling_unit1,       !- Surface Name
+!    ZoneLeak_Ceiling,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
 
 
-AirflowNetwork:MultiZone:Surface,
-    Wall_sdr_2.unit1,       !- Surface Name
-    Zone Exhaust Fan_unit1,                !- Leakage Component Name
-    ,                        !- External Node Name
-    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
-    Constant;                !- Ventilation Control Mode
+!AirflowNetwork:MultiZone:Surface,
+!    Wall_ldf_1.unit1,       !- Surface Name
+!    ZoneLeak_LongWall,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
+
+!AirflowNetwork:MultiZone:Surface,
+!    Wall_ldb_1.unit1,       !- Surface Name
+!    ZoneLeak_LongWall,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
+
+!AirflowNetwork:MultiZone:Surface,
+!    Wall_sdl_1.unit1,       !- Surface Name
+!    ZoneLeak_ShortWall,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
+
+ 
+!AirflowNetwork:MultiZone:Surface,
+!    Wall_sdr_1.unit1,       !- Surface Name
+!    ZoneLeak_ShortWall,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
+ 
+    
+
+!AirflowNetwork:MultiZone:Surface,
+!    Wall_ldf_2.unit1,       !- Surface Name
+!    ZoneLeak_LongWall,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1.0,                     !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
+
+!AirflowNetwork:MultiZone:Surface,
+!    Wall_ldb_2.unit1,       !- Surface Name
+!    ZoneLeak_LongWall,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
+
+ 
+!AirflowNetwork:MultiZone:Surface,
+!    Wall_sdr_2.unit1,       !- Surface Name
+!    ZoneLeak_ShortWall,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode
+
+!AirflowNetwork:MultiZone:Surface,
+!    Wall_sdl_2.unit1,       !- Surface Name
+!    ZoneLeak_ShortWall,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    NoVent;                  !- Ventilation Control Mode    
+
+
+!AirflowNetwork:MultiZone:Surface,
+!    Wall_sdr_2.unit1,       !- Surface Name
+!    Zone Exhaust Fan_unit1,                !- Leakage Component Name
+!    ,                        !- External Node Name
+!    1,                       !- Window/Door Opening Factor, or Crack Factor {dimensionless}
+!    Constant;                !- Ventilation Control Mode
 
 !-   ===========  ALL OBJECTS IN CLASS: AIRFLOWNETWORK:MULTIZONE:COMPONENT:ZONEEXHAUSTFAN ===========
 
-AirflowNetwork:MultiZone:Component:ZoneExhaustFan,
-    Zone Exhaust Fan_unit1,        !- Name
-    0.01,                    !- Air Mass Flow Coefficient When the Zone Exhaust Fan is Off at Reference Conditions {kg/s}
-    0.667;                   !- Air Mass Flow Exponent When the Zone Exhaust Fan is Off {dimensionless}
+!AirflowNetwork:MultiZone:Component:ZoneExhaustFan,
+!    Zone Exhaust Fan_unit1,        !- Name
+!    0.01,                    !- Air Mass Flow Coefficient When the Zone Exhaust Fan is Off at Reference Conditions {kg/s}
+!    0.667;                   !- Air Mass Flow Exponent When the Zone Exhaust Fan is Off {dimensionless}
 
 
 !-   ===========  ALL OBJECTS IN CLASS: AIRFLOWNETWORK:DISTRIBUTION:NODE ===========
 
-AirflowNetwork:Distribution:Node,
-    EquipmentInletNode_unit1,!- Name
-    Zone Equipment Inlet Node_unit1,  !- Component Name or Node Name
-    Other,                   !- Component Object Type or Node Type
-    3.0;                     !- Node Height {m}
+!AirflowNetwork:Distribution:Node,
+!    EquipmentInletNode_unit1,!- Name
+!    Zone Equipment Inlet Node_unit1,  !- Component Name or Node Name
+!    Other,                   !- Component Object Type or Node Type
+!    3.0;                     !- Node Height {m}
 
-AirflowNetwork:Distribution:Node,
-    SplitterNode_unit1,      !- Name
-    ,                        !- Component Name or Node Name
-    AirLoopHVAC:ZoneSplitter,!- Component Object Type or Node Type
-    3.0;                     !- Node Height {m}
+!AirflowNetwork:Distribution:Node,
+!    SplitterNode_unit1,      !- Name
+!    ,                        !- Component Name or Node Name
+!    AirLoopHVAC:ZoneSplitter,!- Component Object Type or Node Type
+!    3.0;                     !- Node Height {m}
 
-AirflowNetwork:Distribution:Node,
-    ZoneSupplyNode_unit1,    !- Name
-    ,                        !- Component Name or Node Name
-    Other,                   !- Component Object Type or Node Type
-    3.0;                     !- Node Height {m}
+!AirflowNetwork:Distribution:Node,
+!    ZoneSupplyNode_unit1,    !- Name
+!    ,                        !- Component Name or Node Name
+!    Other,                   !- Component Object Type or Node Type
+!    3.0;                     !- Node Height {m}
 ! YLX: sound like this is a new object in the prototype template and the FanInletNode_unit1 in the mh_rule template is not here.
-AirflowNetwork:Distribution:Node,
-    ZoneSupplyRegisterNode_unit1 ATInlet,    !- Name
-    Zone Inlet Node_unit1 ATInlet,                        !- Component Name or Node Name
-    Other,                   !- Component Object Type or Node Type
-    3.0;                     !- Node Height {m}
+!AirflowNetwork:Distribution:Node,
+!    ZoneSupplyRegisterNode_unit1 ATInlet,    !- Name
+!    Zone Inlet Node_unit1 ATInlet,                        !- Component Name or Node Name
+!    Other,                   !- Component Object Type or Node Type
+!    3.0;                     !- Node Height {m}
 	
-AirflowNetwork:Distribution:Node,
-    ZoneSupplyRegisterNode_unit1,  !- Name
-    Zone Inlet Node_unit1,   !- Component Name or Node Name
-    Other,                   !- Component Object Type or Node Type
-    3.0;                     !- Node Height {m}
+!AirflowNetwork:Distribution:Node,
+!    ZoneSupplyRegisterNode_unit1,  !- Name
+!    Zone Inlet Node_unit1,   !- Component Name or Node Name
+!    Other,                   !- Component Object Type or Node Type
+!    3.0;                     !- Node Height {m}
 
-AirflowNetwork:Distribution:Node,
-    ZoneOutletNode_unit1,    !- Name
-    Zone Outlet node_unit1,  !- Component Name or Node Name
-    Other,                   !- Component Object Type or Node Type
-    3.0;                     !- Node Height {m}
+!AirflowNetwork:Distribution:Node,
+!    ZoneOutletNode_unit1,    !- Name
+!    Zone Outlet node_unit1,  !- Component Name or Node Name
+!    Other,                   !- Component Object Type or Node Type
+!    3.0;                     !- Node Height {m}
 
-AirflowNetwork:Distribution:Node,
-    ZoneReturnNode_unit1,    !- Name
-    ,                        !- Component Name or Node Name
-    Other,                   !- Component Object Type or Node Type
-    3.0;                     !- Node Height {m}
+!AirflowNetwork:Distribution:Node,
+!    ZoneReturnNode_unit1,    !- Name
+!    ,                        !- Component Name or Node Name
+!    Other,                   !- Component Object Type or Node Type
+!    3.0;                     !- Node Height {m}
 
-AirflowNetwork:Distribution:Node,
-    MixerNode_unit1,         !- Name
-    ,                        !- Component Name or Node Name
-    AirLoopHVAC:ZoneMixer,   !- Component Object Type or Node Type
-    3.0;                     !- Node Height {m}
+!AirflowNetwork:Distribution:Node,
+!    MixerNode_unit1,         !- Name
+!    ,                        !- Component Name or Node Name
+!    AirLoopHVAC:ZoneMixer,   !- Component Object Type or Node Type
+!    3.0;                     !- Node Height {m}
 
-AirflowNetwork:Distribution:Node,
-    MainReturnNode_unit1,    !- Name
-    Return Air Mixer Outlet_unit1,  !- Component Name or Node Name
-    Other,                   !- Component Object Type or Node Type
-    3.0;                     !- Node Height {m}
+!AirflowNetwork:Distribution:Node,
+!    MainReturnNode_unit1,    !- Name
+!    Return Air Mixer Outlet_unit1,  !- Component Name or Node Name
+!    Other,                   !- Component Object Type or Node Type
+!    3.0;                     !- Node Height {m}
 
-AirflowNetwork:Distribution:Node,
-    MainInletNode_unit1,     !- Name
-    Air Loop Inlet Node_unit1,  !- Component Name or Node Name
-    Other,                   !- Component Object Type or Node Type
-    3.0;                     !- Node Height {m}
+!AirflowNetwork:Distribution:Node,
+!    MainInletNode_unit1,     !- Name
+!    Air Loop Inlet Node_unit1,  !- Component Name or Node Name
+!    Other,                   !- Component Object Type or Node Type
+!    3.0;                     !- Node Height {m}
 
-AirflowNetwork:Distribution:Node,
-    FanOutletNode_unit1,     !- Name
-    Cooling Coil Air Inlet Node_unit1,  !- Component Name or Node Name
-    Other,                   !- Component Object Type or Node Type
-    3.0;                     !- Node Height {m}
+!AirflowNetwork:Distribution:Node,
+!    FanOutletNode_unit1,     !- Name
+!    Cooling Coil Air Inlet Node_unit1,  !- Component Name or Node Name
+!    Other,                   !- Component Object Type or Node Type
+!    3.0;                     !- Node Height {m}
 
-AirflowNetwork:Distribution:Node,
-    HeatingInletNode_unit1,  !- Name
-    Heating Coil Air Inlet Node_unit1,  !- Component Name or Node Name
-    Other,                   !- Component Object Type or Node Type
-    3.0;                     !- Node Height {m}
+!AirflowNetwork:Distribution:Node,
+!    HeatingInletNode_unit1,  !- Name
+!    Heating Coil Air Inlet Node_unit1,  !- Component Name or Node Name
+!    Other,                   !- Component Object Type or Node Type
+!    3.0;                     !- Node Height {m}
 
-AirflowNetwork:Distribution:Node,
-    HeatingOutletNode_unit1, !- Name
-    Air Loop Outlet Node_unit1,  !- Component Name or Node Name
-    Other,                   !- Component Object Type or Node Type
-    3.0;                     !- Node Height {m}
+!AirflowNetwork:Distribution:Node,
+!    HeatingOutletNode_unit1, !- Name
+!    Air Loop Outlet Node_unit1,  !- Component Name or Node Name
+!    Other,                   !- Component Object Type or Node Type
+!    3.0;                     !- Node Height {m}
 
 
 !-   ===========  ALL OBJECTS IN CLASS: AIRFLOWNETWORK:DISTRIBUTION:COMPONENT:DUCT ===========
 
-AirflowNetwork:Distribution:Component:Duct,
-    MainTrunk_unit1,        !- Name
-    2,                     !- Duct Length {m}
-    0.594903102826768,                  !- Hydraulic Diameter {m}
-    0.277996070726916,                  !- Cross Section Area {m2}
-    0.0009,                  !- Surface Roughness {m}
-    0.01,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
-    0.709825,    	     !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
-    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
+!AirflowNetwork:Distribution:Component:Duct,
+!    MainTrunk_unit1,        !- Name
+!    2,                     !- Duct Length {m}
+!    0.594903102826768,                  !- Hydraulic Diameter {m}
+!    0.277996070726916,                  !- Cross Section Area {m2}
+!    0.0009,                  !- Surface Roughness {m}
+!    0.01,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
+!    0.709825,    	     !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
+!    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
 
 
-AirflowNetwork:Distribution:Component:Duct,
-    ZoneSupply1_unit1,       !- Name
-    10.75,           !- Duct Length {m}
-    0.594903102826768,          !- Hydraulic Diameter {m}
-    0.277996070726916,          !- Cross Section Area {m2}
-    0.0009,                  !- Surface Roughness {m}
-    10,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
-    0.709825,    	     !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
-    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
+!AirflowNetwork:Distribution:Component:Duct,
+!    ZoneSupply1_unit1,       !- Name
+!    10.75,           !- Duct Length {m}
+!    0.594903102826768,          !- Hydraulic Diameter {m}
+!    0.277996070726916,          !- Cross Section Area {m2}
+!    0.0009,                  !- Surface Roughness {m}
+!    10,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
+!    0.709825,    	     !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
+!    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
 	
-AirflowNetwork:Distribution:Component:Duct,
-    ZoneSupply2_unit1,       !- Name
-    4.25,           !- Duct Length {m}
-    0.594903102826768,          !- Hydraulic Diameter {m}
-    0.277996070726916,          !- Cross Section Area {m2}
-    0.0009,                  !- Surface Roughness {m}
-    10,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
-    0.709825,    	     !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
-    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
+!AirflowNetwork:Distribution:Component:Duct,
+!    ZoneSupply2_unit1,       !- Name
+!    4.25,           !- Duct Length {m}
+!    0.594903102826768,          !- Hydraulic Diameter {m}
+!    0.277996070726916,          !- Cross Section Area {m2}
+!    0.0009,                  !- Surface Roughness {m}
+!    10,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
+!    0.709825,    	     !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
+!    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
 
-AirflowNetwork:Distribution:Component:Duct,
-    ZoneReturn1_unit1,        !- Name
-    2.25,                     !- Duct Length {m}
-    0.53209751117848,                    !- Hydraulic Diameter {m}
-    0.222396856581532,                  !- Cross Section Area {m2}
-    0.0009,                  !- Surface Roughness {m}
-    9,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
-    0.709825,                   !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
-    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
+!AirflowNetwork:Distribution:Component:Duct,
+!    ZoneReturn1_unit1,        !- Name
+!    2.25,                     !- Duct Length {m}
+!    0.53209751117848,                    !- Hydraulic Diameter {m}
+!    0.222396856581532,                  !- Cross Section Area {m2}
+!    0.0009,                  !- Surface Roughness {m}
+!    9,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
+!    0.709825,                   !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
+!    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
 
-AirflowNetwork:Distribution:Component:Duct,
-    ZoneReturn2_unit1,        !- Name
-    5.75,                     !- Duct Length {m}
-    0.53209751117848,                    !- Hydraulic Diameter {m}
-    0.222396856581532,                  !- Cross Section Area {m2}
-    0.0009,                  !- Surface Roughness {m}
-    9,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
-    0.709825,                   !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
-    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
+!AirflowNetwork:Distribution:Component:Duct,
+!    ZoneReturn2_unit1,        !- Name
+!    5.75,                     !- Duct Length {m}
+!    0.53209751117848,                    !- Hydraulic Diameter {m}
+!    0.222396856581532,                  !- Cross Section Area {m2}
+!    0.0009,                  !- Surface Roughness {m}
+!    9,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
+!    0.709825,                   !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
+!    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
 	
 
 ! YLX: sound like this is a new object in the prototype template	
-AirflowNetwork:Distribution:Component:Duct,
-    ZoneSupplyLink2_unit1 ATInlet Duct,       !- Name
-    0.0001,           !- Duct Length {m}
-    0.594903102826768,          !- Hydraulic Diameter {m}
-    0.277996070726916,          !- Cross Section Area {m2}
-    0.0009,                  !- Surface Roughness {m}
-    0,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
-    0.709825,    	     !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
-    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
+!AirflowNetwork:Distribution:Component:Duct,
+!    ZoneSupplyLink2_unit1 ATInlet Duct,       !- Name
+!    0.0001,           !- Duct Length {m}
+!    0.594903102826768,          !- Hydraulic Diameter {m}
+!    0.277996070726916,          !- Cross Section Area {m2}
+!    0.0009,                  !- Surface Roughness {m}
+!    0,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
+!    0.709825,    	     !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
+!    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
 
-AirflowNetwork:Distribution:Component:Duct,
-    MainReturn_unit1,       !- Name
-    1,                     !- Duct Length {m}
-    0.53209751117848,          !- Hydraulic Diameter {m}
-    0.222396856581532,          !- Cross Section Area {m2}
-    0.0009,                  !- Surface Roughness {m}
-    0.01,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
-    0.709825,                   !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
-    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
+!AirflowNetwork:Distribution:Component:Duct,
+!    MainReturn_unit1,       !- Name
+!    1,                     !- Duct Length {m}
+!    0.53209751117848,          !- Hydraulic Diameter {m}
+!    0.222396856581532,          !- Cross Section Area {m2}
+!    0.0009,                  !- Surface Roughness {m}
+!    0.01,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
+!    0.709825,                   !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
+!    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
 
-AirflowNetwork:Distribution:Component:Duct,
-    AirLoopReturn_unit1,    !- Name
-    0.1,                     !- Duct Length {m}
-    0.53209751117848,          !- Hydraulic Diameter {m}
-    0.222396856581532,          !- Cross Section Area {m2}
-    0.0001,                  !- Surface Roughness {m}
-    0.00,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
-    0.709825,                   !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
-    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
+!AirflowNetwork:Distribution:Component:Duct,
+!    AirLoopReturn_unit1,    !- Name
+!    0.1,                     !- Duct Length {m}
+!    0.53209751117848,          !- Hydraulic Diameter {m}
+!    0.222396856581532,          !- Cross Section Area {m2}
+!    0.0001,                  !- Surface Roughness {m}
+!    0.00,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
+!    0.709825,                   !- Overall Heat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
+!    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
 
-AirflowNetwork:Distribution:Component:Duct,
-    AirLoopSupply_unit1,    !- Name
-    0.1,                     !- Duct Length {m}
-    0.594903102826768,          !- Hydraulic Diameter {m}
-    0.277996070726916,          !- Cross Section Area {m2}
-    0.0001,                  !- Surface Roughness {m}
-    0.00,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
-    0.709825,              !- OverallHeat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
-    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
+!AirflowNetwork:Distribution:Component:Duct,
+!    AirLoopSupply_unit1,    !- Name
+!    0.1,                     !- Duct Length {m}
+!    0.594903102826768,          !- Hydraulic Diameter {m}
+!    0.277996070726916,          !- Cross Section Area {m2}
+!    0.0001,                  !- Surface Roughness {m}
+!    0.00,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
+!    0.709825,              !- OverallHeat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
+!    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
 
 !-   ===========  ALL OBJECTS IN CLASS: AIRFLOWNETWORK:DISTRIBUTION:COMPONENT:Fan ===========
 
-AirflowNetwork:Distribution:Component:Fan,
-    Supply Fan_unit1,       !- Fan Name
-    Fan:OnOff;               !- Supply Fan Object Type
+!AirflowNetwork:Distribution:Component:Fan,
+!    Supply Fan_unit1,       !- Fan Name
+!    Fan:OnOff;               !- Supply Fan Object Type
 
 
 !-   ===========  ALL OBJECTS IN CLASS: AIRFLOWNETWORK:DISTRIBUTION:COMPONENT:COIL ===========
 
 
 
-AirflowNetwork:Distribution:Component:Coil,
-    DX Cooling Coil_unit1,                   !- Coil Name
-    Coil:Cooling:DX:SingleSpeed,              !- Coil Object Type
-    0.1,                                      !- Air Path Length {m}
-    1.000;                                    !- Air Path Hydraulic Diameter {m}
+!AirflowNetwork:Distribution:Component:Coil,
+!    DX Cooling Coil_unit1,                   !- Coil Name
+!    Coil:Cooling:DX:SingleSpeed,              !- Coil Object Type
+!    0.1,                                      !- Air Path Length {m}
+!    1.000;                                    !- Air Path Hydraulic Diameter {m}
 
-AirflowNetwork:Distribution:Component:Duct,
-    ZoneConnectionDuct_unit1,!- Name
-    0.1,                     !- Duct Length {m}
-    0.594903102826768,          !- Hydraulic Diameter {m}
-    0.277996070726916,          !- Cross Section Area {m2}
-    0.0001,                  !- Surface Roughness {m}
-    0.00,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
-    0.709825,    	     !- OverallHeat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
-    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
-AirflowNetwork:Distribution:Component:Coil,   
-    Main Fuel Heating Coil_unit1,
-    Coil:Heating:Fuel,
-    0.1,
-    1.000;
+!AirflowNetwork:Distribution:Component:Duct,
+!    ZoneConnectionDuct_unit1,!- Name
+!    0.1,                     !- Duct Length {m}
+!    0.594903102826768,          !- Hydraulic Diameter {m}
+!    0.277996070726916,          !- Cross Section Area {m2}
+!    0.0001,                  !- Surface Roughness {m}
+!    0.00,                    !- Coefficient for Local Dynamic Loss Due to Fitting {dimensionless}
+!    0.709825,    	     !- OverallHeat Transmittance Coefficient (U-Factor) from Air to Air {W/m2-K}
+!    0.0000001;               !- Overall Moisture Transmittance Coefficient from Air to Air {kg/m2}
+!AirflowNetwork:Distribution:Component:Coil,   
+!    Main Fuel Heating Coil_unit1,
+!    Coil:Heating:Fuel,
+!    0.1,
+!    1.000;
 
 
 !-   ===========  ALL OBJECTS IN CLASS: AIRFLOWNETWORK:DISTRIBUTION:LINKAGE ===========     
 
-AirflowNetwork:Distribution:Linkage,
-    MainSupplyLink_unit1,    !- Name
-    EquipmentInletNode_unit1,!- Node 1 Name
-    SplitterNode_unit1,      !- Node 2 Name
-    MainTrunk_unit1,         !- Component Name
-    unheatedbsmt_unit1;             !- Thermal Zone Name
+!AirflowNetwork:Distribution:Linkage,
+!    MainSupplyLink_unit1,    !- Name
+!    EquipmentInletNode_unit1,!- Node 1 Name
+!    SplitterNode_unit1,      !- Node 2 Name
+!    MainTrunk_unit1,         !- Component Name
+!    unheatedbsmt_unit1;             !- Thermal Zone Name
 
-AirflowNetwork:Distribution:Linkage,
-    ZoneSupplyLink_unit1,    !- Name
-    SplitterNode_unit1,      !- Node 1 Name
-    ZoneSupplyNode_unit1,    !- Node 2 Name
-    ZoneSupply1_unit1,        !- Component Name
-    unheatedbsmt_unit1;              !- Thermal Zone Name
+!AirflowNetwork:Distribution:Linkage,
+!    ZoneSupplyLink_unit1,    !- Name
+!    SplitterNode_unit1,      !- Node 1 Name
+!    ZoneSupplyNode_unit1,    !- Node 2 Name
+!    ZoneSupply1_unit1,        !- Component Name
+!    unheatedbsmt_unit1;              !- Thermal Zone Name
 	
- AirflowNetwork:Distribution:Linkage,
-     ZoneSupplyLink2_unit1,   !- Name
-     ZoneSupplyNode_unit1,    !- Node 1 Name
-     ZoneSupplyRegisterNode_unit1 ATInlet,  !- Node 2 Name
-     ZoneSupply2_unit1,        !- Component Name
-     living_unit1;              !- Thermal Zone Name
+! AirflowNetwork:Distribution:Linkage,
+!     ZoneSupplyLink2_unit1,   !- Name
+!     ZoneSupplyNode_unit1,    !- Node 1 Name
+!     ZoneSupplyRegisterNode_unit1 ATInlet,  !- Node 2 Name
+!     ZoneSupply2_unit1,        !- Component Name
+!     living_unit1;              !- Thermal Zone Name
 
-AirflowNetwork:Distribution:Linkage,
-    ZoneSupplyLink2_unit1 ATInlet,   !- Name
-    ZoneSupplyRegisterNode_unit1 ATInlet,    !- Node 1 Name
-    ZoneSupplyRegisterNode_unit1,  !- Node 2 Name
-    ZoneSupplyLink2_unit1 ATInlet Duct,        !- Component Name
-    living_unit1;             !- Thermal Zone Name
+!AirflowNetwork:Distribution:Linkage,
+!    ZoneSupplyLink2_unit1 ATInlet,   !- Name
+!    ZoneSupplyRegisterNode_unit1 ATInlet,    !- Node 1 Name
+!    ZoneSupplyRegisterNode_unit1,  !- Node 2 Name
+!    ZoneSupplyLink2_unit1 ATInlet Duct,        !- Component Name
+!    living_unit1;             !- Thermal Zone Name
 
-AirflowNetwork:Distribution:Linkage,
-    ZoneSupplyConnectionLink_unit1,  !- Name
-    ZoneSupplyRegisterNode_unit1,  !- Node 1 Name
-    living_unit1,            !- Node 2 Name
-    ZoneConnectionDuct_unit1;!- Component Name
+!AirflowNetwork:Distribution:Linkage,
+!    ZoneSupplyConnectionLink_unit1,  !- Name
+!    ZoneSupplyRegisterNode_unit1,  !- Node 1 Name
+!    living_unit1,            !- Node 2 Name
+!    ZoneConnectionDuct_unit1;!- Component Name
 
-AirflowNetwork:Distribution:Linkage,
-    ZoneReturnConnectionLink_unit1,  !- Name
-    living_unit1,            !- Node 1 Name
-    ZoneOutletNode_unit1,    !- Node 2 Name
-    ZoneConnectionDuct_unit1;!- Component Name
+!AirflowNetwork:Distribution:Linkage,
+!    ZoneReturnConnectionLink_unit1,  !- Name
+!    living_unit1,            !- Node 1 Name
+!    ZoneOutletNode_unit1,    !- Node 2 Name
+!    ZoneConnectionDuct_unit1;!- Component Name
 
-AirflowNetwork:Distribution:Linkage,
-    ZoneReturnLink1_unit1,   !- Name
-    Zoneoutletnode_unit1,    !- Node 1 Name
-    ZoneReturnNode_unit1,    !- Node 2 Name
-    ZoneReturn1_unit1,        !- Component Name
-    living_unit1;              !- Thermal Zone Name
+!AirflowNetwork:Distribution:Linkage,
+!    ZoneReturnLink1_unit1,   !- Name
+!    Zoneoutletnode_unit1,    !- Node 1 Name
+!    ZoneReturnNode_unit1,    !- Node 2 Name
+!    ZoneReturn1_unit1,        !- Component Name
+!    living_unit1;              !- Thermal Zone Name
 	
-AirflowNetwork:Distribution:Linkage,
-    ZoneReturnLink2_unit1,   !- Name
-    ZoneReturnNode_unit1,    !- Node 1 Name
-    MixerNode_unit1,    !- Node 2 Name
-    ZoneReturn2_unit1,        !- Component Name
-    unheatedbsmt_unit1;              !- Thermal Zone Name
-AirflowNetwork:Distribution:Linkage,
-    MainReturnLink_unit1,    !- Name
-    MixerNode_unit1,         !- Node 1 Name
-    MainReturnNode_unit1,    !- Node 2 Name
-    MainReturn_unit1,        !- Component Name
-    unheatedbsmt_unit1;             !- Thermal Zone Name
+!AirflowNetwork:Distribution:Linkage,
+!    ZoneReturnLink2_unit1,   !- Name
+!    ZoneReturnNode_unit1,    !- Node 1 Name
+!    MixerNode_unit1,    !- Node 2 Name
+!    ZoneReturn2_unit1,        !- Component Name
+!    unheatedbsmt_unit1;              !- Thermal Zone Name
+!AirflowNetwork:Distribution:Linkage,
+!    MainReturnLink_unit1,    !- Name
+!    MixerNode_unit1,         !- Node 1 Name
+!    MainReturnNode_unit1,    !- Node 2 Name
+!    MainReturn_unit1,        !- Component Name
+!    unheatedbsmt_unit1;             !- Thermal Zone Name
 
-AirflowNetwork:Distribution:Linkage,
-    SystemReturnLink_unit1,  !- Name
-    MainReturnNode_unit1,    !- Node 1 Name
-    MainInletNode_unit1,     !- Node 2 Name
-    AirLoopReturn_unit1;     !- Component Name
+!AirflowNetwork:Distribution:Linkage,
+!    SystemReturnLink_unit1,  !- Name
+!    MainReturnNode_unit1,    !- Node 1 Name
+!    MainInletNode_unit1,     !- Node 2 Name
+!    AirLoopReturn_unit1;     !- Component Name
 
-AirflowNetwork:Distribution:Linkage,
-    SupplyFanLink_unit1,     !- Name
-    MainInletNode_unit1,      !- Node 1 Name
-    FanOutletNode_unit1,     !- Node 2 Name
-    Supply Fan_unit1;        !- Component Name
+!AirflowNetwork:Distribution:Linkage,
+!    SupplyFanLink_unit1,     !- Name
+!    MainInletNode_unit1,      !- Node 1 Name
+!    FanOutletNode_unit1,     !- Node 2 Name
+!    Supply Fan_unit1;        !- Component Name
 
-AirflowNetwork:Distribution:Linkage,
-    CoolingCoilLink_unit1,   !- Name
-    FanOutletNode_unit1,     !- Node 1 Name
-    HeatingInletNode_unit1,  !- Node 2 Name
-    DX Cooling Coil_unit1;   !- Component Name
+!AirflowNetwork:Distribution:Linkage,
+!    CoolingCoilLink_unit1,   !- Name
+!    FanOutletNode_unit1,     !- Node 1 Name
+!    HeatingInletNode_unit1,  !- Node 2 Name
+!    DX Cooling Coil_unit1;   !- Component Name
 
-AirflowNetwork:Distribution:Linkage,
-    EquipmentAirLoopLink_unit1,  !- Name
-    HeatingOutletNode_unit1, !- Node 1 Name
-    EquipmentInletNode_unit1,!- Node 2 Name
-    AirLoopSupply_unit1;     !- Component Name
+!AirflowNetwork:Distribution:Linkage,
+!    EquipmentAirLoopLink_unit1,  !- Name
+!    HeatingOutletNode_unit1, !- Node 1 Name
+!    EquipmentInletNode_unit1,!- Node 2 Name
+!    AirLoopSupply_unit1;     !- Component Name
 
-AirflowNetwork:Distribution:Linkage,
-    HeatingCoilLink_unit1,                          							
-    HeatingInletNode_unit1,  
-    HeatingOutletNode_unit1,
-    Main Fuel Heating Coil_unit1;
+!AirflowNetwork:Distribution:Linkage,
+!    HeatingCoilLink_unit1,                          							
+!    HeatingInletNode_unit1,  
+!    HeatingOutletNode_unit1,
+!    Main Fuel Heating Coil_unit1;
     
-AirflowNetwork:Distribution:Linkage,
-    ZoneSupplyLeakLink_unit1,       	!- Name
-    ZoneSupplyNode_unit1,           	!- Node 1 Name
-    unheatedbsmt_unit1,      		!- Node 2 Name 
-    SupplyLeak1;               		!- Component Name
+!AirflowNetwork:Distribution:Linkage,
+!    ZoneSupplyLeakLink_unit1,       	!- Name
+!    ZoneSupplyNode_unit1,           	!- Node 1 Name
+!    unheatedbsmt_unit1,      		!- Node 2 Name 
+!    SupplyLeak1;               		!- Component Name
 
-AirflowNetwork:Distribution:Linkage,
-    ZoneSupplyLeakLink2_unit1,       	!- Name
-    ZoneSupplyRegisterNode_unit1 ATInlet,           	!- Node 1 Name
-    living_unit1,      		!- Node 2 Name 
-    SupplyLeak2;               		!- Component Name
+!AirflowNetwork:Distribution:Linkage,
+!    ZoneSupplyLeakLink2_unit1,       	!- Name
+!    ZoneSupplyRegisterNode_unit1 ATInlet,           	!- Node 1 Name
+!    living_unit1,      		!- Node 2 Name 
+!    SupplyLeak2;               		!- Component Name
 
-AirflowNetwork:Distribution:Linkage,
-    ZoneReturnLeakLink_unit1,      	!- Name
-    living_unit1,     		!- Node 1 Name 
-    ZoneReturnNode_unit1,          	!- Node 2 Name
-    ReturnLeak1;              		!- Component Name
+!AirflowNetwork:Distribution:Linkage,
+!    ZoneReturnLeakLink_unit1,      	!- Name
+!    living_unit1,     		!- Node 1 Name 
+!    ZoneReturnNode_unit1,          	!- Node 2 Name
+!    ReturnLeak1;              		!- Component Name
 
-AirflowNetwork:Distribution:Linkage,
-    ZoneReturnLeakLink2_unit1,      	!- Name
-    unheatedbsmt_unit1,     		!- Node 1 Name 
-    ZoneReturnNode_unit1,          	!- Node 2 Name
-    ReturnLeak2;              		!- Component Name	
+!AirflowNetwork:Distribution:Linkage,
+!    ZoneReturnLeakLink2_unit1,      	!- Name
+!    unheatedbsmt_unit1,     		!- Node 1 Name 
+!    ZoneReturnNode_unit1,          	!- Node 2 Name
+!    ReturnLeak2;              		!- Component Name	
 
 AirTerminal:SingleDuct:ConstantVolume:NoReheat,
     ZoneDirectAir_unit1,             	!- Name
@@ -5489,10 +5494,10 @@ air loop outlet node_unit1;       	!- Air Outlet Node Name
 		    1,                       !- Zone Equipment 1 Heating or No-Load Sequence
 			,                        !- Zone Equipment 1 Sequential Cooling Fraction Schedule Name
 			,                        !- Zone Equipment 1 Sequential Heating Fraction Schedule Name
-            Fan:ZoneExhaust,         !- Zone Equipment 2 Object Type
-			Zone Exhaust Fan_unit1,        !- Zone Equipment 2 Name
-			2,                       !- Zone Equipment 2 Cooling Sequence
-			2,                       !- Zone Equipment 2 Heating or No-Load Sequence
+		    Fan:ZoneExhaust,         !- Zone Equipment 2 Object Type
+		    Zone Exhaust Fan_unit1,  !- Zone Equipment 2 Name
+		    2,                       !- Zone Equipment 2 Cooling Sequence
+		    2,                       !- Zone Equipment 2 Heating or No-Load Sequence
 			,                        !- Zone Equipment 2 Sequential Cooling Fraction Schedule Name
 			;                        !- Zone Equipment 2 Sequential Heating Fraction Schedule Name
 
@@ -5543,7 +5548,7 @@ air loop outlet node_unit1;       	!- Air Outlet Node Name
             activity_sch,            !- Activity Level Schedule Name
             ,                        !- Carbon Dioxide Generation Rate {m3/s-W}
             No,                      !- Enable ASHRAE 55 Comfort Warnings
-            ZoneAveraged;            !- Mean Radiant Temperature Calculation Type
+            EnclosureAveraged;       !- Mean Radiant Temperature Calculation Type
         
         
         !-   ===========  ALL OBJECTS IN CLASS: LIGHTS ===========
@@ -6037,6 +6042,22 @@ air loop outlet node_unit1;       	!- Air Outlet Node Name
 
 
 
+
+
+! ---- Added for E+ 25.2 compatibility (replaces GroundHeatTransfer preprocessor) ----
+Site:GroundTemperature:BuildingSurface,
+    10.0,   !- January Ground Temperature {C}
+    9.5,    !- February Ground Temperature {C}
+    10.0,   !- March Ground Temperature {C}
+    11.5,   !- April Ground Temperature {C}
+    14.0,   !- May Ground Temperature {C}
+    17.0,   !- June Ground Temperature {C}
+    19.0,   !- July Ground Temperature {C}
+    19.5,   !- August Ground Temperature {C}
+    18.0,   !- September Ground Temperature {C}
+    15.0,   !- October Ground Temperature {C}
+    12.0,   !- November Ground Temperature {C}
+    10.5;   !- December Ground Temperature {C}
 
 Output:VariableDictionary,
     Regular;                 !- Key Field
@@ -6692,6 +6713,79 @@ Output:Table:Monthly,
 ! zone_supply_duct_loc2_unit:  'living_unit1'
 ! 
 ! =====================================================
+
+
+! ---- Added to replace AirflowNetwork with fixed infiltration ----
+! Rates match OpenBSE YAML exactly (m3/s design flow rate, constant coefficients).
+
+ZoneInfiltration:DesignFlowRate,
+    Infiltration_living_unit1,   !- Name
+    living_unit1,                !- Zone or ZoneList or Space or SpaceList Name
+    always_on,                   !- Schedule Name
+    Flow/Zone,                   !- Design Flow Rate Calculation Method
+    0.0238,                      !- Design Flow Rate {m3/s}
+    ,                            !- Flow Rate per Floor Area {m3/s-m2}
+    ,                            !- Flow Rate per Exterior Surface Area {m3/s-m2}
+    ,                            !- Air Changes per Hour {1/hr}
+    1,                           !- Constant Term Coefficient
+    0,                           !- Temperature Term Coefficient {1/C}
+    0,                           !- Velocity Term Coefficient {s/m}
+    0;                           !- Velocity Squared Term Coefficient {s2/m2}
+
+ZoneInfiltration:DesignFlowRate,
+    Infiltration_unheatedbsmt,   !- Name
+    unheatedbsmt_unit1,          !- Zone or ZoneList or Space or SpaceList Name
+    always_on,                   !- Schedule Name
+    Flow/Zone,                   !- Design Flow Rate Calculation Method
+    0.020,                       !- Design Flow Rate {m3/s}
+    ,                            !- Flow Rate per Floor Area {m3/s-m2}
+    ,                            !- Flow Rate per Exterior Surface Area {m3/s-m2}
+    ,                            !- Air Changes per Hour {1/hr}
+    1,                           !- Constant Term Coefficient
+    0,                           !- Temperature Term Coefficient {1/C}
+    0,                           !- Velocity Term Coefficient {s/m}
+    0;                           !- Velocity Squared Term Coefficient {s2/m2}
+
+ZoneInfiltration:DesignFlowRate,
+    Infiltration_attic,          !- Name
+    attic_unit1,                 !- Zone or ZoneList or Space or SpaceList Name
+    always_on,                   !- Schedule Name
+    Flow/Zone,                   !- Design Flow Rate Calculation Method
+    0.023,                       !- Design Flow Rate {m3/s}
+    ,                            !- Flow Rate per Floor Area {m3/s-m2}
+    ,                            !- Flow Rate per Exterior Surface Area {m3/s-m2}
+    ,                            !- Air Changes per Hour {1/hr}
+    1,                           !- Constant Term Coefficient
+    0,                           !- Temperature Term Coefficient {1/C}
+    0,                           !- Velocity Term Coefficient {s/m}
+    0;                           !- Velocity Squared Term Coefficient {s2/m2}
+
+ZoneInfiltration:DesignFlowRate,
+    Infiltration_garage,         !- Name
+    garage1,                     !- Zone or ZoneList or Space or SpaceList Name
+    always_on,                   !- Schedule Name
+    Flow/Zone,                   !- Design Flow Rate Calculation Method
+    0.020,                       !- Design Flow Rate {m3/s}
+    ,                            !- Flow Rate per Floor Area {m3/s-m2}
+    ,                            !- Flow Rate per Exterior Surface Area {m3/s-m2}
+    ,                            !- Air Changes per Hour {1/hr}
+    1,                           !- Constant Term Coefficient
+    0,                           !- Temperature Term Coefficient {1/C}
+    0,                           !- Velocity Term Coefficient {s/m}
+    0;                           !- Velocity Squared Term Coefficient {s2/m2}
+
+! Note: OB YAML has exhaust fan at 0.02832 m3/s with ASHRAE combined model.
+! This E+ model uses background infiltration only (no exhaust fan).
+! OB effective infiltration is higher: sqrt(0.0238^2 + 0.02832^2) = 0.037 m3/s
+! when HVAC OA doesn't balance exhaust.
+
+! ---- Timestep outputs for OB comparison ----
+
+Output:Variable,living_unit1,Zone Mean Air Temperature,Timestep;
+Output:Variable,MAIN FUEL HEATING COIL_UNIT1,Heating Coil Heating Rate,Timestep;
+Output:Variable,DX COOLING COIL_UNIT1,Cooling Coil Total Cooling Rate,Timestep;
+Output:Variable,living_unit1,Zone Air System Sensible Heating Rate,Timestep;
+Output:Variable,living_unit1,Zone Air System Sensible Cooling Rate,Timestep;
 
 ! END of res.eplus.tmpl
 

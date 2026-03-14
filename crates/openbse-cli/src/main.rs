@@ -1018,6 +1018,25 @@ fn main() -> Result<()> {
         // Pass envelope area data for WWR reporting
         if let Some(ref env) = envelope {
             report.set_envelope_areas(env.envelope_areas.clone());
+            // Pass surface metadata for conduction summary
+            let surface_meta: Vec<_> = env.surfaces.iter().map(|s| {
+                let boundary_str = match &s.input.boundary {
+                    openbse_envelope::surface::BoundaryCondition::Outdoor => "outdoor".to_string(),
+                    openbse_envelope::surface::BoundaryCondition::Ground => "ground".to_string(),
+                    openbse_envelope::surface::BoundaryCondition::Adiabatic => "adiabatic".to_string(),
+                    openbse_envelope::surface::BoundaryCondition::Zone(z) => format!("zone:{}", z),
+                };
+                let type_str = match s.input.surface_type {
+                    openbse_envelope::surface::SurfaceType::Wall => "wall",
+                    openbse_envelope::surface::SurfaceType::Floor => "floor",
+                    openbse_envelope::surface::SurfaceType::Roof => "roof",
+                    openbse_envelope::surface::SurfaceType::Ceiling => "ceiling",
+                    openbse_envelope::surface::SurfaceType::Window => "window",
+                };
+                (s.input.name.clone(), s.input.zone.clone(), type_str.to_string(),
+                 s.net_area, s.is_window, boundary_str)
+            }).collect();
+            report.set_surface_metadata(surface_meta);
         }
         Some(report)
     } else {
@@ -1190,6 +1209,7 @@ fn main() -> Result<()> {
 
                     // Solve envelope (updates zone temps, surface temps, CTF history)
                     env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
+                    env.update_bdf_history();
 
                     sim_time += dt;
                 }
@@ -1343,6 +1363,7 @@ fn main() -> Result<()> {
                     // ═══════════════════════════════════════════════════════
                     let hvac_conds = ZoneHvacConditions::default();
                     let env_result = env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
+                    env.update_bdf_history();
 
                     let result = TimestepResult {
                         month, day, hour, sub_hour: sub,
@@ -1382,15 +1403,14 @@ fn main() -> Result<()> {
                     // but terminal control signals must be stable across iterations.
                     let initial_zone_temps: HashMap<String, f64> = current_zone_temps.clone();
 
-                    // Ideal loads at setpoint from previous timestep (used for load-based PLR).
-                    // These are FROZEN across HVAC iterations — they don't change because
-                    // the loads are computed once and the terminal signals use frozen zone
-                    // temps.  This prevents the oscillation where the ideal load changes
-                    // as the zone temp changes between iterations.
-                    let current_cooling_loads: HashMap<String, f64> = env.zones.iter()
+                    // Ideal loads at setpoint — initialized from previous timestep,
+                    // then updated after each envelope solve to reflect current
+                    // conditions.  This allows smooth load tapering during
+                    // transitions (E+-style iterative convergence).
+                    let mut current_cooling_loads: HashMap<String, f64> = env.zones.iter()
                         .map(|z| (z.input.name.clone(), z.ideal_cooling_load))
                         .collect();
-                    let current_heating_loads: HashMap<String, f64> = env.zones.iter()
+                    let mut current_heating_loads: HashMap<String, f64> = env.zones.iter()
                         .map(|z| (z.input.name.clone(), z.ideal_heating_load))
                         .collect();
 
@@ -1401,9 +1421,15 @@ fn main() -> Result<()> {
                     // HVAC, computed by the envelope.  Frozen from the PREVIOUS
                     // timestep and used for mode determination from the FIRST
                     // HVAC iteration (no need to wait for envelope to run).
-                    let mut predictor_no_hvac_temps: HashMap<String, f64> = env.zones.iter()
+                    let predictor_no_hvac_temps: HashMap<String, f64> = env.zones.iter()
                         .map(|z| (z.input.name.clone(), z.temp_no_hvac))
                         .collect();
+
+                    // Track previous supply conditions for damping.
+                    // ON/OFF cycling systems oscillate between full-capacity
+                    // and zero, preventing convergence. Averaging successive
+                    // supply conditions damps this oscillation.
+                    let mut prev_supply_conditions: HashMap<String, (f64, f64)> = HashMap::new();
 
                     for hvac_iter in 0..MAX_HVAC_ITER {
                         // Step 1: Run HVAC with current zone temps and loads
@@ -1661,10 +1687,38 @@ fn main() -> Result<()> {
                             }
                         }
 
-                        // Step 2: Deliver HVAC supply air to envelope
+                        // Step 2: Deliver HVAC supply air to envelope.
+                        //
+                        // Damp supply conditions to prevent ON/OFF cycling
+                        // oscillation.  Without damping, the zone alternates
+                        // between overcooled/overheated states every iteration,
+                        // never converging.  The 50/50 blend of current and
+                        // previous supply conditions converges to the correct
+                        // equilibrium within 3-4 iterations.
+                        let damped_supply: HashMap<String, (f64, f64)> = if hvac_iter > 0 {
+                            zone_supply_conditions.iter().map(|(zn, &(t, m))| {
+                                if let Some(&(pt, pm)) = prev_supply_conditions.get(zn) {
+                                    // Enthalpy-correct damping: average mass flow,
+                                    // then compute mixed temperature
+                                    let avg_m = 0.5 * m + 0.5 * pm;
+                                    let avg_t = if avg_m > 1e-6 {
+                                        (0.5 * m * t + 0.5 * pm * pt) / avg_m
+                                    } else {
+                                        0.5 * t + 0.5 * pt
+                                    };
+                                    (zn.clone(), (avg_t, avg_m))
+                                } else {
+                                    (zn.clone(), (t, m))
+                                }
+                            }).collect()
+                        } else {
+                            zone_supply_conditions.clone()
+                        };
+                        prev_supply_conditions = zone_supply_conditions;
+
                         let mut hvac_conds = ZoneHvacConditions::default();
-    
-                        for (zone_name, (supply_temp, mass_flow)) in &zone_supply_conditions {
+
+                        for (zone_name, (supply_temp, mass_flow)) in &damped_supply {
                             let zone_conditioned = env.zones.iter()
                                 .find(|z| z.input.name == *zone_name)
                                 .map(|z| z.input.conditioned)
@@ -1707,31 +1761,34 @@ fn main() -> Result<()> {
                         current_zone_temps = env_result.zone_temps.iter()
                             .map(|(k, &v)| (k.clone(), v))
                             .collect();
-                        // NOTE: current_cooling_loads and current_heating_loads
-                        // are intentionally NOT updated — they're frozen at
-                        // pre-HVAC values to keep terminal signals stable.
-
-                        // After the FIRST envelope pass, update the predictor
-                        // with CURRENT timestep conditions.  The initial
-                        // predictor_no_hvac_temps (from the previous timestep)
-                        // may be stale: e.g., overnight the zone needed heating,
-                        // but morning solar gains now make heating unnecessary.
-                        // The envelope's temp_no_hvac uses CURRENT surface temps,
-                        // solar gains, outdoor temp, and infiltration — giving an
-                        // accurate free-floating prediction.  On iteration 1+ the
-                        // updated predictor corrects mode from Heating → Deadband
-                        // (or vice versa), preventing the self-reinforcing cycle
-                        // where stale loads perpetuate unnecessary heating.
-                        if hvac_iter == 0 {
-                            for z in &env.zones {
-                                if z.input.conditioned {
-                                    predictor_no_hvac_temps.insert(
-                                        z.input.name.clone(),
-                                        z.temp_no_hvac,
-                                    );
-                                }
+                        // Update ideal loads from the envelope so the NEXT
+                        // HVAC iteration uses CURRENT conditions instead of
+                        // stale previous-timestep loads.  This prevents the
+                        // system from over/under-delivering during transitions
+                        // (e.g., morning solar gain reducing heating need).
+                        // E+ recomputes loads every iteration — matching that
+                        // approach eliminates the oscillation seen with frozen loads.
+                        for z in &env.zones {
+                            if z.input.conditioned {
+                                current_heating_loads.insert(
+                                    z.input.name.clone(),
+                                    z.ideal_heating_load,
+                                );
+                                current_cooling_loads.insert(
+                                    z.input.name.clone(),
+                                    z.ideal_cooling_load,
+                                );
                             }
                         }
+
+                        // Do NOT update predictor_no_hvac_temps during HVAC
+                        // iterations. temp_no_hvac depends on surface temps
+                        // which change with zone temp (HVAC-dependent), causing
+                        // the predictor mode to flip between Heating and Deadband
+                        // each iteration (non-convergence). Using the frozen
+                        // previous-timestep predictor gives stable mode across
+                        // all iterations, matching E+'s approach where the
+                        // predictor is evaluated once before HVAC iteration.
 
                         final_hvac_result = Some(hvac_result);
                         final_env_result = Some(env_result);
@@ -1743,6 +1800,11 @@ fn main() -> Result<()> {
 
                     (final_env_result.unwrap(), final_hvac_result.unwrap())
                 };
+
+                // Update BDF history ONCE after HVAC convergence.
+                // Must not happen inside the HVAC iteration loop — that
+                // would corrupt the backward-difference extrapolation.
+                env.update_bdf_history();
 
                 // ── Assemble timestep result ──────────────────────────
                 let mut result = hvac_result;
@@ -1866,6 +1928,15 @@ fn main() -> Result<()> {
                     let mult = zone.input.multiplier as f64;
                     snapshot.zone_lighting_power.insert(zone.input.name.clone(), zone.lighting_power * mult);
                     snapshot.zone_equipment_power.insert(zone.input.name.clone(), zone.equipment_power * mult);
+
+                    // Exhaust fan power → component_electric_power (name contains "fan"
+                    // so output.rs routes it to fan_elec_j automatically)
+                    if zone.exhaust_fan_power > 0.0 {
+                        snapshot.component_electric_power.insert(
+                            format!("Exhaust Fan {}", zone.input.name),
+                            zone.exhaust_fan_power * mult,
+                        );
+                    }
                 }
 
                 // ── DHW simulation ─────────────────────────────────────
@@ -2413,6 +2484,7 @@ fn simulate_all_loops(
                     // or when loads are truly zero (deadband)
                     hvac_mode(zt, hsp, csp)
                 };
+
                 (z.clone(), mode)
             })
             .collect();
@@ -2749,6 +2821,14 @@ fn simulate_all_loops(
             let is_continuous_fan = li.fan_operating_mode
                 == openbse_io::input::FanOperatingMode::Continuous;
 
+            // E+ Part Load Fraction: accounts for compressor cycling losses.
+            // RTF = PLR / PLF > PLR, so compressor runs longer per unit of
+            // cooling delivered (startup losses, refrigerant migration, etc.).
+            // Default: PLF = 1 - Cd*(1-PLR) with Cd=0.15 (E+ default).
+            // Fan power uses PLR directly (no cycling penalty).
+            let plf = (1.0 - 0.15 * (1.0 - loop_plr)).max(0.7);
+            let rtf = loop_plr / plf;
+
             for (comp_name, outputs) in &mut loop_result {
                 let is_fan = li.fan_names.contains(comp_name);
 
@@ -2758,15 +2838,24 @@ fn simulate_all_loops(
                     // Mass flow is NOT scaled — fan pushes air continuously.
                     // (No changes needed — outputs stay at full rated values.)
                 } else {
-                    // Cycling fan mode: all outputs scale with PLR.
-                    // Also applies to coil outputs in continuous fan mode
-                    // (coils cycle ON/OFF, average output = rated × PLR).
+                    // DX compressor electric power uses RTF (includes cycling
+                    // penalty via PLF curve). Gas furnace fuel and fan power
+                    // use PLR directly (no compressor cycling penalty).
+                    //
+                    // In E+, the PLF curve is specific to DX coils — gas
+                    // furnaces report fuel = Q / eff × PLR without cycling
+                    // degradation.  Fan power = rated × PLR (direct cycling).
+                    let is_dx_coil = !is_fan && outputs.get("fuel_power")
+                        .map_or(true, |fp| *fp == 0.0);
+                    let power_factor = if is_dx_coil { rtf } else { loop_plr };
                     if let Some(ep) = outputs.get_mut("electric_power") {
-                        *ep *= loop_plr;
+                        *ep *= power_factor;
                     }
                     if let Some(fp) = outputs.get_mut("fuel_power") {
                         *fp *= loop_plr;
                     }
+                    // Thermal output and mass flow scale with PLR
+                    // (time-averaged delivery to the zone).
                     if let Some(to) = outputs.get_mut("thermal_output") {
                         *to *= loop_plr;
                     }

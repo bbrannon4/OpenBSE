@@ -26,6 +26,11 @@ pub enum FanType {
 pub struct Fan {
     pub name: String,
     pub fan_type: FanType,
+    /// Free-form tag for output classification (e.g., "supply", "return",
+    /// "exhaust", "transfer", "relief"). Used by the output layer to route
+    /// fan energy to the correct end-use subcategory.
+    #[serde(default)]
+    pub tag: String,
     /// Design maximum air flow rate [m³/s]. Use AUTOSIZE for autosizing.
     pub design_flow_rate: f64,
     /// Design pressure rise [Pa]
@@ -60,6 +65,7 @@ impl Fan {
         Self {
             name: name.to_string(),
             fan_type: FanType::ConstantVolume,
+            tag: String::new(),
             design_flow_rate,
             design_pressure_rise,
             total_efficiency,
@@ -83,6 +89,7 @@ impl Fan {
         Self {
             name: name.to_string(),
             fan_type: FanType::VAV,
+            tag: String::new(),
             design_flow_rate,
             design_pressure_rise,
             total_efficiency,
@@ -93,6 +100,12 @@ impl Fan {
             power: 0.0,
             heat_to_air: 0.0,
         }
+    }
+
+    /// Set the tag (builder pattern).
+    pub fn with_tag(mut self, tag: &str) -> Self {
+        self.tag = tag.to_string();
+        self
     }
 
     /// Calculate fan power and heat gain.

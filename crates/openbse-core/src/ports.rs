@@ -311,6 +311,12 @@ pub trait EnvelopeSolver: std::fmt::Debug {
         hvac: &ZoneHvacConditions,
     ) -> EnvelopeResults;
 
+    /// Update zone temperature BDF history after HVAC convergence.
+    ///
+    /// Must be called exactly ONCE per physical timestep, AFTER all
+    /// HVAC iterations have converged.
+    fn update_bdf_history(&mut self);
+
     /// Get all zone names managed by this solver.
     fn zone_names(&self) -> Vec<String>;
 }

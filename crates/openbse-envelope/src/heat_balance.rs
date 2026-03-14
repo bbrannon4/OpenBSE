@@ -86,9 +86,15 @@ pub struct BuildingEnvelope {
     /// Gross wall and window areas by cardinal direction (N, E, S, W).
     /// Used for window-to-wall ratio reporting.
     pub envelope_areas: crate::geometry::EnvelopeAreas,
+    /// Infiltration interaction mode: how infiltration combines with exhaust.
+    pub infiltration_interaction: crate::zone_loads::InfiltrationInteraction,
     /// Solar distribution method for interior beam solar radiation.
     /// FullExterior: all beam to floor.  FullInteriorAndExterior: geometric projection.
     pub solar_distribution_method: SolarDistributionMethod,
+    /// Per-surface CTF inside/outside heat flux [W/m²] from the last solve.
+    /// Used by update_bdf_history() to shift CTF history once after HVAC convergence.
+    ctf_q_last_inside: Vec<f64>,
+    ctf_q_last_outside: Vec<f64>,
 }
 
 /// Interior view factor data for a zone modeled as a rectangular box.
@@ -936,7 +942,10 @@ impl BuildingEnvelope {
             zone_view_factors,
             interzone_pairs,
             envelope_areas,
+            infiltration_interaction: crate::zone_loads::InfiltrationInteraction::Basic,
             solar_distribution_method,
+            ctf_q_last_inside: vec![0.0; n_surfaces],
+            ctf_q_last_outside: vec![0.0; n_surfaces],
         }
     }
 
@@ -1098,6 +1107,22 @@ impl BuildingEnvelope {
                 let resolved_layers = construction.resolve_layers(&self.materials);
                 if !resolved_layers.is_empty() {
                     let ctf = calculate_ctf(&resolved_layers, self.dt);
+                    // Temporary: log CTF coefficients for comparison with E+
+                    log::info!(
+                        "CTF for '{}' (construction '{}'): terms={}, Z[0]={:.6}, Y[0]={:.6e}, X[0]={:.6}",
+                        self.surfaces[i].input.name, construction_name,
+                        ctf.num_terms, ctf.z[0], ctf.y[0], ctf.x[0]
+                    );
+                    if self.surfaces[i].input.name.contains("Wall South 1F")
+                        || self.surfaces[i].input.name.contains("Attic Floor") {
+                        for j in 0..ctf.num_terms {
+                            let phi_j = if j < ctf.phi.len() { ctf.phi[j] } else { 0.0 };
+                            log::info!(
+                                "  CTF[{}]: X={:.6e}, Y={:.6e}, Z={:.6e}, Phi={:.6e}",
+                                j, ctf.x[j], ctf.y[j], ctf.z[j], phi_j
+                            );
+                        }
+                    }
                     let history = CtfHistory::new(ctf.num_terms.max(1), 21.0);
                     self.ctf_coefficients[i] = Some(ctf);
                     self.ctf_histories[i] = Some(history);
@@ -1312,14 +1337,40 @@ impl EnvelopeSolver for BuildingEnvelope {
             zone.ventilation_mass_flow = vent_flow * rho_outdoor;
 
             // Exhaust fan (removes air from zone — schedule-aware)
+            // Power uses same physics as Fan component (fan.rs):
+            //   Power = MassFlow × PressureRise / (TotalEff × ρ_air)
+            //   ShaftPower = MotorEff × Power
+            //   HeatToAir = ShaftPower + (Power - ShaftPower) × MotorInAirFrac
+            //   HeatToZone = Power - HeatToAir  (motor heat NOT in airstream stays in zone)
             if let Some(ref exhaust) = zone.input.exhaust_fan {
                 let exhaust_frac = match &exhaust.schedule {
                     Some(name) => self.schedule_manager.fraction(name, hour, dow),
                     None => 1.0,
                 };
-                zone.exhaust_mass_flow = exhaust.flow_rate * rho_outdoor * exhaust_frac;
+                let vol_flow = exhaust.flow_rate * exhaust_frac;
+                let mass_flow = vol_flow * rho_outdoor;
+                zone.exhaust_mass_flow = mass_flow;
+
+                // Fan power (same formula as fan.rs lines 110-114)
+                if mass_flow > 0.0 && exhaust.pressure_rise > 0.0 {
+                    let power = (mass_flow * exhaust.pressure_rise
+                        / (exhaust.total_efficiency * rho_outdoor))
+                        .max(0.0);
+                    let shaft_power = exhaust.motor_efficiency * power;
+                    let heat_to_air = shaft_power
+                        + (power - shaft_power) * exhaust.motor_in_airstream_fraction;
+                    // Heat in airstream exits with exhaust (lost from zone).
+                    // Heat NOT in airstream stays in zone as convective gain.
+                    zone.exhaust_fan_power = power;
+                    zone.exhaust_fan_heat_to_zone = power - heat_to_air;
+                } else {
+                    zone.exhaust_fan_power = 0.0;
+                    zone.exhaust_fan_heat_to_zone = 0.0;
+                }
             } else {
                 zone.exhaust_mass_flow = 0.0;
+                zone.exhaust_fan_power = 0.0;
+                zone.exhaust_fan_heat_to_zone = 0.0;
             }
 
             // Natural ventilation (wind + stack driven through operable openings)
@@ -1400,7 +1451,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                 zone.nat_vent_active = false;
             }
 
-            // ASHRAE 62.1 outdoor air (calculated from people count + floor area)
+            // ASHRAE 62.1 outdoor air (calculated from people count + floor area + absolute + ACH)
             if let Some(ref oa) = zone.input.outdoor_air {
                 let people_count: f64 = zone.input.internal_gains.iter()
                     .filter_map(|g| match g {
@@ -1414,8 +1465,35 @@ impl EnvelopeSolver for BuildingEnvelope {
                         _ => None,
                     })
                     .sum();
-                let oa_flow = oa.per_person * people_count + oa.per_area * zone.input.floor_area;
+
+                // Supply OA from all four specification methods
+                let person_flow = oa.per_person * people_count;
+                let area_flow = oa.per_area * zone.input.floor_area;
+                let abs_flow = oa.absolute;
+                let ach_flow = oa.ach * zone.input.volume / 3600.0;
+                let oa_flow = match oa.oa_method {
+                    crate::zone_loads::OaMethod::Sum => person_flow + area_flow + abs_flow + ach_flow,
+                    crate::zone_loads::OaMethod::Maximum => person_flow.max(area_flow).max(abs_flow).max(ach_flow),
+                };
                 zone.outdoor_air_mass_flow = oa_flow * rho_outdoor;
+
+                // Exhaust flow from ventilation requirements
+                // (supplements the explicit exhaust_fan flow via ASHRAE combined model)
+                let ex_people = oa.exhaust_per_person * people_count;
+                let ex_area = oa.exhaust_per_area * zone.input.floor_area;
+                let ex_abs = oa.exhaust_absolute;
+                let ex_ach = oa.exhaust_ach * zone.input.volume / 3600.0;
+                let exhaust_from_oa = match oa.exhaust_method {
+                    crate::zone_loads::OaMethod::Sum => ex_people + ex_area + ex_abs + ex_ach,
+                    crate::zone_loads::OaMethod::Maximum => ex_people.max(ex_area).max(ex_abs).max(ex_ach),
+                };
+                // Add exhaust requirement to exhaust mass flow (supplements fan exhaust).
+                // Take max of fan exhaust and requirement exhaust — they represent
+                // the same physical air removal, not additive sources.
+                let exhaust_req_mass_flow = exhaust_from_oa * rho_outdoor;
+                if exhaust_req_mass_flow > zone.exhaust_mass_flow {
+                    zone.exhaust_mass_flow = exhaust_req_mass_flow;
+                }
             } else {
                 zone.outdoor_air_mass_flow = 0.0;
             }
@@ -1497,15 +1575,20 @@ impl EnvelopeSolver for BuildingEnvelope {
                 // recovers a portion of the blocked sky radiation. The 25% cap is a
                 // conservative limit that prevents over-shading E/W facades while
                 // correctly applying moderate diffuse shading to south overhangs.
-                let sky_ratio = if surface.is_window {
-                    surface.diffuse_sky_shading_ratio.max(0.75)
+                let (sky_ratio, horiz_ratio) = if surface.is_window {
+                    // Windows: 25% cap to account for inter-reflections not modeled
+                    (surface.diffuse_sky_shading_ratio.max(0.75), 1.0)
                 } else {
-                    1.0
+                    // Opaque surfaces: apply full DifShdgRatio from building
+                    // self-shading (e.g., attached garage, perpendicular walls),
+                    // matching E+ FullExterior behavior.
+                    (surface.diffuse_sky_shading_ratio,
+                     surface.diffuse_horizon_shading_ratio)
                 };
                 let shaded_sky_diffuse =
                     components.sky_diffuse * sky_ratio
                     + components.circumsolar * sunlit
-                    + components.horizon;
+                    + components.horizon * horiz_ratio;
                 let diffuse_total = shaded_sky_diffuse + components.ground_diffuse;
                 let effective_incident = (shaded_beam + diffuse_total).max(0.0);
 
@@ -1616,10 +1699,12 @@ impl EnvelopeSolver for BuildingEnvelope {
         let mut has_geometric_distribution: Vec<bool> = vec![false; self.zones.len()];
 
         for (zi, zone) in self.zones.iter().enumerate() {
-            // Only apply solar distribution if zone has solar_distribution configured
-            if zone.input.solar_distribution.is_none() {
-                continue;
-            }
+            // Always apply geometric solar distribution to surfaces.
+            // FullExterior (default): beam → floor, diffuse via VMULT — works
+            // without zone-level solar_distribution fractions.  Without this,
+            // zones without explicit solar_distribution get ALL transmitted
+            // solar dumped directly to zone air, causing 3× faster temperature
+            // changes during deadband and excessive HVAC cycling.
 
             // FullInteriorAndExterior requires vertex data for geometric projection.
             // FullExterior only needs floor surfaces by type (no vertices needed).
@@ -2136,6 +2221,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                 }
             }
 
+            // Accumulator for window interior LW radiation per zone [W].
+            // Positive = net heat flow from opaque surfaces → glass (surfaces lose heat).
+            let mut zone_win_rad_total = vec![0.0_f64; self.zones.len()];
+
             for i in 0..self.surfaces.len() {
                 if self.surfaces[i].is_window {
                     let zi = self.zone_index.get(&self.surfaces[i].input.zone)
@@ -2368,12 +2457,32 @@ impl EnvelopeSolver for BuildingEnvelope {
                         self.surfaces[i].absorbed_solar_inside_window = residual;
                     }
 
-                    // Radiative component goes through q_conv_inside → q_window_cond.
-                    // Sign: negative = heat loss from zone (T_mrt > T_glass in winter).
-                    // The convective component is NOT included here because it's already
-                    // captured in sum_ha/sum_hat via h_conv_inside and temp_inside.
+                    // Window interior LW radiation: distribute to opaque surfaces.
+                    //
+                    // In E+, the ScriptF radiation network distributes window LW
+                    // radiation to all zone surfaces based on view factors. The
+                    // surfaces absorb this radiation through their thermal mass,
+                    // providing natural temperature buffering.
+                    //
+                    // Previously, OpenBSE injected window radiation directly into
+                    // the zone air via q_conv_inside → q_window_cond. This bypassed
+                    // thermal mass entirely, causing the zone air to swing more than
+                    // E+ — the full ~2,800 kWh/yr of window radiative exchange hit
+                    // the zone air directly (C_air ≈ 575 kJ/K), driving excessive
+                    // thermostat cycling (+68% heating, +48% cooling vs E+).
+                    //
+                    // Fix: store the radiative flux per window for distribution to
+                    // opaque surfaces in the precomp block below. The window's
+                    // q_conv_inside is set to zero — the convective component still
+                    // enters via sum_ha/sum_hat (h_conv_inside, temp_inside = T_glass).
                     let q_rad_interior = h_rad_in * (t_mrt - t_glass);
-                    self.surfaces[i].q_conv_inside = -q_rad_interior;
+                    // Store for distribution to opaque surfaces (W total for this window)
+                    self.surfaces[i].q_conv_inside = 0.0;
+                    // Accumulate window radiation per zone (positive = surfaces → glass)
+                    let win_rad_w = q_rad_interior * self.surfaces[i].net_area;
+                    let zi_win = self.zone_index.get(&self.surfaces[i].input.zone)
+                        .copied().unwrap_or(0);
+                    zone_win_rad_total[zi_win] += win_rad_w;
 
                     // Exterior surface temperature for next iteration's convection.
                     // Total interior heat flow (conv + rad) determines the heat flux
@@ -2394,6 +2503,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                 is_adiabatic: bool,
             }
             let mut precomp: Vec<Option<SurfPrecomp>> = Vec::with_capacity(self.surfaces.len());
+
+            // Pre-compute per-zone total opaque surface area for window radiation distribution
+            let zone_opaque_area: Vec<f64> = (0..self.zones.len()).map(|zi| {
+                self.zones[zi].surface_indices.iter()
+                    .filter(|&&si| !self.surfaces[si].is_window)
+                    .map(|&si| self.surfaces[si].net_area)
+                    .sum()
+            }).collect();
 
             for i in 0..self.surfaces.len() {
                 if self.surfaces[i].is_window {
@@ -2489,7 +2606,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                         zone_rad_gain * self.surfaces[i].net_area / zone_total_area
                     } else { 0.0 };
 
-                    let q_total_rad = q_rad_to_surface + q_solar_to_surface;
+                    // Window LW radiation distributed to this opaque surface [W].
+                    // zone_win_rad_total is positive when surfaces→glass (surfaces lose heat),
+                    // so we negate: opaque surfaces receive a negative radiative flux (cooling).
+                    let q_win_rad_to_surface = if zi < zone_opaque_area.len() && zone_opaque_area[zi] > 0.0 {
+                        -zone_win_rad_total[zi] * self.surfaces[i].net_area / zone_opaque_area[zi]
+                    } else { 0.0 };
+
+                    let q_total_rad = q_rad_to_surface + q_solar_to_surface + q_win_rad_to_surface;
                     let q_rad_flux = q_total_rad / self.surfaces[i].net_area.max(0.01);
 
                     let is_adiabatic = matches!(
@@ -2815,25 +2939,46 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // separately): OA enters zone at outdoor temp
                     zone.outdoor_air_mass_flow
                 };
-                // ASHRAE combined infiltration model: when exhaust fans create
-                // unbalanced flow, outdoor air enters through envelope cracks
-                // rather than adding independently.  Reference: ASHRAE Handbook
-                // of Fundamentals, "Residential Ventilation" chapter.
-                //   Q_combined = sqrt(Q_infiltration² + Q_unbalanced²)
-                // where Q_unbalanced = max(0, exhaust − balanced_supply).
-                // HVAC outdoor air (oa_to_zone) partially balances exhaust.
-                let unbalanced_exhaust =
-                    (zone.exhaust_mass_flow - oa_to_zone).max(0.0);
-                let combined_infil_exhaust = (zone.infiltration_mass_flow.powi(2)
-                    + unbalanced_exhaust.powi(2))
-                .sqrt();
-                let total_outdoor_mass_flow = combined_infil_exhaust
-                    + zone.ventilation_mass_flow
-                    + oa_to_zone
-                    + zone.nat_vent_mass_flow;
+                // Infiltration interaction with exhaust fans.
+                //
+                // Basic (default): infiltration is independent of exhaust.
+                //   Matches E+ ZoneInfiltration:DesignFlowRate (no AirflowNetwork).
+                //   Exhaust removes zone air at T_zone — no additional outdoor air
+                //   enters to replace it (the mass imbalance is not resolved).
+                //   Only infiltration brings in outdoor air at T_outdoor.
+                //
+                // AshraeCombined: Q_combined = sqrt(Q_infil² + Q_unbalanced²)
+                //   ASHRAE Handbook of Fundamentals, "Residential Ventilation".
+                //   Q_unbalanced = max(0, exhaust − balanced_supply).
+                //   More physically correct but differs from E+ without AFN.
+                let total_outdoor_mass_flow = match self.infiltration_interaction {
+                    crate::zone_loads::InfiltrationInteraction::Basic => {
+                        // Exhaust does NOT add outdoor air to the energy balance.
+                        // It only removes zone air (at T_zone, so net energy = 0
+                        // relative to zone). Infiltration is the only source of
+                        // outdoor air at T_outdoor.
+                        zone.infiltration_mass_flow
+                            + zone.ventilation_mass_flow
+                            + oa_to_zone
+                            + zone.nat_vent_mass_flow
+                    }
+                    crate::zone_loads::InfiltrationInteraction::AshraeCombined => {
+                        let unbalanced_exhaust =
+                            (zone.exhaust_mass_flow - oa_to_zone).max(0.0);
+                        let combined_infil_exhaust = (zone.infiltration_mass_flow.powi(2)
+                            + unbalanced_exhaust.powi(2))
+                        .sqrt();
+                        combined_infil_exhaust
+                            + zone.ventilation_mass_flow
+                            + oa_to_zone
+                            + zone.nat_vent_mass_flow
+                    }
+                };
                 let mcpi = total_outdoor_mass_flow * cp_air;
 
-                let q_conv_total = zone.q_internal_conv + q_solar_to_air + q_window_cond + q_window_absorbed;
+                let q_conv_total = zone.q_internal_conv
+                    + zone.exhaust_fan_heat_to_zone  // motor waste heat staying in zone
+                    + q_solar_to_air + q_window_cond + q_window_absorbed;
 
                 // ─── E+-style higher-order backward difference ─────────
                 //
@@ -2876,85 +3021,6 @@ impl EnvelopeSolver for BuildingEnvelope {
                     } else {
                         zone.temp_prev
                     };
-                }
-
-                // ═══ DIAGNOSTIC: Print heat balance for Jan 4, Hour 1 ═══
-                if ctx.timestep.month == 1 && ctx.timestep.day == 4 && ctx.timestep.hour == 1
-                    && zone_idx == 0
-                {
-                    eprintln!("══════════════ HEAT BALANCE DIAGNOSTIC ══════════════");
-                    eprintln!("  Timestep: Month={}, Day={}, Hour={}", ctx.timestep.month, ctx.timestep.day, ctx.timestep.hour);
-                    eprintln!("  T_zone = {:.2} °C,  T_outdoor = {:.2} °C,  T_sky = {:.2} °C", zone.temp, t_outdoor, t_sky);
-                    eprintln!("  dt = {:.0} s,  p_b = {:.0} Pa,  wind = {:.1} m/s", dt, p_b, wind_speed_met);
-                    eprintln!("  --- Surface detail (extended) ---");
-                    for &si in &zone.surface_indices {
-                        let s = &self.surfaces[si];
-                        let ctf_info = if let Some(ctf) = self.ctf_coefficients[si].as_ref() {
-                            format!("X0={:.2} Y0={:.4} Z0={:.2}", ctf.x[0], ctf.y[0], ctf.z[0])
-                        } else {
-                            "no CTF".to_string()
-                        };
-                        eprintln!("    {:<20} T_in={:>7.2}  T_out={:>7.2}  h_in={:>6.3}  h_out={:>6.2}  A={:>5.1}  q_conv={:>8.2} W/m²  {}  {}",
-                            s.input.name, s.temp_inside, s.temp_outside,
-                            s.h_conv_inside, s.h_conv_outside,
-                            s.net_area, s.q_conv_inside, if s.is_window { "WIN" } else { "" }, ctf_info);
-                        // For opaque surfaces, compute per-surface heat loss
-                        if !s.is_window {
-                            let q_conv_surf = s.h_conv_inside * s.net_area * (s.temp_inside - zone.temp);
-                            let q_through_wall = s.u_factor * s.net_area * (t_outdoor - zone.temp);
-                            eprintln!("      → q_conv_to_air = {:.1} W,  q_nominal_UA = {:.1} W,  roughness={:?}",
-                                q_conv_surf, q_through_wall, s.roughness);
-                        }
-                    }
-                    // Window film details
-                    eprintln!("  --- Window film details ---");
-                    for &si in &zone.surface_indices {
-                        let s = &self.surfaces[si];
-                        if s.is_window {
-                            let u_eff = s.q_conv_inside / (t_outdoor - zone.temp).min(-0.01);
-                            eprintln!("    {}: u_glass={:.3}  q_cond/m²={:.2}  effective_U={:.3}  h_conv_out={:.2}",
-                                s.input.name, s.u_glass, s.q_conv_inside, u_eff, s.h_conv_outside);
-                        }
-                    }
-                    eprintln!("  --- Zone balance terms ---");
-                    eprintln!("  sum_ha   = {:.2} W/K", sum_ha);
-                    eprintln!("  sum_hat  = {:.2} W", sum_hat);
-                    let convective_heat_loss = sum_ha * zone.temp - sum_hat;
-                    eprintln!("  conv_to_surfaces = sum_ha*Tz - sum_hat = {:.1} W (air→surfaces)", convective_heat_loss);
-                    eprintln!("  mcpi     = {:.4} W/K  (mass_flow={:.6} kg/s, cp={:.1})", mcpi, total_outdoor_mass_flow, cp_air);
-                    let infil_loss = mcpi * (t_outdoor - zone.temp);
-                    eprintln!("  infil_loss = mcpi*(Tout-Tz) = {:.1} W", infil_loss);
-                    eprintln!("  q_internal_conv = {:.1} W", zone.q_internal_conv);
-                    eprintln!("  q_solar_to_air  = {:.1} W", q_solar_to_air);
-                    eprintln!("  q_solar_transmitted = {:.1} W", q_solar_transmitted);
-                    eprintln!("  q_window_cond   = {:.1} W (total for all windows)", q_window_cond);
-                    eprintln!("  q_window_absorbed = {:.1} W", q_window_absorbed);
-                    eprintln!("  q_conv_total    = {:.1} W", q_conv_total);
-                    let cap = rho_air * zone.input.volume * cp_air / dt;
-                    eprintln!("  cap_term = {:.2} W/K  (rho={:.4}, V={:.1}, cp={:.1})", cap, rho_air, zone.input.volume, cp_air);
-                    // Compute expected Q_hvac
-                    let t_free = (sum_hat + mcpi * t_outdoor + q_conv_total + cap * zone.temp)
-                        / (sum_ha + mcpi + cap);
-                    eprintln!("  T_free_float = {:.2} °C", t_free);
-                    let expected_q = (sum_ha + mcpi + cap) * (20.0 - t_free);
-                    eprintln!("  Expected Q_hvac = {:.1} W", expected_q);
-                    // Per-surface heat loss breakdown
-                    eprintln!("  --- Heat loss breakdown ---");
-                    let mut total_opaque_conv = 0.0_f64;
-                    for &si in &zone.surface_indices {
-                        let s = &self.surfaces[si];
-                        if !s.is_window {
-                            let q = s.h_conv_inside * s.net_area * (s.temp_inside - zone.temp);
-                            total_opaque_conv += q;
-                        }
-                    }
-                    eprintln!("  Opaque surface conv (air→surf): {:.1} W", total_opaque_conv);
-                    eprintln!("  Window conduction:              {:.1} W", q_window_cond);
-                    eprintln!("  Infiltration:                   {:.1} W", infil_loss);
-                    eprintln!("  Internal gains (conv):         +{:.1} W", zone.q_internal_conv);
-                    let total_loss = -total_opaque_conv - q_window_cond - infil_loss + zone.q_internal_conv;
-                    eprintln!("  NET loss (≈Q_hvac needed):      {:.1} W", total_loss);
-                    eprintln!("══════════════════════════════════════════════════════");
                 }
 
                 // ─── Ideal Loads Air System ───────────────────────────────────
@@ -3052,11 +3118,12 @@ impl EnvelopeSolver for BuildingEnvelope {
                 } else if zone.supply_air_mass_flow > 0.0 {
                     // ─── External HVAC (air loop controls) ────────────────────
                     let mcpsys = zone.supply_air_mass_flow * cp_air;
+                    let sat = zone.supply_air_temp;
 
                     zone.temp = crate::zone::solve_zone_air_temp(
                         sum_ha, sum_hat,
                         mcpi, t_outdoor,
-                        mcpsys, zone.supply_air_temp,
+                        mcpsys, sat,
                         q_conv_total,
                         rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
                     );
@@ -3191,29 +3258,28 @@ impl EnvelopeSolver for BuildingEnvelope {
             }
         }
 
-        // 7. Update CTF histories with the ACTUAL CTF conduction fluxes
+        // 7. Save CTF q values for deferred history update.
         //
-        // CRITICAL: The history must store the pure CTF q values from
-        // apply_ctf(), NOT the surface-to-zone convective fluxes (which
-        // include radiative gains and would cause a runaway feedback loop).
+        // The actual CTF history shift is done in update_bdf_history(),
+        // called once after HVAC convergence.  Shifting here would
+        // corrupt the CTF history (same bug as the BDF history).
         for i in 0..self.surfaces.len() {
-            if let Some(history) = &mut self.ctf_histories[i] {
-                history.shift(
-                    self.surfaces[i].temp_outside,
-                    self.surfaces[i].temp_inside,
-                    ctf_q_inside[i],
-                    ctf_q_outside[i],
-                );
-            }
+            self.ctf_q_last_inside[i] = ctf_q_inside[i];
+            self.ctf_q_last_outside[i] = ctf_q_outside[i];
         }
 
         // 8. Update zone temperature history (3rd-order backward difference)
-        for zone in &mut self.zones {
-            zone.temp_prev3 = zone.temp_prev2;
-            zone.temp_prev2 = zone.temp_prev;
-            zone.temp_prev = zone.temp;
-            zone.temp_order = (zone.temp_order + 1).min(3);
-        }
+        //
+        // IMPORTANT: When solve_timestep() is called in an HVAC iteration
+        // loop, the BDF history must NOT be updated on every call — that
+        // would make the BDF extrapolation see the HVAC convergence
+        // trajectory instead of the physical timestep trajectory, causing
+        // a positive-feedback runaway.  The caller must call
+        // update_bdf_history() exactly ONCE after HVAC convergence.
+        //
+        // For callers that do NOT iterate (ideal loads, warmup), the
+        // update is still needed — they should call update_bdf_history()
+        // after solve_timestep().
 
         // 8b. Print diagnostic accumulators at end of year
         if ctx.timestep.month == 12 && ctx.timestep.day == 31 && ctx.timestep.hour == 24
@@ -3290,6 +3356,8 @@ impl EnvelopeSolver for BuildingEnvelope {
             outputs.insert("infiltration_mass_flow".to_string(), zone.infiltration_mass_flow);
             outputs.insert("ventilation_mass_flow".to_string(), zone.ventilation_mass_flow);
             outputs.insert("exhaust_mass_flow".to_string(), zone.exhaust_mass_flow);
+            outputs.insert("exhaust_fan_power".to_string(), zone.exhaust_fan_power);
+            outputs.insert("exhaust_fan_heat_to_zone".to_string(), zone.exhaust_fan_heat_to_zone);
             outputs.insert("outdoor_air_mass_flow".to_string(), zone.outdoor_air_mass_flow);
             outputs.insert("nat_vent_flow".to_string(), zone.nat_vent_flow);
             outputs.insert("nat_vent_mass_flow".to_string(), zone.nat_vent_mass_flow);
@@ -3302,6 +3370,32 @@ impl EnvelopeSolver for BuildingEnvelope {
         }
 
         results
+    }
+
+    /// Update zone temperature BDF history after HVAC convergence.
+    ///
+    /// Must be called exactly ONCE per physical timestep, AFTER all HVAC
+    /// iterations have converged. Calling it inside the HVAC iteration
+    /// loop would corrupt the backward-difference extrapolation.
+    fn update_bdf_history(&mut self) {
+        // Zone air temperature BDF history
+        for zone in &mut self.zones {
+            zone.temp_prev3 = zone.temp_prev2;
+            zone.temp_prev2 = zone.temp_prev;
+            zone.temp_prev = zone.temp;
+            zone.temp_order = (zone.temp_order + 1).min(3);
+        }
+        // CTF conduction history (surface temps + heat fluxes)
+        for i in 0..self.surfaces.len() {
+            if let Some(history) = &mut self.ctf_histories[i] {
+                history.shift(
+                    self.surfaces[i].temp_outside,
+                    self.surfaces[i].temp_inside,
+                    self.ctf_q_last_inside[i],
+                    self.ctf_q_last_outside[i],
+                );
+            }
+        }
     }
 
     fn zone_names(&self) -> Vec<String> {

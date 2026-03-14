@@ -184,6 +184,15 @@ pub struct SimulationSettings {
     #[serde(default)]
     pub terrain: openbse_envelope::convection::Terrain,
 
+    /// Controls how infiltration interacts with exhaust fans and HVAC airflows.
+    ///
+    /// - `basic` (default): Fixed infiltration rate, independent of exhaust/HVAC.
+    ///   Matches E+ ZoneInfiltration:DesignFlowRate (no AirflowNetwork).
+    /// - `ashrae_combined`: Q_combined = sqrt(Q_infil² + Q_unbalanced_exhaust²).
+    ///   More physically correct but differs from E+ without AFN.
+    #[serde(default)]
+    pub infiltration_interaction: openbse_envelope::InfiltrationInteraction,
+
     /// Monthly ground surface temperatures [°C] for surfaces with `boundary: ground`.
     ///
     /// 12 values, January through December. Matches EnergyPlus
@@ -598,6 +607,10 @@ pub struct FanInput {
     /// Fan source: "constant_volume", "vav", "on_off"
     #[serde(default = "default_fan_source")]
     pub source: String,
+    /// Free-form tag for output classification (e.g., "supply", "return",
+    /// "exhaust", "transfer", "relief"). Used for end-use subcategory reporting.
+    #[serde(default)]
+    pub tag: Option<String>,
     /// Design flow rate [m³/s]. Use `autosize` to let the engine calculate.
     pub design_flow_rate: AutosizeValue,
     #[serde(default = "default_pressure_rise")]
@@ -697,6 +710,9 @@ pub struct CoolingCoilInput {
     /// Reference to a top-level performance curve name for EIR f(T)
     #[serde(default)]
     pub eir_ft_curve: Option<String>,
+    /// Reference to a top-level performance curve name for PLF f(PLR)
+    #[serde(default)]
+    pub plf_curve: Option<String>,
 
     // ─── Chilled water fields (only used when source: chilled_water) ──
     /// Design chilled water flow rate [m³/s]
@@ -1409,6 +1425,10 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                         ),
                     };
                     fan.fan_type = fan_type;
+                    // Apply tag for output classification
+                    if let Some(ref tag) = f.tag {
+                        fan.tag = tag.clone();
+                    }
                     // Apply custom VAV curve coefficients if provided
                     if let Some(coeffs) = f.vav_coefficients {
                         fan.vav_coefficients = coeffs;
@@ -1505,7 +1525,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             let eir_curve = c.eir_ft_curve.as_ref().and_then(|name| {
                                 model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
                             });
-                            let coil = CoolingCoilDX::new(
+                            let mut coil = CoolingCoilDX::new(
                                 &c.name,
                                 c.capacity.to_f64(),
                                 c.cop,
@@ -1513,6 +1533,11 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                                 c.rated_airflow.to_f64(),
                                 c.setpoint,
                             ).with_curves(cap_curve, eir_curve);
+                            if let Some(plf) = c.plf_curve.as_ref().and_then(|name| {
+                                model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                            }) {
+                                coil = coil.with_plf_curve(plf);
+                            }
                             graph.add_air_component(Box::new(coil))
                         }
                     }
@@ -1887,6 +1912,12 @@ pub fn build_envelope(
     log::info!("Site terrain: {:?} (wind exp={:.2}, BL height={:.0}m)",
         env.terrain, env.terrain.wind_exp(), env.terrain.wind_bl_height());
 
+    // Set infiltration interaction mode
+    env.infiltration_interaction = model.simulation.infiltration_interaction;
+    if env.infiltration_interaction != openbse_envelope::InfiltrationInteraction::Basic {
+        log::info!("Infiltration interaction: {:?}", env.infiltration_interaction);
+    }
+
     // Resolve shading surfaces and register them with the envelope
     // (always resolve geometry so it's ready if mode is switched at runtime)
     env.resolve_shading(&model.surfaces, &model.shading_surfaces);
@@ -2117,7 +2148,12 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
         for zone_name in &target_zones {
             if let Some(zone) = zones.iter_mut().find(|z| z.name == *zone_name) {
                 zone.exhaust_fan = Some(ExhaustFanInput {
+                    tag: exhaust.tag.clone(),
                     flow_rate: exhaust.flow_rate,
+                    pressure_rise: exhaust.pressure_rise,
+                    total_efficiency: exhaust.total_efficiency,
+                    motor_efficiency: exhaust.motor_efficiency,
+                    motor_in_airstream_fraction: exhaust.motor_in_airstream_fraction,
                     schedule: exhaust.schedule.clone(),
                 });
             }
@@ -2132,7 +2168,14 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                 zone.outdoor_air = Some(OutdoorAirInput {
                     per_person: oa.per_person,
                     per_area: oa.per_area,
+                    absolute: oa.absolute,
+                    ach: oa.ach,
                     oa_method: oa.oa_method.clone(),
+                    exhaust_per_person: oa.exhaust_per_person,
+                    exhaust_per_area: oa.exhaust_per_area,
+                    exhaust_absolute: oa.exhaust_absolute,
+                    exhaust_ach: oa.exhaust_ach,
+                    exhaust_method: oa.exhaust_method.clone(),
                 });
             }
         }
@@ -2195,6 +2238,7 @@ pub fn compute_oa_fraction(
             if let Some(oa) = &zone.outdoor_air {
                 has_oa_data = true;
                 let floor_area = zone.floor_area;
+                let volume = zone.volume;
 
                 // Count people from resolved internal gains
                 let people_count: f64 = zone.internal_gains.iter().map(|g| {
@@ -2206,9 +2250,11 @@ pub fn compute_oa_fraction(
 
                 let person_flow = oa.per_person * people_count;
                 let area_flow = oa.per_area * floor_area;
+                let abs_flow = oa.absolute;
+                let ach_flow = oa.ach * volume / 3600.0;
                 total_oa_flow += match oa.oa_method {
-                    openbse_envelope::zone_loads::OaMethod::Sum => person_flow + area_flow,
-                    openbse_envelope::zone_loads::OaMethod::Maximum => person_flow.max(area_flow),
+                    openbse_envelope::zone_loads::OaMethod::Sum => person_flow + area_flow + abs_flow + ach_flow,
+                    openbse_envelope::zone_loads::OaMethod::Maximum => person_flow.max(area_flow).max(abs_flow).max(ach_flow),
                 };
             }
         } else if let Some(zi) = zone_input {
@@ -2216,6 +2262,7 @@ pub fn compute_oa_fraction(
             if let Some(oa) = &zi.outdoor_air {
                 has_oa_data = true;
                 let floor_area = zi.floor_area;
+                let volume = zi.volume;
 
                 let people_count: f64 = zi.internal_gains.iter().map(|g| {
                     match g {
@@ -2226,9 +2273,11 @@ pub fn compute_oa_fraction(
 
                 let person_flow = oa.per_person * people_count;
                 let area_flow = oa.per_area * floor_area;
+                let abs_flow = oa.absolute;
+                let ach_flow = oa.ach * volume / 3600.0;
                 total_oa_flow += match oa.oa_method {
-                    openbse_envelope::zone_loads::OaMethod::Sum => person_flow + area_flow,
-                    openbse_envelope::zone_loads::OaMethod::Maximum => person_flow.max(area_flow),
+                    openbse_envelope::zone_loads::OaMethod::Sum => person_flow + area_flow + abs_flow + ach_flow,
+                    openbse_envelope::zone_loads::OaMethod::Maximum => person_flow.max(area_flow).max(abs_flow).max(ach_flow),
                 };
             }
         }

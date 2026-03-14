@@ -256,11 +256,14 @@ fn run_single_design_day(
         }
     }
 
-    // Reset zone temperatures to setpoint
+    // Reset zone temperatures and BDF state to setpoint
     for zone in &mut env.zones {
         let sp = zone_setpoints.get(&zone.input.name).copied().unwrap_or(21.0);
         zone.temp = sp;
         zone.temp_prev = sp;
+        zone.temp_prev2 = sp;
+        zone.temp_prev3 = sp;
+        zone.temp_order = 0;
     }
 
     let mut last_day_results = Vec::new();
@@ -296,6 +299,7 @@ fn run_single_design_day(
             hvac.oa_handled_by_hvac = oa_handled_by_hvac.clone();
 
             let result = env.solve_timestep(&ctx, wh, &hvac);
+            env.update_bdf_history();
 
             // Record loads on the last day only (after warmup)
             if is_last_day {
@@ -332,8 +336,8 @@ fn run_zone_sizing(
     heating_supply_temp: f64,
     cooling_supply_temp: f64,
     latitude: f64,
-    heating_sizing_factor: f64,
-    cooling_sizing_factor: f64,
+    _heating_sizing_factor: f64,
+    _cooling_sizing_factor: f64,
     oa_handled_by_hvac: &HashMap<String, bool>,
 ) -> ZoneSizingResult {
     let cp_air = 1005.0;
@@ -413,12 +417,11 @@ fn run_zone_sizing(
 
     // ── Calculate zone airflows from peak loads ─────────────────────────
     //
-    // Apply sizing factors (matching E+ Sizing:Parameters behaviour):
-    //   - Heating sizing factor scales the heating design load & airflow
-    //   - Cooling sizing factor scales the cooling design load & airflow
-    //
-    // This ensures equipment is oversized by the specified safety margin,
-    // reducing unmet hours during the annual simulation.
+    // Airflow is sized from RAW peak loads (no sizing factor).  Sizing
+    // factors only inflate coil/system capacities — not airflow.  This
+    // matches E+ behaviour where Sizing:System
+    // FractionOfAutosized{Heating,Cooling}Capacity scales capacity while
+    // airflow is derived from the un-factored design-day peak.
     let mut zone_heating_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_cooling_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_design_airflow: HashMap<String, f64> = HashMap::new();
@@ -429,8 +432,7 @@ fn run_zone_sizing(
         let cool_sp = zone_cooling_setpoints.get(name).copied().unwrap_or(24.0);
 
         // Heating airflow: Q = m_dot * Cp * (T_supply - T_zone)
-        // Apply heating sizing factor to load before computing airflow
-        let heat_load = zone_peak_heating.get(name).copied().unwrap_or(0.0) * heating_sizing_factor;
+        let heat_load = zone_peak_heating.get(name).copied().unwrap_or(0.0);
         let dt_heating = (heating_supply_temp - heat_sp).max(5.0);
         let m_heat = if heat_load > 0.0 {
             heat_load / (cp_air * dt_heating)
@@ -439,8 +441,7 @@ fn run_zone_sizing(
         };
 
         // Cooling airflow: Q = m_dot * Cp * (T_zone - T_supply)
-        // Apply cooling sizing factor to load before computing airflow
-        let cool_load = zone_peak_cooling.get(name).copied().unwrap_or(0.0) * cooling_sizing_factor;
+        let cool_load = zone_peak_cooling.get(name).copied().unwrap_or(0.0);
         let dt_cooling = (cool_sp - cooling_supply_temp).max(5.0);
         let m_cool = if cool_load > 0.0 {
             cool_load / (cp_air * dt_cooling)

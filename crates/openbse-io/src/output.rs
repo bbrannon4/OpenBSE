@@ -609,6 +609,20 @@ pub struct SummaryReport {
     monthly_transmitted_solar_j: [f64; 12],
     /// Wall and window areas by cardinal direction for WWR reporting
     envelope_areas: Option<openbse_envelope::EnvelopeAreas>,
+    /// Per-surface annual conduction energy [J] — CTF-based (opaque surfaces)
+    surface_conduction_j: HashMap<String, f64>,
+    /// Per-surface annual convection energy [J] — used for windows (q_conv_inside)
+    surface_convection_j: HashMap<String, f64>,
+    /// Surface metadata: (name, zone, type_str, area_m2, is_window, boundary_str)
+    surface_meta: Vec<(String, String, String, f64, bool, String)>,
+    /// Monthly inside surface temperature sums [°C·count] per surface
+    monthly_surf_temp_inside: HashMap<String, [f64; 12]>,
+    /// Monthly outside surface temperature sums [°C·count] per surface
+    monthly_surf_temp_outside: HashMap<String, [f64; 12]>,
+    /// Monthly incident solar sums [W/m²·count] per surface
+    monthly_surf_incident_solar: HashMap<String, [f64; 12]>,
+    /// Monthly timestep count per month
+    monthly_surf_count: [u64; 12],
 }
 
 impl SummaryReport {
@@ -631,12 +645,25 @@ impl SummaryReport {
             total_incident_solar_j: 0.0,
             monthly_transmitted_solar_j: [0.0; 12],
             envelope_areas: None,
+            surface_conduction_j: HashMap::new(),
+            surface_convection_j: HashMap::new(),
+            surface_meta: Vec::new(),
+            monthly_surf_temp_inside: HashMap::new(),
+            monthly_surf_temp_outside: HashMap::new(),
+            monthly_surf_incident_solar: HashMap::new(),
+            monthly_surf_count: [0; 12],
         }
     }
 
     /// Set envelope area data for WWR reporting.
     pub fn set_envelope_areas(&mut self, areas: openbse_envelope::EnvelopeAreas) {
         self.envelope_areas = Some(areas);
+    }
+
+    /// Set surface metadata for conduction summary reporting.
+    /// Each tuple: (name, zone, type_str, area_m2, is_window, boundary_str)
+    pub fn set_surface_metadata(&mut self, meta: Vec<(String, String, String, f64, bool, String)>) {
+        self.surface_meta = meta;
     }
 
     /// Process one timestep snapshot.
@@ -750,6 +777,39 @@ impl SummaryReport {
             }
         }
         self.monthly_transmitted_solar_j[month_idx] += total_transmitted * snapshot.dt;
+
+        // Accumulate per-surface conduction energy (CTF-based, opaque surfaces)
+        for (surf_name, &cond_w) in &snapshot.surface_conduction_inside {
+            let energy_j = cond_w * snapshot.dt;
+            if energy_j.is_finite() {
+                *self.surface_conduction_j.entry(surf_name.clone()).or_insert(0.0) += energy_j;
+            }
+        }
+        // Accumulate per-surface convection energy (used for windows)
+        for (surf_name, &conv_w) in &snapshot.surface_convection_inside {
+            let energy_j = conv_w * snapshot.dt;
+            if energy_j.is_finite() {
+                *self.surface_convection_j.entry(surf_name.clone()).or_insert(0.0) += energy_j;
+            }
+        }
+
+        // Accumulate monthly surface temperatures and incident solar
+        self.monthly_surf_count[month_idx] += 1;
+        for (surf_name, &temp) in &snapshot.surface_inside_temperature {
+            let arr = self.monthly_surf_temp_inside
+                .entry(surf_name.clone()).or_insert([0.0; 12]);
+            arr[month_idx] += temp;
+        }
+        for (surf_name, &temp) in &snapshot.surface_outside_temperature {
+            let arr = self.monthly_surf_temp_outside
+                .entry(surf_name.clone()).or_insert([0.0; 12]);
+            arr[month_idx] += temp;
+        }
+        for (surf_name, &solar) in &snapshot.surface_incident_solar {
+            let arr = self.monthly_surf_incident_solar
+                .entry(surf_name.clone()).or_insert([0.0; 12]);
+            arr[month_idx] += solar;
+        }
 
         // Unmet hours check
         // Use per-timestep setpoints (schedule-aware) when available,
@@ -976,6 +1036,125 @@ impl SummaryReport {
             writeln!(w, "  -----  ------------")?;
             writeln!(w, "  {:>5}  {:>12.1}", "Total", trans_kwh)?;
             writeln!(w)?;
+        }
+
+        // -- Surface Heat Gains Summary --
+        if !self.surface_meta.is_empty()
+            && (!self.surface_conduction_j.is_empty() || !self.surface_convection_j.is_empty())
+        {
+            writeln!(w, "-- Surface Heat Gains Summary ---------------------------------")?;
+            writeln!(w)?;
+
+            // Collect unique zones in order of first appearance
+            let mut zones_seen: Vec<String> = Vec::new();
+            for (_, zone, _, _, _, _) in &self.surface_meta {
+                if !zones_seen.contains(zone) {
+                    zones_seen.push(zone.clone());
+                }
+            }
+
+            let mut building_total = 0.0_f64;
+
+            for zone_name in &zones_seen {
+                writeln!(w, "  Zone: {}", zone_name)?;
+                writeln!(w, "    {:<32} {:<7} {:>8}  {:<12} {:>10}",
+                    "Surface Name", "Type", "Area[m²]", "Boundary", "Cond[kWh]")?;
+                writeln!(w, "    {:-<32} {:-<7} {:-<8}  {:-<12} {:-<10}",
+                    "", "", "", "", "")?;
+
+                let mut zone_total = 0.0_f64;
+
+                for (name, zone, type_str, area, is_window, boundary) in &self.surface_meta {
+                    if zone != zone_name { continue; }
+                    // Windows: use convection (q_conv_inside); opaque: use conduction (CTF q_cond_inside)
+                    let energy_kwh = if *is_window {
+                        self.surface_convection_j.get(name).copied().unwrap_or(0.0) / 3_600_000.0
+                    } else {
+                        self.surface_conduction_j.get(name).copied().unwrap_or(0.0) / 3_600_000.0
+                    };
+                    zone_total += energy_kwh;
+                    let display_name = if name.len() > 32 {
+                        &name[..32]
+                    } else {
+                        name.as_str()
+                    };
+                    writeln!(w, "    {:<32} {:<7} {:>8.1}  {:<12} {:>10.1}",
+                        display_name, type_str, area, boundary, energy_kwh)?;
+                }
+
+                building_total += zone_total;
+                writeln!(w, "    {:<32} {:<7} {:>8}  {:<12} {:>10.1}",
+                    "Zone Total", "", "", "", zone_total)?;
+                writeln!(w)?;
+            }
+
+            // Surface type subtotals across entire building
+            let mut type_totals: std::collections::BTreeMap<String, (f64, f64)> = std::collections::BTreeMap::new(); // (area, kwh)
+            for (name, _zone, type_str, area, is_window, _boundary) in &self.surface_meta {
+                let energy_kwh = if *is_window {
+                    self.surface_convection_j.get(name).copied().unwrap_or(0.0) / 3_600_000.0
+                } else {
+                    self.surface_conduction_j.get(name).copied().unwrap_or(0.0) / 3_600_000.0
+                };
+                let entry = type_totals.entry(type_str.clone()).or_insert((0.0, 0.0));
+                entry.0 += area;
+                entry.1 += energy_kwh;
+            }
+            writeln!(w, "  {:<34} {:>8}  {:>10}", "By Surface Type", "Area[m²]", "Cond[kWh]")?;
+            writeln!(w, "  {:-<34} {:-<8}  {:-<10}", "", "", "")?;
+            for (type_str, (area, kwh)) in &type_totals {
+                writeln!(w, "  {:<34} {:>8.1}  {:>10.1}", type_str, area, kwh)?;
+            }
+            writeln!(w, "  {:-<34} {:-<8}  {:-<10}", "", "", "")?;
+            writeln!(w, "  {:<34} {:>8.1}  {:>10.1}",
+                "Building Total",
+                type_totals.values().map(|(a, _)| a).sum::<f64>(),
+                building_total)?;
+            writeln!(w)?;
+        }
+
+        // -- Monthly Surface Temperature Diagnostics --
+        if !self.monthly_surf_temp_inside.is_empty() {
+            writeln!(w, "-- Monthly Surface Temperature Diagnostics --------------------")?;
+            writeln!(w)?;
+
+            let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+            // Collect outdoor-boundary wall and roof surfaces for diagnostic output
+            let mut diag_surfaces: Vec<String> = self.surface_meta.iter()
+                .filter(|(_, _, type_str, _, is_window, boundary)| {
+                    !is_window && boundary == "outdoor"
+                        && (type_str == "wall" || type_str == "roof")
+                })
+                .map(|(name, _, _, _, _, _)| name.clone())
+                .collect();
+            diag_surfaces.sort();
+
+            for surf_name in &diag_surfaces {
+                let inside = self.monthly_surf_temp_inside.get(surf_name);
+                let outside = self.monthly_surf_temp_outside.get(surf_name);
+                let solar = self.monthly_surf_incident_solar.get(surf_name);
+
+                if inside.is_none() { continue; }
+
+                writeln!(w, "  Surface: {}", surf_name)?;
+                writeln!(w, "    {:>5}  {:>10}  {:>10}  {:>14}", "Month", "Inside[°C]", "Outside[°C]", "IncSolar[W/m²]")?;
+                writeln!(w, "    {}  {}  {}  {}", "-".repeat(5), "-".repeat(10), "-".repeat(10), "-".repeat(14))?;
+
+                for mi in 0..12 {
+                    let count = self.monthly_surf_count[mi] as f64;
+                    if count < 1.0 { continue; }
+
+                    let t_in = inside.map(|a| a[mi] / count).unwrap_or(0.0);
+                    let t_out = outside.map(|a| a[mi] / count).unwrap_or(0.0);
+                    let sol = solar.map(|a| a[mi] / count).unwrap_or(0.0);
+
+                    writeln!(w, "    {:>5}  {:>10.2}  {:>10.2}  {:>14.2}",
+                             months[mi], t_in, t_out, sol)?;
+                }
+                writeln!(w)?;
+            }
         }
 
         // -- Simulation Statistics --

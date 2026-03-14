@@ -164,33 +164,82 @@ impl Default for InteriorSolarDistribution {
 ///
 /// Models air being removed from the zone (e.g., restroom exhaust, kitchen hood).
 /// The exhausted air is replaced by infiltration or transfer air from adjacent spaces.
+/// Uses the same fan physics as supply/return fans for power calculation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExhaustFanInput {
+    /// Free-form tag for output classification (default "exhaust")
+    #[serde(default = "default_exhaust_fan_tag")]
+    pub tag: String,
     /// Exhaust flow rate [m³/s]
     pub flow_rate: f64,
+    /// Design pressure rise [Pa] (0 → no power consumption)
+    #[serde(default)]
+    pub pressure_rise: f64,
+    /// Total fan efficiency (fan × belt × motor × VFD) [0-1]
+    #[serde(default = "default_exhaust_fan_total_eff")]
+    pub total_efficiency: f64,
+    /// Motor efficiency [0-1]
+    #[serde(default = "default_exhaust_fan_motor_eff")]
+    pub motor_efficiency: f64,
+    /// Fraction of motor waste heat entering the airstream [0-1]
+    #[serde(default = "default_exhaust_fan_motor_in_air")]
+    pub motor_in_airstream_fraction: f64,
     /// Schedule name for time-varying operation (default: always on)
     #[serde(default)]
     pub schedule: Option<String>,
 }
 
+fn default_exhaust_fan_tag() -> String { "exhaust".to_string() }
+fn default_exhaust_fan_total_eff() -> f64 { 0.6 }
+fn default_exhaust_fan_motor_eff() -> f64 { 0.9 }
+fn default_exhaust_fan_motor_in_air() -> f64 { 1.0 }
+
 /// ASHRAE 62.1 outdoor air specification for a zone.
 ///
-/// Calculates minimum outdoor air based on occupancy and floor area.
+/// Specifies both supply outdoor air and exhaust air requirements.
 ///
-/// Method (from `oa_method`):
-///   - Sum:     total = per_person × people + per_area × floor_area  (ASHRAE 62.1)
-///   - Maximum: total = max(per_person × people, per_area × floor_area)
+/// **Supply OA** method (from `oa_method`):
+///   - Sum:     total = per_person × people + per_area × floor_area + absolute + ach × V/3600
+///   - Maximum: total = max(per_person × people, per_area × floor_area, absolute, ach × V/3600)
+///
+/// **Exhaust** method (from `exhaust_method`):
+///   - Sum:     total = exhaust_per_person × people + exhaust_per_area × floor_area + exhaust_absolute + exhaust_ach × V/3600
+///   - Maximum: total = max(...)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutdoorAirInput {
+    // ── Supply outdoor air ────────────────────────────────────────
     /// Outdoor air per person [m³/s-person] (e.g., 0.003539606 = 7.5 cfm/person)
     #[serde(default)]
     pub per_person: f64,
     /// Outdoor air per floor area [m³/s-m²] (e.g., 0.000609599 = 0.12 cfm/ft²)
     #[serde(default)]
     pub per_area: f64,
-    /// Method for combining per-person and per-area rates
+    /// Absolute supply outdoor air flow [m³/s]
+    #[serde(default)]
+    pub absolute: f64,
+    /// Supply outdoor air as air changes per hour [1/hr]
+    #[serde(default)]
+    pub ach: f64,
+    /// Method for combining supply OA rates
     #[serde(default)]
     pub oa_method: crate::zone_loads::OaMethod,
+
+    // ── Exhaust air requirements ──────────────────────────────────
+    /// Exhaust air per person [m³/s/person]
+    #[serde(default)]
+    pub exhaust_per_person: f64,
+    /// Exhaust air per floor area [m³/s/m²]
+    #[serde(default)]
+    pub exhaust_per_area: f64,
+    /// Absolute exhaust air flow [m³/s]
+    #[serde(default)]
+    pub exhaust_absolute: f64,
+    /// Exhaust air as air changes per hour [1/hr]
+    #[serde(default)]
+    pub exhaust_ach: f64,
+    /// Method for combining exhaust rates
+    #[serde(default)]
+    pub exhaust_method: crate::zone_loads::OaMethod,
 }
 
 /// Internal thermal mass definition (furniture, contents, etc.).
@@ -499,6 +548,11 @@ pub struct ZoneState {
     pub supply_air_mass_flow: f64,
     /// Exhaust fan mass flow rate [kg/s]
     pub exhaust_mass_flow: f64,
+    /// Exhaust fan electric power [W]
+    pub exhaust_fan_power: f64,
+    /// Exhaust fan motor waste heat entering the zone [W]
+    /// (motor heat NOT in the airstream stays in the zone)
+    pub exhaust_fan_heat_to_zone: f64,
     /// ASHRAE 62.1 outdoor air mass flow rate [kg/s]
     pub outdoor_air_mass_flow: f64,
     /// Natural ventilation volume flow rate [m³/s]
@@ -573,6 +627,8 @@ impl ZoneState {
             supply_air_temp: initial_temp,
             supply_air_mass_flow: 0.0,
             exhaust_mass_flow: 0.0,
+            exhaust_fan_power: 0.0,
+            exhaust_fan_heat_to_zone: 0.0,
             outdoor_air_mass_flow: 0.0,
             nat_vent_flow: 0.0,
             nat_vent_mass_flow: 0.0,

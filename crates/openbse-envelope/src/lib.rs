@@ -29,7 +29,7 @@ pub use heat_balance::{BuildingEnvelope, SolarDistributionMethod};
 pub use material::{Material, Construction, ConstructionLayer, ResolvedLayer, WindowConstruction, SimpleConstruction, FFactorConstruction};
 pub use zone_loads::{PeopleInput, LightsInput, EquipmentGainInput, InfiltrationTopLevel,
     VentilationTopLevel, VentilationCombiningMethod, ExhaustFanTopLevel, OutdoorAirTopLevel,
-    IdealLoadsTopLevel, ThermostatInput};
+    IdealLoadsTopLevel, ThermostatInput, InfiltrationInteraction};
 pub use surface::{SurfaceInput, SurfaceType, BoundaryCondition};
 pub use zone::{ZoneInput, IdealLoadsAirSystem, ThermostatScheduleEntry,
     VentilationScheduleEntry, InteriorSolarDistribution, ExhaustFanInput, OutdoorAirInput};
