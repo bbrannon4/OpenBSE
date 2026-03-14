@@ -36,6 +36,9 @@ Last updated: 2026-03-13
 - Heat recovery: enthalpy wheel and plate heat exchangers
 - Boilers: hot water with efficiency and capacity control
 - Chillers: air-cooled with COP and capacity modeling
+- Cooling towers: single/two/variable-speed, effectiveness-NTU, polynomial fan curves
+- Water-to-water heat exchangers: plate-and-frame inter-loop HX (always-on and economizer modes)
+- Plant loop topological ordering: arbitrary inter-loop dependencies via HX and condenser connections
 
 ### Controls
 - Zone thermostats with occupied/unoccupied setpoints
@@ -52,7 +55,7 @@ Last updated: 2026-03-13
 - Custom output variable selection
 
 ### Tests
-- 82 unit tests across all crates (81 passing, 1 pre-existing VAV box failure)
+- 92+ unit tests across all crates (all component tests pass; 2 pre-existing envelope solar test failures)
 - 8 example YAML files covering all system types
 - 27 ASHRAE 140 validation cases in 140_tests/
 - DOE prototype comparisons in prototype_tests/
@@ -73,7 +76,7 @@ Last updated: 2026-03-13
 - [ ] Multi-speed and variable-speed DX coils
 - [x] Air-source heat pump heating coil (implemented with defrost and performance curves)
 - [ ] Water-source heat pump models
-- [ ] Condenser water loops and cooling towers (components exist, loop wiring pending)
+- [x] Condenser water loops and cooling towers (fully wired: YAML parsing, topological loop ordering, autosize)
 - [x] Pumps — constant/variable speed, headered staging, power curves (fully implemented)
 - [x] Full state-space CTF — Seem (1987) method matching EnergyPlus (implemented)
 
@@ -103,6 +106,6 @@ openbse-weather      # Weather file reading and processing
 
 ## File Counts
 - Rust source files: ~42
-- Example YAML files: 8
+- Example YAML files: 11
 - ASHRAE 140 test cases: 27 (+4 test variants)
 - Unit tests: 82

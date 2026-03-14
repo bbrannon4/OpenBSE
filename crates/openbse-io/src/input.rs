@@ -875,6 +875,10 @@ pub enum PlantEquipmentInput {
     Chiller(ChillerInput),
     #[serde(rename = "pump")]
     Pump(PumpInput),
+    #[serde(rename = "cooling_tower")]
+    CoolingTower(CoolingTowerInput),
+    #[serde(rename = "heat_exchanger")]
+    HeatExchanger(HeatExchangerInput),
 }
 
 /// Pump role in the plant loop — determines staging and control behavior.
@@ -1057,6 +1061,71 @@ fn default_chw_setpoint() -> f64 { 7.0 }
 fn default_condenser_type() -> String { "air_cooled".to_string() }
 fn default_tower_approach() -> f64 { 5.56 }
 fn default_chiller_min_plr() -> f64 { 0.25 }
+
+/// Cooling tower input for condenser water loops.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CoolingTowerInput {
+    pub name: String,
+    /// Tower type: "single_speed", "two_speed", or "variable_speed" (default)
+    #[serde(default = "default_ct_tower_type")]
+    pub tower_type: String,
+    /// Design water flow rate [m³/s]. Use `autosize` to size from condenser demand.
+    #[serde(default)]
+    pub design_water_flow: AutosizeValue,
+    /// Design air flow rate [m³/s]
+    pub design_air_flow: f64,
+    /// Design fan power [W]
+    pub design_fan_power: f64,
+    /// Design inlet water temperature [°C] (default 35)
+    #[serde(default = "default_ct_inlet_temp")]
+    pub design_inlet_water_temp: f64,
+    /// Design approach temperature [°C] — T_water_out - T_wb (default 3.9)
+    #[serde(default = "default_ct_approach")]
+    pub design_approach: f64,
+    /// Design range [°C] — T_water_in - T_water_out (default 5.56)
+    #[serde(default = "default_ct_range")]
+    pub design_range: f64,
+    /// Fan power ratio curve coefficients [C1, C2, C3, C4, C5].
+    /// PLF = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4.
+    /// Same polynomial form as the VAV fan curve.
+    /// Default: E+ CoolingTower:VariableSpeed FanPowerRatioFunctionofAirFlowRateRatio.
+    #[serde(default)]
+    pub fan_power_curve: Option<Vec<f64>>,
+}
+
+fn default_ct_tower_type() -> String { "variable_speed".to_string() }
+fn default_ct_inlet_temp() -> f64 { 35.0 }
+fn default_ct_approach() -> f64 { 3.9 }
+fn default_ct_range() -> f64 { 5.56 }
+
+/// Water-to-water heat exchanger input for inter-loop connections.
+///
+/// Connects two plant loops via a plate-and-frame (or similar) heat exchanger.
+/// Installed on the demand loop; draws heat from/rejects heat to the source loop.
+/// Can operate in always-on mode (general inter-loop HX) or economizer mode
+/// (activates only when source conditions enable free cooling).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HeatExchangerInput {
+    pub name: String,
+    /// Name of the source plant loop this HX draws from/rejects to
+    pub source_loop: String,
+    /// Heat transfer effectiveness [0-1] (default 0.80)
+    #[serde(default = "default_hx_effectiveness")]
+    pub effectiveness: f64,
+    /// Design flow rate on the demand side [m³/s]. Use `autosize`.
+    #[serde(default)]
+    pub design_flow_rate: AutosizeValue,
+    /// Control mode: "always_on" (default) or "economizer"
+    #[serde(default = "default_hx_control")]
+    pub control_mode: String,
+    /// For economizer mode: activate when T_source < demand_inlet + threshold [°C] (default 2.0)
+    #[serde(default = "default_hx_threshold")]
+    pub economizer_threshold: f64,
+}
+
+fn default_hx_effectiveness() -> f64 { 0.80 }
+fn default_hx_control() -> String { "always_on".to_string() }
+fn default_hx_threshold() -> f64 { 2.0 }
 
 /// Design day input.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1640,6 +1709,47 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                     );
                     pump.motor_heat_to_fluid_fraction = p.motor_heat_to_fluid_fraction;
                     graph.add_plant_component(Box::new(pump))
+                }
+                PlantEquipmentInput::CoolingTower(ct) => {
+                    use openbse_components::cooling_tower::{CoolingTower, CoolingTowerType};
+                    let tower_type = match ct.tower_type.as_str() {
+                        "single_speed" => CoolingTowerType::SingleSpeed,
+                        "two_speed" => CoolingTowerType::TwoSpeed,
+                        _ => CoolingTowerType::VariableSpeed,
+                    };
+                    let mut tower = CoolingTower::new(
+                        &ct.name,
+                        tower_type,
+                        ct.design_water_flow.to_f64(),
+                        ct.design_air_flow,
+                        ct.design_fan_power,
+                        ct.design_inlet_water_temp,
+                        ct.design_approach,
+                        ct.design_range,
+                    );
+                    // Apply custom fan power curve if specified
+                    if let Some(ref curve) = ct.fan_power_curve {
+                        if curve.len() >= 5 {
+                            tower.fan_power_curve = [curve[0], curve[1], curve[2], curve[3], curve[4]];
+                        }
+                    }
+                    graph.add_plant_component(Box::new(tower))
+                }
+                PlantEquipmentInput::HeatExchanger(hx) => {
+                    use openbse_components::heat_exchanger::{WaterToWaterHX, HXControlMode};
+                    let control = match hx.control_mode.as_str() {
+                        "economizer" => HXControlMode::Economizer,
+                        _ => HXControlMode::AlwaysOn,
+                    };
+                    let hx_component = WaterToWaterHX::new(
+                        &hx.name,
+                        hx.effectiveness,
+                        hx.design_flow_rate.to_f64(),
+                        control,
+                        hx.economizer_threshold,
+                        &hx.source_loop,
+                    );
+                    graph.add_plant_component(Box::new(hx_component))
                 }
             };
 

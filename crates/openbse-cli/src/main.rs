@@ -5,7 +5,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use log::{info, warn};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 use openbse_core::graph::{GraphComponent, SimulationGraph};
@@ -1215,6 +1215,91 @@ fn main() -> Result<()> {
         nightcycle_timers.clear();
     }
 
+    // ── Pre-compute plant loop simulation order (topological sort) ──────────
+    //
+    // Build a dependency graph from inter-loop references:
+    // - HeatExchanger source_loop: source loop must simulate first
+    // - Chiller condenser_plant_loop: CHW loop must simulate first
+    //
+    // Topological sort ensures correct ordering. If a cycle is detected
+    // (e.g., waterside economizer creates CHW ↔ Condenser dependency),
+    // remaining loops use lag-one-timestep for cyclic dependencies.
+
+    let plant_loop_order: Vec<usize> = if model.plant_loops.is_empty() {
+        vec![]
+    } else {
+        let loop_indices: HashMap<&str, usize> = model.plant_loops.iter()
+            .enumerate()
+            .map(|(i, pl)| (pl.name.as_str(), i))
+            .collect();
+
+        let n = model.plant_loops.len();
+        let mut adj: Vec<Vec<usize>> = vec![vec![]; n];
+        let mut in_degree: Vec<usize> = vec![0; n];
+
+        for (i, pl) in model.plant_loops.iter().enumerate() {
+            for eq in &pl.supply_equipment {
+                // HX: source loop must simulate before demand loop
+                if let openbse_io::input::PlantEquipmentInput::HeatExchanger(hx) = eq {
+                    if let Some(&src_idx) = loop_indices.get(hx.source_loop.as_str()) {
+                        adj[src_idx].push(i);
+                        in_degree[i] += 1;
+                    }
+                }
+                // Chiller with condenser loop: CHW loop simulates before condenser
+                if let openbse_io::input::PlantEquipmentInput::Chiller(c) = eq {
+                    if let Some(ref cdl) = c.condenser_plant_loop {
+                        if let Some(&cond_idx) = loop_indices.get(cdl.as_str()) {
+                            adj[i].push(cond_idx);
+                            in_degree[cond_idx] += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Kahn's algorithm
+        let mut queue: VecDeque<usize> = in_degree.iter()
+            .enumerate()
+            .filter(|(_, &d)| d == 0)
+            .map(|(i, _)| i)
+            .collect();
+        let mut sorted: Vec<usize> = Vec::with_capacity(n);
+        while let Some(node) = queue.pop_front() {
+            sorted.push(node);
+            for &dep in &adj[node] {
+                in_degree[dep] -= 1;
+                if in_degree[dep] == 0 {
+                    queue.push_back(dep);
+                }
+            }
+        }
+
+        // If cycle detected, append remaining loops (they'll use lag-one-timestep)
+        if sorted.len() < n {
+            warn!("Plant loop dependency cycle detected — using lag-one-timestep for cyclic loops");
+            for i in 0..n {
+                if !sorted.contains(&i) {
+                    sorted.push(i);
+                }
+            }
+        }
+
+        if sorted.len() > 1 {
+            let order_names: Vec<&str> = sorted.iter()
+                .map(|&i| model.plant_loops[i].name.as_str())
+                .collect();
+            info!("Plant loop simulation order: {:?}", order_names);
+        }
+
+        sorted
+    };
+
+    // Persistent supply conditions for lag-one-timestep cycle breaking.
+    // Stores each loop's supply temperature and mass flow so downstream
+    // loops (or cyclic dependencies) can read previous-timestep values.
+    let mut loop_supply_conditions: HashMap<String, (f64, f64)> = HashMap::new();
+
     info!("Starting main simulation...");
 
     for hour_idx in start_hour..end_hour {
@@ -1346,249 +1431,233 @@ fn main() -> Result<()> {
                             &predictor_no_hvac_temps,
                         );
 
-                        // Step 1b: Run plant loops (single-pass coupling).
+                        // Step 1b: Run plant loops in topological order.
                         //
-                        // Collect water-side demand from air components (CHW coils,
-                        // HW reheat coils, etc.) and pass to plant equipment. Plant
-                        // supply water feeds back to coils on the NEXT iteration.
-                        if !model.plant_loops.is_empty() {
-                            // Identify condenser water loops (referenced by chillers).
-                            // These are simulated in a second pass after chiller outputs
-                            // are known, so skip them in the primary pass.
-                            let condenser_loop_names: std::collections::HashSet<&str> =
-                                model.plant_loops.iter()
-                                    .flat_map(|pl| pl.supply_equipment.iter())
-                                    .filter_map(|eq| {
-                                        if let openbse_io::input::PlantEquipmentInput::Chiller(c) = eq {
-                                            c.condenser_plant_loop.as_deref()
-                                        } else {
-                                            None
+                        // Loops are simulated in dependency order (pre-computed above):
+                        // - Source loops before HX demand loops
+                        // - CHW loops before condenser loops
+                        // Each loop collects demand from air-side coils and/or
+                        // condenser heat rejection, then simulates supply equipment.
+                        // Supply conditions are stored for downstream dependencies.
+                        for &loop_idx in &plant_loop_order {
+                            let plant_loop = &model.plant_loops[loop_idx];
+                            let cp_water = 4186.0; // J/(kg·K)
+                            let rho_water = 998.0;  // kg/m³
+                            let loop_delta_t = plant_loop.design_delta_t.max(1.0);
+
+                            // ── Determine loop load ──────────────────────────
+                            let mut total_load = 0.0_f64;
+
+                            // 1. Air-side coil demand: sum thermal output from all
+                            //    coils and terminal boxes referencing this plant loop.
+                            for al in &model.air_loops {
+                                for eq in &al.equipment {
+                                    let (coil_name, coil_plant) = match eq {
+                                        openbse_io::input::EquipmentInput::CoolingCoil(c) => {
+                                            (c.name.as_str(), c.plant_loop.as_deref())
                                         }
-                                    })
-                                    .collect();
-
-                            // First pass: simulate non-condenser plant loops
-                            // (demand from air-side coils and terminal box reheat).
-                            for plant_loop in &model.plant_loops {
-                                if condenser_loop_names.contains(plant_loop.name.as_str()) {
-                                    continue; // handled in second pass
+                                        openbse_io::input::EquipmentInput::HeatingCoil(c) => {
+                                            (c.name.as_str(), c.plant_loop.as_deref())
+                                        }
+                                        _ => ("", None),
+                                    };
+                                    if coil_plant == Some(plant_loop.name.as_str()) {
+                                        if let Some(outputs) = hvac_result.component_outputs.get(coil_name) {
+                                            let mult = component_multipliers.get(coil_name)
+                                                .copied().unwrap_or(1.0);
+                                            total_load += outputs.get("thermal_output")
+                                                .copied().unwrap_or(0.0) * mult;
+                                        }
+                                    }
                                 }
-                                let mut total_load = 0.0_f64;
-
-                                // Sum thermal output from all coils that reference this plant loop.
-                                // Apply zone multipliers: per-zone coils (PTAC, FCU, VAV box
-                                // reheat) must be multiplied by the zone multiplier since
-                                // multiplied zones represent multiple identical units.
-                                for al in &model.air_loops {
-                                    // Check main equipment (cooling coils, heating coils)
-                                    for eq in &al.equipment {
-                                        let (coil_name, coil_plant) = match eq {
-                                            openbse_io::input::EquipmentInput::CoolingCoil(c) => {
-                                                (c.name.as_str(), c.plant_loop.as_deref())
-                                            }
-                                            openbse_io::input::EquipmentInput::HeatingCoil(c) => {
-                                                (c.name.as_str(), c.plant_loop.as_deref())
+                                for zc in &al.zone_terminals {
+                                    if let Some(ref terminal) = zc.terminal {
+                                        let (term_name, term_plant) = match terminal {
+                                            openbse_io::input::TerminalInput::VavBox(vb) => {
+                                                (vb.name.as_str(), vb.plant_loop.as_deref())
                                             }
                                             _ => ("", None),
                                         };
-                                        if coil_plant == Some(plant_loop.name.as_str()) {
-                                            if let Some(outputs) = hvac_result.component_outputs.get(coil_name) {
-                                                let mult = component_multipliers.get(coil_name)
+                                        if term_plant == Some(plant_loop.name.as_str()) {
+                                            if let Some(outputs) = hvac_result.component_outputs.get(term_name) {
+                                                let mult = zone_multipliers.get(&zc.zone)
                                                     .copied().unwrap_or(1.0);
                                                 total_load += outputs.get("thermal_output")
                                                     .copied().unwrap_or(0.0) * mult;
                                             }
                                         }
                                     }
-                                    // Check terminal boxes (VAV box reheat coils)
-                                    for zc in &al.zone_terminals {
-                                        if let Some(ref terminal) = zc.terminal {
-                                            let (term_name, term_plant) = match terminal {
-                                                openbse_io::input::TerminalInput::VavBox(vb) => {
-                                                    (vb.name.as_str(), vb.plant_loop.as_deref())
-                                                }
-                                                _ => ("", None),
-                                            };
-                                            if term_plant == Some(plant_loop.name.as_str()) {
-                                                if let Some(outputs) = hvac_result.component_outputs.get(term_name) {
-                                                    let mult = zone_multipliers.get(&zc.zone)
-                                                        .copied().unwrap_or(1.0);
-                                                    total_load += outputs.get("thermal_output")
-                                                        .copied().unwrap_or(0.0) * mult;
-                                                }
-                                            }
-                                        }
-                                    }
                                 }
+                            }
 
-                                // Simulate plant equipment with sequential loading
-                                // (lead equipment takes load up to capacity, remainder to lag)
-                                if total_load.abs() > 0.0 {
-                                    // Compute plant loop water mass flow from thermal demand
-                                    // mass_flow = Q / (cp * delta_T)
-                                    let cp_water = 4186.0; // J/(kg·K)
-                                    let loop_delta_t = plant_loop.design_delta_t.max(1.0); // avoid div by zero
-                                    let loop_mass_flow = total_load.abs() / (cp_water * loop_delta_t);
-                                    // Inlet water temperature: for heating loops, return water is colder
-                                    // For cooling loops, return water is warmer
-                                    let inlet_temp = if total_load > 0.0 {
-                                        plant_loop.design_supply_temp - loop_delta_t // HHW return temp
-                                    } else {
-                                        plant_loop.design_supply_temp + loop_delta_t // CHW return temp
-                                    };
-
-                                    // Autosize pump design_flow_rate on first call:
-                                    // design_flow = total_capacity / (rho * cp * delta_T)
-                                    let rho_water = 998.0; // kg/m³
-                                    for equip in &plant_loop.supply_equipment {
-                                        if let openbse_io::input::PlantEquipmentInput::Pump(p) = equip {
-                                            if let Some(node_idx) = graph.node_by_name(&p.name) {
-                                                if let GraphComponent::Plant(component) = graph.component_mut(node_idx) {
-                                                    if component.design_water_flow_rate().is_none() {
-                                                        // Sum capacities of thermal equipment in this loop
-                                                        let total_cap: f64 = plant_loop.supply_equipment.iter()
-                                                            .filter_map(|eq| match eq {
-                                                                openbse_io::input::PlantEquipmentInput::Boiler(b) => Some(b.capacity.to_f64()),
-                                                                openbse_io::input::PlantEquipmentInput::Chiller(c) => Some(c.capacity.to_f64()),
-                                                                _ => None,
-                                                            })
-                                                            .filter(|c| *c > 0.0) // exclude autosize sentinels
-                                                            .sum();
-                                                        let design_flow = total_cap / (rho_water * cp_water * loop_delta_t);
-                                                        component.set_design_water_flow_rate(design_flow);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    let mut remaining_load = total_load;
-                                    let mut current_inlet = WaterPort::new(
-                                        openbse_psychrometrics::FluidState::water(inlet_temp, loop_mass_flow)
-                                    );
-                                    for equip in &plant_loop.supply_equipment {
-                                        let equip_name = match equip {
-                                            openbse_io::input::PlantEquipmentInput::Boiler(b) => &b.name,
-                                            openbse_io::input::PlantEquipmentInput::Chiller(c) => &c.name,
-                                            openbse_io::input::PlantEquipmentInput::Pump(p) => &p.name,
-                                        };
-                                        // Pumps always run when there's demand; thermal equipment
-                                        // stops when load is met
-                                        let is_pump = matches!(equip, openbse_io::input::PlantEquipmentInput::Pump(_));
-                                        if !is_pump && remaining_load.abs() < 1.0 { break; } // < 1W = done
-                                        if let Some(node_idx) = graph.node_by_name(equip_name) {
-                                            if let GraphComponent::Plant(component) = graph.component_mut(node_idx) {
-                                                // Pass absolute load to equipment — chillers and
-                                                // boilers always receive positive load values.
-                                                // The sign of remaining_load tracks heating (+) vs
-                                                // cooling (-) demand direction.
-                                                let equip_load = if is_pump { total_load.abs() } else { remaining_load.abs() };
-                                                let outlet = component.simulate_plant(&current_inlet, equip_load, &ctx);
-                                                // Chain outlet → next inlet (pump → boiler → ...)
-                                                current_inlet = outlet;
-
-                                                // Record plant outputs
-                                                let delivered = component.thermal_output().abs();
-                                                let mut plant_outputs: HashMap<String, f64> = HashMap::new();
-                                                plant_outputs.insert("electric_power".to_string(), component.power_consumption());
-                                                plant_outputs.insert("fuel_power".to_string(), component.fuel_consumption());
-                                                plant_outputs.insert("thermal_output".to_string(), delivered);
-                                                hvac_result.component_outputs.insert(equip_name.clone(), plant_outputs);
-
-                                                // Reduce remaining load by what this equipment delivered
-                                                if remaining_load > 0.0 {
-                                                    remaining_load -= delivered;
-                                                } else {
-                                                    remaining_load += delivered;
-                                                }
+                            // 2. Condenser demand: sum heat rejection from chillers
+                            //    whose condenser_plant_loop references this loop.
+                            //    Q_cond = Q_evap + W_compressor (already-simulated
+                            //    chillers from upstream loops in topo order).
+                            let mut condenser_load = 0.0_f64;
+                            for other_loop in &model.plant_loops {
+                                for eq in &other_loop.supply_equipment {
+                                    if let openbse_io::input::PlantEquipmentInput::Chiller(c) = eq {
+                                        if c.condenser_plant_loop.as_deref() == Some(plant_loop.name.as_str()) {
+                                            if let Some(outputs) = hvac_result.component_outputs.get(c.name.as_str()) {
+                                                let thermal = outputs.get("thermal_output").copied().unwrap_or(0.0);
+                                                let electric = outputs.get("electric_power").copied().unwrap_or(0.0);
+                                                condenser_load += thermal + electric;
                                             }
                                         }
                                     }
                                 }
                             }
 
-                            // Second pass: simulate condenser water loops.
-                            // Demand = chiller condenser heat rejection (cooling + compressor power).
-                            for plant_loop in &model.plant_loops {
-                                if !condenser_loop_names.contains(plant_loop.name.as_str()) {
-                                    continue; // already simulated in first pass
-                                }
-                                // Sum condenser heat rejection from all chillers referencing this loop
-                                let mut condenser_load = 0.0_f64;
-                                for other_loop in &model.plant_loops {
-                                    for eq in &other_loop.supply_equipment {
-                                        if let openbse_io::input::PlantEquipmentInput::Chiller(c) = eq {
-                                            if c.condenser_plant_loop.as_deref() == Some(plant_loop.name.as_str()) {
-                                                if let Some(outputs) = hvac_result.component_outputs.get(c.name.as_str()) {
-                                                    let thermal = outputs.get("thermal_output").copied().unwrap_or(0.0);
-                                                    let electric = outputs.get("electric_power").copied().unwrap_or(0.0);
-                                                    condenser_load += thermal + electric;
-                                                }
-                                            }
+                            // Combine: condenser demand is always positive (heat rejection).
+                            // If both coil and condenser demand exist, condenser dominates
+                            // direction (this loop is a condenser loop receiving heat).
+                            if condenser_load > 0.0 {
+                                total_load = condenser_load;
+                            }
+
+                            // ── Inject HX source conditions ──────────────────
+                            // For each HeatExchanger in this loop, provide source-side
+                            // temperature and flow from the already-simulated source loop
+                            // (or lag-one-timestep if source hasn't been simulated yet).
+                            for equip in &plant_loop.supply_equipment {
+                                if let openbse_io::input::PlantEquipmentInput::HeatExchanger(hx) = equip {
+                                    if let Some(node_idx) = graph.node_by_name(&hx.name) {
+                                        if let GraphComponent::Plant(component) = graph.component_mut(node_idx) {
+                                            let (src_temp, src_flow) = loop_supply_conditions
+                                                .get(&hx.source_loop)
+                                                .copied()
+                                                .unwrap_or((20.0, 0.0));
+                                            component.set_source_conditions(src_temp, src_flow);
                                         }
                                     }
                                 }
+                            }
 
-                                if condenser_load > 0.0 {
-                                    let cp_water = 4186.0;
-                                    let loop_delta_t = plant_loop.design_delta_t.max(1.0);
-                                    let loop_mass_flow = condenser_load / (cp_water * loop_delta_t);
-                                    let inlet_temp = plant_loop.design_supply_temp + loop_delta_t; // condenser return (warmer)
+                            // ── Simulate loop equipment ──────────────────────
+                            if total_load.abs() > 0.0 {
+                                let loop_mass_flow = total_load.abs() / (cp_water * loop_delta_t);
+                                // Inlet temp: condenser return is warmer, heating return
+                                // is colder, cooling return is warmer.
+                                let inlet_temp = if condenser_load > 0.0 {
+                                    plant_loop.design_supply_temp + loop_delta_t
+                                } else if total_load > 0.0 {
+                                    plant_loop.design_supply_temp - loop_delta_t
+                                } else {
+                                    plant_loop.design_supply_temp + loop_delta_t
+                                };
 
-                                    // Autosize condenser pumps using design chiller capacities
-                                    // (not instantaneous load) to get correct design_power.
-                                    let rho_water = 998.0;
-                                    for equip in &plant_loop.supply_equipment {
-                                        if let openbse_io::input::PlantEquipmentInput::Pump(p) = equip {
+                                // Autosize pumps and cooling towers on first call
+                                for equip in &plant_loop.supply_equipment {
+                                    match equip {
+                                        openbse_io::input::PlantEquipmentInput::Pump(p) => {
                                             if let Some(node_idx) = graph.node_by_name(&p.name) {
                                                 if let GraphComponent::Plant(component) = graph.component_mut(node_idx) {
                                                     if component.design_water_flow_rate().is_none() {
-                                                        // Sum design capacities of all chillers
-                                                        // on this condenser loop. Q_cond = Q_evap × (1 + 1/COP).
-                                                        let mut total_cond_cap = 0.0_f64;
-                                                        for other_loop in &model.plant_loops {
-                                                            for eq2 in &other_loop.supply_equipment {
-                                                                if let openbse_io::input::PlantEquipmentInput::Chiller(c) = eq2 {
-                                                                    if c.condenser_plant_loop.as_deref() == Some(plant_loop.name.as_str()) {
-                                                                        let cap = c.capacity.to_f64();
-                                                                        if cap > 0.0 {
-                                                                            total_cond_cap += cap * (1.0 + 1.0 / c.cop);
+                                                        let total_cap = if condenser_load > 0.0 {
+                                                            // Condenser loop: size from chiller condenser capacities
+                                                            let mut cap = 0.0_f64;
+                                                            for ol in &model.plant_loops {
+                                                                for eq2 in &ol.supply_equipment {
+                                                                    if let openbse_io::input::PlantEquipmentInput::Chiller(c) = eq2 {
+                                                                        if c.condenser_plant_loop.as_deref() == Some(plant_loop.name.as_str()) {
+                                                                            let c_cap = c.capacity.to_f64();
+                                                                            if c_cap > 0.0 {
+                                                                                cap += c_cap * (1.0 + 1.0 / c.cop);
+                                                                            }
                                                                         }
                                                                     }
                                                                 }
                                                             }
-                                                        }
-                                                        let design_flow = total_cond_cap / (rho_water * cp_water * loop_delta_t);
+                                                            cap
+                                                        } else {
+                                                            // Normal loop: size from boiler/chiller capacities
+                                                            plant_loop.supply_equipment.iter()
+                                                                .filter_map(|eq2| match eq2 {
+                                                                    openbse_io::input::PlantEquipmentInput::Boiler(b) => Some(b.capacity.to_f64()),
+                                                                    openbse_io::input::PlantEquipmentInput::Chiller(c) => Some(c.capacity.to_f64()),
+                                                                    _ => None,
+                                                                })
+                                                                .filter(|c| *c > 0.0)
+                                                                .sum()
+                                                        };
+                                                        let design_flow = total_cap / (rho_water * cp_water * loop_delta_t);
                                                         component.set_design_water_flow_rate(design_flow);
                                                     }
                                                 }
                                             }
                                         }
+                                        openbse_io::input::PlantEquipmentInput::CoolingTower(ct) => {
+                                            // Autosize tower design_water_flow to match loop flow
+                                            if let Some(node_idx) = graph.node_by_name(&ct.name) {
+                                                if let GraphComponent::Plant(component) = graph.component_mut(node_idx) {
+                                                    if component.design_water_flow_rate().is_none() {
+                                                        // Size tower flow from condenser demand
+                                                        let mut cap = 0.0_f64;
+                                                        for ol in &model.plant_loops {
+                                                            for eq2 in &ol.supply_equipment {
+                                                                if let openbse_io::input::PlantEquipmentInput::Chiller(c) = eq2 {
+                                                                    if c.condenser_plant_loop.as_deref() == Some(plant_loop.name.as_str()) {
+                                                                        let c_cap = c.capacity.to_f64();
+                                                                        if c_cap > 0.0 {
+                                                                            cap += c_cap * (1.0 + 1.0 / c.cop);
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        let design_flow = cap / (rho_water * cp_water * loop_delta_t);
+                                                        component.set_design_water_flow_rate(design_flow);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        _ => {}
                                     }
+                                }
 
-                                    let mut current_inlet = WaterPort::new(
-                                        openbse_psychrometrics::FluidState::water(inlet_temp, loop_mass_flow)
-                                    );
-                                    for equip in &plant_loop.supply_equipment {
-                                        let equip_name = match equip {
-                                            openbse_io::input::PlantEquipmentInput::Boiler(b) => &b.name,
-                                            openbse_io::input::PlantEquipmentInput::Chiller(c) => &c.name,
-                                            openbse_io::input::PlantEquipmentInput::Pump(p) => &p.name,
-                                        };
-                                        if let Some(node_idx) = graph.node_by_name(equip_name) {
-                                            if let GraphComponent::Plant(component) = graph.component_mut(node_idx) {
-                                                let outlet = component.simulate_plant(&current_inlet, condenser_load, &ctx);
-                                                current_inlet = outlet;
+                                // Sequential equipment loading
+                                let mut remaining_load = total_load;
+                                let mut current_inlet = WaterPort::new(
+                                    openbse_psychrometrics::FluidState::water(inlet_temp, loop_mass_flow)
+                                );
+                                for equip in &plant_loop.supply_equipment {
+                                    let equip_name = match equip {
+                                        openbse_io::input::PlantEquipmentInput::Boiler(b) => &b.name,
+                                        openbse_io::input::PlantEquipmentInput::Chiller(c) => &c.name,
+                                        openbse_io::input::PlantEquipmentInput::Pump(p) => &p.name,
+                                        openbse_io::input::PlantEquipmentInput::CoolingTower(ct) => &ct.name,
+                                        openbse_io::input::PlantEquipmentInput::HeatExchanger(hx) => &hx.name,
+                                    };
+                                    let is_pump = matches!(equip, openbse_io::input::PlantEquipmentInput::Pump(_));
+                                    if !is_pump && remaining_load.abs() < 1.0 { break; }
+                                    if let Some(node_idx) = graph.node_by_name(equip_name) {
+                                        if let GraphComponent::Plant(component) = graph.component_mut(node_idx) {
+                                            let equip_load = if is_pump { total_load.abs() } else { remaining_load.abs() };
+                                            let outlet = component.simulate_plant(&current_inlet, equip_load, &ctx);
+                                            current_inlet = outlet;
 
-                                                let mut plant_outputs: HashMap<String, f64> = HashMap::new();
-                                                plant_outputs.insert("electric_power".to_string(), component.power_consumption());
-                                                plant_outputs.insert("fuel_power".to_string(), component.fuel_consumption());
-                                                plant_outputs.insert("thermal_output".to_string(), component.thermal_output().abs());
-                                                hvac_result.component_outputs.insert(equip_name.clone(), plant_outputs);
+                                            let delivered = component.thermal_output().abs();
+                                            let mut plant_outputs: HashMap<String, f64> = HashMap::new();
+                                            plant_outputs.insert("electric_power".to_string(), component.power_consumption());
+                                            plant_outputs.insert("fuel_power".to_string(), component.fuel_consumption());
+                                            plant_outputs.insert("thermal_output".to_string(), delivered);
+                                            hvac_result.component_outputs.insert(equip_name.clone(), plant_outputs);
+
+                                            if remaining_load > 0.0 {
+                                                remaining_load -= delivered;
+                                            } else {
+                                                remaining_load += delivered;
                                             }
                                         }
                                     }
                                 }
+
+                                // Store supply conditions for downstream loops
+                                loop_supply_conditions.insert(
+                                    plant_loop.name.clone(),
+                                    (current_inlet.state.temp, current_inlet.state.mass_flow),
+                                );
                             }
                         }
 

@@ -97,7 +97,7 @@ Be explicit about these — do not guess or approximate:
 - **No geometry import**: Surfaces must be specified as 3D vertices in YAML. No gbXML/IDF/BIM import.
 - **No VRF, ground-source heat pumps, or radiant systems**.
 - **No water-source heat pumps** (air-source HP is implemented).
-- **Plant loop wiring incomplete**: Cooling towers and heat recovery components exist but aren't wired into plant loop simulation yet. Pumps are fully integrated.
+- **Plant loop topology**: Cooling towers, water-to-water heat exchangers, and pumps are fully wired. Loops simulate in topological order (dependency-aware). Primary/secondary/tertiary loop architecture supported via inter-loop HX connections.
 
 ## Conventions
 
@@ -105,5 +105,5 @@ Be explicit about these — do not guess or approximate:
 - **No hallucinated physics.** If you don't know the correct equation, say so. Don't guess coefficient values or make up correlations.
 - **Unit tests verify against known references**, not arbitrary values. Each test should document what it validates and where the reference value comes from.
 - **`psych::CP_AIR` is private** — use `openbse_psychrometrics::cp_air_fn_w(w)` instead.
-- **VAV box test `test_vav_heating_mode_with_electric_reheat`** is a pre-existing failure — do not try to "fix" it by changing expected values without understanding the physics.
+- **Solar tests `test_angular_shgc_modifier_lowe_steeper` and `test_diffuse_shgc_modifier_range`** are pre-existing failures in the envelope crate — the angular SHGC modifier assumptions about clear vs low-e glass ordering need investigation.
 - **Weather files (*.epw) are gitignored** except the ASHRAE 140 prescribed weather file in `140_tests/weather/`.

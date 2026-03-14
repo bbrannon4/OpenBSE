@@ -11,6 +11,7 @@ pub mod boiler;
 pub mod chiller;
 pub mod pump;
 pub mod cooling_tower;
+pub mod heat_exchanger;
 pub mod water_heater;
 pub mod humidifier;
 pub mod duct;

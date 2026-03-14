@@ -4,13 +4,14 @@
 //! between minimum and maximum limits, with optional reheat (hot water or
 //! electric) when the zone requires heating.
 //!
-//! Control sequence (single maximum — most common for perimeter zones):
+//! Control sequence (dual maximum — ASHRAE Guideline 36 / E+ ReverseWithLimits):
 //!   1. Cooling mode: damper opens from minimum toward maximum flow.
 //!      Primary air from the central AHU is cold (typically 12-14°C).
 //!      More cold air = more cooling.
 //!   2. Deadband: damper at minimum position, no reheat.
-//!   3. Heating mode: damper stays at minimum, reheat coil activates.
-//!      Reheat warms the minimum air stream to offset zone heat losses.
+//!   3. Heating mode: damper opens from minimum toward max_reheat_fraction,
+//!      reheat coil activates. Higher heating demand opens damper wider
+//!      for better heat distribution.
 //!
 //! The VAV box does NOT know zone loads directly — it receives a zone load
 //! signal via control_signal (positive = heating demand [W], negative =
@@ -408,8 +409,10 @@ mod tests {
         vav.control_signal = 0.6;
         let outlet = vav.simulate_air(&inlet, &ctx);
 
-        // Should be at minimum flow with reheat
-        assert_relative_eq!(outlet.mass_flow, 0.3, max_relative = 0.01);
+        // Dual-maximum control (ASHRAE G36 / E+ ReverseWithLimits):
+        // Damper opens from min (0.3) toward max_reheat_fraction (0.5).
+        // flow = 0.3 + 0.6 * (0.5 - 0.3) = 0.42
+        assert_relative_eq!(outlet.mass_flow, 0.42, max_relative = 0.01);
         assert!(outlet.state.t_db > 13.0); // Reheated
         assert!(vav.reheat_rate > 0.0);
         assert!(vav.reheat_power > 0.0); // Electric reheat consumes power

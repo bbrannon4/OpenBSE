@@ -35,7 +35,7 @@ cargo build --release
 cargo test --workspace
 ```
 
-**82 tests** across 8 crates (81 passing, 1 pre-existing VAV box test failure being investigated).
+**92+ tests** across 8 crates. All component tests pass. Two envelope solar tests have known failures (angular SHGC modifier ordering for clear vs low-e glass).
 
 ### Run a Simulation
 
@@ -97,8 +97,9 @@ No circular dependencies. Components implement traits (`AirComponent`, `PlantCom
 - **Duct** — NTU conduction model with leakage fraction and ambient zone coupling
 - **Boiler** — efficiency curves, part-load ratio limits
 - **Chiller** — electric chiller with COP and condenser modeling
-- **Cooling Tower** — single-speed with approach temperature (component written, plant loop wiring pending)
-- **Heat Recovery** — sensible effectiveness heat exchanger (air-side integrated, plant loop wiring pending)
+- **Cooling Tower** — single/two/variable-speed with effectiveness-NTU model, polynomial fan power curve, approach temperature limits
+- **Heat Recovery** — sensible effectiveness heat exchanger (air-side enthalpy wheel / plate HX)
+- **Heat Exchanger** — water-to-water plate-and-frame HX for inter-loop connections (effectiveness-NTU, always-on or economizer mode)
 - **Pump** — constant/variable speed with power curves, headered staging, heat-to-fluid modeling
 
 ### Controls
@@ -115,6 +116,8 @@ No circular dependencies. Components implement traits (`AirComponent`, `PlantCom
 - Configurable CSV output with flexible variable selection
 - Summary reports with monthly energy, peak loads, unmet hours
 - Multi-loop coupled envelope + HVAC simulation (DOAS + FCU additive mixing)
+- Plant loop topological ordering (inter-loop HX and condenser dependencies)
+- Primary/secondary/tertiary plant loop support via HX inter-connections
 
 ## Validation
 
@@ -146,7 +149,6 @@ Lighting, equipment, and DHW match within 1%. Heating and fan gaps are under act
 - Moisture transport through envelope
 
 ### HVAC
-- Plant loop wiring for cooling towers and heat recovery (component models written, loop integration pending)
 - Multi-speed and variable-speed DX coils
 - Dehumidification modeling in DX coils (currently sensible-only)
 - Water-source heat pump models (air-source implemented)

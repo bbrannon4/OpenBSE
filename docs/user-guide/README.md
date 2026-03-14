@@ -460,7 +460,9 @@ Heat recovery `source` values: `wheel` (sensible + latent), `plate` (sensible on
 
 ### Plant Loops
 
-A plant loop defines supply-side equipment for hot water or chilled water distribution. Both boilers (heating) and chillers (cooling) are supported as supply equipment.
+A plant loop defines supply-side equipment for hot water, chilled water, or condenser water distribution. Equipment types include boilers, chillers, pumps, cooling towers, and water-to-water heat exchangers.
+
+Multiple loops can be connected: a chiller's `condenser_plant_loop` links a CHW loop to a condenser water loop, and a `heat_exchanger` links any two loops (e.g., primary/secondary, waterside economizer). The engine automatically determines simulation order via topological sort.
 
 ```yaml
 plant_loops:
@@ -480,11 +482,29 @@ plant_loops:
     design_delta_t: 5.0          # [°C]
     supply_equipment:
       - type: chiller
-        name: Air Cooled Chiller
+        name: Water Cooled Chiller
         capacity: 50000.0        # [W] or autosize
-        cop: 3.5                 # Rated COP at ARI conditions
+        cop: 6.0                 # Rated COP at ARI conditions
         chw_setpoint: 7.0        # Chilled water supply temp [°C]
-        design_chw_flow: 0.005   # [m³/s] (auto-calculated from capacity if 0)
+        condenser_type: water_cooled
+        condenser_plant_loop: Condenser Water Loop  # Links to CW loop
+
+  - name: Condenser Water Loop
+    design_supply_temp: 29.4     # [°C]
+    design_delta_t: 5.56         # [°C]
+    supply_equipment:
+      - type: pump
+        name: CW Pump
+        pump_type: constant_speed
+        design_flow_rate: autosize
+        design_head: 200000
+        motor_efficiency: 0.9
+      - type: cooling_tower
+        name: CW Tower
+        tower_type: variable_speed
+        design_water_flow: autosize
+        design_air_flow: 25.0    # [m³/s]
+        design_fan_power: 15000  # [W]
 ```
 
 #### Plant loop defaults
@@ -505,16 +525,92 @@ plant_loops:
 
 #### Chiller defaults
 
-| Field | Default |
-|-------|---------|
-| `capacity` | (required, or `autosize`) |
-| `cop` | 3.5 |
-| `chw_setpoint` | 7.0 °C |
-| `design_chw_flow` | Auto-calculated from capacity if 0 or not specified |
+| Field | Default | Description |
+|-------|---------|-------------|
+| `capacity` | (required, or `autosize`) | Cooling capacity [W] |
+| `cop` | 3.5 | Rated COP at ARI conditions |
+| `chw_setpoint` | 7.0 °C | Chilled water supply temperature |
+| `condenser_type` | `air_cooled` | `air_cooled` or `water_cooled` |
+| `condenser_plant_loop` | (none) | Name of condenser water loop (required for `water_cooled`) |
+| `design_chw_flow` | Auto-calculated | From capacity if 0 or not specified |
+| `min_plr` | 0.25 | Minimum part-load ratio before cycling |
+| `capft` | (none) | Capacity-f(T) biquadratic curve (x=leaving CHW, y=entering CW) |
+| `eirft` | (none) | EIR-f(T) biquadratic curve |
+| `eirfplr` | (none) | EIR-f(PLR) quadratic curve |
+
+#### Cooling Towers
+
+Cooling towers reject heat from condenser water loops to the atmosphere. The tower is added to the condenser loop's `supply_equipment`.
+
+```yaml
+supply_equipment:
+  - type: cooling_tower
+    name: CW Tower
+    tower_type: variable_speed       # single_speed, two_speed, or variable_speed
+    design_water_flow: autosize      # [m³/s]
+    design_air_flow: 25.0            # [m³/s]
+    design_fan_power: 15000          # [W]
+    design_inlet_water_temp: 35.0    # [°C]
+    design_approach: 3.9             # [°C] T_water_out - T_wb
+    design_range: 5.56               # [°C] T_water_in - T_water_out
+    fan_power_curve: [0.0058, 0.0740, -0.2180, 0.8517, 0.2866]  # optional
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `tower_type` | `variable_speed` | `single_speed`, `two_speed`, or `variable_speed` |
+| `design_water_flow` | (required, or `autosize`) | Design water flow rate [m³/s] |
+| `design_air_flow` | (required) | Design air flow rate [m³/s] |
+| `design_fan_power` | (required) | Design fan power [W] |
+| `design_inlet_water_temp` | 35.0 °C | Design inlet water temperature |
+| `design_approach` | 3.9 °C | Design approach (T_water_out - T_wb) |
+| `design_range` | 5.56 °C | Design range (T_water_in - T_water_out) |
+| `fan_power_curve` | E+ default | 5-coefficient polynomial [C1..C5]: PLF = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4 |
+
+#### Heat Exchangers
+
+Water-to-water heat exchangers connect two plant loops. Use `always_on` for general inter-loop connections (primary/secondary), or `economizer` for waterside economizer (activates only when source temperature enables free cooling).
+
+The HX is placed on the **demand** loop's `supply_equipment` and references the **source** loop by name.
+
+```yaml
+plant_loops:
+  # Primary CHW loop
+  - name: Primary CHW Loop
+    design_supply_temp: 6.67
+    design_delta_t: 6.67
+    supply_equipment:
+      - type: chiller
+        name: Chiller 1
+        capacity: 500000
+        cop: 6.0
+
+  # Secondary CHW loop — connected via HX
+  - name: Secondary CHW Loop
+    design_supply_temp: 7.0
+    design_delta_t: 5.0
+    supply_equipment:
+      - type: pump
+        name: Secondary CHW Pump
+        design_flow_rate: autosize
+      - type: heat_exchanger
+        name: Primary-Secondary HX
+        source_loop: Primary CHW Loop   # HX draws from this loop
+        effectiveness: 0.80
+        control_mode: always_on
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `source_loop` | (required) | Name of the source plant loop |
+| `effectiveness` | 0.80 | Heat transfer effectiveness [0-1] |
+| `design_flow_rate` | `autosize` | Design flow rate on demand side [m³/s] |
+| `control_mode` | `always_on` | `always_on` or `economizer` |
+| `economizer_threshold` | 2.0 °C | For economizer mode: activate when T_source < T_demand_in + threshold |
 
 #### Pumps
 
-Pumps circulate water through plant loops. They can be added alongside boilers and chillers in the `supply_equipment` list.
+Pumps circulate water through plant loops. They can be added alongside boilers, chillers, towers, and heat exchangers in the `supply_equipment` list.
 
 ```yaml
 supply_equipment:

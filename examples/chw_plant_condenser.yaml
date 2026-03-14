@@ -1,0 +1,349 @@
+# OpenBSE Example: Water-Cooled Chiller with Cooling Tower & Condenser Loop
+#
+# Demonstrates multi-loop plant configuration:
+#   - CHW Loop: water-cooled chiller + pump
+#   - Condenser Water Loop: cooling tower + pump
+#   - Chiller's condenser_plant_loop links the two loops
+#
+# The simulation engine automatically determines loop order via topological
+# sort: CHW loop simulates first (chiller outputs determine condenser demand),
+# then the condenser loop simulates with cooling tower rejecting heat.
+#
+# Building: 2-zone single-story office (simplified)
+#   - South Zone (200 m2, 3.05m ceiling)
+#   - North Zone (200 m2, 3.05m ceiling)
+#
+# HVAC: VAV AHU with CHW cooling coil, HW preheat, per-zone reheat
+#
+# Weather: Denver, CO
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+
+design_days:
+  - name: Denver Heating 99.6%
+    design_temp: -17.8
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -17.8
+    pressure: 83411.0
+    wind_speed: 2.3
+    month: 1
+    day: 21
+    day_type: winter
+
+  - name: Denver Cooling 0.4%
+    design_temp: 34.1
+    daily_range: 15.2
+    humidity_type: wetbulb
+    humidity_value: 15.7
+    pressure: 83411.0
+    wind_speed: 4.0
+    month: 7
+    day: 21
+    day_type: summer
+
+schedules:
+  - name: Office Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.9, 1.0, 1.0, 1.0, 0.8, 1.0, 1.0, 1.0, 0.8, 0.4, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  - name: Office Lighting
+    weekday:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.3, 0.9, 1.0, 1.0, 1.0, 0.9, 1.0, 1.0, 1.0, 0.9, 0.5, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1]
+    weekend:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+
+  - name: Office Equipment
+    weekday:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.4, 0.9, 1.0, 1.0, 1.0, 0.8, 1.0, 1.0, 1.0, 0.8, 0.4, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1]
+    weekend:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+
+materials:
+  - name: CMU Block
+    conductivity: 0.89
+    density: 1920.0
+    specific_heat: 790.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Wall Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Gypsum Board
+    conductivity: 0.16
+    density: 800.0
+    specific_heat: 830.0
+    solar_absorptance: 0.4
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+  - name: Roof Membrane
+    conductivity: 0.16
+    density: 1120.0
+    specific_heat: 1460.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Roof Insulation
+    conductivity: 0.04
+    density: 32.0
+    specific_heat: 830.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+constructions:
+  - name: Exterior Wall
+    layers:
+      - material: CMU Block
+        thickness: 0.20
+      - material: Wall Insulation
+        thickness: 0.08
+      - material: Gypsum Board
+        thickness: 0.013
+
+  - name: Roof
+    layers:
+      - material: Roof Membrane
+        thickness: 0.01
+      - material: Roof Insulation
+        thickness: 0.15
+
+  - name: Interior Floor
+    type: simple
+    u_value: 5.0
+    thermal_mass: 50000.0
+
+  - name: Office Window
+    type: window
+    u_value: 3.0
+    shgc: 0.4
+
+zones:
+  - name: South Zone
+    volume: 610.0
+    floor_area: 200.0
+    people:
+      count: 10
+      activity_level: 120.0
+      radiant_fraction: 0.30
+      schedule: Office Occupancy
+    lights:
+      power_density: 10.0
+      radiant_fraction: 0.72
+      schedule: Office Lighting
+    equipment:
+      power_density: 10.0
+      radiant_fraction: 0.30
+      schedule: Office Equipment
+    infiltration:
+      design_flow_rate: 0.05
+    surfaces:
+      - name: South Wall
+        type: wall
+        construction: Exterior Wall
+        boundary: outdoor
+        area: 30.5
+        azimuth: 180
+        tilt: 90
+      - name: S Roof
+        type: roof
+        construction: Roof
+        boundary: outdoor
+        area: 200.0
+        azimuth: 0
+        tilt: 0
+      - name: S Floor
+        type: floor
+        construction: Interior Floor
+        boundary: ground
+        area: 200.0
+      - name: S Window
+        type: window
+        construction: Office Window
+        boundary: outdoor
+        parent: South Wall
+        area: 12.0
+
+  - name: North Zone
+    volume: 610.0
+    floor_area: 200.0
+    people:
+      count: 8
+      activity_level: 120.0
+      radiant_fraction: 0.30
+      schedule: Office Occupancy
+    lights:
+      power_density: 10.0
+      radiant_fraction: 0.72
+      schedule: Office Lighting
+    equipment:
+      power_density: 10.0
+      radiant_fraction: 0.30
+      schedule: Office Equipment
+    infiltration:
+      design_flow_rate: 0.05
+    surfaces:
+      - name: North Wall
+        type: wall
+        construction: Exterior Wall
+        boundary: outdoor
+        area: 30.5
+        azimuth: 0
+        tilt: 90
+      - name: N Roof
+        type: roof
+        construction: Roof
+        boundary: outdoor
+        area: 200.0
+        azimuth: 0
+        tilt: 0
+      - name: N Floor
+        type: floor
+        construction: Interior Floor
+        boundary: ground
+        area: 200.0
+      - name: N Window
+        type: window
+        construction: Office Window
+        boundary: outdoor
+        parent: North Wall
+        area: 12.0
+
+# --- HVAC: VAV with water-cooled chiller ---
+
+air_loops:
+  - name: Main AHU
+    system_type: vav
+    equipment:
+      - type: fan
+        name: AHU Supply Fan
+        fan_type: vav
+        design_flow_rate: autosize
+        design_pressure: 1000.0
+        efficiency: 0.70
+        motor_efficiency: 0.90
+      - type: cooling_coil
+        name: CHW Cooling Coil
+        source: chilled_water
+        plant_loop: CHW Loop
+        design_capacity: autosize
+        cop: 3.5
+      - type: heating_coil
+        name: HW Preheat Coil
+        source: hot_water
+        plant_loop: HHW Loop
+        design_capacity: autosize
+    zone_terminals:
+      - zone: South Zone
+        terminal:
+          type: vav_box
+          name: South VAV Box
+          design_flow_rate: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          plant_loop: HHW Loop
+      - zone: North Zone
+        terminal:
+          type: vav_box
+          name: North VAV Box
+          design_flow_rate: autosize
+          min_flow_fraction: 0.30
+          reheat_type: hot_water
+          plant_loop: HHW Loop
+    controls:
+      supply_air_temp: 13.0
+      heating_supply_temp: 35.0
+      minimum_damper_position: 0.30
+      economizer: differential_dry_bulb
+
+# --- Plant Loops ---
+
+plant_loops:
+  # Hot water loop (boiler)
+  - name: HHW Loop
+    design_supply_temp: 82.0
+    design_delta_t: 11.0
+    supply_equipment:
+      - type: pump
+        name: HHW Pump
+        pump_type: variable_speed
+        design_flow_rate: autosize
+        design_head: 150000
+        motor_efficiency: 0.9
+      - type: boiler
+        name: HHW Boiler
+        capacity: autosize
+        efficiency: 0.85
+        design_outlet_temp: 82.0
+        design_water_flow_rate: autosize
+
+  # Primary chilled water loop (water-cooled chiller)
+  - name: CHW Loop
+    design_supply_temp: 6.67
+    design_delta_t: 6.67
+    supply_equipment:
+      - type: pump
+        name: CHW Pump
+        pump_type: variable_speed
+        design_flow_rate: autosize
+        design_head: 150000
+        motor_efficiency: 0.9
+      - type: chiller
+        name: Water-Cooled Chiller
+        capacity: 500000
+        cop: 6.0
+        chw_setpoint: 6.67
+        condenser_type: water_cooled
+        condenser_plant_loop: Condenser Water Loop
+
+  # Condenser water loop (cooling tower)
+  # Simulated after CHW loop — load comes from chiller condenser rejection
+  - name: Condenser Water Loop
+    design_supply_temp: 29.4
+    design_delta_t: 5.56
+    supply_equipment:
+      - type: pump
+        name: CW Pump
+        pump_type: constant_speed
+        design_flow_rate: autosize
+        design_head: 200000
+        motor_efficiency: 0.9
+      - type: cooling_tower
+        name: CW Tower
+        tower_type: variable_speed
+        design_water_flow: autosize
+        design_air_flow: 25.0
+        design_fan_power: 15000
+        design_inlet_water_temp: 35.0
+        design_approach: 3.9
+        design_range: 5.56
+
+thermostats:
+  - name: Office Thermostat
+    zones: [South Zone, North Zone]
+    heating_setpoint: 21.1
+    cooling_setpoint: 23.9
+
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - site_outdoor_temperature
+
+summary_report: true

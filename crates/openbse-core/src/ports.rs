@@ -227,6 +227,11 @@ pub trait PlantComponent: std::fmt::Debug {
 
     /// Set the nominal capacity (called during autosizing).
     fn set_nominal_capacity(&mut self, _cap: f64) {}
+
+    /// Set source-side conditions for inter-loop heat exchangers.
+    /// Called by the simulation driver to inject source loop state before
+    /// `simulate_plant()`. Default no-op — only `WaterToWaterHX` overrides.
+    fn set_source_conditions(&mut self, _temp: f64, _mass_flow: f64) {}
 }
 
 /// Context passed to every component during simulation.

@@ -7,7 +7,13 @@
 //!   Q_reject = m_water * cp * (T_water_in - T_water_out)
 //!   T_water_out >= T_wb_outdoor + approach (approach typically 3-5 C)
 //!
-//! Fan power follows cubic fan laws for variable speed towers.
+//! Variable-speed fan power uses a polynomial part-load curve matching
+//! the VAV fan approach in fan.rs:
+//!   PLF = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4
+//!   FanPower = DesignFanPower * PLF
+//!
+//! Default curve: E+ CoolingTower:VariableSpeed FanPowerRatioFunctionofAirFlowRateRatio
+//!   coefficients = [0.0058, 0.0740, -0.2180, 0.8517, 0.2866]
 //!
 //! Reference: EnergyPlus Engineering Reference, "Cooling Towers"
 
@@ -26,6 +32,11 @@ pub enum CoolingTowerType {
     /// Fan speed modulates continuously to match load (VFD).
     VariableSpeed,
 }
+
+/// Default E+ fan power ratio curve for variable-speed cooling towers.
+/// FanPowerRatioFunctionofAirFlowRateRatio from E+ CoolingTower:VariableSpeed.
+/// PLF = C1 + C2*x + C3*x^2 + C4*x^3 + C5*x^4 where x = air flow fraction.
+const DEFAULT_FAN_POWER_CURVE: [f64; 5] = [0.0058, 0.0740, -0.2180, 0.8517, 0.2866];
 
 /// Cooling tower component for condenser water heat rejection.
 ///
@@ -52,6 +63,12 @@ pub struct CoolingTower {
     pub design_range: f64,
     /// Minimum approach temperature [C] (physical limit, typically 2 C)
     pub min_approach: f64,
+
+    /// Fan power ratio curve coefficients [C1, C2, C3, C4, C5].
+    /// PLF = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4
+    /// Same polynomial form as the VAV fan in fan.rs.
+    /// Default: E+ CoolingTower:VariableSpeed FanPowerRatioFunctionofAirFlowRateRatio.
+    pub fan_power_curve: [f64; 5],
 
     // ---- Runtime state --------------------------------------------------------
     /// Current fan electric power [W]
@@ -84,6 +101,7 @@ impl CoolingTower {
             design_approach,
             design_range,
             min_approach: 2.0,
+            fan_power_curve: DEFAULT_FAN_POWER_CURVE,
             fan_power: 0.0,
             heat_rejected: 0.0,
         }
@@ -95,6 +113,18 @@ impl CoolingTower {
     pub fn design_capacity(&self) -> f64 {
         let mass_flow_design = self.design_water_flow * RHO_WATER;
         mass_flow_design * CP_WATER * self.design_range
+    }
+
+    /// Evaluate fan power part-load fraction from the polynomial curve.
+    /// PLF = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4
+    fn fan_plf(&self, plr: f64) -> f64 {
+        let c = &self.fan_power_curve;
+        let plf = c[0]
+            + c[1] * plr
+            + c[2] * plr.powi(2)
+            + c[3] * plr.powi(3)
+            + c[4] * plr.powi(4);
+        plf.clamp(0.0, 1.0)
     }
 }
 
@@ -159,19 +189,18 @@ impl PlantComponent for CoolingTower {
                 CoolingTowerType::TwoSpeed => {
                     let plr = (actual_rejection / design_cap).clamp(0.0, 1.0);
                     if plr > 0.5 {
-                        // High speed
+                        // High speed: full power
                         self.design_fan_power
                     } else {
-                        // Low speed (~50% speed -> ~12.5% power via cubic law)
-                        self.design_fan_power * 0.125
+                        // Low speed: evaluate curve at 50% air flow
+                        self.design_fan_power * self.fan_plf(0.5)
                     }
                 }
                 CoolingTowerType::VariableSpeed => {
-                    // Fan speed modulates to match load.
-                    // PLR = actual_rejection / design_capacity
-                    // Fan power follows cubic fan law: P = P_design * PLR^3
+                    // Fan speed modulates to match load via polynomial curve.
+                    // PLR maps heat rejection demand to air flow fraction.
                     let plr = (actual_rejection / design_cap).clamp(0.0, 1.0);
-                    self.design_fan_power * plr * plr * plr
+                    self.design_fan_power * self.fan_plf(plr)
                 }
             }
         };
@@ -331,8 +360,11 @@ mod tests {
     }
 
     #[test]
-    fn test_variable_speed_cubic_fan_law() {
-        // Fan power should follow cubic law: P = P_design * PLR^3
+    fn test_variable_speed_fan_power_curve() {
+        // Fan power uses polynomial PLF curve, not cubic law.
+        // Default curve: [0.0058, 0.0740, -0.2180, 0.8517, 0.2866]
+        // At PLR=1.0: PLF = 0.0058 + 0.0740 - 0.2180 + 0.8517 + 0.2866 = 1.0001 → clamped to 1.0
+        // At PLR=0.5: PLF = 0.0058 + 0.0370 - 0.0545 + 0.1065 + 0.0179 = 0.1127
         let mut tower = make_tower();
         let ctx = make_ctx(25.0, 0.40); // mild conditions, plenty of capacity
 
@@ -345,23 +377,51 @@ mod tests {
         let half_load = design_cap * 0.5;
         tower.simulate_plant(&inlet, half_load, &ctx);
 
-        // Expected: PLR = 0.5, fan power = 5000 * 0.5^3 = 625 W
-        let expected_fan_power = tower.design_fan_power * 0.5_f64.powi(3);
+        // PLF at PLR=0.5 from default curve
+        let plr = 0.5;
+        let c = DEFAULT_FAN_POWER_CURVE;
+        let expected_plf = c[0] + c[1]*plr + c[2]*plr.powi(2) + c[3]*plr.powi(3) + c[4]*plr.powi(4);
+        let expected_fan_power = tower.design_fan_power * expected_plf;
         assert_relative_eq!(
             tower.fan_power,
             expected_fan_power,
             max_relative = 0.02
         );
 
-        // Run at 25% load
-        let quarter_load = design_cap * 0.25;
-        tower.simulate_plant(&inlet, quarter_load, &ctx);
+        // Fan power at half load should be much less than design but more than zero
+        assert!(tower.fan_power > 0.0, "Fan power should be > 0 at half load");
+        assert!(tower.fan_power < tower.design_fan_power, "Fan power should be < design at half load");
 
-        // Expected: PLR = 0.25, fan power = 5000 * 0.25^3 = 78.125 W
-        let expected_fan_power_25 = tower.design_fan_power * 0.25_f64.powi(3);
+        // Run at full load
+        let full_load = design_cap;
+        tower.simulate_plant(&inlet, full_load, &ctx);
+
+        // At full load, PLF ≈ 1.0
         assert_relative_eq!(
             tower.fan_power,
-            expected_fan_power_25,
+            tower.design_fan_power,
+            max_relative = 0.02
+        );
+    }
+
+    #[test]
+    fn test_custom_fan_power_curve() {
+        // Verify that a custom fan power curve is used correctly.
+        let mut tower = make_tower();
+        // Set a simple linear curve: PLF = PLR (power proportional to load)
+        tower.fan_power_curve = [0.0, 1.0, 0.0, 0.0, 0.0];
+
+        let ctx = make_ctx(25.0, 0.40);
+        let mass_flow = 10.0;
+        let inlet = WaterPort::new(FluidState::water(35.0, mass_flow));
+        let design_cap = tower.design_capacity();
+
+        // At 50% load with linear curve: fan power = 50% of design
+        let half_load = design_cap * 0.5;
+        tower.simulate_plant(&inlet, half_load, &ctx);
+        assert_relative_eq!(
+            tower.fan_power,
+            tower.design_fan_power * 0.5,
             max_relative = 0.02
         );
     }
@@ -412,5 +472,27 @@ mod tests {
             tower_cool.heat_rejected,
             tower_hot.heat_rejected
         );
+    }
+
+    #[test]
+    fn test_single_speed_always_full_power() {
+        // SingleSpeed tower fan is always at design power when there's any load.
+        let mut tower = CoolingTower::new(
+            "SS Tower",
+            CoolingTowerType::SingleSpeed,
+            0.01, 10.0, 5000.0, 35.0, 4.0, 5.0,
+        );
+        let ctx = make_ctx(25.0, 0.40);
+
+        let inlet = WaterPort::new(FluidState::water(35.0, 10.0));
+
+        // Even at tiny load, single-speed fan is fully on
+        tower.simulate_plant(&inlet, 1000.0, &ctx);
+        assert_relative_eq!(tower.fan_power, 5000.0, max_relative = 0.001);
+
+        // At design load, still full power
+        let design_cap = tower.design_capacity();
+        tower.simulate_plant(&inlet, design_cap, &ctx);
+        assert_relative_eq!(tower.fan_power, 5000.0, max_relative = 0.001);
     }
 }
