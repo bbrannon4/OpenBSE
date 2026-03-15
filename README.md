@@ -1,5 +1,8 @@
 # OpenBSE — Open Building Simulation Engine
 
+
+**This is both an experiment in a potential new building energy modeling engine, but also to test the limits of AI in this type of physics based software development.  ~This line was written by a human, nothing else in this file or repo is.**
+
 **Modern, open-source building energy simulation in Rust.**
 
 OpenBSE is a ground-up reimplementation of building energy simulation using validated physics (heat balance methods, psychrometrics, HVAC component performance curves) expressed in a clean, modern, composable architecture. It replaces the complexity of legacy BEM tools with:
