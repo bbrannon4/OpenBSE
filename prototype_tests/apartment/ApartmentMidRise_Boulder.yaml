@@ -1,5 +1,5 @@
 # OpenBSE: DOE Prototype Mid-Rise Apartment (ASHRAE 90.1-2022 Appendix G)
-# 3-story (4 effective via multiplier), 27 zones, PTAC per zone, HW boiler
+# 4-story, 36 zones, PTAC per zone, HW boiler
 # Boulder, CO (TMYx weather)
 
 simulation:
@@ -9,29 +9,33 @@ simulation:
   end_month: 12
   end_day: 31
   terrain: city
+  heating_sizing_factor: 1.25
+  cooling_sizing_factor: 1.15
 weather_files:
 - ../Boulder.epw
 design_days:
-- name: Boulder Heating 99.6%
-  design_temp: -17.8
+- name: Denver-Buckley Heating 99.6%
+  design_temp: -17.9
   daily_range: 0.0
   humidity_type: wetbulb
-  humidity_value: -17.8
-  pressure: 83411.0
-  wind_speed: 2.3
-  month: 1
+  humidity_value: -17.9
+  pressure: 82237.0
+  wind_speed: 2.5
+  month: 12
   day: 21
   day_type: winter
-- name: Boulder Cooling 0.4%
-  design_temp: 34.1
-  daily_range: 15.2
+- name: Denver-Buckley Cooling 0.4%
+  design_temp: 33.9
+  daily_range: 14.8
   humidity_type: wetbulb
-  humidity_value: 15.7
-  pressure: 83411.0
-  wind_speed: 4.0
+  humidity_value: 15.0
+  pressure: 82237.0
+  wind_speed: 3.6
   month: 7
   day: 21
   day_type: summer
+  taub: 0.423
+  taud: 2.020
 
 # E+ PTU performance curves for Coil:Cooling:DX:SingleSpeed
 performance_curves:
@@ -796,40 +800,59 @@ zones:
 - name: M SW Apt
   volume: 269.0
   floor_area: 88.3
-  multiplier: 2
 - name: M S1 Apt
   volume: 269.0
   floor_area: 88.3
-  multiplier: 2
 - name: M S2 Apt
   volume: 269.0
   floor_area: 88.3
-  multiplier: 2
 - name: M SE Apt
   volume: 269.0
   floor_area: 88.3
-  multiplier: 2
 - name: M NW Apt
   volume: 269.0
   floor_area: 88.3
-  multiplier: 2
 - name: M N1 Apt
   volume: 269.0
   floor_area: 88.3
-  multiplier: 2
 - name: M N2 Apt
   volume: 269.0
   floor_area: 88.3
-  multiplier: 2
 - name: M NE Apt
   volume: 269.0
   floor_area: 88.3
-  multiplier: 2
 - name: M Corridor
   volume: 236.7
   floor_area: 77.6
   conditioned: false
-  multiplier: 2
+- name: M2 SW Apt
+  volume: 269.0
+  floor_area: 88.3
+- name: M2 S1 Apt
+  volume: 269.0
+  floor_area: 88.3
+- name: M2 S2 Apt
+  volume: 269.0
+  floor_area: 88.3
+- name: M2 SE Apt
+  volume: 269.0
+  floor_area: 88.3
+- name: M2 NW Apt
+  volume: 269.0
+  floor_area: 88.3
+- name: M2 N1 Apt
+  volume: 269.0
+  floor_area: 88.3
+- name: M2 N2 Apt
+  volume: 269.0
+  floor_area: 88.3
+- name: M2 NE Apt
+  volume: 269.0
+  floor_area: 88.3
+- name: M2 Corridor
+  volume: 236.7
+  floor_area: 77.6
+  conditioned: false
 - name: T SW Apt
   volume: 269.0
   floor_area: 88.3
@@ -865,9 +888,13 @@ zone_groups:
   - G S1 Apt
   - G S2 Apt
   - M SW Apt
+  - M2 SW Apt
   - M S1 Apt
+  - M2 S1 Apt
   - M S2 Apt
+  - M2 S2 Apt
   - M SE Apt
+  - M2 SE Apt
   - T SW Apt
   - T S1 Apt
   - T S2 Apt
@@ -877,9 +904,13 @@ zone_groups:
   - G N2 Apt
   - G NE Apt
   - M NW Apt
+  - M2 NW Apt
   - M N1 Apt
+  - M2 N1 Apt
   - M N2 Apt
+  - M2 N2 Apt
   - M NE Apt
+  - M2 NE Apt
   - T NW Apt
   - T N1 Apt
   - T N2 Apt
@@ -889,6 +920,7 @@ zone_groups:
   zones:
   - G Corridor
   - M Corridor
+  - M2 Corridor
   - T Corridor
 people:
 - name: Working Family People
@@ -897,9 +929,13 @@ people:
   - G S1 Apt
   - G S2 Apt
   - M SW Apt
+  - M2 SW Apt
   - M S1 Apt
+  - M2 S1 Apt
   - M S2 Apt
+  - M2 S2 Apt
   - M SE Apt
+  - M2 SE Apt
   - T SW Apt
   - T S1 Apt
   - T S2 Apt
@@ -915,9 +951,13 @@ people:
   - G N2 Apt
   - G NE Apt
   - M NW Apt
+  - M2 NW Apt
   - M N1 Apt
+  - M2 N1 Apt
   - M N2 Apt
+  - M2 N2 Apt
   - M NE Apt
+  - M2 NE Apt
   - T NW Apt
   - T N1 Apt
   - T N2 Apt
@@ -937,6 +977,7 @@ people:
   zones: &id002
   - G Corridor
   - M Corridor
+  - M2 Corridor
   - T Corridor
   count: 4.18
   activity_level: 95.0
@@ -953,13 +994,21 @@ lights:
   - G N2 Apt
   - G NE Apt
   - M SW Apt
+  - M2 SW Apt
   - M S1 Apt
+  - M2 S1 Apt
   - M S2 Apt
+  - M2 S2 Apt
   - M SE Apt
+  - M2 SE Apt
   - M NW Apt
+  - M2 NW Apt
   - M N1 Apt
+  - M2 N1 Apt
   - M N2 Apt
+  - M2 N2 Apt
   - M NE Apt
+  - M2 NE Apt
   - T SW Apt
   - T S1 Apt
   - T S2 Apt
@@ -995,13 +1044,21 @@ equipment:
   - G N2 Apt
   - G NE Apt
   - M SW Apt
+  - M2 SW Apt
   - M S1 Apt
+  - M2 S1 Apt
   - M S2 Apt
+  - M2 S2 Apt
   - M SE Apt
+  - M2 SE Apt
   - M NW Apt
+  - M2 NW Apt
   - M N1 Apt
+  - M2 N1 Apt
   - M N2 Apt
+  - M2 N2 Apt
   - M NE Apt
+  - M2 NE Apt
   - T SW Apt
   - T S1 Apt
   - T S2 Apt
@@ -1051,14 +1108,23 @@ infiltration:
   - G NE Apt
   - G Corridor
   - M SW Apt
+  - M2 SW Apt
   - M S1 Apt
+  - M2 S1 Apt
   - M S2 Apt
+  - M2 S2 Apt
   - M SE Apt
+  - M2 SE Apt
   - M NW Apt
+  - M2 NW Apt
   - M N1 Apt
+  - M2 N1 Apt
   - M N2 Apt
+  - M2 N2 Apt
   - M NE Apt
+  - M2 NE Apt
   - M Corridor
+  - M2 Corridor
   - T SW Apt
   - T S1 Apt
   - T S2 Apt
@@ -1085,13 +1151,21 @@ outdoor_air:
   - G N2 Apt
   - G NE Apt
   - M SW Apt
+  - M2 SW Apt
   - M S1 Apt
+  - M2 S1 Apt
   - M S2 Apt
+  - M2 S2 Apt
   - M SE Apt
+  - M2 SE Apt
   - M NW Apt
+  - M2 NW Apt
   - M N1 Apt
+  - M2 N1 Apt
   - M N2 Apt
+  - M2 N2 Apt
   - M NE Apt
+  - M2 NE Apt
   - T SW Apt
   - T S1 Apt
   - T S2 Apt
@@ -3727,6 +3801,1314 @@ surfaces:
   - x: 0.0
     y: 9.296
     z: 6.096
+- name: M2 SW Apt South Wall
+  zone: M2 SW Apt
+  type: wall
+  construction: Res Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0
+    y: 0.0
+    z: 3.048
+  - x: 11.582
+    y: 0.0
+    z: 3.048
+  - x: 11.582
+    y: 0.0
+    z: 6.096
+  - x: 0
+    y: 0.0
+    z: 6.096
+- name: M2 SW Apt South Window
+  zone: M2 SW Apt
+  type: window
+  construction: Res Window
+  boundary: outdoor
+  parent_surface: M2 SW Apt South Wall
+  vertices:
+  - x: 2.895
+    y: 0.0
+    z: 4.002
+  - x: 8.686
+    y: 0.0
+    z: 4.002
+  - x: 8.686
+    y: 0.0
+    z: 5.221
+  - x: 2.895
+    y: 0.0
+    z: 5.221
+- name: M2 SW Apt North Wall
+  zone: M2 SW Apt
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 Corridor'
+  vertices:
+  - x: 11.582
+    y: 7.62
+    z: 3.048
+  - x: 0
+    y: 7.62
+    z: 3.048
+  - x: 0
+    y: 7.62
+    z: 6.096
+  - x: 11.582
+    y: 7.62
+    z: 6.096
+- name: M2 SW Apt West Wall
+  zone: M2 SW Apt
+  type: wall
+  construction: Res Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0
+    y: 7.62
+    z: 3.048
+  - x: 0
+    y: 0.0
+    z: 3.048
+  - x: 0
+    y: 0.0
+    z: 6.096
+  - x: 0
+    y: 7.62
+    z: 6.096
+- name: M2 SW Apt West Window
+  zone: M2 SW Apt
+  type: window
+  construction: Res Window
+  boundary: outdoor
+  parent_surface: M2 SW Apt West Wall
+  vertices:
+  - x: 0
+    y: 5.678
+    z: 4.002
+  - x: 0
+    y: 1.868
+    z: 4.002
+  - x: 0
+    y: 1.868
+    z: 5.221
+  - x: 0
+    y: 5.678
+    z: 5.221
+- name: M2 SW Apt East Wall
+  zone: M2 SW Apt
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 11.582
+    y: 0.0
+    z: 3.048
+  - x: 11.582
+    y: 7.62
+    z: 3.048
+  - x: 11.582
+    y: 7.62
+    z: 6.096
+  - x: 11.582
+    y: 0.0
+    z: 6.096
+- name: M2 SW Apt Floor
+  zone: M2 SW Apt
+  type: floor
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0
+    y: 7.62
+    z: 3.048
+  - x: 11.582
+    y: 7.62
+    z: 3.048
+  - x: 11.582
+    y: 0.0
+    z: 3.048
+  - x: 0
+    y: 0.0
+    z: 3.048
+- name: M2 SW Apt Ceiling
+  zone: M2 SW Apt
+  type: ceiling
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0
+    y: 0.0
+    z: 6.096
+  - x: 11.582
+    y: 0.0
+    z: 6.096
+  - x: 11.582
+    y: 7.62
+    z: 6.096
+  - x: 0
+    y: 7.62
+    z: 6.096
+- name: M2 S1 Apt South Wall
+  zone: M2 S1 Apt
+  type: wall
+  construction: Res Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 11.582
+    y: 0.0
+    z: 3.048
+  - x: 23.164
+    y: 0.0
+    z: 3.048
+  - x: 23.164
+    y: 0.0
+    z: 6.096
+  - x: 11.582
+    y: 0.0
+    z: 6.096
+- name: M2 S1 Apt South Window
+  zone: M2 S1 Apt
+  type: window
+  construction: Res Window
+  boundary: outdoor
+  parent_surface: M2 S1 Apt South Wall
+  vertices:
+  - x: 14.477
+    y: 0.0
+    z: 4.002
+  - x: 20.268
+    y: 0.0
+    z: 4.002
+  - x: 20.268
+    y: 0.0
+    z: 5.221
+  - x: 14.477
+    y: 0.0
+    z: 5.221
+- name: M2 S1 Apt North Wall
+  zone: M2 S1 Apt
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 Corridor'
+  vertices:
+  - x: 23.164
+    y: 7.62
+    z: 3.048
+  - x: 11.582
+    y: 7.62
+    z: 3.048
+  - x: 11.582
+    y: 7.62
+    z: 6.096
+  - x: 23.164
+    y: 7.62
+    z: 6.096
+- name: M2 S1 Apt West Wall
+  zone: M2 S1 Apt
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 11.582
+    y: 7.62
+    z: 3.048
+  - x: 11.582
+    y: 0.0
+    z: 3.048
+  - x: 11.582
+    y: 0.0
+    z: 6.096
+  - x: 11.582
+    y: 7.62
+    z: 6.096
+- name: M2 S1 Apt East Wall
+  zone: M2 S1 Apt
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 23.164
+    y: 0.0
+    z: 3.048
+  - x: 23.164
+    y: 7.62
+    z: 3.048
+  - x: 23.164
+    y: 7.62
+    z: 6.096
+  - x: 23.164
+    y: 0.0
+    z: 6.096
+- name: M2 S1 Apt Floor
+  zone: M2 S1 Apt
+  type: floor
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 11.582
+    y: 7.62
+    z: 3.048
+  - x: 23.164
+    y: 7.62
+    z: 3.048
+  - x: 23.164
+    y: 0.0
+    z: 3.048
+  - x: 11.582
+    y: 0.0
+    z: 3.048
+- name: M2 S1 Apt Ceiling
+  zone: M2 S1 Apt
+  type: ceiling
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 11.582
+    y: 0.0
+    z: 6.096
+  - x: 23.164
+    y: 0.0
+    z: 6.096
+  - x: 23.164
+    y: 7.62
+    z: 6.096
+  - x: 11.582
+    y: 7.62
+    z: 6.096
+- name: M2 S2 Apt South Wall
+  zone: M2 S2 Apt
+  type: wall
+  construction: Res Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 23.164
+    y: 0.0
+    z: 3.048
+  - x: 34.746
+    y: 0.0
+    z: 3.048
+  - x: 34.746
+    y: 0.0
+    z: 6.096
+  - x: 23.164
+    y: 0.0
+    z: 6.096
+- name: M2 S2 Apt South Window
+  zone: M2 S2 Apt
+  type: window
+  construction: Res Window
+  boundary: outdoor
+  parent_surface: M2 S2 Apt South Wall
+  vertices:
+  - x: 26.059
+    y: 0.0
+    z: 4.002
+  - x: 31.85
+    y: 0.0
+    z: 4.002
+  - x: 31.85
+    y: 0.0
+    z: 5.221
+  - x: 26.059
+    y: 0.0
+    z: 5.221
+- name: M2 S2 Apt North Wall
+  zone: M2 S2 Apt
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 Corridor'
+  vertices:
+  - x: 34.746
+    y: 7.62
+    z: 3.048
+  - x: 23.164
+    y: 7.62
+    z: 3.048
+  - x: 23.164
+    y: 7.62
+    z: 6.096
+  - x: 34.746
+    y: 7.62
+    z: 6.096
+- name: M2 S2 Apt West Wall
+  zone: M2 S2 Apt
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 23.164
+    y: 7.62
+    z: 3.048
+  - x: 23.164
+    y: 0.0
+    z: 3.048
+  - x: 23.164
+    y: 0.0
+    z: 6.096
+  - x: 23.164
+    y: 7.62
+    z: 6.096
+- name: M2 S2 Apt East Wall
+  zone: M2 S2 Apt
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 34.746
+    y: 0.0
+    z: 3.048
+  - x: 34.746
+    y: 7.62
+    z: 3.048
+  - x: 34.746
+    y: 7.62
+    z: 6.096
+  - x: 34.746
+    y: 0.0
+    z: 6.096
+- name: M2 S2 Apt Floor
+  zone: M2 S2 Apt
+  type: floor
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 23.164
+    y: 7.62
+    z: 3.048
+  - x: 34.746
+    y: 7.62
+    z: 3.048
+  - x: 34.746
+    y: 0.0
+    z: 3.048
+  - x: 23.164
+    y: 0.0
+    z: 3.048
+- name: M2 S2 Apt Ceiling
+  zone: M2 S2 Apt
+  type: ceiling
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 23.164
+    y: 0.0
+    z: 6.096
+  - x: 34.746
+    y: 0.0
+    z: 6.096
+  - x: 34.746
+    y: 7.62
+    z: 6.096
+  - x: 23.164
+    y: 7.62
+    z: 6.096
+- name: M2 SE Apt South Wall
+  zone: M2 SE Apt
+  type: wall
+  construction: Res Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 34.746
+    y: 0.0
+    z: 3.048
+  - x: 46.328
+    y: 0.0
+    z: 3.048
+  - x: 46.328
+    y: 0.0
+    z: 6.096
+  - x: 34.746
+    y: 0.0
+    z: 6.096
+- name: M2 SE Apt South Window
+  zone: M2 SE Apt
+  type: window
+  construction: Res Window
+  boundary: outdoor
+  parent_surface: M2 SE Apt South Wall
+  vertices:
+  - x: 37.641000000000005
+    y: 0.0
+    z: 4.002
+  - x: 43.432
+    y: 0.0
+    z: 4.002
+  - x: 43.432
+    y: 0.0
+    z: 5.221
+  - x: 37.641000000000005
+    y: 0.0
+    z: 5.221
+- name: M2 SE Apt North Wall
+  zone: M2 SE Apt
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 Corridor'
+  vertices:
+  - x: 46.328
+    y: 7.62
+    z: 3.048
+  - x: 34.746
+    y: 7.62
+    z: 3.048
+  - x: 34.746
+    y: 7.62
+    z: 6.096
+  - x: 46.328
+    y: 7.62
+    z: 6.096
+- name: M2 SE Apt West Wall
+  zone: M2 SE Apt
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 34.746
+    y: 7.62
+    z: 3.048
+  - x: 34.746
+    y: 0.0
+    z: 3.048
+  - x: 34.746
+    y: 0.0
+    z: 6.096
+  - x: 34.746
+    y: 7.62
+    z: 6.096
+- name: M2 SE Apt East Wall
+  zone: M2 SE Apt
+  type: wall
+  construction: Res Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 46.328
+    y: 0.0
+    z: 3.048
+  - x: 46.328
+    y: 7.62
+    z: 3.048
+  - x: 46.328
+    y: 7.62
+    z: 6.096
+  - x: 46.328
+    y: 0.0
+    z: 6.096
+- name: M2 SE Apt East Window
+  zone: M2 SE Apt
+  type: window
+  construction: Res Window
+  boundary: outdoor
+  parent_surface: M2 SE Apt East Wall
+  vertices:
+  - x: 46.328
+    y: 1.868
+    z: 4.002
+  - x: 46.328
+    y: 5.678
+    z: 4.002
+  - x: 46.328
+    y: 5.678
+    z: 5.221
+  - x: 46.328
+    y: 1.868
+    z: 5.221
+- name: M2 SE Apt Floor
+  zone: M2 SE Apt
+  type: floor
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 34.746
+    y: 7.62
+    z: 3.048
+  - x: 46.328
+    y: 7.62
+    z: 3.048
+  - x: 46.328
+    y: 0.0
+    z: 3.048
+  - x: 34.746
+    y: 0.0
+    z: 3.048
+- name: M2 SE Apt Ceiling
+  zone: M2 SE Apt
+  type: ceiling
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 34.746
+    y: 0.0
+    z: 6.096
+  - x: 46.328
+    y: 0.0
+    z: 6.096
+  - x: 46.328
+    y: 7.62
+    z: 6.096
+  - x: 34.746
+    y: 7.62
+    z: 6.096
+- name: M2 NW Apt South Wall
+  zone: M2 NW Apt
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 Corridor'
+  vertices:
+  - x: 0
+    y: 9.296
+    z: 3.048
+  - x: 11.582
+    y: 9.296
+    z: 3.048
+  - x: 11.582
+    y: 9.296
+    z: 6.096
+  - x: 0
+    y: 9.296
+    z: 6.096
+- name: M2 NW Apt North Wall
+  zone: M2 NW Apt
+  type: wall
+  construction: Res Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 11.582
+    y: 16.916
+    z: 3.048
+  - x: 0
+    y: 16.916
+    z: 3.048
+  - x: 0
+    y: 16.916
+    z: 6.096
+  - x: 11.582
+    y: 16.916
+    z: 6.096
+- name: M2 NW Apt North Window
+  zone: M2 NW Apt
+  type: window
+  construction: Res Window
+  boundary: outdoor
+  parent_surface: M2 NW Apt North Wall
+  vertices:
+  - x: 8.686
+    y: 16.916
+    z: 4.002
+  - x: 2.895
+    y: 16.916
+    z: 4.002
+  - x: 2.895
+    y: 16.916
+    z: 5.221
+  - x: 8.686
+    y: 16.916
+    z: 5.221
+- name: M2 NW Apt West Wall
+  zone: M2 NW Apt
+  type: wall
+  construction: Res Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0
+    y: 16.916
+    z: 3.048
+  - x: 0
+    y: 9.296
+    z: 3.048
+  - x: 0
+    y: 9.296
+    z: 6.096
+  - x: 0
+    y: 16.916
+    z: 6.096
+- name: M2 NW Apt West Window
+  zone: M2 NW Apt
+  type: window
+  construction: Res Window
+  boundary: outdoor
+  parent_surface: M2 NW Apt West Wall
+  vertices:
+  - x: 0
+    y: 14.974
+    z: 4.002
+  - x: 0
+    y: 11.164
+    z: 4.002
+  - x: 0
+    y: 11.164
+    z: 5.221
+  - x: 0
+    y: 14.974
+    z: 5.221
+- name: M2 NW Apt East Wall
+  zone: M2 NW Apt
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 11.582
+    y: 9.296
+    z: 3.048
+  - x: 11.582
+    y: 16.916
+    z: 3.048
+  - x: 11.582
+    y: 16.916
+    z: 6.096
+  - x: 11.582
+    y: 9.296
+    z: 6.096
+- name: M2 NW Apt Floor
+  zone: M2 NW Apt
+  type: floor
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0
+    y: 16.916
+    z: 3.048
+  - x: 11.582
+    y: 16.916
+    z: 3.048
+  - x: 11.582
+    y: 9.296
+    z: 3.048
+  - x: 0
+    y: 9.296
+    z: 3.048
+- name: M2 NW Apt Ceiling
+  zone: M2 NW Apt
+  type: ceiling
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0
+    y: 9.296
+    z: 6.096
+  - x: 11.582
+    y: 9.296
+    z: 6.096
+  - x: 11.582
+    y: 16.916
+    z: 6.096
+  - x: 0
+    y: 16.916
+    z: 6.096
+- name: M2 N1 Apt South Wall
+  zone: M2 N1 Apt
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 Corridor'
+  vertices:
+  - x: 11.582
+    y: 9.296
+    z: 3.048
+  - x: 23.164
+    y: 9.296
+    z: 3.048
+  - x: 23.164
+    y: 9.296
+    z: 6.096
+  - x: 11.582
+    y: 9.296
+    z: 6.096
+- name: M2 N1 Apt North Wall
+  zone: M2 N1 Apt
+  type: wall
+  construction: Res Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 23.164
+    y: 16.916
+    z: 3.048
+  - x: 11.582
+    y: 16.916
+    z: 3.048
+  - x: 11.582
+    y: 16.916
+    z: 6.096
+  - x: 23.164
+    y: 16.916
+    z: 6.096
+- name: M2 N1 Apt North Window
+  zone: M2 N1 Apt
+  type: window
+  construction: Res Window
+  boundary: outdoor
+  parent_surface: M2 N1 Apt North Wall
+  vertices:
+  - x: 20.268
+    y: 16.916
+    z: 4.002
+  - x: 14.477
+    y: 16.916
+    z: 4.002
+  - x: 14.477
+    y: 16.916
+    z: 5.221
+  - x: 20.268
+    y: 16.916
+    z: 5.221
+- name: M2 N1 Apt West Wall
+  zone: M2 N1 Apt
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 11.582
+    y: 16.916
+    z: 3.048
+  - x: 11.582
+    y: 9.296
+    z: 3.048
+  - x: 11.582
+    y: 9.296
+    z: 6.096
+  - x: 11.582
+    y: 16.916
+    z: 6.096
+- name: M2 N1 Apt East Wall
+  zone: M2 N1 Apt
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 23.164
+    y: 9.296
+    z: 3.048
+  - x: 23.164
+    y: 16.916
+    z: 3.048
+  - x: 23.164
+    y: 16.916
+    z: 6.096
+  - x: 23.164
+    y: 9.296
+    z: 6.096
+- name: M2 N1 Apt Floor
+  zone: M2 N1 Apt
+  type: floor
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 11.582
+    y: 16.916
+    z: 3.048
+  - x: 23.164
+    y: 16.916
+    z: 3.048
+  - x: 23.164
+    y: 9.296
+    z: 3.048
+  - x: 11.582
+    y: 9.296
+    z: 3.048
+- name: M2 N1 Apt Ceiling
+  zone: M2 N1 Apt
+  type: ceiling
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 11.582
+    y: 9.296
+    z: 6.096
+  - x: 23.164
+    y: 9.296
+    z: 6.096
+  - x: 23.164
+    y: 16.916
+    z: 6.096
+  - x: 11.582
+    y: 16.916
+    z: 6.096
+- name: M2 N2 Apt South Wall
+  zone: M2 N2 Apt
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 Corridor'
+  vertices:
+  - x: 23.164
+    y: 9.296
+    z: 3.048
+  - x: 34.746
+    y: 9.296
+    z: 3.048
+  - x: 34.746
+    y: 9.296
+    z: 6.096
+  - x: 23.164
+    y: 9.296
+    z: 6.096
+- name: M2 N2 Apt North Wall
+  zone: M2 N2 Apt
+  type: wall
+  construction: Res Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 34.746
+    y: 16.916
+    z: 3.048
+  - x: 23.164
+    y: 16.916
+    z: 3.048
+  - x: 23.164
+    y: 16.916
+    z: 6.096
+  - x: 34.746
+    y: 16.916
+    z: 6.096
+- name: M2 N2 Apt North Window
+  zone: M2 N2 Apt
+  type: window
+  construction: Res Window
+  boundary: outdoor
+  parent_surface: M2 N2 Apt North Wall
+  vertices:
+  - x: 31.85
+    y: 16.916
+    z: 4.002
+  - x: 26.059
+    y: 16.916
+    z: 4.002
+  - x: 26.059
+    y: 16.916
+    z: 5.221
+  - x: 31.85
+    y: 16.916
+    z: 5.221
+- name: M2 N2 Apt West Wall
+  zone: M2 N2 Apt
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 23.164
+    y: 16.916
+    z: 3.048
+  - x: 23.164
+    y: 9.296
+    z: 3.048
+  - x: 23.164
+    y: 9.296
+    z: 6.096
+  - x: 23.164
+    y: 16.916
+    z: 6.096
+- name: M2 N2 Apt East Wall
+  zone: M2 N2 Apt
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 34.746
+    y: 9.296
+    z: 3.048
+  - x: 34.746
+    y: 16.916
+    z: 3.048
+  - x: 34.746
+    y: 16.916
+    z: 6.096
+  - x: 34.746
+    y: 9.296
+    z: 6.096
+- name: M2 N2 Apt Floor
+  zone: M2 N2 Apt
+  type: floor
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 23.164
+    y: 16.916
+    z: 3.048
+  - x: 34.746
+    y: 16.916
+    z: 3.048
+  - x: 34.746
+    y: 9.296
+    z: 3.048
+  - x: 23.164
+    y: 9.296
+    z: 3.048
+- name: M2 N2 Apt Ceiling
+  zone: M2 N2 Apt
+  type: ceiling
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 23.164
+    y: 9.296
+    z: 6.096
+  - x: 34.746
+    y: 9.296
+    z: 6.096
+  - x: 34.746
+    y: 16.916
+    z: 6.096
+  - x: 23.164
+    y: 16.916
+    z: 6.096
+- name: M2 NE Apt South Wall
+  zone: M2 NE Apt
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 Corridor'
+  vertices:
+  - x: 34.746
+    y: 9.296
+    z: 3.048
+  - x: 46.328
+    y: 9.296
+    z: 3.048
+  - x: 46.328
+    y: 9.296
+    z: 6.096
+  - x: 34.746
+    y: 9.296
+    z: 6.096
+- name: M2 NE Apt North Wall
+  zone: M2 NE Apt
+  type: wall
+  construction: Res Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 46.328
+    y: 16.916
+    z: 3.048
+  - x: 34.746
+    y: 16.916
+    z: 3.048
+  - x: 34.746
+    y: 16.916
+    z: 6.096
+  - x: 46.328
+    y: 16.916
+    z: 6.096
+- name: M2 NE Apt North Window
+  zone: M2 NE Apt
+  type: window
+  construction: Res Window
+  boundary: outdoor
+  parent_surface: M2 NE Apt North Wall
+  vertices:
+  - x: 43.432
+    y: 16.916
+    z: 4.002
+  - x: 37.641000000000005
+    y: 16.916
+    z: 4.002
+  - x: 37.641000000000005
+    y: 16.916
+    z: 5.221
+  - x: 43.432
+    y: 16.916
+    z: 5.221
+- name: M2 NE Apt West Wall
+  zone: M2 NE Apt
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 34.746
+    y: 16.916
+    z: 3.048
+  - x: 34.746
+    y: 9.296
+    z: 3.048
+  - x: 34.746
+    y: 9.296
+    z: 6.096
+  - x: 34.746
+    y: 16.916
+    z: 6.096
+- name: M2 NE Apt East Wall
+  zone: M2 NE Apt
+  type: wall
+  construction: Res Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 46.328
+    y: 9.296
+    z: 3.048
+  - x: 46.328
+    y: 16.916
+    z: 3.048
+  - x: 46.328
+    y: 16.916
+    z: 6.096
+  - x: 46.328
+    y: 9.296
+    z: 6.096
+- name: M2 NE Apt East Window
+  zone: M2 NE Apt
+  type: window
+  construction: Res Window
+  boundary: outdoor
+  parent_surface: M2 NE Apt East Wall
+  vertices:
+  - x: 46.328
+    y: 11.164
+    z: 4.002
+  - x: 46.328
+    y: 14.974
+    z: 4.002
+  - x: 46.328
+    y: 14.974
+    z: 5.221
+  - x: 46.328
+    y: 11.164
+    z: 5.221
+- name: M2 NE Apt Floor
+  zone: M2 NE Apt
+  type: floor
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 34.746
+    y: 16.916
+    z: 3.048
+  - x: 46.328
+    y: 16.916
+    z: 3.048
+  - x: 46.328
+    y: 9.296
+    z: 3.048
+  - x: 34.746
+    y: 9.296
+    z: 3.048
+- name: M2 NE Apt Ceiling
+  zone: M2 NE Apt
+  type: ceiling
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 34.746
+    y: 9.296
+    z: 6.096
+  - x: 46.328
+    y: 9.296
+    z: 6.096
+  - x: 46.328
+    y: 16.916
+    z: 6.096
+  - x: 34.746
+    y: 16.916
+    z: 6.096
+- name: M2 Corridor West Wall
+  zone: M2 Corridor
+  type: wall
+  construction: Nonres Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 9.296
+    z: 3.048
+  - x: 0.0
+    y: 7.62
+    z: 3.048
+  - x: 0.0
+    y: 7.62
+    z: 6.096
+  - x: 0.0
+    y: 9.296
+    z: 6.096
+- name: M2 Corridor East Wall
+  zone: M2 Corridor
+  type: wall
+  construction: Nonres Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 46.328
+    y: 7.62
+    z: 3.048
+  - x: 46.328
+    y: 9.296
+    z: 3.048
+  - x: 46.328
+    y: 9.296
+    z: 6.096
+  - x: 46.328
+    y: 7.62
+    z: 6.096
+- name: M2 Corridor South Wall (M2 SW Apt)
+  zone: M2 Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 SW Apt'
+  vertices:
+  - x: 0
+    y: 7.62
+    z: 3.048
+  - x: 11.582
+    y: 7.62
+    z: 3.048
+  - x: 11.582
+    y: 7.62
+    z: 6.096
+  - x: 0
+    y: 7.62
+    z: 6.096
+- name: M2 Corridor South Wall (M2 S1 Apt)
+  zone: M2 Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 S1 Apt'
+  vertices:
+  - x: 11.582
+    y: 7.62
+    z: 3.048
+  - x: 23.164
+    y: 7.62
+    z: 3.048
+  - x: 23.164
+    y: 7.62
+    z: 6.096
+  - x: 11.582
+    y: 7.62
+    z: 6.096
+- name: M2 Corridor South Wall (M2 S2 Apt)
+  zone: M2 Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 S2 Apt'
+  vertices:
+  - x: 23.164
+    y: 7.62
+    z: 3.048
+  - x: 34.746
+    y: 7.62
+    z: 3.048
+  - x: 34.746
+    y: 7.62
+    z: 6.096
+  - x: 23.164
+    y: 7.62
+    z: 6.096
+- name: M2 Corridor South Wall (M2 SE Apt)
+  zone: M2 Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 SE Apt'
+  vertices:
+  - x: 34.746
+    y: 7.62
+    z: 3.048
+  - x: 46.328
+    y: 7.62
+    z: 3.048
+  - x: 46.328
+    y: 7.62
+    z: 6.096
+  - x: 34.746
+    y: 7.62
+    z: 6.096
+- name: M2 Corridor North Wall (M2 NW Apt)
+  zone: M2 Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 NW Apt'
+  vertices:
+  - x: 11.582
+    y: 9.296
+    z: 3.048
+  - x: 0
+    y: 9.296
+    z: 3.048
+  - x: 0
+    y: 9.296
+    z: 6.096
+  - x: 11.582
+    y: 9.296
+    z: 6.096
+- name: M2 Corridor North Wall (M2 N1 Apt)
+  zone: M2 Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 N1 Apt'
+  vertices:
+  - x: 23.164
+    y: 9.296
+    z: 3.048
+  - x: 11.582
+    y: 9.296
+    z: 3.048
+  - x: 11.582
+    y: 9.296
+    z: 6.096
+  - x: 23.164
+    y: 9.296
+    z: 6.096
+- name: M2 Corridor North Wall (M2 N2 Apt)
+  zone: M2 Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 N2 Apt'
+  vertices:
+  - x: 34.746
+    y: 9.296
+    z: 3.048
+  - x: 23.164
+    y: 9.296
+    z: 3.048
+  - x: 23.164
+    y: 9.296
+    z: 6.096
+  - x: 34.746
+    y: 9.296
+    z: 6.096
+- name: M2 Corridor North Wall (M2 NE Apt)
+  zone: M2 Corridor
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'M2 NE Apt'
+  vertices:
+  - x: 46.328
+    y: 9.296
+    z: 3.048
+  - x: 34.746
+    y: 9.296
+    z: 3.048
+  - x: 34.746
+    y: 9.296
+    z: 6.096
+  - x: 46.328
+    y: 9.296
+    z: 6.096
+- name: M2 Corridor Floor
+  zone: M2 Corridor
+  type: floor
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 9.296
+    z: 3.048
+  - x: 46.328
+    y: 9.296
+    z: 3.048
+  - x: 46.328
+    y: 7.62
+    z: 3.048
+  - x: 0.0
+    y: 7.62
+    z: 3.048
+- name: M2 Corridor Ceiling
+  zone: M2 Corridor
+  type: ceiling
+  construction: Interzone Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 7.62
+    z: 6.096
+  - x: 46.328
+    y: 7.62
+    z: 6.096
+  - x: 46.328
+    y: 9.296
+    z: 6.096
+  - x: 0.0
+    y: 9.296
+    z: 6.096
 - name: T SW Apt South Wall
   zone: T SW Apt
   type: wall
@@ -5580,6 +6962,278 @@ air_loops:
     eir_ft_curve: PTU_EIRFT
   zone_terminals:
   - zone: M NE Apt
+- name: PTAC M2 SW Apt
+  system_type: ptac
+  controls:
+    heating_supply_temp: 32.2
+    cooling_supply_temp: 12.8
+    design_zone_flow: autosize
+    minimum_damper_position: 0.0
+    fan_operating_mode: continuous
+  equipment:
+  - type: fan
+    name: Fan M2 SW Apt
+    source: on_off
+    design_flow_rate: autosize
+    pressure_rise: 331.17
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.8
+    motor_in_airstream_fraction: 1.0
+  - type: heating_coil
+    name: HC M2 SW Apt
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: cooling_coil
+    name: CC M2 SW Apt
+    capacity: autosize
+    cop: 3.2
+    shr: 0.75
+    rated_airflow: autosize
+    setpoint: 12.8
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
+  - zone: M2 SW Apt
+- name: PTAC M2 S1 Apt
+  system_type: ptac
+  controls:
+    heating_supply_temp: 32.2
+    cooling_supply_temp: 12.8
+    design_zone_flow: autosize
+    minimum_damper_position: 0.0
+    fan_operating_mode: continuous
+  equipment:
+  - type: fan
+    name: Fan M2 S1 Apt
+    source: on_off
+    design_flow_rate: autosize
+    pressure_rise: 331.17
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.8
+    motor_in_airstream_fraction: 1.0
+  - type: heating_coil
+    name: HC M2 S1 Apt
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: cooling_coil
+    name: CC M2 S1 Apt
+    capacity: autosize
+    cop: 3.2
+    shr: 0.75
+    rated_airflow: autosize
+    setpoint: 12.8
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
+  - zone: M2 S1 Apt
+- name: PTAC M2 S2 Apt
+  system_type: ptac
+  controls:
+    heating_supply_temp: 32.2
+    cooling_supply_temp: 12.8
+    design_zone_flow: autosize
+    minimum_damper_position: 0.0
+    fan_operating_mode: continuous
+  equipment:
+  - type: fan
+    name: Fan M2 S2 Apt
+    source: on_off
+    design_flow_rate: autosize
+    pressure_rise: 331.17
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.8
+    motor_in_airstream_fraction: 1.0
+  - type: heating_coil
+    name: HC M2 S2 Apt
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: cooling_coil
+    name: CC M2 S2 Apt
+    capacity: autosize
+    cop: 3.2
+    shr: 0.75
+    rated_airflow: autosize
+    setpoint: 12.8
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
+  - zone: M2 S2 Apt
+- name: PTAC M2 SE Apt
+  system_type: ptac
+  controls:
+    heating_supply_temp: 32.2
+    cooling_supply_temp: 12.8
+    design_zone_flow: autosize
+    minimum_damper_position: 0.0
+    fan_operating_mode: continuous
+  equipment:
+  - type: fan
+    name: Fan M2 SE Apt
+    source: on_off
+    design_flow_rate: autosize
+    pressure_rise: 331.17
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.8
+    motor_in_airstream_fraction: 1.0
+  - type: heating_coil
+    name: HC M2 SE Apt
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: cooling_coil
+    name: CC M2 SE Apt
+    capacity: autosize
+    cop: 3.2
+    shr: 0.75
+    rated_airflow: autosize
+    setpoint: 12.8
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
+  - zone: M2 SE Apt
+- name: PTAC M2 NW Apt
+  system_type: ptac
+  controls:
+    heating_supply_temp: 32.2
+    cooling_supply_temp: 12.8
+    design_zone_flow: autosize
+    minimum_damper_position: 0.0
+    fan_operating_mode: continuous
+  equipment:
+  - type: fan
+    name: Fan M2 NW Apt
+    source: on_off
+    design_flow_rate: autosize
+    pressure_rise: 331.17
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.8
+    motor_in_airstream_fraction: 1.0
+  - type: heating_coil
+    name: HC M2 NW Apt
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: cooling_coil
+    name: CC M2 NW Apt
+    capacity: autosize
+    cop: 3.2
+    shr: 0.75
+    rated_airflow: autosize
+    setpoint: 12.8
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
+  - zone: M2 NW Apt
+- name: PTAC M2 N1 Apt
+  system_type: ptac
+  controls:
+    heating_supply_temp: 32.2
+    cooling_supply_temp: 12.8
+    design_zone_flow: autosize
+    minimum_damper_position: 0.0
+    fan_operating_mode: continuous
+  equipment:
+  - type: fan
+    name: Fan M2 N1 Apt
+    source: on_off
+    design_flow_rate: autosize
+    pressure_rise: 331.17
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.8
+    motor_in_airstream_fraction: 1.0
+  - type: heating_coil
+    name: HC M2 N1 Apt
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: cooling_coil
+    name: CC M2 N1 Apt
+    capacity: autosize
+    cop: 3.2
+    shr: 0.75
+    rated_airflow: autosize
+    setpoint: 12.8
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
+  - zone: M2 N1 Apt
+- name: PTAC M2 N2 Apt
+  system_type: ptac
+  controls:
+    heating_supply_temp: 32.2
+    cooling_supply_temp: 12.8
+    design_zone_flow: autosize
+    minimum_damper_position: 0.0
+    fan_operating_mode: continuous
+  equipment:
+  - type: fan
+    name: Fan M2 N2 Apt
+    source: on_off
+    design_flow_rate: autosize
+    pressure_rise: 331.17
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.8
+    motor_in_airstream_fraction: 1.0
+  - type: heating_coil
+    name: HC M2 N2 Apt
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: cooling_coil
+    name: CC M2 N2 Apt
+    capacity: autosize
+    cop: 3.2
+    shr: 0.75
+    rated_airflow: autosize
+    setpoint: 12.8
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
+  - zone: M2 N2 Apt
+- name: PTAC M2 NE Apt
+  system_type: ptac
+  controls:
+    heating_supply_temp: 32.2
+    cooling_supply_temp: 12.8
+    design_zone_flow: autosize
+    minimum_damper_position: 0.0
+    fan_operating_mode: continuous
+  equipment:
+  - type: fan
+    name: Fan M2 NE Apt
+    source: on_off
+    design_flow_rate: autosize
+    pressure_rise: 331.17
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.8
+    motor_in_airstream_fraction: 1.0
+  - type: heating_coil
+    name: HC M2 NE Apt
+    source: hot_water
+    capacity: autosize
+    setpoint: 40.0
+    plant_loop: HHW Loop
+  - type: cooling_coil
+    name: CC M2 NE Apt
+    capacity: autosize
+    cop: 3.2
+    shr: 0.75
+    rated_airflow: autosize
+    setpoint: 12.8
+    cap_ft_curve: PTU_CapFT
+    eir_ft_curve: PTU_EIRFT
+  zone_terminals:
+  - zone: M2 NE Apt
 - name: PTAC T SW Apt
   system_type: ptac
   controls:

@@ -827,7 +827,6 @@
         "name": { "type": "string" },
         "volume": { "type": "number", "default": 0.0, "description": "Zone air volume [m3]. Auto-calculated from surfaces if 0." },
         "floor_area": { "type": "number", "default": 0.0, "description": "Zone floor area [m2]. Auto-calculated from floor surfaces if 0." },
-        "multiplier": { "type": "integer", "default": 1, "minimum": 1, "description": "Zone multiplier for identical repeated zones." },
         "conditioned": { "type": "boolean", "default": true, "description": "Whether the zone is conditioned by HVAC." }
       }
     },

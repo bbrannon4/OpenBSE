@@ -838,7 +838,6 @@ You can specify infiltration as either `design_flow_rate` (m³/s) or `air_change
 | `volume` | 0.0 (auto-calculate) | Zone air volume [m³] |
 | `floor_area` | 0.0 (auto-calculate) | Zone floor area [m²] |
 | `conditioned` | `true` | Whether zone has HVAC; `false` = free-floating |
-| `multiplier` | 1 | Zone multiplier for identical zones |
 
 #### Infiltration defaults
 

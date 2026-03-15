@@ -3403,6 +3403,32 @@ impl EnvelopeSolver for BuildingEnvelope {
     }
 }
 
+impl BuildingEnvelope {
+    /// Reset all CTF histories and surface temperatures for design day warmup.
+    ///
+    /// Before each design day, the envelope state must be re-initialized to
+    /// ensure the warmup starts from a consistent state. Without this, heavy
+    /// interzone surfaces (e.g. concrete floor/ceiling slabs) carry residual
+    /// heat flux from a previous design day, requiring many more warmup days
+    /// to reach cyclic steady-state (or never converging for short warmup).
+    pub fn reset_for_sizing(&mut self, temp: f64) {
+        // Reset CTF conduction histories
+        for history in &mut self.ctf_histories {
+            if let Some(h) = history {
+                h.reset(temp);
+            }
+        }
+        // Reset surface temperatures
+        for surface in &mut self.surfaces {
+            surface.temp_inside = temp;
+            surface.temp_outside = temp;
+        }
+        // Reset deferred CTF flux values
+        for q in self.ctf_q_last_inside.iter_mut() { *q = 0.0; }
+        for q in self.ctf_q_last_outside.iter_mut() { *q = 0.0; }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3479,7 +3505,7 @@ mod tests {
                 },
             ],
             internal_mass: vec![],
-            multiplier: 1,
+
             ideal_loads: None,
             thermostat_schedule: vec![],
             ventilation_schedule: vec![],
@@ -3640,7 +3666,7 @@ mod tests {
             }],
             internal_gains: vec![], // No internal gains
             internal_mass: vec![],
-            multiplier: 1,
+
             ideal_loads: None,
             thermostat_schedule: vec![],
             ventilation_schedule: vec![],
@@ -3756,7 +3782,7 @@ mod tests {
             }],
             internal_gains: vec![],
             internal_mass: vec![],
-            multiplier: 1,
+
             ideal_loads: Some(IdealLoadsAirSystem {
                 heating_setpoint: 20.0,
                 cooling_setpoint: 27.0,
@@ -3861,7 +3887,7 @@ mod tests {
                 },
             ],
             internal_mass: vec![],
-            multiplier: 1,
+
             ideal_loads: Some(IdealLoadsAirSystem {
                 heating_setpoint: 20.0,
                 cooling_setpoint: 27.0,
@@ -3949,7 +3975,7 @@ mod tests {
             infiltration: vec![crate::infiltration::InfiltrationInput::default()],
             internal_gains: vec![],
             internal_mass: vec![],
-            multiplier: 1,
+
             ideal_loads: Some(IdealLoadsAirSystem {
                 heating_setpoint: 20.0,
                 cooling_setpoint: 27.0,

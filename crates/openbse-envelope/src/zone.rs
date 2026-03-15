@@ -389,9 +389,6 @@ pub struct ZoneInput {
     /// Each entry creates an adiabatic surface with CTF thermal storage.
     #[serde(default)]
     pub internal_mass: Vec<InternalMassInput>,
-    /// Zone multiplier (for identical zones)
-    #[serde(default = "default_multiplier")]
-    pub multiplier: u32,
     /// Ideal loads air system (if present, envelope handles HVAC directly)
     #[serde(default)]
     pub ideal_loads: Option<IdealLoadsAirSystem>,
@@ -420,7 +417,6 @@ pub struct ZoneInput {
     pub conditioned: bool,
 }
 
-fn default_multiplier() -> u32 { 1 }
 fn default_conditioned() -> bool { true }
 
 impl ZoneInput {
@@ -996,7 +992,7 @@ mod tests {
             infiltration: vec![InfiltrationInput::default()],
             internal_gains: vec![],
             internal_mass: vec![],
-            multiplier: 1,
+
             ideal_loads: Some(IdealLoadsAirSystem {
                 heating_setpoint: 20.0,
                 cooling_setpoint: 27.0,
@@ -1038,7 +1034,7 @@ mod tests {
             infiltration: vec![InfiltrationInput::default()],
             internal_gains: vec![],
             internal_mass: vec![],
-            multiplier: 1,
+
             ideal_loads: None,
             thermostat_schedule: vec![],
             ventilation_schedule: vec![
@@ -1075,7 +1071,7 @@ mod tests {
             infiltration: vec![InfiltrationInput::default()],
             internal_gains: vec![],
             internal_mass: vec![],
-            multiplier: 1,
+
             ideal_loads: None,
             thermostat_schedule: vec![],
             ventilation_schedule: vec![
