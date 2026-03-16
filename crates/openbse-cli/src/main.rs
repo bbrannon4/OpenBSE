@@ -1191,6 +1191,9 @@ fn main() -> Result<()> {
 
                     // Single HVAC pass (no iterating during warmup — faster)
                     let empty_predictor: HashMap<String, f64> = HashMap::new();
+                    let current_zone_w: HashMap<String, f64> = env.zones.iter()
+                        .map(|z| (z.input.name.clone(), z.humidity_ratio))
+                        .collect();
                     let (_, zone_supply_conditions) = simulate_all_loops(
                         &mut graph,
                         &ctx,
@@ -1212,6 +1215,7 @@ fn main() -> Result<()> {
                         &initial_zone_temps,
                         &zone_thermal_caps,
                         &empty_predictor,
+                        &current_zone_w,
                     );
 
                     // Skip plant loop during warmup — it only affects energy
@@ -1220,9 +1224,10 @@ fn main() -> Result<()> {
                     // Build HVAC conditions for envelope
                     let mut hvac_conds = ZoneHvacConditions::default();
 
-                    for (zone_name, (supply_temp, mass_flow)) in &zone_supply_conditions {
+                    for (zone_name, (supply_temp, mass_flow, supply_w)) in &zone_supply_conditions {
                         hvac_conds.supply_temps.insert(zone_name.clone(), *supply_temp);
                         hvac_conds.supply_mass_flows.insert(zone_name.clone(), *mass_flow);
+                        hvac_conds.supply_humidity_ratios.insert(zone_name.clone(), *supply_w);
                     }
                     // Populate OA handling flags for warmup too
                     for li in &loop_infos {
@@ -1237,6 +1242,11 @@ fn main() -> Result<()> {
                     // Solve envelope (updates zone temps, surface temps, CTF history)
                     env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
                     env.update_bdf_history();
+                    // Cap BDF order to 1 during warmup. BDF3 extrapolation can
+                    // amplify oscillations in zones with slow-responding surfaces
+                    // (e.g. heavily insulated floors with time constants > 5 days).
+                    // BDF1 (backward Euler) is sufficient for warmup convergence.
+                    env.cap_bdf_order(1);
 
                     sim_time += dt;
                 }
@@ -1255,6 +1265,12 @@ fn main() -> Result<()> {
                 break;
             }
         }
+
+        // Reset BDF history to converged warmup state. During warmup, BDF
+        // order was capped to 1 but history terms still shifted, leaving
+        // stale values in temp_prev2/prev3. Reset all history to current
+        // converged temps so BDF3 ramps cleanly without stale extrapolation.
+        env.reset_bdf_history_to_current();
 
         // Reset sim_time for actual simulation
         sim_time = start_hour as f64 * 3600.0;
@@ -1390,7 +1406,8 @@ fn main() -> Result<()> {
                     // ═══════════════════════════════════════════════════════
                     let hvac_conds = ZoneHvacConditions::default();
                     let env_result = env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
-                    env.update_bdf_history();
+                    // BDF history update happens once below (line 1869), outside
+                    // this if/else — do NOT call it here too.
 
                     let result = TimestepResult {
                         month, day, hour, sub_hour: sub,
@@ -1456,10 +1473,13 @@ fn main() -> Result<()> {
                     // ON/OFF cycling systems oscillate between full-capacity
                     // and zero, preventing convergence. Averaging successive
                     // supply conditions damps this oscillation.
-                    let mut prev_supply_conditions: HashMap<String, (f64, f64)> = HashMap::new();
+                    let mut prev_supply_conditions: HashMap<String, (f64, f64, f64)> = HashMap::new();
 
                     for hvac_iter in 0..MAX_HVAC_ITER {
                         // Step 1: Run HVAC with current zone temps and loads
+                        let current_zone_w: HashMap<String, f64> = env.zones.iter()
+                            .map(|z| (z.input.name.clone(), z.humidity_ratio))
+                            .collect();
                         let (mut hvac_result, zone_supply_conditions) = simulate_all_loops(
                             &mut graph,
                             &ctx,
@@ -1481,6 +1501,7 @@ fn main() -> Result<()> {
                             &initial_zone_temps,
                             &zone_thermal_caps,
                             &predictor_no_hvac_temps,
+                            &current_zone_w,
                         );
 
                         // Step 1b: Run plant loops in topological order.
@@ -1730,20 +1751,25 @@ fn main() -> Result<()> {
                         // never converging.  The 50/50 blend of current and
                         // previous supply conditions converges to the correct
                         // equilibrium within 3-4 iterations.
-                        let damped_supply: HashMap<String, (f64, f64)> = if hvac_iter > 0 {
-                            zone_supply_conditions.iter().map(|(zn, &(t, m))| {
-                                if let Some(&(pt, pm)) = prev_supply_conditions.get(zn) {
+                        let damped_supply: HashMap<String, (f64, f64, f64)> = if hvac_iter > 0 {
+                            zone_supply_conditions.iter().map(|(zn, &(t, m, w))| {
+                                if let Some(&(pt, pm, pw)) = prev_supply_conditions.get(zn) {
                                     // Enthalpy-correct damping: average mass flow,
-                                    // then compute mixed temperature
+                                    // then compute mixed temperature and humidity
                                     let avg_m = 0.5 * m + 0.5 * pm;
                                     let avg_t = if avg_m > 1e-6 {
                                         (0.5 * m * t + 0.5 * pm * pt) / avg_m
                                     } else {
                                         0.5 * t + 0.5 * pt
                                     };
-                                    (zn.clone(), (avg_t, avg_m))
+                                    let avg_w = if avg_m > 1e-6 {
+                                        (0.5 * m * w + 0.5 * pm * pw) / avg_m
+                                    } else {
+                                        0.5 * w + 0.5 * pw
+                                    };
+                                    (zn.clone(), (avg_t, avg_m, avg_w))
                                 } else {
-                                    (zn.clone(), (t, m))
+                                    (zn.clone(), (t, m, w))
                                 }
                             }).collect()
                         } else {
@@ -1753,7 +1779,7 @@ fn main() -> Result<()> {
 
                         let mut hvac_conds = ZoneHvacConditions::default();
 
-                        for (zone_name, (supply_temp, mass_flow)) in &damped_supply {
+                        for (zone_name, (supply_temp, mass_flow, supply_w)) in &damped_supply {
                             let zone_conditioned = env.zones.iter()
                                 .find(|z| z.input.name == *zone_name)
                                 .map(|z| z.input.conditioned)
@@ -1762,6 +1788,7 @@ fn main() -> Result<()> {
                             if zone_conditioned {
                                 hvac_conds.supply_temps.insert(zone_name.clone(), *supply_temp);
                                 hvac_conds.supply_mass_flows.insert(zone_name.clone(), *mass_flow);
+                                hvac_conds.supply_humidity_ratios.insert(zone_name.clone(), *supply_w);
                             }
                         }
                         // Tell the envelope which zones have HVAC-handled OA.
@@ -2293,11 +2320,12 @@ fn simulate_all_loops(
     initial_zone_temps: &HashMap<String, f64>,
     zone_thermal_caps: &HashMap<String, f64>,
     predictor_no_hvac_temps: &HashMap<String, f64>,
-) -> (TimestepResult, HashMap<String, (f64, f64)>) {
+    zone_humidity_ratios: &HashMap<String, f64>,
+) -> (TimestepResult, HashMap<String, (f64, f64, f64)>) {
 
     let mut all_outputs: HashMap<String, HashMap<String, f64>> = HashMap::new();
-    // zone_name -> Vec<(supply_temp, mass_flow)> — accumulate from multiple loops
-    let mut zone_supply: HashMap<String, Vec<(f64, f64)>> = HashMap::new();
+    // zone_name -> Vec<(supply_temp, mass_flow, supply_w)> — accumulate from multiple loops
+    let mut zone_supply: HashMap<String, Vec<(f64, f64, f64)>> = HashMap::new();
 
     for li in loop_infos {
         // ── HVAC Availability Schedule & Night-Cycle Check ─────────────────
@@ -2453,9 +2481,17 @@ fn simulate_all_loops(
                     .map(|z| active_heat_sp.get(z).copied().unwrap_or(21.0))
                     .sum::<f64>() / li.served_zones.len() as f64
             };
-            let avg_return_w = openbse_psychrometrics::MoistAirState::from_tdb_rh(
-                avg_return_temp, 0.50, ctx.outdoor_air.p_b,
-            ).w;
+            let avg_return_w = if li.served_zones.is_empty() {
+                openbse_psychrometrics::MoistAirState::from_tdb_rh(
+                    avg_return_temp, 0.50, ctx.outdoor_air.p_b,
+                ).w
+            } else {
+                let sum_w: f64 = li.served_zones.iter()
+                    .filter_map(|z| zone_humidity_ratios.get(z))
+                    .sum::<f64>();
+                let count = li.served_zones.len() as f64;
+                sum_w / count
+            };
             if let Some(node_idx) = graph.node_by_name(hr_name) {
                 match graph.component_mut(node_idx) {
                     GraphComponent::Air(ref mut comp) => {
@@ -3026,9 +3062,10 @@ fn simulate_all_loops(
                             // flow is already time-averaged. Do NOT apply loop_plr again.
                             let term_supply_temp = term_outlet.state.t_db;
                             let term_flow = term_outlet.mass_flow;
+                            let term_supply_w = term_outlet.state.w;
                             zone_supply.entry(zone_name.clone())
                                 .or_default()
-                                .push((term_supply_temp, term_flow));
+                                .push((term_supply_temp, term_flow, term_supply_w));
                         }
                     }
                 } else {
@@ -3053,9 +3090,10 @@ fn simulate_all_loops(
                         }
                     };
 
+                    let supply_w = supply.state.w;
                     zone_supply.entry(zone_name.clone())
                         .or_default()
-                        .push((effective_supply_temp, zone_flow));
+                        .push((effective_supply_temp, zone_flow, supply_w));
                 }
             }
         }
@@ -3065,14 +3103,17 @@ fn simulate_all_loops(
     // For a zone receiving both DOAS ventilation and FCU recirculation:
     //   mixed_temp = Σ(T_i * m_i) / Σ(m_i)  (enthalpy-weighted mix)
     //   total_flow = Σ(m_i)
-    let mut zone_supply_conditions: HashMap<String, (f64, f64)> = HashMap::new();
+    let mut zone_supply_conditions: HashMap<String, (f64, f64, f64)> = HashMap::new();
     for (zone_name, contributions) in zone_supply {
-        let total_flow: f64 = contributions.iter().map(|(_, m)| m).sum();
+        let total_flow: f64 = contributions.iter().map(|(_, m, _)| m).sum();
         if total_flow > 0.0 {
             let mixed_temp = contributions.iter()
-                .map(|(t, m)| t * m)
+                .map(|(t, m, _)| t * m)
                 .sum::<f64>() / total_flow;
-            zone_supply_conditions.insert(zone_name, (mixed_temp, total_flow));
+            let mixed_w = contributions.iter()
+                .map(|(_, m, w)| w * m)
+                .sum::<f64>() / total_flow;
+            zone_supply_conditions.insert(zone_name, (mixed_temp, total_flow, mixed_w));
         }
     }
 

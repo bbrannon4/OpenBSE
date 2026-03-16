@@ -91,8 +91,8 @@ docs/                        Documentation
 
 Be explicit about these — do not guess or approximate:
 
-- **No moisture balance**: Zone humidity is not tracked. DX coils are sensible-only. No dehumidification.
-- **No latent loads**: Equipment latent fractions are parsed but not applied to zone humidity.
+- **Zone moisture balance**: Zone humidity ratio is tracked using 3rd-order BDF integration (matching temperature solver). Sources: infiltration, HVAC supply, people latent, equipment latent. Not yet modeled: surface condensation, furniture moisture buffering, humidifier/dehumidifier equipment.
+- **DX coil dehumidification**: DX cooling coil outlet humidity propagates to zone moisture balance. No explicit dehumidification control (humidity-based setpoints).
 - **No airflow network**: Infiltration uses constant design flow rates, not pressure-driven multizone airflow.
 - **No geometry import**: Surfaces must be specified as 3D vertices in YAML. No gbXML/IDF/BIM import.
 - **No VRF, ground-source heat pumps, or radiant systems**.

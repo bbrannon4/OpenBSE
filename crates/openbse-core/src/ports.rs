@@ -265,6 +265,8 @@ pub struct ZoneHvacConditions {
     pub cooling_setpoints: HashMap<String, f64>,
     /// Zone heating setpoints [°C] — used to compute ideal loads at setpoint
     pub heating_setpoints: HashMap<String, f64>,
+    /// HVAC supply air humidity ratio per zone [kg/kg]
+    pub supply_humidity_ratios: HashMap<String, f64>,
     /// Zones where outdoor air (ventilation) is handled by the HVAC supply stream.
     /// When true, the zone's own outdoor_air specification is suppressed to avoid
     /// double-counting. When false (e.g., PTAC/FCU with separate ERV), the zone

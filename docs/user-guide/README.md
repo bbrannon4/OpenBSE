@@ -820,6 +820,8 @@ zones:
       - type: equipment
         power: 1100.0               # Total installed [W]
         radiant_fraction: 0.3
+        lost_fraction: 0.0          # Fraction not entering zone [0-1] (e.g., 0.95 for elevator)
+        latent_fraction: 0.0        # Fraction of zone heat that is moisture [0-1] (e.g., kitchen)
         schedule: Equipment Schedule
 ```
 
@@ -1017,6 +1019,7 @@ Month,Day,Hour,SubHour,Main Heating Coil:outlet_temp,Main Heating Coil:mass_flow
 | Variable | Unit | Description |
 |----------|------|-------------|
 | `zone_temp` | °C | Zone air temperature |
+| `zone_humidity_ratio` | kg/kg | Zone air humidity ratio |
 | `heating_load` | W | Zone heating load (positive = needs heating) |
 | `cooling_load` | W | Zone cooling load (positive = needs cooling) |
 | `infiltration_mass_flow` | kg/s | Infiltration air mass flow |

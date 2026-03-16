@@ -1297,6 +1297,8 @@ impl EnvelopeSolver for BuildingEnvelope {
             zone.lighting_power = gains.lighting_power;
             zone.equipment_power = gains.equipment_power;
             zone.people_heat = gains.people_heat;
+            zone.people_latent = gains.people_latent;
+            zone.equipment_latent = gains.equipment_latent;
         }
 
         // 4. Infiltration + scheduled ventilation + exhaust + outdoor air
@@ -2131,8 +2133,11 @@ impl EnvelopeSolver for BuildingEnvelope {
             const MAX_INSIDE_SURF_ITER: usize = 500;
             const CONVERGENCE_TOLERANCE: f64 = 0.002; // °C, matches E+ MaxAllowedDelTemp
 
-            // Collect zone temps
-            let t_zone_vec: Vec<f64> = self.zones.iter().map(|z| z.temp).collect();
+            // Collect zone temps (mutable: predictor sets t_zone_vec for ideal
+            // loads zones so surfaces see the correct zone temp during iteration)
+            let mut t_zone_vec: Vec<f64> = self.zones.iter().map(|z| z.temp).collect();
+            // Predicted HVAC mode per zone is stored on zone.ideal_pred_mode
+            // (locked across HVAC iterations within a physical timestep).
 
             // Handle windows first (not part of iteration)
             //
@@ -2672,6 +2677,204 @@ impl EnvelopeSolver for BuildingEnvelope {
                 }
             }
 
+            // ── Ideal loads predictor: determine HVAC mode BEFORE surface
+            //    iteration so surfaces see a consistent zone temp ──────────
+            //
+            // E+-style predictor-corrector: the predictor uses the PREVIOUS
+            // timestep's surface state to estimate whether the zone needs
+            // heating, cooling, or can float in the deadband. This mode is
+            // FIXED during the surface iteration — surfaces converge with
+            // the predicted zone temp (setpoint or free-float). After
+            // convergence, the corrector (zone balance) recomputes the exact
+            // zone temp and Q using the updated surface state.
+            //
+            // Without this, the surface iteration and ideal loads form an
+            // unstable feedback loop: surfaces respond to zone temp →
+            // zone temp (from ideal loads) responds to surfaces → CTF
+            // history amplifies the oscillation → NaN divergence.
+            for zi in 0..self.zones.len() {
+                // Compute predictor result in a block to avoid borrow conflicts
+                let pred_result: Option<(i8, f64)> = {
+                    let zone = &self.zones[zi];
+                    if zone.input.ideal_loads.is_none() {
+                        None
+                    } else if zone.ideal_pred_mode_locked {
+                        // Reuse locked mode — still need to set t_zone_vec
+                        let pred_mode = zone.ideal_pred_mode;
+                        let (heat_sp, cool_sp) = zone.input.active_setpoints(hour);
+                        let t_zone = match pred_mode {
+                            1 => heat_sp,
+                            -1 => cool_sp,
+                            _ => {
+                                // Re-estimate free-float for t_zone_vec using BDF3
+                                let cp_air = psych::cp_air_fn_w(zone.humidity_ratio);
+                                let rho_air = psych::rho_air_fn_pb_tdb_w(p_b, zone.temp, zone.humidity_ratio);
+                                let (dt_eff_pred, t_prev_eff_pred) = crate::zone::backward_diff_effective(
+                                    zone.temp_order, dt,
+                                    zone.temp_prev, zone.temp_prev2, zone.temp_prev3,
+                                );
+                                let cap_pred = rho_air * zone.input.volume * cp_air / dt_eff_pred;
+                                let mut sum_ha_pred = 0.0_f64;
+                                let mut sum_hat_pred = 0.0_f64;
+                                for &si in &zone.surface_indices {
+                                    let s = &self.surfaces[si];
+                                    let ha = s.h_conv_inside * s.net_area;
+                                    sum_ha_pred += ha;
+                                    sum_hat_pred += ha * s.temp_inside;
+                                }
+                                let total_outdoor = match self.infiltration_interaction {
+                                    crate::zone_loads::InfiltrationInteraction::Basic => {
+                                        zone.infiltration_mass_flow
+                                            + zone.ventilation_mass_flow
+                                            + zone.outdoor_air_mass_flow
+                                            + zone.nat_vent_mass_flow
+                                    }
+                                    crate::zone_loads::InfiltrationInteraction::AshraeCombined => {
+                                        let unbal = (zone.exhaust_mass_flow - zone.outdoor_air_mass_flow).max(0.0);
+                                        (zone.infiltration_mass_flow.powi(2) + unbal.powi(2)).sqrt()
+                                            + zone.ventilation_mass_flow
+                                            + zone.outdoor_air_mass_flow
+                                            + zone.nat_vent_mass_flow
+                                    }
+                                };
+                                let mcpi_pred = total_outdoor * cp_air;
+                                let q_solar_trans: f64 = zone.surface_indices.iter()
+                                    .filter(|&&si| self.surfaces[si].is_window)
+                                    .map(|&si| self.surfaces[si].transmitted_solar)
+                                    .sum();
+                                let q_solar_to_air = if zi < has_geometric_distribution.len()
+                                    && has_geometric_distribution[zi]
+                                {
+                                    0.0
+                                } else if let Some(ref dist) = zone.input.solar_distribution {
+                                    let to_surf = dist.floor_fraction + dist.wall_fraction + dist.ceiling_fraction;
+                                    q_solar_trans * (1.0 - to_surf).max(0.0)
+                                } else {
+                                    q_solar_trans
+                                };
+                                let q_window_cond: f64 = zone.surface_indices.iter()
+                                    .filter(|&&si| self.surfaces[si].is_window)
+                                    .map(|&si| self.surfaces[si].q_conv_inside * self.surfaces[si].net_area)
+                                    .sum();
+                                let q_window_absorbed: f64 = zone.surface_indices.iter()
+                                    .filter(|&&si| self.surfaces[si].is_window)
+                                    .map(|&si| self.surfaces[si].absorbed_solar_inside_window)
+                                    .sum();
+                                let q_conv_pred = zone.q_internal_conv
+                                    + zone.exhaust_fan_heat_to_zone
+                                    + q_solar_to_air + q_window_cond + q_window_absorbed;
+                                let denom_pred = sum_ha_pred + mcpi_pred + cap_pred;
+                                if denom_pred > 1e-10 {
+                                    (sum_hat_pred + mcpi_pred * t_outdoor + q_conv_pred
+                                        + cap_pred * t_prev_eff_pred) / denom_pred
+                                } else {
+                                    zone.temp_prev
+                                }
+                            }
+                        };
+                        Some((pred_mode, t_zone))
+                    } else {
+                        let cp_air = psych::cp_air_fn_w(zone.humidity_ratio);
+                        let rho_air = psych::rho_air_fn_pb_tdb_w(p_b, zone.temp, zone.humidity_ratio);
+
+                        let mut sum_ha_pred = 0.0_f64;
+                        let mut sum_hat_pred = 0.0_f64;
+                        for &si in &zone.surface_indices {
+                            let s = &self.surfaces[si];
+                            let ha = s.h_conv_inside * s.net_area;
+                            sum_ha_pred += ha;
+                            sum_hat_pred += ha * s.temp_inside;
+                        }
+
+                        let total_outdoor = match self.infiltration_interaction {
+                            crate::zone_loads::InfiltrationInteraction::Basic => {
+                                zone.infiltration_mass_flow
+                                    + zone.ventilation_mass_flow
+                                    + zone.outdoor_air_mass_flow
+                                    + zone.nat_vent_mass_flow
+                            }
+                            crate::zone_loads::InfiltrationInteraction::AshraeCombined => {
+                                let unbal = (zone.exhaust_mass_flow - zone.outdoor_air_mass_flow).max(0.0);
+                                (zone.infiltration_mass_flow.powi(2) + unbal.powi(2)).sqrt()
+                                    + zone.ventilation_mass_flow
+                                    + zone.outdoor_air_mass_flow
+                                    + zone.nat_vent_mass_flow
+                            }
+                        };
+                        let mcpi_pred = total_outdoor * cp_air;
+
+                        let q_solar_trans: f64 = zone.surface_indices.iter()
+                            .filter(|&&si| self.surfaces[si].is_window)
+                            .map(|&si| self.surfaces[si].transmitted_solar)
+                            .sum();
+                        let q_solar_to_air = if zi < has_geometric_distribution.len()
+                            && has_geometric_distribution[zi]
+                        {
+                            0.0
+                        } else if let Some(ref dist) = zone.input.solar_distribution {
+                            let to_surf = dist.floor_fraction + dist.wall_fraction + dist.ceiling_fraction;
+                            q_solar_trans * (1.0 - to_surf).max(0.0)
+                        } else {
+                            q_solar_trans
+                        };
+                        let q_window_cond: f64 = zone.surface_indices.iter()
+                            .filter(|&&si| self.surfaces[si].is_window)
+                            .map(|&si| self.surfaces[si].q_conv_inside * self.surfaces[si].net_area)
+                            .sum();
+                        let q_window_absorbed: f64 = zone.surface_indices.iter()
+                            .filter(|&&si| self.surfaces[si].is_window)
+                            .map(|&si| self.surfaces[si].absorbed_solar_inside_window)
+                            .sum();
+                        let q_conv_pred = zone.q_internal_conv
+                            + zone.exhaust_fan_heat_to_zone
+                            + q_solar_to_air + q_window_cond + q_window_absorbed;
+
+                        // Use the same BDF order as the corrector so predictor
+                        // and corrector agree on mode. E+ uses BDF3 in both
+                        // PredictSystemLoads and CalcZoneAirTempSetPoints.
+                        // A BDF1 predictor with BDF3 corrector causes mode
+                        // disagreements that amplify oscillations → NaN.
+                        let (dt_eff_pred, t_prev_eff_pred) = crate::zone::backward_diff_effective(
+                            zone.temp_order, dt,
+                            zone.temp_prev, zone.temp_prev2, zone.temp_prev3,
+                        );
+                        let cap_pred = rho_air * zone.input.volume * cp_air / dt_eff_pred;
+                        let denom_pred = sum_ha_pred + mcpi_pred + cap_pred;
+                        let t_free_pred = if denom_pred > 1e-10 {
+                            (sum_hat_pred + mcpi_pred * t_outdoor + q_conv_pred
+                                + cap_pred * t_prev_eff_pred) / denom_pred
+                        } else {
+                            zone.temp_prev
+                        };
+
+                        let (heat_sp, cool_sp) = zone.input.active_setpoints(hour);
+                        let pred_mode = if t_free_pred < heat_sp {
+                            1_i8
+                        } else if t_free_pred > cool_sp {
+                            -1_i8
+                        } else {
+                            0_i8
+                        };
+
+                            let t_zone = match pred_mode {
+                            1 => heat_sp,
+                            -1 => cool_sp,
+                            _ => t_free_pred,
+                        };
+                        Some((pred_mode, t_zone))
+                    }
+                }; // end immutable borrow of self.zones[zi]
+
+                if let Some((pred_mode, t_zone)) = pred_result {
+                    // Write to zone struct (needs mutable access)
+                    if !self.zones[zi].ideal_pred_mode_locked {
+                        self.zones[zi].ideal_pred_mode = pred_mode;
+                        self.zones[zi].ideal_pred_mode_locked = true;
+                    }
+                    t_zone_vec[zi] = t_zone;
+                }
+            }
+
             // --- Inside surface iteration loop ---
             for _iter in 0..MAX_INSIDE_SURF_ITER {
                 // Save old temps for convergence check and damping
@@ -3026,6 +3229,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                 // ─── Ideal Loads Air System ───────────────────────────────────
                 if let Some(ref ideal_loads) = zone.input.ideal_loads.clone() {
                     // Step 1: Solve zone temp without HVAC (free-float)
+                    // Uses full BDF (dt_eff, t_prev_eff) for accuracy.
+                    // Mode was already determined by the predictor above,
+                    // so the corrector here just refines Q and zone temp.
                     let t_free = crate::zone::solve_zone_air_temp_with_q(
                         sum_ha, sum_hat,
                         mcpi, t_outdoor,
@@ -3064,29 +3270,80 @@ impl EnvelopeSolver for BuildingEnvelope {
                         }
                     }
 
-                    // Step 3: Determine mode and compute ideal Q
-                    let (q_hvac, hvac_mode) = if t_free < heat_sp {
-                        // HEATING needed
+                    // Step 3: Compute ideal Q using the PREDICTOR's mode.
+                    //
+                    // The predictor (before the surface iteration) determined
+                    // whether heating, cooling, or deadband is needed using the
+                    // previous timestep's surface state.  The surface iteration
+                    // then converged with t_zone set to the predicted setpoint
+                    // (or free-float).  We LOCK the mode here to prevent
+                    // BDF3 corrector re-evaluation from disagreeing with the
+                    // predictor — that disagreement is what causes the
+                    // heating↔cooling oscillation and NaN divergence.
+                    //
+                    // However, we validate the mode: if the predictor said
+                    // heating but Q turns out negative (zone is already warm
+                    // enough), fall back to deadband.  Same for cooling.
+                    let pred_mode = zone.ideal_pred_mode;
+                    let (q_hvac, hvac_mode) = if pred_mode > 0 {
+                        // Predictor: HEATING
                         let q_needed = crate::zone::compute_ideal_q_hvac(
                             sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
                             rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
                             heat_sp,
                         );
-                        let q_clamped = q_needed.min(ideal_loads.heating_capacity).max(0.0);
-                        (q_clamped, 1) // 1 = heating
-                    } else if t_free > cool_sp {
-                        // COOLING needed
+                        if q_needed > 0.0 {
+                            let q_clamped = q_needed.min(ideal_loads.heating_capacity);
+                            (q_clamped, 1)
+                        } else {
+                            // Predictor overestimated heating need → deadband
+                            (0.0, 0)
+                        }
+                    } else if pred_mode < 0 {
+                        // Predictor: COOLING
                         let q_needed = crate::zone::compute_ideal_q_hvac(
                             sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
                             rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
                             cool_sp,
                         );
-                        // q_needed will be negative for cooling
-                        let q_clamped = q_needed.max(-ideal_loads.cooling_capacity).min(0.0);
-                        (q_clamped, -1) // -1 = cooling
+                        if q_needed < 0.0 {
+                            let q_clamped = q_needed.max(-ideal_loads.cooling_capacity);
+                            (q_clamped, -1)
+                        } else {
+                            // Predictor overestimated cooling need → deadband
+                            (0.0, 0)
+                        }
                     } else {
-                        // DEADBAND — no HVAC
-                        (0.0, 0) // 0 = off
+                        // Predictor: DEADBAND — but corrector validates with BDF3
+                        // free-float temp.  If the BDF3 corrector shows the zone
+                        // has drifted outside the setpoint band (e.g. solar ramp-up
+                        // that BDF1 predictor underestimated), override to
+                        // heating or cooling to prevent unbounded overshoot.
+                        if t_free < heat_sp {
+                            let q_needed = crate::zone::compute_ideal_q_hvac(
+                                sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
+                                rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
+                                heat_sp,
+                            );
+                            if q_needed > 0.0 {
+                                (q_needed.min(ideal_loads.heating_capacity), 1)
+                            } else {
+                                (0.0, 0)
+                            }
+                        } else if t_free > cool_sp {
+                            let q_needed = crate::zone::compute_ideal_q_hvac(
+                                sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
+                                rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
+                                cool_sp,
+                            );
+                            if q_needed < 0.0 {
+                                (q_needed.max(-ideal_loads.cooling_capacity), -1)
+                            } else {
+                                (0.0, 0)
+                            }
+                        } else {
+                            (0.0, 0)
+                        }
                     };
 
                     // Step 4: Solve zone temp with HVAC Q
@@ -3097,7 +3354,6 @@ impl EnvelopeSolver for BuildingEnvelope {
                         q_hvac,
                         rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
                     );
-
                     // Step 5: Record loads and rates
                     if hvac_mode > 0 {
                         zone.heating_load = q_hvac;
@@ -3156,6 +3412,58 @@ impl EnvelopeSolver for BuildingEnvelope {
                     zone.cooling_load = cl;
                     zone.hvac_heating_rate = 0.0;
                     zone.hvac_cooling_rate = 0.0;
+                }
+
+                // ─── Zone Moisture Balance ────────────────────────────────
+                //
+                // Corrector-phase humidity solve, structurally identical to
+                // the temperature balance. Uses 3rd-order BDF with the same
+                // ramp-up strategy (1st → 2nd → 3rd order).
+                //
+                // Source/sink terms:
+                //   - Infiltration + ventilation + nat vent: outdoor air moisture
+                //   - HVAC supply air: coil outlet humidity
+                //   - People latent: metabolic moisture generation
+                //   - Equipment latent: cooking, laundry, etc.
+                //
+                // Reference: E+ ZoneAirMoisturePredictorCorrector
+                {
+                    let (dt_w_eff, w_prev_eff) = crate::zone::backward_diff_effective(
+                        zone.w_order,
+                        dt,
+                        zone.w_prev,
+                        zone.w_prev2,
+                        zone.w_prev3,
+                    );
+
+                    // Moisture mass flows use the same outdoor air flows as the
+                    // thermal balance (total_outdoor_mass_flow already computed).
+                    let m_infil = total_outdoor_mass_flow;
+                    let w_outdoor = ctx.outdoor_air.w;
+
+                    // HVAC supply humidity from the air loop
+                    let m_supply = zone.supply_air_mass_flow;
+                    let w_supply = hvac.supply_humidity_ratios
+                        .get(&zone.input.name)
+                        .copied()
+                        .unwrap_or(zone.supply_air_humidity_ratio);
+                    // Store for use in main.rs return air calculation
+                    zone.supply_air_humidity_ratio = w_supply;
+
+                    // Total latent gains [W] — people + equipment
+                    let q_latent = zone.people_latent + zone.equipment_latent;
+
+                    zone.humidity_ratio = crate::zone::solve_zone_humidity(
+                        rho_air,
+                        zone.input.volume,
+                        dt_w_eff,
+                        w_prev_eff,
+                        m_infil,
+                        w_outdoor,
+                        m_supply,
+                        w_supply,
+                        q_latent,
+                    );
                 }
 
                 // ─── Diagnostic accumulators ─────────────────────────────
@@ -3349,6 +3657,7 @@ impl EnvelopeSolver for BuildingEnvelope {
 
             let mut outputs = HashMap::new();
             outputs.insert("zone_temp".to_string(), zone.temp);
+            outputs.insert("zone_humidity_ratio".to_string(), zone.humidity_ratio);
             outputs.insert("heating_load".to_string(), zone.heating_load);
             outputs.insert("cooling_load".to_string(), zone.cooling_load);
             outputs.insert("hvac_heating_rate".to_string(), zone.hvac_heating_rate);
@@ -3378,12 +3687,20 @@ impl EnvelopeSolver for BuildingEnvelope {
     /// iterations have converged. Calling it inside the HVAC iteration
     /// loop would corrupt the backward-difference extrapolation.
     fn update_bdf_history(&mut self) {
-        // Zone air temperature BDF history
+        // Zone air temperature and humidity BDF history
         for zone in &mut self.zones {
             zone.temp_prev3 = zone.temp_prev2;
             zone.temp_prev2 = zone.temp_prev;
             zone.temp_prev = zone.temp;
             zone.temp_order = (zone.temp_order + 1).min(3);
+
+            zone.w_prev3 = zone.w_prev2;
+            zone.w_prev2 = zone.w_prev;
+            zone.w_prev = zone.humidity_ratio;
+            zone.w_order = (zone.w_order + 1).min(3);
+
+            // Reset predictor mode lock so it will be recomputed on next physical timestep
+            zone.ideal_pred_mode_locked = false;
         }
         // CTF conduction history (surface temps + heat fluxes)
         for i in 0..self.surfaces.len() {
@@ -3411,6 +3728,42 @@ impl BuildingEnvelope {
     /// interzone surfaces (e.g. concrete floor/ceiling slabs) carry residual
     /// heat flux from a previous design day, requiring many more warmup days
     /// to reach cyclic steady-state (or never converging for short warmup).
+    /// Cap the BDF order for zone temperature and humidity.
+    ///
+    /// During warmup, BDF3 can amplify oscillations in zones with slow-
+    /// responding surfaces (e.g. heavily insulated floors). Capping to
+    /// BDF1 (backward Euler) during warmup prevents this while still
+    /// allowing the zone to equilibrate. Call AFTER update_bdf_history().
+    pub fn cap_bdf_order(&mut self, max_order: u8) {
+        for zone in &mut self.zones {
+            zone.temp_order = zone.temp_order.min(max_order);
+            zone.w_order = zone.w_order.min(max_order);
+        }
+    }
+
+    /// Reset BDF history to current zone state after warmup.
+    ///
+    /// After warmup completes (using BDF1), the history terms (temp_prev2,
+    /// temp_prev3, w_prev2, w_prev3) may contain stale values from early
+    /// warmup iterations. When BDF order ramps to 3 during the main sim,
+    /// these stale values cause wild extrapolation → divergence → NaN.
+    ///
+    /// This method sets all history terms to the current converged value
+    /// and resets order to 1 so BDF ramps cleanly from a consistent state.
+    pub fn reset_bdf_history_to_current(&mut self) {
+        for zone in &mut self.zones {
+            zone.temp_prev = zone.temp;
+            zone.temp_prev2 = zone.temp;
+            zone.temp_prev3 = zone.temp;
+            zone.temp_order = 1;
+
+            zone.w_prev = zone.humidity_ratio;
+            zone.w_prev2 = zone.humidity_ratio;
+            zone.w_prev3 = zone.humidity_ratio;
+            zone.w_order = 1;
+        }
+    }
+
     pub fn reset_for_sizing(&mut self, temp: f64) {
         // Reset CTF conduction histories
         for history in &mut self.ctf_histories {
@@ -3501,6 +3854,7 @@ mod tests {
                     power: 500.0,
                     radiant_fraction: 0.3,
                     lost_fraction: 0.0,
+                    latent_fraction: 0.0,
                     schedule: None,
                 },
             ],
@@ -3883,6 +4237,7 @@ mod tests {
                     power: 2000.0, // Large internal gains to force cooling
                     radiant_fraction: 0.3,
                     lost_fraction: 0.0,
+                    latent_fraction: 0.0,
                     schedule: None,
                 },
             ],
@@ -3940,6 +4295,7 @@ mod tests {
 
         for _ in 0..100 {
             envelope.solve_timestep(&ctx, &weather, &hvac);
+            envelope.update_bdf_history();
         }
 
         // Zone should be at cooling setpoint (27°C) after convergence
@@ -4063,6 +4419,7 @@ mod tests {
         // longer. Need enough iterations to reach thermal equilibrium.
         for _ in 0..100 {
             envelope.solve_timestep(&ctx, &weather, &hvac);
+            envelope.update_bdf_history();
         }
 
         // Find the roof (tilt=0, full sky view) — it should be colder than outdoor

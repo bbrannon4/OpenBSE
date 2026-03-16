@@ -71,8 +71,8 @@ Last updated: 2026-03-13
 - [ ] Connect heat recovery exhaust conditions to actual zone return air
 
 ### Medium Priority
-- [ ] Dehumidification modeling in DX coils (currently sensible-only)
-- [ ] Latent load handling in zone heat balance
+- [x] Zone moisture (humidity ratio) balance with 3rd-order BDF integration (implemented)
+- [ ] Dehumidification control (humidity-based setpoints, dedicated dehumidifier equipment)
 - [ ] Multi-speed and variable-speed DX coils
 - [x] Air-source heat pump heating coil (implemented with defrost and performance curves)
 - [ ] Water-source heat pump models

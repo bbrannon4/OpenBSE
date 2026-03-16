@@ -1,6 +1,6 @@
 # OpenBSE: DOE Prototype Mid-Rise Apartment (ASHRAE 90.1-2022 Appendix G)
 # 4-story, 36 zones, PTAC per zone, HW boiler
-# Boulder, CO (TMYx weather)
+# Denver, CO (TMY3 weather)
 
 simulation:
   timesteps_per_hour: 4
@@ -12,7 +12,7 @@ simulation:
   heating_sizing_factor: 1.25
   cooling_sizing_factor: 1.15
 weather_files:
-- ../Boulder.epw
+- ../Denver-Buckley.epw
 design_days:
 - name: Denver-Buckley Heating 99.6%
   design_temp: -17.9
@@ -6450,6 +6450,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: G SW Apt
 - name: PTAC G S1 Apt
@@ -6484,6 +6485,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: G S1 Apt
 - name: PTAC G S2 Apt
@@ -6518,6 +6520,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: G S2 Apt
 - name: PTAC Office
@@ -6552,6 +6555,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: Office
 - name: PTAC G NW Apt
@@ -6586,6 +6590,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: G NW Apt
 - name: PTAC G N1 Apt
@@ -6620,6 +6625,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: G N1 Apt
 - name: PTAC G N2 Apt
@@ -6654,6 +6660,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: G N2 Apt
 - name: PTAC G NE Apt
@@ -6688,6 +6695,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: G NE Apt
 - name: PTAC M SW Apt
@@ -6722,6 +6730,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M SW Apt
 - name: PTAC M S1 Apt
@@ -6756,6 +6765,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M S1 Apt
 - name: PTAC M S2 Apt
@@ -6790,6 +6800,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M S2 Apt
 - name: PTAC M SE Apt
@@ -6824,6 +6835,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M SE Apt
 - name: PTAC M NW Apt
@@ -6858,6 +6870,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M NW Apt
 - name: PTAC M N1 Apt
@@ -6892,6 +6905,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M N1 Apt
 - name: PTAC M N2 Apt
@@ -6926,6 +6940,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M N2 Apt
 - name: PTAC M NE Apt
@@ -6960,6 +6975,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M NE Apt
 - name: PTAC M2 SW Apt
@@ -6994,6 +7010,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M2 SW Apt
 - name: PTAC M2 S1 Apt
@@ -7028,6 +7045,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M2 S1 Apt
 - name: PTAC M2 S2 Apt
@@ -7062,6 +7080,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M2 S2 Apt
 - name: PTAC M2 SE Apt
@@ -7096,6 +7115,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M2 SE Apt
 - name: PTAC M2 NW Apt
@@ -7130,6 +7150,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M2 NW Apt
 - name: PTAC M2 N1 Apt
@@ -7164,6 +7185,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M2 N1 Apt
 - name: PTAC M2 N2 Apt
@@ -7198,6 +7220,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M2 N2 Apt
 - name: PTAC M2 NE Apt
@@ -7232,6 +7255,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: M2 NE Apt
 - name: PTAC T SW Apt
@@ -7266,6 +7290,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: T SW Apt
 - name: PTAC T S1 Apt
@@ -7300,6 +7325,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: T S1 Apt
 - name: PTAC T S2 Apt
@@ -7334,6 +7360,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: T S2 Apt
 - name: PTAC T SE Apt
@@ -7368,6 +7395,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: T SE Apt
 - name: PTAC T NW Apt
@@ -7402,6 +7430,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: T NW Apt
 - name: PTAC T N1 Apt
@@ -7436,6 +7465,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: T N1 Apt
 - name: PTAC T N2 Apt
@@ -7470,6 +7500,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: T N2 Apt
 - name: PTAC T NE Apt
@@ -7504,6 +7535,7 @@ air_loops:
     setpoint: 12.8
     cap_ft_curve: PTU_CapFT
     eir_ft_curve: PTU_EIRFT
+    autocalculate_shr: true
   zone_terminals:
   - zone: T NE Apt
 plant_loops:

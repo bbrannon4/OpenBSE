@@ -100,7 +100,7 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
         ("zone_infiltration_mass_flow", "kg/s", "Zone infiltration air mass flow rate"),
         ("zone_nat_vent_flow", "m³/s", "Zone natural ventilation volume flow rate"),
         ("zone_nat_vent_mass_flow", "kg/s", "Zone natural ventilation mass flow rate"),
-        ("zone_nat_vent_active", "", "Zone natural ventilation active (1=yes, 0=no)"),
+        ("zone_nat_vent_active", "-", "Zone natural ventilation active (1=yes, 0=no)"),
         ("zone_internal_gains_convective", "W", "Zone convective internal gains"),
         ("zone_internal_gains_radiative", "W", "Zone radiative internal gains"),
         ("zone_supply_air_temperature", "°C", "HVAC supply air temperature to zone"),

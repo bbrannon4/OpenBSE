@@ -47,6 +47,7 @@ This document describes the algorithms, equations, and physics models implemente
   - [Vertex Geometry](#vertex-geometry)
   - [Ground Temperature Model](#ground-temperature-model)
   - [Zone Air Heat Balance](#zone-air-heat-balance)
+  - [Zone Air Moisture Balance](#zone-air-moisture-balance)
   - [Heat Balance Solver](#heat-balance-solver)
 - [Simulation Graph](#simulation-graph)
 
@@ -1817,16 +1818,22 @@ where `ρ_outdoor` is the outdoor air density at current conditions.
 
 **People:**
 ```
-Q_total = count · activity_level        [W]
-Q_radiative = Q_total · radiant_fraction
-Q_convective = Q_total · (1 − radiant_fraction)
+Q_sensible = count · activity_level · sensible_fraction   [W]
+Q_latent   = count · activity_level · (1 − sensible_fraction) [W]
+Q_radiative = Q_sensible · radiant_fraction
+Q_convective = Q_sensible · (1 − radiant_fraction)
 ```
+
+Alternatively, `sensible_gain_per_person` and `latent_gain_per_person` can be specified directly to override the activity_level × fraction calculation.
 
 | Parameter | Unit | Default | Description |
 |-----------|------|---------|-------------|
 | `count` | — | required | Number of occupants |
-| `activity_level` | W/person | 120.0 | Metabolic rate per person |
-| `radiant_fraction` | 0–1 | 0.3 | Fraction of heat that is radiative |
+| `activity_level` | W/person | 120.0 | Total metabolic heat output per person |
+| `sensible_fraction` | 0–1 | 0.6 | Fraction of metabolic heat that is sensible |
+| `radiant_fraction` | 0–1 | 0.3 | Fraction of sensible heat that is radiative |
+| `sensible_gain_per_person` | W/person | — | Override: explicit sensible gain |
+| `latent_gain_per_person` | W/person | — | Override: explicit latent gain |
 
 **Lights:**
 ```
@@ -1845,17 +1852,22 @@ Q_convective = Q_zone · (1 − radiant_fraction)
 
 **Equipment:**
 ```
-Q_total = power                          [W]
-Q_radiative = power · radiant_fraction
-Q_convective = power · (1 − radiant_fraction)
+Q_total     = power                                        [W]
+Q_to_zone   = Q_total · (1 − lost_fraction)                [W]
+Q_latent    = Q_to_zone · latent_fraction                   [W]
+Q_sensible  = Q_to_zone − Q_latent                          [W]
+Q_radiative = Q_sensible · radiant_fraction
+Q_convective = Q_sensible · (1 − radiant_fraction)
 ```
 
 | Parameter | Unit | Default | Description |
 |-----------|------|---------|-------------|
 | `power` | W | required | Total equipment power |
-| `radiant_fraction` | 0–1 | 0.3 | Fraction of heat that is radiative |
+| `radiant_fraction` | 0–1 | 0.3 | Fraction of sensible heat that is radiative |
+| `lost_fraction` | 0–1 | 0.0 | Fraction of heat that does not enter the zone (e.g., elevator shaft) |
+| `latent_fraction` | 0–1 | 0.0 | Fraction of non-lost heat that generates moisture (e.g., kitchen, laundry) |
 
-The resolved gain output provides `convective` [W], `radiative` [W], and `total` [W].
+The resolved gain output provides `convective` [W], `radiative` [W], `total` [W] (sensible only), `people_latent` [W], and `equipment_latent` [W]. Latent gains feed the zone moisture balance.
 
 Internal gains support time-varying operation through the schedule system (see [Schedules](#schedules)). Each gain type can reference a named schedule; the schedule fraction multiplies the design power at each timestep.
 
@@ -2094,6 +2106,50 @@ Load = SumHAT − SumHA·T_zone + MCPI·(T_outdoor − T_zone) + Q_conv + Cap·(
 
 - If Load > 0: heating load (zone losing more heat than it gains)
 - If Load < 0: cooling load (zone gaining more heat than it loses)
+
+---
+
+### Zone Air Moisture Balance
+
+**Module:** `zone.rs`
+
+**Purpose:** Solves for the zone air humidity ratio using a mass balance that accounts for infiltration, HVAC supply, and latent gains from people and equipment. Uses the same 3rd-order Backward Differentiation Formula (BDF) integration as the temperature solver.
+
+**Reference:** EnergyPlus ZoneAirMoisturePredictorCorrector
+
+#### Equation
+
+```
+         Cap_w · W_prev + ṁ_infil · W_outdoor + ṁ_supply · W_supply + Q_latent / h_fg
+W_zone = ──────────────────────────────────────────────────────────────────────────────
+                          Cap_w + ṁ_infil + ṁ_supply
+```
+
+| Term | Definition | Unit |
+|------|-----------|------|
+| Cap_w | ρ_air · V_zone / dt_eff | kg/s |
+| W_prev | BDF-effective previous humidity ratio | kg/kg |
+| ṁ_infil | Infiltration mass flow rate | kg/s |
+| W_outdoor | Outdoor air humidity ratio | kg/kg |
+| ṁ_supply | HVAC supply air mass flow rate | kg/s |
+| W_supply | HVAC supply air humidity ratio | kg/kg |
+| Q_latent | Total latent gains (people + equipment) | W |
+| h_fg | Latent heat of vaporization (2,501,000) | J/kg |
+
+The BDF integration uses `backward_diff_effective()` to compute `dt_eff` and `W_prev` from up to 3 previous timesteps, matching the temperature solver's approach. The result is clamped to [0, 0.10] kg/kg.
+
+#### Moisture Sources
+
+- **Infiltration**: Outdoor air at ambient humidity
+- **HVAC supply**: Mass-flow-weighted humidity from air loops serving the zone
+- **People latent**: Metabolic moisture from occupants (activity_level × (1 - sensible_fraction))
+- **Equipment latent**: Moisture-generating equipment (power × (1 - lost_fraction) × latent_fraction)
+
+#### Output Variables
+
+| Variable | Unit | Description |
+|----------|------|-------------|
+| `zone_humidity_ratio` | kg/kg | Zone air humidity ratio |
 
 ---
 

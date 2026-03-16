@@ -42,6 +42,13 @@ pub struct CoolingCoilDX {
     /// If None, uses default: PLF = 1 - 0.15 × (1 - PLR).
     #[serde(skip)]
     pub plf_curve: Option<PerformanceCurve>,
+    /// Optional capacity modifier curve as f(flow_fraction).
+    /// Flow fraction = actual_airflow / rated_airflow.
+    #[serde(skip)]
+    pub cap_fflow_curve: Option<PerformanceCurve>,
+    /// Optional EIR modifier curve as f(flow_fraction).
+    #[serde(skip)]
+    pub eir_fflow_curve: Option<PerformanceCurve>,
     /// Normalization factor for EIR curve: 1 / eir_curve(19.44, 35).
     /// Per E+ docs, EIR-fT should equal 1.0 at ARI rated conditions
     /// (19.44°C WB entering, 35°C outdoor).  If the curve isn't
@@ -49,6 +56,25 @@ pub struct CoolingCoilDX {
     /// actual COP at rated conditions.
     #[serde(skip)]
     eir_normalization: f64,
+    /// When true, compute SHR each timestep via apparatus dew point method.
+    /// When false, use constant rated_shr (or SHR=1.0 if no latent model).
+    pub autocalculate_shr: bool,
+    /// Bypass factor derived from rated SHR at ARI conditions.
+    /// Computed once, then reused each timestep.
+    #[serde(skip)]
+    bypass_factor: f64,
+    /// Apparatus dew point temperature [°C] at rated conditions.
+    #[serde(skip)]
+    adp_temp: f64,
+    /// Humidity ratio at the apparatus dew point [kg/kg].
+    #[serde(skip)]
+    adp_w: f64,
+    /// Enthalpy at the apparatus dew point [J/kg].
+    #[serde(skip)]
+    adp_h: f64,
+    /// Whether bypass factor has been initialized.
+    #[serde(skip)]
+    bf_initialized: bool,
 
     // ─── Runtime state ──────────────────────────────────────────────────
     /// Total cooling rate delivered to air [W] (positive = cooling)
@@ -90,7 +116,15 @@ impl CoolingCoilDX {
             cap_ft_curve: None,
             eir_ft_curve: None,
             plf_curve: None,
+            cap_fflow_curve: None,
+            eir_fflow_curve: None,
             eir_normalization: 1.0,
+            autocalculate_shr: false,
+            bypass_factor: 0.0,
+            adp_temp: 0.0,
+            adp_w: 0.0,
+            adp_h: 0.0,
+            bf_initialized: false,
             cooling_rate: 0.0,
             sensible_cooling_rate: 0.0,
             power_consumption: 0.0,
@@ -126,46 +160,156 @@ impl CoolingCoilDX {
         self
     }
 
+    /// Attach flow-fraction modifier curves for capacity and EIR.
+    pub fn with_fflow_curves(
+        mut self,
+        cap_fflow: Option<PerformanceCurve>,
+        eir_fflow: Option<PerformanceCurve>,
+    ) -> Self {
+        self.cap_fflow_curve = cap_fflow;
+        self.eir_fflow_curve = eir_fflow;
+        self
+    }
+
+    /// Enable auto-SHR calculation using the apparatus dew point method.
+    pub fn with_autocalculate_shr(mut self, enable: bool) -> Self {
+        self.autocalculate_shr = enable;
+        self
+    }
+
     /// Calculate available cooling capacity at current conditions.
     ///
-    /// If a `cap_ft_curve` is set, uses biquadratic: f(T_wb_entering, T_db_outdoor).
-    /// Otherwise falls back to a simplified linear correction.
-    ///
-    /// At rated conditions (35°C/95°F ODB), the correction is 1.0.
-    fn available_capacity(&self, t_outdoor: f64, t_wb_inlet: f64) -> f64 {
-        if let Some(ref curve) = self.cap_ft_curve {
-            let modifier = curve.evaluate(t_wb_inlet, t_outdoor);
-            self.rated_capacity * modifier
+    /// Applies cap_ft (biquadratic f(Twb, Todb)) and cap_fflow (f(FF)) modifiers.
+    /// At rated conditions (35°C ODB, 19.44°C WB, FF=1), correction is 1.0.
+    fn available_capacity(&self, t_outdoor: f64, t_wb_inlet: f64, flow_fraction: f64) -> f64 {
+        let ft_mod = if let Some(ref curve) = self.cap_ft_curve {
+            curve.evaluate(t_wb_inlet, t_outdoor)
         } else {
-            // Fallback: linear derate with outdoor temperature only
             let t_rated = 35.0;
-            let correction = 1.0 - 0.008 * (t_outdoor - t_rated);
-            let correction = correction.clamp(0.5, 1.05);
-            self.rated_capacity * correction
-        }
+            (1.0 - 0.008 * (t_outdoor - t_rated)).clamp(0.5, 1.05)
+        };
+        let ff_mod = if let Some(ref curve) = self.cap_fflow_curve {
+            curve.evaluate_1d(flow_fraction)
+        } else {
+            1.0
+        };
+        self.rated_capacity * ft_mod * ff_mod
     }
 
     /// Calculate COP at current conditions.
     ///
-    /// If an `eir_ft_curve` is set, uses biquadratic to compute EIR modifier,
-    /// then COP = rated_COP / EIR_modifier. Otherwise falls back to linear.
-    fn available_cop(&self, t_outdoor: f64, t_wb_inlet: f64) -> f64 {
-        if let Some(ref curve) = self.eir_ft_curve {
+    /// Applies eir_ft (biquadratic) and eir_fflow (f(FF)) modifiers.
+    /// COP = rated_COP / (EIR_ft × EIR_fflow).
+    fn available_cop(&self, t_outdoor: f64, t_wb_inlet: f64, flow_fraction: f64) -> f64 {
+        let eir_ft_mod = if let Some(ref curve) = self.eir_ft_curve {
             let eir_raw = curve.evaluate(t_wb_inlet, t_outdoor);
-            // Normalize so eir = 1.0 at ARI rated conditions
-            let eir_modifier = eir_raw * self.eir_normalization;
-            if eir_modifier > 0.0 {
-                self.rated_cop / eir_modifier
+            eir_raw * self.eir_normalization
+        } else {
+            let t_rated = 35.0;
+            let c = 1.0 + 0.012 * (t_outdoor - t_rated);
+            c.clamp(0.4, 1.10) // Note: higher EIR = worse COP
+        };
+        let eir_ff_mod = if let Some(ref curve) = self.eir_fflow_curve {
+            curve.evaluate_1d(flow_fraction)
+        } else {
+            1.0
+        };
+        let eir_total = (eir_ft_mod * eir_ff_mod).max(0.001);
+        self.rated_cop / eir_total
+    }
+
+    /// Initialize bypass factor and apparatus dew point from rated SHR.
+    ///
+    /// Uses ARI rated indoor conditions: 26.67°C DB, 19.44°C WB.
+    /// Iteratively finds the apparatus dew point (ADP) on the saturation
+    /// curve such that the bypass factor (BF) is consistent with the
+    /// rated SHR.
+    fn initialize_bypass_factor(&mut self) {
+        // ARI rated indoor entering conditions
+        let t_db_rated = 26.67_f64;
+        let t_wb_rated = 19.44_f64;
+        let p_b = 101325.0_f64;
+
+        let w_rated = psych::w_fn_tdb_twb_pb(t_db_rated, t_wb_rated, p_b);
+        let h_rated = psych::h_fn_tdb_w(t_db_rated, w_rated);
+
+        // The apparatus dew point (ADP) lies on the saturation curve.
+        // We search for it by iterating: for a candidate ADP temperature,
+        // compute the saturation humidity ratio and enthalpy, then check
+        // whether the resulting SHR matches the rated SHR.
+        //
+        // SHR_rated = (h_in - h_adp) * BF_sensible / (h_in - h_adp)
+        // Actually, from the E+ method:
+        //   slope_condition_line = (h_in - h_adp) / (t_db_in - t_adp)
+        //   SHR = cp_moist / slope  where cp_moist ≈ cp_air(w)
+        //
+        // Rearranging: slope = cp_moist / SHR
+        // And: h_adp = h_in - slope × (t_db_in - t_adp)
+        //
+        // We find t_adp where h_sat(t_adp) == h_adp from the condition line.
+
+        let shr = self.rated_shr.clamp(0.01, 0.999);
+        let cp_moist = psych::cp_air_fn_w(w_rated);
+        let slope = cp_moist / shr; // J/kg per °C
+
+        // Search for ADP temperature: where h_sat(t) intersects the condition line
+        // h_condition(t) = h_rated - slope × (t_db_rated - t)
+        // We need: h_sat(t) = h_condition(t)
+        //
+        // Search range: from 0°C to the entering dew point
+        let t_dp_entering = psych::tdp_fn_w_pb(w_rated, p_b);
+        let t_low = -10.0_f64;
+        let t_high = t_dp_entering.min(t_db_rated - 1.0);
+
+        // Bisection search
+        let mut lo = t_low;
+        let mut hi = t_high;
+        let mut t_adp = (lo + hi) / 2.0;
+
+        for _ in 0..50 {
+            t_adp = (lo + hi) / 2.0;
+            let w_sat = psych::w_fn_tdb_rh_pb(t_adp, 1.0, p_b);
+            let h_sat = psych::h_fn_tdb_w(t_adp, w_sat);
+            let h_cond = h_rated - slope * (t_db_rated - t_adp);
+
+            if (h_sat - h_cond).abs() < 0.1 {
+                break;
+            }
+            if h_sat < h_cond {
+                lo = t_adp;
             } else {
-                self.rated_cop
+                hi = t_adp;
+            }
+        }
+
+        let w_adp = psych::w_fn_tdb_rh_pb(t_adp, 1.0, p_b);
+        let h_adp = psych::h_fn_tdb_w(t_adp, w_adp);
+
+        // Bypass factor: fraction of air that "bypasses" the coil surface
+        let dh = h_rated - h_adp;
+        let bf = if dh.abs() > 1.0 {
+            // BF from enthalpy: h_out = h_adp + BF × (h_in - h_adp)
+            // At rated: h_out = h_in - Q_total / m_dot
+            //         = h_in - rated_cap / (rated_airflow × rho × (1))
+            // But we can compute BF directly from the SHR relationship.
+            // For the rated condition, use the airflow to compute h_out:
+            let rho_rated = psych::rho_air_fn_pb_tdb_w(p_b, t_db_rated, w_rated);
+            let m_dot_rated = self.rated_airflow * rho_rated;
+            if m_dot_rated > 0.001 {
+                let h_out = h_rated - self.rated_capacity / m_dot_rated;
+                ((h_out - h_adp) / dh).clamp(0.0, 0.9)
+            } else {
+                0.2 // Reasonable default
             }
         } else {
-            // Fallback: linear derate
-            let t_rated = 35.0;
-            let correction = 1.0 - 0.012 * (t_outdoor - t_rated);
-            let correction = correction.clamp(0.4, 1.10);
-            self.rated_cop * correction
-        }
+            0.2
+        };
+
+        self.adp_temp = t_adp;
+        self.adp_w = w_adp;
+        self.adp_h = h_adp;
+        self.bypass_factor = bf;
+        self.bf_initialized = true;
     }
 }
 
@@ -186,7 +330,8 @@ impl AirComponent for CoolingCoilDX {
         let t_outdoor = ctx.outdoor_air.t_db;
 
         // Calculate required sensible cooling to reach setpoint
-        let q_sensible_required = inlet.mass_flow * cp_air * (inlet.state.t_db - self.outlet_temp_setpoint);
+        let q_sensible_required = inlet.mass_flow * cp_air
+            * (inlet.state.t_db - self.outlet_temp_setpoint);
 
         // Only cool, don't heat
         if q_sensible_required <= 0.0 {
@@ -197,40 +342,99 @@ impl AirComponent for CoolingCoilDX {
         }
 
         // Entering air wet-bulb temperature (for curve evaluation)
-        let t_wb_inlet = psych::twb_fn_tdb_w_pb(inlet.state.t_db, inlet.state.w, inlet.state.p_b);
+        let t_wb_inlet = psych::twb_fn_tdb_w_pb(
+            inlet.state.t_db, inlet.state.w, inlet.state.p_b,
+        );
 
-        // Available capacity at current outdoor conditions
-        let available_cap = self.available_capacity(t_outdoor, t_wb_inlet);
-        let available_cop = self.available_cop(t_outdoor, t_wb_inlet);
+        // Flow fraction: actual mass flow / rated mass flow
+        let flow_fraction = if self.rated_airflow > 0.001 {
+            let rho = psych::rho_air_fn_pb_tdb_w(
+                inlet.state.p_b, inlet.state.t_db, inlet.state.w,
+            );
+            let rated_mass_flow = self.rated_airflow * rho;
+            (inlet.mass_flow / rated_mass_flow).clamp(0.0, 1.5)
+        } else {
+            1.0
+        };
 
-        // Simplified model: no dehumidification (humidity ratio passes through).
-        // All cooling is sensible — the full coil capacity is available for
-        // sensible cooling.  This matches E+ behavior in dry climates where
-        // the actual SHR approaches 1.0 (coil surface stays dry or nearly so).
-        //
-        // PLR = sensible_load / total_available_capacity
-        //
-        // The rated_shr field is retained for future dehumidification modeling
-        // and for capacity reporting, but does NOT reduce available sensible
-        // capacity or inflate electric power consumption.
-        let plr = (q_sensible_required / available_cap).clamp(0.0, 1.0);
+        // Available capacity and COP at current conditions (with flow fraction)
+        let available_cap = self.available_capacity(t_outdoor, t_wb_inlet, flow_fraction);
+        let available_cop = self.available_cop(t_outdoor, t_wb_inlet, flow_fraction);
 
-        // Actual sensible cooling delivered (= total, since no latent)
-        let q_sensible = available_cap * plr;
-        let q_total = q_sensible;
+        // ── Compute SHR and split sensible/latent cooling ──
+        let (q_sensible, q_total, outlet_t, outlet_w) = if self.autocalculate_shr {
+            // Initialize bypass factor on first call (needs rated_capacity set)
+            if !self.bf_initialized && self.rated_capacity > 0.0 {
+                self.initialize_bypass_factor();
+            }
 
-        // Calculate outlet temperature
-        let dt = q_sensible / (inlet.mass_flow * cp_air);
-        let outlet_t = inlet.state.t_db - dt;
+            // Check if coil surface is wet: entering dew point > ADP temp
+            let t_dp_entering = psych::tdp_fn_w_pb(inlet.state.w, inlet.state.p_b);
+
+            if t_dp_entering <= self.adp_temp {
+                // Dry coil: all cooling is sensible, no dehumidification
+                let plr = (q_sensible_required / available_cap).clamp(0.0, 1.0);
+                let qs = available_cap * plr;
+                let dt = qs / (inlet.mass_flow * cp_air);
+                (qs, qs, inlet.state.t_db - dt, inlet.state.w)
+            } else {
+                // Wet coil: compute actual SHR from entering conditions and BF
+                let h_in = psych::h_fn_tdb_w(inlet.state.t_db, inlet.state.w);
+
+                // Effective ADP: recalculate at current conditions using the
+                // condition line slope method.
+                // slope = cp_moist / SHR, but SHR itself depends on slope...
+                // Use the rated BF with entering conditions to get outlet state:
+                //   h_out_full = h_adp + BF × (h_in - h_adp)
+                //   w_out_full = w_adp + BF × (w_in - w_adp)
+                // This gives the outlet at full capacity (PLR=1).
+                let bf = self.bypass_factor;
+                let h_out_full = self.adp_h + bf * (h_in - self.adp_h);
+                let w_out_full = self.adp_w + bf * (inlet.state.w - self.adp_w);
+                let t_out_full = psych::tdb_fn_h_w(h_out_full, w_out_full);
+
+                // Total and sensible capacity at full load
+                let q_total_full = inlet.mass_flow * (h_in - h_out_full);
+                let q_sens_full = inlet.mass_flow * cp_air
+                    * (inlet.state.t_db - t_out_full);
+
+                // PLR based on sensible load vs sensible capacity
+                let plr = if q_sens_full > 0.0 {
+                    (q_sensible_required / q_sens_full).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+
+                // Actual delivered quantities
+                let qs = q_sens_full * plr;
+                let qt = q_total_full * plr;
+                let dt = qs / (inlet.mass_flow * cp_air);
+                let out_t = inlet.state.t_db - dt;
+
+                // Outlet humidity: interpolate between entering and full-load outlet
+                let out_w = inlet.state.w - plr * (inlet.state.w - w_out_full);
+
+                (qs, qt, out_t, out_w.max(1.0e-5))
+            }
+        } else {
+            // Constant SHR mode (original behavior): all cooling is sensible.
+            // Humidity ratio passes through unchanged.
+            let plr = (q_sensible_required / available_cap).clamp(0.0, 1.0);
+            let qs = available_cap * plr;
+            let dt = qs / (inlet.mass_flow * cp_air);
+            (qs, qs, inlet.state.t_db - dt, inlet.state.w)
+        };
 
         // Electric power consumption.
-        //
-        // The DX coil reports steady-state power at the current PLR.
-        // Cycling losses (PLF) are applied at the system level in main.rs
-        // via RTF = loop_plr / PLF(loop_plr), matching E+'s approach where
-        // the PLF curve is a system-level attribute, not a coil-level one.
+        // Uses total cooling (sensible + latent) for power calculation.
+        // Cycling losses (PLF) are applied at the system level in main.rs.
+        let plr_power = if available_cap > 0.0 {
+            (q_total / available_cap).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         self.power_consumption = if available_cop > 0.0 {
-            available_cap * plr / available_cop
+            available_cap * plr_power / available_cop
         } else {
             0.0
         };
@@ -238,9 +442,8 @@ impl AirComponent for CoolingCoilDX {
         self.cooling_rate = q_total;
         self.sensible_cooling_rate = q_sensible;
 
-        // Simplified: no dehumidification modeled (humidity ratio passes through)
         AirPort::new(
-            psych::MoistAirState::new(outlet_t, inlet.state.w, inlet.state.p_b),
+            psych::MoistAirState::new(outlet_t, outlet_w, inlet.state.p_b),
             inlet.mass_flow,
         )
     }

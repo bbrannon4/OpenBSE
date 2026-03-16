@@ -713,6 +713,16 @@ pub struct CoolingCoilInput {
     /// Reference to a top-level performance curve name for PLF f(PLR)
     #[serde(default)]
     pub plf_curve: Option<String>,
+    /// Reference to a top-level performance curve name for capacity f(flow fraction)
+    #[serde(default)]
+    pub cap_fflow_curve: Option<String>,
+    /// Reference to a top-level performance curve name for EIR f(flow fraction)
+    #[serde(default)]
+    pub eir_fflow_curve: Option<String>,
+    /// When true, compute SHR each timestep using the apparatus dew point /
+    /// bypass factor method (E+ style). When false, use constant rated SHR.
+    #[serde(default)]
+    pub autocalculate_shr: bool,
 
     // ─── Chilled water fields (only used when source: chilled_water) ──
     /// Design chilled water flow rate [m³/s]
@@ -1540,6 +1550,12 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             let eir_curve = c.eir_ft_curve.as_ref().and_then(|name| {
                                 model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
                             });
+                            let cap_fflow = c.cap_fflow_curve.as_ref().and_then(|name| {
+                                model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                            });
+                            let eir_fflow = c.eir_fflow_curve.as_ref().and_then(|name| {
+                                model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                            });
                             let mut coil = CoolingCoilDX::new(
                                 &c.name,
                                 c.capacity.to_f64(),
@@ -1547,7 +1563,10 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                                 c.shr,
                                 c.rated_airflow.to_f64(),
                                 c.setpoint,
-                            ).with_curves(cap_curve, eir_curve);
+                            )
+                            .with_curves(cap_curve, eir_curve)
+                            .with_fflow_curves(cap_fflow, eir_fflow)
+                            .with_autocalculate_shr(c.autocalculate_shr);
                             if let Some(plf) = c.plf_curve.as_ref().and_then(|name| {
                                 model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
                             }) {
@@ -2045,6 +2064,7 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                     power,
                     radiant_fraction: equip.radiant_fraction,
                     lost_fraction: equip.lost_fraction,
+                    latent_fraction: equip.latent_fraction,
                     schedule: equip.schedule.clone(),
                 });
             }

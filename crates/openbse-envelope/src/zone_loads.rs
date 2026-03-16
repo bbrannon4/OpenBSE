@@ -112,6 +112,10 @@ pub struct EquipmentGainInput {
     /// Example: elevator with Lost=0.95 means only 5% of heat enters the zone.
     #[serde(default)]
     pub lost_fraction: f64,
+    /// Fraction of equipment heat that is latent (moisture-generating) [0-1] (default 0.0).
+    /// Applied to the non-lost portion: latent = power × (1 - lost_fraction) × latent_fraction.
+    #[serde(default)]
+    pub latent_fraction: f64,
     /// Schedule name for time-varying equipment
     #[serde(default)]
     pub schedule: Option<String>,
@@ -128,7 +132,7 @@ fn default_equip_radiant() -> f64 { 0.3 }
 ///
 /// - `ashrae_combined`: ASHRAE combined infiltration model. When exhaust fans
 ///   create unbalanced flow, outdoor air enters through envelope cracks:
-///   ```
+///   ```text
 ///   Q_combined = sqrt(Q_infiltration² + Q_unbalanced_exhaust²)
 ///   ```
 ///   More physically correct but gives different results than E+ without AFN.

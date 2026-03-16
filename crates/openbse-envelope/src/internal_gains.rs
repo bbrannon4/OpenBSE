@@ -58,6 +58,12 @@ pub enum InternalGainInput {
         /// Example: elevator with lost_fraction=0.95 means only 5% of heat enters the zone.
         #[serde(default)]
         lost_fraction: f64,
+        /// Fraction of equipment heat that is latent (moisture-generating) [0-1] (default 0.0).
+        /// Examples: kitchen equipment, laundry — a portion of their heat output adds
+        /// moisture to the zone rather than sensible heat. The latent fraction is applied
+        /// to the non-lost portion: latent = power × (1 - lost_fraction) × latent_fraction.
+        #[serde(default)]
+        latent_fraction: f64,
         /// Schedule name for time-varying equipment (default: always on)
         #[serde(default)]
         schedule: Option<String>,
@@ -87,6 +93,8 @@ pub struct ResolvedGain {
     pub people_heat: f64,
     /// People latent heat this timestep [W] (scheduled, for humidity modeling)
     pub people_latent: f64,
+    /// Equipment latent heat this timestep [W] (from latent_fraction)
+    pub equipment_latent: f64,
 }
 
 /// Resolve all gains for a zone at this timestep.
@@ -136,14 +144,18 @@ pub fn resolve_gains_scheduled(
                 result.total += total;
                 result.lighting_power += total;
             }
-            InternalGainInput::Equipment { power, radiant_fraction, lost_fraction, schedule } => {
+            InternalGainInput::Equipment { power, radiant_fraction, lost_fraction, latent_fraction, schedule } => {
                 let frac = schedule_fraction(schedule, schedule_mgr, hour, day_of_week);
                 let total = power * frac;
                 // Only the non-lost portion enters the zone as heat
                 let to_zone = total * (1.0 - lost_fraction);
-                result.radiative += to_zone * radiant_fraction;
-                result.convective += to_zone * (1.0 - radiant_fraction);
-                result.total += to_zone;
+                // Latent portion generates moisture, not sensible heat
+                let latent = to_zone * latent_fraction;
+                let sensible = to_zone - latent;
+                result.radiative += sensible * radiant_fraction;
+                result.convective += sensible * (1.0 - radiant_fraction);
+                result.total += sensible;
+                result.equipment_latent += latent;
                 // Report full electric power for energy accounting
                 result.equipment_power += total;
             }
@@ -209,7 +221,7 @@ mod tests {
     fn test_combined_gains() {
         let gains = vec![
             InternalGainInput::People { count: 5.0, activity_level: 120.0, sensible_fraction: 0.6, radiant_fraction: 0.3, schedule: None, sensible_gain_per_person: None, latent_gain_per_person: None },
-            InternalGainInput::Equipment { power: 500.0, radiant_fraction: 0.3, lost_fraction: 0.0, schedule: None },
+            InternalGainInput::Equipment { power: 500.0, radiant_fraction: 0.3, lost_fraction: 0.0, latent_fraction: 0.0, schedule: None },
         ];
         let resolved = resolve_gains(&gains);
         assert_relative_eq!(resolved.total, 860.0); // 5×120×0.6=360 + 500
@@ -240,6 +252,7 @@ mod tests {
             power: 1000.0,
             radiant_fraction: 0.3,
             lost_fraction: 0.0,
+            latent_fraction: 0.0,
             schedule: Some("half".to_string()),
         }];
 
@@ -259,6 +272,7 @@ mod tests {
             power: 1000.0,
             radiant_fraction: 0.3,
             lost_fraction: 0.95,
+            latent_fraction: 0.0,
             schedule: None,
         }];
         let resolved = resolve_gains(&gains);

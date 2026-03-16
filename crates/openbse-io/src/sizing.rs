@@ -256,7 +256,7 @@ fn run_single_design_day(
         }
     }
 
-    // Reset zone temperatures and BDF state to setpoint
+    // Reset zone temperatures, humidity, and BDF state to setpoint
     for zone in &mut env.zones {
         let sp = zone_setpoints.get(&zone.input.name).copied().unwrap_or(21.0);
         zone.temp = sp;
@@ -264,6 +264,12 @@ fn run_single_design_day(
         zone.temp_prev2 = sp;
         zone.temp_prev3 = sp;
         zone.temp_order = 0;
+        // Reset humidity BDF state to initial value
+        zone.humidity_ratio = 0.008;
+        zone.w_prev = 0.008;
+        zone.w_prev2 = 0.008;
+        zone.w_prev3 = 0.008;
+        zone.w_order = 0;
     }
 
     let mut last_day_results = Vec::new();

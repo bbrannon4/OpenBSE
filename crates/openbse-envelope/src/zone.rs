@@ -510,6 +510,20 @@ pub struct ZoneState {
     pub temp_order: u8,
     /// Current zone humidity ratio [kg/kg]
     pub humidity_ratio: f64,
+    /// Previous timestep zone humidity ratio [kg/kg] (W_n)
+    pub w_prev: f64,
+    /// Two timesteps ago zone humidity ratio [kg/kg] (W_{n-1})
+    pub w_prev2: f64,
+    /// Three timesteps ago zone humidity ratio [kg/kg] (W_{n-2})
+    pub w_prev3: f64,
+    /// Order of backward difference scheme for humidity (1, 2, or 3).
+    pub w_order: u8,
+    /// HVAC supply air humidity ratio [kg/kg]
+    pub supply_air_humidity_ratio: f64,
+    /// People latent heat gain [W] (scheduled, from internal gains)
+    pub people_latent: f64,
+    /// Equipment latent heat gain [W] (from equipment with latent_fraction)
+    pub equipment_latent: f64,
     /// Indices into the surface array for surfaces in this zone
     pub surface_indices: Vec<usize>,
     /// Zone heating load [W] (positive = needs heating)
@@ -574,6 +588,15 @@ pub struct ZoneState {
     pub temp_no_hvac: f64,
 
     // ─── Diagnostic accumulators (annual kWh) ─────────────────────
+    /// Ideal loads predictor mode locked for current physical timestep.
+    /// +1 = heating, -1 = cooling, 0 = deadband.
+    /// Set on first HVAC iteration, locked for subsequent iterations.
+    pub ideal_pred_mode: i8,
+    /// Whether the predictor mode has been computed for this physical timestep.
+    /// Reset to false in update_bdf_history().
+    pub ideal_pred_mode_locked: bool,
+
+    // ─── Diagnostic accumulators (annual kWh) ─────────────────────
     /// Last sim_time_s when accumulators were committed
     pub diag_last_sim_time: f64,
     /// Pending per-timestep values (overwritten each HVAC iteration, committed on next timestep)
@@ -606,6 +629,13 @@ impl ZoneState {
             temp_prev3: initial_temp,
             temp_order: 1,
             humidity_ratio: 0.008,
+            w_prev: 0.008,
+            w_prev2: 0.008,
+            w_prev3: 0.008,
+            w_order: 1,
+            supply_air_humidity_ratio: 0.008,
+            people_latent: 0.0,
+            equipment_latent: 0.0,
             surface_indices: Vec::new(),
             heating_load: 0.0,
             cooling_load: 0.0,
@@ -632,6 +662,8 @@ impl ZoneState {
             nat_vent_off_timesteps: u32::MAX, // large value = long since stopped
             centroid_height: 0.0, // set after surface assignment
             temp_no_hvac: initial_temp,
+            ideal_pred_mode: 0,
+            ideal_pred_mode_locked: false,
             diag_last_sim_time: -1.0,
             diag_pending_surface: 0.0,
             diag_pending_infil: 0.0,
@@ -777,6 +809,60 @@ pub fn solve_zone_air_temp_with_q(
         t_prev
     } else {
         numerator / denominator
+    }
+}
+
+/// Solve zone air humidity ratio for one timestep.
+///
+/// Moisture balance (analogous to the energy balance):
+///
+///   ρ·V/dt · (W_new - W_prev) = ṁ_infil·(W_outdoor - W_new)
+///                               + ṁ_supply·(W_supply - W_new)
+///                               + m_latent_gains
+///
+/// Rearranges to:
+///   W_new = (Cap·W_prev + ṁ_infil·W_outdoor + ṁ_supply·W_supply + m_latent)
+///         / (Cap + ṁ_infil + ṁ_supply)
+///
+/// Where:
+///   Cap = ρ·V / dt [kg/s] (zone air moisture capacitance)
+///   m_latent = Q_latent / h_fg [kg/s] (latent gains converted to moisture rate)
+///   h_fg ≈ 2,501,000 J/kg (latent heat of vaporization at ~20°C)
+///
+/// Reference: EnergyPlus Engineering Reference, "Zone Air Moisture Predictor-Corrector"
+pub fn solve_zone_humidity(
+    rho_air: f64,
+    volume: f64,
+    dt: f64,
+    w_prev: f64,
+    m_infil: f64,
+    w_outdoor: f64,
+    m_supply: f64,
+    w_supply: f64,
+    q_latent: f64,
+) -> f64 {
+    /// Latent heat of vaporization [J/kg] at ~20°C
+    const H_FG: f64 = 2_501_000.0;
+
+    let cap = rho_air * volume / dt;
+
+    // Convert latent heat [W] to moisture generation rate [kg/s]
+    let m_latent = q_latent / H_FG;
+
+    let numerator = cap * w_prev
+        + m_infil * w_outdoor
+        + m_supply * w_supply
+        + m_latent;
+
+    let denominator = cap + m_infil + m_supply;
+
+    if denominator.abs() < 1.0e-20 {
+        w_prev
+    } else {
+        let w_new = numerator / denominator;
+        // Clamp to physically reasonable range [0, 0.10]
+        // (0.10 kg/kg ≈ tropical extreme; negative is unphysical)
+        w_new.clamp(0.0, 0.10)
     }
 }
 
@@ -1102,5 +1188,68 @@ mod tests {
         // Outdoor warmer than zone → no ventilation
         let flow = input2.scheduled_ventilation_flow(22, 130.0, 30.0, 32.0);
         assert_relative_eq!(flow, 0.0);
+    }
+
+    #[test]
+    fn test_solve_zone_humidity_steady_state() {
+        // Outdoor air at W=0.010, zone initially at W=0.008.
+        // With infiltration only, zone should converge toward outdoor W.
+        let rho = 1.2;
+        let vol = 100.0;
+        let dt = 3600.0;
+        let m_infil = 0.05; // kg/s
+        let w_outdoor = 0.010;
+        let m_supply = 0.0;
+        let w_supply = 0.008;
+        let q_latent = 0.0;
+
+        let mut w = 0.008;
+        for _ in 0..1000 {
+            w = solve_zone_humidity(rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent);
+        }
+        // Should converge to outdoor humidity
+        assert_relative_eq!(w, w_outdoor, max_relative = 0.01);
+    }
+
+    #[test]
+    fn test_solve_zone_humidity_with_supply() {
+        // HVAC supply at W=0.006 (dehumidified), outdoor at W=0.012.
+        // Zone should settle between, weighted by mass flows.
+        let rho = 1.2;
+        let vol = 100.0;
+        let dt = 3600.0;
+        let m_infil = 0.02;
+        let w_outdoor = 0.012;
+        let m_supply = 0.5; // large supply flow dominates
+        let w_supply = 0.006;
+        let q_latent = 0.0;
+
+        let mut w = 0.010;
+        for _ in 0..500 {
+            w = solve_zone_humidity(rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent);
+        }
+        // Supply dominates, so zone W should be close to supply W
+        assert!(w > 0.006);
+        assert!(w < 0.008);
+    }
+
+    #[test]
+    fn test_solve_zone_humidity_with_latent_gains() {
+        // People adding latent heat → moisture increases above outdoor level
+        let rho = 1.2;
+        let vol = 100.0;
+        let dt = 3600.0;
+        let m_infil = 0.05;
+        let w_outdoor = 0.008;
+        let m_supply = 0.0;
+        let w_supply = 0.0;
+        let q_latent = 500.0; // 500 W of latent heat from people
+
+        let mut w = 0.008;
+        for _ in 0..500 {
+            w = solve_zone_humidity(rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent);
+        }
+        // Latent gains should push zone W above outdoor
+        assert!(w > w_outdoor);
     }
 }

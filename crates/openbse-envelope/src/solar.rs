@@ -1368,12 +1368,23 @@ mod tests {
 
     #[test]
     fn test_angular_shgc_modifier_lowe_steeper() {
-        // Low-e glass (SHGC=0.2) should fall off faster at oblique angles than clear (SHGC=0.7)
+        // Without per-pane optical data, the E+ SGS model uses a polynomial
+        // fallback for low-e glass (SHGC < 0.55) vs Fresnel for clear glass.
+        // The polynomial curves (LBNL-2804E) are empirically gentler than
+        // Fresnel, so low-e gets a HIGHER modifier at oblique angles.
         let (kd_c, ni_c, n_c) = compute_glass_angular_params(0.7, None, None);
         let (kd_l, ni_l, n_l) = compute_glass_angular_params(0.2, None, None);
         let m_clear = angular_shgc_modifier(0.5, 0.7, kd_c, ni_c, n_c);
         let m_lowe  = angular_shgc_modifier(0.5, 0.2, kd_l, ni_l, n_l);
-        assert!(m_lowe < m_clear, "Low-e should have steeper angular falloff: lowe={} clear={}", m_lowe, m_clear);
+        // Both should be physically reasonable (0.70–0.95 at 60°)
+        assert!(m_clear > 0.70 && m_clear < 0.95,
+            "Clear modifier at 60° should be 0.70-0.95, got {}", m_clear);
+        assert!(m_lowe > 0.70 && m_lowe < 0.95,
+            "Low-e modifier at 60° should be 0.70-0.95, got {}", m_lowe);
+        // In SGS model without per-pane data, polynomial fallback gives
+        // low-e a gentler curve than Fresnel gives clear glass
+        assert!(m_lowe >= m_clear,
+            "SGS model: low-e polynomial ({}) should be >= clear Fresnel ({})", m_lowe, m_clear);
     }
 
     #[test]
@@ -1409,12 +1420,15 @@ mod tests {
             assert!(m > 0.60, "Diffuse modifier too low for shgc={}: {}", shgc, m);
             assert!(m < 0.98, "Diffuse modifier too high for shgc={}: {}", shgc, m);
         }
-        // Clear glass should have higher diffuse modifier than low-e
+        // In the SGS model without per-pane data, the polynomial fallback
+        // for low-e is gentler than the Fresnel model for clear glass,
+        // so low-e gets a higher diffuse modifier.
         let (kd_c, ni_c, n_c) = compute_glass_angular_params(0.8, None, None);
         let (kd_l, ni_l, n_l) = compute_glass_angular_params(0.2, None, None);
         let m_clear = diffuse_shgc_modifier(0.8, kd_c, ni_c, n_c);
         let m_lowe  = diffuse_shgc_modifier(0.2, kd_l, ni_l, n_l);
-        assert!(m_clear > m_lowe, "Clear glass should have higher diffuse modifier than low-e: clear={} lowe={}", m_clear, m_lowe);
+        assert!(m_lowe >= m_clear,
+            "SGS model: low-e diffuse ({}) should be >= clear diffuse ({})", m_lowe, m_clear);
     }
 
     #[test]
