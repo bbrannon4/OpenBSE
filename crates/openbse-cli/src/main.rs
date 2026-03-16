@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 use openbse_core::graph::{GraphComponent, SimulationGraph};
-use openbse_core::ports::{AirPort, EnvelopeSolver, SimulationContext, SizingInternalGains, WaterPort, ZoneHvacConditions};
+use openbse_core::ports::{AirPort, EnvelopeSolver, PlantComponent, SimulationContext, SizingInternalGains, WaterPort, ZoneHvacConditions};
 use openbse_core::simulation::{ControlSignals, SimulationConfig, TimestepResult};
 use openbse_core::types::{DayType, TimeStep};
 use openbse_envelope::schedule::ScheduleManager;
@@ -86,6 +86,9 @@ struct LoopInfo {
     zone_oa_data: Vec<ZoneOaData>,
     /// Design supply air flow rate [m³/s] for this loop (used to compute dynamic OA fraction)
     design_supply_flow: f64,
+    /// DX coil part-load fraction curve: PLF = f(PLR).
+    /// When present, used instead of the default Cd=0.15 linear formula.
+    plf_curve: Option<openbse_components::performance_curve::PerformanceCurve>,
     /// Economizer type for this loop.
     economizer_type: openbse_io::input::EconomizerType,
     /// Economizer high-limit shutoff temperature [°C] (for FixedDryBulb).
@@ -209,6 +212,20 @@ fn build_loop_infos(
             eff.unwrap_or(0.80) // Default 80% if no boiler found
         };
 
+        // Extract PLF curve from the DX cooling coil (if any) for system-level cycling.
+        let plf_curve = {
+            use openbse_io::input::EquipmentInput;
+            al.equipment.iter().find_map(|eq| {
+                if let EquipmentInput::CoolingCoil(c) = eq {
+                    c.plf_curve.as_ref().and_then(|name| {
+                        model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                    })
+                } else {
+                    None
+                }
+            })
+        };
+
         LoopInfo {
             name: al.name.clone(),
             system_type,
@@ -254,6 +271,7 @@ fn build_loop_infos(
                     people_schedule: people_sched,
                 })
             }).collect(),
+            plf_curve,
             economizer_type: al.controls.economizer.as_ref()
                 .map(|e| e.economizer_type)
                 .unwrap_or(openbse_io::input::EconomizerType::NoEconomizer),
@@ -455,12 +473,44 @@ fn main() -> Result<()> {
             );
             wh.deadband = dhw_input.water_heater.deadband;
             wh.parasitic_power = dhw_input.water_heater.parasitic_power;
+            wh.control_type = match dhw_input.water_heater.control_type.as_str() {
+                "modulate" | "Modulate" => openbse_components::water_heater::WaterHeaterControl::Modulate,
+                _ => openbse_components::water_heater::WaterHeaterControl::OnOff,
+            };
             wh
         })
         .collect();
     if !dhw_systems.is_empty() {
         info!("DHW systems built: {}", dhw_systems.len());
     }
+
+    // Build DHW circulation pumps from PumpInput (reusing the real Pump component)
+    let mut dhw_pumps: Vec<Option<openbse_components::pump::Pump>> = model.dhw_systems.iter()
+        .map(|dhw_input| {
+            dhw_input.pump.as_ref().map(|p| {
+                let pump_type = match p.pump_type.as_str() {
+                    "constant_speed" => openbse_components::pump::PumpType::ConstantSpeed,
+                    _ => openbse_components::pump::PumpType::VariableSpeed,
+                };
+                let power_curve = p.power_curve.as_ref().and_then(|v| {
+                    if v.len() >= 4 { Some([v[0], v[1], v[2], v[3]]) } else { None }
+                });
+                let design_flow = if p.design_flow_rate.is_autosize() {
+                    dhw_input.loads.iter()
+                        .map(|l| l.peak_flow_rate / 1000.0)
+                        .sum()
+                } else {
+                    p.design_flow_rate.to_f64()
+                };
+                let mut pump = openbse_components::pump::Pump::new_headered(
+                    &p.name, pump_type, design_flow, p.design_head,
+                    p.motor_efficiency, p.impeller_efficiency, p.num_pumps, power_curve,
+                );
+                pump.motor_heat_to_fluid_fraction = p.motor_heat_to_fluid_fraction;
+                pump
+            })
+        })
+        .collect();
 
     // Collect pump names from plant loops and DHW systems for end-use routing
     let mut pump_names: std::collections::HashSet<String> = model.plant_loops.iter()
@@ -602,7 +652,6 @@ fn main() -> Result<()> {
                 model.simulation.heating_sizing_factor,
                 model.simulation.cooling_sizing_factor,
                 &sizing_oa_handled,
-                model.simulation.timesteps_per_hour,
             );
 
             // Store coincident peak demands for plant loop pump autosizing
@@ -687,14 +736,12 @@ fn main() -> Result<()> {
                             .map(|z| {
                                 sizing_result.zone_peak_heating.get(z).copied().unwrap_or(0.0)
                             })
-                            .sum::<f64>() * model.simulation.heating_sizing_factor
-                            * model.simulation.system_heating_capacity_factor;
+                            .sum::<f64>() * model.simulation.heating_sizing_factor;
                         let zone_cool: f64 = li.served_zones.iter()
                             .map(|z| {
                                 sizing_result.zone_peak_cooling.get(z).copied().unwrap_or(0.0)
                             })
-                            .sum::<f64>() * model.simulation.cooling_sizing_factor
-                            * model.simulation.system_cooling_capacity_factor;
+                            .sum::<f64>() * model.simulation.cooling_sizing_factor;
                         (zone_flow_m3, zone_heat, zone_cool)
                     }
                     AirLoopSystemType::Vav => {
@@ -709,14 +756,12 @@ fn main() -> Result<()> {
                             .map(|z| {
                                 sizing_result.zone_peak_heating.get(z).copied().unwrap_or(0.0)
                             })
-                            .sum::<f64>() * model.simulation.heating_sizing_factor
-                            * model.simulation.system_heating_capacity_factor;
+                            .sum::<f64>() * model.simulation.heating_sizing_factor;
                         let zone_cool: f64 = li.served_zones.iter()
                             .map(|z| {
                                 sizing_result.zone_peak_cooling.get(z).copied().unwrap_or(0.0)
                             })
-                            .sum::<f64>() * model.simulation.cooling_sizing_factor
-                            * model.simulation.system_cooling_capacity_factor;
+                            .sum::<f64>() * model.simulation.cooling_sizing_factor;
                         (zone_flow_m3, zone_heat, zone_cool)
                     }
                     AirLoopSystemType::Doas => {
@@ -754,11 +799,9 @@ fn main() -> Result<()> {
 
                         let cp_air = 1005.0_f64;
                         let doas_heat_cap = (oa_flow_kg * cp_air * (t_supply_heat - t_outdoor_heat).max(0.0))
-                            * model.simulation.heating_sizing_factor
-                            * model.simulation.system_heating_capacity_factor;
+                            * model.simulation.heating_sizing_factor;
                         let doas_cool_cap = (oa_flow_kg * cp_air * (t_outdoor_cool - t_supply_cool).max(0.0))
-                            * model.simulation.cooling_sizing_factor
-                            * model.simulation.system_cooling_capacity_factor;
+                            * model.simulation.cooling_sizing_factor;
 
                         (oa_flow_m3, doas_heat_cap, doas_cool_cap)
                     }
@@ -816,10 +859,8 @@ fn main() -> Result<()> {
                         // Use the larger of (zone peak load × sizing factor) and
                         // coil capacity (which already includes sizing factor via
                         // sized airflow from zone sizing).
-                        let zone_heat = (zone_peak_heat * model.simulation.heating_sizing_factor
-                            * model.simulation.system_heating_capacity_factor).max(coil_heat_cap);
-                        let zone_cool = (zone_peak_cool * model.simulation.cooling_sizing_factor
-                            * model.simulation.system_cooling_capacity_factor).max(coil_cool_cap);
+                        let zone_heat = (zone_peak_heat * model.simulation.heating_sizing_factor).max(coil_heat_cap);
+                        let zone_cool = (zone_peak_cool * model.simulation.cooling_sizing_factor).max(coil_cool_cap);
 
                         (zone_flow_m3, zone_heat, zone_cool)
                     }
@@ -907,8 +948,7 @@ fn main() -> Result<()> {
                                 if is_autosize(cap) {
                                     let zone_heat = sizing_result.zone_peak_heating
                                         .get(zone_name).copied().unwrap_or(0.0)
-                                        * model.simulation.heating_sizing_factor
-                                        * model.simulation.system_heating_capacity_factor;
+                                        * model.simulation.heating_sizing_factor;
                                     comp.set_nominal_capacity(zone_heat);
                                     info!("Autosized terminal '{}' reheat capacity: {:.0} W ({:.1} kW)",
                                         term_name, zone_heat, zone_heat / 1000.0);
@@ -1929,22 +1969,14 @@ fn main() -> Result<()> {
                 // ── DHW simulation ─────────────────────────────────────
                 // Simulate domestic hot water systems and add energy to snapshot.
                 let dhw_dow = openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
-                for (dhw_sys, dhw_input) in dhw_systems.iter_mut().zip(&model.dhw_systems) {
-                    // Update water heater ambient temperature from zone air temp.
-                    // Matches E+ WaterHeater:Mixed "Ambient Temperature Zone Name".
-                    if let Some(ref amb_zone_name) = dhw_input.water_heater.ambient_zone {
-                        if let Some(zone) = env.zones.iter().find(|z| z.input.name == *amb_zone_name) {
-                            dhw_sys.ambient_temp = zone.temp;
+                for (dhw_idx, (dhw_sys, dhw_input)) in dhw_systems.iter_mut().zip(&model.dhw_systems).enumerate() {
+                    // Update ambient temperature from zone if specified
+                    if let Some(ref zone_name) = dhw_input.water_heater.ambient_zone {
+                        if let Some(&zt) = env_result.zone_temps.get(zone_name) {
+                            dhw_sys.ambient_temp = zt;
                         }
                     }
-
-                    // Compute mains water temperature — monthly correlation or constant.
-                    let doy = (hour_idx / 24) as u32 + 1;
-                    let t_mains = if let Some(ref corr) = dhw_input.mains_correlation {
-                        corr.temperature(doy)
-                    } else {
-                        dhw_input.mains_temperature
-                    };
+                    let t_mains = dhw_input.mains_temperature;
 
                     // Compute current draw rate from schedule.
                     // E+ WaterUse:Equipment mixes hot water from the tank with cold
@@ -1977,39 +2009,22 @@ fn main() -> Result<()> {
                         snapshot.dhw_fuel_power.insert(dhw_sys.name.clone(), fp);
                     }
 
-                    // SWH circulation pump — runs whenever there is a DHW draw
-                    if let Some(ref pump_input) = dhw_input.pump {
+                    // SWH circulation pump — reuse the real Pump component
+                    if let Some(ref mut pump) = dhw_pumps[dhw_idx] {
                         if total_draw > 0.0 {
-                            // Autosize design flow to sum of peak draw rates [L/s → m³/s]
-                            let design_flow_m3s = if pump_input.design_flow_rate.is_autosize() {
-                                dhw_input.loads.iter()
-                                    .map(|l| l.peak_flow_rate / 1000.0) // L/s → m³/s
-                                    .sum()
-                            } else {
-                                pump_input.design_flow_rate.to_f64()
-                            };
-                            let total_eff = pump_input.motor_efficiency * pump_input.impeller_efficiency;
-                            let design_power = design_flow_m3s * pump_input.design_head / total_eff;
                             let total_peak: f64 = dhw_input.loads.iter()
                                 .map(|l| l.peak_flow_rate).sum();
                             let flow_frac = (total_draw / total_peak.max(1e-10)).clamp(0.0, 1.0);
-                            let is_intermittent = pump_input.control_strategy
-                                == openbse_io::input::PumpControlStrategy::Intermittent;
-                            let pump_power = if pump_input.pump_type == "constant_speed" {
-                                if is_intermittent {
-                                    // E+ Intermittent: constant-speed pump cycles on/off
-                                    // within the timestep. Average power = design × flow_frac.
-                                    design_power * flow_frac
-                                } else {
-                                    design_power
-                                }
-                            } else {
-                                // Variable speed: scale by flow fraction cubed
-                                let plr = flow_frac.max(0.1);
-                                design_power * plr.powi(3)
-                            };
+                            let mass_flow = pump.design_flow_rate
+                                * openbse_psychrometrics::RHO_WATER * flow_frac;
+                            let inlet = WaterPort::new(
+                                openbse_psychrometrics::FluidState::water(
+                                    dhw_sys.tank_temperature(), mass_flow,
+                                ),
+                            );
+                            let _outlet = pump.simulate_plant(&inlet, 1.0, &ctx);
                             snapshot.pump_electric_power.insert(
-                                pump_input.name.clone(), pump_power,
+                                pump.name.clone(), pump.power_consumption(),
                             );
                         }
                     }
@@ -2024,8 +2039,9 @@ fn main() -> Result<()> {
                     // AstronomicalClock: exterior lights only on during nighttime
                     if ext.astronomical_clock && power > 0.0 {
                         let doy = (hour_idx / 24) + 1;
-                        // Use standard time hour (mid-timestep for hourly)
-                        let solar_hr = (hour_idx % 24) as f64 + 0.5;
+                        // Use standard time hour (mid-sub-timestep)
+                        let solar_hr = (hour_idx % 24) as f64
+                            + (sub as f64 - 0.5) / config.timesteps_per_hour as f64;
                         let sol = openbse_envelope::solar::solar_position(
                             doy, solar_hr, weather_data.location.latitude,
                         );
@@ -2840,9 +2856,14 @@ fn simulate_all_loops(
             // E+ Part Load Fraction: accounts for compressor cycling losses.
             // RTF = PLR / PLF > PLR, so compressor runs longer per unit of
             // cooling delivered (startup losses, refrigerant migration, etc.).
-            // Default: PLF = 1 - Cd*(1-PLR) with Cd=0.15 (E+ default).
+            // Use the DX coil's PLF curve if available; otherwise fall back
+            // to the E+ default: PLF = 1 - Cd*(1-PLR) with Cd=0.15.
             // Fan power uses PLR directly (no cycling penalty).
-            let plf = (1.0 - 0.15 * (1.0 - loop_plr)).max(0.7);
+            let plf = if let Some(ref curve) = li.plf_curve {
+                curve.evaluate_1d(loop_plr)
+            } else {
+                (1.0 - 0.15 * (1.0 - loop_plr)).max(0.7)
+            };
             let rtf = loop_plr / plf;
 
             for (comp_name, outputs) in &mut loop_result {

@@ -37,6 +37,24 @@ pub enum WaterHeaterFuel {
     HeatPump,
 }
 
+/// Water heater control type.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum WaterHeaterControl {
+    /// On/off deadband thermostat (default for storage tanks).
+    /// Burner fires at full rated capacity when tank temp drops below
+    /// setpoint - deadband, turns off at setpoint.
+    OnOff,
+    /// Modulating control (matches E+ "Modulate" heater control type).
+    /// Burner modulates output to exactly match the instantaneous load
+    /// (draw + standby losses), capped at rated capacity.  Ideal for
+    /// tankless / instantaneous water heaters.
+    Modulate,
+}
+
+impl Default for WaterHeaterControl {
+    fn default() -> Self { Self::OnOff }
+}
+
 /// Domestic hot water storage-tank water heater.
 ///
 /// A simple mixed-tank model with deadband thermostat control. The tank is
@@ -71,6 +89,8 @@ pub struct WaterHeater {
     /// Matches the EnergyPlus Off-Cycle and On-Cycle Parasitic fields
     /// when both have the same value and zero heat fraction to tank.
     pub parasitic_power: f64,
+    /// Heater control type (OnOff or Modulate). Default: OnOff.
+    pub control_type: WaterHeaterControl,
 
     // ---- Runtime state (not serialised) ------------------------------------
     /// Current average tank temperature [degC].
@@ -118,6 +138,7 @@ impl WaterHeater {
             ua_standby,
             ambient_temp: 20.0,
             parasitic_power: 0.0,
+            control_type: WaterHeaterControl::OnOff,
             // Initialise tank at setpoint
             tank_temp: setpoint,
             heating_rate: 0.0,
@@ -135,14 +156,6 @@ impl WaterHeater {
     pub fn simulate(&mut self, draw_flow_liters_per_s: f64, mains_temp: f64, dt: f64) {
         let m_tank = self.tank_volume * RHO_WATER; // tank water mass [kg]
 
-        // --- Deadband thermostat control ------------------------------------
-        if self.tank_temp < self.setpoint_temp - self.deadband {
-            self.is_heating = true;
-        } else if self.tank_temp >= self.setpoint_temp {
-            self.is_heating = false;
-        }
-        // else: remain in current state (hysteresis)
-
         // --- Energy delivered to draw water ---------------------------------
         let m_draw = draw_flow_liters_per_s * RHO_WATER; // draw mass flow [kg/s]
         let q_delivered = m_draw * CP_WATER * (self.tank_temp - mains_temp).max(0.0);
@@ -151,17 +164,32 @@ impl WaterHeater {
         let q_loss = self.ua_standby * (self.tank_temp - self.ambient_temp);
 
         // --- Burner / element input -----------------------------------------
-        // When the thermostat calls for heat the burner fires at full rated
-        // input capacity.  The effective heat delivered to the tank is
-        // capacity * efficiency.  This matches the EnergyPlus mixed-tank
-        // approach where the burner runs at rated input whenever the
-        // thermostat is calling for heat.
-        let (q_input, energy_input) = if self.is_heating {
-            let input = self.capacity; // full rated input [W]
-            let q_to_tank = input * self.efficiency;
-            (q_to_tank, input)
-        } else {
-            (0.0, 0.0)
+        let (q_input, energy_input) = match self.control_type {
+            WaterHeaterControl::OnOff => {
+                // Deadband thermostat: fires at full capacity when tank
+                // drops below setpoint - deadband, off at setpoint.
+                if self.tank_temp < self.setpoint_temp - self.deadband {
+                    self.is_heating = true;
+                } else if self.tank_temp >= self.setpoint_temp {
+                    self.is_heating = false;
+                }
+                // else: remain in current state (hysteresis)
+                if self.is_heating {
+                    let input = self.capacity;
+                    (input * self.efficiency, input)
+                } else {
+                    (0.0, 0.0)
+                }
+            }
+            WaterHeaterControl::Modulate => {
+                // Modulating control: burner output matches the instantaneous
+                // load exactly, capped at rated capacity.  Matches E+
+                // "Modulate" heater control type used for tankless heaters.
+                let q_needed = (q_delivered + q_loss).max(0.0);
+                let input = (q_needed / self.efficiency).min(self.capacity);
+                self.is_heating = input > 0.0;
+                (input * self.efficiency, input)
+            }
         };
 
         // --- Tank temperature update ----------------------------------------

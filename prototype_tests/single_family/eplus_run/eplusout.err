@@ -1,9 +1,8 @@
-Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.14 04:30,
-   ** Warning ** Version: in IDF="23.1" not the same as expected="25.2"
-   ** Warning ** Version: in IDF="23.1" not the same as expected="25.2"
+Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.15 17:47,
    ************* Beginning Zone Sizing Calculations
-   ** Warning ** Site:GroundTemperature:BuildingSurface: Some values fall outside the range of 15-25C.
-   **   ~~~   ** These values may be inappropriate.  Please consult the Input Output Reference for more details.
+   ** Warning ** GetHTSurfaceData: Surfaces with interface to Ground found but no "Ground Temperatures" were input.
+   **   ~~~   ** Found first in surface=BGWALL_LOWER_LDF
+   **   ~~~   ** Defaults, constant throughout the year of (18.0) will be used.
    ** Warning ** CalculateZoneVolume: 1 zone is not fully enclosed. For more details use:  Output:Diagnostics,DisplayExtrawarnings; 
    ** Warning ** CheckUsedConstructions: There are 11 nominally unused constructions in input.
    **   ~~~   ** For explicit details on each unused construction, use Output:Diagnostics,DisplayExtraWarnings;
@@ -29,11 +28,11 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.14 04:30,
    **   ~~~   ** ...Target water temperature should be less than or equal to the hot water temperature. Verify temperature setpoints and schedules.
    ** Warning ** Processing Monthly Tabular Reports: Variable names not valid for this simulation
    **   ~~~   ** ...use Output:Diagnostics,DisplayExtraWarnings; to show more details on individual variables.
-   ** Warning ** CalcDoe2DXCoil: Coil:Cooling:DX:SingleSpeed "DX COOLING COIL_UNIT1" - Air-cooled condenser inlet dry-bulb temperature below 0 C. Outdoor dry-bulb temperature = -0.17
-   **   ~~~   **  ... Occurrence info = ANNUAL, 01/29 16:00 - 16:10
+   ** Warning ** CalcDoe2DXCoil: Coil:Cooling:DX:SingleSpeed "DX COOLING COIL_UNIT1" - Air-cooled condenser inlet dry-bulb temperature below 0 C. Outdoor dry-bulb temperature = -0.50
+   **   ~~~   **  ... Occurrence info = ANNUAL, 01/14 15:20 - 15:30
    **   ~~~   ** ... Operation at low ambient temperatures may require special performance curves.
    ************* Simulation Error Summary *************
-   ************* There are 26 unused schedules in input.
+   ************* There are 25 unused schedules in input.
    ************* There are 4 unused week schedules in input.
    ************* There are 2 unused day schedules in input.
    ************* Use Output:Diagnostics,DisplayUnusedSchedules; to see them.
@@ -42,22 +41,22 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.14 04:30,
    ************* The following recurring error messages occurred.
    *************
    *************  ** Warning ** "CLOTHES WASHER_UNIT1" - Target water temperature should be less than or equal to the hot water temperature error continues...
-   *************  **   ~~~   **   This error occurred 1257783 total times;
+   *************  **   ~~~   **   This error occurred 1143767 total times;
    *************  **   ~~~   **   during Warmup 0 times;
    *************  **   ~~~   **   during Sizing 0 times.
-   *************  **   ~~~   **   Max=7.316632  Min=4.038321
+   *************  **   ~~~   **   Max=7.338378  Min=4.025858
    *************
    *************  ** Warning ** "DISHWASHER_UNIT1" - Target water temperature should be less than or equal to the hot water temperature error continues...
-   *************  **   ~~~   **   This error occurred 1257783 total times;
+   *************  **   ~~~   **   This error occurred 1143767 total times;
    *************  **   ~~~   **   during Warmup 0 times;
    *************  **   ~~~   **   during Sizing 0 times.
-   *************  **   ~~~   **   Max=7.316632  Min=4.038321
+   *************  **   ~~~   **   Max=7.338378  Min=4.025858
    *************
    *************  ** Warning ** CalcDoe2DXCoil: Coil:Cooling:DX:SingleSpeed="DX COOLING COIL_UNIT1" - Low condenser dry-bulb temperature error continues...
-   *************  **   ~~~   **   This error occurred 175 total times;
+   *************  **   ~~~   **   This error occurred 27 total times;
    *************  **   ~~~   **   during Warmup 0 times;
    *************  **   ~~~   **   during Sizing 0 times.
-   *************  **   ~~~   **   Max=-0.166667 [C]  Min=-4.000000 [C]
+   *************  **   ~~~   **   Max=-0.333333 [C]  Min=-2.833333 [C]
    *************
    *************
    ************* ===== Final Error Summary =====
@@ -69,4 +68,4 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.14 04:30,
    *************
    ************* EnergyPlus Warmup Error Summary. During Warmup: 0 Warning; 0 Severe Errors.
    ************* EnergyPlus Sizing Error Summary. During Sizing: 3 Warning; 0 Severe Errors.
-   ************* EnergyPlus Completed Successfully-- 2515750 Warning; 0 Severe Errors; Elapsed Time=00hr 00min  9.78sec
+   ************* EnergyPlus Completed Successfully-- 2287568 Warning; 0 Severe Errors; Elapsed Time=00hr 00min  8.08sec

@@ -923,6 +923,10 @@ pub enum PumpControlStrategy {
     Continuous,
     /// Pump is OFF unless staged on by plant controller
     Staged,
+    /// Pump cycles on/off within the timestep to match demand (E+ Intermittent).
+    /// Constant speed: full power when any flow exists, off otherwise.
+    /// Same as Demand for variable speed pumps.
+    Intermittent,
 }
 
 /// Pump definition for plant water loops.
@@ -1318,6 +1322,16 @@ pub struct WaterHeaterInput {
     /// regardless of burner state. Matches E+ Off/On Cycle Parasitic fields.
     #[serde(default)]
     pub parasitic_power: f64,
+    /// Heater control type: "on_off" (default) or "modulate".
+    /// Modulate matches E+ tankless heaters where burner output tracks load.
+    #[serde(default = "default_wh_control")]
+    pub control_type: String,
+    /// Optional ambient temperature zone name.
+    /// If set, the water heater uses the zone's air temperature for standby
+    /// loss calculation instead of the default constant 20 °C.
+    /// Matches E+ WaterHeater:Mixed "Ambient Temperature Zone Name" field.
+    #[serde(default)]
+    pub ambient_zone: Option<String>,
 }
 
 /// DHW draw profile (load).
@@ -1343,6 +1357,7 @@ fn default_wh_efficiency() -> f64 { 0.80 }
 fn default_wh_setpoint() -> f64 { 60.0 }
 fn default_wh_ua() -> f64 { 2.0 }
 fn default_wh_deadband() -> f64 { 5.0 }
+fn default_wh_control() -> String { "on_off".to_string() }
 fn default_use_temp() -> f64 { 43.3 }
 
 // ─── Exterior Equipment ─────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 # 4 zones: conditioned living (2-story), unheated basement, garage, attic
 # Gas furnace + DX cooling, tankless gas DHW
 # Based on US+SF+CZ5B+gasfurnace+unheatedbsmt+IECC_2024.idf (simplified)
-# Boulder, CO weather
+# Denver (Buckley AFB), CO weather — same EPW as E+ IDF
 
 simulation:
   timesteps_per_hour: 6
@@ -17,7 +17,7 @@ simulation:
   cooling_sizing_factor: 1.15
 summary_report: true
 weather_files:
-- ../Boulder.epw
+- ../Denver-Buckley.epw
 design_days:
 - name: Denver Heating 99.6%
   design_temp: -17.9
@@ -578,6 +578,19 @@ exhaust_fans:
   motor_efficiency: 0.863       # same as supply fan
   motor_in_airstream_fraction: 1.0  # motor in exhaust stream → heat exits
 
+# ── Exterior Lighting ─────────────────────────────────────────────
+# Matches E+ Exterior:Lights objects. These do not interact with zones.
+exterior_equipment:
+- name: Exterior Lights
+  power: 43.2424607481559     # E+ Exterior-Lights_unit1 design level [W]
+  subcategory: Exterior-Lights # routes to ext_lighting end use
+  astronomical_clock: true     # E+ Control Option blank = AstronomicalClock default
+  # ExteriorLighting schedule is constant 1.0 — astronomical_clock limits to nighttime
+- name: Garage Lights
+  power: 7.16294617434682     # E+ Garage-Lights_unit1 design level [W]
+  subcategory: Garage-Lights   # routes to ext_lighting end use
+  schedule: Interior Lighting  # E+ uses InteriorLightingHE schedule
+
 # ── Air Loops ─────────────────────────────────────────────────────
 air_loops:
 - name: Central System
@@ -628,16 +641,15 @@ dhw_systems:
   water_heater:
     name: Tankless Gas WH
     fuel_type: gas
-    # NOTE: E+ model is tankless (1 gal), but OpenBSE mixed-tank model needs
-    # a reasonable volume for numerical stability at 600s timesteps.
-    # Using 100L equivalent with low standby loss to approximate tankless.
-    tank_volume: 100.0        # 100 L (stabilized tankless approximation)
-    capacity: 1500            # 1.5 kW — reduced to prevent overshoot
-                              # (OpenBSE uses on/off, E+ uses modulating)
+    # E+ WaterHeater:Mixed: 0.003785411 m³ (1 gal), Modulate control, autosize capacity
+    tank_volume: 3.785        # 1 gal = 0.003785411 m³ = 3.785 L (matches IDF)
+    capacity: 100000          # 100 kW (large value to never constrain; E+ autosizes)
     efficiency: 0.97
-    setpoint: 48.0            # 118.4 F
-    ua_standby: 0.0           # E+ IDF has UA=0 for this tankless heater
+    setpoint: 48.0            # 118.4 F (dhw_setpt schedule = 48 °C constant)
+    ua_standby: 0.0           # E+ IDF Off Cycle Loss Coefficient = 0 W/K
+    ambient_zone: unheatedbsmt_unit1  # E+ Ambient Temperature Zone Name
     deadband: 2.0
+    control_type: modulate    # E+ Heater Control Type = Modulate (tankless)
   loads:
   - name: Sinks
     peak_flow_rate: 0.071934  # 7.1934e-05 m³/s → 0.071934 L/s
@@ -1236,5 +1248,5 @@ surfaces:
 #    from equipment separately.
 #
 # 8. EXTERIOR LIGHTING: 43.24 W exterior + 7.16 W garage lights.
-#    Not included in this model.
+#    Modeled via exterior_equipment section.
 # ══════════════════════════════════════════════════════════════════

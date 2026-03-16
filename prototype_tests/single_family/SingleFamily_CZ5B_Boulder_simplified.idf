@@ -5374,9 +5374,45 @@ Output:Table:Monthly,
     Zone Total Internal Total Heat Gain,  !- Variable or Meter 6 Name
     SumOrAverage;            !- Aggregation Type for Variable or Meter 6
 
+!-   ===========  MONTHLY METERS FOR END-USE COMPARISON ===========
+
+Output:Meter,
+    Heating:NaturalGas,      !- Key Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Meter,
+    Cooling:Electricity,     !- Key Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Meter,
+    Fans:Electricity,        !- Key Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Meter,
+    Pumps:Electricity,       !- Key Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Meter,
+    WaterSystems:NaturalGas, !- Key Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Meter,
+    InteriorLights:Electricity,  !- Key Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Meter,
+    ExteriorLights:Electricity,  !- Key Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Meter,
+    InteriorEquipment:Electricity,  !- Key Name
+    Monthly;                 !- Reporting Frequency
+
+Output:Meter,
+    InteriorEquipment:NaturalGas,  !- Key Name
+    Monthly;                 !- Reporting Frequency
 
 
-    
 ! GPARM parameters as run:
 !    ID = US+SF+CZ5B+gasfurnace+unheatedbsmt+IECC_2024
 !    weatherfile = USA_CO_Denver-Aurora-Buckley.AFB.724695_TMY3.epw
