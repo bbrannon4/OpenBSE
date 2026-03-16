@@ -40,6 +40,33 @@ summary_report.txt
 # ─── EnergyPlus Validation Output ────────────────────────────────────────────
 prototype_tests/output_*/
 prototype_tests/*.err
+prototype_tests/**/*.err
+
+# E+ transient run artifacts (regenerated every run)
+**/eplus_run/eplusout.eso
+**/eplus_run/eplusout.mtr
+**/eplus_run/eplusout.audit
+**/eplus_run/eplusout.bnd
+**/eplus_run/eplusout.dxf
+**/eplus_run/eplusout.eio
+**/eplus_run/eplusout.end
+**/eplus_run/eplusout.mdd
+**/eplus_run/eplusout.mtd
+**/eplus_run/eplusout.rdd
+**/eplus_run/eplusout.rvaudit
+**/eplus_run/eplusout.shd
+**/eplus_run/eplusout.csv
+**/eplus_run/eplusssz.csv
+**/eplus_run/epluszsz.csv
+**/eplus_run/epluspsz.csv
+**/eplus_run/eplustbl.htm
+
+# OpenBSE and example run error logs
+examples/*.err
+
+# macOS duplicate files (Finder copy artifacts)
+* 2.*
+* 3.*
 
 # ─── ASHRAE 140 Test Outputs (reproducible from running OpenBSE) ────────────
 140_tests/cases/*_results.csv
