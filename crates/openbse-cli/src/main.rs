@@ -2828,7 +2828,13 @@ fn simulate_all_loops(
                             // for the old setpoint — do not heat.
                             effective_min_oa
                         } else if q_capacity < 100.0 {
-                            effective_min_oa
+                            // Supply temp is below heating setpoint — capacity-limited.
+                            // Run at PLR=1.0 to deliver maximum heating.
+                            if supply_temp < heat_sp - 0.1 {
+                                1.0
+                            } else {
+                                effective_min_oa
+                            }
                         } else {
                             // Correct frozen ideal load for zone temp changes
                             // during HVAC iteration.
@@ -2853,7 +2859,16 @@ fn simulate_all_loops(
                             // Zone well below cooling setpoint — do not cool.
                             effective_min_oa
                         } else if q_capacity < 100.0 {
-                            effective_min_oa
+                            // Supply temp is above cooling setpoint — coil can't
+                            // reach setpoint (capacity-limited).  Run at PLR=1.0
+                            // so the system removes as much heat as possible.
+                            // This occurs during pulldown (zone very hot) or when
+                            // outdoor conditions derate coil capacity severely.
+                            if supply_temp > cool_sp + 0.1 {
+                                1.0
+                            } else {
+                                effective_min_oa
+                            }
                         } else {
                             // Correct frozen ideal load for zone temp changes
                             let correction = zone_cap * (control_temp - init_temp);
