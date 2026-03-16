@@ -7508,15 +7508,17 @@ air_loops:
   - zone: T NE Apt
 plant_loops:
 - name: HHW Loop
-  design_supply_temp: 82.0
-  design_delta_t: 11.0
+  design_supply_temp: 82.22
+  design_delta_t: 27.78
   supply_equipment:
   - type: pump
     name: HHW Pump
     pump_type: variable_speed
     design_flow_rate: autosize
-    design_head: 179352.0
+    design_head: 180705.7
     motor_efficiency: 0.9
+    motor_heat_to_fluid_fraction: 0.0
+    power_curve: [0, 3.2485, -4.7443, 2.5295]
   - type: boiler
     name: HW Boiler
     capacity: 150457.0
@@ -7535,6 +7537,14 @@ dhw_systems:
     setpoint: 60.0
     ua_standby: 10.0
     deadband: 0.1
+  pump:
+    name: SWH Pump
+    pump_type: constant_speed
+    design_flow_rate: autosize
+    design_head: 29891.0
+    motor_efficiency: 0.3
+    impeller_efficiency: 0.78
+    motor_heat_to_fluid_fraction: 0.0
   loads:
   - name: Apartment DHW Load
     peak_flow_rate: 0.1135

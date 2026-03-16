@@ -59,6 +59,15 @@ impl CtfHistory {
         }
     }
 
+    /// Reset all history entries to a uniform temperature with zero flux.
+    /// Used at the start of each sizing design day to clear residual state.
+    pub fn reset(&mut self, temp: f64) {
+        for v in self.t_outside.iter_mut() { *v = temp; }
+        for v in self.t_inside.iter_mut() { *v = temp; }
+        for v in self.q_inside.iter_mut() { *v = 0.0; }
+        for v in self.q_outside.iter_mut() { *v = 0.0; }
+    }
+
     /// Shift history: push current values in, oldest falls off.
     pub fn shift(&mut self, t_out: f64, t_in: f64, q_in: f64, q_out: f64) {
         for i in (1..self.t_outside.len()).rev() {
