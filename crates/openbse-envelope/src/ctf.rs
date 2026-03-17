@@ -495,7 +495,81 @@ pub fn calculate_ctf_simple(
 
             return calculate_ctf(&[mass_layer, insul_layer, finish_layer], dt);
         } else {
-            return calculate_ctf(&[insul, mass], dt);
+            // ── Mass-inside construction: insulation outside, mass inside ───
+            //
+            // E+ ASHRAE 140 heavyweight constructions:
+            //   HWWALL  = [Wood Siding 9mm | Foam Insulation 61.5mm | Concrete Block 100mm]
+            //   HWFLOOR = [R-25 NoMass Insulation | Concrete Slab 80mm]
+            //
+            // Two sub-cases based on insulation R-value:
+            //   R_insul > 10: Floor-like (NoMass insulation, no exterior finish)
+            //   R_insul ≤ 10: Wall-like (wood siding exterior + foam insulation)
+
+            if r_insul > 10.0 {
+                // ── High-R floor: [NoMass insulation | mass (interior)] ─────
+                //
+                // E+ HWFLOOR uses Material:NoMass with R=25.175 — zero thermal
+                // mass. All construction thermal capacity is in the concrete slab.
+                // Using NoMass avoids adding ~10 kJ/m²K of parasitic insulation
+                // mass that slows the floor's interior transient response.
+                let nomass_insul = ResolvedLayer::new_no_mass(r_insul, r_insul * k_insul);
+                let mass_layer = ResolvedLayer::new(k_mass, rho_mass, cp_mass, t_mass);
+                return calculate_ctf(&[nomass_insul, mass_layer], dt);
+            }
+
+            // ── Wall-like: [wood siding (ext) | foam insulation | mass (int)] ──
+            //
+            // E+ HWWALL has three layers: wood siding provides exterior thermal
+            // mass and weather protection, foam insulation provides R-value,
+            // and concrete block provides interior thermal mass.
+            //
+            // Without the wood siding, our 2-layer model has X[0] = 0.84 vs
+            // E+'s 5.49 — an 85% mismatch that distorts exterior heat exchange.
+            //
+            // The mass thickness is solved to conserve total thermal capacity:
+            //   C_total = C_wood + C_insul + C_mass
+            // where C_insul = ρ_insul × cp_insul × k_insul × R_insul
+            //
+            // Solving analytically:
+            //   t_mass = (C_total - C_wood - α·R') / (β - α/k_mass)
+            //   where α = ρ_insul·cp_insul·k_insul, R' = R_total - R_wood, β = ρ_mass·cp_mass
+            let k_wood = 0.14;       // W/(m·K) wood siding
+            let rho_wood = 530.0;    // kg/m³
+            let cp_wood = 900.0;     // J/(kg·K)
+            let t_wood = 0.009;      // 9mm (E+ WOOD SIDING-1)
+            let r_wood = t_wood / k_wood;
+            let c_wood = rho_wood * cp_wood * t_wood;
+
+            // E+ foam insulation: ρ=10, cp=1400 (not 1000)
+            let rho_insul_hw = 10.0;
+            let cp_insul_hw = 1400.0;
+            let k_insul_hw = 0.04;
+
+            // Solve for mass thickness conserving total thermal capacity
+            let alpha = rho_insul_hw * cp_insul_hw * k_insul_hw; // ρ·cp·k
+            let r_prime = r_total - r_wood; // R available for insul + mass
+            let beta = rho_mass * cp_mass;
+
+            let t_mass_hw = ((thermal_capacity - c_wood - alpha * r_prime)
+                / (beta - alpha / k_mass))
+                .max(0.01);
+            let r_mass_hw = t_mass_hw / k_mass;
+            let r_insul_hw_val = (r_prime - r_mass_hw).max(0.01);
+            let t_insul_hw = (k_insul_hw * r_insul_hw_val).max(0.001);
+
+            // Cap insulation thickness if needed (very high R constructions)
+            let max_insul_t_hw = 0.10 * thermal_capacity / (rho_insul_hw * cp_insul_hw);
+            let (t_insul_final, k_insul_final) = if t_insul_hw > max_insul_t_hw && max_insul_t_hw > 0.001 {
+                (max_insul_t_hw, max_insul_t_hw / r_insul_hw_val)
+            } else {
+                (t_insul_hw, k_insul_hw)
+            };
+
+            let wood_layer = ResolvedLayer::new(k_wood, rho_wood, cp_wood, t_wood);
+            let insul_layer = ResolvedLayer::new(k_insul_final, rho_insul_hw, cp_insul_hw, t_insul_final);
+            let mass_layer = ResolvedLayer::new(k_mass, rho_mass, cp_mass, t_mass_hw);
+
+            return calculate_ctf(&[wood_layer, insul_layer, mass_layer], dt);
         }
     }
 
@@ -1803,5 +1877,55 @@ mod tests {
             hist_s.shift(t_out, 20.0, q_s, qo_s);
             hist_l.shift(t_out, 20.0, q_l, qo_l);
         }
+    }
+}
+
+#[cfg(test)]
+mod hwwall_test {
+    use super::*;
+    use crate::material::ResolvedLayer;
+
+    #[test]
+    fn print_hwwall_ctf() {
+        // E+ HWWALL: [WOOD SIDING-1 | FOAM INSULATION | CONCRETE BLOCK]
+        let wood = ResolvedLayer::new(0.14, 530.0, 900.0, 0.009);
+        let foam = ResolvedLayer::new(0.04, 10.0, 1400.0, 0.0615);
+        let concrete = ResolvedLayer::new(0.51, 1400.0, 1000.0, 0.100);
+        
+        let dt = 600.0; // 10-minute timestep (6 per hour)
+        let ctf = calculate_ctf(&[wood, foam, concrete], dt);
+        
+        println!("HWWALL CTF (dt=600s, direct layers):");
+        println!("  num_terms = {}", ctf.num_terms);
+        for i in 0..ctf.x.len() {
+            println!("  X[{}]={:.6}  Y[{}]={:.6}  Z[{}]={:.6}", 
+                i, ctf.x[i], i, ctf.y[i], i, ctf.z[i]);
+        }
+        for i in 0..ctf.phi.len() {
+            println!("  Phi[{}]={:.6}", i, ctf.phi[i]);
+        }
+        println!("  sum(X)={:.6}  sum(Y)={:.6}  sum(Z)={:.6}", 
+            ctf.x.iter().sum::<f64>(),
+            ctf.y.iter().sum::<f64>(),
+            ctf.z.iter().sum::<f64>());
+        
+        // Now via from_simple_construction
+        let ctf2 = calculate_ctf_simple(
+            0.556, 145154.0, dt, false,
+            Some(0.51), Some(1400.0),
+        );
+        println!("\nHWWALL CTF (dt=600s, from_simple_construction):");
+        println!("  num_terms = {}", ctf2.num_terms);
+        for i in 0..ctf2.x.len() {
+            println!("  X[{}]={:.6}  Y[{}]={:.6}  Z[{}]={:.6}", 
+                i, ctf2.x[i], i, ctf2.y[i], i, ctf2.z[i]);
+        }
+        for i in 0..ctf2.phi.len() {
+            println!("  Phi[{}]={:.6}", i, ctf2.phi[i]);
+        }
+        println!("  sum(X)={:.6}  sum(Y)={:.6}  sum(Z)={:.6}", 
+            ctf2.x.iter().sum::<f64>(),
+            ctf2.y.iter().sum::<f64>(),
+            ctf2.z.iter().sum::<f64>());
     }
 }

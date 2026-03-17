@@ -536,6 +536,32 @@ impl BuildingEnvelope {
                 None
             };
 
+            // Hemispherical diffuse back-transmittance for window cavity back-out
+            let win_diffuse_back_tau = if is_window && glass_kd > 1e-12 {
+                // First-principles Fresnel model: integrate τ_system(θ) over hemisphere
+                crate::solar::diffuse_hemispherical_transmittance(glass_n, glass_kd)
+            } else if is_window {
+                // SGS or fallback: approximate from SHGC × ratio × diffuse modifier
+                let wc = window_map.get(&surf_input.construction);
+                let (s, r) = wc.map(|w| (w.shgc, w.solar_transmittance_ratio()))
+                    .unwrap_or((0.5, 0.85));
+                s * r * 0.87 // τ_sys_normal × hemispherical modifier ≈ 0.87
+            } else {
+                0.0
+            };
+
+            // Hemispherical diffuse back-absorptance: α = 1 - τ - ρ
+            let win_diffuse_back_abs = if is_window && glass_kd > 1e-12 {
+                let rho = crate::solar::diffuse_hemispherical_reflectance(glass_n, glass_kd);
+                (1.0 - win_diffuse_back_tau - rho).max(0.0)
+            } else if is_window {
+                // Approximate: total hemispherical absorptance from energy balance
+                // For SGS windows, use a typical clear double-pane value
+                0.18
+            } else {
+                0.0
+            };
+
             let (solar_abs_out, thermal_abs_out, solar_abs_in, roughness, u_factor, shgc) =
                 if is_window {
                     let wc = window_map.get(&surf_input.construction);
@@ -720,6 +746,8 @@ impl BuildingEnvelope {
                 pane_thickness: win_pane_thickness,
                 pane_conductivity: win_pane_conductivity,
                 gap_emissivity: win_gap_emissivity,
+                diffuse_back_transmittance: win_diffuse_back_tau,
+                diffuse_back_absorptance: win_diffuse_back_abs,
                 cos_tilt: tilt_rad.cos(),
                 sin_tilt: tilt_rad.sin(),
                 centroid_height,
@@ -1187,7 +1215,7 @@ impl EnvelopeSolver for BuildingEnvelope {
         let doy = ctx.timestep.day_of_year();
         let eot = solar::equation_of_time(doy);
         let solar_hour = ctx.timestep.fractional_hour()
-            + (self.longitude / 15.0 - self.time_zone) + eot;
+            + (self.time_zone - self.longitude / 15.0) + eot;
         let sol_pos = solar::solar_position(doy, solar_hour, self.latitude);
         let sun_dir = solar::sun_direction_vector(&sol_pos);
 
@@ -1875,15 +1903,42 @@ impl EnvelopeSolver for BuildingEnvelope {
             // Any beam that wasn't absorbed joins the diffuse pool
             let reflected_beam = (total_beam - total_beam_absorbed).max(0.0);
 
-            // --- Phase 3: VMULT diffuse distribution ---
+            // --- Phase 3: VMULT diffuse distribution with cavity back-out ---
             // Diffuse pool = transmitted diffuse + reflected beam
-            let diffuse_pool = total_diffuse + reflected_beam;
+            let diffuse_pool_raw = total_diffuse + reflected_beam;
 
             // VMULT = 1 / SUM(A_i × alpha_i) for all opaque surfaces in zone
             let sum_a_alpha: f64 = zone.surface_indices.iter()
                 .filter(|&&si| !self.surfaces[si].is_window)
                 .map(|&si| self.surfaces[si].net_area * self.surfaces[si].solar_absorptance_inside)
                 .sum();
+
+            // Cavity back-out correction: interior-reflected diffuse solar that
+            // bounces off surfaces and exits back through windows. Modeled as an
+            // infinite geometric series of bounces, where each bounce either:
+            //   (a) is absorbed by an opaque surface (fraction ∝ A_i × α_i)
+            //   (b) transmits back out through a window (fraction ∝ A_win × τ_back)
+            //   (c) is absorbed by window glass and flows outward (∝ A_win × α_back × (1 - N_i))
+            //   (d) is absorbed by window glass and flows inward (∝ A_win × α_back × N_i) — stays in zone
+            //   (e) is reflected and continues bouncing
+            // The effective window loss per bounce includes both transmission and
+            // the outward-flowing portion of glass absorptance:
+            //   loss_win = Σ(A_win × (τ_back + α_back × (1 - N_i)))
+            // F_cavity = Σ(A_i×α_i) / (Σ(A_i×α_i) + loss_win)
+            let sum_win_loss: f64 = zone.surface_indices.iter()
+                .filter(|&&si| self.surfaces[si].is_window)
+                .map(|&si| {
+                    let s = &self.surfaces[si];
+                    let tau_back = s.diffuse_back_transmittance;
+                    let abs_back = s.diffuse_back_absorptance;
+                    let ni = s.glass_ni;
+                    // Outward loss = transmitted + absorbed-outward
+                    s.net_area * (tau_back + abs_back * (1.0 - ni))
+                })
+                .sum();
+            let cavity_denom = sum_a_alpha + sum_win_loss;
+            let f_cavity = if cavity_denom > 0.0 { sum_a_alpha / cavity_denom } else { 1.0 };
+            let diffuse_pool = diffuse_pool_raw * f_cavity;
 
             let vmult = if sum_a_alpha > 0.0 { 1.0 / sum_a_alpha } else { 0.0 };
 
@@ -1982,12 +2037,13 @@ impl EnvelopeSolver for BuildingEnvelope {
                             let h_conv = self.surfaces[si].h_conv_outside;
                             let eps = self.surfaces[si].thermal_absorptance_outside;
 
-                            // For NoSun surfaces (e.g., slab-on-grade floors), suppress
-                            // all exterior radiation. Matches EnergyPlus IDF where such
-                            // surfaces have ViewFactorToSky=0.0 and ViewFactorToGround=0.0
-                            // because the exterior face is embedded in/against the ground
-                            // and doesn't participate in radiation exchange.
-                            let suppress_ext_radiation = !self.surfaces[si].input.sun_exposure;
+                            // In E+, NoSun only suppresses solar absorption (handled
+                            // separately at line ~1569). Longwave radiation exchange
+                            // always occurs for outdoor-exposed surfaces based on view
+                            // factors from tilt. The sun_exposure flag does NOT affect
+                            // longwave radiation exchange (ASHRAE 140 floors use
+                            // Outdoors+NoSun+NoWind and still exchange longwave).
+                            let suppress_ext_radiation = false;
 
                             // E+ view factors (ConvectionCoefficients.cc)
                             let f_sky = if suppress_ext_radiation { 0.0 }
@@ -2440,12 +2496,16 @@ impl EnvelopeSolver for BuildingEnvelope {
                     //
                     // The lumped glass model distributes the absorbed solar source
                     // between inward (h_conv+h_rad) and outward (u_e_glass) paths.
-                    // The lumped inward fraction N_lumped = (h_conv+h_rad)/(total) is
-                    // typically ~0.83 for a resistive window, higher than the physical
-                    // N_in ≈ 0.44. Since all of absorbed_inward should reach the zone
-                    // (it IS the inward fraction by definition), any portion NOT
-                    // delivered through the glass warming is added directly to the
-                    // zone via q_window_absorbed.
+                    // The fraction N_lumped = (h_conv+h_rad)/(total) reaches the
+                    // zone through glass warming. The remainder (1-N_lumped) flows
+                    // outward — but since absorbed_inward IS the inward fraction
+                    // by definition (from SHGC = τ_sol + N_in×α), any outward loss
+                    // is a lumped-model artifact. The residual correction adds back
+                    // this lost portion directly to zone air.
+                    //
+                    // With the corrected solar_transmittance_ratio (≈0.91 for
+                    // double-clear), the absorbed portion is ~9% of total SHGC gain,
+                    // and the residual is ~2.6% — small but important for accuracy.
                     let absorbed_inward_total =
                         self.surfaces[i].absorbed_solar_inside_window;
                     if absorbed_inward_total > 0.0 {
@@ -2455,9 +2515,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         } else {
                             1.0
                         };
-                        // Portion delivered through glass warming to the zone
                         let delivered_through_glass = n_lumped * absorbed_inward_total;
-                        // Residual goes directly to zone air via q_window_absorbed
                         let residual = (absorbed_inward_total - delivered_through_glass).max(0.0);
                         self.surfaces[i].absorbed_solar_inside_window = residual;
                     }
@@ -2678,20 +2736,22 @@ impl EnvelopeSolver for BuildingEnvelope {
             }
 
             // ── Ideal loads predictor: determine HVAC mode BEFORE surface
-            //    iteration so surfaces see a consistent zone temp ──────────
+            //    iteration ─────────────────────────────────────────────────
             //
             // E+-style predictor-corrector: the predictor uses the PREVIOUS
             // timestep's surface state to estimate whether the zone needs
-            // heating, cooling, or can float in the deadband. This mode is
-            // FIXED during the surface iteration — surfaces converge with
-            // the predicted zone temp (setpoint or free-float). After
-            // convergence, the corrector (zone balance) recomputes the exact
-            // zone temp and Q using the updated surface state.
+            // heating, cooling, or can float in the deadband.  This mode is
+            // LOCKED for the corrector to prevent oscillation / NaN.
             //
-            // Without this, the surface iteration and ideal loads form an
-            // unstable feedback loop: surfaces respond to zone temp →
-            // zone temp (from ideal loads) responds to surfaces → CTF
-            // history amplifies the oscillation → NaN divergence.
+            // IMPORTANT: t_zone_vec is NOT overwritten here.  It stays at
+            // zone.temp (the previous timestep value, set at line 2194).
+            // In E+, CalcHeatBalanceInsideSurf runs BEFORE PredictSystemLoads
+            // — surfaces always iterate with the previous timestep's zone
+            // temp, not the predicted setpoint.  Overwriting t_zone_vec with
+            // the setpoint creates a circular dependency: surfaces see 27°C
+            // (cooling) → converge to state consistent with 27°C → corrector
+            // confirms cooling.  This biased cooling by ~+200 kWh/yr for
+            // ASHRAE 140 Case 900.
             for zi in 0..self.zones.len() {
                 // Compute predictor result in a block to avoid borrow conflicts
                 let pred_result: Option<(i8, f64)> = {
@@ -2848,13 +2908,27 @@ impl EnvelopeSolver for BuildingEnvelope {
                         };
 
                         let (heat_sp, cool_sp) = zone.input.active_setpoints(hour);
-                        let pred_mode = if t_free_pred < heat_sp {
+                        let il = zone.input.ideal_loads.as_ref().unwrap();
+                        let mut pred_mode = if t_free_pred < heat_sp {
                             1_i8
                         } else if t_free_pred > cool_sp {
                             -1_i8
                         } else {
                             0_i8
                         };
+
+                        // If the predicted mode has zero capacity, the system
+                        // can't actually heat/cool → zone will free-float.
+                        // Use deadband so surfaces iterate with the correct
+                        // (free-float) zone temp, not the unreachable setpoint.
+                        // Critical for night ventilation cases (e.g. ASHRAE 140
+                        // Case 650: heating_capacity=0 at night, zone must
+                        // free-float below the heating setpoint).
+                        if pred_mode == 1 && il.heating_capacity <= 0.0 {
+                            pred_mode = 0;
+                        } else if pred_mode == -1 && il.cooling_capacity <= 0.0 {
+                            pred_mode = 0;
+                        }
 
                             let t_zone = match pred_mode {
                             1 => heat_sp,
@@ -2865,13 +2939,16 @@ impl EnvelopeSolver for BuildingEnvelope {
                     }
                 }; // end immutable borrow of self.zones[zi]
 
-                if let Some((pred_mode, t_zone)) = pred_result {
-                    // Write to zone struct (needs mutable access)
+                if let Some((pred_mode, _t_zone)) = pred_result {
+                    // Lock the predicted mode for the corrector
                     if !self.zones[zi].ideal_pred_mode_locked {
                         self.zones[zi].ideal_pred_mode = pred_mode;
                         self.zones[zi].ideal_pred_mode_locked = true;
                     }
-                    t_zone_vec[zi] = t_zone;
+                    // t_zone_vec[zi] intentionally NOT overwritten.
+                    // Surfaces iterate with zone.temp (previous timestep),
+                    // matching E+'s call order where surface HB precedes
+                    // the zone predictor.
                 }
             }
 
@@ -3272,18 +3349,14 @@ impl EnvelopeSolver for BuildingEnvelope {
 
                     // Step 3: Compute ideal Q using the PREDICTOR's mode.
                     //
-                    // The predictor (before the surface iteration) determined
-                    // whether heating, cooling, or deadband is needed using the
-                    // previous timestep's surface state.  The surface iteration
-                    // then converged with t_zone set to the predicted setpoint
-                    // (or free-float).  We LOCK the mode here to prevent
-                    // BDF3 corrector re-evaluation from disagreeing with the
-                    // predictor — that disagreement is what causes the
-                    // heating↔cooling oscillation and NaN divergence.
+                    // The predictor determined the HVAC mode using the previous
+                    // timestep's surface state.  Surfaces then iterated with
+                    // the previous timestep zone temp (matching E+ call order).
+                    // The mode is LOCKED to prevent oscillation / NaN.
                     //
-                    // However, we validate the mode: if the predictor said
-                    // heating but Q turns out negative (zone is already warm
-                    // enough), fall back to deadband.  Same for cooling.
+                    // We validate the mode: if the predictor said heating but
+                    // Q turns out negative, fall back to deadband.  Same for
+                    // cooling.
                     let pred_mode = zone.ideal_pred_mode;
                     let (q_hvac, hvac_mode) = if pred_mode > 0 {
                         // Predictor: HEATING

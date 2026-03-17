@@ -10,11 +10,11 @@
 # and vertical side fins on each window.
 # (Case 930 is to Case 920 as Case 630 is to Case 620.)
 #
-# Shading geometry (same as Case 630):
+# Shading geometry (same as Case 630, IEA BESTEST Table 1-14):
 #   Each east/west window (3m wide x 2m tall):
-#     Overhang: 1.0m projection, flush with window top edge
-#     Left fin:  1.0m projection, flush with window left edge
-#     Right fin: 1.0m projection, flush with window right edge
+#     Overhang: 1.0m projection, 0.5m gap above window top (at eave z=2.7)
+#     Left fin:  1.0m projection, full wall height (z=0.0 to z=2.7)
+#     Right fin: 1.0m projection, full wall height (z=0.0 to z=2.7)
 #
 # Coordinate system: X=East, Y=North, Z=Up
 # Origin: SW corner of floor at ground level
@@ -185,10 +185,15 @@ surfaces:
     shading:
       overhang:
         depth: 1.0
+        offset_above: 0.5        # 0.5m gap above window top → overhang at eave (z=2.7)
       left_fin:
         depth: 1.0
+        extend_below: 0.2        # extend from window bottom (z=0.2) to ground (z=0.0)
+        extend_above: 0.5        # extend from window top (z=2.2) to eave (z=2.7)
       right_fin:
         depth: 1.0
+        extend_below: 0.2
+        extend_above: 0.5
 
   # ── West Wall (faces west, normal = -X) ────────────────────────────
   - name: West Wall
@@ -217,10 +222,15 @@ surfaces:
     shading:
       overhang:
         depth: 1.0
+        offset_above: 0.5        # 0.5m gap above window top → overhang at eave (z=2.7)
       left_fin:
         depth: 1.0
+        extend_below: 0.2        # extend from window bottom (z=0.2) to ground (z=0.0)
+        extend_above: 0.5        # extend from window top (z=2.2) to eave (z=2.7)
       right_fin:
         depth: 1.0
+        extend_below: 0.2
+        extend_above: 0.5
 
   # ── Roof (faces up, normal = +Z) ───────────────────────────────────
   - name: Roof
@@ -239,7 +249,9 @@ surfaces:
     zone: Case930 Zone
     type: floor
     construction: Case900 Floor
-    boundary: ground
+    boundary: outdoor
+    sun_exposure: false
+    wind_exposure: false
     vertices:
       - {x: 0.0, y: 6.0, z: 0.0}
       - {x: 8.0, y: 6.0, z: 0.0}

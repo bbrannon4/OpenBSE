@@ -329,22 +329,31 @@ impl WindowConstruction {
     /// from the known system transmittance.
     pub fn solar_transmittance_ratio(&self) -> f64 {
         // If per-pane transmittance is known, derive system τ_sol directly.
-        // For a double-pane system: τ_system ≈ τ_pane² / (1 - ρ_pane²)
-        // For single-pane: τ_system ≈ τ_pane × (1 - ρ_pane)² / (1 - ρ_pane² × τ_pane²)
-        // With N_in from the SHGC definition: ratio = τ_system / SHGC
+        //
+        // pane_solar_transmittance (τ_pane) and pane_solar_reflectance (ρ_pane)
+        // are the OVERALL pane properties at normal incidence — they already
+        // include surface reflections. Do NOT apply additional surface
+        // reflection corrections (the old code had this bug, computing
+        // τ_single = τ_pane×(1-ρ)²/(1-ρ²τ²) which treats τ_pane as internal
+        // transmittance and double-counts surface reflections).
+        //
+        // For two identical panes with inter-pane reflections:
+        //   τ_system = τ_pane² / (1 - ρ_pane²)
+        //
+        // For single-pane: τ_system = τ_pane (already the overall value)
+        //
+        // ratio = τ_system / SHGC
         if let (Some(tau_pane), Some(rho_pane)) =
             (self.pane_solar_transmittance, self.pane_solar_reflectance)
         {
-            // Multi-bounce system transmittance for double-pane
             let num_panes = self.num_panes.unwrap_or(2);
             let tau_system = if num_panes == 1 {
-                tau_pane * (1.0 - rho_pane).powi(2)
-                    / (1.0 - rho_pane.powi(2) * tau_pane.powi(2)).max(0.001)
+                tau_pane
             } else {
-                // Double-pane: simplified two-pane transmittance
-                let tau_single = tau_pane * (1.0 - rho_pane).powi(2)
-                    / (1.0 - rho_pane.powi(2) * tau_pane.powi(2)).max(0.001);
-                tau_single.powi(2) / (1.0 - rho_pane.powi(2)).max(0.001)
+                // Double-pane: τ_pane already includes surface reflections
+                // Inter-pane bouncing: τ_sys = τ₁·τ₂ / (1 - ρ₁_back·ρ₂_front)
+                // For identical panes: τ_sys = τ_pane² / (1 - ρ_pane²)
+                tau_pane.powi(2) / (1.0 - rho_pane.powi(2)).max(0.001)
             };
             return if self.shgc > 0.0 {
                 (tau_system / self.shgc).clamp(0.0, 1.0)

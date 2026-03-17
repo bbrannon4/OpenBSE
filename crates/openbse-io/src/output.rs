@@ -352,6 +352,9 @@ pub struct OutputWriter {
     accum: Vec<(f64, u32, f64, f64)>,
     /// Current aggregation period key (month, day, hour_key)
     current_period: Option<(u32, u32, u32)>,
+    /// The month/day/hour/sub_hour from the first snapshot of the current period.
+    /// Used to label the output row with the correct period, not the next period's values.
+    period_label: Option<(u32, u32, u32, u32)>,
     /// Buffered rows ready to write
     rows: Vec<OutputRow>,
     /// Whether columns have been discovered
@@ -372,6 +375,7 @@ impl OutputWriter {
         Self {
             config,
             columns: Vec::new(),
+            period_label: None,
             accum: Vec::new(),
             current_period: None,
             rows: Vec::new(),
@@ -424,10 +428,19 @@ impl OutputWriter {
         // Check if we've entered a new period -> flush the old one
         if let Some(prev_period) = self.current_period {
             if prev_period != period {
-                self.flush_period(snapshot.month, snapshot.day, snapshot.hour, snapshot.sub_hour);
+                // Flush using the PREVIOUS period's label, not the new snapshot's.
+                // This fixes an off-by-one where hour N's data was labeled as hour N+1.
+                let (pm, pd, ph, ps) = self.period_label.unwrap_or(
+                    (snapshot.month, snapshot.day, snapshot.hour, snapshot.sub_hour)
+                );
+                self.flush_period(pm, pd, ph, ps);
             }
         }
         self.current_period = Some(period);
+        // Record label from the first snapshot of each new period
+        if self.period_label.is_none() {
+            self.period_label = Some((snapshot.month, snapshot.day, snapshot.hour, snapshot.sub_hour));
+        }
 
         // Accumulate values
         for (i, (var_name, entity_name)) in self.columns.iter().enumerate() {
@@ -484,13 +497,18 @@ impl OutputWriter {
             *acc = (0.0, 0, f64::MAX, f64::MIN);
         }
         self.current_period = None;
+        self.period_label = None;
     }
 
     /// Finalize (flush any remaining data) and write to file.
     pub fn finalize_and_write(&mut self, output_dir: &Path) -> Result<(), OutputError> {
-        // Flush any remaining accumulated data
-        if let Some((m, d, h)) = self.current_period {
-            self.flush_period(m, d, h, 0);
+        // Flush any remaining accumulated data using the period's own label
+        if self.current_period.is_some() {
+            if let Some((pm, pd, ph, ps)) = self.period_label {
+                self.flush_period(pm, pd, ph, ps);
+            } else if let Some((m, d, h)) = self.current_period {
+                self.flush_period(m, d, h, 0);
+            }
         }
 
         if self.rows.is_empty() {

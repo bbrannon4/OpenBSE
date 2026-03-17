@@ -24,12 +24,13 @@
 # Vertex order: Counter-clockwise from outside (Newell convention)
 
 simulation:
-  timesteps_per_hour: 4
+  timesteps_per_hour: 6
   start_month: 1
   start_day: 1
   end_month: 12
   end_day: 31
   terrain: country
+  solar_distribution: full_interior_and_exterior
 
 weather_files:
   - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
@@ -125,19 +126,19 @@ infiltration:
 # ASHRAE 140-2023 Case 950FF: venting from 1800-0700 IF T_zone > T_outdoor
 # (Table B3-2a: "Ventilating fan = ON from 1800 to 0700 if zone > ambient")
 # 0700-1800: no additional ventilation (infiltration only)
+# E+ IDF Day Sch 2 for 950FF: hours 1-7=1.0, 8-18=0.0367, 19-24=1.0
+# (Note: 950FF has ventilation ON during hour 19, unlike Case 950)
 ventilation:
   - name: Night Ventilation 1
     zones: [Case950FF Zone]
     start_hour: 0
     end_hour: 7
     air_changes_per_hour: 13.12
-    outdoor_temp_must_be_lower: true
   - name: Night Ventilation 2
     zones: [Case950FF Zone]
-    start_hour: 18
+    start_hour: 19
     end_hour: 24
     air_changes_per_hour: 13.12
-    outdoor_temp_must_be_lower: true
 
 # ─── Surfaces with 3D Vertices ──────────────────────────────────────────────
 # Same geometry as Case 900 (same as Case 600 layout).
@@ -234,7 +235,9 @@ surfaces:
     zone: Case950FF Zone
     type: floor
     construction: Case900 Floor
-    boundary: ground
+    boundary: outdoor
+    sun_exposure: false
+    wind_exposure: false
     vertices:
       - {x: 0.0, y: 6.0, z: 0.0}
       - {x: 8.0, y: 6.0, z: 0.0}

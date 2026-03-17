@@ -207,6 +207,16 @@ pub struct SurfaceState {
     pub pane_conductivity: f64,
     /// Glass emissivity for gap inter-pane radiation exchange.
     pub gap_emissivity: f64,
+    /// Hemispherical diffuse back-transmittance of window glazing system.
+    /// Used for interior cavity solar back-out calculation. Represents the
+    /// fraction of diffuse interior-reflected solar that transmits back
+    /// through the window to the exterior.
+    pub diffuse_back_transmittance: f64,
+    /// Hemispherical diffuse back-absorptance of window glazing system.
+    /// α_back = 1 - τ_back - ρ_back. The outward-flowing portion
+    /// (α_back × (1 - N_i)) also exits the zone and must be included
+    /// in the cavity back-out correction.
+    pub diffuse_back_absorptance: f64,
     /// Cosine of tilt angle
     pub cos_tilt: f64,
     /// Sine of tilt angle

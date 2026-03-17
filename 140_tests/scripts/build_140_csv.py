@@ -10,8 +10,8 @@ import csv
 import os
 import sys
 
-# Base directory: one level up from this script's location (results/)
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Base directory: cases/ subdirectory of 140_tests/
+BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cases")
 OUTPUT_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "FULL_140_RESULTS.csv",

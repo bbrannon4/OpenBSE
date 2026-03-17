@@ -22,12 +22,13 @@
 # Vertex order: Counter-clockwise from outside (Newell convention)
 
 simulation:
-  timesteps_per_hour: 4
+  timesteps_per_hour: 6
   start_month: 1
   start_day: 1
   end_month: 12
   end_day: 31
   terrain: country
+  solar_distribution: full_interior_and_exterior
 
 weather_files:
   - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
@@ -247,7 +248,9 @@ surfaces:
     zone: Case900 Zone
     type: floor
     construction: Case900 Floor
-    boundary: ground
+    boundary: outdoor
+    sun_exposure: false
+    wind_exposure: false
     vertices:
       - {x: 0.0, y: 6.0, z: 0.0}
       - {x: 8.0, y: 6.0, z: 0.0}

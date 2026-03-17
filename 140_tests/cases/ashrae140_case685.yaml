@@ -222,7 +222,9 @@ surfaces:
     zone: Case685 Zone
     type: floor
     construction: Case600 Floor
-    boundary: ground
+    boundary: outdoor
+    sun_exposure: false
+    wind_exposure: false
     vertices:
       - {x: 0.0, y: 6.0, z: 0.0}
       - {x: 8.0, y: 6.0, z: 0.0}

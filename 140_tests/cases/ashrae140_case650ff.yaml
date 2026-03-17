@@ -133,7 +133,7 @@ ventilation:
     outdoor_temp_must_be_lower: true
   - name: Night Ventilation 2
     zones: [Case650FF Zone]
-    start_hour: 18
+    start_hour: 19
     end_hour: 24
     air_changes_per_hour: 13.12
     outdoor_temp_must_be_lower: true
@@ -233,7 +233,9 @@ surfaces:
     zone: Case650FF Zone
     type: floor
     construction: Case600 Floor
-    boundary: ground
+    boundary: outdoor
+    sun_exposure: false
+    wind_exposure: false
     vertices:
       - {x: 0.0, y: 6.0, z: 0.0}
       - {x: 8.0, y: 6.0, z: 0.0}

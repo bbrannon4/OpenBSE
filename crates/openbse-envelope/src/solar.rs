@@ -1183,6 +1183,47 @@ pub fn diffuse_shgc_modifier_u(shgc: f64, kd: f64, ni: f64, n: f64, u_factor: f6
 /// Prefer `diffuse_shgc_modifier(shgc)` for SHGC-dependent results.
 pub const DIFFUSE_SHGC_MODIFIER: f64 = 0.88;
 
+/// Hemispherically-averaged system transmittance for diffuse radiation.
+///
+/// Integrates the double-pane Fresnel transmittance over the hemisphere with
+/// cosine weighting. Used for computing interior cavity back-out through
+/// windows: diffuse solar reflected from interior surfaces that exits the
+/// zone by transmitting back through a window.
+///
+/// Returns τ_system_hemispherical, typically 0.55–0.65 for clear double-pane.
+pub fn diffuse_hemispherical_transmittance(n: f64, kd: f64) -> f64 {
+    const N_SAMPLES: usize = 200;
+    let mut num = 0.0_f64;
+    let mut den = 0.0_f64;
+    for i in 0..N_SAMPLES {
+        let theta = (i as f64 + 0.5) / N_SAMPLES as f64 * PI / 2.0;
+        let cos_t = theta.cos();
+        let w = cos_t * theta.sin();
+        num += double_pane_transmittance(cos_t, n, kd) * w;
+        den += w;
+    }
+    if den > 0.0 { (num / den).clamp(0.0, 1.0) } else { 0.6 }
+}
+
+/// Hemispherically-averaged system reflectance for diffuse radiation.
+///
+/// Same integration approach as `diffuse_hemispherical_transmittance` but
+/// for the double-pane reflectance. Used to derive hemispherical absorptance:
+///   α_back_hemi = 1 - τ_back_hemi - ρ_back_hemi
+pub fn diffuse_hemispherical_reflectance(n: f64, kd: f64) -> f64 {
+    const N_SAMPLES: usize = 200;
+    let mut num = 0.0_f64;
+    let mut den = 0.0_f64;
+    for i in 0..N_SAMPLES {
+        let theta = (i as f64 + 0.5) / N_SAMPLES as f64 * PI / 2.0;
+        let cos_t = theta.cos();
+        let w = cos_t * theta.sin();
+        num += double_pane_reflectance(cos_t, n, kd) * w;
+        den += w;
+    }
+    if den > 0.0 { (num / den).clamp(0.0, 1.0) } else { 0.15 }
+}
+
 /// Calculate transmitted solar through a window with angular SHGC [W].
 ///
 /// Applies angular SHGC modifier for beam radiation and hemispherically-

@@ -125,11 +125,28 @@ ideal_loads:
     cooling_setpoint: 27.0
     heating_capacity: 0.0
     cooling_capacity: 1000000.0
+    # E+ Case 650: cooling only during 0700-1800, off at night
+    # Night hours rely on ventilation cooling only, no mechanical cooling.
+    # Hours use E+ 1-24 convention: hour N = (N-1):00 to N:00
+    thermostat_schedule:
+      - start_hour: 0
+        end_hour: 7
+        heating_setpoint: 20.0
+        cooling_setpoint: 100.0
+      - start_hour: 8
+        end_hour: 18
+        heating_setpoint: 20.0
+        cooling_setpoint: 27.0
+      - start_hour: 19
+        end_hour: 24
+        heating_setpoint: 20.0
+        cooling_setpoint: 100.0
 
 # Scheduled night ventilation for passive cooling
 # ASHRAE 140-2023 Case 650: venting from 1800-0700 IF T_zone > T_outdoor
 # (Table B3-1a: "Ventilating fan = ON from 1800 to 0700 if zone > ambient")
 # 0700-1800: no additional ventilation (infiltration only)
+# Hours: 1-7 (midnight-7AM) and 19-24 (6PM-midnight) in E+ 1-24 convention
 ventilation:
   - name: Night Ventilation 1
     zones: [Case650 Zone]
@@ -139,7 +156,7 @@ ventilation:
     outdoor_temp_must_be_lower: true
   - name: Night Ventilation 2
     zones: [Case650 Zone]
-    start_hour: 18
+    start_hour: 19
     end_hour: 24
     air_changes_per_hour: 13.12
     outdoor_temp_must_be_lower: true
@@ -239,7 +256,9 @@ surfaces:
     zone: Case650 Zone
     type: floor
     construction: Case600 Floor
-    boundary: ground
+    boundary: outdoor
+    sun_exposure: false
+    wind_exposure: false
     vertices:
       - {x: 0.0, y: 6.0, z: 0.0}
       - {x: 8.0, y: 6.0, z: 0.0}

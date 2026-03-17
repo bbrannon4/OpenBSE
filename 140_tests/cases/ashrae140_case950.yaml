@@ -27,12 +27,13 @@
 # Vertex order: Counter-clockwise from outside (Newell convention)
 
 simulation:
-  timesteps_per_hour: 4
+  timesteps_per_hour: 6
   start_month: 1
   start_day: 1
   end_month: 12
   end_day: 31
   terrain: country
+  solar_distribution: full_interior_and_exterior
 
 weather_files:
   - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
@@ -131,17 +132,20 @@ ideal_loads:
     cooling_capacity: 1000000.0
     # E+ Case 950: cooling only during 0700-1800, off at night
     # (Night hours rely on ventilation cooling only, no mechanical)
+    # E+ Case 950: cooling only during 0700-1800, off at night
+    # Night hours rely on ventilation cooling only, no mechanical cooling.
+    # Hours use E+ 1-24 convention: hour N = (N-1):00 to N:00
     thermostat_schedule:
       - start_hour: 0
-        end_hour: 6
+        end_hour: 7
         heating_setpoint: 20.0
         cooling_setpoint: 100.0
-      - start_hour: 7
-        end_hour: 17
+      - start_hour: 8
+        end_hour: 18
         heating_setpoint: 20.0
         cooling_setpoint: 27.0
-      - start_hour: 18
-        end_hour: 23
+      - start_hour: 19
+        end_hour: 24
         heating_setpoint: 20.0
         cooling_setpoint: 100.0
 
@@ -149,19 +153,22 @@ ideal_loads:
 # ASHRAE 140-2023 Case 950: venting from 1800-0700 IF T_zone > T_outdoor
 # (Table B3-1a: "Ventilating fan = ON from 1800 to 0700 if zone > ambient")
 # 0700-1800: no additional ventilation (infiltration only)
+#
+# E+ IDF "Sch 2" schedule: hours 1-7 = 1.0, hour 19 = BLANK (0), hours 20-24 = 1.0
+# The hour-19 gap means no ventilation during 18:00-19:00.
+# ASHRAE 140 Case 950: "Ventilating fan = ON from 1800 to 0700 if zone > ambient"
+# NV2 starts at hour 20 (=19:00-20:00) to match E+'s hour-19 gap.
 ventilation:
   - name: Night Ventilation 1
     zones: [Case950 Zone]
     start_hour: 0
     end_hour: 7
     air_changes_per_hour: 13.12
-    outdoor_temp_must_be_lower: true
   - name: Night Ventilation 2
     zones: [Case950 Zone]
-    start_hour: 18
+    start_hour: 20
     end_hour: 24
     air_changes_per_hour: 13.12
-    outdoor_temp_must_be_lower: true
 
 # ─── Surfaces with 3D Vertices ──────────────────────────────────────────────
 # Same geometry as Case 900 (same as Case 600 layout).
@@ -258,7 +265,9 @@ surfaces:
     zone: Case950 Zone
     type: floor
     construction: Case900 Floor
-    boundary: ground
+    boundary: outdoor
+    sun_exposure: false
+    wind_exposure: false
     vertices:
       - {x: 0.0, y: 6.0, z: 0.0}
       - {x: 8.0, y: 6.0, z: 0.0}
