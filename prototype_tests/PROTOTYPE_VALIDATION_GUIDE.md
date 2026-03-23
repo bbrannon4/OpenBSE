@@ -1,6 +1,9 @@
-# E+ Prototype Validation Guide
+# E+ Prototype AI Validation Guide
 
-This document defines the process for validating OpenBSE against EnergyPlus
+For humans: this describes the instructions to AI for attempting to validate
+OpenBSE relative to EnergyPlus.
+
+For AI: This document defines the process for validating OpenBSE against EnergyPlus
 DOE prototype buildings. Follow it exactly. Do not skip steps. Do not
 approximate. Do not guess.
 
