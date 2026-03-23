@@ -415,9 +415,17 @@ pub struct ZoneInput {
     /// Unconditioned zones have no HVAC and temperature floats freely
     #[serde(default = "default_conditioned")]
     pub conditioned: bool,
+    /// Zone multiplier (default: 1).
+    /// Matches E+ Zone List Multiplier / Zone Multiplier behavior:
+    /// - Equipment is sized for (zone_load × multiplier)
+    /// - HVAC energy is multiplied by this factor for building reporting
+    /// - Zone heat balance is simulated once (not multiplied)
+    #[serde(default = "default_zone_multiplier")]
+    pub zone_multiplier: u32,
 }
 
 fn default_conditioned() -> bool { true }
+fn default_zone_multiplier() -> u32 { 1 }
 
 impl ZoneInput {
     /// Get the active thermostat setpoints for a given hour of day.

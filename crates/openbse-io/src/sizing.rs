@@ -421,13 +421,26 @@ fn run_zone_sizing(
         }
     }
 
+    // ── Apply zone multiplier to peak loads ──────────────────────────────
+    // E+ Zone List Multiplier / Zone Multiplier: the zone's peak loads are
+    // multiplied so that HVAC equipment is sized for the multiplied zone.
+    // This matches E+'s behaviour where a single simulated zone represents
+    // multiple identical zones.
+    for zone in &env.zones {
+        let mult = zone.input.zone_multiplier as f64;
+        if mult > 1.0 {
+            let name = &zone.input.name;
+            if let Some(v) = zone_peak_heating.get_mut(name) { *v *= mult; }
+            if let Some(v) = zone_peak_cooling.get_mut(name) { *v *= mult; }
+            log::info!("  Zone '{}': applied zone_multiplier={} to peak loads", name, zone.input.zone_multiplier);
+        }
+    }
+
     // ── Calculate zone airflows from peak loads ─────────────────────────
     //
-    // Airflow is sized from RAW peak loads (no sizing factor).  Sizing
-    // factors only inflate coil/system capacities — not airflow.  This
-    // matches E+ behaviour where Sizing:System
-    // FractionOfAutosized{Heating,Cooling}Capacity scales capacity while
-    // airflow is derived from the un-factored design-day peak.
+    // Airflow is sized from the (possibly multiplied) peak loads.
+    // When zone_multiplier > 1, the equipment serves multiple identical
+    // zones, so airflow must also be multiplied.
     let mut zone_heating_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_cooling_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_design_airflow: HashMap<String, f64> = HashMap::new();

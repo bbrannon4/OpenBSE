@@ -453,6 +453,34 @@ fn main() -> Result<()> {
         );
     }
 
+    // ── 4a2. Build zone multiplier maps ──────────────────────────────────
+    // E+ Zone List Multiplier / Zone Multiplier: energy from HVAC components
+    // and zone internal gains is multiplied for building reporting.
+    let zone_multipliers: HashMap<String, u32> = envelope.as_ref()
+        .map(|env| env.zones.iter()
+            .map(|z| (z.input.name.clone(), z.input.zone_multiplier))
+            .collect())
+        .unwrap_or_default();
+    // Map each HVAC component name to its served zone's multiplier
+    let mut comp_zone_multiplier: HashMap<String, f64> = HashMap::new();
+    for li in &loop_infos {
+        let mult: f64 = li.served_zones.iter()
+            .filter_map(|z| zone_multipliers.get(z))
+            .max()
+            .copied()
+            .unwrap_or(1) as f64;
+        if mult > 1.0 {
+            for comp_name in &li.component_names {
+                comp_zone_multiplier.insert(comp_name.clone(), mult);
+            }
+            // Also map terminal box component names
+            for (_zone, term_name) in &li.terminal_boxes {
+                comp_zone_multiplier.insert(term_name.clone(), mult);
+            }
+            info!("Zone multiplier {:.0} applied to loop '{}' components", mult, li.name);
+        }
+    }
+
     // ── 4b. Build DHW systems ────────────────────────────────────────────
     let mut dhw_systems: Vec<openbse_components::water_heater::WaterHeater> = model.dhw_systems.iter()
         .map(|dhw_input| {
@@ -1216,6 +1244,7 @@ fn main() -> Result<()> {
                         &zone_thermal_caps,
                         &empty_predictor,
                         &current_zone_w,
+                        &zone_multipliers,
                     );
 
                     // Skip plant loop during warmup — it only affects energy
@@ -1502,6 +1531,7 @@ fn main() -> Result<()> {
                             &zone_thermal_caps,
                             &predictor_no_hvac_temps,
                             &current_zone_w,
+                            &zone_multipliers,
                         );
 
                         // Step 1b: Run plant loops in topological order.
@@ -1523,6 +1553,9 @@ fn main() -> Result<()> {
 
                             // 1. Air-side coil demand: sum thermal output from all
                             //    coils and terminal boxes referencing this plant loop.
+                            //    Apply zone_multiplier: if a coil serves a multiplied zone,
+                            //    the plant sees multiplied demand (matching E+ behavior where
+                            //    zone multiplier scales the demand on the plant loop).
                             for al in &model.air_loops {
                                 for eq in &al.equipment {
                                     let (coil_name, coil_plant) = match eq {
@@ -1536,8 +1569,9 @@ fn main() -> Result<()> {
                                     };
                                     if coil_plant == Some(plant_loop.name.as_str()) {
                                         if let Some(outputs) = hvac_result.component_outputs.get(coil_name) {
+                                            let zmult = comp_zone_multiplier.get(coil_name).copied().unwrap_or(1.0);
                                             total_load += outputs.get("thermal_output")
-                                                .copied().unwrap_or(0.0);
+                                                .copied().unwrap_or(0.0) * zmult;
                                         }
                                     }
                                 }
@@ -1551,8 +1585,9 @@ fn main() -> Result<()> {
                                         };
                                         if term_plant == Some(plant_loop.name.as_str()) {
                                             if let Some(outputs) = hvac_result.component_outputs.get(term_name) {
+                                                let zmult = comp_zone_multiplier.get(term_name).copied().unwrap_or(1.0);
                                                 total_load += outputs.get("thermal_output")
-                                                    .copied().unwrap_or(0.0);
+                                                    .copied().unwrap_or(0.0) * zmult;
                                             }
                                         }
                                     }
@@ -1961,34 +1996,40 @@ fn main() -> Result<()> {
                 }
 
                 // Populate energy end-use data
+                // Apply zone_multiplier to HVAC component energy for building reporting
                 for (comp_name, vars) in &result.component_outputs {
                     if comp_name == "Weather" { continue; }
+                    let zmult = comp_zone_multiplier.get(comp_name).copied().unwrap_or(1.0);
                     if let Some(&pw) = vars.get("electric_power") {
+                        let pw_m = pw * zmult;
                         if pump_names.contains(comp_name) {
-                            snapshot.pump_electric_power.insert(comp_name.clone(), pw);
+                            snapshot.pump_electric_power.insert(comp_name.clone(), pw_m);
                         } else if humidifier_names.contains(comp_name) {
-                            snapshot.humidification_power.insert(comp_name.clone(), pw);
+                            snapshot.humidification_power.insert(comp_name.clone(), pw_m);
                         } else if heat_recovery_names.contains(comp_name) {
-                            snapshot.heat_recovery_power.insert(comp_name.clone(), pw);
+                            snapshot.heat_recovery_power.insert(comp_name.clone(), pw_m);
                         } else {
-                            snapshot.component_electric_power.insert(comp_name.clone(), pw);
+                            snapshot.component_electric_power.insert(comp_name.clone(), pw_m);
                         }
                     }
                     if let Some(&pw) = vars.get("fuel_power") {
-                        snapshot.component_fuel_power.insert(comp_name.clone(), pw);
+                        snapshot.component_fuel_power.insert(comp_name.clone(), pw * zmult);
                     }
                 }
                 // Zone internal gains — separate lighting and equipment energy
+                // Apply zone_multiplier for building reporting (E+ multiplies zone
+                // output variables by zone multiplier)
                 for zone in &env.zones {
-                    snapshot.zone_lighting_power.insert(zone.input.name.clone(), zone.lighting_power);
-                    snapshot.zone_equipment_power.insert(zone.input.name.clone(), zone.equipment_power);
+                    let zmult = zone.input.zone_multiplier as f64;
+                    snapshot.zone_lighting_power.insert(zone.input.name.clone(), zone.lighting_power * zmult);
+                    snapshot.zone_equipment_power.insert(zone.input.name.clone(), zone.equipment_power * zmult);
 
                     // Exhaust fan power → component_electric_power (name contains "fan"
                     // so output.rs routes it to fan_elec_j automatically)
                     if zone.exhaust_fan_power > 0.0 {
                         snapshot.component_electric_power.insert(
                             format!("Exhaust Fan {}", zone.input.name),
-                            zone.exhaust_fan_power,
+                            zone.exhaust_fan_power * zmult,
                         );
                     }
                 }
@@ -2151,22 +2192,24 @@ fn main() -> Result<()> {
                     }
                 }
 
-                // Populate energy end-use data
+                // Populate energy end-use data (HVAC-only mode)
                 for (comp_name, vars) in &result.component_outputs {
                     if comp_name == "Weather" { continue; }
+                    let zmult = comp_zone_multiplier.get(comp_name).copied().unwrap_or(1.0);
                     if let Some(&pw) = vars.get("electric_power") {
+                        let pw_m = pw * zmult;
                         if pump_names.contains(comp_name) {
-                            snapshot.pump_electric_power.insert(comp_name.clone(), pw);
+                            snapshot.pump_electric_power.insert(comp_name.clone(), pw_m);
                         } else if humidifier_names.contains(comp_name) {
-                            snapshot.humidification_power.insert(comp_name.clone(), pw);
+                            snapshot.humidification_power.insert(comp_name.clone(), pw_m);
                         } else if heat_recovery_names.contains(comp_name) {
-                            snapshot.heat_recovery_power.insert(comp_name.clone(), pw);
+                            snapshot.heat_recovery_power.insert(comp_name.clone(), pw_m);
                         } else {
-                            snapshot.component_electric_power.insert(comp_name.clone(), pw);
+                            snapshot.component_electric_power.insert(comp_name.clone(), pw_m);
                         }
                     }
                     if let Some(&pw) = vars.get("fuel_power") {
-                        snapshot.component_fuel_power.insert(comp_name.clone(), pw);
+                        snapshot.component_fuel_power.insert(comp_name.clone(), pw * zmult);
                     }
                 }
 
@@ -2321,6 +2364,7 @@ fn simulate_all_loops(
     zone_thermal_caps: &HashMap<String, f64>,
     predictor_no_hvac_temps: &HashMap<String, f64>,
     zone_humidity_ratios: &HashMap<String, f64>,
+    zone_multipliers: &HashMap<String, u32>,
 ) -> (TimestepResult, HashMap<String, (f64, f64, f64)>) {
 
     let mut all_outputs: HashMap<String, HashMap<String, f64>> = HashMap::new();
@@ -2762,8 +2806,13 @@ fn simulate_all_loops(
         let loop_plr = if li.system_type == AirLoopSystemType::PszAc
             || li.system_type == AirLoopSystemType::Ptac {
             let control_zone = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
-            let zone_cool_load = zone_cooling_loads.get(control_zone).copied().unwrap_or(0.0);
-            let zone_heat_load = zone_heating_loads.get(control_zone).copied().unwrap_or(0.0);
+            // Zone multiplier: the envelope simulates one zone, but with
+            // zone_multiplier > 1, the HVAC equipment is sized for the
+            // multiplied load.  The PLR numerator must also be multiplied
+            // so that PLR reflects the actual fraction of coil capacity used.
+            let zmult_plr = zone_multipliers.get(control_zone).copied().unwrap_or(1) as f64;
+            let zone_cool_load = zone_cooling_loads.get(control_zone).copied().unwrap_or(0.0) * zmult_plr;
+            let zone_heat_load = zone_heating_loads.get(control_zone).copied().unwrap_or(0.0) * zmult_plr;
             let control_temp = zone_temps.get(control_zone).copied().unwrap_or(21.0);
             let heat_sp = active_heat_sp.get(control_zone).copied().unwrap_or(21.1);
             let cool_sp = active_cool_sp.get(control_zone).copied().unwrap_or(23.9);
@@ -2815,7 +2864,7 @@ fn simulate_all_loops(
                 // A dead-band safety check prevents stale loads from causing
                 // heating when the zone is well above setpoint (e.g., after a
                 // setpoint transition from occupied to unoccupied mode).
-                let zone_cap = zone_thermal_caps.get(control_zone).copied().unwrap_or(0.0);
+                let zone_cap = zone_thermal_caps.get(control_zone).copied().unwrap_or(0.0) * zmult_plr;
                 let init_temp = initial_zone_temps.get(control_zone).copied().unwrap_or(control_temp);
                 let dead_band = (cool_sp - heat_sp).max(0.5);
 
@@ -2920,11 +2969,29 @@ fn simulate_all_loops(
             for (comp_name, outputs) in &mut loop_result {
                 let is_fan = li.fan_names.contains(comp_name);
 
-                if is_continuous_fan && is_fan {
-                    // Continuous fan mode: fan runs at full speed always.
-                    // Fan power and thermal output are NOT scaled by PLR.
-                    // Mass flow is NOT scaled — fan pushes air continuously.
-                    // (No changes needed — outputs stay at full rated values.)
+                if is_fan {
+                    // E+ Fan:OnOff behavior: fan runs at full speed whenever
+                    // the unit is active (heating or cooling).  Fan power and
+                    // thermal output are NOT scaled by PLR — the fan operates
+                    // continuously during the ON period.  In deadband, the
+                    // signal already sets flow=0 (cycling) or flow=design
+                    // (continuous), so no PLR scaling is needed for fans in
+                    // either mode.  Only mass_flow is scaled for cycling mode
+                    // to get the time-averaged airflow delivery.
+                    if !is_continuous_fan {
+                        // Cycling fan deadband: mass flow was already set to 0
+                        // by the signal.  For active modes, the fan runs at
+                        // full speed but the time-averaged mass flow delivery
+                        // is reduced by PLR.
+                        if let Some(mf) = outputs.get_mut("mass_flow") {
+                            *mf *= loop_plr;
+                        }
+                        if let Some(to) = outputs.get_mut("thermal_output") {
+                            *to *= loop_plr;
+                        }
+                    }
+                    // Fan electric_power is NOT scaled — fan runs at full
+                    // speed whenever the unit operates.
                 } else {
                     // DX compressor electric power uses RTF (includes cycling
                     // penalty via PLF curve). Gas furnace fuel and fan power

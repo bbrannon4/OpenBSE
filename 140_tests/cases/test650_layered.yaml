@@ -1,0 +1,235 @@
+# Test: Case 650 with explicit multi-layer constructions (matching E+ IDF exactly)
+# Case 650 = Case 600 + night ventilation, no heating, cooling daytime only
+simulation:
+  timesteps_per_hour: 4
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+  terrain: country
+weather_files:
+  - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
+
+materials:
+  - name: Wood Siding
+    conductivity: 0.14
+    density: 530.0
+    specific_heat: 900.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+  - name: Fiberglass Wall
+    conductivity: 0.04
+    density: 12.0
+    specific_heat: 840.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+  - name: Plasterboard Wall
+    conductivity: 0.16
+    density: 950.0
+    specific_heat: 840.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+  - name: Roof Deck
+    conductivity: 0.14
+    density: 530.0
+    specific_heat: 900.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+  - name: Fiberglass Roof
+    conductivity: 0.04
+    density: 12.0
+    specific_heat: 840.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+  - name: Plasterboard Roof
+    conductivity: 0.16
+    density: 950.0
+    specific_heat: 840.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+  - name: R-25 Insulation
+    thermal_resistance: 25.075
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+  - name: Timber Flooring
+    conductivity: 0.14
+    density: 650.0
+    specific_heat: 1200.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+
+constructions:
+  - name: LTWALL
+    layers:
+      - material: Wood Siding
+        thickness: 0.009
+      - material: Fiberglass Wall
+        thickness: 0.066
+      - material: Plasterboard Wall
+        thickness: 0.012
+  - name: LTROOF
+    layers:
+      - material: Roof Deck
+        thickness: 0.019
+      - material: Fiberglass Roof
+        thickness: 0.1118
+      - material: Plasterboard Roof
+        thickness: 0.010
+  - name: LTFLOOR
+    layers:
+      - material: R-25 Insulation
+        thickness: 1.003
+      - material: Timber Flooring
+        thickness: 0.025
+
+window_constructions:
+  - name: Case600 Window
+    u_factor: 3.0
+    shgc: 0.769
+    visible_transmittance: 0.74
+    pane_solar_transmittance: 0.834
+    pane_solar_reflectance: 0.075
+    num_panes: 2
+    gap_width: 0.012
+    pane_conductivity: 1.0
+    pane_thickness: 0.003175
+    glass_emissivity: 0.84
+
+summary_report: true
+
+zones:
+  - name: Case650 Zone
+    solar_distribution:
+      floor_fraction: 0.642
+      wall_fraction: 0.191
+      ceiling_fraction: 0.167
+
+equipment:
+  - name: Internal Gains
+    zones: [Case650 Zone]
+    power: 200.0
+    radiant_fraction: 0.6
+
+infiltration:
+  - name: Zone Infiltration
+    zones: [Case650 Zone]
+    air_changes_per_hour: 0.5
+
+ideal_loads:
+  - name: Zone Ideal Loads
+    zones: [Case650 Zone]
+    heating_setpoint: 20.0
+    cooling_setpoint: 27.0
+    heating_capacity: 0.0
+    cooling_capacity: 1000000.0
+    thermostat_schedule:
+      - start_hour: 0
+        end_hour: 7
+        heating_setpoint: 20.0
+        cooling_setpoint: 100.0
+      - start_hour: 8
+        end_hour: 18
+        heating_setpoint: 20.0
+        cooling_setpoint: 27.0
+      - start_hour: 19
+        end_hour: 24
+        heating_setpoint: 20.0
+        cooling_setpoint: 100.0
+
+ventilation:
+  - name: Night Ventilation 1
+    zones: [Case650 Zone]
+    start_hour: 0
+    end_hour: 7
+    air_changes_per_hour: 13.12
+    outdoor_temp_must_be_lower: true
+  - name: Night Ventilation 2
+    zones: [Case650 Zone]
+    start_hour: 19
+    end_hour: 24
+    air_changes_per_hour: 13.12
+    outdoor_temp_must_be_lower: true
+
+surfaces:
+  - name: South Wall
+    zone: Case650 Zone
+    type: wall
+    construction: LTWALL
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 0.0, z: 2.7}
+  - name: South Window 1
+    zone: Case650 Zone
+    type: window
+    construction: Case600 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 0.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 2.2}
+      - {x: 0.5, y: 0.0, z: 2.2}
+  - name: South Window 2
+    zone: Case650 Zone
+    type: window
+    construction: Case600 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 4.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 2.2}
+      - {x: 4.5, y: 0.0, z: 2.2}
+  - name: North Wall
+    zone: Case650 Zone
+    type: wall
+    construction: LTWALL
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+  - name: East Wall
+    zone: Case650 Zone
+    type: wall
+    construction: LTWALL
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+  - name: West Wall
+    zone: Case650 Zone
+    type: wall
+    construction: LTWALL
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+  - name: Roof
+    zone: Case650 Zone
+    type: roof
+    construction: LTROOF
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+  - name: Floor
+    zone: Case650 Zone
+    type: floor
+    construction: LTFLOOR
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}

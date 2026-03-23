@@ -60,6 +60,10 @@ prototype_tests/**/*.err
 **/eplus_run/epluszsz.csv
 **/eplus_run/epluspsz.csv
 **/eplus_run/eplustbl.htm
+**/eplus_run/in.idf
+**/eplus_run/eplusmtr.csv
+# Catch any eplus_*_run/ directories (e.g. eplus_denver_run)
+**/eplus_*_run/
 
 # OpenBSE and example run error logs
 examples/*.err
@@ -74,7 +78,11 @@ examples/*.err
 140_tests/cases/*_zone_results.csv
 140_tests/cases/*_energy_monthly.csv
 140_tests/cases/*_hvac_results.csv
+140_tests/cases/*.err
 140_tests/reference_idfs/*_out/
+
+# ASHRAE 140 accompanying reference files (large, not ours)
+140_tests/cases/ASHRAE 140-2023 Accompanying FIles/
 
 # ─── Node.js ─────────────────────────────────────────────────────────────────
 node_modules/

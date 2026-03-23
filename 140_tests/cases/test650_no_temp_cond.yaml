@@ -1,0 +1,175 @@
+# Test: Case 650 with unconditional night ventilation (matching E+ IDF approach)
+# E+ uses ZoneInfiltration with a schedule, no temperature condition
+simulation:
+  timesteps_per_hour: 4
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+  terrain: country
+weather_files:
+  - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
+simple_constructions:
+  - name: Case600 Wall
+    u_factor: 0.559
+    thickness: 0.087
+    thermal_capacity: 14534.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+  - name: Case600 Roof
+    u_factor: 0.334
+    thickness: 0.141
+    thermal_capacity: 18170.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+  - name: Case600 Floor
+    u_factor: 0.040
+    thickness: 1.028
+    thermal_capacity: 19500.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+window_constructions:
+  - name: Case600 Window
+    u_factor: 3.0
+    shgc: 0.769
+    visible_transmittance: 0.74
+    pane_solar_transmittance: 0.834
+    pane_solar_reflectance: 0.075
+    num_panes: 2
+    gap_width: 0.012
+    pane_conductivity: 1.0
+    pane_thickness: 0.003175
+    glass_emissivity: 0.84
+summary_report: true
+zones:
+  - name: Case650 Zone
+    solar_distribution:
+      floor_fraction: 0.642
+      wall_fraction: 0.191
+      ceiling_fraction: 0.167
+equipment:
+  - name: Internal Gains
+    zones: [Case650 Zone]
+    power: 200.0
+    radiant_fraction: 0.6
+infiltration:
+  - name: Zone Infiltration
+    zones: [Case650 Zone]
+    air_changes_per_hour: 0.5
+ideal_loads:
+  - name: Zone Ideal Loads
+    zones: [Case650 Zone]
+    heating_setpoint: 20.0
+    cooling_setpoint: 27.0
+    heating_capacity: 0.0
+    cooling_capacity: 1000000.0
+    thermostat_schedule:
+      - start_hour: 0
+        end_hour: 7
+        heating_setpoint: 20.0
+        cooling_setpoint: 100.0
+      - start_hour: 8
+        end_hour: 18
+        heating_setpoint: 20.0
+        cooling_setpoint: 27.0
+      - start_hour: 19
+        end_hour: 24
+        heating_setpoint: 20.0
+        cooling_setpoint: 100.0
+# NO temperature condition on ventilation
+ventilation:
+  - name: Night Ventilation 1
+    zones: [Case650 Zone]
+    start_hour: 0
+    end_hour: 7
+    air_changes_per_hour: 13.12
+  - name: Night Ventilation 2
+    zones: [Case650 Zone]
+    start_hour: 19
+    end_hour: 24
+    air_changes_per_hour: 13.12
+surfaces:
+  - name: South Wall
+    zone: Case650 Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 0.0, z: 2.7}
+  - name: South Window 1
+    zone: Case650 Zone
+    type: window
+    construction: Case600 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 0.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 2.2}
+      - {x: 0.5, y: 0.0, z: 2.2}
+  - name: South Window 2
+    zone: Case650 Zone
+    type: window
+    construction: Case600 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 4.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 2.2}
+      - {x: 4.5, y: 0.0, z: 2.2}
+  - name: North Wall
+    zone: Case650 Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+  - name: East Wall
+    zone: Case650 Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+  - name: West Wall
+    zone: Case650 Zone
+    type: wall
+    construction: Case600 Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+  - name: Roof
+    zone: Case650 Zone
+    type: roof
+    construction: Case600 Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+  - name: Floor
+    zone: Case650 Zone
+    type: floor
+    construction: Case600 Floor
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}

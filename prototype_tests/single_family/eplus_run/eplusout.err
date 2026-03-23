@@ -1,4 +1,4 @@
-Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.15 17:47,
+Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.17 07:35,
    ************* Beginning Zone Sizing Calculations
    ** Warning ** GetHTSurfaceData: Surfaces with interface to Ground found but no "Ground Temperatures" were input.
    **   ~~~   ** Found first in surface=BGWALL_LOWER_LDF
@@ -68,4 +68,4 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.15 17:47,
    *************
    ************* EnergyPlus Warmup Error Summary. During Warmup: 0 Warning; 0 Severe Errors.
    ************* EnergyPlus Sizing Error Summary. During Sizing: 3 Warning; 0 Severe Errors.
-   ************* EnergyPlus Completed Successfully-- 2287568 Warning; 0 Severe Errors; Elapsed Time=00hr 00min  8.08sec
+   ************* EnergyPlus Completed Successfully-- 2287568 Warning; 0 Severe Errors; Elapsed Time=00hr 00min  8.15sec

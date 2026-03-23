@@ -1,0 +1,207 @@
+# Test: Case 900 with explicit multi-layer constructions (matching E+ IDF exactly)
+simulation:
+  timesteps_per_hour: 4
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+  terrain: country
+weather_files:
+  - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
+
+materials:
+  - name: Wood Siding
+    conductivity: 0.14
+    density: 530.0
+    specific_heat: 900.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+  - name: Foam Insulation
+    conductivity: 0.04
+    density: 10.0
+    specific_heat: 1400.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+  - name: Concrete Block
+    conductivity: 0.51
+    density: 1400.0
+    specific_heat: 1000.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+  - name: Roof Deck
+    conductivity: 0.14
+    density: 530.0
+    specific_heat: 900.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+  - name: Fiberglass Roof
+    conductivity: 0.04
+    density: 12.0
+    specific_heat: 840.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+  - name: Plasterboard Roof
+    conductivity: 0.16
+    density: 950.0
+    specific_heat: 840.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+  - name: Concrete Slab
+    conductivity: 1.13
+    density: 1400.0
+    specific_heat: 1000.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+  - name: R-25 Insulation
+    thermal_resistance: 25.175
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.6
+
+constructions:
+  - name: HWWALL
+    layers:
+      - material: Wood Siding
+        thickness: 0.009
+      - material: Foam Insulation
+        thickness: 0.0615
+      - material: Concrete Block
+        thickness: 0.100
+  - name: LTROOF
+    layers:
+      - material: Roof Deck
+        thickness: 0.019
+      - material: Fiberglass Roof
+        thickness: 0.1118
+      - material: Plasterboard Roof
+        thickness: 0.010
+  - name: HWFLOOR
+    layers:
+      - material: R-25 Insulation
+        thickness: 1.003
+      - material: Concrete Slab
+        thickness: 0.080
+
+window_constructions:
+  - name: Case900 Window
+    u_factor: 3.0
+    shgc: 0.769
+    visible_transmittance: 0.74
+    pane_solar_transmittance: 0.834
+    pane_solar_reflectance: 0.075
+    num_panes: 2
+    gap_width: 0.012
+    pane_conductivity: 1.0
+    pane_thickness: 0.003175
+    glass_emissivity: 0.84
+
+summary_report: true
+
+zones:
+  - name: Case900 Zone
+    solar_distribution:
+      floor_fraction: 0.642
+      wall_fraction: 0.191
+      ceiling_fraction: 0.167
+
+equipment:
+  - name: Internal Gains
+    zones: [Case900 Zone]
+    power: 200.0
+    radiant_fraction: 0.6
+
+infiltration:
+  - name: Zone Infiltration
+    zones: [Case900 Zone]
+    air_changes_per_hour: 0.5
+
+ideal_loads:
+  - name: Zone Ideal Loads
+    zones: [Case900 Zone]
+    heating_setpoint: 20.0
+    cooling_setpoint: 27.0
+    heating_capacity: 1000000.0
+    cooling_capacity: 1000000.0
+
+surfaces:
+  - name: South Wall
+    zone: Case900 Zone
+    type: wall
+    construction: HWWALL
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 0.0, z: 2.7}
+  - name: South Window 1
+    zone: Case900 Zone
+    type: window
+    construction: Case900 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 0.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 0.2}
+      - {x: 3.5, y: 0.0, z: 2.2}
+      - {x: 0.5, y: 0.0, z: 2.2}
+  - name: South Window 2
+    zone: Case900 Zone
+    type: window
+    construction: Case900 Window
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 4.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 0.2}
+      - {x: 7.5, y: 0.0, z: 2.2}
+      - {x: 4.5, y: 0.0, z: 2.2}
+  - name: North Wall
+    zone: Case900 Zone
+    type: wall
+    construction: HWWALL
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+  - name: East Wall
+    zone: Case900 Zone
+    type: wall
+    construction: HWWALL
+    boundary: outdoor
+    vertices:
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+  - name: West Wall
+    zone: Case900 Zone
+    type: wall
+    construction: HWWALL
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+  - name: Roof
+    zone: Case900 Zone
+    type: roof
+    construction: LTROOF
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 0.0, z: 2.7}
+      - {x: 8.0, y: 6.0, z: 2.7}
+      - {x: 0.0, y: 6.0, z: 2.7}
+  - name: Floor
+    zone: Case900 Zone
+    type: floor
+    construction: HWFLOOR
+    boundary: ground
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
