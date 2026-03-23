@@ -50,11 +50,11 @@ design_days:
 # SCHEDULES
 # =============================================================================
 schedules:
-  # --- Occupancy ---
+  # --- Occupancy (E+ BLDG_OCC_SCH_wo_SB, simplified without stairwell bumps) ---
   - name: BLDG_OCC_SCH
     weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.2, 0.95, 0.95, 0.95, 0.95, 0.5, 0.95, 0.95, 0.95, 0.95, 0.3, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05]
     saturday: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.1, 0.3, 0.3, 0.3, 0.3, 0.1, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0]
-    sunday:   [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+    sunday:   [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
   # --- Lighting (E+ ltg_sch_office) ---
   - name: BLDG_LIGHT_SCH
@@ -481,6 +481,14 @@ people:
     radiant_fraction: 0.3
     schedule: BLDG_OCC_SCH
 
+  # Data center zones also have people in the IDF (same density as office)
+  - name: DataCenter People
+    zones: [DataCenter Zones]
+    area_per_person: 18.5788
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: BLDG_OCC_SCH
+
 # =============================================================================
 # LIGHTS  (11.651 W/m2 office, 22.36738 W/m2 data center)
 # =============================================================================
@@ -488,56 +496,56 @@ lights:
   - name: Office Lights Bottom
     zones: [Office Zones Bottom]
     watts_per_area: 11.651
-    radiant_fraction: 0.7
+    radiant_fraction: 0.9
     return_air_fraction: 0.0
     schedule: BLDG_LIGHT_SCH
 
   - name: Office Lights Mid
     zones: [Office Zones Mid]
     watts_per_area: 11.651
-    radiant_fraction: 0.7
+    radiant_fraction: 0.9
     return_air_fraction: 0.0
     schedule: BLDG_LIGHT_SCH
 
   - name: Office Lights Top
     zones: [Office Zones Top]
     watts_per_area: 11.651
-    radiant_fraction: 0.7
+    radiant_fraction: 0.9
     return_air_fraction: 0.0
     schedule: BLDG_LIGHT_SCH
 
   - name: Basement Lights
     zones: [Basement Zone]
     watts_per_area: 11.651
-    radiant_fraction: 0.7
+    radiant_fraction: 0.9
     return_air_fraction: 0.0
     schedule: BLDG_LIGHT_SCH
 
   - name: DataCenter Lights Basement
     zones: [DataCenter_basement_ZN_6]
     watts_per_area: 11.651
-    radiant_fraction: 0.7
+    radiant_fraction: 0.9
     return_air_fraction: 0.0
     schedule: BLDG_LIGHT_SCH
 
   - name: DataCenter Lights Bot
     zones: [DataCenter_bot_ZN_6]
     watts_per_area: 22.36738
-    radiant_fraction: 0.7
+    radiant_fraction: 0.9
     return_air_fraction: 0.0
     schedule: BLDG_LIGHT_SCH
 
   - name: DataCenter Lights Mid
     zones: [DataCenter_mid_ZN_6]
     watts_per_area: 22.36738
-    radiant_fraction: 0.7
+    radiant_fraction: 0.9
     return_air_fraction: 0.0
     schedule: BLDG_LIGHT_SCH
 
   - name: DataCenter Lights Top
     zones: [DataCenter_top_ZN_6]
     watts_per_area: 22.36738
-    radiant_fraction: 0.7
+    radiant_fraction: 0.9
     return_air_fraction: 0.0
     schedule: BLDG_LIGHT_SCH
 

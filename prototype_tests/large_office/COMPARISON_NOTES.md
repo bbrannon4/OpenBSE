@@ -24,6 +24,9 @@ building using zone multipliers.
 5. **DataCenter thermostat** — 15.6/24.0 → 18.0/27.0 (matching IDF HTGSETP_DC_SCH / CLGSETP_DC_SCH)
 6. **Infiltration schedule** — added INFIL_SCH_PNNL (0.25 during HVAC operation, 1.0 when off) and assigned to all infiltration objects
 7. **Design day values** — corrected cooling wetbulb (15.7 → 15.0), heating wind (2.3 → 2.5), cooling wind (4.0 → 3.6)
+8. **Lighting radiant fraction** — 0.7 → 0.9 (E+ Fraction Radiant 0.7 + Fraction Visible 0.2)
+9. **Missing DataCenter people** — added People entries for all 4 DC zones (same density as office: 18.5788 m²/person)
+10. **Occupancy schedule Sunday** — fixed from constant 0.05 to IDF pattern (0.0 hours 0-5 and 18-23, 0.05 hours 6-17)
 
 ### Known YAML Issues NOT Yet Fixed
 
@@ -66,13 +69,30 @@ building using zone multipliers.
 | Exterior Lighting | 279,464 | 296,815 | +6% | Astronomical clock vs IDF schedule |
 | Interior Equipment | 4,076,778 | 2,670,154 | -35% | Missing zone_multiplier on reporting |
 | Exterior Equipment | 712,964 | 711,724 | 0% | OK |
-| Fans | 1,010,319 | 396,587 | -61% | Missing zone_multiplier on HVAC reporting |
-| Pumps | 129,769 | 35,723 | -72% | Missing zone_multiplier on HVAC reporting |
-| Cooling | 552,933 | 408,356 | -26% | Missing zone_multiplier on HVAC reporting |
-| Heating (Gas) | 404,736 | 139,021 | -66% | Missing zone_multiplier on HVAC reporting |
+| Fans | 1,010,319 | 395,290 | -61% | Missing zone_multiplier on HVAC reporting |
+| Pumps | 129,769 | 35,710 | -72% | Missing zone_multiplier on HVAC reporting |
+| Cooling | 552,933 | 407,664 | -26% | Missing zone_multiplier on HVAC reporting |
+| Heating (Gas) | 404,736 | 141,325 | -65% | Missing zone_multiplier on HVAC reporting |
 | DHW (Elec) | 125,133 | 131,926 | +5% | Mains temp and mixing model differences |
 
-**These results are not meaningful** because the zone multiplier is not applied to energy reporting. The sizing correctly applies the multiplier, so HVAC equipment operates at the right capacity level, but the reported energy is only the single-zone component. Once the engine applies zone_multiplier to reporting, results should be ~3x higher for most HVAC end uses (since mid floors with mult=10 dominate the building).
+**These results are not meaningful** because the zone multiplier is not applied to
+energy reporting. The sizing correctly applies the multiplier, so HVAC equipment
+operates at the right capacity level, but the reported energy is only the
+single-zone component.
+
+## Projected Results (once zone_multiplier reporting is fixed)
+
+Manual calculations confirm the YAML internal gains match E+ closely:
+
+| End Use | E+ (kWh) | Projected OpenBSE (kWh) | Diff | Status |
+|---------|----------|------------------------|------|--------|
+| Interior Lighting | 1,558,539 | ~1,603,648 | +2.9% | schedule day-type mapping |
+| Interior Equipment | 4,076,778 | ~4,093,206 | +0.4% | OK |
+| Exterior Equipment | 712,964 | 711,724 | -0.2% | OK |
+| DHW (Elec) | 125,133 | 131,926 | +5.4% | mains temp model |
+
+HVAC end uses (fans, pumps, cooling, heating) cannot be projected manually since
+they depend on the engine's multiplier-aware simulation and reporting.
 
 ## Required Engine Changes
 
