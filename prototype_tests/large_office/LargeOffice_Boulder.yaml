@@ -30,7 +30,7 @@ design_days:
     humidity_type: wetbulb
     humidity_value: -17.9
     pressure: 82237.0
-    wind_speed: 2.3
+    wind_speed: 2.5
     month: 12
     day: 21
     day_type: winter
@@ -39,9 +39,9 @@ design_days:
     design_temp: 33.9
     daily_range: 14.8
     humidity_type: wetbulb
-    humidity_value: 15.7
+    humidity_value: 15.0
     pressure: 82237.0
-    wind_speed: 4.0
+    wind_speed: 3.6
     month: 7
     day: 21
     day_type: summer
@@ -56,10 +56,10 @@ schedules:
     saturday: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.1, 0.3, 0.3, 0.3, 0.3, 0.1, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0]
     sunday:   [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
 
-  # --- Lighting ---
+  # --- Lighting (E+ ltg_sch_office) ---
   - name: BLDG_LIGHT_SCH
     weekday:  [0.05, 0.05, 0.05, 0.05, 0.05, 0.1, 0.1, 0.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.5, 0.3, 0.3, 0.2, 0.2, 0.1, 0.05]
-    saturday: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.1, 0.1, 0.3, 0.3, 0.3, 0.3, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.05, 0.05, 0.05, 0.05, 0.05]
+    saturday: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.1, 0.1, 0.3, 0.3, 0.3, 0.3, 0.15, 0.15, 0.15, 0.15, 0.15, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
     sunday:   [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
 
   # --- HVAC Operation (E+ HVACOperationSchd) ---
@@ -69,11 +69,11 @@ schedules:
     saturday: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0]
     sunday:   [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-  # --- Equipment ---
+  # --- Equipment (E+ BLDG_EQUIP_SCH — full precision from IDF) ---
   - name: BLDG_EQUIP_SCH
-    weekday:  [0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.380, 0.380, 0.854, 0.854, 0.854, 0.854, 0.759, 0.854, 0.854, 0.854, 0.854, 0.475, 0.380, 0.380, 0.380, 0.380, 0.380, 0.380]
-    saturday: [0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.380, 0.380, 0.380, 0.380, 0.380, 0.380, 0.380, 0.380, 0.380, 0.380, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295]
-    sunday:   [0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295, 0.295]
+    weekday:  [0.2948, 0.2948, 0.2948, 0.2948, 0.2948, 0.2948, 0.3797, 0.3797, 0.8542, 0.8542, 0.8542, 0.8542, 0.7593, 0.8542, 0.8542, 0.8542, 0.8542, 0.4746, 0.3797, 0.3797, 0.3797, 0.3797, 0.3797, 0.3797]
+    saturday: [0.2211, 0.2211, 0.2211, 0.2211, 0.2211, 0.2211, 0.3797, 0.3797, 0.4746, 0.4746, 0.4746, 0.4746, 0.3322, 0.3322, 0.3322, 0.3322, 0.3322, 0.2847, 0.2847, 0.2211, 0.2211, 0.2211, 0.2211, 0.2211]
+    sunday:   [0.2211, 0.2211, 0.2211, 0.2211, 0.2211, 0.2211, 0.2847, 0.2847, 0.2847, 0.2847, 0.2847, 0.2847, 0.2847, 0.2847, 0.2847, 0.2847, 0.2847, 0.2847, 0.2211, 0.2211, 0.2211, 0.2211, 0.2211, 0.2211]
 
   # --- Data Center Equipment (quarterly ramp: 0.25 -> 0.5 -> 0.75 -> 1.0 cycling) ---
   # Simplified to average annual fraction = 0.625
@@ -95,6 +95,13 @@ schedules:
     weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.09926, 0.26126, 0.26126, 0.09926, 0.09926, 0.26126, 0.09926, 0.09926, 0.09926, 0.26126, 0.26126, 0.26126, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     saturday: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.09926, 0.26126, 0.26126, 0.09926, 0.09926, 0.26126, 0.09926, 0.09926, 0.09926, 0.26126, 0.26126, 0.26126, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     sunday:   [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  # --- Infiltration Schedule (E+ INFIL_SCH_PNNL) ---
+  # 0.25 during HVAC operation, 1.0 when off
+  - name: INFIL_SCH_PNNL
+    weekday:  [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 1.0, 1.0]
+    saturday: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    sunday:   [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 
   # --- Elevator Standby ---
   - name: Elevator_Standby_Sch
@@ -337,27 +344,27 @@ zones:
   - name: Core_mid
     volume: 6849.4
     floor_area: 2496.12
-    multiplier: 10
+    zone_multiplier: 10
 
   - name: Perimeter_mid_ZN_1
     volume: 860.0
     floor_area: 313.42
-    multiplier: 10
+    zone_multiplier: 10
 
   - name: Perimeter_mid_ZN_2
     volume: 554.2
     floor_area: 201.98
-    multiplier: 10
+    zone_multiplier: 10
 
   - name: Perimeter_mid_ZN_3
     volume: 860.0
     floor_area: 313.41
-    multiplier: 10
+    zone_multiplier: 10
 
   - name: Perimeter_mid_ZN_4
     volume: 554.2
     floor_area: 201.98
-    multiplier: 10
+    zone_multiplier: 10
 
   # --- Top floor (floor 12) ---
   - name: Core_top
@@ -397,7 +404,7 @@ zones:
   - name: DataCenter_mid_ZN_6
     volume: 99.3
     floor_area: 36.20
-    multiplier: 10
+    zone_multiplier: 10
 
   - name: DataCenter_top_ZN_6
     volume: 99.3
@@ -538,129 +545,130 @@ lights:
 # EQUIPMENT  (IDF uses EquipmentLevel for office zones, W/m2 for data centers)
 # =============================================================================
 equipment:
-  # Core zones: ~20142.8 W each (EquipmentLevel)
+  # Core zones: ~20142.8 W each (EquipmentLevel, radiant=0.5 from IDF)
   - name: Core Equipment Bottom
     zones: [Core_bottom]
     power: 20142.8
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
   - name: Core Equipment Mid
     zones: [Core_mid]
     power: 20142.8
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
   - name: Core Equipment Top
     zones: [Core_top]
     power: 20142.8
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
   # Perimeter ZN_1 (South) and ZN_3 (North): ~2529.2 W each
   - name: Perimeter ZN_1 Equipment Bottom
     zones: [Perimeter_bot_ZN_1]
     power: 2529.2
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
   - name: Perimeter ZN_3 Equipment Bottom
     zones: [Perimeter_bot_ZN_3]
     power: 2529.2
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
   - name: Perimeter ZN_1 Equipment Mid
     zones: [Perimeter_mid_ZN_1]
     power: 2529.2
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
   - name: Perimeter ZN_3 Equipment Mid
     zones: [Perimeter_mid_ZN_3]
     power: 2529.2
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
   - name: Perimeter ZN_1 Equipment Top
     zones: [Perimeter_top_ZN_1]
     power: 2529.2
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
   - name: Perimeter ZN_3 Equipment Top
     zones: [Perimeter_top_ZN_3]
     power: 2529.2
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
   # Perimeter ZN_2 (East) and ZN_4 (West): ~1629.9 W each
   - name: Perimeter ZN_2 Equipment Bottom
     zones: [Perimeter_bot_ZN_2]
     power: 1629.9
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
   - name: Perimeter ZN_4 Equipment Bottom
     zones: [Perimeter_bot_ZN_4]
     power: 1629.9
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
   - name: Perimeter ZN_2 Equipment Mid
     zones: [Perimeter_mid_ZN_2]
     power: 1629.9
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
   - name: Perimeter ZN_4 Equipment Mid
     zones: [Perimeter_mid_ZN_4]
     power: 1629.9
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
   - name: Perimeter ZN_2 Equipment Top
     zones: [Perimeter_top_ZN_2]
     power: 1629.9
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
   - name: Perimeter ZN_4 Equipment Top
     zones: [Perimeter_top_ZN_4]
     power: 1629.9
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH
 
-  # Basement equipment: 13457.544 W (always on)
+  # Basement equipment: 13457.544 W (always on, radiant=0.5 from IDF)
   - name: Basement Equipment
     zones: [Basement Zone]
     power: 13457.544
-    radiant_fraction: 0.3
+    radiant_fraction: 0.5
     schedule: BLDG_EQUIP_SCH_Basement
 
   # Data Center equipment: 215.299 W/m2 (bot/mid/top), 484.423 W/m2 (basement)
+  # Radiant fraction = 0.1 from IDF (DataCenterPlugLoads)
   - name: DataCenter Equipment Basement
     zones: [DataCenter_basement_ZN_6]
     watts_per_area: 484.423
-    radiant_fraction: 0.3
+    radiant_fraction: 0.1
     schedule: DataCenter_EQUIP_SCH
 
   - name: DataCenter Equipment Bot
     zones: [DataCenter_bot_ZN_6]
     watts_per_area: 215.299
-    radiant_fraction: 0.3
+    radiant_fraction: 0.1
     schedule: DataCenter_EQUIP_SCH
 
   - name: DataCenter Equipment Mid
     zones: [DataCenter_mid_ZN_6]
     watts_per_area: 215.299
-    radiant_fraction: 0.3
+    radiant_fraction: 0.1
     schedule: DataCenter_EQUIP_SCH
 
   - name: DataCenter Equipment Top
     zones: [DataCenter_top_ZN_6]
     watts_per_area: 215.299
-    radiant_fraction: 0.3
+    radiant_fraction: 0.1
     schedule: DataCenter_EQUIP_SCH
 
 # =============================================================================
@@ -673,6 +681,7 @@ infiltration:
     constant_coefficient: 0.0
     temperature_coefficient: 0.0
     wind_coefficient: 0.224
+    schedule: INFIL_SCH_PNNL
 
   - name: Perimeter Infiltration Mid
     zones: [Perimeter_mid_ZN_1, Perimeter_mid_ZN_2, Perimeter_mid_ZN_3, Perimeter_mid_ZN_4]
@@ -680,6 +689,7 @@ infiltration:
     constant_coefficient: 0.0
     temperature_coefficient: 0.0
     wind_coefficient: 0.224
+    schedule: INFIL_SCH_PNNL
 
   - name: Perimeter Infiltration Top
     zones: [Perimeter_top_ZN_1, Perimeter_top_ZN_2, Perimeter_top_ZN_3, Perimeter_top_ZN_4]
@@ -687,6 +697,7 @@ infiltration:
     constant_coefficient: 0.0
     temperature_coefficient: 0.0
     wind_coefficient: 0.224
+    schedule: INFIL_SCH_PNNL
 
   - name: Basement Infiltration
     zones: [Basement Zone]
@@ -694,6 +705,7 @@ infiltration:
     constant_coefficient: 0.0
     temperature_coefficient: 0.0
     wind_coefficient: 0.224
+    schedule: INFIL_SCH_PNNL
 
 # =============================================================================
 # OUTDOOR AIR  (ASHRAE 62.1: 0.002360 m3/s/person + 0.000305 m3/s/m2)
@@ -2513,13 +2525,13 @@ thermostats:
     unoccupied_heating_setpoint: 15.6
     unoccupied_cooling_setpoint: 26.7
 
-  # Data center zones: constant cooling
+  # Data center zones: constant setpoints (from IDF HTGSETP_DC_SCH / CLGSETP_DC_SCH)
   - name: DataCenter Thermostat
     zones: [DataCenter Zones]
-    heating_setpoint: 15.6
-    cooling_setpoint: 24.0
-    unoccupied_heating_setpoint: 15.6
-    unoccupied_cooling_setpoint: 24.0
+    heating_setpoint: 18.0
+    cooling_setpoint: 27.0
+    unoccupied_heating_setpoint: 18.0
+    unoccupied_cooling_setpoint: 27.0
 
 # =============================================================================
 # DOMESTIC HOT WATER
@@ -2548,9 +2560,8 @@ dhw_systems:
       motor_efficiency: 0.3
       motor_heat_to_fluid_fraction: 0.0
     loads:
-      # E+ WaterUse:Equipment: target_temp=60°C, hot_supply_temp=55°C
-      # Since target ≥ hot_supply, E+ draws 100% of fixture flow from tank (no cold mixing)
-      # Set use_temperature = setpoint so hot_frac = 1.0 to match E+ behavior
+      # E+ WaterUse:Equipment: target_temp=43.3°C, hot_supply_temp=43.3°C
+      # hot_frac = (43.3 - T_mains) / (T_tank - T_mains), where T_tank=60°C
       - name: Core_bottom DHW
         peak_flow_rate: 0.03667
         schedule: BLDG_SWH_SCH
