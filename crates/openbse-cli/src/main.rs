@@ -3650,12 +3650,30 @@ fn simulate_all_loops(
                         10000.0
                     };
 
+                    // Zone cooling load from the heat balance
+                    let zone_cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
+
+                    // Get VAV box max flow for load-based signal
+                    let vav_max_flow = zone_design_flows
+                        .get(zone_name)
+                        .copied()
+                        .unwrap_or(1.0)
+                        .max(0.01);
+
                     let control_signal = if zone_temp_init < heat_sp && zone_heat_load > 0.0 {
                         // Heating: signal proportional to ideal load / capacity.
                         (zone_heat_load / reheat_cap).clamp(0.0, 1.0)
-                    } else if zone_temp_init > cool_sp {
-                        // Cooling: negative signal proportional to error
-                        -((zone_temp_init - cool_sp) / 5.0).clamp(0.0, 1.0)
+                    } else if zone_temp_init > cool_sp && zone_cool_load > 0.0 {
+                        // Cooling: compute needed airflow from zone load and
+                        // supply temperature, matching E+ VAV:Reheat logic.
+                        //   m_needed = Q_cool / (cp × (T_zone - T_supply))
+                        // Signal = (m_needed - m_min) / (m_max - m_min)
+                        let cp = 1005.0_f64;
+                        let dt = (zone_temp_init - supply.state.t_db).max(1.0);
+                        let m_needed = zone_cool_load / (cp * dt);
+                        let min_flow = vav_max_flow * 0.3; // min_flow_fraction
+                        let frac = (m_needed - min_flow) / (vav_max_flow - min_flow);
+                        -(frac.clamp(0.0, 1.0))
                     } else {
                         0.0 // Deadband
                     };
