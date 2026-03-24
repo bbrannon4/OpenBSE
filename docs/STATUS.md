@@ -1,12 +1,12 @@
 # OpenBSE Project Status
 
-Last updated: 2026-03-13
+Last updated: 2026-03-23
 
 ## What Works (Functional)
 
 ### Simulation Engine
 - Single-zone and multi-zone heat balance with 3rd-order backward difference predictor-corrector
-- ASHRAE Standard 140-2023: 27 cases implemented, 48/63 metrics pass (76.2%)
+- ASHRAE Standard 140-2023: 28 cases implemented, 63/63 metrics pass (100%)
 - Weather file processing (EPW/CSV format)
 - Design-day autosizing for fans, coils, boilers, chillers with configurable oversize factors
 - Annual, multi-month, and custom period simulations
@@ -51,8 +51,11 @@ Last updated: 2026-03-13
 ### Outputs
 - CSV output files at timestep/hourly/daily/monthly/run-period frequency
 - Aggregation modes: mean, sum, min, max
-- Standard summary report (annual energy, peak loads, hours unmet)
+- Summary reports in three formats: text, HTML (styled tables, ASHRAE compliance), and structured CSV
+- Monthly energy end-use breakdown (14 categories × 12 months), per-zone peak loads summary (TRACE-style)
+- 16 energy end-use timeseries output variables (fan, cooling, heating, pump, etc. by fuel type)
 - Custom output variable selection
+- CLI `-w` flag for weather file (overrides YAML `weather_files`)
 
 ### Performance
 - Solar precompute with disk persistence (`.solar` cache file next to YAML input, geometry-fingerprinted)

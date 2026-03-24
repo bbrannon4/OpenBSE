@@ -51,13 +51,15 @@ cargo build --release
 cargo test --workspace
 ```
 
-**300+ tests** across 8 crates.
+**300+ unit tests** across 8 crates.
 
 ### Run a Simulation
 
 ```bash
-./target/release/openbse examples/simple_heating.yaml -o results.csv
+./target/release/openbse examples/simple_heating.yaml -w weather.epw -o results.csv
 ```
+
+The `-w` flag specifies the weather file (EPW). If omitted, the engine falls back to `weather_files` in the YAML. The CLI flag always takes precedence.
 
 ## Architecture
 
@@ -76,7 +78,7 @@ OpenBSE is a Rust workspace with 8 crates:
 
 No circular dependencies. Components implement traits (`AirComponent`, `PlantComponent`, `EnvelopeSolver`) defined in `openbse-core`. Rust's type system enforces physical constraints at compile time — `AirPort` and `WaterPort` are distinct types, so connecting a water pipe to an air duct won't compile.
 
-The **desktop editor** (`openbse-editor`) is a Tauri + React app in `tools/editor/` that provides a GUI for editing YAML model files with schema validation and running simulations without the command line.
+The **desktop editor** (`openbse-editor`) is a Tauri + React app in `tools/editor/` that provides a GUI for editing YAML model files with schema validation, selecting weather files, and running simulations with real-time output streaming — all without touching the command line.
 
 ### Core Design Principles
 
@@ -130,9 +132,10 @@ The **desktop editor** (`openbse-editor`) is a Tauri + React app in `tools/edito
 ### Simulation
 - Graph-based execution order (topological sort)
 - Sub-hourly timesteps (1, 2, 4, 6, 10, 12, 15, 20, 30, 60 per hour)
-- Multi-weather-file support (EPW and TMY3 CSV)
-- Configurable CSV output with flexible variable selection
-- Summary reports with monthly energy, peak loads, unmet hours (HTML and CSV output)
+- Multi-weather-file support (EPW and TMY3 CSV), CLI `-w` flag overrides YAML
+- Configurable CSV output with flexible variable selection, including 16 energy end-use variables
+- Summary reports in three formats: text, HTML (with styled tables and ASHRAE compliance), and structured CSV
+- Monthly energy end-use breakdown (all 14 categories), per-zone peak loads summary (TRACE-style)
 - Holiday schedule support
 - Multi-loop coupled envelope + HVAC simulation (DOAS + FCU additive mixing)
 - Plant loop topological ordering (inter-loop HX and condenser dependencies)

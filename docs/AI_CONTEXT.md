@@ -68,6 +68,9 @@ prototype_tests/             DOE prototype building comparisons vs EnergyPlus
   hospital/                      Hospital model
   apartment/                     Mid-rise apartment model
   compare_end_uses.py            End-use comparison charts
+tools/editor/               Desktop editor (Tauri + React)
+  src-tauri/                     Rust backend (file I/O, simulation runner, native menu)
+  src/                           React frontend (ClassBrowser, ObjectEditor, SimulationPanel)
 docs/                        Documentation
   AI_CONTEXT.md                This file
   STATUS.md                    Feature status and TODO tracking
@@ -78,10 +81,9 @@ docs/                        Documentation
 ## Validation Status (as of March 2026)
 
 ### ASHRAE 140-2023
-- 27 test cases implemented (Section 7 thermal fabric + CE100 cooling equipment)
-- **48 of 63 metrics pass** (76.2%)
-- Case 600 series (low-mass): mostly passing
-- Case 900 series (high-mass): some failures from simplified CTF model
+- 28 test cases implemented (Section 7 thermal fabric + CE100 cooling equipment)
+- **63 of 63 metrics pass** (100%)
+- Full state-space CTF (Seem 1987) matching EnergyPlus
 
 ### DOE Prototype Comparison (EnergyPlus)
 - Single-Family house (CZ5B Boulder): Lighting/equipment/DHW within 1%. Heating +48%, cooling +14%, fans +38% — under active investigation. Primary cause: missing basement/garage zones.
@@ -107,3 +109,7 @@ Be explicit about these — do not guess or approximate:
 - **`psych::CP_AIR` is private** — use `openbse_psychrometrics::cp_air_fn_w(w)` instead.
 - **Solar tests `test_angular_shgc_modifier_lowe_steeper` and `test_diffuse_shgc_modifier_range`** are pre-existing failures in the envelope crate — the angular SHGC modifier assumptions about clear vs low-e glass ordering need investigation.
 - **Weather files (*.epw) are gitignored** except the ASHRAE 140 prescribed weather file in `140_tests/weather/`.
+- **CLI `-w` flag** overrides `weather_files` in the YAML. Weather files are runtime data (like E+ treats EPWs), not part of the model definition.
+- **Summary reports** are generated in three formats: `_summary.txt`, `_summary.html`, and `_summary.csv`. They include monthly energy end-use tables (14 categories × 12 months), per-zone peak loads (TRACE-style), and ASHRAE 90.1 unmet hours compliance.
+- **Energy end-use output variables** (`energy_fan_electric`, `energy_total_electric`, etc.) can be added to custom CSV output configs for timeseries energy tracking by end-use and fuel type.
+- **Desktop editor** (`tools/editor/`) is a Tauri + React app with a native File menu, weather file picker, and Run Simulation button that streams CLI output in real-time.
