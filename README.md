@@ -24,7 +24,20 @@ OpenBSE preserves the validated physics while fundamentally rethinking the syste
 
 ## Quick Start
 
-### Build
+### Download
+
+Pre-built binaries are available on the [Releases](https://github.com/bbrannon4/OpenBSE/releases) page. Each download includes the CLI engine, the desktop editor, and example models.
+
+**macOS users:** macOS blocks unsigned applications by default. After extracting, run these commands to allow them:
+
+```bash
+xattr -d com.apple.quarantine openbse
+xattr -cr openbse-editor*.dmg
+```
+
+Or for the editor after installing: `xattr -cr /Applications/openbse-editor.app`
+
+### Build from Source
 
 ```bash
 git clone https://github.com/bbrannon4/OpenBSE.git
