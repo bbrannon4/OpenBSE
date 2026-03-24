@@ -15,6 +15,9 @@ simulation:
   end_month: 12
   end_day: 31
   terrain: city
+  # Fan heat temperature rise for sizing [°C].
+  # VAV fan: ΔP=1337 Pa, η=0.614 → ΔT = ΔP/(η·ρ·Cp) ≈ 2.2°C at Boulder altitude.
+  sizing_fan_delta_t: 2.2
   # E+ Site:GroundTemperature:FCfactorMethod for Denver/Boulder.
   # Used by basement walls (only remaining ground-boundary surfaces).
   ground_surface_temperatures: [7.1, 3.0, -1.0, 0.8, -0.2, 4.8, 6.1, 13.7, 22.2, 22.7, 21.7, 18.5]

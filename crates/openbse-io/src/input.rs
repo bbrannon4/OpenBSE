@@ -243,6 +243,22 @@ pub struct SimulationSettings {
     #[serde(default)]
     pub airflow_network: Option<openbse_envelope::AirflowNetworkConfig>,
 
+    /// Fan heat temperature rise for sizing [°C].
+    ///
+    /// Added to the cooling design supply air temperature when computing
+    /// zone cooling airflows.  Accounts for the supply fan adding heat
+    /// to the airstream: ΔT_fan = ΔP / (η × ρ × Cp).
+    ///
+    /// Default 0.0 (no correction).  For VAV office systems with
+    /// ΔP ≈ 1337 Pa and η ≈ 0.614, set to ~2.2.
+    ///
+    /// ```yaml
+    /// simulation:
+    ///   sizing_fan_delta_t: 2.2
+    /// ```
+    #[serde(default)]
+    pub sizing_fan_delta_t: f64,
+
     /// Holiday dates.  On these days every schedule uses its `holiday`
     /// profile (falling back to `sunday` → `weekend` → `weekday`).
     ///

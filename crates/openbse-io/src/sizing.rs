@@ -380,6 +380,7 @@ fn run_zone_sizing(
     _cooling_sizing_factor: f64,
     oa_handled_by_hvac: &HashMap<String, bool>,
     timesteps_per_hour: u32,
+    sizing_fan_delta_t: f64,
 ) -> ZoneSizingResult {
     let cp_air = 1005.0;
     let num_warmup_days = 5;
@@ -534,9 +535,17 @@ fn run_zone_sizing(
             0.0
         };
 
-        // Cooling airflow: Q = m_dot * Cp * (T_zone - T_supply)
+        // Cooling airflow: Q = m_dot * Cp * (T_zone - T_supply_effective)
+        //
+        // The zone receives supply air at T_coil + fan heat rise.  Without
+        // correcting for this, the VAV box is undersized — it can't deliver
+        // enough cooling at the higher effective supply temperature.
+        //
+        // sizing_fan_delta_t (from SimulationSettings) adds the fan heat
+        // temperature rise to the cooling supply temp during sizing only.
         let cool_load = zone_peak_cooling.get(name).copied().unwrap_or(0.0);
-        let dt_cooling = (cool_sp - cooling_supply_temp).max(5.0);
+        let t_supply_eff = cooling_supply_temp + sizing_fan_delta_t;
+        let dt_cooling = (cool_sp - t_supply_eff).max(3.0);
         let m_cool = if cool_load > 0.0 {
             cool_load / (cp_air * dt_cooling)
         } else {
@@ -824,6 +833,7 @@ pub fn run_sizing(
     cooling_sizing_factor: f64,
     oa_handled_by_hvac: &HashMap<String, bool>,
     timesteps_per_hour: u32,
+    sizing_fan_delta_t: f64,
 ) -> SizingResult {
     // Compute standard air density at site altitude using the design-day
     // barometric pressure.  E+ uses this same approach (ρ = P / (R·T) at 20 °C).
@@ -920,6 +930,7 @@ pub fn run_sizing(
         cooling_sizing_factor,
         oa_handled_by_hvac,
         timesteps_per_hour,
+        sizing_fan_delta_t,
     );
 
     // Log zone sizing results
