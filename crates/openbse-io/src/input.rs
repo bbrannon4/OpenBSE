@@ -12,7 +12,7 @@ use openbse_components::cooling_coil::CoolingCoilDX;
 use openbse_components::fan::{Fan, FanType};
 use openbse_components::heat_pump_coil::HeatPumpHeatingCoil;
 use openbse_components::heat_recovery::HeatRecovery;
-use openbse_components::heating_coil::HeatingCoil;
+use openbse_components::heating_coil::{HeatingCoil, UaModelConfig};
 use openbse_components::pfp_box::PFPBox;
 use openbse_components::vav_box::{VAVBox, ReheatType};
 use openbse_controls::thermostat::{ZoneGroup, ZoneThermostat};
@@ -232,6 +232,20 @@ pub struct SimulationSettings {
     ///   with complete vertex data.  Matches E+ "FullInteriorAndExterior".
     #[serde(default)]
     pub solar_distribution: SolarDistributionMethod,
+
+    /// Multizone pressure network airflow configuration.
+    ///
+    /// When `enabled: true`, auto-generates a pressure network from building
+    /// geometry and solves for pressure-driven infiltration using Newton-Raphson.
+    /// Replaces the Design Flow Rate infiltration model.
+    ///
+    /// ```yaml
+    /// simulation:
+    ///   airflow_network:
+    ///     enabled: true
+    /// ```
+    #[serde(default)]
+    pub airflow_network: Option<openbse_envelope::AirflowNetworkConfig>,
 }
 
 fn default_ground_surface_temps() -> Vec<f64> { vec![18.0; 12] }
@@ -677,6 +691,24 @@ pub struct HeatingCoilInput {
     /// Plant loop name this coil connects to (for hot_water source)
     #[serde(default)]
     pub plant_loop: Option<String>,
+
+    /// Enable the UA-based (NTU-effectiveness) model for hot water coils.
+    /// When true, uses a cross-flow heat exchanger effectiveness method
+    /// instead of the simple capacity-based model. Default: false.
+    #[serde(default)]
+    pub ua_model: bool,
+    /// Rated water inlet temperature [°C] for UA model (default 82.2)
+    #[serde(default)]
+    pub rated_water_inlet_temp: Option<f64>,
+    /// Rated water outlet temperature [°C] for UA model (default 71.1)
+    #[serde(default)]
+    pub rated_water_outlet_temp: Option<f64>,
+    /// Rated air inlet temperature [°C] for UA model (default 16.6)
+    #[serde(default)]
+    pub rated_air_inlet_temp: Option<f64>,
+    /// Rated air outlet temperature [°C] for UA model (default 32.2)
+    #[serde(default)]
+    pub rated_air_outlet_temp: Option<f64>,
 }
 
 fn default_heating_source() -> String { "electric".to_string() }
@@ -1011,6 +1043,38 @@ pub struct BoilerInput {
     /// Design water flow rate [m³/s]. Use `autosize` to let the engine calculate.
     #[serde(default)]
     pub design_water_flow_rate: AutosizeValue,
+    /// Optional reference to a top-level performance curve name for efficiency f(PLR)
+    #[serde(default)]
+    pub efficiency_curve: Option<String>,
+    /// Water flow mode: `not_modulated` (default) or `leaving_setpoint_modulated`.
+    #[serde(default)]
+    pub flow_mode: BoilerFlowModeInput,
+}
+
+/// YAML-friendly boiler flow mode enum.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BoilerFlowModeInput {
+    NotModulated,
+    LeavingSetpointModulated,
+}
+
+impl Default for BoilerFlowModeInput {
+    fn default() -> Self {
+        Self::NotModulated
+    }
+}
+
+impl BoilerFlowModeInput {
+    /// Convert to the component-level enum.
+    pub fn to_component(self) -> openbse_components::boiler::BoilerFlowMode {
+        match self {
+            Self::NotModulated => openbse_components::boiler::BoilerFlowMode::NotModulated,
+            Self::LeavingSetpointModulated => {
+                openbse_components::boiler::BoilerFlowMode::LeavingSetpointModulated
+            }
+        }
+    }
 }
 
 fn default_boiler_efficiency() -> f64 { 0.80 }
@@ -1257,6 +1321,104 @@ pub struct ParametricRun {
 
 // ─── Domestic Hot Water ──────────────────────────────────────────────────────
 
+/// Mains water temperature specification.
+///
+/// Can be a fixed constant or a seasonal correlation based on the
+/// ASHRAE / E+ `Site:WaterMainsTemperature` correlation method:
+///
+/// ```text
+/// T_mains(day) = T_annual_avg + ΔT_max/2 * sin(2π/365 * (day - day_shift - 15))
+/// ```
+///
+/// where `day_shift = 35 - latitude/2`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MainsTemperature {
+    /// Fixed constant temperature [°C].
+    Fixed(f64),
+    /// Seasonal correlation using ASHRAE method.
+    Correlation {
+        correlation: MainsCorrelation,
+    },
+}
+
+impl Default for MainsTemperature {
+    fn default() -> Self {
+        MainsTemperature::Fixed(10.0)
+    }
+}
+
+impl MainsTemperature {
+    /// Compute the mains water temperature for a given day of year.
+    ///
+    /// * `day_of_year` — 1-based day of year (1 = Jan 1, 365 = Dec 31)
+    /// * `weather_latitude` — fallback latitude from weather file [degrees],
+    ///   used only when the correlation does not specify its own latitude.
+    pub fn temperature(&self, day_of_year: u32, weather_latitude: f64) -> f64 {
+        match self {
+            MainsTemperature::Fixed(t) => *t,
+            MainsTemperature::Correlation { correlation } => {
+                correlation.temperature(day_of_year, weather_latitude)
+            }
+        }
+    }
+}
+
+/// Parameters for the ASHRAE mains water temperature correlation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MainsCorrelation {
+    /// Annual average outdoor air dry-bulb temperature [°C].
+    pub annual_avg_temp: f64,
+    /// Maximum difference in monthly average outdoor temperatures [°C].
+    pub max_monthly_delta: f64,
+    /// Site latitude [degrees]. If omitted, falls back to weather file latitude.
+    #[serde(default)]
+    pub latitude: Option<f64>,
+}
+
+impl MainsCorrelation {
+    /// Compute mains water temperature for a given day of year.
+    ///
+    /// Formula (E+ Engineering Reference / ASHRAE):
+    /// ```text
+    /// day_shift = 35 - latitude / 2
+    /// T_mains = annual_avg_temp + (max_monthly_delta / 2)
+    ///           * sin(2π/365 * (day - day_shift - 15))
+    /// ```
+    pub fn temperature(&self, day_of_year: u32, weather_latitude: f64) -> f64 {
+        let lat = self.latitude.unwrap_or(weather_latitude);
+        mains_water_temperature(
+            day_of_year,
+            self.annual_avg_temp,
+            self.max_monthly_delta,
+            lat,
+        )
+    }
+}
+
+/// Compute mains water temperature using the ASHRAE sinusoidal correlation.
+///
+/// # Arguments
+/// * `day_of_year` — 1-based day of year (1 = Jan 1)
+/// * `annual_avg_temp` — annual average outdoor dry-bulb temperature [°C]
+/// * `max_monthly_delta` — maximum difference in monthly average outdoor temps [°C]
+/// * `latitude` — site latitude [degrees, positive north]
+///
+/// # Returns
+/// Mains water temperature [°C]
+pub fn mains_water_temperature(
+    day_of_year: u32,
+    annual_avg_temp: f64,
+    max_monthly_delta: f64,
+    latitude: f64,
+) -> f64 {
+    let day_shift = 35.0 - latitude / 2.0;
+    let day = day_of_year as f64;
+    annual_avg_temp
+        + (max_monthly_delta / 2.0)
+            * (2.0 * std::f64::consts::PI / 365.0 * (day - day_shift - 15.0)).sin()
+}
+
 /// Domestic hot water system definition.
 ///
 /// A DHW system consists of a water heater, one or more draw profiles (loads),
@@ -1290,9 +1452,20 @@ pub struct DhwSystemInput {
     /// Hot water draw profiles
     #[serde(default)]
     pub loads: Vec<DhwLoadInput>,
-    /// Cold water mains temperature [°C] (default 10.0)
+    /// Cold water mains temperature [°C].
+    ///
+    /// Accepts either a fixed value or an ASHRAE correlation:
+    /// ```yaml
+    /// mains_temperature: 10.0          # fixed constant
+    /// # OR
+    /// mains_temperature:
+    ///   correlation:
+    ///     annual_avg_temp: 9.95         # annual average outdoor temp [°C]
+    ///     max_monthly_delta: 23.7       # max difference in monthly avg temps [°C]
+    ///     latitude: 39.83              # site latitude [degrees] (optional)
+    /// ```
     #[serde(default = "default_mains_temp")]
-    pub mains_temperature: f64,
+    pub mains_temperature: MainsTemperature,
     /// Optional circulation pump for the SWH loop.
     /// Runs whenever there is a DHW draw (flow > 0).
     #[serde(default)]
@@ -1361,7 +1534,7 @@ pub struct DhwLoadInput {
     pub use_temperature: f64,
 }
 
-fn default_mains_temp() -> f64 { 10.0 }
+fn default_mains_temp() -> MainsTemperature { MainsTemperature::Fixed(10.0) }
 fn default_dhw_fuel() -> String { "gas".to_string() }
 fn default_wh_efficiency() -> f64 { 0.80 }
 fn default_wh_setpoint() -> f64 { 60.0 }
@@ -1495,15 +1668,41 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             graph.add_air_component(Box::new(coil))
                         }
                         "hot_water" | "HotWater" => {
-                            let coil = HeatingCoil::hot_water(
-                                &c.name,
-                                cap,
-                                c.setpoint,
-                                0.001,  // default water flow
-                                82.0,   // default water inlet temp
-                                71.0,   // default water outlet temp
-                            );
-                            graph.add_air_component(Box::new(coil))
+                            if c.ua_model {
+                                let mut ua_cfg = UaModelConfig::default();
+                                if let Some(v) = c.rated_water_inlet_temp {
+                                    ua_cfg.rated_water_inlet_temp = v;
+                                }
+                                if let Some(v) = c.rated_water_outlet_temp {
+                                    ua_cfg.rated_water_outlet_temp = v;
+                                }
+                                if let Some(v) = c.rated_air_inlet_temp {
+                                    ua_cfg.rated_air_inlet_temp = v;
+                                }
+                                if let Some(v) = c.rated_air_outlet_temp {
+                                    ua_cfg.rated_air_outlet_temp = v;
+                                }
+                                let coil = HeatingCoil::hot_water_ua(
+                                    &c.name,
+                                    cap,
+                                    c.setpoint,
+                                    0.001,  // default water flow
+                                    82.0,   // default water inlet temp
+                                    71.0,   // default water outlet temp
+                                    ua_cfg,
+                                );
+                                graph.add_air_component(Box::new(coil))
+                            } else {
+                                let coil = HeatingCoil::hot_water(
+                                    &c.name,
+                                    cap,
+                                    c.setpoint,
+                                    0.001,  // default water flow
+                                    82.0,   // default water inlet temp
+                                    71.0,   // default water outlet temp
+                                );
+                                graph.add_air_component(Box::new(coil))
+                            }
                         }
                         "gas" | "Gas" | "furnace" | "Furnace" => {
                             let coil = HeatingCoil::gas(
@@ -1671,13 +1870,18 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
         for equipment in &plant_loop.supply_equipment {
             let node = match equipment {
                 PlantEquipmentInput::Boiler(b) => {
+                    let eff_curve = b.efficiency_curve.as_ref().and_then(|name| {
+                        model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                    });
                     let boiler = Boiler::new(
                         &b.name,
                         b.capacity.to_f64(),
                         b.efficiency,
                         b.design_outlet_temp,
                         b.design_water_flow_rate.to_f64(),
-                    );
+                    )
+                    .with_efficiency_curve(eff_curve)
+                    .with_flow_mode(b.flow_mode.to_component(), None);
                     graph.add_plant_component(Box::new(boiler))
                 }
                 PlantEquipmentInput::Chiller(ci) => {
@@ -1962,6 +2166,11 @@ pub fn build_envelope(
         env.compute_diffuse_shading_ratios();
     } else {
         log::info!("Shading calculation: BASIC (all surfaces fully sunlit)");
+    }
+
+    // Build airflow network if configured
+    if let Some(ref afn_config) = model.simulation.airflow_network {
+        env.build_airflow_network(afn_config);
     }
 
     Some(env)
@@ -2924,5 +3133,113 @@ surfaces:
         // South wall net area = 21.6 - 2*6.0 = 9.6 m2
         assert!((south_wall.net_area - 9.6).abs() < 0.1,
             "South Wall net area should be 9.6, got {}", south_wall.net_area);
+    }
+
+    // ── Mains water temperature tests ────────────────────────────────
+
+    #[test]
+    fn test_mains_water_temperature_correlation() {
+        // Boulder, CO: annual_avg = 9.95°C, max_delta = 23.7°C, lat = 39.83°
+        let t = mains_water_temperature(1, 9.95, 23.7, 39.83);
+        // Day 1 (Jan 1): day_shift = 35 - 39.83/2 = 15.085
+        // arg = 2π/365 * (1 - 15.085 - 15) = 2π/365 * (-29.085) ≈ -0.5004
+        // sin(-0.5004) ≈ -0.4797
+        // T = 9.95 + 11.85 * (-0.4797) ≈ 4.29
+        assert!((t - 4.26).abs() < 0.2,
+            "Jan 1 mains temp should be ~4.3°C, got {:.2}", t);
+
+        // Near peak (day ~121, ~May 1): sine peaks when day ≈ day_shift+15+91
+        // Peak value = 9.95 + 11.85 = 21.8°C
+        let t_peak = mains_water_temperature(121, 9.95, 23.7, 39.83);
+        assert!(t_peak > 20.0, "Peak mains should be >20°C, got {:.2}", t_peak);
+
+        // Winter minimum (day ~304): should be well below average
+        let t_min = mains_water_temperature(304, 9.95, 23.7, 39.83);
+        assert!(t_min < 2.0, "Winter mains should be <2°C, got {:.2}", t_min);
+
+        // Annual average should be close to annual_avg_temp
+        let avg: f64 = (1..=365)
+            .map(|d| mains_water_temperature(d, 9.95, 23.7, 39.83))
+            .sum::<f64>()
+            / 365.0;
+        assert!((avg - 9.95).abs() < 0.1,
+            "Annual average should be ~9.95°C, got {:.2}", avg);
+    }
+
+    #[test]
+    fn test_mains_temperature_fixed_variant() {
+        let mt = MainsTemperature::Fixed(13.3);
+        assert!((mt.temperature(1, 40.0) - 13.3).abs() < 1e-10);
+        assert!((mt.temperature(182, 40.0) - 13.3).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_mains_temperature_correlation_variant() {
+        let mt = MainsTemperature::Correlation {
+            correlation: MainsCorrelation {
+                annual_avg_temp: 9.95,
+                max_monthly_delta: 23.7,
+                latitude: Some(39.83),
+            },
+        };
+        let t1 = mt.temperature(1, 0.0); // weather_latitude ignored
+        let t2 = mains_water_temperature(1, 9.95, 23.7, 39.83);
+        assert!((t1 - t2).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_mains_temperature_correlation_uses_weather_latitude() {
+        let mt = MainsTemperature::Correlation {
+            correlation: MainsCorrelation {
+                annual_avg_temp: 9.95,
+                max_monthly_delta: 23.7,
+                latitude: None, // should fall back to weather latitude
+            },
+        };
+        let t1 = mt.temperature(100, 39.83);
+        let t2 = mains_water_temperature(100, 9.95, 23.7, 39.83);
+        assert!((t1 - t2).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_mains_temperature_yaml_fixed() {
+        let yaml = r#"
+name: Test DHW
+mains_temperature: 13.3
+water_heater:
+  name: Test Heater
+  tank_volume: 100
+  capacity: 5000
+"#;
+        let dhw: DhwSystemInput = serde_yaml::from_str(yaml).expect("parse fixed");
+        match dhw.mains_temperature {
+            MainsTemperature::Fixed(v) => assert!((v - 13.3).abs() < 1e-10),
+            _ => panic!("Expected Fixed variant"),
+        }
+    }
+
+    #[test]
+    fn test_mains_temperature_yaml_correlation() {
+        let yaml = r#"
+name: Test DHW
+mains_temperature:
+  correlation:
+    annual_avg_temp: 9.95
+    max_monthly_delta: 23.7
+    latitude: 39.83
+water_heater:
+  name: Test Heater
+  tank_volume: 100
+  capacity: 5000
+"#;
+        let dhw: DhwSystemInput = serde_yaml::from_str(yaml).expect("parse correlation");
+        match &dhw.mains_temperature {
+            MainsTemperature::Correlation { correlation } => {
+                assert!((correlation.annual_avg_temp - 9.95).abs() < 1e-10);
+                assert!((correlation.max_monthly_delta - 23.7).abs() < 1e-10);
+                assert!((correlation.latitude.unwrap() - 39.83).abs() < 1e-10);
+            }
+            _ => panic!("Expected Correlation variant"),
+        }
     }
 }

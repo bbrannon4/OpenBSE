@@ -31,7 +31,7 @@ use crate::schedule::{ScheduleManager, day_of_week};
 use crate::shading;
 
 /// The building envelope heat balance solver.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BuildingEnvelope {
     pub zones: Vec<ZoneState>,
     pub surfaces: Vec<SurfaceState>,
@@ -88,6 +88,8 @@ pub struct BuildingEnvelope {
     pub envelope_areas: crate::geometry::EnvelopeAreas,
     /// Infiltration interaction mode: how infiltration combines with exhaust.
     pub infiltration_interaction: crate::zone_loads::InfiltrationInteraction,
+    /// Multizone airflow network (None when AFN is disabled).
+    pub airflow_network: Option<crate::airflow_network::AirflowNetwork>,
     /// Solar distribution method for interior beam solar radiation.
     /// FullExterior: all beam to floor.  FullInteriorAndExterior: geometric projection.
     pub solar_distribution_method: SolarDistributionMethod,
@@ -95,6 +97,208 @@ pub struct BuildingEnvelope {
     /// Used by update_bdf_history() to shift CTF history once after HVAC convergence.
     ctf_q_last_inside: Vec<f64>,
     ctf_q_last_outside: Vec<f64>,
+    /// Precomputed sunlit fractions for each surface at each timestep.
+    /// When populated, avoids expensive per-timestep polygon clipping.
+    /// Indexed by global timestep index → per-surface sunlit fraction.
+    pub solar_cache: Option<SolarCache>,
+}
+
+/// Precomputed solar data for all annual timesteps.
+///
+/// Caches per-surface sunlit fractions (the expensive polygon clipping
+/// computation) for the entire year. Solar position and Perez decomposition
+/// remain computed inline since they're cheap arithmetic.
+///
+/// Analogous to IES-VE's Suncast preprocessor: compute all shadow geometry
+/// upfront, then look up during the thermal simulation.
+///
+/// Supports disk persistence: saves to a `.solar` file next to the YAML input
+/// and reloads on subsequent runs if the geometry fingerprint matches.
+/// This avoids recomputing shadow geometry when only schedules, setpoints,
+/// or HVAC parameters change between runs.
+///
+/// Memory footprint: ~N_surfaces × N_timesteps × 8 bytes.
+/// For 50 surfaces × 52,560 timesteps = ~20 MB.
+#[derive(Debug, Clone)]
+pub struct SolarCache {
+    /// Sunlit fractions indexed by [timestep_index][surface_index].
+    /// Each inner Vec has length = number of surfaces.
+    pub sunlit_fractions: Vec<Vec<f64>>,
+    /// Number of timesteps per hour used when building the cache.
+    pub timesteps_per_hour: u32,
+    /// Start hour index in the annual simulation.
+    pub start_hour: usize,
+    /// Geometry fingerprint: hash of all inputs that affect shadow calculations.
+    /// If this doesn't match, the cache is stale and must be recomputed.
+    pub fingerprint: u64,
+}
+
+impl SolarCache {
+    /// Magic bytes identifying a solar cache file.
+    const MAGIC: &[u8; 8] = b"OBSE_SOL";
+    /// File format version.
+    const VERSION: u32 = 1;
+
+    /// Compute a geometry fingerprint from all inputs that affect shadow calcs.
+    ///
+    /// Changes to any of these invalidate the cache:
+    /// - Surface vertices and boundary conditions
+    /// - Shading polygon geometry
+    /// - Site latitude, longitude, timezone
+    /// - Timestep configuration (start, end, resolution)
+    pub fn compute_fingerprint(
+        surfaces: &[SurfaceState],
+        shading_polygons: &[shading::ShadingPolygon],
+        latitude: f64,
+        longitude: f64,
+        time_zone: f64,
+        timesteps_per_hour: u32,
+        start_hour: usize,
+        end_hour: usize,
+    ) -> u64 {
+        // Simple FNV-1a hash — fast, no external deps, good distribution
+        let mut hash: u64 = 0xcbf29ce484222325;
+        let mix = |h: &mut u64, bytes: &[u8]| {
+            for &b in bytes {
+                *h ^= b as u64;
+                *h = h.wrapping_mul(0x100000001b3);
+            }
+        };
+
+        // Hash surface geometry
+        for surf in surfaces {
+            if let Some(ref verts) = surf.input.vertices {
+                for v in verts {
+                    mix(&mut hash, &v.x.to_le_bytes());
+                    mix(&mut hash, &v.y.to_le_bytes());
+                    mix(&mut hash, &v.z.to_le_bytes());
+                }
+            }
+            mix(&mut hash, &surf.input.area.to_le_bytes());
+            mix(&mut hash, &surf.input.azimuth.to_le_bytes());
+            mix(&mut hash, &surf.input.tilt.to_le_bytes());
+            let is_outdoor = if surf.input.boundary == BoundaryCondition::Outdoor { 1u8 } else { 0u8 };
+            mix(&mut hash, &[is_outdoor]);
+        }
+
+        // Hash shading polygons
+        for sp in shading_polygons {
+            for v in &sp.vertices {
+                mix(&mut hash, &v.x.to_le_bytes());
+                mix(&mut hash, &v.y.to_le_bytes());
+                mix(&mut hash, &v.z.to_le_bytes());
+            }
+        }
+
+        // Hash site parameters
+        mix(&mut hash, &latitude.to_le_bytes());
+        mix(&mut hash, &longitude.to_le_bytes());
+        mix(&mut hash, &time_zone.to_le_bytes());
+        mix(&mut hash, &timesteps_per_hour.to_le_bytes());
+        mix(&mut hash, &(start_hour as u64).to_le_bytes());
+        mix(&mut hash, &(end_hour as u64).to_le_bytes());
+
+        hash
+    }
+
+    /// Save the solar cache to a binary file.
+    ///
+    /// Format: MAGIC(8) | VERSION(4) | fingerprint(8) | timesteps_per_hour(4) |
+    ///         start_hour(8) | n_timesteps(8) | n_surfaces(8) |
+    ///         sunlit_fractions[n_timesteps * n_surfaces](f64 each)
+    pub fn save_to_file(&self, path: &std::path::Path) -> Result<(), String> {
+        use std::io::Write;
+        let mut file = std::fs::File::create(path)
+            .map_err(|e| format!("Failed to create solar cache file: {e}"))?;
+        let mut buf = std::io::BufWriter::new(&mut file);
+
+        buf.write_all(Self::MAGIC).map_err(|e| e.to_string())?;
+        buf.write_all(&Self::VERSION.to_le_bytes()).map_err(|e| e.to_string())?;
+        buf.write_all(&self.fingerprint.to_le_bytes()).map_err(|e| e.to_string())?;
+        buf.write_all(&self.timesteps_per_hour.to_le_bytes()).map_err(|e| e.to_string())?;
+        buf.write_all(&(self.start_hour as u64).to_le_bytes()).map_err(|e| e.to_string())?;
+
+        let n_timesteps = self.sunlit_fractions.len() as u64;
+        let n_surfaces = if n_timesteps > 0 {
+            self.sunlit_fractions[0].len() as u64
+        } else {
+            0
+        };
+        buf.write_all(&n_timesteps.to_le_bytes()).map_err(|e| e.to_string())?;
+        buf.write_all(&n_surfaces.to_le_bytes()).map_err(|e| e.to_string())?;
+
+        for step in &self.sunlit_fractions {
+            for &val in step {
+                buf.write_all(&val.to_le_bytes()).map_err(|e| e.to_string())?;
+            }
+        }
+
+        buf.flush().map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Load a solar cache from a binary file, validating the fingerprint.
+    ///
+    /// Returns `None` if the file doesn't exist, is corrupted, or has a
+    /// different fingerprint (geometry has changed).
+    pub fn load_from_file(path: &std::path::Path, expected_fingerprint: u64) -> Option<Self> {
+        use std::io::Read;
+        let mut file = std::fs::File::open(path).ok()?;
+        let mut buf = std::io::BufReader::new(&mut file);
+
+        let mut magic = [0u8; 8];
+        buf.read_exact(&mut magic).ok()?;
+        if &magic != Self::MAGIC {
+            return None;
+        }
+
+        let mut version_bytes = [0u8; 4];
+        buf.read_exact(&mut version_bytes).ok()?;
+        let version = u32::from_le_bytes(version_bytes);
+        if version != Self::VERSION {
+            return None;
+        }
+
+        let mut fp_bytes = [0u8; 8];
+        buf.read_exact(&mut fp_bytes).ok()?;
+        let fingerprint = u64::from_le_bytes(fp_bytes);
+        if fingerprint != expected_fingerprint {
+            log::info!("Solar cache fingerprint mismatch (geometry changed), will recompute");
+            return None;
+        }
+
+        let mut u32_buf = [0u8; 4];
+        buf.read_exact(&mut u32_buf).ok()?;
+        let timesteps_per_hour = u32::from_le_bytes(u32_buf);
+
+        let mut u64_buf = [0u8; 8];
+        buf.read_exact(&mut u64_buf).ok()?;
+        let start_hour = u64::from_le_bytes(u64_buf) as usize;
+
+        buf.read_exact(&mut u64_buf).ok()?;
+        let n_timesteps = u64::from_le_bytes(u64_buf) as usize;
+
+        buf.read_exact(&mut u64_buf).ok()?;
+        let n_surfaces = u64::from_le_bytes(u64_buf) as usize;
+
+        let mut sunlit_fractions = Vec::with_capacity(n_timesteps);
+        let mut f64_buf = [0u8; 8];
+        for _ in 0..n_timesteps {
+            let mut step = Vec::with_capacity(n_surfaces);
+            for _ in 0..n_surfaces {
+                buf.read_exact(&mut f64_buf).ok()?;
+                step.push(f64::from_le_bytes(f64_buf));
+            }
+            sunlit_fractions.push(step);
+        }
+
+        Some(SolarCache {
+            sunlit_fractions,
+            timesteps_per_hour,
+            start_hour,
+            fingerprint,
+        })
+    }
 }
 
 /// Interior view factor data for a zone modeled as a rectangular box.
@@ -436,6 +640,7 @@ impl BuildingEnvelope {
                     sun_exposure: false,
                     wind_exposure: false,
                     exposed_perimeter: None,
+                    airflow: None,
                 };
                 surfaces.push(surf);
             }
@@ -971,9 +1176,11 @@ impl BuildingEnvelope {
             interzone_pairs,
             envelope_areas,
             infiltration_interaction: crate::zone_loads::InfiltrationInteraction::Basic,
+            airflow_network: None, // built later via build_airflow_network()
             solar_distribution_method,
             ctf_q_last_inside: vec![0.0; n_surfaces],
             ctf_q_last_outside: vec![0.0; n_surfaces],
+            solar_cache: None,
         }
     }
 
@@ -1068,6 +1275,212 @@ impl BuildingEnvelope {
                 shading_surface_inputs.len());
         }
         self.shading_polygons = polygons;
+    }
+
+    /// Build the multizone airflow network from building geometry.
+    ///
+    /// Should be called after `from_input_full()` when an airflow network
+    /// config is provided in the simulation settings. The network auto-generates
+    /// crack flow paths from exterior and interzone surfaces.
+    pub fn build_airflow_network(
+        &mut self,
+        config: &crate::airflow_network::AirflowNetworkConfig,
+    ) {
+        if !config.enabled {
+            return;
+        }
+        // Collect per-surface airflow overrides
+        let overrides: Vec<Option<crate::airflow_network::SurfaceAirflowOverride>> =
+            self.surfaces.iter()
+                .map(|s| s.input.airflow.clone())
+                .collect();
+
+        let network = crate::airflow_network::build_network(
+            &self.zones,
+            &self.surfaces,
+            config,
+            &self.zone_index,
+            &self.interzone_pairs,
+            &overrides,
+            &self.envelope_areas,
+        );
+        log::info!(
+            "Airflow network: {} zone nodes, {} flow paths, side_ratio={:.2}",
+            network.zone_to_node.len(),
+            network.paths.len(),
+            network.side_ratio,
+        );
+        self.airflow_network = Some(network);
+    }
+
+    /// Precompute sunlit fractions for every annual timestep (Suncast-style).
+    ///
+    /// Computes the expensive polygon-clipping sunlit fractions for all surfaces
+    /// at every simulation timestep upfront, using Rayon for parallelism.
+    /// During the annual simulation, cached values are looked up instead of
+    /// recomputed, eliminating the main per-timestep bottleneck.
+    ///
+    /// Only meaningful when `shading_calculation == Detailed` and shading
+    /// polygons are present. Otherwise, all sunlit fractions are 1.0 and
+    /// caching provides no benefit.
+    ///
+    /// # Arguments
+    /// * `weather_hours` - Full year weather data (needed for hour count)
+    /// * `timesteps_per_hour` - Sub-hourly resolution
+    /// * `start_hour` - First weather hour index (0-based)
+    /// * `end_hour` - Last weather hour index (exclusive)
+    pub fn precompute_solar(
+        &mut self,
+        weather_hours: &[openbse_weather::WeatherHour],
+        timesteps_per_hour: u32,
+        start_hour: usize,
+        end_hour: usize,
+        cache_path: Option<&std::path::Path>,
+    ) {
+        use rayon::prelude::*;
+
+        // Only precompute if detailed shading is enabled with geometry
+        if self.shading_calculation != shading::ShadingCalculation::Detailed
+            || self.shading_polygons.is_empty()
+        {
+            log::info!("Solar precompute: skipped (shading mode is Basic or no shading polygons)");
+            return;
+        }
+
+        let n_surfaces = self.surfaces.len();
+        let n_hours = end_hour.min(weather_hours.len()) - start_hour;
+        let total_steps = n_hours * timesteps_per_hour as usize;
+
+        // Compute geometry fingerprint for cache validation
+        let fingerprint = SolarCache::compute_fingerprint(
+            &self.surfaces, &self.shading_polygons,
+            self.latitude, self.longitude, self.time_zone,
+            timesteps_per_hour, start_hour, end_hour,
+        );
+
+        // Try loading from disk cache
+        if let Some(path) = cache_path {
+            if let Some(cached) = SolarCache::load_from_file(path, fingerprint) {
+                let cached_steps = cached.sunlit_fractions.len();
+                let cached_surfs = if cached_steps > 0 { cached.sunlit_fractions[0].len() } else { 0 };
+                if cached_steps == total_steps && cached_surfs == n_surfaces {
+                    log::info!(
+                        "Solar precompute: loaded from cache '{}' ({} timesteps, fingerprint {:016x})",
+                        path.display(), cached_steps, fingerprint,
+                    );
+                    self.solar_cache = Some(cached);
+                    return;
+                }
+                log::info!("Solar cache size mismatch (expected {}x{}, got {}x{}), will recompute",
+                    total_steps, n_surfaces, cached_steps, cached_surfs);
+            }
+        }
+
+        log::info!(
+            "Solar precompute: computing sunlit fractions for {} timesteps × {} surfaces ({:.1} MB)...",
+            total_steps, n_surfaces,
+            (total_steps * n_surfaces * 8) as f64 / 1_048_576.0,
+        );
+
+        // Collect immutable surface data needed for sunlit fraction computation.
+        // This must be done before the parallel closure to avoid borrowing &self.
+        struct SurfaceGeo {
+            boundary_is_outdoor: bool,
+            vertices: Option<Vec<crate::geometry::Point3D>>,
+        }
+        let surface_geo: Vec<SurfaceGeo> = self.surfaces.iter().map(|s| SurfaceGeo {
+            boundary_is_outdoor: s.input.boundary == BoundaryCondition::Outdoor,
+            vertices: s.input.vertices.clone(),
+        }).collect();
+
+        // Surface names for self-shading exclusion
+        let surface_names: Vec<String> = self.surfaces.iter()
+            .map(|s| format!("self:{}", s.input.name))
+            .collect();
+
+        // Clone shading polygons for thread-safe access
+        let shading_polys = self.shading_polygons.clone();
+        let latitude = self.latitude;
+        let time_zone = self.time_zone;
+        let longitude = self.longitude;
+
+        // Compute sunlit fractions for all timesteps in parallel
+        let sunlit_fractions: Vec<Vec<f64>> = (0..total_steps).into_par_iter().map(|step| {
+            let hour_idx = start_hour + step / timesteps_per_hour as usize;
+            let sub = (step % timesteps_per_hour as usize) as u32 + 1;
+
+            // Compute timestep's fractional hour (matching TimeStep::fractional_hour)
+            let wh = &weather_hours[hour_idx];
+            let hour_1based = (hour_idx % 24) as u32 + 1;
+            let fractional_hour = hour_1based as f64
+                - 1.0
+                + (sub as f64 - 0.5) / timesteps_per_hour as f64;
+
+            // Day of year from weather data
+            let doy = {
+                let days_in_months = [31u32, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+                let mut d = 0u32;
+                for m in 0..(wh.month.saturating_sub(1)) as usize {
+                    d += days_in_months[m.min(11)];
+                }
+                d + wh.day
+            };
+
+            let eot = solar::equation_of_time(doy);
+            let solar_hour = fractional_hour + (time_zone - longitude / 15.0) + eot;
+            let sol_pos = solar::solar_position(doy, solar_hour, latitude);
+
+            if !sol_pos.is_sunup || sol_pos.altitude <= 0.0 {
+                // Night: all surfaces fully sunlit (doesn't matter, no solar)
+                return vec![1.0; n_surfaces];
+            }
+
+            let sun_dir = solar::sun_direction_vector(&sol_pos);
+
+            // Compute sunlit fraction for each surface
+            surface_geo.iter().enumerate().map(|(si, geo)| {
+                if !geo.boundary_is_outdoor {
+                    return 1.0;
+                }
+                if let Some(ref verts) = geo.vertices {
+                    if verts.len() >= 3 {
+                        let normal = crate::geometry::newell_normal(verts).normalize();
+                        let casters: Vec<&shading::ShadingPolygon> = shading_polys.iter()
+                            .filter(|sp| sp.name != surface_names[si])
+                            .collect();
+                        return shading::calculate_sunlit_fraction(verts, &normal, &casters, &sun_dir);
+                    }
+                }
+                1.0
+            }).collect()
+        }).collect();
+
+        log::info!("Solar precompute: done ({} timesteps computed)", sunlit_fractions.len());
+
+        let cache = SolarCache {
+            sunlit_fractions,
+            timesteps_per_hour,
+            start_hour,
+            fingerprint,
+        };
+
+        // Save to disk for future runs
+        if let Some(path) = cache_path {
+            match cache.save_to_file(path) {
+                Ok(()) => {
+                    let size_bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                    log::info!(
+                        "Solar precompute: saved cache to '{}' ({:.1} MB, fingerprint {:016x})",
+                        path.display(), size_bytes as f64 / 1_048_576.0, fingerprint,
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Solar precompute: failed to save cache: {e}");
+                }
+            }
+        }
+
+        self.solar_cache = Some(cache);
     }
 
     /// Compute diffuse sky shading ratios for all outdoor surfaces.
@@ -1331,33 +1744,54 @@ impl EnvelopeSolver for BuildingEnvelope {
 
         // 4. Infiltration + scheduled ventilation + exhaust + outdoor air
         let rho_outdoor = psych::rho_air_fn_pb_tdb_w(p_b, t_outdoor, 0.008);
-        for zone in &mut self.zones {
-            // Local wind speed at zone centroid height for infiltration.
-            // EnergyPlus applies terrain + height correction to met station wind speed
-            // for infiltration calculations (HeatBalanceAirManager.cc).
-            let wind_speed_local = convection::wind_speed_at_height(
-                wind_speed_met,
-                zone.centroid_height,
-                convection::DEFAULT_WEATHER_WIND_MOD_COEFF,
-                self.terrain.wind_exp(),
-                self.terrain.wind_bl_height(),
-            );
 
-            // Sum infiltration from all objects (envelope cracks + door opening, etc.)
-            zone.infiltration_mass_flow = 0.0;
-            for infil in &zone.input.infiltration {
-                let sched_mult = match &infil.schedule {
-                    Some(name) => self.schedule_manager.fraction(name, hour, dow),
-                    None => 1.0,
-                };
-                zone.infiltration_mass_flow += infiltration::calc_infiltration_mass_flow(
-                    infil,
-                    zone.input.volume,
-                    zone.temp,
-                    t_outdoor,
-                    wind_speed_local,
-                    rho_outdoor,
-                ) * sched_mult;
+        // If airflow network is active, solve the pressure network for infiltration.
+        // This replaces the per-zone Design Flow Rate infiltration calculation.
+        let afn_active = self.airflow_network.is_some();
+        if let Some(ref mut afn) = self.airflow_network {
+            // Update zone temperatures and densities in network nodes
+            for (zi, zone) in self.zones.iter().enumerate() {
+                let node = &mut afn.nodes[afn.zone_to_node[zi]];
+                node.temperature = zone.temp + 273.15;
+                node.density = psych::rho_air_fn_pb_tdb_w(p_b, zone.temp, 0.008);
+            }
+            // Update exhaust fan fixed-flow paths from current scheduled rates
+            // (exhaust will be computed below, so we use previous timestep value for now)
+            crate::airflow_network::solve_pressures(
+                afn, wind_speed_met, wind_direction, t_outdoor, rho_outdoor, self.terrain,
+            );
+            // Write AFN outdoor mass flow results to zone state
+            for (zi, zone) in self.zones.iter_mut().enumerate() {
+                zone.infiltration_mass_flow = afn.zone_outdoor_mass_flow[zi];
+            }
+        }
+
+        for zone in &mut self.zones {
+            if !afn_active {
+                // Design Flow Rate infiltration model (unchanged when AFN is off)
+                let wind_speed_local = convection::wind_speed_at_height(
+                    wind_speed_met,
+                    zone.centroid_height,
+                    convection::DEFAULT_WEATHER_WIND_MOD_COEFF,
+                    self.terrain.wind_exp(),
+                    self.terrain.wind_bl_height(),
+                );
+
+                zone.infiltration_mass_flow = 0.0;
+                for infil in &zone.input.infiltration {
+                    let sched_mult = match &infil.schedule {
+                        Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                        None => 1.0,
+                    };
+                    zone.infiltration_mass_flow += infiltration::calc_infiltration_mass_flow(
+                        infil,
+                        zone.input.volume,
+                        zone.temp,
+                        t_outdoor,
+                        wind_speed_local,
+                        rho_outdoor,
+                    ) * sched_mult;
+                }
             }
 
             // Scheduled ventilation (e.g., night ventilation for Case 650)
@@ -1537,11 +1971,22 @@ impl EnvelopeSolver for BuildingEnvelope {
         // radiation is unaffected. When shading_calculation == Basic (default),
         // all surfaces are treated as fully sunlit (sunlit_fraction = 1.0).
 
-        // 5a. Pre-compute sunlit fractions for all surfaces
-        let sunlit_fractions: Vec<f64> = if self.shading_calculation == shading::ShadingCalculation::Detailed
+        // 5a. Sunlit fractions: use precomputed cache if available, else compute inline
+        let sunlit_fractions: Vec<f64> = if let Some(ref cache) = self.solar_cache {
+            // Look up from Suncast-style precomputed cache
+            let hour_idx = ((doy - 1) as usize) * 24 + (hour as usize - 1);
+            let step_idx = (hour_idx - cache.start_hour) * cache.timesteps_per_hour as usize
+                + (ctx.timestep.sub_hour as usize - 1);
+            if step_idx < cache.sunlit_fractions.len() {
+                cache.sunlit_fractions[step_idx].clone()
+            } else {
+                vec![1.0; self.surfaces.len()]
+            }
+        } else if self.shading_calculation == shading::ShadingCalculation::Detailed
             && sol_pos.altitude > 0.0
             && !self.shading_polygons.is_empty()
         {
+            // Inline computation (no cache — design days, sizing, or basic mode)
             self.surfaces.iter().map(|surface| {
                 if surface.input.boundary != BoundaryCondition::Outdoor {
                     return 1.0;
@@ -1549,7 +1994,6 @@ impl EnvelopeSolver for BuildingEnvelope {
                 if let Some(ref verts) = surface.input.vertices {
                     if verts.len() >= 3 {
                         let normal = geometry::newell_normal(verts).normalize();
-                        // Collect casters: all shading polygons EXCEPT this surface itself
                         let self_name = format!("self:{}", surface.input.name);
                         let casters: Vec<&shading::ShadingPolygon> = self.shading_polygons.iter()
                             .filter(|sp| sp.name != self_name)
@@ -1557,7 +2001,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         return shading::calculate_sunlit_fraction(verts, &normal, &casters, &sun_dir);
                     }
                 }
-                1.0 // No vertices → fully sunlit (legacy area/azimuth/tilt surfaces)
+                1.0
             }).collect()
         } else {
             vec![1.0; self.surfaces.len()]
@@ -3941,6 +4385,7 @@ mod tests {
             outdoor_air: None,
             natural_ventilation: None,
             conditioned: true,
+            zone_multiplier: 1,
         }];
 
         let surfaces = vec![
@@ -3959,6 +4404,7 @@ mod tests {
                 sun_exposure: true,
                 wind_exposure: true,
                 exposed_perimeter: None,
+                airflow: None,
             },
             SurfaceInput {
                 name: "South Window".to_string(),
@@ -3975,6 +4421,7 @@ mod tests {
                 sun_exposure: true,
                 wind_exposure: true,
                 exposed_perimeter: None,
+                airflow: None,
             },
             SurfaceInput {
                 name: "Floor".to_string(),
@@ -3991,6 +4438,7 @@ mod tests {
                 sun_exposure: false,
                 wind_exposure: false,
                 exposed_perimeter: None,
+                airflow: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(),
@@ -4007,6 +4455,7 @@ mod tests {
                 sun_exposure: true,
                 wind_exposure: true,
                 exposed_perimeter: None,
+                airflow: None,
             },
         ];
 
@@ -4102,6 +4551,7 @@ mod tests {
             outdoor_air: None,
             natural_ventilation: None,
             conditioned: true,
+            zone_multiplier: 1,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -4110,7 +4560,7 @@ mod tests {
                 area: 30.0, azimuth: 180.0, tilt: 90.0,
                 boundary: BoundaryCondition::Outdoor, parent_surface: None,
                 vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true, exposed_perimeter: None,
+                sun_exposure: true, wind_exposure: true, exposed_perimeter: None, airflow: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(), zone: "TestZone".to_string(),
@@ -4118,7 +4568,7 @@ mod tests {
                 area: 50.0, azimuth: 0.0, tilt: 0.0,
                 boundary: BoundaryCondition::Outdoor, parent_surface: None,
                 vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true, exposed_perimeter: None,
+                sun_exposure: true, wind_exposure: true, exposed_perimeter: None, airflow: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
@@ -4223,6 +4673,7 @@ mod tests {
             outdoor_air: None,
             natural_ventilation: None,
             conditioned: true,
+            zone_multiplier: 1,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -4231,7 +4682,7 @@ mod tests {
                 area: 60.0, azimuth: 180.0, tilt: 90.0,
                 boundary: BoundaryCondition::Outdoor, parent_surface: None,
                 vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true, exposed_perimeter: None,
+                sun_exposure: true, wind_exposure: true, exposed_perimeter: None, airflow: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(), zone: "IdealZone".to_string(),
@@ -4239,7 +4690,7 @@ mod tests {
                 area: 48.0, azimuth: 0.0, tilt: 0.0,
                 boundary: BoundaryCondition::Outdoor, parent_surface: None,
                 vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true, exposed_perimeter: None,
+                sun_exposure: true, wind_exposure: true, exposed_perimeter: None, airflow: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
@@ -4329,6 +4780,7 @@ mod tests {
             outdoor_air: None,
             natural_ventilation: None,
             conditioned: true,
+            zone_multiplier: 1,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -4337,7 +4789,7 @@ mod tests {
                 area: 60.0, azimuth: 180.0, tilt: 90.0,
                 boundary: BoundaryCondition::Outdoor, parent_surface: None,
                 vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true, exposed_perimeter: None,
+                sun_exposure: true, wind_exposure: true, exposed_perimeter: None, airflow: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(), zone: "IdealZone".to_string(),
@@ -4345,7 +4797,7 @@ mod tests {
                 area: 48.0, azimuth: 0.0, tilt: 0.0,
                 boundary: BoundaryCondition::Outdoor, parent_surface: None,
                 vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true, exposed_perimeter: None,
+                sun_exposure: true, wind_exposure: true, exposed_perimeter: None, airflow: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
@@ -4418,6 +4870,7 @@ mod tests {
             outdoor_air: None,
             natural_ventilation: None,
             conditioned: true,
+            zone_multiplier: 1,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -4426,7 +4879,7 @@ mod tests {
                 area: 60.0, azimuth: 180.0, tilt: 90.0,
                 boundary: BoundaryCondition::Outdoor, parent_surface: None,
                 vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true, exposed_perimeter: None,
+                sun_exposure: true, wind_exposure: true, exposed_perimeter: None, airflow: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
@@ -4554,5 +5007,82 @@ mod tests {
         assert!(depression > 8.0 && depression < 22.0,
             "Summer sky depression should be 8-22°C, got {:.1}°C (T_sky={:.1}°C)",
             depression, t_sky_s);
+    }
+
+    #[test]
+    fn test_solar_cache_save_load_roundtrip() {
+        // Verify SolarCache can be saved to disk, loaded back,
+        // and that fingerprint mismatches cause a cache miss.
+        let cache = SolarCache {
+            sunlit_fractions: vec![
+                vec![1.0, 0.5, 0.8],
+                vec![1.0, 0.3, 0.9],
+                vec![1.0, 0.7, 0.6],
+            ],
+            timesteps_per_hour: 6,
+            start_hour: 0,
+            fingerprint: 0xDEADBEEF12345678,
+        };
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("openbse_test_solar_cache.solar");
+
+        // Save
+        cache.save_to_file(&path).expect("save should succeed");
+        assert!(path.exists(), "cache file should exist after save");
+
+        // Load with matching fingerprint
+        let loaded = SolarCache::load_from_file(&path, 0xDEADBEEF12345678);
+        assert!(loaded.is_some(), "load with matching fingerprint should succeed");
+        let loaded = loaded.unwrap();
+        assert_eq!(loaded.sunlit_fractions.len(), 3);
+        assert_eq!(loaded.sunlit_fractions[0].len(), 3);
+        assert_eq!(loaded.timesteps_per_hour, 6);
+        assert_eq!(loaded.start_hour, 0);
+        assert_eq!(loaded.fingerprint, 0xDEADBEEF12345678);
+        // Verify data integrity
+        assert!((loaded.sunlit_fractions[1][1] - 0.3).abs() < 1e-15);
+
+        // Load with mismatched fingerprint → should return None
+        let stale = SolarCache::load_from_file(&path, 0x1111111111111111);
+        assert!(stale.is_none(), "load with mismatched fingerprint should return None");
+
+        // Load from nonexistent path → should return None
+        let missing = SolarCache::load_from_file(&dir.join("no_such_file.solar"), 0xDEADBEEF12345678);
+        assert!(missing.is_none(), "load from missing file should return None");
+
+        // Cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_solar_cache_fingerprint_changes_with_geometry() {
+        // Fingerprint should change when surface vertices change.
+        let env = make_simple_model();
+        let fp1 = SolarCache::compute_fingerprint(
+            &env.surfaces, &env.shading_polygons,
+            40.0, -105.0, -7.0, 6, 0, 8760,
+        );
+
+        // Same inputs → same fingerprint
+        let fp2 = SolarCache::compute_fingerprint(
+            &env.surfaces, &env.shading_polygons,
+            40.0, -105.0, -7.0, 6, 0, 8760,
+        );
+        assert_eq!(fp1, fp2, "same geometry should produce same fingerprint");
+
+        // Different latitude → different fingerprint
+        let fp3 = SolarCache::compute_fingerprint(
+            &env.surfaces, &env.shading_polygons,
+            41.0, -105.0, -7.0, 6, 0, 8760,
+        );
+        assert_ne!(fp1, fp3, "different latitude should change fingerprint");
+
+        // Different timesteps_per_hour → different fingerprint
+        let fp4 = SolarCache::compute_fingerprint(
+            &env.surfaces, &env.shading_polygons,
+            40.0, -105.0, -7.0, 4, 0, 8760,
+        );
+        assert_ne!(fp1, fp4, "different timesteps_per_hour should change fingerprint");
     }
 }

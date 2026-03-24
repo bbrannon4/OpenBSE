@@ -24,8 +24,10 @@ pub mod geometry;
 pub mod ground_temp;
 pub mod zone_loads;
 pub mod shading;
+pub mod airflow_network;
 
 pub use heat_balance::{BuildingEnvelope, SolarDistributionMethod};
+pub use airflow_network::{AirflowNetworkConfig, SurfaceAirflowOverride, AirflowNetwork};
 pub use material::{Material, Construction, ConstructionLayer, ResolvedLayer, WindowConstruction, SimpleConstruction, FFactorConstruction};
 pub use zone_loads::{PeopleInput, LightsInput, EquipmentGainInput, InfiltrationTopLevel,
     VentilationTopLevel, VentilationCombiningMethod, ExhaustFanTopLevel, OutdoorAirTopLevel,

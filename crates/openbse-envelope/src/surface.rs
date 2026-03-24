@@ -95,6 +95,10 @@ pub struct SurfaceInput {
     /// Matches EnergyPlus `Construction:FfactorGroundFloor` PerimeterExposed.
     #[serde(default)]
     pub exposed_perimeter: Option<f64>,
+    /// Airflow network overrides for this surface (crack coefficient, Cp, etc.).
+    /// Only used when the airflow network is enabled in simulation settings.
+    #[serde(default)]
+    pub airflow: Option<crate::airflow_network::SurfaceAirflowOverride>,
 }
 
 fn default_true() -> bool { true }

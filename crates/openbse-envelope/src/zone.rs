@@ -1106,6 +1106,7 @@ mod tests {
             outdoor_air: None,
             natural_ventilation: None,
             conditioned: true,
+            zone_multiplier: 1,
         };
 
         // During night setback
@@ -1146,6 +1147,7 @@ mod tests {
             outdoor_air: None,
             natural_ventilation: None,
             conditioned: true,
+            zone_multiplier: 1,
         };
 
         // During night ventilation period (unconditional — no temp conditions)
@@ -1183,6 +1185,7 @@ mod tests {
             outdoor_air: None,
             natural_ventilation: None,
             conditioned: true,
+            zone_multiplier: 1,
         };
 
         // Zone hot enough, outdoor cooler → ventilate

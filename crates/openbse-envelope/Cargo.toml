@@ -12,6 +12,7 @@ log = { workspace = true }
 openbse-core = { workspace = true }
 openbse-psychrometrics = { workspace = true }
 openbse-weather = { workspace = true }
+rayon = { workspace = true }
 
 [dev-dependencies]
 approx = { workspace = true }

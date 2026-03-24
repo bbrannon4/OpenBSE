@@ -367,54 +367,62 @@ fn run_zone_sizing(
         zone_cooling_peak_hour.insert(name, 0);
     }
 
-    // ── Run ALL heating design days ──────────────────────────────────────
+    // ── Run ALL heating design days (in parallel) ─────────────────────────
+    use rayon::prelude::*;
+
     let heating_dds: Vec<_> = design_days.iter()
         .filter(|dd| is_heating_design_day(dd))
         .collect();
 
-    for dd in &heating_dds {
+    log::info!("Zone sizing: running {} heating DDs in parallel", heating_dds.len());
+    let heating_results: Vec<_> = heating_dds.par_iter().map(|dd| {
         let weather_hours = generate_heating_design_weather(dd);
-        log::info!("Zone sizing: running heating DD '{}' at {:.1}°C", dd.name, dd.design_temp);
-
-        let hourly_loads = run_single_design_day(
-            env, dd, &weather_hours, zone_heating_setpoints, num_warmup_days,
+        let mut env_copy = env.clone();
+        let loads = run_single_design_day(
+            &mut env_copy, dd, &weather_hours, zone_heating_setpoints, num_warmup_days,
             oa_handled_by_hvac,
         );
+        (dd.name.clone(), loads)
+    }).collect();
 
-        // Update peaks (take max across all heating design days)
-        for (hour, zone_loads) in &hourly_loads {
+    // Merge heating peaks from all parallel results
+    for (dd_name, hourly_loads) in &heating_results {
+        for (hour, zone_loads) in hourly_loads {
             for (zone_name, &(hl, _cl)) in zone_loads {
                 let current_peak = zone_peak_heating.get(zone_name).copied().unwrap_or(0.0);
                 if hl > current_peak {
                     zone_peak_heating.insert(zone_name.clone(), hl);
-                    zone_heating_dd.insert(zone_name.clone(), dd.name.clone());
+                    zone_heating_dd.insert(zone_name.clone(), dd_name.clone());
                     zone_heating_peak_hour.insert(zone_name.clone(), *hour);
                 }
             }
         }
     }
 
-    // ── Run ALL cooling design days ──────────────────────────────────────
+    // ── Run ALL cooling design days (in parallel) ────────────────────────
     let cooling_dds: Vec<_> = design_days.iter()
         .filter(|dd| is_cooling_design_day(dd))
         .collect();
 
-    for dd in &cooling_dds {
+    log::info!("Zone sizing: running {} cooling DDs in parallel", cooling_dds.len());
+    let cooling_results: Vec<_> = cooling_dds.par_iter().map(|dd| {
         let weather_hours = generate_cooling_design_weather(dd, latitude);
-        log::info!("Zone sizing: running cooling DD '{}' at {:.1}°C", dd.name, dd.design_temp);
-
-        let hourly_loads = run_single_design_day(
-            env, dd, &weather_hours, zone_cooling_setpoints, num_warmup_days,
+        let mut env_copy = env.clone();
+        let loads = run_single_design_day(
+            &mut env_copy, dd, &weather_hours, zone_cooling_setpoints, num_warmup_days,
             oa_handled_by_hvac,
         );
+        (dd.name.clone(), loads)
+    }).collect();
 
-        // Update peaks (take max across all cooling design days)
-        for (hour, zone_loads) in &hourly_loads {
+    // Merge cooling peaks from all parallel results
+    for (dd_name, hourly_loads) in &cooling_results {
+        for (hour, zone_loads) in hourly_loads {
             for (zone_name, &(_hl, cl)) in zone_loads {
                 let current_peak = zone_peak_cooling.get(zone_name).copied().unwrap_or(0.0);
                 if cl > current_peak {
                     zone_peak_cooling.insert(zone_name.clone(), cl);
-                    zone_cooling_dd.insert(zone_name.clone(), dd.name.clone());
+                    zone_cooling_dd.insert(zone_name.clone(), dd_name.clone());
                     zone_cooling_peak_hour.insert(zone_name.clone(), *hour);
                 }
             }
@@ -511,51 +519,57 @@ fn run_system_sizing(
     let mut heating_peak_hour = 0_u32;
     let mut cooling_peak_hour = 0_u32;
 
-    // ── Run ALL heating design days ──────────────────────────────────────
+    // ── Run ALL heating design days (in parallel) ─────────────────────────
+    use rayon::prelude::*;
+
     let heating_dds: Vec<_> = design_days.iter()
         .filter(|dd| is_heating_design_day(dd))
         .collect();
 
-    for dd in &heating_dds {
+    log::info!("System sizing: running {} heating DDs in parallel", heating_dds.len());
+    let heating_results: Vec<_> = heating_dds.par_iter().map(|dd| {
         let weather_hours = generate_heating_design_weather(dd);
-        log::info!("System sizing: running heating DD '{}' at {:.1}°C", dd.name, dd.design_temp);
-
-        let hourly_loads = run_single_design_day(
-            env, dd, &weather_hours, zone_heating_setpoints, num_warmup_days,
+        let mut env_copy = env.clone();
+        let loads = run_single_design_day(
+            &mut env_copy, dd, &weather_hours, zone_heating_setpoints, num_warmup_days,
             oa_handled_by_hvac,
         );
+        (dd.name.clone(), loads)
+    }).collect();
 
-        for (hour, zone_loads) in &hourly_loads {
-            // Sum all zone heating loads at this timestep (coincident)
+    for (dd_name, hourly_loads) in &heating_results {
+        for (hour, zone_loads) in hourly_loads {
             let total_heating: f64 = zone_loads.values().map(|&(hl, _)| hl).sum();
             if total_heating > coincident_peak_heating {
                 coincident_peak_heating = total_heating;
-                heating_peak_dd = dd.name.clone();
+                heating_peak_dd = dd_name.clone();
                 heating_peak_hour = *hour;
             }
         }
     }
 
-    // ── Run ALL cooling design days ──────────────────────────────────────
+    // ── Run ALL cooling design days (in parallel) ────────────────────────
     let cooling_dds: Vec<_> = design_days.iter()
         .filter(|dd| is_cooling_design_day(dd))
         .collect();
 
-    for dd in &cooling_dds {
+    log::info!("System sizing: running {} cooling DDs in parallel", cooling_dds.len());
+    let cooling_results: Vec<_> = cooling_dds.par_iter().map(|dd| {
         let weather_hours = generate_cooling_design_weather(dd, latitude);
-        log::info!("System sizing: running cooling DD '{}' at {:.1}°C", dd.name, dd.design_temp);
-
-        let hourly_loads = run_single_design_day(
-            env, dd, &weather_hours, zone_cooling_setpoints, num_warmup_days,
+        let mut env_copy = env.clone();
+        let loads = run_single_design_day(
+            &mut env_copy, dd, &weather_hours, zone_cooling_setpoints, num_warmup_days,
             oa_handled_by_hvac,
         );
+        (dd.name.clone(), loads)
+    }).collect();
 
-        for (hour, zone_loads) in &hourly_loads {
-            // Sum all zone cooling loads at this timestep (coincident)
+    for (dd_name, hourly_loads) in &cooling_results {
+        for (hour, zone_loads) in hourly_loads {
             let total_cooling: f64 = zone_loads.values().map(|&(_, cl)| cl).sum();
             if total_cooling > coincident_peak_cooling {
                 coincident_peak_cooling = total_cooling;
-                cooling_peak_dd = dd.name.clone();
+                cooling_peak_dd = dd_name.clone();
                 cooling_peak_hour = *hour;
             }
         }
