@@ -15,9 +15,6 @@ simulation:
   end_month: 12
   end_day: 31
   terrain: city
-  # Fan heat temperature rise for sizing [°C].
-  # VAV fan: ΔP=1337 Pa, η=0.614 → ΔT = ΔP/(η·ρ·Cp) ≈ 2.2°C at Boulder altitude.
-  sizing_fan_delta_t: 2.2
   # E+ Site:GroundTemperature:FCfactorMethod for Denver/Boulder.
   # Used by basement walls (only remaining ground-boundary surfaces).
   ground_surface_temperatures: [7.1, 3.0, -1.0, 0.8, -0.2, 4.8, 6.1, 13.7, 22.2, 22.7, 21.7, 18.5]
@@ -294,26 +291,22 @@ constructions:
         thickness: 0.1038
 
 simple_constructions:
-  # Interior partition: G01 13mm gypsum + G01 13mm gypsum
+  # Interior partition: G01 13mm gypsum + G01 13mm gypsum (E+ int_wall)
   # U = 1/(0.013/0.16 + 0.013/0.16) = 1/0.1625 = 6.15 W/m2K
+  # C = 2 × 800 × 0.013 × 830 = 17264 J/m²K
   - name: Interior Partition
     u_factor: 6.15
     thickness: 0.026
-    thermal_capacity: 15000.0
+    thermal_capacity: 17264.0
     solar_absorptance: 0.4
     thermal_absorptance: 0.9
 
-  # Adiabatic floor/ceiling (for interzone)
-  # U=3.0 is typical for a concrete slab. Since these surfaces have
-  # boundary: adiabatic (T_outside = T_inside), U doesn't affect
-  # steady-state heat flux — it only controls the CTF transient
-  # response and thermal mass coupling to zone air.
-  # U=0.01 caused NaN in CTF at sub-hourly timesteps (state-space
-  # matrix too large from 2m synthetic insulation layer).
+  # Adiabatic ceiling: matches E+ DropCeiling (AC02 Acoustic Ceiling, adiabatic BC)
+  # E+ material: 12.7mm, k=0.057, ρ=288, cp=1339 → U=4.49, C=4900 J/m²K
   - name: Adiabatic Assembly
-    u_factor: 3.0
-    thickness: 0.1
-    thermal_capacity: 200000.0
+    u_factor: 4.49
+    thickness: 0.0127
+    thermal_capacity: 4900.0
     solar_absorptance: 0.5
     thermal_absorptance: 0.9
 

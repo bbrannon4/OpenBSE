@@ -376,8 +376,8 @@ fn run_zone_sizing(
     heating_supply_temp: f64,
     cooling_supply_temp: f64,
     latitude: f64,
-    _heating_sizing_factor: f64,
-    _cooling_sizing_factor: f64,
+    heating_sizing_factor: f64,
+    cooling_sizing_factor: f64,
     oa_handled_by_hvac: &HashMap<String, bool>,
     timesteps_per_hour: u32,
     sizing_fan_delta_t: f64,
@@ -526,8 +526,12 @@ fn run_zone_sizing(
         let heat_sp = zone_heating_setpoints.get(name).copied().unwrap_or(21.0);
         let cool_sp = zone_cooling_setpoints.get(name).copied().unwrap_or(24.0);
 
+        // Apply sizing safety factors (E+ Sizing:Parameters → Heating/Cooling Sizing Factor)
+        // These multiply the design loads before computing airflows, matching E+.
+        let heat_load = zone_peak_heating.get(name).copied().unwrap_or(0.0) * heating_sizing_factor;
+        let cool_load_raw = zone_peak_cooling.get(name).copied().unwrap_or(0.0);
+
         // Heating airflow: Q = m_dot * Cp * (T_supply - T_zone)
-        let heat_load = zone_peak_heating.get(name).copied().unwrap_or(0.0);
         let dt_heating = (heating_supply_temp - heat_sp).max(5.0);
         let m_heat = if heat_load > 0.0 {
             heat_load / (cp_air * dt_heating)
@@ -543,7 +547,7 @@ fn run_zone_sizing(
         //
         // sizing_fan_delta_t (from SimulationSettings) adds the fan heat
         // temperature rise to the cooling supply temp during sizing only.
-        let cool_load = zone_peak_cooling.get(name).copied().unwrap_or(0.0);
+        let cool_load = cool_load_raw * cooling_sizing_factor;
         let t_supply_eff = cooling_supply_temp + sizing_fan_delta_t;
         let dt_cooling = (cool_sp - t_supply_eff).max(3.0);
         let m_cool = if cool_load > 0.0 {

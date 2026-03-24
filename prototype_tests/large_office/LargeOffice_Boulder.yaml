@@ -5,7 +5,6 @@ simulation:
   end_month: 12
   end_day: 31
   terrain: city
-  sizing_fan_delta_t: 2.2
   ground_surface_temperatures:
   - 7.1
   - 3.0
@@ -847,13 +846,13 @@ simple_constructions:
 - name: Interior Partition
   u_factor: 6.15
   thickness: 0.026
-  thermal_capacity: 15000.0
+  thermal_capacity: 17264.0
   solar_absorptance: 0.4
   thermal_absorptance: 0.9
 - name: Adiabatic Assembly
-  u_factor: 3.0
-  thickness: 0.1
-  thermal_capacity: 200000.0
+  u_factor: 4.49
+  thickness: 0.0127
+  thermal_capacity: 4900.0
   solar_absorptance: 0.5
   thermal_absorptance: 0.9
 window_constructions:
