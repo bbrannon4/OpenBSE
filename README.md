@@ -171,6 +171,29 @@ OpenBSE has three categories of tests:
 2. **ASHRAE 140 validation** — Standard test cases in [`140_tests/`](140_tests/). Run individual cases with `./target/release/openbse 140_tests/cases/ashrae140_case600.yaml`.
 3. **E+ prototype comparison** — DOE prototype models in [`prototype_tests/`](prototype_tests/). Each model has a YAML input file and Python comparison scripts.
 
+## Development
+
+Before committing any Rust changes, always run:
+
+```bash
+cargo fmt --all            # auto-format code
+cargo clippy --workspace   # check for common mistakes
+cargo test --workspace     # run all tests
+```
+
+`cargo fmt` enforces a consistent style automatically — just run it and commit the result. CI will reject pushes where formatting is off.
+
+`cargo clippy` is a linter that catches common issues (unnecessary clones, unused variables, loops that could be simpler, etc.). CI runs clippy on every push; warnings are reported but currently non-blocking. When writing new code, aim for zero clippy warnings.
+
+For the editor frontend (`tools/editor/`):
+
+```bash
+cd tools/editor
+npm ci                     # install dependencies
+npx tsc -b                 # type-check TypeScript
+npm run build              # full build (tsc + vite)
+```
+
 ## License
 
 MIT OR Apache-2.0
