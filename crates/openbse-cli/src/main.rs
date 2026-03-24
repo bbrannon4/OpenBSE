@@ -738,6 +738,7 @@ fn main() -> Result<()> {
                 model.simulation.cooling_sizing_factor,
                 &sizing_oa_handled,
                 model.simulation.timesteps_per_hour,
+                model.simulation.sizing_fan_delta_t,
             );
 
             // Store coincident peak demands for plant loop pump autosizing
@@ -1680,6 +1681,11 @@ fn main() -> Result<()> {
 
     info!("Starting main simulation...");
 
+    let month_names = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let mut last_progress_day = 0u32;
+
     for hour_idx in start_hour..end_hour {
         let weather_hour = &weather_data.hours[hour_idx as usize];
         // Previous hour for sub-hourly interpolation (wraps to last hour of year)
@@ -1691,6 +1697,25 @@ fn main() -> Result<()> {
         let prev_weather = &weather_data.hours[prev_hour_idx as usize];
         let (month, day) = month_day_from_hour(hour_idx, &days_in_months);
         let hour = (hour_idx % 24) + 1;
+
+        // Log progress every 7 simulated days
+        let abs_day = hour_idx / 24;
+        if abs_day >= last_progress_day + 7 || (abs_day == start_hour / 24 && hour == 1) {
+            let completed = hour_idx - start_hour;
+            let total = end_hour - start_hour;
+            let pct = if total > 0 {
+                completed as f64 / total as f64 * 100.0
+            } else {
+                0.0
+            };
+            info!(
+                "Simulating {} {} ... ({:.0}%)",
+                month_names[(month - 1) as usize],
+                day,
+                pct
+            );
+            last_progress_day = abs_day;
+        }
 
         for sub in 1..=config.timesteps_per_hour {
             // Sub-hourly weather interpolation (matches E+ WeatherManager.cc):
