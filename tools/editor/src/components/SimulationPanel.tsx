@@ -105,17 +105,15 @@ export function SimulationPanel({
         outputPath,
       });
     } catch (e) {
-      // Error status is set via the simulation-done event,
-      // but if invoke itself throws (e.g. binary not found), handle it here
-      if (status === "running") {
-        setStatus("error");
-        setOutputLines((prev) => [
-          ...prev,
-          { stream: "stderr", line: String(e) },
-        ]);
-      }
+      // invoke itself threw (e.g. binary not found, spawn failed).
+      // The simulation-done event won't fire in this case.
+      setStatus("error");
+      setOutputLines((prev) => [
+        ...prev,
+        { stream: "stderr", line: String(e) },
+      ]);
     }
-  }, [modelPath, weatherPath, dirty, onSave, status]);
+  }, [modelPath, weatherPath, dirty, onSave]);
 
   const weatherFileName = weatherPath?.split("/").pop() ?? null;
 

@@ -89,23 +89,55 @@ fn write_yaml_file(path: String, contents: String) -> Result<(), String> {
     std::fs::write(&path, &contents).map_err(|e| format!("Failed to write file {path}: {e}"))
 }
 
-/// Find the openbse CLI binary.
-/// 1. Next to the editor executable (bundled distribution)
-/// 2. On PATH
+/// Find the openbse CLI binary by searching:
+/// 1. Next to the editor executable (inside .app/Contents/MacOS/)
+/// 2. Next to the .app bundle itself (e.g. both in same downloaded folder)
+/// 3. /usr/local/bin/openbse
+/// 4. On PATH
 fn find_openbse_binary() -> Result<PathBuf, String> {
-    // Next to current executable
     if let Ok(exe) = std::env::current_exe() {
+        // 1. Next to the executable (inside .app bundle or same directory)
         if let Some(exe_dir) = exe.parent() {
             let candidate = exe_dir.join("openbse");
             if candidate.exists() {
                 return Ok(candidate);
             }
+
+            // 2. On macOS, walk up from Contents/MacOS/ to find openbse
+            //    next to the .app bundle (e.g. user downloaded both to ~/Downloads)
+            let mut dir = exe_dir;
+            while let Some(parent) = dir.parent() {
+                // Check if we just exited a .app bundle
+                if dir
+                    .file_name()
+                    .is_some_and(|n| n.to_string_lossy().ends_with(".app"))
+                {
+                    let candidate = parent.join("openbse");
+                    if candidate.exists() {
+                        return Ok(candidate);
+                    }
+                    break;
+                }
+                dir = parent;
+            }
         }
     }
 
-    // On PATH via `which`
-    which::which("openbse")
-        .map_err(|_| "Could not find the 'openbse' binary. Install it or place it next to the editor executable.".to_string())
+    // 3. Common install locations
+    let common = ["/usr/local/bin/openbse", "/opt/homebrew/bin/openbse"];
+    for path in &common {
+        let p = PathBuf::from(path);
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+
+    // 4. On PATH
+    which::which("openbse").map_err(|_| {
+        "Could not find the 'openbse' binary. Place it next to the editor, \
+         install it to /usr/local/bin, or add it to your PATH."
+            .to_string()
+    })
 }
 
 #[derive(Clone, serde::Serialize)]
