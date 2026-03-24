@@ -1,134 +1,194 @@
 # Large Office Prototype Validation Notes
 
+## Status: In Progress (HVAC end uses not within 5%)
+
+4 of 10 end uses pass the 5% threshold. The remaining 6 (fans, pumps, cooling,
+heating, exterior lighting, DHW) are blocked by engine-level differences in zone
+thermal mass handling and HVAC sizing.
+
 ## Model Information
 - **Building**: DOE Prototype Large Office (12-story + basement), 46,320 m2
 - **Location**: Boulder, CO (Climate Zone 5B)
-- **Weather**: USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw
-- **Code vintage**: ASHRAE 90.1-2019 Appendix G
+- **Weather**: `USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw`
 - **E+ version**: 25.2.0
-- **E+ simplified IDF**: `LargeOffice_Denver_simplified.idf`
+- **E+ IDF**: `LargeOffice_Denver_simplified.idf` (in `eplus_run/`)
+- **OpenBSE YAML**: `LargeOffice_Boulder.yaml` (expanded via `expand_zones.py`)
 
-## Current Status: BLOCKED — Engine Changes Required
+## Key Model Changes
 
-The YAML has been aligned with the IDF as closely as possible. However,
-the OpenBSE engine currently lacks proper zone multiplier support for
-energy reporting, which prevents meaningful end-use comparison for any
-building using zone multipliers.
+### Zone Multiplier Expansion
+OpenBSE does not support zone multipliers. The 6 mid-floor zones (5 office + 1 DC,
+each with `zone_multiplier: 10`) were expanded into 60 explicit zones via `expand_zones.py`:
+- 10 copies of each office mid zone (floors 2-11)
+- 10 copies of DataCenter_mid_ZN_6
+- 10 per-floor VAV systems and 10 per-floor DC PSZ-AC systems
+- Zone groups, infiltration, equipment, DHW loads expanded accordingly
+- Total: 74 zones, 360 surfaces, 74 HVAC terminals
 
-### YAML Fixes Applied (this pass)
+### DC Fan Continuous Operation
+E+ DC fans use `Fan:SystemModel` with Discrete speed control (always full power).
+Added `fan_operating_mode: continuous` to DC bot/mid/top air loops.
 
-1. **`zone_multiplier: 10`** — changed from `multiplier:` to match serde field name
-2. **Equipment schedule (BLDG_EQUIP_SCH)** — Saturday/Sunday values corrected to match IDF full precision (weekday was already close; Saturday was completely wrong)
-3. **Lighting schedule Saturday** — fixed hours 17-18 (0.15 → 0.05 to match IDF)
-4. **Equipment radiant fractions** — office zones: 0.3 → 0.5; data center zones: 0.3 → 0.1 (matching IDF)
-5. **DataCenter thermostat** — 15.6/24.0 → 18.0/27.0 (matching IDF HTGSETP_DC_SCH / CLGSETP_DC_SCH)
-6. **Infiltration schedule** — added INFIL_SCH_PNNL (0.25 during HVAC operation, 1.0 when off) and assigned to all infiltration objects
-7. **Design day values** — corrected cooling wetbulb (15.7 → 15.0), heating wind (2.3 → 2.5), cooling wind (4.0 → 3.6)
-8. **Lighting radiant fraction** — 0.7 → 0.9 (E+ Fraction Radiant 0.7 + Fraction Visible 0.2)
-9. **Missing DataCenter people** — added People entries for all 4 DC zones (same density as office: 18.5788 m²/person)
-10. **Occupancy schedule Sunday** — fixed from constant 0.05 to IDF pattern (0.0 hours 0-5 and 18-23, 0.05 hours 6-17)
+### VAV Settings
+- Box min flow fraction: 0.30 (matches E+)
+- System fan power min flow fraction: 0.25 (matches E+)
 
-### Known YAML Issues NOT Yet Fixed
+---
 
-1. **Occupancy schedule** — IDF `BLDG_OCC_SCH_wo_SB` has slight "setback modulation" perturbations at hours 10, 12, 14 (0.993/0.523/0.993 vs YAML 0.95/0.5/0.95). Also Sunday differs (IDF has 0 for hours 0-5 and 18-23, YAML has 0.05 constant). These are small (~1-2% effect on occupancy-related internal gains).
+## Annual End-Use Comparison
 
-2. **DataCenter equipment schedule** — IDF has monthly ramp pattern (Jan=0.25, Feb=0.50, Mar=0.75, Apr=1.0, repeating quarterly). YAML uses flat 0.625 (annual average). The annual total is identical but monthly distribution differs. OpenBSE doesn't support monthly-varying schedules, so this would need either:
-   - Engine support for monthly schedule profiles, OR
-   - IDF simplification to use the same flat schedule
+| End Use                 |   E+ [kWh] | OpenBSE [kWh] |  Diff % | Status |
+|-------------------------|------------|---------------|---------|--------|
+| Interior Lighting       |  1,558,539 |     1,599,908 |   +2.7% | PASS   |
+| Exterior Lighting       |    279,464 |       296,815 |   +6.2% | FAIL   |
+| Interior Equipment      |  4,076,778 |     4,091,485 |   +0.4% | PASS   |
+| Exterior Equipment      |    713,075 |       711,724 |   -0.2% | PASS   |
+| Fans (Electric)         |  1,010,319 |       565,338 |  -44.0% | FAIL   |
+| Pumps (Electric)        |    129,769 |        67,287 |  -48.1% | FAIL   |
+| Cooling (Electric)      |    552,933 |       625,756 |  +13.2% | FAIL   |
+| Heating (Gas)           |    404,736 |       497,225 |  +22.9% | FAIL   |
+| Heating (Electric)      |          0 |             0 |    0.0% | PASS   |
+| DHW (Electric)          |    125,133 |       131,926 |   +5.4% | FAIL   |
+|-------------------------|------------|---------------|---------|--------|
+| **Total**               |  8,850,747 |     8,587,464 |   -3.0% |        |
 
-3. **DHW use temperature** — IDF has target_temp=43.3°C and hot_supply_temp=43.3°C from a 60°C tank. The YAML uses use_temp=60.0 which draws 100% from tank. The correct value depends on matching E+'s WaterUse:Equipment mixing logic. With use_temp=60 → +5.4% vs E+. With use_temp=43.3 → -29% vs E+. The gap is partially due to E+ using varying mains temperature (avg 9.95°C) vs OpenBSE fixed 13.3°C.
+---
 
-4. **VAV SAT reset** — IDF uses SetpointManager:Warmest (12.8-15.6°C). YAML uses fixed cooling SAT=12.8°C. OpenBSE engine doesn't support SAT reset yet.
+## Monthly Comparison — Fans [kWh]
 
-5. **HW loop OA reset** — IDF uses SetpointManager:OutdoorAirReset (82.2°C at OA<=-6.667, 65.6°C at OA>=10). YAML uses fixed 82°C.
+| Month | E+       | OpenBSE  | Diff %  |
+|-------|----------|----------|---------|
+| Jan   |   65,675 |   38,592 |  -41.2% |
+| Feb   |   62,266 |   34,385 |  -44.8% |
+| Mar   |   85,382 |   40,399 |  -52.7% |
+| Apr   |   90,151 |   38,767 |  -57.0% |
+| May   |   74,739 |   44,282 |  -40.8% |
+| Jun   |   90,888 |   57,940 |  -36.2% |
+| Jul   |  102,158 |   66,092 |  -35.3% |
+| Aug   |  114,584 |   65,666 |  -42.7% |
+| Sep   |   80,976 |   55,816 |  -31.1% |
+| Oct   |   77,990 |   44,811 |  -42.5% |
+| Nov   |   78,373 |   39,563 |  -49.5% |
+| Dec   |   87,138 |   39,023 |  -55.2% |
 
-6. **Plenum zones** — IDF has 3 plenum zones (GroundFloor, MidFloor, TopFloor) with infiltration. YAML has none. These plenums provide a buffer between conditioned zones and the exterior/roof, and carry return air infiltration. Missing plenums affects top-floor and bottom-floor heat balance.
+## Monthly Comparison — Cooling (Electric) [kWh]
 
-7. **Exterior lighting schedule** — IDF uses a separate schedule, YAML uses `astronomical_clock: true`. Results are close (+6%) but not exact.
+| Month | E+       | OpenBSE  | Diff %  |
+|-------|----------|----------|---------|
+| Jan   |    5,352 |   29,598 | +453.1% |
+| Feb   |   11,854 |   26,037 | +119.7% |
+| Mar   |   27,982 |   31,264 |  +11.7% |
+| Apr   |   36,715 |   34,910 |   -4.9% |
+| May   |   24,734 |   44,023 |  +78.0% |
+| Jun   |   78,950 |   80,056 |   +1.4% |
+| Jul   |  106,848 |   97,834 |   -8.4% |
+| Aug   |  119,900 |   99,609 |  -16.9% |
+| Sep   |   54,316 |   75,079 |  +38.2% |
+| Oct   |   34,820 |   45,380 |  +30.3% |
+| Nov   |   24,718 |   31,470 |  +27.3% |
+| Dec   |   26,744 |   30,497 |  +14.0% |
 
-## E+ End-Use Reference Values
+## Monthly Comparison — Heating (Gas) [kWh]
 
-| End Use | GJ | kWh |
-|---------|-----|-----|
-| Heating (Gas) | 1,457.05 | 404,736 |
-| Cooling (Elec) | 1,990.56 | 552,933 |
-| Interior Lighting | 5,610.74 | 1,558,539 |
-| Exterior Lighting | 1,006.07 | 279,464 |
-| Interior Equipment | 14,676.40 | 4,076,778 |
-| Exterior Equipment | 2,567.07 | 712,964 |
-| Fans (Elec) | 3,637.15 | 1,010,319 |
-| Pumps (Elec) | 467.17 | 129,769 |
-| Water Systems (Elec) | 450.48 | 125,133 |
-| **Total Site** | **31,862.69** | **8,850,747** |
+| Month | E+       | OpenBSE  | Diff %  |
+|-------|----------|----------|---------|
+| Jan   |   76,731 |   96,539 |  +25.8% |
+| Feb   |   66,690 |   87,073 |  +30.6% |
+| Mar   |   50,682 |   56,674 |  +11.8% |
+| Apr   |   27,490 |   29,877 |   +8.7% |
+| May   |   18,395 |   15,839 |  -13.9% |
+| Jun   |    1,217 |    3,915 | +221.7% |
+| Jul   |      402 |    1,585 | +294.3% |
+| Aug   |      452 |      668 |  +47.8% |
+| Sep   |    5,503 |    3,939 |  -28.4% |
+| Oct   |   24,893 |   24,972 |   +0.3% |
+| Nov   |   54,096 |   74,633 |  +38.0% |
+| Dec   |   78,185 |  101,510 |  +29.8% |
 
-## OpenBSE Current Results (zone multiplier not applied to reporting)
+## Monthly Comparison — Pumps [kWh]
 
-| End Use | E+ (kWh) | OpenBSE (kWh) | Diff | Notes |
-|---------|----------|---------------|------|-------|
-| Interior Lighting | 1,558,539 | 491,490 | -68% | Missing zone_multiplier on reporting |
-| Exterior Lighting | 279,464 | 296,815 | +6% | Astronomical clock vs IDF schedule |
-| Interior Equipment | 4,076,778 | 2,670,154 | -35% | Missing zone_multiplier on reporting |
-| Exterior Equipment | 712,964 | 711,724 | 0% | OK |
-| Fans | 1,010,319 | 395,290 | -61% | Missing zone_multiplier on HVAC reporting |
-| Pumps | 129,769 | 35,710 | -72% | Missing zone_multiplier on HVAC reporting |
-| Cooling | 552,933 | 407,664 | -26% | Missing zone_multiplier on HVAC reporting |
-| Heating (Gas) | 404,736 | 141,325 | -65% | Missing zone_multiplier on HVAC reporting |
-| DHW (Elec) | 125,133 | 131,926 | +5% | Mains temp and mixing model differences |
+| Month | E+       | OpenBSE  | Diff %  |
+|-------|----------|----------|---------|
+| Jan   |    1,780 |    4,621 | +159.6% |
+| Feb   |    2,250 |    4,177 |  +85.6% |
+| Mar   |   15,376 |    4,515 |  -70.6% |
+| Apr   |   14,405 |    4,478 |  -68.9% |
+| May   |    5,070 |    5,001 |   -1.4% |
+| Jun   |   11,273 |    7,045 |  -37.5% |
+| Jul   |   17,101 |    8,032 |  -53.0% |
+| Aug   |   17,519 |    8,228 |  -53.0% |
+| Sep   |    8,914 |    6,647 |  -25.4% |
+| Oct   |    6,661 |    5,014 |  -24.7% |
+| Nov   |   15,257 |    4,441 |  -70.9% |
+| Dec   |   14,164 |    4,657 |  -67.1% |
 
-**These results are not meaningful** because the zone multiplier is not applied to
-energy reporting. The sizing correctly applies the multiplier, so HVAC equipment
-operates at the right capacity level, but the reported energy is only the
-single-zone component.
+---
 
-## Projected Results (once zone_multiplier reporting is fixed)
+## Root Cause Analysis
 
-Manual calculations confirm the YAML internal gains match E+ closely:
+### Fan Energy (-44%): Zone Design Load Mismatch
 
-| End Use | E+ (kWh) | Projected OpenBSE (kWh) | Diff | Status |
-|---------|----------|------------------------|------|--------|
-| Interior Lighting | 1,558,539 | ~1,603,648 | +2.9% | schedule day-type mapping |
-| Interior Equipment | 4,076,778 | ~4,093,206 | +0.4% | OK |
-| Exterior Equipment | 712,964 | 711,724 | -0.2% | OK |
-| DHW (Elec) | 125,133 | 131,926 | +5.4% | mains temp model |
+The dominant issue is that OpenBSE computes significantly lower zone design cooling
+loads than E+. This directly drives smaller HVAC sizing and less runtime airflow.
 
-HVAC end uses (fans, pumps, cooling, heating) cannot be projected manually since
-they depend on the engine's multiplier-aware simulation and reporting.
+**Evidence — E+ vs OpenBSE system design flows:**
+- VAV_mid: E+ = 139.33 m3/s, OpenBSE (10 floors combined) = ~89 m3/s (36% less)
+- Core_mid zone peak cooling: E+ = 85,286 W, OpenBSE = 42,476 W (50% less)
 
-## Required Engine Changes
+The Core_mid zone has NO exterior surfaces (all adiabatic). Its cooling load comes
+entirely from internal gains. The 2x E+ load difference is caused by:
 
-### Critical (blocking validation)
+1. **Thermal mass sizing transients**: E+ runs a full transient design day where
+   radiant heat (90% of lighting, 50% of equipment) is absorbed by surfaces and
+   released with time delay. The accumulated effect creates peak cooling that exceeds
+   instantaneous internal gains. OpenBSE's CTF may not fully capture this.
 
-1. **Zone multiplier on internal gains reporting** (`main.rs` ~line 1933-1936):
-   Zone lighting_power and equipment_power must be multiplied by `zone.input.zone_multiplier` before writing to the snapshot. Currently:
-   ```rust
-   snapshot.zone_lighting_power.insert(name, zone.lighting_power);
-   ```
-   Should be:
-   ```rust
-   let zmult = zone.input.zone_multiplier as f64;
-   snapshot.zone_lighting_power.insert(name, zone.lighting_power * zmult);
-   ```
+2. **Fan heat iteration**: E+ includes fan heat in the sizing loop (fan heats supply
+   air, requiring more airflow, which increases fan heat). This positive feedback is
+   iterated to convergence.
 
-2. **Zone multiplier on HVAC component energy reporting** (`main.rs` ~line 1920-1932):
-   Fan, coil, and pump power from HVAC components must be multiplied by the served zone's multiplier. The `comp_zone_multiplier` map was built at startup (lines 456-482) but is currently not applied to component energy. The `zmult` multiplication that was previously there was removed (see git stash "Remove zone multiplier capability"). It needs to be restored.
+### Heating (+23%): Less Fan Heat Compensation
 
-   **However**: this needs careful design. The simulation already uses multiplied loads for PLR (via `zmult_plr` at line 2813). If the fan/coil outputs already reflect the multiplied load (because sizing includes multiplier), then multiplying again would double-count. The correct approach depends on whether `simulate_all_loops()` returns outputs at the single-zone or building level. This needs testing.
+Higher heating gas directly follows from lower fan energy. In E+, VAV fans add ~1,010 MWh
+of heat to the airstream annually. In OpenBSE, only ~565 MWh. The missing ~445 MWh of
+fan heat must be replaced by the boiler, explaining most of the +93 MWh heating increase
+(the rest is offset by system efficiency differences).
 
-3. **Serde alias for `zone_multiplier`** (`zone.rs` line 423):
-   Add `alias = "multiplier"` to the serde attribute so YAML can use either `multiplier:` or `zone_multiplier:`. Currently only `zone_multiplier:` works. (The YAML has been updated to use `zone_multiplier:` as a workaround.)
+### Cooling (+13%): DC Continuous Fans + Load Differences
 
-### Important (needed for <5% accuracy)
+With continuous DC fans, more fan heat enters DC zones, increasing DX cooling load.
+Additionally, the zone cooling load profile differs from E+ due to different thermal
+mass behavior.
 
-4. **SAT reset (SetpointManager:Warmest)**: VAV cooling supply air temperature should reset between 12.8-15.6°C based on warmest zone demand. Currently fixed at 12.8°C. This affects fan energy (lower SAT = more reheat + less airflow needed).
+### Exterior Lighting (+6.2%): Astronomical Clock
 
-5. **HW loop temperature OA reset**: Hot water supply temperature should reset 82.2→65.6°C based on outdoor air temperature. Currently fixed at 82°C.
+OpenBSE computes 271 more nighttime hours than E+ (4,632 vs 4,361). The solar position
+algorithm may differ in sunrise/sunset threshold (E+ uses -0.833 degree refraction
+correction) or equation of time calculations.
 
-6. **Monthly schedule support**: DataCenter equipment schedule varies by month (0.25/0.50/0.75/1.00 repeating quarterly). Currently modeled as flat 0.625 average.
+### DHW (+5.4%): Water Heater Model Differences
 
-7. **Varying mains water temperature**: E+ uses Site:WaterMainsTemperature correlation (annual avg 9.95°C, seasonal variation). OpenBSE uses fixed temperature. This affects DHW energy by ~5-30% depending on the value chosen. (Note: a `MainsTemperature::Correlation` variant already exists in input.rs but may not be fully wired.)
+E+ uses Hendron/Burch mains temperature correlation (monthly varying). OpenBSE uses
+fixed 13.3C. Minor standby loss and efficiency differences contribute.
 
-### Minor (nice to have)
+---
 
-8. **Exterior lighting schedule**: Consider supporting the E+ exterior lighting schedule directly instead of astronomical clock (6% gap).
+## Engine Changes Needed
 
-9. **Plenum zone modeling**: The IDF has 3 unconditioned plenum zones with infiltration. Adding these would improve accuracy of top-floor and first-floor heat balance.
+| Priority | Change | Impact |
+|----------|--------|--------|
+| HIGH | Fix radiant heat distribution to surfaces in sizing design days | Fixes fans, pumps, heating, cooling |
+| HIGH | Add fan heat feedback iteration in system sizing | Fixes fans, pumps |
+| MEDIUM | Verify CTF transient behavior matches E+ for interior/adiabatic surfaces | Improves all HVAC end uses |
+| LOW | Astronomical clock refraction correction (-0.833 deg threshold) | Fixes exterior lighting |
+| LOW | Verify DHW water heater standby loss calculation | Fixes DHW |
+
+## Files
+
+| File | Description |
+|------|-------------|
+| `LargeOffice_Boulder.yaml.bak` | Source YAML with zone_multiplier fields |
+| `expand_zones.py` | Script to expand multipliers into explicit zones |
+| `LargeOffice_Boulder.yaml` | Expanded YAML (regenerate, do not edit directly) |
+| `eplus_run/` | E+ run with simplified IDF and table output |
+| `eplus_detailed_run/` | E+ run with hourly fan/pump meter outputs |
