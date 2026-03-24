@@ -1,0 +1,298 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── Run tests before anything else ──────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  # ── CLI binaries ────────────────────────────────────────────────
+  cli-linux:
+    name: CLI (Linux x86_64)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cross --git https://github.com/cross-rs/cross
+      - run: cross build --release --package openbse-cli --target x86_64-unknown-linux-gnu
+      - run: |
+          cp target/x86_64-unknown-linux-gnu/release/openbse openbse-x86_64-unknown-linux-gnu
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-linux-x86_64
+          path: openbse-x86_64-unknown-linux-gnu
+
+  cli-macos-arm:
+    name: CLI (macOS aarch64)
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --package openbse-cli --target aarch64-apple-darwin
+      - run: |
+          cp target/aarch64-apple-darwin/release/openbse openbse-aarch64-apple-darwin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-macos-aarch64
+          path: openbse-aarch64-apple-darwin
+
+  cli-macos-x86:
+    name: CLI (macOS x86_64)
+    needs: test
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --package openbse-cli --target x86_64-apple-darwin
+      - run: |
+          cp target/x86_64-apple-darwin/release/openbse openbse-x86_64-apple-darwin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-macos-x86_64
+          path: openbse-x86_64-apple-darwin
+
+  cli-windows:
+    name: CLI (Windows x86_64)
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --package openbse-cli --target x86_64-pc-windows-msvc
+      - run: |
+          copy target\x86_64-pc-windows-msvc\release\openbse.exe openbse-x86_64-pc-windows-msvc.exe
+        shell: cmd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-windows-x86_64
+          path: openbse-x86_64-pc-windows-msvc.exe
+
+  # ── Editor (Tauri) ─────────────────────────────────────────────
+  editor-macos-arm:
+    name: Editor (macOS aarch64)
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/editor/src-tauri
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tools/editor/package-lock.json
+      - run: npm ci
+        working-directory: tools/editor
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: tools/editor
+          args: --target aarch64-apple-darwin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: editor-macos-aarch64
+          path: tools/editor/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+
+  editor-macos-x86:
+    name: Editor (macOS x86_64)
+    needs: test
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/editor/src-tauri
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tools/editor/package-lock.json
+      - run: npm ci
+        working-directory: tools/editor
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: tools/editor
+          args: --target x86_64-apple-darwin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: editor-macos-x86_64
+          path: tools/editor/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+
+  editor-windows:
+    name: Editor (Windows x86_64)
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/editor/src-tauri
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tools/editor/package-lock.json
+      - run: npm ci
+        working-directory: tools/editor
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: tools/editor
+          args: --target x86_64-pc-windows-msvc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: editor-windows-x86_64
+          path: tools/editor/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+
+  editor-linux:
+    name: Editor (Linux x86_64)
+    needs: test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/editor/src-tauri
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tools/editor/package-lock.json
+      - run: npm ci
+        working-directory: tools/editor
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: tools/editor
+      - uses: actions/upload-artifact@v4
+        with:
+          name: editor-linux-x86_64
+          path: |
+            tools/editor/src-tauri/target/release/bundle/appimage/*.AppImage
+            tools/editor/src-tauri/target/release/bundle/deb/*.deb
+
+  # ── Examples bundle ─────────────────────────────────────────────
+  examples:
+    name: Examples bundle
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create examples archive
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # Collect example YAML files
+          mkdir -p _bundle/examples _bundle/prototype_tests
+          cp examples/*.yaml _bundle/examples/
+          # Collect prototype test YAML and EPW files (not Python scripts)
+          find prototype_tests -name '*.yaml' -o -name '*.epw' | while read f; do
+            dir="_bundle/$(dirname "$f")"
+            mkdir -p "$dir"
+            cp "$f" "$dir/"
+          done
+          tar -czf "openbse-${TAG}-examples.tar.gz" -C _bundle .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: examples-bundle
+          path: openbse-*-examples.tar.gz
+
+  # ── GitHub Release ──────────────────────────────────────────────
+  release:
+    name: Publish GitHub Release
+    needs:
+      - cli-linux
+      - cli-macos-arm
+      - cli-macos-x86
+      - cli-windows
+      - editor-macos-arm
+      - editor-macos-x86
+      - editor-windows
+      - editor-linux
+      - examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          # Extract the section for this version from CHANGELOG.md
+          awk "/^## \\[${VERSION}\\]/{found=1; next} /^## \\[/{if(found) exit} found" CHANGELOG.md > release_notes.md
+          echo "notes_file=release_notes.md" >> "$GITHUB_OUTPUT"
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release_assets
+          # CLI binaries
+          cp artifacts/cli-linux-x86_64/openbse-x86_64-unknown-linux-gnu release_assets/
+          cp artifacts/cli-macos-aarch64/openbse-aarch64-apple-darwin release_assets/
+          cp artifacts/cli-macos-x86_64/openbse-x86_64-apple-darwin release_assets/
+          cp artifacts/cli-windows-x86_64/openbse-x86_64-pc-windows-msvc.exe release_assets/
+          # Editor installers
+          cp artifacts/editor-macos-aarch64/*.dmg release_assets/ 2>/dev/null || true
+          cp artifacts/editor-macos-x86_64/*.dmg release_assets/ 2>/dev/null || true
+          cp artifacts/editor-windows-x86_64/*.msi release_assets/ 2>/dev/null || true
+          cp artifacts/editor-linux-x86_64/*.AppImage release_assets/ 2>/dev/null || true
+          cp artifacts/editor-linux-x86_64/*.deb release_assets/ 2>/dev/null || true
+          # Examples bundle
+          cp artifacts/examples-bundle/openbse-*-examples.tar.gz release_assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: ${{ steps.changelog.outputs.notes_file }}
+          files: release_assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
