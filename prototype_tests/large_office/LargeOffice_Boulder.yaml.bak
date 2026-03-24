@@ -18,6 +18,19 @@ simulation:
   # E+ Site:GroundTemperature:FCfactorMethod for Denver/Boulder.
   # Used by basement walls (only remaining ground-boundary surfaces).
   ground_surface_temperatures: [7.1, 3.0, -1.0, 0.8, -0.2, 4.8, 6.1, 13.7, 22.2, 22.7, 21.7, 18.5]
+  # E+ RunPeriodControl:SpecialDays holidays (schedules use sunday/holiday profile)
+  # Dates computed for Jan 1 = Sunday (matching EPW DATA PERIODS start day)
+  holidays:
+    - {month: 1, day: 1}       # New Year's Day (Sunday)
+    - {month: 1, day: 16}      # MLK Day (3rd Monday Jan)
+    - {month: 2, day: 20}      # Presidents Day (3rd Monday Feb)
+    - {month: 5, day: 29}      # Memorial Day (last Monday May)
+    - {month: 7, day: 4}       # Independence Day (Tuesday)
+    - {month: 9, day: 4}       # Labor Day (1st Monday Sep)
+    - {month: 10, day: 9}      # Columbus Day (2nd Monday Oct)
+    - {month: 11, day: 11}     # Veterans Day (Saturday)
+    - {month: 11, day: 23}     # Thanksgiving (4th Thursday Nov)
+    - {month: 12, day: 25}     # Christmas (Monday)
 
 weather_files:
   - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"

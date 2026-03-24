@@ -457,6 +457,16 @@ fn main() -> Result<()> {
 
         env.ground_temp_model = Some(ground_temp);
         env.jan1_dow = weather_data.start_day_of_week;
+        // Populate holiday dates from simulation settings
+        env.holiday_set = model
+            .simulation
+            .holidays
+            .iter()
+            .map(|h| (h.month, h.day))
+            .collect();
+        if !env.holiday_set.is_empty() {
+            info!("Holidays defined: {} dates", env.holiday_set.len());
+        }
         info!(
             "Weather file start day of week: {} (1=Mon..7=Sun)",
             weather_data.start_day_of_week
@@ -718,6 +728,7 @@ fn main() -> Result<()> {
                 model.simulation.heating_sizing_factor,
                 model.simulation.cooling_sizing_factor,
                 &sizing_oa_handled,
+                model.simulation.timesteps_per_hour,
             );
 
             // Store coincident peak demands for plant loop pump autosizing
@@ -1435,7 +1446,8 @@ fn main() -> Result<()> {
                         sizing_internal_gains: SizingInternalGains::Full,
                     };
 
-                    let dow = openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
+                    let mut dow = openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
+                    if env.holiday_set.contains(&(month, day)) { dow = 8; }
 
                     // Build zone state maps for HVAC
                     let current_zone_temps: HashMap<String, f64> = env
@@ -1714,8 +1726,9 @@ fn main() -> Result<()> {
                     // control strategies based on each loop's system type.
                     // ═══════════════════════════════════════════════════════
 
-                    // Compute day-of-week for schedule lookups
-                    let dow = openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
+                    // Compute day-of-week for schedule lookups (8 = holiday)
+                    let mut dow = openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
+                    if env.holiday_set.contains(&(month, day)) { dow = 8; }
 
                     // ── Predictor-Corrector HVAC-Envelope Iteration ──
                     //
@@ -2423,7 +2436,8 @@ fn main() -> Result<()> {
 
                 // ── DHW simulation ─────────────────────────────────────
                 // Simulate domestic hot water systems and add energy to snapshot.
-                let dhw_dow = openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
+                let mut dhw_dow = openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
+                if env.holiday_set.contains(&(month, day)) { dhw_dow = 8; }
                 for (dhw_idx, (dhw_sys, dhw_input)) in
                     dhw_systems.iter_mut().zip(&model.dhw_systems).enumerate()
                 {

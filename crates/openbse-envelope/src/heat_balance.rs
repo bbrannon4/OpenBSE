@@ -93,6 +93,9 @@ pub struct BuildingEnvelope {
     /// Solar distribution method for interior beam solar radiation.
     /// FullExterior: all beam to floor.  FullInteriorAndExterior: geometric projection.
     pub solar_distribution_method: SolarDistributionMethod,
+    /// Holiday dates as `(month, day)` pairs.  When the current simulation date
+    /// matches any entry, schedule lookups use day_of_week = 8 (Holiday).
+    pub holiday_set: std::collections::HashSet<(u32, u32)>,
     /// Per-surface CTF inside/outside heat flux [W/m²] from the last solve.
     /// Used by update_bdf_history() to shift CTF history once after HVAC convergence.
     ctf_q_last_inside: Vec<f64>,
@@ -1275,6 +1278,7 @@ impl BuildingEnvelope {
             ctf_q_last_inside: vec![0.0; n_surfaces],
             ctf_q_last_outside: vec![0.0; n_surfaces],
             solar_cache: None,
+            holiday_set: std::collections::HashSet::new(),
         }
     }
 
@@ -1835,7 +1839,10 @@ impl EnvelopeSolver for BuildingEnvelope {
         // During sizing: behavior is controlled by the design day's
         // `internal_gains` mode (Off / Full / Scheduled / FullWhenOccupied).
         use openbse_core::ports::SizingInternalGains;
-        let dow = day_of_week(ctx.timestep.month, ctx.timestep.day, self.jan1_dow);
+        let mut dow = day_of_week(ctx.timestep.month, ctx.timestep.day, self.jan1_dow);
+        if self.holiday_set.contains(&(ctx.timestep.month, ctx.timestep.day)) {
+            dow = 8; // Holiday day-type
+        }
         for zone in &mut self.zones {
             let gains = if ctx.is_sizing {
                 match ctx.sizing_internal_gains {

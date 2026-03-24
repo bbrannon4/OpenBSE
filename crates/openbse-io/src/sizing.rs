@@ -211,6 +211,7 @@ fn run_single_design_day(
     zone_setpoints: &HashMap<String, f64>, // setpoint to hold zone at
     num_warmup_days: usize,
     oa_handled_by_hvac: &HashMap<String, bool>,
+    timesteps_per_hour: u32,
 ) -> Vec<(u32, HashMap<String, (f64, f64)>)> {
     let is_heating_dd = is_heating_design_day(dd);
     let rh = if is_heating_dd { 0.5 } else { 0.3 };
@@ -280,49 +281,69 @@ fn run_single_design_day(
     }
 
     let mut last_day_results = Vec::new();
+    let tph = timesteps_per_hour.max(1);
+    let dt = 3600.0 / tph as f64;
 
     for day_num in 0..num_warmup_days {
         let is_last_day = day_num == num_warmup_days - 1;
 
         for (i, wh) in weather_hours.iter().enumerate() {
             let hour = (i + 1) as u32;
-            let ctx = SimulationContext {
-                timestep: TimeStep {
-                    month: dd.month,
-                    day: dd.day,
-                    hour,
-                    sub_hour: 1,
-                    timesteps_per_hour: 1,
-                    sim_time_s: (day_num * 86400 + i * 3600) as f64,
-                    dt: 3600.0,
-                },
-                outdoor_air: openbse_psychrometrics::MoistAirState::from_tdb_rh(
-                    wh.dry_bulb,
-                    rh,
-                    wh.pressure,
-                ),
-                day_type: DayType::SizingDay,
-                is_sizing: true,
-                sizing_internal_gains: gains_mode,
-            };
 
-            // No supply air — ideal loads handles HVAC directly.
-            // Only propagate OA handling flags so the envelope includes zone OA
-            // in the sizing load calculation when HVAC doesn't handle it
-            // (e.g. PTAC with min_oa_fraction=0, zone OA enters directly).
-            let mut hvac = ZoneHvacConditions::default();
-            hvac.oa_handled_by_hvac = oa_handled_by_hvac.clone();
+            // Run sub-hourly timesteps within each hour
+            // (matches the simulation timestep so CTF coefficients are correct)
+            let mut hour_peak_heating: HashMap<String, f64> = HashMap::new();
+            let mut hour_peak_cooling: HashMap<String, f64> = HashMap::new();
 
-            let result = env.solve_timestep(&ctx, wh, &hvac);
-            env.update_bdf_history();
+            for sub in 0..tph {
+                let ctx = SimulationContext {
+                    timestep: TimeStep {
+                        month: dd.month,
+                        day: dd.day,
+                        hour,
+                        sub_hour: sub + 1,
+                        timesteps_per_hour: tph,
+                        sim_time_s: (day_num * 86400 + i * 3600) as f64 + sub as f64 * dt,
+                        dt,
+                    },
+                    outdoor_air: openbse_psychrometrics::MoistAirState::from_tdb_rh(
+                        wh.dry_bulb,
+                        rh,
+                        wh.pressure,
+                    ),
+                    day_type: DayType::SizingDay,
+                    is_sizing: true,
+                    sizing_internal_gains: gains_mode,
+                };
 
-            // Record loads on the last day only (after warmup)
+                // No supply air — ideal loads handles HVAC directly.
+                let mut hvac = ZoneHvacConditions::default();
+                hvac.oa_handled_by_hvac = oa_handled_by_hvac.clone();
+
+                let result = env.solve_timestep(&ctx, wh, &hvac);
+                env.update_bdf_history();
+
+                // Track peak across sub-steps within this hour
+                if is_last_day {
+                    for zone in &env.zones {
+                        let name = &zone.input.name;
+                        let hl = result.zone_heating_loads.get(name).copied().unwrap_or(0.0);
+                        let cl = result.zone_cooling_loads.get(name).copied().unwrap_or(0.0);
+                        let cur_h = hour_peak_heating.get(name).copied().unwrap_or(0.0);
+                        let cur_c = hour_peak_cooling.get(name).copied().unwrap_or(0.0);
+                        if hl > cur_h { hour_peak_heating.insert(name.clone(), hl); }
+                        if cl > cur_c { hour_peak_cooling.insert(name.clone(), cl); }
+                    }
+                }
+            }
+
+            // Record the peak sub-step loads for this hour on the last warmup day
             if is_last_day {
                 let mut hour_loads: HashMap<String, (f64, f64)> = HashMap::new();
                 for zone in &env.zones {
                     let name = &zone.input.name;
-                    let hl = result.zone_heating_loads.get(name).copied().unwrap_or(0.0);
-                    let cl = result.zone_cooling_loads.get(name).copied().unwrap_or(0.0);
+                    let hl = hour_peak_heating.get(name).copied().unwrap_or(0.0);
+                    let cl = hour_peak_cooling.get(name).copied().unwrap_or(0.0);
                     hour_loads.insert(name.clone(), (hl, cl));
                 }
                 last_day_results.push((hour, hour_loads));
@@ -354,6 +375,7 @@ fn run_zone_sizing(
     _heating_sizing_factor: f64,
     _cooling_sizing_factor: f64,
     oa_handled_by_hvac: &HashMap<String, bool>,
+    timesteps_per_hour: u32,
 ) -> ZoneSizingResult {
     let cp_air = 1005.0;
     let num_warmup_days = 5;
@@ -400,6 +422,7 @@ fn run_zone_sizing(
                 zone_heating_setpoints,
                 num_warmup_days,
                 oa_handled_by_hvac,
+                timesteps_per_hour,
             );
             (dd.name.clone(), loads)
         })
@@ -441,6 +464,7 @@ fn run_zone_sizing(
                 zone_cooling_setpoints,
                 num_warmup_days,
                 oa_handled_by_hvac,
+                timesteps_per_hour,
             );
             (dd.name.clone(), loads)
         })
@@ -548,6 +572,7 @@ fn run_system_sizing(
     zone_cooling_setpoints: &HashMap<String, f64>,
     latitude: f64,
     oa_handled_by_hvac: &HashMap<String, bool>,
+    timesteps_per_hour: u32,
 ) -> SystemSizingResult {
     let num_warmup_days = 5;
 
@@ -582,6 +607,7 @@ fn run_system_sizing(
                 zone_heating_setpoints,
                 num_warmup_days,
                 oa_handled_by_hvac,
+                timesteps_per_hour,
             );
             (dd.name.clone(), loads)
         })
@@ -620,6 +646,7 @@ fn run_system_sizing(
                 zone_cooling_setpoints,
                 num_warmup_days,
                 oa_handled_by_hvac,
+                timesteps_per_hour,
             );
             (dd.name.clone(), loads)
         })
@@ -792,6 +819,7 @@ pub fn run_sizing(
     heating_sizing_factor: f64,
     cooling_sizing_factor: f64,
     oa_handled_by_hvac: &HashMap<String, bool>,
+    timesteps_per_hour: u32,
 ) -> SizingResult {
     // Compute standard air density at site altitude using the design-day
     // barometric pressure.  E+ uses this same approach (ρ = P / (R·T) at 20 °C).
@@ -887,6 +915,7 @@ pub fn run_sizing(
         heating_sizing_factor,
         cooling_sizing_factor,
         oa_handled_by_hvac,
+        timesteps_per_hour,
     );
 
     // Log zone sizing results
@@ -933,6 +962,7 @@ pub fn run_sizing(
         &zone_cooling_setpoints,
         latitude,
         oa_handled_by_hvac,
+        timesteps_per_hour,
     );
 
     // System capacities with sizing factors

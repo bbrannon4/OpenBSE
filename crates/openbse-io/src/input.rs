@@ -242,6 +242,28 @@ pub struct SimulationSettings {
     /// ```
     #[serde(default)]
     pub airflow_network: Option<openbse_envelope::AirflowNetworkConfig>,
+
+    /// Holiday dates.  On these days every schedule uses its `holiday`
+    /// profile (falling back to `sunday` → `weekend` → `weekday`).
+    ///
+    /// Matches EnergyPlus `RunPeriodControl:SpecialDays` with type `Holiday`.
+    ///
+    /// ```yaml
+    /// simulation:
+    ///   holidays:
+    ///     - {month: 1, day: 1}       # New Year's Day
+    ///     - {month: 7, day: 4}       # Independence Day
+    ///     - {month: 12, day: 25}     # Christmas
+    /// ```
+    #[serde(default)]
+    pub holidays: Vec<HolidayDate>,
+}
+
+/// A fixed-date holiday.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HolidayDate {
+    pub month: u32,
+    pub day: u32,
 }
 
 fn default_ground_surface_temps() -> Vec<f64> {

@@ -18,6 +18,27 @@ simulation:
   - 22.7
   - 21.7
   - 18.5
+  holidays:
+  - month: 1
+    day: 1
+  - month: 1
+    day: 16
+  - month: 2
+    day: 20
+  - month: 5
+    day: 29
+  - month: 7
+    day: 4
+  - month: 9
+    day: 4
+  - month: 10
+    day: 9
+  - month: 11
+    day: 11
+  - month: 11
+    day: 23
+  - month: 12
+    day: 25
 weather_files:
 - /Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw
 design_days:

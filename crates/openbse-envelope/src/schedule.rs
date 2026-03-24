@@ -303,6 +303,9 @@ impl ScheduleInput {
     /// - Saturday(6): saturday → weekend → weekday
     /// - Sunday(7): sunday → weekend → weekday
     /// - Holiday: holiday → sunday → weekend → weekday
+    /// Get the schedule fraction for a given hour and day type.
+    ///
+    /// `day_of_week`: 1=Mon..7=Sun, **8=Holiday**.
     pub fn fraction(&self, hour: u32, day_of_week: u32) -> f64 {
         let idx = ((hour as usize).saturating_sub(1)).min(23);
         let values = match day_of_week {
@@ -322,6 +325,14 @@ impl ScheduleInput {
                 // Sunday: try sunday → weekend → weekday
                 self.sunday
                     .as_ref()
+                    .or(self.weekend.as_ref())
+                    .unwrap_or(&self.weekday)
+            }
+            8 => {
+                // Holiday: try holiday → sunday → weekend → weekday
+                self.holiday
+                    .as_ref()
+                    .or(self.sunday.as_ref())
                     .or(self.weekend.as_ref())
                     .unwrap_or(&self.weekday)
             }
