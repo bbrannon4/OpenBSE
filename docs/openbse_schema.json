@@ -171,7 +171,43 @@
         "start_month": { "type": "integer", "default": 1, "minimum": 1, "maximum": 12 },
         "start_day": { "type": "integer", "default": 1, "minimum": 1, "maximum": 31 },
         "end_month": { "type": "integer", "default": 12, "minimum": 1, "maximum": 12 },
-        "end_day": { "type": "integer", "default": 31, "minimum": 1, "maximum": 31 }
+        "end_day": { "type": "integer", "default": 31, "minimum": 1, "maximum": 31 },
+        "terrain": { "type": "string", "enum": ["country", "suburbs", "city", "ocean"], "default": "suburbs", "description": "Site terrain for wind profile calculations." },
+        "shading_calculation": { "type": "string", "enum": ["basic", "detailed"], "default": "basic", "description": "Shading mode. 'detailed' enables geometric shadow calculations." },
+        "infiltration_interaction": { "type": "string", "enum": ["basic", "ashrae_combined"], "default": "basic", "description": "How infiltration combines with exhaust. 'ashrae_combined' uses sqrt(infil^2 + exhaust^2)." },
+        "solar_distribution": { "type": "string", "enum": ["full_exterior", "full_interior_and_exterior"], "default": "full_exterior", "description": "Interior solar distribution method." },
+        "airflow_network": { "$ref": "#/$defs/AirflowNetworkConfig" }
+      }
+    },
+
+    "AirflowNetworkConfig": {
+      "type": "object",
+      "description": "Multizone pressure network airflow configuration. When enabled, auto-generates a pressure network from building geometry and solves for pressure-driven infiltration using Newton-Raphson.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false, "description": "Enable the pressure network solver." },
+        "cp_model": { "type": "string", "enum": ["swami_chandra", "high_rise"], "default": "swami_chandra", "description": "Wind pressure coefficient model." },
+        "default_crack_exponent": { "type": "number", "default": 0.65, "description": "Flow exponent n for auto-generated cracks." },
+        "wall_leakage_per_area": { "type": "number", "default": 0.00008, "description": "Crack leakage per unit wall area [kg/s/m2/Pa^n]." },
+        "window_leakage_per_area": { "type": "number", "default": 0.00014, "description": "Crack leakage per unit window area [kg/s/m2/Pa^n]." },
+        "door_leakage_per_perimeter": { "type": "number", "default": 0.0006, "description": "Crack leakage per unit door perimeter [kg/s/m/Pa^n]." },
+        "interzone_leakage_per_area": { "type": "number", "default": 0.00004, "description": "Interzone crack leakage per unit area [kg/s/m2/Pa^n]." },
+        "convergence_tolerance": { "type": "number", "default": 0.1, "description": "Newton-Raphson convergence tolerance [Pa]." },
+        "max_iterations": { "type": "integer", "default": 30, "description": "Maximum Newton-Raphson iterations." },
+        "damping": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1, "description": "Damping factor for pressure updates." }
+      }
+    },
+
+    "SurfaceAirflowOverride": {
+      "type": "object",
+      "description": "Per-surface overrides for the airflow network auto-generation.",
+      "properties": {
+        "crack_coefficient": { "type": "number", "description": "Override crack flow coefficient C [kg/s/Pa^n]." },
+        "crack_exponent": { "type": "number", "description": "Override crack flow exponent n." },
+        "large_opening": { "type": "boolean", "description": "Treat surface as a large opening (door, operable window)." },
+        "discharge_coefficient": { "type": "number", "description": "Override discharge coefficient Cd for large opening." },
+        "opening_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Opening area as fraction of surface area." },
+        "cp": { "type": "number", "description": "Override wind pressure coefficient Cp." },
+        "opening_height": { "type": "number", "description": "Override opening midpoint height [m]." }
       }
     },
 
@@ -815,7 +851,8 @@
           "type": "array",
           "items": { "$ref": "#/$defs/Point3D" },
           "description": "3D vertex coordinates (counter-clockwise from outside view)."
-        }
+        },
+        "airflow": { "$ref": "#/$defs/SurfaceAirflowOverride" }
       }
     },
 

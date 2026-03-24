@@ -80,10 +80,10 @@ No circular dependencies. Components implement traits (`AirComponent`, `PlantCom
 - **Exterior Convection** — DOE-2 (MoWiTT) algorithm with roughness correction
 - **Interior Convection** — ASHRAE/Walton natural convection correlations
 - **Solar** — position (Spencer 1971), Hay-Davies anisotropic sky model (circumsolar + isotropic), angular SHGC transmission (28-bin mapping per LBNL-2804E), FullExterior and FullInteriorAndExterior distribution with beam/diffuse split and VMULT redistribution
-- **External Shading** — overhangs and fins with geometric beam shadow calculation (Sutherland-Hodgman polygon clipping), diffuse sky view factor reduction, 8x8 grid sampling for multi-caster union
+- **External Shading** — overhangs and fins with geometric beam shadow calculation (Sutherland-Hodgman polygon clipping), diffuse sky view factor reduction, 8x8 grid sampling for multi-caster union, Suncast-style solar precompute with disk-cached `.solar` files
 - **Sky Longwave Radiation** — Berdahl-Martin sky emissivity model with cloud cover correction
 - **Interior Longwave Radiation** — MRT-based surface radiation exchange
-- **Infiltration** — EnergyPlus design flow rate model with wind dependence, ASHRAE combined infiltration model
+- **Infiltration** — EnergyPlus design flow rate model with wind dependence, ASHRAE combined infiltration model, multizone pressure network solver (Newton-Raphson with auto-generated cracks, Swami & Chandra Cp, stack effect)
 - **Internal Gains** — people, lights, equipment with radiant/convective/lost fraction split
 - **Zone Air Balance** — 3rd-order backward difference predictor-corrector (matching E+ ZoneTempPredictorCorrector)
 - **Ideal Loads** — nonproportional thermostat for ASHRAE 140 validation

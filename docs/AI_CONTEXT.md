@@ -93,7 +93,7 @@ Be explicit about these — do not guess or approximate:
 
 - **Zone moisture balance**: Zone humidity ratio is tracked using 3rd-order BDF integration (matching temperature solver). Sources: infiltration, HVAC supply, people latent, equipment latent. Not yet modeled: surface condensation, furniture moisture buffering, humidifier/dehumidifier equipment.
 - **DX coil dehumidification**: DX cooling coil outlet humidity propagates to zone moisture balance. No explicit dehumidification control (humidity-based setpoints).
-- **No airflow network**: Infiltration uses constant design flow rates, not pressure-driven multizone airflow.
+- **Airflow network**: Multizone pressure-driven infiltration is implemented (`airflow_network.rs`) with auto-generated crack/opening flow paths, Newton-Raphson solver, and Swami & Chandra Cp correlations. Opt-in via `simulation.airflow_network.enabled: true`. When disabled (default), the Design Flow Rate model is used.
 - **No geometry import**: Surfaces must be specified as 3D vertices in YAML. No gbXML/IDF/BIM import.
 - **No VRF, ground-source heat pumps, or radiant systems**.
 - **No water-source heat pumps** (air-source HP is implemented).

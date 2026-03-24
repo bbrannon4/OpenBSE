@@ -54,8 +54,12 @@ Last updated: 2026-03-13
 - Standard summary report (annual energy, peak loads, hours unmet)
 - Custom output variable selection
 
+### Performance
+- Solar precompute with disk persistence (`.solar` cache file next to YAML input, geometry-fingerprinted)
+- Rayon-parallelized solar precompute (embarrassingly parallel across timesteps)
+
 ### Tests
-- 92+ unit tests across all crates (all component tests pass; 2 pre-existing envelope solar test failures)
+- 306+ unit tests across all crates (all component tests pass; 2 pre-existing envelope solar test failures)
 - 8 example YAML files covering all system types
 - 27 ASHRAE 140 validation cases in 140_tests/
 - DOE prototype comparisons in prototype_tests/
@@ -86,7 +90,7 @@ Last updated: 2026-03-13
 - [ ] Python bindings (PyO3)
 - [ ] Parametric run execution
 - [ ] VRF systems, ground-source heat pumps, radiant systems
-- [ ] Airflow network / natural ventilation
+- [x] Airflow network — multizone pressure-driven infiltration with Newton-Raphson solver, auto-generated cracks/openings from geometry, Swami & Chandra Cp correlations, stack effect, exhaust fan depressurization. Opt-in via `airflow_network.enabled: true`.
 - [ ] Moisture transport through envelope
 
 ---

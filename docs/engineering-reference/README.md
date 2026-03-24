@@ -1808,6 +1808,57 @@ where `ρ_outdoor` is the outdoor air density at current conditions.
 
 ---
 
+### Airflow Network (Multizone Pressure Solver)
+
+**Module:** `airflow_network.rs`
+
+**Purpose:** Solves for pressure-driven airflow through the building envelope and between zones using Newton-Raphson iteration on the mass conservation equations. Replaces the Design Flow Rate infiltration model when enabled.
+
+**Reference:** ASHRAE Fundamentals Ch. 16; Swami & Chandra, FSEC-CR-163-86 (1988); E+ AirflowNetwork model concepts.
+
+#### Flow Elements
+
+| Element | Equation | Use |
+|---------|----------|-----|
+| Power-law crack | Q = C \|ΔP\|^n sign(ΔP), n ≈ 0.65 | Envelope cracks, interzone gaps |
+| Large opening (orifice) | Q = Cd A sqrt(2ρ\|ΔP\|) sign(ΔP) | Operable windows, doors |
+| Fixed flow | Q = constant | Exhaust fans, HVAC imbalance |
+
+#### Pressure Difference
+
+Total ΔP across a flow path includes:
+- **Node pressures:** P_a - P_b (solved unknowns for zone nodes)
+- **Stack effect:** -ρ_a g (h - h_ref_a) + ρ_b g (h - h_ref_b) where h is the opening midpoint height
+- **Wind pressure:** 0.5 ρ Cp V_local² (exterior paths only, V_local height-corrected)
+
+#### Wind Pressure Coefficients (Cp)
+
+- **Swami & Chandra (1988):** For low-rise buildings. Cp is a function of the angle θ between wind direction and surface outward normal, and the building plan side ratio.
+- **High-rise simplified:** Cp = 0.6 cos(θ) for windward, Cp = -0.3 for leeward.
+
+#### Newton-Raphson Solver
+
+1. Assemble residual R_i = sum of mass flows into zone node i
+2. Build dense Jacobian J[i][j] = dR_i / dP_j (analytical derivatives)
+3. Solve J δP = -R via Gaussian elimination with partial pivoting
+4. Damped update: P_i += α δP_i (α = 0.75 default)
+5. Converge when max|δP| < tolerance (0.1 Pa default)
+
+#### Auto-Generation
+
+The network is built automatically from building geometry:
+- Every exterior wall/roof surface → power-law crack (leakage_per_area × net_area)
+- Every exterior window → power-law crack (window_leakage_per_area × area)
+- Every interzone surface → interzone crack (one path per pair)
+- Zone-level `natural_ventilation` config → large opening
+- Zone-level `exhaust_fan` → fixed-flow extraction
+
+#### Integration
+
+When active, the solved outdoor mass flow replaces `infiltration_mass_flow` in the zone heat balance MCPI term. Interzone flows enter at their source zone temperature.
+
+---
+
 ### Internal Gains
 
 **Module:** `internal_gains.rs`

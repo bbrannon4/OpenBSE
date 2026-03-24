@@ -172,6 +172,43 @@ simulation:
 | `start_day` | 1 | Simulation start day |
 | `end_month` | 12 | Simulation end month |
 | `end_day` | 31 | Simulation end day |
+| `terrain` | `suburbs` | Site terrain: `country`, `suburbs`, `city`, `ocean` |
+| `shading_calculation` | `basic` | `basic` (no shadows) or `detailed` (polygon clipping) |
+| `infiltration_interaction` | `basic` | `basic` or `ashrae_combined` |
+| `solar_distribution` | `full_exterior` | `full_exterior` or `full_interior_and_exterior` |
+| `airflow_network` | *(none)* | Multizone pressure network config (see below) |
+
+#### Airflow Network
+
+When enabled, the airflow network replaces the Design Flow Rate infiltration model with a Newton-Raphson pressure-driven solver. The network is auto-generated from building geometry — every exterior surface gets a default crack, interzone surfaces get interzone cracks, and operable openings become large-opening nodes. Wind pressure coefficients are computed from Swami & Chandra (1988) correlations.
+
+```yaml
+simulation:
+  airflow_network:
+    enabled: true                    # default: false
+    cp_model: swami_chandra          # or high_rise
+    default_crack_exponent: 0.65
+    wall_leakage_per_area: 0.00008   # kg/s/m2/Pa^n (tight construction)
+    window_leakage_per_area: 0.00014
+    convergence_tolerance: 0.1       # Pa
+    max_iterations: 30
+    damping: 0.75
+```
+
+All fields except `enabled` have defaults and can be omitted. Per-surface overrides are available via the `airflow` field on individual surfaces:
+
+```yaml
+surfaces:
+  - name: front_door
+    zone: living
+    type: wall
+    construction: Door
+    vertices: [...]
+    airflow:
+      large_opening: true
+      opening_fraction: 0.5
+      discharge_coefficient: 0.65
+```
 
 ### Weather Files
 
