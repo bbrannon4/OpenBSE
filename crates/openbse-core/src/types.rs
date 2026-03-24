@@ -32,8 +32,8 @@ impl TimeStep {
     pub fn day_of_year(&self) -> u32 {
         let days_in_months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
         let mut doy: u32 = 0;
-        for m in 0..(self.month - 1) as usize {
-            doy += days_in_months[m];
+        for d in &days_in_months[..(self.month - 1) as usize] {
+            doy += d;
         }
         doy + self.day
     }

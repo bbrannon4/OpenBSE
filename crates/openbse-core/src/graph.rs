@@ -52,13 +52,19 @@ pub struct SimulationGraph {
     sim_order: Vec<NodeIndex>,
 }
 
-impl SimulationGraph {
-    pub fn new() -> Self {
+impl Default for SimulationGraph {
+    fn default() -> Self {
         Self {
             graph: DiGraph::new(),
             name_to_node: HashMap::new(),
             sim_order: Vec::new(),
         }
+    }
+}
+
+impl SimulationGraph {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Add an air-side component to the graph.

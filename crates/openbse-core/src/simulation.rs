@@ -186,7 +186,7 @@ impl SimulationRunner {
 
         envelope
             .initialize(dt)
-            .map_err(|e| SimulationError::EnvelopeError(e))?;
+            .map_err(SimulationError::EnvelopeError)?;
 
         let start_hour = self.day_of_year(
             self.config.start_month,
@@ -343,8 +343,8 @@ impl SimulationRunner {
 
     fn day_of_year(&self, month: u32, day: u32, days_in_months: &[u32; 12]) -> u32 {
         let mut doy = 0u32;
-        for m in 0..(month - 1) as usize {
-            doy += days_in_months[m];
+        for d in &days_in_months[..(month - 1) as usize] {
+            doy += d;
         }
         doy + day - 1
     }
