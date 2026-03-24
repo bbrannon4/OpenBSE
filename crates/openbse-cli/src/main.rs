@@ -2565,11 +2565,16 @@ fn main() -> Result<()> {
                         .map(|s| env.schedule_manager.fraction(s, hour, dhw_dow))
                         .unwrap_or(1.0);
                     let mut power = ext.power * frac;
-                    // AstronomicalClock: exterior lights only on during nighttime
+                    // AstronomicalClock: exterior lights only on during nighttime.
+                    // Use proper solar time (with equation of time and longitude
+                    // correction) to match E+'s sunrise/sunset calculation.
                     if ext.astronomical_clock && power > 0.0 {
                         let doy = (hour_idx / 24) + 1;
-                        // Use standard time hour (mid-timestep for hourly)
-                        let solar_hr = (hour_idx % 24) as f64 + 0.5;
+                        let clock_hr = (hour_idx % 24) as f64 + 0.5;
+                        let eot = openbse_envelope::solar::equation_of_time(doy);
+                        let tz = weather_data.location.time_zone;
+                        let lon = weather_data.location.longitude;
+                        let solar_hr = clock_hr + (tz - lon / 15.0) + eot;
                         let sol = openbse_envelope::solar::solar_position(
                             doy,
                             solar_hr,

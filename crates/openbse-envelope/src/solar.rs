@@ -56,7 +56,10 @@ pub fn solar_position(day_of_year: u32, solar_hour: f64, latitude_deg: f64) -> S
         altitude,
         azimuth,
         cos_zenith,
-        is_sunup: altitude > 0.0,
+        // E+ considers the sun "up" when its center is above -0.8333°,
+        // accounting for atmospheric refraction (~34') and solar semi-
+        // diameter (~16').  This extends sunrise by ~5 minutes each day.
+        is_sunup: altitude > -0.8333_f64.to_radians(),
     }
 }
 
