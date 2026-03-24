@@ -1,4 +1,4 @@
-Program Version:,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.12 07:57
+Program Version:,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27
 Tabular Output Report in Format: ,Comma
 
 Building:,OfficeLarge
@@ -200,7 +200,7 @@ FOR:,Entire Facility
 General
 
 ,,Value
-,Program Version and Build,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.12 07:57
+,Program Version and Build,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27
 ,RunPeriod,RUNPERIOD 1
 ,Weather File,Boulder.Muni.AP CO USA SRC-TMYx WMO#=720533
 ,Latitude [deg],40.03
@@ -4415,9 +4415,9 @@ HVAC
 Input Fields
 
 ,,Count
-,IDF Objects,1266
+,IDF Objects,1272
 ,Defaulted Fields,1403
-,Fields with Defaults,4061
+,Fields with Defaults,4073
 ,Autosized Fields,315
 ,Autosizable Fields,456
 ,Autocalculated Fields,222

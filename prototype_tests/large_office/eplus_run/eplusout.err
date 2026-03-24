@@ -1,4 +1,4 @@
-Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.12 07:57,
+Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    ************* Beginning Zone Sizing Calculations
    ** Warning ** No floor exists in Zone="GROUNDFLOOR_PLENUM", zone floor area is zero. All values for this zone that are entered per floor area will be zero.
    ** Warning ** CalculateZoneVolume: The Zone="GROUNDFLOOR_PLENUM" is not fully enclosed. To be fully enclosed, each edge of a surface must also be an edge on one other surface.
@@ -824,4 +824,4 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.12 07:57,
    *************
    ************* EnergyPlus Warmup Error Summary. During Warmup: 0 Warning; 0 Severe Errors.
    ************* EnergyPlus Sizing Error Summary. During Sizing: 20 Warning; 0 Severe Errors.
-   ************* EnergyPlus Completed Successfully-- 33403989 Warning; 6 Severe Errors; Elapsed Time=00hr 02min 12.31sec
+   ************* EnergyPlus Completed Successfully-- 33403989 Warning; 6 Severe Errors; Elapsed Time=00hr 01min 47.71sec

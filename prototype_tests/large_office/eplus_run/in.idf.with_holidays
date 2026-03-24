@@ -16470,7 +16470,6 @@
   Output:Variable,*,Chiller Evaporator Cooling Rate,Hourly;
   Output:Variable,*,Chiller Electricity Rate,Hourly;
   Output:Variable,*,Site Outdoor Air Drybulb Temperature,Hourly;
-  Output:Variable,*,Zone Mean Air Temperature,Hourly;
 
 
   Schedule:Compact,
@@ -16530,9 +16529,3 @@
     For: AllOtherDays,       !- Field 100
     Until: 24:00,0.3;        !- Field 101
 
-
-Output:Variable,Core_mid,Zone Air System Sensible Cooling Rate,Hourly;
-Output:Variable,Core_mid,Zone Air System Sensible Heating Rate,Hourly;
-Output:Variable,Core_mid,Zone Mean Air Temperature,Hourly;
-Output:Variable,Perimeter_mid_ZN_1,Zone Air System Sensible Cooling Rate,Hourly;
-Output:Variable,Perimeter_mid_ZN_1,Zone Mean Air Temperature,Hourly;
