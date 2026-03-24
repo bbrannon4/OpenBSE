@@ -1,10 +1,22 @@
 use std::path::PathBuf;
+use tauri::Manager;
 
-/// Resolve the schema path relative to the repo root.
-/// In dev, we walk up from the executable/CWD to find docs/openbse_schema.json.
-/// The schema is also bundled as a Tauri resource for production builds.
-fn find_schema_path() -> Option<PathBuf> {
-    // Try relative to CWD first (works in dev when run from repo root or tools/editor)
+/// Resolve the schema path.
+/// 1. Bundled Tauri resource (production builds)
+/// 2. Relative to CWD (dev, running from repo root)
+/// 3. Walk up from CWD or executable to find repo root
+fn find_schema_path(app_handle: Option<&tauri::AppHandle>) -> Option<PathBuf> {
+    // Try bundled resource first (production builds)
+    if let Some(handle) = app_handle {
+        if let Ok(resource_dir) = handle.path().resource_dir() {
+            let bundled = resource_dir.join("docs/openbse_schema.json");
+            if bundled.exists() {
+                return Some(bundled);
+            }
+        }
+    }
+
+    // Try relative to CWD (works in dev when run from repo root or tools/editor)
     let candidates = [
         PathBuf::from("docs/openbse_schema.json"),
         PathBuf::from("../../docs/openbse_schema.json"),
@@ -50,9 +62,9 @@ fn walk_up_for_schema(start: &PathBuf) -> Option<PathBuf> {
 }
 
 #[tauri::command]
-fn load_schema() -> Result<serde_json::Value, String> {
-    let path = find_schema_path().ok_or_else(|| {
-        "Could not find docs/openbse_schema.json. Run from the OpenBSE repo root.".to_string()
+fn load_schema(app_handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let path = find_schema_path(Some(&app_handle)).ok_or_else(|| {
+        "Could not find openbse_schema.json. The schema file may be missing from the installation.".to_string()
     })?;
 
     let contents = std::fs::read_to_string(&path)
