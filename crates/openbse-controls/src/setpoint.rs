@@ -118,10 +118,11 @@ impl Controller for PlantLoopSetpoint {
 
     fn update(&mut self, _state: &SystemState, _ctx: &SimulationContext) {
         self.current_actions.clear();
-        self.current_actions.push(ControlAction::SetPlantLoopSetpoint {
-            loop_name: self.loop_name.clone(),
-            setpoint: self.supply_temp_setpoint,
-        });
+        self.current_actions
+            .push(ControlAction::SetPlantLoopSetpoint {
+                loop_name: self.loop_name.clone(),
+                setpoint: self.supply_temp_setpoint,
+            });
     }
 
     fn actions(&self) -> &[ControlAction] {
@@ -139,8 +140,13 @@ mod tests {
     fn make_ctx() -> SimulationContext {
         SimulationContext {
             timestep: TimeStep {
-                month: 1, day: 15, hour: 12, sub_hour: 1,
-                timesteps_per_hour: 1, sim_time_s: 0.0, dt: 3600.0,
+                month: 1,
+                day: 15,
+                hour: 12,
+                sub_hour: 1,
+                timesteps_per_hour: 1,
+                sim_time_s: 0.0,
+                dt: 3600.0,
             },
             outdoor_air: MoistAirState::from_tdb_rh(0.0, 0.5, 101325.0),
             day_type: DayType::WeatherDay,
@@ -163,7 +169,10 @@ mod tests {
 
         assert_eq!(ctrl.actions().len(), 1);
         match &ctrl.actions()[0] {
-            ControlAction::SetCoilSetpoint { component, setpoint } => {
+            ControlAction::SetCoilSetpoint {
+                component,
+                setpoint,
+            } => {
                 assert_eq!(component, "Furnace Coil");
                 assert!((setpoint - 48.9).abs() < 0.001);
             }
@@ -173,11 +182,7 @@ mod tests {
 
     #[test]
     fn test_plant_loop_setpoint() {
-        let mut ctrl = PlantLoopSetpoint::new(
-            "HW Loop Control",
-            "Hot Water Loop",
-            82.0,
-        );
+        let mut ctrl = PlantLoopSetpoint::new("HW Loop Control", "Hot Water Loop", 82.0);
 
         let state = SystemState::new(MoistAirState::from_tdb_rh(0.0, 0.5, 101325.0));
         let ctx = make_ctx();
@@ -185,7 +190,10 @@ mod tests {
 
         assert_eq!(ctrl.actions().len(), 1);
         match &ctrl.actions()[0] {
-            ControlAction::SetPlantLoopSetpoint { loop_name, setpoint } => {
+            ControlAction::SetPlantLoopSetpoint {
+                loop_name,
+                setpoint,
+            } => {
                 assert_eq!(loop_name, "Hot Water Loop");
                 assert!((setpoint - 82.0).abs() < 0.001);
             }

@@ -12,23 +12,23 @@
 //! 5. Update CTF histories and zone previous temperatures
 //! 6. Return zone temps, humidity, and loads
 
-use std::collections::HashMap;
-use openbse_core::ports::{SimulationContext, EnvelopeSolver, ZoneHvacConditions, EnvelopeResults};
-use openbse_weather::WeatherHour;
+use openbse_core::ports::{EnvelopeResults, EnvelopeSolver, SimulationContext, ZoneHvacConditions};
 use openbse_psychrometrics as psych;
+use openbse_weather::WeatherHour;
+use std::collections::HashMap;
 
-use crate::material::{Material, Construction, WindowConstruction, SimpleConstruction, Roughness};
-use crate::surface::{SurfaceState, SurfaceInput, SurfaceType, BoundaryCondition};
-use crate::zone::{ZoneState, ZoneInput, InteriorSolarDistribution};
-use crate::ctf::{CtfCoefficients, CtfHistory, calculate_ctf, calculate_ctf_simple, apply_ctf};
 use crate::convection;
-use crate::solar;
-use crate::infiltration;
-use crate::internal_gains;
+use crate::ctf::{apply_ctf, calculate_ctf, calculate_ctf_simple, CtfCoefficients, CtfHistory};
 use crate::geometry;
 use crate::ground_temp::GroundTempModel;
-use crate::schedule::{ScheduleManager, day_of_week};
+use crate::infiltration;
+use crate::internal_gains;
+use crate::material::{Construction, Material, Roughness, SimpleConstruction, WindowConstruction};
+use crate::schedule::{day_of_week, ScheduleManager};
 use crate::shading;
+use crate::solar;
+use crate::surface::{BoundaryCondition, SurfaceInput, SurfaceState, SurfaceType};
+use crate::zone::{InteriorSolarDistribution, ZoneInput, ZoneState};
 
 /// The building envelope heat balance solver.
 #[derive(Debug, Clone)]
@@ -177,7 +177,11 @@ impl SolarCache {
             mix(&mut hash, &surf.input.area.to_le_bytes());
             mix(&mut hash, &surf.input.azimuth.to_le_bytes());
             mix(&mut hash, &surf.input.tilt.to_le_bytes());
-            let is_outdoor = if surf.input.boundary == BoundaryCondition::Outdoor { 1u8 } else { 0u8 };
+            let is_outdoor = if surf.input.boundary == BoundaryCondition::Outdoor {
+                1u8
+            } else {
+                0u8
+            };
             mix(&mut hash, &[is_outdoor]);
         }
 
@@ -213,10 +217,14 @@ impl SolarCache {
         let mut buf = std::io::BufWriter::new(&mut file);
 
         buf.write_all(Self::MAGIC).map_err(|e| e.to_string())?;
-        buf.write_all(&Self::VERSION.to_le_bytes()).map_err(|e| e.to_string())?;
-        buf.write_all(&self.fingerprint.to_le_bytes()).map_err(|e| e.to_string())?;
-        buf.write_all(&self.timesteps_per_hour.to_le_bytes()).map_err(|e| e.to_string())?;
-        buf.write_all(&(self.start_hour as u64).to_le_bytes()).map_err(|e| e.to_string())?;
+        buf.write_all(&Self::VERSION.to_le_bytes())
+            .map_err(|e| e.to_string())?;
+        buf.write_all(&self.fingerprint.to_le_bytes())
+            .map_err(|e| e.to_string())?;
+        buf.write_all(&self.timesteps_per_hour.to_le_bytes())
+            .map_err(|e| e.to_string())?;
+        buf.write_all(&(self.start_hour as u64).to_le_bytes())
+            .map_err(|e| e.to_string())?;
 
         let n_timesteps = self.sunlit_fractions.len() as u64;
         let n_surfaces = if n_timesteps > 0 {
@@ -224,12 +232,15 @@ impl SolarCache {
         } else {
             0
         };
-        buf.write_all(&n_timesteps.to_le_bytes()).map_err(|e| e.to_string())?;
-        buf.write_all(&n_surfaces.to_le_bytes()).map_err(|e| e.to_string())?;
+        buf.write_all(&n_timesteps.to_le_bytes())
+            .map_err(|e| e.to_string())?;
+        buf.write_all(&n_surfaces.to_le_bytes())
+            .map_err(|e| e.to_string())?;
 
         for step in &self.sunlit_fractions {
             for &val in step {
-                buf.write_all(&val.to_le_bytes()).map_err(|e| e.to_string())?;
+                buf.write_all(&val.to_le_bytes())
+                    .map_err(|e| e.to_string())?;
             }
         }
 
@@ -374,18 +385,18 @@ fn sealed_air_gap_conductance(
 
     let t_k = t_mean_c + 273.15;
     let dt = delta_t.abs().max(0.01); // Avoid zero ΔT
-    let s = gap_width.max(0.001);     // Gap width [m]
+    let s = gap_width.max(0.001); // Gap width [m]
 
     // ── ISO 15099 Table C.1: Dry air properties ──────────────────────
-    let k_air   = 2.873e-3 + 7.76e-5 * t_k;                 // [W/(m·K)]
-    let mu      = 3.723e-6 + 4.94e-8 * t_k;                 // [Pa·s]
-    let rho     = 101325.0 / (287.05 * t_k);                 // [kg/m³]
-    let cp      = 1002.737 + 1.2324e-2 * t_k;                // [J/(kg·K)]
+    let k_air = 2.873e-3 + 7.76e-5 * t_k; // [W/(m·K)]
+    let mu = 3.723e-6 + 4.94e-8 * t_k; // [Pa·s]
+    let rho = 101325.0 / (287.05 * t_k); // [kg/m³]
+    let cp = 1002.737 + 1.2324e-2 * t_k; // [J/(kg·K)]
 
     // Derived transport properties
-    let nu      = mu / rho;                                   // kinematic viscosity [m²/s]
-    let alpha   = k_air / (rho * cp);                         // thermal diffusivity [m²/s]
-    let beta    = 1.0 / t_k;                                  // thermal expansion [1/K]
+    let nu = mu / rho; // kinematic viscosity [m²/s]
+    let alpha = k_air / (rho * cp); // thermal diffusivity [m²/s]
+    let beta = 1.0 / t_k; // thermal expansion [1/K]
 
     // ── Rayleigh number ──────────────────────────────────────────────
     let ra = (G * beta * dt * s.powi(3) / (nu * alpha)).max(0.0);
@@ -445,7 +456,8 @@ fn sealed_air_gap_conductance(
             0.0
         };
         1.0 + term1 + term2
-    }.max(1.0); // Nusselt number ≥ 1 (pure conduction minimum)
+    }
+    .max(1.0); // Nusselt number ≥ 1 (pure conduction minimum)
 
     // ── Gap convection ───────────────────────────────────────────────
     let h_conv = nu_gap * k_air / s;
@@ -473,8 +485,17 @@ impl BuildingEnvelope {
         time_zone: f64,
     ) -> Self {
         Self::from_input_full(
-            materials, constructions, window_constructions, vec![], vec![],
-            zones, surfaces, latitude, longitude, time_zone, 0.0,
+            materials,
+            constructions,
+            window_constructions,
+            vec![],
+            vec![],
+            zones,
+            surfaces,
+            latitude,
+            longitude,
+            time_zone,
+            0.0,
             SolarDistributionMethod::default(),
         )
     }
@@ -494,16 +515,25 @@ impl BuildingEnvelope {
         elevation: f64,
         solar_distribution_method: SolarDistributionMethod,
     ) -> Self {
-        let material_map: HashMap<String, Material> = materials
-            .into_iter().map(|m| (m.name.clone(), m)).collect();
+        let material_map: HashMap<String, Material> =
+            materials.into_iter().map(|m| (m.name.clone(), m)).collect();
         let construction_map: HashMap<String, Construction> = constructions
-            .into_iter().map(|c| (c.name.clone(), c)).collect();
+            .into_iter()
+            .map(|c| (c.name.clone(), c))
+            .collect();
         let window_map: HashMap<String, WindowConstruction> = window_constructions
-            .into_iter().map(|w| (w.name.clone(), w)).collect();
+            .into_iter()
+            .map(|w| (w.name.clone(), w))
+            .collect();
         let simple_map: HashMap<String, SimpleConstruction> = simple_constructions
-            .into_iter().map(|s| (s.name.clone(), s)).collect();
+            .into_iter()
+            .map(|s| (s.name.clone(), s))
+            .collect();
         let f_factor_map: HashMap<String, crate::material::FFactorConstruction> =
-            f_factor_constructions.into_iter().map(|f| (f.name.clone(), f)).collect();
+            f_factor_constructions
+                .into_iter()
+                .map(|f| (f.name.clone(), f))
+                .collect();
 
         let initial_temp = 21.0;
 
@@ -531,7 +561,8 @@ impl BuildingEnvelope {
         // with consistent outward normals).  Most zone geometries have missing
         // interior walls, so the divergence theorem produces wrong results.
         for zone in &mut zone_states {
-            let zone_surfaces: Vec<&SurfaceInput> = surfaces.iter()
+            let zone_surfaces: Vec<&SurfaceInput> = surfaces
+                .iter()
                 .filter(|s| s.zone == zone.input.name)
                 .collect();
 
@@ -540,35 +571,41 @@ impl BuildingEnvelope {
             }
 
             // ── Collect all vertex z-coordinates to determine zone height ──
-            let all_verts: Vec<&Vec<geometry::Point3D>> = zone_surfaces.iter()
+            let all_verts: Vec<&Vec<geometry::Point3D>> = zone_surfaces
+                .iter()
                 .filter(|s| s.surface_type != SurfaceType::Window)
                 .filter_map(|s| s.vertices.as_ref())
                 .filter(|v| v.len() >= 3)
                 .collect();
 
-            let z_min = all_verts.iter()
+            let z_min = all_verts
+                .iter()
                 .flat_map(|vs| vs.iter().map(|v| v.z))
                 .fold(f64::INFINITY, f64::min);
-            let z_max = all_verts.iter()
+            let z_max = all_verts
+                .iter()
                 .flat_map(|vs| vs.iter().map(|v| v.z))
                 .fold(f64::NEG_INFINITY, f64::max);
             let zone_height = if z_max > z_min { z_max - z_min } else { 0.0 };
 
             // ── Auto-calculate floor area (from floor-type surfaces) ──
             if zone.input.floor_area <= 0.0 {
-                let floor_verts: Vec<Vec<geometry::Point3D>> = zone_surfaces.iter()
+                let floor_verts: Vec<Vec<geometry::Point3D>> = zone_surfaces
+                    .iter()
                     .filter(|s| s.surface_type == SurfaceType::Floor)
                     .filter_map(|s| s.vertices.clone())
                     .collect();
                 if !floor_verts.is_empty() {
-                    let refs: Vec<&[geometry::Point3D]> = floor_verts.iter()
-                        .map(|v| v.as_slice())
-                        .collect();
+                    let refs: Vec<&[geometry::Point3D]> =
+                        floor_verts.iter().map(|v| v.as_slice()).collect();
                     let area = geometry::zone_floor_area(&refs);
                     if area > 0.0 {
                         zone.input.floor_area = area;
-                        log::info!("Auto-calculated zone '{}' floor area: {:.1} m²",
-                            zone.input.name, area);
+                        log::info!(
+                            "Auto-calculated zone '{}' floor area: {:.1} m²",
+                            zone.input.name,
+                            area
+                        );
                     }
                 }
             }
@@ -583,26 +620,31 @@ impl BuildingEnvelope {
                         zone.input.name, zone.input.volume, zone.input.floor_area, zone_height);
                 } else if !all_verts.is_empty() {
                     // Fallback: divergence theorem (only reliable for closed polyhedra)
-                    let vert_sets: Vec<Vec<geometry::Point3D>> = zone_surfaces.iter()
+                    let vert_sets: Vec<Vec<geometry::Point3D>> = zone_surfaces
+                        .iter()
                         .filter(|s| s.surface_type != SurfaceType::Window)
                         .filter_map(|s| s.vertices.clone())
                         .collect();
-                    let refs: Vec<&[geometry::Point3D]> = vert_sets.iter()
-                        .map(|v| v.as_slice())
-                        .collect();
+                    let refs: Vec<&[geometry::Point3D]> =
+                        vert_sets.iter().map(|v| v.as_slice()).collect();
                     let vol = geometry::zone_volume_from_surfaces(&refs);
                     if vol > 0.0 {
                         zone.input.volume = vol;
-                        log::warn!("Zone '{}': using divergence-theorem volume ({:.1} m³) — \
+                        log::warn!(
+                            "Zone '{}': using divergence-theorem volume ({:.1} m³) — \
                             no floor surfaces found for floor_area × height method. \
                             Result may be inaccurate if zone is not a closed polyhedron.",
-                            zone.input.name, vol);
+                            zone.input.name,
+                            vol
+                        );
                     }
                 }
 
                 if zone.input.volume <= 0.0 {
-                    log::warn!("Zone '{}': could not auto-calculate volume (no surfaces with vertices)",
-                        zone.input.name);
+                    log::warn!(
+                        "Zone '{}': could not auto-calculate volume (no surfaces with vertices)",
+                        zone.input.name
+                    );
                 }
             }
         }
@@ -623,7 +665,10 @@ impl BuildingEnvelope {
                 let name = format!("{} IntMass {}", zone.input.name, im_idx + 1);
                 log::info!(
                     "Zone '{}': adding internal mass surface '{}' — {:.1} m², construction '{}'",
-                    zone.input.name, name, im.area, im.construction,
+                    zone.input.name,
+                    name,
+                    im.area,
+                    im.construction,
                 );
                 let surf = SurfaceInput {
                     name,
@@ -649,7 +694,8 @@ impl BuildingEnvelope {
         // Auto-calculate solar distribution if not specified
         for zone in &mut zone_states {
             if zone.input.solar_distribution.is_none() {
-                let zone_surfaces: Vec<&SurfaceInput> = surfaces.iter()
+                let zone_surfaces: Vec<&SurfaceInput> = surfaces
+                    .iter()
                     .filter(|s| s.zone == zone.input.name)
                     .filter(|s| s.surface_type != SurfaceType::Window)
                     .collect();
@@ -708,10 +754,9 @@ impl BuildingEnvelope {
             // Window-specific absorptance properties (used below)
             let (win_solar_absorptance, win_inside_fraction) = if is_window {
                 let wc = window_map.get(&surf_input.construction);
-                let (abs, frac) = wc.map(|w| (
-                    w.effective_solar_absorptance(),
-                    w.inside_absorbed_fraction,
-                )).unwrap_or((0.06, 0.5));
+                let (abs, frac) = wc
+                    .map(|w| (w.effective_solar_absorptance(), w.inside_absorbed_fraction))
+                    .unwrap_or((0.06, 0.5));
                 (abs, frac)
             } else {
                 (0.0, 0.0)
@@ -726,7 +771,8 @@ impl BuildingEnvelope {
                         w.pane_solar_transmittance,
                         w.pane_solar_reflectance,
                     )
-                }).unwrap_or((0.0, 0.0, 1.526))
+                })
+                .unwrap_or((0.0, 0.0, 1.526))
             } else {
                 (0.0, 0.0, 1.526)
             };
@@ -748,7 +794,8 @@ impl BuildingEnvelope {
             } else if is_window {
                 // SGS or fallback: approximate from SHGC × ratio × diffuse modifier
                 let wc = window_map.get(&surf_input.construction);
-                let (s, r) = wc.map(|w| (w.shgc, w.solar_transmittance_ratio()))
+                let (s, r) = wc
+                    .map(|w| (w.shgc, w.solar_transmittance_ratio()))
                     .unwrap_or((0.5, 0.85));
                 s * r * 0.87 // τ_sys_normal × hemispherical modifier ≈ 0.87
             } else {
@@ -774,10 +821,8 @@ impl BuildingEnvelope {
                     (0.0, 0.0, 0.0, Roughness::VerySmooth, u, s)
                 } else if let Some(c) = construction_map.get(&surf_input.construction) {
                     // Layered construction
-                    let outside_mat = c.outside_material()
-                        .and_then(|name| material_map.get(name));
-                    let inside_mat = c.inside_material()
-                        .and_then(|name| material_map.get(name));
+                    let outside_mat = c.outside_material().and_then(|name| material_map.get(name));
+                    let inside_mat = c.inside_material().and_then(|name| material_map.get(name));
 
                     let (sa_out, ta_out, rough) = outside_mat
                         .map(|m| (m.solar_absorptance, m.thermal_absorptance, m.roughness))
@@ -789,8 +834,14 @@ impl BuildingEnvelope {
                     (sa_out, ta_out, sa_in, rough, u, 0.0)
                 } else if let Some(sc) = simple_map.get(&surf_input.construction) {
                     // Simple construction
-                    (sc.solar_absorptance, sc.thermal_absorptance,
-                     sc.solar_absorptance, sc.roughness, sc.u_factor, 0.0)
+                    (
+                        sc.solar_absorptance,
+                        sc.thermal_absorptance,
+                        sc.solar_absorptance,
+                        sc.roughness,
+                        sc.u_factor,
+                        0.0,
+                    )
                 } else if let Some(fc) = f_factor_map.get(&surf_input.construction) {
                     // F-factor ground floor construction.
                     // Compute effective U = F × P / A for this surface.
@@ -812,8 +863,14 @@ impl BuildingEnvelope {
                         "F-factor floor '{}': F={:.3} W/(m·K), P={:.2}m, A={:.2}m² → U_eff={:.4} W/(m²·K)",
                         surf_input.name, fc.f_factor, perimeter, surf_input.area, u_eff
                     );
-                    (fc.solar_absorptance, fc.thermal_absorptance,
-                     fc.solar_absorptance, Roughness::Rough, u_eff, 0.0)
+                    (
+                        fc.solar_absorptance,
+                        fc.thermal_absorptance,
+                        fc.solar_absorptance,
+                        Roughness::Rough,
+                        u_eff,
+                        0.0,
+                    )
                 } else {
                     (0.7, 0.9, 0.7, Roughness::MediumRough, 5.0, 0.0)
                 };
@@ -825,8 +882,7 @@ impl BuildingEnvelope {
             // Otherwise, estimate from zone geometry and surface type.
             let centroid_height = if let Some(ref verts) = surf_input.vertices {
                 if !verts.is_empty() {
-                    let z_avg: f64 = verts.iter().map(|v| v.z).sum::<f64>()
-                        / verts.len() as f64;
+                    let z_avg: f64 = verts.iter().map(|v| v.z).sum::<f64>() / verts.len() as f64;
                     z_avg.max(0.1)
                 } else {
                     1.0
@@ -834,15 +890,18 @@ impl BuildingEnvelope {
             } else {
                 // Estimate from zone dimensions
                 let zone_name = &surf_input.zone;
-                let zone_input = zone_states.iter()
-                    .find(|z| z.input.name == *zone_name);
+                let zone_input = zone_states.iter().find(|z| z.input.name == *zone_name);
                 if let Some(zone) = zone_input {
                     let floor_area = zone.input.floor_area;
                     let volume = zone.input.volume;
-                    let zone_height = if floor_area > 0.0 { volume / floor_area } else { 3.0 };
+                    let zone_height = if floor_area > 0.0 {
+                        volume / floor_area
+                    } else {
+                        3.0
+                    };
                     match surf_input.surface_type {
-                        SurfaceType::Floor => 0.1,               // At ground level
-                        SurfaceType::Wall => zone_height / 2.0,  // Midpoint of wall
+                        SurfaceType::Floor => 0.1,                               // At ground level
+                        SurfaceType::Wall => zone_height / 2.0,                  // Midpoint of wall
                         SurfaceType::Roof | SurfaceType::Ceiling => zone_height, // At top
                         SurfaceType::Window => zone_height / 2.0, // Midpoint of parent wall
                     }
@@ -881,7 +940,8 @@ impl BuildingEnvelope {
                             }
                             _ => None,
                         }
-                    }).unwrap_or((0.0, 0.0, 1.0, 0.84))
+                    })
+                    .unwrap_or((0.0, 0.0, 1.0, 0.84))
                 } else {
                     (0.0, 0.0, 1.0, 0.84)
                 };
@@ -901,17 +961,21 @@ impl BuildingEnvelope {
                 // First-principles: compute u_glass from pane + gap properties.
                 // Initial estimate at ~0°C mean gap temperature, ~15°C ΔT across gap.
                 let h_gap_init = sealed_air_gap_conductance(
-                    win_gap_width, 0.0, 15.0, surf_input.tilt, win_gap_emissivity,
+                    win_gap_width,
+                    0.0,
+                    15.0,
+                    surf_input.tilt,
+                    win_gap_emissivity,
                 );
                 let r_gap = 1.0 / h_gap_init;
                 let r_pane = win_pane_thickness / win_pane_conductivity;
                 let r_glass = 2.0 * r_pane + r_gap; // double-pane: outer + gap + inner
-                // Cap at 110% of rated value: the gap model can improve upon
-                // the NFRC rating (lower U in winter) but should not degrade
-                // too far beyond it (higher U at extreme temperatures where
-                // h_rad ∝ T³). The 10% margin allows modest temperature-
-                // dependent increases at moderate summer conditions while
-                // still preventing runaway at free-float extremes (60°C+).
+                                                    // Cap at 110% of rated value: the gap model can improve upon
+                                                    // the NFRC rating (lower U in winter) but should not degrade
+                                                    // too far beyond it (higher U at extreme temperatures where
+                                                    // h_rad ∝ T³). The 10% margin allows modest temperature-
+                                                    // dependent increases at moderate summer conditions while
+                                                    // still preventing runaway at free-float extremes (60°C+).
                 (1.0 / r_glass).min(u_glass_rated * 1.05)
             } else {
                 u_glass_rated
@@ -958,7 +1022,7 @@ impl BuildingEnvelope {
                 centroid_height,
                 diffuse_sky_shading_ratio: 1.0, // Updated by compute_diffuse_shading_ratios()
                 diffuse_horizon_shading_ratio: 1.0, // Updated by compute_diffuse_shading_ratios()
-                box_face: None, // Set after zone VF computation below
+                box_face: None,                 // Set after zone VF computation below
                 f_factor_ground_temps: {
                     // Store F-factor ground temperatures on the surface state
                     // so the heat balance uses FCfactorMethod temps instead of
@@ -1007,13 +1071,21 @@ impl BuildingEnvelope {
         }
 
         // Subtract window areas from parent surfaces
-        let window_parents: Vec<(String, f64)> = surface_states.iter()
+        let window_parents: Vec<(String, f64)> = surface_states
+            .iter()
             .filter(|s| s.is_window)
-            .filter_map(|s| s.input.parent_surface.as_ref().map(|p| (p.clone(), s.input.area)))
+            .filter_map(|s| {
+                s.input
+                    .parent_surface
+                    .as_ref()
+                    .map(|p| (p.clone(), s.input.area))
+            })
             .collect();
         for (parent_name, window_area) in &window_parents {
-            if let Some(parent) = surface_states.iter_mut()
-                .find(|s| s.input.name == *parent_name) {
+            if let Some(parent) = surface_states
+                .iter_mut()
+                .find(|s| s.input.name == *parent_name)
+            {
                 parent.net_area = (parent.net_area - window_area).max(0.0);
             }
         }
@@ -1044,11 +1116,20 @@ impl BuildingEnvelope {
 
             // Bounding box → box dimensions
             let x_min = all_verts.iter().map(|v| v.x).fold(f64::INFINITY, f64::min);
-            let x_max = all_verts.iter().map(|v| v.x).fold(f64::NEG_INFINITY, f64::max);
+            let x_max = all_verts
+                .iter()
+                .map(|v| v.x)
+                .fold(f64::NEG_INFINITY, f64::max);
             let y_min = all_verts.iter().map(|v| v.y).fold(f64::INFINITY, f64::min);
-            let y_max = all_verts.iter().map(|v| v.y).fold(f64::NEG_INFINITY, f64::max);
+            let y_max = all_verts
+                .iter()
+                .map(|v| v.y)
+                .fold(f64::NEG_INFINITY, f64::max);
             let z_min = all_verts.iter().map(|v| v.z).fold(f64::INFINITY, f64::min);
-            let z_max = all_verts.iter().map(|v| v.z).fold(f64::NEG_INFINITY, f64::max);
+            let z_max = all_verts
+                .iter()
+                .map(|v| v.z)
+                .fold(f64::NEG_INFINITY, f64::max);
 
             let box_l = (x_max - x_min).max(0.1); // Length (east-west)
             let box_w = (y_max - y_min).max(0.1); // Width (north-south)
@@ -1062,7 +1143,11 @@ impl BuildingEnvelope {
                 let s = &surface_states[si];
                 if let Some(face) = geometry::classify_box_face(s.input.tilt, s.input.azimuth) {
                     // Use gross area for windows, net area for opaque
-                    let area = if s.is_window { s.input.area } else { s.net_area };
+                    let area = if s.is_window {
+                        s.input.area
+                    } else {
+                        s.net_area
+                    };
                     face_area[face] += area;
                 } else {
                     all_classified = false;
@@ -1089,7 +1174,10 @@ impl BuildingEnvelope {
             log::info!(
                 "Zone '{}': view factors computed for {:.1}×{:.1}×{:.1}m box \
                  (F_floor→ceiling={:.4}, F_floor→south={:.4})",
-                zone.input.name, box_l, box_w, box_h,
+                zone.input.name,
+                box_l,
+                box_w,
+                box_h,
                 face_vf[geometry::FACE_FLOOR][geometry::FACE_CEILING],
                 face_vf[geometry::FACE_FLOOR][geometry::FACE_SOUTH],
             );
@@ -1110,15 +1198,21 @@ impl BuildingEnvelope {
             if let BoundaryCondition::Zone(ref other_zone) = surface_states[i].input.boundary {
                 let my_zone = &surface_states[i].input.zone;
                 for j in 0..n_surfaces {
-                    if j == i { continue; }
+                    if j == i {
+                        continue;
+                    }
                     if surface_states[j].input.zone == *other_zone {
-                        if let BoundaryCondition::Zone(ref back_zone) = surface_states[j].input.boundary {
+                        if let BoundaryCondition::Zone(ref back_zone) =
+                            surface_states[j].input.boundary
+                        {
                             if back_zone == my_zone {
                                 interzone_pairs[i] = Some(j);
                                 log::info!(
                                     "Interzone pair: '{}' (zone {}) <-> '{}' (zone {})",
-                                    surface_states[i].input.name, my_zone,
-                                    surface_states[j].input.name, other_zone,
+                                    surface_states[i].input.name,
+                                    my_zone,
+                                    surface_states[j].input.name,
+                                    other_zone,
                                 );
                                 break;
                             }
@@ -1165,7 +1259,7 @@ impl BuildingEnvelope {
             longitude,
             time_zone,
             ground_reflectance: 0.2,
-            jan1_dow: 1,  // Default: Monday; overridden by weather file
+            jan1_dow: 1, // Default: Monday; overridden by weather file
             dt: 3600.0,
             initialized: false,
             shading_calculation: shading::ShadingCalculation::Basic,
@@ -1207,7 +1301,8 @@ impl BuildingEnvelope {
                             // Find the parent wall's outward normal
                             let wall_outward = if let Some(ref parent_name) = surf.parent_surface {
                                 // Look up parent wall vertices
-                                surface_inputs.iter()
+                                surface_inputs
+                                    .iter()
                                     .find(|s| s.name == *parent_name)
                                     .and_then(|s| s.vertices.as_ref())
                                     .map(|v| geometry::newell_normal(v).normalize())
@@ -1221,9 +1316,11 @@ impl BuildingEnvelope {
 
                             // Generate overhang
                             if let Some(ref ovh) = shade_input.overhang {
-                                let ovh_verts = shading::generate_overhang_vertices(verts, ovh, &wall_outward);
+                                let ovh_verts =
+                                    shading::generate_overhang_vertices(verts, ovh, &wall_outward);
                                 if let Some(sp) = shading::surface_to_shading_polygon(
-                                    &format!("ovh:{}", surf.name), &ovh_verts
+                                    &format!("ovh:{}", surf.name),
+                                    &ovh_verts,
                                 ) {
                                     polygons.push(sp);
                                 }
@@ -1232,10 +1329,14 @@ impl BuildingEnvelope {
                             // Generate left fin
                             if let Some(ref fin) = shade_input.left_fin {
                                 let fin_verts = shading::generate_fin_vertices(
-                                    verts, fin, &wall_outward, shading::FinSide::Left
+                                    verts,
+                                    fin,
+                                    &wall_outward,
+                                    shading::FinSide::Left,
                                 );
                                 if let Some(sp) = shading::surface_to_shading_polygon(
-                                    &format!("lfin:{}", surf.name), &fin_verts
+                                    &format!("lfin:{}", surf.name),
+                                    &fin_verts,
                                 ) {
                                     polygons.push(sp);
                                 }
@@ -1244,10 +1345,14 @@ impl BuildingEnvelope {
                             // Generate right fin
                             if let Some(ref fin) = shade_input.right_fin {
                                 let fin_verts = shading::generate_fin_vertices(
-                                    verts, fin, &wall_outward, shading::FinSide::Right
+                                    verts,
+                                    fin,
+                                    &wall_outward,
+                                    shading::FinSide::Right,
                                 );
                                 if let Some(sp) = shading::surface_to_shading_polygon(
-                                    &format!("rfin:{}", surf.name), &fin_verts
+                                    &format!("rfin:{}", surf.name),
+                                    &fin_verts,
                                 ) {
                                     polygons.push(sp);
                                 }
@@ -1282,18 +1387,16 @@ impl BuildingEnvelope {
     /// Should be called after `from_input_full()` when an airflow network
     /// config is provided in the simulation settings. The network auto-generates
     /// crack flow paths from exterior and interzone surfaces.
-    pub fn build_airflow_network(
-        &mut self,
-        config: &crate::airflow_network::AirflowNetworkConfig,
-    ) {
+    pub fn build_airflow_network(&mut self, config: &crate::airflow_network::AirflowNetworkConfig) {
         if !config.enabled {
             return;
         }
         // Collect per-surface airflow overrides
-        let overrides: Vec<Option<crate::airflow_network::SurfaceAirflowOverride>> =
-            self.surfaces.iter()
-                .map(|s| s.input.airflow.clone())
-                .collect();
+        let overrides: Vec<Option<crate::airflow_network::SurfaceAirflowOverride>> = self
+            .surfaces
+            .iter()
+            .map(|s| s.input.airflow.clone())
+            .collect();
 
         let network = crate::airflow_network::build_network(
             &self.zones,
@@ -1353,16 +1456,25 @@ impl BuildingEnvelope {
 
         // Compute geometry fingerprint for cache validation
         let fingerprint = SolarCache::compute_fingerprint(
-            &self.surfaces, &self.shading_polygons,
-            self.latitude, self.longitude, self.time_zone,
-            timesteps_per_hour, start_hour, end_hour,
+            &self.surfaces,
+            &self.shading_polygons,
+            self.latitude,
+            self.longitude,
+            self.time_zone,
+            timesteps_per_hour,
+            start_hour,
+            end_hour,
         );
 
         // Try loading from disk cache
         if let Some(path) = cache_path {
             if let Some(cached) = SolarCache::load_from_file(path, fingerprint) {
                 let cached_steps = cached.sunlit_fractions.len();
-                let cached_surfs = if cached_steps > 0 { cached.sunlit_fractions[0].len() } else { 0 };
+                let cached_surfs = if cached_steps > 0 {
+                    cached.sunlit_fractions[0].len()
+                } else {
+                    0
+                };
                 if cached_steps == total_steps && cached_surfs == n_surfaces {
                     log::info!(
                         "Solar precompute: loaded from cache '{}' ({} timesteps, fingerprint {:016x})",
@@ -1371,8 +1483,13 @@ impl BuildingEnvelope {
                     self.solar_cache = Some(cached);
                     return;
                 }
-                log::info!("Solar cache size mismatch (expected {}x{}, got {}x{}), will recompute",
-                    total_steps, n_surfaces, cached_steps, cached_surfs);
+                log::info!(
+                    "Solar cache size mismatch (expected {}x{}, got {}x{}), will recompute",
+                    total_steps,
+                    n_surfaces,
+                    cached_steps,
+                    cached_surfs
+                );
             }
         }
 
@@ -1388,13 +1505,19 @@ impl BuildingEnvelope {
             boundary_is_outdoor: bool,
             vertices: Option<Vec<crate::geometry::Point3D>>,
         }
-        let surface_geo: Vec<SurfaceGeo> = self.surfaces.iter().map(|s| SurfaceGeo {
-            boundary_is_outdoor: s.input.boundary == BoundaryCondition::Outdoor,
-            vertices: s.input.vertices.clone(),
-        }).collect();
+        let surface_geo: Vec<SurfaceGeo> = self
+            .surfaces
+            .iter()
+            .map(|s| SurfaceGeo {
+                boundary_is_outdoor: s.input.boundary == BoundaryCondition::Outdoor,
+                vertices: s.input.vertices.clone(),
+            })
+            .collect();
 
         // Surface names for self-shading exclusion
-        let surface_names: Vec<String> = self.surfaces.iter()
+        let surface_names: Vec<String> = self
+            .surfaces
+            .iter()
             .map(|s| format!("self:{}", s.input.name))
             .collect();
 
@@ -1405,57 +1528,69 @@ impl BuildingEnvelope {
         let longitude = self.longitude;
 
         // Compute sunlit fractions for all timesteps in parallel
-        let sunlit_fractions: Vec<Vec<f64>> = (0..total_steps).into_par_iter().map(|step| {
-            let hour_idx = start_hour + step / timesteps_per_hour as usize;
-            let sub = (step % timesteps_per_hour as usize) as u32 + 1;
+        let sunlit_fractions: Vec<Vec<f64>> = (0..total_steps)
+            .into_par_iter()
+            .map(|step| {
+                let hour_idx = start_hour + step / timesteps_per_hour as usize;
+                let sub = (step % timesteps_per_hour as usize) as u32 + 1;
 
-            // Compute timestep's fractional hour (matching TimeStep::fractional_hour)
-            let wh = &weather_hours[hour_idx];
-            let hour_1based = (hour_idx % 24) as u32 + 1;
-            let fractional_hour = hour_1based as f64
-                - 1.0
-                + (sub as f64 - 0.5) / timesteps_per_hour as f64;
+                // Compute timestep's fractional hour (matching TimeStep::fractional_hour)
+                let wh = &weather_hours[hour_idx];
+                let hour_1based = (hour_idx % 24) as u32 + 1;
+                let fractional_hour =
+                    hour_1based as f64 - 1.0 + (sub as f64 - 0.5) / timesteps_per_hour as f64;
 
-            // Day of year from weather data
-            let doy = {
-                let days_in_months = [31u32, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-                let mut d = 0u32;
-                for m in 0..(wh.month.saturating_sub(1)) as usize {
-                    d += days_in_months[m.min(11)];
-                }
-                d + wh.day
-            };
-
-            let eot = solar::equation_of_time(doy);
-            let solar_hour = fractional_hour + (time_zone - longitude / 15.0) + eot;
-            let sol_pos = solar::solar_position(doy, solar_hour, latitude);
-
-            if !sol_pos.is_sunup || sol_pos.altitude <= 0.0 {
-                // Night: all surfaces fully sunlit (doesn't matter, no solar)
-                return vec![1.0; n_surfaces];
-            }
-
-            let sun_dir = solar::sun_direction_vector(&sol_pos);
-
-            // Compute sunlit fraction for each surface
-            surface_geo.iter().enumerate().map(|(si, geo)| {
-                if !geo.boundary_is_outdoor {
-                    return 1.0;
-                }
-                if let Some(ref verts) = geo.vertices {
-                    if verts.len() >= 3 {
-                        let normal = crate::geometry::newell_normal(verts).normalize();
-                        let casters: Vec<&shading::ShadingPolygon> = shading_polys.iter()
-                            .filter(|sp| sp.name != surface_names[si])
-                            .collect();
-                        return shading::calculate_sunlit_fraction(verts, &normal, &casters, &sun_dir);
+                // Day of year from weather data
+                let doy = {
+                    let days_in_months = [31u32, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+                    let mut d = 0u32;
+                    for m in 0..(wh.month.saturating_sub(1)) as usize {
+                        d += days_in_months[m.min(11)];
                     }
-                }
-                1.0
-            }).collect()
-        }).collect();
+                    d + wh.day
+                };
 
-        log::info!("Solar precompute: done ({} timesteps computed)", sunlit_fractions.len());
+                let eot = solar::equation_of_time(doy);
+                let solar_hour = fractional_hour + (time_zone - longitude / 15.0) + eot;
+                let sol_pos = solar::solar_position(doy, solar_hour, latitude);
+
+                if !sol_pos.is_sunup || sol_pos.altitude <= 0.0 {
+                    // Night: all surfaces fully sunlit (doesn't matter, no solar)
+                    return vec![1.0; n_surfaces];
+                }
+
+                let sun_dir = solar::sun_direction_vector(&sol_pos);
+
+                // Compute sunlit fraction for each surface
+                surface_geo
+                    .iter()
+                    .enumerate()
+                    .map(|(si, geo)| {
+                        if !geo.boundary_is_outdoor {
+                            return 1.0;
+                        }
+                        if let Some(ref verts) = geo.vertices {
+                            if verts.len() >= 3 {
+                                let normal = crate::geometry::newell_normal(verts).normalize();
+                                let casters: Vec<&shading::ShadingPolygon> = shading_polys
+                                    .iter()
+                                    .filter(|sp| sp.name != surface_names[si])
+                                    .collect();
+                                return shading::calculate_sunlit_fraction(
+                                    verts, &normal, &casters, &sun_dir,
+                                );
+                            }
+                        }
+                        1.0
+                    })
+                    .collect()
+            })
+            .collect();
+
+        log::info!(
+            "Solar precompute: done ({} timesteps computed)",
+            sunlit_fractions.len()
+        );
 
         let cache = SolarCache {
             sunlit_fractions,
@@ -1471,7 +1606,9 @@ impl BuildingEnvelope {
                     let size_bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
                     log::info!(
                         "Solar precompute: saved cache to '{}' ({:.1} MB, fingerprint {:016x})",
-                        path.display(), size_bytes as f64 / 1_048_576.0, fingerprint,
+                        path.display(),
+                        size_bytes as f64 / 1_048_576.0,
+                        fingerprint,
                     );
                 }
                 Err(e) => {
@@ -1509,16 +1646,16 @@ impl BuildingEnvelope {
                     let normal = geometry::newell_normal(verts).normalize();
                     // Use ALL shading polygons except this surface itself
                     let self_name = &self.surfaces[si].input.name;
-                    let casters: Vec<&shading::ShadingPolygon> = self.shading_polygons.iter()
+                    let casters: Vec<&shading::ShadingPolygon> = self
+                        .shading_polygons
+                        .iter()
                         .filter(|sp| sp.name != *self_name)
                         .collect();
 
-                    let ratio = shading::compute_diffuse_sky_shading_ratio(
-                        verts, &normal, &casters,
-                    );
-                    let horiz_ratio = shading::compute_diffuse_horizon_shading_ratio(
-                        verts, &normal, &casters,
-                    );
+                    let ratio =
+                        shading::compute_diffuse_sky_shading_ratio(verts, &normal, &casters);
+                    let horiz_ratio =
+                        shading::compute_diffuse_horizon_shading_ratio(verts, &normal, &casters);
 
                     if ratio < 0.999 || horiz_ratio < 0.999 {
                         log::info!(
@@ -1555,12 +1692,17 @@ impl BuildingEnvelope {
                         ctf.num_terms, ctf.z[0], ctf.y[0], ctf.x[0]
                     );
                     if self.surfaces[i].input.name.contains("Wall South 1F")
-                        || self.surfaces[i].input.name.contains("Attic Floor") {
+                        || self.surfaces[i].input.name.contains("Attic Floor")
+                    {
                         for j in 0..ctf.num_terms {
                             let phi_j = if j < ctf.phi.len() { ctf.phi[j] } else { 0.0 };
                             log::info!(
                                 "  CTF[{}]: X={:.6e}, Y={:.6e}, Z={:.6e}, Phi={:.6e}",
-                                j, ctf.x[j], ctf.y[j], ctf.z[j], phi_j
+                                j,
+                                ctf.x[j],
+                                ctf.y[j],
+                                ctf.z[j],
+                                phi_j
                             );
                         }
                     }
@@ -1574,8 +1716,12 @@ impl BuildingEnvelope {
             // Try simple construction
             if let Some(sc) = self.simple_constructions.get(construction_name).cloned() {
                 let ctf = calculate_ctf_simple(
-                    sc.u_factor, sc.thermal_capacity, self.dt, sc.mass_outside,
-                    sc.mass_conductivity, sc.mass_density,
+                    sc.u_factor,
+                    sc.thermal_capacity,
+                    self.dt,
+                    sc.mass_outside,
+                    sc.mass_conductivity,
+                    sc.mass_density,
                 );
                 let history = CtfHistory::new(ctf.num_terms.max(1), 21.0);
                 self.ctf_coefficients[i] = Some(ctf);
@@ -1587,9 +1733,8 @@ impl BuildingEnvelope {
             if let Some(fc) = self.f_factor_constructions.get(construction_name).cloned() {
                 // Effective U = F × P / A (already computed and stored in surface u_factor)
                 let u_eff = self.surfaces[i].u_factor;
-                let ctf = calculate_ctf_simple(
-                    u_eff, fc.thermal_capacity, self.dt, false, None, None,
-                );
+                let ctf =
+                    calculate_ctf_simple(u_eff, fc.thermal_capacity, self.dt, false, None, None);
                 let history = CtfHistory::new(ctf.num_terms.max(1), 21.0);
                 self.ctf_coefficients[i] = Some(ctf);
                 self.ctf_histories[i] = Some(history);
@@ -1627,8 +1772,8 @@ impl EnvelopeSolver for BuildingEnvelope {
         // 1. Solar position
         let doy = ctx.timestep.day_of_year();
         let eot = solar::equation_of_time(doy);
-        let solar_hour = ctx.timestep.fractional_hour()
-            + (self.time_zone - self.longitude / 15.0) + eot;
+        let solar_hour =
+            ctx.timestep.fractional_hour() + (self.time_zone - self.longitude / 15.0) + eot;
         let sol_pos = solar::solar_position(doy, solar_hour, self.latitude);
         let sun_dir = solar::sun_direction_vector(&sol_pos);
 
@@ -1702,13 +1847,19 @@ impl EnvelopeSolver for BuildingEnvelope {
                         // 100% design-level gains at all hours (cooling DDs: conservative).
                         // Passing None for schedule_mgr → fraction = 1.0 for all gains.
                         internal_gains::resolve_gains_scheduled(
-                            &zone.input.internal_gains, None, hour, dow,
+                            &zone.input.internal_gains,
+                            None,
+                            hour,
+                            dow,
                         )
                     }
                     SizingInternalGains::Scheduled => {
                         // Follow normal schedules, same as annual simulation.
                         internal_gains::resolve_gains_scheduled(
-                            &zone.input.internal_gains, Some(&self.schedule_manager), hour, dow,
+                            &zone.input.internal_gains,
+                            Some(&self.schedule_manager),
+                            hour,
+                            dow,
                         )
                     }
                     SizingInternalGains::FullWhenOccupied => {
@@ -1716,11 +1867,17 @@ impl EnvelopeSolver for BuildingEnvelope {
                         // If any gain is active (schedule > 0), use full design gains.
                         // If unoccupied (all schedules = 0), use zero gains.
                         let scheduled = internal_gains::resolve_gains_scheduled(
-                            &zone.input.internal_gains, Some(&self.schedule_manager), hour, dow,
+                            &zone.input.internal_gains,
+                            Some(&self.schedule_manager),
+                            hour,
+                            dow,
                         );
                         if scheduled.total > 0.0 {
                             internal_gains::resolve_gains_scheduled(
-                                &zone.input.internal_gains, None, hour, dow,
+                                &zone.input.internal_gains,
+                                None,
+                                hour,
+                                dow,
                             )
                         } else {
                             internal_gains::ResolvedGain::default()
@@ -1730,7 +1887,10 @@ impl EnvelopeSolver for BuildingEnvelope {
             } else {
                 // Normal simulation: always use schedules
                 internal_gains::resolve_gains_scheduled(
-                    &zone.input.internal_gains, Some(&self.schedule_manager), hour, dow,
+                    &zone.input.internal_gains,
+                    Some(&self.schedule_manager),
+                    hour,
+                    dow,
                 )
             };
             zone.q_internal_conv = gains.convective;
@@ -1758,7 +1918,12 @@ impl EnvelopeSolver for BuildingEnvelope {
             // Update exhaust fan fixed-flow paths from current scheduled rates
             // (exhaust will be computed below, so we use previous timestep value for now)
             crate::airflow_network::solve_pressures(
-                afn, wind_speed_met, wind_direction, t_outdoor, rho_outdoor, self.terrain,
+                afn,
+                wind_speed_met,
+                wind_direction,
+                t_outdoor,
+                rho_outdoor,
+                self.terrain,
             );
             // Write AFN outdoor mass flow results to zone state
             for (zi, zone) in self.zones.iter_mut().enumerate() {
@@ -1796,7 +1961,10 @@ impl EnvelopeSolver for BuildingEnvelope {
 
             // Scheduled ventilation (e.g., night ventilation for Case 650)
             let vent_flow = zone.input.scheduled_ventilation_flow(
-                hour, zone.input.volume, zone.temp, t_outdoor,
+                hour,
+                zone.input.volume,
+                zone.temp,
+                t_outdoor,
             );
             zone.ventilation_mass_flow = vent_flow * rho_outdoor;
 
@@ -1821,8 +1989,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                         / (exhaust.total_efficiency * rho_outdoor))
                         .max(0.0);
                     let shaft_power = exhaust.motor_efficiency * power;
-                    let heat_to_air = shaft_power
-                        + (power - shaft_power) * exhaust.motor_in_airstream_fraction;
+                    let heat_to_air =
+                        shaft_power + (power - shaft_power) * exhaust.motor_in_airstream_fraction;
                     // Heat in airstream exits with exhaust (lost from zone).
                     // Heat NOT in airstream stays in zone as convective gain.
                     zone.exhaust_fan_power = power;
@@ -1876,7 +2044,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // opening is < 90°.
                     let angle_diff = {
                         let mut d = (wind_direction - nv.effective_angle).abs() % 360.0;
-                        if d > 180.0 { d = 360.0 - d; }
+                        if d > 180.0 {
+                            d = 360.0 - d;
+                        }
                         d
                     };
                     let cw = if angle_diff <= 90.0 { 0.55 } else { 0.30 };
@@ -1887,7 +2057,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let t_zone_k = t_zone + 273.15;
                     let v_stack = if nv.height_difference > 0.0 && dt_abs > 0.01 {
                         let cd = nv.discharge_coefficient;
-                        cd * nv.opening_area * sched_frac
+                        cd * nv.opening_area
+                            * sched_frac
                             * (2.0 * 9.81 * nv.height_difference * dt_abs / t_zone_k).sqrt()
                     } else {
                         0.0
@@ -1917,9 +2088,14 @@ impl EnvelopeSolver for BuildingEnvelope {
 
             // ASHRAE 62.1 outdoor air (calculated from people count + floor area + absolute + ACH)
             if let Some(ref oa) = zone.input.outdoor_air {
-                let people_count: f64 = zone.input.internal_gains.iter()
+                let people_count: f64 = zone
+                    .input
+                    .internal_gains
+                    .iter()
                     .filter_map(|g| match g {
-                        internal_gains::InternalGainInput::People { count, schedule, .. } => {
+                        internal_gains::InternalGainInput::People {
+                            count, schedule, ..
+                        } => {
                             let frac = match (schedule, Some(&self.schedule_manager)) {
                                 (Some(name), Some(mgr)) => mgr.fraction(name, hour, dow),
                                 _ => 1.0,
@@ -1936,8 +2112,12 @@ impl EnvelopeSolver for BuildingEnvelope {
                 let abs_flow = oa.absolute;
                 let ach_flow = oa.ach * zone.input.volume / 3600.0;
                 let oa_flow = match oa.oa_method {
-                    crate::zone_loads::OaMethod::Sum => person_flow + area_flow + abs_flow + ach_flow,
-                    crate::zone_loads::OaMethod::Maximum => person_flow.max(area_flow).max(abs_flow).max(ach_flow),
+                    crate::zone_loads::OaMethod::Sum => {
+                        person_flow + area_flow + abs_flow + ach_flow
+                    }
+                    crate::zone_loads::OaMethod::Maximum => {
+                        person_flow.max(area_flow).max(abs_flow).max(ach_flow)
+                    }
                 };
                 zone.outdoor_air_mass_flow = oa_flow * rho_outdoor;
 
@@ -1949,7 +2129,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                 let ex_ach = oa.exhaust_ach * zone.input.volume / 3600.0;
                 let exhaust_from_oa = match oa.exhaust_method {
                     crate::zone_loads::OaMethod::Sum => ex_people + ex_area + ex_abs + ex_ach,
-                    crate::zone_loads::OaMethod::Maximum => ex_people.max(ex_area).max(ex_abs).max(ex_ach),
+                    crate::zone_loads::OaMethod::Maximum => {
+                        ex_people.max(ex_area).max(ex_abs).max(ex_ach)
+                    }
                 };
                 // Add exhaust requirement to exhaust mass flow (supplements fan exhaust).
                 // Take max of fan exhaust and requirement exhaust — they represent
@@ -1987,22 +2169,29 @@ impl EnvelopeSolver for BuildingEnvelope {
             && !self.shading_polygons.is_empty()
         {
             // Inline computation (no cache — design days, sizing, or basic mode)
-            self.surfaces.iter().map(|surface| {
-                if surface.input.boundary != BoundaryCondition::Outdoor {
-                    return 1.0;
-                }
-                if let Some(ref verts) = surface.input.vertices {
-                    if verts.len() >= 3 {
-                        let normal = geometry::newell_normal(verts).normalize();
-                        let self_name = format!("self:{}", surface.input.name);
-                        let casters: Vec<&shading::ShadingPolygon> = self.shading_polygons.iter()
-                            .filter(|sp| sp.name != self_name)
-                            .collect();
-                        return shading::calculate_sunlit_fraction(verts, &normal, &casters, &sun_dir);
+            self.surfaces
+                .iter()
+                .map(|surface| {
+                    if surface.input.boundary != BoundaryCondition::Outdoor {
+                        return 1.0;
                     }
-                }
-                1.0
-            }).collect()
+                    if let Some(ref verts) = surface.input.vertices {
+                        if verts.len() >= 3 {
+                            let normal = geometry::newell_normal(verts).normalize();
+                            let self_name = format!("self:{}", surface.input.name);
+                            let casters: Vec<&shading::ShadingPolygon> = self
+                                .shading_polygons
+                                .iter()
+                                .filter(|sp| sp.name != self_name)
+                                .collect();
+                            return shading::calculate_sunlit_fraction(
+                                verts, &normal, &casters, &sun_dir,
+                            );
+                        }
+                    }
+                    1.0
+                })
+                .collect()
         } else {
             vec![1.0; self.surfaces.len()]
         };
@@ -2056,11 +2245,12 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // Opaque surfaces: apply full DifShdgRatio from building
                     // self-shading (e.g., attached garage, perpendicular walls),
                     // matching E+ FullExterior behavior.
-                    (surface.diffuse_sky_shading_ratio,
-                     surface.diffuse_horizon_shading_ratio)
+                    (
+                        surface.diffuse_sky_shading_ratio,
+                        surface.diffuse_horizon_shading_ratio,
+                    )
                 };
-                let shaded_sky_diffuse =
-                    components.sky_diffuse * sky_ratio
+                let shaded_sky_diffuse = components.sky_diffuse * sky_ratio
                     + components.circumsolar * sunlit
                     + components.horizon * horiz_ratio;
                 let diffuse_total = shaded_sky_diffuse + components.ground_diffuse;
@@ -2083,14 +2273,20 @@ impl EnvelopeSolver for BuildingEnvelope {
                         // Beam modifier: evaluated at actual angle of incidence.
                         // Diffuse modifier: precomputed hemispherical average.
                         let beam_mod = solar::sgs_angular_shgc_modifier(
-                            components.cos_aoi, surface.shgc,
-                            sgs.tsol, sgs.rsol, sgs.ni,
-                            &sgs.trans_curve, &sgs.refl_curve,
+                            components.cos_aoi,
+                            surface.shgc,
+                            sgs.tsol,
+                            sgs.rsol,
+                            sgs.ni,
+                            &sgs.trans_curve,
+                            &sgs.refl_curve,
                         );
                         let diff_mod = sgs.diff_modifier;
 
-                        let beam_shgc = (surface.shgc * beam_mod * surface.net_area * shaded_beam).max(0.0);
-                        let diff_shgc = (surface.shgc * diff_mod * surface.net_area * diffuse_total).max(0.0);
+                        let beam_shgc =
+                            (surface.shgc * beam_mod * surface.net_area * shaded_beam).max(0.0);
+                        let diff_shgc =
+                            (surface.shgc * diff_mod * surface.net_area * diffuse_total).max(0.0);
                         let total_shgc_gain = beam_shgc + diff_shgc;
 
                         // Split: Tsol portion → surfaces, remainder → glass absorption.
@@ -2121,7 +2317,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                     }
 
                     // Total SHGC gain (transmitted + absorbed-inward combined).
-                    let total_shgc_gain = surface.transmitted_solar / surface.solar_transmittance_ratio.max(0.001);
+                    let total_shgc_gain =
+                        surface.transmitted_solar / surface.solar_transmittance_ratio.max(0.001);
 
                     // Split into transmitted (τ_sol) and absorbed-inward (N_in × α_sol).
                     //
@@ -2139,7 +2336,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // term. After the glass heat balance, any portion that does not
                     // reach the zone through the glass (due to lumped-model limitations)
                     // is kept here for direct injection via q_window_absorbed.
-                    surface.absorbed_solar_inside_window = total_shgc_gain - surface.transmitted_solar;
+                    surface.absorbed_solar_inside_window =
+                        total_shgc_gain - surface.transmitted_solar;
                     surface.absorbed_solar_outside = 0.0;
                 } else {
                     // Opaque surfaces: beam reduced by sunlit fraction
@@ -2184,8 +2382,12 @@ impl EnvelopeSolver for BuildingEnvelope {
             // FullExterior only needs floor surfaces by type (no vertices needed).
             if self.solar_distribution_method == SolarDistributionMethod::FullInteriorAndExterior {
                 let all_have_vertices = zone.surface_indices.iter().all(|&si| {
-                    self.surfaces[si].is_window ||
-                    self.surfaces[si].input.vertices.as_ref().map_or(false, |v| v.len() >= 3)
+                    self.surfaces[si].is_window
+                        || self.surfaces[si]
+                            .input
+                            .vertices
+                            .as_ref()
+                            .map_or(false, |v| v.len() >= 3)
                 });
                 if !all_have_vertices {
                     continue; // Fall back to fixed-fraction for this zone
@@ -2193,11 +2395,15 @@ impl EnvelopeSolver for BuildingEnvelope {
             }
 
             // Collect window beam and diffuse totals
-            let total_beam: f64 = zone.surface_indices.iter()
+            let total_beam: f64 = zone
+                .surface_indices
+                .iter()
                 .filter(|&&si| self.surfaces[si].is_window)
                 .map(|&si| self.surfaces[si].transmitted_solar_beam)
                 .sum();
-            let total_diffuse: f64 = zone.surface_indices.iter()
+            let total_diffuse: f64 = zone
+                .surface_indices
+                .iter()
                 .filter(|&&si| self.surfaces[si].is_window)
                 .map(|&si| self.surfaces[si].transmitted_solar_diffuse)
                 .sum();
@@ -2224,9 +2430,13 @@ impl EnvelopeSolver for BuildingEnvelope {
                         // All beam solar goes to floor surfaces, weighted by area.
                         // This matches E+ "FullExterior" / "FullInteriorAndExteriorWithReflections"
                         // default behavior where beam is assumed to strike the floor.
-                        let total_floor_area: f64 = zone.surface_indices.iter()
-                            .filter(|&&si| !self.surfaces[si].is_window
-                                && self.surfaces[si].input.surface_type == SurfaceType::Floor)
+                        let total_floor_area: f64 = zone
+                            .surface_indices
+                            .iter()
+                            .filter(|&&si| {
+                                !self.surfaces[si].is_window
+                                    && self.surfaces[si].input.surface_type == SurfaceType::Floor
+                            })
                             .map(|&si| self.surfaces[si].net_area)
                             .sum();
 
@@ -2302,11 +2512,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                                     None => continue,
                                 };
 
-                                let (origin, u_axis, v_axis) = shading::build_local_coords(recv_verts, &recv_normal);
-                                let proj_2d: Vec<shading::Point2D> = projected.iter()
+                                let (origin, u_axis, v_axis) =
+                                    shading::build_local_coords(recv_verts, &recv_normal);
+                                let proj_2d: Vec<shading::Point2D> = projected
+                                    .iter()
                                     .map(|v| shading::to_local_2d(v, &origin, &u_axis, &v_axis))
                                     .collect();
-                                let recv_2d: Vec<shading::Point2D> = recv_verts.iter()
+                                let recv_2d: Vec<shading::Point2D> = recv_verts
+                                    .iter()
                                     .map(|v| shading::to_local_2d(v, &origin, &u_axis, &v_axis))
                                     .collect();
 
@@ -2352,7 +2565,9 @@ impl EnvelopeSolver for BuildingEnvelope {
             let diffuse_pool_raw = total_diffuse + reflected_beam;
 
             // VMULT = 1 / SUM(A_i × alpha_i) for all opaque surfaces in zone
-            let sum_a_alpha: f64 = zone.surface_indices.iter()
+            let sum_a_alpha: f64 = zone
+                .surface_indices
+                .iter()
                 .filter(|&&si| !self.surfaces[si].is_window)
                 .map(|&si| self.surfaces[si].net_area * self.surfaces[si].solar_absorptance_inside)
                 .sum();
@@ -2369,7 +2584,9 @@ impl EnvelopeSolver for BuildingEnvelope {
             // the outward-flowing portion of glass absorptance:
             //   loss_win = Σ(A_win × (τ_back + α_back × (1 - N_i)))
             // F_cavity = Σ(A_i×α_i) / (Σ(A_i×α_i) + loss_win)
-            let sum_win_loss: f64 = zone.surface_indices.iter()
+            let sum_win_loss: f64 = zone
+                .surface_indices
+                .iter()
                 .filter(|&&si| self.surfaces[si].is_window)
                 .map(|&si| {
                     let s = &self.surfaces[si];
@@ -2381,10 +2598,18 @@ impl EnvelopeSolver for BuildingEnvelope {
                 })
                 .sum();
             let cavity_denom = sum_a_alpha + sum_win_loss;
-            let f_cavity = if cavity_denom > 0.0 { sum_a_alpha / cavity_denom } else { 1.0 };
+            let f_cavity = if cavity_denom > 0.0 {
+                sum_a_alpha / cavity_denom
+            } else {
+                1.0
+            };
             let diffuse_pool = diffuse_pool_raw * f_cavity;
 
-            let vmult = if sum_a_alpha > 0.0 { 1.0 / sum_a_alpha } else { 0.0 };
+            let vmult = if sum_a_alpha > 0.0 {
+                1.0 / sum_a_alpha
+            } else {
+                0.0
+            };
 
             // --- Phase 4: Total solar to each surface ---
             for &si in &zone.surface_indices {
@@ -2393,7 +2618,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                 }
                 let beam_absorbed = self.surfaces[si].solar_absorptance_inside * beam_landing[si];
                 let diffuse_absorbed = self.surfaces[si].solar_absorptance_inside
-                    * self.surfaces[si].net_area * diffuse_pool * vmult;
+                    * self.surfaces[si].net_area
+                    * diffuse_pool
+                    * vmult;
                 geometric_solar_to_surface[si] = beam_absorbed + diffuse_absorbed;
             }
 
@@ -2416,7 +2643,9 @@ impl EnvelopeSolver for BuildingEnvelope {
         // would cascade: iteration N overwrites absorbed_solar_inside_window with
         // the residual, then iteration N+1 reads the residual as the "original"
         // value, causing exponential decay toward zero.
-        let original_window_absorbed: Vec<f64> = self.surfaces.iter()
+        let original_window_absorbed: Vec<f64> = self
+            .surfaces
+            .iter()
             .map(|s| s.absorbed_solar_inside_window)
             .collect();
 
@@ -2425,8 +2654,7 @@ impl EnvelopeSolver for BuildingEnvelope {
             // Restore original absorbed-inward solar for windows
             for si in 0..self.surfaces.len() {
                 if self.surfaces[si].is_window {
-                    self.surfaces[si].absorbed_solar_inside_window =
-                        original_window_absorbed[si];
+                    self.surfaces[si].absorbed_solar_inside_window = original_window_absorbed[si];
                 }
             }
             // 6a. Outside surface temperatures
@@ -2471,11 +2699,12 @@ impl EnvelopeSolver for BuildingEnvelope {
                             // interior convection which negates cosTilt. This gives correct
                             // stability for exterior surfaces (e.g., floor exterior face-down
                             // is stable when warm, not unstable).
-                            self.surfaces[si].h_conv_outside = convection::exterior_natural_convection(
-                                self.surfaces[si].temp_outside,
-                                t_outdoor,
-                                self.surfaces[si].input.tilt,
-                            );
+                            self.surfaces[si].h_conv_outside =
+                                convection::exterior_natural_convection(
+                                    self.surfaces[si].temp_outside,
+                                    t_outdoor,
+                                    self.surfaces[si].input.tilt,
+                                );
                         }
                         if !self.surfaces[si].is_window {
                             let h_conv = self.surfaces[si].h_conv_outside;
@@ -2490,16 +2719,25 @@ impl EnvelopeSolver for BuildingEnvelope {
                             let suppress_ext_radiation = false;
 
                             // E+ view factors (ConvectionCoefficients.cc)
-                            let f_sky = if suppress_ext_radiation { 0.0 }
-                                        else { (1.0 + self.surfaces[si].cos_tilt) / 2.0 };
-                            let f_gnd = if suppress_ext_radiation { 0.0 }
-                                        else { 1.0 - f_sky };
+                            let f_sky = if suppress_ext_radiation {
+                                0.0
+                            } else {
+                                (1.0 + self.surfaces[si].cos_tilt) / 2.0
+                            };
+                            let f_gnd = if suppress_ext_radiation {
+                                0.0
+                            } else {
+                                1.0 - f_sky
+                            };
 
                             // E+ SurfAirSkyRadSplit (SurfaceGeometry.cc line 327):
                             // Splits sky-hemisphere radiation between actual sky (cold)
                             // and atmosphere (at air temperature).
-                            let air_sky_rad_split = if suppress_ext_radiation { 0.0 }
-                                else { (0.5 * (1.0 + self.surfaces[si].cos_tilt)).sqrt() };
+                            let air_sky_rad_split = if suppress_ext_radiation {
+                                0.0
+                            } else {
+                                (0.5 * (1.0 + self.surfaces[si].cos_tilt)).sqrt()
+                            };
 
                             let t_s_k = (self.surfaces[si].temp_outside + 273.15).max(200.0);
                             let t_sky_k = (t_sky + 273.15).max(200.0);
@@ -2522,39 +2760,39 @@ impl EnvelopeSolver for BuildingEnvelope {
                             // HSky: radiation to sky dome (at sky temperature)
                             let h_sky = exact_h_rad(t_s_k, t_sky_k, f_sky * air_sky_rad_split);
                             // HAir: radiation to atmosphere (at air temperature)
-                            let h_air = exact_h_rad(t_s_k, t_air_k, f_sky * (1.0 - air_sky_rad_split));
+                            let h_air =
+                                exact_h_rad(t_s_k, t_air_k, f_sky * (1.0 - air_sky_rad_split));
                             // HGround: radiation to ground (at ground/air temperature)
                             let h_gnd = exact_h_rad(t_s_k, t_gnd_k, f_gnd);
 
                             // CTF conduction coupling: include X[0] and Y[0] terms
                             // from the outside CTF equation to couple exterior surface
                             // to interior through the wall assembly.
-                            let (ctf_x0, ctf_y0, ctf_flux_hist) = if let (
-                                Some(ctf), Some(history)
-                            ) = (
-                                self.ctf_coefficients[si].as_ref(),
-                                self.ctf_histories[si].as_ref(),
-                            ) {
-                                // Flux history: Σ(Φ·q_out_old) + higher-order X,Y terms
-                                let mut flux_hist = 0.0_f64;
-                                for j in 0..ctf.phi.len() {
-                                    if j < history.q_outside.len() {
-                                        flux_hist += ctf.phi[j] * history.q_outside[j];
+                            let (ctf_x0, ctf_y0, ctf_flux_hist) =
+                                if let (Some(ctf), Some(history)) = (
+                                    self.ctf_coefficients[si].as_ref(),
+                                    self.ctf_histories[si].as_ref(),
+                                ) {
+                                    // Flux history: Σ(Φ·q_out_old) + higher-order X,Y terms
+                                    let mut flux_hist = 0.0_f64;
+                                    for j in 0..ctf.phi.len() {
+                                        if j < history.q_outside.len() {
+                                            flux_hist += ctf.phi[j] * history.q_outside[j];
+                                        }
                                     }
-                                }
-                                for j in 1..ctf.x.len() {
-                                    let idx = j - 1;
-                                    if idx < history.t_outside.len() {
-                                        flux_hist += ctf.x[j] * history.t_outside[idx];
+                                    for j in 1..ctf.x.len() {
+                                        let idx = j - 1;
+                                        if idx < history.t_outside.len() {
+                                            flux_hist += ctf.x[j] * history.t_outside[idx];
+                                        }
+                                        if idx < history.t_inside.len() {
+                                            flux_hist -= ctf.y[j] * history.t_inside[idx];
+                                        }
                                     }
-                                    if idx < history.t_inside.len() {
-                                        flux_hist -= ctf.y[j] * history.t_inside[idx];
-                                    }
-                                }
-                                (ctf.x[0], ctf.y[0], flux_hist)
-                            } else {
-                                (0.0, 0.0, 0.0)
-                            };
+                                    (ctf.x[0], ctf.y[0], flux_hist)
+                                } else {
+                                    (0.0, 0.0, 0.0)
+                                };
 
                             // E+ outside surface equation (HeatBalanceSurfaceManager.cc line 9573-9580):
                             // T_out = (-CTFConstOutPart + q_solar + (h_conv+h_air)*T_ext
@@ -2562,13 +2800,12 @@ impl EnvelopeSolver for BuildingEnvelope {
                             //       / (CTFOutside[0] + h_conv + h_air + h_sky + h_gnd)
                             let h_total = h_conv + h_air + h_sky + h_gnd + ctf_x0;
 
-                            self.surfaces[si].temp_outside =
-                                ((h_conv + h_air) * t_outdoor
-                                 + h_sky * t_sky
-                                 + h_gnd * t_outdoor
-                                 + self.surfaces[si].absorbed_solar_outside
-                                 + ctf_y0 * self.surfaces[si].temp_inside
-                                 - ctf_flux_hist)
+                            self.surfaces[si].temp_outside = ((h_conv + h_air) * t_outdoor
+                                + h_sky * t_sky
+                                + h_gnd * t_outdoor
+                                + self.surfaces[si].absorbed_solar_outside
+                                + ctf_y0 * self.surfaces[si].temp_inside
+                                - ctf_flux_hist)
                                 / h_total.max(1.0);
                         }
                     }
@@ -2713,7 +2950,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let mut feat = [0.0_f64; 6];
                     for &si in &zone.surface_indices {
                         let s = &self.surfaces[si];
-                        if s.is_window { continue; }
+                        if s.is_window {
+                            continue;
+                        }
                         if let Some(face) = s.box_face {
                             let face_total = zvf.face_area[face].max(0.01);
                             let w = s.thermal_absorptance_outside * s.net_area / face_total;
@@ -2732,38 +2971,43 @@ impl EnvelopeSolver for BuildingEnvelope {
 
             for i in 0..self.surfaces.len() {
                 if self.surfaces[i].is_window {
-                    let zi = self.zone_index.get(&self.surfaces[i].input.zone)
-                        .copied().unwrap_or(0);
+                    let zi = self
+                        .zone_index
+                        .get(&self.surfaces[i].input.zone)
+                        .copied()
+                        .unwrap_or(0);
                     let t_z = t_zone_vec.get(zi).copied().unwrap_or(21.0);
 
                     // Per-window MRT: use view-factor weighting if available,
                     // otherwise fall back to area-weighted zone MRT.
-                    let t_mrt = if let (
-                        Some(face_i),
-                        Some(ref zvf),
-                        Some(ref fea),
-                        Some(ref feat),
-                    ) = (
-                        self.surfaces[i].box_face,
-                        self.zone_view_factors.get(zi).and_then(|v| v.as_ref()),
-                        vf_face_ea.get(zi).and_then(|v| v.as_ref()),
-                        vf_face_eat.get(zi).and_then(|v| v.as_ref()),
-                    ) {
-                        // VF-weighted MRT for this window:
-                        // T_mrt = Σ_{k≠face_i} F(face_i→k)·feat[k]
-                        //       / Σ_{k≠face_i} F(face_i→k)·fea[k]
-                        let mut num = 0.0_f64;
-                        let mut den = 0.0_f64;
-                        for k in 0..6 {
-                            if k == face_i { continue; }
-                            let f = zvf.face_vf[face_i][k];
-                            num += f * feat[k];
-                            den += f * fea[k];
-                        }
-                        if den > 1.0e-10 { num / den } else { t_z }
-                    } else {
-                        zone_mrt_for_windows.get(zi).copied().unwrap_or(t_z)
-                    };
+                    let t_mrt =
+                        if let (Some(face_i), Some(ref zvf), Some(ref fea), Some(ref feat)) = (
+                            self.surfaces[i].box_face,
+                            self.zone_view_factors.get(zi).and_then(|v| v.as_ref()),
+                            vf_face_ea.get(zi).and_then(|v| v.as_ref()),
+                            vf_face_eat.get(zi).and_then(|v| v.as_ref()),
+                        ) {
+                            // VF-weighted MRT for this window:
+                            // T_mrt = Σ_{k≠face_i} F(face_i→k)·feat[k]
+                            //       / Σ_{k≠face_i} F(face_i→k)·fea[k]
+                            let mut num = 0.0_f64;
+                            let mut den = 0.0_f64;
+                            for k in 0..6 {
+                                if k == face_i {
+                                    continue;
+                                }
+                                let f = zvf.face_vf[face_i][k];
+                                num += f * feat[k];
+                                den += f * fea[k];
+                            }
+                            if den > 1.0e-10 {
+                                num / den
+                            } else {
+                                t_z
+                            }
+                        } else {
+                            zone_mrt_for_windows.get(zi).copied().unwrap_or(t_z)
+                        };
 
                     // Dynamic exterior combined coefficient: h_conv (already computed
                     // in the exterior loop above) + exterior longwave radiation split
@@ -2811,8 +3055,11 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // Effective exterior driving temperature: conductance-weighted
                     // average of sky, air, and ground temperatures
                     let t_ext_eff = if h_e > 1.0e-10 {
-                        (h_conv_out * t_outdoor + h_sky * t_sky + h_air * t_outdoor
-                            + h_gnd * t_outdoor) / h_e
+                        (h_conv_out * t_outdoor
+                            + h_sky * t_sky
+                            + h_air * t_outdoor
+                            + h_gnd * t_outdoor)
+                            / h_e
                     } else {
                         t_outdoor
                     };
@@ -2833,8 +3080,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // conduction loss through the window. This is the primary mechanism
                     // by which the SHGC → τ_sol split affects heating energy.
                     let q_solar_abs_per_area = if self.surfaces[i].net_area > 0.0 {
-                        self.surfaces[i].absorbed_solar_inside_window
-                            / self.surfaces[i].net_area
+                        self.surfaces[i].absorbed_solar_inside_window / self.surfaces[i].net_area
                     } else {
                         0.0
                     };
@@ -2851,8 +3097,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let mut h_rad_in: f64 = 5.0;
                     let mut t_glass: f64 = (t_ext_eff + t_z) / 2.0;
                     for _ in 0..5 {
-                        t_glass = (u_e_glass * t_ext_eff + h_conv_in * t_z
-                            + h_rad_in * t_mrt + q_solar_abs_per_area)
+                        t_glass = (u_e_glass * t_ext_eff
+                            + h_conv_in * t_z
+                            + h_rad_in * t_mrt
+                            + q_solar_abs_per_area)
                             / (u_e_glass + h_conv_in + h_rad_in);
 
                         // Dynamic gap thermal model (ISO 15099): recompute u_glass
@@ -2887,9 +3135,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         }
 
                         // Interior natural convection (TARP, same as opaque surfaces)
-                        h_conv_in = convection::interior_convection(
-                            t_glass, t_z, tilt,
-                        );
+                        h_conv_in = convection::interior_convection(t_glass, t_z, tilt);
 
                         // Interior radiation: linearized between glass and zone MRT
                         // (previously used T_zone, which over-estimated radiation to glass
@@ -2950,8 +3196,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // With the corrected solar_transmittance_ratio (≈0.91 for
                     // double-clear), the absorbed portion is ~9% of total SHGC gain,
                     // and the residual is ~2.6% — small but important for accuracy.
-                    let absorbed_inward_total =
-                        self.surfaces[i].absorbed_solar_inside_window;
+                    let absorbed_inward_total = self.surfaces[i].absorbed_solar_inside_window;
                     if absorbed_inward_total > 0.0 {
                         let h_total = u_e_glass + h_conv_in + h_rad_in;
                         let n_lumped = if h_total > 1.0e-10 {
@@ -2987,8 +3232,11 @@ impl EnvelopeSolver for BuildingEnvelope {
                     self.surfaces[i].q_conv_inside = 0.0;
                     // Accumulate window radiation per zone (positive = surfaces → glass)
                     let win_rad_w = q_rad_interior * self.surfaces[i].net_area;
-                    let zi_win = self.zone_index.get(&self.surfaces[i].input.zone)
-                        .copied().unwrap_or(0);
+                    let zi_win = self
+                        .zone_index
+                        .get(&self.surfaces[i].input.zone)
+                        .copied()
+                        .unwrap_or(0);
                     zone_win_rad_total[zi_win] += win_rad_w;
 
                     // Exterior surface temperature for next iteration's convection.
@@ -3012,12 +3260,16 @@ impl EnvelopeSolver for BuildingEnvelope {
             let mut precomp: Vec<Option<SurfPrecomp>> = Vec::with_capacity(self.surfaces.len());
 
             // Pre-compute per-zone total opaque surface area for window radiation distribution
-            let zone_opaque_area: Vec<f64> = (0..self.zones.len()).map(|zi| {
-                self.zones[zi].surface_indices.iter()
-                    .filter(|&&si| !self.surfaces[si].is_window)
-                    .map(|&si| self.surfaces[si].net_area)
-                    .sum()
-            }).collect();
+            let zone_opaque_area: Vec<f64> = (0..self.zones.len())
+                .map(|zi| {
+                    self.zones[zi]
+                        .surface_indices
+                        .iter()
+                        .filter(|&&si| !self.surfaces[si].is_window)
+                        .map(|&si| self.surfaces[si].net_area)
+                        .sum()
+                })
+                .collect();
 
             for i in 0..self.surfaces.len() {
                 if self.surfaces[i].is_window {
@@ -3025,8 +3277,11 @@ impl EnvelopeSolver for BuildingEnvelope {
                     continue;
                 }
 
-                let zi = self.zone_index.get(&self.surfaces[i].input.zone)
-                    .copied().unwrap_or(0);
+                let zi = self
+                    .zone_index
+                    .get(&self.surfaces[i].input.zone)
+                    .copied()
+                    .unwrap_or(0);
 
                 if let (Some(ctf), Some(history)) = (
                     self.ctf_coefficients[i].as_ref(),
@@ -3052,7 +3307,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // Radiative gains (internal + solar distribution)
                     let zone_rad_gain = if zi < self.zones.len() {
                         self.zones[zi].q_internal_rad
-                    } else { 0.0 };
+                    } else {
+                        0.0
+                    };
 
                     // Solar distribution: use geometric beam + VMULT if available,
                     // otherwise fall back to fixed fractions
@@ -3063,7 +3320,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     } else if zi < self.zones.len() {
                         let zone = &self.zones[zi];
                         if let Some(ref dist) = zone.input.solar_distribution {
-                            let q_sol_total: f64 = zone.surface_indices.iter()
+                            let q_sol_total: f64 = zone
+                                .surface_indices
+                                .iter()
                                 .filter(|&&si| self.surfaces[si].is_window)
                                 .map(|&si| self.surfaces[si].transmitted_solar)
                                 .sum();
@@ -3076,15 +3335,18 @@ impl EnvelopeSolver for BuildingEnvelope {
                                 SurfaceType::Window => 0.0,
                             };
 
-                            let same_type_area: f64 = zone.surface_indices.iter()
+                            let same_type_area: f64 = zone
+                                .surface_indices
+                                .iter()
                                 .filter(|&&si| !self.surfaces[si].is_window)
                                 .filter(|&&si| {
                                     let st = self.surfaces[si].input.surface_type;
                                     match surface_type {
                                         SurfaceType::Floor => st == SurfaceType::Floor,
                                         SurfaceType::Wall => st == SurfaceType::Wall,
-                                        SurfaceType::Roof | SurfaceType::Ceiling =>
-                                            st == SurfaceType::Roof || st == SurfaceType::Ceiling,
+                                        SurfaceType::Roof | SurfaceType::Ceiling => {
+                                            st == SurfaceType::Roof || st == SurfaceType::Ceiling
+                                        }
                                         _ => false,
                                     }
                                 })
@@ -3092,7 +3354,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                                 .sum();
 
                             if same_type_area > 0.0 {
-                                q_sol_total * type_fraction * self.surfaces[i].net_area / same_type_area
+                                q_sol_total * type_fraction * self.surfaces[i].net_area
+                                    / same_type_area
                             } else {
                                 0.0
                             }
@@ -3104,21 +3367,31 @@ impl EnvelopeSolver for BuildingEnvelope {
                     };
 
                     let zone_total_area: f64 = if zi < self.zones.len() {
-                        self.zones[zi].surface_indices.iter()
+                        self.zones[zi]
+                            .surface_indices
+                            .iter()
                             .map(|&si| self.surfaces[si].net_area)
                             .sum()
-                    } else { 1.0 };
+                    } else {
+                        1.0
+                    };
 
                     let q_rad_to_surface = if zone_total_area > 0.0 {
                         zone_rad_gain * self.surfaces[i].net_area / zone_total_area
-                    } else { 0.0 };
+                    } else {
+                        0.0
+                    };
 
                     // Window LW radiation distributed to this opaque surface [W].
                     // zone_win_rad_total is positive when surfaces→glass (surfaces lose heat),
                     // so we negate: opaque surfaces receive a negative radiative flux (cooling).
-                    let q_win_rad_to_surface = if zi < zone_opaque_area.len() && zone_opaque_area[zi] > 0.0 {
+                    let q_win_rad_to_surface = if zi < zone_opaque_area.len()
+                        && zone_opaque_area[zi] > 0.0
+                    {
                         -zone_win_rad_total[zi] * self.surfaces[i].net_area / zone_opaque_area[zi]
-                    } else { 0.0 };
+                    } else {
+                        0.0
+                    };
 
                     let q_total_rad = q_rad_to_surface + q_solar_to_surface + q_win_rad_to_surface;
                     let q_rad_flux = q_total_rad / self.surfaces[i].net_area.max(0.01);
@@ -3166,7 +3439,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let mut feat = [0.0_f64; 6];
                     for &si in &zone.surface_indices {
                         let s = &self.surfaces[si];
-                        if s.is_window { continue; }
+                        if s.is_window {
+                            continue;
+                        }
                         if let Some(face) = s.box_face {
                             let face_total = zvf.face_area[face].max(0.01);
                             let w = s.thermal_absorptance_outside * s.net_area / face_total;
@@ -3212,11 +3487,16 @@ impl EnvelopeSolver for BuildingEnvelope {
                             _ => {
                                 // Re-estimate free-float for t_zone_vec using BDF3
                                 let cp_air = psych::cp_air_fn_w(zone.humidity_ratio);
-                                let rho_air = psych::rho_air_fn_pb_tdb_w(p_b, zone.temp, zone.humidity_ratio);
-                                let (dt_eff_pred, t_prev_eff_pred) = crate::zone::backward_diff_effective(
-                                    zone.temp_order, dt,
-                                    zone.temp_prev, zone.temp_prev2, zone.temp_prev3,
-                                );
+                                let rho_air =
+                                    psych::rho_air_fn_pb_tdb_w(p_b, zone.temp, zone.humidity_ratio);
+                                let (dt_eff_pred, t_prev_eff_pred) =
+                                    crate::zone::backward_diff_effective(
+                                        zone.temp_order,
+                                        dt,
+                                        zone.temp_prev,
+                                        zone.temp_prev2,
+                                        zone.temp_prev3,
+                                    );
                                 let cap_pred = rho_air * zone.input.volume * cp_air / dt_eff_pred;
                                 let mut sum_ha_pred = 0.0_f64;
                                 let mut sum_hat_pred = 0.0_f64;
@@ -3234,7 +3514,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                                             + zone.nat_vent_mass_flow
                                     }
                                     crate::zone_loads::InfiltrationInteraction::AshraeCombined => {
-                                        let unbal = (zone.exhaust_mass_flow - zone.outdoor_air_mass_flow).max(0.0);
+                                        let unbal = (zone.exhaust_mass_flow
+                                            - zone.outdoor_air_mass_flow)
+                                            .max(0.0);
                                         (zone.infiltration_mass_flow.powi(2) + unbal.powi(2)).sqrt()
                                             + zone.ventilation_mass_flow
                                             + zone.outdoor_air_mass_flow
@@ -3242,7 +3524,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                                     }
                                 };
                                 let mcpi_pred = total_outdoor * cp_air;
-                                let q_solar_trans: f64 = zone.surface_indices.iter()
+                                let q_solar_trans: f64 = zone
+                                    .surface_indices
+                                    .iter()
                                     .filter(|&&si| self.surfaces[si].is_window)
                                     .map(|&si| self.surfaces[si].transmitted_solar)
                                     .sum();
@@ -3251,26 +3535,39 @@ impl EnvelopeSolver for BuildingEnvelope {
                                 {
                                     0.0
                                 } else if let Some(ref dist) = zone.input.solar_distribution {
-                                    let to_surf = dist.floor_fraction + dist.wall_fraction + dist.ceiling_fraction;
+                                    let to_surf = dist.floor_fraction
+                                        + dist.wall_fraction
+                                        + dist.ceiling_fraction;
                                     q_solar_trans * (1.0 - to_surf).max(0.0)
                                 } else {
                                     q_solar_trans
                                 };
-                                let q_window_cond: f64 = zone.surface_indices.iter()
+                                let q_window_cond: f64 = zone
+                                    .surface_indices
+                                    .iter()
                                     .filter(|&&si| self.surfaces[si].is_window)
-                                    .map(|&si| self.surfaces[si].q_conv_inside * self.surfaces[si].net_area)
+                                    .map(|&si| {
+                                        self.surfaces[si].q_conv_inside * self.surfaces[si].net_area
+                                    })
                                     .sum();
-                                let q_window_absorbed: f64 = zone.surface_indices.iter()
+                                let q_window_absorbed: f64 = zone
+                                    .surface_indices
+                                    .iter()
                                     .filter(|&&si| self.surfaces[si].is_window)
                                     .map(|&si| self.surfaces[si].absorbed_solar_inside_window)
                                     .sum();
                                 let q_conv_pred = zone.q_internal_conv
                                     + zone.exhaust_fan_heat_to_zone
-                                    + q_solar_to_air + q_window_cond + q_window_absorbed;
+                                    + q_solar_to_air
+                                    + q_window_cond
+                                    + q_window_absorbed;
                                 let denom_pred = sum_ha_pred + mcpi_pred + cap_pred;
                                 if denom_pred > 1e-10 {
-                                    (sum_hat_pred + mcpi_pred * t_outdoor + q_conv_pred
-                                        + cap_pred * t_prev_eff_pred) / denom_pred
+                                    (sum_hat_pred
+                                        + mcpi_pred * t_outdoor
+                                        + q_conv_pred
+                                        + cap_pred * t_prev_eff_pred)
+                                        / denom_pred
                                 } else {
                                     zone.temp_prev
                                 }
@@ -3279,7 +3576,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                         Some((pred_mode, t_zone))
                     } else {
                         let cp_air = psych::cp_air_fn_w(zone.humidity_ratio);
-                        let rho_air = psych::rho_air_fn_pb_tdb_w(p_b, zone.temp, zone.humidity_ratio);
+                        let rho_air =
+                            psych::rho_air_fn_pb_tdb_w(p_b, zone.temp, zone.humidity_ratio);
 
                         let mut sum_ha_pred = 0.0_f64;
                         let mut sum_hat_pred = 0.0_f64;
@@ -3298,7 +3596,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                                     + zone.nat_vent_mass_flow
                             }
                             crate::zone_loads::InfiltrationInteraction::AshraeCombined => {
-                                let unbal = (zone.exhaust_mass_flow - zone.outdoor_air_mass_flow).max(0.0);
+                                let unbal =
+                                    (zone.exhaust_mass_flow - zone.outdoor_air_mass_flow).max(0.0);
                                 (zone.infiltration_mass_flow.powi(2) + unbal.powi(2)).sqrt()
                                     + zone.ventilation_mass_flow
                                     + zone.outdoor_air_mass_flow
@@ -3307,7 +3606,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                         };
                         let mcpi_pred = total_outdoor * cp_air;
 
-                        let q_solar_trans: f64 = zone.surface_indices.iter()
+                        let q_solar_trans: f64 = zone
+                            .surface_indices
+                            .iter()
                             .filter(|&&si| self.surfaces[si].is_window)
                             .map(|&si| self.surfaces[si].transmitted_solar)
                             .sum();
@@ -3316,22 +3617,29 @@ impl EnvelopeSolver for BuildingEnvelope {
                         {
                             0.0
                         } else if let Some(ref dist) = zone.input.solar_distribution {
-                            let to_surf = dist.floor_fraction + dist.wall_fraction + dist.ceiling_fraction;
+                            let to_surf =
+                                dist.floor_fraction + dist.wall_fraction + dist.ceiling_fraction;
                             q_solar_trans * (1.0 - to_surf).max(0.0)
                         } else {
                             q_solar_trans
                         };
-                        let q_window_cond: f64 = zone.surface_indices.iter()
+                        let q_window_cond: f64 = zone
+                            .surface_indices
+                            .iter()
                             .filter(|&&si| self.surfaces[si].is_window)
                             .map(|&si| self.surfaces[si].q_conv_inside * self.surfaces[si].net_area)
                             .sum();
-                        let q_window_absorbed: f64 = zone.surface_indices.iter()
+                        let q_window_absorbed: f64 = zone
+                            .surface_indices
+                            .iter()
                             .filter(|&&si| self.surfaces[si].is_window)
                             .map(|&si| self.surfaces[si].absorbed_solar_inside_window)
                             .sum();
                         let q_conv_pred = zone.q_internal_conv
                             + zone.exhaust_fan_heat_to_zone
-                            + q_solar_to_air + q_window_cond + q_window_absorbed;
+                            + q_solar_to_air
+                            + q_window_cond
+                            + q_window_absorbed;
 
                         // Use the same BDF order as the corrector so predictor
                         // and corrector agree on mode. E+ uses BDF3 in both
@@ -3339,14 +3647,20 @@ impl EnvelopeSolver for BuildingEnvelope {
                         // A BDF1 predictor with BDF3 corrector causes mode
                         // disagreements that amplify oscillations → NaN.
                         let (dt_eff_pred, t_prev_eff_pred) = crate::zone::backward_diff_effective(
-                            zone.temp_order, dt,
-                            zone.temp_prev, zone.temp_prev2, zone.temp_prev3,
+                            zone.temp_order,
+                            dt,
+                            zone.temp_prev,
+                            zone.temp_prev2,
+                            zone.temp_prev3,
                         );
                         let cap_pred = rho_air * zone.input.volume * cp_air / dt_eff_pred;
                         let denom_pred = sum_ha_pred + mcpi_pred + cap_pred;
                         let t_free_pred = if denom_pred > 1e-10 {
-                            (sum_hat_pred + mcpi_pred * t_outdoor + q_conv_pred
-                                + cap_pred * t_prev_eff_pred) / denom_pred
+                            (sum_hat_pred
+                                + mcpi_pred * t_outdoor
+                                + q_conv_pred
+                                + cap_pred * t_prev_eff_pred)
+                                / denom_pred
                         } else {
                             zone.temp_prev
                         };
@@ -3374,7 +3688,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             pred_mode = 0;
                         }
 
-                            let t_zone = match pred_mode {
+                        let t_zone = match pred_mode {
                             1 => heat_sp,
                             -1 => cool_sp,
                             _ => t_free_pred,
@@ -3399,8 +3713,7 @@ impl EnvelopeSolver for BuildingEnvelope {
             // --- Inside surface iteration loop ---
             for _iter in 0..MAX_INSIDE_SURF_ITER {
                 // Save old temps for convergence check and damping
-                let t_inside_old: Vec<f64> = self.surfaces.iter()
-                    .map(|s| s.temp_inside).collect();
+                let t_inside_old: Vec<f64> = self.surfaces.iter().map(|s| s.temp_inside).collect();
 
                 // Area-weighted totals (recomputed each iteration for self-exclusion)
                 let mut zone_sum_ea: Vec<f64> = vec![0.0; self.zones.len()];
@@ -3408,7 +3721,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                 for (zi, zone) in self.zones.iter().enumerate() {
                     for &si in &zone.surface_indices {
                         let s = &self.surfaces[si];
-                        if s.is_window { continue; }
+                        if s.is_window {
+                            continue;
+                        }
                         let eps = s.thermal_absorptance_outside;
                         let a = s.net_area;
                         zone_sum_ea[zi] += eps * a;
@@ -3426,42 +3741,44 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let t_zone = t_zone_vec.get(pc.zi).copied().unwrap_or(21.0);
 
                     // Per-surface MRT: view-factor weighted or area-weighted fallback
-                    let t_mrt = if let (
-                        Some(face_i),
-                        Some(ref zvf),
-                        Some(ref fea),
-                        Some(ref feat),
-                    ) = (
-                        self.surfaces[i].box_face,
-                        self.zone_view_factors.get(pc.zi).and_then(|v| v.as_ref()),
-                        opaque_face_ea.get(pc.zi).and_then(|v| v.as_ref()),
-                        opaque_face_eat.get(pc.zi).and_then(|v| v.as_ref()),
-                    ) {
-                        // VF-weighted MRT: only faces ≠ face_i contribute
-                        // (surfaces on the same face have F=0, so self is excluded)
-                        let mut num = 0.0_f64;
-                        let mut den = 0.0_f64;
-                        for k in 0..6 {
-                            if k == face_i { continue; }
-                            let f = zvf.face_vf[face_i][k];
-                            num += f * feat[k];
-                            den += f * fea[k];
-                        }
-                        if den > 1.0e-10 { num / den } else { t_zone }
-                    } else {
-                        // Area-weighted MRT excluding self
-                        let eps_i = self.surfaces[i].thermal_absorptance_outside;
-                        let a_i = self.surfaces[i].net_area;
-                        let ea_i = eps_i * a_i;
-                        let sum_ea_excl = zone_sum_ea[pc.zi] - ea_i;
-                        let sum_eat_excl = zone_sum_eat[pc.zi]
-                            - ea_i * self.surfaces[i].temp_inside;
-                        if sum_ea_excl > 1.0e-10 {
-                            sum_eat_excl / sum_ea_excl
+                    let t_mrt =
+                        if let (Some(face_i), Some(ref zvf), Some(ref fea), Some(ref feat)) = (
+                            self.surfaces[i].box_face,
+                            self.zone_view_factors.get(pc.zi).and_then(|v| v.as_ref()),
+                            opaque_face_ea.get(pc.zi).and_then(|v| v.as_ref()),
+                            opaque_face_eat.get(pc.zi).and_then(|v| v.as_ref()),
+                        ) {
+                            // VF-weighted MRT: only faces ≠ face_i contribute
+                            // (surfaces on the same face have F=0, so self is excluded)
+                            let mut num = 0.0_f64;
+                            let mut den = 0.0_f64;
+                            for k in 0..6 {
+                                if k == face_i {
+                                    continue;
+                                }
+                                let f = zvf.face_vf[face_i][k];
+                                num += f * feat[k];
+                                den += f * fea[k];
+                            }
+                            if den > 1.0e-10 {
+                                num / den
+                            } else {
+                                t_zone
+                            }
                         } else {
-                            t_zone
-                        }
-                    };
+                            // Area-weighted MRT excluding self
+                            let eps_i = self.surfaces[i].thermal_absorptance_outside;
+                            let a_i = self.surfaces[i].net_area;
+                            let ea_i = eps_i * a_i;
+                            let sum_ea_excl = zone_sum_ea[pc.zi] - ea_i;
+                            let sum_eat_excl =
+                                zone_sum_eat[pc.zi] - ea_i * self.surfaces[i].temp_inside;
+                            if sum_ea_excl > 1.0e-10 {
+                                sum_eat_excl / sum_ea_excl
+                            } else {
+                                t_zone
+                            }
+                        };
                     let t_old = t_inside_old[i];
 
                     // Inside convection coefficient (updated each iteration)
@@ -3469,13 +3786,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                         self.surfaces[i].temp_inside,
                         t_zone,
                         self.surfaces[i].input.tilt,
-                    ).max(0.1);
+                    )
+                    .max(0.1);
                     self.surfaces[i].h_conv_inside = h_conv;
 
                     // Linearized interior LW radiation coefficient
                     let eps = self.surfaces[i].thermal_absorptance_outside;
-                    let t_mean_k = ((self.surfaces[i].temp_inside + 273.15)
-                        + (t_mrt + 273.15)) / 2.0;
+                    let t_mean_k =
+                        ((self.surfaces[i].temp_inside + 273.15) + (t_mrt + 273.15)) / 2.0;
                     let h_rad = 4.0 * eps * SIGMA * t_mean_k.powi(3);
 
                     // Surface temperature equation with linearized radiation
@@ -3502,19 +3820,22 @@ impl EnvelopeSolver for BuildingEnvelope {
                     //         + q_rad + IterDampConst·T_old)
                     //       / (Z₀ - Y₀ + h_conv + h_rad + IterDampConst)
                     if pc.is_adiabatic {
-                        let denom = (pc.ctf_z0 - pc.ctf_y0)
-                            + h_conv + h_rad + ITER_DAMP_CONST;
-                        self.surfaces[i].temp_inside =
-                            (pc.ctf_const_in + h_conv * t_zone + h_rad * t_mrt
-                             + pc.q_rad_flux + ITER_DAMP_CONST * t_old)
+                        let denom = (pc.ctf_z0 - pc.ctf_y0) + h_conv + h_rad + ITER_DAMP_CONST;
+                        self.surfaces[i].temp_inside = (pc.ctf_const_in
+                            + h_conv * t_zone
+                            + h_rad * t_mrt
+                            + pc.q_rad_flux
+                            + ITER_DAMP_CONST * t_old)
                             / denom.max(0.1);
                         self.surfaces[i].temp_outside = self.surfaces[i].temp_inside;
                     } else {
                         let denom = pc.ctf_z0 + h_conv + h_rad + ITER_DAMP_CONST;
-                        self.surfaces[i].temp_inside =
-                            (pc.ctf_y0 * self.surfaces[i].temp_outside + pc.ctf_const_in
-                             + h_conv * t_zone + h_rad * t_mrt + pc.q_rad_flux
-                             + ITER_DAMP_CONST * t_old)
+                        self.surfaces[i].temp_inside = (pc.ctf_y0 * self.surfaces[i].temp_outside
+                            + pc.ctf_const_in
+                            + h_conv * t_zone
+                            + h_rad * t_mrt
+                            + pc.q_rad_flux
+                            + ITER_DAMP_CONST * t_old)
                             / denom.max(0.1);
                     }
 
@@ -3528,7 +3849,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                 }
 
                 // Convergence check
-                let max_del_temp = self.surfaces.iter()
+                let max_del_temp = self
+                    .surfaces
+                    .iter()
                     .enumerate()
                     .filter(|(i, _)| precomp[*i].is_some())
                     .map(|(i, s)| (s.temp_inside - t_inside_old[i]).abs())
@@ -3541,7 +3864,9 @@ impl EnvelopeSolver for BuildingEnvelope {
 
             // Post-iteration: update adiabatic mass node temps, CTF fluxes, convective flux
             for i in 0..self.surfaces.len() {
-                if precomp[i].is_none() { continue; }
+                if precomp[i].is_none() {
+                    continue;
+                }
                 let pc = precomp[i].as_ref().unwrap();
 
                 if let (Some(ctf), Some(history)) = (
@@ -3582,7 +3907,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                 }
 
                 // Transmitted solar through windows
-                let q_solar_transmitted: f64 = zone.surface_indices.iter()
+                let q_solar_transmitted: f64 = zone
+                    .surface_indices
+                    .iter()
                     .filter(|&&si| self.surfaces[si].is_window)
                     .map(|&si| self.surfaces[si].transmitted_solar)
                     .sum();
@@ -3597,7 +3924,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                 } else if zone.input.solar_distribution.is_some() {
                     // Fixed-fraction fallback: remaining fraction goes to air
                     let dist = zone.input.solar_distribution.as_ref().unwrap();
-                    let to_surfaces = dist.floor_fraction + dist.wall_fraction + dist.ceiling_fraction;
+                    let to_surfaces =
+                        dist.floor_fraction + dist.wall_fraction + dist.ceiling_fraction;
                     q_solar_transmitted * (1.0 - to_surfaces).max(0.0)
                 } else {
                     // No solar distribution: all transmitted solar goes to zone air
@@ -3605,13 +3933,17 @@ impl EnvelopeSolver for BuildingEnvelope {
                 };
 
                 // Window conduction also contributes
-                let q_window_cond: f64 = zone.surface_indices.iter()
+                let q_window_cond: f64 = zone
+                    .surface_indices
+                    .iter()
                     .filter(|&&si| self.surfaces[si].is_window)
                     .map(|&si| self.surfaces[si].q_conv_inside * self.surfaces[si].net_area)
                     .sum();
 
                 // Solar absorbed by window glazing that enters the zone (inward fraction)
-                let q_window_absorbed: f64 = zone.surface_indices.iter()
+                let q_window_absorbed: f64 = zone
+                    .surface_indices
+                    .iter()
                     .filter(|&&si| self.surfaces[si].is_window)
                     .map(|&si| self.surfaces[si].absorbed_solar_inside_window)
                     .sum();
@@ -3641,7 +3973,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                 // If HVAC handles OA mixing (VAV with economizer, PSZ-AC), suppress
                 // zone OA to avoid double-counting. If HVAC is recirculation-only
                 // (PTAC/FCU with separate ERV), allow zone OA through.
-                let hvac_handles_oa = hvac.oa_handled_by_hvac
+                let hvac_handles_oa = hvac
+                    .oa_handled_by_hvac
                     .get(&zone.input.name)
                     .copied()
                     .unwrap_or(true); // default: suppress OA when HVAC is running
@@ -3687,8 +4020,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             + zone.nat_vent_mass_flow
                     }
                     crate::zone_loads::InfiltrationInteraction::AshraeCombined => {
-                        let unbalanced_exhaust =
-                            (zone.exhaust_mass_flow - oa_to_zone).max(0.0);
+                        let unbalanced_exhaust = (zone.exhaust_mass_flow - oa_to_zone).max(0.0);
                         let combined_infil_exhaust = (zone.infiltration_mass_flow.powi(2)
                             + unbalanced_exhaust.powi(2))
                         .sqrt();
@@ -3739,9 +4071,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let cap_term = rho_air * zone.input.volume * cp_air / dt_eff;
                     let denom = sum_ha + mcpi + cap_term;
                     zone.temp_no_hvac = if denom > 1e-10 {
-                        (sum_hat + mcpi * t_outdoor + q_conv_total
-                            + cap_term * t_prev_eff)
-                            / denom
+                        (sum_hat + mcpi * t_outdoor + q_conv_total + cap_term * t_prev_eff) / denom
                     } else {
                         zone.temp_prev
                     };
@@ -3754,11 +4084,17 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // Mode was already determined by the predictor above,
                     // so the corrector here just refines Q and zone temp.
                     let t_free = crate::zone::solve_zone_air_temp_with_q(
-                        sum_ha, sum_hat,
-                        mcpi, t_outdoor,
+                        sum_ha,
+                        sum_hat,
+                        mcpi,
+                        t_outdoor,
                         q_conv_total,
                         0.0, // no HVAC
-                        rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
+                        rho_air,
+                        zone.input.volume,
+                        cp_air,
+                        dt_eff,
+                        t_prev_eff,
                     );
 
                     // Step 2: Get active setpoints (may vary by schedule)
@@ -3805,8 +4141,16 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let (q_hvac, hvac_mode) = if pred_mode > 0 {
                         // Predictor: HEATING
                         let q_needed = crate::zone::compute_ideal_q_hvac(
-                            sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
-                            rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
+                            sum_ha,
+                            sum_hat,
+                            mcpi,
+                            t_outdoor,
+                            q_conv_total,
+                            rho_air,
+                            zone.input.volume,
+                            cp_air,
+                            dt_eff,
+                            t_prev_eff,
                             heat_sp,
                         );
                         if q_needed > 0.0 {
@@ -3819,8 +4163,16 @@ impl EnvelopeSolver for BuildingEnvelope {
                     } else if pred_mode < 0 {
                         // Predictor: COOLING
                         let q_needed = crate::zone::compute_ideal_q_hvac(
-                            sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
-                            rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
+                            sum_ha,
+                            sum_hat,
+                            mcpi,
+                            t_outdoor,
+                            q_conv_total,
+                            rho_air,
+                            zone.input.volume,
+                            cp_air,
+                            dt_eff,
+                            t_prev_eff,
                             cool_sp,
                         );
                         if q_needed < 0.0 {
@@ -3838,8 +4190,16 @@ impl EnvelopeSolver for BuildingEnvelope {
                         // heating or cooling to prevent unbounded overshoot.
                         if t_free < heat_sp {
                             let q_needed = crate::zone::compute_ideal_q_hvac(
-                                sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
-                                rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
+                                sum_ha,
+                                sum_hat,
+                                mcpi,
+                                t_outdoor,
+                                q_conv_total,
+                                rho_air,
+                                zone.input.volume,
+                                cp_air,
+                                dt_eff,
+                                t_prev_eff,
                                 heat_sp,
                             );
                             if q_needed > 0.0 {
@@ -3849,8 +4209,16 @@ impl EnvelopeSolver for BuildingEnvelope {
                             }
                         } else if t_free > cool_sp {
                             let q_needed = crate::zone::compute_ideal_q_hvac(
-                                sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
-                                rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
+                                sum_ha,
+                                sum_hat,
+                                mcpi,
+                                t_outdoor,
+                                q_conv_total,
+                                rho_air,
+                                zone.input.volume,
+                                cp_air,
+                                dt_eff,
+                                t_prev_eff,
                                 cool_sp,
                             );
                             if q_needed < 0.0 {
@@ -3865,11 +4233,17 @@ impl EnvelopeSolver for BuildingEnvelope {
 
                     // Step 4: Solve zone temp with HVAC Q
                     zone.temp = crate::zone::solve_zone_air_temp_with_q(
-                        sum_ha, sum_hat,
-                        mcpi, t_outdoor,
+                        sum_ha,
+                        sum_hat,
+                        mcpi,
+                        t_outdoor,
                         q_conv_total,
                         q_hvac,
-                        rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
+                        rho_air,
+                        zone.input.volume,
+                        cp_air,
+                        dt_eff,
+                        t_prev_eff,
                     );
                     // Step 5: Record loads and rates
                     if hvac_mode > 0 {
@@ -3894,16 +4268,32 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let sat = zone.supply_air_temp;
 
                     zone.temp = crate::zone::solve_zone_air_temp(
-                        sum_ha, sum_hat,
-                        mcpi, t_outdoor,
-                        mcpsys, sat,
+                        sum_ha,
+                        sum_hat,
+                        mcpi,
+                        t_outdoor,
+                        mcpsys,
+                        sat,
                         q_conv_total,
-                        rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
+                        rho_air,
+                        zone.input.volume,
+                        cp_air,
+                        dt_eff,
+                        t_prev_eff,
                     );
 
                     let (hl, cl) = crate::zone::calc_zone_loads(
-                        zone.temp, sum_ha, sum_hat, mcpi, t_outdoor,
-                        q_conv_total, rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
+                        zone.temp,
+                        sum_ha,
+                        sum_hat,
+                        mcpi,
+                        t_outdoor,
+                        q_conv_total,
+                        rho_air,
+                        zone.input.volume,
+                        cp_air,
+                        dt_eff,
+                        t_prev_eff,
                     );
                     zone.heating_load = hl;
                     zone.cooling_load = cl;
@@ -3915,15 +4305,30 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // Zone temperature drifts freely. Still compute loads so that
                     // load-based PLR controllers know what the zone needs.
                     zone.temp = crate::zone::solve_zone_air_temp_with_q(
-                        sum_ha, sum_hat,
-                        mcpi, t_outdoor,
+                        sum_ha,
+                        sum_hat,
+                        mcpi,
+                        t_outdoor,
                         q_conv_total,
                         0.0, // no HVAC
-                        rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
+                        rho_air,
+                        zone.input.volume,
+                        cp_air,
+                        dt_eff,
+                        t_prev_eff,
                     );
                     let (hl, cl) = crate::zone::calc_zone_loads(
-                        zone.temp, sum_ha, sum_hat, mcpi, t_outdoor,
-                        q_conv_total, rho_air, zone.input.volume, cp_air, dt_eff, t_prev_eff,
+                        zone.temp,
+                        sum_ha,
+                        sum_hat,
+                        mcpi,
+                        t_outdoor,
+                        q_conv_total,
+                        rho_air,
+                        zone.input.volume,
+                        cp_air,
+                        dt_eff,
+                        t_prev_eff,
                     );
                     zone.heating_load = hl;
                     zone.cooling_load = cl;
@@ -3960,7 +4365,8 @@ impl EnvelopeSolver for BuildingEnvelope {
 
                     // HVAC supply humidity from the air loop
                     let m_supply = zone.supply_air_mass_flow;
-                    let w_supply = hvac.supply_humidity_ratios
+                    let w_supply = hvac
+                        .supply_humidity_ratios
                         .get(&zone.input.name)
                         .copied()
                         .unwrap_or(zone.supply_air_humidity_ratio);
@@ -4061,8 +4467,17 @@ impl EnvelopeSolver for BuildingEnvelope {
 
                 zone.ideal_cooling_load = if let Some(sp) = cool_sp {
                     let q = crate::zone::compute_ideal_q_hvac(
-                        sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
-                        rho_air, zone.input.volume, cp_air, dt_eff, zone.temp, sp,
+                        sum_ha,
+                        sum_hat,
+                        mcpi,
+                        t_outdoor,
+                        q_conv_total,
+                        rho_air,
+                        zone.input.volume,
+                        cp_air,
+                        dt_eff,
+                        zone.temp,
+                        sp,
                     );
                     // Negative Q = cooling needed; convert to positive cooling load
                     (-q).max(0.0)
@@ -4072,8 +4487,17 @@ impl EnvelopeSolver for BuildingEnvelope {
 
                 zone.ideal_heating_load = if let Some(sp) = heat_sp {
                     let q = crate::zone::compute_ideal_q_hvac(
-                        sum_ha, sum_hat, mcpi, t_outdoor, q_conv_total,
-                        rho_air, zone.input.volume, cp_air, dt_eff, zone.temp, sp,
+                        sum_ha,
+                        sum_hat,
+                        mcpi,
+                        t_outdoor,
+                        q_conv_total,
+                        rho_air,
+                        zone.input.volume,
+                        cp_air,
+                        dt_eff,
+                        zone.temp,
+                        sp,
                     );
                     // Positive Q = heating needed
                     q.max(0.0)
@@ -4107,7 +4531,9 @@ impl EnvelopeSolver for BuildingEnvelope {
         // after solve_timestep().
 
         // 8b. Print diagnostic accumulators at end of year
-        if ctx.timestep.month == 12 && ctx.timestep.day == 31 && ctx.timestep.hour == 24
+        if ctx.timestep.month == 12
+            && ctx.timestep.day == 31
+            && ctx.timestep.hour == 24
             && !ctx.is_sizing
         {
             // Commit the final pending values (last timestep of the year)
@@ -4133,26 +4559,67 @@ impl EnvelopeSolver for BuildingEnvelope {
             for zone in &self.zones {
                 if zone.input.conditioned {
                     let opaque_conv = zone.diag_surface_loss_kwh - zone.diag_window_conv_kwh;
-                    let total_window = zone.diag_solar_trans_kwh + zone.diag_window_cond_kwh - zone.diag_window_conv_kwh;
-                    let q_win_absorbed = zone.diag_q_conv_kwh - zone.diag_internal_conv_kwh
+                    let total_window = zone.diag_solar_trans_kwh + zone.diag_window_cond_kwh
+                        - zone.diag_window_conv_kwh;
+                    let q_win_absorbed = zone.diag_q_conv_kwh
+                        - zone.diag_internal_conv_kwh
                         - zone.diag_window_cond_kwh;
                     eprintln!("═══ ANNUAL HEAT BALANCE: {} ═══", zone.input.name);
-                    eprintln!("  Surface conv (all):   {:>10.1} kWh (air→surf, neg=gain)", zone.diag_surface_loss_kwh);
-                    eprintln!("    Opaque surf conv:   {:>10.1} kWh               E+: -7569", opaque_conv);
-                    eprintln!("    Window convective:  {:>10.1} kWh", zone.diag_window_conv_kwh);
-                    eprintln!("  Infiltration loss:    {:>10.1} kWh               E+: -4644", zone.diag_infil_loss_kwh);
-                    eprintln!("  q_conv_total:         {:>10.1} kWh (internal+wincond+absorbed)", zone.diag_q_conv_kwh);
-                    eprintln!("    Internal conv:      {:>10.1} kWh", zone.diag_internal_conv_kwh);
-                    eprintln!("    Window rad(cond):   {:>10.1} kWh", zone.diag_window_cond_kwh);
+                    eprintln!(
+                        "  Surface conv (all):   {:>10.1} kWh (air→surf, neg=gain)",
+                        zone.diag_surface_loss_kwh
+                    );
+                    eprintln!(
+                        "    Opaque surf conv:   {:>10.1} kWh               E+: -7569",
+                        opaque_conv
+                    );
+                    eprintln!(
+                        "    Window convective:  {:>10.1} kWh",
+                        zone.diag_window_conv_kwh
+                    );
+                    eprintln!(
+                        "  Infiltration loss:    {:>10.1} kWh               E+: -4644",
+                        zone.diag_infil_loss_kwh
+                    );
+                    eprintln!(
+                        "  q_conv_total:         {:>10.1} kWh (internal+wincond+absorbed)",
+                        zone.diag_q_conv_kwh
+                    );
+                    eprintln!(
+                        "    Internal conv:      {:>10.1} kWh",
+                        zone.diag_internal_conv_kwh
+                    );
+                    eprintln!(
+                        "    Window rad(cond):   {:>10.1} kWh",
+                        zone.diag_window_cond_kwh
+                    );
                     eprintln!("    Window absorbed:    {:>10.1} kWh", q_win_absorbed);
-                    eprintln!("  Transmitted solar:    {:>10.1} kWh               E+: +7850", zone.diag_solar_trans_kwh);
+                    eprintln!(
+                        "  Transmitted solar:    {:>10.1} kWh               E+: +7850",
+                        zone.diag_solar_trans_kwh
+                    );
                     eprintln!("  ── Window total ──");
-                    eprintln!("    Solar trans:        {:>10.1} kWh", zone.diag_solar_trans_kwh);
-                    eprintln!("    + rad(cond):        {:>10.1} kWh", zone.diag_window_cond_kwh);
-                    eprintln!("    − convective:       {:>10.1} kWh", zone.diag_window_conv_kwh);
+                    eprintln!(
+                        "    Solar trans:        {:>10.1} kWh",
+                        zone.diag_solar_trans_kwh
+                    );
+                    eprintln!(
+                        "    + rad(cond):        {:>10.1} kWh",
+                        zone.diag_window_cond_kwh
+                    );
+                    eprintln!(
+                        "    − convective:       {:>10.1} kWh",
+                        zone.diag_window_conv_kwh
+                    );
                     eprintln!("    + absorbed:         {:>10.1} kWh", q_win_absorbed);
-                    eprintln!("    = NET window:       {:>10.1} kWh   E+: +4221 (+7850-3629)", total_window + q_win_absorbed);
-                    eprintln!("  HVAC net delivered:   {:>10.1} kWh   E+: -628 (+5639-6267)", zone.diag_hvac_net_kwh);
+                    eprintln!(
+                        "    = NET window:       {:>10.1} kWh   E+: +4221 (+7850-3629)",
+                        total_window + q_win_absorbed
+                    );
+                    eprintln!(
+                        "  HVAC net delivered:   {:>10.1} kWh   E+: -628 (+5639-6267)",
+                        zone.diag_hvac_net_kwh
+                    );
                     eprintln!("  ── E+ comparison (kWh) ──");
                     eprintln!("    Opaque cond: -7569  |  Infil: -4644  |  Internal: +8624");
                     eprintln!("    Window net: +4221   |  HVAC heat: +5639  |  HVAC cool: -6267");
@@ -4164,13 +4631,27 @@ impl EnvelopeSolver for BuildingEnvelope {
         // 9. Build results
         let mut results = EnvelopeResults::default();
         for zone in &self.zones {
-            results.zone_temps.insert(zone.input.name.clone(), zone.temp);
-            results.zone_humidity.insert(zone.input.name.clone(), zone.humidity_ratio);
-            results.zone_heating_loads.insert(zone.input.name.clone(), zone.heating_load);
-            results.zone_cooling_loads.insert(zone.input.name.clone(), zone.cooling_load);
-            results.ideal_cooling_loads.insert(zone.input.name.clone(), zone.ideal_cooling_load);
-            results.ideal_heating_loads.insert(zone.input.name.clone(), zone.ideal_heating_load);
-            results.predictor_temps.insert(zone.input.name.clone(), zone.temp_no_hvac);
+            results
+                .zone_temps
+                .insert(zone.input.name.clone(), zone.temp);
+            results
+                .zone_humidity
+                .insert(zone.input.name.clone(), zone.humidity_ratio);
+            results
+                .zone_heating_loads
+                .insert(zone.input.name.clone(), zone.heating_load);
+            results
+                .zone_cooling_loads
+                .insert(zone.input.name.clone(), zone.cooling_load);
+            results
+                .ideal_cooling_loads
+                .insert(zone.input.name.clone(), zone.ideal_cooling_load);
+            results
+                .ideal_heating_loads
+                .insert(zone.input.name.clone(), zone.ideal_heating_load);
+            results
+                .predictor_temps
+                .insert(zone.input.name.clone(), zone.temp_no_hvac);
 
             let mut outputs = HashMap::new();
             outputs.insert("zone_temp".to_string(), zone.temp);
@@ -4179,20 +4660,40 @@ impl EnvelopeSolver for BuildingEnvelope {
             outputs.insert("cooling_load".to_string(), zone.cooling_load);
             outputs.insert("hvac_heating_rate".to_string(), zone.hvac_heating_rate);
             outputs.insert("hvac_cooling_rate".to_string(), zone.hvac_cooling_rate);
-            outputs.insert("infiltration_mass_flow".to_string(), zone.infiltration_mass_flow);
-            outputs.insert("ventilation_mass_flow".to_string(), zone.ventilation_mass_flow);
+            outputs.insert(
+                "infiltration_mass_flow".to_string(),
+                zone.infiltration_mass_flow,
+            );
+            outputs.insert(
+                "ventilation_mass_flow".to_string(),
+                zone.ventilation_mass_flow,
+            );
             outputs.insert("exhaust_mass_flow".to_string(), zone.exhaust_mass_flow);
             outputs.insert("exhaust_fan_power".to_string(), zone.exhaust_fan_power);
-            outputs.insert("exhaust_fan_heat_to_zone".to_string(), zone.exhaust_fan_heat_to_zone);
-            outputs.insert("outdoor_air_mass_flow".to_string(), zone.outdoor_air_mass_flow);
+            outputs.insert(
+                "exhaust_fan_heat_to_zone".to_string(),
+                zone.exhaust_fan_heat_to_zone,
+            );
+            outputs.insert(
+                "outdoor_air_mass_flow".to_string(),
+                zone.outdoor_air_mass_flow,
+            );
             outputs.insert("nat_vent_flow".to_string(), zone.nat_vent_flow);
             outputs.insert("nat_vent_mass_flow".to_string(), zone.nat_vent_mass_flow);
-            outputs.insert("nat_vent_active".to_string(), if zone.nat_vent_active { 1.0 } else { 0.0 });
+            outputs.insert(
+                "nat_vent_active".to_string(),
+                if zone.nat_vent_active { 1.0 } else { 0.0 },
+            );
             outputs.insert("q_internal_conv".to_string(), zone.q_internal_conv);
             outputs.insert("q_internal_rad".to_string(), zone.q_internal_rad);
             outputs.insert("supply_air_temp".to_string(), zone.supply_air_temp);
-            outputs.insert("supply_air_mass_flow".to_string(), zone.supply_air_mass_flow);
-            results.zone_outputs.insert(zone.input.name.clone(), outputs);
+            outputs.insert(
+                "supply_air_mass_flow".to_string(),
+                zone.supply_air_mass_flow,
+            );
+            results
+                .zone_outputs
+                .insert(zone.input.name.clone(), outputs);
         }
 
         results
@@ -4294,18 +4795,22 @@ impl BuildingEnvelope {
             surface.temp_outside = temp;
         }
         // Reset deferred CTF flux values
-        for q in self.ctf_q_last_inside.iter_mut() { *q = 0.0; }
-        for q in self.ctf_q_last_outside.iter_mut() { *q = 0.0; }
+        for q in self.ctf_q_last_inside.iter_mut() {
+            *q = 0.0;
+        }
+        for q in self.ctf_q_last_outside.iter_mut() {
+            *q = 0.0;
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openbse_core::ports::{SimulationContext, SizingInternalGains};
-    use openbse_core::types::{TimeStep, DayType};
-    use openbse_psychrometrics::MoistAirState;
     use crate::zone::IdealLoadsAirSystem;
+    use openbse_core::ports::{SimulationContext, SizingInternalGains};
+    use openbse_core::types::{DayType, TimeStep};
+    use openbse_psychrometrics::MoistAirState;
 
     fn make_simple_model() -> BuildingEnvelope {
         use crate::material::ConstructionLayer;
@@ -4337,8 +4842,14 @@ mod tests {
         let constructions = vec![Construction {
             name: "Wall".to_string(),
             layers: vec![
-                ConstructionLayer { material: "Concrete".to_string(), thickness: 0.2 },
-                ConstructionLayer { material: "Insulation".to_string(), thickness: 0.1 },
+                ConstructionLayer {
+                    material: "Concrete".to_string(),
+                    thickness: 0.2,
+                },
+                ConstructionLayer {
+                    material: "Insulation".to_string(),
+                    thickness: 0.1,
+                },
             ],
         }];
 
@@ -4366,15 +4877,13 @@ mod tests {
                 air_changes_per_hour: 0.5,
                 ..Default::default()
             }],
-            internal_gains: vec![
-                crate::internal_gains::InternalGainInput::Equipment {
-                    power: 500.0,
-                    radiant_fraction: 0.3,
-                    lost_fraction: 0.0,
-                    latent_fraction: 0.0,
-                    schedule: None,
-                },
-            ],
+            internal_gains: vec![crate::internal_gains::InternalGainInput::Equipment {
+                power: 500.0,
+                radiant_fraction: 0.3,
+                lost_fraction: 0.0,
+                latent_fraction: 0.0,
+                schedule: None,
+            }],
             internal_mass: vec![],
 
             ideal_loads: None,
@@ -4460,16 +4969,27 @@ mod tests {
         ];
 
         BuildingEnvelope::from_input(
-            materials, constructions, window_constructions,
-            zones, surfaces, 40.0, -105.0, -7.0,
+            materials,
+            constructions,
+            window_constructions,
+            zones,
+            surfaces,
+            40.0,
+            -105.0,
+            -7.0,
         )
     }
 
     fn make_ctx() -> SimulationContext {
         SimulationContext {
             timestep: TimeStep {
-                month: 1, day: 15, hour: 12, sub_hour: 1,
-                timesteps_per_hour: 1, sim_time_s: 0.0, dt: 3600.0,
+                month: 1,
+                day: 15,
+                hour: 12,
+                sub_hour: 1,
+                timesteps_per_hour: 1,
+                sim_time_s: 0.0,
+                dt: 3600.0,
             },
             outdoor_air: MoistAirState::from_tdb_rh(0.0, 0.5, 101325.0),
             day_type: DayType::WeatherDay,
@@ -4480,7 +5000,10 @@ mod tests {
 
     fn make_weather_hour(dry_bulb: f64) -> WeatherHour {
         WeatherHour {
-            year: 2023, month: 1, day: 15, hour: 12,
+            year: 2023,
+            month: 1,
+            day: 15,
+            hour: 12,
             dry_bulb,
             dew_point: -5.0,
             rel_humidity: 50.0,
@@ -4513,29 +5036,44 @@ mod tests {
         let materials = vec![
             Material {
                 name: "Concrete".to_string(),
-                conductivity: 1.311, density: 2240.0, specific_heat: 836.8,
-                solar_absorptance: 0.7, thermal_absorptance: 0.9,
-                visible_absorptance: 0.7, roughness: Roughness::MediumRough,
+                conductivity: 1.311,
+                density: 2240.0,
+                specific_heat: 836.8,
+                solar_absorptance: 0.7,
+                thermal_absorptance: 0.9,
+                visible_absorptance: 0.7,
+                roughness: Roughness::MediumRough,
                 thermal_resistance: None,
             },
             Material {
                 name: "Insulation".to_string(),
-                conductivity: 0.04, density: 30.0, specific_heat: 840.0,
-                solar_absorptance: 0.7, thermal_absorptance: 0.9,
-                visible_absorptance: 0.7, roughness: Roughness::Rough,
+                conductivity: 0.04,
+                density: 30.0,
+                specific_heat: 840.0,
+                solar_absorptance: 0.7,
+                thermal_absorptance: 0.9,
+                visible_absorptance: 0.7,
+                roughness: Roughness::Rough,
                 thermal_resistance: None,
             },
         ];
         let constructions = vec![Construction {
             name: "Wall".to_string(),
             layers: vec![
-                ConstructionLayer { material: "Concrete".to_string(), thickness: 0.2 },
-                ConstructionLayer { material: "Insulation".to_string(), thickness: 0.1 },
+                ConstructionLayer {
+                    material: "Concrete".to_string(),
+                    thickness: 0.2,
+                },
+                ConstructionLayer {
+                    material: "Insulation".to_string(),
+                    thickness: 0.1,
+                },
             ],
         }];
         let zones = vec![ZoneInput {
             name: "TestZone".to_string(),
-            volume: 150.0, floor_area: 50.0,
+            volume: 150.0,
+            floor_area: 50.0,
             infiltration: vec![crate::infiltration::InfiltrationInput {
                 air_changes_per_hour: 0.5,
                 ..Default::default()
@@ -4555,32 +5093,62 @@ mod tests {
         }];
         let surfaces = vec![
             SurfaceInput {
-                name: "South Wall".to_string(), zone: "TestZone".to_string(),
-                surface_type: SurfaceType::Wall, construction: "Wall".to_string(),
-                area: 30.0, azimuth: 180.0, tilt: 90.0,
-                boundary: BoundaryCondition::Outdoor, parent_surface: None,
-                vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true, exposed_perimeter: None, airflow: None,
+                name: "South Wall".to_string(),
+                zone: "TestZone".to_string(),
+                surface_type: SurfaceType::Wall,
+                construction: "Wall".to_string(),
+                area: 30.0,
+                azimuth: 180.0,
+                tilt: 90.0,
+                boundary: BoundaryCondition::Outdoor,
+                parent_surface: None,
+                vertices: None,
+                shading: None,
+                sun_exposure: true,
+                wind_exposure: true,
+                exposed_perimeter: None,
+                airflow: None,
             },
             SurfaceInput {
-                name: "Roof".to_string(), zone: "TestZone".to_string(),
-                surface_type: SurfaceType::Roof, construction: "Wall".to_string(),
-                area: 50.0, azimuth: 0.0, tilt: 0.0,
-                boundary: BoundaryCondition::Outdoor, parent_surface: None,
-                vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true, exposed_perimeter: None, airflow: None,
+                name: "Roof".to_string(),
+                zone: "TestZone".to_string(),
+                surface_type: SurfaceType::Roof,
+                construction: "Wall".to_string(),
+                area: 50.0,
+                azimuth: 0.0,
+                tilt: 0.0,
+                boundary: BoundaryCondition::Outdoor,
+                parent_surface: None,
+                vertices: None,
+                shading: None,
+                sun_exposure: true,
+                wind_exposure: true,
+                exposed_perimeter: None,
+                airflow: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
-            materials, constructions, vec![], zones, surfaces, 40.0, -105.0, -7.0,
+            materials,
+            constructions,
+            vec![],
+            zones,
+            surfaces,
+            40.0,
+            -105.0,
+            -7.0,
         );
         envelope.initialize(3600.0).unwrap();
 
         // Night context — no solar radiation
         let ctx = SimulationContext {
             timestep: TimeStep {
-                month: 1, day: 15, hour: 3, sub_hour: 1,
-                timesteps_per_hour: 1, sim_time_s: 0.0, dt: 3600.0,
+                month: 1,
+                day: 15,
+                hour: 3,
+                sub_hour: 1,
+                timesteps_per_hour: 1,
+                sim_time_s: 0.0,
+                dt: 3600.0,
             },
             outdoor_air: MoistAirState::from_tdb_rh(0.0, 0.5, 101325.0),
             day_type: DayType::WeatherDay,
@@ -4635,24 +5203,28 @@ mod tests {
     fn test_ideal_loads_heating() {
         use crate::material::ConstructionLayer;
         // Zone with ideal loads in cold conditions should heat to setpoint
-        let materials = vec![
-            Material {
-                name: "Concrete".to_string(),
-                conductivity: 1.311, density: 2240.0, specific_heat: 836.8,
-                solar_absorptance: 0.7, thermal_absorptance: 0.9,
-                visible_absorptance: 0.7, roughness: Roughness::MediumRough,
-                thermal_resistance: None,
-            },
-        ];
+        let materials = vec![Material {
+            name: "Concrete".to_string(),
+            conductivity: 1.311,
+            density: 2240.0,
+            specific_heat: 836.8,
+            solar_absorptance: 0.7,
+            thermal_absorptance: 0.9,
+            visible_absorptance: 0.7,
+            roughness: Roughness::MediumRough,
+            thermal_resistance: None,
+        }];
         let constructions = vec![Construction {
             name: "Wall".to_string(),
-            layers: vec![
-                ConstructionLayer { material: "Concrete".to_string(), thickness: 0.2 },
-            ],
+            layers: vec![ConstructionLayer {
+                material: "Concrete".to_string(),
+                thickness: 0.2,
+            }],
         }];
         let zones = vec![ZoneInput {
             name: "IdealZone".to_string(),
-            volume: 130.0, floor_area: 48.0,
+            volume: 130.0,
+            floor_area: 48.0,
             infiltration: vec![crate::infiltration::InfiltrationInput {
                 air_changes_per_hour: 0.5,
                 ..Default::default()
@@ -4677,31 +5249,61 @@ mod tests {
         }];
         let surfaces = vec![
             SurfaceInput {
-                name: "Wall".to_string(), zone: "IdealZone".to_string(),
-                surface_type: SurfaceType::Wall, construction: "Wall".to_string(),
-                area: 60.0, azimuth: 180.0, tilt: 90.0,
-                boundary: BoundaryCondition::Outdoor, parent_surface: None,
-                vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true, exposed_perimeter: None, airflow: None,
+                name: "Wall".to_string(),
+                zone: "IdealZone".to_string(),
+                surface_type: SurfaceType::Wall,
+                construction: "Wall".to_string(),
+                area: 60.0,
+                azimuth: 180.0,
+                tilt: 90.0,
+                boundary: BoundaryCondition::Outdoor,
+                parent_surface: None,
+                vertices: None,
+                shading: None,
+                sun_exposure: true,
+                wind_exposure: true,
+                exposed_perimeter: None,
+                airflow: None,
             },
             SurfaceInput {
-                name: "Roof".to_string(), zone: "IdealZone".to_string(),
-                surface_type: SurfaceType::Roof, construction: "Wall".to_string(),
-                area: 48.0, azimuth: 0.0, tilt: 0.0,
-                boundary: BoundaryCondition::Outdoor, parent_surface: None,
-                vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true, exposed_perimeter: None, airflow: None,
+                name: "Roof".to_string(),
+                zone: "IdealZone".to_string(),
+                surface_type: SurfaceType::Roof,
+                construction: "Wall".to_string(),
+                area: 48.0,
+                azimuth: 0.0,
+                tilt: 0.0,
+                boundary: BoundaryCondition::Outdoor,
+                parent_surface: None,
+                vertices: None,
+                shading: None,
+                sun_exposure: true,
+                wind_exposure: true,
+                exposed_perimeter: None,
+                airflow: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
-            materials, constructions, vec![], zones, surfaces, 40.0, -105.0, -7.0,
+            materials,
+            constructions,
+            vec![],
+            zones,
+            surfaces,
+            40.0,
+            -105.0,
+            -7.0,
         );
         envelope.initialize(900.0).unwrap();
 
         let ctx = SimulationContext {
             timestep: TimeStep {
-                month: 1, day: 15, hour: 3, sub_hour: 1,
-                timesteps_per_hour: 4, sim_time_s: 0.0, dt: 900.0,
+                month: 1,
+                day: 15,
+                hour: 3,
+                sub_hour: 1,
+                timesteps_per_hour: 4,
+                sim_time_s: 0.0,
+                dt: 900.0,
             },
             outdoor_air: MoistAirState::from_tdb_rh(-10.0, 0.5, 101325.0),
             day_type: DayType::WeatherDay,
@@ -4722,49 +5324,58 @@ mod tests {
 
         // Zone should be at heating setpoint (20°C) after convergence
         let t_zone = envelope.zones[0].temp;
-        assert!(t_zone > 19.5 && t_zone < 20.5,
-            "Ideal loads heating should maintain ~20°C, got {:.2}", t_zone);
-        assert!(envelope.zones[0].hvac_heating_rate > 0.0,
-            "Should be heating");
-        assert!(envelope.zones[0].hvac_cooling_rate < 0.01,
-            "Should not be cooling");
+        assert!(
+            t_zone > 19.5 && t_zone < 20.5,
+            "Ideal loads heating should maintain ~20°C, got {:.2}",
+            t_zone
+        );
+        assert!(
+            envelope.zones[0].hvac_heating_rate > 0.0,
+            "Should be heating"
+        );
+        assert!(
+            envelope.zones[0].hvac_cooling_rate < 0.01,
+            "Should not be cooling"
+        );
     }
 
     #[test]
     fn test_ideal_loads_cooling() {
         use crate::material::ConstructionLayer;
         // Zone with ideal loads in hot conditions should cool to setpoint
-        let materials = vec![
-            Material {
-                name: "Concrete".to_string(),
-                conductivity: 1.311, density: 2240.0, specific_heat: 836.8,
-                solar_absorptance: 0.7, thermal_absorptance: 0.9,
-                visible_absorptance: 0.7, roughness: Roughness::MediumRough,
-                thermal_resistance: None,
-            },
-        ];
+        let materials = vec![Material {
+            name: "Concrete".to_string(),
+            conductivity: 1.311,
+            density: 2240.0,
+            specific_heat: 836.8,
+            solar_absorptance: 0.7,
+            thermal_absorptance: 0.9,
+            visible_absorptance: 0.7,
+            roughness: Roughness::MediumRough,
+            thermal_resistance: None,
+        }];
         let constructions = vec![Construction {
             name: "Wall".to_string(),
-            layers: vec![
-                ConstructionLayer { material: "Concrete".to_string(), thickness: 0.2 },
-            ],
+            layers: vec![ConstructionLayer {
+                material: "Concrete".to_string(),
+                thickness: 0.2,
+            }],
         }];
         let zones = vec![ZoneInput {
             name: "IdealZone".to_string(),
-            volume: 130.0, floor_area: 48.0,
+            volume: 130.0,
+            floor_area: 48.0,
             infiltration: vec![crate::infiltration::InfiltrationInput {
                 air_changes_per_hour: 0.5,
                 ..Default::default()
             }],
-            internal_gains: vec![
-                crate::internal_gains::InternalGainInput::Equipment {
-                    power: 2000.0, // Large internal gains to force cooling
-                    radiant_fraction: 0.3,
-                    lost_fraction: 0.0,
-                    latent_fraction: 0.0,
-                    schedule: None,
-                },
-            ],
+            internal_gains: vec![crate::internal_gains::InternalGainInput::Equipment {
+                power: 2000.0, // Large internal gains to force cooling
+                radiant_fraction: 0.3,
+                lost_fraction: 0.0,
+                latent_fraction: 0.0,
+                schedule: None,
+            }],
             internal_mass: vec![],
 
             ideal_loads: Some(IdealLoadsAirSystem {
@@ -4784,31 +5395,61 @@ mod tests {
         }];
         let surfaces = vec![
             SurfaceInput {
-                name: "Wall".to_string(), zone: "IdealZone".to_string(),
-                surface_type: SurfaceType::Wall, construction: "Wall".to_string(),
-                area: 60.0, azimuth: 180.0, tilt: 90.0,
-                boundary: BoundaryCondition::Outdoor, parent_surface: None,
-                vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true, exposed_perimeter: None, airflow: None,
+                name: "Wall".to_string(),
+                zone: "IdealZone".to_string(),
+                surface_type: SurfaceType::Wall,
+                construction: "Wall".to_string(),
+                area: 60.0,
+                azimuth: 180.0,
+                tilt: 90.0,
+                boundary: BoundaryCondition::Outdoor,
+                parent_surface: None,
+                vertices: None,
+                shading: None,
+                sun_exposure: true,
+                wind_exposure: true,
+                exposed_perimeter: None,
+                airflow: None,
             },
             SurfaceInput {
-                name: "Roof".to_string(), zone: "IdealZone".to_string(),
-                surface_type: SurfaceType::Roof, construction: "Wall".to_string(),
-                area: 48.0, azimuth: 0.0, tilt: 0.0,
-                boundary: BoundaryCondition::Outdoor, parent_surface: None,
-                vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true, exposed_perimeter: None, airflow: None,
+                name: "Roof".to_string(),
+                zone: "IdealZone".to_string(),
+                surface_type: SurfaceType::Roof,
+                construction: "Wall".to_string(),
+                area: 48.0,
+                azimuth: 0.0,
+                tilt: 0.0,
+                boundary: BoundaryCondition::Outdoor,
+                parent_surface: None,
+                vertices: None,
+                shading: None,
+                sun_exposure: true,
+                wind_exposure: true,
+                exposed_perimeter: None,
+                airflow: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
-            materials, constructions, vec![], zones, surfaces, 40.0, -105.0, -7.0,
+            materials,
+            constructions,
+            vec![],
+            zones,
+            surfaces,
+            40.0,
+            -105.0,
+            -7.0,
         );
         envelope.initialize(900.0).unwrap();
 
         let ctx = SimulationContext {
             timestep: TimeStep {
-                month: 7, day: 15, hour: 14, sub_hour: 1,
-                timesteps_per_hour: 4, sim_time_s: 0.0, dt: 900.0,
+                month: 7,
+                day: 15,
+                hour: 14,
+                sub_hour: 1,
+                timesteps_per_hour: 4,
+                sim_time_s: 0.0,
+                dt: 900.0,
             },
             outdoor_air: MoistAirState::from_tdb_rh(35.0, 0.3, 101325.0),
             day_type: DayType::WeatherDay,
@@ -4825,34 +5466,43 @@ mod tests {
 
         // Zone should be at cooling setpoint (27°C) after convergence
         let t_zone = envelope.zones[0].temp;
-        assert!(t_zone > 26.5 && t_zone < 27.5,
-            "Ideal loads cooling should maintain ~27°C, got {:.2}", t_zone);
-        assert!(envelope.zones[0].hvac_cooling_rate > 0.0,
-            "Should be cooling");
+        assert!(
+            t_zone > 26.5 && t_zone < 27.5,
+            "Ideal loads cooling should maintain ~27°C, got {:.2}",
+            t_zone
+        );
+        assert!(
+            envelope.zones[0].hvac_cooling_rate > 0.0,
+            "Should be cooling"
+        );
     }
 
     #[test]
     fn test_ideal_loads_deadband() {
         use crate::material::ConstructionLayer;
         // Zone in deadband should have no HVAC
-        let materials = vec![
-            Material {
-                name: "Concrete".to_string(),
-                conductivity: 1.311, density: 2240.0, specific_heat: 836.8,
-                solar_absorptance: 0.7, thermal_absorptance: 0.9,
-                visible_absorptance: 0.7, roughness: Roughness::MediumRough,
-                thermal_resistance: None,
-            },
-        ];
+        let materials = vec![Material {
+            name: "Concrete".to_string(),
+            conductivity: 1.311,
+            density: 2240.0,
+            specific_heat: 836.8,
+            solar_absorptance: 0.7,
+            thermal_absorptance: 0.9,
+            visible_absorptance: 0.7,
+            roughness: Roughness::MediumRough,
+            thermal_resistance: None,
+        }];
         let constructions = vec![Construction {
             name: "Wall".to_string(),
-            layers: vec![
-                ConstructionLayer { material: "Concrete".to_string(), thickness: 0.2 },
-            ],
+            layers: vec![ConstructionLayer {
+                material: "Concrete".to_string(),
+                thickness: 0.2,
+            }],
         }];
         let zones = vec![ZoneInput {
             name: "IdealZone".to_string(),
-            volume: 130.0, floor_area: 48.0,
+            volume: 130.0,
+            floor_area: 48.0,
             infiltration: vec![crate::infiltration::InfiltrationInput::default()],
             internal_gains: vec![],
             internal_mass: vec![],
@@ -4872,26 +5522,45 @@ mod tests {
             conditioned: true,
             zone_multiplier: 1,
         }];
-        let surfaces = vec![
-            SurfaceInput {
-                name: "Wall".to_string(), zone: "IdealZone".to_string(),
-                surface_type: SurfaceType::Wall, construction: "Wall".to_string(),
-                area: 60.0, azimuth: 180.0, tilt: 90.0,
-                boundary: BoundaryCondition::Outdoor, parent_surface: None,
-                vertices: None, shading: None,
-                sun_exposure: true, wind_exposure: true, exposed_perimeter: None, airflow: None,
-            },
-        ];
+        let surfaces = vec![SurfaceInput {
+            name: "Wall".to_string(),
+            zone: "IdealZone".to_string(),
+            surface_type: SurfaceType::Wall,
+            construction: "Wall".to_string(),
+            area: 60.0,
+            azimuth: 180.0,
+            tilt: 90.0,
+            boundary: BoundaryCondition::Outdoor,
+            parent_surface: None,
+            vertices: None,
+            shading: None,
+            sun_exposure: true,
+            wind_exposure: true,
+            exposed_perimeter: None,
+            airflow: None,
+        }];
         let mut envelope = BuildingEnvelope::from_input(
-            materials, constructions, vec![], zones, surfaces, 40.0, -105.0, -7.0,
+            materials,
+            constructions,
+            vec![],
+            zones,
+            surfaces,
+            40.0,
+            -105.0,
+            -7.0,
         );
         envelope.initialize(900.0).unwrap();
 
         // Outdoor at 23°C — zone should be in deadband
         let ctx = SimulationContext {
             timestep: TimeStep {
-                month: 5, day: 15, hour: 12, sub_hour: 1,
-                timesteps_per_hour: 4, sim_time_s: 0.0, dt: 900.0,
+                month: 5,
+                day: 15,
+                hour: 12,
+                sub_hour: 1,
+                timesteps_per_hour: 4,
+                sim_time_s: 0.0,
+                dt: 900.0,
             },
             outdoor_air: MoistAirState::from_tdb_rh(23.0, 0.5, 101325.0),
             day_type: DayType::WeatherDay,
@@ -4914,13 +5583,20 @@ mod tests {
 
         // With outdoor at 23°C and no gains, zone should be in deadband
         let t_zone = envelope.zones[0].temp;
-        assert!(t_zone > 19.0 && t_zone < 28.0,
-            "Zone should be in deadband, got {:.2}", t_zone);
+        assert!(
+            t_zone > 19.0 && t_zone < 28.0,
+            "Zone should be in deadband, got {:.2}",
+            t_zone
+        );
         // HVAC rates should be zero (in deadband)
-        assert!(envelope.zones[0].hvac_heating_rate < 0.01,
-            "Should not be heating in deadband");
-        assert!(envelope.zones[0].hvac_cooling_rate < 0.01,
-            "Should not be cooling in deadband");
+        assert!(
+            envelope.zones[0].hvac_heating_rate < 0.01,
+            "Should not be heating in deadband"
+        );
+        assert!(
+            envelope.zones[0].hvac_cooling_rate < 0.01,
+            "Should not be cooling in deadband"
+        );
     }
 
     #[test]
@@ -4937,8 +5613,8 @@ mod tests {
         weather.global_horiz_rad = 0.0;
         weather.direct_normal_rad = 0.0;
         weather.diffuse_horiz_rad = 0.0;
-        weather.dew_point = -15.0;          // dry air → cold sky
-        weather.opaque_sky_cover = 0.0;     // clear sky
+        weather.dew_point = -15.0; // dry air → cold sky
+        weather.opaque_sky_cover = 0.0; // clear sky
         let hvac = ZoneHvacConditions::default();
 
         // With multi-term state-space CTF, thermal mass retains initial conditions
@@ -4949,24 +5625,35 @@ mod tests {
         }
 
         // Find the roof (tilt=0, full sky view) — it should be colder than outdoor
-        let roof = envelope.surfaces.iter()
+        let roof = envelope
+            .surfaces
+            .iter()
             .find(|s| s.input.name == "Roof")
             .expect("Roof should exist");
-        assert!(roof.temp_outside < 0.0,
+        assert!(
+            roof.temp_outside < 0.0,
             "Roof should be below outdoor temp (0°C) due to sky LWR, got {:.2}°C",
-            roof.temp_outside);
+            roof.temp_outside
+        );
 
         // South Wall (tilt=90, partial sky view) should also be cooler but less so
-        let wall = envelope.surfaces.iter()
+        let wall = envelope
+            .surfaces
+            .iter()
             .find(|s| s.input.name == "South Wall")
             .expect("South Wall should exist");
-        assert!(wall.temp_outside < 0.0,
+        assert!(
+            wall.temp_outside < 0.0,
             "South wall should be below outdoor temp due to sky LWR, got {:.2}°C",
-            wall.temp_outside);
+            wall.temp_outside
+        );
         // Roof should be colder than wall (full vs partial sky view)
-        assert!(roof.temp_outside < wall.temp_outside,
+        assert!(
+            roof.temp_outside < wall.temp_outside,
             "Roof ({:.2}°C) should be colder than wall ({:.2}°C)",
-            roof.temp_outside, wall.temp_outside);
+            roof.temp_outside,
+            wall.temp_outside
+        );
     }
 
     #[test]
@@ -4982,20 +5669,34 @@ mod tests {
         let eps_clear = 0.787 + 0.764 * (t_dp_k / 273.0).ln();
         let t_sky = eps_clear.powf(0.25) * t_db_k - 273.15;
         // Sky should be well below outdoor
-        assert!(t_sky < -5.0, "Clear sky should be well below outdoor, got {:.1}°C", t_sky);
-        assert!(t_sky > -25.0, "Sky shouldn't be excessively cold, got {:.1}°C", t_sky);
+        assert!(
+            t_sky < -5.0,
+            "Clear sky should be well below outdoor, got {:.1}°C",
+            t_sky
+        );
+        assert!(
+            t_sky > -25.0,
+            "Sky shouldn't be excessively cold, got {:.1}°C",
+            t_sky
+        );
 
         // Case 2: Overcast sky (N=10) should be warmer than clear sky
         let n = 10.0_f64;
         let cloud_factor = 1.0 + 0.0224 * n - 0.0035 * n * n + 0.00028 * n * n * n;
         let eps_overcast = (eps_clear * cloud_factor).min(1.0);
         let t_sky_overcast = eps_overcast.powf(0.25) * t_db_k - 273.15;
-        assert!(t_sky_overcast > t_sky,
+        assert!(
+            t_sky_overcast > t_sky,
             "Overcast sky ({:.1}°C) should be warmer than clear ({:.1}°C)",
-            t_sky_overcast, t_sky);
+            t_sky_overcast,
+            t_sky
+        );
         // Overcast sky should be within ~10°C of outdoor temp
-        assert!((t_sky_overcast - 0.0).abs() < 12.0,
-            "Overcast sky should be within 12°C of outdoor, got {:.1}°C", t_sky_overcast);
+        assert!(
+            (t_sky_overcast - 0.0).abs() < 12.0,
+            "Overcast sky should be within 12°C of outdoor, got {:.1}°C",
+            t_sky_overcast
+        );
 
         // Case 3: Summer clear sky at 30°C, Tdp=10°C
         let t_dp_k_s = 283.15_f64;
@@ -5004,9 +5705,12 @@ mod tests {
         let t_sky_s = eps_clear_s.powf(0.25) * t_db_k_s - 273.15;
         // Summer clear sky depression should be ~12-18°C
         let depression = 30.0 - t_sky_s;
-        assert!(depression > 8.0 && depression < 22.0,
+        assert!(
+            depression > 8.0 && depression < 22.0,
             "Summer sky depression should be 8-22°C, got {:.1}°C (T_sky={:.1}°C)",
-            depression, t_sky_s);
+            depression,
+            t_sky_s
+        );
     }
 
     #[test]
@@ -5033,7 +5737,10 @@ mod tests {
 
         // Load with matching fingerprint
         let loaded = SolarCache::load_from_file(&path, 0xDEADBEEF12345678);
-        assert!(loaded.is_some(), "load with matching fingerprint should succeed");
+        assert!(
+            loaded.is_some(),
+            "load with matching fingerprint should succeed"
+        );
         let loaded = loaded.unwrap();
         assert_eq!(loaded.sunlit_fractions.len(), 3);
         assert_eq!(loaded.sunlit_fractions[0].len(), 3);
@@ -5045,11 +5752,18 @@ mod tests {
 
         // Load with mismatched fingerprint → should return None
         let stale = SolarCache::load_from_file(&path, 0x1111111111111111);
-        assert!(stale.is_none(), "load with mismatched fingerprint should return None");
+        assert!(
+            stale.is_none(),
+            "load with mismatched fingerprint should return None"
+        );
 
         // Load from nonexistent path → should return None
-        let missing = SolarCache::load_from_file(&dir.join("no_such_file.solar"), 0xDEADBEEF12345678);
-        assert!(missing.is_none(), "load from missing file should return None");
+        let missing =
+            SolarCache::load_from_file(&dir.join("no_such_file.solar"), 0xDEADBEEF12345678);
+        assert!(
+            missing.is_none(),
+            "load from missing file should return None"
+        );
 
         // Cleanup
         let _ = std::fs::remove_file(&path);
@@ -5060,29 +5774,56 @@ mod tests {
         // Fingerprint should change when surface vertices change.
         let env = make_simple_model();
         let fp1 = SolarCache::compute_fingerprint(
-            &env.surfaces, &env.shading_polygons,
-            40.0, -105.0, -7.0, 6, 0, 8760,
+            &env.surfaces,
+            &env.shading_polygons,
+            40.0,
+            -105.0,
+            -7.0,
+            6,
+            0,
+            8760,
         );
 
         // Same inputs → same fingerprint
         let fp2 = SolarCache::compute_fingerprint(
-            &env.surfaces, &env.shading_polygons,
-            40.0, -105.0, -7.0, 6, 0, 8760,
+            &env.surfaces,
+            &env.shading_polygons,
+            40.0,
+            -105.0,
+            -7.0,
+            6,
+            0,
+            8760,
         );
         assert_eq!(fp1, fp2, "same geometry should produce same fingerprint");
 
         // Different latitude → different fingerprint
         let fp3 = SolarCache::compute_fingerprint(
-            &env.surfaces, &env.shading_polygons,
-            41.0, -105.0, -7.0, 6, 0, 8760,
+            &env.surfaces,
+            &env.shading_polygons,
+            41.0,
+            -105.0,
+            -7.0,
+            6,
+            0,
+            8760,
         );
         assert_ne!(fp1, fp3, "different latitude should change fingerprint");
 
         // Different timesteps_per_hour → different fingerprint
         let fp4 = SolarCache::compute_fingerprint(
-            &env.surfaces, &env.shading_polygons,
-            40.0, -105.0, -7.0, 4, 0, 8760,
+            &env.surfaces,
+            &env.shading_polygons,
+            40.0,
+            -105.0,
+            -7.0,
+            4,
+            0,
+            8760,
         );
-        assert_ne!(fp1, fp4, "different timesteps_per_hour should change fingerprint");
+        assert_ne!(
+            fp1, fp4,
+            "different timesteps_per_hour should change fingerprint"
+        );
     }
 }

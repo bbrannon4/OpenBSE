@@ -66,21 +66,38 @@ pub struct AirCooledChiller {
     pub plr: f64,
 }
 
-fn default_min_plr() -> f64 { 0.25 }
-fn default_tower_approach() -> f64 { 5.56 }
+fn default_min_plr() -> f64 {
+    0.25
+}
+fn default_tower_approach() -> f64 {
+    5.56
+}
 
 impl AirCooledChiller {
-    pub fn new(name: &str, rated_capacity: f64, rated_cop: f64, chw_setpoint: f64, design_chw_flow: f64) -> Self {
+    pub fn new(
+        name: &str,
+        rated_capacity: f64,
+        rated_cop: f64,
+        chw_setpoint: f64,
+        design_chw_flow: f64,
+    ) -> Self {
         Self {
-            name: name.to_string(), rated_capacity, rated_cop, chw_setpoint,
-            design_chw_flow, min_plr: 0.25,
+            name: name.to_string(),
+            rated_capacity,
+            rated_cop,
+            chw_setpoint,
+            design_chw_flow,
+            min_plr: 0.25,
             water_cooled: false,
             condenser_entering_temp: None,
             tower_approach: 5.56,
             capft_curve: None,
             eirft_curve: None,
             eirfplr_curve: None,
-            actual_capacity: 0.0, actual_cop: 0.0, electric_power: 0.0, plr: 0.0,
+            actual_capacity: 0.0,
+            actual_cop: 0.0,
+            electric_power: 0.0,
+            plr: 0.0,
         }
     }
 
@@ -135,7 +152,11 @@ impl AirCooledChiller {
             // Simplified linear fallback: higher temp → worse EIR
             // At reference (29.4°C), EIRFT = 1.0
             let cop_factor = (1.0 - 0.02 * (t_condenser - 29.4)).clamp(0.4, 1.1);
-            if cop_factor > 0.0 { 1.0 / cop_factor } else { 1.0 }
+            if cop_factor > 0.0 {
+                1.0 / cop_factor
+            } else {
+                1.0
+            }
         }
     }
 
@@ -157,11 +178,21 @@ impl AirCooledChiller {
 }
 
 impl PlantComponent for AirCooledChiller {
-    fn name(&self) -> &str { &self.name }
-    fn simulate_plant(&mut self, inlet: &WaterPort, load: f64, ctx: &SimulationContext) -> WaterPort {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn simulate_plant(
+        &mut self,
+        inlet: &WaterPort,
+        load: f64,
+        ctx: &SimulationContext,
+    ) -> WaterPort {
         let cp_water = 4186.0;
         if load <= 0.0 {
-            self.actual_capacity = 0.0; self.actual_cop = 0.0; self.electric_power = 0.0; self.plr = 0.0;
+            self.actual_capacity = 0.0;
+            self.actual_cop = 0.0;
+            self.electric_power = 0.0;
+            self.plr = 0.0;
             return *inlet;
         }
 
@@ -189,7 +220,11 @@ impl PlantComponent for AirCooledChiller {
         let eirft = self.eir_modifier_temp(t_condenser);
         let eirfplr = self.eir_modifier_plr(operating_plr);
 
-        let ref_eir = if self.rated_cop > 0.0 { 1.0 / self.rated_cop } else { 1.0 };
+        let ref_eir = if self.rated_cop > 0.0 {
+            1.0 / self.rated_cop
+        } else {
+            1.0
+        };
         let instantaneous_power = available_cap * ref_eir * eirft * eirfplr;
         self.electric_power = instantaneous_power * cycling_ratio;
 
@@ -210,24 +245,42 @@ impl PlantComponent for AirCooledChiller {
         WaterPort::new(FluidState::water(t_outlet, mass_flow))
     }
     fn design_water_flow_rate(&self) -> Option<f64> {
-        if self.design_chw_flow <= 0.0 { None } else { Some(self.design_chw_flow) }
+        if self.design_chw_flow <= 0.0 {
+            None
+        } else {
+            Some(self.design_chw_flow)
+        }
     }
-    fn power_consumption(&self) -> f64 { self.electric_power }
-    fn thermal_output(&self) -> f64 { self.actual_capacity }
-    fn nominal_capacity(&self) -> Option<f64> { Some(self.rated_capacity) }
+    fn power_consumption(&self) -> f64 {
+        self.electric_power
+    }
+    fn thermal_output(&self) -> f64 {
+        self.actual_capacity
+    }
+    fn nominal_capacity(&self) -> Option<f64> {
+        Some(self.rated_capacity)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::performance_curve::{CurveType, PerformanceCurve};
     use approx::assert_relative_eq;
     use openbse_core::types::{DayType, TimeStep};
     use openbse_psychrometrics::MoistAirState;
-    use crate::performance_curve::{PerformanceCurve, CurveType};
 
     fn make_ctx(t_outdoor: f64) -> SimulationContext {
         SimulationContext {
-            timestep: TimeStep { month: 7, day: 15, hour: 14, sub_hour: 1, timesteps_per_hour: 1, sim_time_s: 0.0, dt: 3600.0 },
+            timestep: TimeStep {
+                month: 7,
+                day: 15,
+                hour: 14,
+                sub_hour: 1,
+                timesteps_per_hour: 1,
+                sim_time_s: 0.0,
+                dt: 3600.0,
+            },
             outdoor_air: MoistAirState::from_tdb_rh(t_outdoor, 0.4, 101325.0),
             day_type: DayType::WeatherDay,
             is_sizing: false,
@@ -246,30 +299,50 @@ mod tests {
             name: "capft".to_string(),
             curve_type: CurveType::Biquadratic,
             coefficients: vec![
-                0.988289399105446, 0.031127718217927, -0.00154986412921254,
-                -0.00334864255828258, -0.000146694443912943, 0.000502974958539996,
+                0.988289399105446,
+                0.031127718217927,
+                -0.00154986412921254,
+                -0.00334864255828258,
+                -0.000146694443912943,
+                0.000502974958539996,
             ],
-            min_x: 4.0, max_x: 16.0, min_y: 12.8, max_y: 40.0,
-            min_output: None, max_output: None,
+            min_x: 4.0,
+            max_x: 16.0,
+            min_y: 12.8,
+            max_y: 40.0,
+            min_output: None,
+            max_output: None,
         });
         // EIRFT from E+ IDF: ASHRAE901_AppJ_wtr_AB_cent_gt1055kW eir-f-t
         chiller.eirft_curve = Some(PerformanceCurve {
             name: "eirft".to_string(),
             curve_type: CurveType::Biquadratic,
             coefficients: vec![
-                0.563967192309392, -0.034330681975216, 0.00101506219660673,
-                0.0339405925147554, -0.000431970984586658, -0.0000252410848639146,
+                0.563967192309392,
+                -0.034330681975216,
+                0.00101506219660673,
+                0.0339405925147554,
+                -0.000431970984586658,
+                -0.0000252410848639146,
             ],
-            min_x: 4.0, max_x: 16.0, min_y: 12.8, max_y: 40.0,
-            min_output: None, max_output: None,
+            min_x: 4.0,
+            max_x: 16.0,
+            min_y: 12.8,
+            max_y: 40.0,
+            min_output: None,
+            max_output: None,
         });
         // EIRFPLR from E+ IDF: ASHRAE901_AppJ_wtr_AB_cent_gt1055kW eir-f-plr
         chiller.eirfplr_curve = Some(PerformanceCurve {
             name: "eirfplr".to_string(),
             curve_type: CurveType::Quadratic,
             coefficients: vec![0.309752375539755, 0.153649268551135, 0.536462254009109],
-            min_x: 0.0, max_x: 1.0, min_y: 0.0, max_y: 0.0,
-            min_output: None, max_output: None,
+            min_x: 0.0,
+            max_x: 1.0,
+            min_y: 0.0,
+            max_y: 0.0,
+            min_output: None,
+            max_output: None,
         });
         chiller
     }
@@ -280,7 +353,11 @@ mod tests {
         let inlet = WaterPort::new(FluidState::water(12.0, 5.0));
         let ctx = make_ctx(29.4);
         let _outlet = chiller.simulate_plant(&inlet, 100_000.0, &ctx);
-        assert!(chiller.actual_cop > 2.0, "COP at rated: {}", chiller.actual_cop);
+        assert!(
+            chiller.actual_cop > 2.0,
+            "COP at rated: {}",
+            chiller.actual_cop
+        );
         assert!(chiller.electric_power > 0.0);
         assert_relative_eq!(chiller.plr, 1.0, epsilon = 0.01);
     }
@@ -302,8 +379,12 @@ mod tests {
         let inlet = WaterPort::new(FluidState::water(12.0, 5.0));
         chiller_cool.simulate_plant(&inlet, 80_000.0, &make_ctx(25.0));
         chiller_hot.simulate_plant(&inlet, 80_000.0, &make_ctx(40.0));
-        assert!(chiller_cool.actual_cop > chiller_hot.actual_cop,
-            "COP at 25C ({:.2}) should be > COP at 40C ({:.2})", chiller_cool.actual_cop, chiller_hot.actual_cop);
+        assert!(
+            chiller_cool.actual_cop > chiller_hot.actual_cop,
+            "COP at 25C ({:.2}) should be > COP at 40C ({:.2})",
+            chiller_cool.actual_cop,
+            chiller_hot.actual_cop
+        );
     }
 
     #[test]
@@ -312,7 +393,11 @@ mod tests {
         let inlet = WaterPort::new(FluidState::water(12.0, 5.0));
         let ctx = make_ctx(29.4);
         let _out = chiller.simulate_plant(&inlet, 50_000.0, &ctx);
-        assert!((chiller.plr - 0.5).abs() < 0.05, "PLR should be ~0.5, got {}", chiller.plr);
+        assert!(
+            (chiller.plr - 0.5).abs() < 0.05,
+            "PLR should be ~0.5, got {}",
+            chiller.plr
+        );
         assert!(chiller.electric_power > 0.0);
     }
 
@@ -324,10 +409,18 @@ mod tests {
         // Load = 10% of capacity, below min_plr (25%)
         let _out = chiller.simulate_plant(&inlet, 10_000.0, &ctx);
         // Cycling ratio = 0.1/0.25 = 0.4
-        assert!(chiller.plr < chiller.min_plr, "PLR ({}) should be < min_plr ({})", chiller.plr, chiller.min_plr);
+        assert!(
+            chiller.plr < chiller.min_plr,
+            "PLR ({}) should be < min_plr ({})",
+            chiller.plr,
+            chiller.min_plr
+        );
         // Actual capacity should be close to load (time-averaged)
-        assert!((chiller.actual_capacity - 10_000.0).abs() < 1000.0,
-            "Actual cap ({:.0}) should be close to load (10000)", chiller.actual_capacity);
+        assert!(
+            (chiller.actual_capacity - 10_000.0).abs() < 1000.0,
+            "Actual cap ({:.0}) should be close to load (10000)",
+            chiller.actual_capacity
+        );
     }
 
     #[test]
@@ -338,7 +431,11 @@ mod tests {
         // At reference condenser temp: ODB ≈ 42°C → WB ≈ 24°C → cond = 29.56°C ≈ ref
         let ctx = make_ctx(30.0);
         let _out = chiller.simulate_plant(&inlet, 1_000_000.0, &ctx);
-        assert!(chiller.actual_cop > 4.0, "Water-cooled COP should be > 4, got {:.2}", chiller.actual_cop);
+        assert!(
+            chiller.actual_cop > 4.0,
+            "Water-cooled COP should be > 4, got {:.2}",
+            chiller.actual_cop
+        );
         assert!(chiller.electric_power > 0.0);
     }
 
@@ -349,8 +446,16 @@ mod tests {
         // Reference: CHW leaving = 6.67°C, condenser entering = 29.44°C
         let capft = chiller.capacity_modifier(29.44);
         let eirft = chiller.eir_modifier_temp(29.44);
-        assert!((capft - 1.0).abs() < 0.05, "CAPFT at reference should be ~1.0, got {:.4}", capft);
-        assert!((eirft - 1.0).abs() < 0.05, "EIRFT at reference should be ~1.0, got {:.4}", eirft);
+        assert!(
+            (capft - 1.0).abs() < 0.05,
+            "CAPFT at reference should be ~1.0, got {:.4}",
+            capft
+        );
+        assert!(
+            (eirft - 1.0).abs() < 0.05,
+            "EIRFT at reference should be ~1.0, got {:.4}",
+            eirft
+        );
     }
 
     #[test]
@@ -358,6 +463,10 @@ mod tests {
         let chiller = make_water_cooled_chiller(1_000_000.0, 6.11);
         let eirfplr = chiller.eir_modifier_plr(1.0);
         // At PLR=1.0: 0.3098 + 0.1536 + 0.5365 ≈ 1.0
-        assert!((eirfplr - 1.0).abs() < 0.01, "EIRFPLR at PLR=1.0 should be ~1.0, got {:.4}", eirfplr);
+        assert!(
+            (eirfplr - 1.0).abs() < 0.01,
+            "EIRFPLR at PLR=1.0 should be ~1.0, got {:.4}",
+            eirfplr
+        );
     }
 }

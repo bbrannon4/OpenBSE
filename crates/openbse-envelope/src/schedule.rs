@@ -146,18 +146,26 @@ pub fn parse_compact_day(s: &str) -> Result<Vec<f64>, String> {
         if let Some(until_pos) = lower.find("until") {
             // Parse value before "until"
             let value_str = seg[..until_pos].trim();
-            let value: f64 = value_str.parse()
+            let value: f64 = value_str
+                .parse()
                 .map_err(|_| format!("Invalid value '{}' in compact schedule", value_str))?;
 
             // Parse time after "until"
             let time_str = seg[until_pos + 5..].trim().trim_matches(':');
             let time_parts: Vec<&str> = time_str.split(':').collect();
             let end_hour: usize = match time_parts.len() {
-                1 => time_parts[0].parse()
+                1 => time_parts[0]
+                    .parse()
                     .map_err(|_| format!("Invalid hour '{}' in compact schedule", time_parts[0]))?,
-                2 => time_parts[0].parse()
+                2 => time_parts[0]
+                    .parse()
                     .map_err(|_| format!("Invalid hour '{}' in compact schedule", time_parts[0]))?,
-                _ => return Err(format!("Invalid time format '{}' in compact schedule", time_str)),
+                _ => {
+                    return Err(format!(
+                        "Invalid time format '{}' in compact schedule",
+                        time_str
+                    ))
+                }
             };
 
             if end_hour > 24 {
@@ -177,15 +185,17 @@ pub fn parse_compact_day(s: &str) -> Result<Vec<f64>, String> {
             current_hour = end_hour;
         } else {
             // Bare value — fills remaining hours (must be last segment or only segment)
-            let value: f64 = seg.parse()
+            let value: f64 = seg
+                .parse()
                 .map_err(|_| format!("Invalid value '{}' in compact schedule", seg))?;
 
             if i < segments.len() - 1 {
                 // Not the last segment — check if remaining segments are empty
-                let remaining_non_empty = segments[i+1..].iter().any(|s| !s.trim().is_empty());
+                let remaining_non_empty = segments[i + 1..].iter().any(|s| !s.trim().is_empty());
                 if remaining_non_empty {
                     return Err(format!(
-                        "Bare value '{}' must be the last segment in compact schedule", seg
+                        "Bare value '{}' must be the last segment in compact schedule",
+                        seg
                     ));
                 }
             }
@@ -230,31 +240,49 @@ impl ScheduleInput {
             self.weekday = parse_compact_day(text)
                 .map_err(|e| format!("Schedule '{}' compact weekday: {}", self.name, e))?;
         }
-        if let Some(v) = parse(&compact.weekend).map_err(|e| format!("Schedule '{}' compact weekend: {}", self.name, e))? {
+        if let Some(v) = parse(&compact.weekend)
+            .map_err(|e| format!("Schedule '{}' compact weekend: {}", self.name, e))?
+        {
             self.weekend = Some(v);
         }
-        if let Some(v) = parse(&compact.saturday).map_err(|e| format!("Schedule '{}' compact saturday: {}", self.name, e))? {
+        if let Some(v) = parse(&compact.saturday)
+            .map_err(|e| format!("Schedule '{}' compact saturday: {}", self.name, e))?
+        {
             self.saturday = Some(v);
         }
-        if let Some(v) = parse(&compact.sunday).map_err(|e| format!("Schedule '{}' compact sunday: {}", self.name, e))? {
+        if let Some(v) = parse(&compact.sunday)
+            .map_err(|e| format!("Schedule '{}' compact sunday: {}", self.name, e))?
+        {
             self.sunday = Some(v);
         }
-        if let Some(v) = parse(&compact.holiday).map_err(|e| format!("Schedule '{}' compact holiday: {}", self.name, e))? {
+        if let Some(v) = parse(&compact.holiday)
+            .map_err(|e| format!("Schedule '{}' compact holiday: {}", self.name, e))?
+        {
             self.holiday = Some(v);
         }
-        if let Some(v) = parse(&compact.monday).map_err(|e| format!("Schedule '{}' compact monday: {}", self.name, e))? {
+        if let Some(v) = parse(&compact.monday)
+            .map_err(|e| format!("Schedule '{}' compact monday: {}", self.name, e))?
+        {
             self.monday = Some(v);
         }
-        if let Some(v) = parse(&compact.tuesday).map_err(|e| format!("Schedule '{}' compact tuesday: {}", self.name, e))? {
+        if let Some(v) = parse(&compact.tuesday)
+            .map_err(|e| format!("Schedule '{}' compact tuesday: {}", self.name, e))?
+        {
             self.tuesday = Some(v);
         }
-        if let Some(v) = parse(&compact.wednesday).map_err(|e| format!("Schedule '{}' compact wednesday: {}", self.name, e))? {
+        if let Some(v) = parse(&compact.wednesday)
+            .map_err(|e| format!("Schedule '{}' compact wednesday: {}", self.name, e))?
+        {
             self.wednesday = Some(v);
         }
-        if let Some(v) = parse(&compact.thursday).map_err(|e| format!("Schedule '{}' compact thursday: {}", self.name, e))? {
+        if let Some(v) = parse(&compact.thursday)
+            .map_err(|e| format!("Schedule '{}' compact thursday: {}", self.name, e))?
+        {
             self.thursday = Some(v);
         }
-        if let Some(v) = parse(&compact.friday).map_err(|e| format!("Schedule '{}' compact friday: {}", self.name, e))? {
+        if let Some(v) = parse(&compact.friday)
+            .map_err(|e| format!("Schedule '{}' compact friday: {}", self.name, e))?
+        {
             self.friday = Some(v);
         }
 
@@ -285,13 +313,15 @@ impl ScheduleInput {
             5 => self.friday.as_ref().unwrap_or(&self.weekday),
             6 => {
                 // Saturday: try saturday → weekend → weekday
-                self.saturday.as_ref()
+                self.saturday
+                    .as_ref()
                     .or(self.weekend.as_ref())
                     .unwrap_or(&self.weekday)
             }
             7 => {
                 // Sunday: try sunday → weekend → weekday
-                self.sunday.as_ref()
+                self.sunday
+                    .as_ref()
                     .or(self.weekend.as_ref())
                     .unwrap_or(&self.weekday)
             }
@@ -362,8 +392,14 @@ impl ScheduleManager {
     pub fn from_inputs(inputs: Vec<ScheduleInput>) -> Self {
         let mut mgr = Self::new();
         // Always add built-in schedules
-        mgr.schedules.insert("always_on".to_string(), ScheduleInput::always_on("always_on"));
-        mgr.schedules.insert("always_off".to_string(), ScheduleInput::always_off("always_off"));
+        mgr.schedules.insert(
+            "always_on".to_string(),
+            ScheduleInput::always_on("always_on"),
+        );
+        mgr.schedules.insert(
+            "always_off".to_string(),
+            ScheduleInput::always_off("always_off"),
+        );
         for mut input in inputs {
             // Resolve compact schedule strings to explicit arrays
             if input.compact.is_some() {
@@ -411,7 +447,7 @@ mod tests {
     #[test]
     fn test_always_on() {
         let s = ScheduleInput::always_on("test");
-        assert_eq!(s.fraction(1, 1), 1.0);  // Monday midnight
+        assert_eq!(s.fraction(1, 1), 1.0); // Monday midnight
         assert_eq!(s.fraction(12, 3), 1.0); // Wednesday noon
         assert_eq!(s.fraction(24, 7), 1.0); // Sunday 11pm
     }
@@ -430,14 +466,20 @@ mod tests {
             name: "test".to_string(),
             weekday: vec![1.0; 24],
             weekend: Some(vec![0.5; 24]),
-            saturday: None, sunday: None, holiday: None,
-            monday: None, tuesday: None, wednesday: None,
-            thursday: None, friday: None, compact: None,
+            saturday: None,
+            sunday: None,
+            holiday: None,
+            monday: None,
+            tuesday: None,
+            wednesday: None,
+            thursday: None,
+            friday: None,
+            compact: None,
         };
-        assert_eq!(s.fraction(12, 1), 1.0);  // Monday
-        assert_eq!(s.fraction(12, 5), 1.0);  // Friday
-        assert_eq!(s.fraction(12, 6), 0.5);  // Saturday
-        assert_eq!(s.fraction(12, 7), 0.5);  // Sunday
+        assert_eq!(s.fraction(12, 1), 1.0); // Monday
+        assert_eq!(s.fraction(12, 5), 1.0); // Friday
+        assert_eq!(s.fraction(12, 6), 0.5); // Saturday
+        assert_eq!(s.fraction(12, 7), 0.5); // Sunday
     }
 
     #[test]
@@ -449,13 +491,17 @@ mod tests {
             saturday: Some(vec![0.8; 24]),
             sunday: Some(vec![0.3; 24]),
             holiday: None,
-            monday: None, tuesday: None, wednesday: None,
-            thursday: None, friday: None, compact: None,
+            monday: None,
+            tuesday: None,
+            wednesday: None,
+            thursday: None,
+            friday: None,
+            compact: None,
         };
-        assert_eq!(s.fraction(12, 1), 1.0);  // Monday → weekday
-        assert_eq!(s.fraction(12, 5), 1.0);  // Friday → weekday
-        assert_eq!(s.fraction(12, 6), 0.8);  // Saturday → saturday
-        assert_eq!(s.fraction(12, 7), 0.3);  // Sunday → sunday
+        assert_eq!(s.fraction(12, 1), 1.0); // Monday → weekday
+        assert_eq!(s.fraction(12, 5), 1.0); // Friday → weekday
+        assert_eq!(s.fraction(12, 6), 0.8); // Saturday → saturday
+        assert_eq!(s.fraction(12, 7), 0.3); // Sunday → sunday
     }
 
     #[test]
@@ -465,12 +511,17 @@ mod tests {
             weekday: vec![1.0; 24],
             weekend: Some(vec![0.5; 24]),
             saturday: Some(vec![0.8; 24]),
-            sunday: None, holiday: None,
-            monday: None, tuesday: None, wednesday: None,
-            thursday: None, friday: None, compact: None,
+            sunday: None,
+            holiday: None,
+            monday: None,
+            tuesday: None,
+            wednesday: None,
+            thursday: None,
+            friday: None,
+            compact: None,
         };
-        assert_eq!(s.fraction(12, 6), 0.8);  // Saturday → saturday (specific)
-        assert_eq!(s.fraction(12, 7), 0.5);  // Sunday → weekend (fallback)
+        assert_eq!(s.fraction(12, 6), 0.8); // Saturday → saturday (specific)
+        assert_eq!(s.fraction(12, 7), 0.5); // Sunday → weekend (fallback)
     }
 
     #[test]
@@ -478,7 +529,10 @@ mod tests {
         let s = ScheduleInput {
             name: "test".to_string(),
             weekday: vec![1.0; 24],
-            weekend: None, saturday: None, sunday: None, holiday: None,
+            weekend: None,
+            saturday: None,
+            sunday: None,
+            holiday: None,
             monday: Some(vec![0.1; 24]),
             tuesday: None,
             wednesday: Some(vec![0.3; 24]),
@@ -486,11 +540,11 @@ mod tests {
             friday: Some(vec![0.5; 24]),
             compact: None,
         };
-        assert_eq!(s.fraction(12, 1), 0.1);  // Monday → monday override
-        assert_eq!(s.fraction(12, 2), 1.0);  // Tuesday → weekday fallback
-        assert_eq!(s.fraction(12, 3), 0.3);  // Wednesday → wednesday override
-        assert_eq!(s.fraction(12, 4), 1.0);  // Thursday → weekday fallback
-        assert_eq!(s.fraction(12, 5), 0.5);  // Friday → friday override
+        assert_eq!(s.fraction(12, 1), 0.1); // Monday → monday override
+        assert_eq!(s.fraction(12, 2), 1.0); // Tuesday → weekday fallback
+        assert_eq!(s.fraction(12, 3), 0.3); // Wednesday → wednesday override
+        assert_eq!(s.fraction(12, 4), 1.0); // Thursday → weekday fallback
+        assert_eq!(s.fraction(12, 5), 0.5); // Friday → friday override
     }
 
     #[test]
@@ -498,42 +552,50 @@ mod tests {
         let s = ScheduleInput {
             name: "Retail Occupancy".to_string(),
             weekday: vec![
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1,
-                0.5, 0.9, 1.0, 1.0, 0.8, 1.0, 1.0, 1.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.5, 0.9, 1.0, 1.0, 0.8, 1.0, 1.0, 1.0,
                 1.0, 1.0, 0.8, 0.5, 0.2, 0.0, 0.0, 0.0,
             ],
             weekend: Some(vec![
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                0.0, 0.3, 0.5, 0.7, 0.7, 0.7, 0.7, 0.5,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.5, 0.7, 0.7, 0.7, 0.7, 0.5,
                 0.3, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
             ]),
-            saturday: None, sunday: None, holiday: None,
-            monday: None, tuesday: None, wednesday: None,
-            thursday: None, friday: None, compact: None,
+            saturday: None,
+            sunday: None,
+            holiday: None,
+            monday: None,
+            tuesday: None,
+            wednesday: None,
+            thursday: None,
+            friday: None,
+            compact: None,
         };
 
-        assert_eq!(s.fraction(3, 2), 0.0);  // Weekday 2am-3am
+        assert_eq!(s.fraction(3, 2), 0.0); // Weekday 2am-3am
         assert_eq!(s.fraction(11, 2), 1.0); // Weekday 10am-11am
         assert_eq!(s.fraction(12, 6), 0.7); // Weekend 11am-12pm
     }
 
     #[test]
     fn test_schedule_manager() {
-        let inputs = vec![
-            ScheduleInput {
-                name: "occ".to_string(),
-                weekday: vec![0.5; 24],
-                weekend: Some(vec![0.25; 24]),
-                saturday: None, sunday: None, holiday: None,
-                monday: None, tuesday: None, wednesday: None,
-                thursday: None, friday: None, compact: None,
-            },
-        ];
+        let inputs = vec![ScheduleInput {
+            name: "occ".to_string(),
+            weekday: vec![0.5; 24],
+            weekend: Some(vec![0.25; 24]),
+            saturday: None,
+            sunday: None,
+            holiday: None,
+            monday: None,
+            tuesday: None,
+            wednesday: None,
+            thursday: None,
+            friday: None,
+            compact: None,
+        }];
         let mgr = ScheduleManager::from_inputs(inputs);
 
-        assert_eq!(mgr.fraction("occ", 12, 1), 0.5);     // known schedule
-        assert_eq!(mgr.fraction("occ", 12, 6), 0.25);     // weekend
-        assert_eq!(mgr.fraction("unknown", 12, 1), 1.0);  // unknown → always on
+        assert_eq!(mgr.fraction("occ", 12, 1), 0.5); // known schedule
+        assert_eq!(mgr.fraction("occ", 12, 6), 0.25); // weekend
+        assert_eq!(mgr.fraction("unknown", 12, 1), 1.0); // unknown → always on
         assert_eq!(mgr.fraction("always_on", 12, 1), 1.0); // built-in
         assert_eq!(mgr.fraction("always_off", 12, 1), 0.0); // built-in
     }
@@ -556,9 +618,9 @@ mod tests {
     fn test_parse_compact_office_hours() {
         // 0 until 8:00, 1.0 until 18:00, 0
         let v = parse_compact_day("0 until 8:00, 1.0 until 18:00, 0").unwrap();
-        assert_eq!(v[0..8], vec![0.0; 8]);     // hours 1-8 (00:00–08:00)
-        assert_eq!(v[8..18], vec![1.0; 10]);   // hours 9-18 (08:00–18:00)
-        assert_eq!(v[18..24], vec![0.0; 6]);   // hours 19-24 (18:00–24:00)
+        assert_eq!(v[0..8], vec![0.0; 8]); // hours 1-8 (00:00–08:00)
+        assert_eq!(v[8..18], vec![1.0; 10]); // hours 9-18 (08:00–18:00)
+        assert_eq!(v[18..24], vec![0.0; 6]); // hours 19-24 (18:00–24:00)
     }
 
     #[test]
@@ -590,76 +652,95 @@ mod tests {
         let mut s = ScheduleInput {
             name: "test".to_string(),
             weekday: vec![1.0; 24], // default
-            weekend: None, saturday: None, sunday: None, holiday: None,
-            monday: None, tuesday: None, wednesday: None,
-            thursday: None, friday: None,
+            weekend: None,
+            saturday: None,
+            sunday: None,
+            holiday: None,
+            monday: None,
+            tuesday: None,
+            wednesday: None,
+            thursday: None,
+            friday: None,
             compact: Some(CompactScheduleInput {
                 weekday: Some("0 until 8:00, 1.0 until 18:00, 0".to_string()),
                 weekend: Some("0".to_string()),
                 friday: Some("0 until 8:00, 0.8 until 16:00, 0".to_string()),
-                monday: None, tuesday: None, wednesday: None,
-                thursday: None, saturday: None, sunday: None,
+                monday: None,
+                tuesday: None,
+                wednesday: None,
+                thursday: None,
+                saturday: None,
+                sunday: None,
                 holiday: None,
             }),
         };
         s.resolve_compact().unwrap();
 
         // Weekday: 0 until 8, 1.0 until 18, 0
-        assert_eq!(s.fraction(5, 2), 0.0);   // Tuesday 4am-5am
-        assert_eq!(s.fraction(12, 2), 1.0);  // Tuesday noon
-        assert_eq!(s.fraction(20, 2), 0.0);  // Tuesday 7pm-8pm
+        assert_eq!(s.fraction(5, 2), 0.0); // Tuesday 4am-5am
+        assert_eq!(s.fraction(12, 2), 1.0); // Tuesday noon
+        assert_eq!(s.fraction(20, 2), 0.0); // Tuesday 7pm-8pm
 
         // Friday override: 0 until 8, 0.8 until 16, 0
-        assert_eq!(s.fraction(5, 5), 0.0);   // Friday 4am-5am
-        assert_eq!(s.fraction(12, 5), 0.8);  // Friday noon
-        assert_eq!(s.fraction(17, 5), 0.0);  // Friday 4pm-5pm
+        assert_eq!(s.fraction(5, 5), 0.0); // Friday 4am-5am
+        assert_eq!(s.fraction(12, 5), 0.8); // Friday noon
+        assert_eq!(s.fraction(17, 5), 0.0); // Friday 4pm-5pm
 
         // Weekend: all 0
-        assert_eq!(s.fraction(12, 6), 0.0);  // Saturday noon
-        assert_eq!(s.fraction(12, 7), 0.0);  // Sunday noon
+        assert_eq!(s.fraction(12, 6), 0.0); // Saturday noon
+        assert_eq!(s.fraction(12, 7), 0.0); // Sunday noon
     }
 
     #[test]
     fn test_compact_schedule_manager_integration() {
-        let inputs = vec![
-            ScheduleInput {
-                name: "Office".to_string(),
-                weekday: vec![1.0; 24],
-                weekend: None, saturday: None, sunday: None, holiday: None,
-                monday: None, tuesday: None, wednesday: None,
-                thursday: None, friday: None,
-                compact: Some(CompactScheduleInput {
-                    weekday: Some("0 until 8:00, 1.0 until 18:00, 0".to_string()),
-                    weekend: Some("0".to_string()),
-                    monday: None, tuesday: None, wednesday: None,
-                    thursday: None, friday: None, saturday: None,
-                    sunday: None, holiday: None,
-                }),
-            },
-        ];
+        let inputs = vec![ScheduleInput {
+            name: "Office".to_string(),
+            weekday: vec![1.0; 24],
+            weekend: None,
+            saturday: None,
+            sunday: None,
+            holiday: None,
+            monday: None,
+            tuesday: None,
+            wednesday: None,
+            thursday: None,
+            friday: None,
+            compact: Some(CompactScheduleInput {
+                weekday: Some("0 until 8:00, 1.0 until 18:00, 0".to_string()),
+                weekend: Some("0".to_string()),
+                monday: None,
+                tuesday: None,
+                wednesday: None,
+                thursday: None,
+                friday: None,
+                saturday: None,
+                sunday: None,
+                holiday: None,
+            }),
+        }];
         let mgr = ScheduleManager::from_inputs(inputs);
 
-        assert_eq!(mgr.fraction("Office", 5, 1), 0.0);   // Monday 4am
-        assert_eq!(mgr.fraction("Office", 12, 3), 1.0);  // Wednesday noon
-        assert_eq!(mgr.fraction("Office", 20, 1), 0.0);  // Monday 7pm
-        assert_eq!(mgr.fraction("Office", 12, 6), 0.0);  // Saturday noon
+        assert_eq!(mgr.fraction("Office", 5, 1), 0.0); // Monday 4am
+        assert_eq!(mgr.fraction("Office", 12, 3), 1.0); // Wednesday noon
+        assert_eq!(mgr.fraction("Office", 20, 1), 0.0); // Monday 7pm
+        assert_eq!(mgr.fraction("Office", 12, 6), 0.0); // Saturday noon
     }
 
     // ─── Day of week tests ─────────────────────────────────────────────────
 
     #[test]
     fn test_day_of_week_monday_start() {
-        assert_eq!(day_of_week(1, 1, 1), 1);  // Monday
-        assert_eq!(day_of_week(1, 6, 1), 6);  // Saturday
-        assert_eq!(day_of_week(1, 7, 1), 7);  // Sunday
-        assert_eq!(day_of_week(1, 8, 1), 1);  // Monday again
+        assert_eq!(day_of_week(1, 1, 1), 1); // Monday
+        assert_eq!(day_of_week(1, 6, 1), 6); // Saturday
+        assert_eq!(day_of_week(1, 7, 1), 7); // Sunday
+        assert_eq!(day_of_week(1, 8, 1), 1); // Monday again
     }
 
     #[test]
     fn test_day_of_week_sunday_start() {
-        assert_eq!(day_of_week(1, 1, 7), 7);  // Sunday
-        assert_eq!(day_of_week(1, 2, 7), 1);  // Monday
-        assert_eq!(day_of_week(1, 7, 7), 6);  // Saturday
-        assert_eq!(day_of_week(1, 8, 7), 7);  // Sunday again
+        assert_eq!(day_of_week(1, 1, 7), 7); // Sunday
+        assert_eq!(day_of_week(1, 2, 7), 1); // Monday
+        assert_eq!(day_of_week(1, 7, 7), 6); // Saturday
+        assert_eq!(day_of_week(1, 8, 7), 7); // Sunday again
     }
 }

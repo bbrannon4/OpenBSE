@@ -7,8 +7,8 @@
 //! Users never define nodes, branches, branch lists, connector lists, or node lists.
 
 use crate::ports::*;
-use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::algo::toposort;
+use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::Direction;
 use std::collections::HashMap;
 
@@ -89,7 +89,8 @@ impl SimulationGraph {
 
     /// Connect a coil's water side to a plant component.
     pub fn connect_air_to_plant(&mut self, air_node: NodeIndex, plant_node: NodeIndex) {
-        self.graph.add_edge(plant_node, air_node, ConnectionType::AirToPlant);
+        self.graph
+            .add_edge(plant_node, air_node, ConnectionType::AirToPlant);
     }
 
     /// Look up a component's node index by name.
@@ -125,7 +126,10 @@ impl SimulationGraph {
         let mut order = Vec::new();
 
         for idx in self.graph.node_indices() {
-            in_degree.insert(idx, self.graph.edges_directed(idx, Direction::Incoming).count());
+            in_degree.insert(
+                idx,
+                self.graph.edges_directed(idx, Direction::Incoming).count(),
+            );
         }
 
         let mut queue: Vec<NodeIndex> = in_degree
@@ -205,7 +209,8 @@ impl SimulationGraph {
 
     /// Iterate over all air components mutably (for autosizing).
     pub fn air_components_mut(&mut self) -> Vec<&mut Box<dyn AirComponent>> {
-        self.graph.node_weights_mut()
+        self.graph
+            .node_weights_mut()
             .filter_map(|gc| match gc {
                 GraphComponent::Air(comp) => Some(comp),
                 _ => None,

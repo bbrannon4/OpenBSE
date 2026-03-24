@@ -400,10 +400,7 @@ mod tests {
     #[test]
     fn test_hp_heats_at_rated_conditions() {
         let mut coil = HeatPumpHeatingCoil::new("Test HP", 10000.0, 3.5, 0.5, 35.0);
-        let inlet = AirPort::new(
-            MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0),
-            0.5,
-        );
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0), 0.5);
         let ctx = make_ctx(8.33); // Rated outdoor temp (47°F)
 
         let outlet = coil.simulate_air(&inlet, &ctx);
@@ -425,10 +422,7 @@ mod tests {
         let mut coil_warm = HeatPumpHeatingCoil::new("HP Warm", 10000.0, 3.5, 0.5, 35.0);
         let mut coil_cold = HeatPumpHeatingCoil::new("HP Cold", 10000.0, 3.5, 0.5, 35.0);
 
-        let inlet = AirPort::new(
-            MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0),
-            0.5,
-        );
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0), 0.5);
 
         let _out_warm = coil_warm.simulate_air(&inlet, &make_ctx(8.33));
         let _out_cold = coil_cold.simulate_air(&inlet, &make_ctx(-8.33));
@@ -444,10 +438,7 @@ mod tests {
     #[test]
     fn test_hp_no_heating_when_warm() {
         let mut coil = HeatPumpHeatingCoil::new("Test HP", 10000.0, 3.5, 0.5, 20.0);
-        let inlet = AirPort::new(
-            MoistAirState::from_tdb_rh(25.0, 0.5, 101325.0),
-            0.5,
-        );
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(25.0, 0.5, 101325.0), 0.5);
         let ctx = make_ctx(8.33);
 
         let outlet = coil.simulate_air(&inlet, &ctx);
@@ -464,10 +455,7 @@ mod tests {
             .with_supplemental(15000.0)
             .with_lockout_temp(-17.78);
 
-        let inlet = AirPort::new(
-            MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0),
-            0.5,
-        );
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0), 0.5);
         let ctx = make_ctx(-25.0); // Below lockout
 
         let outlet = coil.simulate_air(&inlet, &ctx);
@@ -485,10 +473,7 @@ mod tests {
         let mut coil = HeatPumpHeatingCoil::new("HP + Supp", 3000.0, 3.5, 0.5, 35.0)
             .with_supplemental(20000.0);
 
-        let inlet = AirPort::new(
-            MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0),
-            0.5,
-        );
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0), 0.5);
         let ctx = make_ctx(-5.0); // Cold but not locked out
 
         let outlet = coil.simulate_air(&inlet, &ctx);
@@ -505,10 +490,7 @@ mod tests {
         let mut coil_no_defrost = HeatPumpHeatingCoil::new("HP Above", 10000.0, 3.5, 0.5, 35.0);
         let mut coil_defrost = HeatPumpHeatingCoil::new("HP Below", 10000.0, 3.5, 0.5, 35.0);
 
-        let inlet = AirPort::new(
-            MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0),
-            0.5,
-        );
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0), 0.5);
 
         // Above defrost onset (5°C) — no defrost penalty
         let _out1 = coil_no_defrost.simulate_air(&inlet, &make_ctx(10.0));
@@ -524,10 +506,7 @@ mod tests {
     #[test]
     fn test_hp_zero_airflow() {
         let mut coil = HeatPumpHeatingCoil::new("HP", 10000.0, 3.5, 0.5, 35.0);
-        let inlet = AirPort::new(
-            MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0),
-            0.0,
-        );
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0), 0.0);
         let ctx = make_ctx(8.33);
 
         let outlet = coil.simulate_air(&inlet, &ctx);

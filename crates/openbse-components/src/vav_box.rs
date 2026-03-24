@@ -118,7 +118,7 @@ impl VAVBox {
             min_flow_fraction: min_flow_fraction.clamp(0.0, 1.0),
             reheat_type,
             reheat_capacity,
-            max_reheat_temp: 40.0,  // E+ default Maximum Reheat Air Temperature
+            max_reheat_temp: 40.0, // E+ default Maximum Reheat Air Temperature
             max_reheat_fraction: 0.5,
             design_hw_flow_rate: 0.0,
             design_hw_inlet_temp: 82.0,
@@ -256,8 +256,8 @@ impl AirComponent for VAVBox {
                     // Water outlet temperature
                     if let Some(ref wi) = self.water_inlet {
                         if wi.state.mass_flow > 0.0 {
-                            let water_out_t =
-                                wi.state.temp - self.reheat_rate / (wi.state.mass_flow * wi.state.cp);
+                            let water_out_t = wi.state.temp
+                                - self.reheat_rate / (wi.state.mass_flow * wi.state.cp);
                             self.water_outlet_state = Some(WaterPort::new(FluidState::water(
                                 water_out_t,
                                 wi.state.mass_flow,
@@ -351,10 +351,7 @@ mod tests {
     }
 
     fn make_supply_air(temp: f64, flow: f64) -> AirPort {
-        AirPort::new(
-            MoistAirState::from_tdb_rh(temp, 0.5, 101325.0),
-            flow,
-        )
+        AirPort::new(MoistAirState::from_tdb_rh(temp, 0.5, 101325.0), flow)
     }
 
     #[test]
@@ -444,8 +441,15 @@ mod tests {
 
     #[test]
     fn test_vav_max_reheat_temp_limit() {
-        let mut vav = VAVBox::new("Zone1 VAV", "Zone1", 0.1, 0.3, ReheatType::Electric, 50000.0)
-            .with_max_reheat_temp(35.0);
+        let mut vav = VAVBox::new(
+            "Zone1 VAV",
+            "Zone1",
+            0.1,
+            0.3,
+            ReheatType::Electric,
+            50000.0,
+        )
+        .with_max_reheat_temp(35.0);
 
         let inlet = make_supply_air(13.0, 2.0);
         let ctx = make_ctx();

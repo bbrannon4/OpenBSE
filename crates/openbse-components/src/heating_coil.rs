@@ -274,12 +274,7 @@ impl HeatingCoil {
 
     // ─── Hot water coil: UA-based NTU-effectiveness model ────────────
 
-    fn simulate_hot_water_ua(
-        &mut self,
-        inlet: &AirPort,
-        cp_air: f64,
-        q_required: f64,
-    ) -> AirPort {
+    fn simulate_hot_water_ua(&mut self, inlet: &AirPort, cp_air: f64, q_required: f64) -> AirPort {
         let ua_cfg = self.ua_model.as_ref().unwrap();
         let ua = ua_cfg.ua_design;
 
@@ -351,8 +346,7 @@ impl HeatingCoil {
         self.energy_consumption = 0.0;
 
         // Water outlet temperature
-        let water_outlet_temp =
-            wi.state.temp - q_actual / (wi.state.mass_flow * wi.state.cp);
+        let water_outlet_temp = wi.state.temp - q_actual / (wi.state.mass_flow * wi.state.cp);
         self.water_outlet = Some(WaterPort::new(FluidState::water(
             water_outlet_temp,
             wi.state.mass_flow,
@@ -474,7 +468,7 @@ impl AirComponent for HeatingCoil {
     fn power_consumption(&self) -> f64 {
         match self.coil_type {
             HeatingCoilType::Electric => self.energy_consumption,
-            _ => 0.0,  // gas/HW coils don't consume electricity
+            _ => 0.0, // gas/HW coils don't consume electricity
         }
     }
 
@@ -802,14 +796,8 @@ mod tests {
         );
 
         // Simple model coil
-        let mut simple_coil = HeatingCoil::hot_water(
-            "Simple Coil",
-            rated_capacity,
-            50.0,
-            0.001,
-            82.2,
-            71.1,
-        );
+        let mut simple_coil =
+            HeatingCoil::hot_water("Simple Coil", rated_capacity, 50.0, 0.001, 82.2, 71.1);
 
         // Off-design: moderately lower water temp (still above design_water_outlet
         // of 71°C so the simple model gets nonzero water capacity), higher air flow

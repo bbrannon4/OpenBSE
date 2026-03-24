@@ -110,7 +110,7 @@ impl PFPBox {
             max_primary_flow,
             min_primary_fraction: min_primary_fraction.clamp(0.0, 1.0),
             secondary_fan_flow,
-            secondary_fan_pressure: 375.0,   // typical PFP fan
+            secondary_fan_pressure: 375.0, // typical PFP fan
             secondary_fan_efficiency: 0.55,
             secondary_air_temp: 24.0,
             reheat_capacity,
@@ -327,10 +327,7 @@ mod tests {
     }
 
     fn make_supply_air(temp: f64, flow: f64) -> AirPort {
-        AirPort::new(
-            MoistAirState::from_tdb_rh(temp, 0.5, 101325.0),
-            flow,
-        )
+        AirPort::new(MoistAirState::from_tdb_rh(temp, 0.5, 101325.0), flow)
     }
 
     #[test]
@@ -354,8 +351,8 @@ mod tests {
 
     #[test]
     fn test_pfp_heating_mode_secondary_fan_on() {
-        let mut pfp = PFPBox::new("Zone1 PFP", "Zone1", 1.0, 0.3, 0.5, 10000.0)
-            .with_secondary_air_temp(24.0);
+        let mut pfp =
+            PFPBox::new("Zone1 PFP", "Zone1", 1.0, 0.3, 0.5, 10000.0).with_secondary_air_temp(24.0);
 
         let inlet = make_supply_air(13.0, 2.0);
         let ctx = make_ctx();
@@ -413,8 +410,8 @@ mod tests {
 
     #[test]
     fn test_pfp_max_reheat_temp_limit() {
-        let mut pfp = PFPBox::new("Zone1 PFP", "Zone1", 0.1, 1.0, 0.1, 50000.0)
-            .with_max_reheat_temp(35.0);
+        let mut pfp =
+            PFPBox::new("Zone1 PFP", "Zone1", 0.1, 1.0, 0.1, 50000.0).with_max_reheat_temp(35.0);
 
         let inlet = make_supply_air(13.0, 2.0);
         let ctx = make_ctx();

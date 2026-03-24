@@ -15,9 +15,9 @@
 //! Reference: ASHRAE Fundamentals Ch. 16, E+ AirflowNetwork model,
 //! Swami & Chandra (1988) FSEC-CR-163-86.
 
-use serde::{Deserialize, Serialize};
 use crate::convection::Terrain;
 use crate::surface::{BoundaryCondition, SurfaceType};
+use serde::{Deserialize, Serialize};
 
 /// Gravitational acceleration [m/s²].
 const G: f64 = 9.81;
@@ -89,14 +89,30 @@ pub struct AirflowNetworkConfig {
     pub damping: f64,
 }
 
-fn default_crack_exponent() -> f64 { 0.65 }
-fn default_wall_leakage() -> f64 { 0.00008 }
-fn default_window_leakage() -> f64 { 0.00014 }
-fn default_door_leakage() -> f64 { 0.0006 }
-fn default_interzone_leakage() -> f64 { 0.00004 }
-fn default_convergence_tol() -> f64 { 0.1 }
-fn default_max_iterations() -> usize { 30 }
-fn default_damping() -> f64 { 0.75 }
+fn default_crack_exponent() -> f64 {
+    0.65
+}
+fn default_wall_leakage() -> f64 {
+    0.00008
+}
+fn default_window_leakage() -> f64 {
+    0.00014
+}
+fn default_door_leakage() -> f64 {
+    0.0006
+}
+fn default_interzone_leakage() -> f64 {
+    0.00004
+}
+fn default_convergence_tol() -> f64 {
+    0.1
+}
+fn default_max_iterations() -> usize {
+    30
+}
+fn default_damping() -> f64 {
+    0.75
+}
 
 impl Default for AirflowNetworkConfig {
     fn default() -> Self {
@@ -253,9 +269,7 @@ pub struct AirflowNetwork {
 /// Also: ASHRAE Fundamentals 2017, Ch. 24, Eq. 3.
 pub fn cp_swami_chandra(theta_deg: f64, side_ratio: f64) -> f64 {
     let theta = theta_deg.to_radians();
-    let ln_arg = 1.248
-        - 0.703 * (theta / 2.0).sin()
-        - 1.175 * theta.sin().powi(2)
+    let ln_arg = 1.248 - 0.703 * (theta / 2.0).sin() - 1.175 * theta.sin().powi(2)
         + 0.131 * (2.0 * theta * side_ratio.ln().exp().min(4.0)).sin().powi(3)
         + 0.769 * (theta / 2.0).cos()
         + 0.07 * side_ratio.powi(2) * (theta / 2.0).sin().powi(2)
@@ -316,7 +330,10 @@ fn wind_surface_angle(wind_dir: f64, azimuth: f64) -> f64 {
 /// Positive flow = A → B.
 pub fn flow_and_derivative(element: &FlowElement, dp: f64, rho_avg: f64) -> (f64, f64) {
     match element {
-        FlowElement::PowerLawCrack { coefficient, exponent } => {
+        FlowElement::PowerLawCrack {
+            coefficient,
+            exponent,
+        } => {
             let c = *coefficient;
             let n = *exponent;
             let dp_abs = dp.abs().max(MIN_DP);
@@ -327,7 +344,10 @@ pub fn flow_and_derivative(element: &FlowElement, dp: f64, rho_avg: f64) -> (f64
             let dflow = c * rho_corr * n * dp_abs.powf(n - 1.0);
             (flow, dflow)
         }
-        FlowElement::LargeOpening { discharge_coefficient, area } => {
+        FlowElement::LargeOpening {
+            discharge_coefficient,
+            area,
+        } => {
             let cd = *discharge_coefficient;
             let a = *area;
             let dp_abs = dp.abs().max(MIN_DP);
@@ -420,9 +440,7 @@ pub fn build_network(
                 let azimuth = surf.input.azimuth;
 
                 // Check if user wants a large opening
-                let is_large_opening = overrides
-                    .and_then(|o| o.large_opening)
-                    .unwrap_or(false);
+                let is_large_opening = overrides.and_then(|o| o.large_opening).unwrap_or(false);
 
                 if is_large_opening {
                     let frac = overrides.and_then(|o| o.opening_fraction).unwrap_or(1.0);
@@ -452,8 +470,11 @@ pub fn build_network(
                         };
                         leakage * surf.net_area
                     });
-                    let n = override_or_val(overrides, |o| o.crack_exponent,
-                        config.default_crack_exponent);
+                    let n = override_or_val(
+                        overrides,
+                        |o| o.crack_exponent,
+                        config.default_crack_exponent,
+                    );
 
                     paths.push(FlowPath {
                         node_a: outdoor_node,
@@ -491,8 +512,11 @@ pub fn build_network(
                 let c = override_or(overrides, |o| o.crack_coefficient, {
                     config.interzone_leakage_per_area * surf.input.area
                 });
-                let n = override_or_val(overrides, |o| o.crack_exponent,
-                    config.default_crack_exponent);
+                let n = override_or_val(
+                    overrides,
+                    |o| o.crack_exponent,
+                    config.default_crack_exponent,
+                );
 
                 paths.push(FlowPath {
                     node_a: zone_node,
@@ -648,7 +672,14 @@ pub fn solve_pressures(
     terrain: Terrain,
 ) -> (bool, usize) {
     // Update wind pressures and outdoor conditions
-    update_wind_pressures(network, wind_speed_met, wind_direction, t_outdoor, rho_outdoor, terrain);
+    update_wind_pressures(
+        network,
+        wind_speed_met,
+        wind_direction,
+        t_outdoor,
+        rho_outdoor,
+        terrain,
+    );
 
     let n_zones = network.zone_to_node.len();
     if n_zones == 0 {
@@ -681,8 +712,14 @@ pub fn solve_pressures(
             let b = path.node_b;
 
             // Compute total pressure difference: P_a - P_b + stack + wind
-            let dp = compute_path_dp(path, &network.nodes, outdoor, wind_speed_met,
-                terrain, weather_wind_mod_coeff);
+            let dp = compute_path_dp(
+                path,
+                &network.nodes,
+                outdoor,
+                wind_speed_met,
+                terrain,
+                weather_wind_mod_coeff,
+            );
 
             let rho_a = network.nodes[a].density;
             let rho_b = network.nodes[b].density;
@@ -726,7 +763,8 @@ pub fn solve_pressures(
         }
 
         // Solve J × δP = -R using Gaussian elimination with partial pivoting
-        let delta_p = solve_linear_system(&jacobian, &residual.iter().map(|r| -r).collect::<Vec<_>>());
+        let delta_p =
+            solve_linear_system(&jacobian, &residual.iter().map(|r| -r).collect::<Vec<_>>());
 
         if let Some(dp_vec) = delta_p {
             let max_dp = dp_vec.iter().map(|d| d.abs()).fold(0.0_f64, f64::max);
@@ -783,15 +821,21 @@ fn compute_path_dp(
     if path.node_a == outdoor {
         // Wind at path height
         let v_local = crate::convection::wind_speed_at_height(
-            wind_speed_met, h.max(0.5), weather_wind_mod_coeff,
-            terrain.wind_exp(), terrain.wind_bl_height(),
+            wind_speed_met,
+            h.max(0.5),
+            weather_wind_mod_coeff,
+            terrain.wind_exp(),
+            terrain.wind_bl_height(),
         );
         dp += 0.5 * a.density * path.cp * v_local * v_local;
     }
     if path.node_b == outdoor {
         let v_local = crate::convection::wind_speed_at_height(
-            wind_speed_met, h.max(0.5), weather_wind_mod_coeff,
-            terrain.wind_exp(), terrain.wind_bl_height(),
+            wind_speed_met,
+            h.max(0.5),
+            weather_wind_mod_coeff,
+            terrain.wind_exp(),
+            terrain.wind_bl_height(),
         );
         dp -= 0.5 * b.density * path.cp * v_local * v_local;
     }
@@ -800,11 +844,7 @@ fn compute_path_dp(
 }
 
 /// Post-solve: recompute final mass flows and accumulate per-zone results.
-fn post_solve(
-    network: &mut AirflowNetwork,
-    wind_speed_met: f64,
-    terrain: Terrain,
-) {
+fn post_solve(network: &mut AirflowNetwork, wind_speed_met: f64, terrain: Terrain) {
     let outdoor = network.outdoor_node;
     let n_zones = network.zone_to_node.len();
     let weather_wind_mod_coeff = crate::convection::DEFAULT_WEATHER_WIND_MOD_COEFF;
@@ -817,10 +857,16 @@ fn post_solve(
 
     // Compute final flows on each path
     for path in &mut network.paths {
-        let dp = compute_path_dp(path, &network.nodes, outdoor,
-            wind_speed_met, terrain, weather_wind_mod_coeff);
-        let rho_avg = 0.5 * (network.nodes[path.node_a].density
-            + network.nodes[path.node_b].density);
+        let dp = compute_path_dp(
+            path,
+            &network.nodes,
+            outdoor,
+            wind_speed_met,
+            terrain,
+            weather_wind_mod_coeff,
+        );
+        let rho_avg =
+            0.5 * (network.nodes[path.node_a].density + network.nodes[path.node_b].density);
         let (flow, _) = flow_and_derivative(&path.element, dp, rho_avg);
         path.mass_flow = flow;
 
@@ -866,11 +912,15 @@ fn solve_linear_system(a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
     }
 
     // Augmented matrix [A | b]
-    let mut aug: Vec<Vec<f64>> = a.iter().enumerate().map(|(i, row)| {
-        let mut r = row.clone();
-        r.push(b[i]);
-        r
-    }).collect();
+    let mut aug: Vec<Vec<f64>> = a
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            let mut r = row.clone();
+            r.push(b[i]);
+            r
+        })
+        .collect();
 
     // Forward elimination with partial pivoting
     for col in 0..n {
@@ -1039,14 +1089,16 @@ mod tests {
         let mut network = AirflowNetwork {
             config,
             nodes: vec![
-                PressureNode { // zone 0
+                PressureNode {
+                    // zone 0
                     zone_index: Some(0),
                     ref_height: 1.5,
                     pressure: 0.0,
                     temperature: 293.15,
                     density: RHO_REF,
                 },
-                PressureNode { // outdoor
+                PressureNode {
+                    // outdoor
                     zone_index: None,
                     ref_height: 1.5, // same height to eliminate stack
                     pressure: 0.0,
@@ -1055,7 +1107,8 @@ mod tests {
                 },
             ],
             paths: vec![
-                FlowPath { // crack from outdoor to zone
+                FlowPath {
+                    // crack from outdoor to zone
                     node_a: 1, // outdoor
                     node_b: 0, // zone
                     height: 1.5,
@@ -1068,7 +1121,8 @@ mod tests {
                     source_surface: None,
                     mass_flow: 0.0,
                 },
-                FlowPath { // exhaust fan: zone → outdoor, 0.1 kg/s
+                FlowPath {
+                    // exhaust fan: zone → outdoor, 0.1 kg/s
                     node_a: 0, // zone
                     node_b: 1, // outdoor
                     height: 1.5,
@@ -1086,15 +1140,17 @@ mod tests {
             side_ratio: 1.0,
         };
 
-        let (converged, _iters) = solve_pressures(
-            &mut network, 0.0, 0.0, 20.0, RHO_REF, Terrain::Suburbs,
-        );
+        let (converged, _iters) =
+            solve_pressures(&mut network, 0.0, 0.0, 20.0, RHO_REF, Terrain::Suburbs);
 
         assert!(converged, "Solver should converge");
 
         // Zone should be at negative pressure (exhaust pulls air out)
         let p_zone = network.nodes[0].pressure;
-        assert!(p_zone < 0.0, "Zone pressure should be negative, got {p_zone}");
+        assert!(
+            p_zone < 0.0,
+            "Zone pressure should be negative, got {p_zone}"
+        );
 
         // Crack inflow should balance exhaust
         let outdoor_flow = network.zone_outdoor_mass_flow[0];
@@ -1118,30 +1174,82 @@ mod tests {
         let mut network = AirflowNetwork {
             config,
             nodes: vec![
-                PressureNode { zone_index: Some(0), ref_height: 1.5, pressure: 0.0,
-                    temperature: 293.15, density: RHO_REF },
-                PressureNode { zone_index: Some(1), ref_height: 1.5, pressure: 0.0,
-                    temperature: 293.15, density: RHO_REF },
-                PressureNode { zone_index: None, ref_height: 1.5, pressure: 0.0,
-                    temperature: 293.15, density: RHO_REF },
+                PressureNode {
+                    zone_index: Some(0),
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: RHO_REF,
+                },
+                PressureNode {
+                    zone_index: Some(1),
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: RHO_REF,
+                },
+                PressureNode {
+                    zone_index: None,
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: RHO_REF,
+                },
             ],
             paths: vec![
                 // Outdoor → Zone 0
-                FlowPath { node_a: 2, node_b: 0, height: 1.5, cp: 0.0, azimuth: 180.0,
-                    element: FlowElement::PowerLawCrack { coefficient: 0.005, exponent: 0.65 },
-                    source_surface: None, mass_flow: 0.0 },
+                FlowPath {
+                    node_a: 2,
+                    node_b: 0,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 180.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.005,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
                 // Outdoor → Zone 1
-                FlowPath { node_a: 2, node_b: 1, height: 1.5, cp: 0.0, azimuth: 0.0,
-                    element: FlowElement::PowerLawCrack { coefficient: 0.005, exponent: 0.65 },
-                    source_surface: None, mass_flow: 0.0 },
+                FlowPath {
+                    node_a: 2,
+                    node_b: 1,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.005,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
                 // Zone 0 → Zone 1 (interzone crack)
-                FlowPath { node_a: 0, node_b: 1, height: 1.5, cp: 0.0, azimuth: 0.0,
-                    element: FlowElement::PowerLawCrack { coefficient: 0.003, exponent: 0.65 },
-                    source_surface: None, mass_flow: 0.0 },
+                FlowPath {
+                    node_a: 0,
+                    node_b: 1,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.003,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
                 // Exhaust fan: Zone 0 → outdoor
-                FlowPath { node_a: 0, node_b: 2, height: 1.5, cp: 0.0, azimuth: 0.0,
+                FlowPath {
+                    node_a: 0,
+                    node_b: 2,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
                     element: FlowElement::FixedFlow { mass_flow: 0.05 },
-                    source_surface: None, mass_flow: 0.0 },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
             ],
             outdoor_node: 2,
             zone_to_node: vec![0, 1],
@@ -1150,9 +1258,8 @@ mod tests {
             side_ratio: 1.0,
         };
 
-        let (converged, _) = solve_pressures(
-            &mut network, 0.0, 0.0, 20.0, RHO_REF, Terrain::Suburbs,
-        );
+        let (converged, _) =
+            solve_pressures(&mut network, 0.0, 0.0, 20.0, RHO_REF, Terrain::Suburbs);
         assert!(converged);
 
         // Check mass conservation at each zone node
@@ -1169,13 +1276,17 @@ mod tests {
         }
 
         for (zi, balance) in zone_balance.iter().enumerate() {
-            assert!(balance.abs() < 0.001,
-                "Zone {zi} mass balance should be ~0, got {balance}");
+            assert!(
+                balance.abs() < 0.001,
+                "Zone {zi} mass balance should be ~0, got {balance}"
+            );
         }
 
         // Zone 0 should be negative pressure (exhaust)
-        assert!(network.nodes[0].pressure < network.nodes[1].pressure,
-            "Zone with exhaust should have lower pressure");
+        assert!(
+            network.nodes[0].pressure < network.nodes[1].pressure,
+            "Zone with exhaust should have lower pressure"
+        );
     }
 
     #[test]
@@ -1196,26 +1307,71 @@ mod tests {
         let mut network = AirflowNetwork {
             config,
             nodes: vec![
-                PressureNode { zone_index: Some(0), ref_height: 1.5, pressure: 0.0,
-                    temperature: 293.15, density: 1.205 }, // 20°C
-                PressureNode { zone_index: Some(1), ref_height: 4.5, pressure: 0.0,
-                    temperature: 303.15, density: 1.165 }, // 30°C
-                PressureNode { zone_index: None, ref_height: 0.0, pressure: 0.0,
-                    temperature: 273.15, density: 1.292 }, // 0°C outdoor
+                PressureNode {
+                    zone_index: Some(0),
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: 1.205,
+                }, // 20°C
+                PressureNode {
+                    zone_index: Some(1),
+                    ref_height: 4.5,
+                    pressure: 0.0,
+                    temperature: 303.15,
+                    density: 1.165,
+                }, // 30°C
+                PressureNode {
+                    zone_index: None,
+                    ref_height: 0.0,
+                    pressure: 0.0,
+                    temperature: 273.15,
+                    density: 1.292,
+                }, // 0°C outdoor
             ],
             paths: vec![
                 // Outdoor → Zone 0 (low crack at 1.0 m)
-                FlowPath { node_a: 2, node_b: 0, height: 1.0, cp: 0.0, azimuth: 0.0,
-                    element: FlowElement::PowerLawCrack { coefficient: 0.005, exponent: 0.65 },
-                    source_surface: None, mass_flow: 0.0 },
+                FlowPath {
+                    node_a: 2,
+                    node_b: 0,
+                    height: 1.0,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.005,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
                 // Outdoor → Zone 1 (high crack at 5.0 m)
-                FlowPath { node_a: 2, node_b: 1, height: 5.0, cp: 0.0, azimuth: 0.0,
-                    element: FlowElement::PowerLawCrack { coefficient: 0.005, exponent: 0.65 },
-                    source_surface: None, mass_flow: 0.0 },
+                FlowPath {
+                    node_a: 2,
+                    node_b: 1,
+                    height: 5.0,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.005,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
                 // Zone 0 → Zone 1 (interzone at 3.0 m)
-                FlowPath { node_a: 0, node_b: 1, height: 3.0, cp: 0.0, azimuth: 0.0,
-                    element: FlowElement::PowerLawCrack { coefficient: 0.003, exponent: 0.65 },
-                    source_surface: None, mass_flow: 0.0 },
+                FlowPath {
+                    node_a: 0,
+                    node_b: 1,
+                    height: 3.0,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.003,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
             ],
             outdoor_node: 2,
             zone_to_node: vec![0, 1],
@@ -1224,21 +1380,23 @@ mod tests {
             side_ratio: 1.0,
         };
 
-        let (converged, _) = solve_pressures(
-            &mut network, 0.0, 0.0, 0.0, 1.292, Terrain::Country,
-        );
+        let (converged, _) = solve_pressures(&mut network, 0.0, 0.0, 0.0, 1.292, Terrain::Country);
         assert!(converged);
 
         // Cold air enters at bottom (outdoor → zone 0): positive flow on path 0
         let bottom_flow = network.paths[0].mass_flow;
-        assert!(bottom_flow > 0.0,
-            "Cold air should enter at bottom, got flow = {bottom_flow}");
+        assert!(
+            bottom_flow > 0.0,
+            "Cold air should enter at bottom, got flow = {bottom_flow}"
+        );
 
         // Warm air exits at top (zone 1 → outdoor): negative flow on path 1
         // (outdoor→zone1 path, so negative means zone1→outdoor)
         let top_flow = network.paths[1].mass_flow;
-        assert!(top_flow < 0.0,
-            "Warm air should exit at top, got flow = {top_flow}");
+        assert!(
+            top_flow < 0.0,
+            "Warm air should exit at top, got flow = {top_flow}"
+        );
     }
 
     #[test]
@@ -1264,7 +1422,7 @@ mod tests {
     #[test]
     fn test_estimate_side_ratio() {
         let areas = crate::geometry::EnvelopeAreas {
-            wall_area: [100.0, 50.0, 100.0, 50.0],   // N, E, S, W
+            wall_area: [100.0, 50.0, 100.0, 50.0], // N, E, S, W
             window_area: [0.0, 0.0, 0.0, 0.0],
         };
         let sr = estimate_side_ratio(&areas);

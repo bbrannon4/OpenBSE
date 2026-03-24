@@ -201,8 +201,8 @@ impl PlantComponent for Boiler {
 
                 // Design mass flow limit [kg/s] (design_water_flow_rate is
                 // stored in m³/s; convert via density ≈ 998 kg/m³).
-                let design_mass_flow = self.design_water_flow_rate
-                    * openbse_psychrometrics::RHO_WATER;
+                let design_mass_flow =
+                    self.design_water_flow_rate * openbse_psychrometrics::RHO_WATER;
 
                 let m_actual = m_required.clamp(0.0, design_mass_flow);
 
@@ -430,9 +430,13 @@ mod tests {
         let outlet2 = boiler2.simulate_plant(&inlet2, 80_000.0, &ctx);
 
         let design_mass_flow2 = 0.0005 * RHO_WATER; // ~0.499 kg/s
-        // At design flow, max Q = 0.499 * 4180 * 22 = 45,892 W
+                                                    // At design flow, max Q = 0.499 * 4180 * 22 = 45,892 W
         let q_max = design_mass_flow2 * CP_WATER * dt_set;
-        assert_relative_eq!(outlet2.state.mass_flow, design_mass_flow2, max_relative = 0.01);
+        assert_relative_eq!(
+            outlet2.state.mass_flow,
+            design_mass_flow2,
+            max_relative = 0.01
+        );
         assert_relative_eq!(outlet2.state.temp, setpoint, max_relative = 0.001);
         assert_relative_eq!(boiler2.boiler_load, q_max, max_relative = 0.01);
         // Fuel = Q / eff

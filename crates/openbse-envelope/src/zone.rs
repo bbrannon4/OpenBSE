@@ -14,15 +14,17 @@
 //!
 //! Reference: EnergyPlus ZoneTempPredictorCorrector.cc, TARP Manual (1983).
 
-use serde::{Deserialize, Deserializer, Serialize};
 use crate::infiltration::InfiltrationInput;
 use crate::internal_gains::InternalGainInput;
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// Custom deserializer that accepts either a single InfiltrationInput or a list.
 /// This provides backward compatibility: `infiltration: {single}` still works,
 /// while `infiltration: [{obj1}, {obj2}]` supports multiple infiltration objects
 /// per zone (e.g., envelope cracks + door opening for vestibule zones).
-fn deserialize_infiltration_list<'de, D>(deserializer: D) -> Result<Vec<InfiltrationInput>, D::Error>
+fn deserialize_infiltration_list<'de, D>(
+    deserializer: D,
+) -> Result<Vec<InfiltrationInput>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -64,9 +66,15 @@ pub struct IdealLoadsAirSystem {
     pub cooling_setpoint: f64,
 }
 
-fn default_ideal_capacity() -> f64 { 1_000_000.0 }
-fn default_heating_sp() -> f64 { 20.0 }
-fn default_cooling_sp() -> f64 { 27.0 }
+fn default_ideal_capacity() -> f64 {
+    1_000_000.0
+}
+fn default_heating_sp() -> f64 {
+    20.0
+}
+fn default_cooling_sp() -> f64 {
+    27.0
+}
 
 impl Default for IdealLoadsAirSystem {
     fn default() -> Self {
@@ -146,9 +154,15 @@ pub struct InteriorSolarDistribution {
     pub ceiling_fraction: f64,
 }
 
-fn default_floor_fraction() -> f64 { 0.642 }
-fn default_wall_fraction() -> f64 { 0.191 }
-fn default_ceiling_fraction() -> f64 { 0.167 }
+fn default_floor_fraction() -> f64 {
+    0.642
+}
+fn default_wall_fraction() -> f64 {
+    0.191
+}
+fn default_ceiling_fraction() -> f64 {
+    0.167
+}
 
 impl Default for InteriorSolarDistribution {
     fn default() -> Self {
@@ -189,10 +203,18 @@ pub struct ExhaustFanInput {
     pub schedule: Option<String>,
 }
 
-fn default_exhaust_fan_tag() -> String { "exhaust".to_string() }
-fn default_exhaust_fan_total_eff() -> f64 { 0.6 }
-fn default_exhaust_fan_motor_eff() -> f64 { 0.9 }
-fn default_exhaust_fan_motor_in_air() -> f64 { 1.0 }
+fn default_exhaust_fan_tag() -> String {
+    "exhaust".to_string()
+}
+fn default_exhaust_fan_total_eff() -> f64 {
+    0.6
+}
+fn default_exhaust_fan_motor_eff() -> f64 {
+    0.9
+}
+fn default_exhaust_fan_motor_in_air() -> f64 {
+    1.0
+}
 
 /// ASHRAE 62.1 outdoor air specification for a zone.
 ///
@@ -355,14 +377,30 @@ pub struct NatVentSetpointReset {
     pub ramp_timesteps: u32,
 }
 
-fn default_nat_vent_height_diff() -> f64 { 0.0 }
-fn default_nat_vent_cd() -> f64 { 0.65 }
-fn default_nat_vent_min_indoor() -> f64 { -100.0 }
-fn default_nat_vent_max_indoor() -> f64 { 100.0 }
-fn default_nat_vent_min_outdoor() -> f64 { -100.0 }
-fn default_nat_vent_max_outdoor() -> f64 { 100.0 }
-fn default_nat_vent_max_wind() -> f64 { 40.0 }
-fn default_nat_vent_ramp_steps() -> u32 { 4 }
+fn default_nat_vent_height_diff() -> f64 {
+    0.0
+}
+fn default_nat_vent_cd() -> f64 {
+    0.65
+}
+fn default_nat_vent_min_indoor() -> f64 {
+    -100.0
+}
+fn default_nat_vent_max_indoor() -> f64 {
+    100.0
+}
+fn default_nat_vent_min_outdoor() -> f64 {
+    -100.0
+}
+fn default_nat_vent_max_outdoor() -> f64 {
+    100.0
+}
+fn default_nat_vent_max_wind() -> f64 {
+    40.0
+}
+fn default_nat_vent_ramp_steps() -> u32 {
+    4
+}
 
 /// Zone definition from input.
 ///
@@ -424,8 +462,12 @@ pub struct ZoneInput {
     pub zone_multiplier: u32,
 }
 
-fn default_conditioned() -> bool { true }
-fn default_zone_multiplier() -> u32 { 1 }
+fn default_conditioned() -> bool {
+    true
+}
+fn default_zone_multiplier() -> u32 {
+    1
+}
 
 impl ZoneInput {
     /// Get the active thermostat setpoints for a given hour of day.
@@ -668,7 +710,7 @@ impl ZoneState {
             nat_vent_mass_flow: 0.0,
             nat_vent_active: false,
             nat_vent_off_timesteps: u32::MAX, // large value = long since stopped
-            centroid_height: 0.0, // set after surface assignment
+            centroid_height: 0.0,             // set after surface assignment
             temp_no_hvac: initial_temp,
             ideal_pred_mode: 0,
             ideal_pred_mode_locked: false,
@@ -768,11 +810,7 @@ pub fn solve_zone_air_temp(
 ) -> f64 {
     let cap_term = rho_air * volume * cp_air / dt;
 
-    let numerator = sum_hat
-        + mcpi * t_outdoor
-        + mcpsys * t_supply
-        + q_conv
-        + cap_term * t_prev;
+    let numerator = sum_hat + mcpi * t_outdoor + mcpsys * t_supply + q_conv + cap_term * t_prev;
 
     let denominator = sum_ha + mcpi + mcpsys + cap_term;
 
@@ -806,10 +844,7 @@ pub fn solve_zone_air_temp_with_q(
 ) -> f64 {
     let cap_term = rho_air * volume * cp_air / dt;
 
-    let numerator = sum_hat
-        + mcpi * t_outdoor
-        + q_conv + q_hvac
-        + cap_term * t_prev;
+    let numerator = sum_hat + mcpi * t_outdoor + q_conv + q_hvac + cap_term * t_prev;
 
     let denominator = sum_ha + mcpi + cap_term;
 
@@ -857,10 +892,7 @@ pub fn solve_zone_humidity(
     // Convert latent heat [W] to moisture generation rate [kg/s]
     let m_latent = q_latent / H_FG;
 
-    let numerator = cap * w_prev
-        + m_infil * w_outdoor
-        + m_supply * w_supply
-        + m_latent;
+    let numerator = cap * w_prev + m_infil * w_outdoor + m_supply * w_supply + m_latent;
 
     let denominator = cap + m_infil + m_supply;
 
@@ -898,11 +930,7 @@ pub fn compute_ideal_q_hvac(
     let cap_term = rho_air * volume * cp_air / dt;
     let denominator = sum_ha + mcpi + cap_term;
 
-    denominator * t_target
-        - sum_hat
-        - mcpi * t_outdoor
-        - q_conv
-        - cap_term * t_prev
+    denominator * t_target - sum_hat - mcpi * t_outdoor - q_conv - cap_term * t_prev
 }
 
 /// Calculate zone heating and cooling loads from the zone energy balance.
@@ -947,7 +975,7 @@ mod tests {
         // Scenario: no HVAC, no infiltration, no internal gains.
         // Single surface: h=5 W/(m²·K), A=20 m², T_surface = 30°C
         // Zone should converge toward surface temp.
-        let sum_ha = 5.0 * 20.0;  // 100 W/K
+        let sum_ha = 5.0 * 20.0; // 100 W/K
         let sum_hat = 5.0 * 20.0 * 30.0; // 3000 W
         let mcpi = 0.0;
         let mcpsys = 0.0;
@@ -959,8 +987,7 @@ mod tests {
         let t_prev = 20.0;
 
         let t = solve_zone_air_temp(
-            sum_ha, sum_hat, mcpi, 0.0, mcpsys, 0.0,
-            q_conv, rho, vol, cp, dt, t_prev,
+            sum_ha, sum_hat, mcpi, 0.0, mcpsys, 0.0, q_conv, rho, vol, cp, dt, t_prev,
         );
 
         // With thermal mass, zone temp should be between 20 and 30
@@ -971,8 +998,7 @@ mod tests {
         let mut temp = t_prev;
         for _ in 0..1000 {
             temp = solve_zone_air_temp(
-                sum_ha, sum_hat, mcpi, 0.0, mcpsys, 0.0,
-                q_conv, rho, vol, cp, dt, temp,
+                sum_ha, sum_hat, mcpi, 0.0, mcpsys, 0.0, q_conv, rho, vol, cp, dt, temp,
             );
         }
         assert_relative_eq!(temp, 30.0, max_relative = 0.01);
@@ -981,13 +1007,13 @@ mod tests {
     #[test]
     fn test_hvac_maintains_setpoint() {
         // Outdoor is cold, but HVAC supplies warm air
-        let sum_ha = 5.0 * 20.0;   // 100 W/K surface coupling
+        let sum_ha = 5.0 * 20.0; // 100 W/K surface coupling
         let sum_hat = 5.0 * 20.0 * 10.0; // surfaces at 10°C
-        let mcpi = 0.01 * 1005.0;  // small infiltration
+        let mcpi = 0.01 * 1005.0; // small infiltration
         let t_outdoor = 0.0;
         let mcpsys = 0.5 * 1005.0; // HVAC supply: 0.5 kg/s
-        let t_supply = 35.0;       // supply at 35°C
-        let q_conv = 500.0;        // internal gains
+        let t_supply = 35.0; // supply at 35°C
+        let q_conv = 500.0; // internal gains
         let rho = 1.2;
         let vol = 100.0;
         let cp = 1005.0;
@@ -996,8 +1022,7 @@ mod tests {
         let mut temp = 21.0;
         for _ in 0..100 {
             temp = solve_zone_air_temp(
-                sum_ha, sum_hat, mcpi, t_outdoor, mcpsys, t_supply,
-                q_conv, rho, vol, cp, dt, temp,
+                sum_ha, sum_hat, mcpi, t_outdoor, mcpsys, t_supply, q_conv, rho, vol, cp, dt, temp,
             );
         }
 
@@ -1008,11 +1033,17 @@ mod tests {
     #[test]
     fn test_zone_loads() {
         let (hl, cl) = calc_zone_loads(
-            21.0,       // zone temp
-            100.0,      // sum_ha
+            21.0,         // zone temp
+            100.0,        // sum_ha
             100.0 * 15.0, // sum_hat (surfaces at 15°C → zone loses heat)
-            0.0, 0.0, 0.0,
-            1.2, 100.0, 1005.0, 3600.0, 21.0,
+            0.0,
+            0.0,
+            0.0,
+            1.2,
+            100.0,
+            1005.0,
+            3600.0,
+            21.0,
         );
         // Zone is at 21°C, surfaces at 15°C → zone loses heat → heating needed
         assert!(hl > 0.0);
@@ -1034,16 +1065,14 @@ mod tests {
         let t_prev = 20.0;
 
         let q = compute_ideal_q_hvac(
-            sum_ha, sum_hat, mcpi, t_outdoor, q_conv,
-            rho, vol, cp, dt, t_prev, 20.0,
+            sum_ha, sum_hat, mcpi, t_outdoor, q_conv, rho, vol, cp, dt, t_prev, 20.0,
         );
         // Heating needed → positive Q
         assert!(q > 0.0, "Expected positive heating Q, got {}", q);
 
         // Verify: solving with this Q should give T = 20.0
         let t = solve_zone_air_temp_with_q(
-            sum_ha, sum_hat, mcpi, t_outdoor, q_conv, q,
-            rho, vol, cp, dt, t_prev,
+            sum_ha, sum_hat, mcpi, t_outdoor, q_conv, q, rho, vol, cp, dt, t_prev,
         );
         assert_relative_eq!(t, 20.0, max_relative = 0.001);
     }
@@ -1063,16 +1092,14 @@ mod tests {
         let t_prev = 27.0;
 
         let q = compute_ideal_q_hvac(
-            sum_ha, sum_hat, mcpi, t_outdoor, q_conv,
-            rho, vol, cp, dt, t_prev, 27.0,
+            sum_ha, sum_hat, mcpi, t_outdoor, q_conv, rho, vol, cp, dt, t_prev, 27.0,
         );
         // Cooling needed → negative Q
         assert!(q < 0.0, "Expected negative cooling Q, got {}", q);
 
         // Verify: solving with this Q should give T = 27.0
         let t = solve_zone_air_temp_with_q(
-            sum_ha, sum_hat, mcpi, t_outdoor, q_conv, q,
-            rho, vol, cp, dt, t_prev,
+            sum_ha, sum_hat, mcpi, t_outdoor, q_conv, q, rho, vol, cp, dt, t_prev,
         );
         assert_relative_eq!(t, 27.0, max_relative = 0.001);
     }
@@ -1092,14 +1119,12 @@ mod tests {
                 cooling_setpoint: 27.0,
                 ..Default::default()
             }),
-            thermostat_schedule: vec![
-                ThermostatScheduleEntry {
-                    start_hour: 23,
-                    end_hour: 7,
-                    heating_setpoint: 10.0,
-                    cooling_setpoint: 99.0,
-                },
-            ],
+            thermostat_schedule: vec![ThermostatScheduleEntry {
+                start_hour: 23,
+                end_hour: 7,
+                heating_setpoint: 10.0,
+                cooling_setpoint: 99.0,
+            }],
             ventilation_schedule: vec![],
             solar_distribution: None,
             exhaust_fan: None,
@@ -1132,16 +1157,14 @@ mod tests {
 
             ideal_loads: None,
             thermostat_schedule: vec![],
-            ventilation_schedule: vec![
-                VentilationScheduleEntry {
-                    start_hour: 18,
-                    end_hour: 7,
-                    flow_rate: 0.0,
-                    ach_rate: 13.12,
-                    min_indoor_temp: None,
-                    outdoor_temp_must_be_lower: None,
-                },
-            ],
+            ventilation_schedule: vec![VentilationScheduleEntry {
+                start_hour: 18,
+                end_hour: 7,
+                flow_rate: 0.0,
+                ach_rate: 13.12,
+                min_indoor_temp: None,
+                outdoor_temp_must_be_lower: None,
+            }],
             solar_distribution: None,
             exhaust_fan: None,
             outdoor_air: None,
@@ -1170,16 +1193,14 @@ mod tests {
 
             ideal_loads: None,
             thermostat_schedule: vec![],
-            ventilation_schedule: vec![
-                VentilationScheduleEntry {
-                    start_hour: 18,
-                    end_hour: 7,
-                    flow_rate: 0.0,
-                    ach_rate: 13.12,
-                    min_indoor_temp: Some(27.0),
-                    outdoor_temp_must_be_lower: Some(true),
-                },
-            ],
+            ventilation_schedule: vec![VentilationScheduleEntry {
+                start_hour: 18,
+                end_hour: 7,
+                flow_rate: 0.0,
+                ach_rate: 13.12,
+                min_indoor_temp: Some(27.0),
+                outdoor_temp_must_be_lower: Some(true),
+            }],
             solar_distribution: None,
             exhaust_fan: None,
             outdoor_air: None,
@@ -1216,7 +1237,9 @@ mod tests {
 
         let mut w = 0.008;
         for _ in 0..1000 {
-            w = solve_zone_humidity(rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent);
+            w = solve_zone_humidity(
+                rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent,
+            );
         }
         // Should converge to outdoor humidity
         assert_relative_eq!(w, w_outdoor, max_relative = 0.01);
@@ -1237,7 +1260,9 @@ mod tests {
 
         let mut w = 0.010;
         for _ in 0..500 {
-            w = solve_zone_humidity(rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent);
+            w = solve_zone_humidity(
+                rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent,
+            );
         }
         // Supply dominates, so zone W should be close to supply W
         assert!(w > 0.006);
@@ -1258,7 +1283,9 @@ mod tests {
 
         let mut w = 0.008;
         for _ in 0..500 {
-            w = solve_zone_humidity(rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent);
+            w = solve_zone_humidity(
+                rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent,
+            );
         }
         // Latent gains should push zone W above outdoor
         assert!(w > w_outdoor);

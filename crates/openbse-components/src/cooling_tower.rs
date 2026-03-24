@@ -119,11 +119,7 @@ impl CoolingTower {
     /// PLF = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4
     fn fan_plf(&self, plr: f64) -> f64 {
         let c = &self.fan_power_curve;
-        let plf = c[0]
-            + c[1] * plr
-            + c[2] * plr.powi(2)
-            + c[3] * plr.powi(3)
-            + c[4] * plr.powi(4);
+        let plf = c[0] + c[1] * plr + c[2] * plr.powi(2) + c[3] * plr.powi(3) + c[4] * plr.powi(4);
         plf.clamp(0.0, 1.0)
     }
 }
@@ -380,28 +376,27 @@ mod tests {
         // PLF at PLR=0.5 from default curve
         let plr = 0.5;
         let c = DEFAULT_FAN_POWER_CURVE;
-        let expected_plf = c[0] + c[1]*plr + c[2]*plr.powi(2) + c[3]*plr.powi(3) + c[4]*plr.powi(4);
+        let expected_plf =
+            c[0] + c[1] * plr + c[2] * plr.powi(2) + c[3] * plr.powi(3) + c[4] * plr.powi(4);
         let expected_fan_power = tower.design_fan_power * expected_plf;
-        assert_relative_eq!(
-            tower.fan_power,
-            expected_fan_power,
-            max_relative = 0.02
-        );
+        assert_relative_eq!(tower.fan_power, expected_fan_power, max_relative = 0.02);
 
         // Fan power at half load should be much less than design but more than zero
-        assert!(tower.fan_power > 0.0, "Fan power should be > 0 at half load");
-        assert!(tower.fan_power < tower.design_fan_power, "Fan power should be < design at half load");
+        assert!(
+            tower.fan_power > 0.0,
+            "Fan power should be > 0 at half load"
+        );
+        assert!(
+            tower.fan_power < tower.design_fan_power,
+            "Fan power should be < design at half load"
+        );
 
         // Run at full load
         let full_load = design_cap;
         tower.simulate_plant(&inlet, full_load, &ctx);
 
         // At full load, PLF ≈ 1.0
-        assert_relative_eq!(
-            tower.fan_power,
-            tower.design_fan_power,
-            max_relative = 0.02
-        );
+        assert_relative_eq!(tower.fan_power, tower.design_fan_power, max_relative = 0.02);
     }
 
     #[test]
@@ -441,11 +436,7 @@ mod tests {
             tower.heat_rejected, 0.0,
             "Heat rejected should be 0 at no load"
         );
-        assert_relative_eq!(
-            outlet.state.temp,
-            inlet.state.temp,
-            max_relative = 0.001
-        );
+        assert_relative_eq!(outlet.state.temp, inlet.state.temp, max_relative = 0.001);
     }
 
     #[test]
@@ -480,7 +471,12 @@ mod tests {
         let mut tower = CoolingTower::new(
             "SS Tower",
             CoolingTowerType::SingleSpeed,
-            0.01, 10.0, 5000.0, 35.0, 4.0, 5.0,
+            0.01,
+            10.0,
+            5000.0,
+            35.0,
+            4.0,
+            5.0,
         );
         let ctx = make_ctx(25.0, 0.40);
 

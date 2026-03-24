@@ -208,8 +208,13 @@ mod tests {
     fn make_ctx() -> SimulationContext {
         SimulationContext {
             timestep: TimeStep {
-                month: 7, day: 15, hour: 14, sub_hour: 1,
-                timesteps_per_hour: 1, sim_time_s: 0.0, dt: 3600.0,
+                month: 7,
+                day: 15,
+                hour: 14,
+                sub_hour: 1,
+                timesteps_per_hour: 1,
+                sim_time_s: 0.0,
+                dt: 3600.0,
             },
             outdoor_air: MoistAirState::from_tdb_rh(30.0, 0.40, 101325.0),
             day_type: DayType::WeatherDay,
@@ -223,7 +228,12 @@ mod tests {
         // Source at 5°C (cold condenser water), demand at 12°C (warm CHW return)
         // HX should cool the demand side.
         let mut hx = WaterToWaterHX::new(
-            "Test HX", 0.80, 0.01, HXControlMode::AlwaysOn, 2.0, "Source Loop",
+            "Test HX",
+            0.80,
+            0.01,
+            HXControlMode::AlwaysOn,
+            2.0,
+            "Source Loop",
         );
         hx.set_source_conditions(5.0, 10.0); // 5°C, 10 kg/s
 
@@ -234,7 +244,10 @@ mod tests {
         let outlet = hx.simulate_plant(&demand_inlet, load, &ctx);
 
         // Demand should be cooled
-        assert!(outlet.state.temp < 12.0, "Outlet should be cooler than inlet");
+        assert!(
+            outlet.state.temp < 12.0,
+            "Outlet should be cooler than inlet"
+        );
 
         // Check effectiveness limiting
         let c_demand = 5.0 * CP_WATER;
@@ -247,7 +260,10 @@ mod tests {
         assert_relative_eq!(outlet.state.temp, expected_t_out, max_relative = 0.001);
 
         // Thermal output should be negative (cooling)
-        assert!(hx.thermal_output() < 0.0, "Thermal output should be negative for cooling");
+        assert!(
+            hx.thermal_output() < 0.0,
+            "Thermal output should be negative for cooling"
+        );
     }
 
     #[test]
@@ -255,7 +271,12 @@ mod tests {
         // Source at 80°C (hot water from boiler loop), demand at 60°C (warm return)
         // HX should heat the demand side.
         let mut hx = WaterToWaterHX::new(
-            "Heating HX", 0.90, 0.01, HXControlMode::AlwaysOn, 2.0, "HHW Loop",
+            "Heating HX",
+            0.90,
+            0.01,
+            HXControlMode::AlwaysOn,
+            2.0,
+            "HHW Loop",
         );
         hx.set_source_conditions(80.0, 8.0);
 
@@ -266,15 +287,26 @@ mod tests {
         let outlet = hx.simulate_plant(&demand_inlet, load, &ctx);
 
         // Demand should be heated
-        assert!(outlet.state.temp > 60.0, "Outlet should be warmer than inlet");
-        assert!(hx.thermal_output() > 0.0, "Thermal output should be positive for heating");
+        assert!(
+            outlet.state.temp > 60.0,
+            "Outlet should be warmer than inlet"
+        );
+        assert!(
+            hx.thermal_output() > 0.0,
+            "Thermal output should be positive for heating"
+        );
     }
 
     #[test]
     fn test_effectiveness_limiting() {
         // With very large load, HX is limited by effectiveness * C_min * dT
         let mut hx = WaterToWaterHX::new(
-            "Limited HX", 0.50, 0.01, HXControlMode::AlwaysOn, 2.0, "Source",
+            "Limited HX",
+            0.50,
+            0.01,
+            HXControlMode::AlwaysOn,
+            2.0,
+            "Source",
         );
         hx.set_source_conditions(5.0, 2.0); // small source flow → small C_source
 
@@ -297,7 +329,12 @@ mod tests {
     #[test]
     fn test_zero_load_passthrough() {
         let mut hx = WaterToWaterHX::new(
-            "Idle HX", 0.80, 0.01, HXControlMode::AlwaysOn, 2.0, "Source",
+            "Idle HX",
+            0.80,
+            0.01,
+            HXControlMode::AlwaysOn,
+            2.0,
+            "Source",
         );
         hx.set_source_conditions(5.0, 10.0);
 
@@ -312,7 +349,12 @@ mod tests {
     #[test]
     fn test_zero_source_flow_passthrough() {
         let mut hx = WaterToWaterHX::new(
-            "No Source HX", 0.80, 0.01, HXControlMode::AlwaysOn, 2.0, "Source",
+            "No Source HX",
+            0.80,
+            0.01,
+            HXControlMode::AlwaysOn,
+            2.0,
+            "Source",
         );
         // Source has zero flow — HX can't transfer anything
         hx.set_source_conditions(5.0, 0.0);
@@ -329,7 +371,12 @@ mod tests {
         // Source at 5°C, demand at 12°C, threshold 2°C.
         // 5 < 12 - 2 = 10 → economizer should activate.
         let mut hx = WaterToWaterHX::new(
-            "Econ HX", 0.80, 0.01, HXControlMode::Economizer, 2.0, "CDW Loop",
+            "Econ HX",
+            0.80,
+            0.01,
+            HXControlMode::Economizer,
+            2.0,
+            "CDW Loop",
         );
         hx.set_source_conditions(5.0, 10.0);
 
@@ -337,7 +384,10 @@ mod tests {
         let inlet = WaterPort::new(FluidState::water(12.0, 5.0));
 
         let outlet = hx.simulate_plant(&inlet, -50_000.0, &ctx);
-        assert!(outlet.state.temp < 12.0, "Economizer should activate and cool");
+        assert!(
+            outlet.state.temp < 12.0,
+            "Economizer should activate and cool"
+        );
     }
 
     #[test]
@@ -345,7 +395,12 @@ mod tests {
         // Source at 11°C, demand at 12°C, threshold 2°C.
         // 11 >= 12 - 2 = 10 → economizer should NOT activate.
         let mut hx = WaterToWaterHX::new(
-            "Bypass HX", 0.80, 0.01, HXControlMode::Economizer, 2.0, "CDW Loop",
+            "Bypass HX",
+            0.80,
+            0.01,
+            HXControlMode::Economizer,
+            2.0,
+            "CDW Loop",
         );
         hx.set_source_conditions(11.0, 10.0);
 
@@ -362,7 +417,12 @@ mod tests {
         // Source at 5°C (cold), but demand wants heating (load > 0).
         // Can't heat demand with cold source.
         let mut hx = WaterToWaterHX::new(
-            "Mismatch HX", 0.80, 0.01, HXControlMode::AlwaysOn, 2.0, "Source",
+            "Mismatch HX",
+            0.80,
+            0.01,
+            HXControlMode::AlwaysOn,
+            2.0,
+            "Source",
         );
         hx.set_source_conditions(5.0, 10.0);
 

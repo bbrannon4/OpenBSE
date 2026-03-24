@@ -52,10 +52,10 @@ impl Default for GroundTempModel {
         Self {
             t_mean: 10.0,
             amplitude: 10.0,
-            phase_day: 35.0,       // early February minimum for northern hemisphere
+            phase_day: 35.0,        // early February minimum for northern hemisphere
             soil_diffusivity: 0.04, // typical soil ~0.04 m²/day (4.6e-7 m²/s)
-            depth: 0.5,            // 0.5 m depth (matches E+ FCfactorMethod default)
-            monthly_temps: None,   // Use Kusuda when no EPW ground temps available
+            depth: 0.5,             // 0.5 m depth (matches E+ FCfactorMethod default)
+            monthly_temps: None,    // Use Kusuda when no EPW ground temps available
         }
     }
 }
@@ -88,7 +88,8 @@ impl GroundTempModel {
         }
 
         // Annual mean
-        let valid_months: Vec<f64> = monthly_avg.iter()
+        let valid_months: Vec<f64> = monthly_avg
+            .iter()
             .enumerate()
             .filter(|(i, _)| month_counts[*i] > 0)
             .map(|(_, &v)| v)
@@ -100,15 +101,17 @@ impl GroundTempModel {
         };
 
         // Amplitude: half of peak-to-peak monthly variation
-        let t_max = monthly_avg.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let t_max = monthly_avg
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max);
         let t_min = monthly_avg.iter().cloned().fold(f64::INFINITY, f64::min);
         let amplitude = (t_max - t_min) / 2.0;
 
         // Phase: day of minimum temperature
         // Find the month with minimum temp, convert to day of year (mid-month)
         let days_in_months: [f64; 12] = [
-            31.0, 28.0, 31.0, 30.0, 31.0, 30.0,
-            31.0, 31.0, 30.0, 31.0, 30.0, 31.0,
+            31.0, 28.0, 31.0, 30.0, 31.0, 30.0, 31.0, 31.0, 30.0, 31.0, 30.0, 31.0,
         ];
         let mut min_month = 0usize;
         let mut min_temp = f64::INFINITY;
@@ -161,8 +164,8 @@ impl GroundTempModel {
         let phase_shift = z / 2.0 * (365.0 / (std::f64::consts::PI * alpha)).sqrt();
 
         // Cosine argument
-        let cos_arg = 2.0 * std::f64::consts::PI / 365.0
-            * (day_of_year - self.phase_day - phase_shift);
+        let cos_arg =
+            2.0 * std::f64::consts::PI / 365.0 * (day_of_year - self.phase_day - phase_shift);
 
         self.t_mean - self.amplitude * damping * cos_arg.cos()
     }
@@ -191,8 +194,7 @@ impl GroundTempModel {
     fn interpolate_monthly(temps: &[f64; 12], day_of_year: f64) -> f64 {
         // Mid-month day of year for each month (0-indexed from Jan 1 = day 0)
         let days_in_month: [f64; 12] = [
-            31.0, 28.0, 31.0, 30.0, 31.0, 30.0,
-            31.0, 31.0, 30.0, 31.0, 30.0, 31.0,
+            31.0, 28.0, 31.0, 30.0, 31.0, 30.0, 31.0, 31.0, 30.0, 31.0, 30.0, 31.0,
         ];
         let mut mid_days = [0.0f64; 12];
         let mut cum = 0.0;
@@ -244,7 +246,7 @@ mod tests {
             amplitude: 12.0,
             phase_day: 35.0,
             soil_diffusivity: 0.04,
-            depth: 100.0, // very deep
+            depth: 100.0,        // very deep
             monthly_temps: None, // Force Kusuda
         };
         let t = model.temperature(180.0);
@@ -298,17 +300,25 @@ mod tests {
         // Compute ranges over a year
         let shallow_range = (0..365)
             .map(|d| shallow.temperature(d as f64))
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), t| (lo.min(t), hi.max(t)));
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), t| {
+                (lo.min(t), hi.max(t))
+            });
         let deep_range = (0..365)
             .map(|d| deep.temperature(d as f64))
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), t| (lo.min(t), hi.max(t)));
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), t| {
+                (lo.min(t), hi.max(t))
+            });
 
         let shallow_amp = shallow_range.1 - shallow_range.0;
         let deep_amp = deep_range.1 - deep_range.0;
 
         // Deep soil should have smaller amplitude than shallow
-        assert!(deep_amp < shallow_amp,
-            "Deep amplitude {} should be less than shallow {}", deep_amp, shallow_amp);
+        assert!(
+            deep_amp < shallow_amp,
+            "Deep amplitude {} should be less than shallow {}",
+            deep_amp,
+            shallow_amp
+        );
     }
 
     #[test]
@@ -324,8 +334,8 @@ mod tests {
                 for h in 1..=24 {
                     let doy = day_count + d;
                     // Sinusoidal: minimum in January (day ~15), maximum in July
-                    let t = 12.0 - 10.0 * (2.0 * std::f64::consts::PI
-                        * (doy as f64 - 15.0) / 365.0).cos();
+                    let t = 12.0
+                        - 10.0 * (2.0 * std::f64::consts::PI * (doy as f64 - 15.0) / 365.0).cos();
                     hours.push(WeatherHour {
                         year: 2023,
                         month: (m + 1) as u32,
@@ -355,7 +365,11 @@ mod tests {
         // Amplitude should be close to 10°C
         assert_relative_eq!(model.amplitude, 10.0, epsilon = 2.0);
         // Phase should be near January (coldest month)
-        assert!(model.phase_day < 60.0, "Phase day {} should be in winter", model.phase_day);
+        assert!(
+            model.phase_day < 60.0,
+            "Phase day {} should be in winter",
+            model.phase_day
+        );
     }
 
     #[test]
@@ -363,8 +377,7 @@ mod tests {
         // Test that monthly table interpolation returns mid-month values exactly
         // and interpolates between them correctly.
         let monthly = [
-            -0.09, -1.03, 0.64, 3.26, 10.11, 15.39,
-            18.96, 20.04, 18.19, 14.09, 8.61, 3.52,
+            -0.09, -1.03, 0.64, 3.26, 10.11, 15.39, 18.96, 20.04, 18.19, 14.09, 8.61, 3.52,
         ]; // Denver EPW 0.5 m ground temps
 
         let model = GroundTempModel {
@@ -396,7 +409,7 @@ mod tests {
         let monthly = [18.0; 12]; // Constant 18°C year-round
 
         let model = GroundTempModel {
-            t_mean: 0.0,      // Would give very different result if Kusuda used
+            t_mean: 0.0, // Would give very different result if Kusuda used
             amplitude: 20.0,
             monthly_temps: Some(monthly),
             ..Default::default()

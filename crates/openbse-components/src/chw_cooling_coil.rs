@@ -151,7 +151,11 @@ impl AirComponent for CoolingCoilCHW {
         let q_sensible = q_sensible_required.min(available_sensible);
 
         // Total cooling (sensible / SHR)
-        let q_total = if shr > 0.0 { q_sensible / shr } else { q_sensible };
+        let q_total = if shr > 0.0 {
+            q_sensible / shr
+        } else {
+            q_sensible
+        };
         let q_total = q_total.min(self.nominal_capacity).min(water_capacity);
 
         // Calculate outlet air temperature
@@ -272,9 +276,7 @@ mod tests {
 
     #[test]
     fn test_chw_coil_no_heating() {
-        let mut coil = CoolingCoilCHW::new(
-            "Test CHW", 50000.0, 0.8, 13.0, 0.002, 6.7, 12.2,
-        );
+        let mut coil = CoolingCoilCHW::new("Test CHW", 50000.0, 0.8, 13.0, 0.002, 6.7, 12.2);
         let inlet_state = MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0);
         let inlet = AirPort::new(inlet_state, 1.0);
         let ctx = make_ctx();
@@ -287,9 +289,7 @@ mod tests {
 
     #[test]
     fn test_chw_coil_capacity_limited() {
-        let mut coil = CoolingCoilCHW::new(
-            "Small CHW", 1000.0, 0.8, 13.0, 0.002, 6.7, 12.2,
-        );
+        let mut coil = CoolingCoilCHW::new("Small CHW", 1000.0, 0.8, 13.0, 0.002, 6.7, 12.2);
         let inlet_state = MoistAirState::from_tdb_rh(35.0, 0.4, 101325.0);
         let inlet = AirPort::new(inlet_state, 1.0);
         let ctx = make_ctx();
@@ -303,9 +303,7 @@ mod tests {
 
     #[test]
     fn test_chw_coil_water_side_limited() {
-        let mut coil = CoolingCoilCHW::new(
-            "CHW Water Ltd", 50000.0, 0.8, 13.0, 0.001, 6.7, 12.2,
-        );
+        let mut coil = CoolingCoilCHW::new("CHW Water Ltd", 50000.0, 0.8, 13.0, 0.001, 6.7, 12.2);
 
         // Connect water inlet with very low flow — limits capacity
         let water_in = WaterPort::new(FluidState::water(6.7, 0.05)); // 0.05 kg/s
@@ -331,9 +329,7 @@ mod tests {
     #[test]
     fn test_chw_coil_no_water_fallback() {
         // Without water connected, should use nominal capacity
-        let mut coil = CoolingCoilCHW::new(
-            "CHW No Water", 20000.0, 0.8, 13.0, 0.002, 6.7, 12.2,
-        );
+        let mut coil = CoolingCoilCHW::new("CHW No Water", 20000.0, 0.8, 13.0, 0.002, 6.7, 12.2);
         let inlet_state = MoistAirState::from_tdb_rh(25.0, 0.5, 101325.0);
         let inlet = AirPort::new(inlet_state, 0.5);
         let ctx = make_ctx();
@@ -347,18 +343,14 @@ mod tests {
 
     #[test]
     fn test_chw_coil_zero_power() {
-        let coil = CoolingCoilCHW::new(
-            "CHW", 50000.0, 0.8, 13.0, 0.002, 6.7, 12.2,
-        );
+        let coil = CoolingCoilCHW::new("CHW", 50000.0, 0.8, 13.0, 0.002, 6.7, 12.2);
         // CHW coils consume no electricity
         assert_eq!(coil.power_consumption(), 0.0);
     }
 
     #[test]
     fn test_chw_coil_zero_flow() {
-        let mut coil = CoolingCoilCHW::new(
-            "CHW", 50000.0, 0.8, 13.0, 0.002, 6.7, 12.2,
-        );
+        let mut coil = CoolingCoilCHW::new("CHW", 50000.0, 0.8, 13.0, 0.002, 6.7, 12.2);
         let inlet_state = MoistAirState::from_tdb_rh(25.0, 0.5, 101325.0);
         let inlet = AirPort::new(inlet_state, 0.0); // zero airflow
         let ctx = make_ctx();

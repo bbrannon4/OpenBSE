@@ -40,9 +40,7 @@ impl TimeStep {
 
     /// Fractional hour (e.g. 14.5 for 2:30 PM).
     pub fn fractional_hour(&self) -> f64 {
-        self.hour as f64
-            - 1.0
-            + (self.sub_hour as f64 - 0.5) / self.timesteps_per_hour as f64
+        self.hour as f64 - 1.0 + (self.sub_hour as f64 - 0.5) / self.timesteps_per_hour as f64
     }
 }
 
@@ -157,12 +155,9 @@ impl<'de> Deserialize<'de> for AutosizeValue {
                     Ok(AutosizeValue::Autosize)
                 } else {
                     // Try parsing as a number (e.g. "10000.0" as a string)
-                    v.parse::<f64>()
-                        .map(AutosizeValue::Value)
-                        .map_err(|_| de::Error::invalid_value(
-                            de::Unexpected::Str(v),
-                            &"a number or 'autosize'",
-                        ))
+                    v.parse::<f64>().map(AutosizeValue::Value).map_err(|_| {
+                        de::Error::invalid_value(de::Unexpected::Str(v), &"a number or 'autosize'")
+                    })
                 }
             }
         }

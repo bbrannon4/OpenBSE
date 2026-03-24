@@ -214,7 +214,9 @@ pub fn exterior_convection(
     tilt_deg: f64,
     roughness: Roughness,
 ) -> f64 {
-    exterior_convection_full(t_surface, t_outdoor, wind_speed, tilt_deg, roughness, 0.0, 0.0)
+    exterior_convection_full(
+        t_surface, t_outdoor, wind_speed, tilt_deg, roughness, 0.0, 0.0,
+    )
 }
 
 /// Full exterior convection with windward/leeward distinction.
@@ -264,12 +266,12 @@ pub fn exterior_convection_full(
 /// Based on EnergyPlus ConvectionCoefficients.cc (DOE-2 method).
 fn roughness_multiplier(roughness: Roughness) -> f64 {
     match roughness {
-        Roughness::VeryRough    => 2.17,
-        Roughness::Rough        => 1.67,
-        Roughness::MediumRough  => 1.52,
+        Roughness::VeryRough => 2.17,
+        Roughness::Rough => 1.67,
+        Roughness::MediumRough => 1.52,
         Roughness::MediumSmooth => 1.13,
-        Roughness::Smooth       => 1.11,
-        Roughness::VerySmooth   => 1.00,
+        Roughness::Smooth => 1.11,
+        Roughness::VerySmooth => 1.00,
     }
 }
 
@@ -591,7 +593,12 @@ mod tests {
         // Higher roughness → higher h_ext (same conditions)
         let h_smooth = exterior_convection(25.0, 20.0, 5.0, 90.0, Roughness::VerySmooth);
         let h_rough = exterior_convection(25.0, 20.0, 5.0, 90.0, Roughness::VeryRough);
-        assert!(h_rough > h_smooth, "VeryRough h={} should exceed VerySmooth h={}", h_rough, h_smooth);
+        assert!(
+            h_rough > h_smooth,
+            "VeryRough h={} should exceed VerySmooth h={}",
+            h_rough,
+            h_smooth
+        );
 
         // VerySmooth Rf=1.0, so forced increment is unchanged:
         // hc = hn + 1.0 * (hc_glass - hn) = hc_glass
@@ -617,7 +624,10 @@ mod tests {
         // Interior stable:   1.810 / 2.382 = 0.760 coefficient
         // Ratio should be about 2.0
         let ratio = h_ext / h_int;
-        assert!(ratio > 1.8 && ratio < 2.2,
-            "Exterior/interior ratio={:.2} should be ~2.0 for warm horizontal roof", ratio);
+        assert!(
+            ratio > 1.8 && ratio < 2.2,
+            "Exterior/interior ratio={:.2} should be ~2.0 for warm horizontal roof",
+            ratio
+        );
     }
 }

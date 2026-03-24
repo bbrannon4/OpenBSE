@@ -110,7 +110,13 @@ impl Pump {
         num_pumps: u32,
         power_curve: Option<[f64; 4]>,
     ) -> Self {
-        let mut pump = Self::new(name, pump_type, design_flow_rate, design_head, motor_efficiency);
+        let mut pump = Self::new(
+            name,
+            pump_type,
+            design_flow_rate,
+            design_head,
+            motor_efficiency,
+        );
         pump.impeller_efficiency = impeller_efficiency;
         pump.num_pumps = num_pumps.max(1);
         pump.power_curve = power_curve;
@@ -175,10 +181,8 @@ impl PlantComponent for Pump {
                 }
             }
             PumpType::VariableSpeed => {
-                let design_mass_flow =
-                    self.design_flow_rate * openbse_psychrometrics::RHO_WATER;
-                let system_flow_frac = (inlet.state.mass_flow / design_mass_flow)
-                    .clamp(0.0, 1.0);
+                let design_mass_flow = self.design_flow_rate * openbse_psychrometrics::RHO_WATER;
+                let system_flow_frac = (inlet.state.mass_flow / design_mass_flow).clamp(0.0, 1.0);
 
                 if self.num_pumps > 1 {
                     // Headered variable speed: stage pumps on/off, then
@@ -187,10 +191,10 @@ impl PlantComponent for Pump {
                     let per_pump_flow_frac = 1.0 / n;
                     let pumps_on = (system_flow_frac / per_pump_flow_frac).ceil().max(1.0) as u32;
                     // Individual pump PLR
-                    let individual_plr = (system_flow_frac * n / pumps_on as f64)
-                        .clamp(self.min_flow_fraction, 1.0);
-                    let per_pump_power = (total_design_power / n)
-                        * self.power_fraction(individual_plr);
+                    let individual_plr =
+                        (system_flow_frac * n / pumps_on as f64).clamp(self.min_flow_fraction, 1.0);
+                    let per_pump_power =
+                        (total_design_power / n) * self.power_fraction(individual_plr);
                     per_pump_power * pumps_on as f64
                 } else {
                     // Single variable speed pump
@@ -260,7 +264,13 @@ mod tests {
         let design_head = 200_000.0; // Pa
         let motor_eff = 0.90;
         let impeller_eff = 0.667;
-        let mut pump = Pump::new("VS Pump", PumpType::VariableSpeed, design_flow, design_head, motor_eff);
+        let mut pump = Pump::new(
+            "VS Pump",
+            PumpType::VariableSpeed,
+            design_flow,
+            design_head,
+            motor_eff,
+        );
         pump.curve_exponent = 3.0;
 
         let design_power = design_flow * design_head / (motor_eff * impeller_eff);
@@ -284,7 +294,13 @@ mod tests {
         let design_head = 200_000.0;
         let motor_eff = 0.90;
         let impeller_eff = 0.667;
-        let mut pump = Pump::new("CS Pump", PumpType::ConstantSpeed, design_flow, design_head, motor_eff);
+        let mut pump = Pump::new(
+            "CS Pump",
+            PumpType::ConstantSpeed,
+            design_flow,
+            design_head,
+            motor_eff,
+        );
 
         let design_power = design_flow * design_head / (motor_eff * impeller_eff);
 
@@ -301,13 +317,7 @@ mod tests {
     /// Zero load means the pump is off: zero power and pass-through.
     #[test]
     fn test_pump_zero_load_off() {
-        let mut pump = Pump::new(
-            "Off Pump",
-            PumpType::VariableSpeed,
-            0.01,
-            200_000.0,
-            0.90,
-        );
+        let mut pump = Pump::new("Off Pump", PumpType::VariableSpeed, 0.01, 200_000.0, 0.90);
 
         let inlet = WaterPort::new(FluidState::water(20.0, 5.0));
         let ctx = make_ctx();

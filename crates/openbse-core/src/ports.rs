@@ -100,11 +100,7 @@ pub trait AirComponent: std::fmt::Debug {
 
     /// Simulate this component for one timestep.
     /// Takes inlet air conditions and returns outlet air conditions.
-    fn simulate_air(
-        &mut self,
-        inlet: &AirPort,
-        ctx: &SimulationContext,
-    ) -> AirPort;
+    fn simulate_air(&mut self, inlet: &AirPort, ctx: &SimulationContext) -> AirPort;
 
     /// Whether this component has a water-side connection (e.g., hot water coil).
     fn has_water_side(&self) -> bool {
@@ -176,7 +172,9 @@ pub trait AirComponent: std::fmt::Debug {
     /// Name of the ambient zone for this component, if applicable.
     /// Returns `Some("outdoor")`, `Some("ground")`, or `Some(zone_name)`
     /// for duct components. Returns `None` for all other components.
-    fn ambient_zone(&self) -> Option<&str> { None }
+    fn ambient_zone(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// Trait for plant-side components (boilers, chillers, pumps, etc.).

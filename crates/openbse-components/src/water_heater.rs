@@ -52,7 +52,9 @@ pub enum WaterHeaterControl {
 }
 
 impl Default for WaterHeaterControl {
-    fn default() -> Self { Self::OnOff }
+    fn default() -> Self {
+        Self::OnOff
+    }
 }
 
 /// Domestic hot water storage-tank water heater.
@@ -423,7 +425,10 @@ mod tests {
         );
         wh2.tank_temp = 40.0;
         wh2.simulate(0.0, 10.0, 60.0);
-        assert!(wh2.electric_power() > 0.0, "Electric power should be >0 during recovery");
+        assert!(
+            wh2.electric_power() > 0.0,
+            "Electric power should be >0 during recovery"
+        );
         assert_eq!(wh2.fuel_power(), 0.0, "Fuel power should be 0 for electric");
     }
 
@@ -464,7 +469,10 @@ mod tests {
         );
         wh2.tank_temp = 30.0;
         wh2.simulate(0.0, 10.0, 60.0);
-        assert!(wh2.electric_power() > 0.0, "HPWH should report electric power");
+        assert!(
+            wh2.electric_power() > 0.0,
+            "HPWH should report electric power"
+        );
         assert_eq!(wh2.fuel_power(), 0.0, "HPWH should report zero fuel");
     }
 

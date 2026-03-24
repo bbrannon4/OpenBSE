@@ -87,40 +87,22 @@ impl SystemState {
 #[derive(Debug, Clone)]
 pub enum ControlAction {
     /// Set a coil's outlet air temperature setpoint [°C]
-    SetCoilSetpoint {
-        component: String,
-        setpoint: f64,
-    },
+    SetCoilSetpoint { component: String, setpoint: f64 },
 
     /// Set a component's air mass flow rate [kg/s]
-    SetAirMassFlow {
-        component: String,
-        mass_flow: f64,
-    },
+    SetAirMassFlow { component: String, mass_flow: f64 },
 
     /// Set a plant loop supply temperature setpoint [°C]
-    SetPlantLoopSetpoint {
-        loop_name: String,
-        setpoint: f64,
-    },
+    SetPlantLoopSetpoint { loop_name: String, setpoint: f64 },
 
     /// Set a plant component's load demand [W]
-    SetPlantLoad {
-        component: String,
-        load: f64,
-    },
+    SetPlantLoad { component: String, load: f64 },
 
     /// Set a zone's supply air flow rate [kg/s]
-    SetZoneAirFlow {
-        zone: String,
-        mass_flow: f64,
-    },
+    SetZoneAirFlow { zone: String, mass_flow: f64 },
 
     /// Set a zone's target supply air temperature [°C]
-    SetZoneSupplyTemp {
-        zone: String,
-        supply_temp: f64,
-    },
+    SetZoneSupplyTemp { zone: String, supply_temp: f64 },
 }
 
 impl ControlAction {

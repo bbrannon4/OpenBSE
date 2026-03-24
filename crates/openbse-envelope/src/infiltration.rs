@@ -41,7 +41,9 @@ pub struct InfiltrationInput {
     pub schedule: Option<String>,
 }
 
-fn default_a() -> f64 { 1.0 }
+fn default_a() -> f64 {
+    1.0
+}
 
 impl Default for InfiltrationInput {
     fn default() -> Self {

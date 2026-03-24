@@ -9,11 +9,17 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 use openbse_core::graph::{GraphComponent, SimulationGraph};
-use openbse_core::ports::{AirPort, EnvelopeSolver, PlantComponent, SimulationContext, SizingInternalGains, WaterPort, ZoneHvacConditions};
+use openbse_core::ports::{
+    AirPort, EnvelopeSolver, PlantComponent, SimulationContext, SizingInternalGains, WaterPort,
+    ZoneHvacConditions,
+};
 use openbse_core::simulation::{ControlSignals, SimulationConfig, TimestepResult};
 use openbse_core::types::{DayType, TimeStep};
 use openbse_envelope::schedule::ScheduleManager;
-use openbse_io::input::{build_controllers, build_envelope, build_graph, compute_oa_fraction, load_model, resolve_thermostats, AirLoopSystemType};
+use openbse_io::input::{
+    build_controllers, build_envelope, build_graph, compute_oa_fraction, load_model,
+    resolve_thermostats, AirLoopSystemType,
+};
 use openbse_io::output::{write_csv, OutputSnapshot, OutputWriter, SummaryReport};
 use openbse_weather::read_weather_file;
 
@@ -98,9 +104,9 @@ struct LoopInfo {
 struct ZoneOaData {
     zone_name: String,
     design_people: f64,
-    per_person_oa: f64,  // [m³/s per person]
-    per_area_oa: f64,    // [m³/s per m²]
-    floor_area: f64,     // [m²]
+    per_person_oa: f64, // [m³/s per person]
+    per_area_oa: f64,   // [m³/s per m²]
+    floor_area: f64,    // [m²]
     people_schedule: Option<String>,
 }
 
@@ -108,168 +114,205 @@ fn build_loop_infos(
     model: &openbse_io::input::ModelInput,
     resolved_zones: &[openbse_envelope::ZoneInput],
 ) -> Vec<LoopInfo> {
-    model.air_loops.iter().map(|al| {
-        let component_names: Vec<String> = al.equipment.iter().map(|eq| {
-            use openbse_io::input::EquipmentInput;
-            match eq {
-                EquipmentInput::Fan(f)           => f.name.clone(),
-                EquipmentInput::HeatingCoil(c)   => c.name.clone(),
-                EquipmentInput::CoolingCoil(c)   => c.name.clone(),
-                EquipmentInput::HeatRecovery(hr) => hr.name.clone(),
-                EquipmentInput::Humidifier(h)    => h.name.clone(),
-                EquipmentInput::Duct(d)          => d.name.clone(),
+    model
+        .air_loops
+        .iter()
+        .map(|al| {
+            let component_names: Vec<String> = al
+                .equipment
+                .iter()
+                .map(|eq| {
+                    use openbse_io::input::EquipmentInput;
+                    match eq {
+                        EquipmentInput::Fan(f) => f.name.clone(),
+                        EquipmentInput::HeatingCoil(c) => c.name.clone(),
+                        EquipmentInput::CoolingCoil(c) => c.name.clone(),
+                        EquipmentInput::HeatRecovery(hr) => hr.name.clone(),
+                        EquipmentInput::Humidifier(h) => h.name.clone(),
+                        EquipmentInput::Duct(d) => d.name.clone(),
+                    }
+                })
+                .collect();
+
+            let fan_names: HashSet<String> = al
+                .equipment
+                .iter()
+                .filter_map(|eq| {
+                    use openbse_io::input::EquipmentInput;
+                    match eq {
+                        EquipmentInput::Fan(f) => Some(f.name.clone()),
+                        _ => None,
+                    }
+                })
+                .collect();
+
+            // Detect heat recovery component in this loop (if any)
+            let heat_recovery_name: Option<String> = al.equipment.iter().find_map(|eq| {
+                use openbse_io::input::EquipmentInput;
+                match eq {
+                    EquipmentInput::HeatRecovery(hr) => Some(hr.name.clone()),
+                    _ => None,
+                }
+            });
+
+            let served_zones: Vec<String> =
+                al.zone_terminals.iter().map(|zc| zc.zone.clone()).collect();
+
+            // Auto-detect or use explicit system type
+            let system_type = al.detect_system_type();
+
+            // Resolve minimum outdoor air fraction:
+            //   1. DOAS always 100%
+            //   2. Explicit controls.minimum_damper_position
+            //   3. Auto-calculate from zone outdoor air requirements
+            //   4. Fallback: 20%
+            let explicit_min_oa =
+                system_type != AirLoopSystemType::Doas && al.minimum_damper_position().is_some();
+            let min_oa_fraction = match system_type {
+                AirLoopSystemType::Doas => 1.0,
+                _ => al.minimum_damper_position().unwrap_or_else(|| {
+                    let computed = compute_oa_fraction(model, al, resolved_zones, 0.20);
+                    log::info!(
+                        "Air loop '{}': auto-calculated minimum damper position = {:.1}%",
+                        al.name,
+                        computed * 100.0
+                    );
+                    computed
+                }),
+            };
+
+            // Build terminal box map: zone_name -> component_name
+            let mut terminal_boxes: HashMap<String, String> = HashMap::new();
+            for zc in &al.zone_terminals {
+                if let Some(ref terminal) = zc.terminal {
+                    let term_name = match terminal {
+                        openbse_io::input::TerminalInput::VavBox(vb) => vb.name.clone(),
+                        openbse_io::input::TerminalInput::PfpBox(pb) => pb.name.clone(),
+                    };
+                    terminal_boxes.insert(zc.zone.clone(), term_name);
+                }
             }
-        }).collect();
 
-        let fan_names: HashSet<String> = al.equipment.iter().filter_map(|eq| {
-            use openbse_io::input::EquipmentInput;
-            match eq {
-                EquipmentInput::Fan(f) => Some(f.name.clone()),
-                _ => None,
-            }
-        }).collect();
-
-        // Detect heat recovery component in this loop (if any)
-        let heat_recovery_name: Option<String> = al.equipment.iter().find_map(|eq| {
-            use openbse_io::input::EquipmentInput;
-            match eq {
-                EquipmentInput::HeatRecovery(hr) => Some(hr.name.clone()),
-                _ => None,
-            }
-        });
-
-        let served_zones: Vec<String> = al.zone_terminals.iter()
-            .map(|zc| zc.zone.clone())
-            .collect();
-
-        // Auto-detect or use explicit system type
-        let system_type = al.detect_system_type();
-
-        // Resolve minimum outdoor air fraction:
-        //   1. DOAS always 100%
-        //   2. Explicit controls.minimum_damper_position
-        //   3. Auto-calculate from zone outdoor air requirements
-        //   4. Fallback: 20%
-        let explicit_min_oa = system_type != AirLoopSystemType::Doas
-            && al.minimum_damper_position().is_some();
-        let min_oa_fraction = match system_type {
-            AirLoopSystemType::Doas => 1.0,
-            _ => al.minimum_damper_position().unwrap_or_else(|| {
-                let computed = compute_oa_fraction(model, al, resolved_zones, 0.20);
-                log::info!(
-                    "Air loop '{}': auto-calculated minimum damper position = {:.1}%",
-                    al.name, computed * 100.0
-                );
-                computed
-            }),
-        };
-
-        // Build terminal box map: zone_name -> component_name
-        let mut terminal_boxes: HashMap<String, String> = HashMap::new();
-        for zc in &al.zone_terminals {
-            if let Some(ref terminal) = zc.terminal {
-                let term_name = match terminal {
-                    openbse_io::input::TerminalInput::VavBox(vb) => vb.name.clone(),
-                    openbse_io::input::TerminalInput::PfpBox(pb) => pb.name.clone(),
-                };
-                terminal_boxes.insert(zc.zone.clone(), term_name);
-            }
-        }
-
-        // Find the boiler efficiency for the HHW plant loop serving this
-        // loop's hot water coils (used for HR gas credit calculation).
-        let hhw_boiler_efficiency = {
-            use openbse_io::input::{EquipmentInput, PlantEquipmentInput};
-            // Find the plant loop name from the first HW coil's plant_loop field
-            let hw_plant_loop: Option<&str> = al.equipment.iter().find_map(|eq| {
-                if let EquipmentInput::HeatingCoil(c) = eq {
-                    if c.source == "hot_water" {
-                        c.plant_loop.as_deref()
+            // Find the boiler efficiency for the HHW plant loop serving this
+            // loop's hot water coils (used for HR gas credit calculation).
+            let hhw_boiler_efficiency = {
+                use openbse_io::input::{EquipmentInput, PlantEquipmentInput};
+                // Find the plant loop name from the first HW coil's plant_loop field
+                let hw_plant_loop: Option<&str> = al.equipment.iter().find_map(|eq| {
+                    if let EquipmentInput::HeatingCoil(c) = eq {
+                        if c.source == "hot_water" {
+                            c.plant_loop.as_deref()
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
-                } else {
-                    None
-                }
-            });
-            // Find the boiler on that plant loop
-            let eff = hw_plant_loop.and_then(|pl_name| {
-                model.plant_loops.iter()
-                    .find(|pl| pl.name == pl_name)
-                    .and_then(|pl| {
-                        pl.supply_equipment.iter().find_map(|eq| {
-                            if let PlantEquipmentInput::Boiler(b) = eq {
-                                Some(b.efficiency)
+                });
+                // Find the boiler on that plant loop
+                let eff = hw_plant_loop.and_then(|pl_name| {
+                    model
+                        .plant_loops
+                        .iter()
+                        .find(|pl| pl.name == pl_name)
+                        .and_then(|pl| {
+                            pl.supply_equipment.iter().find_map(|eq| {
+                                if let PlantEquipmentInput::Boiler(b) = eq {
+                                    Some(b.efficiency)
+                                } else {
+                                    None
+                                }
+                            })
+                        })
+                });
+                eff.unwrap_or(0.80) // Default 80% if no boiler found
+            };
+
+            LoopInfo {
+                name: al.name.clone(),
+                system_type,
+                component_names,
+                fan_names,
+                served_zones,
+                min_oa_fraction,
+                explicit_min_oa,
+                min_vav_fraction: al.min_vav_fraction,
+                availability_schedule: al.availability_schedule.clone(),
+                heating_supply_temp: al.controls.heating_supply_temp,
+                cooling_supply_temp: al.controls.cooling_supply_temp,
+                cycling: al.controls.cycling,
+                fan_operating_mode: al.controls.fan_operating_mode,
+                terminal_boxes,
+                heat_recovery_name,
+                hhw_boiler_efficiency,
+                dcv: al.dcv,
+                // Always populate per-zone OA data from zone connections.
+                // Needed for ASHRAE 62.1 VRP multi-zone Ev correction (even without DCV)
+                // and for DCV occupancy-based OA modulation when dcv: true.
+                zone_oa_data: al
+                    .zone_terminals
+                    .iter()
+                    .filter_map(|zc| {
+                        let pp_oa = zc.per_person_oa.unwrap_or(0.0);
+                        let pa_oa = zc.per_area_oa.unwrap_or(0.0);
+                        if pp_oa == 0.0 && pa_oa == 0.0 {
+                            return None;
+                        }
+
+                        let zone = resolved_zones.iter().find(|z| z.name == zc.zone)?;
+                        let (design_people, people_sched) = zone
+                            .internal_gains
+                            .iter()
+                            .find_map(|g| {
+                                if let openbse_envelope::InternalGainInput::People {
+                                    count,
+                                    schedule,
+                                    ..
+                                } = g
+                                {
+                                    Some((*count, schedule.clone()))
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or((0.0, None));
+                        Some(ZoneOaData {
+                            zone_name: zc.zone.clone(),
+                            design_people,
+                            per_person_oa: pp_oa,
+                            per_area_oa: pa_oa,
+                            floor_area: zone.floor_area,
+                            people_schedule: people_sched,
+                        })
+                    })
+                    .collect(),
+                economizer_type: al
+                    .controls
+                    .economizer
+                    .as_ref()
+                    .map(|e| e.economizer_type)
+                    .unwrap_or(openbse_io::input::EconomizerType::NoEconomizer),
+                economizer_high_limit: al.controls.economizer.as_ref().and_then(|e| e.high_limit),
+                design_supply_flow: al
+                    .equipment
+                    .iter()
+                    .find_map(|eq| {
+                        use openbse_io::input::EquipmentInput;
+                        if let EquipmentInput::Fan(f) = eq {
+                            let flow = f.design_flow_rate.to_f64();
+                            if flow > 0.0 {
+                                Some(flow)
                             } else {
                                 None
                             }
-                        })
-                    })
-            });
-            eff.unwrap_or(0.80) // Default 80% if no boiler found
-        };
-
-        LoopInfo {
-            name: al.name.clone(),
-            system_type,
-            component_names,
-            fan_names,
-            served_zones,
-            min_oa_fraction,
-            explicit_min_oa,
-            min_vav_fraction: al.min_vav_fraction,
-            availability_schedule: al.availability_schedule.clone(),
-            heating_supply_temp: al.controls.heating_supply_temp,
-            cooling_supply_temp: al.controls.cooling_supply_temp,
-            cycling: al.controls.cycling,
-            fan_operating_mode: al.controls.fan_operating_mode,
-            terminal_boxes,
-            heat_recovery_name,
-            hhw_boiler_efficiency,
-            dcv: al.dcv,
-            // Always populate per-zone OA data from zone connections.
-            // Needed for ASHRAE 62.1 VRP multi-zone Ev correction (even without DCV)
-            // and for DCV occupancy-based OA modulation when dcv: true.
-            zone_oa_data: al.zone_terminals.iter().filter_map(|zc| {
-                let pp_oa = zc.per_person_oa.unwrap_or(0.0);
-                let pa_oa = zc.per_area_oa.unwrap_or(0.0);
-                if pp_oa == 0.0 && pa_oa == 0.0 { return None; }
-
-                let zone = resolved_zones.iter().find(|z| z.name == zc.zone)?;
-                let (design_people, people_sched) = zone.internal_gains.iter()
-                    .find_map(|g| {
-                        if let openbse_envelope::InternalGainInput::People { count, schedule, .. } = g {
-                            Some((*count, schedule.clone()))
                         } else {
                             None
                         }
                     })
-                    .unwrap_or((0.0, None));
-                Some(ZoneOaData {
-                    zone_name: zc.zone.clone(),
-                    design_people,
-                    per_person_oa: pp_oa,
-                    per_area_oa: pa_oa,
-                    floor_area: zone.floor_area,
-                    people_schedule: people_sched,
-                })
-            }).collect(),
-            economizer_type: al.controls.economizer.as_ref()
-                .map(|e| e.economizer_type)
-                .unwrap_or(openbse_io::input::EconomizerType::NoEconomizer),
-            economizer_high_limit: al.controls.economizer.as_ref()
-                .and_then(|e| e.high_limit),
-            design_supply_flow: al.equipment.iter().find_map(|eq| {
-                use openbse_io::input::EquipmentInput;
-                if let EquipmentInput::Fan(f) = eq {
-                    let flow = f.design_flow_rate.to_f64();
-                    if flow > 0.0 { Some(flow) } else { None }
-                } else {
-                    None
-                }
-            }).unwrap_or(1.0),
-        }
-    }).collect()
+                    .unwrap_or(1.0),
+            }
+        })
+        .collect()
 }
 
 fn main() -> Result<()> {
@@ -283,14 +326,16 @@ fn main() -> Result<()> {
     // All output files are prefixed with this stem so results always sit alongside
     // the input file and are clearly associated with it.
     let input_dir = args.input.parent().unwrap_or_else(|| Path::new("."));
-    let input_stem = args.input
+    let input_stem = args
+        .input
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("openbse")
         .to_string();
 
     // Main results CSV: <input_dir>/<stem>_results.csv, or explicit --output path.
-    let output_path: PathBuf = args.output
+    let output_path: PathBuf = args
+        .output
         .clone()
         .unwrap_or_else(|| input_dir.join(format!("{}_results.csv", input_stem)));
 
@@ -321,7 +366,7 @@ fn main() -> Result<()> {
     for diag in &validation.diagnostics {
         match diag.severity {
             openbse_io::DiagSeverity::Warning => warn!("{}", diag.message),
-            openbse_io::DiagSeverity::Severe  => log::error!("{}", diag.message),
+            openbse_io::DiagSeverity::Severe => log::error!("{}", diag.message),
         }
     }
 
@@ -335,7 +380,11 @@ fn main() -> Result<()> {
         );
     }
     if validation.warning_count() > 0 {
-        warn!("{} validation warning(s) — see {}", validation.warning_count(), err_path.display());
+        warn!(
+            "{} validation warning(s) — see {}",
+            validation.warning_count(),
+            err_path.display()
+        );
     }
 
     // ── 2. Load weather data ────────────────────────────────────────────────
@@ -383,7 +432,8 @@ fn main() -> Result<()> {
     //   1. YAML-specified `ground_surface_temperatures` (12 monthly values)
     //   2. Default: 18°C constant (matches E+ BuildingSurface default)
     if let Some(ref mut env) = envelope {
-        let mut ground_temp = openbse_envelope::GroundTempModel::from_weather_hours(&weather_data.hours);
+        let mut ground_temp =
+            openbse_envelope::GroundTempModel::from_weather_hours(&weather_data.hours);
 
         // Use YAML-specified ground surface temperatures (or E+ default of 18°C)
         let gt_monthly = &model.simulation.ground_surface_temperatures;
@@ -393,7 +443,8 @@ fn main() -> Result<()> {
             ground_temp.monthly_temps = Some(temps);
             info!(
                 "Ground temp: using YAML monthly temps (Jan={:.1}°C, Jul={:.1}°C, mean={:.1}°C)",
-                temps[0], temps[6],
+                temps[0],
+                temps[6],
                 temps.iter().sum::<f64>() / 12.0,
             );
         } else {
@@ -406,7 +457,10 @@ fn main() -> Result<()> {
 
         env.ground_temp_model = Some(ground_temp);
         env.jan1_dow = weather_data.start_day_of_week;
-        info!("Weather file start day of week: {} (1=Mon..7=Sun)", weather_data.start_day_of_week);
+        info!(
+            "Weather file start day of week: {} (1=Mon..7=Sun)",
+            weather_data.start_day_of_week
+        );
     }
 
     if let Some(ref env) = envelope {
@@ -421,7 +475,8 @@ fn main() -> Result<()> {
 
     // ── 4. Build loop descriptors ──────────────────────────────────────────
     // Get resolved zones for OA fraction auto-calculation
-    let resolved_zones_for_oa: Vec<openbse_envelope::ZoneInput> = envelope.as_ref()
+    let resolved_zones_for_oa: Vec<openbse_envelope::ZoneInput> = envelope
+        .as_ref()
         .map(|env| env.zones.iter().map(|z| z.input.clone()).collect())
         .unwrap_or_else(|| model.zones.clone());
     let mut loop_infos = build_loop_infos(&model, &resolved_zones_for_oa);
@@ -436,7 +491,9 @@ fn main() -> Result<()> {
     }
 
     // ── 4b. Build DHW systems ────────────────────────────────────────────
-    let mut dhw_systems: Vec<openbse_components::water_heater::WaterHeater> = model.dhw_systems.iter()
+    let mut dhw_systems: Vec<openbse_components::water_heater::WaterHeater> = model
+        .dhw_systems
+        .iter()
         .map(|dhw_input| {
             use openbse_components::water_heater::{WaterHeater, WaterHeaterFuel};
             let fuel = match dhw_input.water_heater.fuel_type.as_str() {
@@ -463,7 +520,9 @@ fn main() -> Result<()> {
     }
 
     // Build DHW circulation pumps from PumpInput (reusing the real Pump component)
-    let mut dhw_pumps: Vec<Option<openbse_components::pump::Pump>> = model.dhw_systems.iter()
+    let mut dhw_pumps: Vec<Option<openbse_components::pump::Pump>> = model
+        .dhw_systems
+        .iter()
         .map(|dhw_input| {
             dhw_input.pump.as_ref().map(|p| {
                 let pump_type = match p.pump_type.as_str() {
@@ -471,19 +530,31 @@ fn main() -> Result<()> {
                     _ => openbse_components::pump::PumpType::VariableSpeed,
                 };
                 let power_curve = p.power_curve.as_ref().and_then(|v| {
-                    if v.len() >= 4 { Some([v[0], v[1], v[2], v[3]]) } else { None }
+                    if v.len() >= 4 {
+                        Some([v[0], v[1], v[2], v[3]])
+                    } else {
+                        None
+                    }
                 });
                 // Autosize design flow to sum of peak draw rates [L/s → m³/s]
                 let design_flow = if p.design_flow_rate.is_autosize() {
-                    dhw_input.loads.iter()
+                    dhw_input
+                        .loads
+                        .iter()
                         .map(|l| l.peak_flow_rate / 1000.0)
                         .sum()
                 } else {
                     p.design_flow_rate.to_f64()
                 };
                 let mut pump = openbse_components::pump::Pump::new_headered(
-                    &p.name, pump_type, design_flow, p.design_head,
-                    p.motor_efficiency, p.impeller_efficiency, p.num_pumps, power_curve,
+                    &p.name,
+                    pump_type,
+                    design_flow,
+                    p.design_head,
+                    p.motor_efficiency,
+                    p.impeller_efficiency,
+                    p.num_pumps,
+                    power_curve,
                 );
                 pump.motor_heat_to_fluid_fraction = p.motor_heat_to_fluid_fraction;
                 pump
@@ -492,7 +563,9 @@ fn main() -> Result<()> {
         .collect();
 
     // Collect pump names from plant loops and DHW systems for end-use routing
-    let mut pump_names: std::collections::HashSet<String> = model.plant_loops.iter()
+    let mut pump_names: std::collections::HashSet<String> = model
+        .plant_loops
+        .iter()
         .flat_map(|pl| pl.supply_equipment.iter())
         .filter_map(|eq| match eq {
             openbse_io::input::PlantEquipmentInput::Pump(p) => Some(p.name.clone()),
@@ -507,7 +580,9 @@ fn main() -> Result<()> {
     }
 
     // Collect humidifier names from air loops for end-use routing
-    let humidifier_names: std::collections::HashSet<String> = model.air_loops.iter()
+    let humidifier_names: std::collections::HashSet<String> = model
+        .air_loops
+        .iter()
         .flat_map(|al| al.equipment.iter())
         .filter_map(|eq| match eq {
             openbse_io::input::EquipmentInput::Humidifier(h) => Some(h.name.clone()),
@@ -516,7 +591,9 @@ fn main() -> Result<()> {
         .collect();
 
     // Collect heat recovery names from air loops for end-use routing
-    let heat_recovery_names: std::collections::HashSet<String> = model.air_loops.iter()
+    let heat_recovery_names: std::collections::HashSet<String> = model
+        .air_loops
+        .iter()
         .flat_map(|al| al.equipment.iter())
         .filter_map(|eq| match eq {
             openbse_io::input::EquipmentInput::HeatRecovery(hr) => Some(hr.name.clone()),
@@ -544,9 +621,12 @@ fn main() -> Result<()> {
 
     info!(
         "Simulation: {}/{} to {}/{}, {} timesteps/hr, {} total timesteps",
-        config.start_month, config.start_day,
-        config.end_month, config.end_day,
-        config.timesteps_per_hour, total_timesteps,
+        config.start_month,
+        config.start_day,
+        config.end_month,
+        config.end_day,
+        config.timesteps_per_hour,
+        total_timesteps,
     );
 
     // Initialize envelope
@@ -569,8 +649,10 @@ fn main() -> Result<()> {
         for zone_name in &tstat.zones {
             zone_heating_setpoints.insert(zone_name.clone(), tstat.heating_setpoint);
             zone_cooling_setpoints.insert(zone_name.clone(), tstat.cooling_setpoint);
-            zone_unocc_heating_setpoints.insert(zone_name.clone(), tstat.unoccupied_heating_setpoint);
-            zone_unocc_cooling_setpoints.insert(zone_name.clone(), tstat.unoccupied_cooling_setpoint);
+            zone_unocc_heating_setpoints
+                .insert(zone_name.clone(), tstat.unoccupied_heating_setpoint);
+            zone_unocc_cooling_setpoints
+                .insert(zone_name.clone(), tstat.unoccupied_cooling_setpoint);
         }
     }
 
@@ -586,7 +668,8 @@ fn main() -> Result<()> {
     // Build OA handling flags for sizing: zones served by HVAC with
     // min_oa_fraction=0 (e.g. PTAC with separate ERV) have zone OA flowing
     // directly, so sizing must include that OA load.
-    let sizing_oa_handled: HashMap<String, bool> = loop_infos.iter()
+    let sizing_oa_handled: HashMap<String, bool> = loop_infos
+        .iter()
         .flat_map(|li| {
             let handles_oa = li.min_oa_fraction > 0.001;
             li.served_zones.iter().map(move |z| (z.clone(), handles_oa))
@@ -608,10 +691,14 @@ fn main() -> Result<()> {
             // Use the max heating supply temp and min cooling supply temp
             // across all air loops to ensure sizing covers worst case.
             let supply_temps = if !model.air_loops.is_empty() {
-                let max_heat = model.air_loops.iter()
+                let max_heat = model
+                    .air_loops
+                    .iter()
                     .map(|al| al.controls.heating_supply_temp)
                     .fold(f64::NEG_INFINITY, f64::max);
-                let min_cool = model.air_loops.iter()
+                let min_cool = model
+                    .air_loops
+                    .iter()
                     .map(|al| al.controls.cooling_supply_temp)
                     .fold(f64::INFINITY, f64::min);
                 Some((max_heat, min_cool))
@@ -652,12 +739,16 @@ fn main() -> Result<()> {
             for li in &loop_infos {
                 if (li.cooling_supply_temp - global_cool_sat).abs() > 0.5 {
                     for zone_name in &li.served_zones {
-                        let cool_sp = resolved_thermostats.iter()
+                        let cool_sp = resolved_thermostats
+                            .iter()
                             .find(|t| t.zones.contains(zone_name))
                             .map(|t| t.cooling_setpoint)
                             .unwrap_or(24.0);
-                        let cool_load = sizing_result.zone_peak_cooling
-                            .get(zone_name).copied().unwrap_or(0.0)
+                        let cool_load = sizing_result
+                            .zone_peak_cooling
+                            .get(zone_name)
+                            .copied()
+                            .unwrap_or(0.0)
                             * model.simulation.cooling_sizing_factor;
                         let dt = (cool_sp - li.cooling_supply_temp).max(5.0);
                         let new_flow = if cool_load > 0.0 {
@@ -667,9 +758,15 @@ fn main() -> Result<()> {
                         };
                         let old_flow = zone_design_flows.get(zone_name).copied().unwrap_or(0.01);
                         if new_flow > old_flow {
-                            log::info!("Per-loop SAT override: {} airflow {:.2} → {:.2} kg/s \
-                                (loop {} SAT={:.1}°C)", zone_name, old_flow, new_flow,
-                                li.name, li.cooling_supply_temp);
+                            log::info!(
+                                "Per-loop SAT override: {} airflow {:.2} → {:.2} kg/s \
+                                (loop {} SAT={:.1}°C)",
+                                zone_name,
+                                old_flow,
+                                new_flow,
+                                li.name,
+                                li.cooling_supply_temp
+                            );
                             zone_design_flows.insert(zone_name.clone(), new_flow);
                         }
                     }
@@ -690,7 +787,9 @@ fn main() -> Result<()> {
             // Build a map: component_name -> (loop_flow [m³/s], loop_heat [W], loop_cool [W])
             // Compute standard air density at site altitude from design-day
             // barometric pressure (matches E+ site standard density).
-            let site_pressure = model.design_days.first()
+            let site_pressure = model
+                .design_days
+                .first()
                 .map(|dd| dd.pressure)
                 .unwrap_or(101325.0);
             let air_density = site_pressure / (287.042 * 293.15);
@@ -701,9 +800,15 @@ fn main() -> Result<()> {
                     AirLoopSystemType::PszAc => {
                         // PSZ-AC: each unit serves its own zone(s) independently.
                         // Size from served zone peak loads (like FCU), not system-wide.
-                        let zone_airflow: f64 = li.served_zones.iter()
+                        let zone_airflow: f64 = li
+                            .served_zones
+                            .iter()
                             .map(|z| {
-                                sizing_result.zone_design_airflow.get(z).copied().unwrap_or(0.1)
+                                sizing_result
+                                    .zone_design_airflow
+                                    .get(z)
+                                    .copied()
+                                    .unwrap_or(0.1)
                             })
                             .sum();
                         let zone_flow_m3 = zone_airflow / air_density;
@@ -711,36 +816,70 @@ fn main() -> Result<()> {
                         // zone_factor (Sizing:Parameters) inflates zone loads
                         // system_capacity_factor (Sizing:System FractionOfAutosized) adds
                         // additional system-level oversizing on top.
-                        let zone_heat: f64 = li.served_zones.iter()
+                        let zone_heat: f64 = li
+                            .served_zones
+                            .iter()
                             .map(|z| {
-                                sizing_result.zone_peak_heating.get(z).copied().unwrap_or(0.0)
+                                sizing_result
+                                    .zone_peak_heating
+                                    .get(z)
+                                    .copied()
+                                    .unwrap_or(0.0)
                             })
-                            .sum::<f64>() * model.simulation.heating_sizing_factor;
-                        let zone_cool: f64 = li.served_zones.iter()
+                            .sum::<f64>()
+                            * model.simulation.heating_sizing_factor;
+                        let zone_cool: f64 = li
+                            .served_zones
+                            .iter()
                             .map(|z| {
-                                sizing_result.zone_peak_cooling.get(z).copied().unwrap_or(0.0)
+                                sizing_result
+                                    .zone_peak_cooling
+                                    .get(z)
+                                    .copied()
+                                    .unwrap_or(0.0)
                             })
-                            .sum::<f64>() * model.simulation.cooling_sizing_factor;
+                            .sum::<f64>()
+                            * model.simulation.cooling_sizing_factor;
                         (zone_flow_m3, zone_heat, zone_cool)
                     }
                     AirLoopSystemType::Vav => {
                         // VAV: multi-zone system. Sum served zone flows + capacities.
-                        let zone_airflow: f64 = li.served_zones.iter()
+                        let zone_airflow: f64 = li
+                            .served_zones
+                            .iter()
                             .map(|z| {
-                                sizing_result.zone_design_airflow.get(z).copied().unwrap_or(0.1)
+                                sizing_result
+                                    .zone_design_airflow
+                                    .get(z)
+                                    .copied()
+                                    .unwrap_or(0.1)
                             })
                             .sum();
                         let zone_flow_m3 = zone_airflow / air_density;
-                        let zone_heat: f64 = li.served_zones.iter()
+                        let zone_heat: f64 = li
+                            .served_zones
+                            .iter()
                             .map(|z| {
-                                sizing_result.zone_peak_heating.get(z).copied().unwrap_or(0.0)
+                                sizing_result
+                                    .zone_peak_heating
+                                    .get(z)
+                                    .copied()
+                                    .unwrap_or(0.0)
                             })
-                            .sum::<f64>() * model.simulation.heating_sizing_factor;
-                        let zone_cool: f64 = li.served_zones.iter()
+                            .sum::<f64>()
+                            * model.simulation.heating_sizing_factor;
+                        let zone_cool: f64 = li
+                            .served_zones
+                            .iter()
                             .map(|z| {
-                                sizing_result.zone_peak_cooling.get(z).copied().unwrap_or(0.0)
+                                sizing_result
+                                    .zone_peak_cooling
+                                    .get(z)
+                                    .copied()
+                                    .unwrap_or(0.0)
                             })
-                            .sum::<f64>() * model.simulation.cooling_sizing_factor;
+                            .sum::<f64>()
+                            * model.simulation.cooling_sizing_factor;
                         (zone_flow_m3, zone_heat, zone_cool)
                     }
                     AirLoopSystemType::Doas => {
@@ -751,36 +890,62 @@ fn main() -> Result<()> {
                         // Cooling: Q = m_oa * cp * (T_outdoor_cool_design - T_supply_cool)
                         //
                         // Design outdoor temps from the coldest/hottest design days.
-                        let zone_airflow: f64 = li.served_zones.iter()
+                        let zone_airflow: f64 = li
+                            .served_zones
+                            .iter()
                             .map(|z| {
-                                sizing_result.zone_design_airflow.get(z).copied().unwrap_or(0.1)
+                                sizing_result
+                                    .zone_design_airflow
+                                    .get(z)
+                                    .copied()
+                                    .unwrap_or(0.1)
                             })
                             .sum();
                         let oa_flow_kg = zone_airflow * 0.30;
                         let oa_flow_m3 = oa_flow_kg / air_density;
 
                         // Find design outdoor temps from design days
-                        let t_outdoor_heat_design = model.design_days.iter()
-                            .filter(|dd| dd.day_type.to_lowercase().contains("heat") || dd.day_type.to_lowercase().contains("winter"))
+                        let t_outdoor_heat_design = model
+                            .design_days
+                            .iter()
+                            .filter(|dd| {
+                                dd.day_type.to_lowercase().contains("heat")
+                                    || dd.day_type.to_lowercase().contains("winter")
+                            })
                             .map(|dd| dd.design_temp)
                             .fold(f64::INFINITY, f64::min);
-                        let t_outdoor_heat = if t_outdoor_heat_design.is_finite() { t_outdoor_heat_design } else { -20.0 };
+                        let t_outdoor_heat = if t_outdoor_heat_design.is_finite() {
+                            t_outdoor_heat_design
+                        } else {
+                            -20.0
+                        };
 
-                        let t_outdoor_cool_design = model.design_days.iter()
-                            .filter(|dd| dd.day_type.to_lowercase().contains("cool") || dd.day_type.to_lowercase().contains("summer"))
+                        let t_outdoor_cool_design = model
+                            .design_days
+                            .iter()
+                            .filter(|dd| {
+                                dd.day_type.to_lowercase().contains("cool")
+                                    || dd.day_type.to_lowercase().contains("summer")
+                            })
                             .map(|dd| dd.design_temp)
                             .fold(f64::NEG_INFINITY, f64::max);
-                        let t_outdoor_cool = if t_outdoor_cool_design.is_finite() { t_outdoor_cool_design } else { 35.0 };
+                        let t_outdoor_cool = if t_outdoor_cool_design.is_finite() {
+                            t_outdoor_cool_design
+                        } else {
+                            35.0
+                        };
 
                         // DOAS supply setpoints (default: heat to 20°C, cool to 18°C)
                         let t_supply_heat = 20.0_f64;
                         let t_supply_cool = 18.0_f64;
 
                         let cp_air = 1005.0_f64;
-                        let doas_heat_cap = (oa_flow_kg * cp_air * (t_supply_heat - t_outdoor_heat).max(0.0))
-                            * model.simulation.heating_sizing_factor;
-                        let doas_cool_cap = (oa_flow_kg * cp_air * (t_outdoor_cool - t_supply_cool).max(0.0))
-                            * model.simulation.cooling_sizing_factor;
+                        let doas_heat_cap =
+                            (oa_flow_kg * cp_air * (t_supply_heat - t_outdoor_heat).max(0.0))
+                                * model.simulation.heating_sizing_factor;
+                        let doas_cool_cap =
+                            (oa_flow_kg * cp_air * (t_outdoor_cool - t_supply_cool).max(0.0))
+                                * model.simulation.cooling_sizing_factor;
 
                         (oa_flow_m3, doas_heat_cap, doas_cool_cap)
                     }
@@ -788,58 +953,100 @@ fn main() -> Result<()> {
                         // FCU/PTAC: sized to its served zone(s)
                         // Coil capacity must include ventilation heating/cooling load
                         // (outdoor air mixed with return air before entering the coil).
-                        let zone_airflow: f64 = li.served_zones.iter()
+                        let zone_airflow: f64 = li
+                            .served_zones
+                            .iter()
                             .map(|z| {
-                                sizing_result.zone_design_airflow.get(z).copied().unwrap_or(0.1)
+                                sizing_result
+                                    .zone_design_airflow
+                                    .get(z)
+                                    .copied()
+                                    .unwrap_or(0.1)
                             })
                             .sum();
                         let zone_flow_m3 = zone_airflow / air_density;
 
                         // Zone peak loads (envelope + internal gains only)
-                        let zone_peak_heat: f64 = li.served_zones.iter()
+                        let zone_peak_heat: f64 = li
+                            .served_zones
+                            .iter()
                             .map(|z| {
-                                sizing_result.zone_peak_heating.get(z).copied().unwrap_or(0.0)
+                                sizing_result
+                                    .zone_peak_heating
+                                    .get(z)
+                                    .copied()
+                                    .unwrap_or(0.0)
                             })
                             .sum::<f64>();
-                        let zone_peak_cool: f64 = li.served_zones.iter()
+                        let zone_peak_cool: f64 = li
+                            .served_zones
+                            .iter()
                             .map(|z| {
-                                sizing_result.zone_peak_cooling.get(z).copied().unwrap_or(0.0)
+                                sizing_result
+                                    .zone_peak_cooling
+                                    .get(z)
+                                    .copied()
+                                    .unwrap_or(0.0)
                             })
                             .sum::<f64>();
 
                         // Design outdoor temps from design days
-                        let t_outdoor_heat_design = model.design_days.iter()
-                            .filter(|dd| dd.day_type.to_lowercase().contains("heat") || dd.day_type.to_lowercase().contains("winter"))
+                        let t_outdoor_heat_design = model
+                            .design_days
+                            .iter()
+                            .filter(|dd| {
+                                dd.day_type.to_lowercase().contains("heat")
+                                    || dd.day_type.to_lowercase().contains("winter")
+                            })
                             .map(|dd| dd.design_temp)
                             .fold(f64::INFINITY, f64::min);
-                        let t_outdoor_heat = if t_outdoor_heat_design.is_finite() { t_outdoor_heat_design } else { -20.0 };
+                        let t_outdoor_heat = if t_outdoor_heat_design.is_finite() {
+                            t_outdoor_heat_design
+                        } else {
+                            -20.0
+                        };
 
-                        let t_outdoor_cool_design = model.design_days.iter()
-                            .filter(|dd| dd.day_type.to_lowercase().contains("cool") || dd.day_type.to_lowercase().contains("summer"))
+                        let t_outdoor_cool_design = model
+                            .design_days
+                            .iter()
+                            .filter(|dd| {
+                                dd.day_type.to_lowercase().contains("cool")
+                                    || dd.day_type.to_lowercase().contains("summer")
+                            })
                             .map(|dd| dd.design_temp)
                             .fold(f64::NEG_INFINITY, f64::max);
-                        let t_outdoor_cool = if t_outdoor_cool_design.is_finite() { t_outdoor_cool_design } else { 35.0 };
+                        let t_outdoor_cool = if t_outdoor_cool_design.is_finite() {
+                            t_outdoor_cool_design
+                        } else {
+                            35.0
+                        };
 
                         // Mixed air temperature = blend of return air (≈zone setpoint)
                         // and outdoor air at design conditions
                         let cp_air = 1005.0_f64;
                         let oa_frac = li.min_oa_fraction;
-                        let t_zone_heat = 21.0_f64;  // heating setpoint
-                        let t_zone_cool = 24.0_f64;  // cooling setpoint
+                        let t_zone_heat = 21.0_f64; // heating setpoint
+                        let t_zone_cool = 24.0_f64; // cooling setpoint
 
                         // Heating: coil heats mixed air from T_mixed to T_supply_heat
                         let t_mixed_heat = (1.0 - oa_frac) * t_zone_heat + oa_frac * t_outdoor_heat;
-                        let coil_heat_cap = zone_airflow * cp_air * (li.heating_supply_temp - t_mixed_heat).max(0.0);
+                        let coil_heat_cap = zone_airflow
+                            * cp_air
+                            * (li.heating_supply_temp - t_mixed_heat).max(0.0);
 
                         // Cooling: coil cools mixed air from T_mixed to T_supply_cool
                         let t_mixed_cool = (1.0 - oa_frac) * t_zone_cool + oa_frac * t_outdoor_cool;
-                        let coil_cool_cap = zone_airflow * cp_air * (t_mixed_cool - li.cooling_supply_temp).max(0.0);
+                        let coil_cool_cap = zone_airflow
+                            * cp_air
+                            * (t_mixed_cool - li.cooling_supply_temp).max(0.0);
 
                         // Use the larger of (zone peak load × sizing factor) and
                         // coil capacity (which already includes sizing factor via
                         // sized airflow from zone sizing).
-                        let zone_heat = (zone_peak_heat * model.simulation.heating_sizing_factor).max(coil_heat_cap);
-                        let zone_cool = (zone_peak_cool * model.simulation.cooling_sizing_factor).max(coil_cool_cap);
+                        let zone_heat = (zone_peak_heat * model.simulation.heating_sizing_factor)
+                            .max(coil_heat_cap);
+                        let zone_cool = (zone_peak_cool * model.simulation.cooling_sizing_factor)
+                            .max(coil_cool_cap);
 
                         (zone_flow_m3, zone_heat, zone_cool)
                     }
@@ -861,7 +1068,7 @@ fn main() -> Result<()> {
                 // the terminal-specific sizing would skip them (no longer autosize).
                 let (loop_flow, loop_heat, loop_cool) = match loop_comp_sizing.get(&name) {
                     Some(&vals) => vals,
-                    None => continue,  // Skip terminal boxes and other non-loop components
+                    None => continue, // Skip terminal boxes and other non-loop components
                 };
 
                 // Autosize fan flow rate
@@ -873,25 +1080,40 @@ fn main() -> Result<()> {
                 }
 
                 // Autosize coil capacities
-                if lname.contains("heat") || lname.contains("furnace")
-                    || lname.contains("preheat") || lname.contains("reheat")
+                if lname.contains("heat")
+                    || lname.contains("furnace")
+                    || lname.contains("preheat")
+                    || lname.contains("reheat")
                     || (lname.contains("hw") && !lname.contains("chw"))
-                    || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                    || lname.starts_with("hc ")
+                    || lname.starts_with("hc_")
+                {
                     if let Some(cap) = comp.nominal_capacity() {
                         if is_autosize(cap) {
                             comp.set_nominal_capacity(loop_heat);
-                            info!("Autosized '{}' capacity: {:.0} W ({:.1} kW)",
-                                name, loop_heat, loop_heat / 1000.0);
+                            info!(
+                                "Autosized '{}' capacity: {:.0} W ({:.1} kW)",
+                                name,
+                                loop_heat,
+                                loop_heat / 1000.0
+                            );
                         }
                     }
                 }
-                if lname.contains("cool") || lname.contains("dx")
-                    || lname.starts_with("cc ") || lname.starts_with("cc_") {
+                if lname.contains("cool")
+                    || lname.contains("dx")
+                    || lname.starts_with("cc ")
+                    || lname.starts_with("cc_")
+                {
                     if let Some(cap) = comp.nominal_capacity() {
                         if is_autosize(cap) {
                             comp.set_nominal_capacity(loop_cool);
-                            info!("Autosized '{}' capacity: {:.0} W ({:.1} kW)",
-                                name, loop_cool, loop_cool / 1000.0);
+                            info!(
+                                "Autosized '{}' capacity: {:.0} W ({:.1} kW)",
+                                name,
+                                loop_cool,
+                                loop_cool / 1000.0
+                            );
                         }
                     }
                 }
@@ -912,21 +1134,29 @@ fn main() -> Result<()> {
                         if let GraphComponent::Air(comp) = graph.component_mut(node_idx) {
                             // Size terminal max_air_flow from zone design airflow
                             if comp.design_air_flow_rate().is_none() {
-                                let zone_flow = sizing_result.zone_design_airflow
-                                    .get(zone_name).copied().unwrap_or(0.1);
+                                let zone_flow = sizing_result
+                                    .zone_design_airflow
+                                    .get(zone_name)
+                                    .copied()
+                                    .unwrap_or(0.1);
                                 // Set in kg/s — terminal boxes use max_air_flow as mass flow
                                 // (compared against inlet.mass_flow in kg/s), unlike fans
                                 // which use design_flow_rate in m³/s.
                                 comp.set_design_air_flow_rate(zone_flow);
-                                info!("Autosized terminal '{}' max airflow: {:.4} kg/s",
-                                    term_name, zone_flow);
+                                info!(
+                                    "Autosized terminal '{}' max airflow: {:.4} kg/s",
+                                    term_name, zone_flow
+                                );
                             }
 
                             // Size terminal reheat capacity from zone peak heating load
                             if let Some(cap) = comp.nominal_capacity() {
                                 if is_autosize(cap) {
-                                    let zone_heat = sizing_result.zone_peak_heating
-                                        .get(zone_name).copied().unwrap_or(0.0)
+                                    let zone_heat = sizing_result
+                                        .zone_peak_heating
+                                        .get(zone_name)
+                                        .copied()
+                                        .unwrap_or(0.0)
                                         * model.simulation.heating_sizing_factor;
                                     comp.set_nominal_capacity(zone_heat);
                                     info!("Autosized terminal '{}' reheat capacity: {:.0} W ({:.1} kW)",
@@ -948,12 +1178,12 @@ fn main() -> Result<()> {
         for li in &mut loop_infos {
             // Find the fan in this loop and get its autosized flow [m³/s]
             let fan_flow = li.component_names.iter().find_map(|cname| {
-                graph.node_by_name(cname).and_then(|idx| {
-                    match graph.component(idx) {
+                graph
+                    .node_by_name(cname)
+                    .and_then(|idx| match graph.component(idx) {
                         GraphComponent::Air(comp) => comp.design_air_flow_rate(),
                         _ => None,
-                    }
-                })
+                    })
             });
 
             if let Some(flow_m3s) = fan_flow {
@@ -962,14 +1192,20 @@ fn main() -> Result<()> {
                     let mut total_oa_flow = 0.0_f64;
                     let mut has_oa = false;
                     for zone_name in &li.served_zones {
-                        if let Some(zone) = envelope.zones.iter()
-                            .find(|z| z.input.name == *zone_name)
+                        if let Some(zone) =
+                            envelope.zones.iter().find(|z| z.input.name == *zone_name)
                         {
                             if let Some(ref oa) = zone.input.outdoor_air {
                                 has_oa = true;
-                                let people_count: f64 = zone.input.internal_gains.iter()
+                                let people_count: f64 = zone
+                                    .input
+                                    .internal_gains
+                                    .iter()
                                     .filter_map(|g| match g {
-                                        openbse_envelope::InternalGainInput::People { count, .. } => Some(*count),
+                                        openbse_envelope::InternalGainInput::People {
+                                            count,
+                                            ..
+                                        } => Some(*count),
                                         _ => None,
                                     })
                                     .sum();
@@ -981,8 +1217,12 @@ fn main() -> Result<()> {
                     if has_oa && !li.explicit_min_oa {
                         let new_frac = (total_oa_flow / flow_m3s).clamp(0.0, 1.0);
                         if (new_frac - li.min_oa_fraction).abs() > 0.001 {
-                            info!("Air loop '{}': OA fraction updated {:.1}% → {:.1}% (after sizing)",
-                                li.name, li.min_oa_fraction * 100.0, new_frac * 100.0);
+                            info!(
+                                "Air loop '{}': OA fraction updated {:.1}% → {:.1}% (after sizing)",
+                                li.name,
+                                li.min_oa_fraction * 100.0,
+                                new_frac * 100.0
+                            );
                             li.min_oa_fraction = new_frac;
                         }
                     }
@@ -992,7 +1232,8 @@ fn main() -> Result<()> {
     }
 
     // Check if envelope uses ideal loads (ASHRAE 140 mode)
-    let uses_ideal_loads = envelope.as_ref()
+    let uses_ideal_loads = envelope
+        .as_ref()
         .map(|env| env.has_ideal_loads())
         .unwrap_or(false);
 
@@ -1003,9 +1244,11 @@ fn main() -> Result<()> {
         if let Some(ref env) = envelope {
             for zone in &env.zones {
                 if let Some(ref il) = zone.input.ideal_loads {
-                    zone_heating_setpoints.entry(zone.input.name.clone())
+                    zone_heating_setpoints
+                        .entry(zone.input.name.clone())
                         .or_insert(il.heating_setpoint);
-                    zone_cooling_setpoints.entry(zone.input.name.clone())
+                    zone_cooling_setpoints
+                        .entry(zone.input.name.clone())
                         .or_insert(il.cooling_setpoint);
                 }
             }
@@ -1013,7 +1256,9 @@ fn main() -> Result<()> {
     }
 
     // ── 6. Set up output writers ──────────────────────────────────────────
-    let mut output_writers: Vec<OutputWriter> = model.outputs.iter()
+    let mut output_writers: Vec<OutputWriter> = model
+        .outputs
+        .iter()
         .map(|cfg| OutputWriter::new(cfg.clone()))
         .collect();
 
@@ -1026,23 +1271,41 @@ fn main() -> Result<()> {
         if let Some(ref env) = envelope {
             report.set_envelope_areas(env.envelope_areas.clone());
             // Pass surface metadata for conduction summary
-            let surface_meta: Vec<_> = env.surfaces.iter().map(|s| {
-                let boundary_str = match &s.input.boundary {
-                    openbse_envelope::surface::BoundaryCondition::Outdoor => "outdoor".to_string(),
-                    openbse_envelope::surface::BoundaryCondition::Ground => "ground".to_string(),
-                    openbse_envelope::surface::BoundaryCondition::Adiabatic => "adiabatic".to_string(),
-                    openbse_envelope::surface::BoundaryCondition::Zone(z) => format!("zone:{}", z),
-                };
-                let type_str = match s.input.surface_type {
-                    openbse_envelope::surface::SurfaceType::Wall => "wall",
-                    openbse_envelope::surface::SurfaceType::Floor => "floor",
-                    openbse_envelope::surface::SurfaceType::Roof => "roof",
-                    openbse_envelope::surface::SurfaceType::Ceiling => "ceiling",
-                    openbse_envelope::surface::SurfaceType::Window => "window",
-                };
-                (s.input.name.clone(), s.input.zone.clone(), type_str.to_string(),
-                 s.net_area, s.is_window, boundary_str)
-            }).collect();
+            let surface_meta: Vec<_> = env
+                .surfaces
+                .iter()
+                .map(|s| {
+                    let boundary_str = match &s.input.boundary {
+                        openbse_envelope::surface::BoundaryCondition::Outdoor => {
+                            "outdoor".to_string()
+                        }
+                        openbse_envelope::surface::BoundaryCondition::Ground => {
+                            "ground".to_string()
+                        }
+                        openbse_envelope::surface::BoundaryCondition::Adiabatic => {
+                            "adiabatic".to_string()
+                        }
+                        openbse_envelope::surface::BoundaryCondition::Zone(z) => {
+                            format!("zone:{}", z)
+                        }
+                    };
+                    let type_str = match s.input.surface_type {
+                        openbse_envelope::surface::SurfaceType::Wall => "wall",
+                        openbse_envelope::surface::SurfaceType::Floor => "floor",
+                        openbse_envelope::surface::SurfaceType::Roof => "roof",
+                        openbse_envelope::surface::SurfaceType::Ceiling => "ceiling",
+                        openbse_envelope::surface::SurfaceType::Window => "window",
+                    };
+                    (
+                        s.input.name.clone(),
+                        s.input.zone.clone(),
+                        type_str.to_string(),
+                        s.net_area,
+                        s.is_window,
+                        boundary_str,
+                    )
+                })
+                .collect();
             report.set_surface_metadata(surface_meta);
         }
         Some(report)
@@ -1053,7 +1316,11 @@ fn main() -> Result<()> {
     info!(
         "Output: {} custom file(s), summary report: {}",
         output_writers.len(),
-        if summary_report.is_some() { "enabled" } else { "disabled" }
+        if summary_report.is_some() {
+            "enabled"
+        } else {
+            "disabled"
+        }
     );
 
     // ── 7. Run the simulation loop ──────────────────────────────────────────
@@ -1085,21 +1352,28 @@ fn main() -> Result<()> {
     // This makes PLR continuous near the setpoint, preventing the HVAC
     // iteration from oscillating between "full load" and "zero load" states
     // that never converge (the binary guard caused 14% energy waste).
-    let zone_thermal_caps: HashMap<String, f64> = envelope.as_ref()
+    let zone_thermal_caps: HashMap<String, f64> = envelope
+        .as_ref()
         .map(|env| {
             // Use the same air density as envelope heat balance (standard at site altitude).
-            let site_pressure = model.design_days.first()
+            let site_pressure = model
+                .design_days
+                .first()
                 .map(|dd| dd.pressure)
                 .unwrap_or(101325.0);
             let rho_air = site_pressure / (287.042 * 293.15);
-            env.zones.iter()
+            env.zones
+                .iter()
                 .map(|z| {
                     // Use 3rd-order backward difference multiplier (11/6) to
                     // match the zone solve's effective thermal capacitance.
                     // This ensures the HVAC iteration convergence correction
                     // uses the same cap as the zone energy balance.
                     let cap_mult = 11.0_f64 / 6.0;
-                    (z.input.name.clone(), rho_air * z.input.volume * 1006.0 * cap_mult / dt)
+                    (
+                        z.input.name.clone(),
+                        rho_air * z.input.volume * 1006.0 * cap_mult / dt,
+                    )
                 })
                 .collect()
         })
@@ -1117,7 +1391,7 @@ fn main() -> Result<()> {
     // schedule cycling) for up to 4 repetitions (28 warmup days).
     // Convergence is checked at the end of each 7-day cycle.
     let warmup_period = 7_u32 * 24; // 7 days of weather to cycle through
-    let max_warmup_reps = 4_u32;    // Up to 28 warmup days
+    let max_warmup_reps = 4_u32; // Up to 28 warmup days
 
     if envelope.is_some() {
         info!("Running warmup (up to {} days)...", max_warmup_reps * 7);
@@ -1130,7 +1404,11 @@ fn main() -> Result<()> {
             for warmup_hour_idx in 0..warmup_period {
                 let w_hour_idx = warmup_hour_idx as usize;
                 let weather_hour = &weather_data.hours[w_hour_idx];
-                let prev_w_hour_idx = if w_hour_idx > 0 { w_hour_idx - 1 } else { warmup_period as usize - 1 };
+                let prev_w_hour_idx = if w_hour_idx > 0 {
+                    w_hour_idx - 1
+                } else {
+                    warmup_period as usize - 1
+                };
                 let prev_weather = &weather_data.hours[prev_w_hour_idx];
                 let (month, day) = month_day_from_hour(warmup_hour_idx, &days_in_months);
                 let hour = (warmup_hour_idx % 24) + 1;
@@ -1143,7 +1421,10 @@ fn main() -> Result<()> {
 
                     let ctx = SimulationContext {
                         timestep: TimeStep {
-                            month, day, hour, sub_hour: sub,
+                            month,
+                            day,
+                            hour,
+                            sub_hour: sub,
                             timesteps_per_hour: config.timesteps_per_hour,
                             sim_time_s: sim_time,
                             dt,
@@ -1157,14 +1438,20 @@ fn main() -> Result<()> {
                     let dow = openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
 
                     // Build zone state maps for HVAC
-                    let current_zone_temps: HashMap<String, f64> = env.zones.iter()
+                    let current_zone_temps: HashMap<String, f64> = env
+                        .zones
+                        .iter()
                         .map(|z| (z.input.name.clone(), z.temp))
                         .collect();
                     let initial_zone_temps: HashMap<String, f64> = current_zone_temps.clone();
-                    let current_cooling_loads: HashMap<String, f64> = env.zones.iter()
+                    let current_cooling_loads: HashMap<String, f64> = env
+                        .zones
+                        .iter()
                         .map(|z| (z.input.name.clone(), z.ideal_cooling_load))
                         .collect();
-                    let current_heating_loads: HashMap<String, f64> = env.zones.iter()
+                    let current_heating_loads: HashMap<String, f64> = env
+                        .zones
+                        .iter()
                         .map(|z| (z.input.name.clone(), z.ideal_heating_load))
                         .collect();
 
@@ -1200,14 +1487,20 @@ fn main() -> Result<()> {
                     let mut hvac_conds = ZoneHvacConditions::default();
 
                     for (zone_name, (supply_temp, mass_flow)) in &zone_supply_conditions {
-                        hvac_conds.supply_temps.insert(zone_name.clone(), *supply_temp);
-                        hvac_conds.supply_mass_flows.insert(zone_name.clone(), *mass_flow);
+                        hvac_conds
+                            .supply_temps
+                            .insert(zone_name.clone(), *supply_temp);
+                        hvac_conds
+                            .supply_mass_flows
+                            .insert(zone_name.clone(), *mass_flow);
                     }
                     // Populate OA handling flags for warmup too
                     for li in &loop_infos {
                         let handles_oa = li.min_oa_fraction > 0.001;
                         for zone_name in &li.served_zones {
-                            hvac_conds.oa_handled_by_hvac.insert(zone_name.clone(), handles_oa);
+                            hvac_conds
+                                .oa_handled_by_hvac
+                                .insert(zone_name.clone(), handles_oa);
                         }
                     }
                     hvac_conds.cooling_setpoints = zone_cooling_setpoints.clone();
@@ -1222,12 +1515,19 @@ fn main() -> Result<()> {
             }
 
             // Check warmup convergence: max zone temp change from start to end of this week
-            let max_delta: f64 = env.zones.iter()
+            let max_delta: f64 = env
+                .zones
+                .iter()
                 .zip(temps_before.iter())
                 .map(|(z, &t_before)| (z.temp - t_before).abs())
                 .fold(0.0_f64, f64::max);
 
-            info!("Warmup rep {}/{}: max zone temp delta = {:.3}°C", rep + 1, max_warmup_reps, max_delta);
+            info!(
+                "Warmup rep {}/{}: max zone temp delta = {:.3}°C",
+                rep + 1,
+                max_warmup_reps,
+                max_delta
+            );
 
             if max_delta < 0.5 {
                 info!("Warmup converged after {} days", (rep + 1) * 7);
@@ -1254,7 +1554,9 @@ fn main() -> Result<()> {
     let plant_loop_order: Vec<usize> = if model.plant_loops.is_empty() {
         vec![]
     } else {
-        let loop_indices: HashMap<&str, usize> = model.plant_loops.iter()
+        let loop_indices: HashMap<&str, usize> = model
+            .plant_loops
+            .iter()
             .enumerate()
             .map(|(i, pl)| (pl.name.as_str(), i))
             .collect();
@@ -1285,7 +1587,8 @@ fn main() -> Result<()> {
         }
 
         // Kahn's algorithm
-        let mut queue: VecDeque<usize> = in_degree.iter()
+        let mut queue: VecDeque<usize> = in_degree
+            .iter()
             .enumerate()
             .filter(|(_, &d)| d == 0)
             .map(|(i, _)| i)
@@ -1312,7 +1615,8 @@ fn main() -> Result<()> {
         }
 
         if sorted.len() > 1 {
-            let order_names: Vec<&str> = sorted.iter()
+            let order_names: Vec<&str> = sorted
+                .iter()
                 .map(|&i| model.plant_loops[i].name.as_str())
                 .collect();
             info!("Plant loop simulation order: {:?}", order_names);
@@ -1348,7 +1652,11 @@ fn main() -> Result<()> {
     for hour_idx in start_hour..end_hour {
         let weather_hour = &weather_data.hours[hour_idx as usize];
         // Previous hour for sub-hourly interpolation (wraps to last hour of year)
-        let prev_hour_idx = if hour_idx > 0 { hour_idx - 1 } else { weather_data.hours.len() as u32 - 1 };
+        let prev_hour_idx = if hour_idx > 0 {
+            hour_idx - 1
+        } else {
+            weather_data.hours.len() as u32 - 1
+        };
         let prev_weather = &weather_data.hours[prev_hour_idx as usize];
         let (month, day) = month_day_from_hour(hour_idx, &days_in_months);
         let hour = (hour_idx % 24) + 1;
@@ -1364,7 +1672,10 @@ fn main() -> Result<()> {
 
             let ctx = SimulationContext {
                 timestep: TimeStep {
-                    month, day, hour, sub_hour: sub,
+                    month,
+                    day,
+                    hour,
+                    sub_hour: sub,
                     timesteps_per_hour: config.timesteps_per_hour,
                     sim_time_s: sim_time,
                     dt,
@@ -1389,7 +1700,10 @@ fn main() -> Result<()> {
                     env.update_bdf_history();
 
                     let result = TimestepResult {
-                        month, day, hour, sub_hour: sub,
+                        month,
+                        day,
+                        hour,
+                        sub_hour: sub,
                         component_outputs: HashMap::new(),
                     };
                     (env_result, result)
@@ -1417,7 +1731,9 @@ fn main() -> Result<()> {
                     const MAX_HVAC_ITER: usize = 10;
                     const HVAC_CONV_TOL: f64 = 0.05; // °C
 
-                    let mut current_zone_temps: HashMap<String, f64> = env.zones.iter()
+                    let mut current_zone_temps: HashMap<String, f64> = env
+                        .zones
+                        .iter()
                         .map(|z| (z.input.name.clone(), z.temp))
                         .collect();
                     // Save initial zone temps for terminal control signals (frozen across
@@ -1430,10 +1746,14 @@ fn main() -> Result<()> {
                     // then updated after each envelope solve to reflect current
                     // conditions.  This allows smooth load tapering during
                     // transitions (E+-style iterative convergence).
-                    let mut current_cooling_loads: HashMap<String, f64> = env.zones.iter()
+                    let mut current_cooling_loads: HashMap<String, f64> = env
+                        .zones
+                        .iter()
                         .map(|z| (z.input.name.clone(), z.ideal_cooling_load))
                         .collect();
-                    let mut current_heating_loads: HashMap<String, f64> = env.zones.iter()
+                    let mut current_heating_loads: HashMap<String, f64> = env
+                        .zones
+                        .iter()
                         .map(|z| (z.input.name.clone(), z.ideal_heating_load))
                         .collect();
 
@@ -1444,7 +1764,9 @@ fn main() -> Result<()> {
                     // HVAC, computed by the envelope.  Frozen from the PREVIOUS
                     // timestep and used for mode determination from the FIRST
                     // HVAC iteration (no need to wait for envelope to run).
-                    let predictor_no_hvac_temps: HashMap<String, f64> = env.zones.iter()
+                    let predictor_no_hvac_temps: HashMap<String, f64> = env
+                        .zones
+                        .iter()
                         .map(|z| (z.input.name.clone(), z.temp_no_hvac))
                         .collect();
 
@@ -1490,7 +1812,7 @@ fn main() -> Result<()> {
                         for &loop_idx in &plant_loop_order {
                             let plant_loop = &model.plant_loops[loop_idx];
                             let cp_water = 4186.0; // J/(kg·K)
-                            let rho_water = 998.0;  // kg/m³
+                            let rho_water = 998.0; // kg/m³
                             let loop_delta_t = plant_loop.design_delta_t.max(1.0);
 
                             // ── Determine loop load ──────────────────────────
@@ -1510,9 +1832,13 @@ fn main() -> Result<()> {
                                         _ => ("", None),
                                     };
                                     if coil_plant == Some(plant_loop.name.as_str()) {
-                                        if let Some(outputs) = hvac_result.component_outputs.get(coil_name) {
-                                            total_load += outputs.get("thermal_output")
-                                                .copied().unwrap_or(0.0);
+                                        if let Some(outputs) =
+                                            hvac_result.component_outputs.get(coil_name)
+                                        {
+                                            total_load += outputs
+                                                .get("thermal_output")
+                                                .copied()
+                                                .unwrap_or(0.0);
                                         }
                                     }
                                 }
@@ -1525,9 +1851,13 @@ fn main() -> Result<()> {
                                             _ => ("", None),
                                         };
                                         if term_plant == Some(plant_loop.name.as_str()) {
-                                            if let Some(outputs) = hvac_result.component_outputs.get(term_name) {
-                                                total_load += outputs.get("thermal_output")
-                                                    .copied().unwrap_or(0.0);
+                                            if let Some(outputs) =
+                                                hvac_result.component_outputs.get(term_name)
+                                            {
+                                                total_load += outputs
+                                                    .get("thermal_output")
+                                                    .copied()
+                                                    .unwrap_or(0.0);
                                             }
                                         }
                                     }
@@ -1542,10 +1872,20 @@ fn main() -> Result<()> {
                             for other_loop in &model.plant_loops {
                                 for eq in &other_loop.supply_equipment {
                                     if let openbse_io::input::PlantEquipmentInput::Chiller(c) = eq {
-                                        if c.condenser_plant_loop.as_deref() == Some(plant_loop.name.as_str()) {
-                                            if let Some(outputs) = hvac_result.component_outputs.get(c.name.as_str()) {
-                                                let thermal = outputs.get("thermal_output").copied().unwrap_or(0.0);
-                                                let electric = outputs.get("electric_power").copied().unwrap_or(0.0);
+                                        if c.condenser_plant_loop.as_deref()
+                                            == Some(plant_loop.name.as_str())
+                                        {
+                                            if let Some(outputs) =
+                                                hvac_result.component_outputs.get(c.name.as_str())
+                                            {
+                                                let thermal = outputs
+                                                    .get("thermal_output")
+                                                    .copied()
+                                                    .unwrap_or(0.0);
+                                                let electric = outputs
+                                                    .get("electric_power")
+                                                    .copied()
+                                                    .unwrap_or(0.0);
                                                 condenser_load += thermal + electric;
                                             }
                                         }
@@ -1565,9 +1905,13 @@ fn main() -> Result<()> {
                             // temperature and flow from the already-simulated source loop
                             // (or lag-one-timestep if source hasn't been simulated yet).
                             for equip in &plant_loop.supply_equipment {
-                                if let openbse_io::input::PlantEquipmentInput::HeatExchanger(hx) = equip {
+                                if let openbse_io::input::PlantEquipmentInput::HeatExchanger(hx) =
+                                    equip
+                                {
                                     if let Some(node_idx) = graph.node_by_name(&hx.name) {
-                                        if let GraphComponent::Plant(component) = graph.component_mut(node_idx) {
+                                        if let GraphComponent::Plant(component) =
+                                            graph.component_mut(node_idx)
+                                        {
                                             let (src_temp, src_flow) = loop_supply_conditions
                                                 .get(&hx.source_loop)
                                                 .copied()
@@ -1596,8 +1940,11 @@ fn main() -> Result<()> {
                                     match equip {
                                         openbse_io::input::PlantEquipmentInput::Pump(p) => {
                                             if let Some(node_idx) = graph.node_by_name(&p.name) {
-                                                if let GraphComponent::Plant(component) = graph.component_mut(node_idx) {
-                                                    if component.design_water_flow_rate().is_none() {
+                                                if let GraphComponent::Plant(component) =
+                                                    graph.component_mut(node_idx)
+                                                {
+                                                    if component.design_water_flow_rate().is_none()
+                                                    {
                                                         let total_cap = if condenser_load > 0.0 {
                                                             // Condenser loop: size from chiller condenser capacities
                                                             let mut cap = 0.0_f64;
@@ -1638,17 +1985,25 @@ fn main() -> Result<()> {
                                                                     .sum()
                                                             }
                                                         };
-                                                        let design_flow = total_cap / (rho_water * cp_water * loop_delta_t);
-                                                        component.set_design_water_flow_rate(design_flow);
+                                                        let design_flow = total_cap
+                                                            / (rho_water * cp_water * loop_delta_t);
+                                                        component.set_design_water_flow_rate(
+                                                            design_flow,
+                                                        );
                                                     }
                                                 }
                                             }
                                         }
-                                        openbse_io::input::PlantEquipmentInput::CoolingTower(ct) => {
+                                        openbse_io::input::PlantEquipmentInput::CoolingTower(
+                                            ct,
+                                        ) => {
                                             // Autosize tower design_water_flow to match loop flow
                                             if let Some(node_idx) = graph.node_by_name(&ct.name) {
-                                                if let GraphComponent::Plant(component) = graph.component_mut(node_idx) {
-                                                    if component.design_water_flow_rate().is_none() {
+                                                if let GraphComponent::Plant(component) =
+                                                    graph.component_mut(node_idx)
+                                                {
+                                                    if component.design_water_flow_rate().is_none()
+                                                    {
                                                         // Size tower flow from condenser demand
                                                         let mut cap = 0.0_f64;
                                                         for ol in &model.plant_loops {
@@ -1663,8 +2018,11 @@ fn main() -> Result<()> {
                                                                 }
                                                             }
                                                         }
-                                                        let design_flow = cap / (rho_water * cp_water * loop_delta_t);
-                                                        component.set_design_water_flow_rate(design_flow);
+                                                        let design_flow = cap
+                                                            / (rho_water * cp_water * loop_delta_t);
+                                                        component.set_design_water_flow_rate(
+                                                            design_flow,
+                                                        );
                                                     }
                                                 }
                                             }
@@ -1675,31 +2033,66 @@ fn main() -> Result<()> {
 
                                 // Sequential equipment loading
                                 let mut remaining_load = total_load;
-                                let mut current_inlet = WaterPort::new(
-                                    openbse_psychrometrics::FluidState::water(inlet_temp, loop_mass_flow)
-                                );
+                                let mut current_inlet =
+                                    WaterPort::new(openbse_psychrometrics::FluidState::water(
+                                        inlet_temp,
+                                        loop_mass_flow,
+                                    ));
                                 for equip in &plant_loop.supply_equipment {
                                     let equip_name = match equip {
-                                        openbse_io::input::PlantEquipmentInput::Boiler(b) => &b.name,
-                                        openbse_io::input::PlantEquipmentInput::Chiller(c) => &c.name,
+                                        openbse_io::input::PlantEquipmentInput::Boiler(b) => {
+                                            &b.name
+                                        }
+                                        openbse_io::input::PlantEquipmentInput::Chiller(c) => {
+                                            &c.name
+                                        }
                                         openbse_io::input::PlantEquipmentInput::Pump(p) => &p.name,
-                                        openbse_io::input::PlantEquipmentInput::CoolingTower(ct) => &ct.name,
-                                        openbse_io::input::PlantEquipmentInput::HeatExchanger(hx) => &hx.name,
+                                        openbse_io::input::PlantEquipmentInput::CoolingTower(
+                                            ct,
+                                        ) => &ct.name,
+                                        openbse_io::input::PlantEquipmentInput::HeatExchanger(
+                                            hx,
+                                        ) => &hx.name,
                                     };
-                                    let is_pump = matches!(equip, openbse_io::input::PlantEquipmentInput::Pump(_));
-                                    if !is_pump && remaining_load.abs() < 1.0 { break; }
+                                    let is_pump = matches!(
+                                        equip,
+                                        openbse_io::input::PlantEquipmentInput::Pump(_)
+                                    );
+                                    if !is_pump && remaining_load.abs() < 1.0 {
+                                        break;
+                                    }
                                     if let Some(node_idx) = graph.node_by_name(equip_name) {
-                                        if let GraphComponent::Plant(component) = graph.component_mut(node_idx) {
-                                            let equip_load = if is_pump { total_load.abs() } else { remaining_load.abs() };
-                                            let outlet = component.simulate_plant(&current_inlet, equip_load, &ctx);
+                                        if let GraphComponent::Plant(component) =
+                                            graph.component_mut(node_idx)
+                                        {
+                                            let equip_load = if is_pump {
+                                                total_load.abs()
+                                            } else {
+                                                remaining_load.abs()
+                                            };
+                                            let outlet = component.simulate_plant(
+                                                &current_inlet,
+                                                equip_load,
+                                                &ctx,
+                                            );
                                             current_inlet = outlet;
 
                                             let delivered = component.thermal_output().abs();
-                                            let mut plant_outputs: HashMap<String, f64> = HashMap::new();
-                                            plant_outputs.insert("electric_power".to_string(), component.power_consumption());
-                                            plant_outputs.insert("fuel_power".to_string(), component.fuel_consumption());
-                                            plant_outputs.insert("thermal_output".to_string(), delivered);
-                                            hvac_result.component_outputs.insert(equip_name.clone(), plant_outputs);
+                                            let mut plant_outputs: HashMap<String, f64> =
+                                                HashMap::new();
+                                            plant_outputs.insert(
+                                                "electric_power".to_string(),
+                                                component.power_consumption(),
+                                            );
+                                            plant_outputs.insert(
+                                                "fuel_power".to_string(),
+                                                component.fuel_consumption(),
+                                            );
+                                            plant_outputs
+                                                .insert("thermal_output".to_string(), delivered);
+                                            hvac_result
+                                                .component_outputs
+                                                .insert(equip_name.clone(), plant_outputs);
 
                                             if remaining_load > 0.0 {
                                                 remaining_load -= delivered;
@@ -1727,21 +2120,24 @@ fn main() -> Result<()> {
                         // previous supply conditions converges to the correct
                         // equilibrium within 3-4 iterations.
                         let damped_supply: HashMap<String, (f64, f64)> = if hvac_iter > 0 {
-                            zone_supply_conditions.iter().map(|(zn, &(t, m))| {
-                                if let Some(&(pt, pm)) = prev_supply_conditions.get(zn) {
-                                    // Enthalpy-correct damping: average mass flow,
-                                    // then compute mixed temperature
-                                    let avg_m = 0.5 * m + 0.5 * pm;
-                                    let avg_t = if avg_m > 1e-6 {
-                                        (0.5 * m * t + 0.5 * pm * pt) / avg_m
+                            zone_supply_conditions
+                                .iter()
+                                .map(|(zn, &(t, m))| {
+                                    if let Some(&(pt, pm)) = prev_supply_conditions.get(zn) {
+                                        // Enthalpy-correct damping: average mass flow,
+                                        // then compute mixed temperature
+                                        let avg_m = 0.5 * m + 0.5 * pm;
+                                        let avg_t = if avg_m > 1e-6 {
+                                            (0.5 * m * t + 0.5 * pm * pt) / avg_m
+                                        } else {
+                                            0.5 * t + 0.5 * pt
+                                        };
+                                        (zn.clone(), (avg_t, avg_m))
                                     } else {
-                                        0.5 * t + 0.5 * pt
-                                    };
-                                    (zn.clone(), (avg_t, avg_m))
-                                } else {
-                                    (zn.clone(), (t, m))
-                                }
-                            }).collect()
+                                        (zn.clone(), (t, m))
+                                    }
+                                })
+                                .collect()
                         } else {
                             zone_supply_conditions.clone()
                         };
@@ -1750,14 +2146,20 @@ fn main() -> Result<()> {
                         let mut hvac_conds = ZoneHvacConditions::default();
 
                         for (zone_name, (supply_temp, mass_flow)) in &damped_supply {
-                            let zone_conditioned = env.zones.iter()
+                            let zone_conditioned = env
+                                .zones
+                                .iter()
                                 .find(|z| z.input.name == *zone_name)
                                 .map(|z| z.input.conditioned)
                                 .unwrap_or(true);
 
                             if zone_conditioned {
-                                hvac_conds.supply_temps.insert(zone_name.clone(), *supply_temp);
-                                hvac_conds.supply_mass_flows.insert(zone_name.clone(), *mass_flow);
+                                hvac_conds
+                                    .supply_temps
+                                    .insert(zone_name.clone(), *supply_temp);
+                                hvac_conds
+                                    .supply_mass_flows
+                                    .insert(zone_name.clone(), *mass_flow);
                             }
                         }
                         // Tell the envelope which zones have HVAC-handled OA.
@@ -1767,7 +2169,9 @@ fn main() -> Result<()> {
                         for li in &loop_infos {
                             let handles_oa = li.min_oa_fraction > 0.001;
                             for zone_name in &li.served_zones {
-                                hvac_conds.oa_handled_by_hvac.insert(zone_name.clone(), handles_oa);
+                                hvac_conds
+                                    .oa_handled_by_hvac
+                                    .insert(zone_name.clone(), handles_oa);
                             }
                         }
                         // Pass setpoints so envelope can compute ideal loads at setpoint
@@ -1777,9 +2181,12 @@ fn main() -> Result<()> {
                         let env_result = env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
 
                         // Step 4: Check convergence — did zone temps change?
-                        let max_delta: f64 = env_result.zone_temps.iter()
+                        let max_delta: f64 = env_result
+                            .zone_temps
+                            .iter()
                             .map(|(name, &new_temp)| {
-                                let old_temp = current_zone_temps.get(name).copied().unwrap_or(new_temp);
+                                let old_temp =
+                                    current_zone_temps.get(name).copied().unwrap_or(new_temp);
                                 (new_temp - old_temp).abs()
                             })
                             .fold(0.0_f64, f64::max);
@@ -1789,7 +2196,9 @@ fn main() -> Result<()> {
                         // converging zone temps.  Terminal control signals
                         // use FROZEN initial_zone_temps (set before the loop)
                         // to prevent oscillation.
-                        current_zone_temps = env_result.zone_temps.iter()
+                        current_zone_temps = env_result
+                            .zone_temps
+                            .iter()
                             .map(|(k, &v)| (k.clone(), v))
                             .collect();
                         // Update ideal loads from the envelope so the NEXT
@@ -1801,14 +2210,10 @@ fn main() -> Result<()> {
                         // approach eliminates the oscillation seen with frozen loads.
                         for z in &env.zones {
                             if z.input.conditioned {
-                                current_heating_loads.insert(
-                                    z.input.name.clone(),
-                                    z.ideal_heating_load,
-                                );
-                                current_cooling_loads.insert(
-                                    z.input.name.clone(),
-                                    z.ideal_cooling_load,
-                                );
+                                current_heating_loads
+                                    .insert(z.input.name.clone(), z.ideal_heating_load);
+                                current_cooling_loads
+                                    .insert(z.input.name.clone(), z.ideal_cooling_load);
                             }
                         }
 
@@ -1840,7 +2245,8 @@ fn main() -> Result<()> {
                 // ── Assemble timestep result ──────────────────────────
                 let mut result = hvac_result;
 
-                result.component_outputs
+                result
+                    .component_outputs
                     .entry("Weather".to_string())
                     .or_default()
                     .insert("outdoor_temp".to_string(), t_outdoor);
@@ -1849,19 +2255,22 @@ fn main() -> Result<()> {
                     result.component_outputs.insert(zone_name, outputs);
                 }
                 for (name, &temp) in &env_result.zone_temps {
-                    result.component_outputs
+                    result
+                        .component_outputs
                         .entry(name.clone())
                         .or_default()
                         .insert("zone_temp".to_string(), temp);
                 }
                 for (name, &load) in &env_result.zone_heating_loads {
-                    result.component_outputs
+                    result
+                        .component_outputs
                         .entry(name.clone())
                         .or_default()
                         .insert("heating_load".to_string(), load);
                 }
                 for (name, &load) in &env_result.zone_cooling_loads {
-                    result.component_outputs
+                    result
+                        .component_outputs
                         .entry(name.clone())
                         .or_default()
                         .insert("cooling_load".to_string(), load);
@@ -1879,17 +2288,39 @@ fn main() -> Result<()> {
                 for zone in &env.zones {
                     let name = zone.input.name.clone();
                     snapshot.zone_temperature.insert(name.clone(), zone.temp);
-                    snapshot.zone_humidity_ratio.insert(name.clone(), zone.humidity_ratio);
-                    snapshot.zone_heating_rate.insert(name.clone(), zone.heating_load);
-                    snapshot.zone_cooling_rate.insert(name.clone(), zone.cooling_load);
-                    snapshot.zone_infiltration_mass_flow.insert(name.clone(), zone.infiltration_mass_flow);
-                    snapshot.zone_nat_vent_flow.insert(name.clone(), zone.nat_vent_flow);
-                    snapshot.zone_nat_vent_mass_flow.insert(name.clone(), zone.nat_vent_mass_flow);
-                    snapshot.zone_nat_vent_active.insert(name.clone(), if zone.nat_vent_active { 1.0 } else { 0.0 });
-                    snapshot.zone_internal_gains_convective.insert(name.clone(), zone.q_internal_conv);
-                    snapshot.zone_internal_gains_radiative.insert(name.clone(), zone.q_internal_rad);
-                    snapshot.zone_supply_air_temperature.insert(name.clone(), zone.supply_air_temp);
-                    snapshot.zone_supply_air_mass_flow.insert(name.clone(), zone.supply_air_mass_flow);
+                    snapshot
+                        .zone_humidity_ratio
+                        .insert(name.clone(), zone.humidity_ratio);
+                    snapshot
+                        .zone_heating_rate
+                        .insert(name.clone(), zone.heating_load);
+                    snapshot
+                        .zone_cooling_rate
+                        .insert(name.clone(), zone.cooling_load);
+                    snapshot
+                        .zone_infiltration_mass_flow
+                        .insert(name.clone(), zone.infiltration_mass_flow);
+                    snapshot
+                        .zone_nat_vent_flow
+                        .insert(name.clone(), zone.nat_vent_flow);
+                    snapshot
+                        .zone_nat_vent_mass_flow
+                        .insert(name.clone(), zone.nat_vent_mass_flow);
+                    snapshot
+                        .zone_nat_vent_active
+                        .insert(name.clone(), if zone.nat_vent_active { 1.0 } else { 0.0 });
+                    snapshot
+                        .zone_internal_gains_convective
+                        .insert(name.clone(), zone.q_internal_conv);
+                    snapshot
+                        .zone_internal_gains_radiative
+                        .insert(name.clone(), zone.q_internal_rad);
+                    snapshot
+                        .zone_supply_air_temperature
+                        .insert(name.clone(), zone.supply_air_temp);
+                    snapshot
+                        .zone_supply_air_mass_flow
+                        .insert(name.clone(), zone.supply_air_mass_flow);
 
                     // Active setpoints for this timestep (all zones tracked for unmet hours)
                     let has_setpoints = zone_heating_setpoints.contains_key(&name)
@@ -1905,33 +2336,55 @@ fn main() -> Result<()> {
 
                 for surface in &env.surfaces {
                     let name = surface.input.name.clone();
-                    snapshot.surface_inside_temperature.insert(name.clone(), surface.temp_inside);
-                    snapshot.surface_outside_temperature.insert(name.clone(), surface.temp_outside);
-                    snapshot.surface_inside_convection_coefficient.insert(name.clone(), surface.h_conv_inside);
-                    snapshot.surface_incident_solar.insert(name.clone(), surface.incident_solar);
-                    snapshot.surface_transmitted_solar.insert(name.clone(), surface.transmitted_solar);
+                    snapshot
+                        .surface_inside_temperature
+                        .insert(name.clone(), surface.temp_inside);
+                    snapshot
+                        .surface_outside_temperature
+                        .insert(name.clone(), surface.temp_outside);
+                    snapshot
+                        .surface_inside_convection_coefficient
+                        .insert(name.clone(), surface.h_conv_inside);
+                    snapshot
+                        .surface_incident_solar
+                        .insert(name.clone(), surface.incident_solar);
+                    snapshot
+                        .surface_transmitted_solar
+                        .insert(name.clone(), surface.transmitted_solar);
                     // q_cond_inside from apply_ctf is W/m², multiply by net_area for total [W]
-                    snapshot.surface_conduction_inside.insert(name.clone(), surface.q_cond_inside * surface.net_area);
+                    snapshot
+                        .surface_conduction_inside
+                        .insert(name.clone(), surface.q_cond_inside * surface.net_area);
                     // q_conv_inside is also W/m², multiply by net_area for total [W]
-                    snapshot.surface_convection_inside.insert(name.clone(), surface.q_conv_inside * surface.net_area);
+                    snapshot
+                        .surface_convection_inside
+                        .insert(name.clone(), surface.q_conv_inside * surface.net_area);
                 }
 
                 for (comp_name, vars) in &result.component_outputs {
-                    if comp_name == "Weather" { continue; }
+                    if comp_name == "Weather" {
+                        continue;
+                    }
                     if let Some(&temp) = vars.get("outlet_temp") {
-                        snapshot.air_loop_outlet_temperature.insert(comp_name.clone(), temp);
+                        snapshot
+                            .air_loop_outlet_temperature
+                            .insert(comp_name.clone(), temp);
                     }
                     if let Some(&flow) = vars.get("mass_flow") {
                         snapshot.air_loop_mass_flow.insert(comp_name.clone(), flow);
                     }
                     if let Some(&w) = vars.get("outlet_w") {
-                        snapshot.air_loop_outlet_humidity_ratio.insert(comp_name.clone(), w);
+                        snapshot
+                            .air_loop_outlet_humidity_ratio
+                            .insert(comp_name.clone(), w);
                     }
                 }
 
                 // Populate energy end-use data
                 for (comp_name, vars) in &result.component_outputs {
-                    if comp_name == "Weather" { continue; }
+                    if comp_name == "Weather" {
+                        continue;
+                    }
                     if let Some(&pw) = vars.get("electric_power") {
                         if pump_names.contains(comp_name) {
                             snapshot.pump_electric_power.insert(comp_name.clone(), pw);
@@ -1940,7 +2393,9 @@ fn main() -> Result<()> {
                         } else if heat_recovery_names.contains(comp_name) {
                             snapshot.heat_recovery_power.insert(comp_name.clone(), pw);
                         } else {
-                            snapshot.component_electric_power.insert(comp_name.clone(), pw);
+                            snapshot
+                                .component_electric_power
+                                .insert(comp_name.clone(), pw);
                         }
                     }
                     if let Some(&pw) = vars.get("fuel_power") {
@@ -1949,8 +2404,12 @@ fn main() -> Result<()> {
                 }
                 // Zone internal gains — separate lighting and equipment energy
                 for zone in &env.zones {
-                    snapshot.zone_lighting_power.insert(zone.input.name.clone(), zone.lighting_power);
-                    snapshot.zone_equipment_power.insert(zone.input.name.clone(), zone.equipment_power);
+                    snapshot
+                        .zone_lighting_power
+                        .insert(zone.input.name.clone(), zone.lighting_power);
+                    snapshot
+                        .zone_equipment_power
+                        .insert(zone.input.name.clone(), zone.equipment_power);
 
                     // Exhaust fan power → component_electric_power (name contains "fan"
                     // so output.rs routes it to fan_elec_j automatically)
@@ -1965,12 +2424,14 @@ fn main() -> Result<()> {
                 // ── DHW simulation ─────────────────────────────────────
                 // Simulate domestic hot water systems and add energy to snapshot.
                 let dhw_dow = openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
-                for (dhw_idx, (dhw_sys, dhw_input)) in dhw_systems.iter_mut().zip(&model.dhw_systems).enumerate() {
+                for (dhw_idx, (dhw_sys, dhw_input)) in
+                    dhw_systems.iter_mut().zip(&model.dhw_systems).enumerate()
+                {
                     // Compute mains water temperature.
                     let dhw_doy = (hour_idx / 24) + 1;
-                    let t_mains = dhw_input.mains_temperature.temperature(
-                        dhw_doy, weather_data.location.latitude,
-                    );
+                    let t_mains = dhw_input
+                        .mains_temperature
+                        .temperature(dhw_doy, weather_data.location.latitude);
 
                     // Compute current draw rate from schedule.
                     // E+ WaterUse:Equipment mixes hot water from the tank with cold
@@ -1978,19 +2439,28 @@ fn main() -> Result<()> {
                     // The HOT water drawn from the tank is only a fraction of the
                     // total fixture flow: hot_frac = (T_use - T_mains) / (T_hot - T_mains).
                     let t_hot = dhw_sys.setpoint_temp; // tank setpoint
-                    let total_draw: f64 = dhw_input.loads.iter().map(|load| {
-                        let frac = load.schedule.as_ref().map(|sched_name| {
-                            env.schedule_manager.fraction(sched_name, hour, dhw_dow)
-                        }).unwrap_or(1.0);
-                        let fixture_flow = load.peak_flow_rate * frac;
-                        // Compute hot water fraction drawn from tank
-                        let hot_frac = if t_hot > t_mains {
-                            ((load.use_temperature - t_mains) / (t_hot - t_mains)).clamp(0.0, 1.0)
-                        } else {
-                            1.0
-                        };
-                        fixture_flow * hot_frac
-                    }).sum();
+                    let total_draw: f64 = dhw_input
+                        .loads
+                        .iter()
+                        .map(|load| {
+                            let frac = load
+                                .schedule
+                                .as_ref()
+                                .map(|sched_name| {
+                                    env.schedule_manager.fraction(sched_name, hour, dhw_dow)
+                                })
+                                .unwrap_or(1.0);
+                            let fixture_flow = load.peak_flow_rate * frac;
+                            // Compute hot water fraction drawn from tank
+                            let hot_frac = if t_hot > t_mains {
+                                ((load.use_temperature - t_mains) / (t_hot - t_mains))
+                                    .clamp(0.0, 1.0)
+                            } else {
+                                1.0
+                            };
+                            fixture_flow * hot_frac
+                        })
+                        .sum();
 
                     dhw_sys.simulate(total_draw, t_mains, dt);
 
@@ -2007,27 +2477,29 @@ fn main() -> Result<()> {
                     if let Some(ref mut pump) = dhw_pumps[dhw_idx] {
                         if total_draw > 0.0 {
                             // Compute mass flow from draw fraction
-                            let total_peak: f64 = dhw_input.loads.iter()
-                                .map(|l| l.peak_flow_rate).sum();
+                            let total_peak: f64 =
+                                dhw_input.loads.iter().map(|l| l.peak_flow_rate).sum();
                             let flow_frac = (total_draw / total_peak.max(1e-10)).clamp(0.0, 1.0);
                             let mass_flow = pump.design_flow_rate
-                                * openbse_psychrometrics::RHO_WATER * flow_frac;
-                            let inlet = WaterPort::new(
-                                openbse_psychrometrics::FluidState::water(
-                                    dhw_sys.tank_temperature(), mass_flow,
-                                ),
-                            );
+                                * openbse_psychrometrics::RHO_WATER
+                                * flow_frac;
+                            let inlet = WaterPort::new(openbse_psychrometrics::FluidState::water(
+                                dhw_sys.tank_temperature(),
+                                mass_flow,
+                            ));
                             let _outlet = pump.simulate_plant(&inlet, 1.0, &ctx);
-                            snapshot.pump_electric_power.insert(
-                                pump.name.clone(), pump.power_consumption(),
-                            );
+                            snapshot
+                                .pump_electric_power
+                                .insert(pump.name.clone(), pump.power_consumption());
                         }
                     }
                 }
 
                 // ── Exterior equipment ────────────────────────────────────
                 for ext in &model.exterior_equipment {
-                    let frac = ext.schedule.as_ref()
+                    let frac = ext
+                        .schedule
+                        .as_ref()
                         .map(|s| env.schedule_manager.fraction(s, hour, dhw_dow))
                         .unwrap_or(1.0);
                     let mut power = ext.power * frac;
@@ -2037,28 +2509,35 @@ fn main() -> Result<()> {
                         // Use standard time hour (mid-timestep for hourly)
                         let solar_hr = (hour_idx % 24) as f64 + 0.5;
                         let sol = openbse_envelope::solar::solar_position(
-                            doy, solar_hr, weather_data.location.latitude,
+                            doy,
+                            solar_hr,
+                            weather_data.location.latitude,
                         );
                         if sol.is_sunup {
                             power = 0.0; // lights off during daytime
                         }
                     }
                     // Route exterior lights to ext_lighting, everything else to ext_equipment
-                    let is_ext_lights = ext.subcategory.as_deref()
+                    let is_ext_lights = ext
+                        .subcategory
+                        .as_deref()
                         .map(|s| s.to_lowercase().contains("light"))
                         .unwrap_or(false);
                     if is_ext_lights {
-                        snapshot.ext_lighting_power
+                        snapshot
+                            .ext_lighting_power
                             .entry(ext.name.clone())
                             .and_modify(|v| *v += power)
                             .or_insert(power);
                     } else if ext.fuel == "natural_gas" {
-                        snapshot.component_fuel_power
+                        snapshot
+                            .component_fuel_power
                             .entry(ext.name.clone())
                             .and_modify(|v| *v += power)
                             .or_insert(power);
                     } else {
-                        snapshot.ext_equipment_power
+                        snapshot
+                            .ext_equipment_power
                             .entry(ext.name.clone())
                             .and_modify(|v| *v += power)
                             .or_insert(power);
@@ -2081,18 +2560,21 @@ fn main() -> Result<()> {
                 for control in &model.controls {
                     match control {
                         openbse_io::input::ControlInput::Setpoint(sp) => {
-                            signals.coil_setpoints.insert(sp.component.clone(), sp.value);
+                            signals
+                                .coil_setpoints
+                                .insert(sp.component.clone(), sp.value);
                         }
                         openbse_io::input::ControlInput::PlantLoopSetpoint(pls) => {
-                            signals.plant_loop_setpoints.insert(
-                                pls.loop_name.clone(), pls.supply_temp
-                            );
+                            signals
+                                .plant_loop_setpoints
+                                .insert(pls.loop_name.clone(), pls.supply_temp);
                         }
                     }
                 }
 
                 let (mut result, _) = simulate_hvac(&mut graph, &ctx, &signals);
-                result.component_outputs
+                result
+                    .component_outputs
                     .entry("Weather".to_string())
                     .or_default()
                     .insert("outdoor_temp".to_string(), interp_weather.dry_bulb);
@@ -2106,21 +2588,29 @@ fn main() -> Result<()> {
                 snapshot.site_relative_humidity = interp_weather.rel_humidity;
 
                 for (comp_name, vars) in &result.component_outputs {
-                    if comp_name == "Weather" { continue; }
+                    if comp_name == "Weather" {
+                        continue;
+                    }
                     if let Some(&temp) = vars.get("outlet_temp") {
-                        snapshot.air_loop_outlet_temperature.insert(comp_name.clone(), temp);
+                        snapshot
+                            .air_loop_outlet_temperature
+                            .insert(comp_name.clone(), temp);
                     }
                     if let Some(&flow) = vars.get("mass_flow") {
                         snapshot.air_loop_mass_flow.insert(comp_name.clone(), flow);
                     }
                     if let Some(&w) = vars.get("outlet_w") {
-                        snapshot.air_loop_outlet_humidity_ratio.insert(comp_name.clone(), w);
+                        snapshot
+                            .air_loop_outlet_humidity_ratio
+                            .insert(comp_name.clone(), w);
                     }
                 }
 
                 // Populate energy end-use data
                 for (comp_name, vars) in &result.component_outputs {
-                    if comp_name == "Weather" { continue; }
+                    if comp_name == "Weather" {
+                        continue;
+                    }
                     if let Some(&pw) = vars.get("electric_power") {
                         if pump_names.contains(comp_name) {
                             snapshot.pump_electric_power.insert(comp_name.clone(), pw);
@@ -2129,7 +2619,9 @@ fn main() -> Result<()> {
                         } else if heat_recovery_names.contains(comp_name) {
                             snapshot.heat_recovery_power.insert(comp_name.clone(), pw);
                         } else {
-                            snapshot.component_electric_power.insert(comp_name.clone(), pw);
+                            snapshot
+                                .component_electric_power
+                                .insert(comp_name.clone(), pw);
                         }
                     }
                     if let Some(&pw) = vars.get("fuel_power") {
@@ -2141,9 +2633,8 @@ fn main() -> Result<()> {
                 // Note: ambient_zone not available in HVAC-only mode (no envelope).
                 // Water heater uses the default 20°C ambient.
                 for (dhw_sys, dhw_input) in dhw_systems.iter_mut().zip(&model.dhw_systems) {
-                    let total_draw: f64 = dhw_input.loads.iter()
-                        .map(|load| load.peak_flow_rate)
-                        .sum();  // No schedule manager in HVAC-only mode
+                    let total_draw: f64 =
+                        dhw_input.loads.iter().map(|load| load.peak_flow_rate).sum(); // No schedule manager in HVAC-only mode
                     let t_mains = dhw_input.mains_temperature.temperature(1, 40.0);
                     dhw_sys.simulate(total_draw, t_mains, dt);
                     let ep = dhw_sys.electric_power();
@@ -2161,21 +2652,26 @@ fn main() -> Result<()> {
                 // Route to typed ext_equipment_power (same as full simulation mode).
                 for ext in &model.exterior_equipment {
                     let power = ext.power;
-                    let is_hvac_ext_light = ext.subcategory.as_deref()
+                    let is_hvac_ext_light = ext
+                        .subcategory
+                        .as_deref()
                         .map(|s| s.to_lowercase().contains("light"))
                         .unwrap_or(false);
                     if is_hvac_ext_light {
-                        snapshot.ext_lighting_power
+                        snapshot
+                            .ext_lighting_power
                             .entry(ext.name.clone())
                             .and_modify(|v| *v += power)
                             .or_insert(power);
                     } else if ext.fuel == "natural_gas" {
-                        snapshot.component_fuel_power
+                        snapshot
+                            .component_fuel_power
                             .entry(ext.name.clone())
                             .and_modify(|v| *v += power)
                             .or_insert(power);
                     } else {
-                        snapshot.ext_equipment_power
+                        snapshot
+                            .ext_equipment_power
                             .entry(ext.name.clone())
                             .and_modify(|v| *v += power)
                             .or_insert(power);
@@ -2213,14 +2709,20 @@ fn main() -> Result<()> {
                 }
             }
         }
-        info!("Results written to: {} ({} rows x {} columns)", output_path.display(), results.len(), cols.len());
+        info!(
+            "Results written to: {} ({} rows x {} columns)",
+            output_path.display(),
+            results.len(),
+            cols.len()
+        );
     } else {
         warn!("No results to write");
     }
 
     // Custom output files (user-defined variable selections, prefixed with input stem)
     for writer in &mut output_writers {
-        writer.finalize_and_write_prefixed(output_dir, &input_stem)
+        writer
+            .finalize_and_write_prefixed(output_dir, &input_stem)
             .with_context(|| format!("Failed to write custom output"))?;
     }
     if !output_writers.is_empty() {
@@ -2230,7 +2732,8 @@ fn main() -> Result<()> {
     // Summary report
     if let Some(ref report) = summary_report {
         let summary_path = output_dir.join(format!("{}_summary.txt", input_stem));
-        report.write(&summary_path)
+        report
+            .write(&summary_path)
             .with_context(|| format!("Failed to write summary report"))?;
         info!("Summary report written to: {}", summary_path.display());
     }
@@ -2239,19 +2742,49 @@ fn main() -> Result<()> {
     if let Some(ref env) = envelope {
         eprintln!("\n══════════════ ANNUAL ZONE HEAT BALANCE ══════════════");
         for zone in &env.zones {
-            if !zone.input.conditioned { continue; }
+            if !zone.input.conditioned {
+                continue;
+            }
             eprintln!("Zone: {}", zone.input.name);
-            eprintln!("  Surface cond loss:  {:>10.1} kWh  (positive = zone losing heat)", zone.diag_surface_loss_kwh);
-            eprintln!("  Infiltration loss:  {:>10.1} kWh  (positive = zone losing heat)", zone.diag_infil_loss_kwh);
-            eprintln!("  Internal gains:     {:>10.1} kWh  (convective only)", zone.diag_internal_conv_kwh);
-            eprintln!("  Solar transmitted:  {:>10.1} kWh  (into zone)", zone.diag_solar_trans_kwh);
-            eprintln!("  Window conduction:  {:>10.1} kWh  (positive = zone losing heat)", zone.diag_window_cond_kwh);
-            eprintln!("  Window convection:  {:>10.1} kWh  (h_conv × A × (T_zone - T_glass))", zone.diag_window_conv_kwh);
-            eprintln!("  Q_conv (all):       {:>10.1} kWh  (radiative+internal convective)", zone.diag_q_conv_kwh);
-            eprintln!("  HVAC delivered:     {:>10.1} kWh  (net: positive = heating)", zone.diag_hvac_net_kwh);
+            eprintln!(
+                "  Surface cond loss:  {:>10.1} kWh  (positive = zone losing heat)",
+                zone.diag_surface_loss_kwh
+            );
+            eprintln!(
+                "  Infiltration loss:  {:>10.1} kWh  (positive = zone losing heat)",
+                zone.diag_infil_loss_kwh
+            );
+            eprintln!(
+                "  Internal gains:     {:>10.1} kWh  (convective only)",
+                zone.diag_internal_conv_kwh
+            );
+            eprintln!(
+                "  Solar transmitted:  {:>10.1} kWh  (into zone)",
+                zone.diag_solar_trans_kwh
+            );
+            eprintln!(
+                "  Window conduction:  {:>10.1} kWh  (positive = zone losing heat)",
+                zone.diag_window_cond_kwh
+            );
+            eprintln!(
+                "  Window convection:  {:>10.1} kWh  (h_conv × A × (T_zone - T_glass))",
+                zone.diag_window_conv_kwh
+            );
+            eprintln!(
+                "  Q_conv (all):       {:>10.1} kWh  (radiative+internal convective)",
+                zone.diag_q_conv_kwh
+            );
+            eprintln!(
+                "  HVAC delivered:     {:>10.1} kWh  (net: positive = heating)",
+                zone.diag_hvac_net_kwh
+            );
             let balance = -zone.diag_surface_loss_kwh - zone.diag_infil_loss_kwh
-                + zone.diag_q_conv_kwh + zone.diag_hvac_net_kwh;
-            eprintln!("  Balance check:      {:>10.1} kWh  (should be ~0)", balance);
+                + zone.diag_q_conv_kwh
+                + zone.diag_hvac_net_kwh;
+            eprintln!(
+                "  Balance check:      {:>10.1} kWh  (should be ~0)",
+                balance
+            );
         }
         eprintln!("══════════════════════════════════════════════════════\n");
     }
@@ -2289,7 +2822,6 @@ fn simulate_all_loops(
     zone_thermal_caps: &HashMap<String, f64>,
     predictor_no_hvac_temps: &HashMap<String, f64>,
 ) -> (TimestepResult, HashMap<String, (f64, f64)>) {
-
     let mut all_outputs: HashMap<String, HashMap<String, f64>> = HashMap::new();
     // zone_name -> Vec<(supply_temp, mass_flow)> — accumulate from multiple loops
     let mut zone_supply: HashMap<String, Vec<(f64, f64)>> = HashMap::new();
@@ -2394,7 +2926,9 @@ fn simulate_all_loops(
                 li.min_oa_fraction
             };
             // Area-based floor: absolute minimum per ASHRAE 62.1
-            let area_only_flow: f64 = li.zone_oa_data.iter()
+            let area_only_flow: f64 = li
+                .zone_oa_data
+                .iter()
                 .map(|d| d.per_area_oa * d.floor_area)
                 .sum();
             let area_floor = if li.design_supply_flow > 0.0 {
@@ -2409,8 +2943,16 @@ fn simulate_all_loops(
         };
 
         // Select active setpoints based on occupied/unoccupied state
-        let active_heat_sp = if is_unoccupied { zone_unocc_heat_sp } else { zone_heat_sp };
-        let active_cool_sp = if is_unoccupied { zone_unocc_cool_sp } else { zone_cool_sp };
+        let active_heat_sp = if is_unoccupied {
+            zone_unocc_heat_sp
+        } else {
+            zone_heat_sp
+        };
+        let active_cool_sp = if is_unoccupied {
+            zone_unocc_cool_sp
+        } else {
+            zone_cool_sp
+        };
 
         // ── Heat Recovery Pre-Processing ────────────────────────────────
         //
@@ -2444,13 +2986,18 @@ fn simulate_all_loops(
             let avg_return_temp = if li.served_zones.is_empty() {
                 22.0
             } else {
-                li.served_zones.iter()
+                li.served_zones
+                    .iter()
                     .map(|z| active_heat_sp.get(z).copied().unwrap_or(21.0))
-                    .sum::<f64>() / li.served_zones.len() as f64
+                    .sum::<f64>()
+                    / li.served_zones.len() as f64
             };
             let avg_return_w = openbse_psychrometrics::MoistAirState::from_tdb_rh(
-                avg_return_temp, 0.50, ctx.outdoor_air.p_b,
-            ).w;
+                avg_return_temp,
+                0.50,
+                ctx.outdoor_air.p_b,
+            )
+            .w;
             if let Some(node_idx) = graph.node_by_name(hr_name) {
                 match graph.component_mut(node_idx) {
                     GraphComponent::Air(ref mut comp) => {
@@ -2482,7 +3029,9 @@ fn simulate_all_loops(
         // For each served zone, compute a predictor mode and store it.
         // PTAC/FCU (single-zone) use the single zone's mode.
         // PSZ-AC uses the control zone's mode.
-        let predictor_modes: HashMap<String, HvacMode> = li.served_zones.iter()
+        let predictor_modes: HashMap<String, HvacMode> = li
+            .served_zones
+            .iter()
             .map(|z| {
                 let hload = zone_heating_loads.get(z).copied().unwrap_or(0.0);
                 let cload = zone_cooling_loads.get(z).copied().unwrap_or(0.0);
@@ -2521,29 +3070,46 @@ fn simulate_all_loops(
             // PSZ-AC: single-zone thermostat, mixed return + outdoor air.
             // The control zone is the first served zone.
             // ──────────────────────────────────────────────────────────────
-            AirLoopSystemType::PszAc => {
-                build_psz_signals(li, zone_temps, active_heat_sp, active_cool_sp,
-                    zone_design_flows, t_outdoor, zone_cooling_loads, zone_heating_loads,
-                    effective_min_oa, &predictor_modes)
-            }
+            AirLoopSystemType::PszAc => build_psz_signals(
+                li,
+                zone_temps,
+                active_heat_sp,
+                active_cool_sp,
+                zone_design_flows,
+                t_outdoor,
+                zone_cooling_loads,
+                zone_heating_loads,
+                effective_min_oa,
+                &predictor_modes,
+            ),
 
             // ──────────────────────────────────────────────────────────────
             // DOAS: 100% outdoor air, fixed supply setpoints, always runs.
             // Pre-conditions ventilation air; no zone-temperature feedback.
             // ──────────────────────────────────────────────────────────────
-            AirLoopSystemType::Doas => {
-                build_doas_signals(li, zone_design_flows, active_heat_sp, active_cool_sp, t_outdoor)
-            }
+            AirLoopSystemType::Doas => build_doas_signals(
+                li,
+                zone_design_flows,
+                active_heat_sp,
+                active_cool_sp,
+                t_outdoor,
+            ),
 
             // ──────────────────────────────────────────────────────────────
             // FCU / PTAC: recirculating unit, per-zone thermostat.
             // Each FCU/PTAC loop serves exactly one zone.
             // ──────────────────────────────────────────────────────────────
-            AirLoopSystemType::Fcu | AirLoopSystemType::Ptac => {
-                build_fcu_signals(li, zone_temps, active_heat_sp, active_cool_sp,
-                    zone_design_flows, t_outdoor, zone_heating_loads, zone_cooling_loads,
-                    &predictor_modes)
-            }
+            AirLoopSystemType::Fcu | AirLoopSystemType::Ptac => build_fcu_signals(
+                li,
+                zone_temps,
+                active_heat_sp,
+                active_cool_sp,
+                zone_design_flows,
+                t_outdoor,
+                zone_heating_loads,
+                zone_cooling_loads,
+                &predictor_modes,
+            ),
 
             // ──────────────────────────────────────────────────────────────
             // VAV: central cold-deck AHU, per-zone airflow modulation.
@@ -2552,16 +3118,28 @@ fn simulate_all_loops(
             // ──────────────────────────────────────────────────────────────
             AirLoopSystemType::Vav => {
                 // All controls use raw t_outdoor. HR credit is applied post-chain.
-                build_vav_signals(li, zone_temps, active_heat_sp, active_cool_sp,
-                    zone_design_flows, t_outdoor, effective_min_oa,
-                    false, t_outdoor, schedule_mgr, hour, day_of_week)
+                build_vav_signals(
+                    li,
+                    zone_temps,
+                    active_heat_sp,
+                    active_cool_sp,
+                    zone_design_flows,
+                    t_outdoor,
+                    effective_min_oa,
+                    false,
+                    t_outdoor,
+                    schedule_mgr,
+                    hour,
+                    day_of_week,
+                )
             }
         };
 
         // Filter heat recovery out of the component chain — it was already
         // pre-processed above and its effect is baked into effective_t_outdoor.
         let chain_components: Vec<String> = if let Some(ref hr_name) = li.heat_recovery_name {
-            li.component_names.iter()
+            li.component_names
+                .iter()
                 .filter(|n| n.as_str() != hr_name.as_str())
                 .cloned()
                 .collect()
@@ -2571,7 +3149,12 @@ fn simulate_all_loops(
 
         // Run this loop's components in order (at full capacity, PLR=1.0)
         let (mut loop_result, supply_air) = simulate_loop_components(
-            graph, ctx, &chain_components, &signals, zone_temps, t_outdoor
+            graph,
+            ctx,
+            &chain_components,
+            &signals,
+            zone_temps,
+            t_outdoor,
         );
 
         // ── Post-process heat recovery: credit-based approach ─────────
@@ -2580,8 +3163,11 @@ fn simulate_all_loops(
         // controls).  Now compute what the HR would recover and apply it
         // as a gas/electric credit via virtual components.
         if let Some(ref hr_name) = li.heat_recovery_name {
-            let oa_frac = signals.coil_setpoints.get("__oa_fraction__")
-                .copied().unwrap_or(effective_min_oa);
+            let oa_frac = signals
+                .coil_setpoints
+                .get("__oa_fraction__")
+                .copied()
+                .unwrap_or(effective_min_oa);
             let total_flow = supply_air.as_ref().map(|s| s.mass_flow).unwrap_or(0.0);
             let oa_mass_flow = total_flow * oa_frac;
 
@@ -2626,10 +3212,15 @@ fn simulate_all_loops(
             // is the difference between SAT and mixed air temp.
             if hr_thermal > 0.0 {
                 // Winter heating credit: cap at what AHU coil actually provides
-                let avg_zt = if li.served_zones.is_empty() { 22.0 }
-                    else { li.served_zones.iter()
+                let avg_zt = if li.served_zones.is_empty() {
+                    22.0
+                } else {
+                    li.served_zones
+                        .iter()
                         .map(|z| zone_temps.get(z).copied().unwrap_or(22.0))
-                        .sum::<f64>() / li.served_zones.len() as f64 };
+                        .sum::<f64>()
+                        / li.served_zones.len() as f64
+                };
                 let t_mixed = avg_zt * (1.0 - oa_frac) + t_outdoor * oa_frac;
                 // Use actual SAT setpoint from VAV signal builder (12.8-15.6°C)
                 // instead of heating_supply_temp (40°C) which is for terminal reheat.
@@ -2650,10 +3241,15 @@ fn simulate_all_loops(
                 loop_result.insert(credit_name, c);
             } else if hr_thermal < 0.0 {
                 // Summer cooling credit
-                let avg_zt = if li.served_zones.is_empty() { 22.0 }
-                    else { li.served_zones.iter()
+                let avg_zt = if li.served_zones.is_empty() {
+                    22.0
+                } else {
+                    li.served_zones
+                        .iter()
                         .map(|z| zone_temps.get(z).copied().unwrap_or(22.0))
-                        .sum::<f64>() / li.served_zones.len() as f64 };
+                        .sum::<f64>()
+                        / li.served_zones.len() as f64
+                };
                 let t_mixed = avg_zt * (1.0 - oa_frac) + t_outdoor * oa_frac;
                 let sat = li.cooling_supply_temp;
                 let coil_load = total_flow * 1005.0 * (t_mixed - sat).max(0.0);
@@ -2681,26 +3277,28 @@ fn simulate_all_loops(
         // Without this correction the system persistently over-delivers in
         // heating, pushing the zone above setpoint into deadband, where it
         // then cools and re-enters heating — the classic oscillation.
-        let continuous_fan_heat_rise_pre = if li.fan_operating_mode
-            == openbse_io::input::FanOperatingMode::Continuous
-        {
-            let fan_power: f64 = li.fan_names.iter()
-                .filter_map(|fn_name| {
-                    loop_result.get(fn_name)
-                        .and_then(|o| o.get("electric_power"))
-                        .copied()
-                })
-                .sum();
-            let mass_flow = supply_air.as_ref().map(|s| s.mass_flow).unwrap_or(0.0);
-            let cp_air_fan = 1006.0_f64;
-            if mass_flow > 0.001 {
-                fan_power / (mass_flow * cp_air_fan)
+        let continuous_fan_heat_rise_pre =
+            if li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous {
+                let fan_power: f64 = li
+                    .fan_names
+                    .iter()
+                    .filter_map(|fn_name| {
+                        loop_result
+                            .get(fn_name)
+                            .and_then(|o| o.get("electric_power"))
+                            .copied()
+                    })
+                    .sum();
+                let mass_flow = supply_air.as_ref().map(|s| s.mass_flow).unwrap_or(0.0);
+                let cp_air_fan = 1006.0_f64;
+                if mass_flow > 0.001 {
+                    fan_power / (mass_flow * cp_air_fan)
+                } else {
+                    0.0
+                }
             } else {
                 0.0
-            }
-        } else {
-            0.0
-        };
+            };
 
         // ── Mode-Based PLR for PSZ-AC / PTAC ON/OFF Cycling ──
         //
@@ -2719,7 +3317,8 @@ fn simulate_all_loops(
         //
         // For non-PSZ-AC systems, PLR = 1.0 (they handle modulation internally).
         let loop_plr = if li.system_type == AirLoopSystemType::PszAc
-            || li.system_type == AirLoopSystemType::Ptac {
+            || li.system_type == AirLoopSystemType::Ptac
+        {
             let control_zone = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
             let zone_cool_load = zone_cooling_loads.get(control_zone).copied().unwrap_or(0.0);
             let zone_heat_load = zone_heating_loads.get(control_zone).copied().unwrap_or(0.0);
@@ -2728,7 +3327,9 @@ fn simulate_all_loops(
             let cool_sp = active_cool_sp.get(control_zone).copied().unwrap_or(23.9);
             // Use predictor mode (from frozen ideal loads) — stable across
             // HVAC iterations, preventing mode flip-flop at setpoint boundary.
-            let mode = predictor_modes.get(control_zone).copied()
+            let mode = predictor_modes
+                .get(control_zone)
+                .copied()
                 .unwrap_or_else(|| hvac_mode(control_temp, heat_sp, cool_sp));
 
             let cp_air = 1006.0_f64; // J/(kg·K)
@@ -2775,7 +3376,10 @@ fn simulate_all_loops(
                 // heating when the zone is well above setpoint (e.g., after a
                 // setpoint transition from occupied to unoccupied mode).
                 let zone_cap = zone_thermal_caps.get(control_zone).copied().unwrap_or(0.0);
-                let init_temp = initial_zone_temps.get(control_zone).copied().unwrap_or(control_temp);
+                let init_temp = initial_zone_temps
+                    .get(control_zone)
+                    .copied()
+                    .unwrap_or(control_temp);
                 let dead_band = (cool_sp - heat_sp).max(0.5);
 
                 match mode {
@@ -2839,14 +3443,16 @@ fn simulate_all_loops(
             }
         } else {
             // Non-PSZ-AC systems: no PLR cycling (they modulate internally)
-            signals.coil_setpoints.get("__plr__")
+            signals
+                .coil_setpoints
+                .get("__plr__")
                 .copied()
                 .unwrap_or(1.0)
         } * nightcycle_duty;
 
         if loop_plr < 1.0 {
-            let is_continuous_fan = li.fan_operating_mode
-                == openbse_io::input::FanOperatingMode::Continuous;
+            let is_continuous_fan =
+                li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous;
 
             // E+ Part Load Fraction: accounts for compressor cycling losses.
             // RTF = PLR / PLF > PLR, so compressor runs longer per unit of
@@ -2872,8 +3478,8 @@ fn simulate_all_loops(
                     // In E+, the PLF curve is specific to DX coils — gas
                     // furnaces report fuel = Q / eff × PLR without cycling
                     // degradation.  Fan power = rated × PLR (direct cycling).
-                    let is_dx_coil = !is_fan && outputs.get("fuel_power")
-                        .map_or(true, |fp| *fp == 0.0);
+                    let is_dx_coil =
+                        !is_fan && outputs.get("fuel_power").map_or(true, |fp| *fp == 0.0);
                     let power_factor = if is_dx_coil { rtf } else { loop_plr };
                     if let Some(ep) = outputs.get_mut("electric_power") {
                         *ep *= power_factor;
@@ -2899,7 +3505,8 @@ fn simulate_all_loops(
         let continuous_fan_heat_rise = continuous_fan_heat_rise_pre;
 
         // Store PLR for reporting
-        all_outputs.entry("__loop_plr__".to_string())
+        all_outputs
+            .entry("__loop_plr__".to_string())
             .or_default()
             .insert(li.name.clone(), loop_plr);
 
@@ -2916,28 +3523,26 @@ fn simulate_all_loops(
         if let Some(supply) = supply_air {
             let supply_temp = supply.state.t_db;
 
-            let (effective_flow, effective_supply_temp) = if li.fan_operating_mode
-                == openbse_io::input::FanOperatingMode::Continuous
-            {
-                // Continuous fan mode: fan runs at full speed always.
-                // Full mass flow delivered at a weighted-average supply temp:
-                //   ON-cycle  (PLR fraction):   T = supply_temp (coils active + fan heat)
-                //   OFF-cycle (1-PLR fraction): T = T_zone + ΔT_fan (recirculated + fan heat)
-                //
-                // Average supply temp = PLR × T_supply + (1-PLR) × (T_zone + ΔT_fan)
-                //
-                // Since OA=0 for PTAC, T_mixed = T_zone (return air = zone air).
-                let control_zone = li.served_zones.first()
-                    .map(|s| s.as_str()).unwrap_or("");
-                let t_zone = zone_temps.get(control_zone).copied().unwrap_or(21.0);
-                let t_off = t_zone + continuous_fan_heat_rise;
-                let t_avg = loop_plr * supply_temp + (1.0 - loop_plr) * t_off;
-                (supply.mass_flow, t_avg)
-            } else {
-                // Cycling fan mode: PLR-scaled flow at full supply temp.
-                // Fan cycles with coils: air only flows for PLR fraction of timestep.
-                (supply.mass_flow * loop_plr, supply_temp)
-            };
+            let (effective_flow, effective_supply_temp) =
+                if li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous {
+                    // Continuous fan mode: fan runs at full speed always.
+                    // Full mass flow delivered at a weighted-average supply temp:
+                    //   ON-cycle  (PLR fraction):   T = supply_temp (coils active + fan heat)
+                    //   OFF-cycle (1-PLR fraction): T = T_zone + ΔT_fan (recirculated + fan heat)
+                    //
+                    // Average supply temp = PLR × T_supply + (1-PLR) × (T_zone + ΔT_fan)
+                    //
+                    // Since OA=0 for PTAC, T_mixed = T_zone (return air = zone air).
+                    let control_zone = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
+                    let t_zone = zone_temps.get(control_zone).copied().unwrap_or(21.0);
+                    let t_off = t_zone + continuous_fan_heat_rise;
+                    let t_avg = loop_plr * supply_temp + (1.0 - loop_plr) * t_off;
+                    (supply.mass_flow, t_avg)
+                } else {
+                    // Cycling fan mode: PLR-scaled flow at full supply temp.
+                    // Fan cycles with coils: air only flows for PLR fraction of timestep.
+                    (supply.mass_flow * loop_plr, supply_temp)
+                };
 
             for zone_name in &li.served_zones {
                 // Check if this zone has a terminal box
@@ -2978,7 +3583,7 @@ fn simulate_all_loops(
                         // Cooling: negative signal proportional to error
                         -((zone_temp_init - cool_sp) / 5.0).clamp(0.0, 1.0)
                     } else {
-                        0.0  // Deadband
+                        0.0 // Deadband
                     };
 
                     if let Some(node_idx) = graph.node_by_name(term_name) {
@@ -3006,8 +3611,12 @@ fn simulate_all_loops(
                             term_outputs.insert("outlet_temp".to_string(), term_outlet.state.t_db);
                             term_outputs.insert("outlet_w".to_string(), term_outlet.state.w);
                             term_outputs.insert("mass_flow".to_string(), term_outlet.mass_flow);
-                            term_outputs.insert("electric_power".to_string(), component.power_consumption());
-                            term_outputs.insert("thermal_output".to_string(), component.thermal_output());
+                            term_outputs.insert(
+                                "electric_power".to_string(),
+                                component.power_consumption(),
+                            );
+                            term_outputs
+                                .insert("thermal_output".to_string(), component.thermal_output());
                             all_outputs.insert(term_name.clone(), term_outputs);
 
                             // Terminal outlet → zone supply
@@ -3016,7 +3625,8 @@ fn simulate_all_loops(
                             // flow is already time-averaged. Do NOT apply loop_plr again.
                             let term_supply_temp = term_outlet.state.t_db;
                             let term_flow = term_outlet.mass_flow;
-                            zone_supply.entry(zone_name.clone())
+                            zone_supply
+                                .entry(zone_name.clone())
                                 .or_default()
                                 .push((term_supply_temp, term_flow));
                         }
@@ -3032,18 +3642,19 @@ fn simulate_all_loops(
                             let n = li.served_zones.len().max(1) as f64;
                             effective_flow / n
                         }
-                        AirLoopSystemType::Fcu | AirLoopSystemType::Ptac => {
-                            effective_flow
-                        }
+                        AirLoopSystemType::Fcu | AirLoopSystemType::Ptac => effective_flow,
                         AirLoopSystemType::Vav => {
-                            signals.zone_air_flows.get(zone_name)
+                            signals
+                                .zone_air_flows
+                                .get(zone_name)
                                 .copied()
                                 .unwrap_or(effective_flow / li.served_zones.len().max(1) as f64)
                                 * loop_plr
                         }
                     };
 
-                    zone_supply.entry(zone_name.clone())
+                    zone_supply
+                        .entry(zone_name.clone())
                         .or_default()
                         .push((effective_supply_temp, zone_flow));
                 }
@@ -3059,9 +3670,7 @@ fn simulate_all_loops(
     for (zone_name, contributions) in zone_supply {
         let total_flow: f64 = contributions.iter().map(|(_, m)| m).sum();
         if total_flow > 0.0 {
-            let mixed_temp = contributions.iter()
-                .map(|(t, m)| t * m)
-                .sum::<f64>() / total_flow;
+            let mixed_temp = contributions.iter().map(|(t, m)| t * m).sum::<f64>() / total_flow;
             zone_supply_conditions.insert(zone_name, (mixed_temp, total_flow));
         }
     }
@@ -3111,7 +3720,9 @@ fn build_psz_signals(
 
     // Use predictor mode (from frozen ideal loads) to prevent mode
     // flip-flopping during HVAC↔envelope iteration loop.
-    let predictor_mode = predictor_modes.get(control_zone).copied()
+    let predictor_mode = predictor_modes
+        .get(control_zone)
+        .copied()
         .unwrap_or_else(|| {
             // Fallback: temperature-based with load-informed deadband tiebreaker
             if control_temp > cool_sp {
@@ -3186,7 +3797,11 @@ fn build_psz_signals(
     let econ_target = li.cooling_supply_temp;
     // Coil setpoint: -10°C forces the DX coil to run at full physical capacity.
     // The coil's actual outlet temp is limited by its available capacity.
-    let cooling_coil_sp = if mode == HvacMode::Cooling { -10.0 } else { 99.0 };
+    let cooling_coil_sp = if mode == HvacMode::Cooling {
+        -10.0
+    } else {
+        99.0
+    };
 
     // ── Economizer: respects loop economizer type ──
     // FixedDryBulb: OA used when OAT < high_limit
@@ -3228,31 +3843,52 @@ fn build_psz_signals(
                 // Proportional heating DAT: ramps from setpoint toward max (40°C)
                 // based on zone heating error. At small errors, furnace delivers
                 // warm but not hot air; at large errors, full-fire to recover.
-                if lname.contains("heat") || lname.contains("furnace")
-                    || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                if lname.contains("heat")
+                    || lname.contains("furnace")
+                    || lname.contains("hw")
+                    || lname.starts_with("hc ")
+                    || lname.starts_with("hc_")
+                {
                     signals.coil_setpoints.insert(name.clone(), heating_dat);
-                } else if lname.contains("cool") || lname.contains("dx")
-                    || lname.starts_with("cc ") || lname.starts_with("cc_") {
+                } else if lname.contains("cool")
+                    || lname.contains("dx")
+                    || lname.starts_with("cc ")
+                    || lname.starts_with("cc_")
+                {
                     signals.coil_setpoints.insert(name.clone(), 99.0);
                 }
             }
             HvacMode::Cooling => {
                 // DX coil runs at full capacity when ON (PLR controls runtime).
                 // The coil setpoint is set very low so capacity is the limiter.
-                if lname.contains("cool") || lname.contains("dx")
-                    || lname.starts_with("cc ") || lname.starts_with("cc_") {
+                if lname.contains("cool")
+                    || lname.contains("dx")
+                    || lname.starts_with("cc ")
+                    || lname.starts_with("cc_")
+                {
                     signals.coil_setpoints.insert(name.clone(), cooling_coil_sp);
-                } else if lname.contains("heat") || lname.contains("furnace")
-                    || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                } else if lname.contains("heat")
+                    || lname.contains("furnace")
+                    || lname.contains("hw")
+                    || lname.starts_with("hc ")
+                    || lname.starts_with("hc_")
+                {
                     signals.coil_setpoints.insert(name.clone(), -99.0);
                 }
             }
             HvacMode::Deadband => {
-                if lname.contains("heat") || lname.contains("furnace")
-                    || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                if lname.contains("heat")
+                    || lname.contains("furnace")
+                    || lname.contains("hw")
+                    || lname.starts_with("hc ")
+                    || lname.starts_with("hc_")
+                {
                     signals.coil_setpoints.insert(name.clone(), -99.0);
-                } else if lname.contains("cool") || lname.contains("dx")
-                    || lname.starts_with("cc ") || lname.starts_with("cc_") {
+                } else if lname.contains("cool")
+                    || lname.contains("dx")
+                    || lname.starts_with("cc ")
+                    || lname.starts_with("cc_")
+                {
                     signals.coil_setpoints.insert(name.clone(), 99.0);
                 }
             }
@@ -3261,22 +3897,16 @@ fn build_psz_signals(
     }
 
     // Inject mixed air temperature, OA fraction, and PLR
-    signals.coil_setpoints.insert(
-        "__pszac_mixed_air_temp__".to_string(),
-        mixed_air_temp,
-    );
-    signals.coil_setpoints.insert(
-        "__oa_fraction__".to_string(),
-        oa_frac,
-    );
-    signals.coil_setpoints.insert(
-        "__return_air_temp__".to_string(),
-        return_air_temp,
-    );
-    signals.coil_setpoints.insert(
-        "__plr__".to_string(),
-        plr,
-    );
+    signals
+        .coil_setpoints
+        .insert("__pszac_mixed_air_temp__".to_string(), mixed_air_temp);
+    signals
+        .coil_setpoints
+        .insert("__oa_fraction__".to_string(), oa_frac);
+    signals
+        .coil_setpoints
+        .insert("__return_air_temp__".to_string(), return_air_temp);
+    signals.coil_setpoints.insert("__plr__".to_string(), plr);
 
     signals
 }
@@ -3299,55 +3929,66 @@ fn build_doas_signals(
     let mut signals = ControlSignals::default();
 
     // Total ventilation airflow = 30% of zone design flows
-    let vent_flow_total: f64 = li.served_zones.iter()
-        .map(|z| {
-            zone_design_flows.get(z).copied().unwrap_or(0.1)
-        })
-        .sum::<f64>() * 0.30;
+    let vent_flow_total: f64 = li
+        .served_zones
+        .iter()
+        .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
+        .sum::<f64>()
+        * 0.30;
     let vent_flow = vent_flow_total.max(0.05);
 
     // Supply setpoints: heat to 2°C above zone heating setpoint,
     // cool to 2°C below zone cooling setpoint.
     // Clamp: never heat if OA is already above heating setpoint; never cool if below.
-    let max_heat_sp = li.served_zones.iter()
+    let max_heat_sp = li
+        .served_zones
+        .iter()
         .map(|z| zone_heat_sp.get(z).copied().unwrap_or(21.0))
         .fold(f64::NEG_INFINITY, f64::max);
-    let min_cool_sp = li.served_zones.iter()
+    let min_cool_sp = li
+        .served_zones
+        .iter()
         .map(|z| zone_cool_sp.get(z).copied().unwrap_or(24.0))
         .fold(f64::INFINITY, f64::min);
 
     // DOAS heating setpoint: 2°C above zone heating setpoint (deliver warm neutral air)
     let t_supply_heat = max_heat_sp + 2.0;
     // DOAS cooling setpoint: 2°C below zone cooling setpoint (deliver cool dehumidified air)
-    let t_supply_cool = (min_cool_sp - 2.0).max(14.0);  // 14°C minimum for dehumidification
+    let t_supply_cool = (min_cool_sp - 2.0).max(14.0); // 14°C minimum for dehumidification
 
     for name in &li.component_names {
         let lname = name.to_lowercase();
-        if lname.contains("heat") || lname.contains("preheat")
-            || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
+        if lname.contains("heat")
+            || lname.contains("preheat")
+            || lname.contains("hw")
+            || lname.starts_with("hc ")
+            || lname.starts_with("hc_")
+        {
             // Fire only if OA is below heating target
             if t_outdoor < t_supply_heat {
                 signals.coil_setpoints.insert(name.clone(), t_supply_heat);
             } else {
-                signals.coil_setpoints.insert(name.clone(), -99.0);  // off
+                signals.coil_setpoints.insert(name.clone(), -99.0); // off
             }
-        } else if lname.contains("cool") || lname.contains("dx")
-            || lname.starts_with("cc ") || lname.starts_with("cc_") {
+        } else if lname.contains("cool")
+            || lname.contains("dx")
+            || lname.starts_with("cc ")
+            || lname.starts_with("cc_")
+        {
             // Fire only if OA is above cooling target (summer dehumidification)
             if t_outdoor > t_supply_cool {
                 signals.coil_setpoints.insert(name.clone(), t_supply_cool);
             } else {
-                signals.coil_setpoints.insert(name.clone(), 99.0);  // off
+                signals.coil_setpoints.insert(name.clone(), 99.0); // off
             }
         }
         signals.air_mass_flows.insert(name.clone(), vent_flow);
     }
 
     // DOAS inlet is always 100% outdoor air
-    signals.coil_setpoints.insert(
-        "__oa_fraction__".to_string(),
-        1.0,
-    );
+    signals
+        .coil_setpoints
+        .insert("__oa_fraction__".to_string(), 1.0);
 
     signals
 }
@@ -3376,7 +4017,9 @@ fn build_fcu_signals(
 
     // Use predictor mode (from frozen ideal loads) to prevent mode
     // flip-flopping during HVAC↔envelope iteration.
-    let mode = predictor_modes.get(zone_name).copied()
+    let mode = predictor_modes
+        .get(zone_name)
+        .copied()
         .unwrap_or_else(|| hvac_mode(zone_temp, heat_sp, cool_sp));
 
     // PTAC: Fan runs at design flow when heating or cooling (mode != Deadband).
@@ -3389,15 +4032,15 @@ fn build_fcu_signals(
     //
     // FCU: modulates fan speed proportionally.
     let is_ptac = li.system_type == AirLoopSystemType::Ptac;
-    let is_continuous_fan_mode = li.fan_operating_mode
-        == openbse_io::input::FanOperatingMode::Continuous;
+    let is_continuous_fan_mode =
+        li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous;
     let flow = if is_ptac {
         match mode {
             HvacMode::Deadband => {
                 if is_continuous_fan_mode {
-                    design_flow  // continuous fan: recirculate zone air
+                    design_flow // continuous fan: recirculate zone air
                 } else {
-                    0.0  // cycling fan: system off
+                    0.0 // cycling fan: system off
                 }
             }
             _ => design_flow,
@@ -3405,17 +4048,15 @@ fn build_fcu_signals(
     } else {
         // FCU modulates fan speed: deadband = 20%, heating/cooling = proportional
         match mode {
-            HvacMode::Deadband => {
-                design_flow * 0.20
-            }
+            HvacMode::Deadband => design_flow * 0.20,
             HvacMode::Heating => {
                 let error = (heat_sp - zone_temp).clamp(0.0, 5.0);
-                let frac = 0.30 + 0.70 * (error / 5.0);  // 30-100% of design
+                let frac = 0.30 + 0.70 * (error / 5.0); // 30-100% of design
                 design_flow * frac
             }
             HvacMode::Cooling => {
                 let error = (zone_temp - cool_sp).clamp(0.0, 5.0);
-                let frac = 0.30 + 0.70 * (error / 5.0);  // 30-100% of design
+                let frac = 0.30 + 0.70 * (error / 5.0); // 30-100% of design
                 design_flow * frac
             }
         }
@@ -3453,30 +4094,55 @@ fn build_fcu_signals(
                     // E+ PTAC (Fan:OnOff cycling): run heating coil at
                     // design supply temp during ON-period, off during
                     // OFF-period.  PLR sets the duty cycle.
-                    if lname.contains("heat") || lname.contains("reheat")
-                        || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
-                        signals.coil_setpoints.insert(name.clone(), li.heating_supply_temp);
-                    } else if lname.contains("cool") || lname.contains("dx")
-                        || lname.starts_with("cc ") || lname.starts_with("cc_") {
+                    if lname.contains("heat")
+                        || lname.contains("reheat")
+                        || lname.contains("hw")
+                        || lname.starts_with("hc ")
+                        || lname.starts_with("hc_")
+                    {
+                        signals
+                            .coil_setpoints
+                            .insert(name.clone(), li.heating_supply_temp);
+                    } else if lname.contains("cool")
+                        || lname.contains("dx")
+                        || lname.starts_with("cc ")
+                        || lname.starts_with("cc_")
+                    {
                         signals.coil_setpoints.insert(name.clone(), 99.0);
                     }
                 }
                 HvacMode::Cooling => {
                     // DX cooling: run at full capacity, PLR handles cycling.
-                    if lname.contains("cool") || lname.contains("dx")
-                        || lname.starts_with("cc ") || lname.starts_with("cc_") {
-                        signals.coil_setpoints.insert(name.clone(), li.cooling_supply_temp);
-                    } else if lname.contains("heat") || lname.contains("reheat")
-                        || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                    if lname.contains("cool")
+                        || lname.contains("dx")
+                        || lname.starts_with("cc ")
+                        || lname.starts_with("cc_")
+                    {
+                        signals
+                            .coil_setpoints
+                            .insert(name.clone(), li.cooling_supply_temp);
+                    } else if lname.contains("heat")
+                        || lname.contains("reheat")
+                        || lname.contains("hw")
+                        || lname.starts_with("hc ")
+                        || lname.starts_with("hc_")
+                    {
                         signals.coil_setpoints.insert(name.clone(), -99.0);
                     }
                 }
                 HvacMode::Deadband => {
-                    if lname.contains("heat") || lname.contains("reheat")
-                        || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                    if lname.contains("heat")
+                        || lname.contains("reheat")
+                        || lname.contains("hw")
+                        || lname.starts_with("hc ")
+                        || lname.starts_with("hc_")
+                    {
                         signals.coil_setpoints.insert(name.clone(), -99.0);
-                    } else if lname.contains("cool") || lname.contains("dx")
-                        || lname.starts_with("cc ") || lname.starts_with("cc_") {
+                    } else if lname.contains("cool")
+                        || lname.contains("dx")
+                        || lname.starts_with("cc ")
+                        || lname.starts_with("cc_")
+                    {
                         signals.coil_setpoints.insert(name.clone(), 99.0);
                     }
                 }
@@ -3487,31 +4153,52 @@ fn build_fcu_signals(
                 HvacMode::Heating => {
                     let error = heat_sp - zone_temp;
                     let target = (heat_sp + error.min(14.0)).clamp(heat_sp, 45.0);
-                    if lname.contains("heat") || lname.contains("reheat")
-                        || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                    if lname.contains("heat")
+                        || lname.contains("reheat")
+                        || lname.contains("hw")
+                        || lname.starts_with("hc ")
+                        || lname.starts_with("hc_")
+                    {
                         signals.coil_setpoints.insert(name.clone(), target);
-                    } else if lname.contains("cool") || lname.contains("dx")
-                        || lname.starts_with("cc ") || lname.starts_with("cc_") {
+                    } else if lname.contains("cool")
+                        || lname.contains("dx")
+                        || lname.starts_with("cc ")
+                        || lname.starts_with("cc_")
+                    {
                         signals.coil_setpoints.insert(name.clone(), 99.0);
                     }
                 }
                 HvacMode::Cooling => {
                     let error = zone_temp - cool_sp;
                     let target = (cool_sp - error.min(10.0)).clamp(12.0, cool_sp);
-                    if lname.contains("cool") || lname.contains("dx")
-                        || lname.starts_with("cc ") || lname.starts_with("cc_") {
+                    if lname.contains("cool")
+                        || lname.contains("dx")
+                        || lname.starts_with("cc ")
+                        || lname.starts_with("cc_")
+                    {
                         signals.coil_setpoints.insert(name.clone(), target);
-                    } else if lname.contains("heat") || lname.contains("reheat")
-                        || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                    } else if lname.contains("heat")
+                        || lname.contains("reheat")
+                        || lname.contains("hw")
+                        || lname.starts_with("hc ")
+                        || lname.starts_with("hc_")
+                    {
                         signals.coil_setpoints.insert(name.clone(), -99.0);
                     }
                 }
                 HvacMode::Deadband => {
-                    if lname.contains("heat") || lname.contains("reheat")
-                        || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
+                    if lname.contains("heat")
+                        || lname.contains("reheat")
+                        || lname.contains("hw")
+                        || lname.starts_with("hc ")
+                        || lname.starts_with("hc_")
+                    {
                         signals.coil_setpoints.insert(name.clone(), -99.0);
-                    } else if lname.contains("cool") || lname.contains("dx")
-                        || lname.starts_with("cc ") || lname.starts_with("cc_") {
+                    } else if lname.contains("cool")
+                        || lname.contains("dx")
+                        || lname.starts_with("cc ")
+                        || lname.starts_with("cc_")
+                    {
                         signals.coil_setpoints.insert(name.clone(), 99.0);
                     }
                 }
@@ -3520,14 +4207,12 @@ fn build_fcu_signals(
         signals.air_mass_flows.insert(name.clone(), flow);
     }
 
-    signals.coil_setpoints.insert(
-        "__fcu_recirculation_temp__".to_string(),
-        mixed_air_temp,
-    );
-    signals.coil_setpoints.insert(
-        "__oa_fraction__".to_string(),
-        oa_frac,
-    );
+    signals
+        .coil_setpoints
+        .insert("__fcu_recirculation_temp__".to_string(), mixed_air_temp);
+    signals
+        .coil_setpoints
+        .insert("__oa_fraction__".to_string(), oa_frac);
 
     signals
 }
@@ -3568,10 +4253,10 @@ fn build_vav_signals(
     // V_heat_max = 50% of V_cool_max (design flow). This is the key dual-maximum concept:
     // in heating, the box opens wider than minimum to deliver more reheat energy, but
     // doesn't go to full design flow (that would overcool from the cold deck).
-    let v_heat_max_frac = 0.50;  // G36 typical: 50% of design
+    let v_heat_max_frac = 0.50; // G36 typical: 50% of design
 
     let mut total_flow = 0.0f64;
-    let mut max_cooling_demand = 0.0f64;  // for SAT reset
+    let mut max_cooling_demand = 0.0f64; // for SAT reset
 
     for zone_name in &li.served_zones {
         let zone_temp = zone_temps.get(zone_name).copied().unwrap_or(21.0);
@@ -3592,8 +4277,8 @@ fn build_vav_signals(
             HvacMode::Heating => {
                 // Dual-maximum: ramp V_min → V_heat_max (50% design)
                 let error = (heat_sp - zone_temp).clamp(0.0, 5.0);
-                let frac = li.min_vav_fraction
-                    + (v_heat_max_frac - li.min_vav_fraction) * (error / 5.0);
+                let frac =
+                    li.min_vav_fraction + (v_heat_max_frac - li.min_vav_fraction) * (error / 5.0);
                 design_flow * frac
             }
             HvacMode::Deadband => {
@@ -3618,8 +4303,8 @@ fn build_vav_signals(
     // E+ implements this via Controller:MechanicalVentilation.
     let vrp_min_oa = if !li.zone_oa_data.is_empty() {
         let air_density = 1.204_f64; // kg/m³ at standard conditions
-        let mut vou = 0.0_f64;       // uncorrected total OA [m³/s]
-        let mut max_zd = 0.0_f64;    // critical zone discharge OA fraction
+        let mut vou = 0.0_f64; // uncorrected total OA [m³/s]
+        let mut max_zd = 0.0_f64; // critical zone discharge OA fraction
 
         for oa in &li.zone_oa_data {
             // Occupancy fraction from people schedule (design occupancy if no schedule)
@@ -3632,8 +4317,8 @@ fn build_vav_signals(
             };
 
             // Breathing zone OA [m³/s]: ASHRAE 62.1 Eq 6-1
-            let vbz = oa.per_person_oa * oa.design_people * occ_frac
-                    + oa.per_area_oa * oa.floor_area;
+            let vbz =
+                oa.per_person_oa * oa.design_people * occ_frac + oa.per_area_oa * oa.floor_area;
             // Zone OA with distribution effectiveness: Voz = Vbz / Ez
             // Ez = 1.0 for well-mixed ceiling supply (ASHRAE 62.1 Table 6-2)
             let voz = vbz;
@@ -3641,7 +4326,9 @@ fn build_vav_signals(
 
             // Zone discharge OA fraction: Zd = Voz / Vdz
             // Vdz = actual zone airflow [m³/s]
-            let vdz_kg = signals.zone_air_flows.get(&oa.zone_name)
+            let vdz_kg = signals
+                .zone_air_flows
+                .get(&oa.zone_name)
                 .copied()
                 .unwrap_or(0.1);
             let vdz = vdz_kg / air_density; // kg/s → m³/s
@@ -3659,7 +4346,11 @@ fn build_vav_signals(
 
         // Corrected system OA: Vot = Vou / Ev
         let vot = vou / ev;
-        let ys = if vps > 0.01 { vot / vps } else { effective_min_oa };
+        let ys = if vps > 0.01 {
+            vot / vps
+        } else {
+            effective_min_oa
+        };
 
         // VRP OA fraction: never less than the original design OA
         ys.clamp(effective_min_oa, 1.0)
@@ -3678,19 +4369,22 @@ fn build_vav_signals(
     // requests near-maximum VAV flow (max_cooling_demand > threshold).
     // Below the threshold, the zone can be satisfied at higher SAT by
     // simply opening the VAV damper more.
-    let sat_min = 12.8_f64;  // full cooling SAT (E+ SetpointManager:Warmest min)
-    let sat_max = 15.6_f64;  // reset SAT (E+ SetpointManager:Warmest max)
+    let sat_min = 12.8_f64; // full cooling SAT (E+ SetpointManager:Warmest min)
+    let sat_max = 15.6_f64; // reset SAT (E+ SetpointManager:Warmest max)
     let sat_threshold = 0.80_f64; // SAT drops only when VAV nearing max flow
-    let excess_demand = ((max_cooling_demand - sat_threshold) / (1.0 - sat_threshold)).clamp(0.0, 1.0);
+    let excess_demand =
+        ((max_cooling_demand - sat_threshold) / (1.0 - sat_threshold)).clamp(0.0, 1.0);
     let sat_setpoint = sat_max - (sat_max - sat_min) * excess_demand;
 
     // ── Return air temperature (flow-weighted average of zone temps) ──
     let avg_zone_temp = if li.served_zones.is_empty() {
         21.0
     } else {
-        li.served_zones.iter()
+        li.served_zones
+            .iter()
             .map(|z| zone_temps.get(z).copied().unwrap_or(21.0))
-            .sum::<f64>() / li.served_zones.len() as f64
+            .sum::<f64>()
+            / li.served_zones.len() as f64
     };
 
     // ── Economizer: modulating differential dry-bulb ──
@@ -3737,8 +4431,11 @@ fn build_vav_signals(
     // ── AHU coil control ──
     for name in &li.component_names {
         let lname = name.to_lowercase();
-        if lname.contains("cool") || lname.contains("dx")
-            || lname.starts_with("cc ") || lname.starts_with("cc_") {
+        if lname.contains("cool")
+            || lname.contains("dx")
+            || lname.starts_with("cc ")
+            || lname.starts_with("cc_")
+        {
             if any_cooling {
                 // AHU cooling coil targets the SAT setpoint
                 signals.coil_setpoints.insert(name.clone(), sat_setpoint);
@@ -3746,8 +4443,12 @@ fn build_vav_signals(
                 // No cooling demand — coil off
                 signals.coil_setpoints.insert(name.clone(), 99.0);
             }
-        } else if lname.contains("preheat") || lname.contains("heat")
-            || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
+        } else if lname.contains("preheat")
+            || lname.contains("heat")
+            || lname.contains("hw")
+            || lname.starts_with("hc ")
+            || lname.starts_with("hc_")
+        {
             // AHU heating coil (E+ SetpointManager:Warmest, MaximumTemperature).
             //
             // The heating coil targets the SAT setpoint to temper mixed air:
@@ -3774,18 +4475,15 @@ fn build_vav_signals(
     }
 
     // Inject mixed air temp + OA fraction
-    signals.coil_setpoints.insert(
-        "__vav_mixed_air_temp__".to_string(),
-        mixed_air_temp,
-    );
-    signals.coil_setpoints.insert(
-        "__oa_fraction__".to_string(),
-        oa_frac,
-    );
-    signals.coil_setpoints.insert(
-        "__return_air_temp__".to_string(),
-        avg_zone_temp,
-    );
+    signals
+        .coil_setpoints
+        .insert("__vav_mixed_air_temp__".to_string(), mixed_air_temp);
+    signals
+        .coil_setpoints
+        .insert("__oa_fraction__".to_string(), oa_frac);
+    signals
+        .coil_setpoints
+        .insert("__return_air_temp__".to_string(), avg_zone_temp);
 
     // Store SAT setpoint for heat recovery credit cap calculation
     signals.sat_setpoint = sat_setpoint;
@@ -3810,13 +4508,17 @@ fn simulate_loop_components(
     let mut outputs: HashMap<String, HashMap<String, f64>> = HashMap::new();
 
     // Check for inlet override signals (mixed air temp for PSZ, recirculation for FCU, VAV)
-    let inlet_temp_override: Option<f64> = signals.coil_setpoints.get("__pszac_mixed_air_temp__")
+    let inlet_temp_override: Option<f64> = signals
+        .coil_setpoints
+        .get("__pszac_mixed_air_temp__")
         .or_else(|| signals.coil_setpoints.get("__fcu_recirculation_temp__"))
         .or_else(|| signals.coil_setpoints.get("__vav_mixed_air_temp__"))
         .copied();
 
     // OA fraction for humidity blending (defaults to 1.0 = 100% outdoor air if not set)
-    let oa_fraction = signals.coil_setpoints.get("__oa_fraction__")
+    let oa_fraction = signals
+        .coil_setpoints
+        .get("__oa_fraction__")
         .copied()
         .unwrap_or(1.0);
 
@@ -3826,18 +4528,20 @@ fn simulate_loop_components(
         // Blend humidity: w_mixed = OA_frac * w_oa + (1 - OA_frac) * w_indoor
         // When heat recovery is present, use the post-HR outdoor humidity (effective OA w)
         // instead of raw outdoor humidity. This accounts for moisture transfer in the ERV.
-        let w_oa = signals.coil_setpoints.get("__effective_oa_w__")
+        let w_oa = signals
+            .coil_setpoints
+            .get("__effective_oa_w__")
             .copied()
             .unwrap_or(ctx.outdoor_air.w);
         let w_indoor = openbse_psychrometrics::MoistAirState::from_tdb_rh(
-            inlet_temp_override.unwrap_or(ctx.outdoor_air.t_db), 0.50, ctx.outdoor_air.p_b,
-        ).w;
-        let w_mixed = oa_fraction * w_oa + (1.0 - oa_fraction) * w_indoor;
-        let mixed_state = openbse_psychrometrics::MoistAirState::new(
-            override_temp,
-            w_mixed,
+            inlet_temp_override.unwrap_or(ctx.outdoor_air.t_db),
+            0.50,
             ctx.outdoor_air.p_b,
-        );
+        )
+        .w;
+        let w_mixed = oa_fraction * w_oa + (1.0 - oa_fraction) * w_indoor;
+        let mixed_state =
+            openbse_psychrometrics::MoistAirState::new(override_temp, w_mixed, ctx.outdoor_air.p_b);
         inlet_air = AirPort::new(mixed_state, inlet_air.mass_flow);
     }
 
@@ -3862,9 +4566,7 @@ fn simulate_loop_components(
                     let amb_temp = match amb_zone.as_str() {
                         "outdoor" => t_outdoor,
                         "ground" => 18.0, // default ground temp
-                        zone_name => zone_temps.get(zone_name)
-                            .copied()
-                            .unwrap_or(t_outdoor),
+                        zone_name => zone_temps.get(zone_name).copied().unwrap_or(t_outdoor),
                     };
                     component.set_ambient_temp(amb_temp);
                 }
@@ -3988,7 +4690,11 @@ fn simulate_hvac(
 // ─── HVAC Mode ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum HvacMode { Heating, Cooling, Deadband }
+enum HvacMode {
+    Heating,
+    Cooling,
+    Deadband,
+}
 
 fn hvac_mode(zone_temp: f64, heat_sp: f64, cool_sp: f64) -> HvacMode {
     if zone_temp < heat_sp {

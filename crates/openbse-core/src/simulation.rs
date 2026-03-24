@@ -122,8 +122,13 @@ impl SimulationRunner {
         let days_in_months: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
         let dt = 3600.0 / self.config.timesteps_per_hour as f64;
 
-        let start_hour = self.day_of_year(self.config.start_month, self.config.start_day, &days_in_months) * 24;
-        let end_hour = self.day_of_year(self.config.end_month, self.config.end_day, &days_in_months) * 24 + 24;
+        let start_hour = self.day_of_year(
+            self.config.start_month,
+            self.config.start_day,
+            &days_in_months,
+        ) * 24;
+        let end_hour =
+            self.day_of_year(self.config.end_month, self.config.end_day, &days_in_months) * 24 + 24;
 
         let mut sim_time = start_hour as f64 * 3600.0;
 
@@ -179,11 +184,17 @@ impl SimulationRunner {
         let days_in_months: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
         let dt = 3600.0 / self.config.timesteps_per_hour as f64;
 
-        envelope.initialize(dt)
+        envelope
+            .initialize(dt)
             .map_err(|e| SimulationError::EnvelopeError(e))?;
 
-        let start_hour = self.day_of_year(self.config.start_month, self.config.start_day, &days_in_months) * 24;
-        let end_hour = self.day_of_year(self.config.end_month, self.config.end_day, &days_in_months) * 24 + 24;
+        let start_hour = self.day_of_year(
+            self.config.start_month,
+            self.config.start_day,
+            &days_in_months,
+        ) * 24;
+        let end_hour =
+            self.day_of_year(self.config.end_month, self.config.end_day, &days_in_months) * 24 + 24;
 
         let mut sim_time = start_hour as f64 * 3600.0;
 
@@ -234,10 +245,9 @@ impl SimulationRunner {
 
                 // Add envelope zone outputs to the result
                 for (zone_name, outputs) in &env_results.zone_outputs {
-                    result.component_outputs.insert(
-                        format!("Zone:{}", zone_name),
-                        outputs.clone(),
-                    );
+                    result
+                        .component_outputs
+                        .insert(format!("Zone:{}", zone_name), outputs.clone());
                 }
 
                 self.results.push(result);

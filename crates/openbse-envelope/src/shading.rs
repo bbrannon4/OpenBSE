@@ -23,8 +23,8 @@
 //!
 //! Reference: Walton (1983) TARP Reference Manual; Groth & Lokmanhekim (1969).
 
+use crate::geometry::{newell_normal, polygon_area, Point3D, Vec3};
 use serde::{Deserialize, Serialize};
-use crate::geometry::{Point3D, Vec3, newell_normal, polygon_area};
 
 // ─── Shading Calculation Mode ────────────────────────────────────────────────
 
@@ -221,11 +221,14 @@ pub fn calculate_sunlit_fraction(
 
     // Filter out coplanar casters (cannot cast meaningful shadows on the receiver).
     // This prevents parent walls from shadowing their child windows.
-    let valid_casters: Vec<&ShadingPolygon> = casters.iter()
+    let valid_casters: Vec<&ShadingPolygon> = casters
+        .iter()
         .filter(|casting| {
             let normals_parallel = casting.normal.dot(recv_normal).abs() > 0.99;
             if normals_parallel {
-                let avg_plane_dist: f64 = casting.vertices.iter()
+                let avg_plane_dist: f64 = casting
+                    .vertices
+                    .iter()
                     .map(|v| {
                         let dx = v.x - recv_verts[0].x;
                         let dy = v.y - recv_verts[0].y;
@@ -233,7 +236,8 @@ pub fn calculate_sunlit_fraction(
                         let d = Vec3::new(dx, dy, dz);
                         d.dot(recv_normal).abs()
                     })
-                    .sum::<f64>() / casting.vertices.len() as f64;
+                    .sum::<f64>()
+                    / casting.vertices.len() as f64;
                 avg_plane_dist >= 0.01 // Keep only non-coplanar
             } else {
                 true // Non-parallel normals → definitely not coplanar
@@ -255,7 +259,8 @@ pub fn calculate_sunlit_fraction(
     // than) the polygon clipping approach. For multiple casters with
     // potential overlap, this gives the correct union of shadows.
     let (origin, u_axis, v_axis) = build_local_coords(recv_verts, recv_normal);
-    let recv_2d: Vec<Point2D> = recv_verts.iter()
+    let recv_2d: Vec<Point2D> = recv_verts
+        .iter()
         .map(|v| to_local_2d(v, &origin, &u_axis, &v_axis))
         .collect();
 
@@ -271,7 +276,8 @@ pub fn calculate_sunlit_fraction(
             Some(p) => p,
             None => continue,
         };
-        let cast_2d: Vec<Point2D> = projected.iter()
+        let cast_2d: Vec<Point2D> = projected
+            .iter()
             .map(|v| to_local_2d(v, &origin, &u_axis, &v_axis))
             .collect();
         if cast_2d.len() >= 3 {
@@ -370,7 +376,8 @@ pub fn compute_diffuse_sky_shading_ratio(
     // Generate sample points on the receiver surface (5×5 grid)
     const N_SAMPLES_U: usize = 5;
     const N_SAMPLES_V: usize = 5;
-    let recv_2d: Vec<Point2D> = recv_verts.iter()
+    let recv_2d: Vec<Point2D> = recv_verts
+        .iter()
         .map(|v| to_local_2d(v, &origin, &u_axis, &v_axis))
         .collect();
 
@@ -415,7 +422,7 @@ pub fn compute_diffuse_sky_shading_ratio(
     let n_samples = sample_points_3d.len() as f64;
 
     // Hemisphere sampling grid (matches E+ SolarShading.cc lines 142-148)
-    const N_PHI: usize = 6;    // Altitude angle steps
+    const N_PHI: usize = 6; // Altitude angle steps
     const N_THETA: usize = 24; // Azimuth angle steps
     let d_phi = std::f64::consts::FRAC_PI_2 / N_PHI as f64; // ~15°
     let d_theta = 2.0 * std::f64::consts::PI / N_THETA as f64; // ~15°
@@ -435,11 +442,7 @@ pub fn compute_diffuse_sky_shading_ratio(
             let sin_theta = theta.sin();
 
             // Direction FROM ground TOWARD this sky patch
-            let toward_sky = Vec3::new(
-                cos_phi * cos_theta,
-                cos_phi * sin_theta,
-                sin_phi,
-            );
+            let toward_sky = Vec3::new(cos_phi * cos_theta, cos_phi * sin_theta, sin_phi);
 
             // Cosine of incidence on the receiving surface
             let cos_aoi = toward_sky.dot(recv_normal);
@@ -553,8 +556,10 @@ fn point_in_polygon_2d(point: &Point2D, polygon: &[Point2D]) -> bool {
     let mut j = n - 1;
     for i in 0..n {
         if ((polygon[i].y > point.y) != (polygon[j].y > point.y))
-            && (point.x < (polygon[j].x - polygon[i].x) * (point.y - polygon[i].y)
-                / (polygon[j].y - polygon[i].y) + polygon[i].x)
+            && (point.x
+                < (polygon[j].x - polygon[i].x) * (point.y - polygon[i].y)
+                    / (polygon[j].y - polygon[i].y)
+                    + polygon[i].x)
         {
             inside = !inside;
         }
@@ -588,7 +593,8 @@ pub fn compute_diffuse_horizon_shading_ratio(
 
     // Build local coordinate system and sample points (same as sky ratio)
     let (origin, u_axis, v_axis) = build_local_coords(recv_verts, recv_normal);
-    let recv_2d: Vec<Point2D> = recv_verts.iter()
+    let recv_2d: Vec<Point2D> = recv_verts
+        .iter()
         .map(|v| to_local_2d(v, &origin, &u_axis, &v_axis))
         .collect();
 
@@ -648,11 +654,7 @@ pub fn compute_diffuse_horizon_shading_ratio(
 
         for i_theta in 0..N_THETA {
             let theta = i_theta as f64 * d_theta;
-            let toward_sky = Vec3::new(
-                cos_phi * theta.cos(),
-                cos_phi * theta.sin(),
-                sin_phi,
-            );
+            let toward_sky = Vec3::new(cos_phi * theta.cos(), cos_phi * theta.sin(), sin_phi);
 
             let cos_aoi = toward_sky.dot(recv_normal);
             if cos_aoi <= 0.0 {
@@ -694,10 +696,7 @@ pub fn compute_diffuse_horizon_shading_ratio(
 /// or an empty vector if there is no overlap.
 ///
 /// Reference: Sutherland & Hodgman (1974), as used in EnergyPlus SolarShading.cc.
-pub fn sutherland_hodgman_clip(
-    subject: &[Point2D],
-    clip: &[Point2D],
-) -> Vec<Point2D> {
+pub fn sutherland_hodgman_clip(subject: &[Point2D], clip: &[Point2D]) -> Vec<Point2D> {
     if subject.is_empty() || clip.len() < 3 {
         return vec![];
     }
@@ -747,17 +746,14 @@ pub fn sutherland_hodgman_clip(
 /// For a CCW-wound clip polygon, "inside" is to the left of each edge.
 fn is_inside(point: Point2D, edge_start: Point2D, edge_end: Point2D) -> bool {
     let cross = (edge_end.x - edge_start.x) * (point.y - edge_start.y)
-              - (edge_end.y - edge_start.y) * (point.x - edge_start.x);
+        - (edge_end.y - edge_start.y) * (point.x - edge_start.x);
     cross >= -1e-10 // On left side or on edge (with tiny tolerance)
 }
 
 /// Line-line intersection for Sutherland-Hodgman clipping.
 ///
 /// Computes the intersection of line segment (p1→p2) with line (p3→p4).
-fn line_intersect_2d(
-    p1: Point2D, p2: Point2D,
-    p3: Point2D, p4: Point2D,
-) -> Option<Point2D> {
+fn line_intersect_2d(p1: Point2D, p2: Point2D, p3: Point2D, p4: Point2D) -> Option<Point2D> {
     let denom = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
     if denom.abs() < 1e-12 {
         return None; // Parallel
@@ -772,7 +768,9 @@ fn line_intersect_2d(
 /// Area of a 2D polygon using the shoelace formula.
 pub fn polygon_area_2d(poly: &[Point2D]) -> f64 {
     let n = poly.len();
-    if n < 3 { return 0.0; }
+    if n < 3 {
+        return 0.0;
+    }
     let mut area = 0.0;
     for i in 0..n {
         let j = (i + 1) % n;
@@ -861,12 +859,11 @@ pub fn build_local_coords(vertices: &[Point3D], normal: &Vec3) -> (Point3D, Vec3
 
 /// Transform a 3D point (assumed on the surface plane) to 2D local coordinates.
 pub fn to_local_2d(point: &Point3D, origin: &Point3D, u: &Vec3, v: &Vec3) -> Point2D {
-    let d = Vec3::new(
-        point.x - origin.x,
-        point.y - origin.y,
-        point.z - origin.z,
-    );
-    Point2D { x: d.dot(u), y: d.dot(v) }
+    let d = Vec3::new(point.x - origin.x, point.y - origin.y, point.z - origin.z);
+    Point2D {
+        x: d.dot(u),
+        y: d.dot(v),
+    }
 }
 
 // ─── Overhang / Fin Vertex Generation ─────────────────────────────────────────
@@ -887,7 +884,10 @@ pub fn generate_overhang_vertices(
     overhang: &OverhangInput,
     wall_outward: &Vec3,
 ) -> Vec<Point3D> {
-    assert!(window_verts.len() >= 4, "Window must have at least 4 vertices");
+    assert!(
+        window_verts.len() >= 4,
+        "Window must have at least 4 vertices"
+    );
 
     let bl = window_verts[0];
     let br = window_verts[1];
@@ -945,7 +945,10 @@ pub fn generate_fin_vertices(
     wall_outward: &Vec3,
     side: FinSide,
 ) -> Vec<Point3D> {
-    assert!(window_verts.len() >= 4, "Window must have at least 4 vertices");
+    assert!(
+        window_verts.len() >= 4,
+        "Window must have at least 4 vertices"
+    );
 
     let bl = window_verts[0];
     let br = window_verts[1];
@@ -1014,18 +1017,21 @@ pub fn generate_fin_vertices(
 
 /// Resolve explicit shading surface inputs into runtime shading polygons.
 pub fn resolve_shading_surfaces(inputs: &[ShadingSurfaceInput]) -> Vec<ShadingPolygon> {
-    inputs.iter().filter_map(|ss| {
-        if ss.vertices.len() < 3 {
-            return None;
-        }
-        let normal = newell_normal(&ss.vertices).normalize();
-        Some(ShadingPolygon {
-            name: ss.name.clone(),
-            vertices: ss.vertices.clone(),
-            normal,
-            solar_transmittance: ss.solar_transmittance,
+    inputs
+        .iter()
+        .filter_map(|ss| {
+            if ss.vertices.len() < 3 {
+                return None;
+            }
+            let normal = newell_normal(&ss.vertices).normalize();
+            Some(ShadingPolygon {
+                name: ss.name.clone(),
+                vertices: ss.vertices.clone(),
+                normal,
+                solar_transmittance: ss.solar_transmittance,
+            })
         })
-    }).collect()
+        .collect()
 }
 
 /// Create a ShadingPolygon from a building surface (for self-shading).
@@ -1043,7 +1049,6 @@ pub fn surface_to_shading_polygon(name: &str, vertices: &[Point3D]) -> Option<Sh
         solar_transmittance: 0.0,
     })
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1244,10 +1249,10 @@ mod tests {
 
         // Horizontal overhang: 8m wide, 1m deep, at z=2.0 (top of wall)
         let overhang_verts = vec![
-            Point3D::new(0.0, 0.0,  2.0),
+            Point3D::new(0.0, 0.0, 2.0),
             Point3D::new(0.0, -1.0, 2.0),
             Point3D::new(8.0, -1.0, 2.0),
-            Point3D::new(8.0, 0.0,  2.0),
+            Point3D::new(8.0, 0.0, 2.0),
         ];
         let ovh = ShadingPolygon {
             name: "overhang".into(),
@@ -1288,10 +1293,10 @@ mod tests {
     fn test_generate_overhang_south_window() {
         // South-facing window: 3m wide × 2m tall on south wall (y=0)
         let window_verts = vec![
-            Point3D::new(0.5, 0.0, 0.2),  // BL
-            Point3D::new(3.5, 0.0, 0.2),  // BR
-            Point3D::new(3.5, 0.0, 2.2),  // TR
-            Point3D::new(0.5, 0.0, 2.2),  // TL
+            Point3D::new(0.5, 0.0, 0.2), // BL
+            Point3D::new(3.5, 0.0, 0.2), // BR
+            Point3D::new(3.5, 0.0, 2.2), // TR
+            Point3D::new(0.5, 0.0, 2.2), // TL
         ];
         let wall_normal = Vec3::new(0.0, -1.0, 0.0); // south-facing
 
@@ -1323,9 +1328,9 @@ mod tests {
         // Two windows side by side, but overhang spans full wall
         // We'd add via shading_surfaces directly for Case 610, but test the generation
         let window_verts = vec![
-            Point3D::new(0.0, 0.0, 0.0),  // full south wall bottom
+            Point3D::new(0.0, 0.0, 0.0), // full south wall bottom
             Point3D::new(8.0, 0.0, 0.0),
-            Point3D::new(8.0, 0.0, 2.2),  // to window top
+            Point3D::new(8.0, 0.0, 2.2), // to window top
             Point3D::new(0.0, 0.0, 2.2),
         ];
         let wall_normal = Vec3::new(0.0, -1.0, 0.0);

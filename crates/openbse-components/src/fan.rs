@@ -250,10 +250,7 @@ mod tests {
     #[test]
     fn test_fan_zero_flow() {
         let mut fan = Fan::constant_volume("Test Fan", 1.0, 600.0, 0.7, 0.9, 1.0);
-        let inlet = AirPort::new(
-            MoistAirState::from_tdb_rh(20.0, 0.5, 101325.0),
-            0.0,
-        );
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(20.0, 0.5, 101325.0), 0.0);
         let ctx = make_ctx();
         let outlet = fan.simulate_air(&inlet, &ctx);
 

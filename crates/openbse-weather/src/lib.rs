@@ -97,11 +97,7 @@ pub struct WeatherHour {
 impl WeatherHour {
     /// Convert to a MoistAirState for the simulation engine.
     pub fn to_air_state(&self) -> MoistAirState {
-        let w = psych::w_fn_tdb_rh_pb(
-            self.dry_bulb,
-            self.rel_humidity / 100.0,
-            self.pressure,
-        );
+        let w = psych::w_fn_tdb_rh_pb(self.dry_bulb, self.rel_humidity / 100.0, self.pressure);
         MoistAirState::new(self.dry_bulb, w, self.pressure)
     }
 
@@ -231,8 +227,8 @@ pub fn read_epw<R: Read>(reader: R) -> Result<WeatherData, WeatherError> {
                             let mut monthly_temps = [0.0f64; 12];
                             for m in 0..12 {
                                 if temp_start + m < fields.len() {
-                                    monthly_temps[m] = fields[temp_start + m]
-                                        .trim().parse().unwrap_or(0.0);
+                                    monthly_temps[m] =
+                                        fields[temp_start + m].trim().parse().unwrap_or(0.0);
                                 }
                             }
                             ground_temperatures.push(EpwGroundTemps {
@@ -253,13 +249,13 @@ pub fn read_epw<R: Read>(reader: R) -> Result<WeatherData, WeatherError> {
                 let fields: Vec<&str> = line.split(',').collect();
                 if fields.len() >= 5 {
                     start_day_of_week = match fields[4].trim().to_lowercase().as_str() {
-                        "monday"    => 1,
-                        "tuesday"   => 2,
+                        "monday" => 1,
+                        "tuesday" => 2,
                         "wednesday" => 3,
-                        "thursday"  => 4,
-                        "friday"    => 5,
-                        "saturday"  => 6,
-                        "sunday"    => 7,
+                        "thursday" => 4,
+                        "friday" => 5,
+                        "saturday" => 6,
+                        "sunday" => 7,
                         _ => 1, // Default to Monday
                     };
                 }
@@ -305,7 +301,9 @@ fn parse_location_header(
 ) -> Result<WeatherLocation, WeatherError> {
     let line = lines
         .next()
-        .ok_or(WeatherError::InvalidFormat("Missing location header".into()))?
+        .ok_or(WeatherError::InvalidFormat(
+            "Missing location header".into(),
+        ))?
         .map_err(|e| WeatherError::IoError(e.to_string()))?;
 
     let fields: Vec<&str> = line.split(',').collect();
@@ -336,12 +334,8 @@ fn parse_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
         ));
     }
 
-    let parse_f64 = |idx: usize| -> f64 {
-        fields[idx].trim().parse().unwrap_or(0.0)
-    };
-    let parse_u32 = |idx: usize| -> u32 {
-        fields[idx].trim().parse().unwrap_or(0)
-    };
+    let parse_f64 = |idx: usize| -> f64 { fields[idx].trim().parse().unwrap_or(0.0) };
+    let parse_u32 = |idx: usize| -> u32 { fields[idx].trim().parse().unwrap_or(0) };
 
     Ok(WeatherHour {
         year: parse_u32(0),
@@ -399,7 +393,9 @@ pub fn read_tmy3<R: Read>(reader: R) -> Result<WeatherData, WeatherError> {
     // Format: 725650,"DENVER INTL AP",CO,-7.0,39.833,-104.650,1650
     let loc_line = lines
         .next()
-        .ok_or(WeatherError::InvalidFormat("Missing TMY3 location header".into()))?
+        .ok_or(WeatherError::InvalidFormat(
+            "Missing TMY3 location header".into(),
+        ))?
         .map_err(|e| WeatherError::IoError(e.to_string()))?;
 
     let location = parse_tmy3_location(&loc_line)?;
@@ -428,7 +424,7 @@ pub fn read_tmy3<R: Read>(reader: R) -> Result<WeatherData, WeatherError> {
         location,
         hours,
         design_days: Vec::new(),
-        start_day_of_week: 1,  // TMY3 doesn't specify; default Monday
+        start_day_of_week: 1,            // TMY3 doesn't specify; default Monday
         ground_temperatures: Vec::new(), // TMY3 doesn't include ground temps
     })
 }
@@ -501,7 +497,8 @@ fn parse_tmy3_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
     }
 
     let parse_f64 = |idx: usize| -> f64 {
-        fields.get(idx)
+        fields
+            .get(idx)
             .and_then(|s| s.trim().parse().ok())
             .unwrap_or(0.0)
     };
@@ -596,9 +593,10 @@ pub fn read_weather_file(path: &Path) -> Result<WeatherData, WeatherError> {
     match path.extension().and_then(|e| e.to_str()) {
         Some("epw") => read_epw_file(path),
         Some("csv") | Some("CSV") => read_tmy3_file(path),
-        Some(ext) => Err(WeatherError::InvalidFormat(
-            format!("Unsupported weather file extension '.{}'; expected .epw or .csv", ext),
-        )),
+        Some(ext) => Err(WeatherError::InvalidFormat(format!(
+            "Unsupported weather file extension '.{}'; expected .epw or .csv",
+            ext
+        ))),
         None => Err(WeatherError::InvalidFormat(
             "Weather file has no extension; expected .epw or .csv".into(),
         )),
@@ -685,9 +683,21 @@ mod tests {
         let data = read_tmy3(tmy3_content.as_bytes()).unwrap();
         let h = &data.hours[0];
         assert_eq!(h.hour, 10);
-        assert!((h.global_horiz_rad - 266.0).abs() < 0.1, "GHI should be 266, got {}", h.global_horiz_rad);
-        assert!((h.direct_normal_rad - 494.0).abs() < 0.1, "DNI should be 494, got {}", h.direct_normal_rad);
-        assert!((h.diffuse_horiz_rad - 115.0).abs() < 0.1, "DHI should be 115, got {}", h.diffuse_horiz_rad);
+        assert!(
+            (h.global_horiz_rad - 266.0).abs() < 0.1,
+            "GHI should be 266, got {}",
+            h.global_horiz_rad
+        );
+        assert!(
+            (h.direct_normal_rad - 494.0).abs() < 0.1,
+            "DNI should be 494, got {}",
+            h.direct_normal_rad
+        );
+        assert!(
+            (h.diffuse_horiz_rad - 115.0).abs() < 0.1,
+            "DHI should be 115, got {}",
+            h.diffuse_horiz_rad
+        );
         assert!((h.dry_bulb - (-2.2)).abs() < 0.01);
         assert!((h.wind_speed - 1.7).abs() < 0.01);
     }

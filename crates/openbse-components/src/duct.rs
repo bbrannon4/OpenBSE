@@ -82,11 +82,7 @@ impl AirComponent for Duct {
         &self.name
     }
 
-    fn simulate_air(
-        &mut self,
-        inlet: &AirPort,
-        _ctx: &SimulationContext,
-    ) -> AirPort {
+    fn simulate_air(&mut self, inlet: &AirPort, _ctx: &SimulationContext) -> AirPort {
         let m_dot = inlet.mass_flow;
 
         // No flow → no losses
@@ -114,11 +110,8 @@ impl AirComponent for Duct {
         let m_dot_out = m_dot - self.leakage_flow;
 
         // Build outlet state: temperature changed by conduction, humidity unchanged
-        let outlet_state = openbse_psychrometrics::MoistAirState::new(
-            t_out,
-            inlet.state.w,
-            inlet.state.p_b,
-        );
+        let outlet_state =
+            openbse_psychrometrics::MoistAirState::new(t_out, inlet.state.w, inlet.state.p_b);
 
         AirPort::new(outlet_state, m_dot_out)
     }

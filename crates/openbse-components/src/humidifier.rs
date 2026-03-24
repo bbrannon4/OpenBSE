@@ -66,7 +66,12 @@ impl Humidifier {
     /// * `rated_power`           - Maximum electric power [W]
     /// * `min_rh_setpoint`       - Minimum RH at zone [0-1] (e.g., 0.30)
     /// * `zone_cooling_setpoint` - Zone cooling setpoint [°C] for RH→w conversion
-    pub fn new(name: &str, rated_power: f64, min_rh_setpoint: f64, zone_cooling_setpoint: f64) -> Self {
+    pub fn new(
+        name: &str,
+        rated_power: f64,
+        min_rh_setpoint: f64,
+        zone_cooling_setpoint: f64,
+    ) -> Self {
         let rated_capacity = rated_power / H_STEAM_TOTAL;
         Self {
             name: name.to_string(),
@@ -86,11 +91,7 @@ impl AirComponent for Humidifier {
         &self.name
     }
 
-    fn simulate_air(
-        &mut self,
-        inlet: &AirPort,
-        _ctx: &SimulationContext,
-    ) -> AirPort {
+    fn simulate_air(&mut self, inlet: &AirPort, _ctx: &SimulationContext) -> AirPort {
         // No air flow → humidifier off
         if inlet.mass_flow <= 0.0 {
             self.power = 0.0;
@@ -104,7 +105,11 @@ impl AirComponent for Humidifier {
         } else {
             // Convert min RH to humidity ratio using the zone cooling setpoint
             // as reference temperature (the zone is typically near this temp).
-            psych::w_fn_tdb_rh_pb(self.zone_cooling_setpoint, self.min_rh_setpoint, inlet.state.p_b)
+            psych::w_fn_tdb_rh_pb(
+                self.zone_cooling_setpoint,
+                self.min_rh_setpoint,
+                inlet.state.p_b,
+            )
         };
 
         let w_in = inlet.state.w;
@@ -137,7 +142,7 @@ impl AirComponent for Humidifier {
         // ΔT ≈ moisture_actual × (h_steam - h_vapor_at_T_in) / (m_air × cp_air)
         // For simplicity, use small temp rise from latent heat absorbed
         let t_out = inlet.state.t_db; // Steam humidifier: approximately isothermal for dry air
-                                       // (the steam energy goes into moisture, not sensible heating)
+                                      // (the steam energy goes into moisture, not sensible heating)
 
         AirPort::new(
             psych::MoistAirState::new(t_out, w_out, inlet.state.p_b),
@@ -192,7 +197,10 @@ mod tests {
 
         assert!(hum.power > 0.0, "Humidifier should consume power");
         assert!(hum.moisture_added > 0.0, "Should add moisture");
-        assert!(outlet.state.w > inlet.state.w, "Outlet should be more humid");
+        assert!(
+            outlet.state.w > inlet.state.w,
+            "Outlet should be more humid"
+        );
     }
 
     #[test]
@@ -201,10 +209,7 @@ mod tests {
         let ctx = make_ctx();
 
         // Already humid air (summer conditions)
-        let inlet = AirPort::new(
-            MoistAirState::from_tdb_rh(25.0, 0.60, 83594.0),
-            5.0,
-        );
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(25.0, 0.60, 83594.0), 5.0);
 
         let _outlet = hum.simulate_air(&inlet, &ctx);
 
@@ -217,10 +222,7 @@ mod tests {
         let mut hum = Humidifier::new("Test Hum", 100_000.0, 0.30, 24.0);
         let ctx = make_ctx();
 
-        let inlet = AirPort::new(
-            MoistAirState::from_tdb_rh(20.0, 0.10, 83594.0),
-            0.0,
-        );
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(20.0, 0.10, 83594.0), 0.0);
 
         let _outlet = hum.simulate_air(&inlet, &ctx);
 
@@ -233,10 +235,7 @@ mod tests {
         let ctx = make_ctx();
 
         // Moderately dry air
-        let inlet = AirPort::new(
-            MoistAirState::from_tdb_rh(20.0, 0.15, 83594.0),
-            2.0,
-        );
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(20.0, 0.15, 83594.0), 2.0);
 
         let _outlet = hum.simulate_air(&inlet, &ctx);
 

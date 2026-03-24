@@ -70,12 +70,24 @@ pub struct Material {
     pub thermal_resistance: Option<f64>,
 }
 
-fn default_conductivity() -> f64 { 1.0 }
-fn default_density() -> f64 { 1.0 }
-fn default_specific_heat() -> f64 { 1000.0 }
-fn default_solar_absorptance() -> f64 { 0.7 }
-fn default_thermal_absorptance() -> f64 { 0.9 }
-fn default_visible_absorptance() -> f64 { 0.7 }
+fn default_conductivity() -> f64 {
+    1.0
+}
+fn default_density() -> f64 {
+    1.0
+}
+fn default_specific_heat() -> f64 {
+    1000.0
+}
+fn default_solar_absorptance() -> f64 {
+    0.7
+}
+fn default_thermal_absorptance() -> f64 {
+    0.9
+}
+fn default_visible_absorptance() -> f64 {
+    0.7
+}
 
 impl Material {
     /// Thermal diffusivity [m²/s].
@@ -115,7 +127,13 @@ pub struct ResolvedLayer {
 impl ResolvedLayer {
     /// Create a massed layer from physical properties.
     pub fn new(conductivity: f64, density: f64, specific_heat: f64, thickness: f64) -> Self {
-        Self { conductivity, density, specific_heat, thickness, no_mass: false }
+        Self {
+            conductivity,
+            density,
+            specific_heat,
+            thickness,
+            no_mass: false,
+        }
     }
 
     /// Create a NoMass (resistance-only) layer.
@@ -182,24 +200,32 @@ pub struct Construction {
 impl Construction {
     /// Resolve all layers against a material map, returning ResolvedLayers.
     pub fn resolve_layers(&self, materials: &HashMap<String, Material>) -> Vec<ResolvedLayer> {
-        self.layers.iter()
+        self.layers
+            .iter()
             .filter_map(|cl| {
-                materials.get(&cl.material).map(|mat| {
-                    ResolvedLayer::from_material(mat, cl.thickness)
-                })
+                materials
+                    .get(&cl.material)
+                    .map(|mat| ResolvedLayer::from_material(mat, cl.thickness))
             })
             .collect()
     }
 
     /// Total R-value given a material map [m²·K/W].
     pub fn total_resistance(&self, materials: &HashMap<String, Material>) -> f64 {
-        self.resolve_layers(materials).iter().map(|l| l.resistance()).sum()
+        self.resolve_layers(materials)
+            .iter()
+            .map(|l| l.resistance())
+            .sum()
     }
 
     /// Total U-factor [W/(m²·K)] (no film coefficients).
     pub fn u_factor(&self, materials: &HashMap<String, Material>) -> f64 {
         let r = self.total_resistance(materials);
-        if r > 0.0 { 1.0 / r } else { 5.0 }
+        if r > 0.0 {
+            1.0 / r
+        } else {
+            5.0
+        }
     }
 
     /// Get the outside (first) material name, if any.
@@ -271,7 +297,6 @@ pub struct WindowConstruction {
     //
     // If these fields are omitted, u_glass falls back to the NFRC film-
     // stripped value from u_factor (existing behavior).
-
     /// Number of glass panes (1=single, 2=double, 3=triple).
     /// Required for first-principles thermal model.
     #[serde(default)]
@@ -295,8 +320,12 @@ pub struct WindowConstruction {
     pub glass_emissivity: Option<f64>,
 }
 
-fn default_vt() -> f64 { 0.6 }
-fn default_inside_absorbed_fraction() -> f64 { 0.5 }
+fn default_vt() -> f64 {
+    0.6
+}
+fn default_inside_absorbed_fraction() -> f64 {
+    0.5
+}
 
 impl WindowConstruction {
     /// Effective solar absorptance of the glazing.
@@ -469,8 +498,12 @@ pub struct SimpleConstruction {
     pub mass_density: Option<f64>,
 }
 
-fn default_simple_thickness() -> f64 { 0.2 }
-fn default_thermal_capacity() -> f64 { 50000.0 } // light construction ~50 kJ/(m²·K)
+fn default_simple_thickness() -> f64 {
+    0.2
+}
+fn default_thermal_capacity() -> f64 {
+    50000.0
+} // light construction ~50 kJ/(m²·K)
 
 /// F-factor ground floor construction.
 ///
@@ -515,7 +548,9 @@ pub struct FFactorConstruction {
     pub ground_temperatures: Option<Vec<f64>>,
 }
 
-fn default_ffactor_thermal_capacity() -> f64 { 400_000.0 } // ~200mm concrete slab
+fn default_ffactor_thermal_capacity() -> f64 {
+    400_000.0
+} // ~200mm concrete slab
 
 #[cfg(test)]
 mod tests {
@@ -542,34 +577,46 @@ mod tests {
     #[test]
     fn test_construction_u_factor() {
         let mut materials = HashMap::new();
-        materials.insert("Concrete".to_string(), Material {
-            name: "Concrete".to_string(),
-            conductivity: 1.311,
-            density: 2240.0,
-            specific_heat: 836.8,
-            solar_absorptance: 0.7,
-            thermal_absorptance: 0.9,
-            visible_absorptance: 0.7,
-            roughness: Roughness::MediumRough,
-            thermal_resistance: None,
-        });
-        materials.insert("Insulation".to_string(), Material {
-            name: "Insulation".to_string(),
-            conductivity: 0.04,
-            density: 30.0,
-            specific_heat: 840.0,
-            solar_absorptance: 0.7,
-            thermal_absorptance: 0.9,
-            visible_absorptance: 0.7,
-            roughness: Roughness::Rough,
-            thermal_resistance: None,
-        });
+        materials.insert(
+            "Concrete".to_string(),
+            Material {
+                name: "Concrete".to_string(),
+                conductivity: 1.311,
+                density: 2240.0,
+                specific_heat: 836.8,
+                solar_absorptance: 0.7,
+                thermal_absorptance: 0.9,
+                visible_absorptance: 0.7,
+                roughness: Roughness::MediumRough,
+                thermal_resistance: None,
+            },
+        );
+        materials.insert(
+            "Insulation".to_string(),
+            Material {
+                name: "Insulation".to_string(),
+                conductivity: 0.04,
+                density: 30.0,
+                specific_heat: 840.0,
+                solar_absorptance: 0.7,
+                thermal_absorptance: 0.9,
+                visible_absorptance: 0.7,
+                roughness: Roughness::Rough,
+                thermal_resistance: None,
+            },
+        );
 
         let construction = Construction {
             name: "Test Wall".to_string(),
             layers: vec![
-                ConstructionLayer { material: "Concrete".to_string(), thickness: 0.2 },
-                ConstructionLayer { material: "Insulation".to_string(), thickness: 0.1 },
+                ConstructionLayer {
+                    material: "Concrete".to_string(),
+                    thickness: 0.2,
+                },
+                ConstructionLayer {
+                    material: "Insulation".to_string(),
+                    thickness: 0.1,
+                },
             ],
         };
 

@@ -93,39 +93,132 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
         // Zone variables
         ("zone_temperature", "°C", "Zone air dry-bulb temperature"),
         ("zone_humidity_ratio", "kg/kg", "Zone air humidity ratio"),
-        ("zone_heating_rate", "W", "Zone heating load (positive = needs heating)"),
-        ("zone_cooling_rate", "W", "Zone cooling load (positive = needs cooling)"),
-        ("zone_heating_energy", "J", "Zone heating energy (integrated from rate)"),
-        ("zone_cooling_energy", "J", "Zone cooling energy (integrated from rate)"),
-        ("zone_infiltration_mass_flow", "kg/s", "Zone infiltration air mass flow rate"),
-        ("zone_nat_vent_flow", "m³/s", "Zone natural ventilation volume flow rate"),
-        ("zone_nat_vent_mass_flow", "kg/s", "Zone natural ventilation mass flow rate"),
-        ("zone_nat_vent_active", "-", "Zone natural ventilation active (1=yes, 0=no)"),
-        ("zone_internal_gains_convective", "W", "Zone convective internal gains"),
-        ("zone_internal_gains_radiative", "W", "Zone radiative internal gains"),
-        ("zone_supply_air_temperature", "°C", "HVAC supply air temperature to zone"),
-        ("zone_supply_air_mass_flow", "kg/s", "HVAC supply air mass flow to zone"),
-
+        (
+            "zone_heating_rate",
+            "W",
+            "Zone heating load (positive = needs heating)",
+        ),
+        (
+            "zone_cooling_rate",
+            "W",
+            "Zone cooling load (positive = needs cooling)",
+        ),
+        (
+            "zone_heating_energy",
+            "J",
+            "Zone heating energy (integrated from rate)",
+        ),
+        (
+            "zone_cooling_energy",
+            "J",
+            "Zone cooling energy (integrated from rate)",
+        ),
+        (
+            "zone_infiltration_mass_flow",
+            "kg/s",
+            "Zone infiltration air mass flow rate",
+        ),
+        (
+            "zone_nat_vent_flow",
+            "m³/s",
+            "Zone natural ventilation volume flow rate",
+        ),
+        (
+            "zone_nat_vent_mass_flow",
+            "kg/s",
+            "Zone natural ventilation mass flow rate",
+        ),
+        (
+            "zone_nat_vent_active",
+            "-",
+            "Zone natural ventilation active (1=yes, 0=no)",
+        ),
+        (
+            "zone_internal_gains_convective",
+            "W",
+            "Zone convective internal gains",
+        ),
+        (
+            "zone_internal_gains_radiative",
+            "W",
+            "Zone radiative internal gains",
+        ),
+        (
+            "zone_supply_air_temperature",
+            "°C",
+            "HVAC supply air temperature to zone",
+        ),
+        (
+            "zone_supply_air_mass_flow",
+            "kg/s",
+            "HVAC supply air mass flow to zone",
+        ),
         // Surface variables
-        ("surface_inside_temperature", "°C", "Surface inside face temperature"),
-        ("surface_outside_temperature", "°C", "Surface outside face temperature"),
-        ("surface_inside_convection_coefficient", "W/(m²·K)", "Inside convection coefficient"),
-        ("surface_incident_solar", "W/m²", "Incident solar radiation on surface"),
-        ("surface_transmitted_solar", "W", "Solar transmitted through window"),
-        ("surface_conduction_inside", "W", "Conduction heat flux on inside face of surface"),
-        ("surface_convection_inside", "W", "Convective heat flux from inside surface to zone"),
-
+        (
+            "surface_inside_temperature",
+            "°C",
+            "Surface inside face temperature",
+        ),
+        (
+            "surface_outside_temperature",
+            "°C",
+            "Surface outside face temperature",
+        ),
+        (
+            "surface_inside_convection_coefficient",
+            "W/(m²·K)",
+            "Inside convection coefficient",
+        ),
+        (
+            "surface_incident_solar",
+            "W/m²",
+            "Incident solar radiation on surface",
+        ),
+        (
+            "surface_transmitted_solar",
+            "W",
+            "Solar transmitted through window",
+        ),
+        (
+            "surface_conduction_inside",
+            "W",
+            "Conduction heat flux on inside face of surface",
+        ),
+        (
+            "surface_convection_inside",
+            "W",
+            "Convective heat flux from inside surface to zone",
+        ),
         // Site/weather variables
-        ("site_outdoor_temperature", "°C", "Outdoor dry-bulb temperature"),
+        (
+            "site_outdoor_temperature",
+            "°C",
+            "Outdoor dry-bulb temperature",
+        ),
         ("site_wind_speed", "m/s", "Wind speed"),
-        ("site_direct_normal_radiation", "W/m²", "Direct normal solar radiation"),
-        ("site_diffuse_horizontal_radiation", "W/m²", "Diffuse horizontal solar radiation"),
+        (
+            "site_direct_normal_radiation",
+            "W/m²",
+            "Direct normal solar radiation",
+        ),
+        (
+            "site_diffuse_horizontal_radiation",
+            "W/m²",
+            "Diffuse horizontal solar radiation",
+        ),
         ("site_relative_humidity", "%", "Outdoor relative humidity"),
-
         // Air loop / HVAC component variables
-        ("air_loop_outlet_temperature", "°C", "Air loop outlet temperature"),
+        (
+            "air_loop_outlet_temperature",
+            "°C",
+            "Air loop outlet temperature",
+        ),
         ("air_loop_mass_flow", "kg/s", "Air loop mass flow rate"),
-        ("air_loop_outlet_humidity_ratio", "kg/kg", "Air loop outlet humidity ratio"),
+        (
+            "air_loop_outlet_humidity_ratio",
+            "kg/kg",
+            "Air loop outlet humidity ratio",
+        ),
     ]
 }
 
@@ -149,9 +242,7 @@ pub fn get_unit(var_name: &str) -> &'static str {
 
 /// Whether a variable should default to sum aggregation (energy, mass).
 fn is_integrable(var_name: &str) -> bool {
-    matches!(var_name,
-        "zone_heating_energy" | "zone_cooling_energy"
-    )
+    matches!(var_name, "zone_heating_energy" | "zone_cooling_energy")
 }
 
 // ─── Timestep Data Collector ────────────────────────────────────────────────
@@ -232,7 +323,11 @@ impl OutputSnapshot {
     /// Create a snapshot with default/zero values.
     pub fn new(month: u32, day: u32, hour: u32, sub_hour: u32, dt: f64) -> Self {
         Self {
-            month, day, hour, sub_hour, dt,
+            month,
+            day,
+            hour,
+            sub_hour,
+            dt,
             site_outdoor_temperature: 0.0,
             site_wind_speed: 0.0,
             site_direct_normal_radiation: 0.0,
@@ -288,7 +383,9 @@ impl OutputSnapshot {
             "site_outdoor_temperature" => single("Site", self.site_outdoor_temperature),
             "site_wind_speed" => single("Site", self.site_wind_speed),
             "site_direct_normal_radiation" => single("Site", self.site_direct_normal_radiation),
-            "site_diffuse_horizontal_radiation" => single("Site", self.site_diffuse_horizontal_radiation),
+            "site_diffuse_horizontal_radiation" => {
+                single("Site", self.site_diffuse_horizontal_radiation)
+            }
             "site_relative_humidity" => single("Site", self.site_relative_humidity),
 
             // Zone
@@ -298,15 +395,16 @@ impl OutputSnapshot {
             "zone_cooling_rate" => self.zone_cooling_rate.clone(),
             "zone_heating_energy" => {
                 // Integrate rate * dt -> energy [J]
-                self.zone_heating_rate.iter()
+                self.zone_heating_rate
+                    .iter()
                     .map(|(k, v)| (k.clone(), v * self.dt))
                     .collect()
             }
-            "zone_cooling_energy" => {
-                self.zone_cooling_rate.iter()
-                    .map(|(k, v)| (k.clone(), v * self.dt))
-                    .collect()
-            }
+            "zone_cooling_energy" => self
+                .zone_cooling_rate
+                .iter()
+                .map(|(k, v)| (k.clone(), v * self.dt))
+                .collect(),
             "zone_infiltration_mass_flow" => self.zone_infiltration_mass_flow.clone(),
             "zone_nat_vent_flow" => self.zone_nat_vent_flow.clone(),
             "zone_nat_vent_mass_flow" => self.zone_nat_vent_mass_flow.clone(),
@@ -319,7 +417,9 @@ impl OutputSnapshot {
             // Surface
             "surface_inside_temperature" => self.surface_inside_temperature.clone(),
             "surface_outside_temperature" => self.surface_outside_temperature.clone(),
-            "surface_inside_convection_coefficient" => self.surface_inside_convection_coefficient.clone(),
+            "surface_inside_convection_coefficient" => {
+                self.surface_inside_convection_coefficient.clone()
+            }
             "surface_incident_solar" => self.surface_incident_solar.clone(),
             "surface_transmitted_solar" => self.surface_transmitted_solar.clone(),
             "surface_conduction_inside" => self.surface_conduction_inside.clone(),
@@ -430,16 +530,24 @@ impl OutputWriter {
             if prev_period != period {
                 // Flush using the PREVIOUS period's label, not the new snapshot's.
                 // This fixes an off-by-one where hour N's data was labeled as hour N+1.
-                let (pm, pd, ph, ps) = self.period_label.unwrap_or(
-                    (snapshot.month, snapshot.day, snapshot.hour, snapshot.sub_hour)
-                );
+                let (pm, pd, ph, ps) = self.period_label.unwrap_or((
+                    snapshot.month,
+                    snapshot.day,
+                    snapshot.hour,
+                    snapshot.sub_hour,
+                ));
                 self.flush_period(pm, pd, ph, ps);
             }
         }
         self.current_period = Some(period);
         // Record label from the first snapshot of each new period
         if self.period_label.is_none() {
-            self.period_label = Some((snapshot.month, snapshot.day, snapshot.hour, snapshot.sub_hour));
+            self.period_label = Some((
+                snapshot.month,
+                snapshot.day,
+                snapshot.hour,
+                snapshot.sub_hour,
+            ));
         }
 
         // Accumulate values
@@ -447,15 +555,24 @@ impl OutputWriter {
             let values = snapshot.get_variable_values(var_name);
             let val = values.get(entity_name).copied().unwrap_or(0.0);
 
-            self.accum[i].0 += val;      // sum
-            self.accum[i].1 += 1;        // count
-            if val < self.accum[i].2 { self.accum[i].2 = val; }  // min
-            if val > self.accum[i].3 { self.accum[i].3 = val; }  // max
+            self.accum[i].0 += val; // sum
+            self.accum[i].1 += 1; // count
+            if val < self.accum[i].2 {
+                self.accum[i].2 = val;
+            } // min
+            if val > self.accum[i].3 {
+                self.accum[i].3 = val;
+            } // max
         }
 
         // For timestep frequency, flush immediately
         if self.config.frequency == OutputFrequency::Timestep {
-            self.flush_period(snapshot.month, snapshot.day, snapshot.hour, snapshot.sub_hour);
+            self.flush_period(
+                snapshot.month,
+                snapshot.day,
+                snapshot.hour,
+                snapshot.sub_hour,
+            );
         }
     }
 
@@ -490,7 +607,13 @@ impl OutputWriter {
             values.push(val);
         }
 
-        self.rows.push(OutputRow { month, day, hour, sub_hour, values });
+        self.rows.push(OutputRow {
+            month,
+            day,
+            hour,
+            sub_hour,
+            values,
+        });
 
         // Reset accumulators
         for acc in &mut self.accum {
@@ -521,7 +644,11 @@ impl OutputWriter {
 
     /// Finalize and write, prepending `stem_` to the configured filename.
     /// E.g. config.file = "zone_output.csv" → "retail_rtu_zone_output.csv"
-    pub fn finalize_and_write_prefixed(&mut self, output_dir: &Path, stem: &str) -> Result<(), OutputError> {
+    pub fn finalize_and_write_prefixed(
+        &mut self,
+        output_dir: &Path,
+        stem: &str,
+    ) -> Result<(), OutputError> {
         if let Some((m, d, h)) = self.current_period {
             self.flush_period(m, d, h, 0);
         }
@@ -576,25 +703,25 @@ impl OutputWriter {
 /// Matches the 13 standard EnergyPlus end-use categories.
 #[derive(Debug, Clone, Default)]
 struct MonthlyEnergy {
-    heating_j: f64,               // Total zone heating loads [J]
-    cooling_j: f64,               // Total zone cooling loads [J]
-    hours: f64,                   // Number of hours in data
+    heating_j: f64, // Total zone heating loads [J]
+    cooling_j: f64, // Total zone cooling loads [J]
+    hours: f64,     // Number of hours in data
     // Electric end uses
-    fan_elec_j: f64,              // Fan electric [J]
-    cool_elec_j: f64,             // Cooling electric (DX compressor, chiller) [J]
-    heat_elec_j: f64,             // Heating electric (electric coil, HP compressor) [J]
-    pump_elec_j: f64,             // Pump electric [J]
-    heat_rejection_elec_j: f64,   // Cooling tower fan electric [J]
-    humidification_elec_j: f64,   // Humidifier electric [J]
-    heat_recovery_elec_j: f64,    // Heat recovery electric (wheel motor, etc.) [J]
-    dhw_elec_j: f64,              // DHW electric (water heater) [J]
-    lighting_j: f64,              // Interior lighting [J]
-    ext_lighting_j: f64,          // Exterior lighting [J]
-    equipment_j: f64,             // Interior equipment/plug loads [J]
-    ext_equipment_j: f64,         // Exterior equipment [J]
+    fan_elec_j: f64,            // Fan electric [J]
+    cool_elec_j: f64,           // Cooling electric (DX compressor, chiller) [J]
+    heat_elec_j: f64,           // Heating electric (electric coil, HP compressor) [J]
+    pump_elec_j: f64,           // Pump electric [J]
+    heat_rejection_elec_j: f64, // Cooling tower fan electric [J]
+    humidification_elec_j: f64, // Humidifier electric [J]
+    heat_recovery_elec_j: f64,  // Heat recovery electric (wheel motor, etc.) [J]
+    dhw_elec_j: f64,            // DHW electric (water heater) [J]
+    lighting_j: f64,            // Interior lighting [J]
+    ext_lighting_j: f64,        // Exterior lighting [J]
+    equipment_j: f64,           // Interior equipment/plug loads [J]
+    ext_equipment_j: f64,       // Exterior equipment [J]
     // Gas end uses
-    heat_gas_j: f64,              // Heating gas (boiler, gas furnace) [J]
-    dhw_gas_j: f64,               // DHW gas (gas water heater) [J]
+    heat_gas_j: f64, // Heating gas (boiler, gas furnace) [J]
+    dhw_gas_j: f64,  // DHW gas (gas water heater) [J]
 }
 
 /// Summary report generator — produces a standard text report with
@@ -714,35 +841,51 @@ impl SummaryReport {
         // 1. Typed end-use maps — DHW, exterior, pumps, heat rejection, humidification
         for &pw in snapshot.dhw_electric_power.values() {
             let energy = pw * snapshot.dt;
-            if energy.is_finite() { me.dhw_elec_j += energy; }
+            if energy.is_finite() {
+                me.dhw_elec_j += energy;
+            }
         }
         for &pw in snapshot.dhw_fuel_power.values() {
             let energy = pw * snapshot.dt;
-            if energy.is_finite() { me.dhw_gas_j += energy; }
+            if energy.is_finite() {
+                me.dhw_gas_j += energy;
+            }
         }
         for &pw in snapshot.ext_lighting_power.values() {
             let energy = pw * snapshot.dt;
-            if energy.is_finite() { me.ext_lighting_j += energy; }
+            if energy.is_finite() {
+                me.ext_lighting_j += energy;
+            }
         }
         for &pw in snapshot.ext_equipment_power.values() {
             let energy = pw * snapshot.dt;
-            if energy.is_finite() { me.ext_equipment_j += energy; }
+            if energy.is_finite() {
+                me.ext_equipment_j += energy;
+            }
         }
         for &pw in snapshot.pump_electric_power.values() {
             let energy = pw * snapshot.dt;
-            if energy.is_finite() { me.pump_elec_j += energy; }
+            if energy.is_finite() {
+                me.pump_elec_j += energy;
+            }
         }
         for &pw in snapshot.heat_rejection_power.values() {
             let energy = pw * snapshot.dt;
-            if energy.is_finite() { me.heat_rejection_elec_j += energy; }
+            if energy.is_finite() {
+                me.heat_rejection_elec_j += energy;
+            }
         }
         for &pw in snapshot.humidification_power.values() {
             let energy = pw * snapshot.dt;
-            if energy.is_finite() { me.humidification_elec_j += energy; }
+            if energy.is_finite() {
+                me.humidification_elec_j += energy;
+            }
         }
         for &pw in snapshot.heat_recovery_power.values() {
             let energy = pw * snapshot.dt;
-            if energy.is_finite() { me.heat_recovery_elec_j += energy; }
+            if energy.is_finite() {
+                me.heat_recovery_elec_j += energy;
+            }
         }
 
         // 2. Generic HVAC component power — name-based matching for fans, coils, plant equip
@@ -751,14 +894,24 @@ impl SummaryReport {
         for (comp_name, &pw) in &snapshot.component_electric_power {
             let lname = comp_name.to_lowercase();
             let energy = pw * snapshot.dt;
-            if !energy.is_finite() { continue; }
+            if !energy.is_finite() {
+                continue;
+            }
             if lname.contains("fan") {
                 me.fan_elec_j += energy;
-            } else if lname.contains("cool") || lname.contains("dx") || lname.contains("chiller")
-                    || lname.starts_with("cc ") || lname.starts_with("cc_") {
+            } else if lname.contains("cool")
+                || lname.contains("dx")
+                || lname.contains("chiller")
+                || lname.starts_with("cc ")
+                || lname.starts_with("cc_")
+            {
                 me.cool_elec_j += energy;
-            } else if lname.contains("heat") || lname.contains("furnace")
-                    || lname.contains("hw") || lname.starts_with("hc ") || lname.starts_with("hc_") {
+            } else if lname.contains("heat")
+                || lname.contains("furnace")
+                || lname.contains("hw")
+                || lname.starts_with("hc ")
+                || lname.starts_with("hc_")
+            {
                 me.heat_elec_j += energy;
             }
             // else: unrecognized components are not categorized
@@ -767,13 +920,21 @@ impl SummaryReport {
         for (comp_name, &pw) in &snapshot.component_fuel_power {
             let lname = comp_name.to_lowercase();
             let energy = pw * snapshot.dt;
-            if !energy.is_finite() { continue; }
-            if lname.contains("boiler") || lname.contains("heat") || lname.contains("furnace") || lname.contains("hw") {
+            if !energy.is_finite() {
+                continue;
+            }
+            if lname.contains("boiler")
+                || lname.contains("heat")
+                || lname.contains("furnace")
+                || lname.contains("hw")
+            {
                 me.heat_gas_j += energy;
             }
         }
         // Safety cap: gas can never be negative (sanity check)
-        if me.heat_gas_j < 0.0 { me.heat_gas_j = 0.0; }
+        if me.heat_gas_j < 0.0 {
+            me.heat_gas_j = 0.0;
+        }
 
         // 3. Zone internal gains — interior lighting and equipment
         for &pw in snapshot.zone_lighting_power.values() {
@@ -800,32 +961,44 @@ impl SummaryReport {
         for (surf_name, &cond_w) in &snapshot.surface_conduction_inside {
             let energy_j = cond_w * snapshot.dt;
             if energy_j.is_finite() {
-                *self.surface_conduction_j.entry(surf_name.clone()).or_insert(0.0) += energy_j;
+                *self
+                    .surface_conduction_j
+                    .entry(surf_name.clone())
+                    .or_insert(0.0) += energy_j;
             }
         }
         // Accumulate per-surface convection energy (used for windows)
         for (surf_name, &conv_w) in &snapshot.surface_convection_inside {
             let energy_j = conv_w * snapshot.dt;
             if energy_j.is_finite() {
-                *self.surface_convection_j.entry(surf_name.clone()).or_insert(0.0) += energy_j;
+                *self
+                    .surface_convection_j
+                    .entry(surf_name.clone())
+                    .or_insert(0.0) += energy_j;
             }
         }
 
         // Accumulate monthly surface temperatures and incident solar
         self.monthly_surf_count[month_idx] += 1;
         for (surf_name, &temp) in &snapshot.surface_inside_temperature {
-            let arr = self.monthly_surf_temp_inside
-                .entry(surf_name.clone()).or_insert([0.0; 12]);
+            let arr = self
+                .monthly_surf_temp_inside
+                .entry(surf_name.clone())
+                .or_insert([0.0; 12]);
             arr[month_idx] += temp;
         }
         for (surf_name, &temp) in &snapshot.surface_outside_temperature {
-            let arr = self.monthly_surf_temp_outside
-                .entry(surf_name.clone()).or_insert([0.0; 12]);
+            let arr = self
+                .monthly_surf_temp_outside
+                .entry(surf_name.clone())
+                .or_insert([0.0; 12]);
             arr[month_idx] += temp;
         }
         for (surf_name, &solar) in &snapshot.surface_incident_solar {
-            let arr = self.monthly_surf_incident_solar
-                .entry(surf_name.clone()).or_insert([0.0; 12]);
+            let arr = self
+                .monthly_surf_incident_solar
+                .entry(surf_name.clone())
+                .or_insert([0.0; 12]);
             arr[month_idx] += solar;
         }
 
@@ -834,9 +1007,13 @@ impl SummaryReport {
         // otherwise fall back to static setpoints from ideal_loads defaults
         let hours_fraction = snapshot.dt / 3600.0;
         for (zone_name, &zone_temp) in &snapshot.zone_temperature {
-            let heat_sp = snapshot.zone_heating_setpoint.get(zone_name)
+            let heat_sp = snapshot
+                .zone_heating_setpoint
+                .get(zone_name)
                 .or_else(|| self.heating_setpoints.get(zone_name));
-            let cool_sp = snapshot.zone_cooling_setpoint.get(zone_name)
+            let cool_sp = snapshot
+                .zone_cooling_setpoint
+                .get(zone_name)
                 .or_else(|| self.cooling_setpoints.get(zone_name));
 
             if let Some(&sp) = heat_sp {
@@ -858,9 +1035,18 @@ impl SummaryReport {
             .map_err(|e| OutputError::IoError(format!("{}: {}", path.display(), e)))?;
         let mut w = std::io::BufWriter::new(file);
 
-        writeln!(w, "================================================================")?;
-        writeln!(w, "                    OpenBSE Summary Report                       ")?;
-        writeln!(w, "================================================================")?;
+        writeln!(
+            w,
+            "================================================================"
+        )?;
+        writeln!(
+            w,
+            "                    OpenBSE Summary Report                       "
+        )?;
+        writeln!(
+            w,
+            "================================================================"
+        )?;
         writeln!(w)?;
 
         // -- Annual Totals --
@@ -871,126 +1057,275 @@ impl SummaryReport {
         let annual_heating_mwh = annual_heating_kwh / 1000.0;
         let annual_cooling_mwh = annual_cooling_kwh / 1000.0;
 
-        writeln!(w, "-- Annual Energy Summary --------------------------------------")?;
+        writeln!(
+            w,
+            "-- Annual Energy Summary --------------------------------------"
+        )?;
         writeln!(w)?;
-        writeln!(w, "  Heating:  {:>10.1} kWh  ({:.3} MWh)", annual_heating_kwh, annual_heating_mwh)?;
-        writeln!(w, "  Cooling:  {:>10.1} kWh  ({:.3} MWh)", annual_cooling_kwh, annual_cooling_mwh)?;
-        writeln!(w, "  Total:    {:>10.1} kWh  ({:.3} MWh)",
+        writeln!(
+            w,
+            "  Heating:  {:>10.1} kWh  ({:.3} MWh)",
+            annual_heating_kwh, annual_heating_mwh
+        )?;
+        writeln!(
+            w,
+            "  Cooling:  {:>10.1} kWh  ({:.3} MWh)",
+            annual_cooling_kwh, annual_cooling_mwh
+        )?;
+        writeln!(
+            w,
+            "  Total:    {:>10.1} kWh  ({:.3} MWh)",
             annual_heating_kwh + annual_cooling_kwh,
-            annual_heating_mwh + annual_cooling_mwh)?;
+            annual_heating_mwh + annual_cooling_mwh
+        )?;
         writeln!(w)?;
 
         // -- Peak Loads --
-        writeln!(w, "-- Peak Loads -------------------------------------------------")?;
+        writeln!(
+            w,
+            "-- Peak Loads -------------------------------------------------"
+        )?;
         writeln!(w)?;
         if self.peak_heating.0 > 0.0 {
-            writeln!(w, "  Peak Heating: {:>10.1} W  (Month {:>2}, Day {:>2}, Hour {:>2})",
-                self.peak_heating.0, self.peak_heating.1, self.peak_heating.2, self.peak_heating.3)?;
+            writeln!(
+                w,
+                "  Peak Heating: {:>10.1} W  (Month {:>2}, Day {:>2}, Hour {:>2})",
+                self.peak_heating.0, self.peak_heating.1, self.peak_heating.2, self.peak_heating.3
+            )?;
         } else {
             writeln!(w, "  Peak Heating:       0.0 W  (no heating required)")?;
         }
         if self.peak_cooling.0 > 0.0 {
-            writeln!(w, "  Peak Cooling: {:>10.1} W  (Month {:>2}, Day {:>2}, Hour {:>2})",
-                self.peak_cooling.0, self.peak_cooling.1, self.peak_cooling.2, self.peak_cooling.3)?;
+            writeln!(
+                w,
+                "  Peak Cooling: {:>10.1} W  (Month {:>2}, Day {:>2}, Hour {:>2})",
+                self.peak_cooling.0, self.peak_cooling.1, self.peak_cooling.2, self.peak_cooling.3
+            )?;
         } else {
             writeln!(w, "  Peak Cooling:       0.0 W  (no cooling required)")?;
         }
         writeln!(w)?;
 
         // -- Monthly Breakdown --
-        writeln!(w, "-- Monthly Energy Breakdown -----------------------------------")?;
+        writeln!(
+            w,
+            "-- Monthly Energy Breakdown -----------------------------------"
+        )?;
         writeln!(w)?;
-        writeln!(w, "  {:>5}  {:>12}  {:>12}  {:>12}", "Month", "Heating[kWh]", "Cooling[kWh]", "Total[kWh]")?;
+        writeln!(
+            w,
+            "  {:>5}  {:>12}  {:>12}  {:>12}",
+            "Month", "Heating[kWh]", "Cooling[kWh]", "Total[kWh]"
+        )?;
         writeln!(w, "  -----  ------------  ------------  ------------")?;
 
-        let month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        let month_names = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
 
         for (i, me) in self.monthly.iter().enumerate() {
             let h_kwh = me.heating_j / 3_600_000.0;
             let c_kwh = me.cooling_j / 3_600_000.0;
             if me.hours > 0.0 {
-                writeln!(w, "  {:>5}  {:>12.1}  {:>12.1}  {:>12.1}",
-                    month_names[i], h_kwh, c_kwh, h_kwh + c_kwh)?;
+                writeln!(
+                    w,
+                    "  {:>5}  {:>12.1}  {:>12.1}  {:>12.1}",
+                    month_names[i],
+                    h_kwh,
+                    c_kwh,
+                    h_kwh + c_kwh
+                )?;
             }
         }
 
         writeln!(w, "  -----  ------------  ------------  ------------")?;
-        writeln!(w, "  {:>5}  {:>12.1}  {:>12.1}  {:>12.1}",
-            "Total", annual_heating_kwh, annual_cooling_kwh,
-            annual_heating_kwh + annual_cooling_kwh)?;
+        writeln!(
+            w,
+            "  {:>5}  {:>12.1}  {:>12.1}  {:>12.1}",
+            "Total",
+            annual_heating_kwh,
+            annual_cooling_kwh,
+            annual_heating_kwh + annual_cooling_kwh
+        )?;
         writeln!(w)?;
 
         // -- Unmet Hours --
-        writeln!(w, "-- Unmet Hours ------------------------------------------------")?;
+        writeln!(
+            w,
+            "-- Unmet Hours ------------------------------------------------"
+        )?;
         writeln!(w)?;
         writeln!(w, "  Tolerance: {:.1} C", self.unmet_tolerance)?;
         writeln!(w)?;
-        writeln!(w, "  Unmet Heating Hours: {:>8.1} hr", self.unmet_heating_hours)?;
-        writeln!(w, "  Unmet Cooling Hours: {:>8.1} hr", self.unmet_cooling_hours)?;
+        writeln!(
+            w,
+            "  Unmet Heating Hours: {:>8.1} hr",
+            self.unmet_heating_hours
+        )?;
+        writeln!(
+            w,
+            "  Unmet Cooling Hours: {:>8.1} hr",
+            self.unmet_cooling_hours
+        )?;
 
         let total_hours = self.total_timesteps as f64 * self.dt / 3600.0;
         if total_hours > 0.0 {
             let heat_pct = self.unmet_heating_hours / total_hours * 100.0;
             let cool_pct = self.unmet_cooling_hours / total_hours * 100.0;
             writeln!(w)?;
-            writeln!(w, "  Heating setpoint met: {:>5.1}% of occupied hours", 100.0 - heat_pct)?;
-            writeln!(w, "  Cooling setpoint met: {:>5.1}% of occupied hours", 100.0 - cool_pct)?;
+            writeln!(
+                w,
+                "  Heating setpoint met: {:>5.1}% of occupied hours",
+                100.0 - heat_pct
+            )?;
+            writeln!(
+                w,
+                "  Cooling setpoint met: {:>5.1}% of occupied hours",
+                100.0 - cool_pct
+            )?;
 
             // ASHRAE Standard 90.1 compliance check (300 unmet hours max)
             writeln!(w)?;
             let total_unmet = self.unmet_heating_hours + self.unmet_cooling_hours;
             if total_unmet <= 300.0 {
-                writeln!(w, "  ASHRAE 90.1 Compliance: PASS ({:.0} <= 300 unmet hours)", total_unmet)?;
+                writeln!(
+                    w,
+                    "  ASHRAE 90.1 Compliance: PASS ({:.0} <= 300 unmet hours)",
+                    total_unmet
+                )?;
             } else {
-                writeln!(w, "  ASHRAE 90.1 Compliance: FAIL ({:.0} > 300 unmet hours)", total_unmet)?;
+                writeln!(
+                    w,
+                    "  ASHRAE 90.1 Compliance: FAIL ({:.0} > 300 unmet hours)",
+                    total_unmet
+                )?;
             }
         }
         writeln!(w)?;
 
         // -- Energy End-Use Summary (matches EnergyPlus categories) --
-        writeln!(w, "-- Energy End-Use Summary -------------------------------------")?;
+        writeln!(
+            w,
+            "-- Energy End-Use Summary -------------------------------------"
+        )?;
         writeln!(w)?;
 
         let j_to_kwh = 1.0 / 3_600_000.0;
-        let annual_lighting_kwh: f64 = self.monthly.iter().map(|m| m.lighting_j).sum::<f64>() * j_to_kwh;
-        let annual_ext_lighting_kwh: f64 = self.monthly.iter().map(|m| m.ext_lighting_j).sum::<f64>() * j_to_kwh;
-        let annual_equipment_kwh: f64 = self.monthly.iter().map(|m| m.equipment_j).sum::<f64>() * j_to_kwh;
-        let annual_ext_equipment_kwh: f64 = self.monthly.iter().map(|m| m.ext_equipment_j).sum::<f64>() * j_to_kwh;
+        let annual_lighting_kwh: f64 =
+            self.monthly.iter().map(|m| m.lighting_j).sum::<f64>() * j_to_kwh;
+        let annual_ext_lighting_kwh: f64 =
+            self.monthly.iter().map(|m| m.ext_lighting_j).sum::<f64>() * j_to_kwh;
+        let annual_equipment_kwh: f64 =
+            self.monthly.iter().map(|m| m.equipment_j).sum::<f64>() * j_to_kwh;
+        let annual_ext_equipment_kwh: f64 =
+            self.monthly.iter().map(|m| m.ext_equipment_j).sum::<f64>() * j_to_kwh;
         let annual_fan_kwh: f64 = self.monthly.iter().map(|m| m.fan_elec_j).sum::<f64>() * j_to_kwh;
-        let annual_pump_kwh: f64 = self.monthly.iter().map(|m| m.pump_elec_j).sum::<f64>() * j_to_kwh;
-        let annual_cool_elec_kwh: f64 = self.monthly.iter().map(|m| m.cool_elec_j).sum::<f64>() * j_to_kwh;
-        let annual_heat_elec_kwh: f64 = self.monthly.iter().map(|m| m.heat_elec_j).sum::<f64>() * j_to_kwh;
-        let annual_heat_gas_kwh: f64 = self.monthly.iter().map(|m| m.heat_gas_j).sum::<f64>() * j_to_kwh;
-        let annual_heat_rejection_kwh: f64 = self.monthly.iter().map(|m| m.heat_rejection_elec_j).sum::<f64>() * j_to_kwh;
-        let annual_humidification_kwh: f64 = self.monthly.iter().map(|m| m.humidification_elec_j).sum::<f64>() * j_to_kwh;
-        let annual_heat_recovery_kwh: f64 = self.monthly.iter().map(|m| m.heat_recovery_elec_j).sum::<f64>() * j_to_kwh;
-        let annual_dhw_elec_kwh: f64 = self.monthly.iter().map(|m| m.dhw_elec_j).sum::<f64>() * j_to_kwh;
-        let annual_dhw_gas_kwh: f64 = self.monthly.iter().map(|m| m.dhw_gas_j).sum::<f64>() * j_to_kwh;
+        let annual_pump_kwh: f64 =
+            self.monthly.iter().map(|m| m.pump_elec_j).sum::<f64>() * j_to_kwh;
+        let annual_cool_elec_kwh: f64 =
+            self.monthly.iter().map(|m| m.cool_elec_j).sum::<f64>() * j_to_kwh;
+        let annual_heat_elec_kwh: f64 =
+            self.monthly.iter().map(|m| m.heat_elec_j).sum::<f64>() * j_to_kwh;
+        let annual_heat_gas_kwh: f64 =
+            self.monthly.iter().map(|m| m.heat_gas_j).sum::<f64>() * j_to_kwh;
+        let annual_heat_rejection_kwh: f64 = self
+            .monthly
+            .iter()
+            .map(|m| m.heat_rejection_elec_j)
+            .sum::<f64>()
+            * j_to_kwh;
+        let annual_humidification_kwh: f64 = self
+            .monthly
+            .iter()
+            .map(|m| m.humidification_elec_j)
+            .sum::<f64>()
+            * j_to_kwh;
+        let annual_heat_recovery_kwh: f64 = self
+            .monthly
+            .iter()
+            .map(|m| m.heat_recovery_elec_j)
+            .sum::<f64>()
+            * j_to_kwh;
+        let annual_dhw_elec_kwh: f64 =
+            self.monthly.iter().map(|m| m.dhw_elec_j).sum::<f64>() * j_to_kwh;
+        let annual_dhw_gas_kwh: f64 =
+            self.monthly.iter().map(|m| m.dhw_gas_j).sum::<f64>() * j_to_kwh;
 
         writeln!(w, "  {:>22}  {:>12}", "End Use", "Annual [kWh]")?;
         writeln!(w, "  ----------------------  ------------")?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Interior Lighting", annual_lighting_kwh)?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Exterior Lighting", annual_ext_lighting_kwh)?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Interior Equipment", annual_equipment_kwh)?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Exterior Equipment", annual_ext_equipment_kwh)?;
+        writeln!(
+            w,
+            "  {:>22}  {:>12.1}",
+            "Interior Lighting", annual_lighting_kwh
+        )?;
+        writeln!(
+            w,
+            "  {:>22}  {:>12.1}",
+            "Exterior Lighting", annual_ext_lighting_kwh
+        )?;
+        writeln!(
+            w,
+            "  {:>22}  {:>12.1}",
+            "Interior Equipment", annual_equipment_kwh
+        )?;
+        writeln!(
+            w,
+            "  {:>22}  {:>12.1}",
+            "Exterior Equipment", annual_ext_equipment_kwh
+        )?;
         writeln!(w, "  {:>22}  {:>12.1}", "Fans (Electric)", annual_fan_kwh)?;
         writeln!(w, "  {:>22}  {:>12.1}", "Pumps (Electric)", annual_pump_kwh)?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Cooling (Electric)", annual_cool_elec_kwh)?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Heating (Electric)", annual_heat_elec_kwh)?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Heating (Gas)", annual_heat_gas_kwh)?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Heat Rejection", annual_heat_rejection_kwh)?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Humidification", annual_humidification_kwh)?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Heat Recovery", annual_heat_recovery_kwh)?;
-        writeln!(w, "  {:>22}  {:>12.1}", "DHW (Electric)", annual_dhw_elec_kwh)?;
+        writeln!(
+            w,
+            "  {:>22}  {:>12.1}",
+            "Cooling (Electric)", annual_cool_elec_kwh
+        )?;
+        writeln!(
+            w,
+            "  {:>22}  {:>12.1}",
+            "Heating (Electric)", annual_heat_elec_kwh
+        )?;
+        writeln!(
+            w,
+            "  {:>22}  {:>12.1}",
+            "Heating (Gas)", annual_heat_gas_kwh
+        )?;
+        writeln!(
+            w,
+            "  {:>22}  {:>12.1}",
+            "Heat Rejection", annual_heat_rejection_kwh
+        )?;
+        writeln!(
+            w,
+            "  {:>22}  {:>12.1}",
+            "Humidification", annual_humidification_kwh
+        )?;
+        writeln!(
+            w,
+            "  {:>22}  {:>12.1}",
+            "Heat Recovery", annual_heat_recovery_kwh
+        )?;
+        writeln!(
+            w,
+            "  {:>22}  {:>12.1}",
+            "DHW (Electric)", annual_dhw_elec_kwh
+        )?;
         writeln!(w, "  {:>22}  {:>12.1}", "DHW (Gas)", annual_dhw_gas_kwh)?;
         writeln!(w, "  ----------------------  ------------")?;
-        let total_end_use = annual_lighting_kwh + annual_ext_lighting_kwh
-            + annual_equipment_kwh + annual_ext_equipment_kwh
-            + annual_fan_kwh + annual_pump_kwh
-            + annual_cool_elec_kwh + annual_heat_elec_kwh + annual_heat_gas_kwh
-            + annual_heat_rejection_kwh + annual_humidification_kwh + annual_heat_recovery_kwh
-            + annual_dhw_elec_kwh + annual_dhw_gas_kwh;
+        let total_end_use = annual_lighting_kwh
+            + annual_ext_lighting_kwh
+            + annual_equipment_kwh
+            + annual_ext_equipment_kwh
+            + annual_fan_kwh
+            + annual_pump_kwh
+            + annual_cool_elec_kwh
+            + annual_heat_elec_kwh
+            + annual_heat_gas_kwh
+            + annual_heat_rejection_kwh
+            + annual_humidification_kwh
+            + annual_heat_recovery_kwh
+            + annual_dhw_elec_kwh
+            + annual_dhw_gas_kwh;
         writeln!(w, "  {:>22}  {:>12.1}", "Total", total_end_use)?;
         writeln!(w)?;
 
@@ -998,7 +1333,10 @@ impl SummaryReport {
         if let Some(ref ea) = self.envelope_areas {
             let total_wall = ea.total_wall_area();
             if total_wall > 0.0 {
-                writeln!(w, "-- Building Envelope Summary ----------------------------------")?;
+                writeln!(
+                    w,
+                    "-- Building Envelope Summary ----------------------------------"
+                )?;
                 writeln!(w)?;
                 use openbse_envelope::CardinalDirection;
                 let dirs = [
@@ -1007,45 +1345,65 @@ impl SummaryReport {
                     CardinalDirection::South,
                     CardinalDirection::West,
                 ];
-                writeln!(w, "  {:>10}  {:>12}  {:>12}  {:>8}",
-                    "Direction", "Wall [m²]", "Window [m²]", "WWR")?;
+                writeln!(
+                    w,
+                    "  {:>10}  {:>12}  {:>12}  {:>8}",
+                    "Direction", "Wall [m²]", "Window [m²]", "WWR"
+                )?;
                 writeln!(w, "  ----------  ------------  ------------  --------")?;
                 for dir in &dirs {
                     let i = match dir {
                         CardinalDirection::North => 0,
-                        CardinalDirection::East  => 1,
+                        CardinalDirection::East => 1,
                         CardinalDirection::South => 2,
-                        CardinalDirection::West  => 3,
+                        CardinalDirection::West => 3,
                     };
-                    writeln!(w, "  {:>10}  {:>12.1}  {:>12.1}  {:>7.1}%",
+                    writeln!(
+                        w,
+                        "  {:>10}  {:>12.1}  {:>12.1}  {:>7.1}%",
                         dir,
                         ea.wall_area[i],
                         ea.window_area[i],
-                        ea.wwr(*dir) * 100.0)?;
+                        ea.wwr(*dir) * 100.0
+                    )?;
                 }
                 writeln!(w, "  ----------  ------------  ------------  --------")?;
-                writeln!(w, "  {:>10}  {:>12.1}  {:>12.1}  {:>7.1}%",
-                    "Total", total_wall, ea.total_window_area(), ea.total_wwr() * 100.0)?;
+                writeln!(
+                    w,
+                    "  {:>10}  {:>12.1}  {:>12.1}  {:>7.1}%",
+                    "Total",
+                    total_wall,
+                    ea.total_window_area(),
+                    ea.total_wwr() * 100.0
+                )?;
                 writeln!(w)?;
             }
         }
 
         // -- Window Solar Diagnostics --
         if self.total_transmitted_solar_j > 0.0 {
-            writeln!(w, "-- Window Solar Diagnostics -----------------------------------")?;
+            writeln!(
+                w,
+                "-- Window Solar Diagnostics -----------------------------------"
+            )?;
             writeln!(w)?;
             let trans_kwh = self.total_transmitted_solar_j / 3_600_000.0;
             let inc_kwh = self.total_incident_solar_j / 3_600_000.0;
             writeln!(w, "  Total transmitted solar: {:>10.1} kWh", trans_kwh)?;
             writeln!(w, "  Total incident on windows: {:>7.1} kWh", inc_kwh)?;
             if inc_kwh > 0.0 {
-                writeln!(w, "  Effective annual modifier: {:>7.4} (trans/incident)", trans_kwh / inc_kwh)?;
+                writeln!(
+                    w,
+                    "  Effective annual modifier: {:>7.4} (trans/incident)",
+                    trans_kwh / inc_kwh
+                )?;
             }
             writeln!(w)?;
             writeln!(w, "  {:>5}  {:>12}", "Month", "Trans[kWh]")?;
             writeln!(w, "  -----  ------------")?;
-            let month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            let month_names = [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ];
             for (i, &mj) in self.monthly_transmitted_solar_j.iter().enumerate() {
                 if mj > 0.0 {
                     writeln!(w, "  {:>5}  {:>12.1}", month_names[i], mj / 3_600_000.0)?;
@@ -1060,7 +1418,10 @@ impl SummaryReport {
         if !self.surface_meta.is_empty()
             && (!self.surface_conduction_j.is_empty() || !self.surface_convection_j.is_empty())
         {
-            writeln!(w, "-- Surface Heat Gains Summary ---------------------------------")?;
+            writeln!(
+                w,
+                "-- Surface Heat Gains Summary ---------------------------------"
+            )?;
             writeln!(w)?;
 
             // Collect unique zones in order of first appearance
@@ -1075,15 +1436,23 @@ impl SummaryReport {
 
             for zone_name in &zones_seen {
                 writeln!(w, "  Zone: {}", zone_name)?;
-                writeln!(w, "    {:<32} {:<7} {:>8}  {:<12} {:>10}",
-                    "Surface Name", "Type", "Area[m²]", "Boundary", "Cond[kWh]")?;
-                writeln!(w, "    {:-<32} {:-<7} {:-<8}  {:-<12} {:-<10}",
-                    "", "", "", "", "")?;
+                writeln!(
+                    w,
+                    "    {:<32} {:<7} {:>8}  {:<12} {:>10}",
+                    "Surface Name", "Type", "Area[m²]", "Boundary", "Cond[kWh]"
+                )?;
+                writeln!(
+                    w,
+                    "    {:-<32} {:-<7} {:-<8}  {:-<12} {:-<10}",
+                    "", "", "", "", ""
+                )?;
 
                 let mut zone_total = 0.0_f64;
 
                 for (name, zone, type_str, area, is_window, boundary) in &self.surface_meta {
-                    if zone != zone_name { continue; }
+                    if zone != zone_name {
+                        continue;
+                    }
                     // Windows: use convection (q_conv_inside); opaque: use conduction (CTF q_cond_inside)
                     let energy_kwh = if *is_window {
                         self.surface_convection_j.get(name).copied().unwrap_or(0.0) / 3_600_000.0
@@ -1096,18 +1465,25 @@ impl SummaryReport {
                     } else {
                         name.as_str()
                     };
-                    writeln!(w, "    {:<32} {:<7} {:>8.1}  {:<12} {:>10.1}",
-                        display_name, type_str, area, boundary, energy_kwh)?;
+                    writeln!(
+                        w,
+                        "    {:<32} {:<7} {:>8.1}  {:<12} {:>10.1}",
+                        display_name, type_str, area, boundary, energy_kwh
+                    )?;
                 }
 
                 building_total += zone_total;
-                writeln!(w, "    {:<32} {:<7} {:>8}  {:<12} {:>10.1}",
-                    "Zone Total", "", "", "", zone_total)?;
+                writeln!(
+                    w,
+                    "    {:<32} {:<7} {:>8}  {:<12} {:>10.1}",
+                    "Zone Total", "", "", "", zone_total
+                )?;
                 writeln!(w)?;
             }
 
             // Surface type subtotals across entire building
-            let mut type_totals: std::collections::BTreeMap<String, (f64, f64)> = std::collections::BTreeMap::new(); // (area, kwh)
+            let mut type_totals: std::collections::BTreeMap<String, (f64, f64)> =
+                std::collections::BTreeMap::new(); // (area, kwh)
             for (name, _zone, type_str, area, is_window, _boundary) in &self.surface_meta {
                 let energy_kwh = if *is_window {
                     self.surface_convection_j.get(name).copied().unwrap_or(0.0) / 3_600_000.0
@@ -1118,31 +1494,45 @@ impl SummaryReport {
                 entry.0 += area;
                 entry.1 += energy_kwh;
             }
-            writeln!(w, "  {:<34} {:>8}  {:>10}", "By Surface Type", "Area[m²]", "Cond[kWh]")?;
+            writeln!(
+                w,
+                "  {:<34} {:>8}  {:>10}",
+                "By Surface Type", "Area[m²]", "Cond[kWh]"
+            )?;
             writeln!(w, "  {:-<34} {:-<8}  {:-<10}", "", "", "")?;
             for (type_str, (area, kwh)) in &type_totals {
                 writeln!(w, "  {:<34} {:>8.1}  {:>10.1}", type_str, area, kwh)?;
             }
             writeln!(w, "  {:-<34} {:-<8}  {:-<10}", "", "", "")?;
-            writeln!(w, "  {:<34} {:>8.1}  {:>10.1}",
+            writeln!(
+                w,
+                "  {:<34} {:>8.1}  {:>10.1}",
                 "Building Total",
                 type_totals.values().map(|(a, _)| a).sum::<f64>(),
-                building_total)?;
+                building_total
+            )?;
             writeln!(w)?;
         }
 
         // -- Monthly Surface Temperature Diagnostics --
         if !self.monthly_surf_temp_inside.is_empty() {
-            writeln!(w, "-- Monthly Surface Temperature Diagnostics --------------------")?;
+            writeln!(
+                w,
+                "-- Monthly Surface Temperature Diagnostics --------------------"
+            )?;
             writeln!(w)?;
 
-            let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            let months = [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ];
 
             // Collect outdoor-boundary wall and roof surfaces for diagnostic output
-            let mut diag_surfaces: Vec<String> = self.surface_meta.iter()
+            let mut diag_surfaces: Vec<String> = self
+                .surface_meta
+                .iter()
                 .filter(|(_, _, type_str, _, is_window, boundary)| {
-                    !is_window && boundary == "outdoor"
+                    !is_window
+                        && boundary == "outdoor"
                         && (type_str == "wall" || type_str == "roof")
                 })
                 .map(|(name, _, _, _, _, _)| name.clone())
@@ -1154,35 +1544,64 @@ impl SummaryReport {
                 let outside = self.monthly_surf_temp_outside.get(surf_name);
                 let solar = self.monthly_surf_incident_solar.get(surf_name);
 
-                if inside.is_none() { continue; }
+                if inside.is_none() {
+                    continue;
+                }
 
                 writeln!(w, "  Surface: {}", surf_name)?;
-                writeln!(w, "    {:>5}  {:>10}  {:>10}  {:>14}", "Month", "Inside[°C]", "Outside[°C]", "IncSolar[W/m²]")?;
-                writeln!(w, "    {}  {}  {}  {}", "-".repeat(5), "-".repeat(10), "-".repeat(10), "-".repeat(14))?;
+                writeln!(
+                    w,
+                    "    {:>5}  {:>10}  {:>10}  {:>14}",
+                    "Month", "Inside[°C]", "Outside[°C]", "IncSolar[W/m²]"
+                )?;
+                writeln!(
+                    w,
+                    "    {}  {}  {}  {}",
+                    "-".repeat(5),
+                    "-".repeat(10),
+                    "-".repeat(10),
+                    "-".repeat(14)
+                )?;
 
                 for mi in 0..12 {
                     let count = self.monthly_surf_count[mi] as f64;
-                    if count < 1.0 { continue; }
+                    if count < 1.0 {
+                        continue;
+                    }
 
                     let t_in = inside.map(|a| a[mi] / count).unwrap_or(0.0);
                     let t_out = outside.map(|a| a[mi] / count).unwrap_or(0.0);
                     let sol = solar.map(|a| a[mi] / count).unwrap_or(0.0);
 
-                    writeln!(w, "    {:>5}  {:>10.2}  {:>10.2}  {:>14.2}",
-                             months[mi], t_in, t_out, sol)?;
+                    writeln!(
+                        w,
+                        "    {:>5}  {:>10.2}  {:>10.2}  {:>14.2}",
+                        months[mi], t_in, t_out, sol
+                    )?;
                 }
                 writeln!(w)?;
             }
         }
 
         // -- Simulation Statistics --
-        writeln!(w, "-- Simulation Statistics ---------------------------------------")?;
+        writeln!(
+            w,
+            "-- Simulation Statistics ---------------------------------------"
+        )?;
         writeln!(w)?;
         writeln!(w, "  Total timesteps:   {:>8}", self.total_timesteps)?;
-        writeln!(w, "  Timestep size:     {:>8.0} s ({:.0} per hour)", self.dt, 3600.0 / self.dt)?;
+        writeln!(
+            w,
+            "  Timestep size:     {:>8.0} s ({:.0} per hour)",
+            self.dt,
+            3600.0 / self.dt
+        )?;
         writeln!(w, "  Simulated hours:   {:>8.1} hr", total_hours)?;
         writeln!(w)?;
-        writeln!(w, "================================================================")?;
+        writeln!(
+            w,
+            "================================================================"
+        )?;
 
         w.flush()?;
         Ok(())
@@ -1194,10 +1613,7 @@ impl SummaryReport {
 /// Write simulation results to a CSV file (legacy format from TimestepResult).
 ///
 /// This maintains backward compatibility with the existing output format.
-pub fn write_csv(
-    results: &[TimestepResult],
-    path: &Path,
-) -> Result<(), OutputError> {
+pub fn write_csv(results: &[TimestepResult], path: &Path) -> Result<(), OutputError> {
     if results.is_empty() {
         return Err(OutputError::NoResults);
     }

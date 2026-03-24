@@ -14,9 +14,9 @@ use openbse_components::heat_pump_coil::HeatPumpHeatingCoil;
 use openbse_components::heat_recovery::HeatRecovery;
 use openbse_components::heating_coil::{HeatingCoil, UaModelConfig};
 use openbse_components::pfp_box::PFPBox;
-use openbse_components::vav_box::{VAVBox, ReheatType};
+use openbse_components::vav_box::{ReheatType, VAVBox};
+use openbse_controls::setpoint::{PlantLoopSetpoint, SetpointController};
 use openbse_controls::thermostat::{ZoneGroup, ZoneThermostat};
-use openbse_controls::setpoint::{SetpointController, PlantLoopSetpoint};
 use openbse_controls::Controller;
 use openbse_core::graph::SimulationGraph;
 use openbse_core::simulation::SimulationConfig;
@@ -60,13 +60,11 @@ pub struct ModelInput {
     pub performance_curves: Vec<openbse_components::performance_curve::PerformanceCurve>,
 
     // ─── Schedules ───────────────────────────────────────────────────────────
-
     /// Named schedule definitions for time-varying inputs
     #[serde(default)]
     pub schedules: Vec<openbse_envelope::ScheduleInput>,
 
     // ─── Envelope (Phase 2) ──────────────────────────────────────────────────
-
     /// Material definitions
     #[serde(default)]
     pub materials: Vec<openbse_envelope::Material>,
@@ -101,7 +99,6 @@ pub struct ModelInput {
     // ─── Top-Level Zone Loads ────────────────────────────────────────────────
     // These objects define loads assignable to one or more zones by name.
     // They replace the old approach of embedding loads inside each zone.
-
     /// People definitions (assignable to zones)
     #[serde(default)]
     pub people: Vec<openbse_envelope::PeopleInput>,
@@ -128,19 +125,16 @@ pub struct ModelInput {
     pub ideal_loads: Vec<openbse_envelope::IdealLoadsTopLevel>,
 
     // ─── Domestic Hot Water ──────────────────────────────────────────────────
-
     /// Domestic hot water system definitions
     #[serde(default)]
     pub dhw_systems: Vec<DhwSystemInput>,
 
     // ─── Exterior Equipment ─────────────────────────────────────────────────
-
     /// Exterior equipment (facility-level loads not in any zone)
     #[serde(default)]
     pub exterior_equipment: Vec<ExteriorEquipmentInput>,
 
     // ─── Outputs ────────────────────────────────────────────────────────────
-
     /// Custom output file definitions
     #[serde(default)]
     pub outputs: Vec<crate::output::OutputFileConfig>,
@@ -149,7 +143,9 @@ pub struct ModelInput {
     pub summary_report: bool,
 }
 
-fn default_summary_report() -> bool { true }
+fn default_summary_report() -> bool {
+    true
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SimulationSettings {
@@ -248,14 +244,30 @@ pub struct SimulationSettings {
     pub airflow_network: Option<openbse_envelope::AirflowNetworkConfig>,
 }
 
-fn default_ground_surface_temps() -> Vec<f64> { vec![18.0; 12] }
-fn default_heating_sizing_factor() -> f64 { 1.25 }
-fn default_cooling_sizing_factor() -> f64 { 1.15 }
-fn default_timesteps_per_hour() -> u32 { 1 }
-fn default_start_month() -> u32 { 1 }
-fn default_start_day() -> u32 { 1 }
-fn default_end_month() -> u32 { 12 }
-fn default_end_day() -> u32 { 31 }
+fn default_ground_surface_temps() -> Vec<f64> {
+    vec![18.0; 12]
+}
+fn default_heating_sizing_factor() -> f64 {
+    1.25
+}
+fn default_cooling_sizing_factor() -> f64 {
+    1.15
+}
+fn default_timesteps_per_hour() -> u32 {
+    1
+}
+fn default_start_month() -> u32 {
+    1
+}
+fn default_start_day() -> u32 {
+    1
+}
+fn default_end_month() -> u32 {
+    12
+}
+fn default_end_day() -> u32 {
+    31
+}
 
 impl SimulationSettings {
     pub fn to_config(&self) -> SimulationConfig {
@@ -307,9 +319,10 @@ pub enum AirLoopSystemType {
 }
 
 impl Default for AirLoopSystemType {
-    fn default() -> Self { AirLoopSystemType::PszAc }
+    fn default() -> Self {
+        AirLoopSystemType::PszAc
+    }
 }
-
 
 // ─── Air Loop Controls ───────────────────────────────────────────────────────
 
@@ -379,10 +392,18 @@ impl Default for AirLoopControls {
     }
 }
 
-fn default_controls_heating_supply() -> f64 { 35.0 }
-fn default_controls_cooling_supply() -> f64 { 13.0 }
-fn default_controls_deadband() -> f64 { 1.0 }
-fn default_controls_zone_flow() -> AutosizeValue { AutosizeValue::Value(0.5) }
+fn default_controls_heating_supply() -> f64 {
+    35.0
+}
+fn default_controls_cooling_supply() -> f64 {
+    13.0
+}
+fn default_controls_deadband() -> f64 {
+    1.0
+}
+fn default_controls_zone_flow() -> AutosizeValue {
+    AutosizeValue::Value(0.5)
+}
 
 /// Capacity control method for an air loop.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -395,7 +416,9 @@ pub enum CyclingMethod {
 }
 
 impl Default for CyclingMethod {
-    fn default() -> Self { CyclingMethod::Proportional }
+    fn default() -> Self {
+        CyclingMethod::Proportional
+    }
 }
 
 /// Fan operating mode for unitary systems (PTAC, PSZ-AC).
@@ -420,7 +443,9 @@ pub enum FanOperatingMode {
 }
 
 impl Default for FanOperatingMode {
-    fn default() -> Self { FanOperatingMode::Cycling }
+    fn default() -> Self {
+        FanOperatingMode::Cycling
+    }
 }
 
 /// Economizer controls for outdoor air mixing.
@@ -450,7 +475,9 @@ pub enum EconomizerType {
 }
 
 impl Default for EconomizerType {
-    fn default() -> Self { EconomizerType::DifferentialDryBulb }
+    fn default() -> Self {
+        EconomizerType::DifferentialDryBulb
+    }
 }
 
 // ─── Air Loop Input ──────────────────────────────────────────────────────────
@@ -534,7 +561,9 @@ impl AirLoopInput {
     }
 }
 
-fn default_min_vav_fraction() -> f64 { 0.30 }
+fn default_min_vav_fraction() -> f64 {
+    0.30
+}
 
 /// Individual equipment specification.
 /// Uses `type` to select the component category and `source` for the specific variant.
@@ -577,9 +606,15 @@ pub struct HumidifierInput {
     #[serde(default = "default_zone_cooling_sp")]
     pub zone_cooling_setpoint: f64,
 }
-fn default_humidifier_power() -> f64 { 100_000.0 }
-fn default_min_rh() -> f64 { 0.30 }
-fn default_zone_cooling_sp() -> f64 { 24.0 }
+fn default_humidifier_power() -> f64 {
+    100_000.0
+}
+fn default_min_rh() -> f64 {
+    0.30
+}
+fn default_zone_cooling_sp() -> f64 {
+    24.0
+}
 
 /// Air duct with conduction losses and leakage.
 ///
@@ -610,10 +645,18 @@ pub struct DuctInput {
     #[serde(default = "default_duct_ambient")]
     pub ambient_zone: String,
 }
-fn default_duct_diameter() -> f64 { 0.3 }
-fn default_duct_u_value() -> f64 { 0.71 }
-fn default_duct_leakage() -> f64 { 0.04 }
-fn default_duct_ambient() -> String { "outdoor".to_string() }
+fn default_duct_diameter() -> f64 {
+    0.3
+}
+fn default_duct_u_value() -> f64 {
+    0.71
+}
+fn default_duct_leakage() -> f64 {
+    0.04
+}
+fn default_duct_ambient() -> String {
+    "outdoor".to_string()
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FanInput {
@@ -644,11 +687,21 @@ pub struct FanInput {
     pub vav_coefficients: Option<[f64; 5]>,
 }
 
-fn default_fan_source() -> String { "constant_volume".to_string() }
-fn default_pressure_rise() -> f64 { 600.0 }
-fn default_motor_efficiency() -> f64 { 0.9 }
-fn default_impeller_efficiency() -> f64 { 0.71 }
-fn default_motor_in_airstream() -> f64 { 1.0 }
+fn default_fan_source() -> String {
+    "constant_volume".to_string()
+}
+fn default_pressure_rise() -> f64 {
+    600.0
+}
+fn default_motor_efficiency() -> f64 {
+    0.9
+}
+fn default_impeller_efficiency() -> f64 {
+    0.71
+}
+fn default_motor_in_airstream() -> f64 {
+    1.0
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HeatingCoilInput {
@@ -711,10 +764,18 @@ pub struct HeatingCoilInput {
     pub rated_air_outlet_temp: Option<f64>,
 }
 
-fn default_heating_source() -> String { "electric".to_string() }
-fn default_setpoint() -> f64 { 35.0 }
-fn default_efficiency() -> f64 { 1.0 }
-fn default_hp_cop() -> f64 { 3.0 }
+fn default_heating_source() -> String {
+    "electric".to_string()
+}
+fn default_setpoint() -> f64 {
+    35.0
+}
+fn default_efficiency() -> f64 {
+    1.0
+}
+fn default_hp_cop() -> f64 {
+    3.0
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CoolingCoilInput {
@@ -771,12 +832,24 @@ pub struct CoolingCoilInput {
     pub plant_loop: Option<String>,
 }
 
-fn default_cooling_source() -> String { "dx".to_string() }
-fn default_cop() -> f64 { 3.5 }
-fn default_shr() -> f64 { 0.8 }
-fn default_dx_coil_setpoint() -> f64 { 13.0 }
-fn default_chw_supply_temp() -> f64 { 6.7 }
-fn default_chw_return_temp() -> f64 { 12.2 }
+fn default_cooling_source() -> String {
+    "dx".to_string()
+}
+fn default_cop() -> f64 {
+    3.5
+}
+fn default_shr() -> f64 {
+    0.8
+}
+fn default_dx_coil_setpoint() -> f64 {
+    13.0
+}
+fn default_chw_supply_temp() -> f64 {
+    6.7
+}
+fn default_chw_return_temp() -> f64 {
+    12.2
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HeatRecoveryInput {
@@ -795,8 +868,12 @@ pub struct HeatRecoveryInput {
     pub parasitic_power: f64,
 }
 
-fn default_hr_source() -> String { "wheel".to_string() }
-fn default_sensible_effectiveness() -> f64 { 0.76 }
+fn default_hr_source() -> String {
+    "wheel".to_string()
+}
+fn default_sensible_effectiveness() -> f64 {
+    0.76
+}
 
 /// Zone connection — links a zone to an air loop, optionally with a terminal box.
 ///
@@ -907,8 +984,12 @@ pub struct PfpBoxInput {
     pub secondary_air_temp: Option<f64>,
 }
 
-fn default_min_flow_fraction() -> f64 { 0.30 }
-fn default_reheat_type() -> String { "none".to_string() }
+fn default_min_flow_fraction() -> f64 {
+    0.30
+}
+fn default_reheat_type() -> String {
+    "none".to_string()
+}
 
 /// Plant loop input definition.
 #[derive(Debug, Serialize, Deserialize)]
@@ -921,8 +1002,12 @@ pub struct PlantLoopInput {
     pub design_delta_t: f64,
 }
 
-fn default_supply_temp() -> f64 { 82.0 }
-fn default_delta_t() -> f64 { 11.0 }
+fn default_supply_temp() -> f64 {
+    82.0
+}
+fn default_delta_t() -> f64 {
+    11.0
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -1023,13 +1108,25 @@ pub struct PumpInput {
     pub control_strategy: PumpControlStrategy,
 }
 
-fn default_num_pumps() -> u32 { 1 }
-fn default_impeller_eff() -> f64 { 0.667 }
-fn default_motor_heat_to_fluid() -> f64 { 1.0 }
+fn default_num_pumps() -> u32 {
+    1
+}
+fn default_impeller_eff() -> f64 {
+    0.667
+}
+fn default_motor_heat_to_fluid() -> f64 {
+    1.0
+}
 
-fn default_pump_type() -> String { "variable_speed".to_string() }
-fn default_pump_head() -> f64 { 179_352.0 }
-fn default_pump_motor_eff() -> f64 { 0.9 }
+fn default_pump_type() -> String {
+    "variable_speed".to_string()
+}
+fn default_pump_head() -> f64 {
+    179_352.0
+}
+fn default_pump_motor_eff() -> f64 {
+    0.9
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BoilerInput {
@@ -1077,8 +1174,12 @@ impl BoilerFlowModeInput {
     }
 }
 
-fn default_boiler_efficiency() -> f64 { 0.80 }
-fn default_boiler_outlet_temp() -> f64 { 82.0 }
+fn default_boiler_efficiency() -> f64 {
+    0.80
+}
+fn default_boiler_outlet_temp() -> f64 {
+    82.0
+}
 
 /// Performance curve coefficients for YAML input.
 ///
@@ -1099,8 +1200,12 @@ pub struct CurveInput {
     pub max_y: f64,
 }
 
-fn default_curve_min() -> f64 { -100.0 }
-fn default_curve_max() -> f64 { 100.0 }
+fn default_curve_min() -> f64 {
+    -100.0
+}
+fn default_curve_max() -> f64 {
+    100.0
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChillerInput {
@@ -1150,11 +1255,21 @@ pub struct ChillerInput {
     pub condenser_plant_loop: Option<String>,
 }
 
-fn default_chiller_cop() -> f64 { 3.5 }
-fn default_chw_setpoint() -> f64 { 7.0 }
-fn default_condenser_type() -> String { "air_cooled".to_string() }
-fn default_tower_approach() -> f64 { 5.56 }
-fn default_chiller_min_plr() -> f64 { 0.25 }
+fn default_chiller_cop() -> f64 {
+    3.5
+}
+fn default_chw_setpoint() -> f64 {
+    7.0
+}
+fn default_condenser_type() -> String {
+    "air_cooled".to_string()
+}
+fn default_tower_approach() -> f64 {
+    5.56
+}
+fn default_chiller_min_plr() -> f64 {
+    0.25
+}
 
 /// Cooling tower input for condenser water loops.
 #[derive(Debug, Serialize, Deserialize)]
@@ -1187,10 +1302,18 @@ pub struct CoolingTowerInput {
     pub fan_power_curve: Option<Vec<f64>>,
 }
 
-fn default_ct_tower_type() -> String { "variable_speed".to_string() }
-fn default_ct_inlet_temp() -> f64 { 35.0 }
-fn default_ct_approach() -> f64 { 3.9 }
-fn default_ct_range() -> f64 { 5.56 }
+fn default_ct_tower_type() -> String {
+    "variable_speed".to_string()
+}
+fn default_ct_inlet_temp() -> f64 {
+    35.0
+}
+fn default_ct_approach() -> f64 {
+    3.9
+}
+fn default_ct_range() -> f64 {
+    5.56
+}
 
 /// Water-to-water heat exchanger input for inter-loop connections.
 ///
@@ -1217,9 +1340,15 @@ pub struct HeatExchangerInput {
     pub economizer_threshold: f64,
 }
 
-fn default_hx_effectiveness() -> f64 { 0.80 }
-fn default_hx_control() -> String { "always_on".to_string() }
-fn default_hx_threshold() -> f64 { 2.0 }
+fn default_hx_effectiveness() -> f64 {
+    0.80
+}
+fn default_hx_control() -> String {
+    "always_on".to_string()
+}
+fn default_hx_threshold() -> f64 {
+    2.0
+}
 
 /// Design day input.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1337,9 +1466,7 @@ pub enum MainsTemperature {
     /// Fixed constant temperature [°C].
     Fixed(f64),
     /// Seasonal correlation using ASHRAE method.
-    Correlation {
-        correlation: MainsCorrelation,
-    },
+    Correlation { correlation: MainsCorrelation },
 }
 
 impl Default for MainsTemperature {
@@ -1534,14 +1661,30 @@ pub struct DhwLoadInput {
     pub use_temperature: f64,
 }
 
-fn default_mains_temp() -> MainsTemperature { MainsTemperature::Fixed(10.0) }
-fn default_dhw_fuel() -> String { "gas".to_string() }
-fn default_wh_efficiency() -> f64 { 0.80 }
-fn default_wh_setpoint() -> f64 { 60.0 }
-fn default_wh_ua() -> f64 { 2.0 }
-fn default_wh_deadband() -> f64 { 5.0 }
-fn default_wh_control() -> String { "on_off".to_string() }
-fn default_use_temp() -> f64 { 43.3 }
+fn default_mains_temp() -> MainsTemperature {
+    MainsTemperature::Fixed(10.0)
+}
+fn default_dhw_fuel() -> String {
+    "gas".to_string()
+}
+fn default_wh_efficiency() -> f64 {
+    0.80
+}
+fn default_wh_setpoint() -> f64 {
+    60.0
+}
+fn default_wh_ua() -> f64 {
+    2.0
+}
+fn default_wh_deadband() -> f64 {
+    5.0
+}
+fn default_wh_control() -> String {
+    "on_off".to_string()
+}
+fn default_use_temp() -> f64 {
+    43.3
+}
 
 // ─── Exterior Equipment ─────────────────────────────────────────────────────
 
@@ -1570,7 +1713,9 @@ pub struct ExteriorEquipmentInput {
     pub astronomical_clock: bool,
 }
 
-fn default_exterior_fuel() -> String { "electricity".to_string() }
+fn default_exterior_fuel() -> String {
+    "electricity".to_string()
+}
 
 // ─── Model Builder ───────────────────────────────────────────────────────────
 
@@ -1659,10 +1804,18 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             }
                             // Look up optional performance curves by name
                             let cap_curve = c.cap_ft_curve.as_ref().and_then(|name| {
-                                model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                                model
+                                    .performance_curves
+                                    .iter()
+                                    .find(|pc| pc.name == *name)
+                                    .cloned()
                             });
                             let eir_curve = c.eir_ft_curve.as_ref().and_then(|name| {
-                                model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                                model
+                                    .performance_curves
+                                    .iter()
+                                    .find(|pc| pc.name == *name)
+                                    .cloned()
                             });
                             coil = coil.with_curves(cap_curve, eir_curve);
                             graph.add_air_component(Box::new(coil))
@@ -1683,34 +1836,23 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                                     ua_cfg.rated_air_outlet_temp = v;
                                 }
                                 let coil = HeatingCoil::hot_water_ua(
-                                    &c.name,
-                                    cap,
-                                    c.setpoint,
-                                    0.001,  // default water flow
-                                    82.0,   // default water inlet temp
-                                    71.0,   // default water outlet temp
+                                    &c.name, cap, c.setpoint, 0.001, // default water flow
+                                    82.0,  // default water inlet temp
+                                    71.0,  // default water outlet temp
                                     ua_cfg,
                                 );
                                 graph.add_air_component(Box::new(coil))
                             } else {
                                 let coil = HeatingCoil::hot_water(
-                                    &c.name,
-                                    cap,
-                                    c.setpoint,
-                                    0.001,  // default water flow
-                                    82.0,   // default water inlet temp
-                                    71.0,   // default water outlet temp
+                                    &c.name, cap, c.setpoint, 0.001, // default water flow
+                                    82.0,  // default water inlet temp
+                                    71.0,  // default water outlet temp
                                 );
                                 graph.add_air_component(Box::new(coil))
                             }
                         }
                         "gas" | "Gas" | "furnace" | "Furnace" => {
-                            let coil = HeatingCoil::gas(
-                                &c.name,
-                                cap,
-                                c.setpoint,
-                                c.efficiency,
-                            );
+                            let coil = HeatingCoil::gas(&c.name, cap, c.setpoint, c.efficiency);
                             graph.add_air_component(Box::new(coil))
                         }
                         _ => {
@@ -1728,7 +1870,11 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             } else {
                                 // Default: derive from capacity (2.4 GPM/ton ≈ 0.000151 m³/s per 3517W)
                                 let cap = c.capacity.to_f64();
-                                if cap > 0.0 { cap / 3517.0 * 0.000151 } else { 0.001 }
+                                if cap > 0.0 {
+                                    cap / 3517.0 * 0.000151
+                                } else {
+                                    0.001
+                                }
                             };
                             let coil = CoolingCoilCHW::new(
                                 &c.name,
@@ -1744,16 +1890,32 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                         _ => {
                             // DX cooling coil (default)
                             let cap_curve = c.cap_ft_curve.as_ref().and_then(|name| {
-                                model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                                model
+                                    .performance_curves
+                                    .iter()
+                                    .find(|pc| pc.name == *name)
+                                    .cloned()
                             });
                             let eir_curve = c.eir_ft_curve.as_ref().and_then(|name| {
-                                model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                                model
+                                    .performance_curves
+                                    .iter()
+                                    .find(|pc| pc.name == *name)
+                                    .cloned()
                             });
                             let cap_fflow = c.cap_fflow_curve.as_ref().and_then(|name| {
-                                model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                                model
+                                    .performance_curves
+                                    .iter()
+                                    .find(|pc| pc.name == *name)
+                                    .cloned()
                             });
                             let eir_fflow = c.eir_fflow_curve.as_ref().and_then(|name| {
-                                model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                                model
+                                    .performance_curves
+                                    .iter()
+                                    .find(|pc| pc.name == *name)
+                                    .cloned()
                             });
                             let mut coil = CoolingCoilDX::new(
                                 &c.name,
@@ -1767,7 +1929,11 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             .with_fflow_curves(cap_fflow, eir_fflow)
                             .with_autocalculate_shr(c.autocalculate_shr);
                             if let Some(plf) = c.plf_curve.as_ref().and_then(|name| {
-                                model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                                model
+                                    .performance_curves
+                                    .iter()
+                                    .find(|pc| pc.name == *name)
+                                    .cloned()
                             }) {
                                 coil = coil.with_plf_curve(plf);
                             }
@@ -1871,7 +2037,11 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
             let node = match equipment {
                 PlantEquipmentInput::Boiler(b) => {
                     let eff_curve = b.efficiency_curve.as_ref().and_then(|name| {
-                        model.performance_curves.iter().find(|pc| pc.name == *name).cloned()
+                        model
+                            .performance_curves
+                            .iter()
+                            .find(|pc| pc.name == *name)
+                            .cloned()
                     });
                     let boiler = Boiler::new(
                         &b.name,
@@ -1909,40 +2079,57 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                     chiller.tower_approach = ci.tower_approach;
                     // Convert CurveInput → PerformanceCurve for CAPFT
                     if let Some(ref c) = ci.capft {
-                        use openbse_components::performance_curve::{PerformanceCurve, CurveType};
-                        let ct = if c.coefficients.len() >= 6 { CurveType::Biquadratic } else { CurveType::Quadratic };
+                        use openbse_components::performance_curve::{CurveType, PerformanceCurve};
+                        let ct = if c.coefficients.len() >= 6 {
+                            CurveType::Biquadratic
+                        } else {
+                            CurveType::Quadratic
+                        };
                         chiller.capft_curve = Some(PerformanceCurve {
                             name: format!("{}_capft", ci.name),
                             curve_type: ct,
                             coefficients: c.coefficients.clone(),
-                            min_x: c.min_x, max_x: c.max_x,
-                            min_y: c.min_y, max_y: c.max_y,
-                            min_output: None, max_output: None,
+                            min_x: c.min_x,
+                            max_x: c.max_x,
+                            min_y: c.min_y,
+                            max_y: c.max_y,
+                            min_output: None,
+                            max_output: None,
                         });
                     }
                     // Convert CurveInput → PerformanceCurve for EIRFT
                     if let Some(ref c) = ci.eirft {
-                        use openbse_components::performance_curve::{PerformanceCurve, CurveType};
-                        let ct = if c.coefficients.len() >= 6 { CurveType::Biquadratic } else { CurveType::Quadratic };
+                        use openbse_components::performance_curve::{CurveType, PerformanceCurve};
+                        let ct = if c.coefficients.len() >= 6 {
+                            CurveType::Biquadratic
+                        } else {
+                            CurveType::Quadratic
+                        };
                         chiller.eirft_curve = Some(PerformanceCurve {
                             name: format!("{}_eirft", ci.name),
                             curve_type: ct,
                             coefficients: c.coefficients.clone(),
-                            min_x: c.min_x, max_x: c.max_x,
-                            min_y: c.min_y, max_y: c.max_y,
-                            min_output: None, max_output: None,
+                            min_x: c.min_x,
+                            max_x: c.max_x,
+                            min_y: c.min_y,
+                            max_y: c.max_y,
+                            min_output: None,
+                            max_output: None,
                         });
                     }
                     // Convert CurveInput → PerformanceCurve for EIRFPLR
                     if let Some(ref c) = ci.eirfplr {
-                        use openbse_components::performance_curve::{PerformanceCurve, CurveType};
+                        use openbse_components::performance_curve::{CurveType, PerformanceCurve};
                         chiller.eirfplr_curve = Some(PerformanceCurve {
                             name: format!("{}_eirfplr", ci.name),
                             curve_type: CurveType::Quadratic,
                             coefficients: c.coefficients.clone(),
-                            min_x: c.min_x, max_x: c.max_x,
-                            min_y: 0.0, max_y: 0.0,
-                            min_output: None, max_output: None,
+                            min_x: c.min_x,
+                            max_x: c.max_x,
+                            min_y: 0.0,
+                            max_y: 0.0,
+                            min_output: None,
+                            max_output: None,
                         });
                     }
                     graph.add_plant_component(Box::new(chiller))
@@ -1993,13 +2180,14 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                     // Apply custom fan power curve if specified
                     if let Some(ref curve) = ct.fan_power_curve {
                         if curve.len() >= 5 {
-                            tower.fan_power_curve = [curve[0], curve[1], curve[2], curve[3], curve[4]];
+                            tower.fan_power_curve =
+                                [curve[0], curve[1], curve[2], curve[3], curve[4]];
                         }
                     }
                     graph.add_plant_component(Box::new(tower))
                 }
                 PlantEquipmentInput::HeatExchanger(hx) => {
-                    use openbse_components::heat_exchanger::{WaterToWaterHX, HXControlMode};
+                    use openbse_components::heat_exchanger::{HXControlMode, WaterToWaterHX};
                     let control = match hx.control_mode.as_str() {
                         "economizer" => HXControlMode::Economizer,
                         _ => HXControlMode::AlwaysOn,
@@ -2042,9 +2230,9 @@ pub fn build_controllers(model: &ModelInput) -> Vec<Box<dyn Controller>> {
 
     // Default supply temps and design flow — these will come from air loop
     // controls once Phase 2 is wired up. For now, use standard defaults.
-    let default_heating_supply = 35.0;  // °C
-    let default_cooling_supply = 13.0;  // °C
-    let default_zone_flow = 0.5;        // kg/s
+    let default_heating_supply = 35.0; // °C
+    let default_cooling_supply = 13.0; // °C
+    let default_zone_flow = 0.5; // kg/s
 
     for tstat in &resolved_thermostats {
         let group = ZoneGroup {
@@ -2057,9 +2245,13 @@ pub fn build_controllers(model: &ModelInput) -> Vec<Box<dyn Controller>> {
 
         // Look up air loop controls for supply temps + design flow.
         // Find the first air loop that serves any of this thermostat's zones.
-        let (heat_supply, cool_supply, zone_flow) = model.air_loops.iter()
+        let (heat_supply, cool_supply, zone_flow) = model
+            .air_loops
+            .iter()
             .find(|al| {
-                al.zone_terminals.iter().any(|zc| tstat.zones.contains(&zc.zone))
+                al.zone_terminals
+                    .iter()
+                    .any(|zc| tstat.zones.contains(&zc.zone))
             })
             .map(|al| {
                 (
@@ -2068,7 +2260,11 @@ pub fn build_controllers(model: &ModelInput) -> Vec<Box<dyn Controller>> {
                     al.controls.design_zone_flow.to_f64(),
                 )
             })
-            .unwrap_or((default_heating_supply, default_cooling_supply, default_zone_flow));
+            .unwrap_or((
+                default_heating_supply,
+                default_cooling_supply,
+                default_zone_flow,
+            ));
 
         let thermostat = ZoneThermostat::from_groups(
             &format!("{} Thermostat", tstat.name),
@@ -2084,19 +2280,11 @@ pub fn build_controllers(model: &ModelInput) -> Vec<Box<dyn Controller>> {
     for control in &model.controls {
         match control {
             ControlInput::Setpoint(sp) => {
-                let ctrl = SetpointController::air_setpoint(
-                    &sp.name,
-                    &sp.component,
-                    sp.value,
-                );
+                let ctrl = SetpointController::air_setpoint(&sp.name, &sp.component, sp.value);
                 controllers.push(Box::new(ctrl));
             }
             ControlInput::PlantLoopSetpoint(pls) => {
-                let ctrl = PlantLoopSetpoint::new(
-                    &pls.name,
-                    &pls.loop_name,
-                    pls.supply_temp,
-                );
+                let ctrl = PlantLoopSetpoint::new(&pls.name, &pls.loop_name, pls.supply_temp);
                 controllers.push(Box::new(ctrl));
             }
         }
@@ -2147,13 +2335,20 @@ pub fn build_envelope(
 
     // Set site terrain for wind profile calculations
     env.terrain = model.simulation.terrain;
-    log::info!("Site terrain: {:?} (wind exp={:.2}, BL height={:.0}m)",
-        env.terrain, env.terrain.wind_exp(), env.terrain.wind_bl_height());
+    log::info!(
+        "Site terrain: {:?} (wind exp={:.2}, BL height={:.0}m)",
+        env.terrain,
+        env.terrain.wind_exp(),
+        env.terrain.wind_bl_height()
+    );
 
     // Set infiltration interaction mode
     env.infiltration_interaction = model.simulation.infiltration_interaction;
     if env.infiltration_interaction != openbse_envelope::InfiltrationInteraction::Basic {
-        log::info!("Infiltration interaction: {:?}", env.infiltration_interaction);
+        log::info!(
+            "Infiltration interaction: {:?}",
+            env.infiltration_interaction
+        );
     }
 
     // Resolve shading surfaces and register them with the envelope
@@ -2184,16 +2379,17 @@ pub fn build_envelope(
 /// the zone's existing fields (supporting both old embedded format and
 /// new top-level format simultaneously).
 fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
-    use openbse_envelope::{InternalGainInput, InfiltrationInput};
     use openbse_envelope::zone::{
-        IdealLoadsAirSystem, VentilationScheduleEntry,
-        ExhaustFanInput, OutdoorAirInput,
+        ExhaustFanInput, IdealLoadsAirSystem, OutdoorAirInput, VentilationScheduleEntry,
     };
+    use openbse_envelope::{InfiltrationInput, InternalGainInput};
 
     let mut zones = model.zones.clone();
 
     // Build zone name → zone group names mapping for expansion
-    let zone_group_map: std::collections::HashMap<String, Vec<String>> = model.zone_groups.iter()
+    let zone_group_map: std::collections::HashMap<String, Vec<String>> = model
+        .zone_groups
+        .iter()
         .map(|zg| (zg.name.clone(), zg.zones.clone()))
         .collect();
 
@@ -2221,7 +2417,11 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                     ppa * zone.floor_area
                 } else if let Some(app) = people.area_per_person {
                     // floor_area / area_per_person = number of people
-                    if app > 0.0 { zone.floor_area / app } else { 0.0 }
+                    if app > 0.0 {
+                        zone.floor_area / app
+                    } else {
+                        0.0
+                    }
                 } else {
                     people.count
                 };
@@ -2348,12 +2548,14 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                 // Compute per_person and per_area flow components
                 let pp_flow = if let Some(pp) = vent.per_person {
                     // Count people already resolved for this zone
-                    let people_count: f64 = zone.internal_gains.iter().map(|g| {
-                        match g {
+                    let people_count: f64 = zone
+                        .internal_gains
+                        .iter()
+                        .map(|g| match g {
                             InternalGainInput::People { count, .. } => *count,
                             _ => 0.0,
-                        }
-                    }).sum();
+                        })
+                        .sum();
                     pp * people_count
                 } else {
                     0.0
@@ -2369,7 +2571,9 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                 if pp_flow > 0.0 || pa_flow > 0.0 {
                     let occupancy_based = match vent.combining_method {
                         openbse_envelope::VentilationCombiningMethod::Sum => pp_flow + pa_flow,
-                        openbse_envelope::VentilationCombiningMethod::Maximum => pp_flow.max(pa_flow),
+                        openbse_envelope::VentilationCombiningMethod::Maximum => {
+                            pp_flow.max(pa_flow)
+                        }
                     };
                     resolved_flow += occupancy_based;
                 }
@@ -2461,7 +2665,9 @@ pub fn compute_oa_fraction(
     resolved_zones: &[openbse_envelope::ZoneInput],
     default_fraction: f64,
 ) -> f64 {
-    let served_zone_names: Vec<String> = air_loop.zone_terminals.iter()
+    let served_zone_names: Vec<String> = air_loop
+        .zone_terminals
+        .iter()
         .map(|zc| zc.zone.clone())
         .collect();
 
@@ -2485,20 +2691,26 @@ pub fn compute_oa_fraction(
                 let volume = zone.volume;
 
                 // Count people from resolved internal gains
-                let people_count: f64 = zone.internal_gains.iter().map(|g| {
-                    match g {
+                let people_count: f64 = zone
+                    .internal_gains
+                    .iter()
+                    .map(|g| match g {
                         openbse_envelope::InternalGainInput::People { count, .. } => *count,
                         _ => 0.0,
-                    }
-                }).sum();
+                    })
+                    .sum();
 
                 let person_flow = oa.per_person * people_count;
                 let area_flow = oa.per_area * floor_area;
                 let abs_flow = oa.absolute;
                 let ach_flow = oa.ach * volume / 3600.0;
                 total_oa_flow += match oa.oa_method {
-                    openbse_envelope::zone_loads::OaMethod::Sum => person_flow + area_flow + abs_flow + ach_flow,
-                    openbse_envelope::zone_loads::OaMethod::Maximum => person_flow.max(area_flow).max(abs_flow).max(ach_flow),
+                    openbse_envelope::zone_loads::OaMethod::Sum => {
+                        person_flow + area_flow + abs_flow + ach_flow
+                    }
+                    openbse_envelope::zone_loads::OaMethod::Maximum => {
+                        person_flow.max(area_flow).max(abs_flow).max(ach_flow)
+                    }
                 };
             }
         } else if let Some(zi) = zone_input {
@@ -2508,20 +2720,26 @@ pub fn compute_oa_fraction(
                 let floor_area = zi.floor_area;
                 let volume = zi.volume;
 
-                let people_count: f64 = zi.internal_gains.iter().map(|g| {
-                    match g {
+                let people_count: f64 = zi
+                    .internal_gains
+                    .iter()
+                    .map(|g| match g {
                         openbse_envelope::InternalGainInput::People { count, .. } => *count,
                         _ => 0.0,
-                    }
-                }).sum();
+                    })
+                    .sum();
 
                 let person_flow = oa.per_person * people_count;
                 let area_flow = oa.per_area * floor_area;
                 let abs_flow = oa.absolute;
                 let ach_flow = oa.ach * volume / 3600.0;
                 total_oa_flow += match oa.oa_method {
-                    openbse_envelope::zone_loads::OaMethod::Sum => person_flow + area_flow + abs_flow + ach_flow,
-                    openbse_envelope::zone_loads::OaMethod::Maximum => person_flow.max(area_flow).max(abs_flow).max(ach_flow),
+                    openbse_envelope::zone_loads::OaMethod::Sum => {
+                        person_flow + area_flow + abs_flow + ach_flow
+                    }
+                    openbse_envelope::zone_loads::OaMethod::Maximum => {
+                        person_flow.max(area_flow).max(abs_flow).max(ach_flow)
+                    }
                 };
             }
         }
@@ -2532,14 +2750,16 @@ pub fn compute_oa_fraction(
     }
 
     // Find design supply flow from the fan in this air loop
-    let design_flow = air_loop.equipment.iter().find_map(|eq| {
-        match eq {
-            EquipmentInput::Fan(f) => {
-                let flow = f.design_flow_rate.to_f64();
-                if flow > 0.0 { Some(flow) } else { None }
+    let design_flow = air_loop.equipment.iter().find_map(|eq| match eq {
+        EquipmentInput::Fan(f) => {
+            let flow = f.design_flow_rate.to_f64();
+            if flow > 0.0 {
+                Some(flow)
+            } else {
+                None
             }
-            _ => None,
         }
+        _ => None,
     });
 
     match design_flow {
@@ -2558,7 +2778,9 @@ pub fn compute_oa_fraction(
 /// Returns a flat list of resolved thermostat definitions with individual zone names.
 pub fn resolve_thermostats(model: &ModelInput) -> Vec<openbse_envelope::ThermostatInput> {
     // Build zone group name → zone names mapping
-    let zone_group_map: std::collections::HashMap<String, Vec<String>> = model.zone_groups.iter()
+    let zone_group_map: std::collections::HashMap<String, Vec<String>> = model
+        .zone_groups
+        .iter()
         .map(|zg| (zg.name.clone(), zg.zones.clone()))
         .collect();
 
@@ -2575,11 +2797,15 @@ pub fn resolve_thermostats(model: &ModelInput) -> Vec<openbse_envelope::Thermost
         result
     };
 
-    model.thermostats.iter().map(|t| {
-        let mut resolved = t.clone();
-        resolved.zones = expand_zones(&t.zones);
-        resolved
-    }).collect()
+    model
+        .thermostats
+        .iter()
+        .map(|t| {
+            let mut resolved = t.clone();
+            resolved.zones = expand_zones(&t.zones);
+            resolved
+        })
+        .collect()
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -2620,7 +2846,7 @@ impl std::fmt::Display for DiagMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.severity {
             DiagSeverity::Warning => write!(f, "** Warning ** {}", self.message),
-            DiagSeverity::Severe  => write!(f, "** Severe  ** {}", self.message),
+            DiagSeverity::Severe => write!(f, "** Severe  ** {}", self.message),
         }
     }
 }
@@ -2632,32 +2858,50 @@ pub struct ValidationResult {
 
 impl ValidationResult {
     pub fn new() -> Self {
-        Self { diagnostics: Vec::new() }
+        Self {
+            diagnostics: Vec::new(),
+        }
     }
 
     fn warn(&mut self, msg: String) {
-        self.diagnostics.push(DiagMessage { severity: DiagSeverity::Warning, message: msg });
+        self.diagnostics.push(DiagMessage {
+            severity: DiagSeverity::Warning,
+            message: msg,
+        });
     }
 
     fn severe(&mut self, msg: String) {
-        self.diagnostics.push(DiagMessage { severity: DiagSeverity::Severe, message: msg });
+        self.diagnostics.push(DiagMessage {
+            severity: DiagSeverity::Severe,
+            message: msg,
+        });
     }
 
     /// Number of severe errors.
     pub fn error_count(&self) -> usize {
-        self.diagnostics.iter().filter(|d| d.severity == DiagSeverity::Severe).count()
+        self.diagnostics
+            .iter()
+            .filter(|d| d.severity == DiagSeverity::Severe)
+            .count()
     }
 
     /// Number of warnings.
     pub fn warning_count(&self) -> usize {
-        self.diagnostics.iter().filter(|d| d.severity == DiagSeverity::Warning).count()
+        self.diagnostics
+            .iter()
+            .filter(|d| d.severity == DiagSeverity::Warning)
+            .count()
     }
 
     /// Format the full error file content (E+-style).
     pub fn to_err_file(&self) -> String {
         let mut lines = Vec::new();
         lines.push("OpenBSE Error File".to_string());
-        lines.push(format!("Errors: {}, Warnings: {}", self.error_count(), self.warning_count()));
+        lines.push(format!(
+            "Errors: {}, Warnings: {}",
+            self.error_count(),
+            self.warning_count()
+        ));
         lines.push(String::new());
         for diag in &self.diagnostics {
             lines.push(diag.to_string());
@@ -2688,17 +2932,17 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     // ── Build lookup sets ──────────────────────────────────────────────────
 
-    let zone_names: std::collections::HashSet<&str> = model.zones.iter()
-        .map(|z| z.name.as_str())
-        .collect();
+    let zone_names: std::collections::HashSet<&str> =
+        model.zones.iter().map(|z| z.name.as_str()).collect();
 
-    let zone_group_map: std::collections::HashMap<&str, &[String]> = model.zone_groups.iter()
+    let zone_group_map: std::collections::HashMap<&str, &[String]> = model
+        .zone_groups
+        .iter()
         .map(|zg| (zg.name.as_str(), zg.zones.as_slice()))
         .collect();
 
-    let schedule_names: std::collections::HashSet<&str> = model.schedules.iter()
-        .map(|s| s.name.as_str())
-        .collect();
+    let schedule_names: std::collections::HashSet<&str> =
+        model.schedules.iter().map(|s| s.name.as_str()).collect();
 
     // Built-in schedules that are always available
     let builtin_schedules: std::collections::HashSet<&str> =
@@ -2706,7 +2950,10 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     // ── Helper: validate a list of zone/zone-group references ──────────────
 
-    let check_zone_refs = |refs: &[String], obj_type: &str, obj_name: &str, result: &mut ValidationResult| {
+    let check_zone_refs = |refs: &[String],
+                           obj_type: &str,
+                           obj_name: &str,
+                           result: &mut ValidationResult| {
         for name in refs {
             if zone_names.contains(name.as_str()) {
                 continue; // valid zone
@@ -2730,16 +2977,19 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
         }
     };
 
-    let check_schedule = |sched: &Option<String>, obj_type: &str, obj_name: &str, result: &mut ValidationResult| {
-        if let Some(name) = sched {
-            if !schedule_names.contains(name.as_str()) && !builtin_schedules.contains(name.as_str()) {
-                result.warn(format!(
-                    "Schedule '{}' referenced by {} '{}' not found (will default to always-on)",
-                    name, obj_type, obj_name
-                ));
+    let check_schedule =
+        |sched: &Option<String>, obj_type: &str, obj_name: &str, result: &mut ValidationResult| {
+            if let Some(name) = sched {
+                if !schedule_names.contains(name.as_str())
+                    && !builtin_schedules.contains(name.as_str())
+                {
+                    result.warn(format!(
+                        "Schedule '{}' referenced by {} '{}' not found (will default to always-on)",
+                        name, obj_type, obj_name
+                    ));
+                }
             }
-        }
-    };
+        };
 
     // ── Validate people ────────────────────────────────────────────────────
 
@@ -2859,11 +3109,14 @@ mod tests {
         let east = &model.zones[0];
         assert_eq!(east.name, "East Office");
         assert!(east.internal_gains.is_empty(), "Gains moved to top-level");
-        assert!(east.infiltration.is_empty(), "Infiltration moved to top-level");
+        assert!(
+            east.infiltration.is_empty(),
+            "Infiltration moved to top-level"
+        );
 
         // Verify top-level zone load sections parsed correctly
-        assert_eq!(model.people.len(), 2);   // Office + Conference
-        assert_eq!(model.lights.len(), 2);   // Office + Conference
+        assert_eq!(model.people.len(), 2); // Office + Conference
+        assert_eq!(model.lights.len(), 2); // Office + Conference
         assert_eq!(model.equipment.len(), 1); // Office only
         assert_eq!(model.infiltration.len(), 2); // Office + Conference
 
@@ -2880,10 +3133,15 @@ mod tests {
         // After resolution, zones should have gains populated
         let east_zone = &env.zones[0];
         assert_eq!(east_zone.input.name, "East Office");
-        assert_eq!(east_zone.input.internal_gains.len(), 3,
-            "East Office should have 3 resolved gains (people + lights + equipment)");
-        assert!(!east_zone.input.infiltration.is_empty(),
-            "East Office should have resolved infiltration");
+        assert_eq!(
+            east_zone.input.internal_gains.len(),
+            3,
+            "East Office should have 3 resolved gains (people + lights + equipment)"
+        );
+        assert!(
+            !east_zone.input.infiltration.is_empty(),
+            "East Office should have resolved infiltration"
+        );
         assert!(east_zone.input.infiltration[0].design_flow_rate > 0.0);
     }
 
@@ -3086,13 +3344,20 @@ surfaces:
         assert_eq!(model.equipment.len(), 1);
 
         // Zone should have solar distribution (stays on zone)
-        assert!(model.zones[0].solar_distribution.is_some(), "Zone should have solar_distribution");
+        assert!(
+            model.zones[0].solar_distribution.is_some(),
+            "Zone should have solar_distribution"
+        );
         let sd = model.zones[0].solar_distribution.as_ref().unwrap();
         assert!((sd.floor_fraction - 0.642).abs() < 0.01);
 
         // Surfaces should have vertices
         for surf in &model.surfaces {
-            assert!(surf.vertices.is_some(), "Surface '{}' missing vertices", surf.name);
+            assert!(
+                surf.vertices.is_some(),
+                "Surface '{}' missing vertices",
+                surf.name
+            );
         }
 
         // Build envelope and verify auto-calculations
@@ -3105,34 +3370,59 @@ surfaces:
 
         // Zone volume should be auto-calculated: 8 x 6 x 2.7 = 129.6 m3
         let zone = &env.zones[0];
-        assert!((zone.input.volume - 129.6).abs() < 1.0,
-            "Zone volume should be ~129.6, got {}", zone.input.volume);
+        assert!(
+            (zone.input.volume - 129.6).abs() < 1.0,
+            "Zone volume should be ~129.6, got {}",
+            zone.input.volume
+        );
 
         // Floor area should be auto-calculated: 8 x 6 = 48.0 m2
-        assert!((zone.input.floor_area - 48.0).abs() < 0.5,
-            "Floor area should be ~48.0, got {}", zone.input.floor_area);
+        assert!(
+            (zone.input.floor_area - 48.0).abs() < 0.5,
+            "Floor area should be ~48.0, got {}",
+            zone.input.floor_area
+        );
 
         // South wall should be 21.6 m2 (8 x 2.7) with azimuth 180, tilt 90
-        let south_wall = env.surfaces.iter()
+        let south_wall = env
+            .surfaces
+            .iter()
             .find(|s| s.input.name == "South Wall")
             .expect("South Wall not found");
-        assert!((south_wall.input.area - 21.6).abs() < 0.1,
-            "South Wall area should be 21.6, got {}", south_wall.input.area);
-        assert!((south_wall.input.azimuth - 180.0).abs() < 1.0,
-            "South Wall azimuth should be 180, got {}", south_wall.input.azimuth);
-        assert!((south_wall.input.tilt - 90.0).abs() < 1.0,
-            "South Wall tilt should be 90, got {}", south_wall.input.tilt);
+        assert!(
+            (south_wall.input.area - 21.6).abs() < 0.1,
+            "South Wall area should be 21.6, got {}",
+            south_wall.input.area
+        );
+        assert!(
+            (south_wall.input.azimuth - 180.0).abs() < 1.0,
+            "South Wall azimuth should be 180, got {}",
+            south_wall.input.azimuth
+        );
+        assert!(
+            (south_wall.input.tilt - 90.0).abs() < 1.0,
+            "South Wall tilt should be 90, got {}",
+            south_wall.input.tilt
+        );
 
         // Each window should be 6.0 m2 (3 x 2)
-        let win1 = env.surfaces.iter()
+        let win1 = env
+            .surfaces
+            .iter()
             .find(|s| s.input.name == "South Window 1")
             .expect("South Window 1 not found");
-        assert!((win1.input.area - 6.0).abs() < 0.1,
-            "Window area should be 6.0, got {}", win1.input.area);
+        assert!(
+            (win1.input.area - 6.0).abs() < 0.1,
+            "Window area should be 6.0, got {}",
+            win1.input.area
+        );
 
         // South wall net area = 21.6 - 2*6.0 = 9.6 m2
-        assert!((south_wall.net_area - 9.6).abs() < 0.1,
-            "South Wall net area should be 9.6, got {}", south_wall.net_area);
+        assert!(
+            (south_wall.net_area - 9.6).abs() < 0.1,
+            "South Wall net area should be 9.6, got {}",
+            south_wall.net_area
+        );
     }
 
     // ── Mains water temperature tests ────────────────────────────────
@@ -3145,13 +3435,20 @@ surfaces:
         // arg = 2π/365 * (1 - 15.085 - 15) = 2π/365 * (-29.085) ≈ -0.5004
         // sin(-0.5004) ≈ -0.4797
         // T = 9.95 + 11.85 * (-0.4797) ≈ 4.29
-        assert!((t - 4.26).abs() < 0.2,
-            "Jan 1 mains temp should be ~4.3°C, got {:.2}", t);
+        assert!(
+            (t - 4.26).abs() < 0.2,
+            "Jan 1 mains temp should be ~4.3°C, got {:.2}",
+            t
+        );
 
         // Near peak (day ~121, ~May 1): sine peaks when day ≈ day_shift+15+91
         // Peak value = 9.95 + 11.85 = 21.8°C
         let t_peak = mains_water_temperature(121, 9.95, 23.7, 39.83);
-        assert!(t_peak > 20.0, "Peak mains should be >20°C, got {:.2}", t_peak);
+        assert!(
+            t_peak > 20.0,
+            "Peak mains should be >20°C, got {:.2}",
+            t_peak
+        );
 
         // Winter minimum (day ~304): should be well below average
         let t_min = mains_water_temperature(304, 9.95, 23.7, 39.83);
@@ -3162,8 +3459,11 @@ surfaces:
             .map(|d| mains_water_temperature(d, 9.95, 23.7, 39.83))
             .sum::<f64>()
             / 365.0;
-        assert!((avg - 9.95).abs() < 0.1,
-            "Annual average should be ~9.95°C, got {:.2}", avg);
+        assert!(
+            (avg - 9.95).abs() < 0.1,
+            "Annual average should be ~9.95°C, got {:.2}",
+            avg
+        );
     }
 
     #[test]

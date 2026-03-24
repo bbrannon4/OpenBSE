@@ -59,7 +59,11 @@ impl Vec3 {
 
     /// Scalar multiplication.
     pub fn scale(&self, s: f64) -> Vec3 {
-        Vec3 { x: self.x * s, y: self.y * s, z: self.z * s }
+        Vec3 {
+            x: self.x * s,
+            y: self.y * s,
+            z: self.z * s,
+        }
     }
 
     pub fn normalize(&self) -> Vec3 {
@@ -273,9 +277,9 @@ impl EnvelopeAreas {
     fn dir_index(dir: CardinalDirection) -> usize {
         match dir {
             CardinalDirection::North => 0,
-            CardinalDirection::East  => 1,
+            CardinalDirection::East => 1,
             CardinalDirection::South => 2,
-            CardinalDirection::West  => 3,
+            CardinalDirection::West => 3,
         }
     }
 
@@ -442,9 +446,9 @@ pub fn compute_box_view_factors(length: f64, width: f64, height: f64) -> [[f64; 
     let mut vf = [[0.0_f64; 6]; 6];
 
     // ── Parallel face pairs (opposite faces) ──────────────────────────
-    let f_fc = vf_parallel_rectangles(length, width, height);   // floor↔ceiling
-    let f_sn = vf_parallel_rectangles(length, height, width);   // south↔north
-    let f_ew = vf_parallel_rectangles(width, height, length);   // east↔west
+    let f_fc = vf_parallel_rectangles(length, width, height); // floor↔ceiling
+    let f_sn = vf_parallel_rectangles(length, height, width); // south↔north
+    let f_ew = vf_parallel_rectangles(width, height, length); // east↔west
 
     vf[FACE_FLOOR][FACE_CEILING] = f_fc;
     vf[FACE_CEILING][FACE_FLOOR] = f_fc;
@@ -729,7 +733,12 @@ mod tests {
         ];
 
         let surfaces: Vec<&[Point3D]> = vec![
-            &floor[..], &roof[..], &south[..], &north[..], &east[..], &west[..],
+            &floor[..],
+            &roof[..],
+            &south[..],
+            &north[..],
+            &east[..],
+            &west[..],
         ];
         let vol = zone_volume_from_surfaces(&surfaces);
         assert_relative_eq!(vol, 129.6, max_relative = 0.01);
@@ -853,15 +862,21 @@ mod tests {
 
         // Floor→Ceiling dominant (large parallel surface directly above)
         let f_floor_ceiling = vf[FACE_FLOOR][FACE_CEILING];
-        assert!(f_floor_ceiling > 0.45,
-            "Floor→Ceiling ({:.4}) should be >0.45 for 8×6×2.7 room", f_floor_ceiling);
+        assert!(
+            f_floor_ceiling > 0.45,
+            "Floor→Ceiling ({:.4}) should be >0.45 for 8×6×2.7 room",
+            f_floor_ceiling
+        );
 
         // South wall→Floor > South wall→North (adjacent floor is close and large)
         let f_south_floor = vf[FACE_SOUTH][FACE_FLOOR];
         let f_south_north = vf[FACE_SOUTH][FACE_NORTH];
-        assert!(f_south_floor > f_south_north,
+        assert!(
+            f_south_floor > f_south_north,
             "South→Floor ({:.4}) should exceed South→North ({:.4})",
-            f_south_floor, f_south_north);
+            f_south_floor,
+            f_south_north
+        );
 
         // South wall sees floor and ceiling equally (symmetric)
         let f_south_ceiling = vf[FACE_SOUTH][FACE_CEILING];

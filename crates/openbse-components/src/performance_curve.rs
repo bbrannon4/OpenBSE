@@ -54,8 +54,12 @@ pub struct PerformanceCurve {
     pub max_output: Option<f64>,
 }
 
-fn default_min() -> f64 { -100.0 }
-fn default_max() -> f64 { 100.0 }
+fn default_min() -> f64 {
+    -100.0
+}
+fn default_max() -> f64 {
+    100.0
+}
 
 impl PerformanceCurve {
     /// Evaluate the curve at the given independent variable(s).
@@ -73,8 +77,7 @@ impl PerformanceCurve {
         let result = match self.curve_type {
             CurveType::Linear => {
                 // f(x) = c1 + c2*x
-                c.get(0).copied().unwrap_or(0.0)
-                    + c.get(1).copied().unwrap_or(0.0) * x
+                c.get(0).copied().unwrap_or(0.0) + c.get(1).copied().unwrap_or(0.0) * x
             }
             CurveType::Quadratic => {
                 // f(x) = c1 + c2*x + c3*x²
@@ -132,8 +135,12 @@ mod tests {
             name: "DX Cap fT".to_string(),
             curve_type: CurveType::Biquadratic,
             coefficients: vec![
-                0.942587793, 0.009543347, 0.000683770,
-                -0.011042676, 0.000005249, -0.000009720,
+                0.942587793,
+                0.009543347,
+                0.000683770,
+                -0.011042676,
+                0.000005249,
+                -0.000009720,
             ],
             min_x: 12.78,
             max_x: 23.89,
@@ -155,8 +162,12 @@ mod tests {
             name: "DX Cap fT".to_string(),
             curve_type: CurveType::Biquadratic,
             coefficients: vec![
-                0.942587793, 0.009543347, 0.000683770,
-                -0.011042676, 0.000005249, -0.000009720,
+                0.942587793,
+                0.009543347,
+                0.000683770,
+                -0.011042676,
+                0.000005249,
+                -0.000009720,
             ],
             min_x: 12.78,
             max_x: 23.89,

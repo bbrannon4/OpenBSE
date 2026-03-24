@@ -130,11 +130,7 @@ impl ZoneThermostat {
     }
 
     /// Determine thermostat mode for a zone given current temp and setpoints.
-    fn determine_mode(
-        zone_temp: f64,
-        heating_sp: f64,
-        cooling_sp: f64,
-    ) -> ThermostatMode {
+    fn determine_mode(zone_temp: f64, heating_sp: f64, cooling_sp: f64) -> ThermostatMode {
         if zone_temp < heating_sp {
             ThermostatMode::Heating
         } else if zone_temp > cooling_sp {
@@ -197,7 +193,10 @@ impl ZoneThermostat {
 
     /// Get the current mode for a specific zone.
     pub fn zone_mode(&self, zone: &str) -> ThermostatMode {
-        self.zone_modes.get(zone).copied().unwrap_or(ThermostatMode::Off)
+        self.zone_modes
+            .get(zone)
+            .copied()
+            .unwrap_or(ThermostatMode::Off)
     }
 }
 
@@ -217,11 +216,8 @@ impl Controller for ZoneThermostat {
             for zone_name in &group.zones {
                 let zone_temp = state.zone_temp(zone_name);
 
-                let mode = Self::determine_mode(
-                    zone_temp,
-                    group.heating_setpoint,
-                    group.cooling_setpoint,
-                );
+                let mode =
+                    Self::determine_mode(zone_temp, group.heating_setpoint, group.cooling_setpoint);
 
                 self.zone_modes.insert(zone_name.clone(), mode);
 
@@ -240,12 +236,8 @@ impl Controller for ZoneThermostat {
                     self.cooling_supply_temp,
                 );
 
-                let mass_flow = Self::calc_zone_flow(
-                    zone_temp,
-                    setpoint,
-                    mode,
-                    self.design_zone_flow,
-                );
+                let mass_flow =
+                    Self::calc_zone_flow(zone_temp, setpoint, mode, self.design_zone_flow);
 
                 self.current_actions.push(ControlAction::SetZoneSupplyTemp {
                     zone: zone_name.clone(),
@@ -275,8 +267,13 @@ mod tests {
     fn make_ctx() -> SimulationContext {
         SimulationContext {
             timestep: TimeStep {
-                month: 1, day: 15, hour: 12, sub_hour: 1,
-                timesteps_per_hour: 1, sim_time_s: 0.0, dt: 3600.0,
+                month: 1,
+                day: 15,
+                hour: 12,
+                sub_hour: 1,
+                timesteps_per_hour: 1,
+                sim_time_s: 0.0,
+                dt: 3600.0,
             },
             outdoor_air: MoistAirState::from_tdb_rh(0.0, 0.5, 101325.0),
             day_type: DayType::WeatherDay,
@@ -298,9 +295,9 @@ mod tests {
         let mut thermostat = ZoneThermostat::from_groups(
             "Office Thermostat",
             vec![group],
-            35.0,  // heating supply temp
-            13.0,  // cooling supply temp
-            0.5,   // design zone flow
+            35.0, // heating supply temp
+            13.0, // cooling supply temp
+            0.5,  // design zone flow
         );
 
         // All zones cold
@@ -325,22 +322,23 @@ mod tests {
     fn test_zone_group_mixed_modes() {
         let group = ZoneGroup {
             name: "Mixed".to_string(),
-            zones: vec!["ZoneA".to_string(), "ZoneB".to_string(), "ZoneC".to_string()],
+            zones: vec![
+                "ZoneA".to_string(),
+                "ZoneB".to_string(),
+                "ZoneC".to_string(),
+            ],
             heating_setpoint: 21.0,
             cooling_setpoint: 24.0,
             deadband: None,
         };
 
-        let mut thermostat = ZoneThermostat::from_groups(
-            "Mixed Thermostat",
-            vec![group],
-            35.0, 13.0, 0.5,
-        );
+        let mut thermostat =
+            ZoneThermostat::from_groups("Mixed Thermostat", vec![group], 35.0, 13.0, 0.5);
 
         let mut state = SystemState::new(MoistAirState::from_tdb_rh(20.0, 0.5, 101325.0));
-        state.zone_temps.insert("ZoneA".to_string(), 19.0);  // needs heating
-        state.zone_temps.insert("ZoneB".to_string(), 22.0);  // deadband
-        state.zone_temps.insert("ZoneC".to_string(), 26.0);  // needs cooling
+        state.zone_temps.insert("ZoneA".to_string(), 19.0); // needs heating
+        state.zone_temps.insert("ZoneB".to_string(), 22.0); // deadband
+        state.zone_temps.insert("ZoneC".to_string(), 26.0); // needs cooling
 
         let ctx = make_ctx();
         thermostat.update(&state, &ctx);
@@ -355,8 +353,10 @@ mod tests {
         let mut thermostat = ZoneThermostat::single_zone(
             "Living Room",
             "Living Room",
-            21.0, 24.0,   // heating/cooling setpoints
-            35.0, 13.0,   // supply temps
+            21.0,
+            24.0, // heating/cooling setpoints
+            35.0,
+            13.0, // supply temps
             0.3,
         );
 
@@ -372,8 +372,14 @@ mod tests {
         // Check that supply temp action has a value above zone temp
         match &thermostat.actions()[0] {
             ControlAction::SetZoneSupplyTemp { supply_temp, .. } => {
-                assert!(*supply_temp > 18.0, "Supply temp should be above zone temp for heating");
-                assert!(*supply_temp <= 35.0, "Supply temp should not exceed design heating supply temp");
+                assert!(
+                    *supply_temp > 18.0,
+                    "Supply temp should be above zone temp for heating"
+                );
+                assert!(
+                    *supply_temp <= 35.0,
+                    "Supply temp should not exceed design heating supply temp"
+                );
             }
             _ => panic!("Expected SetZoneSupplyTemp action"),
         }
@@ -391,21 +397,23 @@ mod tests {
         let server = ZoneGroup {
             name: "Server Room".to_string(),
             zones: vec!["Server".to_string()],
-            heating_setpoint: 18.0,    // server room can be cooler
-            cooling_setpoint: 22.0,    // but needs more cooling
+            heating_setpoint: 18.0, // server room can be cooler
+            cooling_setpoint: 22.0, // but needs more cooling
             deadband: None,
         };
 
         let mut thermostat = ZoneThermostat::from_groups(
             "Building Thermostat",
             vec![offices, server],
-            35.0, 13.0, 0.5,
+            35.0,
+            13.0,
+            0.5,
         );
 
         let mut state = SystemState::new(MoistAirState::from_tdb_rh(20.0, 0.5, 101325.0));
-        state.zone_temps.insert("Office1".to_string(), 19.0);  // heating (below 21)
-        state.zone_temps.insert("Office2".to_string(), 22.0);  // deadband (21-24)
-        state.zone_temps.insert("Server".to_string(), 23.0);   // cooling (above 22)
+        state.zone_temps.insert("Office1".to_string(), 19.0); // heating (below 21)
+        state.zone_temps.insert("Office2".to_string(), 22.0); // deadband (21-24)
+        state.zone_temps.insert("Server".to_string(), 23.0); // cooling (above 22)
 
         let ctx = make_ctx();
         thermostat.update(&state, &ctx);

@@ -22,12 +22,12 @@
 //! Reference: ASHRAE Handbook — Fundamentals, Chapter 18 (Nonresidential
 //! Cooling and Heating Load Calculations).
 
-use std::collections::HashMap;
-use std::path::Path;
 use openbse_core::ports::{EnvelopeSolver, SimulationContext, ZoneHvacConditions};
 use openbse_core::types::{DayType, TimeStep};
 use openbse_envelope::BuildingEnvelope;
 use openbse_weather::WeatherHour;
+use std::collections::HashMap;
+use std::path::Path;
 
 use crate::input::DesignDayInput;
 use openbse_envelope::ThermostatInput;
@@ -116,7 +116,7 @@ fn generate_heating_design_weather(dd: &DesignDayInput) -> Vec<WeatherHour> {
             dew_point: dd.humidity_value.min(dd.design_temp),
             rel_humidity: 50.0,
             pressure: dd.pressure,
-            global_horiz_rad: 0.0,    // no solar for heating design
+            global_horiz_rad: 0.0, // no solar for heating design
             direct_normal_rad: 0.0,
             diffuse_horiz_rad: 0.0,
             wind_speed: dd.wind_speed,
@@ -182,7 +182,7 @@ fn generate_cooling_design_weather(dd: &DesignDayInput, latitude: f64) -> Vec<We
             diffuse_horiz_rad: diffuse.max(0.0),
             wind_speed: dd.wind_speed,
             wind_direction: 0.0,
-            opaque_sky_cover: 1.0,    // clear sky for cooling design
+            opaque_sky_cover: 1.0, // clear sky for cooling design
             horiz_ir_rad: 350.0,
         });
     }
@@ -208,7 +208,7 @@ fn run_single_design_day(
     env: &mut BuildingEnvelope,
     dd: &DesignDayInput,
     weather_hours: &[WeatherHour],
-    zone_setpoints: &HashMap<String, f64>,  // setpoint to hold zone at
+    zone_setpoints: &HashMap<String, f64>, // setpoint to hold zone at
     num_warmup_days: usize,
     oa_handled_by_hvac: &HashMap<String, bool>,
 ) -> Vec<(u32, HashMap<String, (f64, f64)>)> {
@@ -239,14 +239,18 @@ fn run_single_design_day(
     // Save the original ideal_loads state so we can restore it after sizing.
     use openbse_envelope::zone::IdealLoadsAirSystem;
 
-    let original_ideal_loads: Vec<Option<IdealLoadsAirSystem>> = env.zones
+    let original_ideal_loads: Vec<Option<IdealLoadsAirSystem>> = env
+        .zones
         .iter()
         .map(|z| z.input.ideal_loads.clone())
         .collect();
 
     for zone in &mut env.zones {
         if zone.input.conditioned && zone.input.ideal_loads.is_none() {
-            let sp = zone_setpoints.get(&zone.input.name).copied().unwrap_or(21.0);
+            let sp = zone_setpoints
+                .get(&zone.input.name)
+                .copied()
+                .unwrap_or(21.0);
             zone.input.ideal_loads = Some(IdealLoadsAirSystem {
                 heating_capacity: 1_000_000.0,
                 cooling_capacity: 1_000_000.0,
@@ -258,7 +262,10 @@ fn run_single_design_day(
 
     // Reset zone temperatures, humidity, and BDF state to setpoint
     for zone in &mut env.zones {
-        let sp = zone_setpoints.get(&zone.input.name).copied().unwrap_or(21.0);
+        let sp = zone_setpoints
+            .get(&zone.input.name)
+            .copied()
+            .unwrap_or(21.0);
         zone.temp = sp;
         zone.temp_prev = sp;
         zone.temp_prev2 = sp;
@@ -290,7 +297,9 @@ fn run_single_design_day(
                     dt: 3600.0,
                 },
                 outdoor_air: openbse_psychrometrics::MoistAirState::from_tdb_rh(
-                    wh.dry_bulb, rh, wh.pressure,
+                    wh.dry_bulb,
+                    rh,
+                    wh.pressure,
                 ),
                 day_type: DayType::SizingDay,
                 is_sizing: true,
@@ -370,20 +379,31 @@ fn run_zone_sizing(
     // ── Run ALL heating design days (in parallel) ─────────────────────────
     use rayon::prelude::*;
 
-    let heating_dds: Vec<_> = design_days.iter()
+    let heating_dds: Vec<_> = design_days
+        .iter()
         .filter(|dd| is_heating_design_day(dd))
         .collect();
 
-    log::info!("Zone sizing: running {} heating DDs in parallel", heating_dds.len());
-    let heating_results: Vec<_> = heating_dds.par_iter().map(|dd| {
-        let weather_hours = generate_heating_design_weather(dd);
-        let mut env_copy = env.clone();
-        let loads = run_single_design_day(
-            &mut env_copy, dd, &weather_hours, zone_heating_setpoints, num_warmup_days,
-            oa_handled_by_hvac,
-        );
-        (dd.name.clone(), loads)
-    }).collect();
+    log::info!(
+        "Zone sizing: running {} heating DDs in parallel",
+        heating_dds.len()
+    );
+    let heating_results: Vec<_> = heating_dds
+        .par_iter()
+        .map(|dd| {
+            let weather_hours = generate_heating_design_weather(dd);
+            let mut env_copy = env.clone();
+            let loads = run_single_design_day(
+                &mut env_copy,
+                dd,
+                &weather_hours,
+                zone_heating_setpoints,
+                num_warmup_days,
+                oa_handled_by_hvac,
+            );
+            (dd.name.clone(), loads)
+        })
+        .collect();
 
     // Merge heating peaks from all parallel results
     for (dd_name, hourly_loads) in &heating_results {
@@ -400,20 +420,31 @@ fn run_zone_sizing(
     }
 
     // ── Run ALL cooling design days (in parallel) ────────────────────────
-    let cooling_dds: Vec<_> = design_days.iter()
+    let cooling_dds: Vec<_> = design_days
+        .iter()
         .filter(|dd| is_cooling_design_day(dd))
         .collect();
 
-    log::info!("Zone sizing: running {} cooling DDs in parallel", cooling_dds.len());
-    let cooling_results: Vec<_> = cooling_dds.par_iter().map(|dd| {
-        let weather_hours = generate_cooling_design_weather(dd, latitude);
-        let mut env_copy = env.clone();
-        let loads = run_single_design_day(
-            &mut env_copy, dd, &weather_hours, zone_cooling_setpoints, num_warmup_days,
-            oa_handled_by_hvac,
-        );
-        (dd.name.clone(), loads)
-    }).collect();
+    log::info!(
+        "Zone sizing: running {} cooling DDs in parallel",
+        cooling_dds.len()
+    );
+    let cooling_results: Vec<_> = cooling_dds
+        .par_iter()
+        .map(|dd| {
+            let weather_hours = generate_cooling_design_weather(dd, latitude);
+            let mut env_copy = env.clone();
+            let loads = run_single_design_day(
+                &mut env_copy,
+                dd,
+                &weather_hours,
+                zone_cooling_setpoints,
+                num_warmup_days,
+                oa_handled_by_hvac,
+            );
+            (dd.name.clone(), loads)
+        })
+        .collect();
 
     // Merge cooling peaks from all parallel results
     for (dd_name, hourly_loads) in &cooling_results {
@@ -438,9 +469,17 @@ fn run_zone_sizing(
         let mult = zone.input.zone_multiplier as f64;
         if mult > 1.0 {
             let name = &zone.input.name;
-            if let Some(v) = zone_peak_heating.get_mut(name) { *v *= mult; }
-            if let Some(v) = zone_peak_cooling.get_mut(name) { *v *= mult; }
-            log::info!("  Zone '{}': applied zone_multiplier={} to peak loads", name, zone.input.zone_multiplier);
+            if let Some(v) = zone_peak_heating.get_mut(name) {
+                *v *= mult;
+            }
+            if let Some(v) = zone_peak_cooling.get_mut(name) {
+                *v *= mult;
+            }
+            log::info!(
+                "  Zone '{}': applied zone_multiplier={} to peak loads",
+                name,
+                zone.input.zone_multiplier
+            );
         }
     }
 
@@ -522,20 +561,31 @@ fn run_system_sizing(
     // ── Run ALL heating design days (in parallel) ─────────────────────────
     use rayon::prelude::*;
 
-    let heating_dds: Vec<_> = design_days.iter()
+    let heating_dds: Vec<_> = design_days
+        .iter()
         .filter(|dd| is_heating_design_day(dd))
         .collect();
 
-    log::info!("System sizing: running {} heating DDs in parallel", heating_dds.len());
-    let heating_results: Vec<_> = heating_dds.par_iter().map(|dd| {
-        let weather_hours = generate_heating_design_weather(dd);
-        let mut env_copy = env.clone();
-        let loads = run_single_design_day(
-            &mut env_copy, dd, &weather_hours, zone_heating_setpoints, num_warmup_days,
-            oa_handled_by_hvac,
-        );
-        (dd.name.clone(), loads)
-    }).collect();
+    log::info!(
+        "System sizing: running {} heating DDs in parallel",
+        heating_dds.len()
+    );
+    let heating_results: Vec<_> = heating_dds
+        .par_iter()
+        .map(|dd| {
+            let weather_hours = generate_heating_design_weather(dd);
+            let mut env_copy = env.clone();
+            let loads = run_single_design_day(
+                &mut env_copy,
+                dd,
+                &weather_hours,
+                zone_heating_setpoints,
+                num_warmup_days,
+                oa_handled_by_hvac,
+            );
+            (dd.name.clone(), loads)
+        })
+        .collect();
 
     for (dd_name, hourly_loads) in &heating_results {
         for (hour, zone_loads) in hourly_loads {
@@ -549,20 +599,31 @@ fn run_system_sizing(
     }
 
     // ── Run ALL cooling design days (in parallel) ────────────────────────
-    let cooling_dds: Vec<_> = design_days.iter()
+    let cooling_dds: Vec<_> = design_days
+        .iter()
         .filter(|dd| is_cooling_design_day(dd))
         .collect();
 
-    log::info!("System sizing: running {} cooling DDs in parallel", cooling_dds.len());
-    let cooling_results: Vec<_> = cooling_dds.par_iter().map(|dd| {
-        let weather_hours = generate_cooling_design_weather(dd, latitude);
-        let mut env_copy = env.clone();
-        let loads = run_single_design_day(
-            &mut env_copy, dd, &weather_hours, zone_cooling_setpoints, num_warmup_days,
-            oa_handled_by_hvac,
-        );
-        (dd.name.clone(), loads)
-    }).collect();
+    log::info!(
+        "System sizing: running {} cooling DDs in parallel",
+        cooling_dds.len()
+    );
+    let cooling_results: Vec<_> = cooling_dds
+        .par_iter()
+        .map(|dd| {
+            let weather_hours = generate_cooling_design_weather(dd, latitude);
+            let mut env_copy = env.clone();
+            let loads = run_single_design_day(
+                &mut env_copy,
+                dd,
+                &weather_hours,
+                zone_cooling_setpoints,
+                num_warmup_days,
+                oa_handled_by_hvac,
+            );
+            (dd.name.clone(), loads)
+        })
+        .collect();
 
     for (dd_name, hourly_loads) in &cooling_results {
         for (hour, zone_loads) in hourly_loads {
@@ -598,7 +659,9 @@ fn monthly_peak_dry_bulb(weather_hours: &[WeatherHour]) -> [f64; 12] {
     }
     std::array::from_fn(|i| {
         let v = &mut by_month[i];
-        if v.is_empty() { return 0.0; }
+        if v.is_empty() {
+            return 0.0;
+        }
         v.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let idx = ((v.len() as f64 * 0.996) as usize).min(v.len() - 1);
         v[idx]
@@ -650,10 +713,8 @@ fn generate_monthly_cooling_dds(
     }
 
     // Months already covered by user-defined cooling DDs
-    let user_months: std::collections::HashSet<u32> = user_cooling_dds
-        .iter()
-        .map(|dd| dd.month)
-        .collect();
+    let user_months: std::collections::HashSet<u32> =
+        user_cooling_dds.iter().map(|dd| dd.month).collect();
 
     let mut generated = Vec::new();
 
@@ -679,8 +740,9 @@ fn generate_monthly_cooling_dds(
             continue;
         }
 
-        let month_name = ["Jan","Feb","Mar","Apr","May","Jun",
-                          "Jul","Aug","Sep","Oct","Nov","Dec"][m_idx];
+        let month_name = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ][m_idx];
         let day = MONTH_REPRESENTATIVE_DAYS[m_idx];
 
         generated.push(DesignDayInput {
@@ -735,13 +797,17 @@ pub fn run_sizing(
     // barometric pressure.  E+ uses this same approach (ρ = P / (R·T) at 20 °C).
     // Without this, high-altitude sites like Denver (1612 m, ~83 kPa) would
     // undersize airflow by ~20%.
-    let site_pressure = design_days.first()
+    let site_pressure = design_days
+        .first()
         .map(|dd| dd.pressure)
         .unwrap_or(101325.0);
     let rho_air = site_pressure / (287.042 * 293.15); // ideal gas at 20°C
 
-    log::info!("Sizing factors: heating={:.2}, cooling={:.2}",
-        heating_sizing_factor, cooling_sizing_factor);
+    log::info!(
+        "Sizing factors: heating={:.2}, cooling={:.2}",
+        heating_sizing_factor,
+        cooling_sizing_factor
+    );
 
     // ── Gather setpoints from resolved thermostats ───────────────────────
     let mut zone_heating_setpoints: HashMap<String, f64> = HashMap::new();
@@ -759,20 +825,27 @@ pub fn run_sizing(
 
     // For zones not in any zone group, use defaults
     for zone in &env.zones {
-        zone_heating_setpoints.entry(zone.input.name.clone()).or_insert(21.0);
-        zone_cooling_setpoints.entry(zone.input.name.clone()).or_insert(24.0);
+        zone_heating_setpoints
+            .entry(zone.input.name.clone())
+            .or_insert(21.0);
+        zone_cooling_setpoints
+            .entry(zone.input.name.clone())
+            .or_insert(24.0);
     }
 
     // ── Auto-generate monthly cooling design days ─────────────────────────
     // The user defines one anchor cooling DD (e.g. July 0.4%). We auto-generate
     // DDs for the remaining months so shoulder-season solar peaks are captured.
-    let user_cooling_dds: Vec<&DesignDayInput> = design_days.iter()
+    let user_cooling_dds: Vec<&DesignDayInput> = design_days
+        .iter()
         .filter(|dd| is_cooling_design_day(dd))
         .collect();
 
     let auto_cooling_dds = if !user_cooling_dds.is_empty() && !weather_hours.is_empty() {
-        log::info!("Auto-generating monthly cooling DDs from anchor '{}'...",
-            user_cooling_dds.iter()
+        log::info!(
+            "Auto-generating monthly cooling DDs from anchor '{}'...",
+            user_cooling_dds
+                .iter()
                 .max_by(|a, b| a.design_temp.partial_cmp(&b.design_temp).unwrap())
                 .map(|dd| dd.name.as_str())
                 .unwrap_or("?")
@@ -783,16 +856,19 @@ pub fn run_sizing(
     };
 
     // Combine user DDs + auto-generated DDs into one complete list
-    let all_design_days: Vec<DesignDayInput> = design_days.iter()
+    let all_design_days: Vec<DesignDayInput> = design_days
+        .iter()
         .cloned()
         .chain(auto_cooling_dds.into_iter())
         .collect();
 
     if all_design_days.len() > design_days.len() {
-        log::info!("Total design days: {} user-defined + {} auto-generated = {}",
+        log::info!(
+            "Total design days: {} user-defined + {} auto-generated = {}",
             design_days.len(),
             all_design_days.len() - design_days.len(),
-            all_design_days.len());
+            all_design_days.len()
+        );
     }
 
     log::info!("══════════════════════════════════════════════════════════");
@@ -820,13 +896,28 @@ pub fn run_sizing(
         let ph = zone_sizing.zone_peak_heating.get(name).unwrap_or(&0.0);
         let pc = zone_sizing.zone_peak_cooling.get(name).unwrap_or(&0.0);
         let mf = zone_sizing.zone_design_airflow.get(name).unwrap_or(&0.0);
-        let hdd = zone_sizing.zone_heating_dd.get(name).map(|s| s.as_str()).unwrap_or("-");
+        let hdd = zone_sizing
+            .zone_heating_dd
+            .get(name)
+            .map(|s| s.as_str())
+            .unwrap_or("-");
         let hhr = zone_sizing.zone_heating_peak_hour.get(name).unwrap_or(&0);
-        let cdd = zone_sizing.zone_cooling_dd.get(name).map(|s| s.as_str()).unwrap_or("-");
+        let cdd = zone_sizing
+            .zone_cooling_dd
+            .get(name)
+            .map(|s| s.as_str())
+            .unwrap_or("-");
         let chr = zone_sizing.zone_cooling_peak_hour.get(name).unwrap_or(&0);
         log::info!(
             "  Zone '{}': htg={:.0}W (DD: {}, hr {}), clg={:.0}W (DD: {}, hr {}), flow={:.3} kg/s",
-            name, ph, hdd, hhr, pc, cdd, chr, mf
+            name,
+            ph,
+            hdd,
+            hhr,
+            pc,
+            cdd,
+            chr,
+            mf
         );
     }
 
@@ -851,36 +942,61 @@ pub fn run_sizing(
     let system_volume_flow = system_airflow / rho_air;
 
     log::info!("── System Sizing Results ───────────────────────────────");
-    log::info!("  Coincident peak heating: {:.0} W ({:.1} kW) on DD '{}' at hour {}",
+    log::info!(
+        "  Coincident peak heating: {:.0} W ({:.1} kW) on DD '{}' at hour {}",
         system_sizing.coincident_peak_heating,
         system_sizing.coincident_peak_heating / 1000.0,
         system_sizing.heating_peak_dd,
-        system_sizing.heating_peak_hour);
-    log::info!("  Coincident peak cooling: {:.0} W ({:.1} kW) on DD '{}' at hour {}",
+        system_sizing.heating_peak_hour
+    );
+    log::info!(
+        "  Coincident peak cooling: {:.0} W ({:.1} kW) on DD '{}' at hour {}",
         system_sizing.coincident_peak_cooling,
         system_sizing.coincident_peak_cooling / 1000.0,
         system_sizing.cooling_peak_dd,
-        system_sizing.cooling_peak_hour);
-    log::info!("  System heating capacity (×{:.0}%): {:.0} W ({:.1} kW)",
-        heating_sizing_factor * 100.0, system_heating_capacity, system_heating_capacity / 1000.0);
-    log::info!("  System cooling capacity (×{:.0}%): {:.0} W ({:.1} kW)",
-        cooling_sizing_factor * 100.0, system_cooling_capacity, system_cooling_capacity / 1000.0);
-    log::info!("  System airflow: {:.3} kg/s ({:.4} m³/s, {:.0} CFM)",
-        system_airflow, system_volume_flow, system_volume_flow * 2118.88);
+        system_sizing.cooling_peak_hour
+    );
+    log::info!(
+        "  System heating capacity (×{:.0}%): {:.0} W ({:.1} kW)",
+        heating_sizing_factor * 100.0,
+        system_heating_capacity,
+        system_heating_capacity / 1000.0
+    );
+    log::info!(
+        "  System cooling capacity (×{:.0}%): {:.0} W ({:.1} kW)",
+        cooling_sizing_factor * 100.0,
+        system_cooling_capacity,
+        system_cooling_capacity / 1000.0
+    );
+    log::info!(
+        "  System airflow: {:.3} kg/s ({:.4} m³/s, {:.0} CFM)",
+        system_airflow,
+        system_volume_flow,
+        system_volume_flow * 2118.88
+    );
     log::info!("══════════════════════════════════════════════════════════");
 
     // ── Write sizing output files ────────────────────────────────────────
     write_zone_sizing_csv(&zone_sizing, &env.zones, output_dir, input_stem, rho_air);
     write_system_sizing_csv(
-        &zone_sizing, &system_sizing,
-        system_heating_capacity, system_cooling_capacity,
-        system_airflow, system_volume_flow,
-        heating_sizing_factor, cooling_sizing_factor, output_dir, input_stem,
+        &zone_sizing,
+        &system_sizing,
+        system_heating_capacity,
+        system_cooling_capacity,
+        system_airflow,
+        system_volume_flow,
+        heating_sizing_factor,
+        cooling_sizing_factor,
+        output_dir,
+        input_stem,
     );
 
     // Reset zone temperatures for the real simulation
     for zone in &mut env.zones {
-        let sp = zone_heating_setpoints.get(&zone.input.name).copied().unwrap_or(21.0);
+        let sp = zone_heating_setpoints
+            .get(&zone.input.name)
+            .copied()
+            .unwrap_or(21.0);
         zone.temp = sp;
         zone.temp_prev = sp;
     }
@@ -923,10 +1039,18 @@ fn write_zone_sizing_csv(
     for zone in zones {
         let name = &zone.input.name;
         let ph = zone_sizing.zone_peak_heating.get(name).unwrap_or(&0.0);
-        let hdd = zone_sizing.zone_heating_dd.get(name).map(|s| s.as_str()).unwrap_or("");
+        let hdd = zone_sizing
+            .zone_heating_dd
+            .get(name)
+            .map(|s| s.as_str())
+            .unwrap_or("");
         let hhr = zone_sizing.zone_heating_peak_hour.get(name).unwrap_or(&0);
         let pc = zone_sizing.zone_peak_cooling.get(name).unwrap_or(&0.0);
-        let cdd = zone_sizing.zone_cooling_dd.get(name).map(|s| s.as_str()).unwrap_or("");
+        let cdd = zone_sizing
+            .zone_cooling_dd
+            .get(name)
+            .map(|s| s.as_str())
+            .unwrap_or("");
         let chr = zone_sizing.zone_cooling_peak_hour.get(name).unwrap_or(&0);
         let mh = zone_sizing.zone_heating_airflow.get(name).unwrap_or(&0.0);
         let mc = zone_sizing.zone_cooling_airflow.get(name).unwrap_or(&0.0);
@@ -963,8 +1087,14 @@ fn write_system_sizing_csv(
     let mut lines = Vec::new();
 
     lines.push("Parameter,Value,Unit,Notes".to_string());
-    lines.push(format!("Heating Sizing Factor,{:.2},,", heating_sizing_factor));
-    lines.push(format!("Cooling Sizing Factor,{:.2},,", cooling_sizing_factor));
+    lines.push(format!(
+        "Heating Sizing Factor,{:.2},,",
+        heating_sizing_factor
+    ));
+    lines.push(format!(
+        "Cooling Sizing Factor,{:.2},,",
+        cooling_sizing_factor
+    ));
     lines.push(String::new());
 
     // Zone summary
@@ -980,33 +1110,60 @@ fn write_system_sizing_csv(
         total_zone_cooling += pc;
         lines.push(format!("{},{:.1},{:.1},{:.4}", name, ph, pc, md));
     }
-    lines.push(format!("Total (non-coincident),{:.1},{:.1},", total_zone_heating, total_zone_cooling));
+    lines.push(format!(
+        "Total (non-coincident),{:.1},{:.1},",
+        total_zone_heating, total_zone_cooling
+    ));
     lines.push(String::new());
 
     // System sizing
     lines.push("--- System Sizing (Coincident Peaks) ---,,,".to_string());
-    lines.push(format!("Coincident Peak Heating,{:.1},W,DD: {} at hour {}",
+    lines.push(format!(
+        "Coincident Peak Heating,{:.1},W,DD: {} at hour {}",
         system_sizing.coincident_peak_heating,
         system_sizing.heating_peak_dd,
-        system_sizing.heating_peak_hour));
-    lines.push(format!("Coincident Peak Cooling,{:.1},W,DD: {} at hour {}",
+        system_sizing.heating_peak_hour
+    ));
+    lines.push(format!(
+        "Coincident Peak Cooling,{:.1},W,DD: {} at hour {}",
         system_sizing.coincident_peak_cooling,
         system_sizing.cooling_peak_dd,
-        system_sizing.cooling_peak_hour));
+        system_sizing.cooling_peak_hour
+    ));
     lines.push(String::new());
 
     lines.push("--- Sized System Capacities ---,,,".to_string());
-    lines.push(format!("System Heating Capacity,{:.1},W,(coincident peak x {:.0}%)",
-        system_heating_cap, heating_sizing_factor * 100.0));
-    lines.push(format!("System Heating Capacity,{:.2},kW,", system_heating_cap / 1000.0));
-    lines.push(format!("System Cooling Capacity,{:.1},W,(coincident peak x {:.0}%)",
-        system_cooling_cap, cooling_sizing_factor * 100.0));
-    lines.push(format!("System Cooling Capacity,{:.2},kW,", system_cooling_cap / 1000.0));
-    lines.push(format!("System Cooling Capacity,{:.2},tons,", system_cooling_cap / 3517.0));
-    lines.push(format!("System Airflow,{:.4},kg/s,(sum of zone design airflows)",
-        system_airflow));
+    lines.push(format!(
+        "System Heating Capacity,{:.1},W,(coincident peak x {:.0}%)",
+        system_heating_cap,
+        heating_sizing_factor * 100.0
+    ));
+    lines.push(format!(
+        "System Heating Capacity,{:.2},kW,",
+        system_heating_cap / 1000.0
+    ));
+    lines.push(format!(
+        "System Cooling Capacity,{:.1},W,(coincident peak x {:.0}%)",
+        system_cooling_cap,
+        cooling_sizing_factor * 100.0
+    ));
+    lines.push(format!(
+        "System Cooling Capacity,{:.2},kW,",
+        system_cooling_cap / 1000.0
+    ));
+    lines.push(format!(
+        "System Cooling Capacity,{:.2},tons,",
+        system_cooling_cap / 3517.0
+    ));
+    lines.push(format!(
+        "System Airflow,{:.4},kg/s,(sum of zone design airflows)",
+        system_airflow
+    ));
     lines.push(format!("System Airflow,{:.4},m3/s,", system_volume_flow));
-    lines.push(format!("System Airflow,{:.0},CFM,", system_volume_flow * 2118.88));
+    lines.push(format!(
+        "System Airflow,{:.0},CFM,",
+        system_volume_flow * 2118.88
+    ));
 
     match std::fs::write(&path, lines.join("\n") + "\n") {
         Ok(()) => log::info!("System sizing results written to: {}", path.display()),

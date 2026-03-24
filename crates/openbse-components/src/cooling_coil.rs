@@ -330,8 +330,8 @@ impl AirComponent for CoolingCoilDX {
         let t_outdoor = ctx.outdoor_air.t_db;
 
         // Calculate required sensible cooling to reach setpoint
-        let q_sensible_required = inlet.mass_flow * cp_air
-            * (inlet.state.t_db - self.outlet_temp_setpoint);
+        let q_sensible_required =
+            inlet.mass_flow * cp_air * (inlet.state.t_db - self.outlet_temp_setpoint);
 
         // Only cool, don't heat
         if q_sensible_required <= 0.0 {
@@ -342,15 +342,11 @@ impl AirComponent for CoolingCoilDX {
         }
 
         // Entering air wet-bulb temperature (for curve evaluation)
-        let t_wb_inlet = psych::twb_fn_tdb_w_pb(
-            inlet.state.t_db, inlet.state.w, inlet.state.p_b,
-        );
+        let t_wb_inlet = psych::twb_fn_tdb_w_pb(inlet.state.t_db, inlet.state.w, inlet.state.p_b);
 
         // Flow fraction: actual mass flow / rated mass flow
         let flow_fraction = if self.rated_airflow > 0.001 {
-            let rho = psych::rho_air_fn_pb_tdb_w(
-                inlet.state.p_b, inlet.state.t_db, inlet.state.w,
-            );
+            let rho = psych::rho_air_fn_pb_tdb_w(inlet.state.p_b, inlet.state.t_db, inlet.state.w);
             let rated_mass_flow = self.rated_airflow * rho;
             (inlet.mass_flow / rated_mass_flow).clamp(0.0, 1.5)
         } else {
@@ -395,8 +391,7 @@ impl AirComponent for CoolingCoilDX {
 
                 // Total and sensible capacity at full load
                 let q_total_full = inlet.mass_flow * (h_in - h_out_full);
-                let q_sens_full = inlet.mass_flow * cp_air
-                    * (inlet.state.t_db - t_out_full);
+                let q_sens_full = inlet.mass_flow * cp_air * (inlet.state.t_db - t_out_full);
 
                 // PLR based on sensible load vs sensible capacity
                 let plr = if q_sens_full > 0.0 {
@@ -600,7 +595,10 @@ mod tests {
         if coil.power_consumption > 0.0 {
             let effective_cop = coil.cooling_rate / coil.power_consumption;
             // Within 20% of rated due to PLR effects
-            assert!(effective_cop > self::CoolingCoilDX::new("", 0.0, 3.5, 0.8, 0.0, 0.0).rated_cop * 0.7);
+            assert!(
+                effective_cop
+                    > self::CoolingCoilDX::new("", 0.0, 3.5, 0.8, 0.0, 0.0).rated_cop * 0.7
+            );
         }
     }
 }

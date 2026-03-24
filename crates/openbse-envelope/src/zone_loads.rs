@@ -5,8 +5,8 @@
 //! reference one or more zones (or zone groups) by name. This allows
 //! a single definition to be shared across multiple zones.
 
-use serde::{Deserialize, Serialize};
 use crate::zone::ThermostatScheduleEntry;
+use serde::{Deserialize, Serialize};
 
 /// Top-level people definition, assignable to zones or zone groups.
 ///
@@ -63,9 +63,15 @@ pub struct PeopleInput {
     pub latent_gain_per_person: Option<f64>,
 }
 
-fn default_activity() -> f64 { 120.0 }
-fn default_sensible_fraction() -> f64 { 0.6 }
-fn default_people_radiant() -> f64 { 0.3 }
+fn default_activity() -> f64 {
+    120.0
+}
+fn default_sensible_fraction() -> f64 {
+    0.6
+}
+fn default_people_radiant() -> f64 {
+    0.3
+}
 
 /// Top-level lights definition, assignable to zones or zone groups.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,7 +96,9 @@ pub struct LightsInput {
     pub schedule: Option<String>,
 }
 
-fn default_lights_radiant() -> f64 { 0.7 }
+fn default_lights_radiant() -> f64 {
+    0.7
+}
 
 /// Top-level equipment definition, assignable to zones or zone groups.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,7 +129,9 @@ pub struct EquipmentGainInput {
     pub schedule: Option<String>,
 }
 
-fn default_equip_radiant() -> f64 { 0.3 }
+fn default_equip_radiant() -> f64 {
+    0.3
+}
 
 /// Controls how infiltration interacts with exhaust fans and HVAC airflows.
 ///
@@ -201,7 +211,9 @@ pub struct InfiltrationTopLevel {
     pub schedule: Option<String>,
 }
 
-fn default_coeff_a() -> f64 { 1.0 }
+fn default_coeff_a() -> f64 {
+    1.0
+}
 
 /// Method for combining multiple ventilation requirements for a zone.
 ///
@@ -285,7 +297,9 @@ pub struct VentilationTopLevel {
     pub outdoor_temp_must_be_lower: Option<bool>,
 }
 
-fn default_end_hour() -> u32 { 24 }
+fn default_end_hour() -> u32 {
+    24
+}
 
 /// Top-level exhaust fan definition, assignable to zones or zone groups.
 ///
@@ -333,10 +347,18 @@ pub struct ExhaustFanTopLevel {
     pub schedule: Option<String>,
 }
 
-fn default_exhaust_tag() -> String { "exhaust".to_string() }
-fn default_exhaust_total_eff() -> f64 { 0.6 }
-fn default_exhaust_motor_eff() -> f64 { 0.9 }
-fn default_exhaust_motor_in_air() -> f64 { 1.0 }
+fn default_exhaust_tag() -> String {
+    "exhaust".to_string()
+}
+fn default_exhaust_total_eff() -> f64 {
+    0.6
+}
+fn default_exhaust_motor_eff() -> f64 {
+    0.9
+}
+fn default_exhaust_motor_in_air() -> f64 {
+    1.0
+}
 
 /// Method for combining per-person and per-area outdoor air rates.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -347,7 +369,11 @@ pub enum OaMethod {
     /// Total OA = max(per_person × people, per_area × floor_area)
     Maximum,
 }
-impl Default for OaMethod { fn default() -> Self { OaMethod::Sum } }
+impl Default for OaMethod {
+    fn default() -> Self {
+        OaMethod::Sum
+    }
+}
 
 /// Top-level outdoor air definition, assignable to zones or zone groups.
 ///
@@ -436,9 +462,15 @@ pub struct IdealLoadsTopLevel {
     pub thermostat_schedule: Vec<ThermostatScheduleEntry>,
 }
 
-fn default_heating_setpoint() -> f64 { 20.0 }
-fn default_cooling_setpoint() -> f64 { 27.0 }
-fn default_capacity() -> f64 { 1_000_000.0 }
+fn default_heating_setpoint() -> f64 {
+    20.0
+}
+fn default_cooling_setpoint() -> f64 {
+    27.0
+}
+fn default_capacity() -> f64 {
+    1_000_000.0
+}
 
 // ─── Thermostat ─────────────────────────────────────────────────────────────
 
@@ -476,7 +508,15 @@ pub struct ThermostatInput {
     pub unoccupied_cooling_setpoint: f64,
 }
 
-fn default_tstat_heating() -> f64 { 21.1 }    // 70°F
-fn default_tstat_cooling() -> f64 { 23.9 }    // 75°F
-fn default_unocc_heating() -> f64 { 15.56 }   // 60°F (ASHRAE 90.1 default setback)
-fn default_unocc_cooling() -> f64 { 29.44 }   // 85°F (ASHRAE 90.1 default setup)
+fn default_tstat_heating() -> f64 {
+    21.1
+} // 70°F
+fn default_tstat_cooling() -> f64 {
+    23.9
+} // 75°F
+fn default_unocc_heating() -> f64 {
+    15.56
+} // 60°F (ASHRAE 90.1 default setback)
+fn default_unocc_cooling() -> f64 {
+    29.44
+} // 85°F (ASHRAE 90.1 default setup)

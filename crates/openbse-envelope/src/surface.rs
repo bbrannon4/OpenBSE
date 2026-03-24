@@ -1,7 +1,7 @@
 //! Surface geometry and boundary condition definitions.
 
-use serde::{Deserialize, Serialize};
 use crate::geometry::{self, Point3D};
+use serde::{Deserialize, Serialize};
 
 /// Surface type classification.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -101,9 +101,13 @@ pub struct SurfaceInput {
     pub airflow: Option<crate::airflow_network::SurfaceAirflowOverride>,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
-fn default_tilt() -> f64 { 90.0 }
+fn default_tilt() -> f64 {
+    90.0
+}
 
 impl SurfaceInput {
     /// Resolve geometry from vertices if present.

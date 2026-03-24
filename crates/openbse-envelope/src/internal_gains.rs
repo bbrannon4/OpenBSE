@@ -70,11 +70,21 @@ pub enum InternalGainInput {
     },
 }
 
-fn default_activity() -> f64 { 120.0 }
-fn default_sensible_fraction() -> f64 { 0.6 }
-fn default_people_radiant() -> f64 { 0.3 }
-fn default_lights_radiant() -> f64 { 0.7 }
-fn default_equip_radiant() -> f64 { 0.3 }
+fn default_activity() -> f64 {
+    120.0
+}
+fn default_sensible_fraction() -> f64 {
+    0.6
+}
+fn default_people_radiant() -> f64 {
+    0.3
+}
+fn default_lights_radiant() -> f64 {
+    0.7
+}
+fn default_equip_radiant() -> f64 {
+    0.3
+}
 
 /// Resolved internal gain for a timestep [W].
 #[derive(Debug, Clone, Copy, Default)]
@@ -120,13 +130,20 @@ pub fn resolve_gains_scheduled(
 
     for gain in gains {
         match gain {
-            InternalGainInput::People { count, activity_level, sensible_fraction, radiant_fraction, schedule,
-                                         sensible_gain_per_person, latent_gain_per_person } => {
+            InternalGainInput::People {
+                count,
+                activity_level,
+                sensible_fraction,
+                radiant_fraction,
+                schedule,
+                sensible_gain_per_person,
+                latent_gain_per_person,
+            } => {
                 let frac = schedule_fraction(schedule, schedule_mgr, hour, day_of_week);
-                let sensible_per_person = sensible_gain_per_person
-                    .unwrap_or(activity_level * sensible_fraction);
-                let latent_per_person = latent_gain_per_person
-                    .unwrap_or(activity_level * (1.0 - sensible_fraction));
+                let sensible_per_person =
+                    sensible_gain_per_person.unwrap_or(activity_level * sensible_fraction);
+                let latent_per_person =
+                    latent_gain_per_person.unwrap_or(activity_level * (1.0 - sensible_fraction));
                 let sensible = count * sensible_per_person * frac;
                 let latent = count * latent_per_person * frac;
                 result.radiative += sensible * radiant_fraction;
@@ -135,7 +152,12 @@ pub fn resolve_gains_scheduled(
                 result.people_heat += sensible;
                 result.people_latent += latent;
             }
-            InternalGainInput::Lights { power, radiant_fraction, return_air_fraction, schedule } => {
+            InternalGainInput::Lights {
+                power,
+                radiant_fraction,
+                return_air_fraction,
+                schedule,
+            } => {
                 let frac = schedule_fraction(schedule, schedule_mgr, hour, day_of_week);
                 let total = power * frac;
                 let to_zone = total * (1.0 - return_air_fraction);
@@ -144,7 +166,13 @@ pub fn resolve_gains_scheduled(
                 result.total += total;
                 result.lighting_power += total;
             }
-            InternalGainInput::Equipment { power, radiant_fraction, lost_fraction, latent_fraction, schedule } => {
+            InternalGainInput::Equipment {
+                power,
+                radiant_fraction,
+                lost_fraction,
+                latent_fraction,
+                schedule,
+            } => {
                 let frac = schedule_fraction(schedule, schedule_mgr, hour, day_of_week);
                 let total = power * frac;
                 // Only the non-lost portion enters the zone as heat
@@ -197,7 +225,7 @@ mod tests {
         let resolved = resolve_gains(&gains);
         // 10 people × 120 W/person × 0.6 sensible = 720 W sensible
         assert_relative_eq!(resolved.total, 720.0);
-        assert_relative_eq!(resolved.radiative, 216.0);  // 720 × 0.3
+        assert_relative_eq!(resolved.radiative, 216.0); // 720 × 0.3
         assert_relative_eq!(resolved.convective, 504.0); // 720 × 0.7
     }
 
@@ -220,8 +248,22 @@ mod tests {
     #[test]
     fn test_combined_gains() {
         let gains = vec![
-            InternalGainInput::People { count: 5.0, activity_level: 120.0, sensible_fraction: 0.6, radiant_fraction: 0.3, schedule: None, sensible_gain_per_person: None, latent_gain_per_person: None },
-            InternalGainInput::Equipment { power: 500.0, radiant_fraction: 0.3, lost_fraction: 0.0, latent_fraction: 0.0, schedule: None },
+            InternalGainInput::People {
+                count: 5.0,
+                activity_level: 120.0,
+                sensible_fraction: 0.6,
+                radiant_fraction: 0.3,
+                schedule: None,
+                sensible_gain_per_person: None,
+                latent_gain_per_person: None,
+            },
+            InternalGainInput::Equipment {
+                power: 500.0,
+                radiant_fraction: 0.3,
+                lost_fraction: 0.0,
+                latent_fraction: 0.0,
+                schedule: None,
+            },
         ];
         let resolved = resolve_gains(&gains);
         assert_relative_eq!(resolved.total, 860.0); // 5×120×0.6=360 + 500
@@ -231,22 +273,20 @@ mod tests {
     fn test_scheduled_gains() {
         use crate::schedule::{ScheduleInput, ScheduleManager};
 
-        let schedules = ScheduleManager::from_inputs(vec![
-            ScheduleInput {
-                name: "half".to_string(),
-                weekday: vec![0.5; 24],
-                weekend: Some(vec![0.0; 24]),
-                saturday: None,
-                sunday: None,
-                holiday: None,
-                monday: None,
-                tuesday: None,
-                wednesday: None,
-                thursday: None,
-                friday: None,
-                compact: None,
-            },
-        ]);
+        let schedules = ScheduleManager::from_inputs(vec![ScheduleInput {
+            name: "half".to_string(),
+            weekday: vec![0.5; 24],
+            weekend: Some(vec![0.0; 24]),
+            saturday: None,
+            sunday: None,
+            holiday: None,
+            monday: None,
+            tuesday: None,
+            wednesday: None,
+            thursday: None,
+            friday: None,
+            compact: None,
+        }]);
 
         let gains = vec![InternalGainInput::Equipment {
             power: 1000.0,

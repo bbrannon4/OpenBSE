@@ -10,13 +10,13 @@
 //! This replaces EnergyPlus's rigid SetpointManager/Controller paradigm where
 //! specific controller types only work with specific system configurations.
 
+pub mod setpoint;
 pub mod state;
 pub mod thermostat;
-pub mod setpoint;
 
+pub use setpoint::{PlantLoopSetpoint, SetpointController};
 pub use state::SystemState;
-pub use thermostat::{ZoneThermostat, ZoneGroup};
-pub use setpoint::{SetpointController, PlantLoopSetpoint};
+pub use thermostat::{ZoneGroup, ZoneThermostat};
 
 use openbse_core::ports::SimulationContext;
 use state::ControlAction;

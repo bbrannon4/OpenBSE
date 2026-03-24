@@ -79,11 +79,7 @@ pub fn psat_fn_temp(t_db: f64) -> f64 {
         const C12: f64 = -0.14452093e-7;
         const C13: f64 = 6.5459673;
 
-        (C8 / t_kel
-            + C9
-            + t_kel * (C10 + t_kel * (C11 + t_kel * C12))
-            + C13 * t_kel.ln())
-        .exp()
+        (C8 / t_kel + C9 + t_kel * (C10 + t_kel * (C11 + t_kel * C12)) + C13 * t_kel.ln()).exp()
     }
 }
 
