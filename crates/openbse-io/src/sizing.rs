@@ -218,6 +218,14 @@ fn run_single_design_day(
 
     // Internal gains mode: use the design day's explicit setting, or default
     // based on day_type (heating → Off, cooling → Full).
+    //
+    // Full mode: all schedules at 1.0 (constant).  With constant gains and
+    // thermal mass, the zone reaches steady state where cooling load = total
+    // gains.  This is conservative for cooling sizing.
+    //
+    // E+ uses SummerDesignDay schedule profiles (typically constant 1.0 for
+    // lights/equipment, low for occupancy).  For OpenBSE, Full mode is the
+    // closest match since we don't have design-day-specific schedule values.
     use openbse_core::ports::SizingInternalGains;
     let gains_mode = dd.internal_gains.unwrap_or_else(|| {
         if is_heating_dd {
