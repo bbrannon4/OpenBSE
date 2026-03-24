@@ -18,8 +18,6 @@ interface SimulationPanelProps {
   modelPath: string | null;
   dirty: boolean;
   onSave: () => Promise<void>;
-  weatherPath: string | null;
-  onWeatherChange: (path: string) => void;
 }
 
 type SimStatus = "idle" | "running" | "success" | "error";
@@ -28,9 +26,8 @@ export function SimulationPanel({
   modelPath,
   dirty,
   onSave,
-  weatherPath,
-  onWeatherChange,
 }: SimulationPanelProps) {
+  const [weatherPath, setWeatherPath] = useState<string | null>(null);
   const [status, setStatus] = useState<SimStatus>("idle");
   const [outputLines, setOutputLines] = useState<SimulationOutput[]>([]);
   const [expanded, setExpanded] = useState(false);
@@ -78,7 +75,7 @@ export function SimulationPanel({
         ],
       });
       if (selected) {
-        onWeatherChange(selected as string);
+        setWeatherPath(selected as string);
       }
     } catch (e) {
       console.error("Weather file picker error:", e);
@@ -104,6 +101,7 @@ export function SimulationPanel({
     try {
       await invoke("run_simulation", {
         modelPath,
+        weatherPath,
         outputPath,
       });
     } catch (e) {
@@ -117,7 +115,7 @@ export function SimulationPanel({
         ]);
       }
     }
-  }, [modelPath, dirty, onSave, status]);
+  }, [modelPath, weatherPath, dirty, onSave, status]);
 
   const weatherFileName = weatherPath?.split("/").pop() ?? null;
 

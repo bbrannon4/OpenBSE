@@ -318,14 +318,6 @@ function App() {
         modelPath={filePath}
         dirty={dirty}
         onSave={handleSave}
-        weatherPath={
-          Array.isArray(model.weather_files) && model.weather_files.length > 0
-            ? (model.weather_files[0] as string) ?? null
-            : null
-        }
-        onWeatherChange={(path) => {
-          updateModel("weather_files", [path]);
-        }}
       />
     </div>
   );

@@ -125,15 +125,18 @@ struct SimulationDone {
 async fn run_simulation(
     app_handle: tauri::AppHandle,
     model_path: String,
+    weather_path: Option<String>,
     output_path: String,
 ) -> Result<(), String> {
     let binary = find_openbse_binary()?;
 
-    let args = vec![
-        model_path.clone(),
-        "-o".to_string(),
-        output_path.clone(),
-    ];
+    let mut args = vec![model_path.clone()];
+    if let Some(ref wp) = weather_path {
+        args.push("-w".to_string());
+        args.push(wp.clone());
+    }
+    args.push("-o".to_string());
+    args.push(output_path.clone());
 
     // Run the entire blocking process on a dedicated thread so we don't
     // block the Tauri async runtime (which would prevent events from

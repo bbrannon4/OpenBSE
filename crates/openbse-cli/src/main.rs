@@ -32,6 +32,10 @@ struct Args {
     #[arg(value_name = "INPUT")]
     input: PathBuf,
 
+    /// Weather file path (EPW). Overrides any weather_files in the YAML.
+    #[arg(short, long, value_name = "WEATHER")]
+    weather: Option<PathBuf>,
+
     /// Output CSV file path (default: <input_dir>/results.csv)
     #[arg(short, long, value_name = "OUTPUT")]
     output: Option<PathBuf>,
@@ -388,11 +392,16 @@ fn main() -> Result<()> {
     }
 
     // ── 2. Load weather data ────────────────────────────────────────────────
-    if model.weather_files.is_empty() {
-        anyhow::bail!("No weather files specified in the model");
-    }
-
-    let weather_path = resolve_path(&args.input, &model.weather_files[0]);
+    // CLI -w flag overrides weather_files in YAML; YAML is the fallback.
+    let weather_path = if let Some(ref wp) = args.weather {
+        wp.clone()
+    } else if !model.weather_files.is_empty() {
+        resolve_path(&args.input, &model.weather_files[0])
+    } else {
+        anyhow::bail!(
+            "No weather file specified. Use -w <file.epw> or set weather_files in the YAML."
+        );
+    };
     info!("Loading weather file: {}", weather_path.display());
 
     let weather_data = read_weather_file(&weather_path)
