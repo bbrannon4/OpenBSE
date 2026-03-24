@@ -21,11 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Design-day autosizing** — Automatic equipment sizing from design-day peak loads
 - **Weather support** — EPW and TMY3 CSV weather file parsing
 - **Solar cache** — Disk-persistent solar pre-computation cache for faster repeated runs
-- **Output reporting** — Configurable CSV time-series output and end-of-run summary reports
-- **ASHRAE Standard 140-2023 validation** — 27 test cases implemented covering envelope and cooling equipment
+- **Output reporting** — Configurable CSV time-series output and end-of-run summary reports (HTML and CSV)
+- **Holiday schedules** — Named holiday dates with schedule day-type overrides
+- **ASHRAE Standard 140-2023 validation** — 28 test cases implemented, 63/63 metrics passing
 - **DOE prototype models** — Single-family, mid-rise apartment, large office, and hospital building models for validation
 - **CLI tool (`openbse`)** — Run simulations, view summaries, and export results from the command line
-- **Desktop editor (`openbse-editor`)** — Tauri + React GUI with schema-driven object editing and validation
+- **Desktop editor (`openbse-editor`)** — Tauri + React GUI with schema-driven object editing, validation, and integrated simulation runner
 - **Psychrometric library** — Moist-air property calculations based on Hyland & Wexler correlations
 - **8-crate workspace** — Modular architecture: core, components, controls, envelope, weather, psychrometrics, io, cli
-- **12 example models** — From simple single-zone to full VAV + chilled-water plant configurations
+- **11 example models** — From simple single-zone to full VAV + chilled-water plant configurations

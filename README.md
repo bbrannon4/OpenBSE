@@ -51,7 +51,7 @@ cargo build --release
 cargo test --workspace
 ```
 
-**92+ tests** across 8 crates. All component tests pass. Two envelope solar tests have known failures (angular SHGC modifier ordering for clear vs low-e glass).
+**300+ tests** across 8 crates.
 
 ### Run a Simulation
 
@@ -75,6 +75,8 @@ OpenBSE is a Rust workspace with 8 crates:
 | `openbse-cli` | Command-line interface and multi-loop control dispatcher |
 
 No circular dependencies. Components implement traits (`AirComponent`, `PlantComponent`, `EnvelopeSolver`) defined in `openbse-core`. Rust's type system enforces physical constraints at compile time — `AirPort` and `WaterPort` are distinct types, so connecting a water pipe to an air duct won't compile.
+
+The **desktop editor** (`openbse-editor`) is a Tauri + React app in `tools/editor/` that provides a GUI for editing YAML model files with schema validation and running simulations without the command line.
 
 ### Core Design Principles
 
@@ -130,7 +132,8 @@ No circular dependencies. Components implement traits (`AirComponent`, `PlantCom
 - Sub-hourly timesteps (1, 2, 4, 6, 10, 12, 15, 20, 30, 60 per hour)
 - Multi-weather-file support (EPW and TMY3 CSV)
 - Configurable CSV output with flexible variable selection
-- Summary reports with monthly energy, peak loads, unmet hours
+- Summary reports with monthly energy, peak loads, unmet hours (HTML and CSV output)
+- Holiday schedule support
 - Multi-loop coupled envelope + HVAC simulation (DOAS + FCU additive mixing)
 - Plant loop topological ordering (inter-loop HX and condenser dependencies)
 - Primary/secondary/tertiary plant loop support via HX inter-connections
@@ -139,9 +142,7 @@ No circular dependencies. Components implement traits (`AirComponent`, `PlantCom
 
 ### ASHRAE Standard 140-2023
 
-Test cases are in [`140_tests/`](140_tests/). 27 cases from Section 7 (Building Thermal Envelope) plus Case CE100 (Cooling Equipment) have been implemented. Current status: **48 of 63 metrics pass** (76.2%) against the standard's prescribed acceptance ranges.
-
-Cases 600, 610, 620, 630 (low-mass) pass all metrics. Case 900 series (high-mass) has some failures attributed to the simplified wall construction model.
+Test cases are in [`140_tests/`](140_tests/). 28 cases from Section 7 (Building Thermal Envelope) plus Case CE100 (Cooling Equipment) have been implemented. Current status: **63 of 63 metrics pass** (100%) against the standard's prescribed acceptance ranges.
 
 ### DOE Prototype Comparison (EnergyPlus)
 
