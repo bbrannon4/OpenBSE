@@ -221,31 +221,6 @@ jobs:
             tools/editor/src-tauri/target/release/bundle/appimage/*.AppImage
             tools/editor/src-tauri/target/release/bundle/deb/*.deb
 
-  # ── Examples bundle ─────────────────────────────────────────────
-  examples:
-    name: Examples bundle
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Create examples archive
-        run: |
-          TAG="${GITHUB_REF_NAME}"
-          # Collect example YAML files
-          mkdir -p _bundle/examples _bundle/prototype_tests
-          cp examples/*.yaml _bundle/examples/
-          # Collect prototype test YAML and EPW files (not Python scripts)
-          find prototype_tests -name '*.yaml' -o -name '*.epw' | while read f; do
-            dir="_bundle/$(dirname "$f")"
-            mkdir -p "$dir"
-            cp "$f" "$dir/"
-          done
-          tar -czf "openbse-${TAG}-examples.tar.gz" -C _bundle .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: examples-bundle
-          path: openbse-*-examples.tar.gz
-
   # ── GitHub Release ──────────────────────────────────────────────
   release:
     name: Publish GitHub Release
@@ -258,7 +233,6 @@ jobs:
       - editor-macos-x86
       - editor-windows
       - editor-linux
-      - examples
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -272,31 +246,61 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           VERSION="${TAG#v}"
-          # Extract the section for this version from CHANGELOG.md
           awk "/^## \\[${VERSION}\\]/{found=1; next} /^## \\[/{if(found) exit} found" CHANGELOG.md > release_notes.md
           echo "notes_file=release_notes.md" >> "$GITHUB_OUTPUT"
 
-      - name: Collect release assets
+      - name: Collect examples
         run: |
-          mkdir -p release_assets
-          # CLI binaries
-          cp artifacts/cli-linux-x86_64/openbse-x86_64-unknown-linux-gnu release_assets/
-          cp artifacts/cli-macos-aarch64/openbse-aarch64-apple-darwin release_assets/
-          cp artifacts/cli-macos-x86_64/openbse-x86_64-apple-darwin release_assets/
-          cp artifacts/cli-windows-x86_64/openbse-x86_64-pc-windows-msvc.exe release_assets/
-          # Editor installers
-          cp artifacts/editor-macos-aarch64/*.dmg release_assets/ 2>/dev/null || true
-          cp artifacts/editor-macos-x86_64/*.dmg release_assets/ 2>/dev/null || true
-          cp artifacts/editor-windows-x86_64/*.msi release_assets/ 2>/dev/null || true
-          cp artifacts/editor-linux-x86_64/*.AppImage release_assets/ 2>/dev/null || true
-          cp artifacts/editor-linux-x86_64/*.deb release_assets/ 2>/dev/null || true
-          # Examples bundle
-          cp artifacts/examples-bundle/openbse-*-examples.tar.gz release_assets/
+          mkdir -p _examples/examples _examples/prototype_tests
+          cp examples/*.yaml _examples/examples/
+          find prototype_tests -name '*.yaml' -o -name '*.epw' | while read f; do
+            dir="_examples/$(dirname "$f")"
+            mkdir -p "$dir"
+            cp "$f" "$dir/"
+          done
+
+      - name: Create platform bundles
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+
+          # ── Linux x86_64 ──
+          mkdir -p "openbse-${TAG}-linux-x86_64"
+          cp artifacts/cli-linux-x86_64/openbse-x86_64-unknown-linux-gnu "openbse-${TAG}-linux-x86_64/openbse"
+          chmod +x "openbse-${TAG}-linux-x86_64/openbse"
+          cp artifacts/editor-linux-x86_64/*.AppImage "openbse-${TAG}-linux-x86_64/" 2>/dev/null || true
+          cp artifacts/editor-linux-x86_64/*.deb "openbse-${TAG}-linux-x86_64/" 2>/dev/null || true
+          cp -r _examples/* "openbse-${TAG}-linux-x86_64/"
+          tar -czf "openbse-${TAG}-linux-x86_64.tar.gz" "openbse-${TAG}-linux-x86_64"
+
+          # ── macOS Apple Silicon ──
+          mkdir -p "openbse-${TAG}-macos-aarch64"
+          cp artifacts/cli-macos-aarch64/openbse-aarch64-apple-darwin "openbse-${TAG}-macos-aarch64/openbse"
+          chmod +x "openbse-${TAG}-macos-aarch64/openbse"
+          cp artifacts/editor-macos-aarch64/*.dmg "openbse-${TAG}-macos-aarch64/" 2>/dev/null || true
+          cp -r _examples/* "openbse-${TAG}-macos-aarch64/"
+          tar -czf "openbse-${TAG}-macos-aarch64.tar.gz" "openbse-${TAG}-macos-aarch64"
+
+          # ── macOS Intel ──
+          mkdir -p "openbse-${TAG}-macos-x86_64"
+          cp artifacts/cli-macos-x86_64/openbse-x86_64-apple-darwin "openbse-${TAG}-macos-x86_64/openbse"
+          chmod +x "openbse-${TAG}-macos-x86_64/openbse"
+          cp artifacts/editor-macos-x86_64/*.dmg "openbse-${TAG}-macos-x86_64/" 2>/dev/null || true
+          cp -r _examples/* "openbse-${TAG}-macos-x86_64/"
+          tar -czf "openbse-${TAG}-macos-x86_64.tar.gz" "openbse-${TAG}-macos-x86_64"
+
+          # ── Windows x86_64 ──
+          mkdir -p "openbse-${TAG}-windows-x86_64"
+          cp artifacts/cli-windows-x86_64/openbse-x86_64-pc-windows-msvc.exe "openbse-${TAG}-windows-x86_64/openbse.exe"
+          cp artifacts/editor-windows-x86_64/*.msi "openbse-${TAG}-windows-x86_64/" 2>/dev/null || true
+          cp -r _examples/* "openbse-${TAG}-windows-x86_64/"
+          cd "openbse-${TAG}-windows-x86_64" && zip -r "../openbse-${TAG}-windows-x86_64.zip" . && cd ..
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           body_path: ${{ steps.changelog.outputs.notes_file }}
-          files: release_assets/*
+          files: |
+            openbse-*.tar.gz
+            openbse-*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
