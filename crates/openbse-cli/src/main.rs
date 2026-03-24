@@ -1318,6 +1318,14 @@ fn main() -> Result<()> {
                 })
                 .collect();
             report.set_surface_metadata(surface_meta);
+
+            // Pass zone floor areas for W/m² calculations in loads summary
+            let zone_areas: std::collections::HashMap<String, f64> = env
+                .zones
+                .iter()
+                .map(|z| (z.input.name.clone(), z.input.floor_area))
+                .collect();
+            report.set_zone_areas(zone_areas);
         }
         Some(report)
     } else {
@@ -1447,7 +1455,9 @@ fn main() -> Result<()> {
                     };
 
                     let mut dow = openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
-                    if env.holiday_set.contains(&(month, day)) { dow = 8; }
+                    if env.holiday_set.contains(&(month, day)) {
+                        dow = 8;
+                    }
 
                     // Build zone state maps for HVAC
                     let current_zone_temps: HashMap<String, f64> = env
@@ -1728,7 +1738,9 @@ fn main() -> Result<()> {
 
                     // Compute day-of-week for schedule lookups (8 = holiday)
                     let mut dow = openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
-                    if env.holiday_set.contains(&(month, day)) { dow = 8; }
+                    if env.holiday_set.contains(&(month, day)) {
+                        dow = 8;
+                    }
 
                     // ── Predictor-Corrector HVAC-Envelope Iteration ──
                     //
@@ -2437,7 +2449,9 @@ fn main() -> Result<()> {
                 // ── DHW simulation ─────────────────────────────────────
                 // Simulate domestic hot water systems and add energy to snapshot.
                 let mut dhw_dow = openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
-                if env.holiday_set.contains(&(month, day)) { dhw_dow = 8; }
+                if env.holiday_set.contains(&(month, day)) {
+                    dhw_dow = 8;
+                }
                 for (dhw_idx, (dhw_sys, dhw_input)) in
                     dhw_systems.iter_mut().zip(&model.dhw_systems).enumerate()
                 {
@@ -2743,13 +2757,25 @@ fn main() -> Result<()> {
         info!("Custom output files written: {}", output_writers.len());
     }
 
-    // Summary report
+    // Summary report (text, HTML, and CSV formats)
     if let Some(ref report) = summary_report {
-        let summary_path = output_dir.join(format!("{}_summary.txt", input_stem));
+        let summary_txt = output_dir.join(format!("{}_summary.txt", input_stem));
         report
-            .write(&summary_path)
-            .with_context(|| format!("Failed to write summary report"))?;
-        info!("Summary report written to: {}", summary_path.display());
+            .write(&summary_txt)
+            .with_context(|| "Failed to write summary report (txt)".to_string())?;
+        info!("Summary report written to: {}", summary_txt.display());
+
+        let summary_html = output_dir.join(format!("{}_summary.html", input_stem));
+        report
+            .write_html(&summary_html)
+            .with_context(|| "Failed to write summary report (html)".to_string())?;
+        info!("Summary report written to: {}", summary_html.display());
+
+        let summary_csv = output_dir.join(format!("{}_summary.csv", input_stem));
+        report
+            .write_summary_csv(&summary_csv)
+            .with_context(|| "Failed to write summary report (csv)".to_string())?;
+        info!("Summary report written to: {}", summary_csv.display());
     }
 
     // ── Diagnostic: print annual zone heat balance breakdown ──

@@ -1840,7 +1840,10 @@ impl EnvelopeSolver for BuildingEnvelope {
         // `internal_gains` mode (Off / Full / Scheduled / FullWhenOccupied).
         use openbse_core::ports::SizingInternalGains;
         let mut dow = day_of_week(ctx.timestep.month, ctx.timestep.day, self.jan1_dow);
-        if self.holiday_set.contains(&(ctx.timestep.month, ctx.timestep.day)) {
+        if self
+            .holiday_set
+            .contains(&(ctx.timestep.month, ctx.timestep.day))
+        {
             dow = 8; // Holiday day-type
         }
         for zone in &mut self.zones {

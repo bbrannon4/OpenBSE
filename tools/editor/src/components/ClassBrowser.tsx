@@ -6,7 +6,7 @@ import type { ClassInfo } from "../lib/schema";
 const categoryOrder: { label: string; keys: string[] }[] = [
   {
     label: "General",
-    keys: ["simulation", "weather_files", "design_days", "schedules"],
+    keys: ["simulation", "design_days", "schedules"],
   },
   {
     label: "Envelope",

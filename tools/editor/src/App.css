@@ -867,6 +867,105 @@ input[type="number"]::-webkit-outer-spin-button {
   background: var(--bg-hover);
 }
 
+/* ===== Simulation Panel ===== */
+
+.simulation-bar {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+}
+
+.simulation-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px;
+  gap: 12px;
+}
+
+.sim-toolbar-left,
+.sim-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sim-weather-name {
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-run {
+  padding: 4px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  background: var(--green, #50fa7b);
+  color: var(--bg-primary);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.btn-run:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.btn-run:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.sim-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.sim-status-running {
+  color: var(--yellow);
+  background: rgba(241, 250, 140, 0.15);
+}
+.sim-status-success {
+  color: var(--green, #50fa7b);
+  background: rgba(80, 250, 123, 0.15);
+}
+.sim-status-error {
+  color: var(--red);
+  background: rgba(255, 85, 85, 0.15);
+}
+
+.simulation-output {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 8px 16px;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border);
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sim-line {
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.sim-line-err {
+  color: var(--red);
+}
+
+.sim-result {
+  color: var(--green, #50fa7b);
+  font-weight: 600;
+  margin-top: 4px;
+}
+
 /* Badge */
 .badge {
   display: inline-block;

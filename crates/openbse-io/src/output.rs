@@ -219,6 +219,43 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
             "kg/kg",
             "Air loop outlet humidity ratio",
         ),
+        // Energy end-use variables (building totals)
+        ("energy_fan_electric", "W", "Fan electric power (all fans)"),
+        (
+            "energy_cooling_electric",
+            "W",
+            "Cooling electric power (DX, chiller)",
+        ),
+        ("energy_heating_electric", "W", "Heating electric power"),
+        ("energy_heating_gas", "W", "Heating gas/fuel power"),
+        ("energy_pump_electric", "W", "Pump electric power"),
+        (
+            "energy_heat_rejection",
+            "W",
+            "Heat rejection electric power",
+        ),
+        (
+            "energy_humidification",
+            "W",
+            "Humidification electric power",
+        ),
+        ("energy_heat_recovery", "W", "Heat recovery electric power"),
+        ("energy_dhw_electric", "W", "DHW electric power"),
+        ("energy_dhw_gas", "W", "DHW gas/fuel power"),
+        ("energy_lighting", "W", "Interior lighting power"),
+        ("energy_ext_lighting", "W", "Exterior lighting power"),
+        ("energy_equipment", "W", "Interior equipment power"),
+        ("energy_ext_equipment", "W", "Exterior equipment power"),
+        (
+            "energy_total_electric",
+            "W",
+            "Total electric power (all end uses)",
+        ),
+        (
+            "energy_total_gas",
+            "W",
+            "Total gas/fuel power (all end uses)",
+        ),
     ]
 }
 
@@ -429,6 +466,125 @@ impl OutputSnapshot {
             "air_loop_outlet_temperature" => self.air_loop_outlet_temperature.clone(),
             "air_loop_mass_flow" => self.air_loop_mass_flow.clone(),
             "air_loop_outlet_humidity_ratio" => self.air_loop_outlet_humidity_ratio.clone(),
+
+            // Energy end-use variables
+            "energy_fan_electric" => {
+                let total: f64 = self
+                    .component_electric_power
+                    .iter()
+                    .filter(|(n, _)| n.to_lowercase().contains("fan"))
+                    .map(|(_, &v)| v)
+                    .sum();
+                single("Building", total)
+            }
+            "energy_cooling_electric" => {
+                let total: f64 = self
+                    .component_electric_power
+                    .iter()
+                    .filter(|(n, _)| {
+                        let l = n.to_lowercase();
+                        l.contains("cool") || l.contains("dx") || l.contains("chiller")
+                    })
+                    .map(|(_, &v)| v)
+                    .sum();
+                single("Building", total)
+            }
+            "energy_heating_electric" => {
+                let total: f64 = self
+                    .component_electric_power
+                    .iter()
+                    .filter(|(n, _)| {
+                        let l = n.to_lowercase();
+                        l.contains("heat") || l.contains("furnace")
+                    })
+                    .map(|(_, &v)| v)
+                    .sum();
+                single("Building", total)
+            }
+            "energy_heating_gas" => {
+                let total: f64 = self
+                    .component_fuel_power
+                    .iter()
+                    .filter(|(n, _)| {
+                        let l = n.to_lowercase();
+                        l.contains("boiler") || l.contains("heat") || l.contains("furnace")
+                    })
+                    .map(|(_, &v)| v)
+                    .sum();
+                single("Building", total)
+            }
+            "energy_pump_electric" => single("Building", self.pump_electric_power.values().sum()),
+            "energy_heat_rejection" => single("Building", self.heat_rejection_power.values().sum()),
+            "energy_humidification" => single("Building", self.humidification_power.values().sum()),
+            "energy_heat_recovery" => single("Building", self.heat_recovery_power.values().sum()),
+            "energy_dhw_electric" => single("Building", self.dhw_electric_power.values().sum()),
+            "energy_dhw_gas" => single("Building", self.dhw_fuel_power.values().sum()),
+            "energy_lighting" => single("Building", self.zone_lighting_power.values().sum()),
+            "energy_ext_lighting" => single("Building", self.ext_lighting_power.values().sum()),
+            "energy_equipment" => single("Building", self.zone_equipment_power.values().sum()),
+            "energy_ext_equipment" => single("Building", self.ext_equipment_power.values().sum()),
+            "energy_total_electric" => {
+                let fans: f64 = self
+                    .component_electric_power
+                    .iter()
+                    .filter(|(n, _)| n.to_lowercase().contains("fan"))
+                    .map(|(_, &v)| v)
+                    .sum();
+                let cooling: f64 = self
+                    .component_electric_power
+                    .iter()
+                    .filter(|(n, _)| {
+                        let l = n.to_lowercase();
+                        l.contains("cool") || l.contains("dx") || l.contains("chiller")
+                    })
+                    .map(|(_, &v)| v)
+                    .sum();
+                let heating: f64 = self
+                    .component_electric_power
+                    .iter()
+                    .filter(|(n, _)| {
+                        let l = n.to_lowercase();
+                        l.contains("heat") || l.contains("furnace")
+                    })
+                    .map(|(_, &v)| v)
+                    .sum();
+                let pumps: f64 = self.pump_electric_power.values().sum();
+                let rej: f64 = self.heat_rejection_power.values().sum();
+                let hum: f64 = self.humidification_power.values().sum();
+                let hr: f64 = self.heat_recovery_power.values().sum();
+                let dhw: f64 = self.dhw_electric_power.values().sum();
+                let lights: f64 = self.zone_lighting_power.values().sum();
+                let ext_lights: f64 = self.ext_lighting_power.values().sum();
+                let equip: f64 = self.zone_equipment_power.values().sum();
+                let ext_equip: f64 = self.ext_equipment_power.values().sum();
+                single(
+                    "Building",
+                    fans + cooling
+                        + heating
+                        + pumps
+                        + rej
+                        + hum
+                        + hr
+                        + dhw
+                        + lights
+                        + ext_lights
+                        + equip
+                        + ext_equip,
+                )
+            }
+            "energy_total_gas" => {
+                let heating: f64 = self
+                    .component_fuel_power
+                    .iter()
+                    .filter(|(n, _)| {
+                        let l = n.to_lowercase();
+                        l.contains("boiler") || l.contains("heat") || l.contains("furnace")
+                    })
+                    .map(|(_, &v)| v)
+                    .sum();
+                let dhw: f64 = self.dhw_fuel_power.values().sum();
+                single("Building", heating + dhw)
+            }
 
             _ => HashMap::new(),
         }
@@ -768,6 +924,12 @@ pub struct SummaryReport {
     monthly_surf_incident_solar: HashMap<String, [f64; 12]>,
     /// Monthly timestep count per month
     monthly_surf_count: [u64; 12],
+    /// Per-zone peak heating: zone_name -> (watts, month, day, hour, outdoor_temp)
+    zone_peak_heating: HashMap<String, (f64, u32, u32, u32, f64)>,
+    /// Per-zone peak cooling: zone_name -> (watts, month, day, hour, outdoor_temp)
+    zone_peak_cooling: HashMap<String, (f64, u32, u32, u32, f64)>,
+    /// Zone floor areas for W/m² calculations
+    zone_floor_areas: HashMap<String, f64>,
 }
 
 impl SummaryReport {
@@ -797,7 +959,15 @@ impl SummaryReport {
             monthly_surf_temp_outside: HashMap::new(),
             monthly_surf_incident_solar: HashMap::new(),
             monthly_surf_count: [0; 12],
+            zone_peak_heating: HashMap::new(),
+            zone_peak_cooling: HashMap::new(),
+            zone_floor_areas: HashMap::new(),
         }
+    }
+
+    /// Set zone floor areas for W/m² calculations in zone loads summary.
+    pub fn set_zone_areas(&mut self, areas: HashMap<String, f64>) {
+        self.zone_floor_areas = areas;
     }
 
     /// Set envelope area data for WWR reporting.
@@ -833,6 +1003,38 @@ impl SummaryReport {
         }
         if total_cooling > self.peak_cooling.0 {
             self.peak_cooling = (total_cooling, snapshot.month, snapshot.day, snapshot.hour);
+        }
+
+        // Track per-zone peaks
+        for (zone_name, &rate) in &snapshot.zone_heating_rate {
+            let entry = self
+                .zone_peak_heating
+                .entry(zone_name.clone())
+                .or_insert((0.0, 0, 0, 0, 0.0));
+            if rate > entry.0 {
+                *entry = (
+                    rate,
+                    snapshot.month,
+                    snapshot.day,
+                    snapshot.hour,
+                    snapshot.site_outdoor_temperature,
+                );
+            }
+        }
+        for (zone_name, &rate) in &snapshot.zone_cooling_rate {
+            let entry = self
+                .zone_peak_cooling
+                .entry(zone_name.clone())
+                .or_insert((0.0, 0, 0, 0, 0.0));
+            if rate > entry.0 {
+                *entry = (
+                    rate,
+                    snapshot.month,
+                    snapshot.day,
+                    snapshot.hour,
+                    snapshot.site_outdoor_temperature,
+                );
+            }
         }
 
         // Accumulate energy end-use breakdown using typed snapshot fields
@@ -1106,48 +1308,132 @@ impl SummaryReport {
         }
         writeln!(w)?;
 
-        // -- Monthly Breakdown --
-        writeln!(
-            w,
-            "-- Monthly Energy Breakdown -----------------------------------"
-        )?;
-        writeln!(w)?;
-        writeln!(
-            w,
-            "  {:>5}  {:>12}  {:>12}  {:>12}",
-            "Month", "Heating[kWh]", "Cooling[kWh]", "Total[kWh]"
-        )?;
-        writeln!(w, "  -----  ------------  ------------  ------------")?;
+        // -- Monthly Energy End-Use --
+        {
+            let rows = self.compute_enduse_rows();
+            let month_names = [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ];
 
-        let month_names = [
-            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-        ];
+            writeln!(
+                w,
+                "-- Monthly Energy End-Use [kWh] --------------------------------"
+            )?;
+            writeln!(w)?;
 
-        for (i, me) in self.monthly.iter().enumerate() {
-            let h_kwh = me.heating_j / 3_600_000.0;
-            let c_kwh = me.cooling_j / 3_600_000.0;
-            if me.hours > 0.0 {
-                writeln!(
-                    w,
-                    "  {:>5}  {:>12.1}  {:>12.1}  {:>12.1}",
-                    month_names[i],
-                    h_kwh,
-                    c_kwh,
-                    h_kwh + c_kwh
-                )?;
+            // Header
+            write!(w, "  {:<21}", "End Use")?;
+            for mn in &month_names {
+                write!(w, "  {:>7}", mn)?;
             }
-        }
+            writeln!(w, "  {:>9}", "Total")?;
 
-        writeln!(w, "  -----  ------------  ------------  ------------")?;
-        writeln!(
-            w,
-            "  {:>5}  {:>12.1}  {:>12.1}  {:>12.1}",
-            "Total",
-            annual_heating_kwh,
-            annual_cooling_kwh,
-            annual_heating_kwh + annual_cooling_kwh
-        )?;
-        writeln!(w)?;
+            write!(w, "  {:-<21}", "")?;
+            for _ in 0..12 {
+                write!(w, "  {:-<7}", "")?;
+            }
+            writeln!(w, "  {:-<9}", "")?;
+
+            // Data rows
+            for row in &rows {
+                write!(w, "  {:<21}", row.label)?;
+                for mi in 0..12 {
+                    write!(w, "  {:>7.1}", row.monthly[mi])?;
+                }
+                writeln!(w, "  {:>9.1}", row.total)?;
+            }
+
+            // Separator
+            write!(w, "  {:-<21}", "")?;
+            for _ in 0..12 {
+                write!(w, "  {:-<7}", "")?;
+            }
+            writeln!(w, "  {:-<9}", "")?;
+
+            // Total Electric
+            let mut total_elec = [0.0_f64; 12];
+            let mut total_elec_annual = 0.0_f64;
+            for row in &rows {
+                if !row.label.contains("Gas") {
+                    for mi in 0..12 {
+                        total_elec[mi] += row.monthly[mi];
+                    }
+                    total_elec_annual += row.total;
+                }
+            }
+            write!(w, "  {:<21}", "Total Electric")?;
+            for mi in 0..12 {
+                write!(w, "  {:>7.1}", total_elec[mi])?;
+            }
+            writeln!(w, "  {:>9.1}", total_elec_annual)?;
+
+            // Total Gas
+            let mut total_gas = [0.0_f64; 12];
+            let mut total_gas_annual = 0.0_f64;
+            for row in &rows {
+                if row.label.contains("Gas") {
+                    for mi in 0..12 {
+                        total_gas[mi] += row.monthly[mi];
+                    }
+                    total_gas_annual += row.total;
+                }
+            }
+            write!(w, "  {:<21}", "Total Gas")?;
+            for mi in 0..12 {
+                write!(w, "  {:>7.1}", total_gas[mi])?;
+            }
+            writeln!(w, "  {:>9.1}", total_gas_annual)?;
+
+            // Grand Total
+            write!(w, "  {:<21}", "Total")?;
+            for mi in 0..12 {
+                write!(w, "  {:>7.1}", total_elec[mi] + total_gas[mi])?;
+            }
+            writeln!(w, "  {:>9.1}", total_elec_annual + total_gas_annual)?;
+            writeln!(w)?;
+
+            // -- Zone Loads [kWh] --
+            writeln!(
+                w,
+                "-- Zone Loads [kWh] -------------------------------------------"
+            )?;
+            writeln!(w)?;
+
+            write!(w, "  {:<21}", "Load")?;
+            for mn in &month_names {
+                write!(w, "  {:>7}", mn)?;
+            }
+            writeln!(w, "  {:>9}", "Total")?;
+
+            write!(w, "  {:-<21}", "")?;
+            for _ in 0..12 {
+                write!(w, "  {:-<7}", "")?;
+            }
+            writeln!(w, "  {:-<9}", "")?;
+
+            // Heating
+            write!(w, "  {:<21}", "Heating")?;
+            for (i, me) in self.monthly.iter().enumerate() {
+                let _ = i;
+                write!(w, "  {:>7.1}", me.heating_j / 3_600_000.0)?;
+            }
+            writeln!(w, "  {:>9.1}", annual_heating_kwh)?;
+
+            // Cooling
+            write!(w, "  {:<21}", "Cooling")?;
+            for me in &self.monthly {
+                write!(w, "  {:>7.1}", me.cooling_j / 3_600_000.0)?;
+            }
+            writeln!(w, "  {:>9.1}", annual_cooling_kwh)?;
+
+            // Total
+            write!(w, "  {:<21}", "Total")?;
+            for me in &self.monthly {
+                write!(w, "  {:>7.1}", (me.heating_j + me.cooling_j) / 3_600_000.0)?;
+            }
+            writeln!(w, "  {:>9.1}", annual_heating_kwh + annual_cooling_kwh)?;
+            writeln!(w)?;
+        }
 
         // -- Unmet Hours --
         writeln!(
@@ -1203,131 +1489,134 @@ impl SummaryReport {
         }
         writeln!(w)?;
 
-        // -- Energy End-Use Summary (matches EnergyPlus categories) --
-        writeln!(
-            w,
-            "-- Energy End-Use Summary -------------------------------------"
-        )?;
-        writeln!(w)?;
+        // -- Zone Loads Summary --
+        if !self.zone_peak_heating.is_empty() || !self.zone_peak_cooling.is_empty() {
+            writeln!(
+                w,
+                "-- Zone Loads Summary -----------------------------------------"
+            )?;
+            writeln!(w)?;
 
-        let j_to_kwh = 1.0 / 3_600_000.0;
-        let annual_lighting_kwh: f64 =
-            self.monthly.iter().map(|m| m.lighting_j).sum::<f64>() * j_to_kwh;
-        let annual_ext_lighting_kwh: f64 =
-            self.monthly.iter().map(|m| m.ext_lighting_j).sum::<f64>() * j_to_kwh;
-        let annual_equipment_kwh: f64 =
-            self.monthly.iter().map(|m| m.equipment_j).sum::<f64>() * j_to_kwh;
-        let annual_ext_equipment_kwh: f64 =
-            self.monthly.iter().map(|m| m.ext_equipment_j).sum::<f64>() * j_to_kwh;
-        let annual_fan_kwh: f64 = self.monthly.iter().map(|m| m.fan_elec_j).sum::<f64>() * j_to_kwh;
-        let annual_pump_kwh: f64 =
-            self.monthly.iter().map(|m| m.pump_elec_j).sum::<f64>() * j_to_kwh;
-        let annual_cool_elec_kwh: f64 =
-            self.monthly.iter().map(|m| m.cool_elec_j).sum::<f64>() * j_to_kwh;
-        let annual_heat_elec_kwh: f64 =
-            self.monthly.iter().map(|m| m.heat_elec_j).sum::<f64>() * j_to_kwh;
-        let annual_heat_gas_kwh: f64 =
-            self.monthly.iter().map(|m| m.heat_gas_j).sum::<f64>() * j_to_kwh;
-        let annual_heat_rejection_kwh: f64 = self
-            .monthly
-            .iter()
-            .map(|m| m.heat_rejection_elec_j)
-            .sum::<f64>()
-            * j_to_kwh;
-        let annual_humidification_kwh: f64 = self
-            .monthly
-            .iter()
-            .map(|m| m.humidification_elec_j)
-            .sum::<f64>()
-            * j_to_kwh;
-        let annual_heat_recovery_kwh: f64 = self
-            .monthly
-            .iter()
-            .map(|m| m.heat_recovery_elec_j)
-            .sum::<f64>()
-            * j_to_kwh;
-        let annual_dhw_elec_kwh: f64 =
-            self.monthly.iter().map(|m| m.dhw_elec_j).sum::<f64>() * j_to_kwh;
-        let annual_dhw_gas_kwh: f64 =
-            self.monthly.iter().map(|m| m.dhw_gas_j).sum::<f64>() * j_to_kwh;
+            let month_abbr = [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ];
 
-        writeln!(w, "  {:>22}  {:>12}", "End Use", "Annual [kWh]")?;
-        writeln!(w, "  ----------------------  ------------")?;
-        writeln!(
-            w,
-            "  {:>22}  {:>12.1}",
-            "Interior Lighting", annual_lighting_kwh
-        )?;
-        writeln!(
-            w,
-            "  {:>22}  {:>12.1}",
-            "Exterior Lighting", annual_ext_lighting_kwh
-        )?;
-        writeln!(
-            w,
-            "  {:>22}  {:>12.1}",
-            "Interior Equipment", annual_equipment_kwh
-        )?;
-        writeln!(
-            w,
-            "  {:>22}  {:>12.1}",
-            "Exterior Equipment", annual_ext_equipment_kwh
-        )?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Fans (Electric)", annual_fan_kwh)?;
-        writeln!(w, "  {:>22}  {:>12.1}", "Pumps (Electric)", annual_pump_kwh)?;
-        writeln!(
-            w,
-            "  {:>22}  {:>12.1}",
-            "Cooling (Electric)", annual_cool_elec_kwh
-        )?;
-        writeln!(
-            w,
-            "  {:>22}  {:>12.1}",
-            "Heating (Electric)", annual_heat_elec_kwh
-        )?;
-        writeln!(
-            w,
-            "  {:>22}  {:>12.1}",
-            "Heating (Gas)", annual_heat_gas_kwh
-        )?;
-        writeln!(
-            w,
-            "  {:>22}  {:>12.1}",
-            "Heat Rejection", annual_heat_rejection_kwh
-        )?;
-        writeln!(
-            w,
-            "  {:>22}  {:>12.1}",
-            "Humidification", annual_humidification_kwh
-        )?;
-        writeln!(
-            w,
-            "  {:>22}  {:>12.1}",
-            "Heat Recovery", annual_heat_recovery_kwh
-        )?;
-        writeln!(
-            w,
-            "  {:>22}  {:>12.1}",
-            "DHW (Electric)", annual_dhw_elec_kwh
-        )?;
-        writeln!(w, "  {:>22}  {:>12.1}", "DHW (Gas)", annual_dhw_gas_kwh)?;
-        writeln!(w, "  ----------------------  ------------")?;
-        let total_end_use = annual_lighting_kwh
-            + annual_ext_lighting_kwh
-            + annual_equipment_kwh
-            + annual_ext_equipment_kwh
-            + annual_fan_kwh
-            + annual_pump_kwh
-            + annual_cool_elec_kwh
-            + annual_heat_elec_kwh
-            + annual_heat_gas_kwh
-            + annual_heat_rejection_kwh
-            + annual_humidification_kwh
-            + annual_heat_recovery_kwh
-            + annual_dhw_elec_kwh
-            + annual_dhw_gas_kwh;
-        writeln!(w, "  {:>22}  {:>12.1}", "Total", total_end_use)?;
-        writeln!(w)?;
+            writeln!(
+                w,
+                "  {:<21}  {:>8}  {:>9}  {:>6}  {:>14}  {:>9}  {:>6}  {:>14}  {:>6}",
+                "Zone Name",
+                "Area[m\u{00b2}]",
+                "Pk Htg[W]",
+                "W/m\u{00b2}",
+                "Time",
+                "Pk Clg[W]",
+                "W/m\u{00b2}",
+                "Time",
+                "OA[\u{00b0}C]"
+            )?;
+            writeln!(
+                w,
+                "  {:-<21}  {:-<8}  {:-<9}  {:-<6}  {:-<14}  {:-<9}  {:-<6}  {:-<14}  {:-<6}",
+                "", "", "", "", "", "", "", "", ""
+            )?;
+
+            let mut all_zones: Vec<String> = self
+                .zone_peak_heating
+                .keys()
+                .chain(self.zone_peak_cooling.keys())
+                .cloned()
+                .collect();
+            all_zones.sort();
+            all_zones.dedup();
+
+            let mut bldg_area = 0.0_f64;
+            let mut bldg_pk_htg = 0.0_f64;
+            let mut bldg_pk_clg = 0.0_f64;
+
+            for zone in &all_zones {
+                let area = self.zone_floor_areas.get(zone).copied().unwrap_or(0.0);
+                let (h_w, h_mo, h_d, h_hr, _h_oa) = self
+                    .zone_peak_heating
+                    .get(zone)
+                    .copied()
+                    .unwrap_or((0.0, 0, 0, 0, 0.0));
+                let (c_w, c_mo, c_d, c_hr, c_oa) = self
+                    .zone_peak_cooling
+                    .get(zone)
+                    .copied()
+                    .unwrap_or((0.0, 0, 0, 0, 0.0));
+
+                let h_wm2 = if area > 0.0 { h_w / area } else { 0.0 };
+                let c_wm2 = if area > 0.0 { c_w / area } else { 0.0 };
+
+                let h_time = if h_w > 0.0 {
+                    format!(
+                        "{} {:>2} {:02}:00",
+                        month_abbr[(h_mo.saturating_sub(1) as usize).min(11)],
+                        h_d,
+                        h_hr
+                    )
+                } else {
+                    String::from("-")
+                };
+                let c_time = if c_w > 0.0 {
+                    format!(
+                        "{} {:>2} {:02}:00",
+                        month_abbr[(c_mo.saturating_sub(1) as usize).min(11)],
+                        c_d,
+                        c_hr
+                    )
+                } else {
+                    String::from("-")
+                };
+
+                let display_name = if zone.len() > 21 {
+                    &zone[..21]
+                } else {
+                    zone.as_str()
+                };
+
+                writeln!(
+                    w,
+                    "  {:<21}  {:>8.1}  {:>9.1}  {:>6.1}  {:>14}  {:>9.1}  {:>6.1}  {:>14}  {:>6.1}",
+                    display_name, area, h_w, h_wm2, h_time, c_w, c_wm2, c_time, c_oa
+                )?;
+
+                bldg_area += area;
+                bldg_pk_htg += h_w;
+                bldg_pk_clg += c_w;
+            }
+
+            writeln!(
+                w,
+                "  {:-<21}  {:-<8}  {:-<9}  {:-<6}  {:-<14}  {:-<9}  {:-<6}  {:-<14}  {:-<6}",
+                "", "", "", "", "", "", "", "", ""
+            )?;
+            let bldg_h_wm2 = if bldg_area > 0.0 {
+                bldg_pk_htg / bldg_area
+            } else {
+                0.0
+            };
+            let bldg_c_wm2 = if bldg_area > 0.0 {
+                bldg_pk_clg / bldg_area
+            } else {
+                0.0
+            };
+            writeln!(
+                w,
+                "  {:<21}  {:>8.1}  {:>9.1}  {:>6.1}  {:>14}  {:>9.1}  {:>6.1}  {:>14}  {:>6}",
+                "Building Total",
+                bldg_area,
+                bldg_pk_htg,
+                bldg_h_wm2,
+                "",
+                bldg_pk_clg,
+                bldg_c_wm2,
+                "",
+                ""
+            )?;
+            writeln!(w)?;
+        }
 
         // -- Building Envelope Summary (Wall/Window Areas + WWR) --
         if let Some(ref ea) = self.envelope_areas {
@@ -1606,6 +1895,601 @@ impl SummaryReport {
         w.flush()?;
         Ok(())
     }
+
+    /// Compute monthly end-use rows from accumulated monthly energy data.
+    fn compute_enduse_rows(&self) -> Vec<EndUseRow> {
+        let j_to_kwh = 1.0 / 3_600_000.0;
+
+        let make_row = |label: &'static str, extractor: fn(&MonthlyEnergy) -> f64| -> EndUseRow {
+            let mut monthly = [0.0_f64; 12];
+            let mut total = 0.0_f64;
+            for (i, me) in self.monthly.iter().enumerate() {
+                let kwh = extractor(me) * j_to_kwh;
+                monthly[i] = kwh;
+                total += kwh;
+            }
+            EndUseRow {
+                label,
+                monthly,
+                total,
+            }
+        };
+
+        vec![
+            make_row("Interior Lighting", |m| m.lighting_j),
+            make_row("Exterior Lighting", |m| m.ext_lighting_j),
+            make_row("Interior Equipment", |m| m.equipment_j),
+            make_row("Exterior Equipment", |m| m.ext_equipment_j),
+            make_row("Fans (Electric)", |m| m.fan_elec_j),
+            make_row("Pumps (Electric)", |m| m.pump_elec_j),
+            make_row("Cooling (Electric)", |m| m.cool_elec_j),
+            make_row("Heating (Electric)", |m| m.heat_elec_j),
+            make_row("Heating (Gas)", |m| m.heat_gas_j),
+            make_row("Heat Rejection", |m| m.heat_rejection_elec_j),
+            make_row("Humidification", |m| m.humidification_elec_j),
+            make_row("Heat Recovery", |m| m.heat_recovery_elec_j),
+            make_row("DHW (Electric)", |m| m.dhw_elec_j),
+            make_row("DHW (Gas)", |m| m.dhw_gas_j),
+        ]
+    }
+
+    /// Write the summary report as a self-contained HTML file.
+    pub fn write_html(&self, path: &Path) -> Result<(), OutputError> {
+        let file = std::fs::File::create(path)
+            .map_err(|e| OutputError::IoError(format!("{}: {}", path.display(), e)))?;
+        let mut w = std::io::BufWriter::new(file);
+
+        writeln!(w, "<!DOCTYPE html>")?;
+        writeln!(w, "<html lang=\"en\">")?;
+        writeln!(w, "<head>")?;
+        writeln!(w, "<meta charset=\"UTF-8\">")?;
+        writeln!(
+            w,
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
+        )?;
+        writeln!(w, "<title>OpenBSE Summary Report</title>")?;
+        writeln!(w, "<style>")?;
+        writeln!(
+            w,
+            "body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 2em; color: #333; max-width: 1400px; }}"
+        )?;
+        writeln!(
+            w,
+            "h1 {{ border-bottom: 2px solid #333; padding-bottom: 0.3em; }}"
+        )?;
+        writeln!(w, "h2 {{ color: #555; margin-top: 1.5em; }}")?;
+        writeln!(
+            w,
+            "table {{ border-collapse: collapse; width: 100%; margin: 1em 0; }}"
+        )?;
+        writeln!(
+            w,
+            "th, td {{ padding: 4px 8px; text-align: right; border: 1px solid #ddd; }}"
+        )?;
+        writeln!(
+            w,
+            "th {{ background: #f5f5f5; font-weight: 600; text-align: center; }}"
+        )?;
+        writeln!(w, "td:first-child, th:first-child {{ text-align: left; }}")?;
+        writeln!(w, "tr:nth-child(even) {{ background-color: #fafafa; }}")?;
+        writeln!(
+            w,
+            "tr.total-row {{ font-weight: bold; border-top: 2px solid #333; }}"
+        )?;
+        writeln!(w, ".pass {{ color: #2a7b2a; font-weight: bold; }}")?;
+        writeln!(w, ".fail {{ color: #cc0000; font-weight: bold; }}")?;
+        writeln!(
+            w,
+            "details {{ margin: 0.5em 0; }} summary {{ cursor: pointer; font-weight: 600; }}"
+        )?;
+        writeln!(w, "</style>")?;
+        writeln!(w, "</head>")?;
+        writeln!(w, "<body>")?;
+        writeln!(w, "<h1>OpenBSE Summary Report</h1>")?;
+
+        // -- Annual Summary --
+        let annual_heating_kwh: f64 =
+            self.monthly.iter().map(|m| m.heating_j).sum::<f64>() / 3_600_000.0;
+        let annual_cooling_kwh: f64 =
+            self.monthly.iter().map(|m| m.cooling_j).sum::<f64>() / 3_600_000.0;
+
+        writeln!(w, "<h2>Annual Energy Summary</h2>")?;
+        writeln!(w, "<table>")?;
+        html_table_row(&mut w, &["", "kWh", "MWh"], true)?;
+        html_table_row(
+            &mut w,
+            &[
+                "Heating",
+                &format!("{:.1}", annual_heating_kwh),
+                &format!("{:.3}", annual_heating_kwh / 1000.0),
+            ],
+            false,
+        )?;
+        html_table_row(
+            &mut w,
+            &[
+                "Cooling",
+                &format!("{:.1}", annual_cooling_kwh),
+                &format!("{:.3}", annual_cooling_kwh / 1000.0),
+            ],
+            false,
+        )?;
+        html_table_row(
+            &mut w,
+            &[
+                "Total",
+                &format!("{:.1}", annual_heating_kwh + annual_cooling_kwh),
+                &format!("{:.3}", (annual_heating_kwh + annual_cooling_kwh) / 1000.0),
+            ],
+            false,
+        )?;
+        writeln!(w, "</table>")?;
+
+        // -- Peak Loads --
+        writeln!(w, "<h2>Peak Loads</h2>")?;
+        writeln!(w, "<table>")?;
+        html_table_row(&mut w, &["", "W", "Time"], true)?;
+        html_table_row(
+            &mut w,
+            &[
+                "Peak Heating",
+                &format!("{:.1}", self.peak_heating.0),
+                &format!(
+                    "Month {} Day {} Hour {}",
+                    self.peak_heating.1, self.peak_heating.2, self.peak_heating.3
+                ),
+            ],
+            false,
+        )?;
+        html_table_row(
+            &mut w,
+            &[
+                "Peak Cooling",
+                &format!("{:.1}", self.peak_cooling.0),
+                &format!(
+                    "Month {} Day {} Hour {}",
+                    self.peak_cooling.1, self.peak_cooling.2, self.peak_cooling.3
+                ),
+            ],
+            false,
+        )?;
+        writeln!(w, "</table>")?;
+
+        // -- Monthly End-Use Table --
+        let rows = self.compute_enduse_rows();
+        let month_names = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
+
+        writeln!(w, "<h2>Monthly Energy End-Use [kWh]</h2>")?;
+        writeln!(w, "<table>")?;
+        write!(w, "<tr><th>End Use</th>")?;
+        for mn in &month_names {
+            write!(w, "<th>{}</th>", mn)?;
+        }
+        writeln!(w, "<th>Total</th></tr>")?;
+
+        for row in &rows {
+            write!(w, "<tr><td>{}</td>", row.label)?;
+            for mi in 0..12 {
+                write!(w, "<td>{:.1}</td>", row.monthly[mi])?;
+            }
+            writeln!(w, "<td>{:.1}</td></tr>", row.total)?;
+        }
+
+        // Total Electric
+        let mut te_monthly = [0.0_f64; 12];
+        let mut te_total = 0.0_f64;
+        for row in &rows {
+            if !row.label.contains("Gas") {
+                for mi in 0..12 {
+                    te_monthly[mi] += row.monthly[mi];
+                }
+                te_total += row.total;
+            }
+        }
+        write!(w, "<tr class=\"total-row\"><td>Total Electric</td>")?;
+        for mi in 0..12 {
+            write!(w, "<td>{:.1}</td>", te_monthly[mi])?;
+        }
+        writeln!(w, "<td>{:.1}</td></tr>", te_total)?;
+
+        // Total Gas
+        let mut tg_monthly = [0.0_f64; 12];
+        let mut tg_total = 0.0_f64;
+        for row in &rows {
+            if row.label.contains("Gas") {
+                for mi in 0..12 {
+                    tg_monthly[mi] += row.monthly[mi];
+                }
+                tg_total += row.total;
+            }
+        }
+        write!(w, "<tr class=\"total-row\"><td>Total Gas</td>")?;
+        for mi in 0..12 {
+            write!(w, "<td>{:.1}</td>", tg_monthly[mi])?;
+        }
+        writeln!(w, "<td>{:.1}</td></tr>", tg_total)?;
+
+        // Grand Total
+        write!(w, "<tr class=\"total-row\"><td>Total</td>")?;
+        for mi in 0..12 {
+            write!(w, "<td>{:.1}</td>", te_monthly[mi] + tg_monthly[mi])?;
+        }
+        writeln!(w, "<td>{:.1}</td></tr>", te_total + tg_total)?;
+        writeln!(w, "</table>")?;
+
+        // -- Zone Loads Summary --
+        if !self.zone_peak_heating.is_empty() || !self.zone_peak_cooling.is_empty() {
+            writeln!(w, "<h2>Zone Loads Summary</h2>")?;
+            writeln!(w, "<table>")?;
+            html_table_row(
+                &mut w,
+                &[
+                    "Zone Name",
+                    "Area [m\u{00b2}]",
+                    "Pk Htg [W]",
+                    "W/m\u{00b2}",
+                    "Time",
+                    "Pk Clg [W]",
+                    "W/m\u{00b2}",
+                    "Time",
+                    "OA [\u{00b0}C]",
+                ],
+                true,
+            )?;
+
+            let month_abbr = [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ];
+
+            let mut all_zones: Vec<String> = self
+                .zone_peak_heating
+                .keys()
+                .chain(self.zone_peak_cooling.keys())
+                .cloned()
+                .collect();
+            all_zones.sort();
+            all_zones.dedup();
+
+            for zone in &all_zones {
+                let area = self.zone_floor_areas.get(zone).copied().unwrap_or(0.0);
+                let (h_w, h_mo, h_d, h_hr, _h_oa) = self
+                    .zone_peak_heating
+                    .get(zone)
+                    .copied()
+                    .unwrap_or((0.0, 0, 0, 0, 0.0));
+                let (c_w, c_mo, c_d, c_hr, c_oa) = self
+                    .zone_peak_cooling
+                    .get(zone)
+                    .copied()
+                    .unwrap_or((0.0, 0, 0, 0, 0.0));
+                let h_wm2 = if area > 0.0 { h_w / area } else { 0.0 };
+                let c_wm2 = if area > 0.0 { c_w / area } else { 0.0 };
+                let h_time = if h_w > 0.0 {
+                    format!(
+                        "{} {} {:02}:00",
+                        month_abbr[(h_mo.saturating_sub(1) as usize).min(11)],
+                        h_d,
+                        h_hr
+                    )
+                } else {
+                    "-".to_string()
+                };
+                let c_time = if c_w > 0.0 {
+                    format!(
+                        "{} {} {:02}:00",
+                        month_abbr[(c_mo.saturating_sub(1) as usize).min(11)],
+                        c_d,
+                        c_hr
+                    )
+                } else {
+                    "-".to_string()
+                };
+                html_table_row(
+                    &mut w,
+                    &[
+                        zone,
+                        &format!("{:.1}", area),
+                        &format!("{:.1}", h_w),
+                        &format!("{:.1}", h_wm2),
+                        &h_time,
+                        &format!("{:.1}", c_w),
+                        &format!("{:.1}", c_wm2),
+                        &c_time,
+                        &format!("{:.1}", c_oa),
+                    ],
+                    false,
+                )?;
+            }
+            writeln!(w, "</table>")?;
+        }
+
+        // -- Unmet Hours --
+        let total_hours = self.total_timesteps as f64 * self.dt / 3600.0;
+        let total_unmet = self.unmet_heating_hours + self.unmet_cooling_hours;
+
+        writeln!(w, "<h2>Unmet Hours</h2>")?;
+        writeln!(w, "<table>")?;
+        html_table_row(&mut w, &["", "Hours"], true)?;
+        html_table_row(
+            &mut w,
+            &["Unmet Heating", &format!("{:.1}", self.unmet_heating_hours)],
+            false,
+        )?;
+        html_table_row(
+            &mut w,
+            &["Unmet Cooling", &format!("{:.1}", self.unmet_cooling_hours)],
+            false,
+        )?;
+        writeln!(w, "</table>")?;
+
+        if total_hours > 0.0 {
+            let compliance_class = if total_unmet <= 300.0 { "pass" } else { "fail" };
+            let compliance_text = if total_unmet <= 300.0 {
+                format!("PASS ({:.0} &le; 300 unmet hours)", total_unmet)
+            } else {
+                format!("FAIL ({:.0} &gt; 300 unmet hours)", total_unmet)
+            };
+            writeln!(
+                w,
+                "<p>ASHRAE 90.1 Compliance: <span class=\"{}\">{}</span></p>",
+                compliance_class, compliance_text
+            )?;
+        }
+
+        // -- Building Envelope --
+        if let Some(ref ea) = self.envelope_areas {
+            let total_wall = ea.total_wall_area();
+            if total_wall > 0.0 {
+                writeln!(w, "<h2>Building Envelope</h2>")?;
+                writeln!(w, "<table>")?;
+                html_table_row(
+                    &mut w,
+                    &["Direction", "Wall [m\u{00b2}]", "Window [m\u{00b2}]", "WWR"],
+                    true,
+                )?;
+                use openbse_envelope::CardinalDirection;
+                let dirs = [
+                    CardinalDirection::North,
+                    CardinalDirection::East,
+                    CardinalDirection::South,
+                    CardinalDirection::West,
+                ];
+                for dir in &dirs {
+                    let i = match dir {
+                        CardinalDirection::North => 0,
+                        CardinalDirection::East => 1,
+                        CardinalDirection::South => 2,
+                        CardinalDirection::West => 3,
+                    };
+                    html_table_row(
+                        &mut w,
+                        &[
+                            &format!("{}", dir),
+                            &format!("{:.1}", ea.wall_area[i]),
+                            &format!("{:.1}", ea.window_area[i]),
+                            &format!("{:.1}%", ea.wwr(*dir) * 100.0),
+                        ],
+                        false,
+                    )?;
+                }
+                writeln!(w, "</table>")?;
+            }
+        }
+
+        // -- Window Solar (collapsible) --
+        if self.total_transmitted_solar_j > 0.0 {
+            writeln!(w, "<details><summary>Window Solar Diagnostics</summary>")?;
+            let trans_kwh = self.total_transmitted_solar_j / 3_600_000.0;
+            let inc_kwh = self.total_incident_solar_j / 3_600_000.0;
+            writeln!(
+                w,
+                "<p>Total transmitted solar: {:.1} kWh<br>Total incident on windows: {:.1} kWh</p>",
+                trans_kwh, inc_kwh
+            )?;
+            writeln!(w, "</details>")?;
+        }
+
+        writeln!(w, "</body></html>")?;
+        w.flush()?;
+        Ok(())
+    }
+
+    /// Write the summary report as a structured CSV file.
+    pub fn write_summary_csv(&self, path: &Path) -> Result<(), OutputError> {
+        let file = std::fs::File::create(path)
+            .map_err(|e| OutputError::IoError(format!("{}: {}", path.display(), e)))?;
+        let mut w = std::io::BufWriter::new(file);
+
+        let month_names = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
+
+        // -- Monthly Energy End-Use [kWh] --
+        writeln!(w, "Monthly Energy End-Use [kWh]")?;
+        write!(w, "End Use")?;
+        for mn in &month_names {
+            write!(w, ",{}", mn)?;
+        }
+        writeln!(w, ",Total")?;
+
+        let rows = self.compute_enduse_rows();
+        for row in &rows {
+            write!(w, "{}", row.label)?;
+            for mi in 0..12 {
+                write!(w, ",{:.1}", row.monthly[mi])?;
+            }
+            writeln!(w, ",{:.1}", row.total)?;
+        }
+
+        // Total Electric
+        let mut te_monthly = [0.0_f64; 12];
+        let mut te_total = 0.0_f64;
+        for row in &rows {
+            if !row.label.contains("Gas") {
+                for mi in 0..12 {
+                    te_monthly[mi] += row.monthly[mi];
+                }
+                te_total += row.total;
+            }
+        }
+        write!(w, "Total Electric")?;
+        for mi in 0..12 {
+            write!(w, ",{:.1}", te_monthly[mi])?;
+        }
+        writeln!(w, ",{:.1}", te_total)?;
+
+        // Total Gas
+        let mut tg_monthly = [0.0_f64; 12];
+        let mut tg_total = 0.0_f64;
+        for row in &rows {
+            if row.label.contains("Gas") {
+                for mi in 0..12 {
+                    tg_monthly[mi] += row.monthly[mi];
+                }
+                tg_total += row.total;
+            }
+        }
+        write!(w, "Total Gas")?;
+        for mi in 0..12 {
+            write!(w, ",{:.1}", tg_monthly[mi])?;
+        }
+        writeln!(w, ",{:.1}", tg_total)?;
+
+        // Grand Total
+        write!(w, "Total")?;
+        for mi in 0..12 {
+            write!(w, ",{:.1}", te_monthly[mi] + tg_monthly[mi])?;
+        }
+        writeln!(w, ",{:.1}", te_total + tg_total)?;
+
+        writeln!(w)?;
+
+        // -- Zone Loads [kWh] --
+        let annual_heating_kwh: f64 =
+            self.monthly.iter().map(|m| m.heating_j).sum::<f64>() / 3_600_000.0;
+        let annual_cooling_kwh: f64 =
+            self.monthly.iter().map(|m| m.cooling_j).sum::<f64>() / 3_600_000.0;
+
+        writeln!(w, "Zone Loads [kWh]")?;
+        write!(w, "Load")?;
+        for mn in &month_names {
+            write!(w, ",{}", mn)?;
+        }
+        writeln!(w, ",Total")?;
+
+        write!(w, "Heating")?;
+        for me in &self.monthly {
+            write!(w, ",{:.1}", me.heating_j / 3_600_000.0)?;
+        }
+        writeln!(w, ",{:.1}", annual_heating_kwh)?;
+
+        write!(w, "Cooling")?;
+        for me in &self.monthly {
+            write!(w, ",{:.1}", me.cooling_j / 3_600_000.0)?;
+        }
+        writeln!(w, ",{:.1}", annual_cooling_kwh)?;
+
+        write!(w, "Total")?;
+        for me in &self.monthly {
+            write!(w, ",{:.1}", (me.heating_j + me.cooling_j) / 3_600_000.0)?;
+        }
+        writeln!(w, ",{:.1}", annual_heating_kwh + annual_cooling_kwh)?;
+
+        writeln!(w)?;
+
+        // -- Zone Loads Summary --
+        if !self.zone_peak_heating.is_empty() || !self.zone_peak_cooling.is_empty() {
+            writeln!(w, "Zone Loads Summary")?;
+            writeln!(
+                w,
+                "Zone Name,Area [m2],Pk Htg [W],W/m2,Htg Time,Pk Clg [W],W/m2,Clg Time,OA [C]"
+            )?;
+
+            let month_abbr = [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ];
+
+            let mut all_zones: Vec<String> = self
+                .zone_peak_heating
+                .keys()
+                .chain(self.zone_peak_cooling.keys())
+                .cloned()
+                .collect();
+            all_zones.sort();
+            all_zones.dedup();
+
+            for zone in &all_zones {
+                let area = self.zone_floor_areas.get(zone).copied().unwrap_or(0.0);
+                let (h_w, h_mo, h_d, h_hr, _h_oa) = self
+                    .zone_peak_heating
+                    .get(zone)
+                    .copied()
+                    .unwrap_or((0.0, 0, 0, 0, 0.0));
+                let (c_w, c_mo, c_d, c_hr, c_oa) = self
+                    .zone_peak_cooling
+                    .get(zone)
+                    .copied()
+                    .unwrap_or((0.0, 0, 0, 0, 0.0));
+                let h_wm2 = if area > 0.0 { h_w / area } else { 0.0 };
+                let c_wm2 = if area > 0.0 { c_w / area } else { 0.0 };
+                let h_time = if h_w > 0.0 {
+                    format!(
+                        "{} {} {:02}:00",
+                        month_abbr[(h_mo.saturating_sub(1) as usize).min(11)],
+                        h_d,
+                        h_hr
+                    )
+                } else {
+                    "-".to_string()
+                };
+                let c_time = if c_w > 0.0 {
+                    format!(
+                        "{} {} {:02}:00",
+                        month_abbr[(c_mo.saturating_sub(1) as usize).min(11)],
+                        c_d,
+                        c_hr
+                    )
+                } else {
+                    "-".to_string()
+                };
+                writeln!(
+                    w,
+                    "{},{:.1},{:.1},{:.1},{},{:.1},{:.1},{},{:.1}",
+                    zone, area, h_w, h_wm2, h_time, c_w, c_wm2, c_time, c_oa
+                )?;
+            }
+            writeln!(w)?;
+        }
+
+        // -- Unmet Hours --
+        writeln!(w, "Unmet Hours")?;
+        writeln!(w, "Unmet Heating Hours,{:.1}", self.unmet_heating_hours)?;
+        writeln!(w, "Unmet Cooling Hours,{:.1}", self.unmet_cooling_hours)?;
+        let total_unmet = self.unmet_heating_hours + self.unmet_cooling_hours;
+        writeln!(w, "Total Unmet Hours,{:.1}", total_unmet)?;
+
+        w.flush()?;
+        Ok(())
+    }
+}
+
+/// A single end-use row for the monthly breakdown table.
+struct EndUseRow {
+    label: &'static str,
+    monthly: [f64; 12], // in kWh
+    total: f64,         // in kWh
+}
+
+/// Helper to write an HTML table row.
+fn html_table_row(w: &mut impl Write, cells: &[&str], is_header: bool) -> std::io::Result<()> {
+    let tag = if is_header { "th" } else { "td" };
+    write!(w, "<tr>")?;
+    for cell in cells {
+        write!(w, "<{0}>{1}</{0}>", tag, cell)?;
+    }
+    writeln!(w, "</tr>")
 }
 
 // ─── Legacy CSV Writer (backward compatible) ────────────────────────────────

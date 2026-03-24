@@ -635,6 +635,7 @@ pub fn angular_shgc_modifier_u(
 
 /// Transmittance curve coefficients [a₀, a₁, a₂, a₃, a₄] for curves A–J.
 /// τ(cs) = a₀ + a₁·cs + a₂·cs² + a₃·cs³ + a₄·cs⁴
+#[allow(clippy::approx_constant)]
 const SGS_TRANS: [[f64; 5]; 10] = [
     [0.0, 3.36, -3.85, 1.49, 0.01],  // A: single 3mm clear
     [0.0, 2.83, -2.42, 0.04, 0.55],  // B: single 3mm bronze

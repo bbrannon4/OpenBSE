@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import yaml from "js-yaml";
 import { ClassBrowser } from "./components/ClassBrowser";
 import { ObjectEditor } from "./components/ObjectEditor";
+import { SimulationPanel } from "./components/SimulationPanel";
 import { parseSchema } from "./lib/schema";
 import type { ClassInfo } from "./lib/schema";
 import "./App.css";
@@ -169,28 +171,27 @@ function App() {
 
   const selectedClass = classes.find((c) => c.key === selectedKey) ?? null;
 
-  // ===== Keyboard shortcuts =====
+  // ===== Menu events =====
   useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "o") {
-        e.preventDefault();
-        handleOpen();
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-        e.preventDefault();
-        if (e.shiftKey) {
-          handleSaveAs();
-        } else {
+    const unlisten = listen<string>("menu-action", (event) => {
+      switch (event.payload) {
+        case "file_new":
+          handleNew();
+          break;
+        case "file_open":
+          handleOpen();
+          break;
+        case "file_save":
           handleSave();
-        }
+          break;
+        case "file_save_as":
+          handleSaveAs();
+          break;
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "n") {
-        e.preventDefault();
-        handleNew();
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    });
+    return () => {
+      unlisten.then((f) => f());
+    };
   }, [handleOpen, handleSave, handleSaveAs, handleNew]);
 
   if (loading) {
@@ -225,33 +226,6 @@ function App() {
           {fileName}
           {dirty && " *"}
         </span>
-        <div className="header-actions">
-          <button className="btn-header" onClick={handleNew} title="New (Cmd+N)">
-            New
-          </button>
-          <button
-            className="btn-header"
-            onClick={handleOpen}
-            title="Open (Cmd+O)"
-          >
-            Open
-          </button>
-          <button
-            className="btn-header"
-            onClick={handleSave}
-            title="Save (Cmd+S)"
-            disabled={!dirty && filePath !== null}
-          >
-            Save
-          </button>
-          <button
-            className="btn-header"
-            onClick={handleSaveAs}
-            title="Save As (Cmd+Shift+S)"
-          >
-            Save As
-          </button>
-        </div>
       </header>
       <div className="app-body">
         <ClassBrowser
@@ -340,6 +314,19 @@ function App() {
           )}
         </div>
       </div>
+      <SimulationPanel
+        modelPath={filePath}
+        dirty={dirty}
+        onSave={handleSave}
+        weatherPath={
+          Array.isArray(model.weather_files) && model.weather_files.length > 0
+            ? (model.weather_files[0] as string) ?? null
+            : null
+        }
+        onWeatherChange={(path) => {
+          updateModel("weather_files", [path]);
+        }}
+      />
     </div>
   );
 }

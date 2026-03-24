@@ -838,16 +838,16 @@ fn build_state_space(
     let cap_n = nodes[n - 1].cap;
 
     // Outside input → node 0 (through NoMass boundary resistance)
-    b[0 * 2 + 0] = h_boundary_out / cap_0;
-    // Inside input → node n-1 (through NoMass boundary resistance)
+    b[0] = h_boundary_out / cap_0; // b[0*2+0]
+                                   // Inside input → node n-1 (through NoMass boundary resistance)
     b[(n - 1) * 2 + 1] = h_boundary_in / cap_n;
 
     // C matrix: fluxes at surfaces (using boundary conductances)
-    c[0 * n + 0] = -h_boundary_out; // outside flux, node 0
+    c[0] = -h_boundary_out; // c[0*n+0]: outside flux, node 0
     c[1 * n + (n - 1)] = h_boundary_in; // inside flux, node n-1
 
     // D matrix: direct feedthrough (using boundary conductances)
-    d[0 * 2 + 0] = h_boundary_out; // outside temp → outside flux
+    d[0] = h_boundary_out; // d[0*2+0]: outside temp → outside flux
     d[1 * 2 + 1] = -h_boundary_in; // inside temp → inside flux
 
     (a, b, c, d)
@@ -1046,7 +1046,7 @@ fn compute_ctf_from_state_space(
         None => {
             // Singular A matrix — fall back to steady-state
             log::warn!("Singular A matrix in CTF calculation, using steady-state fallback");
-            let u = d[0 * 2 + 0]; // D(1,1)
+            let u = d[0]; // D(1,1) = d[0*2+0]
             return CtfCoefficients {
                 x: vec![u.abs()],
                 y: vec![u.abs()],
@@ -1120,9 +1120,9 @@ fn compute_ctf_from_state_space(
     }
 
     // Enforce cross-term symmetry: average |s0(0,1)| and |s0(1,0)|
-    let avg_cross = (s0[0 * 2 + 1].abs() + s0[1 * 2 + 0].abs()) / 2.0;
-    s0[0 * 2 + 1] = avg_cross * s0[0 * 2 + 1].signum();
-    s0[1 * 2 + 0] = avg_cross * s0[1 * 2 + 0].signum();
+    let avg_cross = (s0[1].abs() + s0[2].abs()) / 2.0; // s0[0*2+1] and s0[1*2+0]
+    s0[1] = avg_cross * s0[1].signum();
+    s0[2] = avg_cross * s0[2].signum();
 
     // Initialize CTF output vectors
     //
@@ -1137,7 +1137,7 @@ fn compute_ctf_from_state_space(
     //
     // Note: s(0,1) = -s(1,0) by reciprocity. E+ uses s(0,1) and negates in
     // the outside equation, but we use s(1,0) directly for clarity.
-    let mut x_vec = vec![s0[0 * 2 + 0]];
+    let mut x_vec = vec![s0[0]]; // s0[0*2+0]
     let mut y_vec = vec![s0[1 * 2 + 0]]; // cross: outside temp → inside flux
     let mut z_vec = vec![-s0[1 * 2 + 1]]; // E+ negates Z
     let mut phi_vec: Vec<f64> = Vec::new();
@@ -1233,7 +1233,7 @@ fn compute_ctf_from_state_space(
         }
 
         // Store CTF terms
-        x_vec.push(s_j[0 * 2 + 0]);
+        x_vec.push(s_j[0]); // s_j[0*2+0]
         y_vec.push(s_j[1 * 2 + 0]); // cross: outside temp → inside flux
         z_vec.push(-s_j[1 * 2 + 1]); // E+ negates Z
         phi_vec.push(-e_j); // E+ negates e

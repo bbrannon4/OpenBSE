@@ -316,9 +316,15 @@ fn run_single_design_day(
                     sizing_internal_gains: gains_mode,
                 };
 
-                // No supply air — ideal loads handles HVAC directly.
-                let mut hvac = ZoneHvacConditions::default();
-                hvac.oa_handled_by_hvac = oa_handled_by_hvac.clone();
+                // During sizing, include outdoor air ventilation in the zone
+                // heat balance regardless of whether HVAC normally handles it.
+                // This captures the ventilation cooling/heating load (hot OA in
+                // summer, cold OA in winter) that E+ includes in its ideal loads
+                // sizing.  Without this, zones served by air loops (where OA is
+                // normally handled by the AHU) would undersize because the zone
+                // doesn't "see" the ventilation thermal load.
+                let hvac = ZoneHvacConditions::default();
+                // oa_handled_by_hvac defaults to empty = all zones include OA
 
                 let result = env.solve_timestep(&ctx, wh, &hvac);
                 env.update_bdf_history();
@@ -331,8 +337,12 @@ fn run_single_design_day(
                         let cl = result.zone_cooling_loads.get(name).copied().unwrap_or(0.0);
                         let cur_h = hour_peak_heating.get(name).copied().unwrap_or(0.0);
                         let cur_c = hour_peak_cooling.get(name).copied().unwrap_or(0.0);
-                        if hl > cur_h { hour_peak_heating.insert(name.clone(), hl); }
-                        if cl > cur_c { hour_peak_cooling.insert(name.clone(), cl); }
+                        if hl > cur_h {
+                            hour_peak_heating.insert(name.clone(), hl);
+                        }
+                        if cl > cur_c {
+                            hour_peak_cooling.insert(name.clone(), cl);
+                        }
                     }
                 }
             }
@@ -530,9 +540,36 @@ fn run_zone_sizing(
             0.0
         };
 
-        // Cooling airflow: Q = m_dot * Cp * (T_zone - T_supply)
+        // Cooling airflow: Q = m_dot * Cp * (T_zone - T_supply_eff)
+        //
+        // E+ zone sizing accounts for fan heat and outdoor air mixing in the
+        // effective supply temperature.  The AHU supply fan adds ΔT_fan to the
+        // coil outlet temp, and OA mixing raises it further.  Without these
+        // corrections, zone airflows are undersized by ~30-45%.
+        //
+        //   T_supply_eff = T_coil + ΔT_fan + OA_frac × (T_oa - T_return)
+        //   ΔT_fan ≈ ΔP / (η × ρ × Cp)
+        //   OA_frac ≈ 0.15 (typical VAV office minimum OA ratio)
+        //
+        // Use site-altitude density for the fan heat calculation.
         let cool_load = zone_peak_cooling.get(name).copied().unwrap_or(0.0);
-        let dt_cooling = (cool_sp - cooling_supply_temp).max(5.0);
+        let site_p = design_days.first().map(|d| d.pressure).unwrap_or(101325.0);
+        let rho_site = site_p / (287.042 * 293.15);
+        let fan_dp = 1337.0_f64; // typical VAV fan ΔP [Pa]
+        let fan_eta = 0.614_f64; // typical total fan efficiency
+        let dt_fan = fan_dp / (fan_eta * rho_site * cp_air);
+
+        // OA mixing: use cooling design day outdoor temp as worst case
+        let t_oa_design = design_days
+            .iter()
+            .filter(|dd| !is_heating_design_day(dd))
+            .map(|dd| dd.design_temp)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let oa_frac = 0.15_f64; // typical min OA fraction for VAV offices
+        let dt_oa_mixing = oa_frac * (t_oa_design - cool_sp).max(0.0);
+
+        let t_supply_eff = cooling_supply_temp + dt_fan + dt_oa_mixing;
+        let dt_cooling = (cool_sp - t_supply_eff).max(3.0);
         let m_cool = if cool_load > 0.0 {
             cool_load / (cp_air * dt_cooling)
         } else {

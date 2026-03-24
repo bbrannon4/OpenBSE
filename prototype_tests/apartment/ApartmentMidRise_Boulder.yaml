@@ -5911,21 +5911,14 @@ dhw_systems:
     setpoint: 60.0
     ua_standby: 10.0
     deadband: 0.1
-<<<<<<< Updated upstream
     ambient_zone: G Corridor
-=======
->>>>>>> Stashed changes
   pump:
     name: SWH Pump
     pump_type: constant_speed
     design_flow_rate: autosize
     design_head: 29891.0
     motor_efficiency: 0.3
-<<<<<<< Updated upstream
-    impeller_efficiency: 1.0
-=======
     impeller_efficiency: 0.78
->>>>>>> Stashed changes
     motor_heat_to_fluid_fraction: 0.0
   loads:
   - name: Apartment DHW Load
