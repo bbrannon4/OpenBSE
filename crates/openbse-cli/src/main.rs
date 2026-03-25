@@ -4716,6 +4716,9 @@ fn build_vav_signals(
     // when many perimeter zones need heating, bringing in cold OA would
     // force excessive VAV reheat. Locking out the economizer keeps the
     // mixed air warm, reducing both preheat and reheat energy.
+    // Economizer lockout: only activate when more zones need cooling
+    // than heating. This approximates E+'s LockoutWithHeating behavior
+    // and balances free-cooling against reheat penalty.
     let cooling_dominant = {
         let n_cool = li
             .served_zones

@@ -1,6 +1,6 @@
 # Large Office Prototype — Validation Notes
 
-## Status: 7 of 10 end uses within 5%
+## Status: 7 of 9 end uses within 5% (excluding Heating Electric = 0)
 
 ## Weather File
 - OpenBSE and EnergyPlus: `USA_CO_Denver-Aurora-Buckley.AFB.724695_TMY3.epw`
@@ -13,51 +13,64 @@
 | Exterior Lighting | 279,464 | 292,265 | +4.6% | PASS |
 | Interior Equipment | 4,076,778 | 4,072,466 | -0.1% | PASS |
 | Exterior Equipment | 713,075 | 696,046 | -2.4% | PASS |
-| Cooling (Electric) | 552,933 | 578,785 | +4.7% | PASS |
+| Fans (Electric) | 1,010,319 | 1,004,841 | -0.5% | PASS |
+| Heating (Gas) | 404,736 | 422,120 | +4.3% | PASS |
 | DHW (Electric) | 125,133 | 128,981 | +3.1% | PASS |
-| Heating (Electric) | 0 | 0 | 0% | PASS |
-| Fans (Electric) | 1,010,319 | 875,861 | -13.3% | FAIL |
-| Pumps (Electric) | 129,769 | 92,495 | -28.7% | FAIL |
-| Heating (Gas) | 404,736 | 452,962 | +11.9% | FAIL |
+| Cooling (Electric) | 552,933 | 620,021 | +12.1% | FAIL |
+| Pumps (Electric) | 129,769 | 95,661 | -26.3% | FAIL |
 
 ## Remaining Gaps — Root Cause Analysis
 
-### Fans (-13.3%)
-OpenBSE design-day zone cooling loads are 18% lower than E+'s for the core zone
-(58.9 kW steady-state vs E+'s 85.3 kW transient peak at 8 AM). The gap is from
-E+'s thermal mass effects during sizing: with constant 24/7 internal gains, E+'s
-CTF model produces a daily load oscillation (25-85 kW) as surface thermal mass
-absorbs and releases heat. OpenBSE's ideal-loads sizing reaches perfect steady
-state (58.9 kW flat) because the zone temp is clamped at setpoint, preventing
-surface temperature oscillation. The 18% lower design flow leads to lower flow
-fractions at runtime, amplified by the cubic fan power curve to -13% energy.
+### Cooling (+12.1%)
+The chiller electricity is 16.8% above E+ (484.6 vs 414.8 MWh). The excess comes
+from the economizer lockout being more aggressive than E+'s LockoutWithHeating.
+OpenBSE locks the economizer when more zones need heating than cooling (zone count).
+E+'s lockout only engages when the AHU preheat coil fires (mixed air < SAT). In
+shoulder seasons, OpenBSE locks out the economizer earlier, requiring more mechanical
+cooling for core zones that could otherwise use free cooling.
 
-### Heating Gas (+11.9%)
-Economizer lockout during heating periods prevents free cooling for core zones.
-E+ data shows 36-100% OA on winter weekdays with zero AHU heating — the
-economizer provides free cooling while VAV reheat handles perimeters. Removing
-OpenBSE's lockout allows free cooling but increases reheat energy to +53%
-because the cold SAT (15.6C) supply air requires massive perimeter reheat.
-The lockout trades higher cooling for lower heating — current balance gives
-the best overall result. A more sophisticated approach (per-zone SAT
-optimization or variable SAT based on heating/cooling balance) would help.
+The DC DX cooling is actually -9.9% below E+ (124.4 vs 138.1 MWh).
 
-### Pumps (-28.7%)
-CHW primary pump runs ~3200 hrs/year in OpenBSE vs E+'s longer runtime.
-Plant loop pump cycling logic differs: E+ runs pumps whenever any demand
-exists on the loop; OpenBSE may shut down pumps more aggressively during
-low-load periods. HHW pump energy is also low (2.0 MWh vs expected 10+ MWh),
-suggesting the hot water loop isn't cycling the pump enough for reheat demand.
+### Pumps (-26.3%)
+Three pump systems contribute:
+- CHW Primary (constant speed): 70.6 MWh (reasonable)
+- CHW Secondary (variable speed): 22.7 MWh (E+ estimated ~36.5 MWh, -38%)
+- HHW Pump (variable speed): 1.9 MWh (E+ estimated ~9.3 MWh, -79%)
 
-## Zone Thermal Load Comparison
-- Datacenter cooling: OpenBSE 2,450 MWh vs E+ 2,432 MWh (within 1%)
-- Office cooling: OpenBSE 2,920 MWh vs E+ 3,435 MWh (15% lower)
-- Total zone cooling: OpenBSE 5,370 MWh vs E+ 5,867 MWh (8.5% lower)
+The HHW pump runs at minimum most of the time because reheat demand is concentrated
+in the morning startup hours. The CHW secondary pump gap correlates with the overall
+chiller/cooling coil load pattern.
 
-## Key Engine Changes Made
-1. SetpointManager:Warmest SAT reset (highest SAT satisfying all cooling zones)
-2. Corrected chiller CAPFT/EIRFT curves from E+ IDF (WC_PD_2004)
-3. Load-based VAV zone flow with SAT-consistent terminal control signals
-4. Economizer activation from ideal cooling loads + heating-zone lockout
-5. Frost-only AHU preheat (2C threshold, not heating to SAT)
-6. OA ventilation load in zone design-day sizing
+## Key Engine Changes Made During Validation
+
+1. **Load-based VAV zone flows**: `build_vav_signals` computes zone airflows from
+   ideal cooling loads and SAT (two-pass: first pass estimates SAT, second pass
+   recomputes flows with actual SAT). Terminal box control signals derived from
+   these flows for fan/terminal mass balance.
+
+2. **Economizer lockout**: Cooling-dominant check (n_cool > n_heat) approximates
+   E+'s LockoutWithHeating. When most zones need heating, economizer locks to
+   minimum OA to prevent excessive reheat.
+
+3. **VAV zone sizing factor**: 1.15x cooling sizing factor applied to VAV zone
+   design airflows to compensate for OpenBSE's steady-state design-day peak vs
+   E+'s transient CTF peak (85.3 kW vs 58.9 kW at hour 8).
+
+4. **OA load in zone sizing**: Outdoor air ventilation load added to zone design
+   cooling load, matching E+'s sizing approach.
+
+## Model Differences vs E+
+
+The simplified IDF and OpenBSE YAML both represent the same building, with these
+known differences:
+
+1. **No plenum zones**: OpenBSE doesn't model the 3 return-air plenums (GroundFloor,
+   MidFloor, TopFloor) present in E+. This causes core zones to overheat at night
+   (28°C vs E+'s 25.5°C) because heat has no escape path through the adiabatic ceiling.
+   The phantom OA from zone outdoor_air specs partially compensates.
+
+2. **Zone multiplier expansion**: E+ uses zone_multiplier=10 for mid-floor zones.
+   OpenBSE expands these to 10 explicit floors (60 mid-floor zones total), each with
+   its own air loop. This matches E+'s thermal behavior but increases simulation time.
+
+3. **Holidays**: E+ uses US federal holidays. OpenBSE uses the same schedule.
