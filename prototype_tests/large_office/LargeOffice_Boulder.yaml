@@ -5,6 +5,7 @@ simulation:
   end_month: 12
   end_day: 31
   terrain: city
+  solar_distribution: full_interior_and_exterior
   heating_sizing_factor: 1.25
   cooling_sizing_factor: 1.15
   ground_surface_temperatures:
@@ -42,7 +43,7 @@ simulation:
   - month: 12
     day: 25
 weather_files:
-- /Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw
+- /Users/benjaminbrannon/Documents/GitHub/OpenBSE/prototype_tests/Denver-Buckley.epw
 design_days:
 - name: Denver Heating 99.6%
   design_temp: -17.9
@@ -2187,18 +2188,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_bot_ZN1 South Wall
   vertices:
-  - x: 3.0
+  - x: 0.0
     y: 0.0
-    z: 0.8
-  - x: 70.0
+    z: 0.9147
+  - x: 73.1072
     y: 0.0
-    z: 0.8
-  - x: 70.0
+    z: 0.9147
+  - x: 73.1072
     y: 0.0
-    z: 2.4
-  - x: 3.0
+    z: 2.5
+  - x: 0.0
     y: 0.0
-    z: 2.4
+    z: 2.5
 - name: P_bot_ZN1 North IW
   zone: Perimeter_bot_ZN_1
   type: wall
@@ -2279,17 +2280,17 @@ surfaces:
   parent_surface: P_bot_ZN2 East Wall
   vertices:
   - x: 73.1072
-    y: 3.0
-    z: 0.8
+    y: 0.0
+    z: 0.9147
   - x: 73.1072
-    y: 45.7
-    z: 0.8
+    y: 48.7381
+    z: 0.9147
   - x: 73.1072
-    y: 45.7
-    z: 2.4
+    y: 48.7381
+    z: 2.5
   - x: 73.1072
-    y: 3.0
-    z: 2.4
+    y: 0.0
+    z: 2.5
 - name: P_bot_ZN2 West IW
   zone: Perimeter_bot_ZN_2
   type: wall
@@ -2369,18 +2370,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_bot_ZN3 North Wall
   vertices:
-  - x: 70.0
+  - x: 73.1072
     y: 48.7381
-    z: 0.8
-  - x: 3.0
+    z: 0.9147
+  - x: 0.0
     y: 48.7381
-    z: 0.8
-  - x: 3.0
+    z: 0.9147
+  - x: 0.0
     y: 48.7381
-    z: 2.4
-  - x: 70.0
+    z: 2.5
+  - x: 73.1072
     y: 48.7381
-    z: 2.4
+    z: 2.5
 - name: P_bot_ZN3 South IW
   zone: Perimeter_bot_ZN_3
   type: wall
@@ -2461,17 +2462,17 @@ surfaces:
   parent_surface: P_bot_ZN4 West Wall
   vertices:
   - x: 0.0
-    y: 45.7
-    z: 0.8
+    y: 48.7381
+    z: 0.9147
   - x: 0.0
-    y: 3.0
-    z: 0.8
+    y: 0.0
+    z: 0.9147
   - x: 0.0
-    y: 3.0
-    z: 2.4
+    y: 0.0
+    z: 2.5
   - x: 0.0
-    y: 45.7
-    z: 2.4
+    y: 48.7381
+    z: 2.5
 - name: P_bot_ZN4 East IW
   zone: Perimeter_bot_ZN_4
   type: wall
@@ -3793,18 +3794,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN1 South Wall_f2
   vertices:
-  - x: 3.0
+  - x: 0.0
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 6.3624
-  - x: 3.0
+    z: 6.4624
+  - x: 0.0
     y: 0.0
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN1 South Window_f3
   zone: Perimeter_mid_ZN_1_f3
   type: window
@@ -3812,18 +3813,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN1 South Wall_f3
   vertices:
-  - x: 3.0
+  - x: 0.0
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 6.3624
-  - x: 3.0
+    z: 6.4624
+  - x: 0.0
     y: 0.0
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN1 South Window_f4
   zone: Perimeter_mid_ZN_1_f4
   type: window
@@ -3831,18 +3832,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN1 South Wall_f4
   vertices:
-  - x: 3.0
+  - x: 0.0
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 6.3624
-  - x: 3.0
+    z: 6.4624
+  - x: 0.0
     y: 0.0
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN1 South Window_f5
   zone: Perimeter_mid_ZN_1_f5
   type: window
@@ -3850,18 +3851,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN1 South Wall_f5
   vertices:
-  - x: 3.0
+  - x: 0.0
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 6.3624
-  - x: 3.0
+    z: 6.4624
+  - x: 0.0
     y: 0.0
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN1 South Window_f6
   zone: Perimeter_mid_ZN_1_f6
   type: window
@@ -3869,18 +3870,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN1 South Wall_f6
   vertices:
-  - x: 3.0
+  - x: 0.0
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 6.3624
-  - x: 3.0
+    z: 6.4624
+  - x: 0.0
     y: 0.0
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN1 South Window_f7
   zone: Perimeter_mid_ZN_1_f7
   type: window
@@ -3888,18 +3889,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN1 South Wall_f7
   vertices:
-  - x: 3.0
+  - x: 0.0
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 6.3624
-  - x: 3.0
+    z: 6.4624
+  - x: 0.0
     y: 0.0
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN1 South Window_f8
   zone: Perimeter_mid_ZN_1_f8
   type: window
@@ -3907,18 +3908,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN1 South Wall_f8
   vertices:
-  - x: 3.0
+  - x: 0.0
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 6.3624
-  - x: 3.0
+    z: 6.4624
+  - x: 0.0
     y: 0.0
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN1 South Window_f9
   zone: Perimeter_mid_ZN_1_f9
   type: window
@@ -3926,18 +3927,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN1 South Wall_f9
   vertices:
-  - x: 3.0
+  - x: 0.0
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 6.3624
-  - x: 3.0
+    z: 6.4624
+  - x: 0.0
     y: 0.0
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN1 South Window_f10
   zone: Perimeter_mid_ZN_1_f10
   type: window
@@ -3945,18 +3946,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN1 South Wall_f10
   vertices:
-  - x: 3.0
+  - x: 0.0
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 6.3624
-  - x: 3.0
+    z: 6.4624
+  - x: 0.0
     y: 0.0
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN1 South Window_f11
   zone: Perimeter_mid_ZN_1_f11
   type: window
@@ -3964,18 +3965,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN1 South Wall_f11
   vertices:
-  - x: 3.0
+  - x: 0.0
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 4.7624
-  - x: 70.0
+    z: 4.8771
+  - x: 73.1072
     y: 0.0
-    z: 6.3624
-  - x: 3.0
+    z: 6.4624
+  - x: 0.0
     y: 0.0
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN1 North IW_f2
   zone: Perimeter_mid_ZN_1_f2
   type: wall
@@ -4704,17 +4705,17 @@ surfaces:
   parent_surface: P_mid_ZN2 East Wall_f2
   vertices:
   - x: 73.1072
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
   - x: 73.1072
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
 - name: P_mid_ZN2 East Window_f3
   zone: Perimeter_mid_ZN_2_f3
   type: window
@@ -4723,17 +4724,17 @@ surfaces:
   parent_surface: P_mid_ZN2 East Wall_f3
   vertices:
   - x: 73.1072
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
   - x: 73.1072
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
 - name: P_mid_ZN2 East Window_f4
   zone: Perimeter_mid_ZN_2_f4
   type: window
@@ -4742,17 +4743,17 @@ surfaces:
   parent_surface: P_mid_ZN2 East Wall_f4
   vertices:
   - x: 73.1072
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
   - x: 73.1072
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
 - name: P_mid_ZN2 East Window_f5
   zone: Perimeter_mid_ZN_2_f5
   type: window
@@ -4761,17 +4762,17 @@ surfaces:
   parent_surface: P_mid_ZN2 East Wall_f5
   vertices:
   - x: 73.1072
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
   - x: 73.1072
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
 - name: P_mid_ZN2 East Window_f6
   zone: Perimeter_mid_ZN_2_f6
   type: window
@@ -4780,17 +4781,17 @@ surfaces:
   parent_surface: P_mid_ZN2 East Wall_f6
   vertices:
   - x: 73.1072
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
   - x: 73.1072
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
 - name: P_mid_ZN2 East Window_f7
   zone: Perimeter_mid_ZN_2_f7
   type: window
@@ -4799,17 +4800,17 @@ surfaces:
   parent_surface: P_mid_ZN2 East Wall_f7
   vertices:
   - x: 73.1072
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
   - x: 73.1072
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
 - name: P_mid_ZN2 East Window_f8
   zone: Perimeter_mid_ZN_2_f8
   type: window
@@ -4818,17 +4819,17 @@ surfaces:
   parent_surface: P_mid_ZN2 East Wall_f8
   vertices:
   - x: 73.1072
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
   - x: 73.1072
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
 - name: P_mid_ZN2 East Window_f9
   zone: Perimeter_mid_ZN_2_f9
   type: window
@@ -4837,17 +4838,17 @@ surfaces:
   parent_surface: P_mid_ZN2 East Wall_f9
   vertices:
   - x: 73.1072
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
   - x: 73.1072
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
 - name: P_mid_ZN2 East Window_f10
   zone: Perimeter_mid_ZN_2_f10
   type: window
@@ -4856,17 +4857,17 @@ surfaces:
   parent_surface: P_mid_ZN2 East Wall_f10
   vertices:
   - x: 73.1072
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
   - x: 73.1072
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
 - name: P_mid_ZN2 East Window_f11
   zone: Perimeter_mid_ZN_2_f11
   type: window
@@ -4875,17 +4876,17 @@ surfaces:
   parent_surface: P_mid_ZN2 East Wall_f11
   vertices:
   - x: 73.1072
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 73.1072
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
   - x: 73.1072
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
 - name: P_mid_ZN2 West IW_f2
   zone: Perimeter_mid_ZN_2_f2
   type: wall
@@ -5613,18 +5614,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN3 North Wall_f2
   vertices:
-  - x: 70.0
+  - x: 73.1072
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 6.3624
-  - x: 70.0
+    z: 6.4624
+  - x: 73.1072
     y: 48.7381
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN3 North Window_f3
   zone: Perimeter_mid_ZN_3_f3
   type: window
@@ -5632,18 +5633,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN3 North Wall_f3
   vertices:
-  - x: 70.0
+  - x: 73.1072
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 6.3624
-  - x: 70.0
+    z: 6.4624
+  - x: 73.1072
     y: 48.7381
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN3 North Window_f4
   zone: Perimeter_mid_ZN_3_f4
   type: window
@@ -5651,18 +5652,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN3 North Wall_f4
   vertices:
-  - x: 70.0
+  - x: 73.1072
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 6.3624
-  - x: 70.0
+    z: 6.4624
+  - x: 73.1072
     y: 48.7381
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN3 North Window_f5
   zone: Perimeter_mid_ZN_3_f5
   type: window
@@ -5670,18 +5671,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN3 North Wall_f5
   vertices:
-  - x: 70.0
+  - x: 73.1072
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 6.3624
-  - x: 70.0
+    z: 6.4624
+  - x: 73.1072
     y: 48.7381
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN3 North Window_f6
   zone: Perimeter_mid_ZN_3_f6
   type: window
@@ -5689,18 +5690,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN3 North Wall_f6
   vertices:
-  - x: 70.0
+  - x: 73.1072
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 6.3624
-  - x: 70.0
+    z: 6.4624
+  - x: 73.1072
     y: 48.7381
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN3 North Window_f7
   zone: Perimeter_mid_ZN_3_f7
   type: window
@@ -5708,18 +5709,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN3 North Wall_f7
   vertices:
-  - x: 70.0
+  - x: 73.1072
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 6.3624
-  - x: 70.0
+    z: 6.4624
+  - x: 73.1072
     y: 48.7381
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN3 North Window_f8
   zone: Perimeter_mid_ZN_3_f8
   type: window
@@ -5727,18 +5728,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN3 North Wall_f8
   vertices:
-  - x: 70.0
+  - x: 73.1072
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 6.3624
-  - x: 70.0
+    z: 6.4624
+  - x: 73.1072
     y: 48.7381
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN3 North Window_f9
   zone: Perimeter_mid_ZN_3_f9
   type: window
@@ -5746,18 +5747,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN3 North Wall_f9
   vertices:
-  - x: 70.0
+  - x: 73.1072
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 6.3624
-  - x: 70.0
+    z: 6.4624
+  - x: 73.1072
     y: 48.7381
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN3 North Window_f10
   zone: Perimeter_mid_ZN_3_f10
   type: window
@@ -5765,18 +5766,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN3 North Wall_f10
   vertices:
-  - x: 70.0
+  - x: 73.1072
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 6.3624
-  - x: 70.0
+    z: 6.4624
+  - x: 73.1072
     y: 48.7381
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN3 North Window_f11
   zone: Perimeter_mid_ZN_3_f11
   type: window
@@ -5784,18 +5785,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_mid_ZN3 North Wall_f11
   vertices:
-  - x: 70.0
+  - x: 73.1072
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 4.7624
-  - x: 3.0
+    z: 4.8771
+  - x: 0.0
     y: 48.7381
-    z: 6.3624
-  - x: 70.0
+    z: 6.4624
+  - x: 73.1072
     y: 48.7381
-    z: 6.3624
+    z: 6.4624
 - name: P_mid_ZN3 South IW_f2
   zone: Perimeter_mid_ZN_3_f2
   type: wall
@@ -6524,17 +6525,17 @@ surfaces:
   parent_surface: P_mid_ZN4 West Wall_f2
   vertices:
   - x: 0.0
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
   - x: 0.0
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
 - name: P_mid_ZN4 West Window_f3
   zone: Perimeter_mid_ZN_4_f3
   type: window
@@ -6543,17 +6544,17 @@ surfaces:
   parent_surface: P_mid_ZN4 West Wall_f3
   vertices:
   - x: 0.0
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
   - x: 0.0
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
 - name: P_mid_ZN4 West Window_f4
   zone: Perimeter_mid_ZN_4_f4
   type: window
@@ -6562,17 +6563,17 @@ surfaces:
   parent_surface: P_mid_ZN4 West Wall_f4
   vertices:
   - x: 0.0
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
   - x: 0.0
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
 - name: P_mid_ZN4 West Window_f5
   zone: Perimeter_mid_ZN_4_f5
   type: window
@@ -6581,17 +6582,17 @@ surfaces:
   parent_surface: P_mid_ZN4 West Wall_f5
   vertices:
   - x: 0.0
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
   - x: 0.0
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
 - name: P_mid_ZN4 West Window_f6
   zone: Perimeter_mid_ZN_4_f6
   type: window
@@ -6600,17 +6601,17 @@ surfaces:
   parent_surface: P_mid_ZN4 West Wall_f6
   vertices:
   - x: 0.0
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
   - x: 0.0
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
 - name: P_mid_ZN4 West Window_f7
   zone: Perimeter_mid_ZN_4_f7
   type: window
@@ -6619,17 +6620,17 @@ surfaces:
   parent_surface: P_mid_ZN4 West Wall_f7
   vertices:
   - x: 0.0
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
   - x: 0.0
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
 - name: P_mid_ZN4 West Window_f8
   zone: Perimeter_mid_ZN_4_f8
   type: window
@@ -6638,17 +6639,17 @@ surfaces:
   parent_surface: P_mid_ZN4 West Wall_f8
   vertices:
   - x: 0.0
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
   - x: 0.0
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
 - name: P_mid_ZN4 West Window_f9
   zone: Perimeter_mid_ZN_4_f9
   type: window
@@ -6657,17 +6658,17 @@ surfaces:
   parent_surface: P_mid_ZN4 West Wall_f9
   vertices:
   - x: 0.0
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
   - x: 0.0
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
 - name: P_mid_ZN4 West Window_f10
   zone: Perimeter_mid_ZN_4_f10
   type: window
@@ -6676,17 +6677,17 @@ surfaces:
   parent_surface: P_mid_ZN4 West Wall_f10
   vertices:
   - x: 0.0
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
   - x: 0.0
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
 - name: P_mid_ZN4 West Window_f11
   zone: Perimeter_mid_ZN_4_f11
   type: window
@@ -6695,17 +6696,17 @@ surfaces:
   parent_surface: P_mid_ZN4 West Wall_f11
   vertices:
   - x: 0.0
-    y: 45.7
-    z: 4.7624
+    y: 48.7381
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 4.7624
+    y: 0.0
+    z: 4.8771
   - x: 0.0
-    y: 3.0
-    z: 6.3624
+    y: 0.0
+    z: 6.4624
   - x: 0.0
-    y: 45.7
-    z: 6.3624
+    y: 48.7381
+    z: 6.4624
 - name: P_mid_ZN4 East IW_f2
   zone: Perimeter_mid_ZN_4_f2
   type: wall
@@ -7379,18 +7380,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_top_ZN1 South Wall
   vertices:
-  - x: 3.0
+  - x: 0.0
     y: 0.0
-    z: 44.3864
-  - x: 70.0
+    z: 44.5011
+  - x: 73.1072
     y: 0.0
-    z: 44.3864
-  - x: 70.0
+    z: 44.5011
+  - x: 73.1072
     y: 0.0
-    z: 45.9864
-  - x: 3.0
+    z: 46.0864
+  - x: 0.0
     y: 0.0
-    z: 45.9864
+    z: 46.0864
 - name: P_top_ZN1 North IW
   zone: Perimeter_top_ZN_1
   type: wall
@@ -7471,17 +7472,17 @@ surfaces:
   parent_surface: P_top_ZN2 East Wall
   vertices:
   - x: 73.1072
-    y: 3.0
-    z: 44.3864
+    y: 0.0
+    z: 44.5011
   - x: 73.1072
-    y: 45.7
-    z: 44.3864
+    y: 48.7381
+    z: 44.5011
   - x: 73.1072
-    y: 45.7
-    z: 45.9864
+    y: 48.7381
+    z: 46.0864
   - x: 73.1072
-    y: 3.0
-    z: 45.9864
+    y: 0.0
+    z: 46.0864
 - name: P_top_ZN2 West IW
   zone: Perimeter_top_ZN_2
   type: wall
@@ -7561,18 +7562,18 @@ surfaces:
   boundary: outdoor
   parent_surface: P_top_ZN3 North Wall
   vertices:
-  - x: 70.0
+  - x: 73.1072
     y: 48.7381
-    z: 44.3864
-  - x: 3.0
+    z: 44.5011
+  - x: 0.0
     y: 48.7381
-    z: 44.3864
-  - x: 3.0
+    z: 44.5011
+  - x: 0.0
     y: 48.7381
-    z: 45.9864
-  - x: 70.0
+    z: 46.0864
+  - x: 73.1072
     y: 48.7381
-    z: 45.9864
+    z: 46.0864
 - name: P_top_ZN3 South IW
   zone: Perimeter_top_ZN_3
   type: wall
@@ -7653,17 +7654,17 @@ surfaces:
   parent_surface: P_top_ZN4 West Wall
   vertices:
   - x: 0.0
-    y: 45.7
-    z: 44.3864
+    y: 48.7381
+    z: 44.5011
   - x: 0.0
-    y: 3.0
-    z: 44.3864
+    y: 0.0
+    z: 44.5011
   - x: 0.0
-    y: 3.0
-    z: 45.9864
+    y: 0.0
+    z: 46.0864
   - x: 0.0
-    y: 45.7
-    z: 45.9864
+    y: 48.7381
+    z: 46.0864
 - name: P_top_ZN4 East IW
   zone: Perimeter_top_ZN_4
   type: wall
