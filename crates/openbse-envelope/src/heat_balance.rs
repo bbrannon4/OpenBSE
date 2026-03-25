@@ -2844,6 +2844,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                         // (HeatBalanceSurfaceManager.cc: TH(SurfNum,1,1) = TH(ExtSurfNum,1,2))
                         if let Some(paired) = self.interzone_pairs[si] {
                             self.surfaces[si].temp_outside = self.surfaces[paired].temp_inside;
+                        } else if self.surfaces[si].input.zone == *other_zone {
+                            // Self-referencing: surface references its own zone.
+                            // E+ sets T_outside = T_inside for self-referencing surfaces
+                            // (HeatBalanceSurfaceManager.cc: TH(SurfNum,1,1) = TH(SurfNum,1,2)).
+                            // This creates a symmetric boundary that gives the slab its full
+                            // thermal mass without the artificial reservoir effect of using
+                            // zone air temperature.
+                            self.surfaces[si].temp_outside = self.surfaces[si].temp_inside;
                         } else {
                             // Fallback: use zone air temp (no matched pair)
                             if let Some(&zi) = self.zone_index.get(other_zone) {
