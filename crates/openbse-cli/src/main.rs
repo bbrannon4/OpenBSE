@@ -3377,6 +3377,7 @@ fn simulate_all_loops(
                     zone_cooling_loads,
                     zone_heating_loads,
                     li.cooling_supply_temp,
+                    zone_thermal_caps,
                 )
             }
         };
@@ -4524,6 +4525,7 @@ fn build_vav_signals(
     zone_cooling_loads: &HashMap<String, f64>,
     zone_heating_loads: &HashMap<String, f64>,
     _supply_air_temp: f64,
+    zone_thermal_caps: &HashMap<String, f64>,
 ) -> ControlSignals {
     let mut signals = ControlSignals::default();
 
