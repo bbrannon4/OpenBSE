@@ -176,7 +176,8 @@
         "shading_calculation": { "type": "string", "enum": ["basic", "detailed"], "default": "basic", "description": "Shading mode. 'detailed' enables geometric shadow calculations." },
         "infiltration_interaction": { "type": "string", "enum": ["basic", "ashrae_combined"], "default": "basic", "description": "How infiltration combines with exhaust. 'ashrae_combined' uses sqrt(infil^2 + exhaust^2)." },
         "solar_distribution": { "type": "string", "enum": ["full_exterior", "full_interior_and_exterior"], "default": "full_exterior", "description": "Interior solar distribution method." },
-        "airflow_network": { "$ref": "#/$defs/AirflowNetworkConfig" }
+        "airflow_network": { "$ref": "#/$defs/AirflowNetworkConfig" },
+        "run_parametrics": { "type": "boolean", "default": true, "description": "Whether to execute parametric runs defined in the parametrics section. Set to false to run the base model only without deleting parametric definitions." }
       }
     },
 

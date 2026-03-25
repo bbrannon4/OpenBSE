@@ -369,19 +369,27 @@ fn main() -> Result<()> {
     let single_run_mode;
     let parametric_runs: Vec<openbse_io::input::ParametricRun>;
 
-    if let Some(ref mut parametric) = model.parametrics {
-        // Expand any sweep definitions into explicit runs
-        expand_sweeps(parametric).with_context(|| "Failed to expand parametric sweeps")?;
+    if model.simulation.run_parametrics {
+        if let Some(ref mut parametric) = model.parametrics {
+            // Expand any sweep definitions into explicit runs
+            expand_sweeps(parametric).with_context(|| "Failed to expand parametric sweeps")?;
 
-        if parametric.runs.is_empty() {
+            if parametric.runs.is_empty() {
+                single_run_mode = true;
+                parametric_runs = Vec::new();
+            } else {
+                single_run_mode = false;
+                parametric_runs = std::mem::take(&mut parametric.runs);
+                info!("Parametric mode: {} runs defined", parametric_runs.len());
+            }
+        } else {
             single_run_mode = true;
             parametric_runs = Vec::new();
-        } else {
-            single_run_mode = false;
-            parametric_runs = std::mem::take(&mut parametric.runs);
-            info!("Parametric mode: {} runs defined", parametric_runs.len());
         }
     } else {
+        if model.parametrics.is_some() {
+            info!("Parametric runs defined but run_parametrics: false — running base model only");
+        }
         single_run_mode = true;
         parametric_runs = Vec::new();
     };

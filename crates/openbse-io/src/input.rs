@@ -273,6 +273,25 @@ pub struct SimulationSettings {
     /// ```
     #[serde(default)]
     pub holidays: Vec<HolidayDate>,
+
+    /// Whether to execute parametric runs defined in the `parametrics:` section.
+    ///
+    /// - `true` (default): If `parametrics:` has runs or sweeps, execute them all.
+    /// - `false`: Ignore the `parametrics:` section entirely and run the base model once.
+    ///
+    /// This is useful for quick base-model checks without deleting the parametric
+    /// definitions, or for the Workbench to toggle between single and batch runs.
+    ///
+    /// ```yaml
+    /// simulation:
+    ///   run_parametrics: false   # skip parametrics, just run the base model
+    /// ```
+    #[serde(default = "default_run_parametrics")]
+    pub run_parametrics: bool,
+}
+
+fn default_run_parametrics() -> bool {
+    true
 }
 
 /// A fixed-date holiday.

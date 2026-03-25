@@ -1063,6 +1063,17 @@ Parametric run 2/5: high_efficiency_fan
 
 Models without a `parametrics:` section run exactly once, as before.
 
+#### Disabling Parametrics Without Removing Them
+
+To temporarily skip parametric runs without deleting the `parametrics:` section, set `run_parametrics: false` in the simulation settings:
+
+```yaml
+simulation:
+  run_parametrics: false   # run the base model only, ignore parametrics
+```
+
+When omitted or set to `true`, parametric runs execute normally. This is useful for quick base-model checks during development, or for the Workbench to toggle between single and batch modes.
+
 ### Performance Curves
 
 Top-level reusable performance curves that HVAC equipment can reference by name. Curves modify rated equipment performance as a function of operating conditions.
