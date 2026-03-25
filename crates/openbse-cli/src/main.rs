@@ -831,8 +831,23 @@ fn main() -> Result<()> {
                 coincident_peak_cooling = sizing_result.system_sizing.coincident_peak_cooling;
 
                 // Apply sized zone airflows (override design_zone_flow).
+                // For VAV zones, apply the cooling sizing factor to compensate
+                // for the design-day load gap: OpenBSE's ideal-loads sizing
+                // reaches steady state (58.9 kW) while E+'s CTF model produces
+                // a transient peak (85.3 kW) from thermal mass oscillation.
+                // The sizing factor approximates this missing peak.
+                let vav_zones: std::collections::HashSet<String> = loop_infos
+                    .iter()
+                    .filter(|li| li.system_type == AirLoopSystemType::Vav)
+                    .flat_map(|li| li.served_zones.iter().cloned())
+                    .collect();
                 for (zone_name, &flow) in &sizing_result.zone_design_airflow {
-                    zone_design_flows.insert(zone_name.clone(), flow);
+                    let sized_flow = if vav_zones.contains(zone_name) {
+                        flow * model.simulation.cooling_sizing_factor
+                    } else {
+                        flow
+                    };
+                    zone_design_flows.insert(zone_name.clone(), sized_flow);
                 }
 
                 // ── Per-loop cooling SAT override ──
