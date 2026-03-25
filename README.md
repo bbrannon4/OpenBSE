@@ -177,7 +177,7 @@ Lighting, equipment, and DHW match within 1%. Heating and fan gaps are under act
 
 ### General
 - Python bindings (PyO3)
-- Parametric run execution (data structure defined, execution not wired)
+- ~~Parametric run execution~~ (implemented: scalar overrides, weather swaps, sweep expansion)
 - EMS-style programmable controls
 
 ## Test Organization

@@ -1,0 +1,159 @@
+# OpenBSE Example: Parametric Sweep Analysis
+#
+# Demonstrates parametric run features:
+#   - Explicit named runs with scalar overrides
+#   - Sweep syntax with explicit values and range
+#   - Thermostat setpoint and equipment efficiency variations
+#
+# Run with:  openbse parametric_sweep.yaml -w <path-to-epw>
+#
+# Produces one CSV per run:
+#   parametric_sweep_baseline_results.csv
+#   parametric_sweep_tight_setpoints_results.csv
+#   parametric_sweep_sweep_heating_setpoint_20_results.csv
+#   parametric_sweep_sweep_heating_setpoint_21_results.csv
+#   parametric_sweep_sweep_heating_setpoint_22_results.csv
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 1
+  end_day: 7        # One week — fast enough for testing
+
+weather_files:
+  - "../140_tests/weather/CE100.epw"
+
+design_days:
+  - name: Winter Design Day
+    design_temp: -17.8
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -17.8
+    pressure: 101325.0
+    wind_speed: 2.3
+    month: 1
+    day: 21
+    day_type: winter
+
+# ─── Envelope ─────────────────────────────────────────────────────────────────
+
+simple_constructions:
+  - name: Heavy Wall
+    u_factor: 0.5
+    thickness: 0.2
+    thermal_capacity: 200000.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+
+window_constructions:
+  - name: Double Pane
+    u_factor: 2.7
+    shgc: 0.39
+    visible_transmittance: 0.42
+
+zones:
+  - name: Office
+    volume: 300.0
+    floor_area: 100.0
+
+surfaces:
+  - name: Office South Wall
+    zone: Office
+    type: wall
+    construction: Heavy Wall
+    area: 30.0
+    azimuth: 180.0
+    tilt: 90.0
+    boundary: outdoor
+
+  - name: Office South Window
+    zone: Office
+    type: window
+    construction: Double Pane
+    area: 6.0
+    azimuth: 180.0
+    tilt: 90.0
+    boundary: outdoor
+    parent_surface: Office South Wall
+
+  - name: Office North Wall
+    zone: Office
+    type: wall
+    construction: Heavy Wall
+    area: 30.0
+    azimuth: 0.0
+    tilt: 90.0
+    boundary: outdoor
+
+  - name: Office Roof
+    zone: Office
+    type: roof
+    construction: Heavy Wall
+    area: 100.0
+    azimuth: 0.0
+    tilt: 0.0
+    boundary: outdoor
+
+  - name: Office Floor
+    zone: Office
+    type: floor
+    construction: Heavy Wall
+    area: 100.0
+    azimuth: 0.0
+    tilt: 180.0
+    boundary: ground
+
+# ─── HVAC ─────────────────────────────────────────────────────────────────────
+
+air_loops:
+  - name: RTU
+    controls:
+      heating_supply_temp: 35.0
+      cooling_supply_temp: 13.0
+      design_zone_flow: 0.5
+    equipment:
+      - type: heating_coil
+        name: Heating Coil
+        source: electric
+        capacity: autosize
+        setpoint: 35.0
+      - type: fan
+        name: Supply Fan
+        source: constant_volume
+        design_flow_rate: autosize
+        pressure_rise: 600.0
+        impeller_efficiency: 0.71
+        motor_efficiency: 0.9
+    zone_terminals:
+      - zone: Office
+
+thermostats:
+  - name: Office Thermostat
+    zones: [Office]
+    heating_setpoint: 21.0
+    cooling_setpoint: 24.0
+
+infiltration:
+  - name: Office Infiltration
+    zones: [Office]
+    design_flow_rate: 0.03
+    constant_coefficient: 1.0
+
+# ─── Parametric Analysis ──────────────────────────────────────────────────────
+
+parametrics:
+  # Explicit named runs
+  runs:
+    - name: baseline
+      # No overrides — uses the model as-is
+
+    - name: tight_setpoints
+      overrides:
+        "Office Thermostat.heating_setpoint": 22.0
+        "Office Thermostat.cooling_setpoint": 23.0
+
+  # Sweep: vary the heating setpoint from 20 to 22 in 1-degree steps
+  sweeps:
+    - parameter: "Office Thermostat.heating_setpoint"
+      range: { min: 20.0, max: 22.0, step: 1.0 }

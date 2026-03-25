@@ -1472,7 +1472,15 @@ pub struct PlantLoopSetpointInput {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ParametricInput {
     /// Named parameter sets. Each key is a run name, values override model parameters.
+    #[serde(default)]
     pub runs: Vec<ParametricRun>,
+    /// Sweep definitions — auto-generate runs by varying parameters.
+    #[serde(default)]
+    pub sweeps: Vec<SweepInput>,
+    /// If true, sweeps generate a Cartesian product of all values.
+    /// If false (default), sweeps are zipped together (must have same length).
+    #[serde(default)]
+    pub cross_product: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1484,6 +1492,97 @@ pub struct ParametricRun {
     /// Parameter overrides (component_name.parameter_name -> value)
     #[serde(default)]
     pub overrides: std::collections::HashMap<String, f64>,
+    /// Section replacements from external YAML files (Level 2 — not yet implemented).
+    #[serde(default, alias = "include")]
+    pub includes: Vec<SectionOverride>,
+}
+
+/// Section replacement from an external YAML file (Level 2 scaffolding).
+///
+/// When implemented, this will load a partial YAML file and replace the
+/// specified top-level sections in the model. Not yet wired into the run loop.
+///
+/// ```yaml
+/// include:
+///   - file: "templates/vav_chw.yaml"
+///     replaces: [air_loops, plant_loops, thermostats]
+/// ```
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SectionOverride {
+    /// Path to partial YAML file
+    pub file: String,
+    /// Top-level sections to replace, e.g. ["air_loops", "plant_loops"]
+    pub replaces: Vec<String>,
+}
+
+/// Sweep definition — auto-generate runs by varying a parameter.
+///
+/// ```yaml
+/// sweeps:
+///   - parameter: "Boiler-1.efficiency"
+///     values: [0.75, 0.80, 0.85, 0.90, 0.95]
+///   - parameter: "DX Coil.cop"
+///     range: { min: 3.0, max: 5.0, step: 0.5 }
+/// ```
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SweepInput {
+    /// Override key in "ComponentName.field_name" format
+    pub parameter: String,
+    /// Explicit list of values to sweep through
+    #[serde(default)]
+    pub values: Option<Vec<f64>>,
+    /// Range specification (mutually exclusive with `values`)
+    #[serde(default)]
+    pub range: Option<SweepRange>,
+}
+
+impl SweepInput {
+    /// Resolve this sweep into a concrete list of values.
+    pub fn resolve_values(&self) -> Result<Vec<f64>, crate::parametric::ParametricError> {
+        match (&self.values, &self.range) {
+            (Some(vals), None) => Ok(vals.clone()),
+            (None, Some(range)) => range.expand(),
+            (Some(_), Some(_)) => Err(crate::parametric::ParametricError::SweepError(format!(
+                "Sweep '{}' has both 'values' and 'range' — use one or the other",
+                self.parameter
+            ))),
+            (None, None) => Err(crate::parametric::ParametricError::SweepError(format!(
+                "Sweep '{}' has neither 'values' nor 'range'",
+                self.parameter
+            ))),
+        }
+    }
+}
+
+/// Range specification for sweep generation.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SweepRange {
+    pub min: f64,
+    pub max: f64,
+    pub step: f64,
+}
+
+impl SweepRange {
+    /// Expand this range into a list of values.
+    pub fn expand(&self) -> Result<Vec<f64>, crate::parametric::ParametricError> {
+        if self.step <= 0.0 {
+            return Err(crate::parametric::ParametricError::SweepError(
+                "Sweep range step must be positive".to_string(),
+            ));
+        }
+        if self.min > self.max {
+            return Err(crate::parametric::ParametricError::SweepError(
+                "Sweep range min must be <= max".to_string(),
+            ));
+        }
+        let mut values = Vec::new();
+        let mut v = self.min;
+        while v <= self.max + self.step * 1e-9 {
+            values.push(v);
+            v += self.step;
+        }
+        Ok(values)
+    }
 }
 
 // ─── Domestic Hot Water ──────────────────────────────────────────────────────

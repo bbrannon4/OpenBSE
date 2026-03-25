@@ -91,7 +91,7 @@ Last updated: 2026-03-23
 - [ ] Geometry import (gbXML, IDF vertices)
 - [x] Beam/diffuse interior solar distribution — FullExterior (beam→floor) and FullInteriorAndExterior (geometric projection with polygon clipping), VMULT diffuse redistribution. Reflected beam enters diffuse pool (deliberate improvement over E+'s single-bounce localization; approaches infinite-bounce radiosity solution). No direct solar-to-air fraction (E+ shortcut for unmodeled interior mass).
 - [ ] Python bindings (PyO3)
-- [ ] Parametric run execution
+- [x] Parametric run execution — scalar overrides, weather file swaps, sweep expansion (zip + cross-product), per-run CSV output
 - [ ] VRF systems, ground-source heat pumps, radiant systems
 - [x] Airflow network — multizone pressure-driven infiltration with Newton-Raphson solver, auto-generated cracks/openings from geometry, Swami & Chandra Cp correlations, stack effect, exhaust fan depressurization. Opt-in via `airflow_network.enabled: true`.
 - [ ] Moisture transport through envelope

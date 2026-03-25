@@ -668,26 +668,87 @@
     "ParametricRun": {
       "type": "object",
       "required": ["name"],
-      "description": "A single parametric run configuration.",
+      "description": "A single parametric run configuration. Override component parameters, swap weather files, or include template YAML sections.",
       "properties": {
-        "name": { "type": "string" },
-        "weather_file": { "type": "string", "description": "Override weather file for this run." },
+        "name": { "type": "string", "description": "Unique name for this run. Used in output filenames." },
+        "weather_file": { "type": "string", "description": "Override weather file for this run (EPW path, relative to input file)." },
         "overrides": {
           "type": "object",
           "additionalProperties": { "type": "number" },
-          "description": "Parameter overrides as 'ComponentName.field_name': value pairs."
+          "description": "Scalar parameter overrides as 'ComponentName.field_name': value pairs. The component name must match a named object in the model (zone, thermostat, material, fan, coil, boiler, chiller, etc.). The field name must be a numeric field on that component (e.g., efficiency, cop, capacity, heating_setpoint)."
+        },
+        "include": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SectionOverride" },
+          "default": [],
+          "description": "Section replacements from external YAML files (Level 2 — not yet implemented)."
         }
+      }
+    },
+
+    "SectionOverride": {
+      "type": "object",
+      "required": ["file", "replaces"],
+      "description": "Replace top-level model sections with content from an external YAML file. Not yet implemented — scaffolding only.",
+      "properties": {
+        "file": { "type": "string", "description": "Path to partial YAML file (relative to input file)." },
+        "replaces": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Top-level sections to replace, e.g. ['air_loops', 'plant_loops', 'thermostats']."
+        }
+      }
+    },
+
+    "SweepInput": {
+      "type": "object",
+      "required": ["parameter"],
+      "description": "Sweep definition — automatically generate runs by varying a single parameter across a list of values or a numeric range.",
+      "properties": {
+        "parameter": { "type": "string", "description": "Override key in 'ComponentName.field_name' format." },
+        "values": {
+          "type": "array",
+          "items": { "type": "number" },
+          "description": "Explicit list of values to sweep through. Mutually exclusive with 'range'."
+        },
+        "range": {
+          "$ref": "#/$defs/SweepRange",
+          "description": "Generate values from min to max with a fixed step. Mutually exclusive with 'values'."
+        }
+      }
+    },
+
+    "SweepRange": {
+      "type": "object",
+      "required": ["min", "max", "step"],
+      "description": "Numeric range for sweep generation: produces values from min to max (inclusive) with the given step size.",
+      "properties": {
+        "min": { "type": "number", "description": "Start value (inclusive)." },
+        "max": { "type": "number", "description": "End value (inclusive)." },
+        "step": { "type": "number", "exclusiveMinimum": 0, "description": "Step size between values." }
       }
     },
 
     "Parametrics": {
       "type": "object",
-      "required": ["runs"],
-      "description": "Parametric analysis configuration.",
+      "description": "Parametric analysis configuration. Define explicit runs with overrides, auto-generate runs from sweeps, or both. When both are present, explicit runs execute first, followed by expanded sweep runs.",
       "properties": {
         "runs": {
           "type": "array",
-          "items": { "$ref": "#/$defs/ParametricRun" }
+          "items": { "$ref": "#/$defs/ParametricRun" },
+          "default": [],
+          "description": "Explicit named runs with per-run overrides."
+        },
+        "sweeps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SweepInput" },
+          "default": [],
+          "description": "Sweep definitions that auto-generate runs by varying parameters."
+        },
+        "cross_product": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, sweeps generate a Cartesian product of all parameter values (N1 x N2 x ... runs). If false (default), sweeps are zipped element-wise (all must have the same number of values)."
         }
       }
     },

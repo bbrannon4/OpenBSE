@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Parametric run engine** — Execute multiple simulation runs with parameter overrides from a single YAML file. Supports scalar overrides on any named component field (`"Boiler-1.efficiency": 0.95`), per-run weather file swaps, and automatic sweep expansion with zip or Cartesian product modes. Each run produces a separate results CSV.
+- **Sweep syntax** — Auto-generate parametric runs from `values: [0.80, 0.85, 0.90]` lists or `range: { min: 3.0, max: 5.0, step: 0.5 }` specifications. Combine multiple sweeps with `cross_product: true` for full factorial analysis.
+- **Section override scaffolding** — Data structures and YAML parsing for future template-based section replacement (`include:` with `replaces:` lists). Execution not yet implemented.
+
 ## [0.1.0] - 2026-03-23
 
 ### Added

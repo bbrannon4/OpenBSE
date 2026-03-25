@@ -960,7 +960,11 @@ surfaces:
 
 ### Parametric Runs
 
-Run the same model with different parameters automatically.
+Run the same model with different parameters automatically. Each parametric run re-executes the full simulation (sizing, weather loading, envelope, HVAC) with the specified overrides applied, producing separate output files per run.
+
+#### Explicit Runs
+
+Define named runs with specific overrides:
 
 ```yaml
 parametrics:
@@ -977,8 +981,87 @@ parametrics:
 ```
 
 Each run can optionally override:
-- **Component parameters** using `"Component Name.parameter_name": value`
-- **Weather file** using `weather_file: "path/to/file.epw"`
+- **Component parameters** using `"Component Name.parameter_name": value` — the component name matches any named object in the model (zones, thermostats, materials, fans, coils, boilers, chillers, pumps, etc.) and the field name matches a numeric field on that component.
+- **Weather file** using `weather_file: "path/to/file.epw"` — replaces the weather data for this run only.
+
+#### Supported Override Targets
+
+Any named component with a numeric field can be overridden. Common examples:
+
+| Component Type | Example Fields |
+|---|---|
+| Zone | `volume`, `floor_area` |
+| Thermostat | `heating_setpoint`, `cooling_setpoint`, `unoccupied_heating_setpoint` |
+| Material | `conductivity`, `density`, `specific_heat` |
+| Window Construction | `u_factor`, `shgc`, `visible_transmittance` |
+| Simple Construction | `u_factor`, `thickness`, `thermal_capacity` |
+| Fan | `pressure_rise`, `motor_efficiency`, `impeller_efficiency`, `design_flow_rate` |
+| Heating Coil | `capacity`, `efficiency`, `cop`, `setpoint` |
+| Cooling Coil | `capacity`, `cop`, `shr`, `setpoint` |
+| Boiler | `capacity`, `efficiency`, `design_outlet_temp` |
+| Chiller | `capacity`, `cop`, `chw_setpoint` |
+| Pump | `design_flow_rate`, `design_head`, `motor_efficiency` |
+| Heat Recovery | `sensible_effectiveness`, `latent_effectiveness` |
+| People | `count`, `people_per_area`, `activity_level`, `radiant_fraction` |
+| Lights | `power`, `watts_per_area`, `radiant_fraction` |
+| Equipment Gains | `power`, `watts_per_area`, `radiant_fraction` |
+| Water Heater | `capacity`, `efficiency`, `setpoint`, `tank_volume` |
+| Exterior Equipment | `power` |
+
+#### Sweeps
+
+Instead of manually writing out every run, use sweeps to automatically generate runs by varying one or more parameters:
+
+```yaml
+parametrics:
+  sweeps:
+    - parameter: "Boiler-1.efficiency"
+      values: [0.75, 0.80, 0.85, 0.90, 0.95]
+    - parameter: "DX Coil.cop"
+      range: { min: 3.0, max: 5.0, step: 0.5 }
+```
+
+Each sweep specifies either:
+- `values:` — an explicit list of values to try
+- `range:` — a `min`, `max`, and `step` that auto-generates the list
+
+By default, sweeps are **zipped** together (element-wise pairing, all sweeps must have the same number of values). Set `cross_product: true` to generate every combination:
+
+```yaml
+parametrics:
+  cross_product: true    # 5 × 5 = 25 runs
+  sweeps:
+    - parameter: "Boiler-1.efficiency"
+      values: [0.75, 0.80, 0.85, 0.90, 0.95]
+    - parameter: "DX Coil.cop"
+      values: [3.0, 3.5, 4.0, 4.5, 5.0]
+```
+
+You can combine explicit runs and sweeps — explicit runs execute first, then sweep-generated runs:
+
+```yaml
+parametrics:
+  runs:
+    - name: baseline
+    - name: premium_option
+      overrides:
+        "Boiler-1.efficiency": 0.98
+  sweeps:
+    - parameter: "Boiler-1.efficiency"
+      range: { min: 0.80, max: 0.95, step: 0.05 }
+```
+
+#### Output
+
+Each parametric run produces a separate results CSV: `{model_name}_{run_name}_results.csv`. The CLI logs progress as:
+
+```
+Parametric run 1/5: baseline
+Parametric run 2/5: high_efficiency_fan
+...
+```
+
+Models without a `parametrics:` section run exactly once, as before.
 
 ### Performance Curves
 
@@ -1061,7 +1144,7 @@ Month,Day,Hour,SubHour,Main Heating Coil:outlet_temp,Main Heating Coil:mass_flow
 | `cooling_load` | W | Zone cooling load (positive = needs cooling) |
 | `infiltration_mass_flow` | kg/s | Infiltration air mass flow |
 
-Parametric runs produce one CSV per run, written to a specified output directory.
+Parametric runs produce one CSV per run: `{model_name}_{run_name}_results.csv` alongside the input file.
 
 ### Summary Report
 
@@ -1160,6 +1243,7 @@ Eight example models are provided in the `examples/` directory, demonstrating di
 | [`residential_unitary.yaml`](../../examples/residential_unitary.yaml) | Residential unitary system (furnace + DX cooling). Demonstrates gas heating coils and residential-scale equipment sizing. |
 | [`doe_retail_standalone.yaml`](../../examples/doe_retail_standalone.yaml) | DOE reference building with schedules, multiple zones, performance curves for DX coils, and economizer controls. |
 | [`multi_year_parametric.yaml`](../../examples/multi_year_parametric.yaml) | Multi-year parametric runs with weather file and parameter overrides. |
+| [`parametric_sweep.yaml`](../../examples/parametric_sweep.yaml) | Parametric sweep analysis — explicit runs with overrides plus auto-generated sweep runs. |
 | [`1zone_uncontrolled.yaml`](../../examples/1zone_uncontrolled.yaml) | Single-zone free-floating model — no HVAC, just building envelope. |
 
 ---
