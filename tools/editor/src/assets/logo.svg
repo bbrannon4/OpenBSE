@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60" fill="none">
+  <!-- BSE lettermark with accent underline -->
+  <defs>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7aa2f7"/>
+      <stop offset="50%" stop-color="#9ece6a"/>
+      <stop offset="100%" stop-color="#f7768e"/>
+    </linearGradient>
+  </defs>
+  <!-- Letters -->
+  <text x="12" y="34" font-family="Inter, -apple-system, BlinkMacSystemFont, sans-serif" font-size="32" font-weight="800" letter-spacing="2">
+    <tspan fill="#565f89">Open</tspan><tspan fill="#c0caf5">BSE</tspan>
+  </text>
+  <!-- Accent underline (blue -> green -> red = cooling -> neutral -> heating) -->
+  <rect x="12" y="40" width="176" height="3" rx="1.5" fill="url(#accent)"/>
+  <!-- Subtitle -->
+  <text x="12" y="54" font-family="Inter, -apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="500" fill="#565f89" letter-spacing="3">
+    WORKBENCH
+  </text>
+</svg>

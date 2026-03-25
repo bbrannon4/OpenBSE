@@ -1,7 +1,7 @@
 [package]
-name = "openbse-editor"
+name = "openbse-workbench"
 version = "0.1.0"
-description = "OpenBSE YAML Input File Editor"
+description = "OpenBSE Workbench — model editor, HVAC network viewer, and results explorer"
 authors = ["OpenBSE Contributors"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bbrannon4/OpenBSE"

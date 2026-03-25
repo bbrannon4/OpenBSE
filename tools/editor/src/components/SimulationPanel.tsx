@@ -18,6 +18,7 @@ interface SimulationPanelProps {
   modelPath: string | null;
   dirty: boolean;
   onSave: () => Promise<void>;
+  onSimulationComplete?: (csvPath: string) => void;
 }
 
 type SimStatus = "idle" | "running" | "success" | "error";
@@ -26,6 +27,7 @@ export function SimulationPanel({
   modelPath,
   dirty,
   onSave,
+  onSimulationComplete,
 }: SimulationPanelProps) {
   const [weatherPath, setWeatherPath] = useState<string | null>(null);
   const [status, setStatus] = useState<SimStatus>("idle");
@@ -53,7 +55,11 @@ export function SimulationPanel({
       "simulation-done",
       (event) => {
         setStatus(event.payload.success ? "success" : "error");
-        setResultCsvPath(event.payload.output_path ?? null);
+        const csvPath = event.payload.output_path ?? null;
+        setResultCsvPath(csvPath);
+        if (event.payload.success && csvPath && onSimulationComplete) {
+          onSimulationComplete(csvPath);
+        }
       }
     );
 

@@ -6,17 +6,20 @@ import yaml from "js-yaml";
 import { ClassBrowser } from "./components/ClassBrowser";
 import { ObjectEditor } from "./components/ObjectEditor";
 import { SimulationPanel } from "./components/SimulationPanel";
+import { ResultsView } from "./components/ResultsView";
+import { NetworkView } from "./components/NetworkView";
 import { parseSchema } from "./lib/schema";
 import type { ClassInfo } from "./lib/schema";
+import type { ParsedCsv } from "./lib/csv";
+import { parseCsv } from "./lib/csv";
+import logoSvg from "./assets/logo.svg";
 import "./App.css";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Model = Record<string, any>;
 
-/**
- * Custom YAML type for the !zone tag used by serde_yaml for
- * BoundaryCondition::Zone(String). Converts !zone "name" <-> {zone: "name"}.
- */
+type ViewMode = "edit" | "network" | "charts";
+
 const ZoneTag = new yaml.Type("!zone", {
   kind: "scalar",
   construct(data: string) {
@@ -37,9 +40,7 @@ const ZoneTag = new yaml.Type("!zone", {
 
 const OPENBSE_SCHEMA = yaml.DEFAULT_SCHEMA.extend([ZoneTag]);
 
-/** Serialize model to YAML using js-yaml with clean formatting */
 function serializeYaml(model: Model): string {
-  // Strip undefined values before dumping
   const clean = JSON.parse(JSON.stringify(model));
   return yaml.dump(clean, {
     indent: 2,
@@ -52,6 +53,16 @@ function serializeYaml(model: Model): string {
   });
 }
 
+function yieldToUI(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+export interface ResultCase {
+  name: string;
+  path: string;
+  parsed: ParsedCsv | null;
+}
+
 function App() {
   const [classes, setClasses] = useState<ClassInfo[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -60,6 +71,34 @@ function App() {
   const [model, setModel] = useState<Model>({});
   const [filePath, setFilePath] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("edit");
+
+  // ===== Shared results state =====
+  const [resultsCases, setResultsCases] = useState<ResultCase[]>([]);
+  const [resultsActiveIdx, setResultsActiveIdx] = useState(0);
+  const [resultsLoading, setResultsLoading] = useState(false);
+
+  // ===== Shared variable selection (global across Network + Charts) =====
+  const [selectedVarIndices, setSelectedVarIndices] = useState<Set<number>>(
+    new Set()
+  );
+
+  const toggleVariable = useCallback((idx: number) => {
+    setSelectedVarIndices((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  }, []);
+
+  const setVariables = useCallback((indices: Set<number>) => {
+    setSelectedVarIndices(indices);
+  }, []);
+
+  const clearAllVariables = useCallback(() => {
+    setSelectedVarIndices(new Set());
+  }, []);
 
   useEffect(() => {
     async function loadSchema() {
@@ -101,7 +140,6 @@ function App() {
       filters: [{ name: "YAML", extensions: ["yaml", "yml"] }],
     });
     if (!selected) return;
-
     try {
       const path = selected as string;
       const contents = await invoke<string>("read_yaml_file", { path });
@@ -171,35 +209,127 @@ function App() {
 
   const selectedClass = classes.find((c) => c.key === selectedKey) ?? null;
 
+  // ===== Results loading (shared) =====
+  const loadAndParseCsv = useCallback(
+    async (path: string): Promise<ResultCase | null> => {
+      try {
+        const contents = await invoke<string>("read_yaml_file", { path });
+        await yieldToUI();
+        const parsed = parseCsv(contents);
+        const name = path.split("/").pop() ?? path;
+        return { name, path, parsed };
+      } catch (e) {
+        setError(`Failed to load ${path}: ${e}`);
+        return null;
+      }
+    },
+    []
+  );
+
+  const handleLoadResultsFile = useCallback(async () => {
+    const selected = await open({
+      title: "Open Results CSV",
+      multiple: true,
+      directory: false,
+      filters: [
+        { name: "CSV Results", extensions: ["csv"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+    });
+    if (!selected) return;
+    setResultsLoading(true);
+    const paths = Array.isArray(selected) ? selected : [selected];
+    const newCases: ResultCase[] = [];
+    for (const p of paths) {
+      const result = await loadAndParseCsv(p as string);
+      if (result) newCases.push(result);
+    }
+    if (newCases.length > 0) {
+      setResultsCases((prev) => [...prev, ...newCases]);
+      setResultsActiveIdx(resultsCases.length);
+      setSelectedVarIndices(new Set());
+    }
+    setResultsLoading(false);
+    if (viewMode !== "charts") setViewMode("charts");
+  }, [loadAndParseCsv, resultsCases.length, viewMode]);
+
+  const handleOpenFolder = useCallback(async () => {
+    const selected = await open({
+      title: "Open Project Folder",
+      multiple: false,
+      directory: true,
+    });
+    if (!selected) return;
+    try {
+      const result = await invoke<{ yaml_files: string[]; csv_files: string[] }>(
+        "scan_project_folder",
+        { dir: selected as string }
+      );
+      if (result.yaml_files.length > 0) {
+        const yamlPath = result.yaml_files[0];
+        try {
+          const contents = await invoke<string>("read_yaml_file", { path: yamlPath });
+          const parsed = parseYaml(contents);
+          setModel(parsed);
+          setFilePath(yamlPath);
+          setDirty(false);
+        } catch (e) {
+          setError(`Failed to load model: ${e}`);
+        }
+      }
+      if (result.csv_files.length > 0) {
+        setResultsLoading(true);
+        const lazyCases: ResultCase[] = result.csv_files.map((f) => ({
+          name: f.split("/").pop() ?? f,
+          path: f,
+          parsed: null,
+        }));
+        const firstResult = await loadAndParseCsv(result.csv_files[0]);
+        if (firstResult) lazyCases[0] = firstResult;
+        setResultsCases(lazyCases);
+        setResultsActiveIdx(0);
+        setSelectedVarIndices(new Set());
+        setResultsLoading(false);
+      }
+      if (result.yaml_files.length === 0 && result.csv_files.length === 0) {
+        setError("No YAML or CSV files found in the selected folder.");
+      }
+    } catch (e) {
+      setError(`Failed to scan folder: ${e}`);
+    }
+  }, [loadAndParseCsv]);
+
+  // ===== Simulation results auto-load =====
+  const handleSimulationComplete = useCallback(
+    async (csvPath: string) => {
+      setResultsLoading(true);
+      const result = await loadAndParseCsv(csvPath);
+      if (result) {
+        setResultsCases([result]);
+        setResultsActiveIdx(0);
+        setSelectedVarIndices(new Set());
+      }
+      setResultsLoading(false);
+      setViewMode("charts");
+    },
+    [loadAndParseCsv]
+  );
+
   // ===== Menu events =====
   useEffect(() => {
     const unlisten = listen<string>("menu-action", (event) => {
       switch (event.payload) {
-        case "file_new":
-          handleNew();
-          break;
-        case "file_open":
-          handleOpen();
-          break;
-        case "file_save":
-          handleSave();
-          break;
-        case "file_save_as":
-          handleSaveAs();
-          break;
+        case "file_new": handleNew(); break;
+        case "file_open": handleOpen(); break;
+        case "file_save": handleSave(); break;
+        case "file_save_as": handleSaveAs(); break;
       }
     });
-    return () => {
-      unlisten.then((f) => f());
-    };
+    return () => { unlisten.then((f) => f()); };
   }, [handleOpen, handleSave, handleSaveAs, handleNew]);
 
   if (loading) {
-    return (
-      <div className="app-loading">
-        <p>Loading schema...</p>
-      </div>
-    );
+    return <div className="app-loading"><p>Loading schema...</p></div>;
   }
 
   if (error) {
@@ -207,127 +337,174 @@ function App() {
       <div className="app-error">
         <h2>Error</h2>
         <pre>{error}</pre>
-        <button className="btn-secondary" onClick={() => setError(null)}>
-          Dismiss
-        </button>
+        <button className="btn-secondary" onClick={() => setError(null)}>Dismiss</button>
       </div>
     );
   }
 
-  const fileName = filePath
-    ? filePath.split("/").pop() || "model.yaml"
-    : "Untitled";
+  const fileName = filePath ? filePath.split("/").pop() || "model.yaml" : "Untitled";
+  const activeResult = resultsCases[resultsActiveIdx] ?? null;
+  const resultsName = activeResult?.name ?? null;
+  const activeParsed = activeResult?.parsed ?? null;
 
   return (
     <div className="app">
       <header className="app-header">
-        <h1>OpenBSE Editor</h1>
+        <img src={logoSvg} alt="OpenBSE Workbench" className="header-logo" />
+        <div className="header-open-actions">
+          <button className="btn-header" onClick={handleOpenFolder}
+            title="Open project folder (auto-finds YAML model + CSV results)">
+            Open Folder
+          </button>
+          <button className="btn-header" onClick={handleOpen}
+            title="Open YAML model file">
+            Open YAML
+          </button>
+          <button className="btn-header" onClick={handleLoadResultsFile}
+            title="Open results CSV file">
+            Open CSV
+          </button>
+        </div>
         <span className="header-filename">
-          {fileName}
-          {dirty && " *"}
+          {fileName}{dirty && " *"}
         </span>
-      </header>
-      <div className="app-body">
-        <ClassBrowser
-          classes={classes}
-          selectedKey={selectedKey}
-          onSelect={setSelectedKey}
-          instanceCounts={instanceCounts}
-        />
-        <div className="editor-panel">
-          {selectedClass ? (
-            selectedClass.isArray ? (
-              <ObjectEditor
-                classInfo={selectedClass}
-                instances={getInstances(selectedClass.key) as Record<string, unknown>[]}
-                model={model}
-                onUpdate={(idx, updated) => {
-                  const arr = [...getInstances(selectedClass.key)];
-                  arr[idx] = updated;
-                  updateModel(selectedClass.key, arr);
-                }}
-                onAdd={() => {
-                  const arr = [...getInstances(selectedClass.key)];
-                  const newObj: Record<string, unknown> = {};
-                  // Pre-populate required fields with defaults
-                  const schema = selectedClass.itemSchema;
-                  if (schema.properties) {
-                    for (const f of Object.values(schema.properties)) {
-                      if (f.constValue !== undefined) {
-                        newObj[f.name] = f.constValue;
-                      } else if (f.required && f.default !== undefined) {
-                        newObj[f.name] = f.default;
-                      } else if (f.required && f.type === "string") {
-                        newObj[f.name] = "";
-                      }
-                    }
-                  }
-                  arr.push(newObj);
-                  updateModel(selectedClass.key, arr);
-                }}
-                onDuplicate={(idx) => {
-                  const arr = [...getInstances(selectedClass.key)];
-                  const dup = JSON.parse(JSON.stringify(arr[idx]));
-                  if (dup.name) dup.name = dup.name + " (copy)";
-                  arr.splice(idx + 1, 0, dup);
-                  updateModel(selectedClass.key, arr);
-                }}
-                onDelete={(idx) => {
-                  const arr = [...getInstances(selectedClass.key)];
-                  arr.splice(idx, 1);
-                  updateModel(selectedClass.key, arr.length > 0 ? arr : undefined);
-                }}
-                onMove={(idx, direction) => {
-                  const arr = [...getInstances(selectedClass.key)];
-                  const newIdx = direction === "up" ? idx - 1 : idx + 1;
-                  if (newIdx < 0 || newIdx >= arr.length) return;
-                  [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
-                  updateModel(selectedClass.key, arr);
-                }}
-              />
-            ) : (
-              <ObjectEditor
-                classInfo={selectedClass}
-                instances={
-                  model[selectedClass.key] !== undefined
-                    ? [model[selectedClass.key]]
-                    : [{}]
-                }
-                model={model}
-                onUpdate={(_idx, updated) => {
-                  updateModel(selectedClass.key, updated);
-                }}
-                onAdd={() => {}}
-                onDuplicate={() => {}}
-                onDelete={() => {}}
-                onMove={() => {}}
-              />
-            )
+        <nav className="view-mode-tabs">
+          <button className={`view-tab ${viewMode === "edit" ? "active" : ""}`}
+            onClick={() => setViewMode("edit")}>&#9998; Edit</button>
+          <button className={`view-tab ${viewMode === "network" ? "active" : ""}`}
+            onClick={() => setViewMode("network")}>&#9741; Network</button>
+          <button className={`view-tab ${viewMode === "charts" ? "active" : ""}`}
+            onClick={() => setViewMode("charts")}>&#9776; Charts</button>
+        </nav>
+        <div className="header-results-status">
+          {resultsName ? (
+            <span className="results-loaded-badge" title={activeResult?.path ?? ""}>
+              {resultsName}
+              {resultsCases.length > 1 && ` (+${resultsCases.length - 1})`}
+            </span>
           ) : (
-            <div className="empty-state">
-              <p>Select an object class from the left panel to begin editing.</p>
-              <p className="hint">
-                Open an existing model with <kbd>Cmd+O</kbd> or start adding
-                objects to a new model.
-              </p>
-            </div>
+            <span className="results-none-badge">No results</span>
+          )}
+          {selectedVarIndices.size > 0 && (
+            <button className="btn-header btn-small" onClick={clearAllVariables}
+              title="Clear all selected variables">
+              Clear {selectedVarIndices.size} vars
+            </button>
           )}
         </div>
-      </div>
-      <SimulationPanel
-        modelPath={filePath}
-        dirty={dirty}
-        onSave={handleSave}
-      />
+      </header>
+
+      {viewMode === "edit" ? (
+        <>
+          <div className="app-body">
+            <ClassBrowser
+              classes={classes}
+              selectedKey={selectedKey}
+              onSelect={setSelectedKey}
+              instanceCounts={instanceCounts}
+            />
+            <div className="editor-panel">
+              {selectedClass ? (
+                selectedClass.isArray ? (
+                  <ObjectEditor
+                    classInfo={selectedClass}
+                    instances={getInstances(selectedClass.key) as Record<string, unknown>[]}
+                    model={model}
+                    onUpdate={(idx, updated) => {
+                      const arr = [...getInstances(selectedClass.key)];
+                      arr[idx] = updated;
+                      updateModel(selectedClass.key, arr);
+                    }}
+                    onAdd={() => {
+                      const arr = [...getInstances(selectedClass.key)];
+                      const newObj: Record<string, unknown> = {};
+                      const schema = selectedClass.itemSchema;
+                      if (schema.properties) {
+                        for (const f of Object.values(schema.properties)) {
+                          if (f.constValue !== undefined) newObj[f.name] = f.constValue;
+                          else if (f.required && f.default !== undefined) newObj[f.name] = f.default;
+                          else if (f.required && f.type === "string") newObj[f.name] = "";
+                        }
+                      }
+                      arr.push(newObj);
+                      updateModel(selectedClass.key, arr);
+                    }}
+                    onDuplicate={(idx) => {
+                      const arr = [...getInstances(selectedClass.key)];
+                      const dup = JSON.parse(JSON.stringify(arr[idx]));
+                      if (dup.name) dup.name = dup.name + " (copy)";
+                      arr.splice(idx + 1, 0, dup);
+                      updateModel(selectedClass.key, arr);
+                    }}
+                    onDelete={(idx) => {
+                      const arr = [...getInstances(selectedClass.key)];
+                      arr.splice(idx, 1);
+                      updateModel(selectedClass.key, arr.length > 0 ? arr : undefined);
+                    }}
+                    onMove={(idx, direction) => {
+                      const arr = [...getInstances(selectedClass.key)];
+                      const newIdx = direction === "up" ? idx - 1 : idx + 1;
+                      if (newIdx < 0 || newIdx >= arr.length) return;
+                      [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
+                      updateModel(selectedClass.key, arr);
+                    }}
+                  />
+                ) : (
+                  <ObjectEditor
+                    classInfo={selectedClass}
+                    instances={
+                      model[selectedClass.key] !== undefined
+                        ? [model[selectedClass.key]] : [{}]
+                    }
+                    model={model}
+                    onUpdate={(_idx, updated) => updateModel(selectedClass.key, updated)}
+                    onAdd={() => {}} onDuplicate={() => {}}
+                    onDelete={() => {}} onMove={() => {}}
+                  />
+                )
+              ) : (
+                <div className="empty-state">
+                  <p>Select an object class from the left panel to begin editing.</p>
+                  <p className="hint">Open an existing model with <kbd>Cmd+O</kbd> or start adding objects to a new model.</p>
+                </div>
+              )}
+            </div>
+          </div>
+          <SimulationPanel
+            modelPath={filePath} dirty={dirty}
+            onSave={handleSave} onSimulationComplete={handleSimulationComplete}
+          />
+        </>
+      ) : viewMode === "network" ? (
+        <NetworkView
+          model={model}
+          parsedCsv={activeParsed}
+          selectedVarIndices={selectedVarIndices}
+          onToggleVariable={toggleVariable}
+          onSetVariables={setVariables}
+          onClearVariables={clearAllVariables}
+        />
+      ) : (
+        <ResultsView
+          cases={resultsCases}
+          setCases={setResultsCases}
+          activeCaseIdx={resultsActiveIdx}
+          setActiveCaseIdx={setResultsActiveIdx}
+          loading={resultsLoading}
+          setLoading={setResultsLoading}
+          loadAndParseCsv={loadAndParseCsv}
+          selectedVarIndices={selectedVarIndices}
+          onToggleVariable={toggleVariable}
+          onClearVariables={clearAllVariables}
+        />
+      )}
     </div>
   );
 }
 
 function parseYaml(yamlStr: string): Model {
   const result = yaml.load(yamlStr, { schema: OPENBSE_SCHEMA });
-  if (typeof result !== "object" || result === null) {
-    return {};
-  }
+  if (typeof result !== "object" || result === null) return {};
   return result as Model;
 }
 

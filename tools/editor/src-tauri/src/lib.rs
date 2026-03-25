@@ -261,6 +261,68 @@ async fn run_simulation(
     .map_err(|e| format!("Join error: {e}"))?
 }
 
+#[tauri::command]
+fn list_csv_files(dir: String) -> Result<Vec<String>, String> {
+    let path = std::path::Path::new(&dir);
+    if !path.is_dir() {
+        return Err(format!("{dir} is not a directory"));
+    }
+    let mut files = Vec::new();
+    let entries =
+        std::fs::read_dir(path).map_err(|e| format!("Failed to read directory {dir}: {e}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
+        let p = entry.path();
+        if p.extension().is_some_and(|ext| ext == "csv") {
+            if let Some(s) = p.to_str() {
+                files.push(s.to_string());
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// Scan a directory for YAML model files and CSV result files.
+/// Returns a struct with separate lists so the frontend can auto-load both.
+#[derive(Clone, serde::Serialize)]
+struct ProjectFiles {
+    yaml_files: Vec<String>,
+    csv_files: Vec<String>,
+}
+
+#[tauri::command]
+fn scan_project_folder(dir: String) -> Result<ProjectFiles, String> {
+    let path = std::path::Path::new(&dir);
+    if !path.is_dir() {
+        return Err(format!("{dir} is not a directory"));
+    }
+    let mut yaml_files = Vec::new();
+    let mut csv_files = Vec::new();
+    let entries =
+        std::fs::read_dir(path).map_err(|e| format!("Failed to read directory {dir}: {e}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
+        let p = entry.path();
+        if let Some(ext) = p.extension() {
+            let ext = ext.to_string_lossy().to_lowercase();
+            if let Some(s) = p.to_str() {
+                match ext.as_str() {
+                    "yaml" | "yml" => yaml_files.push(s.to_string()),
+                    "csv" => csv_files.push(s.to_string()),
+                    _ => {}
+                }
+            }
+        }
+    }
+    yaml_files.sort();
+    csv_files.sort();
+    Ok(ProjectFiles {
+        yaml_files,
+        csv_files,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -338,6 +400,8 @@ pub fn run() {
             read_yaml_file,
             write_yaml_file,
             run_simulation,
+            list_csv_files,
+            scan_project_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
