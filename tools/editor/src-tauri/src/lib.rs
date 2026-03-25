@@ -90,52 +90,72 @@ fn write_yaml_file(path: String, contents: String) -> Result<(), String> {
 }
 
 /// Find the openbse CLI binary by searching:
-/// 1. Next to the editor executable (inside .app/Contents/MacOS/)
-/// 2. Next to the .app bundle itself (e.g. both in same downloaded folder)
-/// 3. /usr/local/bin/openbse
-/// 4. On PATH
-fn find_openbse_binary() -> Result<PathBuf, String> {
+/// 1. Tauri resource directory (bundled by installer — works on all platforms)
+/// 2. Next to the executable (fallback for portable/dev installs)
+/// 3. Next to the .app bundle on macOS (user extracted both to same folder)
+/// 4. Common install locations
+/// 5. On PATH
+fn find_openbse_binary(app_handle: Option<&tauri::AppHandle>) -> Result<PathBuf, String> {
+    let bin_name = if cfg!(target_os = "windows") {
+        "openbse.exe"
+    } else {
+        "openbse"
+    };
+
+    // 1. Check Tauri resource directory (where the installer puts bundled files)
+    if let Some(handle) = app_handle {
+        if let Ok(resource_dir) = handle.path().resource_dir() {
+            let candidate = resource_dir.join(bin_name);
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+    }
+
     if let Ok(exe) = std::env::current_exe() {
-        // 1. Next to the executable (inside .app bundle or same directory)
+        // 2. Next to the executable (portable installs, dev builds)
         if let Some(exe_dir) = exe.parent() {
-            let candidate = exe_dir.join("openbse");
+            let candidate = exe_dir.join(bin_name);
             if candidate.exists() {
                 return Ok(candidate);
             }
 
-            // 2. On macOS, walk up from Contents/MacOS/ to find openbse
+            // 3. On macOS, walk up from Contents/MacOS/ to find openbse
             //    next to the .app bundle (e.g. user downloaded both to ~/Downloads)
-            let mut dir = exe_dir;
-            while let Some(parent) = dir.parent() {
-                // Check if we just exited a .app bundle
-                if dir
-                    .file_name()
-                    .is_some_and(|n| n.to_string_lossy().ends_with(".app"))
-                {
-                    let candidate = parent.join("openbse");
-                    if candidate.exists() {
-                        return Ok(candidate);
+            if cfg!(target_os = "macos") {
+                let mut dir = exe_dir;
+                while let Some(parent) = dir.parent() {
+                    if dir
+                        .file_name()
+                        .is_some_and(|n| n.to_string_lossy().ends_with(".app"))
+                    {
+                        let candidate = parent.join(bin_name);
+                        if candidate.exists() {
+                            return Ok(candidate);
+                        }
+                        break;
                     }
-                    break;
+                    dir = parent;
                 }
-                dir = parent;
             }
         }
     }
 
-    // 3. Common install locations
-    let common = ["/usr/local/bin/openbse", "/opt/homebrew/bin/openbse"];
-    for path in &common {
-        let p = PathBuf::from(path);
-        if p.exists() {
-            return Ok(p);
+    // 4. Common install locations (Unix only)
+    if !cfg!(target_os = "windows") {
+        let common = ["/usr/local/bin/openbse", "/opt/homebrew/bin/openbse"];
+        for path in &common {
+            let p = PathBuf::from(path);
+            if p.exists() {
+                return Ok(p);
+            }
         }
     }
 
-    // 4. On PATH
+    // 5. On PATH
     which::which("openbse").map_err(|_| {
-        "Could not find the 'openbse' binary. Place it next to the editor, \
-         install it to /usr/local/bin, or add it to your PATH."
+        "Could not find the 'openbse' binary. It should be bundled with the installer. \
+         If you built from source, place it next to the workbench executable or add it to your PATH."
             .to_string()
     })
 }
@@ -160,7 +180,7 @@ async fn run_simulation(
     weather_path: Option<String>,
     output_path: String,
 ) -> Result<(), String> {
-    let binary = find_openbse_binary()?;
+    let binary = find_openbse_binary(Some(&app_handle))?;
 
     let mut args = vec![model_path.clone()];
     if let Some(ref wp) = weather_path {

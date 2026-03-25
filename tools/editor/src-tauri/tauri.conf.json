@@ -34,7 +34,9 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../../../docs/openbse_schema.json": "docs/openbse_schema.json"
+      "../../../docs/openbse_schema.json": "docs/openbse_schema.json",
+      "../../../examples": "examples",
+      "binaries/openbse*": "./"
     }
   }
 }

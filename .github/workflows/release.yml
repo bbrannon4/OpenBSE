@@ -98,10 +98,10 @@ jobs:
           name: cli-windows-x86_64
           path: openbse-x86_64-pc-windows-msvc.exe
 
-  # ── Editor (Tauri) ─────────────────────────────────────────────
+  # ── Workbench (Tauri) — each job downloads the CLI sidecar first ─
   editor-macos-arm:
-    name: Editor (macOS aarch64)
-    needs: test
+    name: Workbench (macOS aarch64)
+    needs: [test, cli-macos-arm]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -111,6 +111,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: tools/editor/src-tauri
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli-macos-aarch64
+          path: tools/editor/src-tauri/binaries
+      - name: Place CLI binary for bundling
+        run: |
+          rm -f tools/editor/src-tauri/binaries/openbse-placeholder
+          mv tools/editor/src-tauri/binaries/openbse-aarch64-apple-darwin tools/editor/src-tauri/binaries/openbse
+          chmod +x tools/editor/src-tauri/binaries/openbse
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -130,8 +139,8 @@ jobs:
           path: tools/editor/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
 
   editor-macos-x86:
-    name: Editor (macOS x86_64)
-    needs: test
+    name: Workbench (macOS x86_64)
+    needs: [test, cli-macos-x86]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -141,6 +150,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: tools/editor/src-tauri
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli-macos-x86_64
+          path: tools/editor/src-tauri/binaries
+      - name: Place CLI binary for bundling
+        run: |
+          rm -f tools/editor/src-tauri/binaries/openbse-placeholder
+          mv tools/editor/src-tauri/binaries/openbse-x86_64-apple-darwin tools/editor/src-tauri/binaries/openbse
+          chmod +x tools/editor/src-tauri/binaries/openbse
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -160,8 +178,8 @@ jobs:
           path: tools/editor/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
 
   editor-windows:
-    name: Editor (Windows x86_64)
-    needs: test
+    name: Workbench (Windows x86_64)
+    needs: [test, cli-windows]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -171,6 +189,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: tools/editor/src-tauri
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli-windows-x86_64
+          path: tools/editor/src-tauri/binaries
+      - name: Place CLI binary for bundling
+        run: |
+          del tools\editor\src-tauri\binaries\openbse-placeholder 2>NUL
+          ren tools\editor\src-tauri\binaries\openbse-x86_64-pc-windows-msvc.exe openbse.exe
+        shell: cmd
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -190,8 +217,8 @@ jobs:
           path: tools/editor/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
 
   editor-linux:
-    name: Editor (Linux x86_64)
-    needs: test
+    name: Workbench (Linux x86_64)
+    needs: [test, cli-linux]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -202,6 +229,15 @@ jobs:
       - run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli-linux-x86_64
+          path: tools/editor/src-tauri/binaries
+      - name: Place CLI binary for bundling
+        run: |
+          rm -f tools/editor/src-tauri/binaries/openbse-placeholder
+          mv tools/editor/src-tauri/binaries/openbse-x86_64-unknown-linux-gnu tools/editor/src-tauri/binaries/openbse
+          chmod +x tools/editor/src-tauri/binaries/openbse
       - uses: actions/setup-node@v4
         with:
           node-version: 20
