@@ -1550,21 +1550,25 @@ pub struct SweepInput {
     /// Explicit list of values to sweep through
     #[serde(default)]
     pub values: Option<Vec<f64>>,
-    /// Range specification (mutually exclusive with `values`)
+    /// Range specification — can be combined with `values` (values come first, then range)
     #[serde(default)]
     pub range: Option<SweepRange>,
 }
 
 impl SweepInput {
     /// Resolve this sweep into a concrete list of values.
+    ///
+    /// If both `values` and `range` are present, the explicit values come first
+    /// followed by the range-generated values.
     pub fn resolve_values(&self) -> Result<Vec<f64>, crate::parametric::ParametricError> {
         match (&self.values, &self.range) {
             (Some(vals), None) => Ok(vals.clone()),
             (None, Some(range)) => range.expand(),
-            (Some(_), Some(_)) => Err(crate::parametric::ParametricError::SweepError(format!(
-                "Sweep '{}' has both 'values' and 'range' — use one or the other",
-                self.parameter
-            ))),
+            (Some(vals), Some(range)) => {
+                let mut combined = vals.clone();
+                combined.extend(range.expand()?);
+                Ok(combined)
+            }
             (None, None) => Err(crate::parametric::ParametricError::SweepError(format!(
                 "Sweep '{}' has neither 'values' nor 'range'",
                 self.parameter

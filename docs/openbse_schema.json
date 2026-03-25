@@ -710,11 +710,11 @@
         "values": {
           "type": "array",
           "items": { "type": "number" },
-          "description": "Explicit list of values to sweep through. Mutually exclusive with 'range'."
+          "description": "Explicit list of values to sweep through. Can be combined with 'range' (explicit values come first, then range-generated values)."
         },
         "range": {
           "$ref": "#/$defs/SweepRange",
-          "description": "Generate values from min to max with a fixed step. Mutually exclusive with 'values'."
+          "description": "Generate values from min to max with a fixed step. Can be combined with 'values'."
         }
       }
     },

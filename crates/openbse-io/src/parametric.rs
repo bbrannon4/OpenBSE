@@ -1016,4 +1016,70 @@ air_loops:
         assert_eq!(parametric.runs[0].name, "baseline");
         assert!(parametric.runs[1].name.starts_with("sweep_"));
     }
+
+    #[test]
+    fn test_sweep_values_and_range_combined() {
+        let sweep = SweepInput {
+            parameter: "Boiler-1.efficiency".to_string(),
+            values: Some(vec![0.70, 0.72]),
+            range: Some(crate::input::SweepRange {
+                min: 0.80,
+                max: 0.90,
+                step: 0.05,
+            }),
+        };
+
+        let values = sweep.resolve_values().unwrap();
+        // 2 explicit + 3 from range = 5
+        assert_eq!(values.len(), 5);
+        assert!((values[0] - 0.70).abs() < 1e-10);
+        assert!((values[1] - 0.72).abs() < 1e-10);
+        assert!((values[2] - 0.80).abs() < 1e-10);
+        assert!((values[4] - 0.90).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_sweep_yaml_parsing_range_only() {
+        // Verify that YAML with only `range:` doesn't accidentally populate `values:`
+        let yaml = r#"
+simulation:
+  timesteps_per_hour: 1
+weather_files:
+  - "test.epw"
+parametrics:
+  sweeps:
+    - parameter: "Thermostat.heating_setpoint"
+      range: { min: 20.0, max: 22.0, step: 1.0 }
+"#;
+        let model = crate::input::parse_model_yaml(yaml).expect("should parse");
+        let parametric = model.parametrics.expect("should have parametrics");
+        assert_eq!(parametric.sweeps.len(), 1);
+        assert!(parametric.sweeps[0].values.is_none());
+        assert!(parametric.sweeps[0].range.is_some());
+
+        let values = parametric.sweeps[0].resolve_values().unwrap();
+        assert_eq!(values.len(), 3); // 20.0, 21.0, 22.0
+    }
+
+    #[test]
+    fn test_sweep_yaml_parsing_both() {
+        let yaml = r#"
+simulation:
+  timesteps_per_hour: 1
+weather_files:
+  - "test.epw"
+parametrics:
+  sweeps:
+    - parameter: "Thermostat.heating_setpoint"
+      values: [18.0, 19.0]
+      range: { min: 20.0, max: 22.0, step: 1.0 }
+"#;
+        let model = crate::input::parse_model_yaml(yaml).expect("should parse");
+        let parametric = model.parametrics.expect("should have parametrics");
+        let values = parametric.sweeps[0].resolve_values().unwrap();
+        // 2 explicit + 3 from range = 5
+        assert_eq!(values.len(), 5);
+        assert!((values[0] - 18.0).abs() < 1e-10);
+        assert!((values[4] - 22.0).abs() < 1e-10);
+    }
 }
