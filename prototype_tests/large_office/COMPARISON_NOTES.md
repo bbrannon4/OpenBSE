@@ -3,8 +3,7 @@
 ## Status: 7 of 10 end uses within 5%
 
 ## Weather File
-- OpenBSE: `USA_CO_Denver-Aurora-Buckley.AFB.724695_TMY3.epw`
-- EnergyPlus: Same EPW
+- OpenBSE and EnergyPlus: `USA_CO_Denver-Aurora-Buckley.AFB.724695_TMY3.epw`
 
 ## Annual Energy End-Use Comparison
 
@@ -14,66 +13,51 @@
 | Exterior Lighting | 279,464 | 292,265 | +4.6% | PASS |
 | Interior Equipment | 4,076,778 | 4,072,466 | -0.1% | PASS |
 | Exterior Equipment | 713,075 | 696,046 | -2.4% | PASS |
-| Cooling (Electric) | 552,933 | 575,788 | +4.1% | PASS |
+| Cooling (Electric) | 552,933 | 578,785 | +4.7% | PASS |
 | DHW (Electric) | 125,133 | 128,981 | +3.1% | PASS |
 | Heating (Electric) | 0 | 0 | 0% | PASS |
-| Fans (Electric) | 1,010,319 | 913,172 | -9.6% | FAIL |
-| Pumps (Electric) | 129,769 | 92,100 | -29.0% | FAIL |
-| Heating (Gas) | 404,736 | 458,607 | +13.3% | FAIL |
+| Fans (Electric) | 1,010,319 | 875,861 | -13.3% | FAIL |
+| Pumps (Electric) | 129,769 | 92,495 | -28.7% | FAIL |
+| Heating (Gas) | 404,736 | 452,962 | +11.9% | FAIL |
 
-## Key Fixes Applied
+## Remaining Gaps — Root Cause Analysis
 
-1. **Zone Multiplier Expansion**: OpenBSE lacks zone multipliers, so all 12 floors +
-   basement are modeled as explicit zones (74 total). Mid-floor zones (5 office +
-   1 datacenter per floor x 10 floors) were duplicated with identical geometry,
-   loads, and HVAC terminals.
+### Fans (-13.3%)
+OpenBSE design-day zone cooling loads are 18% lower than E+'s for the core zone
+(58.9 kW steady-state vs E+'s 85.3 kW transient peak at 8 AM). The gap is from
+E+'s thermal mass effects during sizing: with constant 24/7 internal gains, E+'s
+CTF model produces a daily load oscillation (25-85 kW) as surface thermal mass
+absorbs and releases heat. OpenBSE's ideal-loads sizing reaches perfect steady
+state (58.9 kW flat) because the zone temp is clamped at setpoint, preventing
+surface temperature oscillation. The 18% lower design flow leads to lower flow
+fractions at runtime, amplified by the cubic fan power curve to -13% energy.
 
-2. **Chiller Performance Curves**: Corrected CAPFT and EIRFT biquadratic curves to
-   match E+ IDF values (WC_PD_2004 curves). Previous curves had incorrect coefficients
-   that gave wrong condenser-temperature sensitivity, inflating winter chiller energy.
+### Heating Gas (+11.9%)
+Economizer lockout during heating periods prevents free cooling for core zones.
+E+ data shows 36-100% OA on winter weekdays with zero AHU heating — the
+economizer provides free cooling while VAV reheat handles perimeters. Removing
+OpenBSE's lockout allows free cooling but increases reheat energy to +53%
+because the cold SAT (15.6C) supply air requires massive perimeter reheat.
+The lockout trades higher cooling for lower heating — current balance gives
+the best overall result. A more sophisticated approach (per-zone SAT
+optimization or variable SAT based on heating/cooling balance) would help.
 
-3. **SetpointManager:Warmest SAT Logic**: Implemented E+-style Warmest SAT reset.
-   For each cooling zone, compute the supply temp that satisfies it at max flow:
-   `SAT_zone = T_zone - Q / (m_max x Cp)`. System SAT = min(SAT_max, min(SAT_zone)).
-   Keeps SAT warm (~15.6C) most of the year, dropping to 12.8C only at peak.
-
-4. **Economizer Detection**: Fixed `any_cooling` flag to include zones with ideal
-   cooling loads. Added heating-mode lockout to prevent cold OA intake when
-   perimeter zones need heating.
-
-5. **Preheat Coil**: Changed from heating-to-SAT to frost-protection-only (2C
-   threshold), matching E+ behavior where the AHU heating coil rarely fires.
-
-6. **Load-Based VAV Control**: Replaced proportional-error (5C band) zone flow
-   computation with load-based approach: `m = Q / (Cp x (T_zone - SAT))`.
-   Terminal control signals derived from the same zone flows for mass balance.
-
-7. **VAV Sizing Factor**: Applied cooling sizing factor (1.15x) to VAV terminal
-   max flows and fan design flow only (not PSZ/PTAC systems). Partially closes
-   the 18% gap between OpenBSE and E+ zone design cooling loads.
-
-8. **OA Load in Zone Sizing**: Added outdoor air ventilation load to zone cooling
-   loads during design-day sizing, matching E+'s zone sizing algorithm.
-
-## Remaining Gaps
-
-### Fans (-9.6%)
-OpenBSE zone peak cooling loads during design-day sizing are ~18% lower than E+'s
-(58.9 kW vs ~73 kW per Core_mid zone). The 1.15x sizing factor closes part of
-this gap. The remaining difference comes from different solar/transient effects
-in design-day zone loads and different OA mixing in the ideal loads calculation.
-
-### Pumps (-29%)
-Pump energy is low because the chilled water and hot water plant loops see less
-demand. The pump model itself may also differ from E+'s HeaderedPumps:VariableSpeed.
-
-### Heating Gas (+13.3%)
-The economizer lockout (disabled when any perimeter zone needs heating) prevents
-free cooling during shoulder seasons when core zones need cooling but perimeters
-need heating. E+ allows the economizer during mixed heating/cooling. Without the
-lockout, heating drops but cooling rises significantly.
+### Pumps (-28.7%)
+CHW primary pump runs ~3200 hrs/year in OpenBSE vs E+'s longer runtime.
+Plant loop pump cycling logic differs: E+ runs pumps whenever any demand
+exists on the loop; OpenBSE may shut down pumps more aggressively during
+low-load periods. HHW pump energy is also low (2.0 MWh vs expected 10+ MWh),
+suggesting the hot water loop isn't cycling the pump enough for reheat demand.
 
 ## Zone Thermal Load Comparison
 - Datacenter cooling: OpenBSE 2,450 MWh vs E+ 2,432 MWh (within 1%)
 - Office cooling: OpenBSE 2,920 MWh vs E+ 3,435 MWh (15% lower)
 - Total zone cooling: OpenBSE 5,370 MWh vs E+ 5,867 MWh (8.5% lower)
+
+## Key Engine Changes Made
+1. SetpointManager:Warmest SAT reset (highest SAT satisfying all cooling zones)
+2. Corrected chiller CAPFT/EIRFT curves from E+ IDF (WC_PD_2004)
+3. Load-based VAV zone flow with SAT-consistent terminal control signals
+4. Economizer activation from ideal cooling loads + heating-zone lockout
+5. Frost-only AHU preheat (2C threshold, not heating to SAT)
+6. OA ventilation load in zone design-day sizing

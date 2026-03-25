@@ -746,20 +746,9 @@ fn main() -> Result<()> {
             coincident_peak_cooling = sizing_result.system_sizing.coincident_peak_cooling;
 
             // Apply sized zone airflows (override design_zone_flow).
-            // For zones on VAV loops, apply the cooling sizing factor to
-            // match the inflated terminal max flows and fan design flow.
-            let vav_zones: std::collections::HashSet<String> = loop_infos
-                .iter()
-                .filter(|li| li.system_type == AirLoopSystemType::Vav)
-                .flat_map(|li| li.served_zones.iter().cloned())
-                .collect();
+            // E+ does NOT apply the global sizing factor to zone terminal flows.
             for (zone_name, &flow) in &sizing_result.zone_design_airflow {
-                let factor = if vav_zones.contains(zone_name) {
-                    model.simulation.cooling_sizing_factor
-                } else {
-                    1.0
-                };
-                zone_design_flows.insert(zone_name.clone(), flow * factor);
+                zone_design_flows.insert(zone_name.clone(), flow);
             }
 
             // ── Per-loop cooling SAT override ──
@@ -877,10 +866,6 @@ fn main() -> Result<()> {
                     }
                     AirLoopSystemType::Vav => {
                         // VAV: multi-zone system. Sum served zone flows + capacities.
-                        // Apply cooling sizing factor to VAV system airflow only.
-                        // E+ applies Sizing:Parameters to zone design loads which
-                        // inflates both terminal max flows and system fan flow.
-                        // We apply it at the system level to avoid affecting PSZ systems.
                         let zone_airflow: f64 = li
                             .served_zones
                             .iter()
@@ -891,8 +876,7 @@ fn main() -> Result<()> {
                                     .copied()
                                     .unwrap_or(0.1)
                             })
-                            .sum::<f64>()
-                            * model.simulation.cooling_sizing_factor;
+                            .sum();
                         let zone_flow_m3 = zone_airflow / air_density;
                         let zone_heat: f64 = li
                             .served_zones
@@ -1167,14 +1151,7 @@ fn main() -> Result<()> {
             //   max_air_flow    = zone peak design airflow [kg/s]
             //   reheat_capacity = zone peak heating load [W] × 1.25 safety factor
             //
-            // For VAV systems, apply the cooling sizing factor to terminal
-            // max airflow to match the system-level fan sizing. This keeps
-            // flow fractions consistent (terminal max / fan max = constant).
             for li in &loop_infos {
-                let term_flow_factor = match li.system_type {
-                    AirLoopSystemType::Vav => model.simulation.cooling_sizing_factor,
-                    _ => 1.0,
-                };
                 for (zone_name, term_name) in &li.terminal_boxes {
                     if let Some(node_idx) = graph.node_by_name(term_name) {
                         if let GraphComponent::Air(comp) = graph.component_mut(node_idx) {
@@ -1184,8 +1161,7 @@ fn main() -> Result<()> {
                                     .zone_design_airflow
                                     .get(zone_name)
                                     .copied()
-                                    .unwrap_or(0.1)
-                                    * term_flow_factor;
+                                    .unwrap_or(0.1);
                                 // Set in kg/s — terminal boxes use max_air_flow as mass flow
                                 // (compared against inlet.mass_flow in kg/s), unlike fans
                                 // which use design_flow_rate in m³/s.
@@ -4559,8 +4535,11 @@ fn build_vav_signals(
     // The mixed air calculation then uses effective_t_outdoor (= t_outdoor param)
     // which already includes the HR preheating effect.
     // Economizer activation: run when any served zone has cooling load,
-    // but lock out when any served zone needs heating.
-    // This prevents cold OA from increasing reheat loads.
+    // but lock out when any perimeter zone needs heating. This reduces
+    // reheat energy by keeping supply air warmer during heating periods.
+    // While E+ allows the economizer during mixed heating/cooling, the
+    // reheat energy from cold SAT air to perimeter zones is excessive
+    // without a more sophisticated SAT-reset-to-zone-needs algorithm.
     let any_served_cooling = any_cooling_zone
         || li
             .served_zones
