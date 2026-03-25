@@ -1,4 +1,4 @@
-Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
+Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.25 08:49,
    ************* Beginning Zone Sizing Calculations
    ** Warning ** No floor exists in Zone="GROUNDFLOOR_PLENUM", zone floor area is zero. All values for this zone that are entered per floor area will be zero.
    ** Warning ** CalculateZoneVolume: The Zone="GROUNDFLOOR_PLENUM" is not fully enclosed. To be fully enclosed, each edge of a surface must also be an edge on one other surface.
@@ -97,12 +97,12 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    ************* Beginning Plant Sizing Calculations
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:NoReheat = "BASEMENT PSZ-VAV DIFFUSER".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.25072
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.24723
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "CORE_BOTTOM VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.21012
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.20720
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "CORE_BOTTOM VAV BOX COMPONENT".
@@ -112,7 +112,7 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "CORE_MID VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.21932
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.21627
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "CORE_MID VAV BOX COMPONENT".
@@ -122,7 +122,7 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "CORE_TOP VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.21934
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.21629
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "CORE_TOP VAV BOX COMPONENT".
@@ -132,17 +132,17 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_BOT_ZN_3 VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.15151
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.14936
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_BOT_ZN_3 VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Maximum Flow Fraction during Reheat of 0.50000 []
-   **   ~~~   ** differs from Design Size Maximum Flow Fraction during Reheat of 0.40402 []
+   **   ~~~   ** differs from Design Size Maximum Flow Fraction during Reheat of 0.39830 []
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_BOT_ZN_2 VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 7.46937E-002
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 7.36206E-002
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_BOT_ZN_2 VAV BOX COMPONENT".
@@ -152,7 +152,7 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_BOT_ZN_1 VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.10335
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.10268
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_BOT_ZN_1 VAV BOX COMPONENT".
@@ -162,7 +162,7 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_BOT_ZN_4 VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 5.81377E-002
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 5.72807E-002
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_BOT_ZN_4 VAV BOX COMPONENT".
@@ -172,12 +172,12 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_MID_ZN_3 VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.15886
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.15661
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_MID_ZN_3 VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Maximum Flow Fraction during Reheat of 0.50000 []
-   **   ~~~   ** differs from Design Size Maximum Flow Fraction during Reheat of 0.42364 []
+   **   ~~~   ** differs from Design Size Maximum Flow Fraction during Reheat of 0.41762 []
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_MID_ZN_2 VAV BOX COMPONENT".
@@ -187,7 +187,7 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_MID_ZN_1 VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.10408
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.10353
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_MID_ZN_1 VAV BOX COMPONENT".
@@ -197,7 +197,7 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_MID_ZN_4 VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 6.22246E-002
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 6.13033E-002
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_MID_ZN_4 VAV BOX COMPONENT".
@@ -207,17 +207,17 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_TOP_ZN_3 VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.15792
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.15568
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_TOP_ZN_3 VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Maximum Flow Fraction during Reheat of 0.50000 []
-   **   ~~~   ** differs from Design Size Maximum Flow Fraction during Reheat of 0.42524 []
+   **   ~~~   ** differs from Design Size Maximum Flow Fraction during Reheat of 0.42514 []
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_TOP_ZN_2 VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 7.04571E-002
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 6.94538E-002
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_TOP_ZN_2 VAV BOX COMPONENT".
@@ -227,7 +227,7 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_TOP_ZN_1 VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.10386
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 0.10331
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_TOP_ZN_1 VAV BOX COMPONENT".
@@ -237,7 +237,7 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_TOP_ZN_4 VAV BOX COMPONENT".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.30000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 6.21959E-002
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 6.12753E-002
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:Reheat = "PERIMETER_TOP_ZN_4 VAV BOX COMPONENT".
@@ -247,7 +247,7 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeHVACSingleDuct: Potential issue with equipment sizing for AirTerminal:SingleDuct:VAV:NoReheat = "DATACENTER_BASEMENT_ZN_6 PSZ-VAV DIFFUSER".
    **   ~~~   ** User-Specified Minimum Cooling Air Flow Fraction of 0.50000
-   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 1.56505E-002
+   **   ~~~   ** differs from Design Size Minimum Cooling Air Flow Fraction of 1.54323E-002
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ** Warning ** Controller:MechanicalVentilation="VAV_BOT WITH REHEAT_DCV", Zone OA/person rate
@@ -296,33 +296,33 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** For Zone="PERIMETER_TOP_ZN_4".
    **   ~~~   ** Zone outside air per person rate not set in Design Specification Outdoor Air Object="SZ DSOA PERIMETER_TOP_ZN_4".
    ** Warning ** SizeWaterCoil: Coil="VAV_BOT WITH REHEAT COOLING COIL", Cooling Coil is running dry for sizing and has minimum humidity ratio at saturation for inlet chilled water temperature > design air entering humidity ratio.
-   **   ~~~   **     Wair,in =  7.037725E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Wair,in =  7.041250E-003 [kgWater/kgDryAir]
    **   ~~~   **     Wair,out = 7.000000E-003 [kgWater/kgDryAir]
    **   ~~~   **     Inlet chilled water temperature = 6.670 [C]
-   **   ~~~   **     Minimum humidity ratio at saturation for inlet chilled water temperature = 7.391653E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Minimum humidity ratio at saturation for inlet chilled water temperature = 7.497459E-003 [kgWater/kgDryAir]
    **   ~~~   ** ....coil leaving humidity ratio will be reset to:
-   **   ~~~   **     Wair,out = 7.037725E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Wair,out = 7.041250E-003 [kgWater/kgDryAir]
    ** Warning ** SizeWaterCoil: Coil="VAV_MID WITH REHEAT COOLING COIL", Cooling Coil is running dry for sizing and has minimum humidity ratio at saturation for inlet chilled water temperature > design air entering humidity ratio.
-   **   ~~~   **     Wair,in =  7.026244E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Wair,in =  7.030068E-003 [kgWater/kgDryAir]
    **   ~~~   **     Wair,out = 7.000000E-003 [kgWater/kgDryAir]
    **   ~~~   **     Inlet chilled water temperature = 6.670 [C]
-   **   ~~~   **     Minimum humidity ratio at saturation for inlet chilled water temperature = 7.391653E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Minimum humidity ratio at saturation for inlet chilled water temperature = 7.497459E-003 [kgWater/kgDryAir]
    **   ~~~   ** ....coil leaving humidity ratio will be reset to:
-   **   ~~~   **     Wair,out = 7.026244E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Wair,out = 7.030068E-003 [kgWater/kgDryAir]
    ** Warning ** SizeWaterCoil: Coil="VAV_TOP WITH REHEAT COOLING COIL", Cooling Coil is running dry for sizing and has minimum humidity ratio at saturation for inlet chilled water temperature > design air entering humidity ratio.
-   **   ~~~   **     Wair,in =  7.021875E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Wair,in =  7.025677E-003 [kgWater/kgDryAir]
    **   ~~~   **     Wair,out = 7.000000E-003 [kgWater/kgDryAir]
    **   ~~~   **     Inlet chilled water temperature = 6.670 [C]
-   **   ~~~   **     Minimum humidity ratio at saturation for inlet chilled water temperature = 7.391653E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Minimum humidity ratio at saturation for inlet chilled water temperature = 7.497459E-003 [kgWater/kgDryAir]
    **   ~~~   ** ....coil leaving humidity ratio will be reset to:
-   **   ~~~   **     Wair,out = 7.021875E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Wair,out = 7.025677E-003 [kgWater/kgDryAir]
    ** Warning ** SizeWaterCoil: Coil="CAV_BAS COOLING COIL", Cooling Coil is running dry for sizing and has minimum humidity ratio at saturation for inlet chilled water temperature > design air entering humidity ratio.
-   **   ~~~   **     Wair,in =  7.141009E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Wair,in =  7.144877E-003 [kgWater/kgDryAir]
    **   ~~~   **     Wair,out = 7.000000E-003 [kgWater/kgDryAir]
    **   ~~~   **     Inlet chilled water temperature = 6.670 [C]
-   **   ~~~   **     Minimum humidity ratio at saturation for inlet chilled water temperature = 7.391653E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Minimum humidity ratio at saturation for inlet chilled water temperature = 7.497459E-003 [kgWater/kgDryAir]
    **   ~~~   ** ....coil leaving humidity ratio will be reset to:
-   **   ~~~   **     Wair,out = 7.141009E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Wair,out = 7.144877E-003 [kgWater/kgDryAir]
    ************* SizeUnitarySystem: Potential issue with equipment sizing for AirLoopHVAC:UnitarySystem CAV_BAS_UNITARY_PACKAGE_DX
    **   ~~~   ** User-Specified Minimum Supply Air Temperature [C] = 12.88890
    **   ~~~   ** differs from Design Size Minimum Supply Air Temperature [C] = 5.33753
@@ -334,35 +334,32 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** SizingString = Maximum Supply Air Temperature [C], DataZoneUsedForSizing = 1
    ** Severe  ** Developer Error: sizing of Maximum Supply Air Temperature [C] failed.
    **   ~~~   ** Occurs in AirLoopHVAC:UnitarySystem CAV_BAS_UNITARY_PACKAGE_DX
-   ** Severe  ** AirLoopHVAC:UnitarySystem = CAV_BAS_UNITARY_PACKAGE_DX
-   **   ~~~   **  For SingleZoneVAV control the No Load Supply Air Flow Rate must be less than both the cooling and heating supply air flow rates.
-   **   ~~~   **  The SingleZoneVAV control No Load Supply Air Flow Rate is reset to 2.52424 and the simulation continues.
    ** Warning ** SizeWaterCoil: Coil="AIRLOOP DATACENTER BASEMENT COOLING COIL", Cooling Coil is running dry for sizing and has minimum humidity ratio at saturation for inlet chilled water temperature > design air entering humidity ratio.
-   **   ~~~   **     Wair,in =  7.019138E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Wair,in =  7.019331E-003 [kgWater/kgDryAir]
    **   ~~~   **     Wair,out = 7.000000E-003 [kgWater/kgDryAir]
    **   ~~~   **     Inlet chilled water temperature = 6.670 [C]
-   **   ~~~   **     Minimum humidity ratio at saturation for inlet chilled water temperature = 7.391653E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Minimum humidity ratio at saturation for inlet chilled water temperature = 7.497459E-003 [kgWater/kgDryAir]
    **   ~~~   ** ....coil leaving humidity ratio will be reset to:
-   **   ~~~   **     Wair,out = 7.019138E-003 [kgWater/kgDryAir]
+   **   ~~~   **     Wair,out = 7.019331E-003 [kgWater/kgDryAir]
    ************* SizeWaterCoil: Potential issue with equipment sizing for Coil:Heating:Water AIRLOOP DATACENTER BASEMENT HEATING COIL
    **   ~~~   ** User-Specified Rated Capacity [W] = 100000.00000
-   **   ~~~   ** differs from Design Size Rated Capacity [W] = 559220.48560
+   **   ~~~   ** differs from Design Size Rated Capacity [W] = 559132.87155
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ** Severe  ** SizeUnitarySystem AirLoopHVAC:UnitarySystem AIRLOOP DATACENTER BASEMENT_UNITARY_PACKAGE_DX, Developer Error: Component sizing incomplete.
    **   ~~~   ** SizingString = Maximum Supply Air Temperature [C], DataCapacityUsedForSizing = 0.0
-   **   ~~~   ** SizingString = Maximum Supply Air Temperature [C], DataFlowUsedForSizing = 19.0
+   **   ~~~   ** SizingString = Maximum Supply Air Temperature [C], DataFlowUsedForSizing = 19.3
    **   ~~~   ** SizingString = Maximum Supply Air Temperature [C], DataZoneUsedForSizing = 23
    ** Severe  ** Developer Error: sizing of Maximum Supply Air Temperature [C] failed.
    **   ~~~   ** Occurs in AirLoopHVAC:UnitarySystem AIRLOOP DATACENTER BASEMENT_UNITARY_PACKAGE_DX
    ** Severe  ** AirLoopHVAC:UnitarySystem = AIRLOOP DATACENTER BASEMENT_UNITARY_PACKAGE_DX
    **   ~~~   **  For SingleZoneVAV control the No Load Supply Air Flow Rate must be less than both the cooling and heating supply air flow rates.
-   **   ~~~   **  The SingleZoneVAV control No Load Supply Air Flow Rate is reset to 19.06814 and the simulation continues.
+   **   ~~~   **  The SingleZoneVAV control No Load Supply Air Flow Rate is reset to 19.33786 and the simulation continues.
    ** Warning ** Humidifier:Steam:Electric: specified nominal capacity is zero for electric steam humidifier = DATACENTER_BASEMENT_ZN_6 HUMIDIFIER. 
    **   ~~~   **  For zero nominal capacity humidifier the rated power is zero.
    ************* SizeDXCoil: Potential issue with equipment sizing for Coil:Cooling:DX:MultiSpeed AIRLOOP DATACENTER BOT COOLING COIL
    **   ~~~   ** User-Specified Speed 1 Rated Air Flow Rate [m3/s] = 0.61687
-   **   ~~~   ** differs from Design Size Speed 1 Rated Air Flow Rate [m3/s] = 0.46256
+   **   ~~~   ** differs from Design Size Speed 1 Rated Air Flow Rate [m3/s] = 0.46910
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ** Warning ** The Standard Ratings is calculated for Coil:Cooling:DX:MultiSpeed = AIRLOOP DATACENTER BOT COOLING COIL but not at the AHRI test condition due to curve out of bound.
@@ -388,7 +385,7 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** inconsistent supply air fan operation modes in coil and unitary system objects.
    ************* SizeDXCoil: Potential issue with equipment sizing for Coil:Cooling:DX:MultiSpeed AIRLOOP DATACENTER MID COOLING COIL
    **   ~~~   ** User-Specified Speed 1 Rated Air Flow Rate [m3/s] = 5.93552
-   **   ~~~   ** differs from Design Size Speed 1 Rated Air Flow Rate [m3/s] = 4.45044
+   **   ~~~   ** differs from Design Size Speed 1 Rated Air Flow Rate [m3/s] = 4.51326
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ** Warning ** The Standard Ratings is calculated for Coil:Cooling:DX:MultiSpeed = AIRLOOP DATACENTER MID COOLING COIL but not at the AHRI test condition due to curve out of bound.
@@ -414,7 +411,7 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** inconsistent supply air fan operation modes in coil and unitary system objects.
    ************* SizeDXCoil: Potential issue with equipment sizing for Coil:Cooling:DX:MultiSpeed AIRLOOP DATACENTER TOP COOLING COIL
    **   ~~~   ** User-Specified Speed 1 Rated Air Flow Rate [m3/s] = 0.61408
-   **   ~~~   ** differs from Design Size Speed 1 Rated Air Flow Rate [m3/s] = 0.44496
+   **   ~~~   ** differs from Design Size Speed 1 Rated Air Flow Rate [m3/s] = 0.45125
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ** Warning ** The Standard Ratings is calculated for Coil:Cooling:DX:MultiSpeed = AIRLOOP DATACENTER TOP COOLING COIL but not at the AHRI test condition due to curve out of bound.
@@ -440,12 +437,12 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   ** inconsistent supply air fan operation modes in coil and unitary system objects.
    ************* SizeBoilerHotWater: Potential issue with equipment sizing for HEATSYS1 BOILER
    **   ~~~   ** User-Specified Nominal Capacity of 3160025.02 [W]
-   **   ~~~   ** differs from Design Size Nominal Capacity of 2726780.83 [W]
+   **   ~~~   ** differs from Design Size Nominal Capacity of 2715655.16 [W]
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ************* SizeChillerElectricEIR: Potential issue with equipment sizing for COOLSYS1 CHILLER1
    **   ~~~   ** User-Specified Reference Chilled Water Flow Rate of 5.60800E-002 [m3/s]
-   **   ~~~   ** differs from Design Size Reference Chilled Water Flow Rate of 0.11065 [m3/s]
+   **   ~~~   ** differs from Design Size Reference Chilled Water Flow Rate of 0.11083 [m3/s]
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ** Warning ** Chiller:Electric:EIR = COOLSYS1 CHILLER1:  Integrated Part Load Value (IPLV) calculated is not at the AHRI test condition.
@@ -453,7 +450,7 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    **   ~~~   **  Check limits in EIR Function of Temperature Curve, Curve Type = Curve:Biquadratic, Curve Name = ASHRAE901_APPJ_WTR_AB_CENT_GT1055KW_6.1COP_6.41IPLV.SI_EIR-F-T
    ************* SizeChillerElectricEIR: Potential issue with equipment sizing for COOLSYS1 CHILLER2
    **   ~~~   ** User-Specified Reference Chilled Water Flow Rate of 5.60800E-002 [m3/s]
-   **   ~~~   ** differs from Design Size Reference Chilled Water Flow Rate of 0.11065 [m3/s]
+   **   ~~~   ** differs from Design Size Reference Chilled Water Flow Rate of 0.11083 [m3/s]
    **   ~~~   ** This may, or may not, indicate mismatched component sizes.
    **   ~~~   ** Verify that the value entered is intended and is consistent with other components.
    ** Warning ** Chiller:Electric:EIR = COOLSYS1 CHILLER2:  Integrated Part Load Value (IPLV) calculated is not at the AHRI test condition.
@@ -468,299 +465,251 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    ************* No node connection errors were found.
    ************* Beginning Simulation
    ** Warning ** ElectricEIRChillerModel - CHILLER:ELECTRIC:EIR "COOLSYS1 CHILLER1" - Air Cooled Condenser Inlet Temperature below 0C.
-   **   ~~~   ** ... Outdoor Dry-bulb Condition = -14.33 C. Occurrence info = RUNPERIOD 1, 01/01 00:10 - 00:20
+   **   ~~~   ** ... Outdoor Dry-bulb Condition =  -1.67 C. Occurrence info = RUNPERIOD 1, 01/01 02:10 - 02:20
    ** Warning ** Step 3: Coil control failed for AirLoopHVAC:UnitarySystem:CAV_BAS_UNITARY_PACKAGE_DX
    **   ~~~   **   sensible part-load ratio determined to be outside the range of 0-1.
-   **   ~~~   ** Sensible load to be met = -32189.02 (watts), and the simulation continues.
-   **   ~~~   **  Environment=RUNPERIOD 1, at Simulation time=01/02 06:12 - 06:13
-   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 06:17 - 06:18
+   **   ~~~   ** Sensible load to be met = -93414.20 (watts), and the simulation continues.
+   **   ~~~   **  Environment=RUNPERIOD 1, at Simulation time=01/02 17:10 - 17:20
+   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 21:50 - 22:00
    **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
    **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
    **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.353905,0.000000,0.000000,4.353905,0.000000,0.000000,4.353905,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.353905,4.353905,4.353905,4.353905,4.353905,4.353905,4.353905,4.353905,4.353905,4.353905,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.673895E-003,0.000000,0.000000,1.673895E-003,0.000000,0.000000,1.673895E-003,0.000000,0.000000,1.673895E-003,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 2.165919,0.000000,0.000000,2.165919,0.000000,0.000000,2.165919,0.000000,0.000000,2.165919,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,104534.990163,0.000000,0.000000,104534.990163,0.000000,0.000000,104534.990163,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -38229.477977,46978.176093,46978.176093,38229.477977,-56454.062810,-56454.062810,-38229.477977,46978.176093,46978.176093,38229.477977,
-   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 06:23 - 06:25
-   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.482151,0.000000,0.000000,4.482151,0.000000,0.000000,4.482151,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.482151,4.482151,4.482151,4.482151,4.482151,4.482151,4.482151,4.482151,4.482151,4.482151,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.647970E-003,0.000000,0.000000,1.647970E-003,0.000000,0.000000,1.647970E-003,0.000000,0.000000,1.647970E-003,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 2.441963,0.000000,0.000000,2.441963,0.000000,0.000000,2.441963,0.000000,0.000000,2.441963,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,107543.138120,0.000000,0.000000,107543.138120,0.000000,0.000000,107543.138120,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -37578.399677,47127.420531,47127.420531,37578.399677,-58125.687064,-58125.687064,-37578.399677,47127.420531,47127.420531,37578.399677,
-   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 06:30 - 06:40
-   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.735500,0.000000,0.000000,4.735500,0.000000,0.000000,4.735500,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.735500,4.735500,4.735500,4.735500,4.735500,4.735500,4.735500,4.735500,4.735500,4.735500,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.737794E-003,0.000000,0.000000,1.737794E-003,0.000000,0.000000,1.737794E-003,0.000000,0.000000,1.737794E-003,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 0.130033,0.000000,0.000000,0.130033,0.000000,0.000000,0.130033,0.000000,0.000000,0.130033,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,112895.772676,0.000000,0.000000,112895.772676,0.000000,0.000000,112895.772676,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -62419.270895,61943.896219,61943.896219,62419.270895,-61325.144012,-61325.144012,-62419.270895,61943.896219,61943.896219,62419.270895,
-   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 06:33 - 06:37
-   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.587690,0.000000,0.000000,4.587690,0.000000,0.000000,4.587690,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.587690,4.587690,4.587690,4.587690,4.587690,4.587690,4.587690,4.587690,4.587690,4.587690,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.632058E-003,0.000000,0.000000,1.632058E-003,0.000000,0.000000,1.632058E-003,0.000000,0.000000,1.632058E-003,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 1.870359,0.000000,0.000000,1.870359,0.000000,0.000000,1.870359,0.000000,0.000000,1.870359,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,109760.681303,0.000000,0.000000,109760.681303,0.000000,0.000000,109760.681303,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -43680.809280,50796.284912,50796.284912,43680.809280,-59418.476729,-59418.476729,-43680.809280,50796.284912,50796.284912,43680.809280,
-   **   ~~~   ** Node named CORE_BOTTOM VAV BOX OUTLET NODE shows oscillating mass flow rate across iterations with a repeated value of 3.432644
-   **   ~~~   ** Node named CORE_BOTTOM VAV BOX OUTLET NODE mass flow rate [kg/s] iteration history trace (most recent first): 3.432644,3.432644,3.432644,3.432644,3.432644,3.432644,3.432616,3.432615,3.432615,3.432614,
-   **   ~~~   ** Node named CORE_BOTTOM VAV BOX OUTLET NODE shows oscillating temperatures across iterations with a repeated value of 15.590086
-   **   ~~~   ** Node named CORE_BOTTOM VAV BOX OUTLET NODE temperature [C] iteration history trace (most recent first): 15.590086,15.590086,15.590085,15.590085,15.590085,15.590085,15.590016,15.590014,15.590013,15.590011,
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_3 VAV BOX OUTLET NODE shows oscillating temperatures across iterations with a repeated value of 38.346656
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_3 VAV BOX OUTLET NODE temperature [C] iteration history trace (most recent first): 38.346656,38.346656,38.346656,38.346656,38.346656,38.346655,38.346608,38.346607,38.346606,38.346605,
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_2 VAV BOX OUTLET NODE shows oscillating temperatures across iterations with a repeated value of 29.591990
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_2 VAV BOX OUTLET NODE temperature [C] iteration history trace (most recent first): 29.591990,29.591990,29.591990,29.591989,29.591989,29.591989,29.591933,29.591932,29.591931,29.591930,
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_1 VAV BOX OUTLET NODE shows oscillating temperatures across iterations with a repeated value of 32.577356
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_1 VAV BOX OUTLET NODE temperature [C] iteration history trace (most recent first): 32.577356,32.577356,32.577356,32.577356,32.577356,32.577355,32.577302,32.577301,32.577300,32.577299,
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_4 VAV BOX OUTLET NODE shows oscillating temperatures across iterations with a repeated value of 26.136493
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_4 VAV BOX OUTLET NODE temperature [C] iteration history trace (most recent first): 26.136493,26.136493,26.136493,26.136493,26.136493,26.136492,26.136433,26.136432,26.136431,26.136430,
-   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 06:45 - 06:50
-   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.474379,0.000000,0.000000,4.474379,0.000000,0.000000,4.474379,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.474379,4.474379,4.474379,4.474379,4.474379,4.474379,4.474379,4.474379,4.474379,4.474379,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.446260E-003,0.000000,0.000000,1.446260E-003,0.000000,0.000000,1.446260E-003,0.000000,0.000000,1.446260E-003,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 2.613737,0.000000,0.000000,2.613737,0.000000,0.000000,2.613737,0.000000,0.000000,2.613737,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,106874.763753,0.000000,0.000000,106874.763753,0.000000,0.000000,106874.763753,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -35941.912503,46183.051263,46183.051263,35941.912503,-57934.550548,-57934.550548,-35941.912503,46183.051263,46183.051263,35941.912503,
-   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 06:50 - 07:00
-   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,5.018339,0.000000,0.000000,5.018339,0.000000,0.000000,5.018339,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 5.018339,5.018339,5.018339,5.018339,5.018339,5.018339,5.018339,5.018339,5.018339,5.018339,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.818151E-003,0.000000,0.000000,1.818151E-003,0.000000,0.000000,1.818151E-003,0.000000,0.000000,1.818151E-003,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 3.106235,0.000000,0.000000,3.106235,0.000000,2.092614E-009,3.106235,0.000000,0.000000,3.106235,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,117323.671347,0.000000,0.000000,117323.671347,0.000000,0.000000,117323.671347,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -38809.703024,49282.692955,49282.692955,38809.703024,-64946.342238,-64946.342255,-38809.701841,49282.692250,49282.692250,38809.701841,
-   **   ~~~   ** Node named CORE_BOTTOM VAV BOX OUTLET NODE shows oscillating humidity ratio across iterations with a repeated value of 8.418093E-003
-   **   ~~~   ** Node named CORE_BOTTOM VAV BOX OUTLET NODE humidity ratio [kg-water/kg-dryair] iteration history trace (most recent first): 8.418093E-003,8.418098E-003,8.418071E-003,8.418056E-003,8.418046E-003,8.418039E-003,8.418030E-003,8.418059E-003,8.418071E-003,8.418059E-003,
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_3 VAV BOX OUTLET NODE shows oscillating humidity ratio across iterations with a repeated value of 8.418093E-003
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_3 VAV BOX OUTLET NODE humidity ratio [kg-water/kg-dryair] iteration history trace (most recent first): 8.418093E-003,8.418098E-003,8.418071E-003,8.418056E-003,8.418046E-003,8.418039E-003,8.418030E-003,8.418059E-003,8.418071E-003,8.418059E-003,
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_2 VAV BOX OUTLET NODE shows oscillating humidity ratio across iterations with a repeated value of 8.418093E-003
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_2 VAV BOX OUTLET NODE humidity ratio [kg-water/kg-dryair] iteration history trace (most recent first): 8.418093E-003,8.418098E-003,8.418071E-003,8.418056E-003,8.418046E-003,8.418039E-003,8.418030E-003,8.418059E-003,8.418071E-003,8.418059E-003,
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_1 VAV BOX OUTLET NODE shows oscillating humidity ratio across iterations with a repeated value of 8.418093E-003
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_1 VAV BOX OUTLET NODE humidity ratio [kg-water/kg-dryair] iteration history trace (most recent first): 8.418093E-003,8.418098E-003,8.418071E-003,8.418056E-003,8.418046E-003,8.418039E-003,8.418030E-003,8.418059E-003,8.418071E-003,8.418059E-003,
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_4 VAV BOX OUTLET NODE shows oscillating humidity ratio across iterations with a repeated value of 8.418093E-003
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_4 VAV BOX OUTLET NODE humidity ratio [kg-water/kg-dryair] iteration history trace (most recent first): 8.418093E-003,8.418098E-003,8.418071E-003,8.418056E-003,8.418046E-003,8.418039E-003,8.418030E-003,8.418059E-003,8.418071E-003,8.418059E-003,
-   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 06:57 - 06:60
-   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.445614,0.000000,0.000000,4.445614,0.000000,0.000000,4.445614,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.445614,4.445614,4.445614,4.445614,4.445614,4.445614,4.445614,4.445614,4.445614,4.445614,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.321456E-003,0.000000,0.000000,1.321456E-003,0.000000,0.000000,1.321456E-003,0.000000,0.000000,1.321456E-003,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 1.113016,0.000000,0.000000,1.113016,0.000000,0.000000,1.113016,0.000000,0.000000,1.113016,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,106684.878779,0.000000,0.000000,106684.878779,0.000000,0.000000,106684.878779,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -48199.239820,52592.425525,52592.425525,48199.239820,-57564.431776,-57564.431776,-48199.239820,52592.425525,52592.425525,48199.239820,
-   **   ~~~   ** Node named CORE_BOTTOM VAV BOX OUTLET NODE shows oscillating humidity ratio across iterations with a repeated value of 8.207709E-003
-   **   ~~~   ** Node named CORE_BOTTOM VAV BOX OUTLET NODE humidity ratio [kg-water/kg-dryair] iteration history trace (most recent first): 8.207709E-003,8.207718E-003,8.207689E-003,8.207677E-003,8.207668E-003,8.207669E-003,8.207665E-003,8.207680E-003,8.207691E-003,8.207679E-003,
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_3 VAV BOX OUTLET NODE shows oscillating humidity ratio across iterations with a repeated value of 8.207709E-003
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_3 VAV BOX OUTLET NODE humidity ratio [kg-water/kg-dryair] iteration history trace (most recent first): 8.207709E-003,8.207718E-003,8.207689E-003,8.207677E-003,8.207668E-003,8.207669E-003,8.207665E-003,8.207680E-003,8.207691E-003,8.207679E-003,
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_2 VAV BOX OUTLET NODE shows oscillating humidity ratio across iterations with a repeated value of 8.207709E-003
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_2 VAV BOX OUTLET NODE humidity ratio [kg-water/kg-dryair] iteration history trace (most recent first): 8.207709E-003,8.207718E-003,8.207689E-003,8.207677E-003,8.207668E-003,8.207669E-003,8.207665E-003,8.207680E-003,8.207691E-003,8.207679E-003,
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_1 VAV BOX OUTLET NODE shows oscillating humidity ratio across iterations with a repeated value of 8.207709E-003
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_1 VAV BOX OUTLET NODE humidity ratio [kg-water/kg-dryair] iteration history trace (most recent first): 8.207709E-003,8.207718E-003,8.207689E-003,8.207677E-003,8.207668E-003,8.207669E-003,8.207665E-003,8.207680E-003,8.207691E-003,8.207679E-003,
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_4 VAV BOX OUTLET NODE shows oscillating humidity ratio across iterations with a repeated value of 8.207709E-003
-   **   ~~~   ** Node named PERIMETER_BOT_ZN_4 VAV BOX OUTLET NODE humidity ratio [kg-water/kg-dryair] iteration history trace (most recent first): 8.207709E-003,8.207718E-003,8.207689E-003,8.207677E-003,8.207668E-003,8.207669E-003,8.207665E-003,8.207680E-003,8.207691E-003,8.207679E-003,
-   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 07:00 - 07:10
-   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,5.244386,0.000000,0.000000,5.244386,0.000000,0.000000,5.244386,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 5.244386,5.244386,5.244386,5.244386,5.244386,5.244386,5.244386,5.244386,5.244386,5.244386,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.949718E-003,0.000000,0.000000,1.949718E-003,0.000000,0.000000,1.949718E-003,0.000000,0.000000,1.949718E-003,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 3.216103,0.000000,0.000000,3.216103,0.000000,0.000000,3.216103,0.000000,0.000000,3.216103,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,124726.289430,0.000000,0.000000,124726.289430,0.000000,0.000000,124726.289430,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -40797.107344,50910.017744,50910.017744,40797.107344,-67858.206510,-67858.206510,-40797.107344,50910.017744,50910.017744,40797.107344,
-   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 07:15 - 07:20
-   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.188586,0.000000,0.000000,4.188586,0.000000,0.000000,4.188586,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.188586,4.188586,4.188586,4.188586,4.188586,4.188586,4.188586,4.188586,4.188586,4.188586,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.020376E-003,0.000000,0.000000,1.020376E-003,0.000000,0.000000,1.020376E-003,0.000000,0.000000,1.020376E-003,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 0.324417,0.000000,0.000000,0.324417,0.000000,0.000000,0.324417,0.000000,0.000000,0.324417,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,99934.117414,0.000000,0.000000,99934.117414,0.000000,0.000000,99934.117414,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -56947.690423,55583.393270,55583.393270,56947.690423,-54217.960648,-54217.960648,-56947.690423,55583.393270,55583.393270,56947.690423,
-   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 07:30 - 07:40
-   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.307027,0.000000,0.000000,4.307027,0.000000,0.000000,4.307027,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.307027,4.307027,4.307027,4.307027,4.307027,4.307027,4.307027,4.307027,4.307027,4.307027,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,8.673617E-019,0.000000,0.000000,8.673617E-019,0.000000,0.000000,8.673617E-019,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 9.566046E-004,0.000000,0.000000,9.566046E-004,0.000000,0.000000,9.566046E-004,0.000000,0.000000,9.566046E-004,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 2.430160,0.000000,0.000000,2.430160,0.000000,0.000000,2.430160,0.000000,0.000000,2.430160,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,102135.424219,0.000000,0.000000,102135.424219,0.000000,0.000000,102135.424219,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -35288.958368,45219.465799,45219.465799,35288.958368,-55736.929575,-55736.929575,-35288.958368,45219.465799,45219.465799,35288.958368,
-   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 07:45 - 07:50
-   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.402541,0.000000,0.000000,4.402541,0.000000,0.000000,4.402541,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.402541,4.402541,4.402541,4.402541,4.402541,4.402541,4.402541,4.402541,4.402541,4.402541,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 8.578133E-004,0.000000,0.000000,8.578133E-004,0.000000,0.000000,8.578133E-004,0.000000,0.000000,8.578133E-004,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 2.427764,0.000000,0.000000,2.427764,0.000000,8.046896E-013,2.427764,0.000000,0.000000,2.427764,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,104987.426774,0.000000,0.000000,104987.426774,0.000000,0.000000,104987.426774,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -36525.174529,46212.884161,46212.884161,36525.174529,-56952.988278,-56952.988278,-36525.174530,46212.884161,46212.884161,36525.174530,
-   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 07:50 - 08:00
-   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.835272,0.000000,0.000000,4.835272,0.000000,0.000000,4.835272,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.835272,4.835272,4.835272,4.835272,4.835272,4.835272,4.835272,4.835272,4.835272,4.835272,
-   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
-   **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.007207E-003,0.000000,0.000000,1.007207E-003,0.000000,0.000000,1.007207E-003,0.000000,0.000000,1.007207E-003,
+   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.379638,0.000000,0.000000,4.379638,0.000000,0.000000,4.379638,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.379638,4.379638,4.379638,4.379638,4.379638,4.379638,4.379638,4.379638,4.379638,4.379638,
    **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
    **   ~~~   ** Check values should be zero. Most Recent values listed first.
    **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,7.105427E-015,0.000000,0.000000,7.105427E-015,0.000000,0.000000,7.105427E-015,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 2.728268,0.000000,0.000000,2.728268,0.000000,2.183414E-009,2.728269,0.000000,0.000000,2.728269,
+   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 0.564113,0.000000,0.000000,0.564113,0.000000,0.000000,0.564113,0.000000,0.000000,0.564113,
    **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
    **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,113101.235832,0.000000,0.000000,113101.235832,0.000000,0.000000,113101.235832,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -39584.541971,49285.053504,49285.053504,39584.541971,-62540.874327,-62540.874345,-39584.540088,49285.052421,49285.052421,39584.540088,
-   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 07:57 - 07:60
+   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,101805.116678,0.000000,0.000000,101805.116678,0.000000,0.000000,101805.116678,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -61429.644354,59165.782583,59165.782583,61429.644354,-56683.204961,-56683.204961,-61429.644354,59165.782583,59165.782583,61429.644354,
+   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/03 06:08 - 06:09
    **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
    **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
    **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.238121,0.000000,0.000000,4.238121,0.000000,0.000000,4.238121,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.238121,4.238121,4.238121,4.238121,4.238121,4.238121,4.238121,4.238121,4.238121,4.238121,
+   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,5.207475,0.000000,0.000000,5.207475,0.000000,0.000000,5.207475,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 5.207475,5.207475,5.207475,5.207475,5.207475,5.207475,5.207475,5.207475,5.207475,5.207475,
    **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
    **   ~~~   ** Check values should be zero. Most Recent values listed first.
    **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 7.241477E-004,0.000000,0.000000,7.241477E-004,0.000000,0.000000,7.241477E-004,0.000000,0.000000,7.241477E-004,
+   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 2.477819E-004,0.000000,0.000000,2.477819E-004,0.000000,0.000000,2.477819E-004,0.000000,0.000000,2.477819E-004,
    **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
    **   ~~~   ** Check values should be zero. Most Recent values listed first.
    **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 0.608848,0.000000,0.000000,0.608848,0.000000,0.000000,0.608848,0.000000,0.000000,0.608848,
+   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 0.488593,0.000000,0.000000,0.488593,0.000000,0.000000,0.488593,0.000000,0.000000,0.488593,
    **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
    **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,101970.050701,0.000000,0.000000,101970.050701,0.000000,0.000000,101970.050701,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -59964.045579,57433.918591,57433.918591,59964.045579,-54841.049713,-54841.049713,-59964.045579,57433.918591,57433.918591,59964.045579,
-   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/02 08:00 - 08:10
+   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,125051.640415,0.000000,0.000000,125051.640415,0.000000,0.000000,125051.640415,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -63300.075469,64854.432282,64854.432282,63300.075469,-67411.095102,-67411.095102,-63300.075469,64854.432282,64854.432282,63300.075469,
+   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/03 06:12 - 06:13
    **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
    **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
    **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.407707,0.000000,0.000000,4.407707,0.000000,0.000000,4.407707,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.407707,4.407707,4.407707,4.407707,4.407707,4.407707,4.407707,4.407707,4.407707,4.407707,
+   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.602627,0.000000,0.000000,4.602627,0.000000,0.000000,4.602627,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.602627,4.602627,4.602627,4.602627,4.602627,4.602627,4.602627,4.602627,4.602627,4.602627,
    **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
    **   ~~~   ** Check values should be zero. Most Recent values listed first.
    **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 7.862801E-004,0.000000,0.000000,7.862801E-004,0.000000,0.000000,7.862801E-004,0.000000,0.000000,7.862801E-004,
+   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.856893E-004,0.000000,0.000000,1.856893E-004,0.000000,0.000000,1.856893E-004,0.000000,0.000000,1.856893E-004,
    **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
    **   ~~~   ** Check values should be zero. Most Recent values listed first.
    **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 2.398578,0.000000,0.000000,2.398578,0.000000,1.039169E-012,2.398578,0.000000,0.000000,2.398578,
+   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 0.112954,0.000000,0.000000,0.112954,0.000000,0.000000,0.112954,0.000000,0.000000,0.112954,
    **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
    **   ~~~   ** Check values should be zero. Most Recent values listed first.
-   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,105016.354044,0.000000,0.000000,105016.354044,0.000000,0.000000,105016.354044,0.000000,0.000000,
-   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -36829.999229,46388.794872,46388.794872,36829.999229,-57012.237613,-57012.237613,-36829.999230,46388.794873,46388.794873,36829.999230,
+   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,111129.076019,0.000000,0.000000,111129.076019,0.000000,0.000000,111129.076019,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -58624.808320,59052.797728,59052.797728,58624.808320,-59575.200124,-59575.200124,-58624.808320,59052.797728,59052.797728,58624.808320,
+   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/03 06:20 - 06:30
+   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.360768,0.000000,0.000000,4.360768,0.000000,0.000000,4.360768,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.360768,4.360768,4.360768,4.360768,4.360768,4.360768,4.360768,4.360768,4.360768,4.360768,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.557852E-004,0.000000,0.000000,1.557852E-004,0.000000,0.000000,1.557852E-004,0.000000,0.000000,1.557852E-004,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 0.338703,0.000000,0.000000,0.338703,0.000000,0.000000,0.338703,0.000000,0.000000,0.338703,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,104463.878942,0.000000,0.000000,104463.878942,0.000000,0.000000,104463.878942,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -53600.859621,54966.542829,54966.542829,53600.859621,-56450.702725,-56450.702725,-53600.859621,54966.542829,54966.542829,53600.859621,
+   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/03 06:30 - 06:40
+   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.645119,0.000000,0.000000,4.645119,0.000000,0.000000,4.645119,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.645119,4.645119,4.645119,4.645119,4.645119,4.645119,4.645119,4.645119,4.645119,4.645119,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.680752E-004,0.000000,0.000000,1.680752E-004,0.000000,0.000000,1.680752E-004,0.000000,0.000000,1.680752E-004,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 0.819639,0.000000,0.000000,0.819639,0.000000,7.522871E-012,0.819639,0.000000,0.000000,0.819639,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,110081.239035,0.000000,0.000000,110081.239035,0.000000,0.000000,110081.239035,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -53239.443335,56310.114401,56310.114401,53239.443335,-60135.879388,-60135.879388,-53239.443339,56310.114403,56310.114403,53239.443339,
+   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/03 07:00 - 07:10
+   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.143249,0.000000,0.000000,4.143249,0.000000,0.000000,4.143249,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.143249,4.143249,4.143249,4.143249,4.143249,4.143249,4.143249,4.143249,4.143249,4.143249,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,7.105427E-015,0.000000,0.000000,7.105427E-015,0.000000,0.000000,7.105427E-015,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 1.134954,0.000000,0.000000,1.134954,0.000000,2.918252E-009,1.134954,0.000000,0.000000,1.134954,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,97350.228019,0.000000,0.000000,97350.228019,0.000000,0.000000,97350.228019,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -44090.505985,48914.819376,48914.819376,44090.505985,-53639.994661,-53639.994636,-44090.507904,48914.820319,48914.820319,44090.507904,
+   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/03 07:00 - 07:10
+   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.935455,0.000000,0.000000,4.935455,0.000000,0.000000,4.935455,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.935455,4.935455,4.935455,4.935455,4.935455,4.935455,4.935455,4.935455,4.935455,4.935455,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.517675E-004,0.000000,0.000000,1.517675E-004,0.000000,0.000000,1.517675E-004,0.000000,0.000000,1.517675E-004,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,3.552714E-015,0.000000,0.000000,3.552714E-015,0.000000,0.000000,3.552714E-015,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 1.513666,0.000000,0.000000,1.513666,0.000000,8.917311E-013,1.513666,0.000000,0.000000,1.513666,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,116651.732429,0.000000,0.000000,116651.732429,0.000000,0.000000,116651.732429,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -51163.831324,56392.982264,56392.982264,51163.831324,-63899.799915,-63899.799915,-51163.831325,56392.982264,56392.982264,51163.831325,
+   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/03 07:20 - 07:30
+   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,3.984742,0.000000,0.000000,3.984742,0.000000,0.000000,3.984742,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 3.984742,3.984742,3.984742,3.984742,3.984742,3.984742,3.984742,3.984742,3.984742,3.984742,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,3.552714E-015,0.000000,0.000000,3.552714E-015,0.000000,0.000000,3.552714E-015,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 1.149335,0.000000,0.000000,1.149335,0.000000,0.000000,1.149335,0.000000,0.000000,1.149335,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,94834.100846,0.000000,0.000000,94834.100846,0.000000,0.000000,94834.100846,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -41916.939656,46985.440700,46985.440700,41916.939656,-51587.427491,-51587.427491,-41916.939656,46985.440700,46985.440700,41916.939656,
+   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/03 07:30 - 07:40
+   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.170554,0.000000,0.000000,4.170554,0.000000,0.000000,4.170554,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.170554,4.170554,4.170554,4.170554,4.170554,4.170554,4.170554,4.170554,4.170554,4.170554,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 1.407938,0.000000,0.000000,1.407938,0.000000,2.907251E-009,1.407938,0.000000,0.000000,1.407938,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,98076.051623,0.000000,0.000000,98076.051623,0.000000,0.000000,98076.051623,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -42144.601968,48090.652229,48090.652229,42144.601968,-53990.977143,-53990.977118,-42144.603934,48090.653202,48090.653202,42144.603934,
+   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/03 07:30 - 07:40
+   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.937056,0.000000,0.000000,4.937056,0.000000,0.000000,4.937056,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.937056,4.937056,4.937056,4.937056,4.937056,4.937056,4.937056,4.937056,4.937056,4.937056,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.304762E-004,0.000000,0.000000,1.304762E-004,0.000000,0.000000,1.304762E-004,0.000000,0.000000,1.304762E-004,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,3.552714E-015,0.000000,0.000000,3.552714E-015,0.000000,0.000000,3.552714E-015,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 1.782004,0.000000,0.000000,1.782004,0.000000,7.336354E-013,1.782004,0.000000,0.000000,1.782004,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,116878.476234,0.000000,0.000000,116878.476234,0.000000,0.000000,116878.476234,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -48922.978967,55076.267852,55076.267852,48922.978967,-63916.737114,-63916.737114,-48922.978967,55076.267852,55076.267852,48922.978967,
+   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/03 07:50 - 08:00
+   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.755848,0.000000,0.000000,4.755848,0.000000,0.000000,4.755848,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.755848,4.755848,4.755848,4.755848,4.755848,4.755848,4.755848,4.755848,4.755848,4.755848,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.119643E-004,0.000000,0.000000,1.119643E-004,0.000000,0.000000,1.119643E-004,0.000000,0.000000,1.119643E-004,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,7.105427E-015,0.000000,0.000000,7.105427E-015,0.000000,0.000000,7.105427E-015,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 1.765802,0.000000,0.000000,1.765802,0.000000,0.000000,1.765802,0.000000,0.000000,1.765802,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,112783.650174,0.000000,0.000000,112783.650174,0.000000,0.000000,112783.650174,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -46716.000614,53134.872883,53134.872883,46716.000614,-61573.437493,-61573.437493,-46716.000614,53134.872883,53134.872883,46716.000614,
+   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/03 10:10 - 10:20
+   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.699971,0.000000,0.000000,4.699971,0.000000,0.000000,4.699971,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.699971,4.699971,4.699971,4.699971,4.699971,4.699971,4.699971,4.699971,4.699971,4.699971,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.130230E-004,0.000000,0.000000,1.130230E-004,0.000000,0.000000,1.130230E-004,0.000000,0.000000,1.130230E-004,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 1.643873,0.000000,0.000000,1.643873,0.000000,0.000000,1.643873,0.000000,0.000000,1.643873,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,112065.546229,0.000000,0.000000,112065.546229,0.000000,0.000000,112065.546229,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -47012.468688,53080.417547,53080.417547,47012.468688,-60843.999311,-60843.999311,-47012.468688,53080.417547,53080.417547,47012.468688,
+   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/03 16:50 - 17:00
+   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,4.441329,0.000000,0.000000,4.441329,0.000000,0.000000,4.441329,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 4.441329,4.441329,4.441329,4.441329,4.441329,4.441329,4.441329,4.441329,4.441329,4.441329,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 1.654726E-004,0.000000,0.000000,1.654726E-004,0.000000,0.000000,1.654726E-004,0.000000,0.000000,1.654726E-004,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 5.647743,0.000000,0.000000,5.647743,0.000000,0.000000,5.647743,0.000000,0.000000,5.647743,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,104998.381046,0.000000,0.000000,104998.381046,0.000000,0.000000,104998.381046,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -105022.545484,82707.489146,82707.489146,105022.545484,-57502.499551,-57502.499551,-105022.545484,82707.489146,82707.489146,105022.545484,
+   ** Warning ** SimHVAC: Maximum iterations (20) exceeded for all HVAC loops, at RUNPERIOD 1, 01/03 17:00 - 17:10
+   **   ~~~   ** The solution for one or more of the Air Loop HVAC systems did not appear to converge
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for mass flow rate
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface mass flow rate check value iteration history trace: 0.000000,5.090921,0.000000,0.000000,5.090921,0.000000,0.000000,5.090921,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 mass flow rate check value iteration history trace: 5.090921,5.090921,5.090921,5.090921,5.090921,5.090921,5.090921,5.090921,5.090921,5.090921,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for humidity ratio
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface humidity ratio check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 humidity ratio check value iteration history trace: 2.087621E-004,0.000000,0.000000,2.087621E-004,0.000000,0.000000,2.087621E-004,0.000000,0.000000,2.087621E-004,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for temperature
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface temperature check value iteration history trace: 0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 temperature check value iteration history trace: 1.876900,0.000000,0.000000,1.876900,0.000000,0.000000,1.876900,0.000000,0.000000,1.876900,
+   **   ~~~   ** Air System Named = CAV_BAS did not converge for energy
+   **   ~~~   ** Check values should be zero. Most Recent values listed first.
+   **   ~~~   ** Demand-to-Supply interface energy check value iteration history trace: 0.000000,120917.123304,0.000000,0.000000,120917.123304,0.000000,0.000000,120917.123304,0.000000,0.000000,
+   **   ~~~   ** Supply-to-demand interface deck 1 energy check value iteration history trace: -50124.307177,56315.086599,56315.086599,50124.307177,-65916.520403,-65916.520403,-50124.307177,56315.086599,56315.086599,50124.307177,
    ** Warning ** Step 3: Coil control failed for AirLoopHVAC:UnitarySystem:AIRLOOP DATACENTER BASEMENT_UNITARY_PACKAGE_DX
    **   ~~~   **   sensible part-load ratio determined to be outside the range of 0-1.
-   **   ~~~   ** Sensible load to be met = -174235.02 (watts), and the simulation continues.
-   **   ~~~   **  Environment=RUNPERIOD 1, at Simulation time=02/01 00:20 - 00:30
+   **   ~~~   ** Sensible load to be met = -174622.91 (watts), and the simulation continues.
+   **   ~~~   **  Environment=RUNPERIOD 1, at Simulation time=02/01 05:20 - 05:30
    ************* Simulation Error Summary *************
    ** Warning ** The following Report Variables were requested but not generated -- check.rdd file
    **   ~~~   ** Either the IDF did not contain these elements, the variable name is misspelled,
@@ -774,45 +723,45 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    ************* The following recurring error messages occurred.
    *************
    *************  ** Warning ** Coil:Cooling:DX:MultiSpeed "AIRLOOP DATACENTER BOT COOLING COIL" - Air volume flow rate per watt of rated total cooling capacity is out of range at speed 1 error continues...
-   *************  **   ~~~   **   This error occurred 10990320 total times;
-   *************  **   ~~~   **   during Warmup 74232 times;
+   *************  **   ~~~   **   This error occurred 10027898 total times;
+   *************  **   ~~~   **   during Warmup 100584 times;
    *************  **   ~~~   **   during Sizing 0 times.
-   *************  **   ~~~   **   Max=0.000126  Min=0.000122
+   *************  **   ~~~   **   Max=0.000130  Min=0.000122
    *************
    *************  ** Warning ** Coil:Cooling:DX:MultiSpeed "AIRLOOP DATACENTER MID COOLING COIL" - Air volume flow rate per watt of rated total cooling capacity is out of range at speed 1 error continues...
-   *************  **   ~~~   **   This error occurred 10812840 total times;
-   *************  **   ~~~   **   during Warmup 28170 times;
+   *************  **   ~~~   **   This error occurred 9919078 total times;
+   *************  **   ~~~   **   during Warmup 100548 times;
    *************  **   ~~~   **   during Sizing 0 times.
-   *************  **   ~~~   **   Max=0.000126  Min=0.000122
+   *************  **   ~~~   **   Max=0.000130  Min=0.000122
    *************
    *************  ** Warning ** Coil:Cooling:DX:MultiSpeed "AIRLOOP DATACENTER TOP COOLING COIL" - Air volume flow rate per watt of rated total cooling capacity is out of range at speed 1 error continues...
-   *************  **   ~~~   **   This error occurred 10622362 total times;
-   *************  **   ~~~   **   during Warmup 24768 times;
+   *************  **   ~~~   **   This error occurred 9796810 total times;
+   *************  **   ~~~   **   during Warmup 100494 times;
    *************  **   ~~~   **   during Sizing 0 times.
-   *************  **   ~~~   **   Max=0.000121  Min=0.000118
+   *************  **   ~~~   **   Max=0.000126  Min=0.000118
    *************
    *************  ** Warning ** ElectricEIRChillerModel - CHILLER:ELECTRIC:EIR "COOLSYS1 CHILLER1" - Air Cooled Condenser Inlet Temperature below 0C error continues.
-   *************  **   ~~~   **   This error occurred 23019 total times;
+   *************  **   ~~~   **   This error occurred 30611 total times;
    *************  **   ~~~   **   during Warmup 0 times;
    *************  **   ~~~   **   during Sizing 0 times.
-   *************  **   ~~~   **   Max=-0.000000 [C]  Min=-16.000000 [C]
+   *************  **   ~~~   **   Max=-0.000000 [C]  Min=-23.000000 [C]
    *************
    *************  ** Warning ** AirLoopHVAC:UnitarySystem "CAV_BAS_UNITARY_PACKAGE_DX" - sensible part-load ratio out of range error continues. Sensible load statistics:
-   *************  **   ~~~   **   This error occurred 410776 total times;
+   *************  **   ~~~   **   This error occurred 338655 total times;
    *************  **   ~~~   **   during Warmup 0 times;
    *************  **   ~~~   **   during Sizing 0 times.
-   *************  **   ~~~   **   Max=-18084.907200  Min=-101768.113001
+   *************  **   ~~~   **   Max=-18175.571489  Min=-106669.308811
    *************
    *************  ** Warning ** SimHVAC: Exceeding Maximum iterations for all HVAC loops, during RUNPERIOD 1 continues
-   *************  **   ~~~   **   This error occurred 3622 total times;
+   *************  **   ~~~   **   This error occurred 2703 total times;
    *************  **   ~~~   **   during Warmup 0 times;
    *************  **   ~~~   **   during Sizing 0 times.
    *************
    *************  ** Warning ** AirLoopHVAC:UnitarySystem "AIRLOOP DATACENTER BASEMENT_UNITARY_PACKAGE_DX" - sensible part-load ratio out of range error continues. Sensible load statistics:
-   *************  **   ~~~   **   This error occurred 540983 total times;
+   *************  **   ~~~   **   This error occurred 490296 total times;
    *************  **   ~~~   **   during Warmup 0 times;
    *************  **   ~~~   **   during Sizing 0 times.
-   *************  **   ~~~   **   Max=-56843.489643  Min=-460862.572070
+   *************  **   ~~~   **   Max=-61857.880373  Min=-420197.618909
    *************
    *************
    ************* ===== Final Error Summary =====
@@ -824,4 +773,4 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.23 22:27,
    *************
    ************* EnergyPlus Warmup Error Summary. During Warmup: 0 Warning; 0 Severe Errors.
    ************* EnergyPlus Sizing Error Summary. During Sizing: 20 Warning; 0 Severe Errors.
-   ************* EnergyPlus Completed Successfully-- 33403989 Warning; 6 Severe Errors; Elapsed Time=00hr 01min 47.71sec
+   ************* EnergyPlus Completed Successfully-- 30606118 Warning; 5 Severe Errors; Elapsed Time=00hr 02min  1.82sec

@@ -1,0 +1,17 @@
+ ReadVarsESO
+ processing:eplusout.eso
+ Requested ESO file=Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.25 08:49
+ does not exist.  ReadVarsESO program terminated.
+ ReadVarsESO program terminated.
+ ReadVarsESO
+ Requested Report Variable input file=--help
+ does not exist.  Check eplusout.err file for possible explanations.
+ ReadVarsESO program terminated.
+ ReadVarsESO
+ processing:temp.rvi
+ input file:eplusout.eso
+ output file:eplusout.csv
+ getting all vars from:eplusout.eso
+  number variables requested for output=         124
+ ReadVars Run Time=00hr 00min  0.69sec
+ ReadVarsESO program completed successfully.

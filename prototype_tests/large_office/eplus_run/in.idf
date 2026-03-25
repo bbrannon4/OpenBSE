@@ -16536,3 +16536,6 @@ Output:Variable,Core_mid,Zone Air System Sensible Heating Rate,Hourly;
 Output:Variable,Core_mid,Zone Mean Air Temperature,Hourly;
 Output:Variable,Perimeter_mid_ZN_1,Zone Air System Sensible Cooling Rate,Hourly;
 Output:Variable,Perimeter_mid_ZN_1,Zone Mean Air Temperature,Hourly;
+
+! === Added for VAV airflow trace comparison ===
+Output:Variable,VAV_mid WITH REHEAT,Air System Outdoor Air Flow Fraction,Hourly;
