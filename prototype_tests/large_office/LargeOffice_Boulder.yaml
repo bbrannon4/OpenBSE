@@ -726,6 +726,13 @@ schedules:
   - 1.0
   - 1.0
 materials:
+- name: Std Wood 6inch
+  conductivity: 0.12
+  density: 540.0
+  specific_heat: 1210.0
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: medium_smooth
 - name: F07 25mm Stucco
   conductivity: 0.72
   density: 1856.0
@@ -844,6 +851,10 @@ constructions:
     thickness: 0.2032
   - material: Floor Insulation
     thickness: 0.1038
+- name: InteriorFurnishings
+  layers:
+  - material: Std Wood 6inch
+    thickness: 0.15
 simple_constructions:
 - name: Interior Partition
   u_factor: 6.15
@@ -866,183 +877,363 @@ zones:
 - name: Core_bottom
   volume: 6849.4
   floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
 - name: Perimeter_bot_ZN_1
   volume: 860.0
   floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_bot_ZN_2
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_bot_ZN_3
   volume: 860.0
   floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_bot_ZN_4
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Core_mid_f2
   volume: 6849.4
   floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
 - name: Core_mid_f3
   volume: 6849.4
   floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
 - name: Core_mid_f4
   volume: 6849.4
   floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
 - name: Core_mid_f5
   volume: 6849.4
   floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
 - name: Core_mid_f6
   volume: 6849.4
   floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
 - name: Core_mid_f7
   volume: 6849.4
   floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
 - name: Core_mid_f8
   volume: 6849.4
   floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
 - name: Core_mid_f9
   volume: 6849.4
   floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
 - name: Core_mid_f10
   volume: 6849.4
   floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
 - name: Core_mid_f11
   volume: 6849.4
   floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
 - name: Perimeter_mid_ZN_1_f2
   volume: 860.0
   floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_1_f3
   volume: 860.0
   floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_1_f4
   volume: 860.0
   floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_1_f5
   volume: 860.0
   floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_1_f6
   volume: 860.0
   floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_1_f7
   volume: 860.0
   floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_1_f8
   volume: 860.0
   floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_1_f9
   volume: 860.0
   floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_1_f10
   volume: 860.0
   floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_1_f11
   volume: 860.0
   floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_2_f2
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_2_f3
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_2_f4
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_2_f5
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_2_f6
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_2_f7
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_2_f8
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_2_f9
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_2_f10
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_2_f11
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_3_f2
   volume: 860.0
   floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_3_f3
   volume: 860.0
   floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_3_f4
   volume: 860.0
   floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_3_f5
   volume: 860.0
   floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_3_f6
   volume: 860.0
   floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_3_f7
   volume: 860.0
   floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_3_f8
   volume: 860.0
   floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_3_f9
   volume: 860.0
   floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_3_f10
   volume: 860.0
   floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_3_f11
   volume: 860.0
   floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_mid_ZN_4_f2
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_4_f3
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_4_f4
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_4_f5
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_4_f6
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_4_f7
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_4_f8
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_4_f9
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_4_f10
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_mid_ZN_4_f11
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Core_top
   volume: 6849.4
   floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
 - name: Perimeter_top_ZN_1
   volume: 860.0
   floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_top_ZN_2
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Perimeter_top_ZN_3
   volume: 860.0
   floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
 - name: Perimeter_top_ZN_4
   volume: 554.2
   floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
 - name: Basement
   volume: 6779.0
   floor_area: 2779.43
