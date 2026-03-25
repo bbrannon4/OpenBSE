@@ -264,7 +264,7 @@ fn run_single_design_day(
                 heating_capacity: 1_000_000.0,
                 cooling_capacity: 1_000_000.0,
                 heating_setpoint: sp,
-                cooling_setpoint: sp, // Hold at the provided setpoint for both
+                cooling_setpoint: sp,
             });
         }
     }
@@ -534,8 +534,6 @@ fn run_zone_sizing(
         let heat_sp = zone_heating_setpoints.get(name).copied().unwrap_or(21.0);
         let cool_sp = zone_cooling_setpoints.get(name).copied().unwrap_or(24.0);
 
-        // Zone peak loads (raw — sizing factors are applied at the system level
-        // for VAV loops only, not to individual zone airflows globally).
         let heat_load = zone_peak_heating.get(name).copied().unwrap_or(0.0);
         let cool_load_raw = zone_peak_cooling.get(name).copied().unwrap_or(0.0);
 
