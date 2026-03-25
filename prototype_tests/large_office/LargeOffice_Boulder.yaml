@@ -2059,7 +2059,7 @@ surfaces:
   zone: Core_bottom
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_bot_ZN_1'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -2077,7 +2077,7 @@ surfaces:
   zone: Core_bottom
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_bot_ZN_3'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -2095,7 +2095,7 @@ surfaces:
   zone: Core_bottom
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_bot_ZN_2'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -2113,7 +2113,7 @@ surfaces:
   zone: Core_bottom
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_bot_ZN_4'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -2204,7 +2204,7 @@ surfaces:
   zone: Perimeter_bot_ZN_1
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_bottom'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -2295,7 +2295,7 @@ surfaces:
   zone: Perimeter_bot_ZN_2
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_bottom'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -2386,7 +2386,7 @@ surfaces:
   zone: Perimeter_bot_ZN_3
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_bottom'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -2477,7 +2477,7 @@ surfaces:
   zone: Perimeter_bot_ZN_4
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_bottom'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -2531,7 +2531,7 @@ surfaces:
   zone: Core_mid_f2
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_1_f2'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -2549,7 +2549,7 @@ surfaces:
   zone: Core_mid_f3
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_1_f3'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -2567,7 +2567,7 @@ surfaces:
   zone: Core_mid_f4
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_1_f4'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -2585,7 +2585,7 @@ surfaces:
   zone: Core_mid_f5
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_1_f5'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -2603,7 +2603,7 @@ surfaces:
   zone: Core_mid_f6
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_1_f6'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -2621,7 +2621,7 @@ surfaces:
   zone: Core_mid_f7
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_1_f7'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -2639,7 +2639,7 @@ surfaces:
   zone: Core_mid_f8
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_1_f8'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -2657,7 +2657,7 @@ surfaces:
   zone: Core_mid_f9
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_1_f9'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -2675,7 +2675,7 @@ surfaces:
   zone: Core_mid_f10
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_1_f10'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -2693,7 +2693,7 @@ surfaces:
   zone: Core_mid_f11
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_1_f11'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -2711,7 +2711,7 @@ surfaces:
   zone: Core_mid_f2
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_3_f2'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -2729,7 +2729,7 @@ surfaces:
   zone: Core_mid_f3
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_3_f3'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -2747,7 +2747,7 @@ surfaces:
   zone: Core_mid_f4
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_3_f4'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -2765,7 +2765,7 @@ surfaces:
   zone: Core_mid_f5
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_3_f5'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -2783,7 +2783,7 @@ surfaces:
   zone: Core_mid_f6
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_3_f6'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -2801,7 +2801,7 @@ surfaces:
   zone: Core_mid_f7
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_3_f7'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -2819,7 +2819,7 @@ surfaces:
   zone: Core_mid_f8
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_3_f8'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -2837,7 +2837,7 @@ surfaces:
   zone: Core_mid_f9
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_3_f9'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -2855,7 +2855,7 @@ surfaces:
   zone: Core_mid_f10
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_3_f10'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -2873,7 +2873,7 @@ surfaces:
   zone: Core_mid_f11
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_3_f11'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -2891,7 +2891,7 @@ surfaces:
   zone: Core_mid_f2
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_2_f2'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -2909,7 +2909,7 @@ surfaces:
   zone: Core_mid_f3
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_2_f3'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -2927,7 +2927,7 @@ surfaces:
   zone: Core_mid_f4
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_2_f4'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -2945,7 +2945,7 @@ surfaces:
   zone: Core_mid_f5
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_2_f5'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -2963,7 +2963,7 @@ surfaces:
   zone: Core_mid_f6
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_2_f6'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -2981,7 +2981,7 @@ surfaces:
   zone: Core_mid_f7
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_2_f7'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -2999,7 +2999,7 @@ surfaces:
   zone: Core_mid_f8
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_2_f8'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -3017,7 +3017,7 @@ surfaces:
   zone: Core_mid_f9
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_2_f9'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -3035,7 +3035,7 @@ surfaces:
   zone: Core_mid_f10
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_2_f10'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -3053,7 +3053,7 @@ surfaces:
   zone: Core_mid_f11
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_2_f11'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -3071,7 +3071,7 @@ surfaces:
   zone: Core_mid_f2
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_4_f2'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -3089,7 +3089,7 @@ surfaces:
   zone: Core_mid_f3
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_4_f3'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -3107,7 +3107,7 @@ surfaces:
   zone: Core_mid_f4
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_4_f4'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -3125,7 +3125,7 @@ surfaces:
   zone: Core_mid_f5
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_4_f5'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -3143,7 +3143,7 @@ surfaces:
   zone: Core_mid_f6
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_4_f6'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -3161,7 +3161,7 @@ surfaces:
   zone: Core_mid_f7
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_4_f7'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -3179,7 +3179,7 @@ surfaces:
   zone: Core_mid_f8
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_4_f8'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -3197,7 +3197,7 @@ surfaces:
   zone: Core_mid_f9
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_4_f9'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -3215,7 +3215,7 @@ surfaces:
   zone: Core_mid_f10
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_4_f10'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -3233,7 +3233,7 @@ surfaces:
   zone: Core_mid_f11
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_mid_ZN_4_f11'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -3981,7 +3981,7 @@ surfaces:
   zone: Perimeter_mid_ZN_1_f2
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f2'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -3999,7 +3999,7 @@ surfaces:
   zone: Perimeter_mid_ZN_1_f3
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f3'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -4017,7 +4017,7 @@ surfaces:
   zone: Perimeter_mid_ZN_1_f4
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f4'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -4035,7 +4035,7 @@ surfaces:
   zone: Perimeter_mid_ZN_1_f5
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f5'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -4053,7 +4053,7 @@ surfaces:
   zone: Perimeter_mid_ZN_1_f6
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f6'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -4071,7 +4071,7 @@ surfaces:
   zone: Perimeter_mid_ZN_1_f7
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f7'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -4089,7 +4089,7 @@ surfaces:
   zone: Perimeter_mid_ZN_1_f8
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f8'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -4107,7 +4107,7 @@ surfaces:
   zone: Perimeter_mid_ZN_1_f9
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f9'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -4125,7 +4125,7 @@ surfaces:
   zone: Perimeter_mid_ZN_1_f10
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f10'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -4143,7 +4143,7 @@ surfaces:
   zone: Perimeter_mid_ZN_1_f11
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f11'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -4891,7 +4891,7 @@ surfaces:
   zone: Perimeter_mid_ZN_2_f2
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f2'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -4909,7 +4909,7 @@ surfaces:
   zone: Perimeter_mid_ZN_2_f3
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f3'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -4927,7 +4927,7 @@ surfaces:
   zone: Perimeter_mid_ZN_2_f4
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f4'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -4945,7 +4945,7 @@ surfaces:
   zone: Perimeter_mid_ZN_2_f5
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f5'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -4963,7 +4963,7 @@ surfaces:
   zone: Perimeter_mid_ZN_2_f6
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f6'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -4981,7 +4981,7 @@ surfaces:
   zone: Perimeter_mid_ZN_2_f7
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f7'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -4999,7 +4999,7 @@ surfaces:
   zone: Perimeter_mid_ZN_2_f8
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f8'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -5017,7 +5017,7 @@ surfaces:
   zone: Perimeter_mid_ZN_2_f9
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f9'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -5035,7 +5035,7 @@ surfaces:
   zone: Perimeter_mid_ZN_2_f10
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f10'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -5053,7 +5053,7 @@ surfaces:
   zone: Perimeter_mid_ZN_2_f11
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f11'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -5801,7 +5801,7 @@ surfaces:
   zone: Perimeter_mid_ZN_3_f2
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f2'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -5819,7 +5819,7 @@ surfaces:
   zone: Perimeter_mid_ZN_3_f3
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f3'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -5837,7 +5837,7 @@ surfaces:
   zone: Perimeter_mid_ZN_3_f4
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f4'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -5855,7 +5855,7 @@ surfaces:
   zone: Perimeter_mid_ZN_3_f5
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f5'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -5873,7 +5873,7 @@ surfaces:
   zone: Perimeter_mid_ZN_3_f6
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f6'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -5891,7 +5891,7 @@ surfaces:
   zone: Perimeter_mid_ZN_3_f7
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f7'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -5909,7 +5909,7 @@ surfaces:
   zone: Perimeter_mid_ZN_3_f8
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f8'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -5927,7 +5927,7 @@ surfaces:
   zone: Perimeter_mid_ZN_3_f9
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f9'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -5945,7 +5945,7 @@ surfaces:
   zone: Perimeter_mid_ZN_3_f10
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f10'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -5963,7 +5963,7 @@ surfaces:
   zone: Perimeter_mid_ZN_3_f11
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f11'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -6711,7 +6711,7 @@ surfaces:
   zone: Perimeter_mid_ZN_4_f2
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f2'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -6729,7 +6729,7 @@ surfaces:
   zone: Perimeter_mid_ZN_4_f3
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f3'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -6747,7 +6747,7 @@ surfaces:
   zone: Perimeter_mid_ZN_4_f4
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f4'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -6765,7 +6765,7 @@ surfaces:
   zone: Perimeter_mid_ZN_4_f5
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f5'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -6783,7 +6783,7 @@ surfaces:
   zone: Perimeter_mid_ZN_4_f6
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f6'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -6801,7 +6801,7 @@ surfaces:
   zone: Perimeter_mid_ZN_4_f7
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f7'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -6819,7 +6819,7 @@ surfaces:
   zone: Perimeter_mid_ZN_4_f8
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f8'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -6837,7 +6837,7 @@ surfaces:
   zone: Perimeter_mid_ZN_4_f9
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f9'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -6855,7 +6855,7 @@ surfaces:
   zone: Perimeter_mid_ZN_4_f10
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f10'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -6873,7 +6873,7 @@ surfaces:
   zone: Perimeter_mid_ZN_4_f11
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_mid_f11'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -7251,7 +7251,7 @@ surfaces:
   zone: Core_top
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_top_ZN_1'
   vertices:
   - x: 4.5732
     y: 4.5732
@@ -7269,7 +7269,7 @@ surfaces:
   zone: Core_top
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_top_ZN_3'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -7287,7 +7287,7 @@ surfaces:
   zone: Core_top
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_top_ZN_2'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -7305,7 +7305,7 @@ surfaces:
   zone: Core_top
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Perimeter_top_ZN_4'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -7396,7 +7396,7 @@ surfaces:
   zone: Perimeter_top_ZN_1
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_top'
   vertices:
   - x: 68.534
     y: 4.5732
@@ -7487,7 +7487,7 @@ surfaces:
   zone: Perimeter_top_ZN_2
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_top'
   vertices:
   - x: 68.534
     y: 44.1649
@@ -7578,7 +7578,7 @@ surfaces:
   zone: Perimeter_top_ZN_3
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_top'
   vertices:
   - x: 4.5732
     y: 44.1649
@@ -7669,7 +7669,7 @@ surfaces:
   zone: Perimeter_top_ZN_4
   type: wall
   construction: Interior Partition
-  boundary: adiabatic
+  boundary: !zone 'Core_top'
   vertices:
   - x: 4.5732
     y: 4.5732
