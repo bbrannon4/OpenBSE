@@ -745,9 +745,21 @@ fn main() -> Result<()> {
             coincident_peak_heating = sizing_result.system_sizing.coincident_peak_heating;
             coincident_peak_cooling = sizing_result.system_sizing.coincident_peak_cooling;
 
-            // Apply sized zone airflows (override design_zone_flow)
+            // Apply sized zone airflows (override design_zone_flow).
+            // For zones on VAV loops, apply the cooling sizing factor to
+            // match the inflated terminal max flows and fan design flow.
+            let vav_zones: std::collections::HashSet<String> = loop_infos
+                .iter()
+                .filter(|li| li.system_type == AirLoopSystemType::Vav)
+                .flat_map(|li| li.served_zones.iter().cloned())
+                .collect();
             for (zone_name, &flow) in &sizing_result.zone_design_airflow {
-                zone_design_flows.insert(zone_name.clone(), flow);
+                let factor = if vav_zones.contains(zone_name) {
+                    model.simulation.cooling_sizing_factor
+                } else {
+                    1.0
+                };
+                zone_design_flows.insert(zone_name.clone(), flow * factor);
             }
 
             // ── Per-loop cooling SAT override ──
@@ -865,6 +877,10 @@ fn main() -> Result<()> {
                     }
                     AirLoopSystemType::Vav => {
                         // VAV: multi-zone system. Sum served zone flows + capacities.
+                        // Apply cooling sizing factor to VAV system airflow only.
+                        // E+ applies Sizing:Parameters to zone design loads which
+                        // inflates both terminal max flows and system fan flow.
+                        // We apply it at the system level to avoid affecting PSZ systems.
                         let zone_airflow: f64 = li
                             .served_zones
                             .iter()
@@ -875,7 +891,8 @@ fn main() -> Result<()> {
                                     .copied()
                                     .unwrap_or(0.1)
                             })
-                            .sum();
+                            .sum::<f64>()
+                            * model.simulation.cooling_sizing_factor;
                         let zone_flow_m3 = zone_airflow / air_density;
                         let zone_heat: f64 = li
                             .served_zones
@@ -1149,7 +1166,15 @@ fn main() -> Result<()> {
             // are sized to their individual zone's peak loads:
             //   max_air_flow    = zone peak design airflow [kg/s]
             //   reheat_capacity = zone peak heating load [W] × 1.25 safety factor
+            //
+            // For VAV systems, apply the cooling sizing factor to terminal
+            // max airflow to match the system-level fan sizing. This keeps
+            // flow fractions consistent (terminal max / fan max = constant).
             for li in &loop_infos {
+                let term_flow_factor = match li.system_type {
+                    AirLoopSystemType::Vav => model.simulation.cooling_sizing_factor,
+                    _ => 1.0,
+                };
                 for (zone_name, term_name) in &li.terminal_boxes {
                     if let Some(node_idx) = graph.node_by_name(term_name) {
                         if let GraphComponent::Air(comp) = graph.component_mut(node_idx) {
@@ -1159,7 +1184,8 @@ fn main() -> Result<()> {
                                     .zone_design_airflow
                                     .get(zone_name)
                                     .copied()
-                                    .unwrap_or(0.1);
+                                    .unwrap_or(0.1)
+                                    * term_flow_factor;
                                 // Set in kg/s — terminal boxes use max_air_flow as mass flow
                                 // (compared against inlet.mass_flow in kg/s), unlike fans
                                 // which use design_flow_rate in m³/s.
@@ -3210,6 +3236,9 @@ fn simulate_all_loops(
                     schedule_mgr,
                     hour,
                     day_of_week,
+                    zone_cooling_loads,
+                    zone_heating_loads,
+                    li.cooling_supply_temp,
                 )
             }
         };
@@ -3665,22 +3694,37 @@ fn simulate_all_loops(
                         .unwrap_or(1.0)
                         .max(0.01);
 
-                    let control_signal = if zone_temp_init < heat_sp && zone_heat_load > 0.0 {
-                        // Heating: signal proportional to ideal load / capacity.
-                        (zone_heat_load / reheat_cap).clamp(0.0, 1.0)
-                    } else if zone_temp_init > cool_sp && zone_cool_load > 0.0 {
-                        // Cooling: compute needed airflow from zone load and
-                        // supply temperature, matching E+ VAV:Reheat logic.
-                        //   m_needed = Q_cool / (cp × (T_zone - T_supply))
-                        // Signal = (m_needed - m_min) / (m_max - m_min)
-                        let cp = 1005.0_f64;
-                        let dt = (zone_temp_init - supply.state.t_db).max(1.0);
-                        let m_needed = zone_cool_load / (cp * dt);
-                        let min_flow = vav_max_flow * 0.3; // min_flow_fraction
-                        let frac = (m_needed - min_flow) / (vav_max_flow - min_flow);
-                        -(frac.clamp(0.0, 1.0))
+                    // Terminal control: derive signal from build_vav_signals' zone flow.
+                    // The terminal box computes:
+                    //   flow = min + |signal| × (max - min)
+                    // So: |signal| = (desired_flow - min) / (max - min)
+                    //
+                    // This ensures the terminal output flow matches what
+                    // build_vav_signals computed for the fan (mass balance).
+                    let desired_zone_flow = signals
+                        .zone_air_flows
+                        .get(zone_name)
+                        .copied()
+                        .unwrap_or(vav_max_flow * 0.3);
+                    let min_flow = vav_max_flow * 0.3;
+                    let mode = if zone_temp_init < heat_sp {
+                        HvacMode::Heating
+                    } else if zone_temp_init > cool_sp {
+                        HvacMode::Cooling
                     } else {
-                        0.0 // Deadband
+                        HvacMode::Deadband
+                    };
+                    let control_signal = match mode {
+                        HvacMode::Heating if zone_heat_load > 0.0 => {
+                            (zone_heat_load / reheat_cap).clamp(0.0, 1.0)
+                        }
+                        HvacMode::Cooling if zone_cool_load > 0.0 => {
+                            let frac = ((desired_zone_flow - min_flow)
+                                / (vav_max_flow - min_flow).max(0.001))
+                            .clamp(0.0, 1.0);
+                            -frac
+                        }
+                        _ => 0.0, // Deadband or no load
                     };
 
                     if let Some(node_idx) = graph.node_by_name(term_name) {
@@ -3691,10 +3735,7 @@ fn simulate_all_loops(
                         // Use per-zone design flow as terminal inlet. The terminal
                         // box's internal damper modulates between min_flow and
                         // max_flow based on the control signal, producing the actual
-                        // demanded flow for this zone. This matches E+'s approach:
-                        // duct delivers up to design flow, VAV box takes what it
-                        // needs. zone_design_flows[zone] == terminal.max_air_flow
-                        // (both set from the sizing run).
+                        // demanded flow for this zone.
                         let term_inlet_flow = zone_design_flows
                             .get(zone_name)
                             .copied()
@@ -4342,18 +4383,53 @@ fn build_vav_signals(
     schedule_mgr: Option<&ScheduleManager>,
     hour: u32,
     day_of_week: u32,
+    zone_cooling_loads: &HashMap<String, f64>,
+    zone_heating_loads: &HashMap<String, f64>,
+    _supply_air_temp: f64,
 ) -> ControlSignals {
     let mut signals = ControlSignals::default();
 
-    // ── ASHRAE G36 Dual-Maximum: per-zone airflow + reheat ──
+    // ── SetpointManager:Warmest SAT calculation ──
     //
-    // V_heat_max = 50% of V_cool_max (design flow). This is the key dual-maximum concept:
-    // in heating, the box opens wider than minimum to deliver more reheat energy, but
-    // doesn't go to full design flow (that would overcool from the cold deck).
-    let v_heat_max_frac = 0.50; // G36 typical: 50% of design
+    // E+ finds the HIGHEST supply air temp that satisfies ALL cooling zones
+    // at their current VAV flow. For each cooling zone:
+    //   SAT_zone = T_zone - Q_cool / (Cp × m_max)
+    // System SAT = min(SAT_max, min(SAT_zone across all cooling zones))
+    //
+    // This keeps SAT as warm as possible, minimizing both cooling coil work
+    // AND reheat energy (the key to avoiding simultaneous heating/cooling).
+    let cp = 1005.0_f64;
+    let v_heat_max_frac = 0.50;
+    let sat_min = li.cooling_supply_temp; // E+ SetpointManager:Warmest MinimumTemperature
+    let sat_max = 15.6_f64; // E+ SetpointManager:Warmest MaximumTemperature
 
+    let mut sat_setpoint = sat_max; // start warm, only drop if a zone needs it
+    let mut any_cooling_zone = false;
+
+    for zone_name in &li.served_zones {
+        let zone_temp = zone_temps.get(zone_name).copied().unwrap_or(21.0);
+        let cool_sp = zone_cool_sp.get(zone_name).copied().unwrap_or(23.9);
+        let design_flow = zone_design_flows.get(zone_name).copied().unwrap_or(0.5);
+        let cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
+
+        if zone_temp > cool_sp && cool_load > 100.0 {
+            any_cooling_zone = true;
+            // What SAT would satisfy this zone at max VAV flow?
+            // Q = m_max × Cp × (T_zone - SAT)
+            // SAT = T_zone - Q / (m_max × Cp)
+            let sat_needed = zone_temp - cool_load / (design_flow * cp);
+            sat_setpoint = sat_setpoint.min(sat_needed);
+        }
+    }
+    // Clamp to E+ SetpointManager range
+    let sat_setpoint = sat_setpoint.clamp(sat_min, sat_max);
+
+    // ── Compute zone flows using the SAT-derived supply temp ──
+    //
+    // Now compute load-based zone airflows using the actual SAT that the
+    // cooling coil will target. This ensures mass balance: fan flow = Σ(zone flows).
     let mut total_flow = 0.0f64;
-    let mut max_cooling_demand = 0.0f64; // for SAT reset
+    let mut max_cooling_demand = 0.0f64;
 
     for zone_name in &li.served_zones {
         let zone_temp = zone_temps.get(zone_name).copied().unwrap_or(21.0);
@@ -4365,23 +4441,28 @@ fn build_vav_signals(
 
         let zone_flow = match mode {
             HvacMode::Cooling => {
-                // Cooling: ramp V_min → V_cool_max (100% design)
-                let error = (zone_temp - cool_sp).clamp(0.0, 5.0);
-                let frac = li.min_vav_fraction + (1.0 - li.min_vav_fraction) * (error / 5.0);
-                max_cooling_demand = max_cooling_demand.max(error / 5.0);
-                design_flow * frac
+                let cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
+                if cool_load > 100.0 {
+                    // m = Q / (Cp × (T_zone - SAT))
+                    let dt = (zone_temp - sat_setpoint).max(1.0);
+                    let m_needed = cool_load / (cp * dt);
+                    let min_flow = design_flow * li.min_vav_fraction;
+                    let flow = m_needed.clamp(min_flow, design_flow);
+                    let frac =
+                        ((flow - min_flow) / (design_flow - min_flow).max(0.001)).clamp(0.0, 1.0);
+                    max_cooling_demand = max_cooling_demand.max(frac);
+                    flow
+                } else {
+                    design_flow * li.min_vav_fraction
+                }
             }
             HvacMode::Heating => {
-                // Dual-maximum: ramp V_min → V_heat_max (50% design)
                 let error = (heat_sp - zone_temp).clamp(0.0, 5.0);
                 let frac =
                     li.min_vav_fraction + (v_heat_max_frac - li.min_vav_fraction) * (error / 5.0);
                 design_flow * frac
             }
-            HvacMode::Deadband => {
-                // Minimum ventilation flow
-                design_flow * li.min_vav_fraction
-            }
+            HvacMode::Deadband => design_flow * li.min_vav_fraction,
         };
 
         signals.zone_air_flows.insert(zone_name.clone(), zone_flow);
@@ -4455,24 +4536,6 @@ fn build_vav_signals(
         effective_min_oa
     };
 
-    // ── SAT Reset (E+ SetpointManager:Warmest, MaximumTemperature) ──
-    //
-    // E+ finds the HIGHEST supply air temp that satisfies all zones.
-    // SAT stays at sat_max (15.6°C) unless a zone truly needs lower SAT
-    // because it can't be cooled at max VAV flow. This avoids unnecessarily
-    // cold supply air that forces VAV boxes to waste energy on reheat.
-    //
-    // We approximate this: SAT only drops when the most cooling-needy zone
-    // requests near-maximum VAV flow (max_cooling_demand > threshold).
-    // Below the threshold, the zone can be satisfied at higher SAT by
-    // simply opening the VAV damper more.
-    let sat_min = 12.8_f64; // full cooling SAT (E+ SetpointManager:Warmest min)
-    let sat_max = 15.6_f64; // reset SAT (E+ SetpointManager:Warmest max)
-    let sat_threshold = 0.80_f64; // SAT drops only when VAV nearing max flow
-    let excess_demand =
-        ((max_cooling_demand - sat_threshold) / (1.0 - sat_threshold)).clamp(0.0, 1.0);
-    let sat_setpoint = sat_max - (sat_max - sat_min) * excess_demand;
-
     // ── Return air temperature (flow-weighted average of zone temps) ──
     let avg_zone_temp = if li.served_zones.is_empty() {
         21.0
@@ -4495,7 +4558,20 @@ fn build_vav_signals(
     //
     // The mixed air calculation then uses effective_t_outdoor (= t_outdoor param)
     // which already includes the HR preheating effect.
-    let any_cooling = max_cooling_demand > 0.0;
+    // Economizer activation: run when any served zone has cooling load,
+    // but lock out when any served zone needs heating.
+    // This prevents cold OA from increasing reheat loads.
+    let any_served_cooling = any_cooling_zone
+        || li
+            .served_zones
+            .iter()
+            .any(|z| zone_cooling_loads.get(z).copied().unwrap_or(0.0) > 100.0);
+    let any_served_heating = li.served_zones.iter().any(|z| {
+        let zt = zone_temps.get(z).copied().unwrap_or(21.0);
+        let hsp = zone_heat_sp.get(z).copied().unwrap_or(21.1);
+        zt < hsp
+    });
+    let any_cooling = any_served_cooling && !any_served_heating;
     use openbse_io::input::EconomizerType;
     let econ_available = match li.economizer_type {
         EconomizerType::NoEconomizer => false,
@@ -4510,10 +4586,15 @@ fn build_vav_signals(
         // HR active → economizer locked to minimum OA (E+ EconomizerLockout: Yes)
         vrp_min_oa
     } else if any_cooling && econ_available {
-        // Use RAW outdoor temp for economizer decisions
+        // Economizer active: modulate OA fraction so mixed air = SAT setpoint.
+        // This provides "free cooling" when outdoor air is cooler than return air.
+        //
+        // OA_frac = (T_return - T_sat) / (T_return - T_outdoor)
+        //
+        // When T_outdoor < T_sat: OA can fully cool → clamp to 1.0 (100% OA)
+        // When T_outdoor = T_return: no benefit → minimum OA
         let delta = avg_zone_temp - raw_t_outdoor;
         if delta > 0.1 {
-            // Modulate OA to reach SAT setpoint as mixed air target
             let needed = (avg_zone_temp - sat_setpoint) / delta;
             needed.clamp(vrp_min_oa, 1.0)
         } else {
@@ -4546,24 +4627,20 @@ fn build_vav_signals(
             || lname.starts_with("hc ")
             || lname.starts_with("hc_")
         {
-            // AHU heating coil (E+ SetpointManager:Warmest, MaximumTemperature).
+            // AHU heating coil: frost protection only.
             //
-            // The heating coil targets the SAT setpoint to temper mixed air:
-            // - When mixed air < sat_setpoint: heat up to sat_setpoint
-            // - When mixed air >= sat_setpoint: coil off (cooling coil handles)
+            // E+ data shows the VAV_MID heating coil rarely fires — the
+            // economizer provides free cooling by mixing cold OA with warm
+            // return air. The mixed air goes directly to VAV boxes without
+            // being heated to SAT. This avoids wasting preheat energy.
             //
-            // This is critical for VAV reheat reduction: without AHU heating,
-            // cold mixed air (e.g. 5°C) goes directly to VAV boxes which must
-            // reheat from 5°C to ~30°C. With AHU heating to sat_setpoint
-            // (12.8-15.6°C), reheat delta drops dramatically.
-            //
-            // E+ uses LockoutWithHeating: when the AHU heating coil fires,
-            // the economizer locks to minimum OA and the cooling coil is off.
-            // Our SAT setpoint already prevents over-heating: if any zone
-            // needs significant cooling, sat_setpoint drops toward 12.8°C,
-            // and the economizer provides the cooling via cold OA.
-            if mixed_air_temp < sat_setpoint {
-                signals.coil_setpoints.insert(name.clone(), sat_setpoint);
+            // Only fire the preheat coil for frost protection (mixed air < 2°C)
+            // to prevent freezing in the AHU. Zone reheat handles the warming.
+            let frost_protection_temp = 2.0_f64;
+            if mixed_air_temp < frost_protection_temp {
+                signals
+                    .coil_setpoints
+                    .insert(name.clone(), frost_protection_temp);
             } else {
                 signals.coil_setpoints.insert(name.clone(), -99.0);
             }

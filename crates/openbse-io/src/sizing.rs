@@ -534,9 +534,9 @@ fn run_zone_sizing(
         let heat_sp = zone_heating_setpoints.get(name).copied().unwrap_or(21.0);
         let cool_sp = zone_cooling_setpoints.get(name).copied().unwrap_or(24.0);
 
-        // Apply sizing safety factors (E+ Sizing:Parameters → Heating/Cooling Sizing Factor)
-        // These multiply the design loads before computing airflows, matching E+.
-        let heat_load = zone_peak_heating.get(name).copied().unwrap_or(0.0) * heating_sizing_factor;
+        // Zone peak loads (raw — sizing factors are applied at the system level
+        // for VAV loops only, not to individual zone airflows globally).
+        let heat_load = zone_peak_heating.get(name).copied().unwrap_or(0.0);
         let cool_load_raw = zone_peak_cooling.get(name).copied().unwrap_or(0.0);
 
         // Heating airflow: Q = m_dot * Cp * (T_supply - T_zone)
@@ -549,13 +549,41 @@ fn run_zone_sizing(
 
         // Cooling airflow: Q = m_dot * Cp * (T_zone - T_supply_effective)
         //
-        // The zone receives supply air at T_coil + fan heat rise.  Without
-        // correcting for this, the VAV box is undersized — it can't deliver
-        // enough cooling at the higher effective supply temperature.
+        // Include outdoor air ventilation load in the zone cooling load.
+        // E+ adds the OA mixing load to the zone design load during sizing:
+        //   Q_oa = V_oa × ρ × Cp × (T_outdoor - T_zone)
+        // The OA flow comes from the zone's DesignSpecification:OutdoorAir.
+        // Use the peak cooling design day outdoor temperature.
+        let t_oa_cooling = design_days
+            .iter()
+            .filter(|dd| !is_heating_design_day(dd))
+            .map(|dd| dd.design_temp)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let site_p = design_days.first().map(|d| d.pressure).unwrap_or(101325.0);
+        let rho_site = site_p / (287.042 * 293.15);
+        let q_oa = if let Some(ref oa) = zone.input.outdoor_air {
+            // Compute design people count from zone's internal gains
+            let design_people: f64 = zone
+                .input
+                .internal_gains
+                .iter()
+                .map(|g| match g {
+                    openbse_envelope::InternalGainInput::People { count, .. } => *count,
+                    _ => 0.0,
+                })
+                .sum();
+            let v_oa =
+                oa.per_person * design_people + oa.per_area * zone.input.floor_area + oa.absolute;
+            let m_oa = v_oa * rho_site;
+            (m_oa * cp_air * (t_oa_cooling - cool_sp)).max(0.0)
+        } else {
+            0.0
+        };
+
+        let cool_load = cool_load_raw + q_oa;
         //
         // sizing_fan_delta_t (from SimulationSettings) adds the fan heat
         // temperature rise to the cooling supply temp during sizing only.
-        let cool_load = cool_load_raw * cooling_sizing_factor;
         let t_supply_eff = cooling_supply_temp + sizing_fan_delta_t;
         let dt_cooling = (cool_sp - t_supply_eff).max(3.0);
         let m_cool = if cool_load > 0.0 {
