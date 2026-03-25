@@ -8,6 +8,7 @@ import { ObjectEditor } from "./components/ObjectEditor";
 import { SimulationPanel } from "./components/SimulationPanel";
 import { ResultsView } from "./components/ResultsView";
 import { NetworkView } from "./components/NetworkView";
+import { ParametricView } from "./components/ParametricView";
 import { HelpDialog } from "./components/HelpDialog";
 import { parseSchema } from "./lib/schema";
 import type { ClassInfo } from "./lib/schema";
@@ -20,7 +21,7 @@ import "./App.css";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Model = Record<string, any>;
 
-type ViewMode = "edit" | "network" | "charts";
+type ViewMode = "edit" | "network" | "charts" | "parametric";
 
 const ZoneTag = new yaml.Type("!zone", {
   kind: "scalar",
@@ -468,6 +469,8 @@ function App() {
             onClick={() => setViewMode("network")}>&#9741; Network</button>
           <button className={`view-tab ${viewMode === "charts" ? "active" : ""}`}
             onClick={() => setViewMode("charts")}>&#9776; Charts</button>
+          <button className={`view-tab ${viewMode === "parametric" ? "active" : ""}`}
+            onClick={() => setViewMode("parametric")}>&#8644; Parametric</button>
         </nav>
         <div className="header-results-status">
           {resultsName ? (
@@ -592,6 +595,14 @@ function App() {
           onCaseChange={(idx) => { setResultsActiveIdx(idx); setSelectedVarIndices(new Set()); }}
           resultsLoading={resultsLoading}
           unitSystem={unitSystem}
+        />
+      ) : viewMode === "parametric" ? (
+        <ParametricView
+          cases={resultsCases}
+          model={model}
+          unitSystem={unitSystem}
+          loadAndParseCsv={loadAndParseCsv}
+          setCases={setResultsCases}
         />
       ) : (
         <ResultsView

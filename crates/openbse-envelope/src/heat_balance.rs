@@ -4002,8 +4002,13 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // External HVAC loop handles OA: suppress zone OA
                     0.0
                 } else {
-                    // No HVAC, or HVAC doesn't handle OA (ERV/DOAS provides it
-                    // separately): OA enters zone at outdoor temp
+                    // No HVAC running, or HVAC doesn't handle OA (ERV/DOAS
+                    // provides it separately): OA enters zone at outdoor temp.
+                    //
+                    // For VAV/PSZ zones when HVAC is off, this approximates
+                    // the E+ plenum effect: some outdoor air leaks through
+                    // the return air plenum, providing natural cooling/heating
+                    // that prevents extreme free-float temperatures.
                     zone.outdoor_air_mass_flow
                 };
                 // Infiltration interaction with exhaust fans.
@@ -4327,6 +4332,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         dt_eff,
                         t_prev_eff,
                     );
+                    // (debug trace removed)
                     let (hl, cl) = crate::zone::calc_zone_loads(
                         zone.temp,
                         sum_ha,

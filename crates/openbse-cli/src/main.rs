@@ -4682,23 +4682,39 @@ fn build_vav_signals(
     // The mixed air calculation then uses effective_t_outdoor (= t_outdoor param)
     // which already includes the HR preheating effect.
     // Economizer activation: run when any served zone has cooling load.
-    // E+ does NOT lock out the economizer when perimeter zones need heating.
-    // Economizer activation: run when cooling-dominant (no zone needs heating).
-    // While E+ runs the economizer freely during mixed heating/cooling,
-    // OpenBSE's reheat produces ~50% more energy without this lockout,
-    // likely due to different perimeter zone envelope behavior. The lockout
-    // trades some free-cooling opportunity for reduced reheat energy.
+    // E+ uses LockoutWithHeating: economizer locks out when the AHU
+    // preheat coil would fire (mixed air < SAT). In practice, this
+    // means the economizer only runs when OA is warm enough that the
+    // mixed air doesn't need preheating.
+    //
+    // Additionally, the economizer only activates when cooling-dominant
+    // (more zones need cooling than heating). This approximates E+'s
+    // behavior where the economizer provides free cooling only when
+    // beneficial to the system as a whole.
     let any_served_cooling = any_cooling_zone
         || li
             .served_zones
             .iter()
             .any(|z| zone_cooling_loads.get(z).copied().unwrap_or(0.0) > 100.0);
-    let any_served_heating = li.served_zones.iter().any(|z| {
-        let zt = zone_temps.get(z).copied().unwrap_or(21.0);
-        let hsp = zone_heat_sp.get(z).copied().unwrap_or(21.1);
-        zt < hsp
-    });
-    let any_cooling = any_served_cooling && !any_served_heating;
+    // Economizer only activates when cooling is dominant (more zones
+    // need cooling than heating). This approximates E+'s LockoutWithHeating:
+    // when many perimeter zones need heating, bringing in cold OA would
+    // force excessive VAV reheat. Locking out the economizer keeps the
+    // mixed air warm, reducing both preheat and reheat energy.
+    let cooling_dominant = {
+        let n_cool = li
+            .served_zones
+            .iter()
+            .filter(|z| zone_cooling_loads.get(*z).copied().unwrap_or(0.0) > 100.0)
+            .count();
+        let n_heat = li
+            .served_zones
+            .iter()
+            .filter(|z| zone_heating_loads.get(*z).copied().unwrap_or(0.0) > 100.0)
+            .count();
+        n_cool > n_heat
+    };
+    let any_cooling = any_served_cooling && cooling_dominant;
     use openbse_io::input::EconomizerType;
     let econ_available = match li.economizer_type {
         EconomizerType::NoEconomizer => false,
@@ -4709,23 +4725,35 @@ fn build_vav_signals(
         EconomizerType::DifferentialDryBulb => raw_t_outdoor < avg_zone_temp,
         EconomizerType::DifferentialEnthalpy => raw_t_outdoor < avg_zone_temp, // approximate
     };
+    // ── E+ LockoutWithHeating economizer logic ──
+    //
+    // Step 1: compute the economizer OA fraction for free cooling.
+    // Step 2: check if the resulting mixed air needs preheating.
+    //         If so, lock to minimum OA (LockoutWithHeating).
+    //
+    // This prevents the economizer from bringing in cold OA that
+    // then requires reheat at every perimeter zone, wasting energy.
     let oa_frac = if economizer_lockout {
-        // HR active → economizer locked to minimum OA (E+ EconomizerLockout: Yes)
+        // HR active → economizer locked to minimum OA
         vrp_min_oa
     } else if any_cooling && econ_available {
-        // Economizer active: modulate OA fraction so mixed air = SAT setpoint.
-        // This provides "free cooling" when outdoor air is cooler than return air.
-        //
-        // OA_frac = (T_return - T_sat) / (T_return - T_outdoor)
-        //
-        // When T_outdoor < T_sat: OA can fully cool → clamp to 1.0 (100% OA)
-        // When T_outdoor = T_return: no benefit → minimum OA
+        // Economizer: modulate OA for free cooling
         let delta = avg_zone_temp - raw_t_outdoor;
-        if delta > 0.1 {
+        let econ_oa = if delta > 0.1 {
             let needed = (avg_zone_temp - sat_setpoint) / delta;
             needed.clamp(vrp_min_oa, 1.0)
         } else {
             vrp_min_oa
+        };
+
+        // LockoutWithHeating: if the resulting mixed air is below SAT,
+        // the preheat coil would fire. Lock economizer to minimum OA instead.
+        let trial_mixed = avg_zone_temp * (1.0 - econ_oa) + t_outdoor * econ_oa;
+        if trial_mixed < sat_setpoint {
+            // Preheat would fire → lock to minimum OA
+            vrp_min_oa
+        } else {
+            econ_oa
         }
     } else {
         vrp_min_oa

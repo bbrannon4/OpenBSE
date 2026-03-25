@@ -454,6 +454,8 @@ kbd {
   padding: 6px 12px;
   text-align: left;
   border-bottom: 1px solid var(--border);
+  resize: horizontal;
+  overflow: hidden;
 }
 
 .fields-table td {
@@ -1556,6 +1558,8 @@ input[type="number"]::-webkit-outer-spin-button {
   padding: 4px 10px;
   text-align: left;
   border-bottom: 1px solid var(--border);
+  resize: horizontal;
+  overflow: hidden;
 }
 
 .summary-table td {
@@ -2033,4 +2037,259 @@ input[type="number"]::-webkit-outer-spin-button {
 .help-links {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+/* ===== Parametric View ===== */
+
+.parametric-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.parametric-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 14px;
+  gap: 8px;
+}
+
+.parametric-empty .hint {
+  font-size: 12px;
+}
+
+.parametric-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px;
+  gap: 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.parametric-info {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.parametric-mode-toggle {
+  display: flex;
+  gap: 1px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.parametric-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.parametric-sidebar {
+  width: 260px;
+  min-width: 200px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.parametric-runs-section {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.parametric-runs-section h3,
+.parametric-var-section h3 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.parametric-run-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.parametric-run-item:hover {
+  background: var(--bg-hover);
+}
+
+.parametric-run-item input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.parametric-run-color {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.parametric-run-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.parametric-baseline-badge {
+  font-size: 9px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.parametric-var-section {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px 0;
+}
+
+.parametric-var-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.parametric-var-group {
+  margin-bottom: 2px;
+}
+
+.parametric-var-group-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 3px 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.parametric-var-group-label:hover {
+  background: var(--bg-hover);
+}
+
+.parametric-var-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 8px 2px 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.parametric-var-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.parametric-var-item.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.parametric-empty-hint {
+  padding: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.parametric-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.parametric-chart {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.parametric-section-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  padding: 8px 16px 4px;
+  flex-shrink: 0;
+}
+
+.parametric-summary {
+  flex: 1;
+  overflow: auto;
+  padding: 0 16px 16px;
+}
+
+.parametric-table {
+  margin-top: 8px;
+}
+
+.parametric-run-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+}
+
+.parametric-best td {
+  background: rgba(158, 206, 106, 0.08);
+}
+
+.parametric-worst td {
+  background: rgba(247, 118, 142, 0.08);
+}
+
+.parametric-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 16px;
+  flex-shrink: 0;
+}
+
+.parametric-sweep-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px 4px;
+  flex-shrink: 0;
 }

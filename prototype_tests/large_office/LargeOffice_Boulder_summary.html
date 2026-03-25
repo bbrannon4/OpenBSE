@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenBSE Summary Report</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 2em; color: #333; max-width: 1400px; }
+h1 { border-bottom: 2px solid #333; padding-bottom: 0.3em; }
+h2 { color: #555; margin-top: 1.5em; }
+table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+th, td { padding: 4px 8px; text-align: right; border: 1px solid #ddd; }
+th { background: #f5f5f5; font-weight: 600; text-align: center; }
+td:first-child, th:first-child { text-align: left; }
+tr:nth-child(even) { background-color: #fafafa; }
+tr.total-row { font-weight: bold; border-top: 2px solid #333; }
+.pass { color: #2a7b2a; font-weight: bold; }
+.fail { color: #cc0000; font-weight: bold; }
+details { margin: 0.5em 0; } summary { cursor: pointer; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>OpenBSE Summary Report</h1>
+<h2>Annual Energy Summary</h2>
+<table>
+<tr><th></th><th>kWh</th><th>MWh</th></tr>
+<tr><td>Heating</td><td>326332.9</td><td>326.333</td></tr>
+<tr><td>Cooling</td><td>5339720.6</td><td>5339.721</td></tr>
+<tr><td>Total</td><td>5666053.6</td><td>5666.054</td></tr>
+</table>
+<h2>Peak Loads</h2>
+<table>
+<tr><th></th><th>W</th><th>Time</th></tr>
+<tr><td>Peak Heating</td><td>1026006.3</td><td>Month 1 Day 2 Hour 7</td></tr>
+<tr><td>Peak Cooling</td><td>1978323.9</td><td>Month 9 Day 21 Hour 15</td></tr>
+</table>
+<h2>Monthly Energy End-Use [kWh]</h2>
+<table>
+<tr><th>End Use</th><th>Jan</th><th>Feb</th><th>Mar</th><th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th><th>Oct</th><th>Nov</th><th>Dec</th><th>Total</th></tr>
+<tr><td>Interior Lighting</td><td>130041.5</td><td>117957.3</td><td>140166.1</td><td>125196.9</td><td>135103.8</td><td>134450.6</td><td>125850.1</td><td>140166.1</td><td>125196.9</td><td>130041.5</td><td>128517.4</td><td>125850.1</td><td>1558538.6</td></tr>
+<tr><td>Exterior Lighting</td><td>29258.3</td><td>25337.4</td><td>25477.4</td><td>21778.0</td><td>21312.0</td><td>19022.4</td><td>20671.2</td><td>21312.0</td><td>23956.8</td><td>26759.0</td><td>28122.2</td><td>29258.3</td><td>292265.1</td></tr>
+<tr><td>Interior Equipment</td><td>344803.2</td><td>311675.4</td><td>349451.0</td><td>333413.1</td><td>347127.1</td><td>337633.7</td><td>342906.5</td><td>349451.0</td><td>333413.1</td><td>344803.2</td><td>334882.7</td><td>342906.5</td><td>4072466.4</td></tr>
+<tr><td>Exterior Equipment</td><td>57837.1</td><td>52970.5</td><td>61321.3</td><td>57376.3</td><td>59579.2</td><td>59118.4</td><td>57837.1</td><td>61321.3</td><td>57376.3</td><td>57837.1</td><td>55634.2</td><td>57837.1</td><td>696045.6</td></tr>
+<tr><td>Fans (Electric)</td><td>66492.4</td><td>58953.7</td><td>71800.7</td><td>65075.5</td><td>70650.5</td><td>83783.3</td><td>85062.5</td><td>93136.7</td><td>80664.7</td><td>70614.0</td><td>65637.2</td><td>66152.7</td><td>878023.9</td></tr>
+<tr><td>Pumps (Electric)</td><td>6465.7</td><td>5893.8</td><td>6651.8</td><td>6737.8</td><td>7502.7</td><td>10056.7</td><td>10674.3</td><td>11223.4</td><td>9258.9</td><td>7588.0</td><td>6227.0</td><td>6469.1</td><td>94749.4</td></tr>
+<tr><td>Cooling (Electric)</td><td>25267.1</td><td>23085.5</td><td>29169.5</td><td>33040.7</td><td>42947.2</td><td>84459.0</td><td>97894.5</td><td>103493.5</td><td>74684.5</td><td>43216.5</td><td>26748.0</td><td>24978.7</td><td>608984.8</td></tr>
+<tr><td>Heating (Electric)</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td></tr>
+<tr><td>Heating (Gas)</td><td>70317.7</td><td>65302.9</td><td>55891.3</td><td>35790.1</td><td>22692.5</td><td>5179.5</td><td>2455.6</td><td>2861.4</td><td>11388.7</td><td>32302.0</td><td>55101.5</td><td>73980.0</td><td>433263.2</td></tr>
+<tr><td>Heat Rejection</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td></tr>
+<tr><td>Humidification</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td></tr>
+<tr><td>Heat Recovery</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td></tr>
+<tr><td>DHW (Electric)</td><td>10785.0</td><td>9788.6</td><td>11473.7</td><td>10448.0</td><td>11122.0</td><td>11034.1</td><td>10535.9</td><td>11488.4</td><td>10448.0</td><td>10770.4</td><td>10565.2</td><td>10521.3</td><td>128980.6</td></tr>
+<tr><td>DHW (Gas)</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td><td>0.0</td></tr>
+<tr class="total-row"><td>Total Electric</td><td>670950.2</td><td>605662.3</td><td>695511.5</td><td>653066.4</td><td>695344.5</td><td>739558.3</td><td>751432.1</td><td>791592.4</td><td>714999.2</td><td>691629.7</td><td>656333.9</td><td>663973.8</td><td>8330054.4</td></tr>
+<tr class="total-row"><td>Total Gas</td><td>70317.7</td><td>65302.9</td><td>55891.3</td><td>35790.1</td><td>22692.5</td><td>5179.5</td><td>2455.6</td><td>2861.4</td><td>11388.7</td><td>32302.0</td><td>55101.5</td><td>73980.0</td><td>433263.2</td></tr>
+<tr class="total-row"><td>Total</td><td>741268.0</td><td>670965.2</td><td>751402.8</td><td>688856.5</td><td>718037.0</td><td>744737.8</td><td>753887.7</td><td>794453.8</td><td>726387.8</td><td>723931.6</td><td>711435.5</td><td>737953.8</td><td>8763317.6</td></tr>
+</table>
+<h2>Zone Loads Summary</h2>
+<table>
+<tr><th>Zone Name</th><th>Area [m²]</th><th>Pk Htg [W]</th><th>W/m²</th><th>Time</th><th>Pk Clg [W]</th><th>W/m²</th><th>Time</th><th>OA [°C]</th></tr>
+<tr><td>Basement</td><td>2779.4</td><td>34776.0</td><td>12.5</td><td>Jun 10 09:00</td><td>50475.9</td><td>18.2</td><td>Sep 14 09:00</td><td>17.1</td></tr>
+<tr><td>Core_bottom</td><td>2496.1</td><td>4651.7</td><td>1.9</td><td>Feb 21 08:00</td><td>78697.7</td><td>31.5</td><td>Dec 8 17:00</td><td>3.8</td></tr>
+<tr><td>Core_mid_f10</td><td>2496.1</td><td>13688.1</td><td>5.5</td><td>Feb 21 08:00</td><td>93651.5</td><td>37.5</td><td>Jul 10 07:00</td><td>13.7</td></tr>
+<tr><td>Core_mid_f11</td><td>2496.1</td><td>13688.1</td><td>5.5</td><td>Feb 21 08:00</td><td>93651.5</td><td>37.5</td><td>Jul 10 07:00</td><td>13.7</td></tr>
+<tr><td>Core_mid_f2</td><td>2496.1</td><td>13688.1</td><td>5.5</td><td>Feb 21 08:00</td><td>93651.5</td><td>37.5</td><td>Jul 10 07:00</td><td>13.7</td></tr>
+<tr><td>Core_mid_f3</td><td>2496.1</td><td>13688.1</td><td>5.5</td><td>Feb 21 08:00</td><td>93651.5</td><td>37.5</td><td>Jul 10 07:00</td><td>13.7</td></tr>
+<tr><td>Core_mid_f4</td><td>2496.1</td><td>13688.1</td><td>5.5</td><td>Feb 21 08:00</td><td>93651.5</td><td>37.5</td><td>Jul 10 07:00</td><td>13.7</td></tr>
+<tr><td>Core_mid_f5</td><td>2496.1</td><td>13688.1</td><td>5.5</td><td>Feb 21 08:00</td><td>93651.5</td><td>37.5</td><td>Jul 10 07:00</td><td>13.7</td></tr>
+<tr><td>Core_mid_f6</td><td>2496.1</td><td>13688.1</td><td>5.5</td><td>Feb 21 08:00</td><td>93651.5</td><td>37.5</td><td>Jul 10 07:00</td><td>13.7</td></tr>
+<tr><td>Core_mid_f7</td><td>2496.1</td><td>13688.1</td><td>5.5</td><td>Feb 21 08:00</td><td>93651.5</td><td>37.5</td><td>Jul 10 07:00</td><td>13.7</td></tr>
+<tr><td>Core_mid_f8</td><td>2496.1</td><td>13688.1</td><td>5.5</td><td>Feb 21 08:00</td><td>93651.5</td><td>37.5</td><td>Jul 10 07:00</td><td>13.7</td></tr>
+<tr><td>Core_mid_f9</td><td>2496.1</td><td>13688.1</td><td>5.5</td><td>Feb 21 08:00</td><td>93651.5</td><td>37.5</td><td>Jul 10 07:00</td><td>13.7</td></tr>
+<tr><td>Core_top</td><td>2496.1</td><td>79820.5</td><td>32.0</td><td>Jan 2 07:00</td><td>109332.8</td><td>43.8</td><td>Jun 7 14:00</td><td>22.0</td></tr>
+<tr><td>DataCenter_basement_ZN_6</td><td>783.7</td><td>0.0</td><td>0.0</td><td>-</td><td>236635.3</td><td>302.0</td><td>Oct 16 17:00</td><td>19.0</td></tr>
+<tr><td>DataCenter_bot_ZN_6</td><td>36.2</td><td>0.0</td><td>0.0</td><td>-</td><td>5725.3</td><td>158.2</td><td>Aug 23 17:00</td><td>23.0</td></tr>
+<tr><td>DataCenter_mid_ZN_6_f10</td><td>36.2</td><td>0.0</td><td>0.0</td><td>-</td><td>5725.3</td><td>158.2</td><td>Aug 23 17:00</td><td>23.0</td></tr>
+<tr><td>DataCenter_mid_ZN_6_f11</td><td>36.2</td><td>0.0</td><td>0.0</td><td>-</td><td>5725.3</td><td>158.2</td><td>Aug 23 17:00</td><td>23.0</td></tr>
+<tr><td>DataCenter_mid_ZN_6_f2</td><td>36.2</td><td>0.0</td><td>0.0</td><td>-</td><td>5725.3</td><td>158.2</td><td>Aug 23 17:00</td><td>23.0</td></tr>
+<tr><td>DataCenter_mid_ZN_6_f3</td><td>36.2</td><td>0.0</td><td>0.0</td><td>-</td><td>5725.3</td><td>158.2</td><td>Aug 23 17:00</td><td>23.0</td></tr>
+<tr><td>DataCenter_mid_ZN_6_f4</td><td>36.2</td><td>0.0</td><td>0.0</td><td>-</td><td>5725.3</td><td>158.2</td><td>Aug 23 17:00</td><td>23.0</td></tr>
+<tr><td>DataCenter_mid_ZN_6_f5</td><td>36.2</td><td>0.0</td><td>0.0</td><td>-</td><td>5725.3</td><td>158.2</td><td>Aug 23 17:00</td><td>23.0</td></tr>
+<tr><td>DataCenter_mid_ZN_6_f6</td><td>36.2</td><td>0.0</td><td>0.0</td><td>-</td><td>5725.3</td><td>158.2</td><td>Aug 23 17:00</td><td>23.0</td></tr>
+<tr><td>DataCenter_mid_ZN_6_f7</td><td>36.2</td><td>0.0</td><td>0.0</td><td>-</td><td>5725.3</td><td>158.2</td><td>Aug 23 17:00</td><td>23.0</td></tr>
+<tr><td>DataCenter_mid_ZN_6_f8</td><td>36.2</td><td>0.0</td><td>0.0</td><td>-</td><td>5725.3</td><td>158.2</td><td>Aug 23 17:00</td><td>23.0</td></tr>
+<tr><td>DataCenter_mid_ZN_6_f9</td><td>36.2</td><td>0.0</td><td>0.0</td><td>-</td><td>5725.3</td><td>158.2</td><td>Aug 23 17:00</td><td>23.0</td></tr>
+<tr><td>DataCenter_top_ZN_6</td><td>36.2</td><td>0.0</td><td>0.0</td><td>-</td><td>5725.3</td><td>158.2</td><td>Aug 23 17:00</td><td>23.0</td></tr>
+<tr><td>Perimeter_bot_ZN_1</td><td>313.4</td><td>17110.1</td><td>54.6</td><td>May 20 07:00</td><td>39978.3</td><td>127.6</td><td>Jan 4 14:00</td><td>11.1</td></tr>
+<tr><td>Perimeter_bot_ZN_2</td><td>202.0</td><td>12786.4</td><td>63.3</td><td>Jan 2 07:00</td><td>25963.5</td><td>128.5</td><td>Jul 10 09:00</td><td>22.3</td></tr>
+<tr><td>Perimeter_bot_ZN_3</td><td>313.4</td><td>18962.6</td><td>60.5</td><td>Feb 6 07:00</td><td>15623.3</td><td>49.8</td><td>Jun 12 19:00</td><td>31.0</td></tr>
+<tr><td>Perimeter_bot_ZN_4</td><td>202.0</td><td>11684.4</td><td>57.8</td><td>Jan 2 07:00</td><td>29114.5</td><td>144.1</td><td>Aug 28 18:00</td><td>32.3</td></tr>
+<tr><td>Perimeter_mid_ZN_1_f10</td><td>313.4</td><td>20634.3</td><td>65.8</td><td>Jan 2 07:00</td><td>46023.7</td><td>146.8</td><td>Nov 21 13:00</td><td>6.7</td></tr>
+<tr><td>Perimeter_mid_ZN_1_f11</td><td>313.4</td><td>20634.3</td><td>65.8</td><td>Jan 2 07:00</td><td>46023.7</td><td>146.8</td><td>Nov 21 13:00</td><td>6.7</td></tr>
+<tr><td>Perimeter_mid_ZN_1_f2</td><td>313.4</td><td>20634.3</td><td>65.8</td><td>Jan 2 07:00</td><td>46023.7</td><td>146.8</td><td>Nov 21 13:00</td><td>6.7</td></tr>
+<tr><td>Perimeter_mid_ZN_1_f3</td><td>313.4</td><td>20634.3</td><td>65.8</td><td>Jan 2 07:00</td><td>46023.7</td><td>146.8</td><td>Nov 21 13:00</td><td>6.7</td></tr>
+<tr><td>Perimeter_mid_ZN_1_f4</td><td>313.4</td><td>20634.3</td><td>65.8</td><td>Jan 2 07:00</td><td>46023.7</td><td>146.8</td><td>Nov 21 13:00</td><td>6.7</td></tr>
+<tr><td>Perimeter_mid_ZN_1_f5</td><td>313.4</td><td>20634.3</td><td>65.8</td><td>Jan 2 07:00</td><td>46023.7</td><td>146.8</td><td>Nov 21 13:00</td><td>6.7</td></tr>
+<tr><td>Perimeter_mid_ZN_1_f6</td><td>313.4</td><td>20634.3</td><td>65.8</td><td>Jan 2 07:00</td><td>46023.7</td><td>146.8</td><td>Nov 21 13:00</td><td>6.7</td></tr>
+<tr><td>Perimeter_mid_ZN_1_f7</td><td>313.4</td><td>20634.3</td><td>65.8</td><td>Jan 2 07:00</td><td>46023.7</td><td>146.8</td><td>Nov 21 13:00</td><td>6.7</td></tr>
+<tr><td>Perimeter_mid_ZN_1_f8</td><td>313.4</td><td>20634.3</td><td>65.8</td><td>Jan 2 07:00</td><td>46023.7</td><td>146.8</td><td>Nov 21 13:00</td><td>6.7</td></tr>
+<tr><td>Perimeter_mid_ZN_1_f9</td><td>313.4</td><td>20634.3</td><td>65.8</td><td>Jan 2 07:00</td><td>46023.7</td><td>146.8</td><td>Nov 21 13:00</td><td>6.7</td></tr>
+<tr><td>Perimeter_mid_ZN_2_f10</td><td>202.0</td><td>16682.8</td><td>82.6</td><td>Jan 2 07:00</td><td>26261.5</td><td>130.0</td><td>Jun 22 10:00</td><td>30.7</td></tr>
+<tr><td>Perimeter_mid_ZN_2_f11</td><td>202.0</td><td>16682.8</td><td>82.6</td><td>Jan 2 07:00</td><td>26261.5</td><td>130.0</td><td>Jun 22 10:00</td><td>30.7</td></tr>
+<tr><td>Perimeter_mid_ZN_2_f2</td><td>202.0</td><td>16682.8</td><td>82.6</td><td>Jan 2 07:00</td><td>26261.5</td><td>130.0</td><td>Jun 22 10:00</td><td>30.7</td></tr>
+<tr><td>Perimeter_mid_ZN_2_f3</td><td>202.0</td><td>16682.8</td><td>82.6</td><td>Jan 2 07:00</td><td>26261.5</td><td>130.0</td><td>Jun 22 10:00</td><td>30.7</td></tr>
+<tr><td>Perimeter_mid_ZN_2_f4</td><td>202.0</td><td>16682.8</td><td>82.6</td><td>Jan 2 07:00</td><td>26261.5</td><td>130.0</td><td>Jun 22 10:00</td><td>30.7</td></tr>
+<tr><td>Perimeter_mid_ZN_2_f5</td><td>202.0</td><td>16682.8</td><td>82.6</td><td>Jan 2 07:00</td><td>26261.5</td><td>130.0</td><td>Jun 22 10:00</td><td>30.7</td></tr>
+<tr><td>Perimeter_mid_ZN_2_f6</td><td>202.0</td><td>16682.8</td><td>82.6</td><td>Jan 2 07:00</td><td>26261.5</td><td>130.0</td><td>Jun 22 10:00</td><td>30.7</td></tr>
+<tr><td>Perimeter_mid_ZN_2_f7</td><td>202.0</td><td>16682.8</td><td>82.6</td><td>Jan 2 07:00</td><td>26261.5</td><td>130.0</td><td>Jun 22 10:00</td><td>30.7</td></tr>
+<tr><td>Perimeter_mid_ZN_2_f8</td><td>202.0</td><td>16682.8</td><td>82.6</td><td>Jan 2 07:00</td><td>26261.5</td><td>130.0</td><td>Jun 22 10:00</td><td>30.7</td></tr>
+<tr><td>Perimeter_mid_ZN_2_f9</td><td>202.0</td><td>16682.8</td><td>82.6</td><td>Jan 2 07:00</td><td>26261.5</td><td>130.0</td><td>Jun 22 10:00</td><td>30.7</td></tr>
+<tr><td>Perimeter_mid_ZN_3_f10</td><td>313.4</td><td>21845.8</td><td>69.7</td><td>Jan 2 07:00</td><td>17100.8</td><td>54.6</td><td>Jun 21 18:00</td><td>32.7</td></tr>
+<tr><td>Perimeter_mid_ZN_3_f11</td><td>313.4</td><td>21845.8</td><td>69.7</td><td>Jan 2 07:00</td><td>17100.8</td><td>54.6</td><td>Jun 21 18:00</td><td>32.7</td></tr>
+<tr><td>Perimeter_mid_ZN_3_f2</td><td>313.4</td><td>21845.8</td><td>69.7</td><td>Jan 2 07:00</td><td>17100.8</td><td>54.6</td><td>Jun 21 18:00</td><td>32.7</td></tr>
+<tr><td>Perimeter_mid_ZN_3_f3</td><td>313.4</td><td>21845.8</td><td>69.7</td><td>Jan 2 07:00</td><td>17100.8</td><td>54.6</td><td>Jun 21 18:00</td><td>32.7</td></tr>
+<tr><td>Perimeter_mid_ZN_3_f4</td><td>313.4</td><td>21845.8</td><td>69.7</td><td>Jan 2 07:00</td><td>17100.8</td><td>54.6</td><td>Jun 21 18:00</td><td>32.7</td></tr>
+<tr><td>Perimeter_mid_ZN_3_f5</td><td>313.4</td><td>21845.8</td><td>69.7</td><td>Jan 2 07:00</td><td>17100.8</td><td>54.6</td><td>Jun 21 18:00</td><td>32.7</td></tr>
+<tr><td>Perimeter_mid_ZN_3_f6</td><td>313.4</td><td>21845.8</td><td>69.7</td><td>Jan 2 07:00</td><td>17100.8</td><td>54.6</td><td>Jun 21 18:00</td><td>32.7</td></tr>
+<tr><td>Perimeter_mid_ZN_3_f7</td><td>313.4</td><td>21845.8</td><td>69.7</td><td>Jan 2 07:00</td><td>17100.8</td><td>54.6</td><td>Jun 21 18:00</td><td>32.7</td></tr>
+<tr><td>Perimeter_mid_ZN_3_f8</td><td>313.4</td><td>21845.8</td><td>69.7</td><td>Jan 2 07:00</td><td>17100.8</td><td>54.6</td><td>Jun 21 18:00</td><td>32.7</td></tr>
+<tr><td>Perimeter_mid_ZN_3_f9</td><td>313.4</td><td>21845.8</td><td>69.7</td><td>Jan 2 07:00</td><td>17100.8</td><td>54.6</td><td>Jun 21 18:00</td><td>32.7</td></tr>
+<tr><td>Perimeter_mid_ZN_4_f10</td><td>202.0</td><td>15971.8</td><td>79.1</td><td>Jan 2 07:00</td><td>33257.0</td><td>164.7</td><td>Aug 28 18:00</td><td>32.2</td></tr>
+<tr><td>Perimeter_mid_ZN_4_f11</td><td>202.0</td><td>15971.8</td><td>79.1</td><td>Jan 2 07:00</td><td>33257.0</td><td>164.7</td><td>Aug 28 18:00</td><td>32.2</td></tr>
+<tr><td>Perimeter_mid_ZN_4_f2</td><td>202.0</td><td>15971.8</td><td>79.1</td><td>Jan 2 07:00</td><td>33257.0</td><td>164.7</td><td>Aug 28 18:00</td><td>32.2</td></tr>
+<tr><td>Perimeter_mid_ZN_4_f3</td><td>202.0</td><td>15971.8</td><td>79.1</td><td>Jan 2 07:00</td><td>33257.0</td><td>164.7</td><td>Aug 28 18:00</td><td>32.2</td></tr>
+<tr><td>Perimeter_mid_ZN_4_f4</td><td>202.0</td><td>15971.8</td><td>79.1</td><td>Jan 2 07:00</td><td>33257.0</td><td>164.7</td><td>Aug 28 18:00</td><td>32.2</td></tr>
+<tr><td>Perimeter_mid_ZN_4_f5</td><td>202.0</td><td>15971.8</td><td>79.1</td><td>Jan 2 07:00</td><td>33257.0</td><td>164.7</td><td>Aug 28 18:00</td><td>32.2</td></tr>
+<tr><td>Perimeter_mid_ZN_4_f6</td><td>202.0</td><td>15971.8</td><td>79.1</td><td>Jan 2 07:00</td><td>33257.0</td><td>164.7</td><td>Aug 28 18:00</td><td>32.2</td></tr>
+<tr><td>Perimeter_mid_ZN_4_f7</td><td>202.0</td><td>15971.8</td><td>79.1</td><td>Jan 2 07:00</td><td>33257.0</td><td>164.7</td><td>Aug 28 18:00</td><td>32.2</td></tr>
+<tr><td>Perimeter_mid_ZN_4_f8</td><td>202.0</td><td>15971.8</td><td>79.1</td><td>Jan 2 07:00</td><td>33257.0</td><td>164.7</td><td>Aug 28 18:00</td><td>32.2</td></tr>
+<tr><td>Perimeter_mid_ZN_4_f9</td><td>202.0</td><td>15971.8</td><td>79.1</td><td>Jan 2 07:00</td><td>33257.0</td><td>164.7</td><td>Aug 28 18:00</td><td>32.2</td></tr>
+<tr><td>Perimeter_top_ZN_1</td><td>313.4</td><td>30267.3</td><td>96.6</td><td>Jan 2 07:00</td><td>44438.7</td><td>141.8</td><td>Nov 14 13:00</td><td>7.6</td></tr>
+<tr><td>Perimeter_top_ZN_2</td><td>202.0</td><td>22098.4</td><td>109.4</td><td>Jan 2 07:00</td><td>26725.9</td><td>132.3</td><td>Jun 22 10:00</td><td>30.3</td></tr>
+<tr><td>Perimeter_top_ZN_3</td><td>313.4</td><td>28011.1</td><td>89.4</td><td>Jan 2 07:00</td><td>18586.4</td><td>59.3</td><td>Jul 19 19:00</td><td>32.3</td></tr>
+<tr><td>Perimeter_top_ZN_4</td><td>202.0</td><td>22080.6</td><td>109.3</td><td>Jan 2 07:00</td><td>32307.6</td><td>160.0</td><td>Apr 25 17:00</td><td>18.8</td></tr>
+</table>
+<h2>Unmet Hours</h2>
+<table>
+<tr><th></th><th>Hours</th></tr>
+<tr><td>Unmet Heating</td><td>175117.7</td></tr>
+<tr><td>Unmet Cooling</td><td>26953.7</td></tr>
+</table>
+<p>ASHRAE 90.1 Compliance: <span class="fail">FAIL (202071 &gt; 300 unmet hours)</span></p>
+<h2>Building Envelope</h2>
+<table>
+<tr><th>Direction</th><th>Wall [m²]</th><th>Window [m²]</th><th>WWR</th></tr>
+<tr><td>North</td><td>2407.3</td><td>1286.4</td><td>53.4%</td></tr>
+<tr><td>East</td><td>1604.8</td><td>819.8</td><td>51.1%</td></tr>
+<tr><td>South</td><td>2407.3</td><td>1286.4</td><td>53.4%</td></tr>
+<tr><td>West</td><td>1604.8</td><td>819.8</td><td>51.1%</td></tr>
+</table>
+<details><summary>Window Solar Diagnostics</summary>
+<p>Total transmitted solar: 1190511.0 kWh<br>Total incident on windows: 4500734.7 kWh</p>
+</details>
+</body></html>
