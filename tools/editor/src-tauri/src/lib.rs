@@ -93,8 +93,9 @@ fn write_yaml_file(path: String, contents: String) -> Result<(), String> {
 /// 1. Tauri resource directory (bundled by installer — works on all platforms)
 /// 2. Next to the executable (fallback for portable/dev installs)
 /// 3. Next to the .app bundle on macOS (user extracted both to same folder)
-/// 4. Common install locations
-/// 5. On PATH
+/// 4. Walk up to repo root and check target/release/ and target/debug/ (dev builds)
+/// 5. Common install locations
+/// 6. On PATH
 fn find_openbse_binary(app_handle: Option<&tauri::AppHandle>) -> Result<PathBuf, String> {
     let bin_name = if cfg!(target_os = "windows") {
         "openbse.exe"
@@ -141,7 +142,30 @@ fn find_openbse_binary(app_handle: Option<&tauri::AppHandle>) -> Result<PathBuf,
         }
     }
 
-    // 4. Common install locations (Unix only)
+    // 4. Walk up from CWD or exe to find repo root target/ directory (dev builds)
+    for start in [
+        std::env::current_dir().ok(),
+        std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let mut dir = start.as_path();
+        loop {
+            for profile in ["release", "debug"] {
+                let candidate = dir.join("target").join(profile).join(bin_name);
+                if candidate.exists() {
+                    return Ok(candidate);
+                }
+            }
+            match dir.parent() {
+                Some(parent) => dir = parent,
+                None => break,
+            }
+        }
+    }
+
+    // 5. Common install locations (Unix only)
     if !cfg!(target_os = "windows") {
         let common = ["/usr/local/bin/openbse", "/opt/homebrew/bin/openbse"];
         for path in &common {
@@ -152,7 +176,7 @@ fn find_openbse_binary(app_handle: Option<&tauri::AppHandle>) -> Result<PathBuf,
         }
     }
 
-    // 5. On PATH
+    // 6. On PATH
     which::which("openbse").map_err(|_| {
         "Could not find the 'openbse' binary. It should be bundled with the installer. \
          If you built from source, place it next to the workbench executable or add it to your PATH."

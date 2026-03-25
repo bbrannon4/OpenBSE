@@ -356,6 +356,45 @@ function App() {
   const handleSimulationComplete = useCallback(
     async (csvPath: string) => {
       setResultsLoading(true);
+
+      // Scan the output folder for all CSV files the engine produced
+      const dir = csvPath.substring(0, csvPath.lastIndexOf("/"));
+      try {
+        const scanResult = await invoke<{ yaml_files: string[]; csv_files: string[] }>(
+          "scan_project_folder",
+          { dir }
+        );
+        if (scanResult.csv_files.length > 1) {
+          // Multiple CSVs — sort with main results first, load the primary one
+          const sorted = [...scanResult.csv_files].sort((a, b) => {
+            const aName = a.split("/").pop() ?? a;
+            const bName = b.split("/").pop() ?? b;
+            const isMain = (n: string) => n.endsWith("_results.csv") && !n.includes("zone_") && !n.includes("surface_") && !n.includes("hvac_") && !n.includes("sizing") && !n.includes("summary");
+            const aMain = isMain(aName);
+            const bMain = isMain(bName);
+            if (aMain && !bMain) return -1;
+            if (!aMain && bMain) return 1;
+            return aName.localeCompare(bName);
+          });
+          const lazyCases: ResultCase[] = sorted.map((f) => ({
+            name: f.split("/").pop() ?? f,
+            path: f,
+            parsed: null,
+          }));
+          const firstResult = await loadAndParseCsv(sorted[0]);
+          if (firstResult) lazyCases[0] = firstResult;
+          setResultsCases(lazyCases);
+          setResultsActiveIdx(0);
+          setSelectedVarIndices(new Set());
+          setResultsLoading(false);
+          setViewMode("charts");
+          return;
+        }
+      } catch {
+        // Folder scan failed — fall back to loading just the single CSV
+      }
+
+      // Fallback: load just the reported CSV
       const result = await loadAndParseCsv(csvPath);
       if (result) {
         setResultsCases([result]);

@@ -1191,21 +1191,29 @@ function SimpleArrayInput({
 }) {
   const arr = Array.isArray(value) ? value : [];
   const isNumeric = itemType === "number";
+  const [rawText, setRawText] = useState<string | null>(null);
 
   if (isNumeric) {
+    const displayValue = rawText ?? arr.join(", ");
     return (
       <input
         type="text"
         className="field-text array-text"
-        value={arr.join(", ")}
+        value={displayValue}
         placeholder="Comma-separated values, e.g. 1, 1, 0.5, 0, ..."
         onChange={(e) => {
-          const parts = e.target.value
-            .split(",")
-            .map((s) => s.trim())
-            .filter((s) => s !== "")
-            .map(Number);
-          onChange(parts.length > 0 ? parts : undefined);
+          setRawText(e.target.value);
+        }}
+        onBlur={() => {
+          if (rawText !== null) {
+            const parts = rawText
+              .split(",")
+              .map((s) => s.trim())
+              .filter((s) => s !== "" && !isNaN(Number(s)))
+              .map(Number);
+            onChange(parts.length > 0 ? parts : undefined);
+            setRawText(null);
+          }
         }}
       />
     );

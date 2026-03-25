@@ -91,9 +91,14 @@ export function SimulationPanel({
   const runSimulation = useCallback(async () => {
     if (!modelPath) return;
 
-    // Auto-save if dirty
-    if (dirty) {
-      await onSave();
+    try {
+      // Auto-save if dirty
+      if (dirty) {
+        await onSave();
+      }
+    } catch (e) {
+      console.error("Save failed:", e);
+      // Continue anyway — the file on disk might still be usable
     }
 
     // Derive output path: same dir as model, with .csv extension
