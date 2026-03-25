@@ -249,17 +249,40 @@ export function buildZoneTree(variables: CsvVariable[]): {
 const HEADER_REGEX = /^(.+?):\s*(.+?)\s*\[(.+?)\]$/;
 const SITE_REGEX = /^(.+?)\s*\[(.+?)\]$/;
 
+/** Infer a unit for variables where the engine outputs [-] */
+const INFERRED_UNITS: Record<string, string> = {
+  electric_power: "W",
+  fuel_power: "W",
+  thermal_output: "W",
+  exhaust_fan_power: "W",
+  exhaust_fan_heat_to_zone: "W",
+  hvac_cooling_rate: "W",
+  hvac_heating_rate: "W",
+  exhaust_mass_flow: "kg/s",
+  outdoor_air_mass_flow: "kg/s",
+  ventilation_mass_flow: "kg/s",
+  nat_vent_flow: "m\u00B3/s",
+  nat_vent_mass_flow: "kg/s",
+  outlet_enthalpy: "J/kg",
+};
+
+function inferUnit(variable: string, csvUnit: string): string {
+  if (csvUnit && csvUnit !== "-") return csvUnit;
+  return INFERRED_UNITS[variable] ?? csvUnit;
+}
+
 function parseHeader(raw: string, columnIndex: number): CsvVariable | null {
   const trimmed = raw.trim();
 
   // Try component:variable [unit]
   const match = HEADER_REGEX.exec(trimmed);
   if (match) {
+    const variable = match[2].trim();
     return {
       raw: trimmed,
       component: match[1].trim(),
-      variable: match[2].trim(),
-      unit: match[3].trim(),
+      variable,
+      unit: inferUnit(variable, match[3].trim()),
       columnIndex,
     };
   }
@@ -267,11 +290,12 @@ function parseHeader(raw: string, columnIndex: number): CsvVariable | null {
   // Try site-level variable [unit]
   const siteMatch = SITE_REGEX.exec(trimmed);
   if (siteMatch) {
+    const variable = siteMatch[1].trim();
     return {
       raw: trimmed,
       component: "",
-      variable: siteMatch[1].trim(),
-      unit: siteMatch[2].trim(),
+      variable,
+      unit: inferUnit(variable, siteMatch[2].trim()),
       columnIndex,
     };
   }

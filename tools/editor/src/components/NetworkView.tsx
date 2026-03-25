@@ -1,7 +1,9 @@
 import { useState, useMemo, useCallback } from "react";
 import { HvacDiagram } from "./HvacDiagram";
-import { buildSeparatedGraphs } from "../lib/hvac-graph";
+import { buildSeparatedGraphs, type HvacNodeData } from "../lib/hvac-graph";
 import type { ParsedCsv, CsvVariable } from "../lib/csv";
+import type { ResultCase } from "../App";
+import { getDisplayUnit, type UnitSystem } from "../lib/units";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Model = Record<string, any>;
@@ -15,6 +17,11 @@ interface NetworkViewProps {
   onToggleVariable: (idx: number) => void;
   onSetVariables: (indices: Set<number>) => void;
   onClearVariables: () => void;
+  resultsCases?: ResultCase[];
+  activeCaseIdx?: number;
+  onCaseChange?: (idx: number) => void;
+  resultsLoading?: boolean;
+  unitSystem?: UnitSystem;
 }
 
 export function NetworkView({
@@ -24,6 +31,11 @@ export function NetworkView({
   onToggleVariable,
   onSetVariables,
   onClearVariables,
+  resultsCases = [],
+  activeCaseIdx = 0,
+  onCaseChange,
+  resultsLoading = false,
+  unitSystem = "SI",
 }: NetworkViewProps) {
   const [mode, setMode] = useState<NetworkMode>("air");
   const [selectedComponent, setSelectedComponent] = useState<string | null>(null);
@@ -70,6 +82,16 @@ export function NetworkView({
     (v) => selectedVarIndices.has(v.columnIndex)
   ).length;
 
+  // Find the node data for the selected component (to show model properties)
+  const selectedNodeData = useMemo(() => {
+    if (!selectedComponent) return null;
+    const allNodes = [...graphs.air.nodes, ...graphs.water.nodes];
+    const node = allNodes.find(
+      (n) => (n.data as HvacNodeData).componentName === selectedComponent
+    );
+    return node ? (node.data as HvacNodeData) : null;
+  }, [selectedComponent, graphs]);
+
   if (!hasHvac) {
     return (
       <div className="network-view">
@@ -89,6 +111,22 @@ export function NetworkView({
   return (
     <div className="network-view">
       <div className="network-toolbar">
+        <div className="toolbar-left">
+          {resultsCases.length > 1 && onCaseChange && (
+            <select
+              className="field-select"
+              value={activeCaseIdx}
+              disabled={resultsLoading}
+              onChange={(e) => onCaseChange(parseInt(e.target.value, 10))}
+            >
+              {resultsCases.map((c, i) => (
+                <option key={i} value={i}>
+                  {c.name}{c.parsed ? "" : " (not loaded)"}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
         <div className="network-mode-toggle">
           <button
             className={`btn-agg ${mode === "air" ? "active" : ""}`}
@@ -126,6 +164,26 @@ export function NetworkView({
                 x
               </button>
             </div>
+            {selectedNodeData &&
+              Object.keys(selectedNodeData.properties).length > 0 && (
+                <div className="network-props">
+                  <div className="network-props-title">Model Properties</div>
+                  <table className="network-props-table">
+                    <tbody>
+                      {Object.entries(selectedNodeData.properties).map(
+                        ([k, v]) => (
+                          <tr key={k}>
+                            <td className="network-prop-key">
+                              {k.replace(/_/g, " ")}
+                            </td>
+                            <td className="network-prop-val">{String(v)}</td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             {!parsedCsv ? (
               <div className="network-var-panel-empty">
                 No results CSV loaded. Open a CSV to select variables.
@@ -164,7 +222,7 @@ export function NetworkView({
                         onChange={() => onToggleVariable(v.columnIndex)}
                       />
                       <span className="var-name">{v.variable}</span>
-                      <span className="var-unit">[{v.unit}]</span>
+                      <span className="var-unit">[{getDisplayUnit(v.unit, unitSystem)}]</span>
                     </label>
                   ))}
                 </div>

@@ -181,6 +181,123 @@ const COIL_LOAD_EDGE = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  Gather zone properties from model                                  */
+/* ------------------------------------------------------------------ */
+
+/** Resolve zone_groups: if a zones array references a group name, expand it */
+function resolveZones(
+  zoneNames: string[] | undefined,
+  zoneGroups: Record<string, unknown>[]
+): string[] {
+  if (!zoneNames) return [];
+  const result: string[] = [];
+  for (const name of zoneNames) {
+    const group = zoneGroups.find((g) => String(g.name) === name);
+    if (group && Array.isArray((group as Record<string, unknown>).zones)) {
+      result.push(
+        ...((group as Record<string, unknown>).zones as string[])
+      );
+    } else {
+      result.push(name);
+    }
+  }
+  return result;
+}
+
+interface ZoneInfo {
+  volume?: number;
+  floor_area?: number;
+  heating_setpoint?: number;
+  cooling_setpoint?: number;
+  people?: string;
+  lights?: string;
+  equipment?: string;
+  infiltration?: string;
+}
+
+function gatherZoneInfo(model: Model): Map<string, ZoneInfo> {
+  const info = new Map<string, ZoneInfo>();
+  const zoneGroups: Record<string, unknown>[] = model.zone_groups ?? [];
+
+  // Zones: volume, floor_area
+  for (const z of (model.zones ?? []) as Record<string, unknown>[]) {
+    const name = String(z.name ?? "");
+    info.set(name, {
+      volume: z.volume as number | undefined,
+      floor_area: z.floor_area as number | undefined,
+    });
+  }
+
+  // Thermostats: setpoints
+  for (const t of (model.thermostats ?? []) as Record<string, unknown>[]) {
+    const zones = resolveZones(t.zones as string[] | undefined, zoneGroups);
+    for (const zn of zones) {
+      const zi = info.get(zn) ?? {};
+      if (t.heating_setpoint !== undefined)
+        zi.heating_setpoint = t.heating_setpoint as number;
+      if (t.cooling_setpoint !== undefined)
+        zi.cooling_setpoint = t.cooling_setpoint as number;
+      info.set(zn, zi);
+    }
+  }
+
+  // People
+  for (const p of (model.people ?? []) as Record<string, unknown>[]) {
+    const zones = resolveZones(p.zones as string[] | undefined, zoneGroups);
+    const label = `${fmtVal(p.count)} ppl, ${fmtVal(p.activity_level)} W/ppl`;
+    for (const zn of zones) {
+      const zi = info.get(zn) ?? {};
+      zi.people = zi.people ? `${zi.people}; ${label}` : label;
+      info.set(zn, zi);
+    }
+  }
+
+  // Lights
+  for (const l of (model.lights ?? []) as Record<string, unknown>[]) {
+    const zones = resolveZones(l.zones as string[] | undefined, zoneGroups);
+    const label = `${fmtVal(l.power)} W`;
+    for (const zn of zones) {
+      const zi = info.get(zn) ?? {};
+      zi.lights = zi.lights ? `${zi.lights}; ${label}` : label;
+      info.set(zn, zi);
+    }
+  }
+
+  // Equipment (internal gains)
+  for (const e of (model.equipment ?? []) as Record<string, unknown>[]) {
+    const zones = resolveZones(e.zones as string[] | undefined, zoneGroups);
+    const label = `${fmtVal(e.power)} W`;
+    for (const zn of zones) {
+      const zi = info.get(zn) ?? {};
+      zi.equipment = zi.equipment ? `${zi.equipment}; ${label}` : label;
+      info.set(zn, zi);
+    }
+  }
+
+  // Infiltration
+  for (const inf of (model.infiltration ?? []) as Record<string, unknown>[]) {
+    const zones = resolveZones(
+      inf.zones as string[] | undefined,
+      zoneGroups
+    );
+    const label = inf.air_changes_per_hour
+      ? `${fmtVal(inf.air_changes_per_hour)} ACH`
+      : inf.flow_per_area
+        ? `${fmtVal(inf.flow_per_area)} m3/s/m2`
+        : "defined";
+    for (const zn of zones) {
+      const zi = info.get(zn) ?? {};
+      zi.infiltration = zi.infiltration
+        ? `${zi.infiltration}; ${label}`
+        : label;
+      info.set(zn, zi);
+    }
+  }
+
+  return info;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Build separate air-side and water-side graphs                      */
 /* ------------------------------------------------------------------ */
 
@@ -194,6 +311,7 @@ export function buildSeparatedGraphs(model: Model): SeparatedHvacGraphs {
 
   const airLoops: Record<string, unknown>[] = model.air_loops ?? [];
   const plantLoops: Record<string, unknown>[] = model.plant_loops ?? [];
+  const zoneInfo = gatherZoneInfo(model);
 
   // Track coils that reference plant loops (for the water-side view)
   interface CoilRef {
@@ -374,6 +492,21 @@ export function buildSeparatedGraphs(model: Model): SeparatedHvacGraphs {
       if (!zoneId) {
         zoneId = nextId("zone");
         zoneNodeIds.set(zoneName, zoneId);
+
+        const zi = zoneInfo.get(zoneName);
+        const zoneProps: Record<string, string | number | boolean> = {};
+        if (zi) {
+          if (zi.volume !== undefined) zoneProps.volume = `${zi.volume} m\u00B3`;
+          if (zi.floor_area !== undefined) zoneProps.floor_area = `${zi.floor_area} m\u00B2`;
+        }
+
+        const sublabel = zi
+          ? [
+              zi.volume !== undefined ? `${zi.volume} m\u00B3` : "",
+              zi.floor_area !== undefined ? `${zi.floor_area} m\u00B2` : "",
+            ].filter(Boolean).join(" | ") || undefined
+          : undefined;
+
         airNodes.push({
           id: zoneId,
           type: "hvacNode",
@@ -381,8 +514,10 @@ export function buildSeparatedGraphs(model: Model): SeparatedHvacGraphs {
           data: {
             hvacType: "zone",
             label: zoneName,
-            properties: {},
+            sublabel,
+            properties: zoneProps,
             airLoop: loopName,
+            componentName: zoneName,
           },
         });
       }

@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import ReactEChartsCore from "echarts-for-react/lib/core";
 import * as echarts from "echarts/core";
 import { LineChart } from "echarts/charts";
@@ -12,6 +12,7 @@ import {
 import { CanvasRenderer } from "echarts/renderers";
 import type { ParsedCsv, AggregationMode } from "../lib/csv";
 import { aggregateData } from "../lib/csv";
+import { convertValue, getDisplayUnit, type UnitSystem } from "../lib/units";
 
 echarts.use([
   LineChart,
@@ -35,18 +36,33 @@ interface TimeSeriesChartProps {
   parsed: ParsedCsv;
   selectedVarIndices: Set<number>;
   aggregation: AggregationMode;
+  unitSystem?: UnitSystem;
 }
 
 export function TimeSeriesChart({
   parsed,
   selectedVarIndices,
   aggregation,
+  unitSystem = "SI",
 }: TimeSeriesChartProps) {
   const chartRef = useRef<ReactEChartsCore>(null);
   const indices = useMemo(
     () => Array.from(selectedVarIndices),
     [selectedVarIndices]
   );
+
+  // Track whether selected variables changed (needs full replace) vs just unit/agg change (merge ok)
+  const prevIndicesRef = useRef<string>("");
+  const indicesKey = indices.join(",");
+  const [needsFullReplace, setNeedsFullReplace] = useState(true);
+  useEffect(() => {
+    if (prevIndicesRef.current !== indicesKey) {
+      setNeedsFullReplace(true);
+      prevIndicesRef.current = indicesKey;
+    } else {
+      setNeedsFullReplace(false);
+    }
+  }, [indicesKey, unitSystem, aggregation]);
 
   const { labels, series } = useMemo(
     () => aggregateData(parsed, indices, aggregation),
@@ -69,14 +85,15 @@ export function TimeSeriesChart({
       };
     }
 
-    // Group selected variables by unit for multi Y-axis
+    // Group selected variables by display unit for multi Y-axis
     const unitMap = new Map<string, number[]>();
     for (const idx of indices) {
       const v = parsed.variables[idx];
-      const unit = v.unit === "-" ? "" : v.unit;
-      const arr = unitMap.get(unit) ?? [];
+      const siUnit = v.unit === "-" ? "" : v.unit;
+      const displayUnit = siUnit ? getDisplayUnit(siUnit, unitSystem) : "";
+      const arr = unitMap.get(displayUnit) ?? [];
       arr.push(idx);
-      unitMap.set(unit, arr);
+      unitMap.set(displayUnit, arr);
     }
 
     const unitList = Array.from(unitMap.keys());
@@ -114,9 +131,14 @@ export function TimeSeriesChart({
     let colorIdx = 0;
     const seriesConfig = indices.map((varIdx) => {
       const v = parsed.variables[varIdx];
-      const unit = v.unit === "-" ? "" : v.unit;
-      const axisIdx = unitToAxis.get(unit) ?? 0;
-      const data = series.get(varIdx) ?? [];
+      const siUnit = v.unit === "-" ? "" : v.unit;
+      const displayUnit = siUnit ? getDisplayUnit(siUnit, unitSystem) : "";
+      const axisIdx = unitToAxis.get(displayUnit) ?? 0;
+      const rawData = series.get(varIdx) ?? [];
+      // Convert data if IP
+      const data = unitSystem === "IP" && siUnit
+        ? rawData.map((val) => convertValue(val, siUnit, unitSystem))
+        : rawData;
       const color = SERIES_COLORS[colorIdx % SERIES_COLORS.length];
       colorIdx++;
 
@@ -144,6 +166,16 @@ export function TimeSeriesChart({
         textStyle: { color: "#c0caf5", fontSize: 11 },
         axisPointer: { type: "cross" as const },
         confine: true,
+        valueFormatter: (value: unknown) => {
+          if (typeof value !== "number" || !isFinite(value)) return String(value);
+          const abs = Math.abs(value);
+          if (abs === 0) return "0";
+          if (abs >= 1e6) return value.toExponential(2);
+          if (abs >= 100) return value.toLocaleString(undefined, { maximumFractionDigits: 1 });
+          if (abs >= 1) return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+          if (abs >= 0.01) return value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+          return value.toExponential(2);
+        },
       },
       legend: {
         show: indices.length <= 10,
@@ -214,7 +246,7 @@ export function TimeSeriesChart({
         emphasis: { iconStyle: { borderColor: "#7aa2f7" } },
       },
     };
-  }, [parsed, indices, labels, series]);
+  }, [parsed, indices, labels, series, unitSystem]);
 
   return (
     <div className="chart-container">
@@ -223,7 +255,7 @@ export function TimeSeriesChart({
         echarts={echarts}
         option={option}
         style={{ height: "100%", width: "100%" }}
-        notMerge={true}
+        notMerge={needsFullReplace}
         lazyUpdate={true}
       />
     </div>

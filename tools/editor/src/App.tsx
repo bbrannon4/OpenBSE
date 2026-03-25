@@ -8,10 +8,12 @@ import { ObjectEditor } from "./components/ObjectEditor";
 import { SimulationPanel } from "./components/SimulationPanel";
 import { ResultsView } from "./components/ResultsView";
 import { NetworkView } from "./components/NetworkView";
+import { HelpDialog } from "./components/HelpDialog";
 import { parseSchema } from "./lib/schema";
 import type { ClassInfo } from "./lib/schema";
 import type { ParsedCsv } from "./lib/csv";
 import { parseCsv } from "./lib/csv";
+import { loadSettings, saveSettings, type UnitSystem } from "./lib/units";
 import logoSvg from "./assets/logo.svg";
 import "./App.css";
 
@@ -72,6 +74,16 @@ function App() {
   const [filePath, setFilePath] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("edit");
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [unitSystem, setUnitSystem] = useState<UnitSystem>(() => loadSettings().unitSystem);
+
+  const toggleUnitSystem = useCallback(() => {
+    setUnitSystem((prev) => {
+      const next = prev === "SI" ? "IP" : "SI";
+      saveSettings({ unitSystem: next });
+      return next;
+    });
+  }, []);
 
   // ===== Shared results state =====
   const [resultsCases, setResultsCases] = useState<ResultCase[]>([]);
@@ -226,6 +238,28 @@ function App() {
     []
   );
 
+  // Lazy-load CSV when active case changes (works from any view)
+  useEffect(() => {
+    if (resultsCases.length === 0) return;
+    const c = resultsCases[resultsActiveIdx];
+    if (!c || c.parsed) return;
+    let cancelled = false;
+    (async () => {
+      setResultsLoading(true);
+      const result = await loadAndParseCsv(c.path);
+      if (cancelled) return;
+      if (result) {
+        setResultsCases((prev) => {
+          const updated = [...prev];
+          updated[resultsActiveIdx] = result;
+          return updated;
+        });
+      }
+      setResultsLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [resultsActiveIdx, resultsCases, loadAndParseCsv]);
+
   const handleLoadResultsFile = useCallback(async () => {
     const selected = await open({
       title: "Open Results CSV",
@@ -279,13 +313,32 @@ function App() {
       }
       if (result.csv_files.length > 0) {
         setResultsLoading(true);
-        const lazyCases: ResultCase[] = result.csv_files.map((f) => ({
+        // Sort: prefer main *_results.csv, then others
+        const sorted = [...result.csv_files].sort((a, b) => {
+          const aName = a.split("/").pop() ?? a;
+          const bName = b.split("/").pop() ?? b;
+          // Main results file (ends with _results.csv but not zone_, surface_, hvac_, sizing, summary)
+          const isMain = (n: string) => n.endsWith("_results.csv") && !n.includes("zone_") && !n.includes("surface_") && !n.includes("hvac_") && !n.includes("sizing") && !n.includes("summary");
+          const aMain = isMain(aName);
+          const bMain = isMain(bName);
+          if (aMain && !bMain) return -1;
+          if (!aMain && bMain) return 1;
+          return aName.localeCompare(bName);
+        });
+        const lazyCases: ResultCase[] = sorted.map((f) => ({
           name: f.split("/").pop() ?? f,
           path: f,
           parsed: null,
         }));
-        const firstResult = await loadAndParseCsv(result.csv_files[0]);
-        if (firstResult) lazyCases[0] = firstResult;
+        const firstResult = await loadAndParseCsv(sorted[0]);
+        if (firstResult) {
+          lazyCases[0] = firstResult;
+        } else if (sorted.length > 1) {
+          // First file failed (maybe too large), try the next
+          const fallback = await loadAndParseCsv(sorted[1]);
+          if (fallback) lazyCases[1] = fallback;
+          setResultsActiveIdx(1);
+        }
         setResultsCases(lazyCases);
         setResultsActiveIdx(0);
         setSelectedVarIndices(new Set());
@@ -323,6 +376,7 @@ function App() {
         case "file_open": handleOpen(); break;
         case "file_save": handleSave(); break;
         case "file_save_as": handleSaveAs(); break;
+        case "help_usage": setHelpOpen(true); break;
       }
     });
     return () => { unlisten.then((f) => f()); };
@@ -392,7 +446,18 @@ function App() {
             </button>
           )}
         </div>
+        <button
+          className={`btn-header btn-unit-toggle ${unitSystem === "IP" ? "active" : ""}`}
+          onClick={toggleUnitSystem}
+          title={`Units: ${unitSystem} (click to switch to ${unitSystem === "SI" ? "IP" : "SI"})`}
+        >
+          {unitSystem}
+        </button>
+        <button className="btn-header btn-help" onClick={() => setHelpOpen(true)}
+          title="Help &amp; usage guide">?</button>
       </header>
+
+      <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
 
       {viewMode === "edit" ? (
         <>
@@ -483,19 +548,22 @@ function App() {
           onToggleVariable={toggleVariable}
           onSetVariables={setVariables}
           onClearVariables={clearAllVariables}
+          resultsCases={resultsCases}
+          activeCaseIdx={resultsActiveIdx}
+          onCaseChange={(idx) => { setResultsActiveIdx(idx); setSelectedVarIndices(new Set()); }}
+          resultsLoading={resultsLoading}
+          unitSystem={unitSystem}
         />
       ) : (
         <ResultsView
           cases={resultsCases}
-          setCases={setResultsCases}
           activeCaseIdx={resultsActiveIdx}
           setActiveCaseIdx={setResultsActiveIdx}
           loading={resultsLoading}
-          setLoading={setResultsLoading}
-          loadAndParseCsv={loadAndParseCsv}
           selectedVarIndices={selectedVarIndices}
           onToggleVariable={toggleVariable}
           onClearVariables={clearAllVariables}
+          unitSystem={unitSystem}
         />
       )}
     </div>

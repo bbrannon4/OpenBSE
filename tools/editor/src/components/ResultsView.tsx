@@ -1,60 +1,34 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { VariableBrowser } from "./VariableBrowser";
 import { TimeSeriesChart } from "./TimeSeriesChart";
 import { SummaryStats } from "./SummaryStats";
 import type { ParsedCsv, AggregationMode } from "../lib/csv";
 import type { ResultCase } from "../App";
+import type { UnitSystem } from "../lib/units";
 
 interface ResultsViewProps {
   cases: ResultCase[];
-  setCases: React.Dispatch<React.SetStateAction<ResultCase[]>>;
   activeCaseIdx: number;
   setActiveCaseIdx: React.Dispatch<React.SetStateAction<number>>;
   loading: boolean;
-  setLoading: React.Dispatch<React.SetStateAction<boolean>>;
-  loadAndParseCsv: (path: string) => Promise<ResultCase | null>;
   selectedVarIndices: Set<number>;
   onToggleVariable: (idx: number) => void;
   onClearVariables: () => void;
+  unitSystem: UnitSystem;
 }
 
 export function ResultsView({
   cases,
-  setCases,
   activeCaseIdx,
   setActiveCaseIdx,
   loading,
-  setLoading,
-  loadAndParseCsv,
   selectedVarIndices,
   onToggleVariable,
   onClearVariables,
+  unitSystem,
 }: ResultsViewProps) {
   const [aggregation, setAggregation] = useState<AggregationMode>("raw");
   const [showStats, setShowStats] = useState(true);
-
-  // When activeCaseIdx changes, ensure that case is parsed
-  useEffect(() => {
-    if (cases.length === 0) return;
-    const c = cases[activeCaseIdx];
-    if (!c || c.parsed) return;
-
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      const result = await loadAndParseCsv(c.path);
-      if (cancelled) return;
-      if (result) {
-        setCases((prev) => {
-          const updated = [...prev];
-          updated[activeCaseIdx] = result;
-          return updated;
-        });
-      }
-      setLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, [activeCaseIdx, cases, loadAndParseCsv, setCases, setLoading]);
 
   const handleCaseChange = useCallback(
     (idx: number) => {
@@ -145,18 +119,21 @@ export function ResultsView({
               selectedVarIndices={selectedVarIndices}
               onToggleVariable={onToggleVariable}
               onClearAll={onClearVariables}
+              unitSystem={unitSystem}
             />
             <div className="results-main">
               <TimeSeriesChart
                 parsed={activeParsed}
                 selectedVarIndices={selectedVarIndices}
                 aggregation={aggregation}
+                unitSystem={unitSystem}
               />
               {showStats && (
                 <SummaryStats
                   parsed={activeParsed}
                   selectedVarIndices={selectedVarIndices}
                   onToggleVariable={onToggleVariable}
+                  unitSystem={unitSystem}
                 />
               )}
             </div>

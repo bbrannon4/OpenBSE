@@ -266,13 +266,23 @@ pub fn get_unit(var_name: &str) -> &'static str {
             return unit;
         }
     }
-    // Legacy variable name support
+    // Legacy / per-component variable name support
     match var_name {
         "zone_temp" | "outdoor_temp" | "outlet_temp" | "supply_air_temp" => "°C",
         "mass_flow" | "supply_air_mass_flow" | "infiltration_mass_flow" => "kg/s",
         "outlet_w" => "kg/kg",
         "heating_load" | "cooling_load" | "q_internal_conv" | "q_internal_rad" => "W",
         "outlet_enthalpy" => "J/kg",
+        // Per-component power/energy variables
+        "electric_power" | "fuel_power" | "thermal_output" => "W",
+        "exhaust_fan_power" | "exhaust_fan_heat_to_zone" => "W",
+        "hvac_cooling_rate" | "hvac_heating_rate" => "W",
+        // Per-component flow variables
+        "exhaust_mass_flow" | "outdoor_air_mass_flow" | "ventilation_mass_flow" => "kg/s",
+        "nat_vent_flow" => "m³/s",
+        "nat_vent_mass_flow" => "kg/s",
+        // Boolean / dimensionless
+        "nat_vent_active" => "-",
         _ => "-",
     }
 }

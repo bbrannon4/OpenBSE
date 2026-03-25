@@ -377,16 +377,25 @@ pub fn run() {
                 ])
                 .build()?;
 
+            let help_item = MenuItemBuilder::with_id("help_usage", "Usage Guide")
+                .accelerator("CmdOrCtrl+?")
+                .build(handle)?;
+
+            let help_menu = SubmenuBuilder::new(handle, "Help")
+                .items(&[&help_item])
+                .build()?;
+
             let menu = MenuBuilder::new(handle)
-                .items(&[&file_menu, &edit_menu])
+                .items(&[&file_menu, &edit_menu, &help_menu])
                 .build()?;
             app.set_menu(menu)?;
 
-            // Handle File menu events → emit to frontend
+            // Handle menu events → emit to frontend
             app.on_menu_event(move |app_handle, event| {
                 let id = event.id().0.as_str();
                 match id {
-                    "file_new" | "file_open" | "file_save" | "file_save_as" => {
+                    "file_new" | "file_open" | "file_save" | "file_save_as"
+                    | "help_usage" => {
                         let _ = app_handle.emit("menu-action", id);
                     }
                     _ => {}

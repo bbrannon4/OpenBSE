@@ -7,12 +7,14 @@ import type {
   ZoneTreeNode,
 } from "../lib/csv";
 import { buildVariableTree, buildZoneTree } from "../lib/csv";
+import { getDisplayUnit, type UnitSystem } from "../lib/units";
 
 interface VariableBrowserProps {
   parsed: ParsedCsv;
   selectedVarIndices: Set<number>;
   onToggleVariable: (index: number) => void;
   onClearAll: () => void;
+  unitSystem?: UnitSystem;
 }
 
 type BrowseMode = "component" | "zone";
@@ -40,10 +42,12 @@ function VarCheckboxList({
   variables,
   selectedVarIndices,
   onToggleVariable,
+  unitSystem = "SI",
 }: {
   variables: CsvVariable[];
   selectedVarIndices: Set<number>;
   onToggleVariable: (index: number) => void;
+  unitSystem?: UnitSystem;
 }) {
   return (
     <div className="var-list">
@@ -58,7 +62,7 @@ function VarCheckboxList({
             onChange={() => onToggleVariable(v.columnIndex)}
           />
           <span className="var-name">{v.variable}</span>
-          <span className="var-unit">[{v.unit}]</span>
+          <span className="var-unit">[{getDisplayUnit(v.unit, unitSystem)}]</span>
         </label>
       ))}
     </div>
@@ -100,6 +104,7 @@ export function VariableBrowser({
   selectedVarIndices,
   onToggleVariable,
   onClearAll,
+  unitSystem = "SI",
 }: VariableBrowserProps) {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -349,6 +354,7 @@ export function VariableBrowser({
                                 }
                                 selectedVarIndices={selectedVarIndices}
                                 onToggleVariable={onToggleVariable}
+                                unitSystem={unitSystem}
                               />
                             )}
                           </div>

@@ -1,11 +1,13 @@
 import { useMemo } from "react";
 import type { ParsedCsv } from "../lib/csv";
 import { computeStats } from "../lib/csv";
+import { convertValue, getDisplayUnit, type UnitSystem } from "../lib/units";
 
 interface SummaryStatsProps {
   parsed: ParsedCsv;
   selectedVarIndices: Set<number>;
   onToggleVariable?: (idx: number) => void;
+  unitSystem?: UnitSystem;
 }
 
 function formatNumber(n: number): string {
@@ -28,7 +30,7 @@ function isEnergyVariable(variable: string): boolean {
   );
 }
 
-export function SummaryStats({ parsed, selectedVarIndices, onToggleVariable }: SummaryStatsProps) {
+export function SummaryStats({ parsed, selectedVarIndices, onToggleVariable, unitSystem = "SI" }: SummaryStatsProps) {
   const stats = useMemo(() => {
     const result: {
       raw: string;
@@ -94,12 +96,12 @@ export function SummaryStats({ parsed, selectedVarIndices, onToggleVariable }: S
               <td className="summary-var-name" title={s.raw}>
                 {s.variable}
               </td>
-              <td className="summary-unit">{s.unit}</td>
-              <td className="summary-num">{formatNumber(s.stats.min)}</td>
-              <td className="summary-num">{formatNumber(s.stats.max)}</td>
-              <td className="summary-num">{formatNumber(s.stats.mean)}</td>
+              <td className="summary-unit">{getDisplayUnit(s.unit, unitSystem)}</td>
+              <td className="summary-num">{formatNumber(convertValue(s.stats.min, s.unit, unitSystem))}</td>
+              <td className="summary-num">{formatNumber(convertValue(s.stats.max, s.unit, unitSystem))}</td>
+              <td className="summary-num">{formatNumber(convertValue(s.stats.mean, s.unit, unitSystem))}</td>
               <td className="summary-num">
-                {s.showTotal ? formatNumber(s.stats.total) : "\u2014"}
+                {s.showTotal ? formatNumber(convertValue(s.stats.total, s.unit, unitSystem)) : "\u2014"}
               </td>
             </tr>
           ))}

@@ -17,6 +17,7 @@ import {
   type HvacNodeData,
   type HvacGraph,
 } from "../lib/hvac-graph";
+import { getHvacIconSvg } from "../lib/hvac-icons";
 
 /* ------------------------------------------------------------------ */
 /*  Dagre layout                                                       */
@@ -68,29 +69,11 @@ function applyDagreLayout(
 /*  Custom HVAC Node                                                   */
 /* ------------------------------------------------------------------ */
 
-const ICON_MAP: Record<string, string> = {
-  oa_intake: "\u{1F32C}\uFE0F",
-  fan: "\u{1FA81}",
-  heating_coil: "\u{1F525}",
-  cooling_coil: "\u2744\uFE0F",
-  heat_recovery: "\u267B\uFE0F",
-  humidifier: "\u{1F4A7}",
-  duct: "\u25AD",
-  zone: "\u{1F3E0}",
-  terminal: "\u25A3",
-  pump: "\u{1F504}",
-  boiler: "\u{1F525}",
-  chiller: "\u2744\uFE0F",
-  cooling_tower: "\u{1F3ED}",
-  heat_exchanger: "\u21C4",
-  coil_load: "\u{1F50C}",
-};
-
 const HvacNode = memo(function HvacNode({
   data,
 }: NodeProps<Node<HvacNodeData>>) {
   const color = NODE_COLORS[data.hvacType] ?? "#565f89";
-  const icon = ICON_MAP[data.hvacType] ?? "\u25A0";
+  const iconSvg = getHvacIconSvg(data.hvacType);
 
   const tooltip = Object.entries(data.properties)
     .map(([k, v]) => `${k}: ${v}`)
@@ -103,9 +86,14 @@ const HvacNode = memo(function HvacNode({
       title={tooltip || data.label}
     >
       <Handle type="target" position={Position.Left} className="hvac-handle" />
-      <div className="hvac-node-icon" style={{ color }}>
-        {icon}
-      </div>
+      <svg
+        className="hvac-node-icon-svg"
+        viewBox="0 0 20 20"
+        width="24"
+        height="24"
+        style={{ color }}
+        dangerouslySetInnerHTML={{ __html: iconSvg }}
+      />
       <div className="hvac-node-content">
         <div className="hvac-node-label">{data.label}</div>
         {data.sublabel && (
