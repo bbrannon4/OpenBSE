@@ -500,8 +500,7 @@ fn run_zone_sizing(
     // ── Apply zone multiplier to peak loads ──────────────────────────────
     // E+ Zone List Multiplier / Zone Multiplier: the zone's peak loads are
     // multiplied so that HVAC equipment is sized for the multiplied zone.
-    // This matches E+'s behaviour where a single simulated zone represents
-    // multiple identical zones.
+    // Equipment energy is also multiplied by zone_multiplier in main.rs.
     for zone in &env.zones {
         let mult = zone.input.zone_multiplier as f64;
         if mult > 1.0 {
@@ -521,10 +520,6 @@ fn run_zone_sizing(
     }
 
     // ── Calculate zone airflows from peak loads ─────────────────────────
-    //
-    // Airflow is sized from the (possibly multiplied) peak loads.
-    // When zone_multiplier > 1, the equipment serves multiple identical
-    // zones, so airflow must also be multiplied.
     let mut zone_heating_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_cooling_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_design_airflow: HashMap<String, f64> = HashMap::new();
