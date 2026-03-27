@@ -2505,6 +2505,70 @@ fn main() -> Result<()> {
                             .insert("cooling_load".to_string(), load);
                     }
 
+                    // ── Zone-aggregated + per-surface outputs ──────────────
+                    {
+                        let mut zone_solar: HashMap<String, f64> = HashMap::new();
+                        let mut zone_cond: HashMap<String, f64> = HashMap::new();
+                        let mut zone_win_cond: HashMap<String, f64> = HashMap::new();
+                        for surface in &env.surfaces {
+                            let zn = &surface.input.zone;
+                            if !zn.is_empty() {
+                                *zone_solar.entry(zn.clone()).or_default() +=
+                                    surface.transmitted_solar;
+                                if surface.is_window {
+                                    *zone_win_cond.entry(zn.clone()).or_default() +=
+                                        surface.q_conv_inside * surface.net_area;
+                                } else {
+                                    *zone_cond.entry(zn.clone()).or_default() +=
+                                        surface.q_cond_inside * surface.net_area;
+                                }
+                            }
+
+                            // Per-surface outputs: conduction [W], temps [°C],
+                            // incident solar [W/m²], transmitted solar [W]
+                            let sname = format!("Surf:{}", surface.input.name);
+                            let sout = result.component_outputs.entry(sname).or_default();
+                            sout.insert(
+                                "cond_inside".to_string(),
+                                surface.q_cond_inside * surface.net_area,
+                            );
+                            sout.insert("temp_inside".to_string(), surface.temp_inside);
+                            sout.insert("temp_outside".to_string(), surface.temp_outside);
+                            sout.insert("incident_solar".to_string(), surface.incident_solar);
+                            if surface.is_window {
+                                sout.insert(
+                                    "transmitted_solar".to_string(),
+                                    surface.transmitted_solar,
+                                );
+                                sout.insert(
+                                    "conv_inside".to_string(),
+                                    surface.q_conv_inside * surface.net_area,
+                                );
+                            }
+                        }
+                        for (zn, val) in &zone_solar {
+                            result
+                                .component_outputs
+                                .entry(zn.clone())
+                                .or_default()
+                                .insert("transmitted_solar".to_string(), *val);
+                        }
+                        for (zn, val) in &zone_cond {
+                            result
+                                .component_outputs
+                                .entry(zn.clone())
+                                .or_default()
+                                .insert("opaque_conduction".to_string(), *val);
+                        }
+                        for (zn, val) in &zone_win_cond {
+                            result
+                                .component_outputs
+                                .entry(zn.clone())
+                                .or_default()
+                                .insert("window_conduction".to_string(), *val);
+                        }
+                    }
+
                     // ── Build output snapshot ─────────────────────────────
                     let mut snapshot = OutputSnapshot::new(month, day, hour, sub, dt);
 
@@ -3777,8 +3841,12 @@ fn simulate_all_loops(
         } * nightcycle_duty;
 
         if loop_plr < 1.0 {
-            let is_continuous_fan =
-                li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous;
+            let is_continuous_fan = li.fan_operating_mode
+                == openbse_io::input::FanOperatingMode::Continuous
+                || li.fan_operating_mode
+                    == openbse_io::input::FanOperatingMode::ContinuousNoLoadOff;
+            let is_no_load_off =
+                li.fan_operating_mode == openbse_io::input::FanOperatingMode::ContinuousNoLoadOff;
 
             // E+ Part Load Fraction: accounts for compressor cycling losses.
             // RTF = PLR / PLF > PLR, so compressor runs longer per unit of
@@ -3792,10 +3860,23 @@ fn simulate_all_loops(
                 let is_fan = li.fan_names.contains(comp_name);
 
                 if is_continuous_fan && is_fan {
-                    // Continuous fan mode: fan runs at full speed always.
-                    // Fan power and thermal output are NOT scaled by PLR.
-                    // Mass flow is NOT scaled — fan pushes air continuously.
-                    // (No changes needed — outputs stay at full rated values.)
+                    // Continuous fan: fan stays at full rated power when the
+                    // system is active (PLR > 0).  For plain `Continuous`
+                    // mode (PSZ-AC), the fan also runs during deadband.
+                    // For `ContinuousNoLoadOff` (PTAC Fan:OnOff with
+                    // No Load Flow = 0), the fan shuts OFF during deadband.
+                    if is_no_load_off && loop_plr <= effective_min_oa + 0.001 {
+                        if let Some(ep) = outputs.get_mut("electric_power") {
+                            *ep = 0.0;
+                        }
+                        if let Some(to) = outputs.get_mut("thermal_output") {
+                            *to = 0.0;
+                        }
+                        if let Some(mf) = outputs.get_mut("mass_flow") {
+                            *mf = 0.0;
+                        }
+                    }
+                    // Continuous (not no_load_off): keep full rated values.
                 } else {
                     // DX compressor electric power uses RTF (includes cycling
                     // penalty via PLF curve). Gas furnace fuel and fan power
@@ -4389,12 +4470,15 @@ fn build_fcu_signals(
     //
     // FCU: modulates fan speed proportionally.
     let is_ptac = li.system_type == AirLoopSystemType::Ptac;
-    let is_continuous_fan_mode =
-        li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous;
+    let is_continuous_fan_mode = li.fan_operating_mode
+        == openbse_io::input::FanOperatingMode::Continuous
+        || li.fan_operating_mode == openbse_io::input::FanOperatingMode::ContinuousNoLoadOff;
+    let is_no_load_off_mode =
+        li.fan_operating_mode == openbse_io::input::FanOperatingMode::ContinuousNoLoadOff;
     let flow = if is_ptac {
         match mode {
             HvacMode::Deadband => {
-                if is_continuous_fan_mode {
+                if is_continuous_fan_mode && !is_no_load_off_mode {
                     design_flow // continuous fan: recirculate zone air
                 } else {
                     0.0 // cycling fan: system off

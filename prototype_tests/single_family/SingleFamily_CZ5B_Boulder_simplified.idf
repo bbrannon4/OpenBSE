@@ -5279,6 +5279,66 @@ air loop outlet node_unit1;        !- Air Outlet Node Name
 Output:VariableDictionary,
     Regular;                 !- Key Field
 
+!-   ===========  HOURLY ZONE HEAT BALANCE OUTPUTS ===========
+
+Output:Variable,living_unit1,Enclosure Windows Total Transmitted Solar Radiation Rate,Timestep;
+Output:Variable,living_unit1,Zone Air System Sensible Heating Rate,Timestep;
+Output:Variable,living_unit1,Zone Air System Sensible Cooling Rate,Timestep;
+Output:Variable,living_unit1,Zone Windows Total Heat Gain Rate,Timestep;
+Output:Variable,living_unit1,Zone Windows Total Heat Loss Rate,Timestep;
+Output:Variable,living_unit1,Zone Infiltration Sensible Heat Loss Energy,Timestep;
+Output:Variable,living_unit1,Zone Infiltration Sensible Heat Gain Energy,Timestep;
+Output:Variable,living_unit1,Zone Mean Air Temperature,Timestep;
+
+! Heating coil (gas furnace) output and input
+Output:Variable,Main Fuel Heating Coil_unit1,Heating Coil Heating Rate,Timestep;
+Output:Variable,Main Fuel Heating Coil_unit1,Heating Coil NaturalGas Rate,Timestep;
+Output:Variable,Main Fuel Heating Coil_unit1,Heating Coil Runtime Fraction,Timestep;
+! Supply fan
+Output:Variable,Supply Fan_unit1,Fan Electricity Rate,Timestep;
+Output:Variable,Supply Fan_unit1,Fan Air Mass Flow Rate,Timestep;
+! DX cooling coil
+Output:Variable,DX Cooling Coil_unit1,Cooling Coil Total Cooling Rate,Timestep;
+Output:Variable,DX Cooling Coil_unit1,Cooling Coil Electricity Rate,Timestep;
+Output:Variable,DX Cooling Coil_unit1,Cooling Coil Runtime Fraction,Timestep;
+
+! Supply air to zone
+Output:Variable,living_unit1,Zone Supply Air Mass Flow Rate,Timestep;
+Output:Variable,living_unit1,Zone Mechanical Ventilation Mass Flow Rate,Timestep;
+! System node temperatures
+Output:Variable,Zone Inlet Node_unit1,System Node Temperature,Timestep;
+Output:Variable,Zone Inlet Node_unit1,System Node Mass Flow Rate,Timestep;
+Output:Variable,Zone Outlet Node_unit1,System Node Temperature,Timestep;
+
+! Per-surface conduction for validation comparison
+! Walls (all living zone exterior walls)
+Output:Variable,Wall_LDF_1.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Wall_SDR_1.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Wall_LDB_1.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Wall_SDL_1.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Wall_LDF_2.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Wall_SDR_2.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Wall_LDB_2.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Wall_SDL_2.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Door_LDB_unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+! Windows (all 8)
+Output:Variable,Window_LDF_1.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Window_SDR_1.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Window_LDB_1.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Window_SDL_1.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Window_LDF_2.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Window_SDR_2.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Window_LDB_2.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Window_SDL_2.unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+! Ceiling (to attic) and Floor (to basement)
+Output:Variable,Ceiling_unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Floor_unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+! Interzone walls (to garage)
+Output:Variable,Wall_LDB_1.garage1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+Output:Variable,Int_Door_garage1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+! Internal mass
+Output:Variable,InternalMass_unit1,Surface Inside Face Conduction Heat Transfer Rate,Timestep;
+
 
 !-   ===========  ALL OBJECTS IN CLASS: OUTPUT:CONSTRUCTIONS ===========
 

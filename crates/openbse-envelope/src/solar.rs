@@ -151,19 +151,27 @@ pub fn perez_brightness_coefficients(
     let epsilon = ((beam_normal + diffuse_horiz) / diffuse_horiz + kappa_z3) / (1.0 + kappa_z3);
 
     // Sky brightness Δ (Perez et al. 1990)
-    // Air mass via Kasten & Young (1989) with altitude pressure correction,
-    // matching EnergyPlus SolarShading.cc AnisoSkyViewFactors():
-    //   AirMass = (1 - 0.1 * Elevation/1000) / (sin(alt) + ...)
-    // For Denver at 1609m, this reduces air mass by 16%, lowering Delta
-    // and shifting Perez coefficients toward more isotropic sky.
-    let altitude_factor = (1.0 - 0.1 * elevation_m / 1000.0).max(0.5);
+    // Air mass with altitude pressure correction, matching EnergyPlus
+    // SolarShading.cc AnisoSkyViewFactors() exactly:
+    //   AirMassH = (1 - 0.1 * Elevation/1000)
+    //   AirMass = AirMassH / cos(z)                        for z <= 75°
+    //   AirMass = AirMassH / (cos(z) + 0.15*(93.9-z)^-1.253)  for z > 75°
+    let air_mass_h = (1.0 - 0.1 * elevation_m / 1000.0).max(0.5);
     let cz = zenith_angle_rad.cos().clamp(0.0, 1.0);
-    let zenith_deg = cz.acos().to_degrees();
-    let denom = cz + 0.50572 * (96.07995 - zenith_deg).max(0.01).powf(-1.6364);
-    let air_mass = if denom > 0.0 {
-        (altitude_factor / denom).min(40.0)
+    let zenith_deg = zenith_angle_rad.to_degrees();
+    let air_mass = if zenith_deg <= 75.0 {
+        if cz > 1e-6 {
+            (air_mass_h / cz).min(40.0)
+        } else {
+            40.0
+        }
     } else {
-        40.0
+        let denom = cz + 0.15 * (93.9 - zenith_deg).max(0.01).powf(-1.253);
+        if denom > 0.0 {
+            (air_mass_h / denom).min(40.0)
+        } else {
+            40.0
+        }
     };
     let delta = diffuse_horiz * air_mass / 1353.0;
 
@@ -936,9 +944,31 @@ pub fn sgs_angular_shgc_modifier(
     trans_curve: &[f64; 5],
     refl_curve: &[f64; 5],
 ) -> f64 {
-    let cs = cos_theta.clamp(0.0, 1.0);
-    if cs < 0.01 || shgc <= 0.0 {
+    let (_, shgc_angle) =
+        sgs_angular_properties(cos_theta, tsol, rsol, ni, trans_curve, refl_curve);
+    if shgc <= 0.0 {
         return 0.0;
+    }
+    (shgc_angle / shgc).clamp(0.0, 1.0)
+}
+
+/// Compute angle-dependent Tsol and SHGC directly from the angular polynomials.
+///
+/// Returns `(tsol_angle, shgc_angle)` — actual values, NOT modifiers.
+/// This avoids the constant Tsol/SHGC ratio approximation; the ratio varies
+/// with angle because absorption and transmission have different angular
+/// dependencies.  E+ computes Tsol(θ) directly via `TransAndReflAtPhi`.
+pub fn sgs_angular_properties(
+    cos_theta: f64,
+    tsol: f64,
+    rsol: f64,
+    ni: f64,
+    trans_curve: &[f64; 5],
+    refl_curve: &[f64; 5],
+) -> (f64, f64) {
+    let cs = cos_theta.clamp(0.0, 1.0);
+    if cs < 0.01 {
+        return (0.0, 0.0);
     }
 
     // Transmittance at this angle (normalized, so τ_norm(cs=1)=1.0)
@@ -959,7 +989,7 @@ pub fn sgs_angular_shgc_modifier(
     // Total SHGC at this angle = transmitted + absorbed-inward
     let shgc_angle = t_angle + ni * alpha_angle;
 
-    (shgc_angle / shgc).clamp(0.0, 1.0)
+    (t_angle, shgc_angle)
 }
 
 /// Hemispherical (diffuse) average of the E+ SGS angular SHGC modifier.
@@ -1003,8 +1033,12 @@ pub struct SgsAngularModel {
     pub trans_curve: [f64; 5],
     /// Reflectance polynomial coefficients [5] from 28-bin selection
     pub refl_curve: [f64; 5],
-    /// Precomputed hemispherical (diffuse) SHGC modifier
+    /// Precomputed hemispherical (diffuse) SHGC modifier (legacy)
     pub diff_modifier: f64,
+    /// Hemispherical diffuse Tsol fraction (Tsol_diff / Tsol_normal)
+    pub diff_tsol_frac: f64,
+    /// Hemispherical diffuse SHGC fraction (SHGC_diff / SHGC_normal)
+    pub diff_shgc_frac: f64,
 }
 
 impl SgsAngularModel {
@@ -1048,6 +1082,30 @@ impl SgsAngularModel {
         let diff_modifier =
             sgs_diffuse_shgc_modifier(shgc, tsol, rsol, ni, &trans_curve, &refl_curve);
 
+        // Hemispherical diffuse Tsol and SHGC fractions via numerical integration.
+        let (diff_tsol_frac, diff_shgc_frac) = {
+            const N: usize = 200;
+            let (mut st, mut ss, mut sw) = (0.0_f64, 0.0_f64, 0.0_f64);
+            for i in 0..N {
+                let theta = (i as f64 + 0.5) / N as f64 * PI / 2.0;
+                let ct = theta.cos();
+                let w = ct * theta.sin();
+                let (ta, sa) =
+                    sgs_angular_properties(ct, tsol, rsol, ni, &trans_curve, &refl_curve);
+                st += ta * w;
+                ss += sa * w;
+                sw += w;
+            }
+            if sw > 0.0 && tsol > 0.0 && shgc > 0.0 {
+                (
+                    (st / sw / tsol).clamp(0.0, 1.0),
+                    (ss / sw / shgc).clamp(0.0, 1.0),
+                )
+            } else {
+                (0.88, 0.88)
+            }
+        };
+
         Self {
             tsol,
             rsol,
@@ -1055,6 +1113,8 @@ impl SgsAngularModel {
             trans_curve,
             refl_curve,
             diff_modifier,
+            diff_tsol_frac,
+            diff_shgc_frac,
         }
     }
 }

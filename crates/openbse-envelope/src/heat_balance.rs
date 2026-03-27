@@ -1913,7 +1913,8 @@ impl EnvelopeSolver for BuildingEnvelope {
         }
 
         // 4. Infiltration + scheduled ventilation + exhaust + outdoor air
-        let rho_outdoor = psych::rho_air_fn_pb_tdb_w(p_b, t_outdoor, 0.008);
+        let w_outdoor = psych::w_fn_tdb_rh_pb(t_outdoor, weather.rel_humidity / 100.0, p_b);
+        let rho_outdoor = psych::rho_air_fn_pb_tdb_w(p_b, t_outdoor, w_outdoor);
 
         // If airflow network is active, solve the pressure network for infiltration.
         // This replaces the per-zone Design Flow Rate infiltration calculation.
@@ -2277,33 +2278,41 @@ impl EnvelopeSolver for BuildingEnvelope {
                     if let Some(ref sgs) = surface.sgs_model {
                         // E+ SimpleGlazingSystem angular model (LBNL-2804E curves).
                         //
-                        // Uses the exact E+ angular curves for transmittance and
-                        // reflectance, selected from the 28-bin U/SHGC mapping.
-                        //
-                        // Beam modifier: evaluated at actual angle of incidence.
-                        // Diffuse modifier: precomputed hemispherical average.
-                        let beam_mod = solar::sgs_angular_shgc_modifier(
+                        // Compute Tsol(θ) and SHGC(θ) directly at beam angle,
+                        // matching E+'s TransAndReflAtPhi.  The Tsol/SHGC ratio
+                        // varies with angle so a constant split is incorrect.
+                        let (tsol_beam, shgc_beam) = solar::sgs_angular_properties(
                             components.cos_aoi,
-                            surface.shgc,
                             sgs.tsol,
                             sgs.rsol,
                             sgs.ni,
                             &sgs.trans_curve,
                             &sgs.refl_curve,
                         );
-                        let diff_mod = sgs.diff_modifier;
 
-                        let beam_shgc =
-                            (surface.shgc * beam_mod * surface.net_area * shaded_beam).max(0.0);
-                        let diff_shgc =
-                            (surface.shgc * diff_mod * surface.net_area * diffuse_total).max(0.0);
-                        let total_shgc_gain = beam_shgc + diff_shgc;
+                        // Beam: angle-dependent Tsol and SHGC
+                        let beam_transmitted =
+                            (tsol_beam * surface.net_area * shaded_beam).max(0.0);
+                        let beam_total_shgc = (shgc_beam * surface.net_area * shaded_beam).max(0.0);
 
-                        // Split: Tsol portion → surfaces, remainder → glass absorption.
-                        let ratio = surface.solar_transmittance_ratio;
-                        surface.transmitted_solar = total_shgc_gain * ratio;
-                        surface.transmitted_solar_beam = beam_shgc * ratio;
-                        surface.transmitted_solar_diffuse = diff_shgc * ratio;
+                        // Diffuse: precomputed hemispherical Tsol and SHGC fractions
+                        let diff_transmitted =
+                            (sgs.tsol * sgs.diff_tsol_frac * surface.net_area * diffuse_total)
+                                .max(0.0);
+                        let diff_total_shgc =
+                            (surface.shgc * sgs.diff_shgc_frac * surface.net_area * diffuse_total)
+                                .max(0.0);
+
+                        surface.transmitted_solar = beam_transmitted + diff_transmitted;
+                        surface.transmitted_solar_beam = beam_transmitted;
+                        surface.transmitted_solar_diffuse = diff_transmitted;
+
+                        let total_shgc_gain = beam_total_shgc + diff_total_shgc;
+                        // Update ratio dynamically for downstream absorbed-inward calc
+                        if total_shgc_gain > 1e-6 {
+                            surface.solar_transmittance_ratio =
+                                surface.transmitted_solar / total_shgc_gain;
+                        }
                     } else {
                         // Fresnel model (per-pane optical properties available) or
                         // polynomial fallback for legacy paths.
@@ -3263,6 +3272,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let q_interior = h_conv_in * (t_z - t_glass) + q_rad_interior;
                     let t_ext_surf = t_glass - q_interior / u_glass;
                     self.surfaces[i].temp_outside = t_ext_surf;
+
+                    // q_cond_inside for windows is set post-convergence in the
+                    // diagnostic section using converged zone temp and h values.
                 }
             }
 
@@ -4450,6 +4462,16 @@ impl EnvelopeSolver for BuildingEnvelope {
                             let ha = self.surfaces[si].h_conv_inside * self.surfaces[si].net_area;
                             win_ha += ha;
                             win_hat += ha * self.surfaces[si].temp_inside;
+                            // Post-convergence window reporting [W/m²]:
+                            // Convective only (for diagnostics)
+                            self.surfaces[si].q_conv_inside = self.surfaces[si].h_conv_inside
+                                * (self.surfaces[si].temp_inside - zone.temp);
+                            // Window conduction: heat flux through the glass [W/m²].
+                            // q = U_glass × (T_outside_surface − T_inside_surface)
+                            // This is pure conduction through the glazing assembly,
+                            // matching E+'s "Surface Inside Face Conduction".
+                            self.surfaces[si].q_cond_inside = self.surfaces[si].u_glass
+                                * (self.surfaces[si].temp_outside - self.surfaces[si].temp_inside);
                         }
                     }
                     zone.diag_pending_wincond_conv = (win_ha * zone.temp - win_hat) * dt_kwh;

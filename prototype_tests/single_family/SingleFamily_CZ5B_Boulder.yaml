@@ -529,14 +529,16 @@ equipment:
   schedule: Misc Plug Load
 
 # ── Infiltration ──────────────────────────────────────────────────
-# E+ model uses AirflowNetwork (ELA-based, pressure-driven). We approximate
-# with a constant design flow rate. ASHRAE combined model (in engine)
-# Background infiltration only (no exhaust fan).
-# Matches E+ simplified IDF: Q_bg = 0.0238 m3/s (~0.15 ACH background infiltration)
+# Matches E+ simplified IDF ZoneInfiltration:DesignFlowRate exactly:
+#   Flow/Zone = 0.0370 m³/s, A=1, B=C=D=0, schedule=always_on.
+# This is the ASHRAE combined rate: sqrt(0.0238² + 0.02832²) ≈ 0.0370.
+# The exhaust fan below provides electrical consumption only; its airflow
+# effect is already included in this combined infiltration rate.
+# Engine uses Basic mode (default) so exhaust does not add outdoor air.
 infiltration:
 - name: Living Infiltration
   zones: [Living]
-  design_flow_rate: 0.0238
+  design_flow_rate: 0.0370
   constant_coefficient: 1.0
   temperature_coefficient: 0.0
   wind_coefficient: 0.0
@@ -564,15 +566,19 @@ infiltration:
   wind_coefficient: 0.0
 
 # ── Exhaust Fans ──────────────────────────────────────────────────
-# Zone exhaust fan: 60 cfm (0.02832 m³/s), matching E+ Fan:ZoneExhaust.
-# Fan power uses same physics as supply/return fans:
-#   Power = MassFlow × PressureRise / (TotalEff × ρ)
-# ASHRAE combined infiltration in engine:
-#   Q_combined = sqrt(Q_bg² + Q_unbalanced²)
+# E+ Fan:ZoneExhaust is Decoupled mode: it consumes electricity but does NOT
+# affect zone air mass balance (E+ compensates exhaust with return air).
+# Its airflow effect on infiltration is already included in the combined
+# infiltration rate (0.0370 m³/s) above.
+# Exhaust fan power: V*dP/eff = 0.0283*454/0.6 = 21.4 W = 187.7 kWh/yr.
+# This is accounted for in the E+ Fans:Electricity end use (Ventilation subcategory).
+# OpenBSE models this with the original flow rate for correct power calculation,
+# but Basic infiltration mode (default) means exhaust flow does not add outdoor
+# air to the zone energy balance — matching E+ Decoupled behavior.
 exhaust_fans:
 - name: Zone Exhaust Fan
   zones: [Living]
-  flow_rate: 0.0283168          # 60 cfm
+  flow_rate: 0.0283168          # 60 cfm — for power calculation only
   pressure_rise: 454.046        # Pa (from E+ Fan:ZoneExhaust)
   total_efficiency: 0.6         # E+ Fan Total Efficiency
   motor_efficiency: 0.863       # same as supply fan

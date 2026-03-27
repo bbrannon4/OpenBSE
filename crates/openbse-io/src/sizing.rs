@@ -298,6 +298,30 @@ fn run_single_design_day(
         for (i, wh) in weather_hours.iter().enumerate() {
             let hour = (i + 1) as u32;
 
+            // ── Update zone setpoints from design-day hourly schedule ─────
+            //
+            // E+ DOE prototypes use SummerDesignDay setpoint schedules that
+            // raise the cooling setpoint during unoccupied hours (thermostat
+            // setup), then recover at occupancy start.  The pulldown spike
+            // when recovering from 27°C → 24°C drives equipment sizing.
+            //
+            // If the design day has a cooling_setpoint_schedule, update each
+            // zone's ideal loads setpoint for this hour.  Otherwise the
+            // constant thermostat setpoint is used (set once above).
+            if let Some(ref sched) = dd.cooling_setpoint_schedule {
+                if sched.len() == 24 {
+                    let sp_hour = sched[(hour as usize - 1).min(23)];
+                    for zone in &mut env.zones {
+                        if let Some(ref mut il) = zone.input.ideal_loads {
+                            il.cooling_setpoint = sp_hour;
+                            // For cooling DD: heating setpoint stays low so we
+                            // only size cooling, not inadvertent heating.
+                            il.heating_setpoint = sp_hour.min(il.heating_setpoint);
+                        }
+                    }
+                }
+            }
+
             // Run sub-hourly timesteps within each hour
             // (matches the simulation timestep so CTF coefficients are correct)
             let mut hour_peak_heating: HashMap<String, f64> = HashMap::new();
@@ -830,6 +854,9 @@ fn generate_monthly_cooling_dds(
             day,
             day_type: anchor.day_type.clone(),
             internal_gains: anchor.internal_gains.clone(),
+            taub: anchor.taub,
+            taud: anchor.taud,
+            cooling_setpoint_schedule: anchor.cooling_setpoint_schedule.clone(),
         });
 
         log::info!(

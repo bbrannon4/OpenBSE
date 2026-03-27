@@ -485,18 +485,24 @@ impl Default for CyclingMethod {
 ///   - Schedule value = 0 → cycling fan (fan cycles with coils)
 ///   - Schedule value ≠ 0 → continuous fan (fan runs at full speed always)
 ///
-/// The DOE prototype Mid-Rise Apartment uses "COMPACT HVAC-ALWAYS 1"
-/// (value=1 → continuous fan mode): fans run at rated power for all 8760
-/// hours and coils cycle ON/OFF as needed.
+/// Fan operating mode — controls how fan power varies with system load.
+///
+/// Matches EnergyPlus Fan:OnOff / Fan:ConstantVolume behavior combined
+/// with the PTAC "No Load Supply Air Flow Rate" setting.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum FanOperatingMode {
     /// Fan cycles ON/OFF with coils. During deadband, fan is OFF.
-    /// Average fan power = rated × PLR.
+    /// Average fan power = rated × PLR (time-averaged over timestep).
     Cycling,
-    /// Fan runs at full speed continuously. Coils cycle ON/OFF.
-    /// Fan power = rated (always). Fan heat is always delivered to the zone.
+    /// Fan runs at full speed continuously, including during deadband.
+    /// Fan power = rated (always). Fan heat always delivered to zone.
+    /// Use for PSZ-AC systems with Fan:ConstantVolume.
     Continuous,
+    /// Fan runs at full speed when actively heating or cooling, but
+    /// shuts OFF completely during deadband (no load).
+    /// Matches E+ PTAC with Fan:OnOff and No Load Supply Air Flow Rate = 0.
+    ContinuousNoLoadOff,
 }
 
 impl Default for FanOperatingMode {
@@ -1430,6 +1436,29 @@ pub struct DesignDayInput {
     /// If omitted, defaults based on `day_type`: heating → `off`, cooling → `full`.
     #[serde(default)]
     pub internal_gains: Option<openbse_core::ports::SizingInternalGains>,
+    /// ASHRAE Tau solar model beam optical depth (for cooling DDs).
+    #[serde(default)]
+    pub taub: Option<f64>,
+    /// ASHRAE Tau solar model diffuse optical depth (for cooling DDs).
+    #[serde(default)]
+    pub taud: Option<f64>,
+    /// Hourly cooling setpoint schedule for this design day [°C].
+    ///
+    /// 24 values, one per hour (hour 1 through hour 24).  If provided,
+    /// the sizing routine uses these setpoints instead of the thermostat's
+    /// constant cooling setpoint.  This allows modeling thermostat setup
+    /// (e.g., raising cooling setpoint during unoccupied hours and
+    /// recovering at occupancy start), which creates a pulldown load that
+    /// drives equipment sizing.
+    ///
+    /// Example (E+ DOE Apartment prototype — 24→27.1→24°C):
+    /// ```yaml
+    /// cooling_setpoint_schedule:
+    ///   [24, 24, 24, 24, 24, 24, 24, 24, 24, 27.1, 27.1, 27.1,
+    ///    27.1, 27.1, 27.1, 27.1, 27.1, 27.1, 24, 24, 24, 24, 24, 24]
+    /// ```
+    #[serde(default)]
+    pub cooling_setpoint_schedule: Option<Vec<f64>>,
 }
 
 // ─── Zone Group Input ─────────────────────────────────────────────────────────
