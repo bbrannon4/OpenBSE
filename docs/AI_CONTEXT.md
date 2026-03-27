@@ -27,8 +27,8 @@ openbse-cli              ← Depends on all above. Binary entry point, simulatio
 
 ### Key Traits
 
-- **`AirComponent`** (`openbse-core/src/ports.rs`): `simulate_air(inlet) -> outlet`, `thermal_output()`, `power_consumption()`, `fuel_consumption()`. Implemented by fans, coils, ducts, etc.
-- **`PlantComponent`** (`openbse-core/src/ports.rs`): `simulate_plant(inlet) -> outlet`. Implemented by boilers, chillers, pumps.
+- **`AirComponent`** (`openbse-core/src/ports.rs`): `simulate_air(inlet) -> outlet`, `thermal_output()`, `power_consumption()`, `fuel_consumption()`, `detailed_outputs()`. Implemented by fans, coils, ducts, etc.
+- **`PlantComponent`** (`openbse-core/src/ports.rs`): `simulate_plant(inlet) -> outlet`, `detailed_outputs()`. Implemented by boilers, chillers, pumps.
 - **`AirPort`** / **`WaterPort`**: Type-safe fluid connectors. You cannot accidentally connect water to air — the compiler prevents it.
 
 ### Simulation Flow

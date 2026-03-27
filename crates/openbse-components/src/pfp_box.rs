@@ -299,6 +299,12 @@ impl AirComponent for PFPBox {
     fn thermal_output(&self) -> f64 {
         self.reheat_rate
     }
+
+    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
+        let mut m = std::collections::HashMap::new();
+        m.insert("sensible_load".to_string(), self.reheat_rate);
+        m
+    }
 }
 
 #[cfg(test)]

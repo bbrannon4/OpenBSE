@@ -370,6 +370,20 @@ impl AirComponent for HeatPumpHeatingCoil {
     fn thermal_output(&self) -> f64 {
         self.total_heating_rate
     }
+
+    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
+        let mut m = std::collections::HashMap::new();
+        m.insert("sensible_load".to_string(), self.total_heating_rate);
+        m.insert(
+            "cop_operating".to_string(),
+            if self.compressor_power > 0.0 {
+                self.hp_heating_rate / self.compressor_power
+            } else {
+                0.0
+            },
+        );
+        m
+    }
 }
 
 #[cfg(test)]

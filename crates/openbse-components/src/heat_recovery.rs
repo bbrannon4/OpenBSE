@@ -189,6 +189,13 @@ impl AirComponent for HeatRecovery {
         self.exhaust_air_temp = temp;
         self.exhaust_air_w = w;
     }
+
+    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
+        let mut m = std::collections::HashMap::new();
+        m.insert("sensible_load".to_string(), self.sensible_recovery);
+        m.insert("latent_load".to_string(), self.latent_recovery);
+        m
+    }
 }
 
 #[cfg(test)]

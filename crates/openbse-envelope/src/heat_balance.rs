@@ -1910,6 +1910,8 @@ impl EnvelopeSolver for BuildingEnvelope {
             zone.people_heat = gains.people_heat;
             zone.people_latent = gains.people_latent;
             zone.equipment_latent = gains.equipment_latent;
+            zone.lighting_gain_to_zone = gains.lighting_gain_to_zone;
+            zone.equipment_sensible_gain_to_zone = gains.equipment_sensible_gain_to_zone;
         }
 
         // 4. Infiltration + scheduled ventilation + exhaust + outdoor air

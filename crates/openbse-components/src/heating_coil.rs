@@ -482,6 +482,12 @@ impl AirComponent for HeatingCoil {
     fn thermal_output(&self) -> f64 {
         self.heating_rate
     }
+
+    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
+        let mut m = std::collections::HashMap::new();
+        m.insert("sensible_load".to_string(), self.heating_rate);
+        m
+    }
 }
 
 #[cfg(test)]

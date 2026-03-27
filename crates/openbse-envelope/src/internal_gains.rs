@@ -105,6 +105,12 @@ pub struct ResolvedGain {
     pub people_latent: f64,
     /// Equipment latent heat this timestep [W] (from latent_fraction)
     pub equipment_latent: f64,
+
+    // ─── Per-type gain breakdown (conv + rad = heat entering zone) ────
+    /// Lighting heat to zone [W] (conv + rad, excluding return air fraction)
+    pub lighting_gain_to_zone: f64,
+    /// Equipment sensible heat to zone [W] (conv + rad, excluding lost fraction)
+    pub equipment_sensible_gain_to_zone: f64,
 }
 
 /// Resolve all gains for a zone at this timestep.
@@ -165,6 +171,7 @@ pub fn resolve_gains_scheduled(
                 result.convective += to_zone * (1.0 - radiant_fraction);
                 result.total += total;
                 result.lighting_power += total;
+                result.lighting_gain_to_zone += to_zone;
             }
             InternalGainInput::Equipment {
                 power,
@@ -186,6 +193,7 @@ pub fn resolve_gains_scheduled(
                 result.equipment_latent += latent;
                 // Report full electric power for energy accounting
                 result.equipment_power += total;
+                result.equipment_sensible_gain_to_zone += sensible;
             }
         }
     }

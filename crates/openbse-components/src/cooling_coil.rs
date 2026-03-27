@@ -86,6 +86,12 @@ pub struct CoolingCoilDX {
     /// Electric power consumption [W]
     #[serde(skip)]
     pub power_consumption: f64,
+    /// Part-load ratio from last simulate_air call
+    #[serde(skip)]
+    pub plr: f64,
+    /// Runtime fraction from last simulate_air call
+    #[serde(skip)]
+    pub rtf: f64,
 }
 
 impl CoolingCoilDX {
@@ -128,6 +134,8 @@ impl CoolingCoilDX {
             cooling_rate: 0.0,
             sensible_cooling_rate: 0.0,
             power_consumption: 0.0,
+            plr: 0.0,
+            rtf: 0.0,
         }
     }
 
@@ -323,6 +331,8 @@ impl AirComponent for CoolingCoilDX {
             self.cooling_rate = 0.0;
             self.sensible_cooling_rate = 0.0;
             self.power_consumption = 0.0;
+            self.plr = 0.0;
+            self.rtf = 0.0;
             return *inlet;
         }
 
@@ -338,6 +348,8 @@ impl AirComponent for CoolingCoilDX {
             self.cooling_rate = 0.0;
             self.sensible_cooling_rate = 0.0;
             self.power_consumption = 0.0;
+            self.plr = 0.0;
+            self.rtf = 0.0;
             return *inlet;
         }
 
@@ -437,6 +449,15 @@ impl AirComponent for CoolingCoilDX {
         self.cooling_rate = q_total;
         self.sensible_cooling_rate = q_sensible;
 
+        // Store PLR and RTF for detailed outputs
+        self.plr = plr_power; // plr_power = q_total / available_cap
+        let plf = if let Some(ref curve) = self.plf_curve {
+            curve.evaluate_1d(self.plr)
+        } else {
+            1.0 - 0.15 * (1.0 - self.plr)
+        };
+        self.rtf = if plf > 0.0 { self.plr / plf } else { 0.0 };
+
         AirPort::new(
             psych::MoistAirState::new(outlet_t, outlet_w, inlet.state.p_b),
             inlet.mass_flow,
@@ -488,6 +509,33 @@ impl AirComponent for CoolingCoilDX {
     fn thermal_output(&self) -> f64 {
         // Negative = cooling (convention: positive = heating, negative = cooling)
         -self.cooling_rate
+    }
+
+    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
+        let mut m = std::collections::HashMap::new();
+        m.insert("sensible_load".to_string(), self.sensible_cooling_rate);
+        m.insert(
+            "latent_load".to_string(),
+            self.cooling_rate - self.sensible_cooling_rate,
+        );
+        m.insert("total_load".to_string(), self.cooling_rate);
+        m.insert(
+            "cop_operating".to_string(),
+            if self.power_consumption > 0.0 {
+                self.cooling_rate / self.power_consumption
+            } else {
+                0.0
+            },
+        );
+        m.insert("plr".to_string(), self.plr);
+        m.insert("rtf".to_string(), self.rtf);
+        let cycling_loss = if self.plr > 0.0 {
+            self.cooling_rate * (1.0 - self.rtf / self.plr)
+        } else {
+            0.0
+        };
+        m.insert("cycling_loss".to_string(), cycling_loss);
+        m
     }
 }
 

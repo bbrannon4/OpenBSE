@@ -53,7 +53,12 @@ Last updated: 2026-03-23
 - Aggregation modes: mean, sum, min, max
 - Summary reports in three formats: text, HTML (styled tables, ASHRAE compliance), and structured CSV
 - Monthly energy end-use breakdown (14 categories × 12 months), per-zone peak loads summary (TRACE-style)
+- Peak loads with coincident conditions (outdoor temp, zone temp, wind speed) in text and HTML reports
 - 16 energy end-use timeseries output variables (fan, cooling, heating, pump, etc. by fuel type)
+- Per-component output variables via `ComponentName:variable` pattern (electric_power, thermal_output, PLR, COP, water temps, etc.)
+- Zone gain breakdown: 14 individual gain categories (people, lighting, equipment, infiltration, ventilation, nat vent, solar, HVAC — each sensible/latent)
+- Comfort metrics: mean radiant temperature, operative temperature
+- Unmet hours time-series: per-zone per-timestep heating/cooling unmet flags
 - Custom output variable selection
 - CLI `-w` flag for weather file (overrides YAML `weather_files`)
 

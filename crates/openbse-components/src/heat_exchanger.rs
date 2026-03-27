@@ -196,6 +196,18 @@ impl PlantComponent for WaterToWaterHX {
         self.source_inlet_temp = temp;
         self.source_mass_flow = mass_flow;
     }
+
+    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
+        let mut m = std::collections::HashMap::new();
+        m.insert("heat_transferred".to_string(), self.heat_transferred);
+        m.insert("effectiveness".to_string(), self.effectiveness);
+        m.insert(
+            "source_inlet_temperature".to_string(),
+            self.source_inlet_temp,
+        );
+        m.insert("source_mass_flow".to_string(), self.source_mass_flow);
+        m
+    }
 }
 
 #[cfg(test)]

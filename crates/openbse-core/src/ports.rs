@@ -175,6 +175,13 @@ pub trait AirComponent: std::fmt::Debug {
     fn ambient_zone(&self) -> Option<&str> {
         None
     }
+
+    /// Additional component-specific output variables beyond the standard set.
+    /// Returns field_name -> value pairs (e.g., "sensible_load" -> 5000.0).
+    /// Default implementation returns empty map.
+    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
+        std::collections::HashMap::new()
+    }
 }
 
 /// Trait for plant-side components (boilers, chillers, pumps, etc.).
@@ -230,6 +237,13 @@ pub trait PlantComponent: std::fmt::Debug {
     /// Called by the simulation driver to inject source loop state before
     /// `simulate_plant()`. Default no-op — only `WaterToWaterHX` overrides.
     fn set_source_conditions(&mut self, _temp: f64, _mass_flow: f64) {}
+
+    /// Additional component-specific output variables beyond the standard set.
+    /// Returns field_name -> value pairs (e.g., "plr" -> 0.75).
+    /// Default implementation returns empty map.
+    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
+        std::collections::HashMap::new()
+    }
 }
 
 /// Context passed to every component during simulation.

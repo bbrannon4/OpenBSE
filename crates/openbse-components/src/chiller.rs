@@ -64,6 +64,12 @@ pub struct AirCooledChiller {
     pub electric_power: f64,
     #[serde(skip)]
     pub plr: f64,
+    #[serde(skip)]
+    pub water_inlet_temp: f64,
+    #[serde(skip)]
+    pub water_outlet_temp: f64,
+    #[serde(skip)]
+    pub water_mass_flow: f64,
 }
 
 fn default_min_plr() -> f64 {
@@ -98,6 +104,9 @@ impl AirCooledChiller {
             actual_cop: 0.0,
             electric_power: 0.0,
             plr: 0.0,
+            water_inlet_temp: 0.0,
+            water_outlet_temp: 0.0,
+            water_mass_flow: 0.0,
         }
     }
 
@@ -193,6 +202,9 @@ impl PlantComponent for AirCooledChiller {
             self.actual_cop = 0.0;
             self.electric_power = 0.0;
             self.plr = 0.0;
+            self.water_inlet_temp = inlet.state.temp;
+            self.water_outlet_temp = inlet.state.temp;
+            self.water_mass_flow = inlet.state.mass_flow;
             return *inlet;
         }
 
@@ -242,6 +254,12 @@ impl PlantComponent for AirCooledChiller {
         let mass_flow = inlet.state.mass_flow.max(0.001);
         let delta_t = self.actual_capacity / (mass_flow * cp_water);
         let t_outlet = (inlet.state.temp - delta_t).max(self.chw_setpoint - 2.0);
+
+        // Store water conditions for detailed outputs
+        self.water_inlet_temp = inlet.state.temp;
+        self.water_outlet_temp = t_outlet;
+        self.water_mass_flow = mass_flow;
+
         WaterPort::new(FluidState::water(t_outlet, mass_flow))
     }
     fn design_water_flow_rate(&self) -> Option<f64> {
@@ -259,6 +277,19 @@ impl PlantComponent for AirCooledChiller {
     }
     fn nominal_capacity(&self) -> Option<f64> {
         Some(self.rated_capacity)
+    }
+
+    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
+        let mut m = std::collections::HashMap::new();
+        m.insert("plr".to_string(), self.plr);
+        m.insert("efficiency_operating".to_string(), self.actual_cop);
+        m.insert("water_inlet_temperature".to_string(), self.water_inlet_temp);
+        m.insert(
+            "water_outlet_temperature".to_string(),
+            self.water_outlet_temp,
+        );
+        m.insert("water_mass_flow".to_string(), self.water_mass_flow);
+        m
     }
 }
 

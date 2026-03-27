@@ -224,6 +224,20 @@ impl AirComponent for CoolingCoilCHW {
         // Negative = cooling demand (convention: positive = heating, negative = cooling)
         -self.cooling_rate
     }
+
+    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
+        let mut m = std::collections::HashMap::new();
+        m.insert("sensible_load".to_string(), self.sensible_cooling_rate);
+        m.insert("total_load".to_string(), self.cooling_rate);
+        if let Some(ref wi) = self.water_inlet {
+            m.insert("water_inlet_temperature".to_string(), wi.state.temp);
+            m.insert("water_mass_flow".to_string(), wi.state.mass_flow);
+        }
+        if let Some(ref wo) = self.water_outlet_state {
+            m.insert("water_outlet_temperature".to_string(), wo.state.temp);
+        }
+        m
+    }
 }
 
 #[cfg(test)]

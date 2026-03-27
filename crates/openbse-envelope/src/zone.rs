@@ -574,6 +574,10 @@ pub struct ZoneState {
     pub people_latent: f64,
     /// Equipment latent heat gain [W] (from equipment with latent_fraction)
     pub equipment_latent: f64,
+    /// Lighting heat to zone [W] (conv + rad, excluding return air fraction)
+    pub lighting_gain_to_zone: f64,
+    /// Equipment sensible heat to zone [W] (conv + rad, excluding lost fraction)
+    pub equipment_sensible_gain_to_zone: f64,
     /// Indices into the surface array for surfaces in this zone
     pub surface_indices: Vec<usize>,
     /// Zone heating load [W] (positive = needs heating)
@@ -686,6 +690,8 @@ impl ZoneState {
             supply_air_humidity_ratio: 0.008,
             people_latent: 0.0,
             equipment_latent: 0.0,
+            lighting_gain_to_zone: 0.0,
+            equipment_sensible_gain_to_zone: 0.0,
             surface_indices: Vec::new(),
             heating_load: 0.0,
             cooling_load: 0.0,

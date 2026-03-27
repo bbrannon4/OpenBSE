@@ -78,6 +78,14 @@ pub struct Boiler {
     pub operating_plr: f64,
     #[serde(skip)]
     pub parasitic_power: f64,
+    #[serde(skip)]
+    pub water_inlet_temp: f64,
+    #[serde(skip)]
+    pub water_outlet_temp: f64,
+    #[serde(skip)]
+    pub water_mass_flow: f64,
+    #[serde(skip)]
+    pub efficiency_operating: f64,
 }
 
 impl Boiler {
@@ -108,6 +116,10 @@ impl Boiler {
             boiler_load: 0.0,
             operating_plr: 0.0,
             parasitic_power: 0.0,
+            water_inlet_temp: 0.0,
+            water_outlet_temp: 0.0,
+            water_mass_flow: 0.0,
+            efficiency_operating: 0.0,
         }
     }
 
@@ -147,6 +159,10 @@ impl PlantComponent for Boiler {
             self.boiler_load = 0.0;
             self.operating_plr = 0.0;
             self.parasitic_power = 0.0;
+            self.water_inlet_temp = inlet.state.temp;
+            self.water_outlet_temp = inlet.state.temp;
+            self.water_mass_flow = inlet.state.mass_flow;
+            self.efficiency_operating = 0.0;
             return *inlet;
         }
 
@@ -156,6 +172,10 @@ impl PlantComponent for Boiler {
             self.boiler_load = 0.0;
             self.operating_plr = 0.0;
             self.parasitic_power = 0.0;
+            self.water_inlet_temp = inlet.state.temp;
+            self.water_outlet_temp = inlet.state.temp;
+            self.water_mass_flow = inlet.state.mass_flow;
+            self.efficiency_operating = 0.0;
             return *inlet;
         }
 
@@ -192,6 +212,10 @@ impl PlantComponent for Boiler {
                     self.boiler_load = 0.0;
                     self.operating_plr = 0.0;
                     self.parasitic_power = 0.0;
+                    self.water_inlet_temp = inlet.state.temp;
+                    self.water_outlet_temp = inlet.state.temp;
+                    self.water_mass_flow = inlet.state.mass_flow;
+                    self.efficiency_operating = 0.0;
                     return *inlet;
                 }
 
@@ -239,6 +263,12 @@ impl PlantComponent for Boiler {
         self.operating_plr = plr;
         self.parasitic_power = self.parasitic_electric_load * plr;
 
+        // Store water conditions for detailed outputs
+        self.water_inlet_temp = inlet.state.temp;
+        self.water_outlet_temp = outlet_temp;
+        self.water_mass_flow = outlet_mass_flow;
+        self.efficiency_operating = boiler_eff;
+
         WaterPort::new(FluidState::water(outlet_temp, outlet_mass_flow))
     }
 
@@ -278,6 +308,22 @@ impl PlantComponent for Boiler {
 
     fn set_nominal_capacity(&mut self, cap: f64) {
         self.nominal_capacity = cap;
+    }
+
+    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
+        let mut m = std::collections::HashMap::new();
+        m.insert("plr".to_string(), self.operating_plr);
+        m.insert(
+            "efficiency_operating".to_string(),
+            self.efficiency_operating,
+        );
+        m.insert("water_inlet_temperature".to_string(), self.water_inlet_temp);
+        m.insert(
+            "water_outlet_temperature".to_string(),
+            self.water_outlet_temp,
+        );
+        m.insert("water_mass_flow".to_string(), self.water_mass_flow);
+        m
     }
 }
 

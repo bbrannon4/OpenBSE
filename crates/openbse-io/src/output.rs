@@ -153,6 +153,91 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
             "kg/s",
             "HVAC supply air mass flow to zone",
         ),
+        // Zone gain breakdown variables (all W, positive = heat into zone)
+        (
+            "zone_gain_people_sensible",
+            "W",
+            "Occupant sensible heat gain to zone",
+        ),
+        ("zone_gain_people_latent", "W", "Occupant latent heat gain"),
+        ("zone_gain_lighting", "W", "Lighting heat gain to zone"),
+        (
+            "zone_gain_equipment_sensible",
+            "W",
+            "Equipment sensible heat gain to zone",
+        ),
+        (
+            "zone_gain_equipment_latent",
+            "W",
+            "Equipment latent heat gain",
+        ),
+        (
+            "zone_gain_infiltration_sensible",
+            "W",
+            "Infiltration sensible heat gain",
+        ),
+        (
+            "zone_gain_infiltration_latent",
+            "W",
+            "Infiltration latent heat gain",
+        ),
+        (
+            "zone_gain_ventilation_sensible",
+            "W",
+            "Mechanical ventilation sensible heat gain",
+        ),
+        (
+            "zone_gain_ventilation_latent",
+            "W",
+            "Mechanical ventilation latent heat gain",
+        ),
+        (
+            "zone_gain_natural_ventilation_sensible",
+            "W",
+            "Natural ventilation sensible heat gain",
+        ),
+        (
+            "zone_gain_natural_ventilation_latent",
+            "W",
+            "Natural ventilation latent heat gain",
+        ),
+        (
+            "zone_gain_solar",
+            "W",
+            "Total solar gain to zone through windows",
+        ),
+        (
+            "zone_gain_hvac_sensible",
+            "W",
+            "HVAC supply air sensible heat gain",
+        ),
+        (
+            "zone_gain_hvac_latent",
+            "W",
+            "HVAC supply air latent heat gain",
+        ),
+        // Zone comfort variables
+        (
+            "zone_mean_radiant_temperature",
+            "°C",
+            "Area-weighted mean radiant temperature",
+        ),
+        (
+            "zone_operative_temperature",
+            "°C",
+            "Operative temperature (avg of air and MRT)",
+        ),
+        // Zone unmet hours time-series
+        (
+            "zone_unmet_heating",
+            "-",
+            "Unmet heating flag (1=unmet, 0=met)",
+        ),
+        (
+            "zone_unmet_cooling",
+            "-",
+            "Unmet cooling flag (1=unmet, 0=met)",
+        ),
         // Surface variables
         (
             "surface_inside_temperature",
@@ -266,6 +351,31 @@ pub fn get_unit(var_name: &str) -> &'static str {
             return unit;
         }
     }
+    // Dynamic component variable: "ComponentName:field_name" — match on field part
+    if let Some((_comp, field)) = var_name.split_once(':') {
+        return match field {
+            "electric_power" | "fuel_power" | "thermal_output" | "sensible_load"
+            | "latent_load" | "total_load" | "conduction_loss" | "leakage_loss"
+            | "cycling_loss" | "conduction_gain" | "heat_rejected" | "heat_transferred"
+            | "fan_power" => "W",
+            "inlet_temperature"
+            | "outlet_temperature"
+            | "water_inlet_temperature"
+            | "water_outlet_temperature"
+            | "source_inlet_temperature" => "°C",
+            "inlet_humidity_ratio" | "outlet_humidity_ratio" => "kg/kg",
+            "mass_flow" | "water_mass_flow" | "source_mass_flow" => "kg/s",
+            "inlet_enthalpy" | "outlet_enthalpy" => "J/kg",
+            "pressure_rise" => "Pa",
+            "cop_operating"
+            | "plr"
+            | "rtf"
+            | "total_efficiency"
+            | "efficiency_operating"
+            | "effectiveness" => "-",
+            _ => "-",
+        };
+    }
     // Legacy / per-component variable name support
     match var_name {
         "zone_temp" | "outdoor_temp" | "outlet_temp" | "supply_air_temp" => "°C",
@@ -289,7 +399,29 @@ pub fn get_unit(var_name: &str) -> &'static str {
 
 /// Whether a variable should default to sum aggregation (energy, mass).
 fn is_integrable(var_name: &str) -> bool {
-    matches!(var_name, "zone_heating_energy" | "zone_cooling_energy")
+    if matches!(var_name, "zone_heating_energy" | "zone_cooling_energy") {
+        return true;
+    }
+    // Component power/energy variables default to sum aggregation
+    if let Some((_comp, field)) = var_name.split_once(':') {
+        return matches!(
+            field,
+            "electric_power"
+                | "fuel_power"
+                | "thermal_output"
+                | "sensible_load"
+                | "latent_load"
+                | "total_load"
+                | "conduction_loss"
+                | "leakage_loss"
+                | "cycling_loss"
+                | "conduction_gain"
+                | "heat_rejected"
+                | "heat_transferred"
+                | "fan_power"
+        );
+    }
+    false
 }
 
 // ─── Timestep Data Collector ────────────────────────────────────────────────
@@ -354,6 +486,34 @@ pub struct OutputSnapshot {
     pub zone_lighting_power: HashMap<String, f64>,
     pub zone_equipment_power: HashMap<String, f64>,
 
+    // Per-zone gain breakdown (zone_name -> watts, positive = heat into zone)
+    pub zone_gain_people_sensible: HashMap<String, f64>,
+    pub zone_gain_people_latent: HashMap<String, f64>,
+    pub zone_gain_lighting: HashMap<String, f64>,
+    pub zone_gain_equipment_sensible: HashMap<String, f64>,
+    pub zone_gain_equipment_latent: HashMap<String, f64>,
+    pub zone_gain_infiltration_sensible: HashMap<String, f64>,
+    pub zone_gain_infiltration_latent: HashMap<String, f64>,
+    pub zone_gain_ventilation_sensible: HashMap<String, f64>,
+    pub zone_gain_ventilation_latent: HashMap<String, f64>,
+    pub zone_gain_natural_ventilation_sensible: HashMap<String, f64>,
+    pub zone_gain_natural_ventilation_latent: HashMap<String, f64>,
+    pub zone_gain_solar: HashMap<String, f64>,
+    pub zone_gain_hvac_sensible: HashMap<String, f64>,
+    pub zone_gain_hvac_latent: HashMap<String, f64>,
+
+    // Zone comfort metrics
+    pub zone_mean_radiant_temperature: HashMap<String, f64>,
+    pub zone_operative_temperature: HashMap<String, f64>,
+
+    // Zone unmet hours time-series (0.0 or 1.0)
+    pub zone_unmet_heating: HashMap<String, f64>,
+    pub zone_unmet_cooling: HashMap<String, f64>,
+
+    // Per-component detailed outputs (component_name -> {field_name -> value})
+    // Enables dynamic "ComponentName:field" output variable resolution.
+    pub component_outputs: HashMap<String, HashMap<String, f64>>,
+
     // Typed end-use maps — separate from generic component_electric/fuel_power
     // so the summary report can categorize without fragile name-matching
     pub dhw_electric_power: HashMap<String, f64>,
@@ -406,6 +566,25 @@ impl OutputSnapshot {
             air_loop_outlet_humidity_ratio: HashMap::new(),
             component_electric_power: HashMap::new(),
             component_fuel_power: HashMap::new(),
+            zone_gain_people_sensible: HashMap::new(),
+            zone_gain_people_latent: HashMap::new(),
+            zone_gain_lighting: HashMap::new(),
+            zone_gain_equipment_sensible: HashMap::new(),
+            zone_gain_equipment_latent: HashMap::new(),
+            zone_gain_infiltration_sensible: HashMap::new(),
+            zone_gain_infiltration_latent: HashMap::new(),
+            zone_gain_ventilation_sensible: HashMap::new(),
+            zone_gain_ventilation_latent: HashMap::new(),
+            zone_gain_natural_ventilation_sensible: HashMap::new(),
+            zone_gain_natural_ventilation_latent: HashMap::new(),
+            zone_gain_solar: HashMap::new(),
+            zone_gain_hvac_sensible: HashMap::new(),
+            zone_gain_hvac_latent: HashMap::new(),
+            zone_mean_radiant_temperature: HashMap::new(),
+            zone_operative_temperature: HashMap::new(),
+            zone_unmet_heating: HashMap::new(),
+            zone_unmet_cooling: HashMap::new(),
+            component_outputs: HashMap::new(),
             zone_lighting_power: HashMap::new(),
             zone_equipment_power: HashMap::new(),
             dhw_electric_power: HashMap::new(),
@@ -460,6 +639,34 @@ impl OutputSnapshot {
             "zone_internal_gains_radiative" => self.zone_internal_gains_radiative.clone(),
             "zone_supply_air_temperature" => self.zone_supply_air_temperature.clone(),
             "zone_supply_air_mass_flow" => self.zone_supply_air_mass_flow.clone(),
+
+            // Zone gain breakdown
+            "zone_gain_people_sensible" => self.zone_gain_people_sensible.clone(),
+            "zone_gain_people_latent" => self.zone_gain_people_latent.clone(),
+            "zone_gain_lighting" => self.zone_gain_lighting.clone(),
+            "zone_gain_equipment_sensible" => self.zone_gain_equipment_sensible.clone(),
+            "zone_gain_equipment_latent" => self.zone_gain_equipment_latent.clone(),
+            "zone_gain_infiltration_sensible" => self.zone_gain_infiltration_sensible.clone(),
+            "zone_gain_infiltration_latent" => self.zone_gain_infiltration_latent.clone(),
+            "zone_gain_ventilation_sensible" => self.zone_gain_ventilation_sensible.clone(),
+            "zone_gain_ventilation_latent" => self.zone_gain_ventilation_latent.clone(),
+            "zone_gain_natural_ventilation_sensible" => {
+                self.zone_gain_natural_ventilation_sensible.clone()
+            }
+            "zone_gain_natural_ventilation_latent" => {
+                self.zone_gain_natural_ventilation_latent.clone()
+            }
+            "zone_gain_solar" => self.zone_gain_solar.clone(),
+            "zone_gain_hvac_sensible" => self.zone_gain_hvac_sensible.clone(),
+            "zone_gain_hvac_latent" => self.zone_gain_hvac_latent.clone(),
+
+            // Comfort metrics
+            "zone_mean_radiant_temperature" => self.zone_mean_radiant_temperature.clone(),
+            "zone_operative_temperature" => self.zone_operative_temperature.clone(),
+
+            // Unmet hours time-series
+            "zone_unmet_heating" => self.zone_unmet_heating.clone(),
+            "zone_unmet_cooling" => self.zone_unmet_cooling.clone(),
 
             // Surface
             "surface_inside_temperature" => self.surface_inside_temperature.clone(),
@@ -596,7 +803,23 @@ impl OutputSnapshot {
                 single("Building", heating + dhw)
             }
 
-            _ => HashMap::new(),
+            _ => {
+                // Dynamic component variable: "ComponentName:field_name"
+                if let Some((comp_name, field_name)) = var_name.split_once(':') {
+                    if let Some(vars) = self.component_outputs.get(comp_name) {
+                        if let Some(&val) = vars.get(field_name) {
+                            return single(comp_name, val);
+                        }
+                    }
+                    // Also check surface conduction_gain alias
+                    if field_name == "conduction_gain" {
+                        if let Some(&val) = self.surface_conduction_inside.get(comp_name) {
+                            return single(comp_name, val);
+                        }
+                    }
+                }
+                HashMap::new()
+            }
         }
     }
 }
@@ -908,10 +1131,10 @@ pub struct SummaryReport {
     total_timesteps: u64,
     /// Timestep duration [s]
     dt: f64,
-    /// Peak heating rate [W] and when it occurred
-    peak_heating: (f64, u32, u32, u32), // (watts, month, day, hour)
-    /// Peak cooling rate [W] and when it occurred
-    peak_cooling: (f64, u32, u32, u32),
+    /// Peak heating rate [W] and when it occurred, with coincident conditions
+    peak_heating: (f64, u32, u32, u32, f64, f64, f64), // (watts, month, day, hour, outdoor_temp, zone_temp, wind_speed)
+    /// Peak cooling rate [W] and when it occurred, with coincident conditions
+    peak_cooling: (f64, u32, u32, u32, f64, f64, f64),
     /// Total window transmitted solar energy [J] (for diagnostics)
     total_transmitted_solar_j: f64,
     /// Total window incident solar energy [J] (for diagnostics)
@@ -956,8 +1179,8 @@ impl SummaryReport {
             cooling_setpoints,
             total_timesteps: 0,
             dt: 3600.0,
-            peak_heating: (0.0, 0, 0, 0),
-            peak_cooling: (0.0, 0, 0, 0),
+            peak_heating: (0.0, 0, 0, 0, 0.0, 0.0, 0.0),
+            peak_cooling: (0.0, 0, 0, 0, 0.0, 0.0, 0.0),
             total_transmitted_solar_j: 0.0,
             total_incident_solar_j: 0.0,
             monthly_transmitted_solar_j: [0.0; 12],
@@ -1007,12 +1230,41 @@ impl SummaryReport {
         me.cooling_j += total_cooling * snapshot.dt;
         me.hours += snapshot.dt / 3600.0;
 
-        // Track peaks
+        // Track peaks with coincident conditions
         if total_heating > self.peak_heating.0 {
-            self.peak_heating = (total_heating, snapshot.month, snapshot.day, snapshot.hour);
+            // Load-weighted average zone temp at peak
+            let avg_zone_temp = if !snapshot.zone_temperature.is_empty() {
+                let sum: f64 = snapshot.zone_temperature.values().sum();
+                sum / snapshot.zone_temperature.len() as f64
+            } else {
+                0.0
+            };
+            self.peak_heating = (
+                total_heating,
+                snapshot.month,
+                snapshot.day,
+                snapshot.hour,
+                snapshot.site_outdoor_temperature,
+                avg_zone_temp,
+                snapshot.site_wind_speed,
+            );
         }
         if total_cooling > self.peak_cooling.0 {
-            self.peak_cooling = (total_cooling, snapshot.month, snapshot.day, snapshot.hour);
+            let avg_zone_temp = if !snapshot.zone_temperature.is_empty() {
+                let sum: f64 = snapshot.zone_temperature.values().sum();
+                sum / snapshot.zone_temperature.len() as f64
+            } else {
+                0.0
+            };
+            self.peak_cooling = (
+                total_cooling,
+                snapshot.month,
+                snapshot.day,
+                snapshot.hour,
+                snapshot.site_outdoor_temperature,
+                avg_zone_temp,
+                snapshot.site_wind_speed,
+            );
         }
 
         // Track per-zone peaks
@@ -1304,6 +1556,11 @@ impl SummaryReport {
                 "  Peak Heating: {:>10.1} W  (Month {:>2}, Day {:>2}, Hour {:>2})",
                 self.peak_heating.0, self.peak_heating.1, self.peak_heating.2, self.peak_heating.3
             )?;
+            writeln!(
+                w,
+                "    Coincident: OA {:.1}°C, Zone {:.1}°C, Wind {:.1} m/s",
+                self.peak_heating.4, self.peak_heating.5, self.peak_heating.6
+            )?;
         } else {
             writeln!(w, "  Peak Heating:       0.0 W  (no heating required)")?;
         }
@@ -1312,6 +1569,11 @@ impl SummaryReport {
                 w,
                 "  Peak Cooling: {:>10.1} W  (Month {:>2}, Day {:>2}, Hour {:>2})",
                 self.peak_cooling.0, self.peak_cooling.1, self.peak_cooling.2, self.peak_cooling.3
+            )?;
+            writeln!(
+                w,
+                "    Coincident: OA {:.1}°C, Zone {:.1}°C, Wind {:.1} m/s",
+                self.peak_cooling.4, self.peak_cooling.5, self.peak_cooling.6
             )?;
         } else {
             writeln!(w, "  Peak Cooling:       0.0 W  (no cooling required)")?;
@@ -2038,7 +2300,11 @@ impl SummaryReport {
         // -- Peak Loads --
         writeln!(w, "<h2>Peak Loads</h2>")?;
         writeln!(w, "<table>")?;
-        html_table_row(&mut w, &["", "W", "Time"], true)?;
+        html_table_row(
+            &mut w,
+            &["", "W", "Time", "OA [°C]", "Zone [°C]", "Wind [m/s]"],
+            true,
+        )?;
         html_table_row(
             &mut w,
             &[
@@ -2048,6 +2314,9 @@ impl SummaryReport {
                     "Month {} Day {} Hour {}",
                     self.peak_heating.1, self.peak_heating.2, self.peak_heating.3
                 ),
+                &format!("{:.1}", self.peak_heating.4),
+                &format!("{:.1}", self.peak_heating.5),
+                &format!("{:.1}", self.peak_heating.6),
             ],
             false,
         )?;
@@ -2060,6 +2329,9 @@ impl SummaryReport {
                     "Month {} Day {} Hour {}",
                     self.peak_cooling.1, self.peak_cooling.2, self.peak_cooling.3
                 ),
+                &format!("{:.1}", self.peak_cooling.4),
+                &format!("{:.1}", self.peak_cooling.5),
+                &format!("{:.1}", self.peak_cooling.6),
             ],
             false,
         )?;
@@ -2755,5 +3027,142 @@ variables:
         assert_eq!(config.frequency, OutputFrequency::Daily);
         assert_eq!(config.aggregation, Aggregation::Sum);
         assert_eq!(config.variables, vec!["zone_heating_energy"]);
+    }
+
+    #[test]
+    fn test_per_component_variable_resolution() {
+        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
+        let mut boiler_vars = HashMap::new();
+        boiler_vars.insert("fuel_power".to_string(), 50000.0);
+        boiler_vars.insert("plr".to_string(), 0.75);
+        boiler_vars.insert("water_outlet_temperature".to_string(), 82.0);
+        snap.component_outputs
+            .insert("Boiler-1".to_string(), boiler_vars);
+
+        // Resolve "Boiler-1:fuel_power"
+        let vals = snap.get_variable_values("Boiler-1:fuel_power");
+        assert_eq!(vals.get("Boiler-1"), Some(&50000.0));
+
+        // Resolve "Boiler-1:plr"
+        let vals = snap.get_variable_values("Boiler-1:plr");
+        assert_eq!(vals.get("Boiler-1"), Some(&0.75));
+
+        // Resolve "Boiler-1:water_outlet_temperature"
+        let vals = snap.get_variable_values("Boiler-1:water_outlet_temperature");
+        assert_eq!(vals.get("Boiler-1"), Some(&82.0));
+
+        // Unknown variable returns empty
+        let vals = snap.get_variable_values("Boiler-1:nonexistent");
+        assert!(vals.is_empty());
+
+        // Unknown component returns empty
+        let vals = snap.get_variable_values("FakeComp:fuel_power");
+        assert!(vals.is_empty());
+    }
+
+    #[test]
+    fn test_component_variable_units() {
+        assert_eq!(get_unit("MyFan:electric_power"), "W");
+        assert_eq!(get_unit("DX Coil:outlet_temperature"), "\u{00b0}C");
+        assert_eq!(get_unit("Supply Fan:pressure_rise"), "Pa");
+        assert_eq!(get_unit("Boiler:plr"), "-");
+        assert_eq!(get_unit("Chiller:water_mass_flow"), "kg/s");
+        assert_eq!(get_unit("Coil:inlet_humidity_ratio"), "kg/kg");
+        assert_eq!(get_unit("Coil:inlet_enthalpy"), "J/kg");
+    }
+
+    #[test]
+    fn test_component_variable_is_integrable() {
+        assert!(is_integrable("MyFan:electric_power"));
+        assert!(is_integrable("Boiler:fuel_power"));
+        assert!(is_integrable("Coil:sensible_load"));
+        assert!(is_integrable("Duct:conduction_loss"));
+        assert!(!is_integrable("Fan:plr"));
+        assert!(!is_integrable("Fan:outlet_temperature"));
+    }
+
+    #[test]
+    fn test_zone_gain_variables() {
+        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
+        snap.zone_gain_people_sensible
+            .insert("Zone1".to_string(), 200.0);
+        snap.zone_gain_lighting.insert("Zone1".to_string(), 500.0);
+        snap.zone_gain_solar.insert("Zone1".to_string(), 1000.0);
+        snap.zone_gain_hvac_sensible
+            .insert("Zone1".to_string(), -3000.0);
+
+        let vals = snap.get_variable_values("zone_gain_people_sensible");
+        assert_eq!(vals.get("Zone1"), Some(&200.0));
+
+        let vals = snap.get_variable_values("zone_gain_lighting");
+        assert_eq!(vals.get("Zone1"), Some(&500.0));
+
+        let vals = snap.get_variable_values("zone_gain_solar");
+        assert_eq!(vals.get("Zone1"), Some(&1000.0));
+
+        let vals = snap.get_variable_values("zone_gain_hvac_sensible");
+        assert_eq!(vals.get("Zone1"), Some(&-3000.0));
+    }
+
+    #[test]
+    fn test_mrt_and_operative_temperature() {
+        let mut snap = OutputSnapshot::new(7, 15, 14, 1, 3600.0);
+        // Set known MRT and operative temp
+        snap.zone_mean_radiant_temperature
+            .insert("Zone1".to_string(), 26.0);
+        snap.zone_operative_temperature
+            .insert("Zone1".to_string(), 25.0); // (24 + 26) / 2
+
+        let vals = snap.get_variable_values("zone_mean_radiant_temperature");
+        assert_eq!(vals.get("Zone1"), Some(&26.0));
+
+        let vals = snap.get_variable_values("zone_operative_temperature");
+        assert_eq!(vals.get("Zone1"), Some(&25.0));
+    }
+
+    #[test]
+    fn test_unmet_hours_variables() {
+        let mut snap = OutputSnapshot::new(1, 15, 8, 1, 3600.0);
+        snap.zone_unmet_heating.insert("Zone1".to_string(), 1.0);
+        snap.zone_unmet_cooling.insert("Zone1".to_string(), 0.0);
+
+        let vals = snap.get_variable_values("zone_unmet_heating");
+        assert_eq!(vals.get("Zone1"), Some(&1.0));
+
+        let vals = snap.get_variable_values("zone_unmet_cooling");
+        assert_eq!(vals.get("Zone1"), Some(&0.0));
+    }
+
+    #[test]
+    fn test_surface_conduction_gain_alias() {
+        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
+        snap.surface_conduction_inside
+            .insert("Wall-N".to_string(), -150.0);
+
+        // The alias "Wall-N:conduction_gain" should resolve to surface_conduction_inside
+        let vals = snap.get_variable_values("Wall-N:conduction_gain");
+        assert_eq!(vals.get("Wall-N"), Some(&-150.0));
+    }
+
+    #[test]
+    fn test_peak_coincident_conditions() {
+        let mut report = SummaryReport::new(
+            vec![("Zone1".to_string(), 20.0)].into_iter().collect(),
+            vec![("Zone1".to_string(), 25.0)].into_iter().collect(),
+        );
+
+        let mut snap = OutputSnapshot::new(1, 15, 8, 1, 3600.0);
+        snap.zone_heating_rate.insert("Zone1".to_string(), 5000.0);
+        snap.zone_cooling_rate.insert("Zone1".to_string(), 0.0);
+        snap.zone_temperature.insert("Zone1".to_string(), 18.0);
+        snap.site_outdoor_temperature = -10.0;
+        snap.site_wind_speed = 5.5;
+        report.add_snapshot(&snap);
+
+        // Check that peak heating captured coincident conditions
+        assert!((report.peak_heating.0 - 5000.0).abs() < 0.1);
+        assert!((report.peak_heating.4 - (-10.0)).abs() < 0.1); // outdoor temp
+        assert!((report.peak_heating.5 - 18.0).abs() < 0.1); // zone temp
+        assert!((report.peak_heating.6 - 5.5).abs() < 0.1); // wind speed
     }
 }

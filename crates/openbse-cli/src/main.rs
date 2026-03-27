@@ -2624,6 +2624,127 @@ fn main() -> Result<()> {
                             let (heat_sp, cool_sp) = zone.input.active_setpoints(hour);
                             snapshot.zone_heating_setpoint.insert(name.clone(), heat_sp);
                             snapshot.zone_cooling_setpoint.insert(name.clone(), cool_sp);
+
+                            // Unmet hours time-series
+                            let unmet_tol = 0.2; // matches SummaryReport tolerance
+                            let unmet_heat = if zone.temp < heat_sp - unmet_tol {
+                                1.0
+                            } else {
+                                0.0
+                            };
+                            let unmet_cool = if zone.temp > cool_sp + unmet_tol {
+                                1.0
+                            } else {
+                                0.0
+                            };
+                            snapshot.zone_unmet_heating.insert(name.clone(), unmet_heat);
+                            snapshot.zone_unmet_cooling.insert(name.clone(), unmet_cool);
+                        }
+
+                        // ── Zone gain breakdown ──────────────────────────
+                        let cp_air = openbse_psychrometrics::cp_air_fn_w(zone.humidity_ratio);
+                        let h_fg = 2_501_000.0_f64; // latent heat of vaporization [J/kg]
+                        let w_outdoor = ctx.outdoor_air.w;
+
+                        snapshot
+                            .zone_gain_people_sensible
+                            .insert(name.clone(), zone.people_heat);
+                        snapshot
+                            .zone_gain_people_latent
+                            .insert(name.clone(), zone.people_latent);
+                        snapshot
+                            .zone_gain_lighting
+                            .insert(name.clone(), zone.lighting_gain_to_zone);
+                        snapshot
+                            .zone_gain_equipment_sensible
+                            .insert(name.clone(), zone.equipment_sensible_gain_to_zone);
+                        snapshot
+                            .zone_gain_equipment_latent
+                            .insert(name.clone(), zone.equipment_latent);
+
+                        // Infiltration gains
+                        let q_infil_sens =
+                            zone.infiltration_mass_flow * cp_air * (t_outdoor - zone.temp);
+                        let q_infil_lat =
+                            zone.infiltration_mass_flow * h_fg * (w_outdoor - zone.humidity_ratio);
+                        snapshot
+                            .zone_gain_infiltration_sensible
+                            .insert(name.clone(), q_infil_sens);
+                        snapshot
+                            .zone_gain_infiltration_latent
+                            .insert(name.clone(), q_infil_lat);
+
+                        // Mechanical ventilation gains
+                        let q_vent_sens =
+                            zone.ventilation_mass_flow * cp_air * (t_outdoor - zone.temp);
+                        let q_vent_lat =
+                            zone.ventilation_mass_flow * h_fg * (w_outdoor - zone.humidity_ratio);
+                        snapshot
+                            .zone_gain_ventilation_sensible
+                            .insert(name.clone(), q_vent_sens);
+                        snapshot
+                            .zone_gain_ventilation_latent
+                            .insert(name.clone(), q_vent_lat);
+
+                        // Natural ventilation gains
+                        let q_natvent_sens =
+                            zone.nat_vent_mass_flow * cp_air * (t_outdoor - zone.temp);
+                        let q_natvent_lat =
+                            zone.nat_vent_mass_flow * h_fg * (w_outdoor - zone.humidity_ratio);
+                        snapshot
+                            .zone_gain_natural_ventilation_sensible
+                            .insert(name.clone(), q_natvent_sens);
+                        snapshot
+                            .zone_gain_natural_ventilation_latent
+                            .insert(name.clone(), q_natvent_lat);
+
+                        // HVAC supply air gains
+                        let q_hvac_sens =
+                            zone.supply_air_mass_flow * cp_air * (zone.supply_air_temp - zone.temp);
+                        let q_hvac_lat = zone.supply_air_mass_flow
+                            * h_fg
+                            * (zone.supply_air_humidity_ratio - zone.humidity_ratio);
+                        snapshot
+                            .zone_gain_hvac_sensible
+                            .insert(name.clone(), q_hvac_sens);
+                        snapshot
+                            .zone_gain_hvac_latent
+                            .insert(name.clone(), q_hvac_lat);
+
+                        // ── Comfort metrics ──────────────────────────────
+                        let mut sum_at = 0.0_f64;
+                        let mut sum_a = 0.0_f64;
+                        for &si in &zone.surface_indices {
+                            let s = &env.surfaces[si];
+                            sum_at += s.net_area * s.temp_inside;
+                            sum_a += s.net_area;
+                        }
+                        let mrt = if sum_a > 0.0 {
+                            sum_at / sum_a
+                        } else {
+                            zone.temp
+                        };
+                        let t_op = (zone.temp + mrt) / 2.0;
+                        snapshot
+                            .zone_mean_radiant_temperature
+                            .insert(name.clone(), mrt);
+                        snapshot
+                            .zone_operative_temperature
+                            .insert(name.clone(), t_op);
+                    }
+
+                    // Solar gains per zone (sum of transmitted solar through all zone windows)
+                    {
+                        let mut zone_solar_gains: HashMap<String, f64> = HashMap::new();
+                        for surface in &env.surfaces {
+                            if surface.transmitted_solar > 0.0 {
+                                *zone_solar_gains
+                                    .entry(surface.input.zone.clone())
+                                    .or_default() += surface.transmitted_solar;
+                            }
+                        }
+                        for (zn, val) in zone_solar_gains {
+                            snapshot.zone_gain_solar.insert(zn, val);
                         }
                     }
 
@@ -2704,6 +2825,9 @@ fn main() -> Result<()> {
                                 .insert(comp_name.clone(), pw * zmult);
                         }
                     }
+                    // Copy full component_outputs for per-component CSV output
+                    snapshot.component_outputs = result.component_outputs.clone();
+
                     // Zone internal gains — separate lighting and equipment energy.
                     // Apply zone_multiplier: gains are simulated once per zone but
                     // represent zone_multiplier identical zones for energy accounting.
@@ -2921,6 +3045,9 @@ fn main() -> Result<()> {
                                 .insert(comp_name.clone(), w);
                         }
                     }
+
+                    // Copy full component_outputs for per-component CSV output
+                    snapshot.component_outputs = result.component_outputs.clone();
 
                     // Populate energy end-use data (with zone_multiplier)
                     for (comp_name, vars) in &result.component_outputs {
@@ -3243,10 +3370,15 @@ fn simulate_all_loops(
                     nightcycle_timers.insert(li.name.clone(), 0.0);
                     for comp_name in &li.component_names {
                         let mut comp_outputs = HashMap::new();
+                        comp_outputs.insert("outlet_temperature".to_string(), t_outdoor);
                         comp_outputs.insert("outlet_temp".to_string(), t_outdoor);
+                        comp_outputs.insert("outlet_humidity_ratio".to_string(), ctx.outdoor_air.w);
                         comp_outputs.insert("outlet_w".to_string(), ctx.outdoor_air.w);
                         comp_outputs.insert("mass_flow".to_string(), 0.0);
                         comp_outputs.insert("outlet_enthalpy".to_string(), ctx.outdoor_air.h);
+                        comp_outputs.insert("inlet_temperature".to_string(), t_outdoor);
+                        comp_outputs.insert("inlet_humidity_ratio".to_string(), ctx.outdoor_air.w);
+                        comp_outputs.insert("inlet_enthalpy".to_string(), ctx.outdoor_air.h);
                         comp_outputs.insert("electric_power".to_string(), 0.0);
                         comp_outputs.insert("fuel_power".to_string(), 0.0);
                         comp_outputs.insert("thermal_output".to_string(), 0.0);
@@ -5095,13 +5227,22 @@ fn simulate_loop_components(
                 let outlet = component.simulate_air(&this_inlet, ctx);
 
                 let mut comp_outputs = HashMap::new();
+                comp_outputs.insert("outlet_temperature".to_string(), outlet.state.t_db);
                 comp_outputs.insert("outlet_temp".to_string(), outlet.state.t_db);
+                comp_outputs.insert("outlet_humidity_ratio".to_string(), outlet.state.w);
                 comp_outputs.insert("outlet_w".to_string(), outlet.state.w);
                 comp_outputs.insert("mass_flow".to_string(), outlet.mass_flow);
                 comp_outputs.insert("outlet_enthalpy".to_string(), outlet.state.h);
+                comp_outputs.insert("inlet_temperature".to_string(), this_inlet.state.t_db);
+                comp_outputs.insert("inlet_humidity_ratio".to_string(), this_inlet.state.w);
+                comp_outputs.insert("inlet_enthalpy".to_string(), this_inlet.state.h);
                 comp_outputs.insert("electric_power".to_string(), component.power_consumption());
                 comp_outputs.insert("fuel_power".to_string(), component.fuel_consumption());
                 comp_outputs.insert("thermal_output".to_string(), component.thermal_output());
+                // Merge component-specific detailed outputs
+                for (k, v) in component.detailed_outputs() {
+                    comp_outputs.insert(k, v);
+                }
                 outputs.insert(comp_name.clone(), comp_outputs);
 
                 last_outlet = Some(outlet);
@@ -5157,13 +5298,21 @@ fn simulate_hvac(
                 let outlet = component.simulate_air(&inlet, ctx);
 
                 let mut outputs = HashMap::new();
+                outputs.insert("outlet_temperature".to_string(), outlet.state.t_db);
                 outputs.insert("outlet_temp".to_string(), outlet.state.t_db);
+                outputs.insert("outlet_humidity_ratio".to_string(), outlet.state.w);
                 outputs.insert("outlet_w".to_string(), outlet.state.w);
                 outputs.insert("mass_flow".to_string(), outlet.mass_flow);
                 outputs.insert("outlet_enthalpy".to_string(), outlet.state.h);
+                outputs.insert("inlet_temperature".to_string(), inlet.state.t_db);
+                outputs.insert("inlet_humidity_ratio".to_string(), inlet.state.w);
+                outputs.insert("inlet_enthalpy".to_string(), inlet.state.h);
                 outputs.insert("electric_power".to_string(), component.power_consumption());
                 outputs.insert("fuel_power".to_string(), component.fuel_consumption());
                 outputs.insert("thermal_output".to_string(), component.thermal_output());
+                for (k, v) in component.detailed_outputs() {
+                    outputs.insert(k, v);
+                }
                 component_outputs.insert(comp_name, outputs);
 
                 last_air_outlet = Some(outlet);
@@ -5180,10 +5329,15 @@ fn simulate_hvac(
                 let outlet = component.simulate_plant(&inlet, load, ctx);
 
                 let mut outputs = HashMap::new();
+                outputs.insert("outlet_temperature".to_string(), outlet.state.temp);
                 outputs.insert("outlet_temp".to_string(), outlet.state.temp);
                 outputs.insert("mass_flow".to_string(), outlet.state.mass_flow);
                 outputs.insert("electric_power".to_string(), component.power_consumption());
                 outputs.insert("fuel_power".to_string(), component.fuel_consumption());
+                outputs.insert("thermal_output".to_string(), component.thermal_output());
+                for (k, v) in component.detailed_outputs() {
+                    outputs.insert(k, v);
+                }
                 component_outputs.insert(comp_name, outputs);
                 water_states.insert(node_idx, outlet);
             }

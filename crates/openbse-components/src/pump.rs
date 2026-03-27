@@ -70,6 +70,9 @@ pub struct Pump {
     /// Pump heat added to the water stream this timestep [W]
     #[serde(skip)]
     pub heat_to_fluid: f64,
+    /// Current water mass flow rate [kg/s]
+    #[serde(skip)]
+    pub current_mass_flow: f64,
 }
 
 impl Pump {
@@ -95,6 +98,7 @@ impl Pump {
             power_curve: None,
             power: 0.0,
             heat_to_fluid: 0.0,
+            current_mass_flow: 0.0,
         }
     }
 
@@ -157,6 +161,7 @@ impl PlantComponent for Pump {
         if load <= 0.0 || inlet.state.mass_flow <= 0.0 {
             self.power = 0.0;
             self.heat_to_fluid = 0.0;
+            self.current_mass_flow = 0.0;
             return *inlet;
         }
 
@@ -204,6 +209,9 @@ impl PlantComponent for Pump {
             }
         };
 
+        // Store current flow for detailed outputs
+        self.current_mass_flow = inlet.state.mass_flow;
+
         // Heat added to fluid from pump motor losses
         self.heat_to_fluid = self.power * self.motor_heat_to_fluid_fraction;
 
@@ -228,6 +236,13 @@ impl PlantComponent for Pump {
 
     fn power_consumption(&self) -> f64 {
         self.power
+    }
+
+    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
+        let mut m = std::collections::HashMap::new();
+        m.insert("water_mass_flow".to_string(), self.current_mass_flow);
+        m.insert("pressure_rise".to_string(), self.design_head);
+        m
     }
 }
 

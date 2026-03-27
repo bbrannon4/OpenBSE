@@ -77,6 +77,15 @@ pub struct CoolingTower {
     /// Current heat rejection rate [W]
     #[serde(skip)]
     pub heat_rejected: f64,
+    /// Water inlet temperature this timestep [°C]
+    #[serde(skip)]
+    pub water_inlet_temp: f64,
+    /// Water outlet temperature this timestep [°C]
+    #[serde(skip)]
+    pub water_outlet_temp: f64,
+    /// Water mass flow rate this timestep [kg/s]
+    #[serde(skip)]
+    pub water_mass_flow: f64,
 }
 
 impl CoolingTower {
@@ -104,6 +113,9 @@ impl CoolingTower {
             fan_power_curve: DEFAULT_FAN_POWER_CURVE,
             fan_power: 0.0,
             heat_rejected: 0.0,
+            water_inlet_temp: 0.0,
+            water_outlet_temp: 0.0,
+            water_mass_flow: 0.0,
         }
     }
 
@@ -139,6 +151,9 @@ impl PlantComponent for CoolingTower {
         if load <= 0.0 || inlet.state.mass_flow <= 0.0 {
             self.fan_power = 0.0;
             self.heat_rejected = 0.0;
+            self.water_inlet_temp = inlet.state.temp;
+            self.water_outlet_temp = inlet.state.temp;
+            self.water_mass_flow = inlet.state.mass_flow;
             return *inlet;
         }
 
@@ -203,6 +218,11 @@ impl PlantComponent for CoolingTower {
 
         self.heat_rejected = actual_rejection;
 
+        // Store water conditions for detailed outputs
+        self.water_inlet_temp = t_water_in;
+        self.water_outlet_temp = t_water_out;
+        self.water_mass_flow = mass_flow;
+
         WaterPort::new(FluidState::water(t_water_out, mass_flow))
     }
 
@@ -229,6 +249,19 @@ impl PlantComponent for CoolingTower {
         } else {
             None
         }
+    }
+
+    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
+        let mut m = std::collections::HashMap::new();
+        m.insert("fan_power".to_string(), self.fan_power);
+        m.insert("heat_rejected".to_string(), self.heat_rejected);
+        m.insert("water_inlet_temperature".to_string(), self.water_inlet_temp);
+        m.insert(
+            "water_outlet_temperature".to_string(),
+            self.water_outlet_temp,
+        );
+        m.insert("water_mass_flow".to_string(), self.water_mass_flow);
+        m
     }
 }
 

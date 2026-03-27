@@ -197,6 +197,13 @@ impl AirComponent for Fan {
     fn thermal_output(&self) -> f64 {
         self.heat_to_air
     }
+
+    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
+        let mut m = std::collections::HashMap::new();
+        m.insert("pressure_rise".to_string(), self.design_pressure_rise);
+        m.insert("total_efficiency".to_string(), self.total_efficiency);
+        m
+    }
 }
 
 #[cfg(test)]
