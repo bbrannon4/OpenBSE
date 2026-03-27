@@ -3323,16 +3323,25 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let mut ctf_const_in = 0.0_f64;
                     for j in 0..ctf.phi.len() {
                         if j < history.q_inside.len() {
-                            ctf_const_in += ctf.phi[j] * history.q_inside[j];
+                            let term = ctf.phi[j] * history.q_inside[j];
+                            if term.is_finite() {
+                                ctf_const_in += term;
+                            }
                         }
                     }
                     for j in 1..ctf.y.len() {
                         let idx = j - 1;
                         if idx < history.t_outside.len() {
-                            ctf_const_in += ctf.y[j] * history.t_outside[idx];
+                            let term = ctf.y[j] * history.t_outside[idx];
+                            if term.is_finite() {
+                                ctf_const_in += term;
+                            }
                         }
                         if idx < history.t_inside.len() {
-                            ctf_const_in -= ctf.z[j] * history.t_inside[idx];
+                            let term = ctf.z[j] * history.t_inside[idx];
+                            if term.is_finite() {
+                                ctf_const_in -= term;
+                            }
                         }
                     }
 
@@ -3851,24 +3860,35 @@ impl EnvelopeSolver for BuildingEnvelope {
                     //   T_i = (CTFConst + h_conv·T_zone + h_rad·T_mrt
                     //         + q_rad + IterDampConst·T_old)
                     //       / (Z₀ - Y₀ + h_conv + h_rad + IterDampConst)
-                    if pc.is_adiabatic {
+                    let t_new = if pc.is_adiabatic {
                         let denom = (pc.ctf_z0 - pc.ctf_y0) + h_conv + h_rad + ITER_DAMP_CONST;
-                        self.surfaces[i].temp_inside = (pc.ctf_const_in
+                        (pc.ctf_const_in
                             + h_conv * t_zone
                             + h_rad * t_mrt
                             + pc.q_rad_flux
                             + ITER_DAMP_CONST * t_old)
-                            / denom.max(0.1);
-                        self.surfaces[i].temp_outside = self.surfaces[i].temp_inside;
+                            / denom.max(0.1)
                     } else {
                         let denom = pc.ctf_z0 + h_conv + h_rad + ITER_DAMP_CONST;
-                        self.surfaces[i].temp_inside = (pc.ctf_y0 * self.surfaces[i].temp_outside
+                        (pc.ctf_y0 * self.surfaces[i].temp_outside
                             + pc.ctf_const_in
                             + h_conv * t_zone
                             + h_rad * t_mrt
                             + pc.q_rad_flux
                             + ITER_DAMP_CONST * t_old)
-                            / denom.max(0.1);
+                            / denom.max(0.1)
+                    };
+                    // Guard against NaN or extreme values from unstable CTF history.
+                    // If the surface temp diverges, hold at the previous iteration
+                    // value so the iteration can recover. Physical surface temps
+                    // should never exceed ±200°C; anything beyond that is numerical.
+                    self.surfaces[i].temp_inside = if t_new.is_nan() || t_new.abs() > 200.0 {
+                        t_old
+                    } else {
+                        t_new
+                    };
+                    if pc.is_adiabatic {
+                        self.surfaces[i].temp_outside = self.surfaces[i].temp_inside;
                     }
 
                     // Interzone coupling: immediately propagate this surface's
@@ -3934,8 +3954,17 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let surf = &self.surfaces[si];
                     let h = surf.h_conv_inside;
                     let a = surf.net_area;
-                    sum_ha += h * a;
-                    sum_hat += h * a * surf.temp_inside;
+                    let t_in = surf.temp_inside;
+                    // Guard against NaN surface temps (e.g. from CTF instability
+                    // during warmup). Use the zone's previous temperature as a
+                    // neutral fallback so the zone balance remains finite.
+                    if t_in.is_nan() {
+                        sum_ha += h * a;
+                        sum_hat += h * a * zone.temp;
+                    } else {
+                        sum_ha += h * a;
+                        sum_hat += h * a * t_in;
+                    }
                 }
 
                 // Transmitted solar through windows
@@ -4755,14 +4784,28 @@ impl EnvelopeSolver for BuildingEnvelope {
     fn update_bdf_history(&mut self) {
         // Zone air temperature and humidity BDF history
         for zone in &mut self.zones {
+            // Guard against NaN: if zone temp diverged this timestep, keep the
+            // previous value so the BDF history stays finite.
+            let t_safe = if zone.temp.is_nan() {
+                zone.temp_prev
+            } else {
+                zone.temp
+            };
             zone.temp_prev3 = zone.temp_prev2;
             zone.temp_prev2 = zone.temp_prev;
-            zone.temp_prev = zone.temp;
+            zone.temp_prev = t_safe;
+            zone.temp = t_safe; // also fix zone.temp for next timestep's t_zone_vec
             zone.temp_order = (zone.temp_order + 1).min(3);
 
+            let w_safe = if zone.humidity_ratio.is_nan() {
+                zone.w_prev
+            } else {
+                zone.humidity_ratio
+            };
             zone.w_prev3 = zone.w_prev2;
             zone.w_prev2 = zone.w_prev;
-            zone.w_prev = zone.humidity_ratio;
+            zone.w_prev = w_safe;
+            zone.humidity_ratio = w_safe;
             zone.w_order = (zone.w_order + 1).min(3);
 
             // Reset predictor mode lock so it will be recomputed on next physical timestep
@@ -4771,12 +4814,31 @@ impl EnvelopeSolver for BuildingEnvelope {
         // CTF conduction history (surface temps + heat fluxes)
         for i in 0..self.surfaces.len() {
             if let Some(history) = &mut self.ctf_histories[i] {
-                history.shift(
-                    self.surfaces[i].temp_outside,
-                    self.surfaces[i].temp_inside,
-                    self.ctf_q_last_inside[i],
-                    self.ctf_q_last_outside[i],
-                );
+                // Guard against NaN: if a surface temperature diverged this
+                // timestep, use the most recent valid history value instead
+                // of writing NaN into the CTF state.  The surface will
+                // self-correct on subsequent timesteps once zone temps are finite.
+                let t_out = if self.surfaces[i].temp_outside.is_nan() {
+                    *history.t_outside.first().unwrap_or(&21.0)
+                } else {
+                    self.surfaces[i].temp_outside
+                };
+                let t_in = if self.surfaces[i].temp_inside.is_nan() {
+                    *history.t_inside.first().unwrap_or(&21.0)
+                } else {
+                    self.surfaces[i].temp_inside
+                };
+                let q_in = if self.ctf_q_last_inside[i].is_nan() {
+                    0.0
+                } else {
+                    self.ctf_q_last_inside[i]
+                };
+                let q_out = if self.ctf_q_last_outside[i].is_nan() {
+                    0.0
+                } else {
+                    self.ctf_q_last_outside[i]
+                };
+                history.shift(t_out, t_in, q_in, q_out);
             }
         }
     }

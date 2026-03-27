@@ -8,14 +8,21 @@
 //!
 //! ## Variable Naming Convention
 //!
-//! Variables follow a hierarchical `<category>_<quantity>` pattern:
+//! Variables use a `category:variable` or `category:variable:name_filter` format:
 //!
-//! | Category       | Description                        | Example                       |
-//! |----------------|------------------------------------|-------------------------------|
-//! | `zone_`        | Zone air properties and loads       | `zone_temperature`            |
-//! | `surface_`     | Surface temps and heat transfer     | `surface_inside_temperature`  |
-//! | `air_loop_`    | Air system level                   | `air_loop_outlet_temperature` |
-//! | `site_`        | Outdoor/weather conditions          | `site_outdoor_temperature`    |
+//! | Category    | Description                          | Example                            |
+//! |-------------|--------------------------------------|------------------------------------|
+//! | `zone`      | Zone air properties and loads        | `zone:temperature`                 |
+//! | `surface`   | Surface temps and heat transfer      | `surface:inside_temperature`       |
+//! | `component` | HVAC component outputs               | `component:outlet_temperature`     |
+//! | `site`      | Outdoor/weather conditions           | `site:outdoor_temperature`         |
+//! | `building`  | Building-level energy end uses       | `building:fan_electric`            |
+//! | `submeter`  | Sub-meter energy tracking            | `submeter:total_electric`          |
+//!
+//! The optional third part is a name filter supporting `*` glob:
+//! - `zone:temperature` — all zones
+//! - `zone:temperature:living_unit1` — specific zone
+//! - `surface:transmitted_solar:Window*` — all surfaces starting with "Window"
 
 use openbse_core::simulation::TimestepResult;
 use serde::{Deserialize, Serialize};
@@ -65,9 +72,13 @@ impl Default for Aggregation {
 ///   - file: "zone_results.csv"
 ///     frequency: hourly
 ///     variables:
-///       - zone_temperature
-///       - zone_heating_rate
-///       - zone_cooling_rate
+///       - zone:temperature
+///       - zone:heating_rate
+///       - zone:cooling_rate
+///       - zone:temperature:living_unit1    # specific zone
+///       - surface:transmitted_solar:Window*  # glob filter
+///       - building:fan_electric
+///       - component:outlet_temperature
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputFileConfig {
@@ -87,349 +98,388 @@ pub struct OutputFileConfig {
 
 /// All available output variables with their units.
 ///
-/// Returns (variable_name, unit_string, description).
+/// Returns (spec, unit_string, description) where spec is `category:variable`.
 pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> {
     vec![
         // Zone variables
-        ("zone_temperature", "°C", "Zone air dry-bulb temperature"),
-        ("zone_humidity_ratio", "kg/kg", "Zone air humidity ratio"),
+        ("zone:temperature", "°C", "Zone air dry-bulb temperature"),
+        ("zone:humidity_ratio", "kg/kg", "Zone air humidity ratio"),
         (
-            "zone_heating_rate",
+            "zone:heating_rate",
             "W",
             "Zone heating load (positive = needs heating)",
         ),
         (
-            "zone_cooling_rate",
+            "zone:cooling_rate",
             "W",
             "Zone cooling load (positive = needs cooling)",
         ),
         (
-            "zone_heating_energy",
+            "zone:heating_energy",
             "J",
             "Zone heating energy (integrated from rate)",
         ),
         (
-            "zone_cooling_energy",
+            "zone:cooling_energy",
             "J",
             "Zone cooling energy (integrated from rate)",
         ),
         (
-            "zone_infiltration_mass_flow",
+            "zone:infiltration_mass_flow",
             "kg/s",
             "Zone infiltration air mass flow rate",
         ),
         (
-            "zone_nat_vent_flow",
+            "zone:nat_vent_flow",
             "m³/s",
             "Zone natural ventilation volume flow rate",
         ),
         (
-            "zone_nat_vent_mass_flow",
+            "zone:nat_vent_mass_flow",
             "kg/s",
             "Zone natural ventilation mass flow rate",
         ),
         (
-            "zone_nat_vent_active",
+            "zone:nat_vent_active",
             "-",
             "Zone natural ventilation active (1=yes, 0=no)",
         ),
         (
-            "zone_internal_gains_convective",
+            "zone:internal_gains_convective",
             "W",
             "Zone convective internal gains",
         ),
         (
-            "zone_internal_gains_radiative",
+            "zone:internal_gains_radiative",
             "W",
             "Zone radiative internal gains",
         ),
         (
-            "zone_supply_air_temperature",
+            "zone:supply_air_temperature",
             "°C",
             "HVAC supply air temperature to zone",
         ),
         (
-            "zone_supply_air_mass_flow",
+            "zone:supply_air_mass_flow",
             "kg/s",
             "HVAC supply air mass flow to zone",
         ),
         // Zone gain breakdown variables (all W, positive = heat into zone)
         (
-            "zone_gain_people_sensible",
+            "zone:gain_people_sensible",
             "W",
             "Occupant sensible heat gain to zone",
         ),
-        ("zone_gain_people_latent", "W", "Occupant latent heat gain"),
-        ("zone_gain_lighting", "W", "Lighting heat gain to zone"),
+        ("zone:gain_people_latent", "W", "Occupant latent heat gain"),
+        ("zone:gain_lighting", "W", "Lighting heat gain to zone"),
         (
-            "zone_gain_equipment_sensible",
+            "zone:gain_equipment_sensible",
             "W",
             "Equipment sensible heat gain to zone",
         ),
         (
-            "zone_gain_equipment_latent",
+            "zone:gain_equipment_latent",
             "W",
             "Equipment latent heat gain",
         ),
         (
-            "zone_gain_infiltration_sensible",
+            "zone:gain_infiltration_sensible",
             "W",
             "Infiltration sensible heat gain",
         ),
         (
-            "zone_gain_infiltration_latent",
+            "zone:gain_infiltration_latent",
             "W",
             "Infiltration latent heat gain",
         ),
         (
-            "zone_gain_ventilation_sensible",
+            "zone:gain_ventilation_sensible",
             "W",
             "Mechanical ventilation sensible heat gain",
         ),
         (
-            "zone_gain_ventilation_latent",
+            "zone:gain_ventilation_latent",
             "W",
             "Mechanical ventilation latent heat gain",
         ),
         (
-            "zone_gain_natural_ventilation_sensible",
+            "zone:gain_natural_ventilation_sensible",
             "W",
             "Natural ventilation sensible heat gain",
         ),
         (
-            "zone_gain_natural_ventilation_latent",
+            "zone:gain_natural_ventilation_latent",
             "W",
             "Natural ventilation latent heat gain",
         ),
         (
-            "zone_gain_solar",
+            "zone:gain_solar",
             "W",
             "Total solar gain to zone through windows",
         ),
         (
-            "zone_gain_hvac_sensible",
+            "zone:gain_hvac_sensible",
             "W",
             "HVAC supply air sensible heat gain",
         ),
         (
-            "zone_gain_hvac_latent",
+            "zone:gain_hvac_latent",
             "W",
             "HVAC supply air latent heat gain",
         ),
         // Zone comfort variables
         (
-            "zone_mean_radiant_temperature",
+            "zone:mean_radiant_temperature",
             "°C",
             "Area-weighted mean radiant temperature",
         ),
         (
-            "zone_operative_temperature",
+            "zone:operative_temperature",
             "°C",
             "Operative temperature (avg of air and MRT)",
         ),
         // Zone unmet hours time-series
         (
-            "zone_unmet_heating",
+            "zone:unmet_heating",
             "-",
             "Unmet heating flag (1=unmet, 0=met)",
         ),
         (
-            "zone_unmet_cooling",
+            "zone:unmet_cooling",
             "-",
             "Unmet cooling flag (1=unmet, 0=met)",
         ),
         // Surface variables
         (
-            "surface_inside_temperature",
+            "surface:inside_temperature",
             "°C",
             "Surface inside face temperature",
         ),
         (
-            "surface_outside_temperature",
+            "surface:outside_temperature",
             "°C",
             "Surface outside face temperature",
         ),
         (
-            "surface_inside_convection_coefficient",
+            "surface:inside_convection_coefficient",
             "W/(m²·K)",
             "Inside convection coefficient",
         ),
         (
-            "surface_incident_solar",
+            "surface:incident_solar",
             "W/m²",
             "Incident solar radiation on surface",
         ),
         (
-            "surface_transmitted_solar",
+            "surface:transmitted_solar",
             "W",
             "Solar transmitted through window",
         ),
         (
-            "surface_conduction_inside",
+            "surface:cond_inside",
             "W",
             "Conduction heat flux on inside face of surface",
         ),
         (
-            "surface_convection_inside",
+            "surface:convection_inside",
             "W",
             "Convective heat flux from inside surface to zone",
         ),
         // Site/weather variables
         (
-            "site_outdoor_temperature",
+            "site:outdoor_temperature",
             "°C",
             "Outdoor dry-bulb temperature",
         ),
-        ("site_wind_speed", "m/s", "Wind speed"),
+        ("site:wind_speed", "m/s", "Wind speed"),
         (
-            "site_direct_normal_radiation",
+            "site:direct_normal_radiation",
             "W/m²",
             "Direct normal solar radiation",
         ),
         (
-            "site_diffuse_horizontal_radiation",
+            "site:diffuse_horizontal_radiation",
             "W/m²",
             "Diffuse horizontal solar radiation",
         ),
-        ("site_relative_humidity", "%", "Outdoor relative humidity"),
-        // Air loop / HVAC component variables
+        ("site:relative_humidity", "%", "Outdoor relative humidity"),
+        // Component / HVAC variables
         (
-            "air_loop_outlet_temperature",
+            "component:outlet_temperature",
             "°C",
-            "Air loop outlet temperature",
+            "Component outlet temperature",
         ),
-        ("air_loop_mass_flow", "kg/s", "Air loop mass flow rate"),
         (
-            "air_loop_outlet_humidity_ratio",
+            "component:mass_flow",
+            "kg/s",
+            "Component air/fluid mass flow rate",
+        ),
+        (
+            "component:outlet_humidity_ratio",
             "kg/kg",
-            "Air loop outlet humidity ratio",
+            "Component outlet humidity ratio",
         ),
-        // Energy end-use variables (building totals)
-        ("energy_fan_electric", "W", "Fan electric power (all fans)"),
         (
-            "energy_cooling_electric",
+            "component:cop_operating",
+            "-",
+            "Component coefficient of performance",
+        ),
+        ("component:plr", "-", "Component part-load ratio"),
+        ("component:rtf", "-", "Component runtime fraction"),
+        (
+            "component:electric_power",
+            "W",
+            "Component electric power consumption",
+        ),
+        (
+            "component:fuel_power",
+            "W",
+            "Component fuel power consumption",
+        ),
+        ("component:thermal_output", "W", "Component thermal output"),
+        (
+            "component:inlet_temperature",
+            "°C",
+            "Component inlet temperature",
+        ),
+        // Building energy end-use variables
+        (
+            "building:fan_electric",
+            "W",
+            "Fan electric power (all fans)",
+        ),
+        (
+            "building:cooling_electric",
             "W",
             "Cooling electric power (DX, chiller)",
         ),
-        ("energy_heating_electric", "W", "Heating electric power"),
-        ("energy_heating_gas", "W", "Heating gas/fuel power"),
-        ("energy_pump_electric", "W", "Pump electric power"),
+        ("building:heating_electric", "W", "Heating electric power"),
+        ("building:heating_gas", "W", "Heating gas/fuel power"),
+        ("building:pump_electric", "W", "Pump electric power"),
         (
-            "energy_heat_rejection",
+            "building:heat_rejection",
             "W",
             "Heat rejection electric power",
         ),
         (
-            "energy_humidification",
+            "building:humidification",
             "W",
             "Humidification electric power",
         ),
-        ("energy_heat_recovery", "W", "Heat recovery electric power"),
-        ("energy_dhw_electric", "W", "DHW electric power"),
-        ("energy_dhw_gas", "W", "DHW gas/fuel power"),
-        ("energy_lighting", "W", "Interior lighting power"),
-        ("energy_ext_lighting", "W", "Exterior lighting power"),
-        ("energy_equipment", "W", "Interior equipment power"),
-        ("energy_ext_equipment", "W", "Exterior equipment power"),
         (
-            "energy_total_electric",
+            "building:heat_recovery",
+            "W",
+            "Heat recovery electric power",
+        ),
+        ("building:dhw_electric", "W", "DHW electric power"),
+        ("building:dhw_gas", "W", "DHW gas/fuel power"),
+        ("building:lighting", "W", "Interior lighting power"),
+        ("building:ext_lighting", "W", "Exterior lighting power"),
+        ("building:equipment", "W", "Interior equipment power"),
+        ("building:ext_equipment", "W", "Exterior equipment power"),
+        (
+            "building:total_electric",
             "W",
             "Total electric power (all end uses)",
         ),
         (
-            "energy_total_gas",
+            "building:total_gas",
             "W",
             "Total gas/fuel power (all end uses)",
         ),
+        // Submeter variables
+        (
+            "submeter:total_electric",
+            "W",
+            "Submeter total electric power",
+        ),
+        ("submeter:total_gas", "W", "Submeter total gas power"),
+        ("submeter:total", "W", "Submeter total power (all fuels)"),
+        ("submeter:lighting", "W", "Submeter lighting power"),
+        ("submeter:equipment", "W", "Submeter equipment power"),
+        ("submeter:heating_gas", "W", "Submeter heating gas power"),
+        (
+            "submeter:cooling_electric",
+            "W",
+            "Submeter cooling electric power",
+        ),
+        ("submeter:fan_electric", "W", "Submeter fan electric power"),
+        ("submeter:dhw_gas", "W", "Submeter DHW gas power"),
     ]
 }
 
-/// Get the unit string for a variable name.
-pub fn get_unit(var_name: &str) -> &'static str {
-    for (name, unit, _) in available_variables() {
-        if name == var_name {
-            return unit;
+/// Get the unit string for a variable spec (`category:variable` or `category:variable:filter`).
+pub fn get_unit(spec: &str) -> &'static str {
+    let mut parts = spec.splitn(3, ':');
+    let category = parts.next().unwrap_or("");
+    let variable = parts.next().unwrap_or("");
+    match (category, variable) {
+        (
+            "zone",
+            "temperature"
+            | "supply_air_temperature"
+            | "mean_radiant_temperature"
+            | "operative_temperature",
+        ) => "°C",
+        ("zone", "humidity_ratio") => "kg/kg",
+        ("zone", "nat_vent_flow") => "m³/s",
+        ("zone", "infiltration_mass_flow" | "supply_air_mass_flow" | "nat_vent_mass_flow") => {
+            "kg/s"
         }
-    }
-    // Submeter variables are all power [W]
-    if var_name.starts_with("submeter:") {
-        return "W";
-    }
-    // Dynamic component variable: "ComponentName:field_name" — match on field part
-    if let Some((_comp, field)) = var_name.split_once(':') {
-        return match field {
-            "electric_power" | "fuel_power" | "thermal_output" | "sensible_load"
-            | "latent_load" | "total_load" | "conduction_loss" | "leakage_loss"
-            | "cycling_loss" | "conduction_gain" | "heat_rejected" | "heat_transferred"
-            | "fan_power" => "W",
-            "inlet_temperature"
-            | "outlet_temperature"
+        ("zone", "heating_energy" | "cooling_energy") => "J",
+        ("zone", "nat_vent_active" | "unmet_heating" | "unmet_cooling") => "-",
+        ("zone", _) => "W",
+        ("surface", "inside_temperature" | "outside_temperature") => "°C",
+        ("surface", "inside_convection_coefficient") => "W/(m²·K)",
+        ("surface", "incident_solar") => "W/m²",
+        ("surface", _) => "W",
+        ("site", "outdoor_temperature") => "°C",
+        ("site", "wind_speed") => "m/s",
+        ("site", "relative_humidity") => "%",
+        ("site", _) => "W/m²",
+        ("building" | "submeter", _) => "W",
+        (
+            "component",
+            "outlet_temperature"
+            | "inlet_temperature"
             | "water_inlet_temperature"
             | "water_outlet_temperature"
-            | "source_inlet_temperature" => "°C",
-            "inlet_humidity_ratio" | "outlet_humidity_ratio" => "kg/kg",
-            "mass_flow" | "water_mass_flow" | "source_mass_flow" => "kg/s",
-            "inlet_enthalpy" | "outlet_enthalpy" => "J/kg",
-            "pressure_rise" => "Pa",
+            | "source_inlet_temperature",
+        ) => "°C",
+        ("component", "outlet_humidity_ratio" | "inlet_humidity_ratio") => "kg/kg",
+        ("component", "mass_flow" | "water_mass_flow" | "source_mass_flow") => "kg/s",
+        ("component", "inlet_enthalpy" | "outlet_enthalpy") => "J/kg",
+        ("component", "pressure_rise") => "Pa",
+        (
+            "component",
             "cop_operating"
             | "plr"
             | "rtf"
             | "total_efficiency"
             | "efficiency_operating"
-            | "effectiveness" => "-",
-            _ => "-",
-        };
-    }
-    // Legacy / per-component variable name support
-    match var_name {
-        "zone_temp" | "outdoor_temp" | "outlet_temp" | "supply_air_temp" => "°C",
-        "mass_flow" | "supply_air_mass_flow" | "infiltration_mass_flow" => "kg/s",
-        "outlet_w" => "kg/kg",
-        "heating_load" | "cooling_load" | "q_internal_conv" | "q_internal_rad" => "W",
-        "outlet_enthalpy" => "J/kg",
-        // Per-component power/energy variables
-        "electric_power" | "fuel_power" | "thermal_output" => "W",
-        "exhaust_fan_power" | "exhaust_fan_heat_to_zone" => "W",
-        "hvac_cooling_rate" | "hvac_heating_rate" => "W",
-        // Per-component flow variables
-        "exhaust_mass_flow" | "outdoor_air_mass_flow" | "ventilation_mass_flow" => "kg/s",
-        "nat_vent_flow" => "m³/s",
-        "nat_vent_mass_flow" => "kg/s",
-        // Boolean / dimensionless
-        "nat_vent_active" => "-",
+            | "effectiveness",
+        ) => "-",
+        ("component", _) => "W",
         _ => "-",
     }
 }
 
-/// Whether a variable should default to sum aggregation (energy, mass).
-fn is_integrable(var_name: &str) -> bool {
-    if matches!(var_name, "zone_heating_energy" | "zone_cooling_energy") {
-        return true;
+/// Whether a variable should default to sum aggregation (energy, power).
+fn is_integrable(spec: &str) -> bool {
+    let mut parts = spec.splitn(3, ':');
+    let category = parts.next().unwrap_or("");
+    let variable = parts.next().unwrap_or("");
+    match (category, variable) {
+        ("zone", "heating_energy" | "cooling_energy") => true,
+        ("building" | "submeter", _) => true,
+        (
+            "component",
+            "electric_power" | "fuel_power" | "thermal_output" | "sensible_load" | "latent_load"
+            | "total_load" | "conduction_loss" | "leakage_loss" | "cycling_loss"
+            | "conduction_gain" | "heat_rejected" | "heat_transferred" | "fan_power",
+        ) => true,
+        _ => false,
     }
-    // Submeter variables are power → sum aggregation
-    if var_name.starts_with("submeter:") {
-        return true;
-    }
-    // Component power/energy variables default to sum aggregation
-    if let Some((_comp, field)) = var_name.split_once(':') {
-        return matches!(
-            field,
-            "electric_power"
-                | "fuel_power"
-                | "thermal_output"
-                | "sensible_load"
-                | "latent_load"
-                | "total_load"
-                | "conduction_loss"
-                | "leakage_loss"
-                | "cycling_loss"
-                | "conduction_gain"
-                | "heat_rejected"
-                | "heat_transferred"
-                | "fan_power"
-        );
-    }
-    false
 }
 
 // ─── Timestep Data Collector ────────────────────────────────────────────────
@@ -614,259 +664,272 @@ impl OutputSnapshot {
         }
     }
 
-    /// Get all values for a variable (returns entity_name -> value pairs).
+    /// Get all entity→value pairs for a given category and variable name.
+    fn get_category_values(&self, category: &str, variable: &str) -> HashMap<String, f64> {
+        match category {
+            "site" => match variable {
+                "outdoor_temperature" => single("Site", self.site_outdoor_temperature),
+                "wind_speed" => single("Site", self.site_wind_speed),
+                "direct_normal_radiation" => single("Site", self.site_direct_normal_radiation),
+                "diffuse_horizontal_radiation" => {
+                    single("Site", self.site_diffuse_horizontal_radiation)
+                }
+                "relative_humidity" => single("Site", self.site_relative_humidity),
+                _ => HashMap::new(),
+            },
+            "zone" => match variable {
+                "temperature" => self.zone_temperature.clone(),
+                "humidity_ratio" => self.zone_humidity_ratio.clone(),
+                "heating_rate" => self.zone_heating_rate.clone(),
+                "cooling_rate" => self.zone_cooling_rate.clone(),
+                "heating_energy" => self
+                    .zone_heating_rate
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v * self.dt))
+                    .collect(),
+                "cooling_energy" => self
+                    .zone_cooling_rate
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v * self.dt))
+                    .collect(),
+                "infiltration_mass_flow" => self.zone_infiltration_mass_flow.clone(),
+                "nat_vent_flow" => self.zone_nat_vent_flow.clone(),
+                "nat_vent_mass_flow" => self.zone_nat_vent_mass_flow.clone(),
+                "nat_vent_active" => self.zone_nat_vent_active.clone(),
+                "internal_gains_convective" => self.zone_internal_gains_convective.clone(),
+                "internal_gains_radiative" => self.zone_internal_gains_radiative.clone(),
+                "supply_air_temperature" => self.zone_supply_air_temperature.clone(),
+                "supply_air_mass_flow" => self.zone_supply_air_mass_flow.clone(),
+                "gain_people_sensible" => self.zone_gain_people_sensible.clone(),
+                "gain_people_latent" => self.zone_gain_people_latent.clone(),
+                "gain_lighting" => self.zone_gain_lighting.clone(),
+                "gain_equipment_sensible" => self.zone_gain_equipment_sensible.clone(),
+                "gain_equipment_latent" => self.zone_gain_equipment_latent.clone(),
+                "gain_infiltration_sensible" => self.zone_gain_infiltration_sensible.clone(),
+                "gain_infiltration_latent" => self.zone_gain_infiltration_latent.clone(),
+                "gain_ventilation_sensible" => self.zone_gain_ventilation_sensible.clone(),
+                "gain_ventilation_latent" => self.zone_gain_ventilation_latent.clone(),
+                "gain_natural_ventilation_sensible" => {
+                    self.zone_gain_natural_ventilation_sensible.clone()
+                }
+                "gain_natural_ventilation_latent" => {
+                    self.zone_gain_natural_ventilation_latent.clone()
+                }
+                "gain_solar" => self.zone_gain_solar.clone(),
+                "gain_hvac_sensible" => self.zone_gain_hvac_sensible.clone(),
+                "gain_hvac_latent" => self.zone_gain_hvac_latent.clone(),
+                "mean_radiant_temperature" => self.zone_mean_radiant_temperature.clone(),
+                "operative_temperature" => self.zone_operative_temperature.clone(),
+                "unmet_heating" => self.zone_unmet_heating.clone(),
+                "unmet_cooling" => self.zone_unmet_cooling.clone(),
+                _ => HashMap::new(),
+            },
+            "surface" => match variable {
+                "inside_temperature" => self.surface_inside_temperature.clone(),
+                "outside_temperature" => self.surface_outside_temperature.clone(),
+                "inside_convection_coefficient" => {
+                    self.surface_inside_convection_coefficient.clone()
+                }
+                "incident_solar" => self.surface_incident_solar.clone(),
+                "transmitted_solar" => self.surface_transmitted_solar.clone(),
+                "cond_inside" => self.surface_conduction_inside.clone(),
+                "convection_inside" => self.surface_convection_inside.clone(),
+                _ => HashMap::new(),
+            },
+            "building" => {
+                let value = match variable {
+                    "fan_electric" => self
+                        .component_electric_power
+                        .iter()
+                        .filter(|(n, _)| n.to_lowercase().contains("fan"))
+                        .map(|(_, &v)| v)
+                        .sum(),
+                    "cooling_electric" => self
+                        .component_electric_power
+                        .iter()
+                        .filter(|(n, _)| {
+                            let l = n.to_lowercase();
+                            l.contains("cool") || l.contains("dx") || l.contains("chiller")
+                        })
+                        .map(|(_, &v)| v)
+                        .sum(),
+                    "heating_electric" => self
+                        .component_electric_power
+                        .iter()
+                        .filter(|(n, _)| {
+                            let l = n.to_lowercase();
+                            l.contains("heat") || l.contains("furnace")
+                        })
+                        .map(|(_, &v)| v)
+                        .sum(),
+                    "heating_gas" => self
+                        .component_fuel_power
+                        .iter()
+                        .filter(|(n, _)| {
+                            let l = n.to_lowercase();
+                            l.contains("boiler") || l.contains("heat") || l.contains("furnace")
+                        })
+                        .map(|(_, &v)| v)
+                        .sum(),
+                    "pump_electric" => self.pump_electric_power.values().sum(),
+                    "heat_rejection" => self.heat_rejection_power.values().sum(),
+                    "humidification" => self.humidification_power.values().sum(),
+                    "heat_recovery" => self.heat_recovery_power.values().sum(),
+                    "dhw_electric" => self.dhw_electric_power.values().sum(),
+                    "dhw_gas" => self.dhw_fuel_power.values().sum(),
+                    "lighting" => self.zone_lighting_power.values().sum(),
+                    "ext_lighting" => self.ext_lighting_power.values().sum(),
+                    "equipment" => self.zone_equipment_power.values().sum(),
+                    "ext_equipment" => self.ext_equipment_power.values().sum(),
+                    "total_electric" => {
+                        let fans: f64 = self
+                            .component_electric_power
+                            .iter()
+                            .filter(|(n, _)| n.to_lowercase().contains("fan"))
+                            .map(|(_, &v)| v)
+                            .sum();
+                        let cooling: f64 = self
+                            .component_electric_power
+                            .iter()
+                            .filter(|(n, _)| {
+                                let l = n.to_lowercase();
+                                l.contains("cool") || l.contains("dx") || l.contains("chiller")
+                            })
+                            .map(|(_, &v)| v)
+                            .sum();
+                        let heating: f64 = self
+                            .component_electric_power
+                            .iter()
+                            .filter(|(n, _)| {
+                                let l = n.to_lowercase();
+                                l.contains("heat") || l.contains("furnace")
+                            })
+                            .map(|(_, &v)| v)
+                            .sum();
+                        fans + cooling
+                            + heating
+                            + self.pump_electric_power.values().sum::<f64>()
+                            + self.heat_rejection_power.values().sum::<f64>()
+                            + self.humidification_power.values().sum::<f64>()
+                            + self.heat_recovery_power.values().sum::<f64>()
+                            + self.dhw_electric_power.values().sum::<f64>()
+                            + self.zone_lighting_power.values().sum::<f64>()
+                            + self.ext_lighting_power.values().sum::<f64>()
+                            + self.zone_equipment_power.values().sum::<f64>()
+                            + self.ext_equipment_power.values().sum::<f64>()
+                    }
+                    "total_gas" => {
+                        let heating: f64 = self
+                            .component_fuel_power
+                            .iter()
+                            .filter(|(n, _)| {
+                                let l = n.to_lowercase();
+                                l.contains("boiler") || l.contains("heat") || l.contains("furnace")
+                            })
+                            .map(|(_, &v)| v)
+                            .sum();
+                        heating + self.dhw_fuel_power.values().sum::<f64>()
+                    }
+                    _ => return HashMap::new(),
+                };
+                single("Building", value)
+            }
+            "submeter" => {
+                // variable is the submeter name; the end_use was already stripped as part of
+                // the spec — but for the new scheme the variable IS the end_use and the name
+                // filter selects which meter(s).
+                // Format: submeter:end_use  (name_filter selects meter)
+                // or legacy: submeter:meter_name:end_use handled via get_variable_values filter.
+                // Here we return meter_name → value for every submeter that has this end_use.
+                let end_use = variable;
+                let mut result = HashMap::new();
+                for (meter_name, end_uses) in &self.submeter_power {
+                    let val = match end_use {
+                        "total_electric" => end_uses
+                            .iter()
+                            .filter(|(k, _)| !k.contains("gas"))
+                            .map(|(_, &v)| v)
+                            .sum(),
+                        "total_gas" => end_uses
+                            .iter()
+                            .filter(|(k, _)| k.contains("gas"))
+                            .map(|(_, &v)| v)
+                            .sum(),
+                        "total" => end_uses.values().sum(),
+                        other => *end_uses.get(other).unwrap_or(&0.0),
+                    };
+                    result.insert(meter_name.clone(), val);
+                }
+                result
+            }
+            "component" => {
+                // Returns component_name → value for all components that have this field.
+                let field = variable;
+                // Special mappings for air_loop hashmaps
+                match field {
+                    "outlet_temperature" => {
+                        let mut result = self.air_loop_outlet_temperature.clone();
+                        // Also search component_outputs
+                        for (comp, vars) in &self.component_outputs {
+                            if let Some(&v) = vars.get(field) {
+                                result.entry(comp.clone()).or_insert(v);
+                            }
+                        }
+                        result
+                    }
+                    "mass_flow" => {
+                        let mut result = self.air_loop_mass_flow.clone();
+                        for (comp, vars) in &self.component_outputs {
+                            if let Some(&v) = vars.get(field) {
+                                result.entry(comp.clone()).or_insert(v);
+                            }
+                        }
+                        result
+                    }
+                    "outlet_humidity_ratio" => {
+                        let mut result = self.air_loop_outlet_humidity_ratio.clone();
+                        for (comp, vars) in &self.component_outputs {
+                            if let Some(&v) = vars.get(field) {
+                                result.entry(comp.clone()).or_insert(v);
+                            }
+                        }
+                        result
+                    }
+                    other => {
+                        let mut result = HashMap::new();
+                        for (comp, vars) in &self.component_outputs {
+                            if let Some(&v) = vars.get(other) {
+                                result.insert(comp.clone(), v);
+                            }
+                        }
+                        result
+                    }
+                }
+            }
+            _ => HashMap::new(),
+        }
+    }
+
+    /// Get all values for a variable spec (returns entity_name -> value pairs).
     ///
+    /// Spec format: `category:variable` or `category:variable:name_filter`.
     /// For zone variables, returns one value per zone.
     /// For surface variables, returns one value per surface.
     /// For site variables, returns a single value with key "Site".
-    fn get_variable_values(&self, var_name: &str) -> HashMap<String, f64> {
-        match var_name {
-            // Site (scalar)
-            "site_outdoor_temperature" => single("Site", self.site_outdoor_temperature),
-            "site_wind_speed" => single("Site", self.site_wind_speed),
-            "site_direct_normal_radiation" => single("Site", self.site_direct_normal_radiation),
-            "site_diffuse_horizontal_radiation" => {
-                single("Site", self.site_diffuse_horizontal_radiation)
-            }
-            "site_relative_humidity" => single("Site", self.site_relative_humidity),
+    fn get_variable_values(&self, spec: &str) -> HashMap<String, f64> {
+        let mut parts = spec.splitn(3, ':');
+        let category = parts.next().unwrap_or("");
+        let variable = parts.next().unwrap_or("");
+        let filter = parts.next();
 
-            // Zone
-            "zone_temperature" => self.zone_temperature.clone(),
-            "zone_humidity_ratio" => self.zone_humidity_ratio.clone(),
-            "zone_heating_rate" => self.zone_heating_rate.clone(),
-            "zone_cooling_rate" => self.zone_cooling_rate.clone(),
-            "zone_heating_energy" => {
-                // Integrate rate * dt -> energy [J]
-                self.zone_heating_rate
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v * self.dt))
-                    .collect()
-            }
-            "zone_cooling_energy" => self
-                .zone_cooling_rate
-                .iter()
-                .map(|(k, v)| (k.clone(), v * self.dt))
+        let raw = self.get_category_values(category, variable);
+
+        match filter {
+            None | Some("*") => raw,
+            Some(pattern) => raw
+                .into_iter()
+                .filter(|(name, _)| glob_matches(pattern, name))
                 .collect(),
-            "zone_infiltration_mass_flow" => self.zone_infiltration_mass_flow.clone(),
-            "zone_nat_vent_flow" => self.zone_nat_vent_flow.clone(),
-            "zone_nat_vent_mass_flow" => self.zone_nat_vent_mass_flow.clone(),
-            "zone_nat_vent_active" => self.zone_nat_vent_active.clone(),
-            "zone_internal_gains_convective" => self.zone_internal_gains_convective.clone(),
-            "zone_internal_gains_radiative" => self.zone_internal_gains_radiative.clone(),
-            "zone_supply_air_temperature" => self.zone_supply_air_temperature.clone(),
-            "zone_supply_air_mass_flow" => self.zone_supply_air_mass_flow.clone(),
-
-            // Zone gain breakdown
-            "zone_gain_people_sensible" => self.zone_gain_people_sensible.clone(),
-            "zone_gain_people_latent" => self.zone_gain_people_latent.clone(),
-            "zone_gain_lighting" => self.zone_gain_lighting.clone(),
-            "zone_gain_equipment_sensible" => self.zone_gain_equipment_sensible.clone(),
-            "zone_gain_equipment_latent" => self.zone_gain_equipment_latent.clone(),
-            "zone_gain_infiltration_sensible" => self.zone_gain_infiltration_sensible.clone(),
-            "zone_gain_infiltration_latent" => self.zone_gain_infiltration_latent.clone(),
-            "zone_gain_ventilation_sensible" => self.zone_gain_ventilation_sensible.clone(),
-            "zone_gain_ventilation_latent" => self.zone_gain_ventilation_latent.clone(),
-            "zone_gain_natural_ventilation_sensible" => {
-                self.zone_gain_natural_ventilation_sensible.clone()
-            }
-            "zone_gain_natural_ventilation_latent" => {
-                self.zone_gain_natural_ventilation_latent.clone()
-            }
-            "zone_gain_solar" => self.zone_gain_solar.clone(),
-            "zone_gain_hvac_sensible" => self.zone_gain_hvac_sensible.clone(),
-            "zone_gain_hvac_latent" => self.zone_gain_hvac_latent.clone(),
-
-            // Comfort metrics
-            "zone_mean_radiant_temperature" => self.zone_mean_radiant_temperature.clone(),
-            "zone_operative_temperature" => self.zone_operative_temperature.clone(),
-
-            // Unmet hours time-series
-            "zone_unmet_heating" => self.zone_unmet_heating.clone(),
-            "zone_unmet_cooling" => self.zone_unmet_cooling.clone(),
-
-            // Surface
-            "surface_inside_temperature" => self.surface_inside_temperature.clone(),
-            "surface_outside_temperature" => self.surface_outside_temperature.clone(),
-            "surface_inside_convection_coefficient" => {
-                self.surface_inside_convection_coefficient.clone()
-            }
-            "surface_incident_solar" => self.surface_incident_solar.clone(),
-            "surface_transmitted_solar" => self.surface_transmitted_solar.clone(),
-            "surface_conduction_inside" => self.surface_conduction_inside.clone(),
-            "surface_convection_inside" => self.surface_convection_inside.clone(),
-
-            // Air loop / HVAC
-            "air_loop_outlet_temperature" => self.air_loop_outlet_temperature.clone(),
-            "air_loop_mass_flow" => self.air_loop_mass_flow.clone(),
-            "air_loop_outlet_humidity_ratio" => self.air_loop_outlet_humidity_ratio.clone(),
-
-            // Energy end-use variables
-            "energy_fan_electric" => {
-                let total: f64 = self
-                    .component_electric_power
-                    .iter()
-                    .filter(|(n, _)| n.to_lowercase().contains("fan"))
-                    .map(|(_, &v)| v)
-                    .sum();
-                single("Building", total)
-            }
-            "energy_cooling_electric" => {
-                let total: f64 = self
-                    .component_electric_power
-                    .iter()
-                    .filter(|(n, _)| {
-                        let l = n.to_lowercase();
-                        l.contains("cool") || l.contains("dx") || l.contains("chiller")
-                    })
-                    .map(|(_, &v)| v)
-                    .sum();
-                single("Building", total)
-            }
-            "energy_heating_electric" => {
-                let total: f64 = self
-                    .component_electric_power
-                    .iter()
-                    .filter(|(n, _)| {
-                        let l = n.to_lowercase();
-                        l.contains("heat") || l.contains("furnace")
-                    })
-                    .map(|(_, &v)| v)
-                    .sum();
-                single("Building", total)
-            }
-            "energy_heating_gas" => {
-                let total: f64 = self
-                    .component_fuel_power
-                    .iter()
-                    .filter(|(n, _)| {
-                        let l = n.to_lowercase();
-                        l.contains("boiler") || l.contains("heat") || l.contains("furnace")
-                    })
-                    .map(|(_, &v)| v)
-                    .sum();
-                single("Building", total)
-            }
-            "energy_pump_electric" => single("Building", self.pump_electric_power.values().sum()),
-            "energy_heat_rejection" => single("Building", self.heat_rejection_power.values().sum()),
-            "energy_humidification" => single("Building", self.humidification_power.values().sum()),
-            "energy_heat_recovery" => single("Building", self.heat_recovery_power.values().sum()),
-            "energy_dhw_electric" => single("Building", self.dhw_electric_power.values().sum()),
-            "energy_dhw_gas" => single("Building", self.dhw_fuel_power.values().sum()),
-            "energy_lighting" => single("Building", self.zone_lighting_power.values().sum()),
-            "energy_ext_lighting" => single("Building", self.ext_lighting_power.values().sum()),
-            "energy_equipment" => single("Building", self.zone_equipment_power.values().sum()),
-            "energy_ext_equipment" => single("Building", self.ext_equipment_power.values().sum()),
-            "energy_total_electric" => {
-                let fans: f64 = self
-                    .component_electric_power
-                    .iter()
-                    .filter(|(n, _)| n.to_lowercase().contains("fan"))
-                    .map(|(_, &v)| v)
-                    .sum();
-                let cooling: f64 = self
-                    .component_electric_power
-                    .iter()
-                    .filter(|(n, _)| {
-                        let l = n.to_lowercase();
-                        l.contains("cool") || l.contains("dx") || l.contains("chiller")
-                    })
-                    .map(|(_, &v)| v)
-                    .sum();
-                let heating: f64 = self
-                    .component_electric_power
-                    .iter()
-                    .filter(|(n, _)| {
-                        let l = n.to_lowercase();
-                        l.contains("heat") || l.contains("furnace")
-                    })
-                    .map(|(_, &v)| v)
-                    .sum();
-                let pumps: f64 = self.pump_electric_power.values().sum();
-                let rej: f64 = self.heat_rejection_power.values().sum();
-                let hum: f64 = self.humidification_power.values().sum();
-                let hr: f64 = self.heat_recovery_power.values().sum();
-                let dhw: f64 = self.dhw_electric_power.values().sum();
-                let lights: f64 = self.zone_lighting_power.values().sum();
-                let ext_lights: f64 = self.ext_lighting_power.values().sum();
-                let equip: f64 = self.zone_equipment_power.values().sum();
-                let ext_equip: f64 = self.ext_equipment_power.values().sum();
-                single(
-                    "Building",
-                    fans + cooling
-                        + heating
-                        + pumps
-                        + rej
-                        + hum
-                        + hr
-                        + dhw
-                        + lights
-                        + ext_lights
-                        + equip
-                        + ext_equip,
-                )
-            }
-            "energy_total_gas" => {
-                let heating: f64 = self
-                    .component_fuel_power
-                    .iter()
-                    .filter(|(n, _)| {
-                        let l = n.to_lowercase();
-                        l.contains("boiler") || l.contains("heat") || l.contains("furnace")
-                    })
-                    .map(|(_, &v)| v)
-                    .sum();
-                let dhw: f64 = self.dhw_fuel_power.values().sum();
-                single("Building", heating + dhw)
-            }
-
-            _ => {
-                // Submeter variables: "submeter:NAME:END_USE" or "submeter:NAME:total_electric" etc.
-                if var_name.starts_with("submeter:") {
-                    let parts: Vec<&str> = var_name.splitn(3, ':').collect();
-                    if parts.len() == 3 {
-                        let meter_name = parts[1];
-                        let end_use = parts[2];
-                        if let Some(end_uses) = self.submeter_power.get(meter_name) {
-                            if end_use == "total_electric" {
-                                let total: f64 = end_uses
-                                    .iter()
-                                    .filter(|(k, _)| !k.contains("gas"))
-                                    .map(|(_, &v)| v)
-                                    .sum();
-                                return single("Building", total);
-                            } else if end_use == "total_gas" {
-                                let total: f64 = end_uses
-                                    .iter()
-                                    .filter(|(k, _)| k.contains("gas"))
-                                    .map(|(_, &v)| v)
-                                    .sum();
-                                return single("Building", total);
-                            } else if end_use == "total" {
-                                let total: f64 = end_uses.values().sum();
-                                return single("Building", total);
-                            } else if let Some(&val) = end_uses.get(end_use) {
-                                return single("Building", val);
-                            }
-                        }
-                    }
-                    return HashMap::new();
-                }
-                // Dynamic component variable: "ComponentName:field_name"
-                if let Some((comp_name, field_name)) = var_name.split_once(':') {
-                    if let Some(vars) = self.component_outputs.get(comp_name) {
-                        if let Some(&val) = vars.get(field_name) {
-                            return single(comp_name, val);
-                        }
-                    }
-                    // Also check surface conduction_gain alias
-                    if field_name == "conduction_gain" {
-                        if let Some(&val) = self.surface_conduction_inside.get(comp_name) {
-                            return single(comp_name, val);
-                        }
-                    }
-                }
-                HashMap::new()
-            }
         }
     }
 }
@@ -875,6 +938,37 @@ fn single(key: &str, value: f64) -> HashMap<String, f64> {
     let mut m = HashMap::new();
     m.insert(key.to_string(), value);
     m
+}
+
+/// Match a glob pattern against a name. Only `*` wildcard is supported.
+fn glob_matches(pattern: &str, text: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    match pattern.find('*') {
+        None => pattern == text,
+        Some(star_pos) => {
+            let prefix = &pattern[..star_pos];
+            let suffix = &pattern[star_pos + 1..];
+            if !text.starts_with(prefix) {
+                return false;
+            }
+            let rest = &text[prefix.len()..];
+            if suffix.is_empty() {
+                return true;
+            }
+            if !suffix.contains('*') {
+                return rest.ends_with(suffix);
+            }
+            // Multiple wildcards: try each position
+            for i in 0..=rest.len() {
+                if glob_matches(suffix, &rest[i..]) {
+                    return true;
+                }
+            }
+            false
+        }
+    }
 }
 
 // ─── Output Writer ──────────────────────────────────────────────────────────
@@ -1106,13 +1200,10 @@ impl OutputWriter {
         if self.config.frequency == OutputFrequency::Timestep {
             write!(writer, ",SubHour")?;
         }
-        for (var_name, entity_name) in &self.columns {
-            let unit = get_unit(var_name);
-            if entity_name == "Site" {
-                write!(writer, ",{} [{}]", var_name, unit)?;
-            } else {
-                write!(writer, ",{}:{} [{}]", entity_name, var_name, unit)?;
-            }
+        for (var_spec, entity_name) in &self.columns {
+            let variable_part = var_spec.splitn(3, ':').nth(1).unwrap_or(var_spec.as_str());
+            let unit = get_unit(var_spec);
+            write!(writer, ",{}:{} [{}]", entity_name, variable_part, unit)?;
         }
         writeln!(writer)?;
 
@@ -3027,14 +3118,15 @@ mod tests {
 
     #[test]
     fn test_get_unit() {
-        assert_eq!(get_unit("zone_temperature"), "\u{00b0}C");
-        assert_eq!(get_unit("zone_heating_rate"), "W");
-        assert_eq!(get_unit("zone_heating_energy"), "J");
-        assert_eq!(get_unit("site_outdoor_temperature"), "\u{00b0}C");
-        assert_eq!(get_unit("unknown_var"), "-");
-        // Legacy
-        assert_eq!(get_unit("zone_temp"), "\u{00b0}C");
-        assert_eq!(get_unit("heating_load"), "W");
+        assert_eq!(get_unit("zone:temperature"), "\u{00b0}C");
+        assert_eq!(get_unit("zone:heating_rate"), "W");
+        assert_eq!(get_unit("zone:heating_energy"), "J");
+        assert_eq!(get_unit("site:outdoor_temperature"), "\u{00b0}C");
+        assert_eq!(get_unit("unknown:var"), "-");
+        // Zone catch-all returns W
+        assert_eq!(get_unit("zone:heating_load"), "W");
+        // Component temperatures
+        assert_eq!(get_unit("component:outlet_temperature"), "\u{00b0}C");
     }
 
     #[test]
@@ -3043,10 +3135,10 @@ mod tests {
         snap.site_outdoor_temperature = -5.0;
         snap.site_wind_speed = 3.5;
 
-        let vals = snap.get_variable_values("site_outdoor_temperature");
+        let vals = snap.get_variable_values("site:outdoor_temperature");
         assert_eq!(vals.get("Site"), Some(&-5.0));
 
-        let vals = snap.get_variable_values("site_wind_speed");
+        let vals = snap.get_variable_values("site:wind_speed");
         assert_eq!(vals.get("Site"), Some(&3.5));
     }
 
@@ -3055,7 +3147,7 @@ mod tests {
         let mut snap = OutputSnapshot::new(1, 1, 1, 1, 900.0); // 15-min timestep
         snap.zone_heating_rate.insert("Zone1".to_string(), 1000.0); // 1000W
 
-        let energy = snap.get_variable_values("zone_heating_energy");
+        let energy = snap.get_variable_values("zone:heating_energy");
         // 1000W * 900s = 900000 J
         assert_eq!(energy.get("Zone1"), Some(&900_000.0));
     }
@@ -3066,7 +3158,7 @@ mod tests {
             file: "test.csv".to_string(),
             frequency: OutputFrequency::Timestep,
             aggregation: Aggregation::Mean,
-            variables: vec!["site_outdoor_temperature".to_string()],
+            variables: vec!["site:outdoor_temperature".to_string()],
         };
         let mut writer = OutputWriter::new(config);
 
@@ -3087,7 +3179,7 @@ mod tests {
             file: "test.csv".to_string(),
             frequency: OutputFrequency::Hourly,
             aggregation: Aggregation::Mean,
-            variables: vec!["site_outdoor_temperature".to_string()],
+            variables: vec!["site:outdoor_temperature".to_string()],
         };
         let mut writer = OutputWriter::new(config);
 
@@ -3184,46 +3276,46 @@ variables:
         snap.component_outputs
             .insert("Boiler-1".to_string(), boiler_vars);
 
-        // Resolve "Boiler-1:fuel_power"
-        let vals = snap.get_variable_values("Boiler-1:fuel_power");
+        // Resolve "component:fuel_power:Boiler-1" — specific component filter
+        let vals = snap.get_variable_values("component:fuel_power:Boiler-1");
         assert_eq!(vals.get("Boiler-1"), Some(&50000.0));
 
-        // Resolve "Boiler-1:plr"
-        let vals = snap.get_variable_values("Boiler-1:plr");
+        // Resolve "component:plr:Boiler-1"
+        let vals = snap.get_variable_values("component:plr:Boiler-1");
         assert_eq!(vals.get("Boiler-1"), Some(&0.75));
 
-        // Resolve "Boiler-1:water_outlet_temperature"
-        let vals = snap.get_variable_values("Boiler-1:water_outlet_temperature");
+        // Resolve "component:water_outlet_temperature:Boiler-1"
+        let vals = snap.get_variable_values("component:water_outlet_temperature:Boiler-1");
         assert_eq!(vals.get("Boiler-1"), Some(&82.0));
 
         // Unknown variable returns empty
-        let vals = snap.get_variable_values("Boiler-1:nonexistent");
+        let vals = snap.get_variable_values("component:nonexistent:Boiler-1");
         assert!(vals.is_empty());
 
-        // Unknown component returns empty
-        let vals = snap.get_variable_values("FakeComp:fuel_power");
+        // Unknown component filter returns empty
+        let vals = snap.get_variable_values("component:fuel_power:FakeComp");
         assert!(vals.is_empty());
     }
 
     #[test]
     fn test_component_variable_units() {
-        assert_eq!(get_unit("MyFan:electric_power"), "W");
-        assert_eq!(get_unit("DX Coil:outlet_temperature"), "\u{00b0}C");
-        assert_eq!(get_unit("Supply Fan:pressure_rise"), "Pa");
-        assert_eq!(get_unit("Boiler:plr"), "-");
-        assert_eq!(get_unit("Chiller:water_mass_flow"), "kg/s");
-        assert_eq!(get_unit("Coil:inlet_humidity_ratio"), "kg/kg");
-        assert_eq!(get_unit("Coil:inlet_enthalpy"), "J/kg");
+        assert_eq!(get_unit("component:electric_power"), "W");
+        assert_eq!(get_unit("component:outlet_temperature"), "\u{00b0}C");
+        assert_eq!(get_unit("component:pressure_rise"), "Pa");
+        assert_eq!(get_unit("component:plr"), "-");
+        assert_eq!(get_unit("component:water_mass_flow"), "kg/s");
+        assert_eq!(get_unit("component:inlet_humidity_ratio"), "kg/kg");
+        assert_eq!(get_unit("component:inlet_enthalpy"), "J/kg");
     }
 
     #[test]
     fn test_component_variable_is_integrable() {
-        assert!(is_integrable("MyFan:electric_power"));
-        assert!(is_integrable("Boiler:fuel_power"));
-        assert!(is_integrable("Coil:sensible_load"));
-        assert!(is_integrable("Duct:conduction_loss"));
-        assert!(!is_integrable("Fan:plr"));
-        assert!(!is_integrable("Fan:outlet_temperature"));
+        assert!(is_integrable("component:electric_power"));
+        assert!(is_integrable("component:fuel_power"));
+        assert!(is_integrable("component:sensible_load"));
+        assert!(is_integrable("component:conduction_loss"));
+        assert!(!is_integrable("component:plr"));
+        assert!(!is_integrable("component:outlet_temperature"));
     }
 
     #[test]
@@ -3236,16 +3328,16 @@ variables:
         snap.zone_gain_hvac_sensible
             .insert("Zone1".to_string(), -3000.0);
 
-        let vals = snap.get_variable_values("zone_gain_people_sensible");
+        let vals = snap.get_variable_values("zone:gain_people_sensible");
         assert_eq!(vals.get("Zone1"), Some(&200.0));
 
-        let vals = snap.get_variable_values("zone_gain_lighting");
+        let vals = snap.get_variable_values("zone:gain_lighting");
         assert_eq!(vals.get("Zone1"), Some(&500.0));
 
-        let vals = snap.get_variable_values("zone_gain_solar");
+        let vals = snap.get_variable_values("zone:gain_solar");
         assert_eq!(vals.get("Zone1"), Some(&1000.0));
 
-        let vals = snap.get_variable_values("zone_gain_hvac_sensible");
+        let vals = snap.get_variable_values("zone:gain_hvac_sensible");
         assert_eq!(vals.get("Zone1"), Some(&-3000.0));
     }
 
@@ -3258,10 +3350,10 @@ variables:
         snap.zone_operative_temperature
             .insert("Zone1".to_string(), 25.0); // (24 + 26) / 2
 
-        let vals = snap.get_variable_values("zone_mean_radiant_temperature");
+        let vals = snap.get_variable_values("zone:mean_radiant_temperature");
         assert_eq!(vals.get("Zone1"), Some(&26.0));
 
-        let vals = snap.get_variable_values("zone_operative_temperature");
+        let vals = snap.get_variable_values("zone:operative_temperature");
         assert_eq!(vals.get("Zone1"), Some(&25.0));
     }
 
@@ -3271,10 +3363,10 @@ variables:
         snap.zone_unmet_heating.insert("Zone1".to_string(), 1.0);
         snap.zone_unmet_cooling.insert("Zone1".to_string(), 0.0);
 
-        let vals = snap.get_variable_values("zone_unmet_heating");
+        let vals = snap.get_variable_values("zone:unmet_heating");
         assert_eq!(vals.get("Zone1"), Some(&1.0));
 
-        let vals = snap.get_variable_values("zone_unmet_cooling");
+        let vals = snap.get_variable_values("zone:unmet_cooling");
         assert_eq!(vals.get("Zone1"), Some(&0.0));
     }
 
@@ -3284,8 +3376,8 @@ variables:
         snap.surface_conduction_inside
             .insert("Wall-N".to_string(), -150.0);
 
-        // The alias "Wall-N:conduction_gain" should resolve to surface_conduction_inside
-        let vals = snap.get_variable_values("Wall-N:conduction_gain");
+        // "surface:cond_inside:Wall-N" resolves to surface_conduction_inside for that surface
+        let vals = snap.get_variable_values("surface:cond_inside:Wall-N");
         assert_eq!(vals.get("Wall-N"), Some(&-150.0));
     }
 
@@ -3324,32 +3416,37 @@ variables:
         snap.submeter_power
             .insert("Decorative".to_string(), decorative);
 
-        // Specific end use
-        let vals = snap.get_variable_values("submeter:General:lighting");
-        assert_eq!(vals.get("Building"), Some(&500.0));
+        // Specific meter — format: submeter:end_use:meter_name (name last, filtered)
+        let vals = snap.get_variable_values("submeter:lighting:General");
+        assert_eq!(vals.get("General"), Some(&500.0));
 
-        let vals = snap.get_variable_values("submeter:Decorative:lighting");
-        assert_eq!(vals.get("Building"), Some(&100.0));
+        let vals = snap.get_variable_values("submeter:lighting:Decorative");
+        assert_eq!(vals.get("Decorative"), Some(&100.0));
 
-        // Total electric (sums non-gas end uses)
-        let vals = snap.get_variable_values("submeter:General:total_electric");
-        assert_eq!(vals.get("Building"), Some(&700.0)); // 500 + 200
+        // All meters for an end use (no filter)
+        let vals = snap.get_variable_values("submeter:lighting");
+        assert_eq!(vals.get("General"), Some(&500.0));
+        assert_eq!(vals.get("Decorative"), Some(&100.0));
 
-        // Total (all end uses)
-        let vals = snap.get_variable_values("submeter:Decorative:total");
-        assert_eq!(vals.get("Building"), Some(&100.0));
+        // Total electric for a specific meter
+        let vals = snap.get_variable_values("submeter:total_electric:General");
+        assert_eq!(vals.get("General"), Some(&700.0)); // 500 + 200
 
-        // Unknown submeter returns empty
-        let vals = snap.get_variable_values("submeter:NonExistent:lighting");
+        // Total for a specific meter
+        let vals = snap.get_variable_values("submeter:total:Decorative");
+        assert_eq!(vals.get("Decorative"), Some(&100.0));
+
+        // Non-existent meter filter returns empty
+        let vals = snap.get_variable_values("submeter:lighting:NonExistent");
         assert!(vals.is_empty());
     }
 
     #[test]
     fn test_submeter_units_and_aggregation() {
-        assert_eq!(get_unit("submeter:General:lighting"), "W");
-        assert_eq!(get_unit("submeter:Kitchen:equipment"), "W");
-        assert!(is_integrable("submeter:General:fan_electric"));
-        assert!(is_integrable("submeter:Decorative:lighting"));
+        assert_eq!(get_unit("submeter:lighting:General"), "W");
+        assert_eq!(get_unit("submeter:equipment:Kitchen"), "W");
+        assert!(is_integrable("submeter:fan_electric:General"));
+        assert!(is_integrable("submeter:lighting:Decorative"));
     }
 
     #[test]

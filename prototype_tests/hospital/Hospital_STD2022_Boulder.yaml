@@ -3156,13 +3156,13 @@ outputs:
 - file: zone_results.csv
   frequency: hourly
   variables:
-  - zone_temperature
-  - zone_heating_rate
-  - zone_cooling_rate
-  - zone_infiltration_mass_flow
-  - zone_supply_air_temperature
-  - zone_supply_air_mass_flow
-  - site_outdoor_temperature
+  - zone:temperature
+  - zone:heating_rate
+  - zone:cooling_rate
+  - zone:infiltration_mass_flow
+  - zone:supply_air_temperature
+  - zone:supply_air_mass_flow
+  - site:outdoor_temperature
 
 summary_report: true
 

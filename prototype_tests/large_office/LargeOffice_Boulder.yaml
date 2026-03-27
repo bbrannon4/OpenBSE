@@ -10358,19 +10358,19 @@ outputs:
 - file: zone_results.csv
   frequency: hourly
   variables:
-  - zone_temperature
-  - zone_heating_rate
-  - zone_cooling_rate
-  - zone_infiltration_mass_flow
-  - zone_supply_air_temperature
-  - zone_supply_air_mass_flow
-  - site_outdoor_temperature
-  - site_direct_normal_radiation
+  - zone:temperature
+  - zone:heating_rate
+  - zone:cooling_rate
+  - zone:infiltration_mass_flow
+  - zone:supply_air_temperature
+  - zone:supply_air_mass_flow
+  - site:outdoor_temperature
+  - site:direct_normal_radiation
 - file: hvac_results.csv
   frequency: hourly
   variables:
-  - zone_heating_rate
-  - zone_cooling_rate
-  - zone_supply_air_temperature
-  - zone_supply_air_mass_flow
+  - zone:heating_rate
+  - zone:cooling_rate
+  - zone:supply_air_temperature
+  - zone:supply_air_mass_flow
 summary_report: true

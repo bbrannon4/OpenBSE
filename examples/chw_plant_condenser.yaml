@@ -341,9 +341,9 @@ outputs:
   - file: "zone_results.csv"
     frequency: hourly
     variables:
-      - zone_temperature
-      - zone_heating_rate
-      - zone_cooling_rate
-      - site_outdoor_temperature
+      - zone:temperature
+      - zone:heating_rate
+      - zone:cooling_rate
+      - site:outdoor_temperature
 
 summary_report: true

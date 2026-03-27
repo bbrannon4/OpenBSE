@@ -1778,6 +1778,20 @@ fn main() -> Result<()> {
                 }
             }
 
+            // Reset BDF history to the final warmup state.
+            //
+            // After warmup, temp_prev2/3 may hold values from early warmup
+            // iterations that are far from the converged zone temperatures.
+            // When BDF3 uses these during the main simulation (order is already
+            // 3 after many warmup updates), the extrapolated t_eff can diverge
+            // catastrophically → NaN within 1-2 timesteps.
+            //
+            // Resetting temp_prev2/3 = temp and order = 1 lets BDF ramp cleanly
+            // from a consistent baseline, matching the intent of the function.
+            if let Some(ref mut env) = envelope {
+                env.reset_bdf_history_to_current();
+            }
+
             // Reset sim_time for actual simulation
             sim_time = start_hour as f64 * 3600.0;
             // Reset nightcycle timers (start fresh for actual simulation)
@@ -3022,7 +3036,7 @@ fn main() -> Result<()> {
                         let is_ext_lights = ext
                             .subcategory
                             .as_deref()
-                            .map(|s| s.to_lowercase().contains("light"))
+                            .map(|s| s.to_lowercase().contains("exterior light"))
                             .unwrap_or(false);
                         if is_ext_lights {
                             snapshot
@@ -3302,7 +3316,7 @@ fn main() -> Result<()> {
                         let is_hvac_ext_light = ext
                             .subcategory
                             .as_deref()
-                            .map(|s| s.to_lowercase().contains("light"))
+                            .map(|s| s.to_lowercase().contains("exterior light"))
                             .unwrap_or(false);
                         if is_hvac_ext_light {
                             snapshot

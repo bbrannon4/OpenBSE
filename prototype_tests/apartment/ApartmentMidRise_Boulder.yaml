@@ -5955,21 +5955,21 @@ outputs:
 - file: zone_results.csv
   frequency: hourly
   variables:
-  - zone_temperature
-  - zone_heating_rate
-  - zone_cooling_rate
-  - zone_infiltration_mass_flow
-  - zone_supply_air_temperature
-  - zone_supply_air_mass_flow
-  - site_outdoor_temperature
+  - zone:temperature
+  - zone:heating_rate
+  - zone:cooling_rate
+  - zone:infiltration_mass_flow
+  - zone:supply_air_temperature
+  - zone:supply_air_mass_flow
+  - site:outdoor_temperature
 - file: surface_results.csv
   frequency: hourly
   variables:
-  - surface_inside_temperature
-  - surface_outside_temperature
-  - surface_conduction_inside
-  - surface_convection_inside
-  - surface_transmitted_solar
-  - surface_incident_solar
-  - site_outdoor_temperature
+  - surface:inside_temperature
+  - surface:outside_temperature
+  - surface:cond_inside
+  - surface:convection_inside
+  - surface:transmitted_solar
+  - surface:incident_solar
+  - site:outdoor_temperature
 summary_report: true

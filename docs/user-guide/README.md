@@ -1142,148 +1142,160 @@ outputs:
     frequency: hourly        # timestep | hourly | daily | monthly | runperiod
     aggregation: mean        # mean | sum | min | max
     variables:
-      - zone_temperature
-      - zone_heating_rate
-      - zone_gain_solar
-      - zone_mean_radiant_temperature
+      - zone:temperature
+      - zone:heating_rate
+      - zone:gain_solar
+      - zone:mean_radiant_temperature
+      - zone:temperature:living_unit1    # specific zone only
+  - file: "surface_results.csv"
+    frequency: hourly
+    variables:
+      - surface:transmitted_solar:Window*  # glob filter
+      - surface:cond_inside
   - file: "component_results.csv"
     frequency: timestep
     variables:
-      - "DX Coil:sensible_load"
-      - "DX Coil:cop_operating"
-      - "Supply Fan:electric_power"
-      - "Boiler-1:plr"
+      - component:sensible_load
+      - component:cop_operating
+      - component:electric_power:Supply Fan  # specific component
+      - component:plr
 ```
+
+### Variable Naming Scheme
+
+Variables use the format `category:variable` or `category:variable:name_filter`.
+
+- **`category:variable`** — returns data for all entities (all zones, all surfaces, all components)
+- **`category:variable:ZoneName`** — returns data for the named entity only
+- **`category:variable:Window*`** — glob filter; `*` matches any characters
 
 ### Available Output Variables
 
 **Site variables:**
 | Variable | Unit | Description |
 |----------|------|-------------|
-| `site_outdoor_temperature` | °C | Outdoor dry-bulb temperature |
-| `site_wind_speed` | m/s | Wind speed |
-| `site_direct_normal_radiation` | W/m² | Direct normal solar radiation |
-| `site_diffuse_horizontal_radiation` | W/m² | Diffuse horizontal solar radiation |
-| `site_relative_humidity` | % | Outdoor relative humidity |
+| `site:outdoor_temperature` | °C | Outdoor dry-bulb temperature |
+| `site:wind_speed` | m/s | Wind speed |
+| `site:direct_normal_radiation` | W/m² | Direct normal solar radiation |
+| `site:diffuse_horizontal_radiation` | W/m² | Diffuse horizontal solar radiation |
+| `site:relative_humidity` | % | Outdoor relative humidity |
 
 **Zone state variables:**
 | Variable | Unit | Description |
 |----------|------|-------------|
-| `zone_temperature` | °C | Zone air dry-bulb temperature |
-| `zone_humidity_ratio` | kg/kg | Zone air humidity ratio |
-| `zone_heating_rate` | W | Zone heating load (positive = needs heating) |
-| `zone_cooling_rate` | W | Zone cooling load (positive = needs cooling) |
-| `zone_heating_energy` | J | Zone heating energy (rate × dt) |
-| `zone_cooling_energy` | J | Zone cooling energy (rate × dt) |
-| `zone_infiltration_mass_flow` | kg/s | Infiltration air mass flow rate |
-| `zone_nat_vent_flow` | m³/s | Natural ventilation volume flow |
-| `zone_nat_vent_mass_flow` | kg/s | Natural ventilation mass flow |
-| `zone_nat_vent_active` | - | Natural ventilation active flag (0/1) |
-| `zone_internal_gains_convective` | W | Total convective internal gains |
-| `zone_internal_gains_radiative` | W | Total radiative internal gains |
-| `zone_supply_air_temperature` | °C | HVAC supply air temperature |
-| `zone_supply_air_mass_flow` | kg/s | HVAC supply air mass flow |
+| `zone:temperature` | °C | Zone air dry-bulb temperature |
+| `zone:humidity_ratio` | kg/kg | Zone air humidity ratio |
+| `zone:heating_rate` | W | Zone heating load (positive = needs heating) |
+| `zone:cooling_rate` | W | Zone cooling load (positive = needs cooling) |
+| `zone:heating_energy` | J | Zone heating energy (rate × dt) |
+| `zone:cooling_energy` | J | Zone cooling energy (rate × dt) |
+| `zone:infiltration_mass_flow` | kg/s | Infiltration air mass flow rate |
+| `zone:nat_vent_flow` | m³/s | Natural ventilation volume flow |
+| `zone:nat_vent_mass_flow` | kg/s | Natural ventilation mass flow |
+| `zone:nat_vent_active` | - | Natural ventilation active flag (0/1) |
+| `zone:internal_gains_convective` | W | Total convective internal gains |
+| `zone:internal_gains_radiative` | W | Total radiative internal gains |
+| `zone:supply_air_temperature` | °C | HVAC supply air temperature |
+| `zone:supply_air_mass_flow` | kg/s | HVAC supply air mass flow |
 
 **Zone gain breakdown variables** (all W, positive = heat into zone):
 | Variable | Description |
 |----------|-------------|
-| `zone_gain_people_sensible` | Occupant sensible heat |
-| `zone_gain_people_latent` | Occupant latent heat |
-| `zone_gain_lighting` | Lighting heat to zone (conv + rad, excl. return air) |
-| `zone_gain_equipment_sensible` | Equipment sensible heat (excl. lost fraction) |
-| `zone_gain_equipment_latent` | Equipment latent heat |
-| `zone_gain_infiltration_sensible` | Infiltration sensible: mdot × cp × (T_out - T_zone) |
-| `zone_gain_infiltration_latent` | Infiltration latent: mdot × h_fg × (W_out - W_zone) |
-| `zone_gain_ventilation_sensible` | Mechanical ventilation sensible |
-| `zone_gain_ventilation_latent` | Mechanical ventilation latent |
-| `zone_gain_natural_ventilation_sensible` | Natural ventilation sensible |
-| `zone_gain_natural_ventilation_latent` | Natural ventilation latent |
-| `zone_gain_solar` | Total solar gain through windows |
-| `zone_gain_hvac_sensible` | HVAC supply air sensible |
-| `zone_gain_hvac_latent` | HVAC supply air latent |
+| `zone:gain_people_sensible` | Occupant sensible heat |
+| `zone:gain_people_latent` | Occupant latent heat |
+| `zone:gain_lighting` | Lighting heat to zone (conv + rad, excl. return air) |
+| `zone:gain_equipment_sensible` | Equipment sensible heat (excl. lost fraction) |
+| `zone:gain_equipment_latent` | Equipment latent heat |
+| `zone:gain_infiltration_sensible` | Infiltration sensible: mdot × cp × (T_out - T_zone) |
+| `zone:gain_infiltration_latent` | Infiltration latent: mdot × h_fg × (W_out - W_zone) |
+| `zone:gain_ventilation_sensible` | Mechanical ventilation sensible |
+| `zone:gain_ventilation_latent` | Mechanical ventilation latent |
+| `zone:gain_natural_ventilation_sensible` | Natural ventilation sensible |
+| `zone:gain_natural_ventilation_latent` | Natural ventilation latent |
+| `zone:gain_solar` | Total solar gain through windows |
+| `zone:gain_hvac_sensible` | HVAC supply air sensible |
+| `zone:gain_hvac_latent` | HVAC supply air latent |
 
 **Zone comfort variables:**
 | Variable | Unit | Description |
 |----------|------|-------------|
-| `zone_mean_radiant_temperature` | °C | Area-weighted MRT from interior surface temps |
-| `zone_operative_temperature` | °C | Average of air temp and MRT |
+| `zone:mean_radiant_temperature` | °C | Area-weighted MRT from interior surface temps |
+| `zone:operative_temperature` | °C | Average of air temp and MRT |
 
 **Zone unmet hours (time-series):**
 | Variable | Description |
 |----------|-------------|
-| `zone_unmet_heating` | 1 if zone temp < heating setpoint - 0.2°C, else 0 |
-| `zone_unmet_cooling` | 1 if zone temp > cooling setpoint + 0.2°C, else 0 |
+| `zone:unmet_heating` | 1 if zone temp < heating setpoint - 0.2°C, else 0 |
+| `zone:unmet_cooling` | 1 if zone temp > cooling setpoint + 0.2°C, else 0 |
 
 **Surface variables:**
 | Variable | Unit | Description |
 |----------|------|-------------|
-| `surface_inside_temperature` | °C | Inside face temperature |
-| `surface_outside_temperature` | °C | Outside face temperature |
-| `surface_inside_convection_coefficient` | W/(m²·K) | Inside convection coefficient |
-| `surface_incident_solar` | W/m² | Incident solar radiation |
-| `surface_transmitted_solar` | W | Solar transmitted through window |
-| `surface_conduction_inside` | W | Conduction heat flux on inside face |
-| `surface_convection_inside` | W | Convective heat flux from surface to zone |
+| `surface:inside_temperature` | °C | Inside face temperature |
+| `surface:outside_temperature` | °C | Outside face temperature |
+| `surface:inside_convection_coefficient` | W/(m²·K) | Inside convection coefficient |
+| `surface:incident_solar` | W/m² | Incident solar radiation |
+| `surface:transmitted_solar` | W | Solar transmitted through window |
+| `surface:cond_inside` | W | Conduction heat flux on inside face |
+| `surface:convection_inside` | W | Convective heat flux from surface to zone |
 
-**Per-surface alias:** `{SurfaceName}:conduction_gain` — conduction into zone through that surface [W].
-
-**Per-component variables** (use `ComponentName:variable` pattern):
+**Component variables** (use `component:variable` or `component:variable:ComponentName`):
 
 All HVAC components expose:
 | Variable | Unit | Description |
 |----------|------|-------------|
-| `electric_power` | W | Electric power consumption |
-| `fuel_power` | W | Fuel power consumption |
-| `thermal_output` | W | Heating (+) or cooling (-) delivered |
-| `inlet_temperature` | °C | Inlet air/water temperature |
-| `outlet_temperature` | °C | Outlet air/water temperature |
-| `inlet_humidity_ratio` | kg/kg | Inlet air humidity ratio |
-| `outlet_humidity_ratio` | kg/kg | Outlet air humidity ratio |
-| `mass_flow` | kg/s | Mass flow rate |
-| `inlet_enthalpy` | J/kg | Inlet enthalpy |
-| `outlet_enthalpy` | J/kg | Outlet enthalpy |
+| `component:electric_power` | W | Electric power consumption |
+| `component:fuel_power` | W | Fuel power consumption |
+| `component:thermal_output` | W | Heating (+) or cooling (-) delivered |
+| `component:inlet_temperature` | °C | Inlet air/water temperature |
+| `component:outlet_temperature` | °C | Outlet air/water temperature |
+| `component:inlet_humidity_ratio` | kg/kg | Inlet air humidity ratio |
+| `component:outlet_humidity_ratio` | kg/kg | Outlet air humidity ratio |
+| `component:mass_flow` | kg/s | Mass flow rate |
+| `component:inlet_enthalpy` | J/kg | Inlet enthalpy |
+| `component:outlet_enthalpy` | J/kg | Outlet enthalpy |
 
 Additional component-specific variables:
 | Component | Variable | Unit | Description |
 |-----------|----------|------|-------------|
-| Coils | `sensible_load` | W | Sensible heating/cooling |
-| Coils | `latent_load` | W | Latent cooling |
-| Coils | `total_load` | W | Total heating/cooling |
-| DX Coil | `cop_operating` | - | Operating COP |
-| DX Coil | `plr` | - | Part load ratio |
-| DX Coil | `rtf` | - | Runtime fraction |
-| DX Coil | `cycling_loss` | W | Cycling degradation loss |
-| Boiler/Chiller | `plr` | - | Part load ratio |
-| Boiler/Chiller | `efficiency_operating` | - | Operating efficiency/COP |
-| Boiler/Chiller | `water_inlet_temperature` | °C | Water inlet temp |
-| Boiler/Chiller | `water_outlet_temperature` | °C | Water outlet temp |
-| Boiler/Chiller | `water_mass_flow` | kg/s | Water mass flow |
-| Fan | `pressure_rise` | Pa | Design pressure rise |
-| Fan | `total_efficiency` | - | Total fan efficiency |
-| Pump | `water_mass_flow` | kg/s | Water mass flow |
-| Pump | `pressure_rise` | Pa | Design head |
-| Duct | `conduction_loss` | W | Conduction heat loss |
-| Duct | `leakage_loss` | kg/s | Leakage mass flow |
+| Coils | `component:sensible_load` | W | Sensible heating/cooling |
+| Coils | `component:latent_load` | W | Latent cooling |
+| Coils | `component:total_load` | W | Total heating/cooling |
+| DX Coil | `component:cop_operating` | - | Operating COP |
+| DX Coil | `component:plr` | - | Part load ratio |
+| DX Coil | `component:rtf` | - | Runtime fraction |
+| DX Coil | `component:cycling_loss` | W | Cycling degradation loss |
+| Boiler/Chiller | `component:plr` | - | Part load ratio |
+| Boiler/Chiller | `component:efficiency_operating` | - | Operating efficiency/COP |
+| Boiler/Chiller | `component:water_inlet_temperature` | °C | Water inlet temp |
+| Boiler/Chiller | `component:water_outlet_temperature` | °C | Water outlet temp |
+| Boiler/Chiller | `component:water_mass_flow` | kg/s | Water mass flow |
+| Fan | `component:pressure_rise` | Pa | Design pressure rise |
+| Fan | `component:total_efficiency` | - | Total fan efficiency |
+| Pump | `component:water_mass_flow` | kg/s | Water mass flow |
+| Pump | `component:pressure_rise` | Pa | Design head |
+| Duct | `component:conduction_loss` | W | Conduction heat loss |
+| Duct | `component:leakage_loss` | W | Leakage loss |
 
 **Building energy totals:**
 | Variable | Unit | Description |
 |----------|------|-------------|
-| `energy_fan_electric` | W | All fan electric power |
-| `energy_cooling_electric` | W | DX/chiller electric power |
-| `energy_heating_electric` | W | Heating electric power |
-| `energy_heating_gas` | W | Heating gas/fuel power |
-| `energy_pump_electric` | W | Pump electric power |
-| `energy_heat_rejection` | W | Cooling tower electric power |
-| `energy_humidification` | W | Humidifier electric power |
-| `energy_heat_recovery` | W | Heat recovery electric power |
-| `energy_dhw_electric` | W | DHW electric power |
-| `energy_dhw_gas` | W | DHW gas/fuel power |
-| `energy_lighting` | W | Interior lighting power |
-| `energy_ext_lighting` | W | Exterior lighting power |
-| `energy_equipment` | W | Interior equipment power |
-| `energy_ext_equipment` | W | Exterior equipment power |
-| `energy_total_electric` | W | Total electric power |
-| `energy_total_gas` | W | Total gas/fuel power |
+| `building:fan_electric` | W | All fan electric power |
+| `building:cooling_electric` | W | DX/chiller electric power |
+| `building:heating_electric` | W | Heating electric power |
+| `building:heating_gas` | W | Heating gas/fuel power |
+| `building:pump_electric` | W | Pump electric power |
+| `building:heat_rejection` | W | Cooling tower electric power |
+| `building:humidification` | W | Humidifier electric power |
+| `building:heat_recovery` | W | Heat recovery electric power |
+| `building:dhw_electric` | W | DHW electric power |
+| `building:dhw_gas` | W | DHW gas/fuel power |
+| `building:lighting` | W | Interior lighting power |
+| `building:ext_lighting` | W | Exterior lighting power |
+| `building:equipment` | W | Interior equipment power |
+| `building:ext_equipment` | W | Exterior equipment power |
+| `building:total_electric` | W | Total electric power |
+| `building:total_gas` | W | Total gas/fuel power |
 
 ### Submeters
 
@@ -1315,16 +1327,17 @@ air_loops:
         submeter: HVAC-Zone1    # tag fan to a submeter
 ```
 
-**Submeter output variables** follow the pattern `submeter:{Name}:{end_use}`:
+**Submeter output variables** use the format `submeter:end_use` (all meters) or `submeter:end_use:MeterName` (specific meter):
 
 | Variable | Description |
 |----------|-------------|
-| `submeter:Decorative:lighting` | Lighting power tagged "Decorative" [W] |
-| `submeter:Kitchen:equipment` | Equipment power tagged "Kitchen" [W] |
-| `submeter:General:fan_electric` | Fan power tagged "General" [W] |
-| `submeter:{Name}:total_electric` | Sum of all electric end uses for this submeter [W] |
-| `submeter:{Name}:total_gas` | Sum of all gas end uses for this submeter [W] |
-| `submeter:{Name}:total` | Sum of all end uses for this submeter [W] |
+| `submeter:lighting` | All submeter lighting power [W] |
+| `submeter:lighting:Decorative` | Lighting power for the "Decorative" submeter [W] |
+| `submeter:equipment:Kitchen` | Equipment power for the "Kitchen" submeter [W] |
+| `submeter:fan_electric:HVAC-Zone1` | Fan power for the "HVAC-Zone1" submeter [W] |
+| `submeter:total_electric` | Sum of all electric end uses (per submeter) [W] |
+| `submeter:total_gas` | Sum of all gas end uses (per submeter) [W] |
+| `submeter:total` | Sum of all end uses (per submeter) [W] |
 
 End-use categories: `fan_electric`, `cooling_electric`, `heating_electric`, `heating_gas`, `pump_electric`, `heat_rejection`, `humidification`, `heat_recovery`, `dhw_electric`, `dhw_gas`, `lighting`, `ext_lighting`, `equipment`, `ext_equipment`.
 
