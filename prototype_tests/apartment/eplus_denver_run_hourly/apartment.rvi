@@ -1,0 +1,66 @@
+eplusout.eso
+eplusout.csv
+G SW APARTMENT,Zone Mean Air Temperature
+G SW APARTMENT,Zone Air System Sensible Heating Rate
+G SW APARTMENT,Zone Air System Sensible Cooling Rate
+G SW APARTMENT,Zone Infiltration Sensible Heat Loss Energy
+G SW APARTMENT,Zone Infiltration Sensible Heat Gain Energy
+G SW APARTMENT,Enclosure Windows Total Transmitted Solar Radiation Rate
+G SW APARTMENT,Zone Windows Total Heat Gain Rate
+G SW APARTMENT,Zone Windows Total Heat Loss Rate
+M SW APARTMENT,Zone Mean Air Temperature
+M SW APARTMENT,Zone Air System Sensible Heating Rate
+M SW APARTMENT,Zone Air System Sensible Cooling Rate
+M SW APARTMENT,Zone Infiltration Sensible Heat Loss Energy
+M SW APARTMENT,Zone Infiltration Sensible Heat Gain Energy
+M SW APARTMENT,Enclosure Windows Total Transmitted Solar Radiation Rate
+M SW APARTMENT,Zone Windows Total Heat Gain Rate
+M SW APARTMENT,Zone Windows Total Heat Loss Rate
+T SW APARTMENT,Zone Mean Air Temperature
+T SW APARTMENT,Zone Air System Sensible Heating Rate
+T SW APARTMENT,Zone Air System Sensible Cooling Rate
+T SW APARTMENT,Zone Infiltration Sensible Heat Loss Energy
+T SW APARTMENT,Zone Infiltration Sensible Heat Gain Energy
+T SW APARTMENT,Enclosure Windows Total Transmitted Solar Radiation Rate
+T SW APARTMENT,Zone Windows Total Heat Gain Rate
+T SW APARTMENT,Zone Windows Total Heat Loss Rate
+G SWALL SWA,Surface Inside Face Conduction Heat Transfer Rate
+G WWALL SWA,Surface Inside Face Conduction Heat Transfer Rate
+G NIWALL SWA,Surface Inside Face Conduction Heat Transfer Rate
+G EIWALL SWA,Surface Inside Face Conduction Heat Transfer Rate
+G GFLOOR SWA,Surface Inside Face Conduction Heat Transfer Rate
+G CEILIN SWA,Surface Inside Face Conduction Heat Transfer Rate
+M SWALL SWA,Surface Inside Face Conduction Heat Transfer Rate
+M WWALL SWA,Surface Inside Face Conduction Heat Transfer Rate
+M NIWALL SWA,Surface Inside Face Conduction Heat Transfer Rate
+M EIWALL SWA,Surface Inside Face Conduction Heat Transfer Rate
+M CEILIN SWA,Surface Inside Face Conduction Heat Transfer Rate
+T SWALL SWA,Surface Inside Face Conduction Heat Transfer Rate
+T WWALL SWA,Surface Inside Face Conduction Heat Transfer Rate
+T NIWALL SWA,Surface Inside Face Conduction Heat Transfer Rate
+T EIWALL SWA,Surface Inside Face Conduction Heat Transfer Rate
+T ROOF SWA,Surface Inside Face Conduction Heat Transfer Rate
+GWINDOW1 S SWA,Surface Window Heat Gain Rate
+GWINDOW1 S SWA,Surface Window Heat Loss Rate
+GWINDOW1 W SWA,Surface Window Heat Gain Rate
+GWINDOW1 W SWA,Surface Window Heat Loss Rate
+G N1 APARTMENT,Zone Mean Air Temperature
+G N1 APARTMENT,Zone Air System Sensible Heating Rate
+G N1 APARTMENT,Zone Air System Sensible Cooling Rate
+G N1 APARTMENT,Enclosure Windows Total Transmitted Solar Radiation Rate
+G N1 APARTMENT,Zone Windows Total Heat Gain Rate
+G N1 APARTMENT,Zone Windows Total Heat Loss Rate
+g NWall N1A,Surface Inside Face Conduction Heat Transfer Rate
+g SIWall N1A,Surface Inside Face Conduction Heat Transfer Rate
+g EIWALL N1A,Surface Inside Face Conduction Heat Transfer Rate
+g GFloor N1A,Surface Inside Face Conduction Heat Transfer Rate
+g Ceilin N1A,Surface Inside Face Conduction Heat Transfer Rate
+GWindow1 N N1A,Surface Window Heat Gain Rate
+GWindow1 N N1A,Surface Window Heat Loss Rate
+Split GSW Supply Inlet,System Node Temperature
+Split GSW Supply Inlet,System Node Mass Flow Rate
+Split MSW Supply Inlet,System Node Temperature
+Split MSW Supply Inlet,System Node Mass Flow Rate
+Split TSW Supply Inlet,System Node Temperature
+Split TSW Supply Inlet,System Node Mass Flow Rate
+0

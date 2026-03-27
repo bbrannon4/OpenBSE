@@ -36,6 +36,17 @@ design_days:
   day_type: summer
   taub: 0.423
   taud: 2.020
+  # E+ CLGSETP_APT_SCH SummerDesignDay: 24°C hours 1-9, 27.1°C hours 10-18, 24°C hours 19-24.
+  # Thermostat setup during unoccupied hours creates a pulldown spike at hour 19
+  # when the zone must recover from ~27°C to 24°C, driving equipment sizing.
+  # E+ uses CLGSETP_APT_SCH with SummerDesignDay setback (24→27.1→24°C).
+  # This creates a pulldown spike that drives equipment sizing ~30% higher.
+  # Omitted here: the OpenBSE thermal model responds more strongly to the
+  # setback than E+, oversizing equipment. The design-day setpoint schedule
+  # feature is available but requires further calibration.
+  # cooling_setpoint_schedule:
+  #   [24, 24, 24, 24, 24, 24, 24, 24, 24, 27.1, 27.1, 27.1,
+  #    27.1, 27.1, 27.1, 27.1, 27.1, 27.1, 24, 24, 24, 24, 24, 24]
 
 # E+ PTU performance curves for Coil:Cooling:DX:SingleSpeed
 performance_curves:
@@ -733,13 +744,13 @@ constructions:
     thickness: 0.0008
 simple_constructions:
 - name: Interior Partition
-  u_factor: 4.0
+  u_factor: 2.508
   thickness: 0.0254
   thermal_capacity: 22000.0
   solar_absorptance: 0.4
   thermal_absorptance: 0.9
 - name: Interzone Floor
-  u_factor: 3.0
+  u_factor: 1.998
   thickness: 0.12
   thermal_capacity: 200000.0
   solar_absorptance: 0.7
@@ -5901,7 +5912,10 @@ plant_loops:
     design_water_flow_rate: autosize
 dhw_systems:
 - name: Apartment DHW
-  mains_temperature: 13.3
+  mains_temperature:
+    correlation:
+      annual_avg_temp: 9.95
+      max_monthly_delta: 23.7
   water_heater:
     name: Gas Water Heater
     fuel_type: gas

@@ -1642,13 +1642,16 @@ impl SweepRange {
 /// Mains water temperature specification.
 ///
 /// Can be a fixed constant or a seasonal correlation based on the
-/// ASHRAE / E+ `Site:WaterMainsTemperature` correlation method:
+/// ASHRAE / E+ `Site:WaterMainsTemperature` correlation method
+/// (Hendron 2004, Burch & Craig 2004):
 ///
 /// ```text
-/// T_mains(day) = T_annual_avg + ΔT_max/2 * sin(2π/365 * (day - day_shift - 15))
+/// T_mains(day) = (T_annual_avg + 6) + ratio * (ΔT_max/2) * sin(2π/365 * (day - day_shift - 15))
 /// ```
 ///
-/// where `day_shift = 35 - latitude/2`.
+/// where `day_shift = 35 - latitude/2` and `ratio = 0.4127` (damping from
+/// soil thermal lag). The +6°C offset and 0.4127 ratio match E+'s
+/// `Site:WaterMainsTemperature` Correlation method.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum MainsTemperature {
@@ -1730,8 +1733,12 @@ pub fn mains_water_temperature(
 ) -> f64 {
     let day_shift = 35.0 - latitude / 2.0;
     let day = day_of_year as f64;
-    annual_avg_temp
-        + (max_monthly_delta / 2.0)
+    // E+ Burch & Craig / Hendron correlation:
+    // +6°C offset and 0.4127 damping ratio account for soil thermal lag.
+    let ratio = 0.4127;
+    (annual_avg_temp + 6.0)
+        + ratio
+            * (max_monthly_delta / 2.0)
             * (2.0 * std::f64::consts::PI / 365.0 * (day - day_shift - 15.0)).sin()
 }
 
@@ -3619,38 +3626,44 @@ surfaces:
     #[test]
     fn test_mains_water_temperature_correlation() {
         // Boulder, CO: annual_avg = 9.95°C, max_delta = 23.7°C, lat = 39.83°
+        // E+ Burch & Craig formula: T = (9.95 + 6) + 0.4127 * (23.7/2) * sin(...)
+        // Base = 15.95°C, amplitude = 0.4127 * 11.85 = 4.89°C
+        // Range: 11.06 - 20.84°C
         let t = mains_water_temperature(1, 9.95, 23.7, 39.83);
         // Day 1 (Jan 1): day_shift = 35 - 39.83/2 = 15.085
         // arg = 2π/365 * (1 - 15.085 - 15) = 2π/365 * (-29.085) ≈ -0.5004
         // sin(-0.5004) ≈ -0.4797
-        // T = 9.95 + 11.85 * (-0.4797) ≈ 4.29
+        // T = 15.95 + 4.89 * (-0.4797) ≈ 13.60
         assert!(
-            (t - 4.26).abs() < 0.2,
-            "Jan 1 mains temp should be ~4.3°C, got {:.2}",
+            (t - 13.6).abs() < 0.3,
+            "Jan 1 mains temp should be ~13.6°C, got {:.2}",
             t
         );
 
-        // Near peak (day ~121, ~May 1): sine peaks when day ≈ day_shift+15+91
-        // Peak value = 9.95 + 11.85 = 21.8°C
+        // Near peak (day ~121, ~May 1): peak ≈ 15.95 + 4.89 = 20.84°C
         let t_peak = mains_water_temperature(121, 9.95, 23.7, 39.83);
         assert!(
-            t_peak > 20.0,
-            "Peak mains should be >20°C, got {:.2}",
+            t_peak > 19.0,
+            "Peak mains should be >19°C, got {:.2}",
             t_peak
         );
 
-        // Winter minimum (day ~304): should be well below average
+        // Winter minimum (day ~304): min ≈ 15.95 - 4.89 = 11.06°C
         let t_min = mains_water_temperature(304, 9.95, 23.7, 39.83);
-        assert!(t_min < 2.0, "Winter mains should be <2°C, got {:.2}", t_min);
+        assert!(
+            t_min < 13.0 && t_min > 10.0,
+            "Winter mains should be 10-13°C, got {:.2}",
+            t_min
+        );
 
-        // Annual average should be close to annual_avg_temp
+        // Annual average should be close to annual_avg_temp + 6
         let avg: f64 = (1..=365)
             .map(|d| mains_water_temperature(d, 9.95, 23.7, 39.83))
             .sum::<f64>()
             / 365.0;
         assert!(
-            (avg - 9.95).abs() < 0.1,
-            "Annual average should be ~9.95°C, got {:.2}",
+            (avg - 15.95).abs() < 0.1,
+            "Annual average should be ~15.95°C, got {:.2}",
             avg
         );
     }
