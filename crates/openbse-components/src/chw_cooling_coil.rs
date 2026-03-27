@@ -20,10 +20,16 @@ use openbse_core::ports::*;
 use openbse_psychrometrics::{self as psych, FluidState};
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Chilled water cooling coil component.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoolingCoilCHW {
     pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Nominal cooling capacity [W] (sensible + latent at design conditions).
     /// Use AUTOSIZE for autosizing from zone peak cooling load.
     pub nominal_capacity: f64,
@@ -77,6 +83,7 @@ impl CoolingCoilCHW {
     ) -> Self {
         Self {
             name: name.to_string(),
+            submeter: "General".to_string(),
             nominal_capacity: capacity,
             rated_shr: shr,
             outlet_temp_setpoint: setpoint,

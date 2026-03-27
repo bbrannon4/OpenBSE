@@ -4931,6 +4931,7 @@ mod tests {
                 lost_fraction: 0.0,
                 latent_fraction: 0.0,
                 schedule: None,
+                submeter: "General".to_string(),
             }],
             internal_mass: vec![],
 
@@ -5423,6 +5424,7 @@ mod tests {
                 lost_fraction: 0.0,
                 latent_fraction: 0.0,
                 schedule: None,
+                submeter: "General".to_string(),
             }],
             internal_mass: vec![],
 

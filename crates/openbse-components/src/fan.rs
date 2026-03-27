@@ -13,6 +13,10 @@ use openbse_core::types::*;
 use openbse_psychrometrics::{self as psych};
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Fan type enumeration.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum FanType {
@@ -31,6 +35,9 @@ pub struct Fan {
     /// fan energy to the correct end-use subcategory.
     #[serde(default)]
     pub tag: String,
+    /// Submeter category for energy reporting (e.g., "General", "Heating", "Cooling").
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Design maximum air flow rate [m³/s]. Use AUTOSIZE for autosizing.
     pub design_flow_rate: f64,
     /// Design pressure rise [Pa]
@@ -66,6 +73,7 @@ impl Fan {
             name: name.to_string(),
             fan_type: FanType::ConstantVolume,
             tag: String::new(),
+            submeter: "General".to_string(),
             design_flow_rate,
             design_pressure_rise,
             total_efficiency,
@@ -90,6 +98,7 @@ impl Fan {
             name: name.to_string(),
             fan_type: FanType::VAV,
             tag: String::new(),
+            submeter: "General".to_string(),
             design_flow_rate,
             design_pressure_rise,
             total_efficiency,

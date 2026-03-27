@@ -25,10 +25,16 @@ use openbse_core::ports::*;
 use openbse_psychrometrics::{self as psych};
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Parallel fan-powered (PFP) terminal box with electric reheat.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PFPBox {
     pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Zone this PFP box serves
     pub zone_name: String,
 
@@ -106,6 +112,7 @@ impl PFPBox {
     ) -> Self {
         Self {
             name: name.to_string(),
+            submeter: "General".to_string(),
             zone_name: zone_name.to_string(),
             max_primary_flow,
             min_primary_fraction: min_primary_fraction.clamp(0.0, 1.0),

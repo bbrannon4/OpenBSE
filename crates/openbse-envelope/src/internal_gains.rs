@@ -5,6 +5,10 @@
 
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Internal gain specification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -46,6 +50,9 @@ pub enum InternalGainInput {
         /// Schedule name for time-varying lighting (default: always on)
         #[serde(default)]
         schedule: Option<String>,
+        /// Submeter label for end-use reporting (default: "General")
+        #[serde(default = "default_submeter")]
+        submeter: String,
     },
     Equipment {
         /// Total installed power [W]
@@ -67,6 +74,9 @@ pub enum InternalGainInput {
         /// Schedule name for time-varying equipment (default: always on)
         #[serde(default)]
         schedule: Option<String>,
+        /// Submeter label for end-use reporting (default: "General")
+        #[serde(default = "default_submeter")]
+        submeter: String,
     },
 }
 
@@ -163,6 +173,7 @@ pub fn resolve_gains_scheduled(
                 radiant_fraction,
                 return_air_fraction,
                 schedule,
+                submeter: _,
             } => {
                 let frac = schedule_fraction(schedule, schedule_mgr, hour, day_of_week);
                 let total = power * frac;
@@ -179,6 +190,7 @@ pub fn resolve_gains_scheduled(
                 lost_fraction,
                 latent_fraction,
                 schedule,
+                submeter: _,
             } => {
                 let frac = schedule_fraction(schedule, schedule_mgr, hour, day_of_week);
                 let total = power * frac;
@@ -244,6 +256,7 @@ mod tests {
             radiant_fraction: 0.7,
             return_air_fraction: 0.2,
             schedule: None,
+            submeter: "General".to_string(),
         }];
         let resolved = resolve_gains(&gains);
         // 1000 total, 200 to return air, 800 to zone
@@ -271,6 +284,7 @@ mod tests {
                 lost_fraction: 0.0,
                 latent_fraction: 0.0,
                 schedule: None,
+                submeter: "General".to_string(),
             },
         ];
         let resolved = resolve_gains(&gains);
@@ -302,6 +316,7 @@ mod tests {
             lost_fraction: 0.0,
             latent_fraction: 0.0,
             schedule: Some("half".to_string()),
+            submeter: "General".to_string(),
         }];
 
         // Weekday: 50% schedule → 500W
@@ -322,6 +337,7 @@ mod tests {
             lost_fraction: 0.95,
             latent_fraction: 0.0,
             schedule: None,
+            submeter: "General".to_string(),
         }];
         let resolved = resolve_gains(&gains);
         // 1000W total, 950W lost, 50W to zone

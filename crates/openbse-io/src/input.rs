@@ -147,6 +147,10 @@ fn default_summary_report() -> bool {
     true
 }
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SimulationSettings {
     #[serde(default = "default_timesteps_per_hour")]
@@ -658,6 +662,9 @@ pub enum EquipmentInput {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HumidifierInput {
     pub name: String,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Maximum electric power [W] (e.g., 100000). Use `autosize` for autosizing.
     #[serde(default = "default_humidifier_power")]
     pub rated_power: f64,
@@ -693,6 +700,9 @@ fn default_zone_cooling_sp() -> f64 {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DuctInput {
     pub name: String,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Duct length [m]
     pub length: f64,
     /// Duct hydraulic diameter [m]
@@ -724,6 +734,9 @@ fn default_duct_ambient() -> String {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FanInput {
     pub name: String,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Fan source: "constant_volume", "vav", "on_off"
     #[serde(default = "default_fan_source")]
     pub source: String,
@@ -769,6 +782,9 @@ fn default_motor_in_airstream() -> f64 {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HeatingCoilInput {
     pub name: String,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Heating coil source: "electric", "gas", "hot_water", "heat_pump"
     #[serde(default = "default_heating_source")]
     pub source: String,
@@ -843,6 +859,9 @@ fn default_hp_cop() -> f64 {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CoolingCoilInput {
     pub name: String,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Cooling coil source: "dx", "chilled_water"
     #[serde(default = "default_cooling_source")]
     pub source: String,
@@ -917,6 +936,9 @@ fn default_chw_return_temp() -> f64 {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HeatRecoveryInput {
     pub name: String,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Heat recovery source: "wheel", "plate", "runaround_coil"
     #[serde(default = "default_hr_source")]
     pub source: String,
@@ -999,6 +1021,9 @@ pub enum TerminalInput {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VavBoxInput {
     pub name: String,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Maximum primary air flow [kg/s]. Use `autosize` to let the engine calculate.
     pub max_air_flow: AutosizeValue,
     /// Minimum flow fraction [0-1] (default 0.30)
@@ -1032,6 +1057,9 @@ pub struct VavBoxInput {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PfpBoxInput {
     pub name: String,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Maximum primary air flow [kg/s]. Use `autosize` to let the engine calculate.
     pub max_primary_flow: AutosizeValue,
     /// Minimum primary flow fraction [0-1] (default 0.30)
@@ -1128,6 +1156,9 @@ pub enum PumpControlStrategy {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PumpInput {
     pub name: String,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Pump type: "constant_speed" or "variable_speed" (default: "variable_speed")
     #[serde(default = "default_pump_type")]
     pub pump_type: String,
@@ -1194,6 +1225,9 @@ fn default_pump_motor_eff() -> f64 {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BoilerInput {
     pub name: String,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Nominal capacity [W]. Use `autosize` to let the engine calculate.
     pub capacity: AutosizeValue,
     #[serde(default = "default_boiler_efficiency")]
@@ -1273,6 +1307,9 @@ fn default_curve_max() -> f64 {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChillerInput {
     pub name: String,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Rated cooling capacity [W]. Use `autosize` to let the engine calculate.
     pub capacity: AutosizeValue,
     /// Rated COP at ARI conditions (typical 2.5-4.5 for air-cooled)
@@ -1338,6 +1375,9 @@ fn default_chiller_min_plr() -> f64 {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CoolingTowerInput {
     pub name: String,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Tower type: "single_speed", "two_speed", or "variable_speed" (default)
     #[serde(default = "default_ct_tower_type")]
     pub tower_type: String,
@@ -1770,6 +1810,9 @@ pub fn mains_water_temperature(
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DhwSystemInput {
     pub name: String,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Water heater equipment
     pub water_heater: WaterHeaterInput,
     /// Hot water draw profiles
@@ -1892,6 +1935,10 @@ fn default_use_temp() -> f64 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExteriorEquipmentInput {
     pub name: String,
+    /// Submeter label for end-use reporting (default: "General").
+    /// Takes precedence over `subcategory` when present.
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Design power [W]
     pub power: f64,
     /// Schedule name (fraction 0-1). If absent, always at full power.
@@ -1900,7 +1947,7 @@ pub struct ExteriorEquipmentInput {
     /// Fuel type: "electricity" or "natural_gas" (default: "electricity")
     #[serde(default = "default_exterior_fuel")]
     pub fuel: String,
-    /// Subcategory label for end-use reporting
+    /// Subcategory label for end-use reporting (legacy; use `submeter` instead)
     #[serde(default)]
     pub subcategory: Option<String>,
     /// When true, power is only applied during nighttime (solar altitude ≤ 0).
@@ -1964,6 +2011,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                         ),
                     };
                     fan.fan_type = fan_type;
+                    fan.submeter = f.submeter.clone();
                     // Apply tag for output classification
                     if let Some(ref tag) = f.tag {
                         fan.tag = tag.clone();
@@ -2014,6 +2062,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                                     .cloned()
                             });
                             coil = coil.with_curves(cap_curve, eir_curve);
+                            coil.submeter = c.submeter.clone();
                             graph.add_air_component(Box::new(coil))
                         }
                         "hot_water" | "HotWater" => {
@@ -2031,28 +2080,32 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                                 if let Some(v) = c.rated_air_outlet_temp {
                                     ua_cfg.rated_air_outlet_temp = v;
                                 }
-                                let coil = HeatingCoil::hot_water_ua(
+                                let mut coil = HeatingCoil::hot_water_ua(
                                     &c.name, cap, c.setpoint, 0.001, // default water flow
                                     82.0,  // default water inlet temp
                                     71.0,  // default water outlet temp
                                     ua_cfg,
                                 );
+                                coil.submeter = c.submeter.clone();
                                 graph.add_air_component(Box::new(coil))
                             } else {
-                                let coil = HeatingCoil::hot_water(
+                                let mut coil = HeatingCoil::hot_water(
                                     &c.name, cap, c.setpoint, 0.001, // default water flow
                                     82.0,  // default water inlet temp
                                     71.0,  // default water outlet temp
                                 );
+                                coil.submeter = c.submeter.clone();
                                 graph.add_air_component(Box::new(coil))
                             }
                         }
                         "gas" | "Gas" | "furnace" | "Furnace" => {
-                            let coil = HeatingCoil::gas(&c.name, cap, c.setpoint, c.efficiency);
+                            let mut coil = HeatingCoil::gas(&c.name, cap, c.setpoint, c.efficiency);
+                            coil.submeter = c.submeter.clone();
                             graph.add_air_component(Box::new(coil))
                         }
                         _ => {
-                            let coil = HeatingCoil::electric(&c.name, cap, c.setpoint);
+                            let mut coil = HeatingCoil::electric(&c.name, cap, c.setpoint);
+                            coil.submeter = c.submeter.clone();
                             graph.add_air_component(Box::new(coil))
                         }
                     }
@@ -2072,7 +2125,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                                     0.001
                                 }
                             };
-                            let coil = CoolingCoilCHW::new(
+                            let mut coil = CoolingCoilCHW::new(
                                 &c.name,
                                 c.capacity.to_f64(),
                                 c.shr,
@@ -2081,6 +2134,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                                 c.design_water_inlet_temp,
                                 c.design_water_outlet_temp,
                             );
+                            coil.submeter = c.submeter.clone();
                             graph.add_air_component(Box::new(coil))
                         }
                         _ => {
@@ -2133,6 +2187,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             }) {
                                 coil = coil.with_plf_curve(plf);
                             }
+                            coil.submeter = c.submeter.clone();
                             graph.add_air_component(Box::new(coil))
                         }
                     }
@@ -2151,19 +2206,22 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             hr.parasitic_power,
                         ),
                     };
+                    let mut erv = erv;
+                    erv.submeter = hr.submeter.clone();
                     graph.add_air_component(Box::new(erv))
                 }
                 EquipmentInput::Humidifier(h) => {
-                    let hum = openbse_components::humidifier::Humidifier::new(
+                    let mut hum = openbse_components::humidifier::Humidifier::new(
                         &h.name,
                         h.rated_power,
                         h.min_rh_setpoint,
                         h.zone_cooling_setpoint,
                     );
+                    hum.submeter = h.submeter.clone();
                     graph.add_air_component(Box::new(hum))
                 }
                 EquipmentInput::Duct(d) => {
-                    let duct = openbse_components::duct::Duct::new(
+                    let mut duct = openbse_components::duct::Duct::new(
                         &d.name,
                         d.length,
                         d.diameter,
@@ -2171,6 +2229,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                         d.leakage_fraction,
                         &d.ambient_zone,
                     );
+                    duct.submeter = d.submeter.clone();
                     graph.add_air_component(Box::new(duct))
                 }
             };
@@ -2194,7 +2253,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             "hot_water" | "HotWater" | "hw" => ReheatType::HotWater,
                             _ => ReheatType::None,
                         };
-                        let box_component = VAVBox::new(
+                        let mut box_component = VAVBox::new(
                             &vb.name,
                             &zc.zone,
                             vb.max_air_flow.to_f64(),
@@ -2202,10 +2261,11 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             reheat,
                             vb.reheat_capacity.to_f64(),
                         );
+                        box_component.submeter = vb.submeter.clone();
                         graph.add_air_component(Box::new(box_component))
                     }
                     TerminalInput::PfpBox(pb) => {
-                        let box_component = PFPBox::new(
+                        let mut box_component = PFPBox::new(
                             &pb.name,
                             &zc.zone,
                             pb.max_primary_flow.to_f64(),
@@ -2213,6 +2273,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             pb.secondary_fan_flow.to_f64(),
                             pb.reheat_capacity.to_f64(),
                         );
+                        box_component.submeter = pb.submeter.clone();
                         graph.add_air_component(Box::new(box_component))
                     }
                 };
@@ -2239,7 +2300,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             .find(|pc| pc.name == *name)
                             .cloned()
                     });
-                    let boiler = Boiler::new(
+                    let mut boiler = Boiler::new(
                         &b.name,
                         b.capacity.to_f64(),
                         b.efficiency,
@@ -2248,6 +2309,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                     )
                     .with_efficiency_curve(eff_curve)
                     .with_flow_mode(b.flow_mode.to_component(), None);
+                    boiler.submeter = b.submeter.clone();
                     graph.add_plant_component(Box::new(boiler))
                 }
                 PlantEquipmentInput::Chiller(ci) => {
@@ -2328,6 +2390,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             max_output: None,
                         });
                     }
+                    chiller.submeter = ci.submeter.clone();
                     graph.add_plant_component(Box::new(chiller))
                 }
                 PlantEquipmentInput::Pump(p) => {
@@ -2354,6 +2417,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                         power_curve,
                     );
                     pump.motor_heat_to_fluid_fraction = p.motor_heat_to_fluid_fraction;
+                    pump.submeter = p.submeter.clone();
                     graph.add_plant_component(Box::new(pump))
                 }
                 PlantEquipmentInput::CoolingTower(ct) => {
@@ -2380,6 +2444,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                                 [curve[0], curve[1], curve[2], curve[3], curve[4]];
                         }
                     }
+                    tower.submeter = ct.submeter.clone();
                     graph.add_plant_component(Box::new(tower))
                 }
                 PlantEquipmentInput::HeatExchanger(hx) => {
@@ -2650,6 +2715,7 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                     radiant_fraction: lights.radiant_fraction,
                     return_air_fraction: lights.return_air_fraction,
                     schedule: lights.schedule.clone(),
+                    submeter: lights.submeter.clone(),
                 });
             }
         }
@@ -2671,6 +2737,7 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                     lost_fraction: equip.lost_fraction,
                     latent_fraction: equip.latent_fraction,
                     schedule: equip.schedule.clone(),
+                    submeter: equip.submeter.clone(),
                 });
             }
         }

@@ -17,10 +17,16 @@
 use openbse_core::ports::*;
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Duct component for modeling conduction losses and air leakage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Duct {
     pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Duct length [m]
     pub length: f64,
     /// Duct hydraulic diameter [m]
@@ -65,6 +71,7 @@ impl Duct {
     ) -> Self {
         Self {
             name: name.to_string(),
+            submeter: "General".to_string(),
             length,
             diameter,
             u_value,

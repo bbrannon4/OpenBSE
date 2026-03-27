@@ -59,6 +59,7 @@ Last updated: 2026-03-23
 - Zone gain breakdown: 14 individual gain categories (people, lighting, equipment, infiltration, ventilation, nat vent, solar, HVAC — each sensible/latent)
 - Comfort metrics: mean radiant temperature, operative temperature
 - Unmet hours time-series: per-zone per-timestep heating/cooling unmet flags
+- Submeter tagging on all energy-consuming components (lights, equipment, fans, coils, boilers, chillers, pumps, DHW, exterior) with per-submeter time-series output variables and summary report breakdown
 - Custom output variable selection
 - CLI `-w` flag for weather file (overrides YAML `weather_files`)
 

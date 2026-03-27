@@ -16,10 +16,16 @@ use openbse_core::ports::*;
 use openbse_psychrometrics::{self as psych};
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// DX cooling coil component.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoolingCoilDX {
     pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Rated total cooling capacity [W] at ARI conditions
     pub rated_capacity: f64,
     /// Rated COP (coefficient of performance) at ARI conditions
@@ -114,6 +120,7 @@ impl CoolingCoilDX {
     ) -> Self {
         Self {
             name: name.to_string(),
+            submeter: "General".to_string(),
             rated_capacity,
             rated_cop,
             rated_shr,

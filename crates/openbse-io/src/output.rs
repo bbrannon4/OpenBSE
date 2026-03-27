@@ -351,6 +351,10 @@ pub fn get_unit(var_name: &str) -> &'static str {
             return unit;
         }
     }
+    // Submeter variables are all power [W]
+    if var_name.starts_with("submeter:") {
+        return "W";
+    }
     // Dynamic component variable: "ComponentName:field_name" — match on field part
     if let Some((_comp, field)) = var_name.split_once(':') {
         return match field {
@@ -400,6 +404,10 @@ pub fn get_unit(var_name: &str) -> &'static str {
 /// Whether a variable should default to sum aggregation (energy, mass).
 fn is_integrable(var_name: &str) -> bool {
     if matches!(var_name, "zone_heating_energy" | "zone_cooling_energy") {
+        return true;
+    }
+    // Submeter variables are power → sum aggregation
+    if var_name.starts_with("submeter:") {
         return true;
     }
     // Component power/energy variables default to sum aggregation
@@ -510,6 +518,13 @@ pub struct OutputSnapshot {
     pub zone_unmet_heating: HashMap<String, f64>,
     pub zone_unmet_cooling: HashMap<String, f64>,
 
+    // Per-submeter energy: submeter_name -> end_use_category -> watts
+    // End-use categories: "fan_electric", "cooling_electric", "heating_electric",
+    // "heating_gas", "pump_electric", "heat_rejection", "humidification",
+    // "heat_recovery", "dhw_electric", "dhw_gas", "lighting", "ext_lighting",
+    // "equipment", "ext_equipment"
+    pub submeter_power: HashMap<String, HashMap<String, f64>>,
+
     // Per-component detailed outputs (component_name -> {field_name -> value})
     // Enables dynamic "ComponentName:field" output variable resolution.
     pub component_outputs: HashMap<String, HashMap<String, f64>>,
@@ -584,6 +599,7 @@ impl OutputSnapshot {
             zone_operative_temperature: HashMap::new(),
             zone_unmet_heating: HashMap::new(),
             zone_unmet_cooling: HashMap::new(),
+            submeter_power: HashMap::new(),
             component_outputs: HashMap::new(),
             zone_lighting_power: HashMap::new(),
             zone_equipment_power: HashMap::new(),
@@ -804,6 +820,37 @@ impl OutputSnapshot {
             }
 
             _ => {
+                // Submeter variables: "submeter:NAME:END_USE" or "submeter:NAME:total_electric" etc.
+                if var_name.starts_with("submeter:") {
+                    let parts: Vec<&str> = var_name.splitn(3, ':').collect();
+                    if parts.len() == 3 {
+                        let meter_name = parts[1];
+                        let end_use = parts[2];
+                        if let Some(end_uses) = self.submeter_power.get(meter_name) {
+                            if end_use == "total_electric" {
+                                let total: f64 = end_uses
+                                    .iter()
+                                    .filter(|(k, _)| !k.contains("gas"))
+                                    .map(|(_, &v)| v)
+                                    .sum();
+                                return single("Building", total);
+                            } else if end_use == "total_gas" {
+                                let total: f64 = end_uses
+                                    .iter()
+                                    .filter(|(k, _)| k.contains("gas"))
+                                    .map(|(_, &v)| v)
+                                    .sum();
+                                return single("Building", total);
+                            } else if end_use == "total" {
+                                let total: f64 = end_uses.values().sum();
+                                return single("Building", total);
+                            } else if let Some(&val) = end_uses.get(end_use) {
+                                return single("Building", val);
+                            }
+                        }
+                    }
+                    return HashMap::new();
+                }
                 // Dynamic component variable: "ComponentName:field_name"
                 if let Some((comp_name, field_name)) = var_name.split_once(':') {
                     if let Some(vars) = self.component_outputs.get(comp_name) {
@@ -1163,6 +1210,8 @@ pub struct SummaryReport {
     zone_peak_cooling: HashMap<String, (f64, u32, u32, u32, f64)>,
     /// Zone floor areas for W/m² calculations
     zone_floor_areas: HashMap<String, f64>,
+    /// Per-submeter monthly energy [J]: (submeter, end_use) -> [12 months]
+    submeter_monthly_j: HashMap<(String, String), [f64; 12]>,
 }
 
 impl SummaryReport {
@@ -1195,6 +1244,7 @@ impl SummaryReport {
             zone_peak_heating: HashMap::new(),
             zone_peak_cooling: HashMap::new(),
             zone_floor_areas: HashMap::new(),
+            submeter_monthly_j: HashMap::new(),
         }
     }
 
@@ -1464,6 +1514,20 @@ impl SummaryReport {
                 .entry(surf_name.clone())
                 .or_insert([0.0; 12]);
             arr[month_idx] += solar;
+        }
+
+        // Accumulate submeter energy
+        for (meter_name, end_uses) in &snapshot.submeter_power {
+            for (end_use, &pw) in end_uses {
+                let energy = pw * snapshot.dt;
+                if energy.is_finite() {
+                    let arr = self
+                        .submeter_monthly_j
+                        .entry((meter_name.clone(), end_use.clone()))
+                        .or_insert([0.0; 12]);
+                    arr[month_idx] += energy;
+                }
+            }
         }
 
         // Unmet hours check
@@ -2159,6 +2223,53 @@ impl SummaryReport {
         )?;
         writeln!(w, "  Simulated hours:   {:>8.1} hr", total_hours)?;
         writeln!(w)?;
+
+        // -- Submeter Breakdown --
+        // Only show if any non-"General" submeters exist
+        {
+            let has_custom = self.submeter_monthly_j.keys().any(|(m, _)| m != "General");
+            if has_custom {
+                writeln!(
+                    w,
+                    "-- Submeter Breakdown [kWh] -----------------------------------"
+                )?;
+                writeln!(w)?;
+
+                let month_names = [
+                    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
+                    "Dec",
+                ];
+
+                write!(w, "  {:<16} {:<20}", "Submeter", "End Use")?;
+                for mn in &month_names {
+                    write!(w, " {:>7}", mn)?;
+                }
+                writeln!(w, " {:>9}", "Total")?;
+
+                write!(w, "  {:-<16} {:-<20}", "", "")?;
+                for _ in 0..12 {
+                    write!(w, " {:-<7}", "")?;
+                }
+                writeln!(w, " {:-<9}", "")?;
+
+                let mut keys: Vec<_> = self.submeter_monthly_j.keys().cloned().collect();
+                keys.sort();
+                for (meter, end_use) in &keys {
+                    let arr = &self.submeter_monthly_j[&(meter.clone(), end_use.clone())];
+                    let total: f64 = arr.iter().sum::<f64>() / 3_600_000.0;
+                    if total.abs() < 0.05 {
+                        continue;
+                    }
+                    write!(w, "  {:<16} {:<20}", meter, end_use)?;
+                    for mi in 0..12 {
+                        write!(w, " {:>7.1}", arr[mi] / 3_600_000.0)?;
+                    }
+                    writeln!(w, " {:>9.1}", total)?;
+                }
+                writeln!(w)?;
+            }
+        }
+
         writeln!(
             w,
             "================================================================"
@@ -2571,6 +2682,40 @@ impl SummaryReport {
                 trans_kwh, inc_kwh
             )?;
             writeln!(w, "</details>")?;
+        }
+
+        // -- Submeter Breakdown (HTML) --
+        {
+            let has_custom = self.submeter_monthly_j.keys().any(|(m, _)| m != "General");
+            if has_custom {
+                writeln!(w, "<h2>Submeter Breakdown [kWh]</h2>")?;
+                writeln!(w, "<table>")?;
+                let month_names = [
+                    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
+                    "Dec",
+                ];
+                write!(w, "<tr><th>Submeter</th><th>End Use</th>")?;
+                for mn in &month_names {
+                    write!(w, "<th>{}</th>", mn)?;
+                }
+                writeln!(w, "<th>Total</th></tr>")?;
+
+                let mut keys: Vec<_> = self.submeter_monthly_j.keys().cloned().collect();
+                keys.sort();
+                for (meter, end_use) in &keys {
+                    let arr = &self.submeter_monthly_j[&(meter.clone(), end_use.clone())];
+                    let total: f64 = arr.iter().sum::<f64>() / 3_600_000.0;
+                    if total.abs() < 0.05 {
+                        continue;
+                    }
+                    write!(w, "<tr><td>{}</td><td>{}</td>", meter, end_use)?;
+                    for mi in 0..12 {
+                        write!(w, "<td>{:.1}</td>", arr[mi] / 3_600_000.0)?;
+                    }
+                    writeln!(w, "<td><b>{:.1}</b></td></tr>", total)?;
+                }
+                writeln!(w, "</table>")?;
+            }
         }
 
         writeln!(w, "</body></html>")?;
@@ -3164,5 +3309,75 @@ variables:
         assert!((report.peak_heating.4 - (-10.0)).abs() < 0.1); // outdoor temp
         assert!((report.peak_heating.5 - 18.0).abs() < 0.1); // zone temp
         assert!((report.peak_heating.6 - 5.5).abs() < 0.1); // wind speed
+    }
+
+    #[test]
+    fn test_submeter_variable_resolution() {
+        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
+        let mut general = HashMap::new();
+        general.insert("lighting".to_string(), 500.0);
+        general.insert("fan_electric".to_string(), 200.0);
+        snap.submeter_power.insert("General".to_string(), general);
+
+        let mut decorative = HashMap::new();
+        decorative.insert("lighting".to_string(), 100.0);
+        snap.submeter_power
+            .insert("Decorative".to_string(), decorative);
+
+        // Specific end use
+        let vals = snap.get_variable_values("submeter:General:lighting");
+        assert_eq!(vals.get("Building"), Some(&500.0));
+
+        let vals = snap.get_variable_values("submeter:Decorative:lighting");
+        assert_eq!(vals.get("Building"), Some(&100.0));
+
+        // Total electric (sums non-gas end uses)
+        let vals = snap.get_variable_values("submeter:General:total_electric");
+        assert_eq!(vals.get("Building"), Some(&700.0)); // 500 + 200
+
+        // Total (all end uses)
+        let vals = snap.get_variable_values("submeter:Decorative:total");
+        assert_eq!(vals.get("Building"), Some(&100.0));
+
+        // Unknown submeter returns empty
+        let vals = snap.get_variable_values("submeter:NonExistent:lighting");
+        assert!(vals.is_empty());
+    }
+
+    #[test]
+    fn test_submeter_units_and_aggregation() {
+        assert_eq!(get_unit("submeter:General:lighting"), "W");
+        assert_eq!(get_unit("submeter:Kitchen:equipment"), "W");
+        assert!(is_integrable("submeter:General:fan_electric"));
+        assert!(is_integrable("submeter:Decorative:lighting"));
+    }
+
+    #[test]
+    fn test_submeter_summary_accumulation() {
+        let mut report = SummaryReport::new(HashMap::new(), HashMap::new());
+
+        let mut snap = OutputSnapshot::new(1, 15, 12, 1, 3600.0);
+        let mut general = HashMap::new();
+        general.insert("lighting".to_string(), 1000.0); // 1000W
+        snap.submeter_power.insert("General".to_string(), general);
+        let mut decorative = HashMap::new();
+        decorative.insert("lighting".to_string(), 250.0); // 250W
+        snap.submeter_power
+            .insert("Decorative".to_string(), decorative);
+        report.add_snapshot(&snap);
+
+        // Check that monthly submeter energy was accumulated
+        let gen_light = report
+            .submeter_monthly_j
+            .get(&("General".to_string(), "lighting".to_string()));
+        assert!(gen_light.is_some());
+        // 1000W * 3600s = 3,600,000 J in January (index 0)
+        assert!((gen_light.unwrap()[0] - 3_600_000.0).abs() < 1.0);
+
+        let dec_light = report
+            .submeter_monthly_j
+            .get(&("Decorative".to_string(), "lighting".to_string()));
+        assert!(dec_light.is_some());
+        assert!((dec_light.unwrap()[0] - 900_000.0).abs() < 1.0); // 250W * 3600s
     }
 }

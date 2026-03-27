@@ -1285,6 +1285,51 @@ Additional component-specific variables:
 | `energy_total_electric` | W | Total electric power |
 | `energy_total_gas` | W | Total gas/fuel power |
 
+### Submeters
+
+Every energy-consuming component supports an optional `submeter` tag for organized energy reporting. When omitted, it defaults to `"General"`.
+
+```yaml
+lights:
+  - name: Task Lighting
+    zones: [Office]
+    power: 500
+    submeter: Task       # custom submeter label
+
+  - name: Decorative Lighting
+    zones: [Lobby]
+    power: 200
+    submeter: Decorative
+
+equipment:
+  - name: Kitchen Equipment
+    zones: [Kitchen]
+    power: 2000
+    submeter: Kitchen
+
+air_loops:
+  - name: RTU-1
+    equipment:
+      - type: fan
+        name: Supply Fan
+        submeter: HVAC-Zone1    # tag fan to a submeter
+```
+
+**Submeter output variables** follow the pattern `submeter:{Name}:{end_use}`:
+
+| Variable | Description |
+|----------|-------------|
+| `submeter:Decorative:lighting` | Lighting power tagged "Decorative" [W] |
+| `submeter:Kitchen:equipment` | Equipment power tagged "Kitchen" [W] |
+| `submeter:General:fan_electric` | Fan power tagged "General" [W] |
+| `submeter:{Name}:total_electric` | Sum of all electric end uses for this submeter [W] |
+| `submeter:{Name}:total_gas` | Sum of all gas end uses for this submeter [W] |
+| `submeter:{Name}:total` | Sum of all end uses for this submeter [W] |
+
+End-use categories: `fan_electric`, `cooling_electric`, `heating_electric`, `heating_gas`, `pump_electric`, `heat_rejection`, `humidification`, `heat_recovery`, `dhw_electric`, `dhw_gas`, `lighting`, `ext_lighting`, `equipment`, `ext_equipment`.
+
+When any non-"General" submeters exist, the summary report includes a **Submeter Breakdown** section showing monthly energy by submeter and end-use category.
+
 Parametric runs produce one CSV per run: `{model_name}_{run_name}_results.csv` alongside the input file.
 
 ### Summary Report

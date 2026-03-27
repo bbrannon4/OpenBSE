@@ -629,6 +629,67 @@ fn main() -> Result<()> {
             }
         }
 
+        // ── 4a-2. Build component submeter map ────────────────────────────────
+        let mut comp_submeter: HashMap<String, String> = HashMap::new();
+        for al in &model.air_loops {
+            for equip in &al.equipment {
+                let (name, sm) = match equip {
+                    openbse_io::input::EquipmentInput::Fan(f) => {
+                        (f.name.clone(), f.submeter.clone())
+                    }
+                    openbse_io::input::EquipmentInput::HeatingCoil(c) => {
+                        (c.name.clone(), c.submeter.clone())
+                    }
+                    openbse_io::input::EquipmentInput::CoolingCoil(c) => {
+                        (c.name.clone(), c.submeter.clone())
+                    }
+                    openbse_io::input::EquipmentInput::HeatRecovery(h) => {
+                        (h.name.clone(), h.submeter.clone())
+                    }
+                    openbse_io::input::EquipmentInput::Humidifier(h) => {
+                        (h.name.clone(), h.submeter.clone())
+                    }
+                    openbse_io::input::EquipmentInput::Duct(d) => {
+                        (d.name.clone(), d.submeter.clone())
+                    }
+                };
+                comp_submeter.insert(name, sm);
+            }
+            // Terminal boxes (VAV/PFP) from zone_terminals
+            for zt in &al.zone_terminals {
+                if let Some(ref terminal) = zt.terminal {
+                    match terminal {
+                        openbse_io::input::TerminalInput::VavBox(vav) => {
+                            comp_submeter.insert(vav.name.clone(), vav.submeter.clone());
+                        }
+                        openbse_io::input::TerminalInput::PfpBox(pfp) => {
+                            comp_submeter.insert(pfp.name.clone(), pfp.submeter.clone());
+                        }
+                    }
+                }
+            }
+        }
+        for pl in &model.plant_loops {
+            for equip in &pl.supply_equipment {
+                let (name, sm) = match equip {
+                    openbse_io::input::PlantEquipmentInput::Boiler(b) => {
+                        (b.name.clone(), b.submeter.clone())
+                    }
+                    openbse_io::input::PlantEquipmentInput::Chiller(c) => {
+                        (c.name.clone(), c.submeter.clone())
+                    }
+                    openbse_io::input::PlantEquipmentInput::CoolingTower(t) => {
+                        (t.name.clone(), t.submeter.clone())
+                    }
+                    openbse_io::input::PlantEquipmentInput::Pump(p) => {
+                        (p.name.clone(), p.submeter.clone())
+                    }
+                    openbse_io::input::PlantEquipmentInput::HeatExchanger(_) => continue,
+                };
+                comp_submeter.insert(name, sm);
+            }
+        }
+
         // ── 4b. Build DHW systems ────────────────────────────────────────────
         let mut dhw_systems: Vec<openbse_components::water_heater::WaterHeater> = model
             .dhw_systems
@@ -2981,6 +3042,143 @@ fn main() -> Result<()> {
                                 .entry(ext.name.clone())
                                 .and_modify(|v| *v += power)
                                 .or_insert(power);
+                        }
+                    }
+
+                    // ── Submeter energy routing ───────────────────────────
+                    {
+                        let sm = &mut snapshot.submeter_power;
+                        let add = |sm: &mut HashMap<String, HashMap<String, f64>>,
+                                   meter: &str,
+                                   end_use: &str,
+                                   watts: f64| {
+                            *sm.entry(meter.to_string())
+                                .or_default()
+                                .entry(end_use.to_string())
+                                .or_default() += watts;
+                        };
+
+                        for (comp_name, &pw) in &snapshot.component_electric_power {
+                            let meter = comp_submeter
+                                .get(comp_name)
+                                .map(|s| s.as_str())
+                                .unwrap_or("General");
+                            let lname = comp_name.to_lowercase();
+                            let end_use = if lname.contains("fan") {
+                                "fan_electric"
+                            } else if lname.contains("cool")
+                                || lname.contains("dx")
+                                || lname.contains("chiller")
+                            {
+                                "cooling_electric"
+                            } else if lname.contains("heat") || lname.contains("furnace") {
+                                "heating_electric"
+                            } else {
+                                "misc_electric"
+                            };
+                            add(sm, meter, end_use, pw);
+                        }
+                        for (comp_name, &pw) in &snapshot.component_fuel_power {
+                            let meter = comp_submeter
+                                .get(comp_name)
+                                .map(|s| s.as_str())
+                                .unwrap_or("General");
+                            add(sm, meter, "heating_gas", pw);
+                        }
+                        for (comp_name, &pw) in &snapshot.pump_electric_power {
+                            let meter = comp_submeter
+                                .get(comp_name)
+                                .map(|s| s.as_str())
+                                .unwrap_or("General");
+                            add(sm, meter, "pump_electric", pw);
+                        }
+                        for (comp_name, &pw) in &snapshot.heat_rejection_power {
+                            let meter = comp_submeter
+                                .get(comp_name)
+                                .map(|s| s.as_str())
+                                .unwrap_or("General");
+                            add(sm, meter, "heat_rejection", pw);
+                        }
+                        for (comp_name, &pw) in &snapshot.humidification_power {
+                            let meter = comp_submeter
+                                .get(comp_name)
+                                .map(|s| s.as_str())
+                                .unwrap_or("General");
+                            add(sm, meter, "humidification", pw);
+                        }
+                        for (comp_name, &pw) in &snapshot.heat_recovery_power {
+                            let meter = comp_submeter
+                                .get(comp_name)
+                                .map(|s| s.as_str())
+                                .unwrap_or("General");
+                            add(sm, meter, "heat_recovery", pw);
+                        }
+
+                        // Zone lighting/equipment — per-submeter
+                        for zone in &env.zones {
+                            let zmult = zone.input.zone_multiplier as f64;
+                            let dow =
+                                openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
+                            for gain in &zone.input.internal_gains {
+                                match gain {
+                                    openbse_envelope::internal_gains::InternalGainInput::Lights {
+                                        power, schedule, submeter, ..
+                                    } => {
+                                        let frac = schedule.as_ref()
+                                            .map(|s| env.schedule_manager.fraction(s, hour, dow))
+                                            .unwrap_or(1.0);
+                                        add(sm, submeter, "lighting", power * frac * zmult);
+                                    }
+                                    openbse_envelope::internal_gains::InternalGainInput::Equipment {
+                                        power, schedule, submeter, ..
+                                    } => {
+                                        let frac = schedule.as_ref()
+                                            .map(|s| env.schedule_manager.fraction(s, hour, dow))
+                                            .unwrap_or(1.0);
+                                        add(sm, submeter, "equipment", power * frac * zmult);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+
+                        // DHW
+                        for dhw_input in &model.dhw_systems {
+                            let meter = &dhw_input.submeter;
+                            if let Some(&ep) = snapshot
+                                .dhw_electric_power
+                                .get(&dhw_input.water_heater.name)
+                            {
+                                add(sm, meter, "dhw_electric", ep);
+                            }
+                            if let Some(&fp) =
+                                snapshot.dhw_fuel_power.get(&dhw_input.water_heater.name)
+                            {
+                                add(sm, meter, "dhw_gas", fp);
+                            }
+                        }
+
+                        // Exterior equipment
+                        for ext in &model.exterior_equipment {
+                            let meter = if ext.submeter != "General" {
+                                &ext.submeter
+                            } else if let Some(ref sc) = ext.subcategory {
+                                sc
+                            } else {
+                                "General"
+                            };
+                            let is_ext_lights = ext
+                                .subcategory
+                                .as_deref()
+                                .map(|s| s.to_lowercase().contains("light"))
+                                .unwrap_or(false);
+                            if is_ext_lights {
+                                if let Some(&pw) = snapshot.ext_lighting_power.get(&ext.name) {
+                                    add(sm, meter, "ext_lighting", pw);
+                                }
+                            } else if let Some(&pw) = snapshot.ext_equipment_power.get(&ext.name) {
+                                add(sm, meter, "ext_equipment", pw);
+                            }
                         }
                     }
 

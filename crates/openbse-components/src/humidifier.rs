@@ -18,6 +18,10 @@ use openbse_core::types::*;
 use openbse_psychrometrics as psych;
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Total energy to generate 1 kg of steam from inlet water [J/kg].
 ///
 /// Includes heating water from ~14°C to 100°C plus latent heat of vaporization.
@@ -32,6 +36,8 @@ const H_STEAM_TOTAL: f64 = 2_615_700.0;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Humidifier {
     pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Rated (maximum) electric power input [W].
     pub rated_power: f64,
     /// Rated (maximum) steam output capacity [kg/s].
@@ -75,6 +81,7 @@ impl Humidifier {
         let rated_capacity = rated_power / H_STEAM_TOTAL;
         Self {
             name: name.to_string(),
+            submeter: "General".to_string(),
             rated_power,
             rated_capacity,
             w_setpoint: 0.0,

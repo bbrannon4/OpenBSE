@@ -325,7 +325,8 @@
         "pressure_rise": { "type": "number", "default": 600.0, "description": "Design pressure rise [Pa]." },
         "motor_efficiency": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Motor efficiency [0-1]." },
         "impeller_efficiency": { "type": "number", "default": 0.71, "minimum": 0, "maximum": 1, "description": "Impeller (fan blade) efficiency [0-1]. Total efficiency = motor * impeller." },
-        "motor_in_airstream_fraction": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Fraction of motor waste heat entering the airstream [0-1]." }
+        "motor_in_airstream_fraction": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Fraction of motor waste heat entering the airstream [0-1]." },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." }
       }
     },
 
@@ -959,7 +960,8 @@
         "watts_per_area": { "type": "number", "description": "Lighting power density [W/m2]." },
         "radiant_fraction": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1 },
         "return_air_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of heat to return air plenum [0-1]." },
-        "schedule": { "type": "string", "description": "Lighting schedule name." }
+        "schedule": { "type": "string", "description": "Lighting schedule name." },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting. Enables per-submeter output variables (e.g., submeter:Decorative:lighting)." }
       }
     },
 
@@ -975,7 +977,8 @@
         "radiant_fraction": { "type": "number", "default": 0.3, "minimum": 0, "maximum": 1 },
         "lost_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of heat that does not enter the zone [0-1]. Example: elevator with lost_fraction=0.95 means only 5% of heat enters the zone." },
         "latent_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of equipment heat that is latent (moisture-generating) [0-1]. Applied to non-lost portion: latent = power × (1 - lost_fraction) × latent_fraction. Examples: kitchen equipment, laundry." },
-        "schedule": { "type": "string", "description": "Equipment schedule name." }
+        "schedule": { "type": "string", "description": "Equipment schedule name." },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." }
       }
     },
 

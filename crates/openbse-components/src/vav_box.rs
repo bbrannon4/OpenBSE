@@ -23,6 +23,10 @@ use openbse_core::ports::*;
 use openbse_psychrometrics::{self as psych, FluidState};
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Reheat coil type for VAV boxes.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum ReheatType {
@@ -38,6 +42,8 @@ pub enum ReheatType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VAVBox {
     pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Zone this VAV box serves
     pub zone_name: String,
     /// Maximum primary air flow rate [kg/s]
@@ -113,6 +119,7 @@ impl VAVBox {
     ) -> Self {
         Self {
             name: name.to_string(),
+            submeter: "General".to_string(),
             zone_name: zone_name.to_string(),
             max_air_flow,
             min_flow_fraction: min_flow_fraction.clamp(0.0, 1.0),

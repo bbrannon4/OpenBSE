@@ -14,6 +14,10 @@ use openbse_core::types::*;
 use openbse_psychrometrics::FluidState;
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Boiler water flow mode, matching EnergyPlus `FlowMode` field.
 ///
 /// - `NotModulated`: fixed flow at design rate, outlet temperature varies
@@ -38,6 +42,8 @@ impl Default for BoilerFlowMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Boiler {
     pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Nominal (design) capacity [W]. Use AUTOSIZE for autosizing.
     pub nominal_capacity: f64,
     /// Nominal thermal efficiency [0-1]
@@ -99,6 +105,7 @@ impl Boiler {
     ) -> Self {
         Self {
             name: name.to_string(),
+            submeter: "General".to_string(),
             nominal_capacity,
             nominal_efficiency,
             design_outlet_temp,

@@ -21,6 +21,10 @@ use openbse_core::ports::*;
 use openbse_psychrometrics::{self as psych};
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Defrost strategy for heat pump coils.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum DefrostStrategy {
@@ -38,6 +42,8 @@ pub enum DefrostStrategy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeatPumpHeatingCoil {
     pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Rated heating capacity [W] at AHRI high-temp conditions (47°F / 8.33°C outdoor)
     pub rated_capacity: f64,
     /// Rated COP at AHRI high-temp conditions (typically 3.0-4.5)
@@ -114,6 +120,7 @@ impl HeatPumpHeatingCoil {
     ) -> Self {
         Self {
             name: name.to_string(),
+            submeter: "General".to_string(),
             rated_capacity,
             rated_cop,
             rated_airflow,

@@ -17,10 +17,16 @@ use openbse_core::ports::*;
 use openbse_psychrometrics::FluidState;
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Electric chiller (air-cooled or water-cooled).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AirCooledChiller {
     pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     pub rated_capacity: f64,
     pub rated_cop: f64,
     pub chw_setpoint: f64,
@@ -89,6 +95,7 @@ impl AirCooledChiller {
     ) -> Self {
         Self {
             name: name.to_string(),
+            submeter: "General".to_string(),
             rated_capacity,
             rated_cop,
             chw_setpoint,

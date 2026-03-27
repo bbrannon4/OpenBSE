@@ -22,6 +22,10 @@ use openbse_core::types::*;
 use openbse_psychrometrics::{FluidState, CP_WATER, RHO_WATER};
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Cooling tower fan speed control type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CoolingTowerType {
@@ -48,6 +52,8 @@ const DEFAULT_FAN_POWER_CURVE: [f64; 5] = [0.0058, 0.0740, -0.2180, 0.8517, 0.28
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoolingTower {
     pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     pub tower_type: CoolingTowerType,
     /// Design water flow rate [m3/s]
     pub design_water_flow: f64,
@@ -102,6 +108,7 @@ impl CoolingTower {
     ) -> Self {
         Self {
             name: name.to_string(),
+            submeter: "General".to_string(),
             tower_type,
             design_water_flow,
             design_air_flow,

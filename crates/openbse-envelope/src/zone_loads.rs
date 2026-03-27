@@ -8,6 +8,10 @@
 use crate::zone::ThermostatScheduleEntry;
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Top-level people definition, assignable to zones or zone groups.
 ///
 /// Supports three specification methods (use exactly one):
@@ -79,6 +83,9 @@ pub struct LightsInput {
     pub name: String,
     /// Zone or zone-group names this applies to
     pub zones: Vec<String>,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Total installed power [W]
     #[serde(default)]
     pub power: f64,
@@ -106,6 +113,9 @@ pub struct EquipmentGainInput {
     pub name: String,
     /// Zone or zone-group names this applies to
     pub zones: Vec<String>,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Total installed power [W]
     #[serde(default)]
     pub power: f64,

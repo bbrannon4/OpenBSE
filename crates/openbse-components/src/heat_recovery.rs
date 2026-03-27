@@ -13,6 +13,10 @@ use openbse_core::ports::*;
 use openbse_psychrometrics::{self as psych};
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Heat recovery device type.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum HeatRecoveryType {
@@ -30,6 +34,8 @@ pub enum HeatRecoveryType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeatRecovery {
     pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     pub hr_type: HeatRecoveryType,
     /// Sensible effectiveness at 100% airflow [0-1] (typical 0.70-0.85)
     pub sensible_effectiveness: f64,
@@ -74,6 +80,7 @@ impl HeatRecovery {
     ) -> Self {
         Self {
             name: name.to_string(),
+            submeter: "General".to_string(),
             hr_type: HeatRecoveryType::EnthalpyWheel,
             sensible_effectiveness: sensible_eff,
             latent_effectiveness: latent_eff,
@@ -90,6 +97,7 @@ impl HeatRecovery {
     pub fn plate_hx(name: &str, sensible_eff: f64, parasitic_power: f64) -> Self {
         Self {
             name: name.to_string(),
+            submeter: "General".to_string(),
             hr_type: HeatRecoveryType::PlateHX,
             sensible_effectiveness: sensible_eff,
             latent_effectiveness: 0.0, // plate HX has no latent recovery

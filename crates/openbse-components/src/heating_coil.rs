@@ -16,6 +16,10 @@ use openbse_core::ports::*;
 use openbse_psychrometrics::{self as psych, FluidState};
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Heating coil type.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum HeatingCoilType {
@@ -89,6 +93,8 @@ impl UaModelConfig {
 pub struct HeatingCoil {
     pub name: String,
     pub coil_type: HeatingCoilType,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     /// Nominal heating capacity [W]. Use AUTOSIZE for autosizing.
     pub nominal_capacity: f64,
     /// Efficiency [0-1] (electric coils only, always 1.0 for hot water)
@@ -126,6 +132,7 @@ impl HeatingCoil {
         Self {
             name: name.to_string(),
             coil_type: HeatingCoilType::Electric,
+            submeter: "General".to_string(),
             nominal_capacity: capacity,
             efficiency: 1.0,
             outlet_temp_setpoint: setpoint,
@@ -149,6 +156,7 @@ impl HeatingCoil {
         Self {
             name: name.to_string(),
             coil_type: HeatingCoilType::Gas,
+            submeter: "General".to_string(),
             nominal_capacity: capacity,
             efficiency: burner_efficiency,
             outlet_temp_setpoint: setpoint,
@@ -175,6 +183,7 @@ impl HeatingCoil {
         Self {
             name: name.to_string(),
             coil_type: HeatingCoilType::HotWater,
+            submeter: "General".to_string(),
             nominal_capacity: capacity,
             efficiency: 1.0,
             outlet_temp_setpoint: setpoint,
@@ -206,6 +215,7 @@ impl HeatingCoil {
         Self {
             name: name.to_string(),
             coil_type: HeatingCoilType::HotWater,
+            submeter: "General".to_string(),
             nominal_capacity: capacity,
             efficiency: 1.0,
             outlet_temp_setpoint: setpoint,

@@ -21,6 +21,10 @@ use openbse_core::types::*;
 use openbse_psychrometrics::FluidState;
 use serde::{Deserialize, Serialize};
 
+fn default_submeter() -> String {
+    "General".to_string()
+}
+
 /// Pump type enumeration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum PumpType {
@@ -37,6 +41,8 @@ pub enum PumpType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pump {
     pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
     pub pump_type: PumpType,
     /// Design (maximum) TOTAL volumetric flow rate [m^3/s]
     pub design_flow_rate: f64,
@@ -86,6 +92,7 @@ impl Pump {
     ) -> Self {
         Self {
             name: name.to_string(),
+            submeter: "General".to_string(),
             pump_type,
             design_flow_rate,
             design_head,
