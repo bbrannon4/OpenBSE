@@ -1,4 +1,4 @@
-Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.17 07:35,
+Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.26 16:31,
    ************* Beginning Zone Sizing Calculations
    ** Warning ** GetHTSurfaceData: Surfaces with interface to Ground found but no "Ground Temperatures" were input.
    **   ~~~   ** Found first in surface=BGWALL_LOWER_LDF
@@ -32,6 +32,18 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.17 07:35,
    **   ~~~   **  ... Occurrence info = ANNUAL, 01/14 15:20 - 15:30
    **   ~~~   ** ... Operation at low ambient temperatures may require special performance curves.
    ************* Simulation Error Summary *************
+   ** Warning ** The following Report Variables were requested but not generated -- check.rdd file
+   **   ~~~   ** Either the IDF did not contain these elements, the variable name is misspelled,
+   **   ~~~   ** or the requested variable is an advanced output which requires Output : Diagnostics, DisplayAdvancedReportVariables;
+   ************* Key=living_unit1, VarName=ZONE SUPPLY AIR MASS FLOW RATE, Frequency=TimeStep
+   ************* Key=Window_LDF_1.unit1, VarName=SURFACE INSIDE FACE CONDUCTION HEAT TRANSFER RATE, Frequency=TimeStep
+   ************* Key=Window_SDR_1.unit1, VarName=SURFACE INSIDE FACE CONDUCTION HEAT TRANSFER RATE, Frequency=TimeStep
+   ************* Key=Window_LDB_1.unit1, VarName=SURFACE INSIDE FACE CONDUCTION HEAT TRANSFER RATE, Frequency=TimeStep
+   ************* Key=Window_SDL_1.unit1, VarName=SURFACE INSIDE FACE CONDUCTION HEAT TRANSFER RATE, Frequency=TimeStep
+   ************* Key=Window_LDF_2.unit1, VarName=SURFACE INSIDE FACE CONDUCTION HEAT TRANSFER RATE, Frequency=TimeStep
+   ************* Key=Window_SDR_2.unit1, VarName=SURFACE INSIDE FACE CONDUCTION HEAT TRANSFER RATE, Frequency=TimeStep
+   ************* Key=Window_LDB_2.unit1, VarName=SURFACE INSIDE FACE CONDUCTION HEAT TRANSFER RATE, Frequency=TimeStep
+   ************* Key=Window_SDL_2.unit1, VarName=SURFACE INSIDE FACE CONDUCTION HEAT TRANSFER RATE, Frequency=TimeStep
    ************* There are 25 unused schedules in input.
    ************* There are 4 unused week schedules in input.
    ************* There are 2 unused day schedules in input.
@@ -68,4 +80,4 @@ Program Version,EnergyPlus, Version 25.2.0-cf7368216c, YMD=2026.03.17 07:35,
    *************
    ************* EnergyPlus Warmup Error Summary. During Warmup: 0 Warning; 0 Severe Errors.
    ************* EnergyPlus Sizing Error Summary. During Sizing: 3 Warning; 0 Severe Errors.
-   ************* EnergyPlus Completed Successfully-- 2287568 Warning; 0 Severe Errors; Elapsed Time=00hr 00min  8.15sec
+   ************* EnergyPlus Completed Successfully-- 2287568 Warning; 0 Severe Errors; Elapsed Time=00hr 00min  9.56sec
