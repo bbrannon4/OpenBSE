@@ -667,7 +667,7 @@ materials:
   conductivity: 0.16
   density: 1120
   specific_heat: 1460
-  solar_absorptance: 0.9
+  solar_absorptance: 0.7
   thermal_absorptance: 0.9
   roughness: rough
 - name: Roof Insulation

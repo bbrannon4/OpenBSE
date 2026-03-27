@@ -7,16 +7,22 @@
 - **Original IDF**: `SingleFamily_CZ5B_Boulder.idf` (unmodified DOE prototype)
 - **Weather file**: `../Denver-Buckley.epw` (Denver-Aurora-Buckley AFB, WMO 724695, TMY3)
 
-## Current Status (2026-03-15)
+## Current Status (2026-03-27)
 
-**7 of 8 end uses PASS the 5% threshold. Cooling (Electric) FAILS at -6.8%.**
+**3 of 7 end uses PASS the 5% threshold. Heating (+15.2%) and Cooling (-10.2%) FAIL.**
+
+Regression from 2026-03-15 caused by commit 90733ae: angular solar fix changed beam
+solar transmission (angle-dependent Tsol), and infiltration correction raised from
+prior value to 0.0370 m³/s. Higher infiltration drives the heating increase; altered
+solar distribution shifts the cooling balance. Root cause of heating gap traced to
+outside surface temperature BC differences (see f6e0a8f).
 
 ### Annual End-Use Comparison
 
 | End Use | E+ [kWh] | OpenBSE [kWh] | Diff | Status |
 |---------|----------|---------------|------|--------|
-| Heating (Gas) | 7,057 | 6,712 | -4.9% | PASS |
-| Cooling (Elec) | 1,840 | 1,714 | -6.8% | FAIL |
+| Heating (Gas) | 7,057 | 8,128 | +15.2% | FAIL |
+| Cooling (Elec) | 1,840 | 1,651 | -10.2% | FAIL |
 | Interior Lighting | 1,038 | 1,038 | -0.1% | PASS |
 | Exterior Lighting | 212 | 211 | -0.4% | PASS |
 | Interior Equipment | 10,083 | 10,077 | -0.1% | PASS |
@@ -29,55 +35,55 @@
 
 | Month | E+ | OpenBSE | Diff |
 |-------|------|---------|------|
-| Jan | 1121 | 1091 | -2.7% |
-| Feb | 1107 | 1060 | -4.2% |
-| Mar | 827 | 775 | -6.3% |
-| Apr | 684 | 627 | -8.4% |
-| May | 114 | 94 | -17.3% |
-| Jun | 1 | 0 | — |
+| Jan | 1121 | 1321 | +17.8% |
+| Feb | 1107 | 1273 | +15.0% |
+| Mar | 827 | 945 | +14.3% |
+| Apr | 684 | 773 | +13.0% |
+| May | 114 | 139 | +21.9% |
+| Jun | 1 | 1 | — |
 | Jul | 0 | 0 | — |
-| Aug | 1 | 0 | — |
-| Sep | 55 | 47 | -14.7% |
-| Oct | 703 | 655 | -6.8% |
-| Nov | 921 | 887 | -3.8% |
-| Dec | 1518 | 1476 | -2.8% |
-| **Total** | **7,052** | **6,712** | **-4.8%** |
+| Aug | 1 | 2 | — |
+| Sep | 55 | 66 | +20.0% |
+| Oct | 703 | 794 | +12.9% |
+| Nov | 921 | 1074 | +16.6% |
+| Dec | 1518 | 1740 | +14.6% |
+| **Total** | **7,052** | **8,128** | **+15.2%** |
 
 ### Monthly Cooling (Electric) [kWh]
 
 | Month | E+ | OpenBSE | Diff |
 |-------|------|---------|------|
-| Jan | 20 | 15 | -28.8% |
-| Feb | 25 | 19 | -24.4% |
-| Mar | 65 | 58 | -11.5% |
-| Apr | 58 | 52 | -9.1% |
-| May | 149 | 145 | -2.5% |
-| Jun | 381 | 362 | -4.8% |
-| Jul | 384 | 369 | -4.1% |
-| Aug | 364 | 343 | -5.8% |
-| Sep | 252 | 237 | -5.9% |
-| Oct | 87 | 75 | -13.8% |
-| Nov | 36 | 28 | -23.3% |
-| Dec | 18 | 12 | -32.1% |
-| **Total** | **1,838** | **1,714** | **-6.8%** |
+| Jan | 20 | 11 | -42.4% |
+| Feb | 25 | 14 | -42.3% |
+| Mar | 65 | 51 | -21.5% |
+| Apr | 58 | 45 | -22.7% |
+| May | 149 | 132 | -11.5% |
+| Jun | 381 | 362 | -5.1% |
+| Jul | 384 | 367 | -4.4% |
+| Aug | 364 | 340 | -6.5% |
+| Sep | 252 | 231 | -8.5% |
+| Oct | 87 | 66 | -23.6% |
+| Nov | 36 | 22 | -37.9% |
+| Dec | 18 | 10 | -45.0% |
+| **Total** | **1,840** | **1,651** | **-10.2%** |
 
 ### Monthly Fans (Electric) [kWh]
 
 | Month | E+ | OpenBSE | Diff |
 |-------|------|---------|------|
-| Jan | 70 | 65 | -7.2% |
-| Feb | 70 | 63 | -8.8% |
-| Mar | 69 | 64 | -8.3% |
-| Apr | 60 | 55 | -8.8% |
-| May | 58 | 57 | -2.1% |
-| Jun | 103 | 105 | +2.1% |
-| Jul | 104 | 106 | +2.1% |
-| Aug | 100 | 100 | +0.5% |
+| Jan | 70 | 83 | +18.5% |
+| Feb | 70 | 80 | +13.4% |
+| Mar | 69 | 75 | +9.0% |
+| Apr | 60 | 64 | +7.2% |
+| May | 58 | 56 | -3.1% |
+| Jun | 103 | 104 | +0.6% |
+| Jul | 104 | 105 | +0.9% |
+| Aug | 100 | 99 | -0.6% |
 | Sep | 77 | 76 | -2.0% |
-| Oct | 69 | 62 | -9.6% |
-| Nov | 65 | 60 | -8.8% |
-| Dec | 87 | 80 | -7.7% |
-| **Total** | **932** | **893** | **-4.2%** |
+| Oct | 69 | 71 | +3.0% |
+| Nov | 65 | 73 | +12.2% |
+| Dec | 87 | 102 | +17.2% |
+| **Total** | **932** | **988** | **+5.9%** |
 
 ## Key Observations
 
@@ -98,5 +104,12 @@
 
 ## Next Steps
 
-- Investigate remaining cooling gap (~125 kWh). Likely envelope: compare hourly zone cooling loads between models to isolate whether it's solar, conduction, or internal gains.
-- Fan heating-mode gap (~40 kWh): check whether E+ exhaust fan runtime differs from OpenBSE.
+- **Fix heating regression (+15%)**: root cause traced to outside surface temperature BC
+  differences (commit f6e0a8f). The angular solar fix in 90733ae changed how beam Tsol
+  is applied; need to verify outside BC matches E+ `SurfaceProperty:OtherSideCoefficients`
+  or the standard combined radiation/convection calculation. Compare hourly outside
+  surface temps between OpenBSE and E+ for opaque walls.
+- **Fix cooling regression (-10%)**: correlated with heating gap — if outside BCs are
+  corrected, cooling should recover toward -6% as well.
+- **Fan gap (+5.9%)**: heating-mode fan runtime is higher because heating runs more;
+  fixing heating regression should bring fans in line.
