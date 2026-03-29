@@ -175,6 +175,22 @@ Lighting, equipment, and DHW match within 1%. Heating and fan gaps are under act
 - Chiller lead/lag sequencing
 - VRF systems
 
+### Editor — Output Variable Name Filter Dropdowns
+The `OutputsEditor` component (`tools/editor/src/components/OutputsEditor.tsx`) currently uses a free-text input for the name filter field (e.g. `zone:temperature:LivingRoom`). This should be upgraded to a dropdown populated from the open model for categories where the valid values are known:
+
+- **zone** — populate from `model.zones[].name` + `model.zone_groups[].name` (already flat arrays)
+- **surface** — populate from `model.surfaces[].name`
+- **submeter** — collect unique submeter names from wherever they are defined in the YAML schema (needs investigation)
+- **component** — harder: names are nested inside `model.air_loops[].equipment[]` and `model.plant_loops[].equipment[]`; may be best left as free-text with autocomplete or a "browse" button
+- **building** — no filter needed (building-level totals have no entity name)
+
+Implementation plan:
+1. Pass `model: Model` as a prop to `OutputsEditor` in `App.tsx` (it already has `model` in scope)
+2. In `OutputsEditor`, derive name lists per category from the model prop
+3. Replace the `<input type="text">` filter field with a `<select>` when a name list is available; keep the text input as fallback (and include a "custom / glob" option so users can still type `Zone*` patterns)
+4. The ✓ indicator in the catalog already works correctly for multiple entries of the same variable with different filters
+5. One entity per variable entry is by design (mirrors EnergyPlus Output:Variable one-key-per-row)
+
 ### General
 - Python bindings (PyO3)
 - ~~Parametric run execution~~ (implemented: scalar overrides, weather swaps, sweep expansion)
