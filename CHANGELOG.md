@@ -9,10 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.2] - 2026-03-29
 
-### Fixed
+### Added
 
-- **ASHRAE 140 ideal-loads regression** — BDF history was updated twice per timestep in the ideal-loads code path, corrupting backward-difference extrapolation and inflating annual heating from ~4,400 kWh to ~88,000 kWh (20×). Root cause: `update_bdf_history()` was called inside the ideal-loads branch AND unconditionally after the if/else block.
-- **Warmup BDF order cap** — Restored `cap_bdf_order(1)` during warmup iterations to prevent BDF3 extrapolation from amplifying oscillations in zones with slow-responding surfaces.
+- **Output variable customization** — Outputs can now be specified for 'all' relevant parameters (zones, surfaces, components, etc) within the Workbench editor.  Note that the drop down menu functionality is not yet integrated and so requires manual text entry.
+
 
 ## [0.2.0] - 2026-03-25
 
