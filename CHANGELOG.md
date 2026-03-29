@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **ASHRAE 140 ideal-loads regression** — BDF history was updated twice per timestep in the ideal-loads code path, corrupting backward-difference extrapolation and inflating annual heating from ~4,400 kWh to ~88,000 kWh (20×). Root cause: `update_bdf_history()` was called inside the ideal-loads branch AND unconditionally after the if/else block.
+- **Warmup BDF order cap** — Restored `cap_bdf_order(1)` during warmup iterations to prevent BDF3 extrapolation from amplifying oscillations in zones with slow-responding surfaces.
+
 ## [0.2.0] - 2026-03-25
 
 ### Added

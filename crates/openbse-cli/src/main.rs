@@ -1752,6 +1752,11 @@ fn main() -> Result<()> {
                         // Solve envelope (updates zone temps, surface temps, CTF history)
                         env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
                         env.update_bdf_history();
+                        // Cap BDF order to 1 during warmup. BDF3 extrapolation can
+                        // amplify oscillations in zones with slow-responding surfaces
+                        // (e.g. heavily insulated floors with time constants > 5 days).
+                        // BDF1 (backward Euler) is sufficient for warmup convergence.
+                        env.cap_bdf_order(1);
 
                         sim_time += dt;
                     }
@@ -1978,7 +1983,8 @@ fn main() -> Result<()> {
                         // ═══════════════════════════════════════════════════════
                         let hvac_conds = ZoneHvacConditions::default();
                         let env_result = env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
-                        env.update_bdf_history();
+                        // BDF history update happens once below, outside
+                        // this if/else — do NOT call it here too.
 
                         let result = TimestepResult {
                             month,
