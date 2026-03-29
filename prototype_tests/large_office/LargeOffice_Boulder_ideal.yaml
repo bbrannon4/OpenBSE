@@ -1,0 +1,8682 @@
+simulation:
+  timesteps_per_hour: 6
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+  terrain: city
+  solar_distribution: full_interior_and_exterior
+  heating_sizing_factor: 1.25
+  cooling_sizing_factor: 1.15
+  ground_surface_temperatures:
+  - 7.1
+  - 3.0
+  - -1.0
+  - 0.8
+  - -0.2
+  - 4.8
+  - 6.1
+  - 13.7
+  - 22.2
+  - 22.7
+  - 21.7
+  - 18.5
+  holidays:
+  - month: 1
+    day: 1
+  - month: 1
+    day: 16
+  - month: 2
+    day: 20
+  - month: 5
+    day: 29
+  - month: 7
+    day: 4
+  - month: 9
+    day: 4
+  - month: 10
+    day: 9
+  - month: 11
+    day: 11
+  - month: 11
+    day: 23
+  - month: 12
+    day: 25
+  daylight_saving:
+    start: "2nd Sunday in March"
+    end: "1st Sunday in November"
+weather_files:
+- /Users/benjaminbrannon/Documents/GitHub/OpenBSE/prototype_tests/Denver-Buckley.epw
+design_days:
+- name: Denver Heating 99.6%
+  design_temp: -17.9
+  daily_range: 0.0
+  humidity_type: wetbulb
+  humidity_value: -17.9
+  pressure: 82237.0
+  wind_speed: 2.5
+  month: 12
+  day: 21
+  day_type: winter
+- name: Denver Cooling 0.4%
+  design_temp: 33.9
+  daily_range: 14.8
+  humidity_type: wetbulb
+  humidity_value: 15.0
+  pressure: 82237.0
+  wind_speed: 3.6
+  month: 7
+  day: 21
+  day_type: summer
+schedules:
+- name: BLDG_OCC_SCH
+  weekday:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.1
+  - 0.2
+  - 0.95
+  - 0.95
+  - 0.95
+  - 0.95
+  - 0.5
+  - 0.95
+  - 0.95
+  - 0.95
+  - 0.95
+  - 0.3
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.05
+  - 0.05
+  saturday:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.1
+  - 0.1
+  - 0.3
+  - 0.3
+  - 0.3
+  - 0.3
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.05
+  - 0.05
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  sunday:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+- name: BLDG_LIGHT_SCH
+  weekday:
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.1
+  - 0.1
+  - 0.3
+  - 0.9
+  - 0.9
+  - 0.9
+  - 0.9
+  - 0.9
+  - 0.9
+  - 0.9
+  - 0.9
+  - 0.9
+  - 0.5
+  - 0.3
+  - 0.3
+  - 0.2
+  - 0.2
+  - 0.1
+  - 0.05
+  saturday:
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.1
+  - 0.1
+  - 0.3
+  - 0.3
+  - 0.3
+  - 0.3
+  - 0.15
+  - 0.15
+  - 0.15
+  - 0.15
+  - 0.15
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  sunday:
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+- name: HVACOperationSchd
+  weekday:
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 0
+  - 0
+  saturday:
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  sunday:
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+- name: BLDG_EQUIP_SCH
+  weekday:
+  - 0.2948
+  - 0.2948
+  - 0.2948
+  - 0.2948
+  - 0.2948
+  - 0.2948
+  - 0.3797
+  - 0.3797
+  - 0.8542
+  - 0.8542
+  - 0.8542
+  - 0.8542
+  - 0.7593
+  - 0.8542
+  - 0.8542
+  - 0.8542
+  - 0.8542
+  - 0.4746
+  - 0.3797
+  - 0.3797
+  - 0.3797
+  - 0.3797
+  - 0.3797
+  - 0.3797
+  saturday:
+  - 0.2211
+  - 0.2211
+  - 0.2211
+  - 0.2211
+  - 0.2211
+  - 0.2211
+  - 0.3797
+  - 0.3797
+  - 0.4746
+  - 0.4746
+  - 0.4746
+  - 0.4746
+  - 0.3322
+  - 0.3322
+  - 0.3322
+  - 0.3322
+  - 0.3322
+  - 0.2847
+  - 0.2847
+  - 0.2211
+  - 0.2211
+  - 0.2211
+  - 0.2211
+  - 0.2211
+  sunday:
+  - 0.2211
+  - 0.2211
+  - 0.2211
+  - 0.2211
+  - 0.2211
+  - 0.2211
+  - 0.2847
+  - 0.2847
+  - 0.2847
+  - 0.2847
+  - 0.2847
+  - 0.2847
+  - 0.2847
+  - 0.2847
+  - 0.2847
+  - 0.2847
+  - 0.2847
+  - 0.2847
+  - 0.2211
+  - 0.2211
+  - 0.2211
+  - 0.2211
+  - 0.2211
+  - 0.2211
+- name: DataCenter_EQUIP_SCH
+  weekday:
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+  - 0.625
+- name: BLDG_EQUIP_SCH_Basement
+  weekday:
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+- name: BLDG_SWH_SCH
+  weekday:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.07
+  - 0.19
+  - 0.35
+  - 0.38
+  - 0.39
+  - 0.47
+  - 0.57
+  - 0.54
+  - 0.34
+  - 0.33
+  - 0.44
+  - 0.26
+  - 0.21
+  - 0.15
+  - 0.17
+  - 0.08
+  - 0.05
+  - 0.05
+  saturday:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.07
+  - 0.11
+  - 0.15
+  - 0.21
+  - 0.19
+  - 0.23
+  - 0.2
+  - 0.19
+  - 0.15
+  - 0.13
+  - 0.14
+  - 0.07
+  - 0.07
+  - 0.07
+  - 0.07
+  - 0.09
+  - 0.05
+  - 0.05
+  sunday:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.07
+  - 0.04
+  - 0.04
+  - 0.04
+  - 0.04
+  - 0.06
+  - 0.06
+  - 0.09
+  - 0.06
+  - 0.04
+  - 0.04
+  - 0.04
+  - 0.04
+  - 0.04
+  - 0.04
+  - 0.07
+  - 0.04
+  - 0.04
+- name: Elevator_Running_Sch
+  weekday:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.09926
+  - 0.26126
+  - 0.26126
+  - 0.09926
+  - 0.09926
+  - 0.26126
+  - 0.09926
+  - 0.09926
+  - 0.09926
+  - 0.26126
+  - 0.26126
+  - 0.26126
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  saturday:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.09926
+  - 0.26126
+  - 0.26126
+  - 0.09926
+  - 0.09926
+  - 0.26126
+  - 0.09926
+  - 0.09926
+  - 0.09926
+  - 0.26126
+  - 0.26126
+  - 0.26126
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  sunday:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+- name: INFIL_SCH_PNNL
+  weekday:
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 1.0
+  - 1.0
+  saturday:
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  sunday:
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+- name: Elevator_Standby_Sch
+  weekday:
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 0.85
+  - 0.60517
+  - 0.60517
+  - 0.85
+  - 0.85
+  - 0.60517
+  - 0.85
+  - 0.85
+  - 0.85
+  - 0.60517
+  - 0.60517
+  - 0.60517
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  saturday:
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 0.85
+  - 0.60517
+  - 0.60517
+  - 0.85
+  - 0.85
+  - 0.60517
+  - 0.85
+  - 0.85
+  - 0.85
+  - 0.60517
+  - 0.60517
+  - 0.60517
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  sunday:
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+materials:
+- name: Std Wood 6inch
+  conductivity: 0.12
+  density: 540.0
+  specific_heat: 1210.0
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: medium_smooth
+- name: F07 25mm Stucco
+  conductivity: 0.72
+  density: 1856.0
+  specific_heat: 840.0
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: smooth
+- name: G01 16mm Gypsum Board
+  conductivity: 0.16
+  density: 800.0
+  specific_heat: 1090.0
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: medium_smooth
+- name: F13 Built-up Roofing
+  conductivity: 0.16
+  density: 1120.0
+  specific_heat: 1460.0
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: rough
+- name: F08 Metal Surface
+  conductivity: 45.28
+  density: 7824.0
+  specific_heat: 500.0
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: smooth
+- name: M10 200mm Concrete Block
+  conductivity: 1.326
+  density: 1842.0
+  specific_heat: 912.0
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: medium_rough
+- name: 100mm Normalweight Concrete
+  conductivity: 2.31
+  density: 2322.0
+  specific_heat: 832.0
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: medium_rough
+- name: 200mm Normalweight Concrete
+  conductivity: 2.31
+  density: 2322.0
+  specific_heat: 832.0
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: medium_rough
+- name: Wall Insulation
+  thermal_resistance: 1.71283
+  roughness: medium_smooth
+- name: Roof Insulation
+  thermal_resistance: 2.59864
+  roughness: medium_smooth
+- name: Floor Insulation
+  thermal_resistance: 2.88292
+  roughness: medium_smooth
+- name: Carpet Pad
+  thermal_resistance: 0.21648
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+  roughness: very_rough
+constructions:
+- name: Exterior Wall
+  layers:
+  - material: F07 25mm Stucco
+    thickness: 0.0254
+  - material: G01 16mm Gypsum Board
+    thickness: 0.0159
+  - material: Wall Insulation
+    thickness: 0.0617
+  - material: G01 16mm Gypsum Board
+    thickness: 0.0159
+- name: Flat Roof
+  layers:
+  - material: F13 Built-up Roofing
+    thickness: 0.0095
+  - material: Roof Insulation
+    thickness: 0.0936
+  - material: F08 Metal Surface
+    thickness: 0.0008
+- name: Basement Wall
+  layers:
+  - material: M10 200mm Concrete Block
+    thickness: 0.2032
+- name: Interior Floor
+  layers:
+  - material: 100mm Normalweight Concrete
+    thickness: 0.1016
+  - material: Carpet Pad
+    thickness: 0.0078
+- name: Ground Floor
+  layers:
+  - material: 200mm Normalweight Concrete
+    thickness: 0.2032
+  - material: Carpet Pad
+    thickness: 0.0078
+- name: Basement Floor
+  layers:
+  - material: 200mm Normalweight Concrete
+    thickness: 0.2032
+  - material: Carpet Pad
+    thickness: 0.0078
+- name: InteriorFurnishings
+  layers:
+  - material: Std Wood 6inch
+    thickness: 0.15
+simple_constructions:
+- name: Interior Partition
+  u_factor: 6.30
+  thickness: 0.0254
+  thermal_capacity: 22149.0
+  solar_absorptance: 0.4
+  thermal_absorptance: 0.9
+- name: Adiabatic Assembly
+  u_factor: 4.49
+  thickness: 0.0127
+  thermal_capacity: 4900.0
+  solar_absorptance: 0.5
+  thermal_absorptance: 0.9
+window_constructions:
+- name: Office Glazing
+  u_factor: 3.2366
+  shgc: 0.39
+  visible_transmittance: 0.429
+zones:
+- name: Core_bottom
+  volume: 6849.4
+  floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
+- name: Perimeter_bot_ZN_1
+  volume: 860.0
+  floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_bot_ZN_2
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_bot_ZN_3
+  volume: 860.0
+  floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_bot_ZN_4
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Core_mid_f2
+  volume: 6849.4
+  floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
+- name: Core_mid_f3
+  volume: 6849.4
+  floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
+- name: Core_mid_f4
+  volume: 6849.4
+  floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
+- name: Core_mid_f5
+  volume: 6849.4
+  floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
+- name: Core_mid_f6
+  volume: 6849.4
+  floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
+- name: Core_mid_f7
+  volume: 6849.4
+  floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
+- name: Core_mid_f8
+  volume: 6849.4
+  floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
+- name: Core_mid_f9
+  volume: 6849.4
+  floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
+- name: Core_mid_f10
+  volume: 6849.4
+  floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
+- name: Core_mid_f11
+  volume: 6849.4
+  floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
+- name: Perimeter_mid_ZN_1_f2
+  volume: 860.0
+  floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_1_f3
+  volume: 860.0
+  floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_1_f4
+  volume: 860.0
+  floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_1_f5
+  volume: 860.0
+  floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_1_f6
+  volume: 860.0
+  floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_1_f7
+  volume: 860.0
+  floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_1_f8
+  volume: 860.0
+  floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_1_f9
+  volume: 860.0
+  floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_1_f10
+  volume: 860.0
+  floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_1_f11
+  volume: 860.0
+  floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_2_f2
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_2_f3
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_2_f4
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_2_f5
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_2_f6
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_2_f7
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_2_f8
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_2_f9
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_2_f10
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_2_f11
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_3_f2
+  volume: 860.0
+  floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_3_f3
+  volume: 860.0
+  floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_3_f4
+  volume: 860.0
+  floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_3_f5
+  volume: 860.0
+  floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_3_f6
+  volume: 860.0
+  floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_3_f7
+  volume: 860.0
+  floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_3_f8
+  volume: 860.0
+  floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_3_f9
+  volume: 860.0
+  floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_3_f10
+  volume: 860.0
+  floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_3_f11
+  volume: 860.0
+  floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_mid_ZN_4_f2
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_4_f3
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_4_f4
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_4_f5
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_4_f6
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_4_f7
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_4_f8
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_4_f9
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_4_f10
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_mid_ZN_4_f11
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Core_top
+  volume: 6849.4
+  floor_area: 2496.12
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 5067.1
+- name: Perimeter_top_ZN_1
+  volume: 860.0
+  floor_area: 313.42
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_top_ZN_2
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Perimeter_top_ZN_3
+  volume: 860.0
+  floor_area: 313.41
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 636.2
+- name: Perimeter_top_ZN_4
+  volume: 554.2
+  floor_area: 201.98
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 410.0
+- name: Basement
+  volume: 6779.0
+  floor_area: 2779.43
+- name: DataCenter_basement_ZN_6
+  volume: 1911.4
+  floor_area: 783.68
+- name: DataCenter_bot_ZN_6
+  volume: 99.3
+  floor_area: 36.2
+- name: DataCenter_mid_ZN_6_f2
+  volume: 99.3
+  floor_area: 36.2
+- name: DataCenter_mid_ZN_6_f3
+  volume: 99.3
+  floor_area: 36.2
+- name: DataCenter_mid_ZN_6_f4
+  volume: 99.3
+  floor_area: 36.2
+- name: DataCenter_mid_ZN_6_f5
+  volume: 99.3
+  floor_area: 36.2
+- name: DataCenter_mid_ZN_6_f6
+  volume: 99.3
+  floor_area: 36.2
+- name: DataCenter_mid_ZN_6_f7
+  volume: 99.3
+  floor_area: 36.2
+- name: DataCenter_mid_ZN_6_f8
+  volume: 99.3
+  floor_area: 36.2
+- name: DataCenter_mid_ZN_6_f9
+  volume: 99.3
+  floor_area: 36.2
+- name: DataCenter_mid_ZN_6_f10
+  volume: 99.3
+  floor_area: 36.2
+- name: DataCenter_mid_ZN_6_f11
+  volume: 99.3
+  floor_area: 36.2
+- name: DataCenter_top_ZN_6
+  volume: 99.3
+  floor_area: 36.2
+zone_groups:
+- name: Office Zones Bottom
+  zones:
+  - Core_bottom
+  - Perimeter_bot_ZN_1
+  - Perimeter_bot_ZN_2
+  - Perimeter_bot_ZN_3
+  - Perimeter_bot_ZN_4
+- name: Office Zones Mid
+  zones:
+  - Core_mid_f2
+  - Core_mid_f3
+  - Core_mid_f4
+  - Core_mid_f5
+  - Core_mid_f6
+  - Core_mid_f7
+  - Core_mid_f8
+  - Core_mid_f9
+  - Core_mid_f10
+  - Core_mid_f11
+  - Perimeter_mid_ZN_1_f2
+  - Perimeter_mid_ZN_1_f3
+  - Perimeter_mid_ZN_1_f4
+  - Perimeter_mid_ZN_1_f5
+  - Perimeter_mid_ZN_1_f6
+  - Perimeter_mid_ZN_1_f7
+  - Perimeter_mid_ZN_1_f8
+  - Perimeter_mid_ZN_1_f9
+  - Perimeter_mid_ZN_1_f10
+  - Perimeter_mid_ZN_1_f11
+  - Perimeter_mid_ZN_2_f2
+  - Perimeter_mid_ZN_2_f3
+  - Perimeter_mid_ZN_2_f4
+  - Perimeter_mid_ZN_2_f5
+  - Perimeter_mid_ZN_2_f6
+  - Perimeter_mid_ZN_2_f7
+  - Perimeter_mid_ZN_2_f8
+  - Perimeter_mid_ZN_2_f9
+  - Perimeter_mid_ZN_2_f10
+  - Perimeter_mid_ZN_2_f11
+  - Perimeter_mid_ZN_3_f2
+  - Perimeter_mid_ZN_3_f3
+  - Perimeter_mid_ZN_3_f4
+  - Perimeter_mid_ZN_3_f5
+  - Perimeter_mid_ZN_3_f6
+  - Perimeter_mid_ZN_3_f7
+  - Perimeter_mid_ZN_3_f8
+  - Perimeter_mid_ZN_3_f9
+  - Perimeter_mid_ZN_3_f10
+  - Perimeter_mid_ZN_3_f11
+  - Perimeter_mid_ZN_4_f2
+  - Perimeter_mid_ZN_4_f3
+  - Perimeter_mid_ZN_4_f4
+  - Perimeter_mid_ZN_4_f5
+  - Perimeter_mid_ZN_4_f6
+  - Perimeter_mid_ZN_4_f7
+  - Perimeter_mid_ZN_4_f8
+  - Perimeter_mid_ZN_4_f9
+  - Perimeter_mid_ZN_4_f10
+  - Perimeter_mid_ZN_4_f11
+- name: Office Zones Top
+  zones:
+  - Core_top
+  - Perimeter_top_ZN_1
+  - Perimeter_top_ZN_2
+  - Perimeter_top_ZN_3
+  - Perimeter_top_ZN_4
+- name: Basement Zone
+  zones:
+  - Basement
+- name: DataCenter Zones
+  zones:
+  - DataCenter_bot_ZN_6
+  - DataCenter_mid_ZN_6_f2
+  - DataCenter_mid_ZN_6_f3
+  - DataCenter_mid_ZN_6_f4
+  - DataCenter_mid_ZN_6_f5
+  - DataCenter_mid_ZN_6_f6
+  - DataCenter_mid_ZN_6_f7
+  - DataCenter_mid_ZN_6_f8
+  - DataCenter_mid_ZN_6_f9
+  - DataCenter_mid_ZN_6_f10
+  - DataCenter_mid_ZN_6_f11
+  - DataCenter_top_ZN_6
+  - DataCenter_basement_ZN_6
+people:
+- name: Office People Bottom
+  zones:
+  - Office Zones Bottom
+  area_per_person: 18.5788
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: Office People Mid
+  zones:
+  - Office Zones Mid
+  area_per_person: 18.5788
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: Office People Top
+  zones:
+  - Office Zones Top
+  area_per_person: 18.5788
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: Basement People
+  zones:
+  - Basement Zone
+  area_per_person: 18.5788
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+- name: DataCenter People
+  zones:
+  - DataCenter Zones
+  area_per_person: 18.5788
+  activity_level: 120.0
+  radiant_fraction: 0.3
+  schedule: BLDG_OCC_SCH
+lights:
+- name: Office Lights Bottom
+  zones:
+  - Office Zones Bottom
+  watts_per_area: 11.651
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: Office Lights Mid
+  zones:
+  - Office Zones Mid
+  watts_per_area: 11.651
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: Office Lights Top
+  zones:
+  - Office Zones Top
+  watts_per_area: 11.651
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: Basement Lights
+  zones:
+  - Basement Zone
+  watts_per_area: 11.651
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: DataCenter Lights Basement
+  zones:
+  - DataCenter_basement_ZN_6
+  watts_per_area: 11.651
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: DataCenter Lights Bot
+  zones:
+  - DataCenter_bot_ZN_6
+  watts_per_area: 22.36738
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: DataCenter Lights Mid_f2
+  zones:
+  - DataCenter_mid_ZN_6_f2
+  watts_per_area: 22.36738
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: DataCenter Lights Mid_f3
+  zones:
+  - DataCenter_mid_ZN_6_f3
+  watts_per_area: 22.36738
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: DataCenter Lights Mid_f4
+  zones:
+  - DataCenter_mid_ZN_6_f4
+  watts_per_area: 22.36738
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: DataCenter Lights Mid_f5
+  zones:
+  - DataCenter_mid_ZN_6_f5
+  watts_per_area: 22.36738
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: DataCenter Lights Mid_f6
+  zones:
+  - DataCenter_mid_ZN_6_f6
+  watts_per_area: 22.36738
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: DataCenter Lights Mid_f7
+  zones:
+  - DataCenter_mid_ZN_6_f7
+  watts_per_area: 22.36738
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: DataCenter Lights Mid_f8
+  zones:
+  - DataCenter_mid_ZN_6_f8
+  watts_per_area: 22.36738
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: DataCenter Lights Mid_f9
+  zones:
+  - DataCenter_mid_ZN_6_f9
+  watts_per_area: 22.36738
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: DataCenter Lights Mid_f10
+  zones:
+  - DataCenter_mid_ZN_6_f10
+  watts_per_area: 22.36738
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: DataCenter Lights Mid_f11
+  zones:
+  - DataCenter_mid_ZN_6_f11
+  watts_per_area: 22.36738
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+- name: DataCenter Lights Top
+  zones:
+  - DataCenter_top_ZN_6
+  watts_per_area: 22.36738
+  radiant_fraction: 0.9
+  return_air_fraction: 0.0
+  schedule: BLDG_LIGHT_SCH
+equipment:
+- name: Core Equipment Bottom
+  zones:
+  - Core_bottom
+  power: 20142.8
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Core Equipment Mid_f2
+  zones:
+  - Core_mid_f2
+  power: 20142.8
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Core Equipment Mid_f3
+  zones:
+  - Core_mid_f3
+  power: 20142.8
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Core Equipment Mid_f4
+  zones:
+  - Core_mid_f4
+  power: 20142.8
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Core Equipment Mid_f5
+  zones:
+  - Core_mid_f5
+  power: 20142.8
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Core Equipment Mid_f6
+  zones:
+  - Core_mid_f6
+  power: 20142.8
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Core Equipment Mid_f7
+  zones:
+  - Core_mid_f7
+  power: 20142.8
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Core Equipment Mid_f8
+  zones:
+  - Core_mid_f8
+  power: 20142.8
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Core Equipment Mid_f9
+  zones:
+  - Core_mid_f9
+  power: 20142.8
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Core Equipment Mid_f10
+  zones:
+  - Core_mid_f10
+  power: 20142.8
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Core Equipment Mid_f11
+  zones:
+  - Core_mid_f11
+  power: 20142.8
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Core Equipment Top
+  zones:
+  - Core_top
+  power: 20142.8
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_1 Equipment Bottom
+  zones:
+  - Perimeter_bot_ZN_1
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_3 Equipment Bottom
+  zones:
+  - Perimeter_bot_ZN_3
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_1 Equipment Mid_f2
+  zones:
+  - Perimeter_mid_ZN_1_f2
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_1 Equipment Mid_f3
+  zones:
+  - Perimeter_mid_ZN_1_f3
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_1 Equipment Mid_f4
+  zones:
+  - Perimeter_mid_ZN_1_f4
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_1 Equipment Mid_f5
+  zones:
+  - Perimeter_mid_ZN_1_f5
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_1 Equipment Mid_f6
+  zones:
+  - Perimeter_mid_ZN_1_f6
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_1 Equipment Mid_f7
+  zones:
+  - Perimeter_mid_ZN_1_f7
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_1 Equipment Mid_f8
+  zones:
+  - Perimeter_mid_ZN_1_f8
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_1 Equipment Mid_f9
+  zones:
+  - Perimeter_mid_ZN_1_f9
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_1 Equipment Mid_f10
+  zones:
+  - Perimeter_mid_ZN_1_f10
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_1 Equipment Mid_f11
+  zones:
+  - Perimeter_mid_ZN_1_f11
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_3 Equipment Mid_f2
+  zones:
+  - Perimeter_mid_ZN_3_f2
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_3 Equipment Mid_f3
+  zones:
+  - Perimeter_mid_ZN_3_f3
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_3 Equipment Mid_f4
+  zones:
+  - Perimeter_mid_ZN_3_f4
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_3 Equipment Mid_f5
+  zones:
+  - Perimeter_mid_ZN_3_f5
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_3 Equipment Mid_f6
+  zones:
+  - Perimeter_mid_ZN_3_f6
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_3 Equipment Mid_f7
+  zones:
+  - Perimeter_mid_ZN_3_f7
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_3 Equipment Mid_f8
+  zones:
+  - Perimeter_mid_ZN_3_f8
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_3 Equipment Mid_f9
+  zones:
+  - Perimeter_mid_ZN_3_f9
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_3 Equipment Mid_f10
+  zones:
+  - Perimeter_mid_ZN_3_f10
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_3 Equipment Mid_f11
+  zones:
+  - Perimeter_mid_ZN_3_f11
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_1 Equipment Top
+  zones:
+  - Perimeter_top_ZN_1
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_3 Equipment Top
+  zones:
+  - Perimeter_top_ZN_3
+  power: 2529.2
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_2 Equipment Bottom
+  zones:
+  - Perimeter_bot_ZN_2
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_4 Equipment Bottom
+  zones:
+  - Perimeter_bot_ZN_4
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_2 Equipment Mid_f2
+  zones:
+  - Perimeter_mid_ZN_2_f2
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_2 Equipment Mid_f3
+  zones:
+  - Perimeter_mid_ZN_2_f3
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_2 Equipment Mid_f4
+  zones:
+  - Perimeter_mid_ZN_2_f4
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_2 Equipment Mid_f5
+  zones:
+  - Perimeter_mid_ZN_2_f5
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_2 Equipment Mid_f6
+  zones:
+  - Perimeter_mid_ZN_2_f6
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_2 Equipment Mid_f7
+  zones:
+  - Perimeter_mid_ZN_2_f7
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_2 Equipment Mid_f8
+  zones:
+  - Perimeter_mid_ZN_2_f8
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_2 Equipment Mid_f9
+  zones:
+  - Perimeter_mid_ZN_2_f9
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_2 Equipment Mid_f10
+  zones:
+  - Perimeter_mid_ZN_2_f10
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_2 Equipment Mid_f11
+  zones:
+  - Perimeter_mid_ZN_2_f11
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_4 Equipment Mid_f2
+  zones:
+  - Perimeter_mid_ZN_4_f2
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_4 Equipment Mid_f3
+  zones:
+  - Perimeter_mid_ZN_4_f3
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_4 Equipment Mid_f4
+  zones:
+  - Perimeter_mid_ZN_4_f4
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_4 Equipment Mid_f5
+  zones:
+  - Perimeter_mid_ZN_4_f5
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_4 Equipment Mid_f6
+  zones:
+  - Perimeter_mid_ZN_4_f6
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_4 Equipment Mid_f7
+  zones:
+  - Perimeter_mid_ZN_4_f7
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_4 Equipment Mid_f8
+  zones:
+  - Perimeter_mid_ZN_4_f8
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_4 Equipment Mid_f9
+  zones:
+  - Perimeter_mid_ZN_4_f9
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_4 Equipment Mid_f10
+  zones:
+  - Perimeter_mid_ZN_4_f10
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_4 Equipment Mid_f11
+  zones:
+  - Perimeter_mid_ZN_4_f11
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_2 Equipment Top
+  zones:
+  - Perimeter_top_ZN_2
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Perimeter ZN_4 Equipment Top
+  zones:
+  - Perimeter_top_ZN_4
+  power: 1629.9
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH
+- name: Basement Equipment
+  zones:
+  - Basement Zone
+  power: 13457.544
+  radiant_fraction: 0.5
+  schedule: BLDG_EQUIP_SCH_Basement
+- name: DataCenter Equipment Basement
+  zones:
+  - DataCenter_basement_ZN_6
+  watts_per_area: 484.423
+  radiant_fraction: 0.1
+  schedule: DataCenter_EQUIP_SCH
+- name: DataCenter Equipment Bot
+  zones:
+  - DataCenter_bot_ZN_6
+  watts_per_area: 215.299
+  radiant_fraction: 0.1
+  schedule: DataCenter_EQUIP_SCH
+- name: DataCenter Equipment Mid_f2
+  zones:
+  - DataCenter_mid_ZN_6_f2
+  watts_per_area: 215.299
+  radiant_fraction: 0.1
+  schedule: DataCenter_EQUIP_SCH
+- name: DataCenter Equipment Mid_f3
+  zones:
+  - DataCenter_mid_ZN_6_f3
+  watts_per_area: 215.299
+  radiant_fraction: 0.1
+  schedule: DataCenter_EQUIP_SCH
+- name: DataCenter Equipment Mid_f4
+  zones:
+  - DataCenter_mid_ZN_6_f4
+  watts_per_area: 215.299
+  radiant_fraction: 0.1
+  schedule: DataCenter_EQUIP_SCH
+- name: DataCenter Equipment Mid_f5
+  zones:
+  - DataCenter_mid_ZN_6_f5
+  watts_per_area: 215.299
+  radiant_fraction: 0.1
+  schedule: DataCenter_EQUIP_SCH
+- name: DataCenter Equipment Mid_f6
+  zones:
+  - DataCenter_mid_ZN_6_f6
+  watts_per_area: 215.299
+  radiant_fraction: 0.1
+  schedule: DataCenter_EQUIP_SCH
+- name: DataCenter Equipment Mid_f7
+  zones:
+  - DataCenter_mid_ZN_6_f7
+  watts_per_area: 215.299
+  radiant_fraction: 0.1
+  schedule: DataCenter_EQUIP_SCH
+- name: DataCenter Equipment Mid_f8
+  zones:
+  - DataCenter_mid_ZN_6_f8
+  watts_per_area: 215.299
+  radiant_fraction: 0.1
+  schedule: DataCenter_EQUIP_SCH
+- name: DataCenter Equipment Mid_f9
+  zones:
+  - DataCenter_mid_ZN_6_f9
+  watts_per_area: 215.299
+  radiant_fraction: 0.1
+  schedule: DataCenter_EQUIP_SCH
+- name: DataCenter Equipment Mid_f10
+  zones:
+  - DataCenter_mid_ZN_6_f10
+  watts_per_area: 215.299
+  radiant_fraction: 0.1
+  schedule: DataCenter_EQUIP_SCH
+- name: DataCenter Equipment Mid_f11
+  zones:
+  - DataCenter_mid_ZN_6_f11
+  watts_per_area: 215.299
+  radiant_fraction: 0.1
+  schedule: DataCenter_EQUIP_SCH
+- name: DataCenter Equipment Top
+  zones:
+  - DataCenter_top_ZN_6
+  watts_per_area: 215.299
+  radiant_fraction: 0.1
+  schedule: DataCenter_EQUIP_SCH
+infiltration:
+- name: Perimeter Infiltration Bottom
+  zones:
+  - Perimeter_bot_ZN_1
+  - Perimeter_bot_ZN_2
+  - Perimeter_bot_ZN_3
+  - Perimeter_bot_ZN_4
+  flow_per_exterior_wall_area: 0.000569572
+  constant_coefficient: 0.0
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.224
+  schedule: INFIL_SCH_PNNL
+- name: Perimeter Infiltration Mid
+  zones:
+  - Perimeter_mid_ZN_1_f2
+  - Perimeter_mid_ZN_1_f3
+  - Perimeter_mid_ZN_1_f4
+  - Perimeter_mid_ZN_1_f5
+  - Perimeter_mid_ZN_1_f6
+  - Perimeter_mid_ZN_1_f7
+  - Perimeter_mid_ZN_1_f8
+  - Perimeter_mid_ZN_1_f9
+  - Perimeter_mid_ZN_1_f10
+  - Perimeter_mid_ZN_1_f11
+  - Perimeter_mid_ZN_2_f2
+  - Perimeter_mid_ZN_2_f3
+  - Perimeter_mid_ZN_2_f4
+  - Perimeter_mid_ZN_2_f5
+  - Perimeter_mid_ZN_2_f6
+  - Perimeter_mid_ZN_2_f7
+  - Perimeter_mid_ZN_2_f8
+  - Perimeter_mid_ZN_2_f9
+  - Perimeter_mid_ZN_2_f10
+  - Perimeter_mid_ZN_2_f11
+  - Perimeter_mid_ZN_3_f2
+  - Perimeter_mid_ZN_3_f3
+  - Perimeter_mid_ZN_3_f4
+  - Perimeter_mid_ZN_3_f5
+  - Perimeter_mid_ZN_3_f6
+  - Perimeter_mid_ZN_3_f7
+  - Perimeter_mid_ZN_3_f8
+  - Perimeter_mid_ZN_3_f9
+  - Perimeter_mid_ZN_3_f10
+  - Perimeter_mid_ZN_3_f11
+  - Perimeter_mid_ZN_4_f2
+  - Perimeter_mid_ZN_4_f3
+  - Perimeter_mid_ZN_4_f4
+  - Perimeter_mid_ZN_4_f5
+  - Perimeter_mid_ZN_4_f6
+  - Perimeter_mid_ZN_4_f7
+  - Perimeter_mid_ZN_4_f8
+  - Perimeter_mid_ZN_4_f9
+  - Perimeter_mid_ZN_4_f10
+  - Perimeter_mid_ZN_4_f11
+  flow_per_exterior_wall_area: 0.000569572
+  constant_coefficient: 0.0
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.224
+  schedule: INFIL_SCH_PNNL
+- name: Perimeter Infiltration Top
+  zones:
+  - Perimeter_top_ZN_1
+  - Perimeter_top_ZN_2
+  - Perimeter_top_ZN_3
+  - Perimeter_top_ZN_4
+  flow_per_exterior_wall_area: 0.000569572
+  constant_coefficient: 0.0
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.224
+  schedule: INFIL_SCH_PNNL
+- name: Basement Infiltration
+  zones:
+  - Basement Zone
+  flow_per_exterior_wall_area: 0.000569572
+  constant_coefficient: 0.0
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.224
+  schedule: INFIL_SCH_PNNL
+surfaces:
+- name: Core_bot South IW
+  zone: Core_bottom
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_bot_ZN_1'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 0.0
+  - x: 68.534
+    y: 4.5732
+    z: 0.0
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+- name: Core_bot North IW
+  zone: Core_bottom
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_bot_ZN_3'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 0.0
+  - x: 4.5732
+    y: 44.1649
+    z: 0.0
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+- name: Core_bot East IW
+  zone: Core_bottom
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_bot_ZN_2'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 0.0
+  - x: 68.534
+    y: 44.1649
+    z: 0.0
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+- name: Core_bot West IW
+  zone: Core_bottom
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_bot_ZN_4'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 0.0
+  - x: 4.5732
+    y: 4.5732
+    z: 0.0
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+- name: Core_bot Floor
+  zone: Core_bottom
+  type: floor
+  construction: Ground Floor
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 0.0
+  - x: 68.534
+    y: 44.1649
+    z: 0.0
+  - x: 68.534
+    y: 4.5732
+    z: 0.0
+  - x: 4.5732
+    y: 4.5732
+    z: 0.0
+- name: Core_bot Ceiling
+  zone: Core_bottom
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+- name: P_bot_ZN1 South Wall
+  zone: Perimeter_bot_ZN_1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 0.0
+  - x: 73.1072
+    y: 0.0
+    z: 0.0
+  - x: 73.1072
+    y: 0.0
+    z: 2.744
+  - x: 0.0
+    y: 0.0
+    z: 2.744
+- name: P_bot_ZN1 South Window
+  zone: Perimeter_bot_ZN_1
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_bot_ZN1 South Wall
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 0.9147
+  - x: 73.1072
+    y: 0.0
+    z: 0.9147
+  - x: 73.1072
+    y: 0.0
+    z: 2.5
+  - x: 0.0
+    y: 0.0
+    z: 2.5
+- name: P_bot_ZN1 North IW
+  zone: Perimeter_bot_ZN_1
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_bottom'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 0.0
+  - x: 4.5732
+    y: 4.5732
+    z: 0.0
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+- name: P_bot_ZN1 Floor
+  zone: Perimeter_bot_ZN_1
+  type: floor
+  construction: Ground Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 4.5732
+    z: 0.0
+  - x: 73.1072
+    y: 4.5732
+    z: 0.0
+  - x: 73.1072
+    y: 0.0
+    z: 0.0
+  - x: 0.0
+    y: 0.0
+    z: 0.0
+- name: P_bot_ZN1 Ceiling
+  zone: Perimeter_bot_ZN_1
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 4.5732
+    z: 3.9624
+  - x: 0.0
+    y: 4.5732
+    z: 3.9624
+- name: P_bot_ZN2 East Wall
+  zone: Perimeter_bot_ZN_2
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 0.0
+  - x: 73.1072
+    y: 48.7381
+    z: 0.0
+  - x: 73.1072
+    y: 48.7381
+    z: 2.744
+  - x: 73.1072
+    y: 0.0
+    z: 2.744
+- name: P_bot_ZN2 East Window
+  zone: Perimeter_bot_ZN_2
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_bot_ZN2 East Wall
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 0.9147
+  - x: 73.1072
+    y: 48.7381
+    z: 0.9147
+  - x: 73.1072
+    y: 48.7381
+    z: 2.5
+  - x: 73.1072
+    y: 0.0
+    z: 2.5
+- name: P_bot_ZN2 West IW
+  zone: Perimeter_bot_ZN_2
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_bottom'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 0.0
+  - x: 68.534
+    y: 4.5732
+    z: 0.0
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+- name: P_bot_ZN2 Floor
+  zone: Perimeter_bot_ZN_2
+  type: floor
+  construction: Ground Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 48.7381
+    z: 0.0
+  - x: 73.1072
+    y: 48.7381
+    z: 0.0
+  - x: 73.1072
+    y: 0.0
+    z: 0.0
+  - x: 68.534
+    y: 0.0
+    z: 0.0
+- name: P_bot_ZN2 Ceiling
+  zone: Perimeter_bot_ZN_2
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 68.534
+    y: 48.7381
+    z: 3.9624
+- name: P_bot_ZN3 North Wall
+  zone: Perimeter_bot_ZN_3
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 0.0
+  - x: 0.0
+    y: 48.7381
+    z: 0.0
+  - x: 0.0
+    y: 48.7381
+    z: 2.744
+  - x: 73.1072
+    y: 48.7381
+    z: 2.744
+- name: P_bot_ZN3 North Window
+  zone: Perimeter_bot_ZN_3
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_bot_ZN3 North Wall
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 0.9147
+  - x: 0.0
+    y: 48.7381
+    z: 0.9147
+  - x: 0.0
+    y: 48.7381
+    z: 2.5
+  - x: 73.1072
+    y: 48.7381
+    z: 2.5
+- name: P_bot_ZN3 South IW
+  zone: Perimeter_bot_ZN_3
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_bottom'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 0.0
+  - x: 68.534
+    y: 44.1649
+    z: 0.0
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+- name: P_bot_ZN3 Floor
+  zone: Perimeter_bot_ZN_3
+  type: floor
+  construction: Ground Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 0.0
+  - x: 0.0
+    y: 44.1649
+    z: 0.0
+  - x: 73.1072
+    y: 44.1649
+    z: 0.0
+  - x: 73.1072
+    y: 48.7381
+    z: 0.0
+- name: P_bot_ZN3 Ceiling
+  zone: Perimeter_bot_ZN_3
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 44.1649
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
+- name: P_bot_ZN4 West Wall
+  zone: Perimeter_bot_ZN_4
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 0.0
+  - x: 0.0
+    y: 0.0
+    z: 0.0
+  - x: 0.0
+    y: 0.0
+    z: 2.744
+  - x: 0.0
+    y: 48.7381
+    z: 2.744
+- name: P_bot_ZN4 West Window
+  zone: Perimeter_bot_ZN_4
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_bot_ZN4 West Wall
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 0.9147
+  - x: 0.0
+    y: 0.0
+    z: 0.9147
+  - x: 0.0
+    y: 0.0
+    z: 2.5
+  - x: 0.0
+    y: 48.7381
+    z: 2.5
+- name: P_bot_ZN4 East IW
+  zone: Perimeter_bot_ZN_4
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_bottom'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 0.0
+  - x: 4.5732
+    y: 44.1649
+    z: 0.0
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+- name: P_bot_ZN4 Floor
+  zone: Perimeter_bot_ZN_4
+  type: floor
+  construction: Ground Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 0.0
+  - x: 0.0
+    y: 48.7381
+    z: 0.0
+  - x: 4.5732
+    y: 48.7381
+    z: 0.0
+  - x: 4.5732
+    y: 0.0
+    z: 0.0
+- name: P_bot_ZN4 Ceiling
+  zone: Perimeter_bot_ZN_4
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 4.5732
+    y: 0.0
+    z: 3.9624
+  - x: 4.5732
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+- name: Core_mid South IW_f2
+  zone: Core_mid_f2
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_1_f2'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid South IW_f3
+  zone: Core_mid_f3
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_1_f3'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid South IW_f4
+  zone: Core_mid_f4
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_1_f4'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid South IW_f5
+  zone: Core_mid_f5
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_1_f5'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid South IW_f6
+  zone: Core_mid_f6
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_1_f6'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid South IW_f7
+  zone: Core_mid_f7
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_1_f7'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid South IW_f8
+  zone: Core_mid_f8
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_1_f8'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid South IW_f9
+  zone: Core_mid_f9
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_1_f9'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid South IW_f10
+  zone: Core_mid_f10
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_1_f10'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid South IW_f11
+  zone: Core_mid_f11
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_1_f11'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid North IW_f2
+  zone: Core_mid_f2
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_3_f2'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid North IW_f3
+  zone: Core_mid_f3
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_3_f3'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid North IW_f4
+  zone: Core_mid_f4
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_3_f4'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid North IW_f5
+  zone: Core_mid_f5
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_3_f5'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid North IW_f6
+  zone: Core_mid_f6
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_3_f6'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid North IW_f7
+  zone: Core_mid_f7
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_3_f7'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid North IW_f8
+  zone: Core_mid_f8
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_3_f8'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid North IW_f9
+  zone: Core_mid_f9
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_3_f9'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid North IW_f10
+  zone: Core_mid_f10
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_3_f10'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid North IW_f11
+  zone: Core_mid_f11
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_3_f11'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid East IW_f2
+  zone: Core_mid_f2
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_2_f2'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid East IW_f3
+  zone: Core_mid_f3
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_2_f3'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid East IW_f4
+  zone: Core_mid_f4
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_2_f4'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid East IW_f5
+  zone: Core_mid_f5
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_2_f5'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid East IW_f6
+  zone: Core_mid_f6
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_2_f6'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid East IW_f7
+  zone: Core_mid_f7
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_2_f7'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid East IW_f8
+  zone: Core_mid_f8
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_2_f8'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid East IW_f9
+  zone: Core_mid_f9
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_2_f9'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid East IW_f10
+  zone: Core_mid_f10
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_2_f10'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid East IW_f11
+  zone: Core_mid_f11
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_2_f11'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: Core_mid West IW_f2
+  zone: Core_mid_f2
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_4_f2'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid West IW_f3
+  zone: Core_mid_f3
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_4_f3'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid West IW_f4
+  zone: Core_mid_f4
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_4_f4'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid West IW_f5
+  zone: Core_mid_f5
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_4_f5'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid West IW_f6
+  zone: Core_mid_f6
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_4_f6'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid West IW_f7
+  zone: Core_mid_f7
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_4_f7'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid West IW_f8
+  zone: Core_mid_f8
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_4_f8'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid West IW_f9
+  zone: Core_mid_f9
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_4_f9'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid West IW_f10
+  zone: Core_mid_f10
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_4_f10'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid West IW_f11
+  zone: Core_mid_f11
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_mid_ZN_4_f11'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid Floor_f2
+  zone: Core_mid_f2
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+- name: Core_mid Floor_f3
+  zone: Core_mid_f3
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+- name: Core_mid Floor_f4
+  zone: Core_mid_f4
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+- name: Core_mid Floor_f5
+  zone: Core_mid_f5
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+- name: Core_mid Floor_f6
+  zone: Core_mid_f6
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+- name: Core_mid Floor_f7
+  zone: Core_mid_f7
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+- name: Core_mid Floor_f8
+  zone: Core_mid_f8
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+- name: Core_mid Floor_f9
+  zone: Core_mid_f9
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+- name: Core_mid Floor_f10
+  zone: Core_mid_f10
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+- name: Core_mid Floor_f11
+  zone: Core_mid_f11
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+- name: Core_mid Ceiling_f2
+  zone: Core_mid_f2
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid Ceiling_f3
+  zone: Core_mid_f3
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid Ceiling_f4
+  zone: Core_mid_f4
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid Ceiling_f5
+  zone: Core_mid_f5
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid Ceiling_f6
+  zone: Core_mid_f6
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid Ceiling_f7
+  zone: Core_mid_f7
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid Ceiling_f8
+  zone: Core_mid_f8
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid Ceiling_f9
+  zone: Core_mid_f9
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid Ceiling_f10
+  zone: Core_mid_f10
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: Core_mid Ceiling_f11
+  zone: Core_mid_f11
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN1 South Wall_f2
+  zone: Perimeter_mid_ZN_1_f2
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN1 South Wall_f3
+  zone: Perimeter_mid_ZN_1_f3
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN1 South Wall_f4
+  zone: Perimeter_mid_ZN_1_f4
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN1 South Wall_f5
+  zone: Perimeter_mid_ZN_1_f5
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN1 South Wall_f6
+  zone: Perimeter_mid_ZN_1_f6
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN1 South Wall_f7
+  zone: Perimeter_mid_ZN_1_f7
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN1 South Wall_f8
+  zone: Perimeter_mid_ZN_1_f8
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN1 South Wall_f9
+  zone: Perimeter_mid_ZN_1_f9
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN1 South Wall_f10
+  zone: Perimeter_mid_ZN_1_f10
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN1 South Wall_f11
+  zone: Perimeter_mid_ZN_1_f11
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN1 South Window_f2
+  zone: Perimeter_mid_ZN_1_f2
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN1 South Wall_f2
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN1 South Window_f3
+  zone: Perimeter_mid_ZN_1_f3
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN1 South Wall_f3
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN1 South Window_f4
+  zone: Perimeter_mid_ZN_1_f4
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN1 South Wall_f4
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN1 South Window_f5
+  zone: Perimeter_mid_ZN_1_f5
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN1 South Wall_f5
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN1 South Window_f6
+  zone: Perimeter_mid_ZN_1_f6
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN1 South Wall_f6
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN1 South Window_f7
+  zone: Perimeter_mid_ZN_1_f7
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN1 South Wall_f7
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN1 South Window_f8
+  zone: Perimeter_mid_ZN_1_f8
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN1 South Wall_f8
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN1 South Window_f9
+  zone: Perimeter_mid_ZN_1_f9
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN1 South Wall_f9
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN1 South Window_f10
+  zone: Perimeter_mid_ZN_1_f10
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN1 South Wall_f10
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN1 South Window_f11
+  zone: Perimeter_mid_ZN_1_f11
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN1 South Wall_f11
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN1 North IW_f2
+  zone: Perimeter_mid_ZN_1_f2
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f2'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 North IW_f3
+  zone: Perimeter_mid_ZN_1_f3
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f3'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 North IW_f4
+  zone: Perimeter_mid_ZN_1_f4
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f4'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 North IW_f5
+  zone: Perimeter_mid_ZN_1_f5
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f5'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 North IW_f6
+  zone: Perimeter_mid_ZN_1_f6
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f6'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 North IW_f7
+  zone: Perimeter_mid_ZN_1_f7
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f7'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 North IW_f8
+  zone: Perimeter_mid_ZN_1_f8
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f8'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 North IW_f9
+  zone: Perimeter_mid_ZN_1_f9
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f9'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 North IW_f10
+  zone: Perimeter_mid_ZN_1_f10
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f10'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 North IW_f11
+  zone: Perimeter_mid_ZN_1_f11
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f11'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 Floor_f2
+  zone: Perimeter_mid_ZN_1_f2
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN1 Floor_f3
+  zone: Perimeter_mid_ZN_1_f3
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN1 Floor_f4
+  zone: Perimeter_mid_ZN_1_f4
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN1 Floor_f5
+  zone: Perimeter_mid_ZN_1_f5
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN1 Floor_f6
+  zone: Perimeter_mid_ZN_1_f6
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN1 Floor_f7
+  zone: Perimeter_mid_ZN_1_f7
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN1 Floor_f8
+  zone: Perimeter_mid_ZN_1_f8
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN1 Floor_f9
+  zone: Perimeter_mid_ZN_1_f9
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN1 Floor_f10
+  zone: Perimeter_mid_ZN_1_f10
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN1 Floor_f11
+  zone: Perimeter_mid_ZN_1_f11
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 4.5732
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN1 Ceiling_f2
+  zone: Perimeter_mid_ZN_1_f2
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 4.5732
+    z: 7.9248
+  - x: 0.0
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 Ceiling_f3
+  zone: Perimeter_mid_ZN_1_f3
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 4.5732
+    z: 7.9248
+  - x: 0.0
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 Ceiling_f4
+  zone: Perimeter_mid_ZN_1_f4
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 4.5732
+    z: 7.9248
+  - x: 0.0
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 Ceiling_f5
+  zone: Perimeter_mid_ZN_1_f5
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 4.5732
+    z: 7.9248
+  - x: 0.0
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 Ceiling_f6
+  zone: Perimeter_mid_ZN_1_f6
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 4.5732
+    z: 7.9248
+  - x: 0.0
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 Ceiling_f7
+  zone: Perimeter_mid_ZN_1_f7
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 4.5732
+    z: 7.9248
+  - x: 0.0
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 Ceiling_f8
+  zone: Perimeter_mid_ZN_1_f8
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 4.5732
+    z: 7.9248
+  - x: 0.0
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 Ceiling_f9
+  zone: Perimeter_mid_ZN_1_f9
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 4.5732
+    z: 7.9248
+  - x: 0.0
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 Ceiling_f10
+  zone: Perimeter_mid_ZN_1_f10
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 4.5732
+    z: 7.9248
+  - x: 0.0
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN1 Ceiling_f11
+  zone: Perimeter_mid_ZN_1_f11
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 4.5732
+    z: 7.9248
+  - x: 0.0
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN2 East Wall_f2
+  zone: Perimeter_mid_ZN_2_f2
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN2 East Wall_f3
+  zone: Perimeter_mid_ZN_2_f3
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN2 East Wall_f4
+  zone: Perimeter_mid_ZN_2_f4
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN2 East Wall_f5
+  zone: Perimeter_mid_ZN_2_f5
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN2 East Wall_f6
+  zone: Perimeter_mid_ZN_2_f6
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN2 East Wall_f7
+  zone: Perimeter_mid_ZN_2_f7
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN2 East Wall_f8
+  zone: Perimeter_mid_ZN_2_f8
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN2 East Wall_f9
+  zone: Perimeter_mid_ZN_2_f9
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN2 East Wall_f10
+  zone: Perimeter_mid_ZN_2_f10
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN2 East Wall_f11
+  zone: Perimeter_mid_ZN_2_f11
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 0.0
+    z: 6.7064
+- name: P_mid_ZN2 East Window_f2
+  zone: Perimeter_mid_ZN_2_f2
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN2 East Wall_f2
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN2 East Window_f3
+  zone: Perimeter_mid_ZN_2_f3
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN2 East Wall_f3
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN2 East Window_f4
+  zone: Perimeter_mid_ZN_2_f4
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN2 East Wall_f4
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN2 East Window_f5
+  zone: Perimeter_mid_ZN_2_f5
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN2 East Wall_f5
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN2 East Window_f6
+  zone: Perimeter_mid_ZN_2_f6
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN2 East Wall_f6
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN2 East Window_f7
+  zone: Perimeter_mid_ZN_2_f7
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN2 East Wall_f7
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN2 East Window_f8
+  zone: Perimeter_mid_ZN_2_f8
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN2 East Wall_f8
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN2 East Window_f9
+  zone: Perimeter_mid_ZN_2_f9
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN2 East Wall_f9
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN2 East Window_f10
+  zone: Perimeter_mid_ZN_2_f10
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN2 East Wall_f10
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN2 East Window_f11
+  zone: Perimeter_mid_ZN_2_f11
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN2 East Wall_f11
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 0.0
+    z: 6.4624
+- name: P_mid_ZN2 West IW_f2
+  zone: Perimeter_mid_ZN_2_f2
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f2'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN2 West IW_f3
+  zone: Perimeter_mid_ZN_2_f3
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f3'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN2 West IW_f4
+  zone: Perimeter_mid_ZN_2_f4
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f4'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN2 West IW_f5
+  zone: Perimeter_mid_ZN_2_f5
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f5'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN2 West IW_f6
+  zone: Perimeter_mid_ZN_2_f6
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f6'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN2 West IW_f7
+  zone: Perimeter_mid_ZN_2_f7
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f7'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN2 West IW_f8
+  zone: Perimeter_mid_ZN_2_f8
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f8'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN2 West IW_f9
+  zone: Perimeter_mid_ZN_2_f9
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f9'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN2 West IW_f10
+  zone: Perimeter_mid_ZN_2_f10
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f10'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN2 West IW_f11
+  zone: Perimeter_mid_ZN_2_f11
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f11'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN2 Floor_f2
+  zone: Perimeter_mid_ZN_2_f2
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 68.534
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN2 Floor_f3
+  zone: Perimeter_mid_ZN_2_f3
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 68.534
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN2 Floor_f4
+  zone: Perimeter_mid_ZN_2_f4
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 68.534
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN2 Floor_f5
+  zone: Perimeter_mid_ZN_2_f5
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 68.534
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN2 Floor_f6
+  zone: Perimeter_mid_ZN_2_f6
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 68.534
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN2 Floor_f7
+  zone: Perimeter_mid_ZN_2_f7
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 68.534
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN2 Floor_f8
+  zone: Perimeter_mid_ZN_2_f8
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 68.534
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN2 Floor_f9
+  zone: Perimeter_mid_ZN_2_f9
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 68.534
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN2 Floor_f10
+  zone: Perimeter_mid_ZN_2_f10
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 68.534
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN2 Floor_f11
+  zone: Perimeter_mid_ZN_2_f11
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 3.9624
+  - x: 68.534
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN2 Ceiling_f2
+  zone: Perimeter_mid_ZN_2_f2
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 68.534
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN2 Ceiling_f3
+  zone: Perimeter_mid_ZN_2_f3
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 68.534
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN2 Ceiling_f4
+  zone: Perimeter_mid_ZN_2_f4
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 68.534
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN2 Ceiling_f5
+  zone: Perimeter_mid_ZN_2_f5
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 68.534
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN2 Ceiling_f6
+  zone: Perimeter_mid_ZN_2_f6
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 68.534
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN2 Ceiling_f7
+  zone: Perimeter_mid_ZN_2_f7
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 68.534
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN2 Ceiling_f8
+  zone: Perimeter_mid_ZN_2_f8
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 68.534
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN2 Ceiling_f9
+  zone: Perimeter_mid_ZN_2_f9
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 68.534
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN2 Ceiling_f10
+  zone: Perimeter_mid_ZN_2_f10
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 68.534
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN2 Ceiling_f11
+  zone: Perimeter_mid_ZN_2_f11
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 0.0
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 68.534
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN3 North Wall_f2
+  zone: Perimeter_mid_ZN_3_f2
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN3 North Wall_f3
+  zone: Perimeter_mid_ZN_3_f3
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN3 North Wall_f4
+  zone: Perimeter_mid_ZN_3_f4
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN3 North Wall_f5
+  zone: Perimeter_mid_ZN_3_f5
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN3 North Wall_f6
+  zone: Perimeter_mid_ZN_3_f6
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN3 North Wall_f7
+  zone: Perimeter_mid_ZN_3_f7
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN3 North Wall_f8
+  zone: Perimeter_mid_ZN_3_f8
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN3 North Wall_f9
+  zone: Perimeter_mid_ZN_3_f9
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN3 North Wall_f10
+  zone: Perimeter_mid_ZN_3_f10
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN3 North Wall_f11
+  zone: Perimeter_mid_ZN_3_f11
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+  - x: 73.1072
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN3 North Window_f2
+  zone: Perimeter_mid_ZN_3_f2
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN3 North Wall_f2
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN3 North Window_f3
+  zone: Perimeter_mid_ZN_3_f3
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN3 North Wall_f3
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN3 North Window_f4
+  zone: Perimeter_mid_ZN_3_f4
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN3 North Wall_f4
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN3 North Window_f5
+  zone: Perimeter_mid_ZN_3_f5
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN3 North Wall_f5
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN3 North Window_f6
+  zone: Perimeter_mid_ZN_3_f6
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN3 North Wall_f6
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN3 North Window_f7
+  zone: Perimeter_mid_ZN_3_f7
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN3 North Wall_f7
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN3 North Window_f8
+  zone: Perimeter_mid_ZN_3_f8
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN3 North Wall_f8
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN3 North Window_f9
+  zone: Perimeter_mid_ZN_3_f9
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN3 North Wall_f9
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN3 North Window_f10
+  zone: Perimeter_mid_ZN_3_f10
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN3 North Wall_f10
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN3 North Window_f11
+  zone: Perimeter_mid_ZN_3_f11
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN3 North Wall_f11
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+  - x: 73.1072
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN3 South IW_f2
+  zone: Perimeter_mid_ZN_3_f2
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f2'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 South IW_f3
+  zone: Perimeter_mid_ZN_3_f3
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f3'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 South IW_f4
+  zone: Perimeter_mid_ZN_3_f4
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f4'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 South IW_f5
+  zone: Perimeter_mid_ZN_3_f5
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f5'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 South IW_f6
+  zone: Perimeter_mid_ZN_3_f6
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f6'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 South IW_f7
+  zone: Perimeter_mid_ZN_3_f7
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f7'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 South IW_f8
+  zone: Perimeter_mid_ZN_3_f8
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f8'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 South IW_f9
+  zone: Perimeter_mid_ZN_3_f9
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f9'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 South IW_f10
+  zone: Perimeter_mid_ZN_3_f10
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f10'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 South IW_f11
+  zone: Perimeter_mid_ZN_3_f11
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f11'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 Floor_f2
+  zone: Perimeter_mid_ZN_3_f2
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+- name: P_mid_ZN3 Floor_f3
+  zone: Perimeter_mid_ZN_3_f3
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+- name: P_mid_ZN3 Floor_f4
+  zone: Perimeter_mid_ZN_3_f4
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+- name: P_mid_ZN3 Floor_f5
+  zone: Perimeter_mid_ZN_3_f5
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+- name: P_mid_ZN3 Floor_f6
+  zone: Perimeter_mid_ZN_3_f6
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+- name: P_mid_ZN3 Floor_f7
+  zone: Perimeter_mid_ZN_3_f7
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+- name: P_mid_ZN3 Floor_f8
+  zone: Perimeter_mid_ZN_3_f8
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+- name: P_mid_ZN3 Floor_f9
+  zone: Perimeter_mid_ZN_3_f9
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+- name: P_mid_ZN3 Floor_f10
+  zone: Perimeter_mid_ZN_3_f10
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+- name: P_mid_ZN3 Floor_f11
+  zone: Perimeter_mid_ZN_3_f11
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
+- name: P_mid_ZN3 Ceiling_f2
+  zone: Perimeter_mid_ZN_3_f2
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 44.1649
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 Ceiling_f3
+  zone: Perimeter_mid_ZN_3_f3
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 44.1649
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 Ceiling_f4
+  zone: Perimeter_mid_ZN_3_f4
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 44.1649
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 Ceiling_f5
+  zone: Perimeter_mid_ZN_3_f5
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 44.1649
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 Ceiling_f6
+  zone: Perimeter_mid_ZN_3_f6
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 44.1649
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 Ceiling_f7
+  zone: Perimeter_mid_ZN_3_f7
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 44.1649
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 Ceiling_f8
+  zone: Perimeter_mid_ZN_3_f8
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 44.1649
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 Ceiling_f9
+  zone: Perimeter_mid_ZN_3_f9
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 44.1649
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 Ceiling_f10
+  zone: Perimeter_mid_ZN_3_f10
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 44.1649
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN3 Ceiling_f11
+  zone: Perimeter_mid_ZN_3_f11
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 44.1649
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
+  - x: 73.1072
+    y: 44.1649
+    z: 7.9248
+- name: P_mid_ZN4 West Wall_f2
+  zone: Perimeter_mid_ZN_4_f2
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN4 West Wall_f3
+  zone: Perimeter_mid_ZN_4_f3
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN4 West Wall_f4
+  zone: Perimeter_mid_ZN_4_f4
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN4 West Wall_f5
+  zone: Perimeter_mid_ZN_4_f5
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN4 West Wall_f6
+  zone: Perimeter_mid_ZN_4_f6
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN4 West Wall_f7
+  zone: Perimeter_mid_ZN_4_f7
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN4 West Wall_f8
+  zone: Perimeter_mid_ZN_4_f8
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN4 West Wall_f9
+  zone: Perimeter_mid_ZN_4_f9
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN4 West Wall_f10
+  zone: Perimeter_mid_ZN_4_f10
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN4 West Wall_f11
+  zone: Perimeter_mid_ZN_4_f11
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 0.0
+    z: 6.7064
+  - x: 0.0
+    y: 48.7381
+    z: 6.7064
+- name: P_mid_ZN4 West Window_f2
+  zone: Perimeter_mid_ZN_4_f2
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN4 West Wall_f2
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN4 West Window_f3
+  zone: Perimeter_mid_ZN_4_f3
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN4 West Wall_f3
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN4 West Window_f4
+  zone: Perimeter_mid_ZN_4_f4
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN4 West Wall_f4
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN4 West Window_f5
+  zone: Perimeter_mid_ZN_4_f5
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN4 West Wall_f5
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN4 West Window_f6
+  zone: Perimeter_mid_ZN_4_f6
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN4 West Wall_f6
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN4 West Window_f7
+  zone: Perimeter_mid_ZN_4_f7
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN4 West Wall_f7
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN4 West Window_f8
+  zone: Perimeter_mid_ZN_4_f8
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN4 West Wall_f8
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN4 West Window_f9
+  zone: Perimeter_mid_ZN_4_f9
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN4 West Wall_f9
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN4 West Window_f10
+  zone: Perimeter_mid_ZN_4_f10
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN4 West Wall_f10
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN4 West Window_f11
+  zone: Perimeter_mid_ZN_4_f11
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_mid_ZN4 West Wall_f11
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 4.8771
+  - x: 0.0
+    y: 0.0
+    z: 6.4624
+  - x: 0.0
+    y: 48.7381
+    z: 6.4624
+- name: P_mid_ZN4 East IW_f2
+  zone: Perimeter_mid_ZN_4_f2
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f2'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN4 East IW_f3
+  zone: Perimeter_mid_ZN_4_f3
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f3'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN4 East IW_f4
+  zone: Perimeter_mid_ZN_4_f4
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f4'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN4 East IW_f5
+  zone: Perimeter_mid_ZN_4_f5
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f5'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN4 East IW_f6
+  zone: Perimeter_mid_ZN_4_f6
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f6'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN4 East IW_f7
+  zone: Perimeter_mid_ZN_4_f7
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f7'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN4 East IW_f8
+  zone: Perimeter_mid_ZN_4_f8
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f8'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN4 East IW_f9
+  zone: Perimeter_mid_ZN_4_f9
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f9'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN4 East IW_f10
+  zone: Perimeter_mid_ZN_4_f10
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f10'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN4 East IW_f11
+  zone: Perimeter_mid_ZN_4_f11
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_mid_f11'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 3.9624
+  - x: 4.5732
+    y: 44.1649
+    z: 7.9248
+  - x: 4.5732
+    y: 4.5732
+    z: 7.9248
+- name: P_mid_ZN4 Floor_f2
+  zone: Perimeter_mid_ZN_4_f2
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN4 Floor_f3
+  zone: Perimeter_mid_ZN_4_f3
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN4 Floor_f4
+  zone: Perimeter_mid_ZN_4_f4
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN4 Floor_f5
+  zone: Perimeter_mid_ZN_4_f5
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN4 Floor_f6
+  zone: Perimeter_mid_ZN_4_f6
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN4 Floor_f7
+  zone: Perimeter_mid_ZN_4_f7
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN4 Floor_f8
+  zone: Perimeter_mid_ZN_4_f8
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN4 Floor_f9
+  zone: Perimeter_mid_ZN_4_f9
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN4 Floor_f10
+  zone: Perimeter_mid_ZN_4_f10
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN4 Floor_f11
+  zone: Perimeter_mid_ZN_4_f11
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 48.7381
+    z: 3.9624
+  - x: 4.5732
+    y: 0.0
+    z: 3.9624
+- name: P_mid_ZN4 Ceiling_f2
+  zone: Perimeter_mid_ZN_4_f2
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 48.7381
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN4 Ceiling_f3
+  zone: Perimeter_mid_ZN_4_f3
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 48.7381
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN4 Ceiling_f4
+  zone: Perimeter_mid_ZN_4_f4
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 48.7381
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN4 Ceiling_f5
+  zone: Perimeter_mid_ZN_4_f5
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 48.7381
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN4 Ceiling_f6
+  zone: Perimeter_mid_ZN_4_f6
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 48.7381
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN4 Ceiling_f7
+  zone: Perimeter_mid_ZN_4_f7
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 48.7381
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN4 Ceiling_f8
+  zone: Perimeter_mid_ZN_4_f8
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 48.7381
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN4 Ceiling_f9
+  zone: Perimeter_mid_ZN_4_f9
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 48.7381
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN4 Ceiling_f10
+  zone: Perimeter_mid_ZN_4_f10
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 48.7381
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+- name: P_mid_ZN4 Ceiling_f11
+  zone: Perimeter_mid_ZN_4_f11
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 0.0
+    z: 7.9248
+  - x: 4.5732
+    y: 48.7381
+    z: 7.9248
+  - x: 0.0
+    y: 48.7381
+    z: 7.9248
+- name: Core_top South IW
+  zone: Core_top
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_top_ZN_1'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 43.5864
+  - x: 68.534
+    y: 4.5732
+    z: 43.5864
+  - x: 68.534
+    y: 4.5732
+    z: 47.5488
+  - x: 4.5732
+    y: 4.5732
+    z: 47.5488
+- name: Core_top North IW
+  zone: Core_top
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_top_ZN_3'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 43.5864
+  - x: 4.5732
+    y: 44.1649
+    z: 43.5864
+  - x: 4.5732
+    y: 44.1649
+    z: 47.5488
+  - x: 68.534
+    y: 44.1649
+    z: 47.5488
+- name: Core_top East IW
+  zone: Core_top
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_top_ZN_2'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 43.5864
+  - x: 68.534
+    y: 44.1649
+    z: 43.5864
+  - x: 68.534
+    y: 44.1649
+    z: 47.5488
+  - x: 68.534
+    y: 4.5732
+    z: 47.5488
+- name: Core_top West IW
+  zone: Core_top
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Perimeter_top_ZN_4'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 43.5864
+  - x: 4.5732
+    y: 4.5732
+    z: 43.5864
+  - x: 4.5732
+    y: 4.5732
+    z: 47.5488
+  - x: 4.5732
+    y: 44.1649
+    z: 47.5488
+- name: Core_top Floor
+  zone: Core_top
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 43.5864
+  - x: 68.534
+    y: 44.1649
+    z: 43.5864
+  - x: 68.534
+    y: 4.5732
+    z: 43.5864
+  - x: 4.5732
+    y: 4.5732
+    z: 43.5864
+- name: Core_top Roof
+  zone: Core_top
+  type: roof
+  construction: Flat Roof
+  boundary: outdoor
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 47.5488
+  - x: 68.534
+    y: 4.5732
+    z: 47.5488
+  - x: 68.534
+    y: 44.1649
+    z: 47.5488
+  - x: 4.5732
+    y: 44.1649
+    z: 47.5488
+- name: P_top_ZN1 South Wall
+  zone: Perimeter_top_ZN_1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 43.5864
+  - x: 73.1072
+    y: 0.0
+    z: 43.5864
+  - x: 73.1072
+    y: 0.0
+    z: 46.3304
+  - x: 0.0
+    y: 0.0
+    z: 46.3304
+- name: P_top_ZN1 South Window
+  zone: Perimeter_top_ZN_1
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_top_ZN1 South Wall
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 44.5011
+  - x: 73.1072
+    y: 0.0
+    z: 44.5011
+  - x: 73.1072
+    y: 0.0
+    z: 46.0864
+  - x: 0.0
+    y: 0.0
+    z: 46.0864
+- name: P_top_ZN1 North IW
+  zone: Perimeter_top_ZN_1
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_top'
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 43.5864
+  - x: 4.5732
+    y: 4.5732
+    z: 43.5864
+  - x: 4.5732
+    y: 4.5732
+    z: 47.5488
+  - x: 68.534
+    y: 4.5732
+    z: 47.5488
+- name: P_top_ZN1 Floor
+  zone: Perimeter_top_ZN_1
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 4.5732
+    z: 43.5864
+  - x: 73.1072
+    y: 4.5732
+    z: 43.5864
+  - x: 73.1072
+    y: 0.0
+    z: 43.5864
+  - x: 0.0
+    y: 0.0
+    z: 43.5864
+- name: P_top_ZN1 Roof
+  zone: Perimeter_top_ZN_1
+  type: roof
+  construction: Flat Roof
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 47.5488
+  - x: 73.1072
+    y: 0.0
+    z: 47.5488
+  - x: 73.1072
+    y: 4.5732
+    z: 47.5488
+  - x: 0.0
+    y: 4.5732
+    z: 47.5488
+- name: P_top_ZN2 East Wall
+  zone: Perimeter_top_ZN_2
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 43.5864
+  - x: 73.1072
+    y: 48.7381
+    z: 43.5864
+  - x: 73.1072
+    y: 48.7381
+    z: 46.3304
+  - x: 73.1072
+    y: 0.0
+    z: 46.3304
+- name: P_top_ZN2 East Window
+  zone: Perimeter_top_ZN_2
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_top_ZN2 East Wall
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: 44.5011
+  - x: 73.1072
+    y: 48.7381
+    z: 44.5011
+  - x: 73.1072
+    y: 48.7381
+    z: 46.0864
+  - x: 73.1072
+    y: 0.0
+    z: 46.0864
+- name: P_top_ZN2 West IW
+  zone: Perimeter_top_ZN_2
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_top'
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 43.5864
+  - x: 68.534
+    y: 4.5732
+    z: 43.5864
+  - x: 68.534
+    y: 4.5732
+    z: 47.5488
+  - x: 68.534
+    y: 44.1649
+    z: 47.5488
+- name: P_top_ZN2 Floor
+  zone: Perimeter_top_ZN_2
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 48.7381
+    z: 43.5864
+  - x: 73.1072
+    y: 48.7381
+    z: 43.5864
+  - x: 73.1072
+    y: 0.0
+    z: 43.5864
+  - x: 68.534
+    y: 0.0
+    z: 43.5864
+- name: P_top_ZN2 Roof
+  zone: Perimeter_top_ZN_2
+  type: roof
+  construction: Flat Roof
+  boundary: outdoor
+  vertices:
+  - x: 68.534
+    y: 0.0
+    z: 47.5488
+  - x: 73.1072
+    y: 0.0
+    z: 47.5488
+  - x: 73.1072
+    y: 48.7381
+    z: 47.5488
+  - x: 68.534
+    y: 48.7381
+    z: 47.5488
+- name: P_top_ZN3 North Wall
+  zone: Perimeter_top_ZN_3
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 43.5864
+  - x: 0.0
+    y: 48.7381
+    z: 43.5864
+  - x: 0.0
+    y: 48.7381
+    z: 46.3304
+  - x: 73.1072
+    y: 48.7381
+    z: 46.3304
+- name: P_top_ZN3 North Window
+  zone: Perimeter_top_ZN_3
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_top_ZN3 North Wall
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: 44.5011
+  - x: 0.0
+    y: 48.7381
+    z: 44.5011
+  - x: 0.0
+    y: 48.7381
+    z: 46.0864
+  - x: 73.1072
+    y: 48.7381
+    z: 46.0864
+- name: P_top_ZN3 South IW
+  zone: Perimeter_top_ZN_3
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_top'
+  vertices:
+  - x: 4.5732
+    y: 44.1649
+    z: 43.5864
+  - x: 68.534
+    y: 44.1649
+    z: 43.5864
+  - x: 68.534
+    y: 44.1649
+    z: 47.5488
+  - x: 4.5732
+    y: 44.1649
+    z: 47.5488
+- name: P_top_ZN3 Floor
+  zone: Perimeter_top_ZN_3
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 43.5864
+  - x: 0.0
+    y: 44.1649
+    z: 43.5864
+  - x: 73.1072
+    y: 44.1649
+    z: 43.5864
+  - x: 73.1072
+    y: 48.7381
+    z: 43.5864
+- name: P_top_ZN3 Roof
+  zone: Perimeter_top_ZN_3
+  type: roof
+  construction: Flat Roof
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 44.1649
+    z: 47.5488
+  - x: 0.0
+    y: 48.7381
+    z: 47.5488
+  - x: 73.1072
+    y: 48.7381
+    z: 47.5488
+  - x: 73.1072
+    y: 44.1649
+    z: 47.5488
+- name: P_top_ZN4 West Wall
+  zone: Perimeter_top_ZN_4
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 43.5864
+  - x: 0.0
+    y: 0.0
+    z: 43.5864
+  - x: 0.0
+    y: 0.0
+    z: 46.3304
+  - x: 0.0
+    y: 48.7381
+    z: 46.3304
+- name: P_top_ZN4 West Window
+  zone: Perimeter_top_ZN_4
+  type: window
+  construction: Office Glazing
+  boundary: outdoor
+  parent_surface: P_top_ZN4 West Wall
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: 44.5011
+  - x: 0.0
+    y: 0.0
+    z: 44.5011
+  - x: 0.0
+    y: 0.0
+    z: 46.0864
+  - x: 0.0
+    y: 48.7381
+    z: 46.0864
+- name: P_top_ZN4 East IW
+  zone: Perimeter_top_ZN_4
+  type: wall
+  construction: Interior Partition
+  boundary: !zone 'Core_top'
+  vertices:
+  - x: 4.5732
+    y: 4.5732
+    z: 43.5864
+  - x: 4.5732
+    y: 44.1649
+    z: 43.5864
+  - x: 4.5732
+    y: 44.1649
+    z: 47.5488
+  - x: 4.5732
+    y: 4.5732
+    z: 47.5488
+- name: P_top_ZN4 Floor
+  zone: Perimeter_top_ZN_4
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 43.5864
+  - x: 0.0
+    y: 48.7381
+    z: 43.5864
+  - x: 4.5732
+    y: 48.7381
+    z: 43.5864
+  - x: 4.5732
+    y: 0.0
+    z: 43.5864
+- name: P_top_ZN4 Roof
+  zone: Perimeter_top_ZN_4
+  type: roof
+  construction: Flat Roof
+  boundary: outdoor
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 47.5488
+  - x: 4.5732
+    y: 0.0
+    z: 47.5488
+  - x: 4.5732
+    y: 48.7381
+    z: 47.5488
+  - x: 0.0
+    y: 48.7381
+    z: 47.5488
+- name: Basement North Wall
+  zone: Basement
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - x: 57.028
+    y: 48.7381
+    z: -3.9624
+  - x: 0.0
+    y: 48.7381
+    z: -3.9624
+  - x: 0.0
+    y: 48.7381
+    z: 0.0
+  - x: 57.028
+    y: 48.7381
+    z: 0.0
+- name: Basement South Wall
+  zone: Basement
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: -3.9624
+  - x: 57.028
+    y: 0.0
+    z: -3.9624
+  - x: 57.028
+    y: 0.0
+    z: 0.0
+  - x: 0.0
+    y: 0.0
+    z: 0.0
+- name: Basement East Wall
+  zone: Basement
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - x: 57.028
+    y: 0.0
+    z: -3.9624
+  - x: 57.028
+    y: 48.7381
+    z: -3.9624
+  - x: 57.028
+    y: 48.7381
+    z: 0.0
+  - x: 57.028
+    y: 0.0
+    z: 0.0
+- name: Basement West Wall
+  zone: Basement
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: -3.9624
+  - x: 0.0
+    y: 0.0
+    z: -3.9624
+  - x: 0.0
+    y: 0.0
+    z: 0.0
+  - x: 0.0
+    y: 48.7381
+    z: 0.0
+- name: Basement Floor
+  zone: Basement
+  type: floor
+  construction: Basement Floor
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 48.7381
+    z: -3.9624
+  - x: 57.028
+    y: 48.7381
+    z: -3.9624
+  - x: 57.028
+    y: 0.0
+    z: -3.9624
+  - x: 0.0
+    y: 0.0
+    z: -3.9624
+- name: Basement Ceiling
+  zone: Basement
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 0.0
+    y: 0.0
+    z: 0.0
+  - x: 57.028
+    y: 0.0
+    z: 0.0
+  - x: 57.028
+    y: 48.7381
+    z: 0.0
+  - x: 0.0
+    y: 48.7381
+    z: 0.0
+- name: DC_basement North Wall
+  zone: DataCenter_basement_ZN_6
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - x: 73.1072
+    y: 48.7381
+    z: -3.9624
+  - x: 57.028
+    y: 48.7381
+    z: -3.9624
+  - x: 57.028
+    y: 48.7381
+    z: 0.0
+  - x: 73.1072
+    y: 48.7381
+    z: 0.0
+- name: DC_basement South Wall
+  zone: DataCenter_basement_ZN_6
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - x: 57.028
+    y: 0.0
+    z: -3.9624
+  - x: 73.1072
+    y: 0.0
+    z: -3.9624
+  - x: 73.1072
+    y: 0.0
+    z: 0.0
+  - x: 57.028
+    y: 0.0
+    z: 0.0
+- name: DC_basement East Wall
+  zone: DataCenter_basement_ZN_6
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - x: 73.1072
+    y: 0.0
+    z: -3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: -3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 0.0
+  - x: 73.1072
+    y: 0.0
+    z: 0.0
+- name: DC_basement West IW
+  zone: DataCenter_basement_ZN_6
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 57.028
+    y: 48.7381
+    z: -3.9624
+  - x: 57.028
+    y: 0.0
+    z: -3.9624
+  - x: 57.028
+    y: 0.0
+    z: 0.0
+  - x: 57.028
+    y: 48.7381
+    z: 0.0
+- name: DC_basement Floor
+  zone: DataCenter_basement_ZN_6
+  type: floor
+  construction: Basement Floor
+  boundary: adiabatic
+  vertices:
+  - x: 57.028
+    y: 48.7381
+    z: -3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: -3.9624
+  - x: 73.1072
+    y: 0.0
+    z: -3.9624
+  - x: 57.028
+    y: 0.0
+    z: -3.9624
+- name: DC_basement Ceiling
+  zone: DataCenter_basement_ZN_6
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 57.028
+    y: 0.0
+    z: 0.0
+  - x: 73.1072
+    y: 0.0
+    z: 0.0
+  - x: 73.1072
+    y: 48.7381
+    z: 0.0
+  - x: 57.028
+    y: 48.7381
+    z: 0.0
+- name: DC_bot Floor
+  zone: DataCenter_bot_ZN_6
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 0.0
+  - x: 69.448
+    y: 4.5732
+    z: 0.0
+  - x: 69.448
+    y: 44.1649
+    z: 0.0
+  - x: 68.534
+    y: 44.1649
+    z: 0.0
+- name: DC_bot Ceiling
+  zone: DataCenter_bot_ZN_6
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+  - x: 69.448
+    y: 44.1649
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+- name: DC_bot Walls
+  zone: DataCenter_bot_ZN_6
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 0.0
+  - x: 69.448
+    y: 4.5732
+    z: 0.0
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+- name: DC_mid Floor_f2
+  zone: DataCenter_mid_ZN_6_f2
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+- name: DC_mid Floor_f3
+  zone: DataCenter_mid_ZN_6_f3
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+- name: DC_mid Floor_f4
+  zone: DataCenter_mid_ZN_6_f4
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+- name: DC_mid Floor_f5
+  zone: DataCenter_mid_ZN_6_f5
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+- name: DC_mid Floor_f6
+  zone: DataCenter_mid_ZN_6_f6
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+- name: DC_mid Floor_f7
+  zone: DataCenter_mid_ZN_6_f7
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+- name: DC_mid Floor_f8
+  zone: DataCenter_mid_ZN_6_f8
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+- name: DC_mid Floor_f9
+  zone: DataCenter_mid_ZN_6_f9
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+- name: DC_mid Floor_f10
+  zone: DataCenter_mid_ZN_6_f10
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+- name: DC_mid Floor_f11
+  zone: DataCenter_mid_ZN_6_f11
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 44.1649
+    z: 3.9624
+  - x: 68.534
+    y: 44.1649
+    z: 3.9624
+- name: DC_mid Ceiling_f2
+  zone: DataCenter_mid_ZN_6_f2
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Ceiling_f3
+  zone: DataCenter_mid_ZN_6_f3
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Ceiling_f4
+  zone: DataCenter_mid_ZN_6_f4
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Ceiling_f5
+  zone: DataCenter_mid_ZN_6_f5
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Ceiling_f6
+  zone: DataCenter_mid_ZN_6_f6
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Ceiling_f7
+  zone: DataCenter_mid_ZN_6_f7
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Ceiling_f8
+  zone: DataCenter_mid_ZN_6_f8
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Ceiling_f9
+  zone: DataCenter_mid_ZN_6_f9
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Ceiling_f10
+  zone: DataCenter_mid_ZN_6_f10
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Ceiling_f11
+  zone: DataCenter_mid_ZN_6_f11
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
+    z: 7.9248
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Walls_f2
+  zone: DataCenter_mid_ZN_6_f2
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Walls_f3
+  zone: DataCenter_mid_ZN_6_f3
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Walls_f4
+  zone: DataCenter_mid_ZN_6_f4
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Walls_f5
+  zone: DataCenter_mid_ZN_6_f5
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Walls_f6
+  zone: DataCenter_mid_ZN_6_f6
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Walls_f7
+  zone: DataCenter_mid_ZN_6_f7
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Walls_f8
+  zone: DataCenter_mid_ZN_6_f8
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Walls_f9
+  zone: DataCenter_mid_ZN_6_f9
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Walls_f10
+  zone: DataCenter_mid_ZN_6_f10
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_mid Walls_f11
+  zone: DataCenter_mid_ZN_6_f11
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
+    z: 7.9248
+  - x: 68.534
+    y: 4.5732
+    z: 7.9248
+- name: DC_top Floor
+  zone: DataCenter_top_ZN_6
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 43.5864
+  - x: 69.448
+    y: 4.5732
+    z: 43.5864
+  - x: 69.448
+    y: 44.1649
+    z: 43.5864
+  - x: 68.534
+    y: 44.1649
+    z: 43.5864
+- name: DC_top Ceiling
+  zone: DataCenter_top_ZN_6
+  type: roof
+  construction: Adiabatic Assembly
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 44.1649
+    z: 47.5488
+  - x: 69.448
+    y: 44.1649
+    z: 47.5488
+  - x: 69.448
+    y: 4.5732
+    z: 47.5488
+  - x: 68.534
+    y: 4.5732
+    z: 47.5488
+- name: DC_top Walls
+  zone: DataCenter_top_ZN_6
+  type: wall
+  construction: Interior Partition
+  boundary: adiabatic
+  vertices:
+  - x: 68.534
+    y: 4.5732
+    z: 43.5864
+  - x: 69.448
+    y: 4.5732
+    z: 43.5864
+  - x: 69.448
+    y: 4.5732
+    z: 47.5488
+  - x: 68.534
+    y: 4.5732
+    z: 47.5488
+# ─── Ideal Loads (envelope validation) ────────────────────────────────────────
+# Pure ideal heating/cooling to setpoint — no HVAC equipment modeled.
+# No outdoor air — comparing pure envelope + internal gains + infiltration.
+# Setpoints match E+ thermostat dual setpoint (constant, no setback).
+ideal_loads:
+- name: Office Ideal Loads
+  zones:
+  - Office Zones Bottom
+  - Office Zones Mid
+  - Office Zones Top
+  - Basement Zone
+  heating_setpoint: 21.0
+  cooling_setpoint: 24.0
+  heating_capacity: 100000000.0
+  cooling_capacity: 100000000.0
+- name: DataCenter Ideal Loads
+  zones:
+  - DataCenter Zones
+  heating_setpoint: 18.0
+  cooling_setpoint: 27.0
+  heating_capacity: 100000000.0
+  cooling_capacity: 100000000.0
+dhw_systems:
+- name: SWHSys1
+  mains_temperature: 13.3
+  water_heater:
+    name: SWHSys1 Water Heater
+    fuel_type: electric
+    tank_volume: 1135.624
+    capacity: 87921.32
+    efficiency: 1.0
+    setpoint: 60.0
+    ua_standby: 4.74118
+    deadband: 0.1
+  pump:
+    name: SWH Pump
+    pump_type: constant_speed
+    design_flow_rate: 0.00044
+    design_head: 29891.0
+    motor_efficiency: 0.3
+    motor_heat_to_fluid_fraction: 0.0
+  loads:
+  - name: Core_bottom DHW
+    peak_flow_rate: 0.03667
+    schedule: BLDG_SWH_SCH
+    use_temperature: 60.0
+  - name: Core_mid_f2 DHW
+    peak_flow_rate: 0.03667
+    schedule: BLDG_SWH_SCH
+    use_temperature: 60.0
+  - name: Core_mid_f3 DHW
+    peak_flow_rate: 0.03667
+    schedule: BLDG_SWH_SCH
+    use_temperature: 60.0
+  - name: Core_mid_f4 DHW
+    peak_flow_rate: 0.03667
+    schedule: BLDG_SWH_SCH
+    use_temperature: 60.0
+  - name: Core_mid_f5 DHW
+    peak_flow_rate: 0.03667
+    schedule: BLDG_SWH_SCH
+    use_temperature: 60.0
+  - name: Core_mid_f6 DHW
+    peak_flow_rate: 0.03667
+    schedule: BLDG_SWH_SCH
+    use_temperature: 60.0
+  - name: Core_mid_f7 DHW
+    peak_flow_rate: 0.03667
+    schedule: BLDG_SWH_SCH
+    use_temperature: 60.0
+  - name: Core_mid_f8 DHW
+    peak_flow_rate: 0.03667
+    schedule: BLDG_SWH_SCH
+    use_temperature: 60.0
+  - name: Core_mid_f9 DHW
+    peak_flow_rate: 0.03667
+    schedule: BLDG_SWH_SCH
+    use_temperature: 60.0
+  - name: Core_mid_f10 DHW
+    peak_flow_rate: 0.03667
+    schedule: BLDG_SWH_SCH
+    use_temperature: 60.0
+  - name: Core_mid_f11 DHW
+    peak_flow_rate: 0.03667
+    schedule: BLDG_SWH_SCH
+    use_temperature: 60.0
+  - name: Core_top DHW
+    peak_flow_rate: 0.03667
+    schedule: BLDG_SWH_SCH
+    use_temperature: 60.0
+exterior_equipment:
+- name: Exterior_Lights
+  power: 64082.8
+  fuel: electricity
+  subcategory: Exterior Lights
+  astronomical_clock: true
+- name: Elevator_Lift_Running
+  power: 834376.0
+  schedule: Elevator_Running_Sch
+  fuel: electricity
+  subcategory: ElevatorLift
+- name: Elevator_Lift_Standby
+  power: 19200.0
+  schedule: Elevator_Standby_Sch
+  fuel: electricity
+  subcategory: ElevatorLift
+- name: Elevators_Lights_Fan
+  power: 1944.0
+  fuel: electricity
+  subcategory: ElevatorLightsFan
+outputs:
+- file: zone_results.csv
+  frequency: hourly
+  variables:
+  - zone:temperature
+  - zone:heating_rate
+  - zone:cooling_rate
+  - zone:infiltration_mass_flow
+  - site:outdoor_temperature
+  - site:direct_normal_radiation
+  - zone:humidity_ratio

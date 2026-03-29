@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-03-29
+
 ### Fixed
 
 - **ASHRAE 140 ideal-loads regression** — BDF history was updated twice per timestep in the ideal-loads code path, corrupting backward-difference extrapolation and inflating annual heating from ~4,400 kWh to ~88,000 kWh (20×). Root cause: `update_bdf_history()` was called inside the ideal-loads branch AND unconditionally after the if/else block.
