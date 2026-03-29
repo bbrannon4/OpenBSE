@@ -5,6 +5,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import yaml from "js-yaml";
 import { ClassBrowser } from "./components/ClassBrowser";
 import { ObjectEditor } from "./components/ObjectEditor";
+import { OutputsEditor } from "./components/OutputsEditor";
 import { SimulationPanel } from "./components/SimulationPanel";
 import { ResultsView } from "./components/ResultsView";
 import { NetworkView } from "./components/NetworkView";
@@ -512,7 +513,13 @@ function App() {
             />
             <div className="editor-panel">
               {selectedClass ? (
-                selectedClass.isArray ? (
+                selectedClass.key === "outputs" ? (
+                  // Dedicated output variable picker
+                  <OutputsEditor
+                    instances={getInstances("outputs")}
+                    onUpdate={(updated) => updateModel("outputs", updated.length > 0 ? updated : undefined)}
+                  />
+                ) : selectedClass.isArray ? (
                   <ObjectEditor
                     classInfo={selectedClass}
                     instances={getInstances(selectedClass.key) as Record<string, unknown>[]}
