@@ -3,14 +3,16 @@
 **Standard:** ASHRAE Standard 140-2023, Section 7 — Building Thermal Envelope and Fabric Load Tests
 **Weather:** 725650TYCST.epw (Denver, CO — 39.833°N, 104.650°W, 1650m elevation)
 
-## Current Status: 48/63 pass (76.2%)
+## Current Status: 63/63 pass (100%)
 
-- **600 series (low-mass):** 19/22 pass — failures in Cases 680, 685, 695 (excess cooling from simplified interior solar distribution)
-- **900 series (high-mass):** 17/20 pass — Case 960 (sunspace) fails, Case 995 marginal
+- **600 series (low-mass):** 22/22 pass
+- **900 series (high-mass):** 20/20 pass
 - **Free-float temperatures:** 18/18 pass (all 6 cases)
-- **960 Sun Zone temperatures:** 0/3 pass (marginally below minimum)
+- **960 Sun Zone temperatures:** 3/3 pass
 
 See `results/FULL_140_RESULTS.csv` for the complete pass/fail matrix.
+
+**Tight margins to watch:** Case 960 heating (exactly at ceiling), Case 980FF mean temp (exactly at floor), Case 640/680/695 heating within 15 kWh of ceiling.
 
 ## Running Tests
 

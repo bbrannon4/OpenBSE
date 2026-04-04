@@ -60,6 +60,14 @@ SZ_RANGES = {
     "960 SZ": (48.1, 53.2, 4.2, 8.0, 26.8, 29.5),
 }
 
+# ---------------------------------------------------------------------------
+# Known failures — these are tracked but do not fail CI.
+# Format: (case_display_name, metric_name)
+# When a known failure starts passing, CI prints a notice so you can promote it.
+# When a currently-passing check regresses, CI fails.
+# ---------------------------------------------------------------------------
+KNOWN_FAILURES = set()  # All 63 checks currently pass as of 2026-04-04
+
 
 def read_load_results(case):
     """Read heating and cooling loads from summary file."""
@@ -77,8 +85,11 @@ def read_load_results(case):
 
 
 def read_ff_temps(case):
-    """Read free-float zone temperatures from zone_results.csv."""
+    """Read free-float zone temperatures from results CSV."""
+    # Try custom zone_results.csv first, fall back to default results CSV
     fname = os.path.join(BASE_DIR, f"ashrae140_case{case}_zone_results.csv")
+    if not os.path.exists(fname):
+        fname = os.path.join(BASE_DIR, f"ashrae140_case{case}_results.csv")
     if not os.path.exists(fname):
         return None, None, None
     with open(fname) as f:
@@ -86,7 +97,7 @@ def read_ff_temps(case):
         header = next(reader)
         col = None
         for i, h in enumerate(header):
-            if 'zone_temperature' in h.lower():
+            if 'zone_temp' in h.lower() and 'supply' not in h.lower():
                 col = i
                 break
         if col is None:
@@ -101,6 +112,8 @@ def read_960_sz_temps():
     """Read 960 Sun Zone temperatures."""
     fname = os.path.join(BASE_DIR, "ashrae140_case960_zone_results.csv")
     if not os.path.exists(fname):
+        fname = os.path.join(BASE_DIR, "ashrae140_case960_results.csv")
+    if not os.path.exists(fname):
         return None, None, None
     with open(fname) as f:
         reader = csv.reader(f)
@@ -108,7 +121,7 @@ def read_960_sz_temps():
         # Find Sun Zone temperature column
         col = None
         for i, h in enumerate(header):
-            if 'sun zone' in h.lower() and 'temperature' in h.lower():
+            if 'sun zone' in h.lower() and 'zone_temp' in h.lower():
                 col = i
                 break
         if col is None:
@@ -137,12 +150,16 @@ def pct_delta(delta, lo, hi):
 
 
 def main():
+    ci_mode = "--ci" in sys.argv
+
     rows = []
     header = ["Case", "Metric", "OpenBSE", "Min", "Max", "Status", "Delta", "Pct Delta"]
 
     pass_count = 0
     fail_count = 0
     fail_details = []
+    failed_keys = set()   # (case, metric) tuples that failed
+    passed_keys = set()   # (case, metric) tuples that passed
     missing = []
 
     # --- Load cases (Heating & Cooling) ---
@@ -162,11 +179,14 @@ def main():
             ("Annual Cooling (kWh)", c_rounded, c_lo, c_hi),
         ]:
             status, delta = evaluate(val, lo, hi)
+            key = (case, metric)
             if status == "PASS":
                 pass_count += 1
+                passed_keys.add(key)
                 rows.append([case, metric, val, lo, hi, status, "", ""])
             else:
                 fail_count += 1
+                failed_keys.add(key)
                 pct = pct_delta(delta, lo, hi)
                 rows.append([case, metric, val, lo, hi, status, f"{delta:.0f}", pct])
                 fail_details.append(f"  Case {case} {metric}: OpenBSE={val}, "
@@ -194,11 +214,14 @@ def main():
             ("Mean Temp (C)",     mean_r, mean_lo, mean_hi),
         ]:
             status, delta = evaluate(val, lo, hi)
+            key = (display_case, metric)
             if status == "PASS":
                 pass_count += 1
+                passed_keys.add(key)
                 rows.append([display_case, metric, val, lo, hi, status, "", ""])
             else:
                 fail_count += 1
+                failed_keys.add(key)
                 rows.append([display_case, metric, val, lo, hi, status, f"{delta:.1f}", ""])
                 fail_details.append(f"  Case {display_case} {metric}: OpenBSE={val}, "
                                     f"Range=[{lo}, {hi}], Delta={delta:.1f}")
@@ -221,11 +244,14 @@ def main():
             ("Mean Temp (C)",     mean_r, mean_lo, mean_hi),
         ]:
             status, delta = evaluate(val, lo, hi)
+            key = (case, metric)
             if status == "PASS":
                 pass_count += 1
+                passed_keys.add(key)
                 rows.append([case, metric, val, lo, hi, status, "", ""])
             else:
                 fail_count += 1
+                failed_keys.add(key)
                 rows.append([case, metric, val, lo, hi, status, f"{delta:.1f}", ""])
                 fail_details.append(f"  Case {case} {metric}: OpenBSE={val}, "
                                     f"Range=[{lo}, {hi}], Delta={delta:.1f}")
@@ -255,6 +281,26 @@ def main():
         print("All checks passed!")
     print("-" * 60)
     print(f"CSV written to: {OUTPUT_PATH}")
+
+    # --- CI mode: detect regressions and newly-passing cases ---
+    if ci_mode:
+        regressions = failed_keys - KNOWN_FAILURES
+        newly_passing = KNOWN_FAILURES & passed_keys
+
+        print()
+        if newly_passing:
+            print("NEW PASSES (update KNOWN_FAILURES to lock these in):")
+            for case, metric in sorted(newly_passing):
+                print(f"  Case {case} {metric}")
+
+        if regressions:
+            print("REGRESSIONS DETECTED:")
+            for case, metric in sorted(regressions):
+                print(f"  Case {case} {metric}")
+            sys.exit(1)
+
+        print("No regressions detected.")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
