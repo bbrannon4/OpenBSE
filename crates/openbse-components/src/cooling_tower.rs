@@ -148,6 +148,10 @@ impl PlantComponent for CoolingTower {
         &self.name
     }
 
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::CoolingTower
+    }
+
     fn simulate_plant(
         &mut self,
         inlet: &WaterPort,

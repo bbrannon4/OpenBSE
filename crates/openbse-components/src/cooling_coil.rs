@@ -333,6 +333,10 @@ impl AirComponent for CoolingCoilDX {
         &self.name
     }
 
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::CoolingCoil
+    }
+
     fn simulate_air(&mut self, inlet: &AirPort, ctx: &SimulationContext) -> AirPort {
         if inlet.mass_flow <= 0.0 {
             self.cooling_rate = 0.0;

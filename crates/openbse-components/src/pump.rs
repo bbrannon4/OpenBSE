@@ -158,6 +158,10 @@ impl PlantComponent for Pump {
         &self.name
     }
 
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::Pump
+    }
+
     fn simulate_plant(
         &mut self,
         inlet: &WaterPort,

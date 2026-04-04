@@ -123,6 +123,10 @@ impl AirComponent for HeatRecovery {
         &self.name
     }
 
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::HeatRecovery
+    }
+
     fn simulate_air(&mut self, inlet: &AirPort, _ctx: &SimulationContext) -> AirPort {
         // Zero flow -- nothing to do
         if inlet.mass_flow <= 0.0 {

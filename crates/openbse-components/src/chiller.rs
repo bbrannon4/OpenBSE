@@ -197,6 +197,11 @@ impl PlantComponent for AirCooledChiller {
     fn name(&self) -> &str {
         &self.name
     }
+
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::Chiller
+    }
+
     fn simulate_plant(
         &mut self,
         inlet: &WaterPort,

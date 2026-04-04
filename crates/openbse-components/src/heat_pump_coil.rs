@@ -245,6 +245,10 @@ impl AirComponent for HeatPumpHeatingCoil {
         &self.name
     }
 
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::HeatingCoil
+    }
+
     fn simulate_air(&mut self, inlet: &AirPort, ctx: &SimulationContext) -> AirPort {
         // Reset runtime state
         self.hp_heating_rate = 0.0;

@@ -102,6 +102,10 @@ impl PlantComponent for WaterToWaterHX {
         &self.name
     }
 
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::HeatExchanger
+    }
+
     fn simulate_plant(
         &mut self,
         inlet: &WaterPort,

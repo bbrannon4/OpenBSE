@@ -165,6 +165,10 @@ impl AirComponent for VAVBox {
         &self.name
     }
 
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::HeatingCoil
+    }
+
     fn simulate_air(&mut self, inlet: &AirPort, _ctx: &SimulationContext) -> AirPort {
         self.reheat_rate = 0.0;
         self.reheat_power = 0.0;

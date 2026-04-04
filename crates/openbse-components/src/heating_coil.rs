@@ -374,6 +374,10 @@ impl AirComponent for HeatingCoil {
         &self.name
     }
 
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::HeatingCoil
+    }
+
     fn simulate_air(&mut self, inlet: &AirPort, _ctx: &SimulationContext) -> AirPort {
         if inlet.mass_flow <= 0.0 {
             self.heating_rate = 0.0;

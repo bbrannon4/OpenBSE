@@ -89,6 +89,10 @@ impl AirComponent for Duct {
         &self.name
     }
 
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::Duct
+    }
+
     fn simulate_air(&mut self, inlet: &AirPort, _ctx: &SimulationContext) -> AirPort {
         let m_dot = inlet.mass_flow;
 
