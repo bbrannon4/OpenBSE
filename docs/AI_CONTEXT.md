@@ -27,8 +27,8 @@ openbse-cli              ← Depends on all above. Binary entry point, simulatio
 
 ### Key Traits
 
-- **`AirComponent`** (`openbse-core/src/ports.rs`): `simulate_air(inlet) -> outlet`, `thermal_output()`, `power_consumption()`, `fuel_consumption()`, `detailed_outputs()`. Implemented by fans, coils, ducts, etc.
-- **`PlantComponent`** (`openbse-core/src/ports.rs`): `simulate_plant(inlet) -> outlet`, `detailed_outputs()`. Implemented by boilers, chillers, pumps.
+- **`AirComponent`** (`openbse-core/src/ports.rs`): `simulate_air(inlet) -> outlet`, `component_kind()`, `thermal_output()`, `power_consumption()`, `fuel_consumption()`, `detailed_outputs()`. Implemented by fans, coils, ducts, etc.
+- **`PlantComponent`** (`openbse-core/src/ports.rs`): `simulate_plant(inlet) -> outlet`, `component_kind()`, `detailed_outputs()`. Implemented by boilers, chillers, pumps.
 - **`AirPort`** / **`WaterPort`**: Type-safe fluid connectors. You cannot accidentally connect water to air — the compiler prevents it.
 
 ### Simulation Flow
@@ -49,7 +49,7 @@ openbse-cli              ← Depends on all above. Binary entry point, simulatio
 - YAML is parsed by `openbse-io/src/input.rs` using serde
 - Equipment is an enum `EquipmentInput` with variants for each component type
 - `build_graph()` in `input.rs` instantiates Rust component structs from YAML
-- When adding a new component: add a YAML variant to `EquipmentInput`, add a match arm in `build_graph()`, and handle it in the `component_names` extraction in `main.rs`
+- When adding a new component: add a YAML variant to `EquipmentInput`, add a match arm in `build_graph()` in `input.rs`, and implement `component_kind()` on the component struct. Energy accounting is handled automatically via `ComponentKind` — no edits to `main.rs` needed. See `docs/CONTRIBUTING_COMPONENTS.md` for the full walkthrough.
 
 ## File Organization
 
