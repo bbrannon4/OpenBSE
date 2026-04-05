@@ -1,0 +1,23 @@
+name: Bug Report
+description: Report a simulation accuracy issue or crash
+labels: ["type: bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What's wrong? Include expected vs actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Comparison data, error messages, or reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: model
+    attributes:
+      label: Model file
+      description: YAML model that reproduces the issue (or path to existing prototype test)

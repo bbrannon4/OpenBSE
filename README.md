@@ -162,39 +162,42 @@ DOE prototype building models are being validated against EnergyPlus using the s
 
 Lighting, equipment, and DHW match within 1%. Heating and fan gaps are under active investigation — primary cause is the missing basement/garage zone modeling (E+ models 4 zones; our model has 2). Large Office, Hospital, and Mid-Rise Apartment prototypes are also in progress.
 
-## What's Not Yet Implemented
+## Roadmap
 
-### Envelope
-- Geometry import (gbXML, IDF vertices)
-- Moisture transport through envelope
+Planned features, known bugs, and validation tasks are tracked as [GitHub Issues](https://github.com/bbrannon4/OpenBSE/issues). Key areas:
 
-### HVAC
-- Multi-speed and variable-speed DX coils
-- Dehumidification modeling in DX coils (currently sensible-only)
-- Water-source heat pump models (air-source implemented)
-- Chiller lead/lag sequencing
-- VRF systems
+- **Envelope**: multizone pressure network, geometry import, moisture transport
+- **HVAC**: multi-speed DX, DX dehumidification, PTHP, WSHP, VRF, radiant, GSHP, dual-duct
+- **Controls**: humidity control, advanced economizers, EMS-style programmable logic
+- **Validation**: envelope accuracy investigation, apartment and hospital E+ comparisons
+- **Infrastructure**: expanded output variables, parametric engine, results viewer, Python bindings
 
-### Editor — Output Variable Name Filter Dropdowns
-The `OutputsEditor` component (`tools/editor/src/components/OutputsEditor.tsx`) currently uses a free-text input for the name filter field (e.g. `zone:temperature:LivingRoom`). This should be upgraded to a dropdown populated from the open model for categories where the valid values are known:
+Issues labeled [`good first issue`](https://github.com/bbrannon4/OpenBSE/issues?q=label%3A%22good+first+issue%22) are good starting points for new contributors.
 
-- **zone** — populate from `model.zones[].name` + `model.zone_groups[].name` (already flat arrays)
-- **surface** — populate from `model.surfaces[].name`
-- **submeter** — collect unique submeter names from wherever they are defined in the YAML schema (needs investigation)
-- **component** — harder: names are nested inside `model.air_loops[].equipment[]` and `model.plant_loops[].equipment[]`; may be best left as free-text with autocomplete or a "browse" button
-- **building** — no filter needed (building-level totals have no entity name)
+## Key Files for Contributors
 
-Implementation plan:
-1. Pass `model: Model` as a prop to `OutputsEditor` in `App.tsx` (it already has `model` in scope)
-2. In `OutputsEditor`, derive name lists per category from the model prop
-3. Replace the `<input type="text">` filter field with a `<select>` when a name list is available; keep the text input as fallback (and include a "custom / glob" option so users can still type `Zone*` patterns)
-4. The ✓ indicator in the catalog already works correctly for multiple entries of the same variable with different filters
-5. One entity per variable entry is by design (mirrors EnergyPlus Output:Variable one-key-per-row)
+If you're contributing (or pointing an AI tool at this repo), start here:
 
-### General
-- Python bindings (PyO3)
-- ~~Parametric run execution~~ (implemented: scalar overrides, weather swaps, sweep expansion)
-- EMS-style programmable controls
+| What you need | Where to look |
+|---|---|
+| **Full project context for AI** | [`docs/AI_CONTEXT.md`](docs/AI_CONTEXT.md) — comprehensive overview, architecture, and conventions |
+| **YAML input schema** | [`docs/openbse_schema.json`](docs/openbse_schema.json) — JSON Schema for all input fields |
+| **Component traits (ports)** | [`crates/openbse-core/src/ports.rs`](crates/openbse-core/src/ports.rs) — `AirComponent`, `PlantComponent`, `EnvelopeSolver` traits, port types, sign conventions |
+| **All HVAC components** | [`crates/openbse-components/src/`](crates/openbse-components/src/) — fan, coils, boiler, chiller, pump, etc. |
+| **YAML parsing + model structure** | [`crates/openbse-io/src/input.rs`](crates/openbse-io/src/input.rs) — `ModelInput` and all input structs |
+| **Output variables + CSV writing** | [`crates/openbse-io/src/output.rs`](crates/openbse-io/src/output.rs) — `OutputSnapshot`, available variables |
+| **Simulation driver + HVAC control** | [`crates/openbse-cli/src/main.rs`](crates/openbse-cli/src/main.rs) — timestep loop, control signal generation, energy accounting |
+| **Envelope heat balance** | [`crates/openbse-envelope/src/heat_balance.rs`](crates/openbse-envelope/src/heat_balance.rs) — zone solver, solar, convection, radiation |
+| **CTF conduction** | [`crates/openbse-envelope/src/ctf.rs`](crates/openbse-envelope/src/ctf.rs) — Seem state-space method |
+| **Prototype validation process** | [`prototype_tests/PROTOTYPE_VALIDATION_GUIDE.md`](prototype_tests/PROTOTYPE_VALIDATION_GUIDE.md) — step-by-step E+ comparison methodology |
+| **Example models** | [`examples/`](examples/) — simple YAML models for various system types |
+
+### Typical workflow for implementing a new feature
+
+1. Read the relevant Issue on GitHub for context and scope
+2. Read [`docs/AI_CONTEXT.md`](docs/AI_CONTEXT.md) for project architecture
+3. Check existing components in `crates/openbse-components/src/` for patterns to follow
+4. Implement, add tests, run `cargo fmt --all && cargo clippy --workspace && cargo test --workspace`
 
 ## Test Organization
 

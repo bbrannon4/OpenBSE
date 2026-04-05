@@ -1,0 +1,28 @@
+name: Feature Request
+description: Propose a new feature or component
+labels: ["type: feature"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What should be added and why?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What specific capabilities are needed? What inputs/outputs?
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Key files
+      description: Which existing files would need changes? (check `docs/AI_CONTEXT.md` for crate overview)
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: EnergyPlus Engineering Reference sections, papers, or other simulation tools to reference

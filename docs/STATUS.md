@@ -1,6 +1,6 @@
 # OpenBSE Project Status
 
-Last updated: 2026-03-23
+Last updated: 2026-04-05
 
 ## What Works (Functional)
 
@@ -75,32 +75,23 @@ Last updated: 2026-03-23
 
 ---
 
-## What Needs Work (TODO)
+## Roadmap
 
-### High Priority
-- [ ] Add basement and garage zones to SingleFamily model (primary cause of 48% heating gap vs E+)
-- [ ] PLF (part-load fraction) curve support in cooling coil engine (currently hardcoded Cd=0.15)
-- [ ] Chilled water cooling coil model (`source: chilled_water`)
-- [ ] Connect heat recovery exhaust conditions to actual zone return air
+Planned features, bugs, and validation tasks are tracked as [GitHub Issues](https://github.com/bbrannon4/OpenBSE/issues).
 
-### Medium Priority
-- [x] Zone moisture (humidity ratio) balance with 3rd-order BDF integration (implemented)
-- [ ] Dehumidification control (humidity-based setpoints, dedicated dehumidifier equipment)
-- [ ] Multi-speed and variable-speed DX coils
-- [x] Air-source heat pump heating coil (implemented with defrost and performance curves)
-- [ ] Water-source heat pump models
-- [x] Condenser water loops and cooling towers (fully wired: YAML parsing, topological loop ordering, autosize)
-- [x] Pumps — constant/variable speed, headered staging, power curves (fully implemented)
-- [x] Full state-space CTF — Seem (1987) method matching EnergyPlus (implemented)
-
-### Lower Priority
-- [ ] Geometry import (gbXML, IDF vertices)
-- [x] Beam/diffuse interior solar distribution — FullExterior (beam→floor) and FullInteriorAndExterior (geometric projection with polygon clipping), VMULT diffuse redistribution. Reflected beam enters diffuse pool (deliberate improvement over E+'s single-bounce localization; approaches infinite-bounce radiosity solution). No direct solar-to-air fraction (E+ shortcut for unmodeled interior mass).
-- [ ] Python bindings (PyO3)
-- [x] Parametric run execution — scalar overrides, weather file swaps, sweep expansion (zip + cross-product), per-run CSV output
-- [ ] VRF systems, ground-source heat pumps, radiant systems
-- [x] Airflow network — multizone pressure-driven infiltration with Newton-Raphson solver, auto-generated cracks/openings from geometry, Swami & Chandra Cp correlations, stack effect, exhaust fan depressurization. Opt-in via `airflow_network.enabled: true`.
-- [ ] Moisture transport through envelope
+### Recently completed
+- Zone moisture (humidity ratio) balance with 3rd-order BDF integration
+- Air-source heat pump heating coil with defrost and performance curves
+- Condenser water loops and cooling towers (YAML parsing, topological loop ordering, autosize)
+- Pumps — constant/variable speed, headered staging, power curves
+- Full state-space CTF — Seem (1987) method matching EnergyPlus
+- Beam/diffuse interior solar distribution (FullExterior + FullInteriorAndExterior, VMULT)
+- Parametric run execution (scalar overrides, weather swaps, sweep expansion)
+- Airflow network — multizone pressure-driven infiltration (Newton-Raphson, auto-generated cracks)
+- Boiler PLR efficiency curves (YAML-exposed)
+- Boiler leaving-setpoint-modulated flow mode
+- Hot water coil UA-LMTD (NTU-effectiveness) model
+- Mains water temperature sinusoidal correlation
 
 ---
 
@@ -120,5 +111,5 @@ openbse-weather      # Weather file reading and processing
 ## File Counts
 - Rust source files: ~42
 - Example YAML files: 11
-- ASHRAE 140 test cases: 27 (+4 test variants)
-- Unit tests: 82
+- ASHRAE 140 test cases: 28 (+4 test variants)
+- Unit tests: 290+
