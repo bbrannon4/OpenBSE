@@ -149,18 +149,7 @@ Test cases are in [`140_tests/`](140_tests/). 28 cases from Section 7 (Building 
 
 ### DOE Prototype Comparison (EnergyPlus)
 
-DOE prototype building models are being validated against EnergyPlus using the simplified IDFs in [`prototype_tests/`](prototype_tests/). Current status for the Single-Family house (CZ5B Boulder):
-
-| End Use | EnergyPlus | OpenBSE | Diff |
-|---------|-----------|---------|------|
-| Heating (Gas) | 6,689 kWh | 9,907 kWh | +48% |
-| Cooling (Elec) | 1,600 kWh | 1,817 kWh | +14% |
-| Interior Lighting | 1,038 kWh | 1,038 kWh | 0% |
-| Interior Equipment | 10,084 kWh | 10,077 kWh | 0% |
-| Fans | 852 kWh | 1,179 kWh | +38% |
-| DHW (Gas) | 2,158 kWh | 2,173 kWh | +1% |
-
-Lighting, equipment, and DHW match within 1%. Heating and fan gaps are under active investigation — primary cause is the missing basement/garage zone modeling (E+ models 4 zones; our model has 2). Large Office, Hospital, and Mid-Rise Apartment prototypes are also in progress.
+DOE prototype building models are being validated against EnergyPlus using the simplified IDFs in [`prototype_tests/`](prototype_tests/). These are still in progress to confirm that solar and conduction are behaving appropriately.
 
 ## Roadmap
 

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-04-06
+
+### Added
+
+- **ASHRAE 140 CI regression gate** — All 63 ASHRAE 140-2023 cases run on every push/PR; CI fails if any currently-passing case regresses.
+
+### Fixed
+
+- `build_140_csv.py` column matching for free-float and sun zone temperatures broken by output format changes.
+
 ## [0.2.2] - 2026-03-29
 
 ### Added
