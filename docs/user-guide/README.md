@@ -745,12 +745,14 @@ materials:
     specific_heat: 836.8         # [J/(kg·K)]
     thickness: 0.2               # [m]
     solar_absorptance: 0.7       # [0–1]
-    thermal_absorptance: 0.9     # [0–1]
+    thermal_absorptance: 0.9     # [0–1] hemispherical emissivity for LW radiation
     visible_absorptance: 0.7     # [0–1]
     roughness: medium_rough      # See roughness values below
 ```
 
 **Roughness values:** `very_rough`, `rough`, `medium_rough`, `medium_smooth`, `smooth`, `very_smooth`
+
+For layered constructions, the outside material's `thermal_absorptance` is used for exterior longwave radiation and the inside material's value for interior longwave radiation. This matters for constructions with different emissivities on each face (e.g., low-e interior coatings).
 
 | Field | Default |
 |-------|---------|
@@ -807,11 +809,15 @@ window_constructions:
     u_factor: 2.7               # [W/(m²·K)] including film coefficients
     shgc: 0.39                  # Solar Heat Gain Coefficient [0–1]
     visible_transmittance: 0.42 # [0–1]
+    glass_emissivity: 0.84      # LW emissivity [0–1], default 0.84 (clear glass)
 ```
 
 | Field | Default |
 |-------|---------|
 | `visible_transmittance` | 0.6 |
+| `glass_emissivity` | 0.84 |
+
+The `glass_emissivity` field controls longwave radiation exchange between the glass surface and the room interior (and exterior). The default of 0.84 is correct for uncoated soda-lime glass. Use a lower value for low-e coated windows.
 
 ### Zones
 

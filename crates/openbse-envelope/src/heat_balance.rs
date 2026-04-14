@@ -819,38 +819,48 @@ impl BuildingEnvelope {
                 0.0
             };
 
-            let (solar_abs_out, thermal_abs_out, solar_abs_in, roughness, u_factor, shgc) =
-                if is_window {
-                    let wc = window_map.get(&surf_input.construction);
-                    let (u, s) = wc.map(|w| (w.u_factor, w.shgc)).unwrap_or((3.0, 0.7));
-                    (0.0, 0.0, 0.0, Roughness::VerySmooth, u, s)
-                } else if let Some(c) = construction_map.get(&surf_input.construction) {
-                    // Layered construction
-                    let outside_mat = c.outside_material().and_then(|name| material_map.get(name));
-                    let inside_mat = c.inside_material().and_then(|name| material_map.get(name));
+            let (
+                solar_abs_out,
+                thermal_abs_out,
+                thermal_abs_in,
+                solar_abs_in,
+                roughness,
+                u_factor,
+                shgc,
+            ) = if is_window {
+                let wc = window_map.get(&surf_input.construction);
+                let (u, s) = wc.map(|w| (w.u_factor, w.shgc)).unwrap_or((3.0, 0.7));
+                (0.0, 0.0, 0.0, 0.0, Roughness::VerySmooth, u, s)
+            } else if let Some(c) = construction_map.get(&surf_input.construction) {
+                // Layered construction
+                let outside_mat = c.outside_material().and_then(|name| material_map.get(name));
+                let inside_mat = c.inside_material().and_then(|name| material_map.get(name));
 
-                    let (sa_out, ta_out, rough) = outside_mat
-                        .map(|m| (m.solar_absorptance, m.thermal_absorptance, m.roughness))
-                        .unwrap_or((0.7, 0.9, Roughness::MediumRough));
-                    let sa_in = inside_mat.map(|m| m.solar_absorptance).unwrap_or(0.7);
+                let (sa_out, ta_out, rough) = outside_mat
+                    .map(|m| (m.solar_absorptance, m.thermal_absorptance, m.roughness))
+                    .unwrap_or((0.7, 0.9, Roughness::MediumRough));
+                let (sa_in, ta_in) = inside_mat
+                    .map(|m| (m.solar_absorptance, m.thermal_absorptance))
+                    .unwrap_or((0.7, 0.9));
 
-                    let u = c.u_factor(&material_map);
+                let u = c.u_factor(&material_map);
 
-                    (sa_out, ta_out, sa_in, rough, u, 0.0)
-                } else if let Some(sc) = simple_map.get(&surf_input.construction) {
-                    // Simple construction
-                    (
-                        sc.solar_absorptance,
-                        sc.thermal_absorptance,
-                        sc.solar_absorptance,
-                        sc.roughness,
-                        sc.u_factor,
-                        0.0,
-                    )
-                } else if let Some(fc) = f_factor_map.get(&surf_input.construction) {
-                    // F-factor ground floor construction.
-                    // Compute effective U = F × P / A for this surface.
-                    let perimeter = surf_input.exposed_perimeter.unwrap_or_else(|| {
+                (sa_out, ta_out, ta_in, sa_in, rough, u, 0.0)
+            } else if let Some(sc) = simple_map.get(&surf_input.construction) {
+                // Simple construction — same thermal absorptance both sides
+                (
+                    sc.solar_absorptance,
+                    sc.thermal_absorptance,
+                    sc.thermal_absorptance,
+                    sc.solar_absorptance,
+                    sc.roughness,
+                    sc.u_factor,
+                    0.0,
+                )
+            } else if let Some(fc) = f_factor_map.get(&surf_input.construction) {
+                // F-factor ground floor construction.
+                // Compute effective U = F × P / A for this surface.
+                let perimeter = surf_input.exposed_perimeter.unwrap_or_else(|| {
                         log::warn!(
                             "Surface '{}' uses F-factor construction '{}' but has no exposed_perimeter; \
                              defaulting to sqrt(area)*2",
@@ -859,26 +869,27 @@ impl BuildingEnvelope {
                         // Rough estimate: square floor
                         surf_input.area.sqrt() * 2.0
                     });
-                    let u_eff = if surf_input.area > 0.0 {
-                        fc.f_factor * perimeter / surf_input.area
-                    } else {
-                        0.5 // fallback
-                    };
-                    log::info!(
+                let u_eff = if surf_input.area > 0.0 {
+                    fc.f_factor * perimeter / surf_input.area
+                } else {
+                    0.5 // fallback
+                };
+                log::info!(
                         "F-factor floor '{}': F={:.3} W/(m·K), P={:.2}m, A={:.2}m² → U_eff={:.4} W/(m²·K)",
                         surf_input.name, fc.f_factor, perimeter, surf_input.area, u_eff
                     );
-                    (
-                        fc.solar_absorptance,
-                        fc.thermal_absorptance,
-                        fc.solar_absorptance,
-                        Roughness::Rough,
-                        u_eff,
-                        0.0,
-                    )
-                } else {
-                    (0.7, 0.9, 0.7, Roughness::MediumRough, 5.0, 0.0)
-                };
+                (
+                    fc.solar_absorptance,
+                    fc.thermal_absorptance,
+                    fc.thermal_absorptance,
+                    fc.solar_absorptance,
+                    Roughness::Rough,
+                    u_eff,
+                    0.0,
+                )
+            } else {
+                (0.7, 0.9, 0.9, 0.7, Roughness::MediumRough, 5.0, 0.0)
+            };
 
             let tilt_rad = surf_input.tilt.to_radians();
 
@@ -932,24 +943,37 @@ impl BuildingEnvelope {
             //    test conditions) doesn't match runtime conditions — the gap
             //    Rayleigh number and radiation coefficient change with temperature.
 
-            // Extract gap properties from window construction (if available)
-            let (win_gap_width, win_pane_thickness, win_pane_conductivity, win_gap_emissivity) =
-                if is_window {
-                    let wc = window_map.get(&surf_input.construction);
-                    wc.and_then(|w| {
+            // Extract gap properties and glass emissivity from window construction
+            let (
+                win_gap_width,
+                win_pane_thickness,
+                win_pane_conductivity,
+                win_gap_emissivity,
+                win_glass_emissivity,
+            ) = if is_window {
+                let wc = window_map.get(&surf_input.construction);
+                let glass_eps = wc.and_then(|w| w.glass_emissivity).unwrap_or(0.84);
+                let gap_props = wc
+                    .and_then(|w| {
                         // Require gap_width + pane_conductivity + pane_thickness for first-principles
                         match (w.gap_width, w.pane_conductivity, w.pane_thickness) {
                             (Some(gw), Some(pk), Some(pt)) if gw > 0.0 => {
-                                let eps = w.glass_emissivity.unwrap_or(0.84);
-                                Some((gw, pt, pk, eps))
+                                Some((gw, pt, pk, glass_eps))
                             }
                             _ => None,
                         }
                     })
-                    .unwrap_or((0.0, 0.0, 1.0, 0.84))
-                } else {
-                    (0.0, 0.0, 1.0, 0.84)
-                };
+                    .unwrap_or((0.0, 0.0, 1.0, glass_eps));
+                (
+                    gap_props.0,
+                    gap_props.1,
+                    gap_props.2,
+                    gap_props.3,
+                    glass_eps,
+                )
+            } else {
+                (0.0, 0.0, 1.0, 0.84, 0.84)
+            };
 
             // Always compute the NFRC film-stripped u_glass as the rated value.
             // This serves as the upper-bound cap for the dynamic gap model.
@@ -1005,6 +1029,7 @@ impl BuildingEnvelope {
                 window_inside_absorbed_fraction: win_inside_fraction,
                 solar_absorptance_outside: solar_abs_out,
                 thermal_absorptance_outside: thermal_abs_out,
+                thermal_absorptance_inside: thermal_abs_in,
                 solar_absorptance_inside: solar_abs_in,
                 roughness,
                 u_factor,
@@ -1020,6 +1045,7 @@ impl BuildingEnvelope {
                 pane_thickness: win_pane_thickness,
                 pane_conductivity: win_pane_conductivity,
                 gap_emissivity: win_gap_emissivity,
+                glass_emissivity: win_glass_emissivity,
                 diffuse_back_transmittance: win_diffuse_back_tau,
                 diffuse_back_absorptance: win_diffuse_back_abs,
                 cos_tilt: tilt_rad.cos(),
@@ -1789,9 +1815,11 @@ impl EnvelopeSolver for BuildingEnvelope {
         // σ = 5.6704e-8 W/(m²·K⁴) (Stefan-Boltzmann constant)
         const SIGMA: f64 = 5.6704e-8;
         //
-        // Use Berdahl-Martin clear-sky emissivity model with opaque sky cover
-        // correction. This is more robust than direct EPW horizontal IR, which
-        // can produce unreasonably cold sky temperatures in some TMYx files.
+        // Use Clark & Allen (1978) clear-sky emissivity model with opaque sky
+        // cover correction. This matches EnergyPlus's default Sky Temperature
+        // Model (eplusout.eio: "Site:WeatherStation, ..., Clark and Allen") and
+        // is more robust than direct EPW horizontal IR, which can produce
+        // unreasonably cold sky temperatures in some TMYx files.
         //
         // Clear-sky emissivity: ε_clear = 0.787 + 0.764 * ln(T_dp_K / 273)
         // Cloud correction: ε_sky = ε_clear * (1 + 0.0224*N - 0.0035*N² + 0.00028*N³)
@@ -1799,7 +1827,7 @@ impl EnvelopeSolver for BuildingEnvelope {
         //
         // T_sky = (ε_sky)^0.25 * T_air_K - 273.15
         //
-        // Reference: Berdahl & Martin (1984), Walton (1983), EnergyPlus Engineering Ref.
+        // Reference: Clark & Allen (1978), Walton (1983), EnergyPlus Engineering Ref.
         let t_sky = {
             let t_dp_k = (weather.dew_point + 273.15).max(200.0);
             let t_db_k = (t_outdoor + 273.15).max(200.0);
@@ -2969,9 +2997,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                 for &si in &zone.surface_indices {
                     let s = &self.surfaces[si];
                     let eps = if s.is_window {
-                        0.84
+                        s.glass_emissivity
                     } else {
-                        s.thermal_absorptance_outside
+                        s.thermal_absorptance_inside
                     };
                     let ea = eps * s.net_area;
                     sum_ea += ea;
@@ -2992,9 +3020,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     for &si in &zone.surface_indices {
                         let s = &self.surfaces[si];
                         let eps = if s.is_window {
-                            0.84
+                            s.glass_emissivity
                         } else {
-                            s.thermal_absorptance_outside
+                            s.thermal_absorptance_inside
                         };
                         if let Some(face) = s.box_face {
                             let face_total = zvf.face_area[face].max(0.01);
@@ -3062,7 +3090,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // effective exterior temperature by 2-3°C, reducing window heat
                     // loss by ~600-900 kWh/year.
                     let h_conv_out = self.surfaces[i].h_conv_outside;
-                    let eps_glass: f64 = 0.84;
+                    let eps_glass = self.surfaces[i].glass_emissivity;
                     let t_ext_surf_est = self.surfaces[i].temp_outside;
                     let cos_tilt = self.surfaces[i].cos_tilt;
 
@@ -3479,9 +3507,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     for &si in &zone.surface_indices {
                         let s = &self.surfaces[si];
                         let eps = if s.is_window {
-                            0.84
+                            s.glass_emissivity
                         } else {
-                            s.thermal_absorptance_outside
+                            s.thermal_absorptance_inside
                         };
                         if let Some(face) = s.box_face {
                             let face_total = zvf.face_area[face].max(0.01);
@@ -3763,9 +3791,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     for &si in &zone.surface_indices {
                         let s = &self.surfaces[si];
                         let eps = if s.is_window {
-                            0.84
+                            s.glass_emissivity
                         } else {
-                            s.thermal_absorptance_outside
+                            s.thermal_absorptance_inside
                         };
                         let a = s.net_area;
                         zone_sum_ea[zi] += eps * a;
@@ -3809,7 +3837,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             }
                         } else {
                             // Area-weighted MRT excluding self
-                            let eps_i = self.surfaces[i].thermal_absorptance_outside;
+                            let eps_i = self.surfaces[i].thermal_absorptance_inside;
                             let a_i = self.surfaces[i].net_area;
                             let ea_i = eps_i * a_i;
                             let sum_ea_excl = zone_sum_ea[pc.zi] - ea_i;
@@ -3833,7 +3861,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     self.surfaces[i].h_conv_inside = h_conv;
 
                     // Linearized interior LW radiation coefficient
-                    let eps = self.surfaces[i].thermal_absorptance_outside;
+                    let eps = self.surfaces[i].thermal_absorptance_inside;
                     let t_mean_k =
                         ((self.surfaces[i].temp_inside + 273.15) + (t_mrt + 273.15)) / 2.0;
                     let h_rad = 4.0 * eps * SIGMA * t_mean_k.powi(3);

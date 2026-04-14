@@ -176,8 +176,10 @@ pub struct SurfaceState {
     pub window_inside_absorbed_fraction: f64,
     /// Outside solar absorptance
     pub solar_absorptance_outside: f64,
-    /// Outside thermal absorptance
+    /// Outside thermal absorptance (emissivity) for exterior LW radiation
     pub thermal_absorptance_outside: f64,
+    /// Inside thermal absorptance (emissivity) for interior LW radiation
+    pub thermal_absorptance_inside: f64,
     /// Inside solar absorptance
     pub solar_absorptance_inside: f64,
     /// Surface roughness
@@ -228,6 +230,9 @@ pub struct SurfaceState {
     pub pane_conductivity: f64,
     /// Glass emissivity for gap inter-pane radiation exchange.
     pub gap_emissivity: f64,
+    /// Glass emissivity for interior and exterior LW radiation exchange.
+    /// Defaults to 0.84 (uncoated soda-lime glass) when not specified.
+    pub glass_emissivity: f64,
     /// Hemispherical diffuse back-transmittance of window glazing system.
     /// Used for interior cavity solar back-out calculation. Represents the
     /// fraction of diffuse interior-reflected solar that transmits back
