@@ -2854,6 +2854,13 @@ fn main() -> Result<()> {
                         snapshot
                             .surface_convection_inside
                             .insert(name.clone(), surface.q_conv_inside * surface.net_area);
+                        // q_rad_inside is W/m², multiply by net_area for total [W]
+                        snapshot
+                            .surface_radiation_inside
+                            .insert(name.clone(), surface.q_rad_inside * surface.net_area);
+                        snapshot
+                            .surface_inside_radiation_coefficient
+                            .insert(name.clone(), surface.h_rad_inside);
                     }
 
                     for (comp_name, vars) in &result.component_outputs {

@@ -95,6 +95,14 @@ pub struct SurfaceInput {
     /// Matches EnergyPlus `Construction:FfactorGroundFloor` PerimeterExposed.
     #[serde(default)]
     pub exposed_perimeter: Option<f64>,
+    /// Window height [m] for ISO 15099 interior convection model.
+    /// If not provided, estimated as sqrt(area) for windows.
+    #[serde(default)]
+    pub height: Option<f64>,
+    /// Window width [m] for ISO 15099 interior convection model.
+    /// If not provided, estimated as sqrt(area) for windows.
+    #[serde(default)]
+    pub width: Option<f64>,
     /// Airflow network overrides for this surface (crack coefficient, Cp, etc.).
     /// Only used when the airflow network is enabled in simulation settings.
     #[serde(default)]
@@ -142,6 +150,11 @@ pub struct SurfaceState {
     pub q_conv_inside: f64,
     /// Inside convection coefficient [W/(m²·K)]
     pub h_conv_inside: f64,
+    /// Inside net longwave radiation heat flux [W/m²] (positive = into surface)
+    /// Computed as h_rad × (T_mrt − T_surface).
+    pub q_rad_inside: f64,
+    /// Inside linearized radiation coefficient [W/(m²·K)]
+    pub h_rad_inside: f64,
     /// Outside convection coefficient [W/(m²·K)]
     pub h_conv_outside: f64,
     /// Incident solar radiation on this surface [W/m²]

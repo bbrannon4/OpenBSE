@@ -49,7 +49,7 @@ fn calc_natural_convection(delta_t: f64, cos_tilt: f64) -> f64 {
     h.max(0.1)
 }
 
-/// Interior convection coefficient [W/(m²·K)].
+/// Interior convection coefficient [W/(m²·K)] for opaque surfaces.
 ///
 /// Calls `calc_natural_convection` with **negated** cosTilt, matching E+:
 /// ```cpp
@@ -61,6 +61,59 @@ pub fn interior_convection(t_surface: f64, t_zone: f64, tilt_deg: f64) -> f64 {
     let cos_tilt = tilt_deg.to_radians().cos();
     // Interior: negate cosTilt (E+ ConvectionCoefficients.cc:1959)
     calc_natural_convection(t_surface - t_zone, -cos_tilt)
+}
+
+/// Interior convection coefficient [W/(m²·K)] for **windows**.
+///
+/// Uses the ISO 15099 natural convection model, matching E+'s
+/// `CalcISO15099WindowIntConvCoeff` in ConvectionCoefficients.cc.
+/// E+ always uses this model for window surfaces, even when the zone
+/// convection algorithm is set to TARP.
+///
+/// The ISO 15099 model accounts for:
+///   - Air properties evaluated at the film temperature
+///     T_film = T_air + 0.25·(T_surface − T_air)  (E+ convention)
+///   - Window height via Rayleigh number
+///   - Aspect ratio (height/width) effects on stratified flow
+///
+/// For vertical windows:
+///   Nu = (Nu_T⁶ + Nu_s⁶)^(1/6)
+///   Nu_T = 0.0673838 · Ra^(1/3)           (turbulent boundary layer)
+///   Nu_s = 0.242 · (Ra / A_r)^0.272       (stratified core)
+///   h = Nu · k / H
+///
+/// Reference: ISO 15099:2003, Section 8.3.2.2.
+pub fn window_interior_convection(t_surface: f64, t_zone: f64, height: f64, width: f64) -> f64 {
+    let dt = (t_surface - t_zone).abs().max(0.001);
+
+    // Film temperature: E+ uses T_air + 0.25*(T_surf - T_air)
+    let t_film = t_zone + 0.25 * (t_surface - t_zone);
+    let t_film_k = t_film + 273.15;
+
+    // Dry air properties at film temperature (linear fits valid 0–50 °C)
+    let k_air = 0.0241 + 7.6e-5 * t_film; // thermal conductivity [W/(m·K)]
+    let nu = 1.326e-5 + 8.78e-8 * t_film; // kinematic viscosity [m²/s]
+    let pr = 0.71; // Prandtl number (nearly constant for air)
+    let alpha = nu / pr; // thermal diffusivity [m²/s]
+    let beta = 1.0 / t_film_k.max(200.0); // volumetric expansion [1/K]
+
+    let h = height.max(0.1);
+    let w = width.max(0.1);
+    let a_r = h / w; // aspect ratio
+
+    // Rayleigh number
+    let ra = (9.81 * beta * dt * h.powi(3)) / (nu * alpha);
+
+    // ISO 15099 Nusselt correlations for vertical plate
+    let nu_t = 0.0673838 * ra.powf(1.0 / 3.0); // turbulent
+    let nu_s = 0.242 * (ra / a_r).powf(0.272); // stratified
+
+    // Combined: (Nu_T^6 + Nu_s^6)^(1/6)
+    let nu_combined = (nu_t.powi(6) + nu_s.powi(6)).powf(1.0 / 6.0);
+
+    let h_conv = nu_combined * k_air / h;
+
+    h_conv.max(0.1)
 }
 
 /// Exterior natural convection coefficient [W/(m²·K)].

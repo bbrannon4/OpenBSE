@@ -285,6 +285,16 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
             "W",
             "Convective heat flux from inside surface to zone",
         ),
+        (
+            "surface:radiation_inside",
+            "W",
+            "Net longwave radiation on inside face (positive = into surface)",
+        ),
+        (
+            "surface:inside_radiation_coefficient",
+            "W/(m²·K)",
+            "Inside linearized radiation coefficient",
+        ),
         // Site/weather variables
         (
             "site:outdoor_temperature",
@@ -526,6 +536,8 @@ pub struct OutputSnapshot {
     pub surface_transmitted_solar: HashMap<String, f64>,
     pub surface_conduction_inside: HashMap<String, f64>,
     pub surface_convection_inside: HashMap<String, f64>,
+    pub surface_radiation_inside: HashMap<String, f64>,
+    pub surface_inside_radiation_coefficient: HashMap<String, f64>,
 
     // Per-zone active setpoints for this timestep (zone_name -> value)
     // Used by summary report for schedule-aware unmet hours
@@ -624,6 +636,8 @@ impl OutputSnapshot {
             surface_transmitted_solar: HashMap::new(),
             surface_conduction_inside: HashMap::new(),
             surface_convection_inside: HashMap::new(),
+            surface_radiation_inside: HashMap::new(),
+            surface_inside_radiation_coefficient: HashMap::new(),
             zone_heating_setpoint: HashMap::new(),
             zone_cooling_setpoint: HashMap::new(),
             air_loop_outlet_temperature: HashMap::new(),
@@ -734,6 +748,8 @@ impl OutputSnapshot {
                 "transmitted_solar" => self.surface_transmitted_solar.clone(),
                 "cond_inside" => self.surface_conduction_inside.clone(),
                 "convection_inside" => self.surface_convection_inside.clone(),
+                "radiation_inside" => self.surface_radiation_inside.clone(),
+                "inside_radiation_coefficient" => self.surface_inside_radiation_coefficient.clone(),
                 _ => HashMap::new(),
             },
             "building" => {
@@ -1014,10 +1030,32 @@ impl OutputWriter {
     }
 
     /// Discover columns from the first snapshot.
+    ///
+    /// Some variables (e.g. `zone:gain_solar`) may have empty HashMaps in
+    /// the first timestep (midnight — no solar). To avoid permanently
+    /// dropping these columns, we fall back to entity names from a reference
+    /// variable in the same category (`zone:temperature` for zone variables,
+    /// `surface:inside_temperature` for surface variables).
     fn resolve_columns(&mut self, snapshot: &OutputSnapshot) {
         if self.columns_resolved {
             return;
         }
+
+        // Build reference entity lists per category (always populated).
+        let zone_entities = {
+            let mut v: Vec<String> = snapshot.zone_temperature.keys().cloned().collect();
+            v.sort();
+            v
+        };
+        let surface_entities = {
+            let mut v: Vec<String> = snapshot
+                .surface_inside_temperature
+                .keys()
+                .cloned()
+                .collect();
+            v.sort();
+            v
+        };
 
         for var_name in &self.config.variables {
             let values = snapshot.get_variable_values(var_name);
@@ -1025,7 +1063,26 @@ impl OutputWriter {
             entity_names.sort();
 
             if entity_names.is_empty() {
-                // Variable not found — skip silently (might appear later)
+                // Variable data is empty in this snapshot. Use the reference
+                // entity list for the matching category so that the column is
+                // created and will receive data in later timesteps.
+                let category = var_name.split(':').next().unwrap_or("");
+                let fallback = match category {
+                    "zone" => &zone_entities,
+                    "surface" => &surface_entities,
+                    _ => continue, // site/building: truly missing, skip
+                };
+                // Apply name filter if present (e.g. "zone:gain_solar:living*")
+                let filter = var_name.splitn(3, ':').nth(2);
+                for entity in fallback {
+                    let include = match filter {
+                        None | Some("*") => true,
+                        Some(pat) => glob_matches(pat, entity),
+                    };
+                    if include {
+                        self.columns.push((var_name.clone(), entity.clone()));
+                    }
+                }
                 continue;
             }
 

@@ -689,6 +689,8 @@ impl BuildingEnvelope {
                     wind_exposure: false,
                     exposed_perimeter: None,
                     airflow: None,
+                    height: None,
+                    width: None,
                 };
                 surfaces.push(surf);
             }
@@ -1048,6 +1050,8 @@ impl BuildingEnvelope {
                 },
                 q_cond_inside: 0.0,
                 q_cond_outside: 0.0,
+                q_rad_inside: 0.0,
+                h_rad_inside: 5.0,
             };
             surface_states.push(state);
         }
@@ -2958,14 +2962,20 @@ impl EnvelopeSolver for BuildingEnvelope {
                 let mut sum_eat = 0.0_f64;
 
                 // Always compute area-weighted totals (used as fallback and
-                // for zones without view factors)
+                // for zones without view factors).
+                // Include ALL surfaces (opaque + windows) so that MRT accounts
+                // for cold window temperatures. Windows use ε=0.84 (standard
+                // glass emissivity), matching the value used in the window solve.
                 for &si in &zone.surface_indices {
                     let s = &self.surfaces[si];
-                    if !s.is_window {
-                        let ea = s.thermal_absorptance_outside * s.net_area;
-                        sum_ea += ea;
-                        sum_eat += ea * s.temp_inside;
-                    }
+                    let eps = if s.is_window {
+                        0.84
+                    } else {
+                        s.thermal_absorptance_outside
+                    };
+                    let ea = eps * s.net_area;
+                    sum_ea += ea;
+                    sum_eat += ea * s.temp_inside;
                 }
                 if sum_ea > 0.01 {
                     zone_mrt_for_windows[zi] = sum_eat / sum_ea;
@@ -2973,18 +2983,22 @@ impl EnvelopeSolver for BuildingEnvelope {
                     zone_mrt_for_windows[zi] = t_zone_vec.get(zi).copied().unwrap_or(21.0);
                 }
 
-                // For VF zones: compute per-face ε·(A/A_face) sums
+                // For VF zones: compute per-face ε·(A/A_face) sums.
+                // Include ALL surfaces (opaque + windows) so that the VF-weighted
+                // MRT properly accounts for cold window temperatures on each face.
                 if let Some(ref zvf) = self.zone_view_factors[zi] {
                     let mut fea = [0.0_f64; 6];
                     let mut feat = [0.0_f64; 6];
                     for &si in &zone.surface_indices {
                         let s = &self.surfaces[si];
-                        if s.is_window {
-                            continue;
-                        }
+                        let eps = if s.is_window {
+                            0.84
+                        } else {
+                            s.thermal_absorptance_outside
+                        };
                         if let Some(face) = s.box_face {
                             let face_total = zvf.face_area[face].max(0.01);
-                            let w = s.thermal_absorptance_outside * s.net_area / face_total;
+                            let w = eps * s.net_area / face_total;
                             fea[face] += w;
                             feat[face] += w * s.temp_inside;
                         }
@@ -2994,9 +3008,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                 }
             }
 
-            // Accumulator for window interior LW radiation per zone [W].
-            // Positive = net heat flow from opaque surfaces → glass (surfaces lose heat).
-            let mut zone_win_rad_total = vec![0.0_f64; self.zones.len()];
+            // Window LW radiation is now handled through the unified face-averaged
+            // MRT (windows included in fea/feat), so no separate redistribution needed.
 
             for i in 0..self.surfaces.len() {
                 if self.surfaces[i].is_window {
@@ -3163,8 +3176,18 @@ impl EnvelopeSolver for BuildingEnvelope {
                             u_e_glass = 1.0 / (1.0 / h_e + 1.0 / u_glass);
                         }
 
-                        // Interior natural convection (TARP, same as opaque surfaces)
-                        h_conv_in = convection::interior_convection(t_glass, t_z, tilt);
+                        // Interior natural convection — ISO 15099 for windows
+                        let win_area = self.surfaces[i].input.area.max(0.01);
+                        let win_h = self.surfaces[i]
+                            .input
+                            .height
+                            .unwrap_or_else(|| win_area.sqrt());
+                        let win_w = self.surfaces[i]
+                            .input
+                            .width
+                            .unwrap_or_else(|| win_area.sqrt());
+                        h_conv_in =
+                            convection::window_interior_convection(t_glass, t_z, win_h, win_w);
 
                         // Interior radiation: linearized between glass and zone MRT
                         // (previously used T_zone, which over-estimated radiation to glass
@@ -3221,10 +3244,6 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // by definition (from SHGC = τ_sol + N_in×α), any outward loss
                     // is a lumped-model artifact. The residual correction adds back
                     // this lost portion directly to zone air.
-                    //
-                    // With the corrected solar_transmittance_ratio (≈0.91 for
-                    // double-clear), the absorbed portion is ~9% of total SHGC gain,
-                    // and the residual is ~2.6% — small but important for accuracy.
                     let absorbed_inward_total = self.surfaces[i].absorbed_solar_inside_window;
                     if absorbed_inward_total > 0.0 {
                         let h_total = u_e_glass + h_conv_in + h_rad_in;
@@ -3238,40 +3257,37 @@ impl EnvelopeSolver for BuildingEnvelope {
                         self.surfaces[i].absorbed_solar_inside_window = residual;
                     }
 
-                    // Window interior LW radiation: distribute to opaque surfaces.
+                    // Window interior LW radiation.
                     //
-                    // In E+, the ScriptF radiation network distributes window LW
-                    // radiation to all zone surfaces based on view factors. The
-                    // surfaces absorb this radiation through their thermal mass,
-                    // providing natural temperature buffering.
+                    // Windows now participate in the unified face-averaged MRT
+                    // (included in fea/feat). Opaque surfaces naturally see cold
+                    // window temperatures through VF-weighted MRT, and windows
+                    // see warm opaque temperatures — matching E+'s ScriptF
+                    // radiation exchange network.
                     //
-                    // Previously, OpenBSE injected window radiation directly into
-                    // the zone air via q_conv_inside → q_window_cond. This bypassed
-                    // thermal mass entirely, causing the zone air to swing more than
-                    // E+ — the full ~2,800 kWh/yr of window radiative exchange hit
-                    // the zone air directly (C_air ≈ 575 kJ/K), driving excessive
-                    // thermostat cycling (+68% heating, +48% cooling vs E+).
-                    //
-                    // Fix: store the radiative flux per window for distribution to
-                    // opaque surfaces in the precomp block below. The window's
-                    // q_conv_inside is set to zero — the convective component still
-                    // enters via sum_ha/sum_hat (h_conv_inside, temp_inside = T_glass).
+                    // The window's q_conv_inside remains zero — the convective
+                    // component enters via sum_ha/sum_hat (h_conv_inside, T_glass).
                     let q_rad_interior = h_rad_in * (t_mrt - t_glass);
-                    // Store for distribution to opaque surfaces (W total for this window)
+                    self.surfaces[i].h_rad_inside = h_rad_in;
+                    self.surfaces[i].q_rad_inside = q_rad_interior;
                     self.surfaces[i].q_conv_inside = 0.0;
-                    // Accumulate window radiation per zone (positive = surfaces → glass)
-                    let win_rad_w = q_rad_interior * self.surfaces[i].net_area;
-                    let zi_win = self
-                        .zone_index
-                        .get(&self.surfaces[i].input.zone)
-                        .copied()
-                        .unwrap_or(0);
-                    zone_win_rad_total[zi_win] += win_rad_w;
 
-                    // Exterior surface temperature for next iteration's convection.
-                    // Total interior heat flow (conv + rad) determines the heat flux
-                    // through the glass, which sets the exterior surface temperature.
-                    let q_interior = h_conv_in * (t_z - t_glass) + q_rad_interior;
+                    // Exterior surface temperature from glass energy balance.
+                    //
+                    // The full balance at the glass node is:
+                    //   u_e·(T_ext_eff − T_glass) + h_conv·(Tz − Tg)
+                    //     + h_rad·(Tmrt − Tg) + q_solar_abs = 0
+                    //
+                    // So: u_glass·(T_ext_surf − T_glass)
+                    //       = −[h_conv·(Tz−Tg) + h_rad·(Tmrt−Tg) + q_solar_abs]
+                    //
+                    // Previously q_solar_abs was omitted, causing T_ext_surf to be
+                    // wildly wrong during solar hours (e.g. +54°C vs +5°C). This
+                    // corrupted the dynamic gap model (which uses T_ext_surf to
+                    // compute gap ΔT), inflating u_glass and making the glass
+                    // ~4°C too cold during peak solar.
+                    let q_interior =
+                        h_conv_in * (t_z - t_glass) + q_rad_interior + q_solar_abs_per_area;
                     let t_ext_surf = t_glass - q_interior / u_glass;
                     self.surfaces[i].temp_outside = t_ext_surf;
 
@@ -3290,18 +3306,6 @@ impl EnvelopeSolver for BuildingEnvelope {
                 is_adiabatic: bool,
             }
             let mut precomp: Vec<Option<SurfPrecomp>> = Vec::with_capacity(self.surfaces.len());
-
-            // Pre-compute per-zone total opaque surface area for window radiation distribution
-            let zone_opaque_area: Vec<f64> = (0..self.zones.len())
-                .map(|zi| {
-                    self.zones[zi]
-                        .surface_indices
-                        .iter()
-                        .filter(|&&si| !self.surfaces[si].is_window)
-                        .map(|&si| self.surfaces[si].net_area)
-                        .sum()
-                })
-                .collect();
 
             for i in 0..self.surfaces.len() {
                 if self.surfaces[i].is_window {
@@ -3423,18 +3427,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                         0.0
                     };
 
-                    // Window LW radiation distributed to this opaque surface [W].
-                    // zone_win_rad_total is positive when surfaces→glass (surfaces lose heat),
-                    // so we negate: opaque surfaces receive a negative radiative flux (cooling).
-                    let q_win_rad_to_surface = if zi < zone_opaque_area.len()
-                        && zone_opaque_area[zi] > 0.0
-                    {
-                        -zone_win_rad_total[zi] * self.surfaces[i].net_area / zone_opaque_area[zi]
-                    } else {
-                        0.0
-                    };
+                    // Window LW radiation is now handled through the unified
+                    // face-averaged MRT — no separate redistribution needed.
 
-                    let q_total_rad = q_rad_to_surface + q_solar_to_surface + q_win_rad_to_surface;
+                    let q_total_rad = q_rad_to_surface + q_solar_to_surface;
                     let q_rad_flux = q_total_rad / self.surfaces[i].net_area.max(0.01);
 
                     let is_adiabatic = matches!(
@@ -3461,12 +3457,14 @@ impl EnvelopeSolver for BuildingEnvelope {
             // ONCE using surface temps at the start of the inner iteration.
             // These remain fixed during the inner loop for numerical stability,
             // matching how EnergyPlus fixes ScriptF exchange coefficients per
-            // timestep. Without this, the stronger floor-ceiling VF coupling
-            // (0.54 vs area-weighted 0.43) causes oscillation in lightweight
-            // construction free-float cases.
+            // timestep.
             //
-            // fea[face] = Σ_{j on face, opaque} ε_j × A_j / A_face
-            // feat[face] = Σ_{j on face, opaque} ε_j × A_j / A_face × T_j
+            // ALL surfaces (opaque + windows) participate, matching E+'s ScriptF
+            // where every surface exchanges radiation with every other surface.
+            // Windows use ε=0.84 (standard glass emissivity).
+            //
+            // fea[face] = Σ_{j on face} ε_j × A_j / A_face
+            // feat[face] = Σ_{j on face} ε_j × A_j / A_face × T_j
             //
             // The area-weighted fallback (zone_sum_ea/eat) is still recomputed
             // each inner iteration because its broader averaging provides
@@ -3480,12 +3478,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let mut feat = [0.0_f64; 6];
                     for &si in &zone.surface_indices {
                         let s = &self.surfaces[si];
-                        if s.is_window {
-                            continue;
-                        }
+                        let eps = if s.is_window {
+                            0.84
+                        } else {
+                            s.thermal_absorptance_outside
+                        };
                         if let Some(face) = s.box_face {
                             let face_total = zvf.face_area[face].max(0.01);
-                            let w = s.thermal_absorptance_outside * s.net_area / face_total;
+                            let w = eps * s.net_area / face_total;
                             fea[face] += w;
                             feat[face] += w * s.temp_inside;
                         }
@@ -3762,10 +3762,11 @@ impl EnvelopeSolver for BuildingEnvelope {
                 for (zi, zone) in self.zones.iter().enumerate() {
                     for &si in &zone.surface_indices {
                         let s = &self.surfaces[si];
-                        if s.is_window {
-                            continue;
-                        }
-                        let eps = s.thermal_absorptance_outside;
+                        let eps = if s.is_window {
+                            0.84
+                        } else {
+                            s.thermal_absorptance_outside
+                        };
                         let a = s.net_area;
                         zone_sum_ea[zi] += eps * a;
                         zone_sum_eat[zi] += eps * a * s.temp_inside;
@@ -3836,6 +3837,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let t_mean_k =
                         ((self.surfaces[i].temp_inside + 273.15) + (t_mrt + 273.15)) / 2.0;
                     let h_rad = 4.0 * eps * SIGMA * t_mean_k.powi(3);
+                    self.surfaces[i].h_rad_inside = h_rad;
+                    self.surfaces[i].q_rad_inside = h_rad * (t_mrt - self.surfaces[i].temp_inside);
 
                     // Surface temperature equation with linearized radiation
                     // and IterDampConst for convergence.
@@ -5025,6 +5028,8 @@ mod tests {
                 wind_exposure: true,
                 exposed_perimeter: None,
                 airflow: None,
+                height: None,
+                width: None,
             },
             SurfaceInput {
                 name: "South Window".to_string(),
@@ -5042,6 +5047,8 @@ mod tests {
                 wind_exposure: true,
                 exposed_perimeter: None,
                 airflow: None,
+                height: None,
+                width: None,
             },
             SurfaceInput {
                 name: "Floor".to_string(),
@@ -5059,6 +5066,8 @@ mod tests {
                 wind_exposure: false,
                 exposed_perimeter: None,
                 airflow: None,
+                height: None,
+                width: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(),
@@ -5076,6 +5085,8 @@ mod tests {
                 wind_exposure: true,
                 exposed_perimeter: None,
                 airflow: None,
+                height: None,
+                width: None,
             },
         ];
 
@@ -5219,6 +5230,8 @@ mod tests {
                 wind_exposure: true,
                 exposed_perimeter: None,
                 airflow: None,
+                height: None,
+                width: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(),
@@ -5236,6 +5249,8 @@ mod tests {
                 wind_exposure: true,
                 exposed_perimeter: None,
                 airflow: None,
+                height: None,
+                width: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
@@ -5375,6 +5390,8 @@ mod tests {
                 wind_exposure: true,
                 exposed_perimeter: None,
                 airflow: None,
+                height: None,
+                width: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(),
@@ -5392,6 +5409,8 @@ mod tests {
                 wind_exposure: true,
                 exposed_perimeter: None,
                 airflow: None,
+                height: None,
+                width: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
@@ -5522,6 +5541,8 @@ mod tests {
                 wind_exposure: true,
                 exposed_perimeter: None,
                 airflow: None,
+                height: None,
+                width: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(),
@@ -5539,6 +5560,8 @@ mod tests {
                 wind_exposure: true,
                 exposed_perimeter: None,
                 airflow: None,
+                height: None,
+                width: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
@@ -5650,6 +5673,8 @@ mod tests {
             wind_exposure: true,
             exposed_perimeter: None,
             airflow: None,
+            height: None,
+            width: None,
         }];
         let mut envelope = BuildingEnvelope::from_input(
             materials,
