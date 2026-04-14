@@ -1,0 +1,1185 @@
+# OpenBSE: Residential Single-Family House — IDEAL LOADS (envelope-only)
+# 4 zones: conditioned living (2-story), unheated basement, garage, attic
+# Ideal loads (no real HVAC) for envelope heat balance comparison with E+
+# Based on US+SF+CZ5B+gasfurnace+unheatedbsmt+IECC_2024.idf (simplified)
+# Denver (Buckley AFB), CO weather — same EPW as E+ IDF
+
+simulation:
+  timesteps_per_hour: 6
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+  terrain: suburbs
+  shading_calculation: detailed
+  # Match E+ Sizing:System FractionOfAutosized{Cooling,Heating}Capacity
+  heating_sizing_factor: 1.25
+  cooling_sizing_factor: 1.15
+summary_report: true
+weather_files:
+- ../Denver-Buckley.epw
+design_days:
+- name: Denver Heating 99.6%
+  design_temp: -17.9
+  daily_range: 0.0
+  humidity_type: wetbulb
+  humidity_value: -17.9
+  pressure: 82237.0
+  wind_speed: 2.5
+  month: 12
+  day: 21
+  day_type: winter
+- name: Denver Cooling 0.4%
+  design_temp: 33.9
+  daily_range: 14.8
+  humidity_type: wetbulb
+  humidity_value: 15.0
+  pressure: 82237.0
+  wind_speed: 3.6
+  month: 7
+  day: 21
+  day_type: summer
+schedules:
+- name: Occupancy
+  # AllDays identical (OccupancyDay)
+  weekday: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.88310,
+            0.40861, 0.24189, 0.24189, 0.24189, 0.24189, 0.24189,
+            0.24189, 0.24189, 0.29498, 0.55310, 0.89693, 0.89693,
+            0.89693, 1.0, 1.0, 1.0]
+
+- name: Interior Lighting
+  # AllDays identical (InteriorLightingHE / LightingDay_EELighting)
+  weekday: [0.06875, 0.06875, 0.06875, 0.06875, 0.20625, 0.4296875,
+            0.48125, 0.4296875, 0.1890625, 0.12890625, 0.12890625,
+            0.12890625, 0.12890625, 0.12890625, 0.12890625, 0.2234375,
+            0.48125, 0.6703125, 0.90234375, 1.0, 1.0, 0.75625,
+            0.42109375, 0.171875]
+
+- name: Refrigerator
+  # AllDays identical (RefrigeratorDay)
+  weekday: [0.80, 0.78269618, 0.76559356, 0.74285714, 0.73138833,
+            0.73138833, 0.75995976, 0.80, 0.81710262, 0.82857143,
+            0.80, 0.80, 0.83983903, 0.83983903, 0.82857143,
+            0.83983903, 0.88571429, 0.97142857, 1.0, 0.97142857,
+            0.94285714, 0.92555332, 0.88571429, 0.82857143]
+
+- name: Misc Plug Load
+  # AllDays identical (MiscPlugLoadDay)
+  weekday: [0.60749027, 0.55933852, 0.55285344, 0.54507134, 0.52448119,
+            0.58527886, 0.67623217, 0.71854734, 0.60749027, 0.51702335,
+            0.52918288, 0.52934501, 0.52042802, 0.53842412, 0.56874189,
+            0.60035668, 0.71011673, 0.86267834, 0.93660830, 0.96676394,
+            1.0, 0.97665370, 0.84516861, 0.73443580]
+
+- name: Cooking Range
+  # AllDays identical (CookingRangeDay)
+  weekday: [0.04715848, 0.04715848, 0.02354589, 0.02354589, 0.04715848,
+            0.07070438, 0.16508805, 0.28301761, 0.30656350, 0.32077108,
+            0.28301761, 0.33017609, 0.37733458, 0.30656350, 0.29242263,
+            0.37733458, 0.61319370, 1.0, 0.77834845, 0.40094717,
+            0.23585912, 0.16508805, 0.10372199, 0.07070438]
+
+- name: DishWasher
+  # Weekday / Weekend profiles (DishwasherWeekday_equip_sch / DishwasherWeekend_equip_sch)
+  weekday: [0.12916216, 0.05738671, 0.04299796, 0.02869335, 0.02869335,
+            0.08608006, 0.17224426, 0.25840846, 0.48820772, 0.54559442,
+            0.47381897, 0.40204351, 0.34457266, 0.38765477, 0.31587931,
+            0.30149056, 0.31587931, 0.41634812, 0.73231158, 0.93333333,
+            0.76100493, 0.55998317, 0.37326602, 0.25840846]
+  weekend: [0.13838803, 0.06148576, 0.04606924, 0.03074288, 0.03074288,
+            0.09222863, 0.18454742, 0.27686621, 0.52307970, 0.58456545,
+            0.50766318, 0.43076091, 0.36918500, 0.41534439, 0.33844212,
+            0.32302560, 0.33844212, 0.44608727, 0.78461955, 1.0,
+            0.81536242, 0.59998197, 0.39992788, 0.27686621]
+
+- name: ClothesWasher
+  # Weekday / Weekend profiles (ClothesWasherWeekday_equip_sch / ClothesWasherWeekend_equip_sch)
+  weekday: [0.08879315, 0.07101550, 0.03546022, 0.03546022, 0.07101550,
+            0.10657090, 0.21314158, 0.46193351, 0.69294780, 0.81739130,
+            0.79961366, 0.71072545, 0.63961488, 0.56859937, 0.49748880,
+            0.46193351, 0.47971116, 0.46193351, 0.46193351, 0.46193351,
+            0.46193351, 0.44415587, 0.30202979, 0.15990372]
+  weekend: [0.10862991, 0.08688067, 0.04338218, 0.04338218, 0.08688067,
+            0.13037916, 0.26075832, 0.56513143, 0.84775529, 1.0,
+            0.97825076, 0.86950454, 0.78250756, 0.69562689, 0.60862991,
+            0.56513143, 0.58688067, 0.56513143, 0.56513143, 0.56513143,
+            0.56513143, 0.54338218, 0.36950454, 0.19562689]
+
+- name: ClothesDryer
+  # Weekday / Weekend profiles (ClothesDryerWeekday / ClothesDryerWeekend)
+  weekday: [0.09968187, 0.05980912, 0.03987275, 0.01993637, 0.03987275,
+            0.05980912, 0.15949099, 0.31898197, 0.48642737, 0.68579110,
+            0.78547297, 0.81739130, 0.74560022, 0.67783669, 0.61007316,
+            0.57815483, 0.55821845, 0.54623649, 0.51834571, 0.51039129,
+            0.52630012, 0.54623649, 0.43860021, 0.23923648]
+  weekend: [0.12195122, 0.07317073, 0.04878049, 0.02439024, 0.04878049,
+            0.07317073, 0.19512195, 0.39024390, 0.59509731, 0.83899975,
+            0.96095097, 1.0, 0.91217049, 0.82926829, 0.74636610,
+            0.70731707, 0.68292683, 0.66826805, 0.63414634, 0.62441488,
+            0.64387780, 0.66826805, 0.53658537, 0.29268293]
+
+# ── DHW Flow Schedules ──────────────────────────────────────────
+- name: BA Sinks
+  # AllDays identical (Schedule:Compact)
+  weekday: [0.00244871, 0.00122436, 0.00087454, 0.00087454, 0.00122436,
+            0.00314834, 0.00734613, 0.01084429, 0.01154392, 0.01084429,
+            0.00944503, 0.00874539, 0.00857049, 0.00787086, 0.00752104,
+            0.00717122, 0.00839558, 0.01136901, 0.01311809, 0.01206864,
+            0.00996975, 0.00839558, 0.00699632, 0.00472251]
+
+- name: BA Showers
+  # AllDays identical (Schedule:Compact)
+  weekday: [0.00110418, 0.00050190, 0.00030114, 0.00050190, 0.00140532,
+            0.00521976, 0.01184484, 0.01174446, 0.00953610, 0.00742812,
+            0.00602280, 0.00471786, 0.00341292, 0.00291102, 0.00260988,
+            0.00250950, 0.00301140, 0.00391482, 0.00421596, 0.00421596,
+            0.00421596, 0.00411558, 0.00291102, 0.00210798]
+
+- name: BA Baths
+  # AllDays identical (Schedule:Compact)
+  weekday: [0.00010309, 0.00005155, 0.00005155, 0.00005155, 0.00010309,
+            0.00024484, 0.00059277, 0.00074741, 0.00085050, 0.00074741,
+            0.00059277, 0.00045102, 0.00039948, 0.00029639, 0.00029639,
+            0.00029639, 0.00050257, 0.00059277, 0.00099225, 0.00128864,
+            0.00128864, 0.00099225, 0.00085050, 0.00050257]
+
+- name: ClothesWasher Flow
+  # Weekday / Weekend profiles
+  weekday: [0.05034571, 0.04026579, 0.02010594, 0.02010594, 0.04026579,
+            0.06042564, 0.12085128, 0.26191630, 0.39290140, 0.46346087,
+            0.45338095, 0.40298133, 0.36266163, 0.32239584, 0.28207615,
+            0.26191630, 0.27199623, 0.26191630, 0.26191630, 0.26191630,
+            0.26191630, 0.25183638, 0.17125089, 0.09066541]
+  weekend: [0.06159316, 0.04926134, 0.02459770, 0.02459770, 0.04926134,
+            0.07392498, 0.14784997, 0.32042952, 0.48067725, 0.56700000,
+            0.55466818, 0.49300907, 0.44368179, 0.39442045, 0.34509316,
+            0.32042952, 0.33276134, 0.32042952, 0.32042952, 0.32042952,
+            0.32042952, 0.30809770, 0.20950907, 0.11092045]
+
+- name: Dishwasher Flow
+  # Weekday / Weekend profiles
+  weekday: [0.07323494, 0.03253826, 0.02437984, 0.01626913, 0.01626913,
+            0.04880739, 0.09766250, 0.14651760, 0.27681378, 0.30935204,
+            0.26865536, 0.22795867, 0.19537270, 0.21980025, 0.17910357,
+            0.17094515, 0.17910357, 0.23606938, 0.41522066, 0.52920000,
+            0.43148979, 0.31751046, 0.21164183, 0.14651760]
+  weekend: [0.07846601, 0.03486242, 0.02612126, 0.01743121, 0.01743121,
+            0.05229364, 0.10463839, 0.15698314, 0.29658619, 0.33144861,
+            0.28784502, 0.24424144, 0.20932789, 0.23550027, 0.19189668,
+            0.18315552, 0.19189668, 0.25293148, 0.44487928, 0.56700000,
+            0.46231049, 0.34018978, 0.22675911, 0.15698314]
+
+# ── Materials ─────────────────────────────────────────────────────
+materials:
+# Exterior wall layers
+- name: syn_stucco
+  conductivity: 0.0865
+  density: 400.0
+  specific_heat: 878.64
+  roughness: medium_smooth
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.7
+
+- name: sheathing_consol_layer
+  conductivity: 0.035329
+  density: 20.1
+  specific_heat: 1465.415
+  roughness: rough
+
+- name: OSB_7/16in
+  conductivity: 0.1163
+  density: 544.63
+  specific_heat: 1213.36
+  roughness: medium_smooth
+
+- name: wall_consol_layer
+  conductivity: 0.057165
+  density: 120.801
+  specific_heat: 1036.258
+  roughness: rough
+
+- name: Drywall_1/2in
+  conductivity: 0.16009
+  density: 800.92
+  specific_heat: 1087.84
+  roughness: medium_smooth
+
+# Ceiling insulation
+- name: ceil_consol_layer
+  conductivity: 0.061718
+  density: 41.929
+  specific_heat: 776.251
+  roughness: rough
+
+# Floor insulation
+- name: floor_consol_layer
+  conductivity: 0.051552
+  density: 55.074
+  specific_heat: 916.931
+  roughness: rough
+
+- name: Plywood_3/4in
+  conductivity: 0.11546
+  density: 544.68
+  specific_heat: 674.54
+  roughness: rough
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+
+- name: Carpet_n_pad
+  conductivity: 0.06013
+  density: 32.037
+  specific_heat: 836.8
+  roughness: medium_smooth
+
+# Roof
+- name: Asphalt_shingle
+  conductivity: 0.08186
+  density: 1121.29
+  specific_heat: 1255.2
+  roughness: medium_rough
+  solar_absorptance: 0.75
+  thermal_absorptance: 0.9
+
+- name: OSB_1/2in
+  conductivity: 0.1163
+  density: 544.63
+  specific_heat: 1213.36
+  roughness: medium_smooth
+
+# Gable end
+- name: cement_stucco
+  conductivity: 0.721
+  density: 1865.58
+  specific_heat: 878.64
+  roughness: medium_smooth
+
+- name: OSB_5/8in
+  conductivity: 0.1163
+  density: 544.63
+  specific_heat: 1213.36
+  roughness: medium_smooth
+
+# Door
+- name: door_const
+  conductivity: 0.07201
+  density: 512.64
+  specific_heat: 767.58
+  roughness: smooth
+
+# Basement wall
+- name: bsmtwall_consol_layer
+  conductivity: 10.844
+  density: 120.801
+  specific_heat: 1036.258
+  roughness: rough
+
+# Interior furnishings (internal mass)
+- name: Std Wood 6inch
+  conductivity: 0.12
+  density: 540.0
+  specific_heat: 1210.0
+  roughness: medium_smooth
+
+# ── Constructions ─────────────────────────────────────────────────
+constructions:
+- name: Exterior Wall
+  layers:
+  - material: syn_stucco
+    thickness: 0.003048
+  - material: sheathing_consol_layer
+    thickness: 0.031115
+  - material: OSB_7/16in
+    thickness: 0.011113
+  - material: wall_consol_layer
+    thickness: 0.1397
+  - material: Drywall_1/2in
+    thickness: 0.01270
+
+- name: Interior Floor
+  layers:
+  - material: Plywood_3/4in
+    thickness: 0.01905
+  - material: Carpet_n_pad
+    thickness: 0.02540
+
+- name: Exterior Floor
+  layers:
+  - material: floor_consol_layer
+    thickness: 0.23495
+  - material: Plywood_3/4in
+    thickness: 0.01905
+  - material: Carpet_n_pad
+    thickness: 0.02540
+
+- name: Interior Ceiling
+  layers:
+  - material: ceil_consol_layer
+    thickness: 0.400206
+  - material: Drywall_1/2in
+    thickness: 0.01270
+
+- name: Attic Floor
+  layers:
+  - material: Drywall_1/2in
+    thickness: 0.01270
+  - material: ceil_consol_layer
+    thickness: 0.400206
+
+- name: Exterior Roof
+  layers:
+  - material: Asphalt_shingle
+    thickness: 0.00634
+  - material: OSB_1/2in
+    thickness: 0.01270
+
+- name: Exterior Door
+  layers:
+  - material: door_const
+    thickness: 0.05072
+
+- name: Basement Wall
+  layers:
+  - material: Plywood_3/4in
+    thickness: 0.01905
+  - material: bsmtwall_consol_layer
+    thickness: 0.000254
+  - material: Plywood_3/4in
+    thickness: 0.01905
+
+# Basement ceiling (matches IDF fndn_roof: Carpet / Plywood / ceil_consol_layer)
+# NOTE: The IDF uses ceil_consol_layer (R-49) here, not the reversed Exterior Floor's
+# floor_consol_layer (R-30). This is physically inconsistent with the living zone
+# floor (which uses R-30 from above), but we match E+ exactly.
+- name: Basement Ceiling
+  layers:
+  - material: Carpet_n_pad
+    thickness: 0.02540
+  - material: Plywood_3/4in
+    thickness: 0.01905
+  - material: ceil_consol_layer
+    thickness: 0.400206
+
+# Reversed Exterior Wall (for garage side of interzone wall)
+- name: Reversed Exterior Wall
+  layers:
+  - material: Drywall_1/2in
+    thickness: 0.01270
+  - material: wall_consol_layer
+    thickness: 0.1397
+  - material: OSB_7/16in
+    thickness: 0.011113
+  - material: sheathing_consol_layer
+    thickness: 0.031115
+  - material: syn_stucco
+    thickness: 0.003048
+
+- name: InteriorFurnishings
+  layers:
+  - material: Std Wood 6inch
+    thickness: 0.15
+
+# Gable end uses air gap as NoMass material — approximate with simple construction
+simple_constructions:
+- name: Gable End
+  u_factor: 1.8
+  thickness: 0.05
+  thermal_capacity: 5000.0
+  solar_absorptance: 0.7
+  thermal_absorptance: 0.9
+
+# ── Window Constructions ──────────────────────────────────────────
+window_constructions:
+- name: Exterior Window
+  u_factor: 1.41965
+  shgc: 0.3344
+  visible_transmittance: 0.88
+
+# ── Zone Groups ───────────────────────────────────────────────────
+zone_groups:
+- name: Living
+  zones: [living_unit1]
+people:
+- name: Occupants
+  zones: [Living]
+  count: 3.0
+  activity_level: 117.28
+  radiant_fraction: 0.0
+  schedule: Occupancy
+
+# ── Lights ────────────────────────────────────────────────────────
+lights:
+- name: Interior Lighting
+  zones: [Living]
+  power: 337.990378    # 232.336176 + 105.654202 W hardwired + plug-in
+  radiant_fraction: 0.8  # E+ Rad=0.6 + Vis=0.2; both go to surfaces area-weighted
+  # visible_fraction: 0.2  # included in radiant_fraction above
+  schedule: Interior Lighting
+
+# ── Equipment ─────────────────────────────────────────────────────
+equipment:
+# ── Electric Equipment (all 6 non-zero objects from IDF) ────────
+# Note: OpenBSE radiant_fraction is relative to zone gain (1-lost).
+# Conversion: lost_fraction = E+_frac_lost + E+_frac_latent (latent not tracked)
+#             radiant_fraction = E+_frac_radiant / (1 - lost_fraction)
+
+- name: Dishwasher
+  zones: [Living]
+  power: 37.141034          # E+ dishwasher1
+  radiant_fraction: 1.0     # E+ Rad=0.6/(1-0.40)=1.0, Conv=0
+  lost_fraction: 0.40       # E+ Lost=0.25 + Lat=0.15
+  schedule: DishWasher
+
+- name: Refrigerator
+  zones: [Living]
+  power: 84.388186          # E+ refrigerator1
+  radiant_fraction: 1.0
+  lost_fraction: 0.0
+  schedule: Refrigerator
+
+- name: Clothes Washer
+  zones: [Living]
+  power: 12.693247          # E+ clotheswasher1
+  radiant_fraction: 1.0     # E+ 0.8/(1-0.2)
+  lost_fraction: 0.2
+  schedule: ClothesWasher
+
+- name: Gas Dryer Electric
+  zones: [Living]
+  power: 19.418219          # E+ gas_dryer1 (electric component)
+  radiant_fraction: 1.0
+  lost_fraction: 0.0
+  schedule: ClothesDryer
+
+- name: Misc Plug Loads
+  zones: [Living]
+  power: 507.149798         # E+ gas_mels1 (electric)
+  radiant_fraction: 1.0     # E+ Rad=0.69/(1-0.31)=1.0, Conv=0
+  lost_fraction: 0.31       # E+ Lost=0.25 + Lat=0.06
+  schedule: Misc Plug Load
+
+- name: IECC Adjustment
+  zones: [Living]
+  power: 505.399625         # E+ IECC_Adj1
+  radiant_fraction: 0.5999  # E+ Rad=0.4119/(1-0.3135)=0.5999
+  lost_fraction: 0.3135     # E+ Lost=0.2510 + Lat=0.0624
+  schedule: Misc Plug Load
+
+# ── Gas Equipment (full input power with lost_fraction) ─────────
+# OpenBSE has no separate GasEquipment type. Using full gas input
+# power with appropriate lost_fraction ensures:
+#   1) equipment_power counter tracks total fuel input (matches E+)
+#   2) zone gain = power*(1-lost) is correct for HVAC loads
+- name: Gas Range
+  zones: [Living]
+  power: 540.941345         # E+ gas_range1 (full gas input)
+  radiant_fraction: 1.0     # E+ Rad=0.69/(1-0.31)=1.0, Conv=0
+  lost_fraction: 0.31       # E+ Lost=0.25 + Lat=0.06
+  schedule: Cooking Range
+
+- name: Gas Dryer
+  zones: [Living]
+  power: 395.595892         # E+ gas_dryer1 (gas component)
+  radiant_fraction: 1.0     # E+ Rad=0.1/(1-0.90)=1.0, Conv=0
+  lost_fraction: 0.90       # E+ Lost=0.85 + Lat=0.05
+  schedule: ClothesDryer
+
+- name: Gas Misc
+  zones: [Living]
+  power: 61.125464          # E+ gas_mels1 (gas component)
+  radiant_fraction: 1.0     # E+ Rad=0.69/(1-0.31)=1.0, Conv=0
+  lost_fraction: 0.31       # E+ Lost=0.25 + Lat=0.06
+  schedule: Misc Plug Load
+
+# ── Infiltration ──────────────────────────────────────────────────
+# Matches E+ simplified IDF ZoneInfiltration:DesignFlowRate exactly:
+#   Flow/Zone = 0.0370 m³/s, A=1, B=C=D=0, schedule=always_on.
+# This is the ASHRAE combined rate: sqrt(0.0238² + 0.02832²) ≈ 0.0370.
+# The exhaust fan below provides electrical consumption only; its airflow
+# effect is already included in this combined infiltration rate.
+# Engine uses Basic mode (default) so exhaust does not add outdoor air.
+infiltration:
+- name: Living Infiltration
+  zones: [Living]
+  design_flow_rate: 0.0370
+  constant_coefficient: 1.0
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.0
+
+# Attic infiltration (~1 ACH for vented attic)
+- name: Attic Infiltration
+  zones: [attic]
+  design_flow_rate: 0.023
+  constant_coefficient: 1.0
+
+# Basement infiltration (from E+ simplified IDF: 0.020 m3/s constant)
+- name: Basement Infiltration
+  zones: [unheatedbsmt]
+  design_flow_rate: 0.020
+  constant_coefficient: 1.0
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.0
+
+# Garage infiltration (from E+ simplified IDF: 0.020 m3/s constant)
+- name: Garage Infiltration
+  zones: [garage]
+  design_flow_rate: 0.020
+  constant_coefficient: 1.0
+  temperature_coefficient: 0.0
+  wind_coefficient: 0.0
+# ── Ideal Loads ───────────────────────────────────────────────────
+# Replaces air_loops for envelope-only comparison with E+
+ideal_loads:
+- name: Living Ideal Loads
+  zones: [Living]
+  heating_setpoint: 22.222    # 72 F constant (matches E+ heating_sch)
+  cooling_setpoint: 23.889    # 75 F constant (matches E+ cooling_sch)
+  heating_capacity: 1000000.0  # 1 MW - unlimited
+  cooling_capacity: 1000000.0  # 1 MW - unlimited
+
+
+exterior_equipment:
+- name: Exterior Lights
+  power: 43.2424607481559     # E+ Exterior-Lights_unit1 design level [W]
+  subcategory: Exterior-Lights # routes to ext_lighting end use
+  astronomical_clock: true     # E+ Control Option blank = AstronomicalClock default
+  # ExteriorLighting schedule is constant 1.0 — astronomical_clock limits to nighttime
+- name: Garage Lights
+  power: 7.16294617434682     # E+ Garage-Lights_unit1 design level [W]
+  subcategory: Garage-Lights   # routes to ext_lighting end use
+  schedule: Interior Lighting  # E+ uses InteriorLightingHE schedule
+# DHW removed — not relevant for envelope heat balance comparison
+
+# ── Zones ─────────────────────────────────────────────────────────
+# 4 zones matching E+ simplified model:
+#   living_unit1 — conditioned 2-story living space (HVAC served)
+#   attic        — unconditioned vented attic
+#   unheatedbsmt — unconditioned basement below living zone
+#   garage       — unconditioned attached garage (south-east corner)
+zones:
+- name: living_unit1
+  volume: 572.2        # 220.82 m2 CFA * 2.591 m ceiling height
+  floor_area: 220.82   # Conditioned floor area (2 stories)
+  conditioned: true
+  internal_mass:
+  - construction: InteriorFurnishings
+    area: 9.896          # 9.89591 m² of 6" wood (matching E+ InternalMass object)
+
+- name: attic
+  volume: 83.8         # Gable roof 4:12 pitch, ridge height 1.517m
+  floor_area: 110.41   # 12.133m x 9.100m
+  conditioned: false
+
+# Unheated basement: full footprint below living zone, 2.124m depth below grade
+- name: unheatedbsmt
+  volume: 234.5        # 12.133 x 9.100 x 2.124 m
+  floor_area: 110.41   # 12.133 x 9.100 m (same footprint as living zone)
+  conditioned: false
+
+# Garage: 6.096m x 6.096m, attached to south-east corner of house
+# Gable roof with ridge 1.006m above walls
+- name: garage
+  volume: 115.0        # 37.16 m2 x 2.591m + gable (18.7 m3)
+  floor_area: 37.16    # 6.096 x 6.096 m
+  conditioned: false
+
+# ── Surfaces ──────────────────────────────────────────────────────
+# 2-story house geometry. Dimensions: 12.133m x 9.100m, 2.591m per floor.
+# Total height = 5.182m. Front faces south (azimuth 180).
+
+surfaces:
+# ── First floor exterior walls ──
+- name: Wall South 1F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 0.0, y: 0.0, z: 0.0}
+  - {x: 6.037, y: 0.0, z: 0.0}
+  - {x: 6.037, y: 0.0, z: 2.591}
+  - {x: 0.0, y: 0.0, z: 2.591}
+
+- name: Wall East 1F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 12.133, y: 0.0, z: 0.0}
+  - {x: 12.133, y: 9.100, z: 0.0}
+  - {x: 12.133, y: 9.100, z: 2.591}
+  - {x: 12.133, y: 0.0, z: 2.591}
+
+# North 1F wall: gross = 12.133 x 2.591 = 31.43 m², minus door 3.717 m² = 27.71 m²
+# Window (4.126 m²) subtracts via parent_surface → net opaque = 23.58 m²
+- name: Wall North 1F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  area: 27.71
+  azimuth: 0.0
+  tilt: 90.0
+
+# Back door (IDF Door_ldb_unit1: 1.742m x 2.134m = 3.717 m²)
+- name: Back Door
+  zone: living_unit1
+  type: wall
+  construction: Exterior Door
+  boundary: outdoor
+  area: 3.717
+  azimuth: 0.0
+  tilt: 90.0
+
+- name: Wall West 1F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 0.0, y: 9.100, z: 0.0}
+  - {x: 0.0, y: 0.0, z: 0.0}
+  - {x: 0.0, y: 0.0, z: 2.591}
+  - {x: 0.0, y: 9.100, z: 2.591}
+
+# ── First floor windows (one per wall, 2.707m x 1.524m = 4.126 m2) ──
+- name: Window South 1F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  height: 1.524
+  width: 2.707
+  azimuth: 180.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall South 1F
+
+- name: Window East 1F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  height: 1.524
+  width: 2.707
+  azimuth: 90.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall East 1F
+
+- name: Window North 1F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  height: 1.524
+  width: 2.707
+  azimuth: 0.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall North 1F
+
+- name: Window West 1F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  height: 1.524
+  width: 2.707
+  azimuth: 270.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall West 1F
+
+# ── Second floor exterior walls ──
+- name: Wall South 2F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 0.0, y: 0.0, z: 2.591}
+  - {x: 12.133, y: 0.0, z: 2.591}
+  - {x: 12.133, y: 0.0, z: 5.182}
+  - {x: 0.0, y: 0.0, z: 5.182}
+
+- name: Wall East 2F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 12.133, y: 0.0, z: 2.591}
+  - {x: 12.133, y: 9.100, z: 2.591}
+  - {x: 12.133, y: 9.100, z: 5.182}
+  - {x: 12.133, y: 0.0, z: 5.182}
+
+- name: Wall North 2F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 12.133, y: 9.100, z: 2.591}
+  - {x: 0.0, y: 9.100, z: 2.591}
+  - {x: 0.0, y: 9.100, z: 5.182}
+  - {x: 12.133, y: 9.100, z: 5.182}
+
+- name: Wall West 2F
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: outdoor
+  vertices:
+  - {x: 0.0, y: 9.100, z: 2.591}
+  - {x: 0.0, y: 0.0, z: 2.591}
+  - {x: 0.0, y: 0.0, z: 5.182}
+  - {x: 0.0, y: 9.100, z: 5.182}
+
+# ── Second floor windows ──
+- name: Window South 2F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  height: 1.524
+  width: 2.707
+  azimuth: 180.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall South 2F
+
+- name: Window East 2F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  height: 1.524
+  width: 2.707
+  azimuth: 90.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall East 2F
+
+- name: Window North 2F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  height: 1.524
+  width: 2.707
+  azimuth: 0.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall North 2F
+
+- name: Window West 2F
+  zone: living_unit1
+  type: window
+  construction: Exterior Window
+  area: 4.126
+  height: 1.524
+  width: 2.707
+  azimuth: 270.0
+  tilt: 90.0
+  boundary: outdoor
+  parent_surface: Wall West 2F
+
+# ── Interzone wall to garage (1F south wall, right portion: x=6.037 to x=12.133) ──
+# Net wall area = 6.096 x 2.591 - 1.95 (interzone door) = 13.84 m²
+- name: Wall South 1F Garage
+  zone: living_unit1
+  type: wall
+  construction: Exterior Wall
+  boundary: !zone 'garage'
+  area: 13.84
+  azimuth: 180.0
+  tilt: 90.0
+
+# Interzone door from living to garage (0.914m x 2.134m = 1.95 m²)
+- name: Door to Garage
+  zone: living_unit1
+  type: wall
+  construction: Exterior Door
+  boundary: !zone 'garage'
+  area: 1.95
+  azimuth: 180.0
+  tilt: 90.0
+
+# ── Floor (above unheated basement — interzone boundary) ──
+- name: Floor
+  zone: living_unit1
+  type: floor
+  construction: Exterior Floor
+  boundary: !zone 'unheatedbsmt'
+  vertices:
+  - {x: 0.0, y: 0.0, z: 0.0}
+  - {x: 0.0, y: 9.100, z: 0.0}
+  - {x: 12.133, y: 9.100, z: 0.0}
+  - {x: 12.133, y: 0.0, z: 0.0}
+
+# ── Ceiling (interzone boundary to attic) ──
+- name: Ceiling
+  zone: living_unit1
+  type: roof
+  construction: Interior Ceiling
+  boundary: !zone 'attic'
+  vertices:
+  - {x: 0.0, y: 0.0, z: 5.182}
+  - {x: 12.133, y: 0.0, z: 5.182}
+  - {x: 12.133, y: 9.100, z: 5.182}
+  - {x: 0.0, y: 9.100, z: 5.182}
+
+# ── Attic zone surfaces ──
+# Attic floor (reverse of ceiling above — interzone to living_unit1)
+- name: Attic Floor
+  zone: attic
+  type: floor
+  construction: Attic Floor
+  boundary: !zone 'living_unit1'
+  vertices:
+  - {x: 0.0, y: 9.100, z: 5.182}
+  - {x: 12.133, y: 9.100, z: 5.182}
+  - {x: 12.133, y: 0.0, z: 5.182}
+  - {x: 0.0, y: 0.0, z: 5.182}
+
+# South roof slope (4:12 pitch, eave to ridge)
+- name: Roof South
+  zone: attic
+  type: roof
+  construction: Exterior Roof
+  boundary: outdoor
+  vertices:
+  - {x: 0.0, y: 0.0, z: 5.182}
+  - {x: 12.133, y: 0.0, z: 5.182}
+  - {x: 12.133, y: 4.550, z: 6.699}
+  - {x: 0.0, y: 4.550, z: 6.699}
+
+# North roof slope (4:12 pitch, eave to ridge)
+- name: Roof North
+  zone: attic
+  type: roof
+  construction: Exterior Roof
+  boundary: outdoor
+  vertices:
+  - {x: 12.133, y: 9.100, z: 5.182}
+  - {x: 0.0, y: 9.100, z: 5.182}
+  - {x: 0.0, y: 4.550, z: 6.699}
+  - {x: 12.133, y: 4.550, z: 6.699}
+
+# East gable end wall (triangle: base 9.100m, height 1.517m)
+- name: Gable East
+  zone: attic
+  type: wall
+  construction: Gable End
+  boundary: outdoor
+  area: 6.90
+  azimuth: 90.0
+  tilt: 90.0
+
+# West gable end wall (triangle: base 9.100m, height 1.517m)
+- name: Gable West
+  zone: attic
+  type: wall
+  construction: Gable End
+  boundary: outdoor
+  area: 6.90
+  azimuth: 270.0
+  tilt: 90.0
+
+# ── Inter-floor slab (adiabatic — internal between 1F and 2F) ──
+- name: Inter-floor Slab
+  zone: living_unit1
+  type: floor
+  construction: Interior Floor
+  boundary: adiabatic
+  area: 110.41   # half of CFA per floor
+  azimuth: 0.0
+  tilt: 180.0
+
+# ── Back door now modeled above as "Back Door" (3.717 m²) ──
+
+# ══════════════════════════════════════════════════════════════════
+# ── Basement zone surfaces ──
+# ══════════════════════════════════════════════════════════════════
+# Unheated basement below living zone. Footprint 12.133 x 9.100 m,
+# depth 2.124 m below grade. All walls use ground boundary (the IDF
+# splits each side into a tiny above-grade sliver + below-grade portion;
+# we simplify to full-height ground-boundary walls since the above-grade
+# slivers total <0.5% of wall area).
+
+# Basement ceiling (interzone to living zone above)
+- name: Basement Ceiling
+  zone: unheatedbsmt
+  type: roof
+  construction: Basement Ceiling
+  boundary: !zone 'living_unit1'
+  vertices:
+  - {x: 12.133, y: 0.0, z: 0.0}
+  - {x: 0.0, y: 0.0, z: 0.0}
+  - {x: 0.0, y: 9.100, z: 0.0}
+  - {x: 12.133, y: 9.100, z: 0.0}
+
+# Basement south wall (ground boundary)
+- name: Bsmt Wall South
+  zone: unheatedbsmt
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - {x: 0.0, y: 0.0, z: -2.124}
+  - {x: 12.133, y: 0.0, z: -2.124}
+  - {x: 12.133, y: 0.0, z: 0.0}
+  - {x: 0.0, y: 0.0, z: 0.0}
+
+# Basement east wall (ground boundary)
+- name: Bsmt Wall East
+  zone: unheatedbsmt
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - {x: 12.133, y: 0.0, z: -2.124}
+  - {x: 12.133, y: 9.100, z: -2.124}
+  - {x: 12.133, y: 9.100, z: 0.0}
+  - {x: 12.133, y: 0.0, z: 0.0}
+
+# Basement north wall (ground boundary)
+- name: Bsmt Wall North
+  zone: unheatedbsmt
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - {x: 12.133, y: 9.100, z: -2.124}
+  - {x: 0.0, y: 9.100, z: -2.124}
+  - {x: 0.0, y: 9.100, z: 0.0}
+  - {x: 12.133, y: 9.100, z: 0.0}
+
+# Basement west wall (ground boundary)
+- name: Bsmt Wall West
+  zone: unheatedbsmt
+  type: wall
+  construction: Basement Wall
+  boundary: ground
+  vertices:
+  - {x: 0.0, y: 9.100, z: -2.124}
+  - {x: 0.0, y: 0.0, z: -2.124}
+  - {x: 0.0, y: 0.0, z: 0.0}
+  - {x: 0.0, y: 9.100, z: 0.0}
+
+# Basement floor (ground boundary, at z = -2.124)
+- name: Bsmt Floor
+  zone: unheatedbsmt
+  type: floor
+  construction: Interior Floor
+  boundary: ground
+  vertices:
+  - {x: 0.0, y: 0.0, z: -2.124}
+  - {x: 0.0, y: 9.100, z: -2.124}
+  - {x: 12.133, y: 9.100, z: -2.124}
+  - {x: 12.133, y: 0.0, z: -2.124}
+
+# ══════════════════════════════════════════════════════════════════
+# ── Garage zone surfaces ──
+# ══════════════════════════════════════════════════════════════════
+# Garage: 6.096 x 6.096 m, attached to south-east corner of house.
+# Origin at (6.037, -6.096, 0) in building coordinates.
+# Front faces south, back wall shared with living zone.
+# Gable roof: eave at z=2.591, ridge at z=3.597 (y=-3.048 in global).
+
+# Garage south wall (front, minus garage door area)
+# Total wall area = 6.096 x 2.591 = 15.79 m², door = 10.41 m², net = 5.38 m²
+- name: Garage Wall South
+  zone: garage
+  type: wall
+  construction: Gable End
+  boundary: outdoor
+  area: 5.38
+  azimuth: 180.0
+  tilt: 90.0
+
+# Garage door (exterior, on front wall: 4.877m x 2.134m = 10.41 m²)
+- name: Garage Door
+  zone: garage
+  type: wall
+  construction: Exterior Door
+  boundary: outdoor
+  area: 10.41
+  azimuth: 180.0
+  tilt: 90.0
+
+# Garage east wall (full rectangle, no sub-surfaces)
+- name: Garage Wall East
+  zone: garage
+  type: wall
+  construction: Gable End
+  boundary: outdoor
+  vertices:
+  - {x: 12.133, y: -6.096, z: 0.0}
+  - {x: 12.133, y: 0.0, z: 0.0}
+  - {x: 12.133, y: 0.0, z: 2.591}
+  - {x: 12.133, y: -6.096, z: 2.591}
+
+# Garage west wall (full rectangle, no sub-surfaces)
+- name: Garage Wall West
+  zone: garage
+  type: wall
+  construction: Gable End
+  boundary: outdoor
+  vertices:
+  - {x: 6.037, y: 0.0, z: 0.0}
+  - {x: 6.037, y: -6.096, z: 0.0}
+  - {x: 6.037, y: -6.096, z: 2.591}
+  - {x: 6.037, y: 0.0, z: 2.591}
+
+# Garage back wall (interzone to living zone, reversed construction)
+# Net wall area = 6.096 x 2.591 - 1.95 (door) = 13.84 m²
+- name: Garage Wall North
+  zone: garage
+  type: wall
+  construction: Reversed Exterior Wall
+  boundary: !zone 'living_unit1'
+  area: 13.84
+  azimuth: 0.0
+  tilt: 90.0
+
+# Garage interzone door (from garage to living, reversed side)
+- name: Garage Door to Living
+  zone: garage
+  type: wall
+  construction: Exterior Door
+  boundary: !zone 'living_unit1'
+  area: 1.95
+  azimuth: 0.0
+  tilt: 90.0
+
+# Garage south roof slope (eave to ridge)
+- name: Garage Roof South
+  zone: garage
+  type: roof
+  construction: Exterior Roof
+  boundary: outdoor
+  vertices:
+  - {x: 6.037, y: -6.096, z: 2.591}
+  - {x: 12.133, y: -6.096, z: 2.591}
+  - {x: 12.133, y: -3.048, z: 3.597}
+  - {x: 6.037, y: -3.048, z: 3.597}
+
+# Garage north roof slope (eave to ridge)
+- name: Garage Roof North
+  zone: garage
+  type: roof
+  construction: Exterior Roof
+  boundary: outdoor
+  vertices:
+  - {x: 12.133, y: 0.0, z: 2.591}
+  - {x: 6.037, y: 0.0, z: 2.591}
+  - {x: 6.037, y: -3.048, z: 3.597}
+  - {x: 12.133, y: -3.048, z: 3.597}
+
+# Garage east gable end (triangle: base 6.096m, height 1.006m)
+- name: Garage Gable East
+  zone: garage
+  type: wall
+  construction: Gable End
+  boundary: outdoor
+  area: 3.07
+  azimuth: 90.0
+  tilt: 90.0
+
+# Garage west gable end (triangle: base 6.096m, height 1.006m)
+- name: Garage Gable West
+  zone: garage
+  type: wall
+  construction: Gable End
+  boundary: outdoor
+  area: 3.07
+  azimuth: 270.0
+  tilt: 90.0
+
+# Garage floor (slab on grade)
+- name: Garage Floor
+  zone: garage
+  type: floor
+  construction: Interior Floor
+  boundary: ground
+  vertices:
+  - {x: 6.037, y: -6.096, z: 0.0}
+  - {x: 6.037, y: 0.0, z: 0.0}
+  - {x: 12.133, y: 0.0, z: 0.0}
+  - {x: 12.133, y: -6.096, z: 0.0}
+
+# ── Outputs ───────────────────────────────────────────────────────
+outputs:
+- file: "ideal_end_uses.csv"
+  frequency: timestep
+  variables:
+    - "zone:heating_rate"
+    - "zone:cooling_rate"
+    - "building:lighting"
+    - "building:equipment"
+- file: "ideal_zone_debug.csv"
+  frequency: timestep
+  variables:
+    - "zone:temperature"
+    - "zone:heating_rate"
+    - "zone:cooling_rate"
+    - "zone:infiltration_mass_flow"
+    - "zone:gain_infiltration_sensible"
+    - "zone:gain_solar"
+    - "zone:gain_lighting"
+    - "zone:gain_equipment_sensible"
+    - "zone:gain_people_sensible"
+    - "zone:internal_gains_convective"
+    - "zone:internal_gains_radiative"
+    - "site:outdoor_temperature"
+    - "site:direct_normal_radiation"
+    - "site:diffuse_horizontal_radiation"
+- file: "ideal_surface_debug.csv"
+  frequency: timestep
+  variables:
+    - "surface:cond_inside"
+    - "surface:inside_temperature"
+    - "surface:outside_temperature"
+    - "surface:convection_inside"
+    - "surface:radiation_inside"
+    - "surface:inside_radiation_coefficient"
+    - "surface:transmitted_solar"
+    - "surface:incident_solar"
+
+
+# ══════════════════════════════════════════════════════════════════
+# MISSING FUNCTIONALITY FLAGS:
+#
+# 1. EXHAUST FAN POWER: ✓ IMPLEMENTED — ExhaustFanInput now has full fan
+#    math (same as supply/return fans). Power, pressure, efficiency all modeled.
+#
+# 2. DX COIL SHR: E+ uses autosize for SHR. YAML hardcodes 0.75.
+#    Since OpenBSE is sensible-only, this mainly affects rated capacity
+#    decomposition. Consider adding autosize SHR support.
+#    Future: add AirflowNetwork support to OpenBSE.
+#
+# 3. GAS EQUIPMENT: No native GasEquipment type — gas range, dryer,
+#    misc gas gains are modeled as equipment with full input power and
+#    lost_fraction. Energy tracking includes gas, but fuel type is not
+#    distinguished from electric in the end-use summary.
+#
+# 4. UNCONDITIONED ZONES: Garage, basement, and attic are all modeled
+#    as unconditioned free-floating zones with interzone coupling to
+#    the conditioned living space.
+#
+# 5. GROUND HEAT TRANSFER: IDF uses Basement/Slab preprocessors for
+#    detailed ground coupling. We use simplified ground boundary condition.
+#
+# 6. INTERNAL MASS: IDF has InteriorFurnishings (9.9 m2 of 6" wood).
+#    Added as zone-level internal_mass property on living_unit1.
+#
+# 7. LATENT GAINS: Several equipment items have latent fractions
+#    (dishwasher 0.15, gas range 0.06). OpenBSE doesn't model latent gains
+#    from equipment separately.
+#
+# 8. EXTERIOR LIGHTING: 43.24 W exterior + 7.16 W garage lights.
+#    Modeled via exterior_equipment section.
+# ══════════════════════════════════════════════════════════════════

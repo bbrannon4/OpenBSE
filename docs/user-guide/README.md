@@ -1238,6 +1238,8 @@ Variables use the format `category:variable` or `category:variable:name_filter`.
 | `surface:transmitted_solar` | W | Solar transmitted through window |
 | `surface:cond_inside` | W | Conduction heat flux on inside face |
 | `surface:convection_inside` | W | Convective heat flux from surface to zone |
+| `surface:radiation_inside` | W | Net longwave radiation on inside face (positive = into surface) |
+| `surface:inside_radiation_coefficient` | W/(m²·K) | Inside linearized radiation coefficient |
 
 **Component variables** (use `component:variable` or `component:variable:ComponentName`):
 
