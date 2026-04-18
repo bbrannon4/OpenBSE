@@ -158,6 +158,10 @@ impl PlantComponent for Boiler {
         ComponentKind::Boiler
     }
 
+    fn rated_capacity(&self) -> f64 {
+        self.nominal_capacity
+    }
+
     fn simulate_plant(
         &mut self,
         inlet: &WaterPort,

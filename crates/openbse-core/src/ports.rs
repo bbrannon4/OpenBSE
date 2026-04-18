@@ -282,6 +282,12 @@ pub trait PlantComponent: std::fmt::Debug {
         ctx: &SimulationContext,
     ) -> WaterPort;
 
+    /// Rated (maximum) thermal capacity [W]. Used for PLR-based staging.
+    /// Returns `f64::INFINITY` if unconstrained (default).
+    fn rated_capacity(&self) -> f64 {
+        f64::INFINITY
+    }
+
     /// Design water flow rate for autosizing [m³/s]. Returns None if not applicable.
     fn design_water_flow_rate(&self) -> Option<f64> {
         None

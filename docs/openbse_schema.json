@@ -929,7 +929,9 @@
         "name": { "type": "string" },
         "volume": { "type": "number", "default": 0.0, "description": "Zone air volume [m3]. Auto-calculated from surfaces if 0." },
         "floor_area": { "type": "number", "default": 0.0, "description": "Zone floor area [m2]. Auto-calculated from floor surfaces if 0." },
-        "conditioned": { "type": "boolean", "default": true, "description": "Whether the zone is conditioned by HVAC." }
+        "conditioned": { "type": "boolean", "default": true, "description": "Whether the zone is conditioned by HVAC." },
+        "max_relative_humidity": { "type": "number", "description": "Maximum relative humidity setpoint [%] (e.g. 60). HVAC switches to dehumidification cooling when zone RH exceeds this." },
+        "min_relative_humidity": { "type": "number", "description": "Minimum relative humidity setpoint [%] (e.g. 30). Humidifier activates when zone RH falls below this." }
       }
     },
 
