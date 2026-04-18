@@ -7,10 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.4] - 2026-04-17
+## [0.2.4] - 2026-04-18
 
 ### Added
 
+- **PTHP system type** — `system_type: pthp` adds packaged terminal heat pump support: heat pump heating coil with ON/OFF PLR cycling (same as DX cooling, not PLR=1 water-coil modulation). Existing `HeatingCoilInput` with `source: heat_pump` wires directly in. Includes `examples/hotel_pthp.yaml`. Closes #8.
+- **Advanced economizer modes** — Three new `EconomizerType` variants available in all system types (PSZ-AC and VAV): `fixed_enthalpy` (OA when outdoor enthalpy < configurable limit, default 65.2 kJ/kg), `enthalpy_with_high_limit` (differential enthalpy AND dry-bulb high-limit). Also fixes `differential_enthalpy` which was incorrectly comparing temperatures instead of enthalpies. Closes #16.
+- **ComponentKind enum** — All HVAC components now implement `component_kind() -> ComponentKind` on the `AirComponent` and `PlantComponent` traits, enabling type-safe energy accounting without string matching. Closes #23.
+- **`docs/CONTRIBUTING_COMPONENTS.md`** — Step-by-step guide for adding new physics components: trait implementation, YAML registration, sign conventions, unit reference table, and a worked example. Closes #23.
 - **Zone air balance diagnostic outputs** — New per-zone output variables `q_surf_conv_total`, `q_surf_conv_walls`, `q_surf_conv_floors`, `q_surf_conv_roofs`, `q_surf_conv_windows`, `q_infiltration_sensible`, and `q_thermal_mass` expose each term of the zone air energy balance for validation and debugging.
 - **Per-surface convection outputs** — `conv_to_zone` (h_conv × A × ΔT) and `h_conv_inside` are now available as surface-level output variables.
 - **`compare_zone_balance.py`** — Zone air balance comparison script for Single Family prototype (OB vs E+ component-by-component).
@@ -18,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Inter-floor slab solar interaction (Single Family prototype)** — The 1F/2F structural deck was modeled as an adiabatic surface, causing `FullExterior` solar distribution to send ~50% of beam solar to it. Since both faces are in the same zone the surface is adiabatic, so all absorbed energy recycled back to zone air with no loss path — an artificial gain loop not present in E+. Converted to `internal_mass` (matching E+'s approach): thermal mass is preserved, solar distribution is excluded. Heating error vs E+ reduced from +18% to +4.8%; cooling from unconstrained to +3.5%. Closes #18.
+- **`differential_enthalpy` economizer** — Was comparing outdoor dry-bulb temperature against return air temperature instead of computing and comparing air enthalpies. Now correctly uses h = cp·T + hfg·w.
 
 ## [0.2.3] - 2026-04-06
 

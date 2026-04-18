@@ -1,0 +1,514 @@
+# OpenBSE Example: Hotel Guest Rooms with Packaged Terminal Heat Pumps (PTHP)
+#
+# ASHRAE 90.1 Appendix G System 2 analog: PTHP units, one per guest room.
+# Each PTHP has a heat pump heating coil (ON/OFF cycling, PLR < 1) and
+# a DX cooling coil — no hot-water plant required.
+#
+# Building: single-floor hotel wing
+#   - 4 guest rooms, each ~30 m² (322 sqft), 2.7 m ceiling
+#   - All rooms face the same facade (south exposure)
+#
+# HVAC System per room:
+#   - PTHP: on/off fan + heat pump heating coil (COP 3.2)
+#     + DX cooling coil + supplemental electric resistance (2000 W)
+#   - Compressor lockout below -10°C outdoor
+#   - Thermostat: heating 21.1°C (70°F), cooling 23.9°C (75°F)
+#
+# Weather: Denver, CO (Boulder TMYx)
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+
+design_days:
+  - name: Denver Heating 99.6%
+    design_temp: -17.8
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -17.8
+    pressure: 83411.0
+    wind_speed: 2.3
+    month: 1
+    day: 21
+    day_type: winter
+
+  - name: Denver Cooling 0.4%
+    design_temp: 34.1
+    daily_range: 15.2
+    humidity_type: wetbulb
+    humidity_value: 15.7
+    pressure: 83411.0
+    wind_speed: 4.0
+    month: 7
+    day: 21
+    day_type: summer
+
+schedules:
+  - name: Hotel Occupancy
+    weekday: [0.3, 0.3, 0.3, 0.3, 0.3, 0.4, 0.6, 0.5, 0.3, 0.2, 0.2, 0.2,
+              0.2, 0.2, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.9, 0.5]
+    weekend: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.7, 0.8, 0.6, 0.4, 0.3, 0.3,
+              0.3, 0.3, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.9, 0.7]
+
+  - name: Hotel Lighting
+    weekday: [0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.5, 0.4, 0.2, 0.1, 0.1, 0.1,
+              0.1, 0.1, 0.1, 0.2, 0.4, 0.6, 0.8, 0.9, 1.0, 1.0, 0.8, 0.3]
+    weekend: [0.2, 0.1, 0.1, 0.1, 0.1, 0.1, 0.3, 0.5, 0.4, 0.2, 0.1, 0.1,
+              0.1, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0, 1.0, 1.0, 0.9, 0.5]
+
+materials:
+  - name: Exterior Wall Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Gypsum Board
+    conductivity: 0.16
+    density: 800.0
+    specific_heat: 830.0
+    solar_absorptance: 0.4
+    thermal_absorptance: 0.9
+    roughness: smooth
+
+  - name: Concrete Block
+    conductivity: 0.72
+    density: 1900.0
+    specific_heat: 840.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Roof Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Roof Membrane
+    conductivity: 0.16
+    density: 1120.0
+    specific_heat: 1460.0
+    solar_absorptance: 0.9
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Concrete Slab
+    conductivity: 1.311
+    density: 2240.0
+    specific_heat: 836.8
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+constructions:
+  - name: Exterior Wall
+    layers:
+      - material: Concrete Block
+        thickness: 0.20
+      - material: Exterior Wall Insulation
+        thickness: 0.076
+      - material: Gypsum Board
+        thickness: 0.016
+
+  - name: Interior Partition
+    layers:
+      - material: Gypsum Board
+        thickness: 0.016
+      - material: Gypsum Board
+        thickness: 0.016
+
+  - name: Flat Roof
+    layers:
+      - material: Roof Membrane
+        thickness: 0.010
+      - material: Roof Insulation
+        thickness: 0.152
+      - material: Gypsum Board
+        thickness: 0.016
+
+  - name: Ground Floor
+    layers:
+      - material: Concrete Slab
+        thickness: 0.100
+
+window_constructions:
+  - name: Double Pane Window
+    u_factor: 2.56
+    shgc: 0.40
+    visible_transmittance: 0.60
+
+# Four guest rooms — each 6 m x 5 m x 2.7 m = 81 m³
+zones:
+  - name: Room 101
+    volume: 81.0
+    floor_area: 30.0
+    outdoor_air:
+      flow_per_person: 0.0025
+      flow_per_area: 0.0003
+    internal_gains:
+      - type: people
+        count: 2.0
+        watts_per_person: 73.0
+        schedule: Hotel Occupancy
+      - type: lighting
+        watts_per_area: 11.0
+        schedule: Hotel Lighting
+      - type: equipment
+        watts_per_area: 5.0
+        schedule: Hotel Lighting
+
+  - name: Room 102
+    volume: 81.0
+    floor_area: 30.0
+    outdoor_air:
+      flow_per_person: 0.0025
+      flow_per_area: 0.0003
+    internal_gains:
+      - type: people
+        count: 2.0
+        watts_per_person: 73.0
+        schedule: Hotel Occupancy
+      - type: lighting
+        watts_per_area: 11.0
+        schedule: Hotel Lighting
+      - type: equipment
+        watts_per_area: 5.0
+        schedule: Hotel Lighting
+
+  - name: Room 103
+    volume: 81.0
+    floor_area: 30.0
+    outdoor_air:
+      flow_per_person: 0.0025
+      flow_per_area: 0.0003
+    internal_gains:
+      - type: people
+        count: 2.0
+        watts_per_person: 73.0
+        schedule: Hotel Occupancy
+      - type: lighting
+        watts_per_area: 11.0
+        schedule: Hotel Lighting
+      - type: equipment
+        watts_per_area: 5.0
+        schedule: Hotel Lighting
+
+  - name: Room 104
+    volume: 81.0
+    floor_area: 30.0
+    outdoor_air:
+      flow_per_person: 0.0025
+      flow_per_area: 0.0003
+    internal_gains:
+      - type: people
+        count: 2.0
+        watts_per_person: 73.0
+        schedule: Hotel Occupancy
+      - type: lighting
+        watts_per_area: 11.0
+        schedule: Hotel Lighting
+      - type: equipment
+        watts_per_area: 5.0
+        schedule: Hotel Lighting
+
+surfaces:
+  # ── Room 101 ──────────────────────────────────────────────────────────────
+  - name: R101 South Wall
+    construction: Exterior Wall
+    boundary: outdoor
+    area: 16.2
+    tilt: 90.0
+    azimuth: 180.0
+    zone: Room 101
+    windows:
+      - area: 3.0
+        construction: Double Pane Window
+
+  - name: R101 North Partition
+    construction: Interior Partition
+    boundary: ground
+    area: 16.2
+    tilt: 90.0
+    azimuth: 0.0
+    zone: Room 101
+
+  - name: R101 East Wall
+    construction: Exterior Wall
+    boundary: outdoor
+    area: 13.5
+    tilt: 90.0
+    azimuth: 90.0
+    zone: Room 101
+
+  - name: R101 Roof
+    construction: Flat Roof
+    boundary: outdoor
+    area: 30.0
+    tilt: 0.0
+    azimuth: 0.0
+    zone: Room 101
+
+  - name: R101 Floor
+    construction: Ground Floor
+    boundary: ground
+    area: 30.0
+    tilt: 180.0
+    azimuth: 0.0
+    zone: Room 101
+
+  # ── Room 102 ──────────────────────────────────────────────────────────────
+  - name: R102 South Wall
+    construction: Exterior Wall
+    boundary: outdoor
+    area: 16.2
+    tilt: 90.0
+    azimuth: 180.0
+    zone: Room 102
+    windows:
+      - area: 3.0
+        construction: Double Pane Window
+
+  - name: R102 North Partition
+    construction: Interior Partition
+    boundary: ground
+    area: 16.2
+    tilt: 90.0
+    azimuth: 0.0
+    zone: Room 102
+
+  - name: R102 Roof
+    construction: Flat Roof
+    boundary: outdoor
+    area: 30.0
+    tilt: 0.0
+    azimuth: 0.0
+    zone: Room 102
+
+  - name: R102 Floor
+    construction: Ground Floor
+    boundary: ground
+    area: 30.0
+    tilt: 180.0
+    azimuth: 0.0
+    zone: Room 102
+
+  # ── Room 103 ──────────────────────────────────────────────────────────────
+  - name: R103 South Wall
+    construction: Exterior Wall
+    boundary: outdoor
+    area: 16.2
+    tilt: 90.0
+    azimuth: 180.0
+    zone: Room 103
+    windows:
+      - area: 3.0
+        construction: Double Pane Window
+
+  - name: R103 North Partition
+    construction: Interior Partition
+    boundary: ground
+    area: 16.2
+    tilt: 90.0
+    azimuth: 0.0
+    zone: Room 103
+
+  - name: R103 Roof
+    construction: Flat Roof
+    boundary: outdoor
+    area: 30.0
+    tilt: 0.0
+    azimuth: 0.0
+    zone: Room 103
+
+  - name: R103 Floor
+    construction: Ground Floor
+    boundary: ground
+    area: 30.0
+    tilt: 180.0
+    azimuth: 0.0
+    zone: Room 103
+
+  # ── Room 104 ──────────────────────────────────────────────────────────────
+  - name: R104 South Wall
+    construction: Exterior Wall
+    boundary: outdoor
+    area: 16.2
+    tilt: 90.0
+    azimuth: 180.0
+    zone: Room 104
+    windows:
+      - area: 3.0
+        construction: Double Pane Window
+
+  - name: R104 North Partition
+    construction: Interior Partition
+    boundary: ground
+    area: 16.2
+    tilt: 90.0
+    azimuth: 0.0
+    zone: Room 104
+
+  - name: R104 West Wall
+    construction: Exterior Wall
+    boundary: outdoor
+    area: 13.5
+    tilt: 90.0
+    azimuth: 270.0
+    zone: Room 104
+
+  - name: R104 Roof
+    construction: Flat Roof
+    boundary: outdoor
+    area: 30.0
+    tilt: 0.0
+    azimuth: 0.0
+    zone: Room 104
+
+  - name: R104 Floor
+    construction: Ground Floor
+    boundary: ground
+    area: 30.0
+    tilt: 180.0
+    azimuth: 0.0
+    zone: Room 104
+
+# PTHP units — one per guest room
+air_loops:
+  - name: PTHP Room 101
+    system_type: pthp
+    zones:
+      - zone: Room 101
+    controls:
+      heating_supply_temp: 45.0
+      cooling_supply_temp: 13.0
+      cycling: on_off
+      heating_setpoint: 21.1
+      cooling_setpoint: 23.9
+    equipment:
+      - type: fan
+        name: R101 Fan
+        source: on_off
+        design_flow_rate: autosize
+        pressure_rise: 100.0
+        efficiency: 0.7
+
+      - type: heating_coil
+        name: R101 HP Heating Coil
+        source: heat_pump
+        capacity: autosize
+        cop: 3.2
+        supplemental_capacity: 2000.0
+        lockout_temperature: -10.0
+
+      - type: cooling_coil
+        name: R101 DX Cooling Coil
+        source: dx
+        capacity: autosize
+        cop: 3.5
+
+  - name: PTHP Room 102
+    system_type: pthp
+    zones:
+      - zone: Room 102
+    controls:
+      heating_supply_temp: 45.0
+      cooling_supply_temp: 13.0
+      cycling: on_off
+      heating_setpoint: 21.1
+      cooling_setpoint: 23.9
+    equipment:
+      - type: fan
+        name: R102 Fan
+        source: on_off
+        design_flow_rate: autosize
+        pressure_rise: 100.0
+        efficiency: 0.7
+
+      - type: heating_coil
+        name: R102 HP Heating Coil
+        source: heat_pump
+        capacity: autosize
+        cop: 3.2
+        supplemental_capacity: 2000.0
+        lockout_temperature: -10.0
+
+      - type: cooling_coil
+        name: R102 DX Cooling Coil
+        source: dx
+        capacity: autosize
+        cop: 3.5
+
+  - name: PTHP Room 103
+    system_type: pthp
+    zones:
+      - zone: Room 103
+    controls:
+      heating_supply_temp: 45.0
+      cooling_supply_temp: 13.0
+      cycling: on_off
+      heating_setpoint: 21.1
+      cooling_setpoint: 23.9
+    equipment:
+      - type: fan
+        name: R103 Fan
+        source: on_off
+        design_flow_rate: autosize
+        pressure_rise: 100.0
+        efficiency: 0.7
+
+      - type: heating_coil
+        name: R103 HP Heating Coil
+        source: heat_pump
+        capacity: autosize
+        cop: 3.2
+        supplemental_capacity: 2000.0
+        lockout_temperature: -10.0
+
+      - type: cooling_coil
+        name: R103 DX Cooling Coil
+        source: dx
+        capacity: autosize
+        cop: 3.5
+
+  - name: PTHP Room 104
+    system_type: pthp
+    zones:
+      - zone: Room 104
+    controls:
+      heating_supply_temp: 45.0
+      cooling_supply_temp: 13.0
+      cycling: on_off
+      heating_setpoint: 21.1
+      cooling_setpoint: 23.9
+    equipment:
+      - type: fan
+        name: R104 Fan
+        source: on_off
+        design_flow_rate: autosize
+        pressure_rise: 100.0
+        efficiency: 0.7
+
+      - type: heating_coil
+        name: R104 HP Heating Coil
+        source: heat_pump
+        capacity: autosize
+        cop: 3.2
+        supplemental_capacity: 2000.0
+        lockout_temperature: -10.0
+
+      - type: cooling_coil
+        name: R104 DX Cooling Coil
+        source: dx
+        capacity: autosize
+        cop: 3.5

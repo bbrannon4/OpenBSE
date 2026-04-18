@@ -267,8 +267,8 @@
 
     "AirLoopSystemType": {
       "type": "string",
-      "enum": ["psz_ac", "doas", "fcu", "vav", "ptac", "variable_air_volume", "dedicated_outdoor_air", "fan_coil_unit", "packaged_terminal", "packaged_single_zone"],
-      "description": "HVAC system type hint. Usually auto-detected from equipment and controls. Descriptive aliases are accepted: variable_air_volume (=vav), dedicated_outdoor_air (=doas), fan_coil_unit (=fcu), packaged_terminal (=ptac), packaged_single_zone (=psz_ac)."
+      "enum": ["psz_ac", "doas", "fcu", "vav", "ptac", "pthp", "variable_air_volume", "dedicated_outdoor_air", "fan_coil_unit", "packaged_terminal", "packaged_terminal_heat_pump", "packaged_single_zone"],
+      "description": "HVAC system type hint. Usually auto-detected from equipment and controls. Descriptive aliases are accepted: variable_air_volume (=vav), dedicated_outdoor_air (=doas), fan_coil_unit (=fcu), packaged_terminal (=ptac), packaged_terminal_heat_pump (=pthp), packaged_single_zone (=psz_ac)."
     },
 
     "CyclingMethod": {
@@ -280,9 +280,9 @@
 
     "EconomizerType": {
       "type": "string",
-      "enum": ["differential_dry_bulb", "fixed_dry_bulb", "differential_enthalpy", "no_economizer"],
+      "enum": ["differential_dry_bulb", "fixed_dry_bulb", "differential_enthalpy", "fixed_enthalpy", "enthalpy_with_high_limit", "no_economizer"],
       "default": "differential_dry_bulb",
-      "description": "Economizer control strategy for free cooling."
+      "description": "Economizer control strategy for free cooling. differential_enthalpy: OA enthalpy < return enthalpy. fixed_enthalpy: OA enthalpy < high_limit_enthalpy. enthalpy_with_high_limit: differential enthalpy AND OA temp < high_limit."
     },
 
     "EconomizerControls": {
@@ -290,7 +290,8 @@
       "description": "Economizer configuration.",
       "properties": {
         "economizer_type": { "$ref": "#/$defs/EconomizerType" },
-        "high_limit": { "type": "number", "description": "High limit shutoff temperature [C] (for fixed_dry_bulb)." }
+        "high_limit": { "type": "number", "description": "High limit shutoff temperature [C] (for fixed_dry_bulb and enthalpy_with_high_limit)." },
+        "high_limit_enthalpy": { "type": "number", "description": "High limit shutoff enthalpy [J/kg] (for fixed_enthalpy and enthalpy_with_high_limit). Default: 65200 J/kg (~28 BTU/lb, ASHRAE 90.1)." }
       }
     },
 

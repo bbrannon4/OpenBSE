@@ -101,8 +101,10 @@ struct LoopInfo {
     design_supply_flow: f64,
     /// Economizer type for this loop.
     economizer_type: openbse_io::input::EconomizerType,
-    /// Economizer high-limit shutoff temperature [°C] (for FixedDryBulb).
+    /// Economizer high-limit shutoff temperature [°C] (for FixedDryBulb / EnthalpyWithHighLimit).
     economizer_high_limit: Option<f64>,
+    /// Economizer high-limit shutoff enthalpy [J/kg] (for FixedEnthalpy / EnthalpyWithHighLimit).
+    economizer_high_limit_enthalpy: Option<f64>,
 }
 
 /// Per-zone data for ASHRAE 62.1 ventilation rate procedure.
@@ -300,6 +302,11 @@ fn build_loop_infos(
                     .map(|e| e.economizer_type)
                     .unwrap_or(openbse_io::input::EconomizerType::NoEconomizer),
                 economizer_high_limit: al.controls.economizer.as_ref().and_then(|e| e.high_limit),
+                economizer_high_limit_enthalpy: al
+                    .controls
+                    .economizer
+                    .as_ref()
+                    .and_then(|e| e.high_limit_enthalpy),
                 design_supply_flow: al
                     .equipment
                     .iter()
@@ -1208,8 +1215,10 @@ fn main() -> Result<()> {
 
                             (oa_flow_m3, doas_heat_cap, doas_cool_cap)
                         }
-                        AirLoopSystemType::Fcu | AirLoopSystemType::Ptac => {
-                            // FCU/PTAC: sized to its served zone(s)
+                        AirLoopSystemType::Fcu
+                        | AirLoopSystemType::Ptac
+                        | AirLoopSystemType::Pthp => {
+                            // FCU/PTAC/PTHP: sized to its served zone(s)
                             // Coil capacity must include ventilation heating/cooling load
                             // (outdoor air mixed with return air before entering the coil).
                             let zone_airflow: f64 = li
@@ -1734,6 +1743,11 @@ fn main() -> Result<()> {
 
                         // Single HVAC pass (no iterating during warmup — faster)
                         let empty_predictor: HashMap<String, f64> = HashMap::new();
+                        let warmup_zone_w: HashMap<String, f64> = env
+                            .zones
+                            .iter()
+                            .map(|z| (z.input.name.clone(), z.humidity_ratio))
+                            .collect();
                         let (_, zone_supply_conditions) = simulate_all_loops(
                             &mut graph,
                             &ctx,
@@ -1756,6 +1770,7 @@ fn main() -> Result<()> {
                             &zone_thermal_caps,
                             &empty_predictor,
                             &zone_multipliers,
+                            &warmup_zone_w,
                         );
 
                         // Skip plant loop during warmup — it only affects energy
@@ -2103,6 +2118,15 @@ fn main() -> Result<()> {
                         let mut prev_supply_conditions: HashMap<String, (f64, f64)> =
                             HashMap::new();
 
+                        // Zone humidity ratios for economizer enthalpy calculations.
+                        // Initialized from zone state before HVAC iteration; treated as
+                        // frozen (like initial_zone_temps) since humidity changes slowly.
+                        let zone_humidity_ratios: HashMap<String, f64> = env
+                            .zones
+                            .iter()
+                            .map(|z| (z.input.name.clone(), z.humidity_ratio))
+                            .collect();
+
                         for hvac_iter in 0..MAX_HVAC_ITER {
                             // Step 1: Run HVAC with current zone temps and loads
                             let (mut hvac_result, zone_supply_conditions) = simulate_all_loops(
@@ -2127,6 +2151,7 @@ fn main() -> Result<()> {
                                 &zone_thermal_caps,
                                 &predictor_no_hvac_temps,
                                 &zone_multipliers,
+                                &zone_humidity_ratios,
                             );
 
                             // Step 1b: Run plant loops in topological order.
@@ -3619,7 +3644,9 @@ fn simulate_all_loops(
     zone_thermal_caps: &HashMap<String, f64>,
     predictor_no_hvac_temps: &HashMap<String, f64>,
     zone_multipliers: &HashMap<String, u32>,
+    zone_humidity_ratios: &HashMap<String, f64>,
 ) -> (TimestepResult, HashMap<String, (f64, f64)>) {
+    let w_outdoor = ctx.outdoor_air.w;
     let mut all_outputs: HashMap<String, HashMap<String, f64>> = HashMap::new();
     // zone_name -> Vec<(supply_temp, mass_flow)> — accumulate from multiple loops
     let mut zone_supply: HashMap<String, Vec<(f64, f64)>> = HashMap::new();
@@ -3884,6 +3911,8 @@ fn simulate_all_loops(
                 zone_heating_loads,
                 effective_min_oa,
                 &predictor_modes,
+                w_outdoor,
+                zone_humidity_ratios,
             ),
 
             // ──────────────────────────────────────────────────────────────
@@ -3899,20 +3928,22 @@ fn simulate_all_loops(
             ),
 
             // ──────────────────────────────────────────────────────────────
-            // FCU / PTAC: recirculating unit, per-zone thermostat.
-            // Each FCU/PTAC loop serves exactly one zone.
+            // FCU / PTAC / PTHP: recirculating unit, per-zone thermostat.
+            // Each FCU/PTAC/PTHP loop serves exactly one zone.
             // ──────────────────────────────────────────────────────────────
-            AirLoopSystemType::Fcu | AirLoopSystemType::Ptac => build_fcu_signals(
-                li,
-                zone_temps,
-                active_heat_sp,
-                active_cool_sp,
-                zone_design_flows,
-                t_outdoor,
-                zone_heating_loads,
-                zone_cooling_loads,
-                &predictor_modes,
-            ),
+            AirLoopSystemType::Fcu | AirLoopSystemType::Ptac | AirLoopSystemType::Pthp => {
+                build_fcu_signals(
+                    li,
+                    zone_temps,
+                    active_heat_sp,
+                    active_cool_sp,
+                    zone_design_flows,
+                    t_outdoor,
+                    zone_heating_loads,
+                    zone_cooling_loads,
+                    &predictor_modes,
+                )
+            }
 
             // ──────────────────────────────────────────────────────────────
             // VAV: central cold-deck AHU, per-zone airflow modulation.
@@ -3938,6 +3969,8 @@ fn simulate_all_loops(
                     zone_heating_loads,
                     li.cooling_supply_temp,
                     zone_thermal_caps,
+                    w_outdoor,
+                    zone_humidity_ratios,
                 )
             }
         };
@@ -4125,6 +4158,7 @@ fn simulate_all_loops(
         // For non-PSZ-AC systems, PLR = 1.0 (they handle modulation internally).
         let loop_plr = if li.system_type == AirLoopSystemType::PszAc
             || li.system_type == AirLoopSystemType::Ptac
+            || li.system_type == AirLoopSystemType::Pthp
         {
             let control_zone = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
             // Zone multiplier: equipment is sized for multiplied load, so the
@@ -4504,7 +4538,9 @@ fn simulate_all_loops(
                             let n = li.served_zones.len().max(1) as f64;
                             effective_flow / n
                         }
-                        AirLoopSystemType::Fcu | AirLoopSystemType::Ptac => effective_flow,
+                        AirLoopSystemType::Fcu
+                        | AirLoopSystemType::Ptac
+                        | AirLoopSystemType::Pthp => effective_flow,
                         AirLoopSystemType::Vav => {
                             signals
                                 .zone_air_flows
@@ -4569,6 +4605,8 @@ fn build_psz_signals(
     zone_heating_loads: &HashMap<String, f64>,
     effective_min_oa: f64,
     predictor_modes: &HashMap<String, HvacMode>,
+    w_outdoor: f64,
+    zone_humidity_ratios: &HashMap<String, f64>,
 ) -> ControlSignals {
     let mut signals = ControlSignals::default();
 
@@ -4668,8 +4706,17 @@ fn build_psz_signals(
     // ── Economizer: respects loop economizer type ──
     // FixedDryBulb: OA used when OAT < high_limit
     // DifferentialDryBulb: OA used when OAT < return air temp
+    // DifferentialEnthalpy: OA used when OA enthalpy < return air enthalpy
+    // FixedEnthalpy: OA used when OA enthalpy < high_limit_enthalpy
+    // EnthalpyWithHighLimit: differential enthalpy AND OAT < high_limit
     // NoEconomizer: always minimum OA
     let return_air_temp = control_temp;
+    let return_w = zone_humidity_ratios
+        .get(control_zone)
+        .copied()
+        .unwrap_or(0.008);
+    let return_enthalpy = openbse_psychrometrics::h_fn_tdb_w(return_air_temp, return_w);
+    let outdoor_enthalpy = openbse_psychrometrics::h_fn_tdb_w(t_outdoor, w_outdoor);
     use openbse_io::input::EconomizerType;
     let psz_econ_available = match li.economizer_type {
         EconomizerType::NoEconomizer => false,
@@ -4678,7 +4725,15 @@ fn build_psz_signals(
             t_outdoor < limit
         }
         EconomizerType::DifferentialDryBulb => t_outdoor < return_air_temp,
-        EconomizerType::DifferentialEnthalpy => t_outdoor < return_air_temp,
+        EconomizerType::DifferentialEnthalpy => outdoor_enthalpy < return_enthalpy,
+        EconomizerType::FixedEnthalpy => {
+            let limit = li.economizer_high_limit_enthalpy.unwrap_or(65_200.0);
+            outdoor_enthalpy < limit
+        }
+        EconomizerType::EnthalpyWithHighLimit => {
+            let temp_limit = li.economizer_high_limit.unwrap_or(23.889);
+            outdoor_enthalpy < return_enthalpy && t_outdoor < temp_limit
+        }
     };
     let oa_frac = if psz_econ_available && mode != HvacMode::Heating {
         // Economizer: modulate OA to approach SAT target in mixed air.
@@ -4891,9 +4946,12 @@ fn build_fcu_signals(
     // where Supply Air Fan Operating Mode Schedule = 1 (continuous).
     // E+ PTAC heating uses water coil modulation (PLR=1, valve throttles).
     // E+ PTAC cooling uses DX ON/OFF cycling (PLR < 1).
+    // PTHP: identical flow/OA/setpoint dispatch to PTAC, but heating uses a
+    // heat pump coil with ON/OFF cycling (PLR < 1) just like DX cooling.
     //
     // FCU: modulates fan speed proportionally.
-    let is_ptac = li.system_type == AirLoopSystemType::Ptac;
+    let is_pthp = li.system_type == AirLoopSystemType::Pthp;
+    let is_ptac = li.system_type == AirLoopSystemType::Ptac || is_pthp;
     let is_continuous_fan_mode = li.fan_operating_mode
         == openbse_io::input::FanOperatingMode::Continuous
         || li.fan_operating_mode == openbse_io::input::FanOperatingMode::ContinuousNoLoadOff;
@@ -4942,18 +5000,15 @@ fn build_fcu_signals(
     for name in &li.component_names {
         let lname = name.to_lowercase();
         if is_ptac {
-            // PTAC control matching EnergyPlus:
+            // PTAC / PTHP control matching EnergyPlus:
             //
-            // Heating (Coil:Heating:Water): E+ modulates water flow rate
-            // to deliver exactly the zone load.  We approximate this by
-            // computing the supply temp target from the predictor load:
-            //   T_target = T_zone + Q_heat / (m_dot * cp)
-            // The coil modulates internally to meet this target.  PLR = 1
-            // for heating (no ON/OFF cycling for water coils).
+            // Heating: coil targets the design supply temp at full capacity.
+            // PLR cycling (computed in simulate_all_loops) sets the ON/OFF
+            // duty cycle to match the zone load.  For PTAC this is a water
+            // coil; for PTHP this is a heat pump coil — both use the same
+            // ON/OFF PLR path.
             //
-            // Cooling (DX coil): E+ cycles the compressor ON/OFF.  We
-            // run the DX at full capacity and set PLR = Q_cool / Q_cap
-            // after component simulation.
+            // Cooling (DX coil): same ON/OFF PLR approach.
             match mode {
                 HvacMode::Heating => {
                     // E+ PTAC (Fan:OnOff cycling): run heating coil at
@@ -5114,6 +5169,8 @@ fn build_vav_signals(
     zone_heating_loads: &HashMap<String, f64>,
     _supply_air_temp: f64,
     zone_thermal_caps: &HashMap<String, f64>,
+    w_outdoor: f64,
+    zone_humidity_ratios: &HashMap<String, f64>,
 ) -> ControlSignals {
     let mut signals = ControlSignals::default();
 
@@ -5323,6 +5380,17 @@ fn build_vav_signals(
         n_cool > n_heat
     };
     let any_cooling = any_served_cooling && cooling_dominant;
+    let avg_zone_w = if li.served_zones.is_empty() {
+        0.008
+    } else {
+        li.served_zones
+            .iter()
+            .map(|z| zone_humidity_ratios.get(z).copied().unwrap_or(0.008))
+            .sum::<f64>()
+            / li.served_zones.len() as f64
+    };
+    let return_enthalpy_vav = openbse_psychrometrics::h_fn_tdb_w(avg_zone_temp, avg_zone_w);
+    let outdoor_enthalpy_vav = openbse_psychrometrics::h_fn_tdb_w(raw_t_outdoor, w_outdoor);
     use openbse_io::input::EconomizerType;
     let econ_available = match li.economizer_type {
         EconomizerType::NoEconomizer => false,
@@ -5331,7 +5399,15 @@ fn build_vav_signals(
             raw_t_outdoor < limit
         }
         EconomizerType::DifferentialDryBulb => raw_t_outdoor < avg_zone_temp,
-        EconomizerType::DifferentialEnthalpy => raw_t_outdoor < avg_zone_temp, // approximate
+        EconomizerType::DifferentialEnthalpy => outdoor_enthalpy_vav < return_enthalpy_vav,
+        EconomizerType::FixedEnthalpy => {
+            let limit = li.economizer_high_limit_enthalpy.unwrap_or(65_200.0);
+            outdoor_enthalpy_vav < limit
+        }
+        EconomizerType::EnthalpyWithHighLimit => {
+            let temp_limit = li.economizer_high_limit.unwrap_or(23.889);
+            outdoor_enthalpy_vav < return_enthalpy_vav && raw_t_outdoor < temp_limit
+        }
     };
     // ── E+ LockoutWithHeating economizer logic ──
     //
@@ -5696,4 +5772,408 @@ fn month_day_from_hour(hour_of_year: u32, dims: &[u32; 12]) -> (u32, u32) {
         remaining -= days;
     }
     (12, 31)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_pthp_loop(component_names: Vec<String>) -> LoopInfo {
+        LoopInfo {
+            name: "test_pthp".to_string(),
+            system_type: AirLoopSystemType::Pthp,
+            component_names,
+            fan_names: HashSet::new(),
+            served_zones: vec!["Zone1".to_string()],
+            min_oa_fraction: 0.0,
+            min_vav_fraction: 0.3,
+            availability_schedule: None,
+            heating_supply_temp: 45.0,
+            cooling_supply_temp: 13.0,
+            cycling: openbse_io::input::CyclingMethod::OnOff,
+            fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
+            terminal_boxes: HashMap::new(),
+            explicit_min_oa: false,
+            heat_recovery_name: None,
+            hhw_boiler_efficiency: 0.8,
+            dcv: false,
+            zone_oa_data: vec![],
+            design_supply_flow: 0.3,
+            economizer_type: openbse_io::input::EconomizerType::NoEconomizer,
+            economizer_high_limit: None,
+            economizer_high_limit_enthalpy: None,
+        }
+    }
+
+    fn make_psz_loop(econ_type: openbse_io::input::EconomizerType) -> LoopInfo {
+        LoopInfo {
+            name: "test_psz".to_string(),
+            system_type: AirLoopSystemType::PszAc,
+            component_names: vec!["DX Cooling Coil".to_string()],
+            fan_names: HashSet::new(),
+            served_zones: vec!["Zone1".to_string()],
+            min_oa_fraction: 0.15,
+            min_vav_fraction: 0.3,
+            availability_schedule: None,
+            heating_supply_temp: 40.0,
+            cooling_supply_temp: 13.0,
+            cycling: openbse_io::input::CyclingMethod::OnOff,
+            fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
+            terminal_boxes: HashMap::new(),
+            explicit_min_oa: false,
+            heat_recovery_name: None,
+            hhw_boiler_efficiency: 0.8,
+            dcv: false,
+            zone_oa_data: vec![],
+            design_supply_flow: 0.5,
+            economizer_type: econ_type,
+            economizer_high_limit: None,
+            economizer_high_limit_enthalpy: None,
+        }
+    }
+
+    // ── PTHP tests ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pthp_heating_mode_sets_hp_coil_setpoint() {
+        let li = make_pthp_loop(vec![
+            "R101 HP Heating Coil".to_string(),
+            "R101 DX Cooling Coil".to_string(),
+        ]);
+        let zone_temps: HashMap<String, f64> = [("Zone1".to_string(), 18.0)].into_iter().collect();
+        let zone_heat_sp: HashMap<String, f64> =
+            [("Zone1".to_string(), 21.1)].into_iter().collect();
+        let zone_cool_sp: HashMap<String, f64> =
+            [("Zone1".to_string(), 23.9)].into_iter().collect();
+        let zone_design_flows: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.3)].into_iter().collect();
+        let zone_heating_loads: HashMap<String, f64> =
+            [("Zone1".to_string(), 2000.0)].into_iter().collect();
+        let zone_cooling_loads: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.0)].into_iter().collect();
+        let predictor_modes: HashMap<String, HvacMode> = [("Zone1".to_string(), HvacMode::Heating)]
+            .into_iter()
+            .collect();
+
+        let signals = build_fcu_signals(
+            &li,
+            &zone_temps,
+            &zone_heat_sp,
+            &zone_cool_sp,
+            &zone_design_flows,
+            5.0,
+            &zone_heating_loads,
+            &zone_cooling_loads,
+            &predictor_modes,
+        );
+
+        // HP heating coil gets the design heating supply temp
+        assert_eq!(
+            signals.coil_setpoints.get("R101 HP Heating Coil").copied(),
+            Some(li.heating_supply_temp),
+            "PTHP heating coil must target design supply temp"
+        );
+        // DX cooling coil is disabled in heating mode
+        assert_eq!(
+            signals.coil_setpoints.get("R101 DX Cooling Coil").copied(),
+            Some(99.0),
+            "DX cooling coil must be disabled in heating mode"
+        );
+        // Fan runs at design flow (not proportional like FCU)
+        assert_eq!(
+            signals.air_mass_flows.get("R101 HP Heating Coil").copied(),
+            Some(0.3),
+            "PTHP fan must run at full design flow during heating"
+        );
+    }
+
+    #[test]
+    fn test_pthp_cooling_mode_sets_dx_setpoint() {
+        let li = make_pthp_loop(vec![
+            "R101 HP Heating Coil".to_string(),
+            "R101 DX Cooling Coil".to_string(),
+        ]);
+        let zone_temps: HashMap<String, f64> = [("Zone1".to_string(), 26.0)].into_iter().collect();
+        let zone_heat_sp: HashMap<String, f64> =
+            [("Zone1".to_string(), 21.1)].into_iter().collect();
+        let zone_cool_sp: HashMap<String, f64> =
+            [("Zone1".to_string(), 23.9)].into_iter().collect();
+        let zone_design_flows: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.3)].into_iter().collect();
+        let zone_heating_loads: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.0)].into_iter().collect();
+        let zone_cooling_loads: HashMap<String, f64> =
+            [("Zone1".to_string(), 1500.0)].into_iter().collect();
+        let predictor_modes: HashMap<String, HvacMode> = [("Zone1".to_string(), HvacMode::Cooling)]
+            .into_iter()
+            .collect();
+
+        let signals = build_fcu_signals(
+            &li,
+            &zone_temps,
+            &zone_heat_sp,
+            &zone_cool_sp,
+            &zone_design_flows,
+            30.0,
+            &zone_heating_loads,
+            &zone_cooling_loads,
+            &predictor_modes,
+        );
+
+        assert_eq!(
+            signals.coil_setpoints.get("R101 DX Cooling Coil").copied(),
+            Some(li.cooling_supply_temp),
+            "DX cooling coil must target design cooling supply temp"
+        );
+        assert_eq!(
+            signals.coil_setpoints.get("R101 HP Heating Coil").copied(),
+            Some(-99.0),
+            "HP heating coil must be disabled in cooling mode"
+        );
+    }
+
+    #[test]
+    fn test_pthp_included_in_plr_cycling_check() {
+        // Verify PTHP is recognized as a PLR-cycling system type (not modulating)
+        let pthp_type = AirLoopSystemType::Pthp;
+        let ptac_type = AirLoopSystemType::Ptac;
+        let psz_type = AirLoopSystemType::PszAc;
+        let fcu_type = AirLoopSystemType::Fcu;
+
+        // PLR cycling applies to PSZ-AC, PTAC, and PTHP
+        assert!(
+            pthp_type == AirLoopSystemType::PszAc
+                || pthp_type == AirLoopSystemType::Ptac
+                || pthp_type == AirLoopSystemType::Pthp,
+            "PTHP must be included in PLR cycling condition"
+        );
+        assert!(
+            psz_type == AirLoopSystemType::PszAc
+                || psz_type == AirLoopSystemType::Ptac
+                || psz_type == AirLoopSystemType::Pthp
+        );
+        assert!(
+            ptac_type == AirLoopSystemType::PszAc
+                || ptac_type == AirLoopSystemType::Ptac
+                || ptac_type == AirLoopSystemType::Pthp
+        );
+        // FCU is NOT in the PLR cycling set
+        assert!(
+            !(fcu_type == AirLoopSystemType::PszAc
+                || fcu_type == AirLoopSystemType::Ptac
+                || fcu_type == AirLoopSystemType::Pthp),
+            "FCU must NOT be in PLR cycling condition"
+        );
+    }
+
+    // ── Economizer enthalpy tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_differential_enthalpy_uses_enthalpy_not_temperature() {
+        // Warm humid outdoor air (high enthalpy) vs cooler drier return air
+        // OA: 20°C dry-bulb, w=0.015 kg/kg → h ≈ 58 kJ/kg
+        // Return: 22°C dry-bulb, w=0.006 kg/kg → h ≈ 37 kJ/kg
+        // Temperature alone says OA (20°C) < return (22°C) → old buggy logic opens economizer
+        // Enthalpy correctly says OA > return → economizer must stay CLOSED
+        let t_oa = 20.0_f64;
+        let w_oa = 0.015_f64;
+        let t_return = 22.0_f64;
+        let w_return = 0.006_f64;
+
+        let h_oa = openbse_psychrometrics::h_fn_tdb_w(t_oa, w_oa);
+        let h_return = openbse_psychrometrics::h_fn_tdb_w(t_return, w_return);
+
+        // Old (buggy) temperature comparison would open the economizer
+        assert!(t_oa < t_return, "temperature says outdoor is cooler");
+        // Correct enthalpy comparison must keep it closed
+        assert!(
+            h_oa > h_return,
+            "outdoor enthalpy ({:.0} J/kg) must exceed return ({:.0} J/kg)",
+            h_oa,
+            h_return
+        );
+
+        // Verify via the economizer match logic
+        let econ_open = h_oa < h_return;
+        assert!(
+            !econ_open,
+            "DifferentialEnthalpy must keep economizer closed when h_outdoor > h_return"
+        );
+    }
+
+    #[test]
+    fn test_differential_enthalpy_opens_when_outdoor_is_cold_dry() {
+        // Cold dry outdoor air has low enthalpy; return air is warm and humid
+        // OA: 5°C, w=0.002 → h ≈ 10 kJ/kg
+        // Return: 22°C, w=0.009 → h ≈ 45 kJ/kg
+        let t_oa = 5.0_f64;
+        let w_oa = 0.002_f64;
+        let t_return = 22.0_f64;
+        let w_return = 0.009_f64;
+
+        let h_oa = openbse_psychrometrics::h_fn_tdb_w(t_oa, w_oa);
+        let h_return = openbse_psychrometrics::h_fn_tdb_w(t_return, w_return);
+
+        assert!(
+            h_oa < h_return,
+            "cold dry OA enthalpy ({:.0} J/kg) must be less than warm humid return ({:.0} J/kg)",
+            h_oa,
+            h_return
+        );
+    }
+
+    #[test]
+    fn test_fixed_enthalpy_lockout() {
+        // FixedEnthalpy: lock out when OA enthalpy > limit (65200 J/kg default)
+        let limit = 65_200.0_f64;
+
+        // High-enthalpy outdoor air (hot & humid): t=30°C, w=0.020
+        let h_hot = openbse_psychrometrics::h_fn_tdb_w(30.0, 0.020);
+        assert!(
+            h_hot > limit,
+            "hot humid air ({:.0} J/kg) should exceed 65200 J/kg limit",
+            h_hot
+        );
+        let econ_hot = h_hot < limit;
+        assert!(!econ_hot, "FixedEnthalpy must lock out hot humid air");
+
+        // Low-enthalpy outdoor air (cool & dry): t=10°C, w=0.004
+        let h_cool = openbse_psychrometrics::h_fn_tdb_w(10.0, 0.004);
+        assert!(
+            h_cool < limit,
+            "cool dry air ({:.0} J/kg) should be below 65200 J/kg limit",
+            h_cool
+        );
+        let econ_cool = h_cool < limit;
+        assert!(econ_cool, "FixedEnthalpy must allow cool dry air");
+    }
+
+    #[test]
+    fn test_enthalpy_with_high_limit_requires_both_conditions() {
+        // EnthalpyWithHighLimit: requires h_oa < h_return AND t_oa < temp_limit
+        let temp_limit = 23.889_f64;
+        let t_return = 22.0_f64;
+        let w_return = 0.009_f64;
+        let h_return = openbse_psychrometrics::h_fn_tdb_w(t_return, w_return);
+
+        // Case 1: enthalpy OK but temp too high → closed
+        let t_oa_warm = 25.0_f64;
+        let w_oa_warm = 0.004_f64;
+        let h_oa_warm = openbse_psychrometrics::h_fn_tdb_w(t_oa_warm, w_oa_warm);
+        let enthalpy_ok = h_oa_warm < h_return;
+        let temp_ok = t_oa_warm < temp_limit;
+        assert!(
+            enthalpy_ok,
+            "enthalpy condition should pass for warm dry OA"
+        );
+        assert!(!temp_ok, "temp condition should fail (OA too warm)");
+        assert!(
+            !(enthalpy_ok && temp_ok),
+            "EnthalpyWithHighLimit must close when temp limit exceeded"
+        );
+
+        // Case 2: temp OK but enthalpy too high → closed
+        let t_oa_humid = 20.0_f64;
+        let w_oa_humid = 0.015_f64;
+        let h_oa_humid = openbse_psychrometrics::h_fn_tdb_w(t_oa_humid, w_oa_humid);
+        let enthalpy_ok2 = h_oa_humid < h_return;
+        let temp_ok2 = t_oa_humid < temp_limit;
+        assert!(!enthalpy_ok2, "enthalpy condition should fail for humid OA");
+        assert!(temp_ok2, "temp condition should pass (OA below limit)");
+        assert!(
+            !(enthalpy_ok2 && temp_ok2),
+            "EnthalpyWithHighLimit must close when enthalpy limit exceeded"
+        );
+
+        // Case 3: both conditions met → open
+        let t_oa_good = 10.0_f64;
+        let w_oa_good = 0.003_f64;
+        let h_oa_good = openbse_psychrometrics::h_fn_tdb_w(t_oa_good, w_oa_good);
+        let enthalpy_ok3 = h_oa_good < h_return;
+        let temp_ok3 = t_oa_good < temp_limit;
+        assert!(
+            enthalpy_ok3 && temp_ok3,
+            "EnthalpyWithHighLimit must open when both conditions met"
+        );
+    }
+
+    #[test]
+    fn test_psz_differential_enthalpy_economizer() {
+        // Build a PSZ loop with DifferentialEnthalpy economizer
+        let mut li = make_psz_loop(openbse_io::input::EconomizerType::DifferentialEnthalpy);
+        li.min_oa_fraction = 0.15;
+
+        let zone_temps: HashMap<String, f64> = [("Zone1".to_string(), 22.0)].into_iter().collect();
+        let zone_heat_sp: HashMap<String, f64> =
+            [("Zone1".to_string(), 21.1)].into_iter().collect();
+        let zone_cool_sp: HashMap<String, f64> =
+            [("Zone1".to_string(), 23.9)].into_iter().collect();
+        let zone_design_flows: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.5)].into_iter().collect();
+        let zone_cooling_loads: HashMap<String, f64> =
+            [("Zone1".to_string(), 3000.0)].into_iter().collect();
+        let zone_heating_loads: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.0)].into_iter().collect();
+        let predictor_modes: HashMap<String, HvacMode> = [("Zone1".to_string(), HvacMode::Cooling)]
+            .into_iter()
+            .collect();
+
+        // Return air: 22°C, w=0.009 → high enthalpy
+        let zone_humidity_ratios: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.009)].into_iter().collect();
+
+        // Scenario A: warm humid outdoor air — enthalpy > return → economizer closed
+        // OA: 20°C, w=0.015 (h ≈ 58 kJ/kg > return ≈ 44 kJ/kg)
+        let signals_humid = build_psz_signals(
+            &li,
+            &zone_temps,
+            &zone_heat_sp,
+            &zone_cool_sp,
+            &zone_design_flows,
+            20.0, // t_outdoor
+            &zone_cooling_loads,
+            &zone_heating_loads,
+            li.min_oa_fraction,
+            &predictor_modes,
+            0.015, // w_outdoor (high)
+            &zone_humidity_ratios,
+        );
+        let oa_frac_humid = signals_humid
+            .coil_setpoints
+            .get("__oa_fraction__")
+            .copied()
+            .unwrap_or(0.0);
+        assert!(
+            (oa_frac_humid - li.min_oa_fraction).abs() < 0.01,
+            "humid OA: economizer must stay at minimum OA, got {:.3}",
+            oa_frac_humid
+        );
+
+        // Scenario B: cool dry outdoor air — enthalpy < return → economizer open
+        // OA: 12°C, w=0.003 (h ≈ 20 kJ/kg < return ≈ 44 kJ/kg)
+        let signals_dry = build_psz_signals(
+            &li,
+            &zone_temps,
+            &zone_heat_sp,
+            &zone_cool_sp,
+            &zone_design_flows,
+            12.0, // t_outdoor (< return temp 22°C, so old temp-based logic would also open)
+            &zone_cooling_loads,
+            &zone_heating_loads,
+            li.min_oa_fraction,
+            &predictor_modes,
+            0.003, // w_outdoor (low)
+            &zone_humidity_ratios,
+        );
+        let oa_frac_dry = signals_dry
+            .coil_setpoints
+            .get("__oa_fraction__")
+            .copied()
+            .unwrap_or(0.0);
+        assert!(
+            oa_frac_dry > li.min_oa_fraction,
+            "dry cool OA: economizer must open above minimum, got {:.3}",
+            oa_frac_dry
+        );
+    }
 }

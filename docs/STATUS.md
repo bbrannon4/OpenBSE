@@ -1,6 +1,6 @@
 # OpenBSE Project Status
 
-Last updated: 2026-04-05
+Last updated: 2026-04-18
 
 ## What Works (Functional)
 
@@ -80,16 +80,21 @@ Last updated: 2026-04-05
 Planned features, bugs, and validation tasks are tracked as [GitHub Issues](https://github.com/bbrannon4/OpenBSE/issues).
 
 ### Recently completed
+- PTHP system type (heat pump heating + DX cooling, ON/OFF PLR cycling)
+- Advanced economizer modes: fixed enthalpy, enthalpy + high-limit; fixed differential enthalpy bug
+- ComponentKind enum for type-safe energy accounting on all components
+- Inter-floor slab solar interaction fix (Single Family: heating error +18% → +4.8%)
+- Zone air balance diagnostic output variables (q_surf_conv_*, q_infiltration_sensible, q_thermal_mass)
+- Per-surface convection outputs (conv_to_zone, h_conv_inside)
+- docs/CONTRIBUTING_COMPONENTS.md — guide for adding new physics components
 - Zone moisture (humidity ratio) balance with 3rd-order BDF integration
 - Air-source heat pump heating coil with defrost and performance curves
 - Condenser water loops and cooling towers (YAML parsing, topological loop ordering, autosize)
 - Pumps — constant/variable speed, headered staging, power curves
 - Full state-space CTF — Seem (1987) method matching EnergyPlus
-- Beam/diffuse interior solar distribution (FullExterior + FullInteriorAndExterior, VMULT)
 - Parametric run execution (scalar overrides, weather swaps, sweep expansion)
 - Airflow network — multizone pressure-driven infiltration (Newton-Raphson, auto-generated cracks)
-- Boiler PLR efficiency curves (YAML-exposed)
-- Boiler leaving-setpoint-modulated flow mode
+- Boiler PLR efficiency curves, leaving-setpoint-modulated flow mode
 - Hot water coil UA-LMTD (NTU-effectiveness) model
 - Mains water temperature sinusoidal correlation
 

@@ -363,6 +363,7 @@ impl SimulationSettings {
 /// - `vav` / `variable_air_volume`: Central VAV AHU — per-zone airflow modulation via VAV boxes
 /// - `doas` / `dedicated_outdoor_air`: 100% outdoor air system — fixed supply temp, no zone recirculation
 /// - `ptac` / `packaged_terminal`: Packaged terminal AC — one unit per zone
+/// - `pthp` / `packaged_terminal_heat_pump`: Packaged terminal heat pump — HP heating + DX cooling, ON/OFF cycling
 /// - `fcu` / `fan_coil_unit`: Per-zone recirculating fan coil (no OA mixing)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -375,6 +376,9 @@ pub enum AirLoopSystemType {
     Fcu,
     #[serde(alias = "packaged_terminal")]
     Ptac,
+    /// Packaged terminal heat pump (heat pump heating + DX cooling, ON/OFF cycling)
+    #[serde(alias = "packaged_terminal_heat_pump")]
+    Pthp,
     #[serde(alias = "variable_air_volume")]
     Vav,
 }
@@ -522,9 +526,14 @@ pub struct EconomizerControls {
     #[serde(default)]
     pub economizer_type: EconomizerType,
     /// High limit shutoff temperature [°C].
-    /// Economizer disabled when outdoor temp exceeds this.
+    /// Economizer disabled when outdoor temp exceeds this (for fixed_dry_bulb / enthalpy_with_high_limit).
     #[serde(default)]
     pub high_limit: Option<f64>,
+    /// High limit shutoff enthalpy [J/kg].
+    /// Economizer disabled when outdoor enthalpy exceeds this (for fixed_enthalpy / enthalpy_with_high_limit).
+    /// Default: 65,200 J/kg (≈ 28 BTU/lb, ASHRAE 90.1 baseline).
+    #[serde(default)]
+    pub high_limit_enthalpy: Option<f64>,
 }
 
 /// Economizer control strategy.
@@ -537,6 +546,10 @@ pub enum EconomizerType {
     FixedDryBulb,
     /// OA used when OA enthalpy < return air enthalpy
     DifferentialEnthalpy,
+    /// OA used when OA enthalpy < fixed high limit enthalpy
+    FixedEnthalpy,
+    /// OA used when OA enthalpy < return air enthalpy AND OA temp < high limit
+    EnthalpyWithHighLimit,
     /// No economizer — always use minimum damper position
     NoEconomizer,
 }
