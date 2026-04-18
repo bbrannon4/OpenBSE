@@ -817,7 +817,7 @@
         "density": { "type": "number", "description": "Density [kg/m3]." },
         "specific_heat": { "type": "number", "description": "Specific heat [J/(kg*K)]." },
         "solar_absorptance": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1 },
-        "thermal_absorptance": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1 },
+        "thermal_absorptance": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Hemispherical emissivity for longwave radiation exchange. For layered constructions, the outside material value is used for exterior LW radiation and the inside material value for interior LW radiation." },
         "visible_absorptance": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1 },
         "roughness": { "$ref": "#/$defs/Roughness" }
       }
@@ -852,7 +852,8 @@
         "shgc": { "type": "number", "minimum": 0, "maximum": 1, "description": "Solar Heat Gain Coefficient [0-1]." },
         "visible_transmittance": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1 },
         "solar_absorptance": { "type": "number", "minimum": 0, "maximum": 1, "description": "Glass solar absorptance [0-1]. Estimated from SHGC if omitted." },
-        "inside_absorbed_fraction": { "type": "number", "default": 0.5, "minimum": 0, "maximum": 1 }
+        "inside_absorbed_fraction": { "type": "number", "default": 0.5, "minimum": 0, "maximum": 1 },
+        "glass_emissivity": { "type": "number", "default": 0.84, "minimum": 0, "maximum": 1, "description": "Glass hemispherical emissivity for interior and exterior longwave radiation exchange. Defaults to 0.84 (uncoated soda-lime glass). Use lower values for low-e coatings." }
       }
     },
 
