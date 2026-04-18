@@ -15,3 +15,4 @@ pub mod pfp_box;
 pub mod pump;
 pub mod vav_box;
 pub mod water_heater;
+pub mod wshp;

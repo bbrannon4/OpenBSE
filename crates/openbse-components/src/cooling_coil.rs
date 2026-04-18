@@ -660,4 +660,301 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_autocalculate_shr_humid_air_dehumidifies() {
+        // With humid entering air (w > 0.010 kg/kg), autocalculate_shr should
+        // produce an outlet with lower humidity ratio than the inlet.
+        let mut coil = CoolingCoilDX::new("DX Dehum", 10000.0, 3.5, 0.75, 0.5, 13.0)
+            .with_autocalculate_shr(true);
+
+        // 26°C, ~70% RH → w ≈ 0.015 kg/kg (above ADP of coil)
+        let inlet_state = MoistAirState::from_tdb_rh(26.0, 0.70, 101325.0);
+        let inlet = AirPort::new(inlet_state, 0.5);
+        let ctx = make_ctx(35.0);
+
+        let outlet = coil.simulate_air(&inlet, &ctx);
+
+        // Outlet humidity should be lower (moisture removed by coil)
+        assert!(
+            outlet.state.w < inlet.state.w,
+            "Expected outlet_w ({}) < inlet_w ({})",
+            outlet.state.w,
+            inlet.state.w
+        );
+        // Should also be cooling (lower temperature)
+        assert!(outlet.state.t_db < inlet.state.t_db);
+        assert!(
+            coil.cooling_rate > coil.sensible_cooling_rate + 1.0,
+            "Expected latent cooling"
+        );
+    }
+
+    #[test]
+    fn test_autocalculate_shr_dry_air_no_dehumidification() {
+        // With dry entering air (dewpoint below ADP), the coil should be dry:
+        // outlet humidity ratio equals inlet humidity ratio.
+        let mut coil = CoolingCoilDX::new("DX Dry", 10000.0, 3.5, 0.75, 0.5, 13.0)
+            .with_autocalculate_shr(true);
+
+        // 26°C, 10% RH → very dry, dewpoint well below ADP (~5°C)
+        let inlet_state = MoistAirState::from_tdb_rh(26.0, 0.10, 101325.0);
+        let inlet = AirPort::new(inlet_state, 0.5);
+        let ctx = make_ctx(35.0);
+
+        let outlet = coil.simulate_air(&inlet, &ctx);
+
+        // Dry coil: humidity ratio should pass through unchanged
+        assert_relative_eq!(outlet.state.w, inlet.state.w, epsilon = 1e-6);
+        // But temperature should still drop (sensible cooling)
+        assert!(outlet.state.t_db < inlet.state.t_db);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Multi-speed DX cooling coil
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// One speed stage of a multi-speed DX coil.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DXSpeedStage {
+    /// Total cooling capacity at rated conditions [W]
+    pub rated_capacity: f64,
+    /// COP at rated conditions
+    pub rated_cop: f64,
+    /// Sensible heat ratio at rated conditions [0-1]
+    pub rated_shr: f64,
+    /// Rated airflow [m³/s]
+    pub rated_airflow: f64,
+}
+
+/// Multi-speed DX cooling coil.
+///
+/// Selects the lowest speed whose capacity meets the load. Operates at full
+/// capacity of the selected speed; part-load cycling is applied at the
+/// system level (same as single-speed). If load exceeds all speeds, runs
+/// at the highest speed with PLR < 1 handled upstream.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoolingCoilDXMultiSpeed {
+    pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
+    /// Speed stages ordered from lowest to highest capacity.
+    pub speeds: Vec<DXSpeedStage>,
+    /// Desired outlet air temperature setpoint [°C]
+    pub outlet_temp_setpoint: f64,
+
+    // ─── Runtime state ───────────────────────────────────────────────────
+    #[serde(skip)]
+    pub cooling_rate: f64,
+    #[serde(skip)]
+    pub sensible_cooling_rate: f64,
+    #[serde(skip)]
+    pub power: f64,
+    /// Index of the active speed stage (0-based)
+    #[serde(skip)]
+    pub active_speed: usize,
+}
+
+impl CoolingCoilDXMultiSpeed {
+    pub fn new(name: &str, speeds: Vec<DXSpeedStage>, setpoint: f64) -> Self {
+        Self {
+            name: name.to_string(),
+            submeter: "General".to_string(),
+            speeds,
+            outlet_temp_setpoint: setpoint,
+            cooling_rate: 0.0,
+            sensible_cooling_rate: 0.0,
+            power: 0.0,
+            active_speed: 0,
+        }
+    }
+
+    /// Run the single-speed physics for one stage, return outlet AirPort and
+    /// (total_cooling_W, sensible_W, power_W).
+    fn simulate_stage(
+        stage: &DXSpeedStage,
+        inlet: &AirPort,
+        setpoint: f64,
+        t_outdoor: f64,
+    ) -> (AirPort, f64, f64, f64) {
+        // Capacity derate with outdoor temperature (same linear model as single-speed)
+        let cap_factor = (1.0 - 0.007 * (t_outdoor - 35.0)).max(0.5);
+        let capacity = stage.rated_capacity * cap_factor;
+        let cp = psych::cp_air_fn_w(inlet.state.w);
+        let max_sensible = inlet.mass_flow * cp * (inlet.state.t_db - setpoint);
+        let sensible = (capacity * stage.rated_shr).min(max_sensible.max(0.0));
+        let t_out = inlet.state.t_db - sensible / (inlet.mass_flow * cp).max(1e-6);
+        const H_FG: f64 = 2_501_000.0;
+        let latent = capacity - capacity * stage.rated_shr;
+        let w_out = (inlet.state.w - latent / (inlet.mass_flow * H_FG)).max(0.0);
+        let eir_factor = (1.0 + 0.003 * (t_outdoor - 35.0)).max(0.5);
+        let power = (capacity / stage.rated_cop) * eir_factor;
+        let outlet = AirPort::new(
+            psych::MoistAirState::new(t_out, w_out, inlet.state.p_b),
+            inlet.mass_flow,
+        );
+        (outlet, capacity, sensible, power)
+    }
+}
+
+impl AirComponent for CoolingCoilDXMultiSpeed {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::CoolingCoil
+    }
+
+    fn simulate_air(&mut self, inlet: &AirPort, ctx: &SimulationContext) -> AirPort {
+        if inlet.mass_flow <= 0.0 || self.speeds.is_empty() {
+            self.cooling_rate = 0.0;
+            self.sensible_cooling_rate = 0.0;
+            self.power = 0.0;
+            return *inlet;
+        }
+
+        let t_outdoor = ctx.outdoor_air.t_db;
+        let cp = psych::cp_air_fn_w(inlet.state.w);
+        let load_needed = inlet.mass_flow * cp * (inlet.state.t_db - self.outlet_temp_setpoint);
+
+        if load_needed <= 0.0 {
+            self.cooling_rate = 0.0;
+            self.sensible_cooling_rate = 0.0;
+            self.power = 0.0;
+            return *inlet;
+        }
+
+        // Select lowest speed that meets the sensible load; fall back to highest
+        let selected = self
+            .speeds
+            .iter()
+            .enumerate()
+            .find(|(_, s)| {
+                let cap_factor = (1.0 - 0.007 * (t_outdoor - 35.0)).max(0.5);
+                s.rated_capacity * cap_factor * s.rated_shr >= load_needed
+            })
+            .map(|(i, _)| i)
+            .unwrap_or(self.speeds.len() - 1);
+
+        self.active_speed = selected;
+        let stage = &self.speeds[selected];
+        let (outlet, total, sensible, power) =
+            Self::simulate_stage(stage, inlet, self.outlet_temp_setpoint, t_outdoor);
+
+        self.cooling_rate = total;
+        self.sensible_cooling_rate = sensible;
+        self.power = power;
+        outlet
+    }
+
+    fn set_setpoint(&mut self, setpoint: f64) {
+        self.outlet_temp_setpoint = setpoint;
+    }
+
+    fn power_consumption(&self) -> f64 {
+        self.power
+    }
+}
+
+#[cfg(test)]
+mod multispeed_tests {
+    use super::*;
+    use approx::assert_relative_eq;
+    use openbse_core::ports::SizingInternalGains;
+    use openbse_core::types::{DayType, TimeStep};
+    use openbse_psychrometrics::MoistAirState;
+
+    fn make_ctx(t_outdoor: f64) -> SimulationContext {
+        SimulationContext {
+            timestep: TimeStep {
+                month: 7,
+                day: 15,
+                hour: 14,
+                sub_hour: 1,
+                timesteps_per_hour: 1,
+                sim_time_s: 0.0,
+                dt: 3600.0,
+            },
+            outdoor_air: MoistAirState::from_tdb_rh(t_outdoor, 0.30, 101325.0),
+            day_type: DayType::WeatherDay,
+            is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
+        }
+    }
+
+    fn make_coil() -> CoolingCoilDXMultiSpeed {
+        CoolingCoilDXMultiSpeed::new(
+            "MS DX",
+            vec![
+                DXSpeedStage {
+                    rated_capacity: 5_000.0,
+                    rated_cop: 4.0,
+                    rated_shr: 0.75,
+                    rated_airflow: 0.2,
+                },
+                DXSpeedStage {
+                    rated_capacity: 10_000.0,
+                    rated_cop: 3.5,
+                    rated_shr: 0.75,
+                    rated_airflow: 0.4,
+                },
+            ],
+            13.0,
+        )
+    }
+
+    #[test]
+    fn test_low_load_uses_speed1() {
+        let mut coil = make_coil();
+        // Small mass flow → small load → speed 1 sufficient
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(20.0, 0.5, 101325.0), 0.1);
+        let ctx = make_ctx(35.0);
+        let _out = coil.simulate_air(&inlet, &ctx);
+        assert_eq!(
+            coil.active_speed, 0,
+            "Low load should use speed 1 (index 0)"
+        );
+        assert!(coil.cooling_rate > 0.0);
+        assert!(coil.power > 0.0);
+    }
+
+    #[test]
+    fn test_high_load_uses_speed2() {
+        let mut coil = make_coil();
+        // Large mass flow + warm inlet → load exceeds speed 1 → speed 2
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(30.0, 0.5, 101325.0), 1.0);
+        let ctx = make_ctx(35.0);
+        let _out = coil.simulate_air(&inlet, &ctx);
+        assert_eq!(
+            coil.active_speed, 1,
+            "High load should use speed 2 (index 1)"
+        );
+        assert!(
+            coil.cooling_rate > 5_000.0,
+            "Should deliver more than speed-1 capacity"
+        );
+    }
+
+    #[test]
+    fn test_no_cooling_above_setpoint() {
+        let mut coil = make_coil();
+        // Inlet already at setpoint — no cooling needed
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(13.0, 0.5, 101325.0), 0.5);
+        let ctx = make_ctx(35.0);
+        let out = coil.simulate_air(&inlet, &ctx);
+        assert_eq!(coil.cooling_rate, 0.0);
+        assert_eq!(coil.power, 0.0);
+        assert_relative_eq!(out.state.t_db, inlet.state.t_db, epsilon = 0.01);
+    }
+
+    #[test]
+    fn test_zero_flow_no_operation() {
+        let mut coil = make_coil();
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(25.0, 0.5, 101325.0), 0.0);
+        let ctx = make_ctx(35.0);
+        coil.simulate_air(&inlet, &ctx);
+        assert_eq!(coil.power, 0.0);
+    }
 }

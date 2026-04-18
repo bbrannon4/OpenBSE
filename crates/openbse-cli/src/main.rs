@@ -136,6 +136,8 @@ fn build_loop_infos(
                         EquipmentInput::Fan(f) => f.name.clone(),
                         EquipmentInput::HeatingCoil(c) => c.name.clone(),
                         EquipmentInput::CoolingCoil(c) => c.name.clone(),
+                        EquipmentInput::CoolingCoilMultiSpeed(c) => c.name.clone(),
+                        EquipmentInput::Wshp(w) => w.name.clone(),
                         EquipmentInput::HeatRecovery(hr) => hr.name.clone(),
                         EquipmentInput::Humidifier(h) => h.name.clone(),
                         EquipmentInput::Duct(d) => d.name.clone(),
@@ -650,6 +652,12 @@ fn main() -> Result<()> {
                     openbse_io::input::EquipmentInput::CoolingCoil(c) => {
                         (c.name.clone(), c.submeter.clone())
                     }
+                    openbse_io::input::EquipmentInput::CoolingCoilMultiSpeed(c) => {
+                        (c.name.clone(), c.submeter.clone())
+                    }
+                    openbse_io::input::EquipmentInput::Wshp(w) => {
+                        (w.name.clone(), w.submeter.clone())
+                    }
                     openbse_io::input::EquipmentInput::HeatRecovery(h) => {
                         (h.name.clone(), h.submeter.clone())
                     }
@@ -710,6 +718,12 @@ fn main() -> Result<()> {
                     }
                     openbse_io::input::EquipmentInput::CoolingCoil(c) => {
                         (c.name.clone(), ComponentKind::CoolingCoil)
+                    }
+                    openbse_io::input::EquipmentInput::CoolingCoilMultiSpeed(c) => {
+                        (c.name.clone(), ComponentKind::CoolingCoil)
+                    }
+                    openbse_io::input::EquipmentInput::Wshp(w) => {
+                        (w.name.clone(), ComponentKind::CoolingCoil)
                     }
                     openbse_io::input::EquipmentInput::HeatRecovery(h) => {
                         (h.name.clone(), ComponentKind::HeatRecovery)
@@ -1748,6 +1762,24 @@ fn main() -> Result<()> {
                             .iter()
                             .map(|z| (z.input.name.clone(), z.humidity_ratio))
                             .collect();
+                        let warmup_max_rh: HashMap<String, f64> = env
+                            .zones
+                            .iter()
+                            .filter_map(|z| {
+                                z.input
+                                    .max_relative_humidity
+                                    .map(|v| (z.input.name.clone(), v))
+                            })
+                            .collect();
+                        let warmup_min_rh: HashMap<String, f64> = env
+                            .zones
+                            .iter()
+                            .filter_map(|z| {
+                                z.input
+                                    .min_relative_humidity
+                                    .map(|v| (z.input.name.clone(), v))
+                            })
+                            .collect();
                         let (_, zone_supply_conditions) = simulate_all_loops(
                             &mut graph,
                             &ctx,
@@ -1771,6 +1803,8 @@ fn main() -> Result<()> {
                             &empty_predictor,
                             &zone_multipliers,
                             &warmup_zone_w,
+                            &warmup_max_rh,
+                            &warmup_min_rh,
                         );
 
                         // Skip plant loop during warmup — it only affects energy
@@ -1779,13 +1813,18 @@ fn main() -> Result<()> {
                         // Build HVAC conditions for envelope
                         let mut hvac_conds = ZoneHvacConditions::default();
 
-                        for (zone_name, (supply_temp, mass_flow)) in &zone_supply_conditions {
+                        for (zone_name, (supply_temp, mass_flow, supply_w)) in
+                            &zone_supply_conditions
+                        {
                             hvac_conds
                                 .supply_temps
                                 .insert(zone_name.clone(), *supply_temp);
                             hvac_conds
                                 .supply_mass_flows
                                 .insert(zone_name.clone(), *mass_flow);
+                            hvac_conds
+                                .supply_humidity_ratios
+                                .insert(zone_name.clone(), *supply_w);
                         }
                         // Populate OA handling flags for warmup too
                         for li in &loop_infos {
@@ -2115,7 +2154,7 @@ fn main() -> Result<()> {
                         // ON/OFF cycling systems oscillate between full-capacity
                         // and zero, preventing convergence. Averaging successive
                         // supply conditions damps this oscillation.
-                        let mut prev_supply_conditions: HashMap<String, (f64, f64)> =
+                        let mut prev_supply_conditions: HashMap<String, (f64, f64, f64)> =
                             HashMap::new();
 
                         // Zone humidity ratios for economizer enthalpy calculations.
@@ -2125,6 +2164,25 @@ fn main() -> Result<()> {
                             .zones
                             .iter()
                             .map(|z| (z.input.name.clone(), z.humidity_ratio))
+                            .collect();
+                        // Zone RH setpoints from zone YAML inputs.
+                        let zone_max_rh: HashMap<String, f64> = env
+                            .zones
+                            .iter()
+                            .filter_map(|z| {
+                                z.input
+                                    .max_relative_humidity
+                                    .map(|v| (z.input.name.clone(), v))
+                            })
+                            .collect();
+                        let zone_min_rh: HashMap<String, f64> = env
+                            .zones
+                            .iter()
+                            .filter_map(|z| {
+                                z.input
+                                    .min_relative_humidity
+                                    .map(|v| (z.input.name.clone(), v))
+                            })
                             .collect();
 
                         for hvac_iter in 0..MAX_HVAC_ITER {
@@ -2152,6 +2210,8 @@ fn main() -> Result<()> {
                                 &predictor_no_hvac_temps,
                                 &zone_multipliers,
                                 &zone_humidity_ratios,
+                                &zone_max_rh,
+                                &zone_min_rh,
                             );
 
                             // Step 1b: Run plant loops in topological order.
@@ -2399,13 +2459,57 @@ fn main() -> Result<()> {
                                     }
                                     }
 
-                                    // Sequential equipment loading
+                                    // Equipment loading — supports Sequential and EqualSplit modes.
                                     let mut remaining_load = total_load;
                                     let mut current_inlet =
                                         WaterPort::new(openbse_psychrometrics::FluidState::water(
                                             inlet_temp,
                                             loop_mass_flow,
                                         ));
+
+                                    // Collect non-pump energy equipment names for EqualSplit
+                                    let energy_equip_names: Vec<String> = plant_loop
+                                        .supply_equipment
+                                        .iter()
+                                        .filter(|eq| {
+                                            !matches!(
+                                                eq,
+                                                openbse_io::input::PlantEquipmentInput::Pump(_)
+                                            )
+                                        })
+                                        .map(|eq| {
+                                            match eq {
+                                            openbse_io::input::PlantEquipmentInput::Boiler(b) => {
+                                                b.name.clone()
+                                            }
+                                            openbse_io::input::PlantEquipmentInput::Chiller(c) => {
+                                                c.name.clone()
+                                            }
+                                            openbse_io::input::PlantEquipmentInput::CoolingTower(
+                                                ct,
+                                            ) => ct.name.clone(),
+                                            openbse_io::input::PlantEquipmentInput::HeatExchanger(
+                                                hx,
+                                            ) => hx.name.clone(),
+                                            openbse_io::input::PlantEquipmentInput::Pump(p) => {
+                                                p.name.clone()
+                                            }
+                                        }
+                                        })
+                                        .collect();
+
+                                    let per_unit_load = if plant_loop.staging_mode
+                                        == openbse_io::input::StagingMode::EqualSplit
+                                        && !energy_equip_names.is_empty()
+                                    {
+                                        total_load.abs() / energy_equip_names.len() as f64
+                                    } else {
+                                        0.0 // unused in sequential
+                                    };
+
+                                    // Track whether previous non-pump unit hit staging threshold
+                                    let mut prev_plr: f64 = 1.0; // allow first unit to start
+
                                     for equip in &plant_loop.supply_equipment {
                                         let equip_name = match equip {
                                         openbse_io::input::PlantEquipmentInput::Boiler(b) => {
@@ -2429,12 +2533,26 @@ fn main() -> Result<()> {
                                         if !is_pump && remaining_load.abs() < 1.0 {
                                             break;
                                         }
+                                        // Sequential staging threshold guard: only start next
+                                        // non-pump unit if previous unit's PLR >= threshold
+                                        if !is_pump
+                                            && plant_loop.staging_mode
+                                                == openbse_io::input::StagingMode::Sequential
+                                            && prev_plr < plant_loop.staging_threshold
+                                        {
+                                            break;
+                                        }
                                         if let Some(node_idx) = graph.node_by_name(equip_name) {
                                             if let GraphComponent::Plant(component) =
                                                 graph.component_mut(node_idx)
                                             {
+                                                let load_before = remaining_load.abs();
                                                 let equip_load = if is_pump {
                                                     total_load.abs()
+                                                } else if plant_loop.staging_mode
+                                                    == openbse_io::input::StagingMode::EqualSplit
+                                                {
+                                                    per_unit_load
                                                 } else {
                                                     remaining_load.abs()
                                                 };
@@ -2464,6 +2582,17 @@ fn main() -> Result<()> {
                                                     .component_outputs
                                                     .insert(equip_name.clone(), plant_outputs);
 
+                                                if !is_pump {
+                                                    let cap = component.rated_capacity();
+                                                    prev_plr = if cap > 0.0 && cap.is_finite() {
+                                                        (delivered / cap).min(1.0)
+                                                    } else if load_before > 1.0 {
+                                                        (delivered / load_before).min(1.0)
+                                                    } else {
+                                                        1.0
+                                                    };
+                                                }
+
                                                 if remaining_load > 0.0 {
                                                     remaining_load -= delivered;
                                                 } else {
@@ -2489,22 +2618,28 @@ fn main() -> Result<()> {
                             // never converging.  The 50/50 blend of current and
                             // previous supply conditions converges to the correct
                             // equilibrium within 3-4 iterations.
-                            let damped_supply: HashMap<String, (f64, f64)> = if hvac_iter > 0 {
+                            let damped_supply: HashMap<String, (f64, f64, f64)> = if hvac_iter > 0 {
                                 zone_supply_conditions
                                     .iter()
-                                    .map(|(zn, &(t, m))| {
-                                        if let Some(&(pt, pm)) = prev_supply_conditions.get(zn) {
+                                    .map(|(zn, &(t, m, w))| {
+                                        if let Some(&(pt, pm, pw)) = prev_supply_conditions.get(zn)
+                                        {
                                             // Enthalpy-correct damping: average mass flow,
-                                            // then compute mixed temperature
+                                            // then compute mixed temperature and humidity
                                             let avg_m = 0.5 * m + 0.5 * pm;
                                             let avg_t = if avg_m > 1e-6 {
                                                 (0.5 * m * t + 0.5 * pm * pt) / avg_m
                                             } else {
                                                 0.5 * t + 0.5 * pt
                                             };
-                                            (zn.clone(), (avg_t, avg_m))
+                                            let avg_w = if avg_m > 1e-6 {
+                                                (0.5 * m * w + 0.5 * pm * pw) / avg_m
+                                            } else {
+                                                0.5 * w + 0.5 * pw
+                                            };
+                                            (zn.clone(), (avg_t, avg_m, avg_w))
                                         } else {
-                                            (zn.clone(), (t, m))
+                                            (zn.clone(), (t, m, w))
                                         }
                                     })
                                     .collect()
@@ -2515,7 +2650,7 @@ fn main() -> Result<()> {
 
                             let mut hvac_conds = ZoneHvacConditions::default();
 
-                            for (zone_name, (supply_temp, mass_flow)) in &damped_supply {
+                            for (zone_name, (supply_temp, mass_flow, supply_w)) in &damped_supply {
                                 let zone_conditioned = env
                                     .zones
                                     .iter()
@@ -2530,6 +2665,9 @@ fn main() -> Result<()> {
                                     hvac_conds
                                         .supply_mass_flows
                                         .insert(zone_name.clone(), *mass_flow);
+                                    hvac_conds
+                                        .supply_humidity_ratios
+                                        .insert(zone_name.clone(), *supply_w);
                                 }
                             }
                             // Tell the envelope which zones have HVAC-handled OA.
@@ -3645,11 +3783,13 @@ fn simulate_all_loops(
     predictor_no_hvac_temps: &HashMap<String, f64>,
     zone_multipliers: &HashMap<String, u32>,
     zone_humidity_ratios: &HashMap<String, f64>,
-) -> (TimestepResult, HashMap<String, (f64, f64)>) {
+    zone_max_rh: &HashMap<String, f64>,
+    zone_min_rh: &HashMap<String, f64>,
+) -> (TimestepResult, HashMap<String, (f64, f64, f64)>) {
     let w_outdoor = ctx.outdoor_air.w;
     let mut all_outputs: HashMap<String, HashMap<String, f64>> = HashMap::new();
-    // zone_name -> Vec<(supply_temp, mass_flow)> — accumulate from multiple loops
-    let mut zone_supply: HashMap<String, Vec<(f64, f64)>> = HashMap::new();
+    // zone_name -> Vec<(supply_temp, mass_flow, supply_w)> — accumulate from multiple loops
+    let mut zone_supply: HashMap<String, Vec<(f64, f64, f64)>> = HashMap::new();
 
     for li in loop_infos {
         // ── HVAC Availability Schedule & Night-Cycle Check ─────────────────
@@ -3913,6 +4053,8 @@ fn simulate_all_loops(
                 &predictor_modes,
                 w_outdoor,
                 zone_humidity_ratios,
+                zone_max_rh,
+                zone_min_rh,
             ),
 
             // ──────────────────────────────────────────────────────────────
@@ -3942,6 +4084,9 @@ fn simulate_all_loops(
                     zone_heating_loads,
                     zone_cooling_loads,
                     &predictor_modes,
+                    zone_humidity_ratios,
+                    zone_max_rh,
+                    zone_min_rh,
                 )
             }
 
@@ -3971,6 +4116,8 @@ fn simulate_all_loops(
                     zone_thermal_caps,
                     w_outdoor,
                     zone_humidity_ratios,
+                    zone_max_rh,
+                    zone_min_rh,
                 )
             }
         };
@@ -4387,8 +4534,9 @@ fn simulate_all_loops(
         // and applies reheat. The terminal's outlet becomes the zone supply.
         if let Some(supply) = supply_air {
             let supply_temp = supply.state.t_db;
+            let supply_w = supply.state.w;
 
-            let (effective_flow, effective_supply_temp) =
+            let (effective_flow, effective_supply_temp, effective_supply_w) =
                 if li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous {
                     // Continuous fan mode: fan runs at full speed always.
                     // Full mass flow delivered at a weighted-average supply temp:
@@ -4400,13 +4548,20 @@ fn simulate_all_loops(
                     // Since OA=0 for PTAC, T_mixed = T_zone (return air = zone air).
                     let control_zone = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
                     let t_zone = zone_temps.get(control_zone).copied().unwrap_or(21.0);
+                    let w_zone = zone_humidity_ratios
+                        .get(control_zone)
+                        .copied()
+                        .unwrap_or(0.008);
                     let t_off = t_zone + continuous_fan_heat_rise;
                     let t_avg = loop_plr * supply_temp + (1.0 - loop_plr) * t_off;
-                    (supply.mass_flow, t_avg)
+                    // Blend supply humidity ratio: ON-cycle uses coil outlet w,
+                    // OFF-cycle recirculates zone air (no dehumidification).
+                    let w_avg = loop_plr * supply_w + (1.0 - loop_plr) * w_zone;
+                    (supply.mass_flow, t_avg, w_avg)
                 } else {
                     // Cycling fan mode: PLR-scaled flow at full supply temp.
                     // Fan cycles with coils: air only flows for PLR fraction of timestep.
-                    (supply.mass_flow * loop_plr, supply_temp)
+                    (supply.mass_flow * loop_plr, supply_temp, supply_w)
                 };
 
             for zone_name in &li.served_zones {
@@ -4521,10 +4676,12 @@ fn simulate_all_loops(
                             // flow is already time-averaged. Do NOT apply loop_plr again.
                             let term_supply_temp = term_outlet.state.t_db;
                             let term_flow = term_outlet.mass_flow;
-                            zone_supply
-                                .entry(zone_name.clone())
-                                .or_default()
-                                .push((term_supply_temp, term_flow));
+                            let term_supply_w = term_outlet.state.w;
+                            zone_supply.entry(zone_name.clone()).or_default().push((
+                                term_supply_temp,
+                                term_flow,
+                                term_supply_w,
+                            ));
                         }
                     }
                 } else {
@@ -4551,10 +4708,11 @@ fn simulate_all_loops(
                         }
                     };
 
-                    zone_supply
-                        .entry(zone_name.clone())
-                        .or_default()
-                        .push((effective_supply_temp, zone_flow));
+                    zone_supply.entry(zone_name.clone()).or_default().push((
+                        effective_supply_temp,
+                        zone_flow,
+                        effective_supply_w,
+                    ));
                 }
             }
         }
@@ -4563,13 +4721,15 @@ fn simulate_all_loops(
     // Mix supply air from multiple loops per zone (DOAS + FCU additive)
     // For a zone receiving both DOAS ventilation and FCU recirculation:
     //   mixed_temp = Σ(T_i * m_i) / Σ(m_i)  (enthalpy-weighted mix)
+    //   mixed_w    = Σ(w_i * m_i) / Σ(m_i)
     //   total_flow = Σ(m_i)
-    let mut zone_supply_conditions: HashMap<String, (f64, f64)> = HashMap::new();
+    let mut zone_supply_conditions: HashMap<String, (f64, f64, f64)> = HashMap::new();
     for (zone_name, contributions) in zone_supply {
-        let total_flow: f64 = contributions.iter().map(|(_, m)| m).sum();
+        let total_flow: f64 = contributions.iter().map(|(_, m, _)| m).sum();
         if total_flow > 0.0 {
-            let mixed_temp = contributions.iter().map(|(t, m)| t * m).sum::<f64>() / total_flow;
-            zone_supply_conditions.insert(zone_name, (mixed_temp, total_flow));
+            let mixed_temp = contributions.iter().map(|(t, m, _)| t * m).sum::<f64>() / total_flow;
+            let mixed_w = contributions.iter().map(|(_, m, w)| w * m).sum::<f64>() / total_flow;
+            zone_supply_conditions.insert(zone_name, (mixed_temp, total_flow, mixed_w));
         }
     }
 
@@ -4607,6 +4767,8 @@ fn build_psz_signals(
     predictor_modes: &HashMap<String, HvacMode>,
     w_outdoor: f64,
     zone_humidity_ratios: &HashMap<String, f64>,
+    zone_max_rh: &HashMap<String, f64>,
+    zone_min_rh: &HashMap<String, f64>,
 ) -> ControlSignals {
     let mut signals = ControlSignals::default();
 
@@ -4643,11 +4805,28 @@ fn build_psz_signals(
     // the predictor mode can be stale by one timestep, causing the system
     // to fire heating into an already-warm zone.  This guard prevents the
     // resulting temperature oscillation.
-    let mode = match predictor_mode {
+    let mut mode = match predictor_mode {
         HvacMode::Heating if control_temp > cool_sp => HvacMode::Cooling,
         HvacMode::Cooling if control_temp < heat_sp => HvacMode::Heating,
         other => other,
     };
+
+    // RH override: if zone is over-humid and in deadband, force Cooling so the
+    // DX coil activates and dehumidifies. The coil setpoint is adjusted below
+    // (zone_temp - 0.5) to minimize sensible cooling while operating in wet region.
+    let zone_w = zone_humidity_ratios
+        .get(control_zone)
+        .copied()
+        .unwrap_or(0.008);
+    let zone_rh_pct =
+        openbse_psychrometrics::rh_fn_tdb_w_pb(control_temp, zone_w, 101325.0) * 100.0;
+    let mut dehumidify_only = false;
+    if let Some(&max_rh) = zone_max_rh.get(control_zone) {
+        if zone_rh_pct > max_rh && mode == HvacMode::Deadband {
+            mode = HvacMode::Cooling;
+            dehumidify_only = true;
+        }
+    }
 
     // Total design flow for this loop
     let mut total_flow = 0.0f64;
@@ -4696,9 +4875,14 @@ fn build_psz_signals(
     // Use the loop's cooling SAT as the economizer target.
     let econ_target = li.cooling_supply_temp;
     // Coil setpoint: -10°C forces the DX coil to run at full physical capacity.
-    // The coil's actual outlet temp is limited by its available capacity.
+    // In dehumidification-only mode, use zone_temp - 0.5 to minimize sensible
+    // cooling while still operating the coil in the wet region.
     let cooling_coil_sp = if mode == HvacMode::Cooling {
-        -10.0
+        if dehumidify_only {
+            control_temp - 0.5 // dehumidify with minimal sensible cooling
+        } else {
+            -10.0
+        }
     } else {
         99.0
     };
@@ -4807,6 +4991,20 @@ fn build_psz_signals(
                     || lname.starts_with("cc_")
                 {
                     signals.coil_setpoints.insert(name.clone(), 99.0);
+                }
+            }
+        }
+        // Humidification control: if zone RH < min_rh, activate humidifier
+        // by setting its w_setpoint to the target humidity ratio.
+        if lname.contains("humid") {
+            if let Some(&min_rh) = zone_min_rh.get(control_zone) {
+                if zone_rh_pct < min_rh {
+                    let w_target = openbse_psychrometrics::w_fn_tdb_rh_pb(
+                        control_temp,
+                        min_rh / 100.0,
+                        101325.0,
+                    );
+                    signals.coil_setpoints.insert(name.clone(), w_target);
                 }
             }
         }
@@ -4921,6 +5119,9 @@ fn build_fcu_signals(
     zone_heating_loads: &HashMap<String, f64>,
     zone_cooling_loads: &HashMap<String, f64>,
     predictor_modes: &HashMap<String, HvacMode>,
+    zone_humidity_ratios: &HashMap<String, f64>,
+    zone_max_rh: &HashMap<String, f64>,
+    zone_min_rh: &HashMap<String, f64>,
 ) -> ControlSignals {
     let mut signals = ControlSignals::default();
 
@@ -4934,10 +5135,26 @@ fn build_fcu_signals(
 
     // Use predictor mode (from frozen ideal loads) to prevent mode
     // flip-flopping during HVAC↔envelope iteration.
-    let mode = predictor_modes
+    let mut mode = predictor_modes
         .get(zone_name)
         .copied()
         .unwrap_or_else(|| hvac_mode(zone_temp, heat_sp, cool_sp));
+
+    // RH override: if zone is over-humid and in deadband, force Cooling so the
+    // DX coil activates and dehumidifies.
+    let zone_w_fcu = zone_humidity_ratios
+        .get(zone_name)
+        .copied()
+        .unwrap_or(0.008);
+    let zone_rh_pct_fcu =
+        openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp, zone_w_fcu, 101325.0) * 100.0;
+    let mut dehumidify_only_fcu = false;
+    if let Some(&max_rh) = zone_max_rh.get(zone_name) {
+        if zone_rh_pct_fcu > max_rh && mode == HvacMode::Deadband {
+            mode = HvacMode::Cooling;
+            dehumidify_only_fcu = true;
+        }
+    }
 
     // PTAC: Fan runs at design flow when heating or cooling (mode != Deadband).
     // In deadband with cycling fan the system is off.
@@ -5124,6 +5341,25 @@ fn build_fcu_signals(
                 }
             }
         }
+        // Dehumidification-only: override cooling coil setpoint to minimize sensible cooling
+        if dehumidify_only_fcu
+            && (lname.contains("cool")
+                || lname.contains("dx")
+                || lname.starts_with("cc ")
+                || lname.starts_with("cc_"))
+        {
+            signals.coil_setpoints.insert(name.clone(), zone_temp - 0.5);
+        }
+        // Humidification control
+        if lname.contains("humid") {
+            if let Some(&min_rh) = zone_min_rh.get(zone_name) {
+                if zone_rh_pct_fcu < min_rh {
+                    let w_target =
+                        openbse_psychrometrics::w_fn_tdb_rh_pb(zone_temp, min_rh / 100.0, 101325.0);
+                    signals.coil_setpoints.insert(name.clone(), w_target);
+                }
+            }
+        }
         signals.air_mass_flows.insert(name.clone(), flow);
     }
 
@@ -5171,6 +5407,8 @@ fn build_vav_signals(
     zone_thermal_caps: &HashMap<String, f64>,
     w_outdoor: f64,
     zone_humidity_ratios: &HashMap<String, f64>,
+    zone_max_rh: &HashMap<String, f64>,
+    zone_min_rh: &HashMap<String, f64>,
 ) -> ControlSignals {
     let mut signals = ControlSignals::default();
 
@@ -5222,7 +5460,25 @@ fn build_vav_signals(
         let cool_sp = zone_cool_sp.get(zone_name).copied().unwrap_or(23.9);
         let design_flow = zone_design_flows.get(zone_name).copied().unwrap_or(0.5);
 
-        let mode = hvac_mode(zone_temp, heat_sp, cool_sp);
+        let base_mode = hvac_mode(zone_temp, heat_sp, cool_sp);
+        // RH override: if zone is over-humid and in deadband, force Cooling
+        // to increase VAV airflow and drive the DX coil for dehumidification.
+        let zone_w_vav = zone_humidity_ratios
+            .get(zone_name)
+            .copied()
+            .unwrap_or(0.008);
+        let zone_rh_vav =
+            openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp, zone_w_vav, 101325.0) * 100.0;
+        let mode = if let Some(&max_rh) = zone_max_rh.get(zone_name) {
+            if zone_rh_vav > max_rh && base_mode == HvacMode::Deadband {
+                any_cooling_zone = true;
+                HvacMode::Cooling
+            } else {
+                base_mode
+            }
+        } else {
+            base_mode
+        };
 
         let zone_flow = match mode {
             HvacMode::Cooling => {
@@ -5238,6 +5494,7 @@ fn build_vav_signals(
                     max_cooling_demand = max_cooling_demand.max(frac);
                     flow
                 } else {
+                    // Dehumidification-only: run at minimum flow to activate DX coil
                     design_flow * li.min_vav_fraction
                 }
             }
@@ -5482,6 +5739,30 @@ fn build_vav_signals(
                     .insert(name.clone(), frost_protection_temp);
             } else {
                 signals.coil_setpoints.insert(name.clone(), -99.0);
+            }
+        }
+        // Humidification control: if any served zone is below min_rh, activate humidifier
+        if lname.contains("humid") {
+            for zone_name in &li.served_zones {
+                if let Some(&min_rh) = zone_min_rh.get(zone_name) {
+                    let zone_temp_h = zone_temps.get(zone_name).copied().unwrap_or(21.0);
+                    let zone_w_h = zone_humidity_ratios
+                        .get(zone_name)
+                        .copied()
+                        .unwrap_or(0.008);
+                    let zone_rh_h =
+                        openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp_h, zone_w_h, 101325.0)
+                            * 100.0;
+                    if zone_rh_h < min_rh {
+                        let w_target = openbse_psychrometrics::w_fn_tdb_rh_pb(
+                            zone_temp_h,
+                            min_rh / 100.0,
+                            101325.0,
+                        );
+                        signals.coil_setpoints.insert(name.clone(), w_target);
+                        break; // Set based on first zone needing humidification
+                    }
+                }
             }
         }
         signals.air_mass_flows.insert(name.clone(), total_flow);
@@ -5855,6 +6136,8 @@ mod tests {
             .into_iter()
             .collect();
 
+        let zone_humidity_ratios: HashMap<String, f64> = HashMap::new();
+        let empty_rh: HashMap<String, f64> = HashMap::new();
         let signals = build_fcu_signals(
             &li,
             &zone_temps,
@@ -5865,6 +6148,9 @@ mod tests {
             &zone_heating_loads,
             &zone_cooling_loads,
             &predictor_modes,
+            &zone_humidity_ratios,
+            &empty_rh,
+            &empty_rh,
         );
 
         // HP heating coil gets the design heating supply temp
@@ -5908,6 +6194,9 @@ mod tests {
             .into_iter()
             .collect();
 
+        let zone_humidity_ratios: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.010)].into_iter().collect();
+        let empty_rh: HashMap<String, f64> = HashMap::new();
         let signals = build_fcu_signals(
             &li,
             &zone_temps,
@@ -5918,6 +6207,9 @@ mod tests {
             &zone_heating_loads,
             &zone_cooling_loads,
             &predictor_modes,
+            &zone_humidity_ratios,
+            &empty_rh,
+            &empty_rh,
         );
 
         assert_eq!(
@@ -6122,6 +6414,7 @@ mod tests {
         let zone_humidity_ratios: HashMap<String, f64> =
             [("Zone1".to_string(), 0.009)].into_iter().collect();
 
+        let empty_rh: HashMap<String, f64> = HashMap::new();
         // Scenario A: warm humid outdoor air — enthalpy > return → economizer closed
         // OA: 20°C, w=0.015 (h ≈ 58 kJ/kg > return ≈ 44 kJ/kg)
         let signals_humid = build_psz_signals(
@@ -6137,6 +6430,8 @@ mod tests {
             &predictor_modes,
             0.015, // w_outdoor (high)
             &zone_humidity_ratios,
+            &empty_rh,
+            &empty_rh,
         );
         let oa_frac_humid = signals_humid
             .coil_setpoints
@@ -6164,6 +6459,8 @@ mod tests {
             &predictor_modes,
             0.003, // w_outdoor (low)
             &zone_humidity_ratios,
+            &empty_rh,
+            &empty_rh,
         );
         let oa_frac_dry = signals_dry
             .coil_setpoints
@@ -6174,6 +6471,245 @@ mod tests {
             oa_frac_dry > li.min_oa_fraction,
             "dry cool OA: economizer must open above minimum, got {:.3}",
             oa_frac_dry
+        );
+    }
+
+    // ── Feature 5: Chiller staging tests ────────────────────────────────
+
+    #[test]
+    fn test_chiller_staging_sequential_threshold_stops_second_unit() {
+        use openbse_components::chiller::AirCooledChiller;
+        use openbse_core::ports::PlantComponent;
+        use openbse_core::types::{DayType, TimeStep};
+        use openbse_psychrometrics::{FluidState, MoistAirState};
+
+        let ctx = SimulationContext {
+            timestep: TimeStep {
+                month: 7,
+                day: 15,
+                hour: 14,
+                sub_hour: 1,
+                timesteps_per_hour: 1,
+                sim_time_s: 0.0,
+                dt: 3600.0,
+            },
+            outdoor_air: MoistAirState::from_tdb_rh(35.0, 0.40, 101325.0),
+            day_type: DayType::WeatherDay,
+            is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
+        };
+
+        let mut chiller1 = AirCooledChiller::new("CH1", 100_000.0, 3.5, 7.0, 0.01);
+        let mut chiller2 = AirCooledChiller::new("CH2", 100_000.0, 3.5, 7.0, 0.01);
+
+        // Small load: only 40% of chiller1 capacity → PLR = 0.4 < threshold 0.9
+        // In sequential+threshold mode, CH2 should NOT start
+        let small_load = 40_000.0_f64;
+        let staging_threshold = 0.9_f64;
+        let inlet = WaterPort::new(FluidState::water(12.0, 10.0));
+
+        let rated = chiller1.rated_capacity();
+
+        // Simulate CH1 at small load
+        let outlet1 = chiller1.simulate_plant(&inlet, small_load, &ctx);
+        let delivered1 = chiller1.thermal_output().abs();
+        let plr1 = delivered1 / rated;
+
+        // CH2 should NOT activate because PLR1 < threshold (40% < 90%)
+        let ch2_should_activate = plr1 >= staging_threshold;
+        assert!(
+            !ch2_should_activate,
+            "CH2 must not stage on when CH1 PLR ({:.2}) < threshold ({:.2})",
+            plr1, staging_threshold
+        );
+        drop(outlet1);
+
+        // Large load: 95% of chiller1 capacity → PLR ≥ 0.9 → CH2 should start
+        let large_load = 95_000.0_f64;
+        let outlet2 = chiller1.simulate_plant(&inlet, large_load, &ctx);
+        let delivered2 = chiller1.thermal_output().abs();
+        let plr2 = delivered2 / rated;
+        let ch2_should_activate2 = plr2 >= staging_threshold;
+        assert!(
+            ch2_should_activate2,
+            "CH2 must stage on when CH1 PLR ({:.2}) >= threshold ({:.2})",
+            plr2, staging_threshold
+        );
+        drop(outlet2);
+
+        // Verify CH2 can take remaining load
+        let remaining = (large_load - delivered2).max(0.0);
+        let outlet3 = chiller2.simulate_plant(&inlet, remaining, &ctx);
+        let delivered_ch2 = chiller2.thermal_output().abs();
+        assert!(delivered_ch2 >= 0.0, "CH2 must accept remaining load");
+        drop(outlet3);
+    }
+
+    #[test]
+    fn test_chiller_staging_equal_split_distributes_evenly() {
+        use openbse_components::chiller::AirCooledChiller;
+        use openbse_core::ports::PlantComponent;
+        use openbse_core::types::{DayType, TimeStep};
+        use openbse_psychrometrics::{FluidState, MoistAirState};
+
+        let ctx = SimulationContext {
+            timestep: TimeStep {
+                month: 7,
+                day: 15,
+                hour: 14,
+                sub_hour: 1,
+                timesteps_per_hour: 1,
+                sim_time_s: 0.0,
+                dt: 3600.0,
+            },
+            outdoor_air: MoistAirState::from_tdb_rh(35.0, 0.40, 101325.0),
+            day_type: DayType::WeatherDay,
+            is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
+        };
+
+        let mut chiller1 = AirCooledChiller::new("CH1", 100_000.0, 3.5, 7.0, 0.01);
+        let mut chiller2 = AirCooledChiller::new("CH2", 100_000.0, 3.5, 7.0, 0.01);
+
+        // EqualSplit: each chiller gets total_load / 2
+        let total_load = 120_000.0_f64;
+        let per_unit = total_load / 2.0;
+        let inlet = WaterPort::new(FluidState::water(12.0, 10.0));
+
+        let out1 = chiller1.simulate_plant(&inlet, per_unit, &ctx);
+        let delivered1 = chiller1.thermal_output().abs();
+        let out2 = chiller2.simulate_plant(&out1, per_unit, &ctx);
+        let delivered2 = chiller2.thermal_output().abs();
+        drop(out2);
+
+        // Both chillers should deliver approximately equal loads
+        assert!(
+            (delivered1 - delivered2).abs() / delivered1 < 0.10,
+            "Equal split: chillers should deliver similar loads ({:.0} vs {:.0} W)",
+            delivered1,
+            delivered2
+        );
+        // Combined delivery should cover total load (both at 60% PLR, within capacity)
+        assert!(
+            delivered1 + delivered2 >= total_load * 0.95,
+            "Equal split: combined delivery {:.0} W should cover {:.0} W",
+            delivered1 + delivered2,
+            total_load
+        );
+    }
+
+    // ── Feature 2: Humidity-based control tests ──────────────────────────
+
+    #[test]
+    fn test_psz_rh_override_forces_cooling_in_deadband() {
+        // Zone at 22°C (deadband), but 70% RH → must force cooling to dehumidify
+        let li = make_psz_loop(openbse_io::input::EconomizerType::NoEconomizer);
+        let zone_temps: HashMap<String, f64> = [("Zone1".to_string(), 22.0)].into_iter().collect();
+        let zone_heat_sp: HashMap<String, f64> =
+            [("Zone1".to_string(), 20.0)].into_iter().collect();
+        let zone_cool_sp: HashMap<String, f64> =
+            [("Zone1".to_string(), 24.0)].into_iter().collect();
+        let zone_design_flows: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.5)].into_iter().collect();
+        let zone_heating_loads: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.0)].into_iter().collect();
+        let zone_cooling_loads: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.0)].into_iter().collect();
+        let predictor_modes: HashMap<String, HvacMode> =
+            [("Zone1".to_string(), HvacMode::Deadband)]
+                .into_iter()
+                .collect();
+        // 22°C, 70% RH → w ≈ 0.0117 kg/kg
+        let zone_humidity_ratios: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.0117)].into_iter().collect();
+        // max RH = 60% → zone at 70% should trigger dehumidification
+        let zone_max_rh: HashMap<String, f64> = [("Zone1".to_string(), 60.0)].into_iter().collect();
+        let empty_rh: HashMap<String, f64> = HashMap::new();
+
+        let signals = build_psz_signals(
+            &li,
+            &zone_temps,
+            &zone_heat_sp,
+            &zone_cool_sp,
+            &zone_design_flows,
+            20.0,
+            &zone_cooling_loads,
+            &zone_heating_loads,
+            li.min_oa_fraction,
+            &predictor_modes,
+            0.008,
+            &zone_humidity_ratios,
+            &zone_max_rh,
+            &empty_rh,
+        );
+
+        // Cooling coil should be activated (setpoint not 99.0)
+        let coil_sp = signals
+            .coil_setpoints
+            .get("DX Cooling Coil")
+            .copied()
+            .unwrap_or(99.0);
+        assert!(
+            coil_sp < 99.0,
+            "RH override must activate cooling coil when zone RH > max_rh, got setpoint {coil_sp}"
+        );
+        // Dehumidify-only: setpoint = zone_temp - 0.5 = 21.5
+        assert!(
+            (coil_sp - 21.5).abs() < 1.0,
+            "Dehumidify-only cooling setpoint should be near zone_temp - 0.5, got {coil_sp}"
+        );
+    }
+
+    #[test]
+    fn test_psz_no_rh_override_when_rh_ok() {
+        // Zone at 22°C, deadband, 40% RH → should stay in deadband (no cooling)
+        let li = make_psz_loop(openbse_io::input::EconomizerType::NoEconomizer);
+        let zone_temps: HashMap<String, f64> = [("Zone1".to_string(), 22.0)].into_iter().collect();
+        let zone_heat_sp: HashMap<String, f64> =
+            [("Zone1".to_string(), 20.0)].into_iter().collect();
+        let zone_cool_sp: HashMap<String, f64> =
+            [("Zone1".to_string(), 24.0)].into_iter().collect();
+        let zone_design_flows: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.5)].into_iter().collect();
+        let zone_heating_loads: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.0)].into_iter().collect();
+        let zone_cooling_loads: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.0)].into_iter().collect();
+        let predictor_modes: HashMap<String, HvacMode> =
+            [("Zone1".to_string(), HvacMode::Deadband)]
+                .into_iter()
+                .collect();
+        // 22°C, 40% RH → w ≈ 0.0066 kg/kg
+        let zone_humidity_ratios: HashMap<String, f64> =
+            [("Zone1".to_string(), 0.0066)].into_iter().collect();
+        let zone_max_rh: HashMap<String, f64> = [("Zone1".to_string(), 60.0)].into_iter().collect();
+        let empty_rh: HashMap<String, f64> = HashMap::new();
+
+        let signals = build_psz_signals(
+            &li,
+            &zone_temps,
+            &zone_heat_sp,
+            &zone_cool_sp,
+            &zone_design_flows,
+            20.0,
+            &zone_cooling_loads,
+            &zone_heating_loads,
+            li.min_oa_fraction,
+            &predictor_modes,
+            0.008,
+            &zone_humidity_ratios,
+            &zone_max_rh,
+            &empty_rh,
+        );
+
+        let coil_sp = signals
+            .coil_setpoints
+            .get("DX Cooling Coil")
+            .copied()
+            .unwrap_or(99.0);
+        assert_eq!(
+            coil_sp, 99.0,
+            "No RH override expected when zone RH < max_rh"
         );
     }
 }

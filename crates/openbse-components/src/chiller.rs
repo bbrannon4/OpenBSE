@@ -202,6 +202,10 @@ impl PlantComponent for AirCooledChiller {
         ComponentKind::Chiller
     }
 
+    fn rated_capacity(&self) -> f64 {
+        self.rated_capacity
+    }
+
     fn simulate_plant(
         &mut self,
         inlet: &WaterPort,

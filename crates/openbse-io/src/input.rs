@@ -656,6 +656,10 @@ pub enum EquipmentInput {
     HeatingCoil(HeatingCoilInput),
     #[serde(rename = "cooling_coil")]
     CoolingCoil(CoolingCoilInput),
+    #[serde(rename = "dx_multispeed")]
+    CoolingCoilMultiSpeed(CoolingCoilDXMultiSpeedInput),
+    #[serde(rename = "wshp")]
+    Wshp(WshpInput),
     #[serde(rename = "heat_recovery")]
     HeatRecovery(HeatRecoveryInput),
     #[serde(rename = "humidifier")]
@@ -909,7 +913,7 @@ pub struct CoolingCoilInput {
     pub eir_fflow_curve: Option<String>,
     /// When true, compute SHR each timestep using the apparatus dew point /
     /// bypass factor method (E+ style). When false, use constant rated SHR.
-    #[serde(default)]
+    #[serde(default = "default_autocalculate_shr")]
     pub autocalculate_shr: bool,
 
     // ─── Chilled water fields (only used when source: chilled_water) ──
@@ -927,6 +931,9 @@ pub struct CoolingCoilInput {
     pub plant_loop: Option<String>,
 }
 
+fn default_autocalculate_shr() -> bool {
+    true
+}
 fn default_cooling_source() -> String {
     "dx".to_string()
 }
@@ -944,6 +951,62 @@ fn default_chw_supply_temp() -> f64 {
 }
 fn default_chw_return_temp() -> f64 {
     12.2
+}
+
+/// One speed stage for a multi-speed DX cooling coil.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DXSpeedInput {
+    /// Total cooling capacity at rated conditions [W]
+    pub rated_capacity: f64,
+    /// COP at rated conditions
+    #[serde(default = "default_cop")]
+    pub cop: f64,
+    /// Sensible heat ratio at rated conditions [0-1]
+    #[serde(default = "default_shr")]
+    pub shr: f64,
+    /// Rated air flow rate [m³/s]
+    pub rated_airflow: f64,
+}
+
+/// Multi-speed DX cooling coil input.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CoolingCoilDXMultiSpeedInput {
+    pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
+    /// Speed stages ordered from lowest to highest capacity.
+    pub speeds: Vec<DXSpeedInput>,
+    /// Outlet temperature setpoint [°C]
+    #[serde(default = "default_dx_coil_setpoint")]
+    pub setpoint: f64,
+}
+
+fn default_wshp_cop_cooling() -> f64 {
+    4.5
+}
+fn default_wshp_cop_heating() -> f64 {
+    4.0
+}
+
+/// Water-source heat pump input.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WshpInput {
+    pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
+    /// Rated cooling capacity [W]
+    pub rated_cooling_capacity: f64,
+    /// Rated heating capacity [W]
+    pub rated_heating_capacity: f64,
+    /// COP in cooling mode
+    #[serde(default = "default_wshp_cop_cooling")]
+    pub cop_cooling: f64,
+    /// COP in heating mode
+    #[serde(default = "default_wshp_cop_heating")]
+    pub cop_heating: f64,
+    /// Outlet temperature setpoint [°C]
+    #[serde(default = "default_dx_coil_setpoint")]
+    pub setpoint: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1095,6 +1158,21 @@ fn default_reheat_type() -> String {
     "none".to_string()
 }
 
+/// Equipment staging strategy for plant loops with multiple chillers or boilers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StagingMode {
+    /// Load each unit in sequence until it is fully loaded, then start the next.
+    #[default]
+    Sequential,
+    /// Split load equally across all available units.
+    EqualSplit,
+}
+
+fn default_staging_threshold() -> f64 {
+    0.9
+}
+
 /// Plant loop input definition.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PlantLoopInput {
@@ -1104,6 +1182,13 @@ pub struct PlantLoopInput {
     pub design_supply_temp: f64,
     #[serde(default = "default_delta_t")]
     pub design_delta_t: f64,
+    /// Equipment staging strategy (default: Sequential).
+    #[serde(default)]
+    pub staging_mode: StagingMode,
+    /// PLR threshold above which the next unit stages on in Sequential mode [0-1].
+    /// Default 0.9 — next chiller/boiler starts when the current one reaches 90% PLR.
+    #[serde(default = "default_staging_threshold")]
+    pub staging_threshold: f64,
 }
 
 fn default_supply_temp() -> f64 {
@@ -2204,6 +2289,35 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             graph.add_air_component(Box::new(coil))
                         }
                     }
+                }
+                EquipmentInput::CoolingCoilMultiSpeed(c) => {
+                    use openbse_components::cooling_coil::{CoolingCoilDXMultiSpeed, DXSpeedStage};
+                    let stages = c
+                        .speeds
+                        .iter()
+                        .map(|s| DXSpeedStage {
+                            rated_capacity: s.rated_capacity,
+                            rated_cop: s.cop,
+                            rated_shr: s.shr,
+                            rated_airflow: s.rated_airflow,
+                        })
+                        .collect();
+                    let mut coil = CoolingCoilDXMultiSpeed::new(&c.name, stages, c.setpoint);
+                    coil.submeter = c.submeter.clone();
+                    graph.add_air_component(Box::new(coil))
+                }
+                EquipmentInput::Wshp(w) => {
+                    use openbse_components::wshp::WaterSourceHeatPump;
+                    let mut wshp = WaterSourceHeatPump::new(
+                        &w.name,
+                        w.rated_cooling_capacity,
+                        w.rated_heating_capacity,
+                        w.cop_cooling,
+                        w.cop_heating,
+                        w.setpoint,
+                    );
+                    wshp.submeter = w.submeter.clone();
+                    graph.add_air_component(Box::new(wshp))
                 }
                 EquipmentInput::HeatRecovery(hr) => {
                     let erv = match hr.source.as_str() {

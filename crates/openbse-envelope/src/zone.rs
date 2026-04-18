@@ -460,6 +460,16 @@ pub struct ZoneInput {
     /// - Zone heat balance is simulated once (not multiplied)
     #[serde(default = "default_zone_multiplier")]
     pub zone_multiplier: u32,
+    /// Maximum zone relative humidity [%] — triggers dehumidification when
+    /// exceeded (deadband overridden to Cooling so DX coil activates).
+    /// No limit if None (default).
+    #[serde(default)]
+    pub max_relative_humidity: Option<f64>,
+    /// Minimum zone relative humidity [%] — triggers humidification when
+    /// below this value (activates humidifier component if present on the loop).
+    /// No limit if None (default).
+    #[serde(default)]
+    pub min_relative_humidity: Option<f64>,
 }
 
 fn default_conditioned() -> bool {
@@ -1173,6 +1183,8 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            max_relative_humidity: None,
+            min_relative_humidity: None,
         };
 
         // During night setback
@@ -1212,6 +1224,8 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            max_relative_humidity: None,
+            min_relative_humidity: None,
         };
 
         // During night ventilation period (unconditional — no temp conditions)
@@ -1248,6 +1262,8 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            max_relative_humidity: None,
+            min_relative_humidity: None,
         };
 
         // Zone hot enough, outdoor cooler → ventilate

@@ -161,6 +161,10 @@ impl AirComponent for Humidifier {
         )
     }
 
+    fn set_setpoint(&mut self, setpoint: f64) {
+        self.w_setpoint = setpoint;
+    }
+
     fn power_consumption(&self) -> f64 {
         self.power
     }

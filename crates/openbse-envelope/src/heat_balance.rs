@@ -5098,6 +5098,8 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            max_relative_humidity: None,
+            min_relative_humidity: None,
         }];
 
         let surfaces = vec![
@@ -5301,6 +5303,8 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            max_relative_humidity: None,
+            min_relative_humidity: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -5461,6 +5465,8 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            max_relative_humidity: None,
+            min_relative_humidity: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -5612,6 +5618,8 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            max_relative_humidity: None,
+            min_relative_humidity: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -5745,6 +5753,8 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            max_relative_humidity: None,
+            min_relative_humidity: None,
         }];
         let surfaces = vec![SurfaceInput {
             name: "Wall".to_string(),
