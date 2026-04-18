@@ -1,6 +1,6 @@
 # OpenBSE Project Status
 
-Last updated: 2026-04-18
+Last updated: 2026-04-18 (v0.2.5)
 
 ## What Works (Functional)
 
@@ -80,6 +80,11 @@ Last updated: 2026-04-18
 Planned features, bugs, and validation tasks are tracked as [GitHub Issues](https://github.com/bbrannon4/OpenBSE/issues).
 
 ### Recently completed
+- DX coil dehumidification (autocalculate_shr default true; supply humidity wired to zone moisture balance)
+- Humidity-based controls (max/min_relative_humidity setpoints, dehumidification and humidification modes)
+- Multi-speed and variable-speed DX coils (CoolingCoilDXMultiSpeed, per-speed performance curves)
+- Water-source heat pump (WaterSourceHeatPump, plant loop condenser connection, energy-balanced)
+- Chiller lead/lag sequencing (StagingMode: sequential/equal_split, staging_threshold)
 - PTHP system type (heat pump heating + DX cooling, ON/OFF PLR cycling)
 - Advanced economizer modes: fixed enthalpy, enthalpy + high-limit; fixed differential enthalpy bug
 - ComponentKind enum for type-safe energy accounting on all components

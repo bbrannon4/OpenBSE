@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-04-18
+
+### Added
+
+- **DX coil dehumidification** — `autocalculate_shr` now defaults to `true` for all DX coils. Supply air humidity ratio is wired into `ZoneHvacConditions` so dehumidified coil outlet air correctly updates the zone moisture balance each timestep. Closes #7.
+- **Humidity-based controls** — `max_relative_humidity` and `min_relative_humidity` setpoints on zones (%). When zone RH exceeds the max, dehumidification mode activates the DX coil even without sensible cooling demand. When RH drops below the min, the humidifier activates. Closes #15.
+- **Multi-speed and variable-speed DX coils** — `CoolingCoilDXMultiSpeed` with per-speed `DXSpeedStage` entries (capacity, COP, SHR, performance curves). Two-speed control selects low/high stage based on sensible load; variable-speed interpolates capacity and COP between bounding stages. Use `source: dx_multispeed` in YAML. Closes #6.
+- **Water-source heat pump (WSHP)** — New `WaterSourceHeatPump` component (`wshp.rs`). Performance curves as f(entering water temp, entering air temp). Heat rejection/absorption is energy-balanced for both heating (extracts from water loop) and cooling (rejects to water loop) modes. Connects to a condenser water plant loop. Use `source: wshp` in YAML. Closes #9.
+- **Chiller lead/lag sequencing** — `staging_mode: sequential` (default, already working) or `equal_split` on `PlantLoopInput`. Sequential fills each unit to capacity before staging the next; equal split divides load evenly. Optional `staging_threshold` (default 0.9) prevents premature lag-chiller starts in sequential mode. Closes #14.
+
 ## [0.2.4] - 2026-04-18
 
 ### Added
