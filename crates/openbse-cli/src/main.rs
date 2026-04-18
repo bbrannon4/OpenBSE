@@ -2616,6 +2616,22 @@ fn main() -> Result<()> {
                             sout.insert("temp_inside".to_string(), surface.temp_inside);
                             sout.insert("temp_outside".to_string(), surface.temp_outside);
                             sout.insert("incident_solar".to_string(), surface.incident_solar);
+                            // Per-surface convection to zone air [W]:
+                            // h_conv × A × (T_surface − T_zone). This is the heat
+                            // that actually enters the zone air balance from this
+                            // surface. For comparison with E+ surface-level outputs.
+                            let zi = env.zone_index.get(&surface.input.zone).copied();
+                            let t_z = zi
+                                .and_then(|i| env.zones.get(i))
+                                .map(|z| z.temp)
+                                .unwrap_or(21.0);
+                            sout.insert(
+                                "conv_to_zone".to_string(),
+                                surface.h_conv_inside
+                                    * surface.net_area
+                                    * (surface.temp_inside - t_z),
+                            );
+                            sout.insert("h_conv_inside".to_string(), surface.h_conv_inside);
                             if surface.is_window {
                                 sout.insert(
                                     "transmitted_solar".to_string(),

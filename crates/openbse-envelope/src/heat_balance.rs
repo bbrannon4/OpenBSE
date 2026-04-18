@@ -4434,6 +4434,56 @@ impl EnvelopeSolver for BuildingEnvelope {
                     zone.hvac_cooling_rate = 0.0;
                 }
 
+                // ─── Zone Air Balance Component Diagnostics ──────────────
+                //
+                // Compute each term of the zone air energy balance using
+                // the FINAL zone temperature, for diagnostic comparison
+                // with EnergyPlus zone-level output variables.
+                {
+                    let t_z = zone.temp;
+                    let mut conv_total = 0.0_f64;
+                    let mut conv_walls = 0.0_f64;
+                    let mut conv_floors = 0.0_f64;
+                    let mut conv_roofs = 0.0_f64;
+                    let mut conv_windows = 0.0_f64;
+
+                    for &si in &zone.surface_indices {
+                        let s = &self.surfaces[si];
+                        let q = s.h_conv_inside * s.net_area * (s.temp_inside - t_z);
+                        conv_total += q;
+                        match s.input.surface_type {
+                            crate::surface::SurfaceType::Wall => conv_walls += q,
+                            crate::surface::SurfaceType::Floor => conv_floors += q,
+                            crate::surface::SurfaceType::Roof
+                            | crate::surface::SurfaceType::Ceiling => conv_roofs += q,
+                            crate::surface::SurfaceType::Window => conv_windows += q,
+                        }
+                    }
+                    // Window convection also includes absorbed solar inward
+                    // and the window conduction term (q_conv_inside × A) which
+                    // was added to q_conv_total above. Add absorbed solar here.
+                    let q_win_absorbed: f64 = zone
+                        .surface_indices
+                        .iter()
+                        .filter(|&&si| self.surfaces[si].is_window)
+                        .map(|&si| self.surfaces[si].absorbed_solar_inside_window)
+                        .sum();
+                    conv_windows += q_win_absorbed;
+
+                    zone.q_surf_conv_total = conv_total + q_win_absorbed;
+                    zone.q_surf_conv_walls = conv_walls;
+                    zone.q_surf_conv_floors = conv_floors;
+                    zone.q_surf_conv_roofs = conv_roofs;
+                    zone.q_surf_conv_windows = conv_windows;
+
+                    // Infiltration sensible: mcpi × (T_outdoor − T_zone)
+                    zone.q_infiltration_sensible = mcpi * (t_outdoor - t_z);
+
+                    // Thermal mass: ρVcp/dt_eff × (T_prev_eff − T_zone)
+                    let cap_term = rho_air * zone.input.volume * cp_air / dt_eff;
+                    zone.q_thermal_mass = cap_term * (t_prev_eff - t_z);
+                }
+
                 // ─── Zone Moisture Balance ────────────────────────────────
                 //
                 // Corrector-phase humidity solve, structurally identical to
@@ -4799,6 +4849,17 @@ impl EnvelopeSolver for BuildingEnvelope {
                 "supply_air_mass_flow".to_string(),
                 zone.supply_air_mass_flow,
             );
+            // Zone air balance component diagnostics
+            outputs.insert("q_surf_conv_total".to_string(), zone.q_surf_conv_total);
+            outputs.insert("q_surf_conv_walls".to_string(), zone.q_surf_conv_walls);
+            outputs.insert("q_surf_conv_floors".to_string(), zone.q_surf_conv_floors);
+            outputs.insert("q_surf_conv_roofs".to_string(), zone.q_surf_conv_roofs);
+            outputs.insert("q_surf_conv_windows".to_string(), zone.q_surf_conv_windows);
+            outputs.insert(
+                "q_infiltration_sensible".to_string(),
+                zone.q_infiltration_sensible,
+            );
+            outputs.insert("q_thermal_mass".to_string(), zone.q_thermal_mass);
             results
                 .zone_outputs
                 .insert(zone.input.name.clone(), outputs);

@@ -650,6 +650,34 @@ pub struct ZoneState {
     /// Reset to false in update_bdf_history().
     pub ideal_pred_mode_locked: bool,
 
+    // ─── Zone air balance component outputs [W] ───────────────────
+    // These capture each term in the zone air energy balance at the
+    // end of each timestep, for diagnostic comparison with E+.
+    //
+    //   Q_surfaces + Q_infiltration + Q_internal_conv + Q_solar_to_air
+    //     + Q_window_conv + Q_window_absorbed + Q_hvac + Q_thermal_mass = 0
+    //
+    // Positive = heat flowing INTO the zone air.
+    /// Total surface convection to zone air [W]:
+    /// Σ h_conv × A × (T_surface_inside − T_zone) for all surfaces.
+    pub q_surf_conv_total: f64,
+    /// Wall surface convection to zone air [W]
+    pub q_surf_conv_walls: f64,
+    /// Floor surface convection to zone air [W]
+    pub q_surf_conv_floors: f64,
+    /// Roof/ceiling surface convection to zone air [W]
+    pub q_surf_conv_roofs: f64,
+    /// Window convection to zone air [W]
+    /// (includes both glass-to-zone convection and absorbed solar inward)
+    pub q_surf_conv_windows: f64,
+    /// Infiltration sensible heat transfer to zone air [W]:
+    /// m_dot_total × cp × (T_outdoor − T_zone)
+    pub q_infiltration_sensible: f64,
+    /// Thermal mass (storage) term [W]:
+    /// ρ × V × cp / dt_eff × (T_prev_eff − T_zone)
+    /// Positive when zone is cooling down (releasing stored heat).
+    pub q_thermal_mass: f64,
+
     // ─── Diagnostic accumulators (annual kWh) ─────────────────────
     /// Last sim_time_s when accumulators were committed
     pub diag_last_sim_time: f64,
@@ -720,6 +748,13 @@ impl ZoneState {
             temp_no_hvac: initial_temp,
             ideal_pred_mode: 0,
             ideal_pred_mode_locked: false,
+            q_surf_conv_total: 0.0,
+            q_surf_conv_walls: 0.0,
+            q_surf_conv_floors: 0.0,
+            q_surf_conv_roofs: 0.0,
+            q_surf_conv_windows: 0.0,
+            q_infiltration_sensible: 0.0,
+            q_thermal_mass: 0.0,
             diag_last_sim_time: -1.0,
             diag_pending_surface: 0.0,
             diag_pending_infil: 0.0,

@@ -692,6 +692,8 @@ zones:
   internal_mass:
   - construction: InteriorFurnishings
     area: 9.896          # 9.89591 m² of 6" wood (matching E+ InternalMass object)
+  - construction: Interior Floor
+    area: 110.41         # inter-floor slab (1F/2F deck) — thermal mass only, no solar
 
 - name: attic
   volume: 83.8         # Gable roof 4:12 pitch, ridge height 1.517m
@@ -1000,15 +1002,8 @@ surfaces:
   azimuth: 270.0
   tilt: 90.0
 
-# ── Inter-floor slab (adiabatic — internal between 1F and 2F) ──
-- name: Inter-floor Slab
-  zone: living_unit1
-  type: floor
-  construction: Interior Floor
-  boundary: adiabatic
-  area: 110.41   # half of CFA per floor
-  azimuth: 0.0
-  tilt: 180.0
+# ── Inter-floor slab removed — converted to internal_mass on living_unit1
+# to match E+'s approach: thermal mass retained, no solar distribution interaction ──
 
 # ── Back door now modeled above as "Back Door" (3.717 m²) ──
 

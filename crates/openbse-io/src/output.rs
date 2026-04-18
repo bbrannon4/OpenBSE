@@ -227,6 +227,53 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
             "W",
             "HVAC supply air latent heat gain",
         ),
+        // Zone air balance diagnostic variables (all W)
+        (
+            "zone:q_surf_conv_total",
+            "W",
+            "Total surface convection to zone air",
+        ),
+        (
+            "zone:q_surf_conv_walls",
+            "W",
+            "Wall surface convection to zone air",
+        ),
+        (
+            "zone:q_surf_conv_floors",
+            "W",
+            "Floor surface convection to zone air",
+        ),
+        (
+            "zone:q_surf_conv_roofs",
+            "W",
+            "Roof/ceiling surface convection to zone air",
+        ),
+        (
+            "zone:q_surf_conv_windows",
+            "W",
+            "Window convection to zone air (incl absorbed solar inward)",
+        ),
+        (
+            "zone:q_infiltration_sensible",
+            "W",
+            "Infiltration sensible heat transfer to zone air",
+        ),
+        (
+            "zone:q_thermal_mass",
+            "W",
+            "Thermal mass (storage) term in zone air balance",
+        ),
+        // Surface convection to zone
+        (
+            "surface:conv_to_zone",
+            "W",
+            "Surface convection to zone air: h_conv × A × (T_surf − T_zone)",
+        ),
+        (
+            "surface:h_conv_inside",
+            "W/(m²·K)",
+            "Inside face convection coefficient",
+        ),
         // Zone comfort variables
         (
             "zone:mean_radiant_temperature",
@@ -440,7 +487,10 @@ pub fn get_unit(spec: &str) -> &'static str {
         ("zone", "nat_vent_active" | "unmet_heating" | "unmet_cooling") => "-",
         ("zone", _) => "W",
         ("surface", "inside_temperature" | "outside_temperature") => "°C",
-        ("surface", "inside_convection_coefficient") => "W/(m²·K)",
+        (
+            "surface",
+            "inside_convection_coefficient" | "h_conv_inside" | "inside_radiation_coefficient",
+        ) => "W/(m²·K)",
         ("surface", "incident_solar") => "W/m²",
         ("surface", _) => "W",
         ("site", "outdoor_temperature") => "°C",
