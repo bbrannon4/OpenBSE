@@ -98,6 +98,10 @@ impl AirComponent for Humidifier {
         &self.name
     }
 
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::Humidifier
+    }
+
     fn simulate_air(&mut self, inlet: &AirPort, _ctx: &SimulationContext) -> AirPort {
         // No air flow → humidifier off
         if inlet.mass_flow <= 0.0 {

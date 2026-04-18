@@ -154,6 +154,10 @@ impl PlantComponent for Boiler {
         &self.name
     }
 
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::Boiler
+    }
+
     fn simulate_plant(
         &mut self,
         inlet: &WaterPort,

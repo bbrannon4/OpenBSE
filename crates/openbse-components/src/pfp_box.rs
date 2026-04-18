@@ -171,6 +171,10 @@ impl AirComponent for PFPBox {
         &self.name
     }
 
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::HeatingCoil
+    }
+
     fn simulate_air(&mut self, inlet: &AirPort, _ctx: &SimulationContext) -> AirPort {
         // Reset runtime state
         self.fan_power = 0.0;

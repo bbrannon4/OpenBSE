@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 
 use openbse_core::graph::{GraphComponent, SimulationGraph};
 use openbse_core::ports::{
-    AirPort, EnvelopeSolver, PlantComponent, SimulationContext, SizingInternalGains, WaterPort,
-    ZoneHvacConditions,
+    AirPort, ComponentKind, EnvelopeSolver, PlantComponent, SimulationContext, SizingInternalGains,
+    WaterPort, ZoneHvacConditions,
 };
 use openbse_core::simulation::{ControlSignals, SimulationConfig, TimestepResult};
 use openbse_core::types::{DayType, TimeStep};
@@ -690,6 +690,78 @@ fn main() -> Result<()> {
             }
         }
 
+        // ── 4a-3. Build component kind map for energy accounting ─────────────
+        let mut comp_kind_map: HashMap<String, ComponentKind> = HashMap::new();
+        for al in &model.air_loops {
+            for equip in &al.equipment {
+                let (name, kind) = match equip {
+                    openbse_io::input::EquipmentInput::Fan(f) => {
+                        (f.name.clone(), ComponentKind::Fan)
+                    }
+                    openbse_io::input::EquipmentInput::HeatingCoil(c) => {
+                        (c.name.clone(), ComponentKind::HeatingCoil)
+                    }
+                    openbse_io::input::EquipmentInput::CoolingCoil(c) => {
+                        (c.name.clone(), ComponentKind::CoolingCoil)
+                    }
+                    openbse_io::input::EquipmentInput::HeatRecovery(h) => {
+                        (h.name.clone(), ComponentKind::HeatRecovery)
+                    }
+                    openbse_io::input::EquipmentInput::Humidifier(h) => {
+                        (h.name.clone(), ComponentKind::Humidifier)
+                    }
+                    openbse_io::input::EquipmentInput::Duct(d) => {
+                        (d.name.clone(), ComponentKind::Duct)
+                    }
+                };
+                comp_kind_map.insert(name, kind);
+            }
+            for zt in &al.zone_terminals {
+                if let Some(ref terminal) = zt.terminal {
+                    match terminal {
+                        openbse_io::input::TerminalInput::VavBox(vav) => {
+                            comp_kind_map.insert(vav.name.clone(), ComponentKind::HeatingCoil);
+                        }
+                        openbse_io::input::TerminalInput::PfpBox(pfp) => {
+                            comp_kind_map.insert(pfp.name.clone(), ComponentKind::HeatingCoil);
+                        }
+                    }
+                }
+            }
+        }
+        for pl in &model.plant_loops {
+            for equip in &pl.supply_equipment {
+                let (name, kind) = match equip {
+                    openbse_io::input::PlantEquipmentInput::Boiler(b) => {
+                        (b.name.clone(), ComponentKind::Boiler)
+                    }
+                    openbse_io::input::PlantEquipmentInput::Chiller(c) => {
+                        (c.name.clone(), ComponentKind::Chiller)
+                    }
+                    openbse_io::input::PlantEquipmentInput::CoolingTower(t) => {
+                        (t.name.clone(), ComponentKind::CoolingTower)
+                    }
+                    openbse_io::input::PlantEquipmentInput::Pump(p) => {
+                        (p.name.clone(), ComponentKind::Pump)
+                    }
+                    openbse_io::input::PlantEquipmentInput::HeatExchanger(h) => {
+                        (h.name.clone(), ComponentKind::HeatExchanger)
+                    }
+                };
+                comp_kind_map.insert(name, kind);
+            }
+        }
+        // DHW pumps
+        for dhw in &model.dhw_systems {
+            if let Some(ref pump) = dhw.pump {
+                comp_kind_map.insert(pump.name.clone(), ComponentKind::Pump);
+            }
+        }
+        // Exhaust fans (named "Exhaust Fan {zone_name}" in energy accounting)
+        for zone in &resolved_zones_for_oa {
+            comp_kind_map.insert(format!("Exhaust Fan {}", zone.name), ComponentKind::Fan);
+        }
+
         // ── 4b. Build DHW systems ────────────────────────────────────────────
         let mut dhw_systems: Vec<openbse_components::water_heater::WaterHeater> = model
             .dhw_systems
@@ -768,44 +840,7 @@ fn main() -> Result<()> {
             })
             .collect();
 
-        // Collect pump names from plant loops and DHW systems for end-use routing
-        let mut pump_names: std::collections::HashSet<String> = model
-            .plant_loops
-            .iter()
-            .flat_map(|pl| pl.supply_equipment.iter())
-            .filter_map(|eq| match eq {
-                openbse_io::input::PlantEquipmentInput::Pump(p) => Some(p.name.clone()),
-                _ => None,
-            })
-            .collect();
-        // Also include DHW pump names
-        for dhw in &model.dhw_systems {
-            if let Some(ref pump) = dhw.pump {
-                pump_names.insert(pump.name.clone());
-            }
-        }
-
-        // Collect humidifier names from air loops for end-use routing
-        let humidifier_names: std::collections::HashSet<String> = model
-            .air_loops
-            .iter()
-            .flat_map(|al| al.equipment.iter())
-            .filter_map(|eq| match eq {
-                openbse_io::input::EquipmentInput::Humidifier(h) => Some(h.name.clone()),
-                _ => None,
-            })
-            .collect();
-
-        // Collect heat recovery names from air loops for end-use routing
-        let heat_recovery_names: std::collections::HashSet<String> = model
-            .air_loops
-            .iter()
-            .flat_map(|al| al.equipment.iter())
-            .filter_map(|eq| match eq {
-                openbse_io::input::EquipmentInput::HeatRecovery(hr) => Some(hr.name.clone()),
-                _ => None,
-            })
-            .collect();
+        // (pump_names, humidifier_names, heat_recovery_names replaced by comp_kind_map above)
 
         // ── 5. Set up simulation timing ─────────────────────────────────────────
         let config = SimulationConfig {
@@ -2909,18 +2944,28 @@ fn main() -> Result<()> {
                         let zmult = comp_zone_multiplier.get(comp_name).copied().unwrap_or(1.0);
                         if let Some(&pw) = vars.get("electric_power") {
                             let pw_m = pw * zmult;
-                            if pump_names.contains(comp_name) {
-                                snapshot.pump_electric_power.insert(comp_name.clone(), pw_m);
-                            } else if humidifier_names.contains(comp_name) {
-                                snapshot
-                                    .humidification_power
-                                    .insert(comp_name.clone(), pw_m);
-                            } else if heat_recovery_names.contains(comp_name) {
-                                snapshot.heat_recovery_power.insert(comp_name.clone(), pw_m);
-                            } else {
-                                snapshot
-                                    .component_electric_power
-                                    .insert(comp_name.clone(), pw_m);
+                            match comp_kind_map.get(comp_name) {
+                                Some(ComponentKind::Pump) => {
+                                    snapshot.pump_electric_power.insert(comp_name.clone(), pw_m);
+                                }
+                                Some(ComponentKind::Humidifier) => {
+                                    snapshot
+                                        .humidification_power
+                                        .insert(comp_name.clone(), pw_m);
+                                }
+                                Some(ComponentKind::HeatRecovery) => {
+                                    snapshot.heat_recovery_power.insert(comp_name.clone(), pw_m);
+                                }
+                                Some(ComponentKind::CoolingTower) => {
+                                    snapshot
+                                        .heat_rejection_power
+                                        .insert(comp_name.clone(), pw_m);
+                                }
+                                _ => {
+                                    snapshot
+                                        .component_electric_power
+                                        .insert(comp_name.clone(), pw_m);
+                                }
                             }
                         }
                         if let Some(&pw) = vars.get("fuel_power") {
@@ -2944,8 +2989,8 @@ fn main() -> Result<()> {
                             .zone_equipment_power
                             .insert(zone.input.name.clone(), zone.equipment_power * zmult);
 
-                        // Exhaust fan power → component_electric_power (name contains "fan"
-                        // so output.rs routes it to fan_elec_j automatically)
+                        // Exhaust fan power → component_electric_power
+                        // (comp_kind_map routes it to fan_electric via ComponentKind::Fan)
                         if zone.exhaust_fan_power > 0.0 {
                             snapshot.component_electric_power.insert(
                                 format!("Exhaust Fan {}", zone.input.name),
@@ -3106,19 +3151,15 @@ fn main() -> Result<()> {
                                 .get(comp_name)
                                 .map(|s| s.as_str())
                                 .unwrap_or("General");
-                            let lname = comp_name.to_lowercase();
-                            let end_use = if lname.contains("fan") {
-                                "fan_electric"
-                            } else if lname.contains("cool")
-                                || lname.contains("dx")
-                                || lname.contains("chiller")
-                            {
-                                "cooling_electric"
-                            } else if lname.contains("heat") || lname.contains("furnace") {
-                                "heating_electric"
-                            } else {
-                                "misc_electric"
-                            };
+                            let end_use =
+                                match comp_kind_map.get(comp_name) {
+                                    Some(ComponentKind::Fan) => "fan_electric",
+                                    Some(ComponentKind::CoolingCoil)
+                                    | Some(ComponentKind::Chiller) => "cooling_electric",
+                                    Some(ComponentKind::HeatingCoil)
+                                    | Some(ComponentKind::Boiler) => "heating_electric",
+                                    _ => "misc_electric",
+                                };
                             add(sm, meter, end_use, pw);
                         }
                         for (comp_name, &pw) in &snapshot.component_fuel_power {
@@ -3298,18 +3339,28 @@ fn main() -> Result<()> {
                         let zmult = comp_zone_multiplier.get(comp_name).copied().unwrap_or(1.0);
                         if let Some(&pw) = vars.get("electric_power") {
                             let pw_m = pw * zmult;
-                            if pump_names.contains(comp_name) {
-                                snapshot.pump_electric_power.insert(comp_name.clone(), pw_m);
-                            } else if humidifier_names.contains(comp_name) {
-                                snapshot
-                                    .humidification_power
-                                    .insert(comp_name.clone(), pw_m);
-                            } else if heat_recovery_names.contains(comp_name) {
-                                snapshot.heat_recovery_power.insert(comp_name.clone(), pw_m);
-                            } else {
-                                snapshot
-                                    .component_electric_power
-                                    .insert(comp_name.clone(), pw_m);
+                            match comp_kind_map.get(comp_name) {
+                                Some(ComponentKind::Pump) => {
+                                    snapshot.pump_electric_power.insert(comp_name.clone(), pw_m);
+                                }
+                                Some(ComponentKind::Humidifier) => {
+                                    snapshot
+                                        .humidification_power
+                                        .insert(comp_name.clone(), pw_m);
+                                }
+                                Some(ComponentKind::HeatRecovery) => {
+                                    snapshot.heat_recovery_power.insert(comp_name.clone(), pw_m);
+                                }
+                                Some(ComponentKind::CoolingTower) => {
+                                    snapshot
+                                        .heat_rejection_power
+                                        .insert(comp_name.clone(), pw_m);
+                                }
+                                _ => {
+                                    snapshot
+                                        .component_electric_power
+                                        .insert(comp_name.clone(), pw_m);
+                                }
                             }
                         }
                         if let Some(&pw) = vars.get("fuel_power") {

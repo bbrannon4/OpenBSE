@@ -168,6 +168,10 @@ impl AirComponent for Fan {
         &self.name
     }
 
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::Fan
+    }
+
     fn simulate_air(&mut self, inlet: &AirPort, _ctx: &SimulationContext) -> AirPort {
         let rho = inlet.state.rho();
         self.calculate(inlet.mass_flow, rho);

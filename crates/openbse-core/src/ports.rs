@@ -46,6 +46,29 @@ pub enum SizingInternalGains {
     FullWhenOccupied,
 }
 
+// ─── Component Kind ─────────────────────────────────────────────────────────
+
+/// Classifies a component for energy accounting.
+///
+/// The simulation driver uses this to route power and fuel consumption
+/// to the correct building end-use category (fan electric, heating gas,
+/// cooling electric, etc.) without relying on component names.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ComponentKind {
+    Fan,
+    HeatingCoil,
+    CoolingCoil,
+    HeatRecovery,
+    Humidifier,
+    Duct,
+    Pump,
+    Boiler,
+    Chiller,
+    CoolingTower,
+    HeatExchanger,
+    Other,
+}
+
 // ─── Port Types ──────────────────────────────────────────────────────────────
 
 /// An air-side port (inlet or outlet of an air-handling component).
@@ -98,8 +121,29 @@ pub trait AirComponent: std::fmt::Debug {
     /// Component name.
     fn name(&self) -> &str;
 
+    /// What kind of component this is, for energy accounting.
+    /// Defaults to `Other` — override to get automatic end-use routing.
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::Other
+    }
+
     /// Simulate this component for one timestep.
+    ///
     /// Takes inlet air conditions and returns outlet air conditions.
+    /// The component transforms the air state (temperature, humidity, enthalpy)
+    /// and must leave `mass_flow` unchanged unless it intentionally adds or
+    /// removes air (e.g., a mixing box).
+    ///
+    /// **Zero flow**: when `inlet.mass_flow <= 0.0`, return `*inlet` unchanged
+    /// and set all internal power/thermal outputs to zero.
+    ///
+    /// **Sign convention**: heating raises `outlet.state.t_db` above inlet;
+    /// cooling lowers it. The component reports the energy it consumed via
+    /// `power_consumption()` and `fuel_consumption()` after this call.
+    ///
+    /// `ctx` provides the current timestep, outdoor conditions, and whether
+    /// this is a sizing run — use it for schedule lookups and outdoor-air
+    /// dependent calculations.
     fn simulate_air(&mut self, inlet: &AirPort, ctx: &SimulationContext) -> AirPort;
 
     /// Whether this component has a water-side connection (e.g., hot water coil).
@@ -141,21 +185,30 @@ pub trait AirComponent: std::fmt::Debug {
     /// Set the nominal capacity (called during autosizing).
     fn set_nominal_capacity(&mut self, _cap: f64) {}
 
-    /// Electric or fuel power consumption this timestep [W].
-    /// Default 0.0. Override in Fan, DX coil, etc.
+    /// Instantaneous electric power consumption [W].
+    ///
+    /// Always positive. Report ALL electric power here — fan motors, compressors,
+    /// electric resistance elements, etc. This is the sole input to the
+    /// electric energy accounting; `fuel_consumption()` is separate.
+    /// Default 0.0.
     fn power_consumption(&self) -> f64 {
         0.0
     }
 
-    /// Fuel energy consumption this timestep [W equivalent].
-    /// For gas coils: fuel consumed = heating_rate / efficiency.
-    /// Default 0.0.
+    /// Instantaneous fuel energy rate [W equivalent] (gas, oil, propane, etc.).
+    ///
+    /// Always positive. Only non-electric fuel goes here — for a gas furnace
+    /// this is `heating_rate / thermal_efficiency`. Electric components should
+    /// leave this at the default 0.0 and report via `power_consumption()`.
     fn fuel_consumption(&self) -> f64 {
         0.0
     }
 
-    /// Thermal output (heating or cooling) this timestep [W].
-    /// Positive = heating added to air, negative = cooling removed.
+    /// Net thermal output delivered to the air stream [W].
+    ///
+    /// Positive = heat added to air, negative = heat removed from air.
+    /// For a heating coil this is positive; for a cooling coil, negative.
+    /// For a fan, this is the motor waste heat entering the airstream.
     fn thermal_output(&self) -> f64 {
         0.0
     }
@@ -177,8 +230,16 @@ pub trait AirComponent: std::fmt::Debug {
     }
 
     /// Additional component-specific output variables beyond the standard set.
-    /// Returns field_name -> value pairs (e.g., "sensible_load" -> 5000.0).
-    /// Default implementation returns empty map.
+    ///
+    /// Returns `snake_case_variable_name` → value pairs. Values should use
+    /// natural SI units (W, kg/s, °C, Pa, etc.).
+    ///
+    /// ```text
+    /// // Example from a cooling coil:
+    /// { "sensible_cooling_rate" => 12000.0,  // W
+    ///   "latent_cooling_rate"   => 3000.0,   // W
+    ///   "apparatus_dewpoint"    => 10.5 }    // °C
+    /// ```
     fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
         std::collections::HashMap::new()
     }
@@ -192,8 +253,28 @@ pub trait PlantComponent: std::fmt::Debug {
     /// Component name.
     fn name(&self) -> &str;
 
+    /// What kind of component this is, for energy accounting.
+    /// Defaults to `Other` — override to get automatic end-use routing.
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::Other
+    }
+
     /// Simulate this component for one timestep.
-    /// Takes inlet fluid conditions and returns outlet fluid conditions.
+    ///
+    /// Takes inlet water conditions and a requested thermal load, returns
+    /// outlet water conditions.
+    ///
+    /// **`load`**: requested thermal load in Watts.
+    /// Positive = heating requested (raise water temperature).
+    /// Negative = cooling requested (lower water temperature).
+    /// The component should deliver up to its capacity and update its
+    /// internal `thermal_output()` accordingly.
+    ///
+    /// **Zero flow**: when `inlet.state.mass_flow <= 0.0`, return `*inlet`
+    /// unchanged and set all internal power/thermal outputs to zero.
+    ///
+    /// `ctx` provides the current timestep, outdoor conditions, and whether
+    /// this is a sizing run.
     fn simulate_plant(
         &mut self,
         inlet: &WaterPort,
@@ -209,18 +290,25 @@ pub trait PlantComponent: std::fmt::Debug {
     /// Set the design water flow rate (called during autosizing).
     fn set_design_water_flow_rate(&mut self, _flow: f64) {}
 
-    /// Power consumption of this plant component [W].
+    /// Instantaneous electric power consumption [W]. Always positive.
+    ///
+    /// Report all electric power here — pump motors, chiller compressors, etc.
     fn power_consumption(&self) -> f64 {
         0.0
     }
 
-    /// Fuel consumption [W equivalent].
+    /// Instantaneous fuel energy rate [W equivalent]. Always positive.
+    ///
+    /// Only non-electric fuel (gas, oil). For a gas boiler this is
+    /// `heating_rate / thermal_efficiency`.
     fn fuel_consumption(&self) -> f64 {
         0.0
     }
 
-    /// Thermal output (heating or cooling delivered) [W].
-    /// Positive = heating, negative = cooling.
+    /// Net thermal output delivered to the fluid [W].
+    ///
+    /// Positive = heat added to fluid (boiler heating water).
+    /// Negative = heat removed from fluid (chiller cooling water).
     fn thermal_output(&self) -> f64 {
         0.0
     }
@@ -239,23 +327,42 @@ pub trait PlantComponent: std::fmt::Debug {
     fn set_source_conditions(&mut self, _temp: f64, _mass_flow: f64) {}
 
     /// Additional component-specific output variables beyond the standard set.
-    /// Returns field_name -> value pairs (e.g., "plr" -> 0.75).
-    /// Default implementation returns empty map.
+    ///
+    /// Returns `snake_case_variable_name` → value pairs. Values should use
+    /// natural SI units (W, kg/s, °C, Pa, etc.).
+    ///
+    /// ```text
+    /// // Example from a boiler:
+    /// { "plr"              => 0.75,    // part-load ratio [0-1]
+    ///   "efficiency"       => 0.82,    // current thermal efficiency [0-1]
+    ///   "outlet_temp"      => 82.0 }   // °C
+    /// ```
     fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
         std::collections::HashMap::new()
     }
 }
 
 /// Context passed to every component during simulation.
+///
+/// Provides time, weather, and simulation mode info that components need
+/// to compute their physics. Components should not store references to
+/// this — it changes every timestep.
 #[derive(Debug, Clone)]
 pub struct SimulationContext {
-    /// Current timestep info
+    /// Current timestep info (month, day, hour, sub-hour, dt).
+    /// Use `timestep.dt` for the integration interval in seconds.
     pub timestep: crate::types::TimeStep,
-    /// Outdoor air conditions
+    /// Current outdoor air conditions (temperature, humidity, pressure).
+    /// Use for equipment that depends on ambient conditions (e.g., air-cooled
+    /// condensers, economizers, cooling towers).
     pub outdoor_air: MoistAirState,
-    /// Current day type
+    /// Current day type (weekday, weekend, holiday, design day, etc.).
+    /// Use for schedule lookups when component behavior varies by day type.
     pub day_type: crate::types::DayType,
-    /// Is this a sizing run?
+    /// When `true`, this is a design-day sizing run. Components should use
+    /// design conditions (rated capacities, design flows) rather than
+    /// schedule-modulated values. Autosized fields may not yet be resolved
+    /// on the first sizing pass.
     pub is_sizing: bool,
     /// How internal gains are handled during sizing design days.
     ///
