@@ -71,6 +71,8 @@ pub enum ComponentKind {
     RadiantPanel,
     Gshp,
     DualDuctBox,
+    EvapCooler,
+    ThermalStorage,
     Other,
 }
 
