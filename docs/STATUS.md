@@ -1,6 +1,6 @@
 # OpenBSE Project Status
 
-Last updated: 2026-04-19 (v0.2.9)
+Last updated: 2026-04-19 (v0.2.10)
 
 ## What Works (Functional)
 
@@ -29,26 +29,33 @@ Last updated: 2026-04-19 (v0.2.9)
 - **FCU**: Fan coil units for zone-level heating/cooling
 - **VRF**: Variable refrigerant flow with `VrfOutdoorUnit` + per-zone `VrfIndoorUnit`. Heat recovery mode, performance curves f(T_outdoor, T_indoor), proportional PLR capacity limiting.
 - **Dual-duct CAV**: `system_type: dual_duct` — hot and cold deck AHU with per-zone `DualDuctBox` mixing terminals. Constant total zone flow, load-proportional deck blending.
+- **PTHP**: Packaged terminal heat pump with ON/OFF cycling, heat pump heating + DX cooling.
+- **GSHP**: Ground-source heat pump with Kusuda-Achenbach ground temp model (auto/EPW monthly/user monthly).
 
 ### HVAC Components
 - Fans: constant volume, VAV (with part-load curves), on/off
-- Heating coils: electric, gas (with burner efficiency), hot water
-- Cooling coils: DX single-speed with performance curves (Cap-fT, EIR-fT, PLF-fPLR)
+- Heating coils: electric, gas (with burner efficiency), hot water, air-source heat pump (with defrost), water-source heat pump
+- Cooling coils: DX single-speed with performance curves (Cap-fT, EIR-fT, PLF-fPLR); multi-speed and variable-speed DX
+- Evaporative coolers: direct (adiabatic), indirect (sensible-only), two-stage; `type: evap_cooler` in air-loop equipment
 - Ducts: NTU conduction model with leakage and ambient zone coupling
 - Heat recovery: enthalpy wheel and plate heat exchangers
-- Boilers: hot water with efficiency and capacity control
-- Chillers: air-cooled with COP and capacity modeling
+- Boilers: hot water with PLR efficiency curves, leaving-setpoint-modulated flow
+- Chillers: air-cooled with COP and capacity modeling; lead/lag sequencing (sequential/equal_split)
 - Cooling towers: single/two/variable-speed, effectiveness-NTU, polynomial fan curves
 - Water-to-water heat exchangers: plate-and-frame inter-loop HX (always-on and economizer modes)
+- Thermal energy storage: chilled-water and ice types with full_storage/load_leveling/demand_limiting strategies
+- Radiant panels: fin-tube, chilled ceiling, electric; radiant/convective split, surface MRT distribution
 - Plant loop topological ordering: arbitrary inter-loop dependencies via HX and condenser connections
 
 ### Controls
 - Zone thermostats with occupied/unoccupied setpoints
-- Supply air temperature control
-- Economizer controls (differential dry bulb, fixed dry bulb, differential enthalpy)
+- Supply air temperature control with OA-based and demand-based reset (`cooling_sat_reset`, `heating_sat_reset`)
+- Plant loop setpoint reset: OA-based CHW/HHW reset (`setpoint_reset` on plant loops)
+- Economizer controls (differential dry bulb, fixed dry bulb, differential enthalpy, fixed enthalpy, enthalpy+high-limit)
 - On/off and proportional cycling methods
 - Minimum outdoor air damper position
 - Availability schedules for system on/off
+- Humidity-based controls: max/min RH setpoints, dehumidification and humidification modes
 
 ### Outputs
 - CSV output files at timestep/hourly/daily/monthly/run-period frequency
@@ -70,7 +77,7 @@ Last updated: 2026-04-19 (v0.2.9)
 - Rayon-parallelized solar precompute (embarrassingly parallel across timesteps)
 
 ### Tests
-- 306+ unit tests across all crates (all component tests pass; 2 pre-existing envelope solar test failures)
+- 400+ unit tests across all crates (all component tests pass; 2 pre-existing envelope solar test failures)
 - 8 example YAML files covering all system types
 - 27 ASHRAE 140 validation cases in 140_tests/
 - DOE prototype comparisons in prototype_tests/
@@ -82,6 +89,9 @@ Last updated: 2026-04-19 (v0.2.9)
 Planned features, bugs, and validation tasks are tracked as [GitHub Issues](https://github.com/bbrannon4/OpenBSE/issues).
 
 ### Recently completed
+- Setpoint reset controls — OA-based and demand-based SAT reset; OA-based plant loop CHW/HHW reset
+- Evaporative cooling — direct (adiabatic), indirect (sensible), two-stage modes
+- Thermal energy storage — chilled_water and ice types, full_storage/load_leveling/demand_limiting strategies
 - Dual-duct CAV system type with DualDuctBox mixing terminals, autosizing, parametric support
 - Ground-source heat pump (GSHP) with Kusuda-Achenbach, EPW monthly, and user monthly ground temp options
 - Table-lookup performance curves (N-linear interpolation, named axes, slot validation)
@@ -127,7 +137,7 @@ openbse-weather      # Weather file reading and processing
 ```
 
 ## File Counts
-- Rust source files: ~42
+- Rust source files: ~46
 - Example YAML files: 11
 - ASHRAE 140 test cases: 28 (+4 test variants)
-- Unit tests: 290+
+- Unit tests: 400+

@@ -453,6 +453,12 @@ pub struct AirLoopControls {
     /// Continuous: fan runs at full speed always, coils cycle.
     #[serde(default)]
     pub fan_operating_mode: FanOperatingMode,
+    /// Cooling supply air temperature reset (optional — absent = fixed SAT)
+    #[serde(default)]
+    pub cooling_sat_reset: Option<SatResetConfig>,
+    /// Heating supply air temperature reset (optional — absent = fixed SAT)
+    #[serde(default)]
+    pub heating_sat_reset: Option<SatResetConfig>,
 }
 
 impl Default for AirLoopControls {
@@ -466,6 +472,8 @@ impl Default for AirLoopControls {
             minimum_damper_position: None,
             economizer: None,
             fan_operating_mode: FanOperatingMode::default(),
+            cooling_sat_reset: None,
+            heating_sat_reset: None,
         }
     }
 }
@@ -481,6 +489,54 @@ fn default_controls_deadband() -> f64 {
 }
 fn default_controls_zone_flow() -> AutosizeValue {
     AutosizeValue::Value(0.5)
+}
+fn default_sat_step() -> f64 {
+    0.5
+}
+
+/// Supply air temperature reset configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SatResetConfig {
+    /// Reset SAT linearly with outdoor air temperature (ASHRAE 90.1 G3.1.3.12).
+    /// Cooling SAT rises from sat_min (at hot OA) to sat_max (at cool OA).
+    OaReset {
+        /// Minimum SAT [°C] — at hot outdoor conditions (oa_high)
+        sat_min: f64,
+        /// Maximum SAT [°C] — at cool outdoor conditions (oa_low)
+        sat_max: f64,
+        /// Outdoor temp at which SAT = sat_max [°C]
+        oa_low: f64,
+        /// Outdoor temp at which SAT = sat_min [°C]
+        oa_high: f64,
+    },
+    /// Reset SAT upward until the most-loaded VAV box reaches 100% open.
+    DemandReset {
+        /// Never go below this SAT [°C]
+        sat_min: f64,
+        /// Never go above this SAT [°C]
+        sat_max: f64,
+        /// Step size per timestep [°C] (default 0.5)
+        #[serde(default = "default_sat_step")]
+        step: f64,
+    },
+}
+
+/// Plant loop setpoint reset configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PlantResetConfig {
+    /// Reset linearly with outdoor air temperature.
+    OaReset {
+        /// Setpoint at oa_high [°C] (CHW: coldest; HHW: warmest)
+        sp_min: f64,
+        /// Setpoint at oa_low [°C] (CHW: warmest; HHW: coldest)
+        sp_max: f64,
+        /// Outdoor temp threshold for sp_max [°C]
+        oa_low: f64,
+        /// Outdoor temp threshold for sp_min [°C]
+        oa_high: f64,
+    },
 }
 
 /// Capacity control method for an air loop.
@@ -690,6 +746,8 @@ pub enum EquipmentInput {
     Humidifier(HumidifierInput),
     #[serde(rename = "duct")]
     Duct(DuctInput),
+    #[serde(rename = "evap_cooler")]
+    EvapCooler(EvapCoolerInput),
 }
 
 /// Electric steam humidifier.
@@ -770,6 +828,32 @@ fn default_duct_leakage() -> f64 {
 }
 fn default_duct_ambient() -> String {
     "outdoor".to_string()
+}
+
+// Re-export EvapCoolerMode from the components crate so YAML deserializes it here.
+pub use openbse_components::evap_cooler::EvapCoolerMode;
+
+fn default_evap_sat_effectiveness() -> f64 {
+    0.80
+}
+fn default_evap_hx_effectiveness() -> f64 {
+    0.70
+}
+
+/// Evaporative cooler input (direct, indirect, or two-stage).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EvapCoolerInput {
+    pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
+    #[serde(default)]
+    pub mode: EvapCoolerMode,
+    /// Saturation effectiveness [0-1] for direct stage (default 0.80)
+    #[serde(default = "default_evap_sat_effectiveness")]
+    pub effectiveness: f64,
+    /// Heat exchanger effectiveness [0-1] for indirect stage (default 0.70)
+    #[serde(default = "default_evap_hx_effectiveness")]
+    pub hx_effectiveness: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1325,6 +1409,9 @@ pub struct PlantLoopInput {
     /// Default 0.9 — next chiller/boiler starts when the current one reaches 90% PLR.
     #[serde(default = "default_staging_threshold")]
     pub staging_threshold: f64,
+    /// Setpoint reset strategy (optional — absent = fixed design_supply_temp)
+    #[serde(default)]
+    pub setpoint_reset: Option<PlantResetConfig>,
 }
 
 fn default_supply_temp() -> f64 {
@@ -1347,6 +1434,8 @@ pub enum PlantEquipmentInput {
     CoolingTower(CoolingTowerInput),
     #[serde(rename = "heat_exchanger")]
     HeatExchanger(HeatExchangerInput),
+    #[serde(rename = "thermal_storage")]
+    ThermalStorage(ThermalStorageInput),
 }
 
 /// Pump role in the plant loop — determines staging and control behavior.
@@ -1685,6 +1774,42 @@ fn default_hx_control() -> String {
 }
 fn default_hx_threshold() -> f64 {
     2.0
+}
+
+// Re-export TES types from the components crate so YAML deserializes them here.
+pub use openbse_components::thermal_storage::{TesControlStrategy, TesType};
+
+fn default_tes_loss_ua() -> f64 {
+    5.0
+}
+fn default_ice_charge_cop_factor() -> f64 {
+    0.85
+}
+
+/// Thermal energy storage plant component input.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ThermalStorageInput {
+    pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
+    pub tes_type: TesType,
+    /// Storage capacity [Wh]
+    pub capacity_wh: f64,
+    /// Maximum charge rate [W]
+    pub max_charge_rate: f64,
+    /// Maximum discharge rate [W]
+    pub max_discharge_rate: f64,
+    /// Standby loss UA [W/K] (default 5.0)
+    #[serde(default = "default_tes_loss_ua")]
+    pub loss_ua: f64,
+    /// COP penalty factor when making ice (default 0.85)
+    #[serde(default = "default_ice_charge_cop_factor")]
+    pub ice_charge_cop_factor: f64,
+    /// Control strategy
+    pub control_strategy: TesControlStrategy,
+    /// Peak hours (1-24) when charging is suppressed
+    #[serde(default)]
+    pub peak_hours: Vec<u32>,
 }
 
 /// Design day input.
@@ -2676,6 +2801,13 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                     duct.submeter = d.submeter.clone();
                     graph.add_air_component(Box::new(duct))
                 }
+                EquipmentInput::EvapCooler(e) => {
+                    let mut ec = openbse_components::evap_cooler::EvapCooler::new(&e.name, e.mode);
+                    ec.submeter = e.submeter.clone();
+                    ec.effectiveness = e.effectiveness;
+                    ec.hx_effectiveness = e.hx_effectiveness;
+                    graph.add_air_component(Box::new(ec))
+                }
             };
 
             // Connect to previous component in sequence
@@ -2916,6 +3048,21 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                         &hx.source_loop,
                     );
                     graph.add_plant_component(Box::new(hx_component))
+                }
+                PlantEquipmentInput::ThermalStorage(ts) => {
+                    let mut tes = openbse_components::thermal_storage::ThermalStorage::new(
+                        &ts.name,
+                        ts.tes_type,
+                        ts.capacity_wh,
+                        ts.max_charge_rate,
+                        ts.max_discharge_rate,
+                        ts.control_strategy,
+                    );
+                    tes.submeter = ts.submeter.clone();
+                    tes.loss_ua = ts.loss_ua;
+                    tes.ice_charge_cop_factor = ts.ice_charge_cop_factor;
+                    tes.peak_hours = ts.peak_hours.clone();
+                    graph.add_plant_component(Box::new(tes))
                 }
             };
 

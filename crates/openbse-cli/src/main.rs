@@ -97,6 +97,10 @@ struct LoopInfo {
     hhw_boiler_efficiency: f64,
     /// Demand-controlled ventilation enabled for this loop.
     dcv: bool,
+    /// Cooling SAT reset configuration (cloned from AirLoopControls).
+    cooling_sat_reset: Option<openbse_io::input::SatResetConfig>,
+    /// Heating SAT reset configuration (cloned from AirLoopControls).
+    heating_sat_reset: Option<openbse_io::input::SatResetConfig>,
     /// Per-zone OA data for ASHRAE 62.1 VRP and DCV calculations.
     /// Always populated from zone connections (per_person_oa, per_area_oa).
     zone_oa_data: Vec<ZoneOaData>,
@@ -145,6 +149,7 @@ fn build_loop_infos(
                         EquipmentInput::HeatRecovery(hr) => hr.name.clone(),
                         EquipmentInput::Humidifier(h) => h.name.clone(),
                         EquipmentInput::Duct(d) => d.name.clone(),
+                        EquipmentInput::EvapCooler(e) => e.name.clone(),
                     }
                 })
                 .collect();
@@ -279,6 +284,8 @@ fn build_loop_infos(
                 heat_recovery_name,
                 hhw_boiler_efficiency,
                 dcv: al.dcv,
+                cooling_sat_reset: al.controls.cooling_sat_reset.clone(),
+                heating_sat_reset: al.controls.heating_sat_reset.clone(),
                 // Always populate per-zone OA data from zone connections.
                 // Needed for ASHRAE 62.1 VRP multi-zone Ev correction (even without DCV)
                 // and for DCV occupancy-based OA modulation when dcv: true.
@@ -742,6 +749,9 @@ fn main() -> Result<()> {
                     openbse_io::input::EquipmentInput::Duct(d) => {
                         (d.name.clone(), d.submeter.clone())
                     }
+                    openbse_io::input::EquipmentInput::EvapCooler(e) => {
+                        (e.name.clone(), e.submeter.clone())
+                    }
                 };
                 comp_submeter.insert(name, sm);
             }
@@ -778,6 +788,9 @@ fn main() -> Result<()> {
                         (p.name.clone(), p.submeter.clone())
                     }
                     openbse_io::input::PlantEquipmentInput::HeatExchanger(_) => continue,
+                    openbse_io::input::PlantEquipmentInput::ThermalStorage(ts) => {
+                        (ts.name.clone(), ts.submeter.clone())
+                    }
                 };
                 comp_submeter.insert(name, sm);
             }
@@ -815,6 +828,9 @@ fn main() -> Result<()> {
                     openbse_io::input::EquipmentInput::Duct(d) => {
                         (d.name.clone(), ComponentKind::Duct)
                     }
+                    openbse_io::input::EquipmentInput::EvapCooler(e) => {
+                        (e.name.clone(), ComponentKind::EvapCooler)
+                    }
                 };
                 comp_kind_map.insert(name, kind);
             }
@@ -851,6 +867,9 @@ fn main() -> Result<()> {
                     }
                     openbse_io::input::PlantEquipmentInput::HeatExchanger(h) => {
                         (h.name.clone(), ComponentKind::HeatExchanger)
+                    }
+                    openbse_io::input::PlantEquipmentInput::ThermalStorage(ts) => {
+                        (ts.name.clone(), ComponentKind::ThermalStorage)
                     }
                 };
                 comp_kind_map.insert(name, kind);
@@ -2685,12 +2704,18 @@ fn main() -> Result<()> {
                                         total_load.abs() / (cp_water * loop_delta_t);
                                     // Inlet temp: condenser return is warmer, heating return
                                     // is colder, cooling return is warmer.
+                                    let effective_plant_sp =
+                                        if let Some(ref reset) = plant_loop.setpoint_reset {
+                                            apply_plant_reset(reset, interp_weather.dry_bulb)
+                                        } else {
+                                            plant_loop.design_supply_temp
+                                        };
                                     let inlet_temp = if condenser_load > 0.0 {
-                                        plant_loop.design_supply_temp + loop_delta_t
+                                        effective_plant_sp + loop_delta_t
                                     } else if total_load > 0.0 {
-                                        plant_loop.design_supply_temp - loop_delta_t
+                                        effective_plant_sp - loop_delta_t
                                     } else {
-                                        plant_loop.design_supply_temp + loop_delta_t
+                                        effective_plant_sp + loop_delta_t
                                     };
 
                                     // Autosize pumps and cooling towers on first call
@@ -2824,6 +2849,9 @@ fn main() -> Result<()> {
                                             openbse_io::input::PlantEquipmentInput::Pump(p) => {
                                                 p.name.clone()
                                             }
+                                            openbse_io::input::PlantEquipmentInput::ThermalStorage(
+                                                ts,
+                                            ) => ts.name.clone(),
                                         }
                                         })
                                         .collect();
@@ -2855,6 +2883,9 @@ fn main() -> Result<()> {
                                         openbse_io::input::PlantEquipmentInput::HeatExchanger(
                                             hx,
                                         ) => &hx.name,
+                                        openbse_io::input::PlantEquipmentInput::ThermalStorage(
+                                            ts,
+                                        ) => &ts.name,
                                     };
                                         let is_pump = matches!(
                                             equip,
@@ -3808,6 +3839,8 @@ fn main() -> Result<()> {
                             let end_use = match comp_kind_map.get(comp_name) {
                                 Some(ComponentKind::Fan) => "fan_electric",
                                 Some(ComponentKind::CoolingCoil)
+                                | Some(ComponentKind::EvapCooler)
+                                | Some(ComponentKind::ThermalStorage)
                                 | Some(ComponentKind::Chiller)
                                 | Some(ComponentKind::VrfOutdoor)
                                 | Some(ComponentKind::Gshp) => "cooling_electric",
@@ -4527,6 +4560,32 @@ fn simulate_all_loops(
                 (z.clone(), mode)
             })
             .collect();
+
+        // Apply SAT reset before signal builders so all paths see updated temps.
+        {
+            let zone_vav_plrs: HashMap<String, f64> = li
+                .served_zones
+                .iter()
+                .map(|z| {
+                    let load = zone_cooling_loads.get(z).copied().unwrap_or(0.0);
+                    let cap = zone_thermal_caps.get(z).copied().unwrap_or(1.0) * 5.0;
+                    let plr = (load / cap.max(1.0)).clamp(0.0, 1.0);
+                    (z.clone(), plr)
+                })
+                .collect();
+            if let Some(ref reset) = li.cooling_sat_reset.clone() {
+                li.cooling_supply_temp =
+                    apply_sat_reset(reset, t_outdoor, li.cooling_supply_temp, &zone_vav_plrs);
+            }
+            if let Some(ref reset) = li.heating_sat_reset.clone() {
+                li.heating_supply_temp = apply_sat_reset_heating(
+                    reset,
+                    t_outdoor,
+                    li.heating_supply_temp,
+                    &zone_vav_plrs,
+                );
+            }
+        }
 
         let mut signals = match li.system_type {
             // ──────────────────────────────────────────────────────────────
@@ -6817,6 +6876,8 @@ mod tests {
             heat_recovery_name: None,
             hhw_boiler_efficiency: 0.8,
             dcv: false,
+            cooling_sat_reset: None,
+            heating_sat_reset: None,
             zone_oa_data: vec![],
             design_supply_flow: 0.3,
             economizer_type: openbse_io::input::EconomizerType::NoEconomizer,
@@ -6845,6 +6906,8 @@ mod tests {
             heat_recovery_name: None,
             hhw_boiler_efficiency: 0.8,
             dcv: false,
+            cooling_sat_reset: None,
+            heating_sat_reset: None,
             zone_oa_data: vec![],
             design_supply_flow: 0.5,
             economizer_type: econ_type,
@@ -7450,6 +7513,143 @@ mod tests {
         assert_eq!(
             coil_sp, 99.0,
             "No RH override expected when zone RH < max_rh"
+        );
+    }
+}
+
+// ─── Setpoint Reset Helpers ───────────────────────────────────────────────────
+
+fn apply_sat_reset(
+    reset: &openbse_io::input::SatResetConfig,
+    t_outdoor: f64,
+    current_sat: f64,
+    zone_plrs: &HashMap<String, f64>,
+) -> f64 {
+    use openbse_io::input::SatResetConfig;
+    match reset {
+        SatResetConfig::OaReset {
+            sat_min,
+            sat_max,
+            oa_low,
+            oa_high,
+        } => {
+            // Linear: at oa_high → sat_min; at oa_low → sat_max
+            let frac = ((t_outdoor - oa_low) / (oa_high - oa_low)).clamp(0.0, 1.0);
+            sat_min + (1.0 - frac) * (sat_max - sat_min)
+        }
+        SatResetConfig::DemandReset {
+            sat_min,
+            sat_max,
+            step,
+        } => {
+            let max_plr = zone_plrs.values().cloned().fold(0.0_f64, f64::max);
+            if max_plr >= 0.95 {
+                (current_sat - step).max(*sat_min)
+            } else {
+                (current_sat + step).min(*sat_max)
+            }
+        }
+    }
+}
+
+fn apply_sat_reset_heating(
+    reset: &openbse_io::input::SatResetConfig,
+    t_outdoor: f64,
+    current_sat: f64,
+    zone_plrs: &HashMap<String, f64>,
+) -> f64 {
+    use openbse_io::input::SatResetConfig;
+    match reset {
+        SatResetConfig::OaReset {
+            sat_min,
+            sat_max,
+            oa_low,
+            oa_high,
+        } => {
+            // For heating: at oa_low → sat_max (cold outdoor → high heating SAT)
+            let frac = ((t_outdoor - oa_low) / (oa_high - oa_low)).clamp(0.0, 1.0);
+            sat_max - frac * (sat_max - sat_min)
+        }
+        SatResetConfig::DemandReset {
+            sat_min,
+            sat_max,
+            step,
+        } => {
+            // For heating demand reset: step up if zones are loaded (need more heat)
+            let max_plr = zone_plrs.values().cloned().fold(0.0_f64, f64::max);
+            if max_plr >= 0.95 {
+                (current_sat + step).min(*sat_max)
+            } else {
+                (current_sat - step).max(*sat_min)
+            }
+        }
+    }
+}
+
+fn apply_plant_reset(reset: &openbse_io::input::PlantResetConfig, t_outdoor: f64) -> f64 {
+    use openbse_io::input::PlantResetConfig;
+    match reset {
+        PlantResetConfig::OaReset {
+            sp_min,
+            sp_max,
+            oa_low,
+            oa_high,
+        } => {
+            let frac = ((t_outdoor - oa_low) / (oa_high - oa_low)).clamp(0.0, 1.0);
+            sp_min + (1.0 - frac) * (sp_max - sp_min)
+        }
+    }
+}
+
+#[cfg(test)]
+mod setpoint_reset_tests {
+    use super::*;
+
+    #[test]
+    fn test_sat_oa_reset_at_oa_low() {
+        let reset = openbse_io::input::SatResetConfig::OaReset {
+            sat_min: 11.0,
+            sat_max: 16.0,
+            oa_low: 10.0,
+            oa_high: 24.0,
+        };
+        let plrs = HashMap::new();
+        let sat = apply_sat_reset(&reset, 10.0, 13.0, &plrs);
+        assert!(
+            (sat - 16.0).abs() < 0.001,
+            "At oa_low, SAT should be sat_max=16"
+        );
+    }
+
+    #[test]
+    fn test_sat_oa_reset_at_oa_high() {
+        let reset = openbse_io::input::SatResetConfig::OaReset {
+            sat_min: 11.0,
+            sat_max: 16.0,
+            oa_low: 10.0,
+            oa_high: 24.0,
+        };
+        let plrs = HashMap::new();
+        let sat = apply_sat_reset(&reset, 24.0, 13.0, &plrs);
+        assert!(
+            (sat - 11.0).abs() < 0.001,
+            "At oa_high, SAT should be sat_min=11"
+        );
+    }
+
+    #[test]
+    fn test_sat_oa_reset_midpoint() {
+        let reset = openbse_io::input::SatResetConfig::OaReset {
+            sat_min: 11.0,
+            sat_max: 16.0,
+            oa_low: 10.0,
+            oa_high: 24.0,
+        };
+        let plrs = HashMap::new();
+        let sat = apply_sat_reset(&reset, 17.0, 13.0, &plrs);
+        assert!(
+            (sat - 13.5).abs() < 0.001,
+            "At midpoint OA, SAT should be midpoint=13.5"
         );
     }
 }
