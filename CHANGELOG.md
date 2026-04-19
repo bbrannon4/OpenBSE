@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Dual-duct CAV system** — `system_type: dual_duct` with `DualDuctBox` mixing box terminals. Hot and cold deck supply temperatures blend per zone proportionally to load. Autosizing, parametric override support. See `examples/office_dual_duct.yaml`. Closes #13.
+
 ## [0.2.8] - 2026-04-19
 
 ### Added

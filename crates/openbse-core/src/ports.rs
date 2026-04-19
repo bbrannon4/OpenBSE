@@ -70,6 +70,7 @@ pub enum ComponentKind {
     VrfOutdoor,
     RadiantPanel,
     Gshp,
+    DualDuctBox,
     Other,
 }
 

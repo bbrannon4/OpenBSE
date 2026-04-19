@@ -1,0 +1,378 @@
+# OpenBSE Example: Dual-Duct CAV Office (3 zones)
+#
+# A 3-zone office building served by a dual-duct constant air volume (CAV)
+# AHU. The AHU has a single supply fan feeding two parallel air streams:
+#   - Hot deck: heating coil (hot water) → heats to 38°C
+#   - Cold deck: cooling coil (DX) → cools to 13°C
+#
+# Each zone has a DualDuctBox mixing box terminal that blends hot and cold
+# deck supply air to meet the zone's load at constant total flow.
+#
+# Zones:
+#   - Perimeter  (120 m², south-facing, high solar/envelope load)
+#   - Interior   (200 m², no exterior walls, dominated by internal gains)
+#   - Conference (80 m², high occupancy density, intermittent load)
+#
+# Systems:
+#   - DD-AHU-1: dual_duct system, fan + HW heating coil + DX cooling coil
+#   - HHW Loop: natural gas boiler supplies hot deck coil
+#
+# Weather: Boulder, CO TMYx
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+
+# --- Design Days ---
+design_days:
+  - name: Boulder Heating 99.6%
+    design_temp: -17.8
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -17.8
+    pressure: 83411.0
+    wind_speed: 2.3
+    month: 1
+    day: 21
+    day_type: winter
+
+  - name: Boulder Cooling 0.4%
+    design_temp: 34.1
+    daily_range: 15.2
+    humidity_type: wetbulb
+    humidity_value: 15.7
+    pressure: 83411.0
+    wind_speed: 4.0
+    month: 7
+    day: 21
+    day_type: summer
+
+# --- Schedules ---
+schedules:
+  - name: Office Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.9, 1.0, 1.0, 1.0, 0.8, 1.0, 1.0, 1.0, 0.8, 0.4, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  - name: Office Lighting
+    weekday:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.3, 0.9, 1.0, 1.0, 1.0, 0.9, 1.0, 1.0, 1.0, 0.9, 0.5, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1]
+    weekend:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+
+  - name: Office Equipment
+    weekday:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.4, 0.9, 1.0, 1.0, 1.0, 0.8, 1.0, 1.0, 1.0, 0.8, 0.4, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1]
+    weekend:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+
+  - name: Conference Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 0.5, 0.5, 1.0, 1.0, 0.5, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  - name: HVAC Availability
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+# --- Materials ---
+materials:
+  - name: Concrete Wall
+    conductivity: 1.73
+    density: 2240.0
+    specific_heat: 900.0
+    solar_absorptance: 0.65
+    thermal_absorptance: 0.9
+    thermal_absorptance_inside: 0.9
+
+  - name: Insulation
+    conductivity: 0.04
+    density: 16.0
+    specific_heat: 835.0
+    solar_absorptance: 0.5
+    thermal_absorptance: 0.9
+    thermal_absorptance_inside: 0.9
+
+  - name: Gypsum Board
+    conductivity: 0.16
+    density: 800.0
+    specific_heat: 1090.0
+    solar_absorptance: 0.5
+    thermal_absorptance: 0.9
+    thermal_absorptance_inside: 0.9
+
+  - name: Roof Membrane
+    conductivity: 0.16
+    density: 1120.0
+    specific_heat: 1460.0
+    solar_absorptance: 0.75
+    thermal_absorptance: 0.9
+    thermal_absorptance_inside: 0.9
+
+  - name: Concrete Slab
+    conductivity: 1.73
+    density: 2240.0
+    specific_heat: 900.0
+    solar_absorptance: 0.65
+    thermal_absorptance: 0.9
+    thermal_absorptance_inside: 0.9
+
+# --- Constructions ---
+constructions:
+  - name: Exterior Wall
+    layers: [Concrete Wall, Insulation, Gypsum Board]
+
+  - name: Roof Assembly
+    layers: [Roof Membrane, Insulation, Gypsum Board]
+
+  - name: Interior Floor
+    layers: [Concrete Slab]
+
+# --- Window Constructions ---
+window_constructions:
+  - name: Double Pane Low-E
+    u_factor: 2.0
+    shgc: 0.40
+
+# --- Thermostats ---
+thermostats:
+  - name: Office Thermostat
+    zones: [Perimeter, Interior, Conference]
+    heating_setpoint: 21.1
+    cooling_setpoint: 23.9
+
+# --- Zones ---
+zones:
+  - name: Perimeter
+    floor_area: 120.0
+    volume: 420.0     # 3.5m ceiling
+
+  - name: Interior
+    floor_area: 200.0
+    volume: 700.0
+
+  - name: Conference
+    floor_area: 80.0
+    volume: 280.0
+
+# --- Surfaces ---
+surfaces:
+  # Perimeter south wall
+  - name: Perim-South-Wall
+    construction: Exterior Wall
+    zone: Perimeter
+    area: 42.0        # 12m wide × 3.5m tall
+    tilt: 90.0
+    azimuth: 180.0    # south-facing
+
+  - name: Perim-South-Window
+    construction: Double Pane Low-E
+    zone: Perimeter
+    area: 16.8        # 40% WWR of south wall
+    tilt: 90.0
+    azimuth: 180.0
+
+  - name: Perim-North-Wall
+    construction: Exterior Wall
+    zone: Perimeter
+    area: 42.0
+    tilt: 90.0
+    azimuth: 0.0
+
+  - name: Perim-Roof
+    construction: Roof Assembly
+    zone: Perimeter
+    area: 120.0
+    tilt: 0.0
+    azimuth: 0.0
+
+  - name: Perim-Floor
+    construction: Interior Floor
+    zone: Perimeter
+    area: 120.0
+    tilt: 180.0
+    azimuth: 0.0
+    boundary: ground
+
+  # Interior zone surfaces
+  - name: Interior-Roof
+    construction: Roof Assembly
+    zone: Interior
+    area: 200.0
+    tilt: 0.0
+    azimuth: 0.0
+
+  - name: Interior-Floor
+    construction: Interior Floor
+    zone: Interior
+    area: 200.0
+    tilt: 180.0
+    azimuth: 0.0
+    boundary: ground
+
+  # Conference zone
+  - name: Conf-East-Wall
+    construction: Exterior Wall
+    zone: Conference
+    area: 28.0        # 8m wide × 3.5m tall
+    tilt: 90.0
+    azimuth: 90.0
+
+  - name: Conf-East-Window
+    construction: Double Pane Low-E
+    zone: Conference
+    area: 8.4         # 30% WWR
+    tilt: 90.0
+    azimuth: 90.0
+
+  - name: Conf-Roof
+    construction: Roof Assembly
+    zone: Conference
+    area: 80.0
+    tilt: 0.0
+    azimuth: 0.0
+
+  - name: Conf-Floor
+    construction: Interior Floor
+    zone: Conference
+    area: 80.0
+    tilt: 180.0
+    azimuth: 0.0
+    boundary: ground
+
+# --- Internal Loads ---
+people:
+  - name: Perimeter People
+    zones: [Perimeter]
+    count: 12.0          # 10 m²/person
+    schedule: Office Occupancy
+    sensible_fraction: 0.60
+    metabolic_rate: 120.0
+
+  - name: Interior People
+    zones: [Interior]
+    count: 20.0          # 10 m²/person
+    schedule: Office Occupancy
+    sensible_fraction: 0.60
+    metabolic_rate: 120.0
+
+  - name: Conference People
+    zones: [Conference]
+    count: 20.0          # 4 m²/person (conference density)
+    schedule: Conference Occupancy
+    sensible_fraction: 0.60
+    metabolic_rate: 130.0
+
+lights:
+  - name: Perimeter Lights
+    zones: [Perimeter]
+    power_density: 10.0   # W/m²
+    schedule: Office Lighting
+
+  - name: Interior Lights
+    zones: [Interior]
+    power_density: 10.0
+    schedule: Office Lighting
+
+  - name: Conference Lights
+    zones: [Conference]
+    power_density: 12.0
+    schedule: Conference Occupancy
+
+equipment:
+  - name: Perimeter Equipment
+    zones: [Perimeter]
+    power_density: 10.0   # W/m²
+    schedule: Office Equipment
+    latent_fraction: 0.0
+    lost_fraction: 0.0
+
+  - name: Interior Equipment
+    zones: [Interior]
+    power_density: 15.0
+    schedule: Office Equipment
+    latent_fraction: 0.0
+    lost_fraction: 0.0
+
+  - name: Conference Equipment
+    zones: [Conference]
+    power_density: 8.0
+    schedule: Conference Occupancy
+    latent_fraction: 0.0
+    lost_fraction: 0.0
+
+infiltration:
+  - name: Perimeter Infiltration
+    zones: [Perimeter]
+    design_flow_rate: 0.000396   # 0.33 ACH at 120 m² × 3.5m = 420 m³
+
+  - name: Conference Infiltration
+    zones: [Conference]
+    design_flow_rate: 0.000132   # 0.33 ACH at 80 m² × 3.5m = 280 m³
+
+# --- Air Loops ---
+air_loops:
+  - name: DD-AHU-1
+    system_type: dual_duct
+    controls:
+      heating_supply_temp: 38.0
+      cooling_supply_temp: 13.0
+    equipment:
+      - type: fan
+        name: DD-Fan-1
+        design_flow_rate: autosize
+        pressure_rise: 750.0
+        motor_efficiency: 0.90
+        impeller_efficiency: 0.72
+
+      - type: heating_coil
+        name: DD-HotDeck-Coil
+        source: hot_water
+        capacity: autosize
+        setpoint: 38.0
+        plant_loop: HHW Loop
+
+      - type: cooling_coil
+        name: DD-ColdDeck-Coil
+        source: dx
+        capacity: autosize
+        cop: 3.5
+
+    zone_terminals:
+      - zone: Perimeter
+        terminal:
+          type: dual_duct_box
+          name: DD-Box-Perimeter
+          design_flow: autosize
+
+      - zone: Interior
+        terminal:
+          type: dual_duct_box
+          name: DD-Box-Interior
+          design_flow: autosize
+
+      - zone: Conference
+        terminal:
+          type: dual_duct_box
+          name: DD-Box-Conference
+          design_flow: autosize
+
+# --- Plant Loops ---
+plant_loops:
+  - name: HHW Loop
+    design_supply_temp: 82.0
+    design_delta_t: 11.1
+    supply_equipment:
+      - type: boiler
+        name: DD-Boiler
+        capacity: autosize
+        efficiency: 0.80
+        source: natural_gas
+        design_outlet_temp: 82.0
+
+      - type: pump
+        name: HHW-Pump
+        design_flow_rate: autosize
+        design_head: 20000.0
+        motor_efficiency: 0.90
+        pump_type: variable_speed

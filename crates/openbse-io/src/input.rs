@@ -391,6 +391,9 @@ pub enum AirLoopSystemType {
     Pthp,
     #[serde(alias = "variable_air_volume")]
     Vav,
+    /// Dual-duct constant air volume — hot deck + cold deck blend at each zone mixing box
+    #[serde(alias = "dual_duct_cav")]
+    DualDuct,
 }
 
 impl Default for AirLoopSystemType {
@@ -644,6 +647,15 @@ impl AirLoopInput {
             if (pos - 1.0).abs() < 0.01 {
                 return AirLoopSystemType::Doas;
             }
+        }
+
+        // Dual-duct: detected by dual_duct_box terminal
+        if self
+            .zone_terminals
+            .iter()
+            .any(|zt| matches!(zt.terminal, Some(TerminalInput::DualDuctBox(_))))
+        {
+            return AirLoopSystemType::DualDuct;
         }
 
         // Default: PSZ-AC
@@ -1174,6 +1186,9 @@ pub enum TerminalInput {
     /// Parallel Fan-Powered box with electric reheat
     #[serde(rename = "pfp_box")]
     PfpBox(PfpBoxInput),
+    /// Dual-duct CAV mixing box — blends hot and cold deck supply air
+    #[serde(rename = "dual_duct_box")]
+    DualDuctBox(DualDuctBoxInput),
 }
 
 /// VAV box input — variable air volume terminal with optional reheat coil.
@@ -1244,6 +1259,32 @@ pub struct PfpBoxInput {
     /// Secondary air (plenum) temperature [°C] (default: zone return air temp)
     #[serde(default)]
     pub secondary_air_temp: Option<f64>,
+}
+
+/// Dual-duct CAV mixing box input.
+///
+/// ```yaml
+/// terminal:
+///   type: dual_duct_box
+///   name: DD-Box-Perimeter
+///   design_flow: autosize
+///   min_flow_fraction: 0.20   # optional, default 0.20
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DualDuctBoxInput {
+    pub name: String,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
+    /// Design total supply flow [kg/s]. Use `autosize` to let the engine calculate.
+    pub design_flow: AutosizeValue,
+    /// Minimum flow fraction for each damper [0-1] (default 0.20)
+    #[serde(default = "default_dd_min_flow_fraction")]
+    pub min_flow_fraction: f64,
+}
+
+fn default_dd_min_flow_fraction() -> f64 {
+    0.20
 }
 
 fn default_min_flow_fraction() -> f64 {
@@ -2647,8 +2688,16 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
         // Build terminal boxes from zone connections.
         // Terminal boxes are air components that sit between the AHU supply duct
         // and each zone. They are connected after the last supply-side component.
+        //
+        // DualDuctBox is NOT added to the graph — blending is handled by the
+        // signal builder (build_dual_duct_signals) using DualDuctBox objects
+        // stored in LoopInfo.dd_boxes. No graph node is needed.
         for zc in &air_loop.zone_terminals {
             if let Some(ref terminal) = zc.terminal {
+                // Skip dual-duct boxes — not graph components
+                if matches!(terminal, TerminalInput::DualDuctBox(_)) {
+                    continue;
+                }
                 let terminal_node = match terminal {
                     TerminalInput::VavBox(vb) => {
                         let reheat = match vb.reheat_type.as_str() {
@@ -2679,6 +2728,8 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                         box_component.submeter = pb.submeter.clone();
                         graph.add_air_component(Box::new(box_component))
                     }
+                    // DualDuctBox handled above via `continue` — unreachable here
+                    TerminalInput::DualDuctBox(_) => unreachable!(),
                 };
 
                 // Connect terminal to the last supply-side component

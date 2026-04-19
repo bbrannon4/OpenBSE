@@ -3,6 +3,7 @@ pub mod chiller;
 pub mod chw_cooling_coil;
 pub mod cooling_coil;
 pub mod cooling_tower;
+pub mod dual_duct_box;
 pub mod duct;
 pub mod fan;
 pub mod gshp;

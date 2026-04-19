@@ -171,7 +171,7 @@ fn apply_single_override(
                 _ => {}
             }
         }
-        // Terminal boxes (VAV/PFP)
+        // Terminal boxes (VAV/PFP/DualDuct)
         for zc in &mut al.zone_terminals {
             if let Some(ref mut terminal) = zc.terminal {
                 match terminal {
@@ -181,6 +181,22 @@ fn apply_single_override(
                     }
                     crate::input::TerminalInput::PfpBox(pb) if pb.name == comp_name => {
                         set_pfp_box_field(pb, field_name, value);
+                        return true;
+                    }
+                    crate::input::TerminalInput::DualDuctBox(b) if b.name == comp_name => {
+                        match field_name {
+                            "min_flow_fraction" => b.min_flow_fraction = value,
+                            "design_flow" => {
+                                b.design_flow = openbse_core::types::AutosizeValue::Value(value)
+                            }
+                            _ => {
+                                log::warn!(
+                                    "Unknown field '{}' on dual duct box '{}' — skipping",
+                                    field_name,
+                                    b.name
+                                );
+                            }
+                        }
                         return true;
                     }
                     _ => {}

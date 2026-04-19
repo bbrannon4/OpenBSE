@@ -83,6 +83,9 @@ struct LoopInfo {
     /// Terminal box component names per zone (zone_name -> component_name).
     /// Only populated for loops with VAV/PFP terminal boxes defined in YAML.
     terminal_boxes: HashMap<String, String>,
+    /// Dual-duct mixing box objects per zone (zone_name -> DualDuctBox).
+    /// Only populated for DualDuct system type loops.
+    dd_boxes: HashMap<String, openbse_components::dual_duct_box::DualDuctBox>,
     /// True when the user explicitly set `minimum_damper_position` in YAML.
     /// Prevents post-sizing auto-recalculation from overriding the user value.
     explicit_min_oa: bool,
@@ -195,13 +198,30 @@ fn build_loop_infos(
 
             // Build terminal box map: zone_name -> component_name
             let mut terminal_boxes: HashMap<String, String> = HashMap::new();
+            let mut dd_boxes: HashMap<String, openbse_components::dual_duct_box::DualDuctBox> =
+                HashMap::new();
             for zc in &al.zone_terminals {
                 if let Some(ref terminal) = zc.terminal {
-                    let term_name = match terminal {
-                        openbse_io::input::TerminalInput::VavBox(vb) => vb.name.clone(),
-                        openbse_io::input::TerminalInput::PfpBox(pb) => pb.name.clone(),
-                    };
-                    terminal_boxes.insert(zc.zone.clone(), term_name);
+                    match terminal {
+                        openbse_io::input::TerminalInput::VavBox(vb) => {
+                            terminal_boxes.insert(zc.zone.clone(), vb.name.clone());
+                        }
+                        openbse_io::input::TerminalInput::PfpBox(pb) => {
+                            terminal_boxes.insert(zc.zone.clone(), pb.name.clone());
+                        }
+                        openbse_io::input::TerminalInput::DualDuctBox(dd) => {
+                            // Dual-duct boxes are simulated via the signal builder, not the graph.
+                            // Build DualDuctBox objects here; design_flow will be autosized later.
+                            let design_flow = dd.design_flow.to_f64();
+                            let flow = if design_flow > 0.0 { design_flow } else { 0.5 };
+                            let box_obj = openbse_components::dual_duct_box::DualDuctBox::new(
+                                &dd.name,
+                                flow,
+                                dd.min_flow_fraction,
+                            );
+                            dd_boxes.insert(zc.zone.clone(), box_obj);
+                        }
+                    }
                 }
             }
 
@@ -255,6 +275,7 @@ fn build_loop_infos(
                 cycling: al.controls.cycling,
                 fan_operating_mode: al.controls.fan_operating_mode,
                 terminal_boxes,
+                dd_boxes,
                 heat_recovery_name,
                 hhw_boiler_efficiency,
                 dcv: al.dcv,
@@ -724,7 +745,7 @@ fn main() -> Result<()> {
                 };
                 comp_submeter.insert(name, sm);
             }
-            // Terminal boxes (VAV/PFP) from zone_terminals
+            // Terminal boxes (VAV/PFP/DualDuct) from zone_terminals
             for zt in &al.zone_terminals {
                 if let Some(ref terminal) = zt.terminal {
                     match terminal {
@@ -733,6 +754,9 @@ fn main() -> Result<()> {
                         }
                         openbse_io::input::TerminalInput::PfpBox(pfp) => {
                             comp_submeter.insert(pfp.name.clone(), pfp.submeter.clone());
+                        }
+                        openbse_io::input::TerminalInput::DualDuctBox(dd) => {
+                            comp_submeter.insert(dd.name.clone(), dd.submeter.clone());
                         }
                     }
                 }
@@ -802,6 +826,9 @@ fn main() -> Result<()> {
                         }
                         openbse_io::input::TerminalInput::PfpBox(pfp) => {
                             comp_kind_map.insert(pfp.name.clone(), ComponentKind::HeatingCoil);
+                        }
+                        openbse_io::input::TerminalInput::DualDuctBox(dd) => {
+                            comp_kind_map.insert(dd.name.clone(), ComponentKind::DualDuctBox);
                         }
                     }
                 }
@@ -1097,7 +1124,10 @@ fn main() -> Result<()> {
                 // The sizing factor approximates this missing peak.
                 let vav_zones: std::collections::HashSet<String> = loop_infos
                     .iter()
-                    .filter(|li| li.system_type == AirLoopSystemType::Vav)
+                    .filter(|li| {
+                        li.system_type == AirLoopSystemType::Vav
+                            || li.system_type == AirLoopSystemType::DualDuct
+                    })
                     .flat_map(|li| li.served_zones.iter().cloned())
                     .collect();
                 for (zone_name, &flow) in &sizing_result.zone_design_airflow {
@@ -1223,8 +1253,8 @@ fn main() -> Result<()> {
                                 * model.simulation.cooling_sizing_factor;
                             (zone_flow_m3, zone_heat, zone_cool)
                         }
-                        AirLoopSystemType::Vav => {
-                            // VAV: multi-zone system. Sum served zone flows.
+                        AirLoopSystemType::Vav | AirLoopSystemType::DualDuct => {
+                            // VAV / DualDuct: multi-zone system. Sum served zone flows.
                             let zone_airflow: f64 = li
                                 .served_zones
                                 .iter()
@@ -1567,6 +1597,33 @@ fn main() -> Result<()> {
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                // ── Dual-Duct Box Autosizing ──────────────────────────────────
+                //
+                // Dual-duct boxes are CAV — design_flow is constant at all times.
+                // Size each box from the zone's peak design airflow (max of heating
+                // and cooling design flows), same as VAV max_air_flow.
+                for li in &mut loop_infos {
+                    if li.system_type != AirLoopSystemType::DualDuct {
+                        continue;
+                    }
+                    for (zone_name, dd_box) in &mut li.dd_boxes {
+                        // Only autosize when design_flow was set to the placeholder (≤ 0)
+                        if dd_box.design_flow <= 0.0 {
+                            let zone_flow = sizing_result
+                                .zone_design_airflow
+                                .get(zone_name)
+                                .copied()
+                                .unwrap_or(0.1)
+                                * model.simulation.cooling_sizing_factor;
+                            dd_box.design_flow = zone_flow.max(0.01);
+                            info!(
+                                "Autosized dual-duct box '{}' design_flow: {:.4} kg/s",
+                                dd_box.name, dd_box.design_flow
+                            );
                         }
                     }
                 }
@@ -2041,7 +2098,7 @@ fn main() -> Result<()> {
                         let (_, zone_supply_conditions) = simulate_all_loops(
                             &mut graph,
                             &ctx,
-                            &loop_infos,
+                            &mut loop_infos,
                             &current_zone_temps,
                             &zone_heating_setpoints,
                             &zone_cooling_setpoints,
@@ -2448,7 +2505,7 @@ fn main() -> Result<()> {
                             let (mut hvac_result, zone_supply_conditions) = simulate_all_loops(
                                 &mut graph,
                                 &ctx,
-                                &loop_infos,
+                                &mut loop_infos,
                                 &current_zone_temps,
                                 &zone_heating_setpoints,
                                 &zone_cooling_setpoints,
@@ -4199,7 +4256,7 @@ fn main() -> Result<()> {
 fn simulate_all_loops(
     graph: &mut SimulationGraph,
     ctx: &SimulationContext,
-    loop_infos: &[LoopInfo],
+    loop_infos: &mut [LoopInfo],
     zone_temps: &HashMap<String, f64>,
     zone_heat_sp: &HashMap<String, f64>,
     zone_cool_sp: &HashMap<String, f64>,
@@ -4227,7 +4284,7 @@ fn simulate_all_loops(
     // zone_name -> Vec<(supply_temp, mass_flow, supply_w)> — accumulate from multiple loops
     let mut zone_supply: HashMap<String, Vec<(f64, f64, f64)>> = HashMap::new();
 
-    for li in loop_infos {
+    for li in loop_infos.iter_mut() {
         // ── HVAC Availability Schedule & Night-Cycle Check ─────────────────
         //
         // When the availability schedule = 0, the system is normally OFF.
@@ -4556,6 +4613,26 @@ fn simulate_all_loops(
                     zone_min_rh,
                 )
             }
+
+            // ──────────────────────────────────────────────────────────────
+            // Dual-Duct CAV: hot deck + cold deck, per-zone mixing boxes.
+            // Each zone always receives design_flow; the blended temperature
+            // is computed from hot/cold deck temps and zone PLR.
+            // ──────────────────────────────────────────────────────────────
+            AirLoopSystemType::DualDuct => build_dual_duct_signals(
+                li,
+                zone_temps,
+                active_heat_sp,
+                active_cool_sp,
+                zone_design_flows,
+                t_outdoor,
+                effective_min_oa,
+                zone_cooling_loads,
+                zone_heating_loads,
+                zone_humidity_ratios,
+                zone_max_rh,
+                zone_min_rh,
+            ),
         };
 
         // Filter heat recovery out of the component chain — it was already
@@ -5122,30 +5199,43 @@ fn simulate_all_loops(
                     }
                 } else {
                     // No terminal box — distribute AHU supply directly
-                    let zone_flow = match li.system_type {
+                    let (zone_flow, zone_supply_temp) = match li.system_type {
                         AirLoopSystemType::PszAc => {
                             let n = li.served_zones.len().max(1) as f64;
-                            effective_flow / n
+                            (effective_flow / n, effective_supply_temp)
                         }
                         AirLoopSystemType::Doas => {
                             let n = li.served_zones.len().max(1) as f64;
-                            effective_flow / n
+                            (effective_flow / n, effective_supply_temp)
                         }
                         AirLoopSystemType::Fcu
                         | AirLoopSystemType::Ptac
-                        | AirLoopSystemType::Pthp => effective_flow,
+                        | AirLoopSystemType::Pthp => (effective_flow, effective_supply_temp),
                         AirLoopSystemType::Vav => {
-                            signals
-                                .zone_air_flows
+                            let flow =
+                                signals.zone_air_flows.get(zone_name).copied().unwrap_or(
+                                    effective_flow / li.served_zones.len().max(1) as f64,
+                                ) * loop_plr;
+                            (flow, effective_supply_temp)
+                        }
+                        AirLoopSystemType::DualDuct => {
+                            // Dual-duct: per-zone blended supply temp from signal builder,
+                            // constant design_flow (CAV — no PLR scaling of flow).
+                            let flow =
+                                signals.zone_air_flows.get(zone_name).copied().unwrap_or(
+                                    effective_flow / li.served_zones.len().max(1) as f64,
+                                );
+                            let temp = signals
+                                .zone_supply_temps
                                 .get(zone_name)
                                 .copied()
-                                .unwrap_or(effective_flow / li.served_zones.len().max(1) as f64)
-                                * loop_plr
+                                .unwrap_or(effective_supply_temp);
+                            (flow, temp)
                         }
                     };
 
                     zone_supply.entry(zone_name.clone()).or_default().push((
-                        effective_supply_temp,
+                        zone_supply_temp,
                         zone_flow,
                         effective_supply_w,
                     ));
@@ -6221,6 +6311,218 @@ fn build_vav_signals(
     signals
 }
 
+// ─── Dual-Duct Signal Builder ────────────────────────────────────────────────
+//
+// Each zone has a mixing box with two dampers (hot and cold deck).
+// The box blends hot and cold supply air at constant total flow (CAV).
+// The signal builder:
+//   1. Determines zone mode (Heating / Cooling / Deadband) from predictor temps.
+//   2. Computes zone PLR from the zone's estimated load.
+//   3. Calls DualDuctBox::simulate() to get blended supply temp and flow.
+//   4. Stores per-zone supply temps in signals.zone_supply_temps and
+//      per-zone flows in signals.zone_air_flows.
+//   5. Sets AHU coil setpoints:
+//      - Hot deck coil: target = heating_supply_temp when any zone needs heat
+//      - Cold deck coil: target = cooling_supply_temp when any zone needs cool
+//      - Fan: receives total design flow (Σ zone design_flows)
+#[allow(clippy::too_many_arguments)]
+fn build_dual_duct_signals(
+    li: &mut LoopInfo,
+    zone_temps: &HashMap<String, f64>,
+    zone_heat_sp: &HashMap<String, f64>,
+    zone_cool_sp: &HashMap<String, f64>,
+    zone_design_flows: &HashMap<String, f64>,
+    t_outdoor: f64,
+    effective_min_oa: f64,
+    zone_cooling_loads: &HashMap<String, f64>,
+    zone_heating_loads: &HashMap<String, f64>,
+    zone_humidity_ratios: &HashMap<String, f64>,
+    zone_max_rh: &HashMap<String, f64>,
+    zone_min_rh: &HashMap<String, f64>,
+) -> ControlSignals {
+    let mut signals = ControlSignals::default();
+    let cp = 1005.0_f64;
+    let hot_deck_temp = li.heating_supply_temp;
+    let cold_deck_temp = li.cooling_supply_temp;
+
+    let mut total_flow = 0.0_f64;
+    let mut any_heating = false;
+    let mut any_cooling = false;
+
+    for zone_name in &li.served_zones {
+        let zone_temp = zone_temps.get(zone_name).copied().unwrap_or(21.0);
+        let heat_sp = zone_heat_sp.get(zone_name).copied().unwrap_or(21.1);
+        let cool_sp = zone_cool_sp.get(zone_name).copied().unwrap_or(23.9);
+        let heat_load = zone_heating_loads.get(zone_name).copied().unwrap_or(0.0);
+        let cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
+
+        let mode = hvac_mode(zone_temp, heat_sp, cool_sp);
+
+        // RH override: if zone is over-humid and in deadband, force cooling
+        let zone_w = zone_humidity_ratios
+            .get(zone_name)
+            .copied()
+            .unwrap_or(0.008);
+        let zone_rh = openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp, zone_w, 101325.0) * 100.0;
+        let mode = if let Some(&max_rh) = zone_max_rh.get(zone_name) {
+            if zone_rh > max_rh && mode == HvacMode::Deadband {
+                HvacMode::Cooling
+            } else {
+                mode
+            }
+        } else {
+            mode
+        };
+
+        let heating = mode == HvacMode::Heating;
+        let cooling = mode == HvacMode::Cooling;
+        if heating {
+            any_heating = true;
+        }
+        if cooling {
+            any_cooling = true;
+        }
+
+        // PLR: fraction of available ΔT used
+        let plr = match mode {
+            HvacMode::Heating if heat_load > 0.0 => {
+                // Estimate PLR from load vs. max capacity at design flow
+                let design_flow = zone_design_flows.get(zone_name).copied().unwrap_or(
+                    li.dd_boxes
+                        .get(zone_name)
+                        .map(|b| b.design_flow)
+                        .unwrap_or(0.5),
+                );
+                let q_max = design_flow * cp * (hot_deck_temp - heat_sp).max(1.0);
+                (heat_load / q_max).clamp(0.0, 1.0)
+            }
+            HvacMode::Cooling if cool_load > 0.0 => {
+                let design_flow = zone_design_flows.get(zone_name).copied().unwrap_or(
+                    li.dd_boxes
+                        .get(zone_name)
+                        .map(|b| b.design_flow)
+                        .unwrap_or(0.5),
+                );
+                let q_max = design_flow * cp * (cool_sp - cold_deck_temp).max(1.0);
+                (cool_load / q_max).clamp(0.0, 1.0)
+            }
+            _ => 0.0,
+        };
+
+        // Get or create a DualDuctBox for this zone.
+        // If not already in li.dd_boxes, use design_flow from zone_design_flows.
+        let (supply_temp, zone_flow) = if let Some(dd_box) = li.dd_boxes.get_mut(zone_name) {
+            dd_box.simulate(heating, cooling, plr, hot_deck_temp, cold_deck_temp)
+        } else {
+            // No box registered (e.g., during warmup before autosizing)
+            let fallback_flow = zone_design_flows.get(zone_name).copied().unwrap_or(0.5);
+            let min_flow = fallback_flow * 0.20;
+            let (hot_flow, cold_flow) = if heating {
+                let hf = min_flow + plr * (fallback_flow - min_flow);
+                (hf, fallback_flow - hf)
+            } else if cooling {
+                let cf = min_flow + plr * (fallback_flow - min_flow);
+                (fallback_flow - cf, cf)
+            } else {
+                (fallback_flow / 2.0, fallback_flow / 2.0)
+            };
+            let blended = (hot_flow * hot_deck_temp + cold_flow * cold_deck_temp) / fallback_flow;
+            (blended, fallback_flow)
+        };
+
+        signals
+            .zone_supply_temps
+            .insert(zone_name.clone(), supply_temp);
+        signals.zone_air_flows.insert(zone_name.clone(), zone_flow);
+        total_flow += zone_flow;
+    }
+    total_flow = total_flow.max(0.05);
+
+    // ── AHU coil setpoints ──
+    // Hot deck: target heating_supply_temp when any zone in heating mode
+    // Cold deck: target cooling_supply_temp when any zone in cooling mode
+    // Both operate simultaneously — each deck heats/cools its own portion of air
+    for name in &li.component_names {
+        let lname = name.to_lowercase();
+        if lname.contains("cool")
+            || lname.contains("dx")
+            || lname.starts_with("cc ")
+            || lname.starts_with("cc_")
+        {
+            // Cold deck coil
+            if any_cooling {
+                signals.coil_setpoints.insert(name.clone(), cold_deck_temp);
+            } else {
+                signals.coil_setpoints.insert(name.clone(), 99.0);
+            }
+        } else if lname.contains("heat")
+            || lname.contains("hw")
+            || lname.contains("preheat")
+            || lname.starts_with("hc ")
+            || lname.starts_with("hc_")
+        {
+            // Hot deck coil
+            if any_heating {
+                signals.coil_setpoints.insert(name.clone(), hot_deck_temp);
+            } else {
+                signals.coil_setpoints.insert(name.clone(), -99.0);
+            }
+        }
+        signals.air_mass_flows.insert(name.clone(), total_flow);
+    }
+
+    // Mixed air for AHU inlet: blend outdoor and return air at min_oa_fraction
+    let avg_zone_temp = if li.served_zones.is_empty() {
+        21.0
+    } else {
+        li.served_zones
+            .iter()
+            .map(|z| zone_temps.get(z).copied().unwrap_or(21.0))
+            .sum::<f64>()
+            / li.served_zones.len() as f64
+    };
+    let mixed_air_temp = avg_zone_temp * (1.0 - effective_min_oa) + t_outdoor * effective_min_oa;
+    signals
+        .coil_setpoints
+        .insert("__vav_mixed_air_temp__".to_string(), mixed_air_temp);
+    signals
+        .coil_setpoints
+        .insert("__oa_fraction__".to_string(), effective_min_oa);
+    signals
+        .coil_setpoints
+        .insert("__return_air_temp__".to_string(), avg_zone_temp);
+
+    // Check RH min override for humidifier
+    for name in &li.component_names {
+        let lname = name.to_lowercase();
+        if lname.contains("humid") {
+            for zone_name in &li.served_zones {
+                if let Some(&min_rh) = zone_min_rh.get(zone_name) {
+                    let zone_temp_h = zone_temps.get(zone_name).copied().unwrap_or(21.0);
+                    let zone_w_h = zone_humidity_ratios
+                        .get(zone_name)
+                        .copied()
+                        .unwrap_or(0.008);
+                    let zone_rh_h =
+                        openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp_h, zone_w_h, 101325.0)
+                            * 100.0;
+                    if zone_rh_h < min_rh {
+                        let w_target = openbse_psychrometrics::w_fn_tdb_rh_pb(
+                            zone_temp_h,
+                            min_rh / 100.0,
+                            101325.0,
+                        );
+                        signals.coil_setpoints.insert(name.clone(), w_target);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    signals
+}
+
 // ─── Loop Component Runner ───────────────────────────────────────────────────
 //
 // Simulates a subset of graph components (one air loop's worth) in order,
@@ -6510,6 +6812,7 @@ mod tests {
             cycling: openbse_io::input::CyclingMethod::OnOff,
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
             terminal_boxes: HashMap::new(),
+            dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
             hhw_boiler_efficiency: 0.8,
@@ -6537,6 +6840,7 @@ mod tests {
             cycling: openbse_io::input::CyclingMethod::OnOff,
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
             terminal_boxes: HashMap::new(),
+            dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
             hhw_boiler_efficiency: 0.8,
