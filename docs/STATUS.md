@@ -80,6 +80,8 @@ Last updated: 2026-04-18 (v0.2.5)
 Planned features, bugs, and validation tasks are tracked as [GitHub Issues](https://github.com/bbrannon4/OpenBSE/issues).
 
 ### Recently completed
+- Radiant panels (fin-tube, chilled ceiling, electric) with radiant/convective split and surface distribution
+- HAMT coupled heat-and-moisture transport (activated per-construction when moisture material data provided)
 - DX coil dehumidification (autocalculate_shr default true; supply humidity wired to zone moisture balance)
 - Humidity-based controls (max/min_relative_humidity setpoints, dehumidification and humidification modes)
 - Multi-speed and variable-speed DX coils (CoolingCoilDXMultiSpeed, per-speed performance curves)

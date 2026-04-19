@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Radiant panels** — `RadiantPanel` component supporting fin-tube radiators, panel radiators, and chilled ceiling panels. Hot-water, chilled-water, and electric sources. Configurable `radiant_fraction` (default 0.50 for heating, 0.70 for cooling). Radiant portion distributed to zone surfaces via area×absorptance, affecting MRT. New `radiant_gains` field on `ZoneHvacConditions`. Closes #11.
+- **HAMT moisture transport** — 1D finite-difference coupled heat-and-moisture solver. Activated per-construction when all material layers have `vapor_resistance_factor` and `sorption_isotherm` defined; falls back to CTF otherwise. New material fields: `vapor_resistance_factor`, `sorption_isotherm`, `liquid_transport_coeff`. Closes #5.
+
 ## [0.2.5] - 2026-04-18
 
 ### Added
