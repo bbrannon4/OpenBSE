@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-04-19
+
 ### Added
 - **Setpoint reset controls** — OA-based and demand-based SAT reset on `AirLoopControls` (`cooling_sat_reset`, `heating_sat_reset`); OA-based plant loop setpoint reset on `PlantLoopInput` (`setpoint_reset`). Closes #32.
 - **Evaporative cooling** — `EvapCooler` component with `direct`, `indirect`, and `two_stage` modes. Integrated as air-loop equipment via `type: evap_cooler`. Closes #33.
