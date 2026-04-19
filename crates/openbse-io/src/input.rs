@@ -129,6 +129,11 @@ pub struct ModelInput {
     #[serde(default)]
     pub dhw_systems: Vec<DhwSystemInput>,
 
+    // ─── VRF Systems ────────────────────────────────────────────────────────
+    /// VRF systems (outdoor unit + per-zone indoor units)
+    #[serde(default)]
+    pub vrf_systems: Vec<VrfSystemInput>,
+
     // ─── Exterior Equipment ─────────────────────────────────────────────────
     /// Exterior equipment (facility-level loads not in any zone)
     #[serde(default)]
@@ -2056,6 +2061,84 @@ pub struct ExteriorEquipmentInput {
 
 fn default_exterior_fuel() -> String {
     "electricity".to_string()
+}
+
+// ─── VRF System Inputs ────────────────────────────────────────────────────────
+
+fn default_vrf_cooling_cop() -> f64 {
+    3.5
+}
+fn default_vrf_heating_cop() -> f64 {
+    4.0
+}
+fn default_vrf_cooling_supply_temp() -> f64 {
+    13.0
+}
+fn default_vrf_heating_supply_temp() -> f64 {
+    40.0
+}
+
+/// A complete VRF system: one outdoor unit with multiple indoor units.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VrfSystemInput {
+    pub name: String,
+    pub outdoor_unit: VrfOutdoorUnitInput,
+    pub indoor_units: Vec<VrfIndoorUnitInput>,
+}
+
+/// VRF outdoor unit (compressor).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VrfOutdoorUnitInput {
+    pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
+    /// Rated total cooling capacity [W] (or "autosize")
+    pub rated_cooling_capacity: AutosizeValue,
+    /// Rated total heating capacity [W] (or "autosize")
+    pub rated_heating_capacity: AutosizeValue,
+    /// Rated cooling COP (default 3.5)
+    #[serde(default = "default_vrf_cooling_cop")]
+    pub rated_cooling_cop: f64,
+    /// Rated heating COP (default 4.0)
+    #[serde(default = "default_vrf_heating_cop")]
+    pub rated_heating_cop: f64,
+    /// Enable heat recovery mode (default false)
+    #[serde(default)]
+    pub heat_recovery: bool,
+    /// Optional cooling capacity curve name f(outdoor_db, indoor_t)
+    #[serde(default)]
+    pub cooling_cap_ft: Option<String>,
+    /// Optional cooling EIR curve name f(outdoor_db, indoor_t)
+    #[serde(default)]
+    pub cooling_eir_ft: Option<String>,
+    /// Optional heating capacity curve name f(outdoor_db, indoor_t)
+    #[serde(default)]
+    pub heating_cap_ft: Option<String>,
+    /// Optional heating EIR curve name f(outdoor_db, indoor_t)
+    #[serde(default)]
+    pub heating_eir_ft: Option<String>,
+}
+
+/// VRF indoor unit (fan-coil) serving a single zone.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VrfIndoorUnitInput {
+    pub name: String,
+    /// Zone this unit serves
+    pub zone: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
+    /// Rated cooling capacity [W] (or "autosize")
+    pub cooling_capacity: AutosizeValue,
+    /// Rated heating capacity [W] (or "autosize")
+    pub heating_capacity: AutosizeValue,
+    /// Rated supply airflow [m³/s] (or "autosize")
+    pub rated_airflow: AutosizeValue,
+    /// Supply air temperature in cooling mode [°C] (default 13.0)
+    #[serde(default = "default_vrf_cooling_supply_temp")]
+    pub cooling_supply_temp: f64,
+    /// Supply air temperature in heating mode [°C] (default 40.0)
+    #[serde(default = "default_vrf_heating_supply_temp")]
+    pub heating_supply_temp: f64,
 }
 
 // ─── Model Builder ───────────────────────────────────────────────────────────

@@ -66,6 +66,8 @@ pub enum ComponentKind {
     Chiller,
     CoolingTower,
     HeatExchanger,
+    VrfIndoor,
+    VrfOutdoor,
     Other,
 }
 

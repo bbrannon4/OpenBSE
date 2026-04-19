@@ -1,0 +1,548 @@
+# OpenBSE Example: 3-Zone Office with VRF System
+#
+# Single-story office building with a VRF (Variable Refrigerant Flow) system
+# serving three zones.  Heat recovery mode routes cooling rejection to heating
+# zones, reducing compressor work on mild days.
+#
+# Building:
+#   Perimeter South  (100 m², 3.5m ceiling = 350 m³) — high solar gain
+#   Interior         (150 m², 3.5m ceiling = 525 m³) — always cooling-dominated
+#   Conference       ( 50 m², 3.5m ceiling = 175 m³) — intermittent occupancy
+#   Total floor area: 300 m²
+#
+# HVAC:
+#   VRF system with heat_recovery: true
+#   All indoor unit and outdoor unit capacities autosized
+#
+# Weather: Boulder, CO TMYx
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+
+# --- Design Days ---
+design_days:
+  - name: Boulder Heating 99.6%
+    design_temp: -17.8
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -17.8
+    pressure: 83411.0
+    wind_speed: 2.3
+    month: 1
+    day: 21
+    day_type: winter
+
+  - name: Boulder Cooling 0.4%
+    design_temp: 34.1
+    daily_range: 15.2
+    humidity_type: wetbulb
+    humidity_value: 15.7
+    pressure: 83411.0
+    wind_speed: 4.0
+    month: 7
+    day: 21
+    day_type: summer
+
+# --- Schedules ---
+schedules:
+  - name: Office Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.9, 1.0, 1.0, 1.0, 0.8, 1.0, 1.0, 1.0, 0.8, 0.4, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  - name: Conference Occupancy
+    weekday:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 0.5, 0.5, 1.0, 1.0, 0.5, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    weekend:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  - name: Office Lighting
+    weekday:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.3, 0.9, 1.0, 1.0, 1.0, 0.9, 1.0, 1.0, 1.0, 0.9, 0.5, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1]
+    weekend:  [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+
+# --- Materials ---
+materials:
+  - name: Steel Stud Wall
+    conductivity: 0.048
+    density: 32.0
+    specific_heat: 835.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_smooth
+
+  - name: Roof Insulation
+    conductivity: 0.036
+    density: 28.0
+    specific_heat: 1210.0
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Roof Membrane
+    conductivity: 0.16
+    density: 1120.0
+    specific_heat: 1460.0
+    solar_absorptance: 0.9
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+  - name: Concrete Slab
+    conductivity: 1.311
+    density: 2240.0
+    specific_heat: 836.8
+    solar_absorptance: 0.7
+    thermal_absorptance: 0.9
+    roughness: medium_rough
+
+constructions:
+  - name: Office Wall
+    layers:
+      - material: Steel Stud Wall
+        thickness: 0.14
+
+  - name: Flat Roof
+    layers:
+      - material: Roof Membrane
+        thickness: 0.01
+      - material: Roof Insulation
+        thickness: 0.15
+      - material: Concrete Slab
+        thickness: 0.05
+
+  - name: Ground Slab
+    layers:
+      - material: Concrete Slab
+        thickness: 0.10
+
+simple_constructions:
+  - name: Interior Partition
+    u_factor: 2.0
+    thickness: 0.13
+    thermal_capacity: 15000.0
+    solar_absorptance: 0.5
+    thermal_absorptance: 0.9
+
+window_constructions:
+  - name: Office Glazing
+    u_factor: 1.99
+    shgc: 0.38
+    visible_transmittance: 0.47
+
+# --- Zones ---
+# Building footprint: 20m (E-W) × 15m (N-S)
+# Perimeter South: x=[0,20], y=[0,5]  — 100 m²
+# Interior:        x=[0,20], y=[5,12.5] — 150 m²
+# Conference:      x=[0,10], y=[12.5,17.5] — 50 m²  (northwest corner)
+#   (Remaining north strip x=[10,20], y=[12.5,17.5] is part of Interior for simplicity)
+zones:
+  - name: Perimeter South
+    volume: 350.0
+    floor_area: 100.0
+
+  - name: Interior
+    volume: 525.0
+    floor_area: 150.0
+
+  - name: Conference
+    volume: 175.0
+    floor_area: 50.0
+
+zone_groups:
+  - name: All Office Zones
+    zones:
+      - Perimeter South
+      - Interior
+      - Conference
+
+# --- People ---
+people:
+  - name: Perimeter People
+    zones: [Perimeter South]
+    count: 10.0
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Office Occupancy
+
+  - name: Interior People
+    zones: [Interior]
+    count: 20.0
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Office Occupancy
+
+  - name: Conference People
+    zones: [Conference]
+    count: 15.0
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Conference Occupancy
+
+# --- Lights ---
+lights:
+  - name: Perimeter Lights
+    zones: [Perimeter South]
+    power: 150.0
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Office Lighting
+
+  - name: Interior Lights
+    zones: [Interior]
+    power: 225.0
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Office Lighting
+
+  - name: Conference Lights
+    zones: [Conference]
+    power: 75.0
+    radiant_fraction: 0.7
+    return_air_fraction: 0.0
+    schedule: Conference Occupancy
+
+# --- Equipment ---
+equipment:
+  - name: Perimeter Equipment
+    zones: [Perimeter South]
+    power: 250.0
+    radiant_fraction: 0.3
+    schedule: Office Occupancy
+
+  - name: Interior Equipment
+    zones: [Interior]
+    power: 450.0
+    radiant_fraction: 0.3
+    schedule: Office Occupancy
+
+  - name: Conference Equipment
+    zones: [Conference]
+    power: 100.0
+    radiant_fraction: 0.3
+    schedule: Conference Occupancy
+
+# --- Infiltration ---
+infiltration:
+  - name: Perimeter Infiltration
+    zones: [Perimeter South]
+    air_changes_per_hour: 0.30
+
+  - name: Interior Infiltration
+    zones: [Interior]
+    air_changes_per_hour: 0.10
+
+  - name: Conference Infiltration
+    zones: [Conference]
+    air_changes_per_hour: 0.25
+
+# --- Outdoor Air ---
+outdoor_air:
+  - name: Office OA
+    zones: [All Office Zones]
+    per_person: 0.002360
+    per_area: 0.000305
+
+# --- Surfaces ---
+# Building orientation: South face at y=0
+# Perimeter South: x=[0,20], y=[0,5], z=[0,3.5]
+# Interior:        x=[0,20], y=[5,12.5], z=[0,3.5]
+# Conference:      x=[0,10], y=[12.5,17.5], z=[0,3.5]
+
+surfaces:
+  # ── Perimeter South Zone ─────────────────────────────────────────────
+  - name: PS South Wall
+    zone: Perimeter South
+    type: wall
+    construction: Office Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 0.0, z: 0.0}
+      - {x: 20.0, y: 0.0, z: 0.0}
+      - {x: 20.0, y: 0.0, z: 3.5}
+      - {x: 0.0,  y: 0.0, z: 3.5}
+
+  - name: PS South Window
+    zone: Perimeter South
+    type: window
+    construction: Office Glazing
+    boundary: outdoor
+    parent_surface: PS South Wall
+    vertices:
+      - {x: 1.0,  y: 0.0, z: 0.9}
+      - {x: 19.0, y: 0.0, z: 0.9}
+      - {x: 19.0, y: 0.0, z: 2.9}
+      - {x: 1.0,  y: 0.0, z: 2.9}
+
+  - name: PS West Wall
+    zone: Perimeter South
+    type: wall
+    construction: Office Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 5.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 3.5}
+      - {x: 0.0, y: 5.0, z: 3.5}
+
+  - name: PS East Wall
+    zone: Perimeter South
+    type: wall
+    construction: Office Wall
+    boundary: outdoor
+    vertices:
+      - {x: 20.0, y: 0.0, z: 0.0}
+      - {x: 20.0, y: 5.0, z: 0.0}
+      - {x: 20.0, y: 5.0, z: 3.5}
+      - {x: 20.0, y: 0.0, z: 3.5}
+
+  - name: PS North Wall
+    zone: Perimeter South
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Interior"
+    vertices:
+      - {x: 20.0, y: 5.0, z: 0.0}
+      - {x: 0.0,  y: 5.0, z: 0.0}
+      - {x: 0.0,  y: 5.0, z: 3.5}
+      - {x: 20.0, y: 5.0, z: 3.5}
+
+  - name: PS Roof
+    zone: Perimeter South
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 0.0, z: 3.5}
+      - {x: 20.0, y: 0.0, z: 3.5}
+      - {x: 20.0, y: 5.0, z: 3.5}
+      - {x: 0.0,  y: 5.0, z: 3.5}
+
+  - name: PS Floor
+    zone: Perimeter South
+    type: floor
+    construction: Ground Slab
+    boundary: ground
+    vertices:
+      - {x: 0.0,  y: 5.0, z: 0.0}
+      - {x: 20.0, y: 5.0, z: 0.0}
+      - {x: 20.0, y: 0.0, z: 0.0}
+      - {x: 0.0,  y: 0.0, z: 0.0}
+
+  # ── Interior Zone ─────────────────────────────────────────────────────
+  - name: Int South Wall
+    zone: Interior
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Perimeter South"
+    vertices:
+      - {x: 0.0,  y: 5.0, z: 0.0}
+      - {x: 20.0, y: 5.0, z: 0.0}
+      - {x: 20.0, y: 5.0, z: 3.5}
+      - {x: 0.0,  y: 5.0, z: 3.5}
+
+  - name: Int West Wall
+    zone: Interior
+    type: wall
+    construction: Office Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 12.5, z: 0.0}
+      - {x: 0.0, y: 5.0,  z: 0.0}
+      - {x: 0.0, y: 5.0,  z: 3.5}
+      - {x: 0.0, y: 12.5, z: 3.5}
+
+  - name: Int East Wall
+    zone: Interior
+    type: wall
+    construction: Office Wall
+    boundary: outdoor
+    vertices:
+      - {x: 20.0, y: 5.0,  z: 0.0}
+      - {x: 20.0, y: 12.5, z: 0.0}
+      - {x: 20.0, y: 12.5, z: 3.5}
+      - {x: 20.0, y: 5.0,  z: 3.5}
+
+  - name: Int North Wall West
+    zone: Interior
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Conference"
+    vertices:
+      - {x: 10.0, y: 12.5, z: 0.0}
+      - {x: 0.0,  y: 12.5, z: 0.0}
+      - {x: 0.0,  y: 12.5, z: 3.5}
+      - {x: 10.0, y: 12.5, z: 3.5}
+
+  - name: Int North Wall East
+    zone: Interior
+    type: wall
+    construction: Office Wall
+    boundary: outdoor
+    vertices:
+      - {x: 20.0, y: 12.5, z: 0.0}
+      - {x: 10.0, y: 12.5, z: 0.0}
+      - {x: 10.0, y: 12.5, z: 3.5}
+      - {x: 20.0, y: 12.5, z: 3.5}
+
+  - name: Int Roof
+    zone: Interior
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 5.0,  z: 3.5}
+      - {x: 20.0, y: 5.0,  z: 3.5}
+      - {x: 20.0, y: 12.5, z: 3.5}
+      - {x: 0.0,  y: 12.5, z: 3.5}
+
+  - name: Int Floor
+    zone: Interior
+    type: floor
+    construction: Ground Slab
+    boundary: ground
+    vertices:
+      - {x: 0.0,  y: 12.5, z: 0.0}
+      - {x: 20.0, y: 12.5, z: 0.0}
+      - {x: 20.0, y: 5.0,  z: 0.0}
+      - {x: 0.0,  y: 5.0,  z: 0.0}
+
+  # ── Conference Zone ───────────────────────────────────────────────────
+  - name: Conf South Wall
+    zone: Conference
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Interior"
+    vertices:
+      - {x: 0.0,  y: 12.5, z: 0.0}
+      - {x: 10.0, y: 12.5, z: 0.0}
+      - {x: 10.0, y: 12.5, z: 3.5}
+      - {x: 0.0,  y: 12.5, z: 3.5}
+
+  - name: Conf West Wall
+    zone: Conference
+    type: wall
+    construction: Office Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 17.5, z: 0.0}
+      - {x: 0.0, y: 12.5, z: 0.0}
+      - {x: 0.0, y: 12.5, z: 3.5}
+      - {x: 0.0, y: 17.5, z: 3.5}
+
+  - name: Conf North Wall
+    zone: Conference
+    type: wall
+    construction: Office Wall
+    boundary: outdoor
+    vertices:
+      - {x: 10.0, y: 17.5, z: 0.0}
+      - {x: 0.0,  y: 17.5, z: 0.0}
+      - {x: 0.0,  y: 17.5, z: 3.5}
+      - {x: 10.0, y: 17.5, z: 3.5}
+
+  - name: Conf North Window
+    zone: Conference
+    type: window
+    construction: Office Glazing
+    boundary: outdoor
+    parent_surface: Conf North Wall
+    vertices:
+      - {x: 1.0, y: 17.5, z: 0.9}
+      - {x: 9.0, y: 17.5, z: 0.9}
+      - {x: 9.0, y: 17.5, z: 2.9}
+      - {x: 1.0, y: 17.5, z: 2.9}
+
+  - name: Conf East Wall
+    zone: Conference
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 10.0, y: 12.5, z: 0.0}
+      - {x: 10.0, y: 17.5, z: 0.0}
+      - {x: 10.0, y: 17.5, z: 3.5}
+      - {x: 10.0, y: 12.5, z: 3.5}
+
+  - name: Conf Roof
+    zone: Conference
+    type: roof
+    construction: Flat Roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0,  y: 12.5, z: 3.5}
+      - {x: 10.0, y: 12.5, z: 3.5}
+      - {x: 10.0, y: 17.5, z: 3.5}
+      - {x: 0.0,  y: 17.5, z: 3.5}
+
+  - name: Conf Floor
+    zone: Conference
+    type: floor
+    construction: Ground Slab
+    boundary: ground
+    vertices:
+      - {x: 0.0,  y: 17.5, z: 0.0}
+      - {x: 10.0, y: 17.5, z: 0.0}
+      - {x: 10.0, y: 12.5, z: 0.0}
+      - {x: 0.0,  y: 12.5, z: 0.0}
+
+# --- VRF System ---
+# Single VRF outdoor unit with one indoor unit per zone.
+# heat_recovery: true — cooling zones share rejected heat with heating zones.
+vrf_systems:
+  - name: Office VRF
+    outdoor_unit:
+      name: VRF-ODU-1
+      submeter: VRF
+      rated_cooling_capacity: autosize
+      rated_heating_capacity: autosize
+      rated_cooling_cop: 3.8
+      rated_heating_cop: 4.2
+      heat_recovery: true
+    indoor_units:
+      - name: VRF-IDU-Perimeter
+        zone: Perimeter South
+        submeter: VRF
+        cooling_capacity: autosize
+        heating_capacity: autosize
+        rated_airflow: autosize
+        cooling_supply_temp: 13.0
+        heating_supply_temp: 38.0
+
+      - name: VRF-IDU-Interior
+        zone: Interior
+        submeter: VRF
+        cooling_capacity: autosize
+        heating_capacity: autosize
+        rated_airflow: autosize
+        cooling_supply_temp: 13.0
+        heating_supply_temp: 38.0
+
+      - name: VRF-IDU-Conference
+        zone: Conference
+        submeter: VRF
+        cooling_capacity: autosize
+        heating_capacity: autosize
+        rated_airflow: autosize
+        cooling_supply_temp: 13.0
+        heating_supply_temp: 38.0
+
+# --- Thermostats ---
+thermostats:
+  - name: Office Thermostat
+    zones: [All Office Zones]
+    heating_setpoint: 21.0
+    cooling_setpoint: 24.0
+
+# --- Outputs ---
+outputs:
+  - file: "vrf_zone_results.csv"
+    frequency: hourly
+    variables:
+      - zone_temperature
+      - zone_heating_rate
+      - zone_cooling_rate
+      - zone_supply_air_temperature
+      - zone_supply_air_mass_flow

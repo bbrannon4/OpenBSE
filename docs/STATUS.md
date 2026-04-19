@@ -27,6 +27,7 @@ Last updated: 2026-04-18 (v0.2.5)
 - **VAV**: Variable air volume with central AHU, per-zone reheat boxes
 - **DOAS**: Dedicated outdoor air systems (100% OA) with downstream fan coil units
 - **FCU**: Fan coil units for zone-level heating/cooling
+- **VRF**: Variable refrigerant flow with `VrfOutdoorUnit` + per-zone `VrfIndoorUnit`. Heat recovery mode, performance curves f(T_outdoor, T_indoor), proportional PLR capacity limiting. Added 2026-04-18.
 
 ### HVAC Components
 - Fans: constant volume, VAV (with part-load curves), on/off

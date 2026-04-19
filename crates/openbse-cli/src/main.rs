@@ -946,6 +946,9 @@ fn main() -> Result<()> {
         // demand-based sizing, NOT installed equipment capacity).
         let mut coincident_peak_heating: f64 = 0.0;
         let mut coincident_peak_cooling: f64 = 0.0;
+        // Zone peak loads for VRF autosizing (populated during sizing, used after)
+        let mut vrf_zone_peak_heating: HashMap<String, f64> = HashMap::new();
+        let mut vrf_zone_peak_cooling: HashMap<String, f64> = HashMap::new();
         if !model.design_days.is_empty() {
             if let Some(ref mut env) = envelope {
                 let latitude = weather_data.location.latitude;
@@ -987,6 +990,9 @@ fn main() -> Result<()> {
                 // Store coincident peak demands for plant loop pump autosizing
                 coincident_peak_heating = sizing_result.system_sizing.coincident_peak_heating;
                 coincident_peak_cooling = sizing_result.system_sizing.coincident_peak_cooling;
+                // Store zone peaks for VRF autosizing
+                vrf_zone_peak_heating = sizing_result.zone_peak_heating.clone();
+                vrf_zone_peak_cooling = sizing_result.zone_peak_cooling.clone();
 
                 // Apply sized zone airflows (override design_zone_flow).
                 // For VAV zones, apply the cooling sizing factor to compensate
@@ -1618,6 +1624,149 @@ fn main() -> Result<()> {
                 "disabled"
             }
         );
+
+        // ── 6b. Build VRF systems ──────────────────────────────────────────────
+        use openbse_components::vrf::{VrfIndoorUnit, VrfOutdoorUnit};
+        let mut vrf_systems: Vec<(VrfOutdoorUnit, Vec<VrfIndoorUnit>)> = model
+            .vrf_systems
+            .iter()
+            .map(|sys| {
+                let ou_in = &sys.outdoor_unit;
+
+                // Resolve outdoor unit capacity: autosize sums all indoor unit capacities
+                let total_cool_cap: f64 = sys
+                    .indoor_units
+                    .iter()
+                    .map(|iu| {
+                        if iu.cooling_capacity.is_autosize() {
+                            vrf_zone_peak_cooling
+                                .get(&iu.zone)
+                                .copied()
+                                .unwrap_or(3000.0)
+                                * model.simulation.cooling_sizing_factor
+                        } else {
+                            iu.cooling_capacity.to_f64()
+                        }
+                    })
+                    .sum();
+                let total_heat_cap: f64 = sys
+                    .indoor_units
+                    .iter()
+                    .map(|iu| {
+                        if iu.heating_capacity.is_autosize() {
+                            vrf_zone_peak_heating
+                                .get(&iu.zone)
+                                .copied()
+                                .unwrap_or(3000.0)
+                                * model.simulation.heating_sizing_factor
+                        } else {
+                            iu.heating_capacity.to_f64()
+                        }
+                    })
+                    .sum();
+
+                let rated_cool_cap = if ou_in.rated_cooling_capacity.is_autosize() {
+                    total_cool_cap.max(1000.0)
+                } else {
+                    ou_in.rated_cooling_capacity.to_f64()
+                };
+                let rated_heat_cap = if ou_in.rated_heating_capacity.is_autosize() {
+                    total_heat_cap.max(1000.0)
+                } else {
+                    ou_in.rated_heating_capacity.to_f64()
+                };
+
+                let mut odu = VrfOutdoorUnit::new(
+                    &ou_in.name,
+                    rated_cool_cap,
+                    rated_heat_cap,
+                    ou_in.rated_cooling_cop,
+                    ou_in.rated_heating_cop,
+                    ou_in.heat_recovery,
+                );
+                odu.submeter = ou_in.submeter.clone();
+
+                // Resolve performance curves by name
+                let resolve_curve = |name: &Option<String>| -> Option<openbse_components::performance_curve::PerformanceCurve> {
+                    name.as_ref().and_then(|n| {
+                        model
+                            .performance_curves
+                            .iter()
+                            .find(|c| &c.name == n)
+                            .cloned()
+                    })
+                };
+                odu.cooling_cap_ft = resolve_curve(&ou_in.cooling_cap_ft);
+                odu.cooling_eir_ft = resolve_curve(&ou_in.cooling_eir_ft);
+                odu.heating_cap_ft = resolve_curve(&ou_in.heating_cap_ft);
+                odu.heating_eir_ft = resolve_curve(&ou_in.heating_eir_ft);
+
+                // Airflow for autosized indoor units: 0.00005 m³/s per W of capacity
+                let airflow_per_watt = 0.00005_f64;
+
+                let indoor_units: Vec<VrfIndoorUnit> = sys
+                    .indoor_units
+                    .iter()
+                    .map(|iu_in| {
+                        let cool_cap = if iu_in.cooling_capacity.is_autosize() {
+                            (vrf_zone_peak_cooling
+                                .get(&iu_in.zone)
+                                .copied()
+                                .unwrap_or(3000.0)
+                                * model.simulation.cooling_sizing_factor)
+                                .max(500.0)
+                        } else {
+                            iu_in.cooling_capacity.to_f64()
+                        };
+                        let heat_cap = if iu_in.heating_capacity.is_autosize() {
+                            (vrf_zone_peak_heating
+                                .get(&iu_in.zone)
+                                .copied()
+                                .unwrap_or(3000.0)
+                                * model.simulation.heating_sizing_factor)
+                                .max(500.0)
+                        } else {
+                            iu_in.heating_capacity.to_f64()
+                        };
+                        let airflow = if iu_in.rated_airflow.is_autosize() {
+                            cool_cap.max(heat_cap) * airflow_per_watt
+                        } else {
+                            iu_in.rated_airflow.to_f64()
+                        };
+                        let mut iu =
+                            VrfIndoorUnit::new(&iu_in.name, &iu_in.zone, cool_cap, heat_cap, airflow);
+                        iu.submeter = iu_in.submeter.clone();
+                        iu.cooling_supply_temp = iu_in.cooling_supply_temp;
+                        iu.heating_supply_temp = iu_in.heating_supply_temp;
+                        iu
+                    })
+                    .collect();
+
+                info!(
+                    "VRF system '{}': outdoor unit '{}' ({:.1} kW cool / {:.1} kW heat), {} indoor units",
+                    sys.name,
+                    odu.name,
+                    rated_cool_cap / 1000.0,
+                    rated_heat_cap / 1000.0,
+                    indoor_units.len()
+                );
+
+                (odu, indoor_units)
+            })
+            .collect();
+
+        // Register VRF component names in submeter and kind maps
+        for sys in &model.vrf_systems {
+            comp_submeter.insert(
+                sys.outdoor_unit.name.clone(),
+                sys.outdoor_unit.submeter.clone(),
+            );
+            comp_kind_map.insert(sys.outdoor_unit.name.clone(), ComponentKind::VrfOutdoor);
+            for iu in &sys.indoor_units {
+                comp_submeter.insert(iu.name.clone(), iu.submeter.clone());
+                comp_kind_map.insert(iu.name.clone(), ComponentKind::VrfIndoor);
+            }
+        }
 
         // ── 7. Run the simulation loop ──────────────────────────────────────────
         info!("Starting simulation...");
@@ -2648,6 +2797,30 @@ fn main() -> Result<()> {
                             };
                             prev_supply_conditions = zone_supply_conditions;
 
+                            // Step 1c: Coordinate VRF systems.
+                            //
+                            // VRF operates independently of the air-loop graph.
+                            // The outdoor unit dispatches indoor units based on
+                            // current zone temperatures and setpoints.
+                            for (odu, idu_vec) in &mut vrf_systems {
+                                odu.coordinate(
+                                    idu_vec,
+                                    t_outdoor,
+                                    &current_zone_temps,
+                                    &zone_heating_setpoints,
+                                    &zone_cooling_setpoints,
+                                    ctx.outdoor_air.w,
+                                );
+                                // Record compressor energy in hvac_result outputs
+                                if odu.compressor_power > 0.0 {
+                                    hvac_result
+                                        .component_outputs
+                                        .entry(odu.name.clone())
+                                        .or_default()
+                                        .insert("electric_power".to_string(), odu.compressor_power);
+                                }
+                            }
+
                             let mut hvac_conds = ZoneHvacConditions::default();
 
                             for (zone_name, (supply_temp, mass_flow, supply_w)) in &damped_supply {
@@ -2670,6 +2843,24 @@ fn main() -> Result<()> {
                                         .insert(zone_name.clone(), *supply_w);
                                 }
                             }
+                            // Inject VRF indoor unit supply conditions into hvac_conds.
+                            // VRF is recirculating — it does not handle outdoor air.
+                            for (_odu, idu_vec) in &vrf_systems {
+                                for iu in idu_vec {
+                                    if iu.mass_flow > 1e-9 {
+                                        hvac_conds
+                                            .supply_temps
+                                            .insert(iu.zone.clone(), iu.supply_temp);
+                                        hvac_conds
+                                            .supply_mass_flows
+                                            .insert(iu.zone.clone(), iu.mass_flow);
+                                        hvac_conds
+                                            .supply_humidity_ratios
+                                            .insert(iu.zone.clone(), iu.supply_humidity_ratio);
+                                    }
+                                }
+                            }
+
                             // Tell the envelope which zones have HVAC-handled OA.
                             // If a zone's air loop has min_oa_fraction > 0, HVAC handles OA
                             // and zone-level OA should be suppressed. If min_oa_fraction == 0,
@@ -3314,15 +3505,16 @@ fn main() -> Result<()> {
                                 .get(comp_name)
                                 .map(|s| s.as_str())
                                 .unwrap_or("General");
-                            let end_use =
-                                match comp_kind_map.get(comp_name) {
-                                    Some(ComponentKind::Fan) => "fan_electric",
-                                    Some(ComponentKind::CoolingCoil)
-                                    | Some(ComponentKind::Chiller) => "cooling_electric",
-                                    Some(ComponentKind::HeatingCoil)
-                                    | Some(ComponentKind::Boiler) => "heating_electric",
-                                    _ => "misc_electric",
-                                };
+                            let end_use = match comp_kind_map.get(comp_name) {
+                                Some(ComponentKind::Fan) => "fan_electric",
+                                Some(ComponentKind::CoolingCoil)
+                                | Some(ComponentKind::Chiller)
+                                | Some(ComponentKind::VrfOutdoor) => "cooling_electric",
+                                Some(ComponentKind::HeatingCoil) | Some(ComponentKind::Boiler) => {
+                                    "heating_electric"
+                                }
+                                _ => "misc_electric",
+                            };
                             add(sm, meter, end_use, pw);
                         }
                         for (comp_name, &pw) in &snapshot.component_fuel_power {

@@ -14,5 +14,6 @@ pub mod performance_curve;
 pub mod pfp_box;
 pub mod pump;
 pub mod vav_box;
+pub mod vrf;
 pub mod water_heater;
 pub mod wshp;

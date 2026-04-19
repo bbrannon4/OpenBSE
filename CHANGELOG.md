@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **VRF systems** — `VrfOutdoorUnit` coordinates multiple `VrfIndoorUnit` fan-coil units per zone. Performance curves f(outdoor T, indoor T). Heat recovery mode routes cooling rejection to heating zones, reducing compressor work. Capacity limiting with proportional PLR scaling. See `examples/office_vrf.yaml`. Closes #10.
+
 ## [0.2.5] - 2026-04-18
 
 ### Added
