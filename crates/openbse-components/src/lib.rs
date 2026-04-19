@@ -5,6 +5,7 @@ pub mod cooling_coil;
 pub mod cooling_tower;
 pub mod duct;
 pub mod fan;
+pub mod gshp;
 pub mod heat_exchanger;
 pub mod heat_pump_coil;
 pub mod heat_recovery;

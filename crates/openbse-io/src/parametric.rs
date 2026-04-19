@@ -2,8 +2,8 @@
 
 use crate::input::{
     BoilerInput, ChillerInput, CoolingCoilInput, CoolingTowerInput, DuctInput, EquipmentInput,
-    ExteriorEquipmentInput, FanInput, HeatExchangerInput, HeatRecoveryInput, HeatingCoilInput,
-    HumidifierInput, ModelInput, PlantEquipmentInput, PumpInput, VavBoxInput,
+    ExteriorEquipmentInput, FanInput, GshpInput, HeatExchangerInput, HeatRecoveryInput,
+    HeatingCoilInput, HumidifierInput, ModelInput, PlantEquipmentInput, PumpInput, VavBoxInput,
 };
 use std::collections::HashMap;
 
@@ -162,6 +162,10 @@ fn apply_single_override(
                 }
                 EquipmentInput::Duct(d) if d.name == comp_name => {
                     set_duct_field(d, field_name, value);
+                    return true;
+                }
+                EquipmentInput::Gshp(g) if g.name == comp_name => {
+                    set_gshp_field(g, field_name, value);
                     return true;
                 }
                 _ => {}
@@ -463,6 +467,22 @@ fn set_duct_field(d: &mut DuctInput, field: &str, value: f64) {
         "u_value" => d.u_value = value,
         "leakage_fraction" => d.leakage_fraction = value,
         _ => log::warn!("Unknown field '{}' on duct '{}' — skipping", field, d.name),
+    }
+}
+
+fn set_gshp_field(g: &mut GshpInput, field: &str, value: f64) {
+    match field {
+        "cop_cooling" => g.cop_cooling = value,
+        "cop_heating" => g.cop_heating = value,
+        "rated_cooling_capacity" => {
+            g.rated_cooling_capacity = openbse_core::types::AutosizeValue::Value(value)
+        }
+        "rated_heating_capacity" => {
+            g.rated_heating_capacity = openbse_core::types::AutosizeValue::Value(value)
+        }
+        "loop_depth" => g.loop_depth = value,
+        "outlet_temp_setpoint" => g.outlet_temp_setpoint = value,
+        _ => log::warn!("Unknown field '{}' on GSHP '{}' — skipping", field, g.name),
     }
 }
 

@@ -138,6 +138,7 @@ fn build_loop_infos(
                         EquipmentInput::CoolingCoil(c) => c.name.clone(),
                         EquipmentInput::CoolingCoilMultiSpeed(c) => c.name.clone(),
                         EquipmentInput::Wshp(w) => w.name.clone(),
+                        EquipmentInput::Gshp(g) => g.name.clone(),
                         EquipmentInput::HeatRecovery(hr) => hr.name.clone(),
                         EquipmentInput::Humidifier(h) => h.name.clone(),
                         EquipmentInput::Duct(d) => d.name.clone(),
@@ -586,6 +587,56 @@ fn main() -> Result<()> {
             info!("No envelope defined (HVAC-only simulation)");
         }
 
+        // ── 3b. Configure ground-source heat pump ground temp models ─────────────
+        //
+        // Build a Kusuda-Achenbach ground temperature model from the weather data
+        // and inject Kusuda params + EPW monthly temps into each GSHP component.
+        // The GSHP uses these to compute EWT internally each timestep.
+        {
+            let gshp_kusuda =
+                openbse_envelope::GroundTempModel::from_weather_hours(&weather_data.hours);
+
+            // Find the shallowest EPW ground temperature profile (typically 0.5 m)
+            let epw_monthly: Option<[f64; 12]> = weather_data
+                .ground_temperatures
+                .iter()
+                .min_by(|a, b| {
+                    a.depth
+                        .partial_cmp(&b.depth)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|gt| gt.monthly_temps);
+
+            for al in &model.air_loops {
+                for eq in &al.equipment {
+                    if let openbse_io::input::EquipmentInput::Gshp(g) = eq {
+                        if let Some(node_idx) = graph.node_by_name(&g.name) {
+                            if let openbse_core::graph::GraphComponent::Air(comp) =
+                                graph.component_mut(node_idx)
+                            {
+                                comp.configure_ground_source(
+                                    gshp_kusuda.t_mean,
+                                    gshp_kusuda.amplitude,
+                                    gshp_kusuda.phase_day,
+                                    gshp_kusuda.soil_diffusivity,
+                                    g.loop_depth,
+                                    epw_monthly,
+                                );
+                                info!(
+                                    "GSHP '{}': Kusuda model (mean={:.1}°C, amp={:.1}°C, depth={:.1}m), EPW monthly={}",
+                                    g.name,
+                                    gshp_kusuda.t_mean,
+                                    gshp_kusuda.amplitude,
+                                    g.loop_depth,
+                                    if epw_monthly.is_some() { "yes" } else { "no" }
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // ── 4. Build loop descriptors ──────────────────────────────────────────
         // Get resolved zones for OA fraction auto-calculation
         let resolved_zones_for_oa: Vec<openbse_envelope::ZoneInput> = envelope
@@ -658,6 +709,9 @@ fn main() -> Result<()> {
                     openbse_io::input::EquipmentInput::Wshp(w) => {
                         (w.name.clone(), w.submeter.clone())
                     }
+                    openbse_io::input::EquipmentInput::Gshp(g) => {
+                        (g.name.clone(), g.submeter.clone())
+                    }
                     openbse_io::input::EquipmentInput::HeatRecovery(h) => {
                         (h.name.clone(), h.submeter.clone())
                     }
@@ -724,6 +778,9 @@ fn main() -> Result<()> {
                     }
                     openbse_io::input::EquipmentInput::Wshp(w) => {
                         (w.name.clone(), ComponentKind::CoolingCoil)
+                    }
+                    openbse_io::input::EquipmentInput::Gshp(g) => {
+                        (g.name.clone(), ComponentKind::Gshp)
                     }
                     openbse_io::input::EquipmentInput::HeatRecovery(h) => {
                         (h.name.clone(), ComponentKind::HeatRecovery)
@@ -1444,6 +1501,20 @@ fn main() -> Result<()> {
                                     name,
                                     loop_cool,
                                     loop_cool / 1000.0
+                                );
+                            }
+                        }
+                    }
+
+                    // ── GSHP: autosize both cooling and heating capacities ───────
+                    if lname.contains("gshp") {
+                        if let Some(cool_cap) = comp.nominal_capacity() {
+                            if is_autosize(cool_cap) {
+                                comp.set_nominal_capacity(loop_cool);
+                                comp.set_heating_capacity(loop_heat);
+                                info!(
+                                    "Autosized GSHP '{}': cooling={:.0}W, heating={:.0}W",
+                                    name, loop_cool, loop_heat
                                 );
                             }
                         }
@@ -3681,7 +3752,8 @@ fn main() -> Result<()> {
                                 Some(ComponentKind::Fan) => "fan_electric",
                                 Some(ComponentKind::CoolingCoil)
                                 | Some(ComponentKind::Chiller)
-                                | Some(ComponentKind::VrfOutdoor) => "cooling_electric",
+                                | Some(ComponentKind::VrfOutdoor)
+                                | Some(ComponentKind::Gshp) => "cooling_electric",
                                 Some(ComponentKind::HeatingCoil) | Some(ComponentKind::Boiler) => {
                                     "heating_electric"
                                 }

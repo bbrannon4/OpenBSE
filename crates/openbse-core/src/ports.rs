@@ -69,6 +69,7 @@ pub enum ComponentKind {
     VrfIndoor,
     VrfOutdoor,
     RadiantPanel,
+    Gshp,
     Other,
 }
 
@@ -224,6 +225,32 @@ pub trait AirComponent: std::fmt::Debug {
     /// Set the ambient temperature surrounding this component [°C].
     /// Used by duct components to model conduction losses to the surrounding space.
     fn set_ambient_temp(&mut self, _temp: f64) {}
+
+    /// Set heating nominal capacity [W] for heat pump components with separate
+    /// heating and cooling capacities.  Default no-op.
+    fn set_heating_capacity(&mut self, _cap: f64) {}
+
+    /// Inject ground temperature model parameters for ground-source heat pump
+    /// components.  Called at build time by the simulation driver after reading
+    /// weather data.  Default no-op — only `GroundSourceHeatPump` overrides this.
+    ///
+    /// Parameters mirror the Kusuda-Achenbach equation:
+    ///   `t_mean` — annual mean ground surface temperature [°C]
+    ///   `amplitude` — half of annual peak-to-peak surface amplitude [°C]
+    ///   `phase_day` — day of year of minimum surface temperature
+    ///   `soil_diffusivity` — soil thermal diffusivity [m²/day]
+    ///   `loop_depth` — burial depth override [m] (ignored; GSHP uses its own)
+    ///   `epw_monthly_temps` — monthly temps from EPW header, if available
+    fn configure_ground_source(
+        &mut self,
+        _t_mean: f64,
+        _amplitude: f64,
+        _phase_day: f64,
+        _soil_diffusivity: f64,
+        _loop_depth: f64,
+        _epw_monthly_temps: Option<[f64; 12]>,
+    ) {
+    }
 
     /// Name of the ambient zone for this component, if applicable.
     /// Returns `Some("outdoor")`, `Some("ground")`, or `Some(zone_name)`

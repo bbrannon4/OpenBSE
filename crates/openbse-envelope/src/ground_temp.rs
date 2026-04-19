@@ -137,6 +137,27 @@ impl GroundTempModel {
         }
     }
 
+    /// Ground temperature at a specific depth [°C], ignoring `self.depth`.
+    ///
+    /// Useful when the caller wants to query at a depth different from the
+    /// model's stored depth (e.g., GSHP loop depth vs floor slab depth).
+    pub fn temperature_at_depth(&self, day_of_year: f64, depth: f64) -> f64 {
+        if let Some(ref temps) = self.monthly_temps {
+            // Monthly table doesn't vary with depth; return the 0.5 m table value
+            return Self::interpolate_monthly(temps, day_of_year);
+        }
+        let alpha = self.soil_diffusivity;
+        if alpha <= 0.0 {
+            return self.t_mean;
+        }
+        let damping_arg = depth * (std::f64::consts::PI / (365.0 * alpha)).sqrt();
+        let damping = (-damping_arg).exp();
+        let phase_shift = depth / 2.0 * (365.0 / (std::f64::consts::PI * alpha)).sqrt();
+        let cos_arg =
+            2.0 * std::f64::consts::PI / 365.0 * (day_of_year - self.phase_day - phase_shift);
+        self.t_mean - self.amplitude * damping * cos_arg.cos()
+    }
+
     /// Ground temperature at a given day of year [°C].
     ///
     /// If monthly temperatures are available (from EPW header), uses linear

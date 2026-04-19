@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-04-19
+
+### Added
+- **Ground-source heat pump (GSHP)** — New `GroundSourceHeatPump` component (`gshp.rs`). Uses Kusuda-Achenbach ground temperature equation as the entering water temperature (EWT) instead of a condenser water loop. Three ground temp source modes: `auto` (derives mean/amplitude/phase from hourly EPW data), `epw_monthly` (uses EPW header ground temperature table when available, falls back to `auto`), `monthly` (user-supplied 12-value table [°C]). Separate `rated_cooling_capacity` and `rated_heating_capacity` with `autosize` support. Optional capacity/EIR performance curves (`cap_ft`, `eir_ft`). Compressor energy routed to `cooling_electric` end-use. See `examples/residential_gshp.yaml`. Closes #12.
+
 ### Added
 - **Table-lookup performance curves** — `PerformanceCurve::TableLookup` variant accepts manufacturer tabular data directly (no polynomial fitting). N-linear interpolation, per-axis `hold_edge`/`linear` extrapolation, optional output clamping. Axis variables are named (`outdoor_dry_bulb`, `part_load_ratio`, etc.) — order-independent and validated against slot type contracts at parse time. Closes #30.
 

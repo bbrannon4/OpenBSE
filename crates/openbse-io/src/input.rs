@@ -670,6 +670,8 @@ pub enum EquipmentInput {
     CoolingCoilMultiSpeed(CoolingCoilDXMultiSpeedInput),
     #[serde(rename = "wshp")]
     Wshp(WshpInput),
+    #[serde(rename = "gshp")]
+    Gshp(GshpInput),
     #[serde(rename = "heat_recovery")]
     HeatRecovery(HeatRecoveryInput),
     #[serde(rename = "humidifier")]
@@ -1017,6 +1019,89 @@ pub struct WshpInput {
     /// Outlet temperature setpoint [°C]
     #[serde(default = "default_dx_coil_setpoint")]
     pub setpoint: f64,
+}
+
+// ─── Ground-source heat pump ─────────────────────────────────────────────────
+
+/// Selects how the GSHP determines entering water temperature from the ground.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GroundTempSource {
+    /// Kusuda-Achenbach sinusoidal model derived from weather-file annual stats.
+    Auto,
+    /// EPW header monthly ground temps; falls back to Auto if unavailable.
+    EpwMonthly,
+    /// User-specified monthly temperatures [°C], January through December.
+    Monthly([f64; 12]),
+}
+
+impl Default for GroundTempSource {
+    fn default() -> Self {
+        GroundTempSource::Auto
+    }
+}
+
+fn default_gshp_cop_cooling() -> f64 {
+    4.5
+}
+fn default_gshp_cop_heating() -> f64 {
+    4.0
+}
+fn default_loop_depth() -> f64 {
+    1.5
+}
+
+/// Ground-source heat pump input.
+///
+/// ```yaml
+/// - type: gshp
+///   name: GSHP-1
+///   rated_cooling_capacity: autosize
+///   rated_heating_capacity: autosize
+///   cop_cooling: 4.5
+///   cop_heating: 4.0
+///   outlet_temp_setpoint: 13.0
+///   rated_airflow: autosize
+///   ground_temp_source: epw_monthly
+///   loop_depth: 1.5
+/// ```
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GshpInput {
+    pub name: String,
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
+    /// Rated cooling capacity [W] or `autosize`
+    pub rated_cooling_capacity: AutosizeValue,
+    /// Rated heating capacity [W] or `autosize`
+    pub rated_heating_capacity: AutosizeValue,
+    /// COP in cooling mode
+    #[serde(default = "default_gshp_cop_cooling")]
+    pub cop_cooling: f64,
+    /// COP in heating mode
+    #[serde(default = "default_gshp_cop_heating")]
+    pub cop_heating: f64,
+    /// Supply air temperature setpoint [°C]
+    pub outlet_temp_setpoint: f64,
+    /// Rated volumetric airflow [m³/s] or `autosize`
+    pub rated_airflow: AutosizeValue,
+    /// Ground temperature source
+    #[serde(default)]
+    pub ground_temp_source: GroundTempSource,
+    /// Ground loop burial depth [m]
+    #[serde(default = "default_loop_depth")]
+    pub loop_depth: f64,
+    /// Optional cooling capacity f(EWT, indoor DBT) curve name
+    #[serde(default)]
+    pub cooling_cap_ft: Option<String>,
+    /// Optional cooling EIR f(EWT, indoor DBT) curve name
+    #[serde(default)]
+    pub cooling_eir_ft: Option<String>,
+    /// Optional heating capacity f(EWT, indoor DBT) curve name
+    #[serde(default)]
+    pub heating_cap_ft: Option<String>,
+    /// Optional heating EIR f(EWT, indoor DBT) curve name
+    #[serde(default)]
+    pub heating_eir_ft: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -2471,6 +2556,44 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                     );
                     wshp.submeter = w.submeter.clone();
                     graph.add_air_component(Box::new(wshp))
+                }
+                EquipmentInput::Gshp(g) => {
+                    use openbse_components::gshp::GroundSourceHeatPump;
+                    let mut gshp = GroundSourceHeatPump::new(
+                        &g.name,
+                        g.rated_cooling_capacity.to_f64(),
+                        g.rated_heating_capacity.to_f64(),
+                        g.cop_cooling,
+                        g.cop_heating,
+                        g.outlet_temp_setpoint,
+                        g.rated_airflow.to_f64(),
+                    );
+                    gshp.submeter = g.submeter.clone();
+                    gshp.loop_depth = g.loop_depth;
+                    gshp.ground_temp_source = match &g.ground_temp_source {
+                        GroundTempSource::Auto => openbse_components::gshp::GroundTempSource::Auto,
+                        GroundTempSource::EpwMonthly => {
+                            openbse_components::gshp::GroundTempSource::EpwMonthly
+                        }
+                        GroundTempSource::Monthly(t) => {
+                            openbse_components::gshp::GroundTempSource::Monthly(*t)
+                        }
+                    };
+                    // Resolve optional performance curves
+                    let resolve_curve = |name: &Option<String>| {
+                        name.as_ref().and_then(|n| {
+                            model
+                                .performance_curves
+                                .iter()
+                                .find(|pc| pc.name() == n)
+                                .cloned()
+                        })
+                    };
+                    gshp.cooling_cap_ft = resolve_curve(&g.cooling_cap_ft);
+                    gshp.cooling_eir_ft = resolve_curve(&g.cooling_eir_ft);
+                    gshp.heating_cap_ft = resolve_curve(&g.heating_cap_ft);
+                    gshp.heating_eir_ft = resolve_curve(&g.heating_eir_ft);
+                    graph.add_air_component(Box::new(gshp))
                 }
                 EquipmentInput::HeatRecovery(hr) => {
                     let erv = match hr.source.as_str() {
