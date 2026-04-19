@@ -68,6 +68,7 @@ pub enum ComponentKind {
     HeatExchanger,
     VrfIndoor,
     VrfOutdoor,
+    RadiantPanel,
     Other,
 }
 
@@ -399,6 +400,10 @@ pub struct ZoneHvacConditions {
     /// double-counting. When false (e.g., PTAC/FCU with separate ERV), the zone
     /// receives outdoor air directly at outdoor temperature.
     pub oa_handled_by_hvac: HashMap<String, bool>,
+    /// Radiant heat injected to zone surfaces from radiant HVAC panels [W].
+    /// Distributed across surfaces by area × absorptance, same as internal gains radiative split.
+    /// Positive = heat gain to zone surfaces.
+    pub radiant_gains: HashMap<String, f64>,
 }
 
 /// Results that the envelope produces each timestep.

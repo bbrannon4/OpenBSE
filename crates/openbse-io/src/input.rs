@@ -134,6 +134,11 @@ pub struct ModelInput {
     #[serde(default)]
     pub vrf_systems: Vec<VrfSystemInput>,
 
+    // ─── Radiant Panels ─────────────────────────────────────────────────────
+    /// Zone-level radiant panel definitions (fin-tube radiators, chilled ceilings, electric)
+    #[serde(default)]
+    pub radiant_panels: Vec<RadiantPanelInput>,
+
     // ─── Exterior Equipment ─────────────────────────────────────────────────
     /// Exterior equipment (facility-level loads not in any zone)
     #[serde(default)]
@@ -2026,6 +2031,71 @@ fn default_wh_control() -> String {
 }
 fn default_use_temp() -> f64 {
     43.3
+}
+
+// ─── Radiant Panels ─────────────────────────────────────────────────────────
+
+/// Heat source type for a radiant panel, parsed from YAML.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RadiantPanelSourceInput {
+    HotWater,
+    ChilledWater,
+    Electric,
+}
+
+fn default_radiant_panel_source() -> RadiantPanelSourceInput {
+    RadiantPanelSourceInput::HotWater
+}
+
+/// Zone-level radiant panel input (fin-tube radiator, chilled ceiling, electric heater).
+///
+/// ```yaml
+/// radiant_panels:
+///   - name: Room-RadPanel-1
+///     zone: Room-1
+///     source: hot_water
+///     rated_capacity: 2000.0
+///     radiant_fraction: 0.50
+///     plant_loop: HW-Loop
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RadiantPanelInput {
+    pub name: String,
+    /// Zone this panel serves.
+    pub zone: String,
+    /// Submeter label for energy accounting (default: "General").
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
+    /// Heat source type (default: hot_water).
+    #[serde(default = "default_radiant_panel_source")]
+    pub source: RadiantPanelSourceInput,
+    /// Rated capacity [W]. Use `autosize` to let the engine calculate.
+    pub rated_capacity: AutosizeValue,
+    /// Fraction of output that is radiant [0-1].
+    /// Default: 0.50 for hot_water/electric, 0.70 for chilled_water.
+    #[serde(default)]
+    pub radiant_fraction: Option<f64>,
+    /// Plant loop name (required for hot_water and chilled_water panels).
+    #[serde(default)]
+    pub plant_loop: Option<String>,
+    /// Optional UA value [W/K].
+    /// When set, Q = ua × (T_water - T_zone) instead of PLR × rated_capacity.
+    #[serde(default)]
+    pub ua: Option<f64>,
+}
+
+impl RadiantPanelInput {
+    /// Resolve the effective radiant fraction (using source-type defaults).
+    pub fn effective_radiant_fraction(&self) -> f64 {
+        self.radiant_fraction.unwrap_or_else(|| {
+            if self.source == RadiantPanelSourceInput::ChilledWater {
+                0.70
+            } else {
+                0.50
+            }
+        })
+    }
 }
 
 // ─── Exterior Equipment ─────────────────────────────────────────────────────
