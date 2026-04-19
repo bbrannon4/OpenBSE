@@ -1,6 +1,6 @@
 # OpenBSE Project Status
 
-Last updated: 2026-04-18 (v0.2.6)
+Last updated: 2026-04-19 (v0.2.9)
 
 ## What Works (Functional)
 
@@ -27,7 +27,8 @@ Last updated: 2026-04-18 (v0.2.6)
 - **VAV**: Variable air volume with central AHU, per-zone reheat boxes
 - **DOAS**: Dedicated outdoor air systems (100% OA) with downstream fan coil units
 - **FCU**: Fan coil units for zone-level heating/cooling
-- **VRF**: Variable refrigerant flow with `VrfOutdoorUnit` + per-zone `VrfIndoorUnit`. Heat recovery mode, performance curves f(T_outdoor, T_indoor), proportional PLR capacity limiting. Added 2026-04-18.
+- **VRF**: Variable refrigerant flow with `VrfOutdoorUnit` + per-zone `VrfIndoorUnit`. Heat recovery mode, performance curves f(T_outdoor, T_indoor), proportional PLR capacity limiting.
+- **Dual-duct CAV**: `system_type: dual_duct` — hot and cold deck AHU with per-zone `DualDuctBox` mixing terminals. Constant total zone flow, load-proportional deck blending.
 
 ### HVAC Components
 - Fans: constant volume, VAV (with part-load curves), on/off
@@ -81,6 +82,9 @@ Last updated: 2026-04-18 (v0.2.6)
 Planned features, bugs, and validation tasks are tracked as [GitHub Issues](https://github.com/bbrannon4/OpenBSE/issues).
 
 ### Recently completed
+- Dual-duct CAV system type with DualDuctBox mixing terminals, autosizing, parametric support
+- Ground-source heat pump (GSHP) with Kusuda-Achenbach, EPW monthly, and user monthly ground temp options
+- Table-lookup performance curves (N-linear interpolation, named axes, slot validation)
 - VRF systems (VrfOutdoorUnit + VrfIndoorUnit per zone, heat recovery mode, performance curves)
 - Radiant panels (fin-tube, chilled ceiling, electric) with radiant/convective split and surface distribution
 - HAMT coupled heat-and-moisture transport (activated per-construction when moisture material data provided)
