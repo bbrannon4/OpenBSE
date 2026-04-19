@@ -13,6 +13,7 @@ pub mod humidifier;
 pub mod performance_curve;
 pub mod pfp_box;
 pub mod pump;
+pub mod radiant_panel;
 pub mod vav_box;
 pub mod water_heater;
 pub mod wshp;

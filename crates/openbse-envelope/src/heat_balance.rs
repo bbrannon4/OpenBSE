@@ -1944,6 +1944,12 @@ impl EnvelopeSolver for BuildingEnvelope {
             zone.equipment_latent = gains.equipment_latent;
             zone.lighting_gain_to_zone = gains.lighting_gain_to_zone;
             zone.equipment_sensible_gain_to_zone = gains.equipment_sensible_gain_to_zone;
+
+            // Add radiant HVAC panel gains (fin-tube radiators, chilled ceilings).
+            // Distributed across surfaces by area × absorptance, same as internal gains.
+            if let Some(&panel_rad) = hvac.radiant_gains.get(&zone.input.name) {
+                zone.q_internal_rad += panel_rad;
+            }
         }
 
         // 4. Infiltration + scheduled ventilation + exhaust + outdoor air
@@ -5027,6 +5033,10 @@ mod tests {
                 visible_absorptance: 0.7,
                 roughness: Roughness::MediumRough,
                 thermal_resistance: None,
+                vapor_resistance_factor: None,
+                sorption_isotherm: None,
+                liquid_transport_coeff: None,
+                thermal_absorptance_inside: None,
             },
             Material {
                 name: "Insulation".to_string(),
@@ -5038,6 +5048,10 @@ mod tests {
                 visible_absorptance: 0.7,
                 roughness: Roughness::Rough,
                 thermal_resistance: None,
+                vapor_resistance_factor: None,
+                sorption_isotherm: None,
+                liquid_transport_coeff: None,
+                thermal_absorptance_inside: None,
             },
         ];
 
@@ -5257,6 +5271,10 @@ mod tests {
                 visible_absorptance: 0.7,
                 roughness: Roughness::MediumRough,
                 thermal_resistance: None,
+                vapor_resistance_factor: None,
+                sorption_isotherm: None,
+                liquid_transport_coeff: None,
+                thermal_absorptance_inside: None,
             },
             Material {
                 name: "Insulation".to_string(),
@@ -5268,6 +5286,10 @@ mod tests {
                 visible_absorptance: 0.7,
                 roughness: Roughness::Rough,
                 thermal_resistance: None,
+                vapor_resistance_factor: None,
+                sorption_isotherm: None,
+                liquid_transport_coeff: None,
+                thermal_absorptance_inside: None,
             },
         ];
         let constructions = vec![Construction {
@@ -5432,6 +5454,10 @@ mod tests {
             visible_absorptance: 0.7,
             roughness: Roughness::MediumRough,
             thermal_resistance: None,
+            vapor_resistance_factor: None,
+            sorption_isotherm: None,
+            liquid_transport_coeff: None,
+            thermal_absorptance_inside: None,
         }];
         let constructions = vec![Construction {
             name: "Wall".to_string(),
@@ -5578,6 +5604,10 @@ mod tests {
             visible_absorptance: 0.7,
             roughness: Roughness::MediumRough,
             thermal_resistance: None,
+            vapor_resistance_factor: None,
+            sorption_isotherm: None,
+            liquid_transport_coeff: None,
+            thermal_absorptance_inside: None,
         }];
         let constructions = vec![Construction {
             name: "Wall".to_string(),
@@ -5723,6 +5753,10 @@ mod tests {
             visible_absorptance: 0.7,
             roughness: Roughness::MediumRough,
             thermal_resistance: None,
+            vapor_resistance_factor: None,
+            sorption_isotherm: None,
+            liquid_transport_coeff: None,
+            thermal_absorptance_inside: None,
         }];
         let constructions = vec![Construction {
             name: "Wall".to_string(),

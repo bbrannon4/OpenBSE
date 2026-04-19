@@ -1,0 +1,239 @@
+# OpenBSE Example: Hotel Room with Fin-Tube Radiators (Radiant Panels)
+#
+# Demonstrates a hotel room served by fin-tube radiators connected to a
+# hot water boiler plant loop. Each radiator delivers 50% radiant / 50%
+# convective heat, affecting both zone air temperature and mean radiant
+# temperature (MRT).
+#
+# No air loop — the radiant panels provide zone heating independently.
+# Ventilation is handled as direct outdoor air to the zone.
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 3
+  end_day: 31
+
+weather_files:
+  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+
+design_days:
+  - name: Boulder Winter Design Day
+    design_temp: -17.8
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -17.8
+    pressure: 83411.0
+    wind_speed: 2.3
+    month: 1
+    day: 21
+    day_type: winter
+
+# ── Plant Loop ───────────────────────────────────────────────────────────────
+plant_loops:
+  - name: HW-Loop
+    design_supply_temp: 82.0
+    design_delta_t: 11.0
+    supply_equipment:
+      - type: pump
+        name: HW-Pump
+        pump_type: constant_speed
+        design_flow_rate: autosize
+        design_head: 179352.0
+        motor_efficiency: 0.9
+        impeller_efficiency: 0.667
+      - type: boiler
+        name: Hotel-Boiler
+        nominal_capacity: 30000.0
+        efficiency: 0.80
+        design_outlet_temp: 82.0
+        design_water_flow_rate: autosize
+
+# ── Radiant Panels ───────────────────────────────────────────────────────────
+radiant_panels:
+  - name: Room-101-Radiator
+    zone: Room-101
+    source: hot_water
+    rated_capacity: 2500.0       # 2.5 kW fin-tube radiator
+    radiant_fraction: 0.50       # 50% radiant (default for fin-tube)
+    plant_loop: HW-Loop
+
+  - name: Room-102-Radiator
+    zone: Room-102
+    source: hot_water
+    rated_capacity: 2000.0       # 2.0 kW smaller room
+    radiant_fraction: 0.50
+    plant_loop: HW-Loop
+
+# ── Thermostats ──────────────────────────────────────────────────────────────
+thermostats:
+  - name: Hotel-Thermostat
+    zones: [Room-101, Room-102]
+    heating_setpoint: 21.0
+    cooling_setpoint: 26.0
+    unoccupied_heating_setpoint: 18.0
+    unoccupied_cooling_setpoint: 28.0
+
+# ── Envelope ─────────────────────────────────────────────────────────────────
+materials:
+  - name: Concrete
+    conductivity: 1.73
+    density: 2300.0
+    specific_heat: 880.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.7
+  - name: Insulation
+    conductivity: 0.04
+    density: 30.0
+    specific_heat: 840.0
+  - name: Gypsum
+    conductivity: 0.16
+    density: 800.0
+    specific_heat: 1090.0
+
+constructions:
+  - name: ExtWall
+    layers:
+      - material: Concrete
+        thickness: 0.20
+      - material: Insulation
+        thickness: 0.10
+      - material: Gypsum
+        thickness: 0.013
+
+  - name: Roof
+    layers:
+      - material: Concrete
+        thickness: 0.15
+      - material: Insulation
+        thickness: 0.15
+
+window_constructions:
+  - name: DoublePane
+    u_factor: 1.8
+    shgc: 0.4
+
+zones:
+  - name: Room-101
+    volume: 75.0         # 3m × 5m × 5m = 75 m³
+    floor_area: 25.0     # 25 m²
+    conditioned: true
+    outdoor_air:
+      per_person: 0.0025   # ASHRAE 62.1 hotel guest room OA [m³/s/person]
+      per_area: 0.0003
+
+  - name: Room-102
+    volume: 60.0
+    floor_area: 20.0
+    conditioned: true
+    outdoor_air:
+      per_person: 0.0025
+      per_area: 0.0003
+
+surfaces:
+  # Room-101 surfaces
+  - name: Room101-ExtWall-N
+    zone: Room-101
+    construction: ExtWall
+    boundary: outdoor
+    area: 15.0
+    azimuth: 0.0
+    tilt: 90.0
+    surface_type: wall
+
+  - name: Room101-ExtWall-W
+    zone: Room-101
+    construction: ExtWall
+    boundary: outdoor
+    area: 12.0
+    azimuth: 270.0
+    tilt: 90.0
+    surface_type: wall
+
+  - name: Room101-Roof
+    zone: Room-101
+    construction: Roof
+    boundary: outdoor
+    area: 25.0
+    azimuth: 0.0
+    tilt: 0.0
+    surface_type: roof
+
+  - name: Room101-Floor
+    zone: Room-101
+    construction: ExtWall
+    boundary: ground
+    area: 25.0
+    azimuth: 0.0
+    tilt: 180.0
+    surface_type: floor
+
+  - name: Room101-Window-N
+    zone: Room-101
+    construction: DoublePane
+    boundary: outdoor
+    area: 3.0
+    azimuth: 0.0
+    tilt: 90.0
+    surface_type: window
+
+  # Room-102 surfaces
+  - name: Room102-ExtWall-N
+    zone: Room-102
+    construction: ExtWall
+    boundary: outdoor
+    area: 12.0
+    azimuth: 0.0
+    tilt: 90.0
+    surface_type: wall
+
+  - name: Room102-ExtWall-E
+    zone: Room-102
+    construction: ExtWall
+    boundary: outdoor
+    area: 10.0
+    azimuth: 90.0
+    tilt: 90.0
+    surface_type: wall
+
+  - name: Room102-Roof
+    zone: Room-102
+    construction: Roof
+    boundary: outdoor
+    area: 20.0
+    azimuth: 0.0
+    tilt: 0.0
+    surface_type: roof
+
+  - name: Room102-Floor
+    zone: Room-102
+    construction: ExtWall
+    boundary: ground
+    area: 20.0
+    azimuth: 0.0
+    tilt: 180.0
+    surface_type: floor
+
+  - name: Room102-Window-N
+    zone: Room-102
+    construction: DoublePane
+    boundary: outdoor
+    area: 2.4
+    azimuth: 0.0
+    tilt: 90.0
+    surface_type: window
+
+# ── Internal Gains ───────────────────────────────────────────────────────────
+people:
+  - zones: [Room-101, Room-102]
+    type: people
+    count: 2.0
+    activity_level: 120.0
+    sensible_fraction: 0.6
+    radiant_fraction: 0.3
+
+infiltration:
+  - zones: [Room-101, Room-102]
+    design_flow_rate: 0.0005
+    method: constant

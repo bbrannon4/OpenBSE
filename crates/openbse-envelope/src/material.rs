@@ -68,6 +68,38 @@ pub struct Material {
     /// the surface and the first massed node.
     #[serde(default)]
     pub thermal_resistance: Option<f64>,
+
+    // ── HAMT moisture properties (optional) ───────────────────────────────
+    /// Vapor resistance factor μ [-] (dimensionless).
+    ///
+    /// Relates material vapor diffusion resistance to still air.
+    /// μ = 1 for air (no extra resistance), typical values:
+    ///   concrete ~130, brick ~10, wood ~40, mineral wool ~1.
+    /// Required for HAMT moisture transport; ignored for CTF.
+    #[serde(default)]
+    pub vapor_resistance_factor: Option<f64>,
+
+    /// Sorption isotherm: pairs of [relative_humidity [0-1], moisture_content [kg/kg]].
+    ///
+    /// Defines equilibrium moisture content at each RH level.
+    /// Required for HAMT; ignored for CTF.
+    #[serde(default)]
+    pub sorption_isotherm: Option<Vec<[f64; 2]>>,
+
+    /// Liquid transport coefficient [m²/s] as f(moisture_content [kg/kg]).
+    ///
+    /// Pairs of [w_c [kg/kg], D_w [m²/s]]. Used for capillary conduction term.
+    /// If None, the capillary term is omitted (vapor diffusion only).
+    #[serde(default)]
+    pub liquid_transport_coeff: Option<Vec<[f64; 2]>>,
+
+    /// Inside thermal absorptance (emissivity) [0-1].
+    ///
+    /// Emissivity of the inside surface face. When absent, falls back to
+    /// `thermal_absorptance` (outside face). Separate from outside emissivity
+    /// because inside and outside faces of a construction often differ.
+    #[serde(default)]
+    pub thermal_absorptance_inside: Option<f64>,
 }
 
 fn default_conductivity() -> f64 {
@@ -568,6 +600,10 @@ mod tests {
             visible_absorptance: 0.7,
             roughness: Roughness::MediumRough,
             thermal_resistance: None,
+            vapor_resistance_factor: None,
+            sorption_isotherm: None,
+            liquid_transport_coeff: None,
+            thermal_absorptance_inside: None,
         };
         let r = layer_resistance(&mat, 0.2);
         // R = 0.2 / 1.311 = 0.1526
@@ -589,6 +625,10 @@ mod tests {
                 visible_absorptance: 0.7,
                 roughness: Roughness::MediumRough,
                 thermal_resistance: None,
+                vapor_resistance_factor: None,
+                sorption_isotherm: None,
+                liquid_transport_coeff: None,
+                thermal_absorptance_inside: None,
             },
         );
         materials.insert(
@@ -603,6 +643,10 @@ mod tests {
                 visible_absorptance: 0.7,
                 roughness: Roughness::Rough,
                 thermal_resistance: None,
+                vapor_resistance_factor: None,
+                sorption_isotherm: None,
+                liquid_transport_coeff: None,
+                thermal_absorptance_inside: None,
             },
         );
 
@@ -639,6 +683,10 @@ mod tests {
             visible_absorptance: 0.7,
             roughness: Roughness::MediumRough,
             thermal_resistance: None,
+            vapor_resistance_factor: None,
+            sorption_isotherm: None,
+            liquid_transport_coeff: None,
+            thermal_absorptance_inside: None,
         };
         let resolved = ResolvedLayer::from_material(&mat, 0.2);
         assert!((resolved.resistance() - 0.1526).abs() < 0.001);
