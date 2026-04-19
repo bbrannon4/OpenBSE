@@ -424,7 +424,7 @@ mod tests {
         use crate::performance_curve::{CurveType, PerformanceCurve};
 
         // Simple PLR curve: 0.8 + 0.2*PLR (efficiency improves at higher load)
-        let curve = PerformanceCurve {
+        let curve = PerformanceCurve::Polynomial {
             name: "BoilerPLR".to_string(),
             curve_type: CurveType::Linear,
             coefficients: vec![0.8, 0.2],

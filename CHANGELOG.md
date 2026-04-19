@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Table-lookup performance curves** — `PerformanceCurve::TableLookup` variant accepts manufacturer tabular data directly (no polynomial fitting). N-linear interpolation, per-axis `hold_edge`/`linear` extrapolation, optional output clamping. Axis variables are named (`outdoor_dry_bulb`, `part_load_ratio`, etc.) — order-independent and validated against slot type contracts at parse time. Closes #30.
+
 ## [0.2.6] - 2026-04-18
 
 ### Added

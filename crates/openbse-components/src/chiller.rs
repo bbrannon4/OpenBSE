@@ -342,7 +342,7 @@ mod tests {
         chiller.tower_approach = 5.56;
         chiller.min_plr = 0.25;
         // CAPFT from E+ IDF: ASHRAE901_AppJ_wtr_AB_cent_gt1055kW cap-f-t
-        chiller.capft_curve = Some(PerformanceCurve {
+        chiller.capft_curve = Some(PerformanceCurve::Polynomial {
             name: "capft".to_string(),
             curve_type: CurveType::Biquadratic,
             coefficients: vec![
@@ -361,7 +361,7 @@ mod tests {
             max_output: None,
         });
         // EIRFT from E+ IDF: ASHRAE901_AppJ_wtr_AB_cent_gt1055kW eir-f-t
-        chiller.eirft_curve = Some(PerformanceCurve {
+        chiller.eirft_curve = Some(PerformanceCurve::Polynomial {
             name: "eirft".to_string(),
             curve_type: CurveType::Biquadratic,
             coefficients: vec![
@@ -380,7 +380,7 @@ mod tests {
             max_output: None,
         });
         // EIRFPLR from E+ IDF: ASHRAE901_AppJ_wtr_AB_cent_gt1055kW eir-f-plr
-        chiller.eirfplr_curve = Some(PerformanceCurve {
+        chiller.eirfplr_curve = Some(PerformanceCurve::Polynomial {
             name: "eirfplr".to_string(),
             curve_type: CurveType::Quadratic,
             coefficients: vec![0.309752375539755, 0.153649268551135, 0.536462254009109],

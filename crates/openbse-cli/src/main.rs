@@ -1730,7 +1730,7 @@ fn main() -> Result<()> {
                         model
                             .performance_curves
                             .iter()
-                            .find(|c| &c.name == n)
+                            .find(|c| c.name() == n)
                             .cloned()
                     })
                 };

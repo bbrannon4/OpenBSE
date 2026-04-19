@@ -2302,14 +2302,14 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                                 model
                                     .performance_curves
                                     .iter()
-                                    .find(|pc| pc.name == *name)
+                                    .find(|pc| pc.name() == name)
                                     .cloned()
                             });
                             let eir_curve = c.eir_ft_curve.as_ref().and_then(|name| {
                                 model
                                     .performance_curves
                                     .iter()
-                                    .find(|pc| pc.name == *name)
+                                    .find(|pc| pc.name() == name)
                                     .cloned()
                             });
                             coil = coil.with_curves(cap_curve, eir_curve);
@@ -2394,28 +2394,28 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                                 model
                                     .performance_curves
                                     .iter()
-                                    .find(|pc| pc.name == *name)
+                                    .find(|pc| pc.name() == name)
                                     .cloned()
                             });
                             let eir_curve = c.eir_ft_curve.as_ref().and_then(|name| {
                                 model
                                     .performance_curves
                                     .iter()
-                                    .find(|pc| pc.name == *name)
+                                    .find(|pc| pc.name() == name)
                                     .cloned()
                             });
                             let cap_fflow = c.cap_fflow_curve.as_ref().and_then(|name| {
                                 model
                                     .performance_curves
                                     .iter()
-                                    .find(|pc| pc.name == *name)
+                                    .find(|pc| pc.name() == name)
                                     .cloned()
                             });
                             let eir_fflow = c.eir_fflow_curve.as_ref().and_then(|name| {
                                 model
                                     .performance_curves
                                     .iter()
-                                    .find(|pc| pc.name == *name)
+                                    .find(|pc| pc.name() == name)
                                     .cloned()
                             });
                             let mut coil = CoolingCoilDX::new(
@@ -2433,7 +2433,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                                 model
                                     .performance_curves
                                     .iter()
-                                    .find(|pc| pc.name == *name)
+                                    .find(|pc| pc.name() == name)
                                     .cloned()
                             }) {
                                 coil = coil.with_plf_curve(plf);
@@ -2577,7 +2577,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                         model
                             .performance_curves
                             .iter()
-                            .find(|pc| pc.name == *name)
+                            .find(|pc| pc.name() == name)
                             .cloned()
                     });
                     let mut boiler = Boiler::new(
@@ -2623,7 +2623,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                         } else {
                             CurveType::Quadratic
                         };
-                        chiller.capft_curve = Some(PerformanceCurve {
+                        chiller.capft_curve = Some(PerformanceCurve::Polynomial {
                             name: format!("{}_capft", ci.name),
                             curve_type: ct,
                             coefficients: c.coefficients.clone(),
@@ -2643,7 +2643,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                         } else {
                             CurveType::Quadratic
                         };
-                        chiller.eirft_curve = Some(PerformanceCurve {
+                        chiller.eirft_curve = Some(PerformanceCurve::Polynomial {
                             name: format!("{}_eirft", ci.name),
                             curve_type: ct,
                             coefficients: c.coefficients.clone(),
@@ -2658,7 +2658,7 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                     // Convert CurveInput → PerformanceCurve for EIRFPLR
                     if let Some(ref c) = ci.eirfplr {
                         use openbse_components::performance_curve::{CurveType, PerformanceCurve};
-                        chiller.eirfplr_curve = Some(PerformanceCurve {
+                        chiller.eirfplr_curve = Some(PerformanceCurve::Polynomial {
                             name: format!("{}_eirfplr", ci.name),
                             curve_type: CurveType::Quadratic,
                             coefficients: c.coefficients.clone(),
