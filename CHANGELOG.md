@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-04-27
+
 ### Added
 - **Energy End-Use Dashboard** (`tools/editor`) — New ⚡ Energy tab shows a monthly stacked bar chart and annual summary table for electricity, natural gas, district heat/cool end uses. Zone-level unmet heating/cooling hours displayed with per-zone breakdown when any zone exceeds zero. Reads site-level `*_kwh` columns from the loaded results CSV automatically. SI (kWh) and IP (kBtu) unit systems supported. Closes #24.
 - **HVAC network expanded** (`tools/editor`) — `NetworkView` now renders `evap_cooler` (sublabel from mode), `vrf_outdoor_unit`, `vrf_indoor_unit`, `radiant_panel` (sublabel from source) on the air-side graph and `thermal_storage` (sublabel shows type + strategy), `gshp` on the plant-side graph. `dual_duct_box` labeled "Dual Duct Box" in terminal nodes. All new types have distinct Tokyo Night theme colors and 20×20 SVG icons. Closes #24.
