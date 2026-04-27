@@ -98,6 +98,54 @@ const ICONS: Record<HvacNodeType, string> = {
   coil_load: `<path d="M4 6 Q7 4, 10 6 Q13 8, 16 6" fill="none" stroke="currentColor" stroke-width="1.5"/>
     <path d="M4 10 Q7 8, 10 10 Q13 12, 16 10" fill="none" stroke="currentColor" stroke-width="1.5"/>
     <path d="M4 14 Q7 12, 10 14 Q13 16, 16 14" fill="none" stroke="currentColor" stroke-width="1.5"/>`,
+
+  // Evap cooler: water droplets + air flow arrow
+  evap_cooler: `<path d="M2 10 L8 10" stroke="currentColor" stroke-width="1.5"/>
+    <polygon points="7,7 11,10 7,13" fill="currentColor"/>
+    <circle cx="14" cy="7" r="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <path d="M14 9 Q14 11, 13 12" fill="none" stroke="currentColor" stroke-width="1"/>
+    <circle cx="14" cy="13" r="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <path d="M14 15 Q14 17, 13 18" fill="none" stroke="currentColor" stroke-width="1"/>
+    <line x1="12" y1="3" x2="12" y2="17" stroke="currentColor" stroke-width="1" stroke-dasharray="2 1"/>`,
+
+  // VRF outdoor unit: box with compressor symbol and heat exchange fins
+  vrf_outdoor: `<rect x="2" y="4" width="16" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    <circle cx="8" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <path d="M8 7 L8 8.5 M8 11.5 L8 13 M5 10 L6.5 10 M9.5 10 L11 10" stroke="currentColor" stroke-width="1"/>
+    <line x1="13" y1="5" x2="13" y2="15" stroke="currentColor" stroke-width="1"/>
+    <line x1="15" y1="5" x2="15" y2="15" stroke="currentColor" stroke-width="1"/>
+    <line x1="17" y1="5" x2="17" y2="15" stroke="currentColor" stroke-width="1"/>`,
+
+  // VRF indoor unit: wall-mount cassette shape with airflow arrows
+  vrf_indoor: `<rect x="2" y="5" width="16" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    <path d="M5 12 Q5 15, 3 17" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <path d="M10 12 Q10 15, 10 17" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <path d="M15 12 Q15 15, 17 17" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <path d="M5 7 Q8 6, 10 7 Q12 8, 15 7" fill="none" stroke="currentColor" stroke-width="1"/>`,
+
+  // Radiant panel: horizontal surface with wavy radiation lines below
+  radiant_panel: `<rect x="2" y="4" width="16" height="3" rx="1" fill="currentColor" opacity="0.5"/>
+    <rect x="2" y="4" width="16" height="3" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    <path d="M5 10 Q6 12, 5 14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <path d="M10 10 Q11 12, 10 14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <path d="M15 10 Q16 12, 15 14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <line x1="3" y1="17" x2="17" y2="17" stroke="currentColor" stroke-width="1" stroke-dasharray="2 1"/>`,
+
+  // Thermal storage: tank with ice/cold symbol
+  thermal_storage: `<ellipse cx="10" cy="6" rx="7" ry="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    <line x1="3" y1="6" x2="3" y2="14" stroke="currentColor" stroke-width="1.5"/>
+    <line x1="17" y1="6" x2="17" y2="14" stroke="currentColor" stroke-width="1.5"/>
+    <ellipse cx="10" cy="14" rx="7" ry="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    <line x1="10" y1="8" x2="10" y2="12" stroke="currentColor" stroke-width="1.2"/>
+    <line x1="7.5" y1="9" x2="12.5" y2="11" stroke="currentColor" stroke-width="1.2"/>
+    <line x1="7.5" y1="11" x2="12.5" y2="9" stroke="currentColor" stroke-width="1.2"/>`,
+
+  // GSHP: ground loop (wavy) + heat pump box
+  gshp: `<rect x="6" y="2" width="8" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    <path d="M9 4 Q8 5.5, 9 7" fill="none" stroke="currentColor" stroke-width="1"/>
+    <path d="M11 4 Q12 5.5, 11 7" fill="none" stroke="currentColor" stroke-width="1"/>
+    <line x1="10" y1="9" x2="10" y2="12" stroke="currentColor" stroke-width="1.5"/>
+    <path d="M3 12 Q5 10, 7 12 Q9 14, 11 12 Q13 10, 15 12 Q17 14, 17 14" fill="none" stroke="currentColor" stroke-width="1.5"/>`,
 };
 
 /** Render an HVAC icon as an SVG element string */

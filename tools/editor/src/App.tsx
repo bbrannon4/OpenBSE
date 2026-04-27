@@ -10,6 +10,7 @@ import { SimulationPanel } from "./components/SimulationPanel";
 import { ResultsView } from "./components/ResultsView";
 import { NetworkView } from "./components/NetworkView";
 import { ParametricView } from "./components/ParametricView";
+import { EnergyView } from "./components/EnergyView";
 import { HelpDialog } from "./components/HelpDialog";
 import { parseSchema } from "./lib/schema";
 import type { ClassInfo } from "./lib/schema";
@@ -22,7 +23,7 @@ import "./App.css";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Model = Record<string, any>;
 
-type ViewMode = "edit" | "network" | "charts" | "parametric";
+type ViewMode = "edit" | "network" | "charts" | "parametric" | "energy";
 
 const ZoneTag = new yaml.Type("!zone", {
   kind: "scalar",
@@ -472,6 +473,8 @@ function App() {
             onClick={() => setViewMode("charts")}>&#9776; Charts</button>
           <button className={`view-tab ${viewMode === "parametric" ? "active" : ""}`}
             onClick={() => setViewMode("parametric")}>&#8644; Parametric</button>
+          <button className={`view-tab ${viewMode === "energy" ? "active" : ""}`}
+            onClick={() => setViewMode("energy")}>&#9889; Energy</button>
         </nav>
         <div className="header-results-status">
           {resultsName ? (
@@ -610,6 +613,14 @@ function App() {
           unitSystem={unitSystem}
           loadAndParseCsv={loadAndParseCsv}
           setCases={setResultsCases}
+        />
+      ) : viewMode === "energy" ? (
+        <EnergyView
+          cases={resultsCases}
+          activeCaseIdx={resultsActiveIdx}
+          setActiveCaseIdx={setResultsActiveIdx}
+          loading={resultsLoading}
+          unitSystem={unitSystem}
         />
       ) : (
         <ResultsView

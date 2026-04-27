@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Energy End-Use Dashboard** (`tools/editor`) — New ⚡ Energy tab shows a monthly stacked bar chart and annual summary table for electricity, natural gas, district heat/cool end uses. Zone-level unmet heating/cooling hours displayed with per-zone breakdown when any zone exceeds zero. Reads site-level `*_kwh` columns from the loaded results CSV automatically. SI (kWh) and IP (kBtu) unit systems supported. Closes #24.
+- **HVAC network expanded** (`tools/editor`) — `NetworkView` now renders `evap_cooler` (sublabel from mode), `vrf_outdoor_unit`, `vrf_indoor_unit`, `radiant_panel` (sublabel from source) on the air-side graph and `thermal_storage` (sublabel shows type + strategy), `gshp` on the plant-side graph. `dual_duct_box` labeled "Dual Duct Box" in terminal nodes. All new types have distinct Tokyo Night theme colors and 20×20 SVG icons. Closes #24.
+- **View Report button** (`tools/editor`) — Results toolbar "View Report" button locates the `*_summary.html` file next to the active CSV and opens it in the default browser via a new `open_in_browser` Tauri command. Shows an inline message if no report is found. Closes #24.
+
 ## [0.2.10] - 2026-04-19
 
 ### Added

@@ -25,6 +25,10 @@ export type HvacNodeType =
   | "heat_recovery"
   | "humidifier"
   | "duct"
+  | "evap_cooler"
+  | "vrf_outdoor"
+  | "vrf_indoor"
+  | "radiant_panel"
   | "zone"
   | "terminal"
   | "pump"
@@ -32,6 +36,8 @@ export type HvacNodeType =
   | "chiller"
   | "cooling_tower"
   | "heat_exchanger"
+  | "thermal_storage"
+  | "gshp"
   | "coil_load";
 
 export interface HvacNodeData {
@@ -72,6 +78,10 @@ export const NODE_COLORS: Record<HvacNodeType, string> = {
   heat_recovery: "#2ac3de",
   humidifier: "#b4f9f8",
   duct: "#565f89",
+  evap_cooler: "#73daca",
+  vrf_outdoor: "#bb9af7",
+  vrf_indoor: "#c0caf5",
+  radiant_panel: "#ff9e64",
   zone: "#9ece6a",
   terminal: "#e0af68",
   pump: "#bb9af7",
@@ -79,6 +89,8 @@ export const NODE_COLORS: Record<HvacNodeType, string> = {
   chiller: "#7aa2f7",
   cooling_tower: "#7dcfff",
   heat_exchanger: "#2ac3de",
+  thermal_storage: "#e0af68",
+  gshp: "#2ac3de",
   coil_load: "#e0af68",
 };
 
@@ -95,6 +107,8 @@ function equipmentType(eq: Record<string, unknown>): HvacNodeType {
     case "heat_recovery": return "heat_recovery";
     case "humidifier": return "humidifier";
     case "duct": return "duct";
+    case "evap_cooler": return "evap_cooler";
+    case "vrf_outdoor_unit": return "vrf_outdoor";
     default: return "fan";
   }
 }
@@ -107,6 +121,8 @@ function plantEquipmentType(eq: Record<string, unknown>): HvacNodeType {
     case "chiller": return "chiller";
     case "cooling_tower": return "cooling_tower";
     case "heat_exchanger": return "heat_exchanger";
+    case "thermal_storage": return "thermal_storage";
+    case "gshp": return "gshp";
     default: return "pump";
   }
 }
@@ -115,7 +131,15 @@ function terminalType(term: Record<string, unknown>): string {
   const t = String(term.type ?? "").toLowerCase();
   if (t === "vav_box") return "VAV Box";
   if (t === "pfp_box") return "PFP Box";
+  if (t === "dual_duct_box") return "Dual Duct Box";
   return "Terminal";
+}
+
+function terminalHvacType(term: Record<string, unknown>): HvacNodeType {
+  const t = String(term.type ?? "").toLowerCase();
+  if (t === "vrf_indoor_unit") return "vrf_indoor";
+  if (t === "radiant_panel") return "radiant_panel";
+  return "terminal";
 }
 
 function fmtVal(v: unknown): string {
@@ -356,7 +380,7 @@ export function buildSeparatedGraphs(model: Model): SeparatedHvacGraphs {
       const nodeType = equipmentType(eq);
       const id = nextId(`air_${nodeType}`);
       const name = String(eq.name ?? nodeType);
-      const sublabel = sourceLabel(eq);
+      let sublabel = sourceLabel(eq);
       const props: Record<string, string | number | boolean> = {};
       let plantLoopRef: string | undefined;
 
@@ -406,6 +430,18 @@ export function buildSeparatedGraphs(model: Model): SeparatedHvacGraphs {
             "length", "diameter", "u_value", "leakage_fraction",
           ]));
           break;
+        case "evap_cooler":
+          sublabel = String(eq.mode ?? "direct").replace(/_/g, " ");
+          Object.assign(props, extractProperties(eq, [
+            "mode", "direct_effectiveness", "indirect_effectiveness",
+          ]));
+          break;
+        case "vrf_outdoor":
+          sublabel = `Cap: ${fmtVal(eq.rated_cooling_capacity)} W`;
+          Object.assign(props, extractProperties(eq, [
+            "rated_cooling_capacity", "rated_heating_capacity", "cop_cooling", "cop_heating",
+          ]));
+          break;
       }
 
       airNodes.push({
@@ -447,9 +483,13 @@ export function buildSeparatedGraphs(model: Model): SeparatedHvacGraphs {
         const termName = String(
           terminal.name ?? `${terminalType(terminal)} - ${zoneName}`
         );
+        const termHvacType = terminalHvacType(terminal);
+        const termSublabel = termHvacType === "radiant_panel"
+          ? sourceLabel(terminal)
+          : terminalType(terminal);
         const termProps = extractProperties(terminal, [
           "type", "max_air_flow", "min_flow_fraction", "reheat_type",
-          "reheat_capacity", "max_primary_flow",
+          "reheat_capacity", "max_primary_flow", "source",
         ]);
 
         airNodes.push({
@@ -457,9 +497,9 @@ export function buildSeparatedGraphs(model: Model): SeparatedHvacGraphs {
           type: "hvacNode",
           position: { x: 0, y: 0 },
           data: {
-            hvacType: "terminal",
+            hvacType: termHvacType,
             label: termName,
-            sublabel: terminalType(terminal),
+            sublabel: termSublabel,
             properties: termProps,
             airLoop: loopName,
             componentName: termName,
@@ -580,6 +620,22 @@ export function buildSeparatedGraphs(model: Model): SeparatedHvacGraphs {
           sublabel = `eff: ${fmtVal(eq.effectiveness)}`;
           Object.assign(props, extractProperties(eq, [
             "effectiveness", "source_loop", "control_mode",
+          ]));
+          break;
+        case "thermal_storage": {
+          const storType = String(eq.storage_type ?? "").replace(/_/g, " ");
+          const strategy = String(eq.control_strategy ?? "").replace(/_/g, " ");
+          sublabel = [storType, strategy].filter(Boolean).join(" | ");
+          Object.assign(props, extractProperties(eq, [
+            "storage_type", "control_strategy", "capacity",
+          ]));
+          break;
+        }
+        case "gshp":
+          sublabel = `Cap: ${fmtVal(eq.rated_cooling_capacity)} W`;
+          Object.assign(props, extractProperties(eq, [
+            "rated_cooling_capacity", "rated_heating_capacity",
+            "cop_cooling", "cop_heating",
           ]));
           break;
       }

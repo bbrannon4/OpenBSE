@@ -306,6 +306,45 @@ async fn run_simulation(
 }
 
 #[tauri::command]
+fn open_in_browser(path: String) -> Result<(), String> {
+    open::that(&path).map_err(|e| e.to_string())
+}
+
+/// Find a summary HTML report next to the given CSV file.
+/// Tries `<stem>_summary.html` first, then scans for any `*_summary.html` in the same folder.
+#[tauri::command]
+fn find_summary_report(csv_path: String) -> Option<String> {
+    let path = std::path::Path::new(&csv_path);
+    let dir = path.parent()?;
+    let stem = path.file_stem()?.to_string_lossy().to_string();
+
+    // Try stripping _results suffix and appending _summary.html
+    let base = stem.trim_end_matches("_results");
+    let candidate = dir.join(format!("{base}_summary.html"));
+    if candidate.exists() {
+        return candidate.to_str().map(String::from);
+    }
+
+    // Scan folder for any *_summary.html
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        let mut found: Vec<_> = entries
+            .flatten()
+            .filter(|e| {
+                let n = e.file_name();
+                let s = n.to_string_lossy();
+                s.ends_with("_summary.html")
+            })
+            .collect();
+        found.sort_by_key(|e| e.file_name());
+        if let Some(entry) = found.into_iter().next() {
+            return entry.path().to_str().map(String::from);
+        }
+    }
+
+    None
+}
+
+#[tauri::command]
 fn list_csv_files(dir: String) -> Result<Vec<String>, String> {
     let path = std::path::Path::new(&dir);
     if !path.is_dir() {
@@ -455,6 +494,8 @@ pub fn run() {
             run_simulation,
             list_csv_files,
             scan_project_folder,
+            open_in_browser,
+            find_summary_report,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
