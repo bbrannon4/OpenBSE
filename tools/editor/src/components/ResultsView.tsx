@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { VariableBrowser } from "./VariableBrowser";
 import { TimeSeriesChart } from "./TimeSeriesChart";
 import { SummaryStats } from "./SummaryStats";
@@ -29,6 +30,23 @@ export function ResultsView({
 }: ResultsViewProps) {
   const [aggregation, setAggregation] = useState<AggregationMode>("raw");
   const [showStats, setShowStats] = useState(true);
+  const [reportMessage, setReportMessage] = useState<string | null>(null);
+
+  const handleViewReport = useCallback(async () => {
+    const path = cases[activeCaseIdx]?.path;
+    if (!path) return;
+    try {
+      const reportPath = await invoke<string | null>("find_summary_report", { csvPath: path });
+      if (reportPath) {
+        await invoke("open_in_browser", { path: reportPath });
+        setReportMessage(null);
+      } else {
+        setReportMessage("No summary report found. Run simulation to generate one.");
+      }
+    } catch (e) {
+      setReportMessage(`Error opening report: ${e}`);
+    }
+  }, [cases, activeCaseIdx]);
 
   const handleCaseChange = useCallback(
     (idx: number) => {
@@ -104,8 +122,28 @@ export function ResultsView({
           >
             Stats
           </button>
+          <button
+            className="btn-header"
+            onClick={handleViewReport}
+            title="Open HTML summary report in browser"
+            disabled={!cases[activeCaseIdx]?.path}
+          >
+            View Report
+          </button>
         </div>
       </div>
+      {reportMessage && (
+        <div className="results-error-bar">
+          {reportMessage}
+          <button
+            className="btn-icon"
+            style={{ marginLeft: 8, fontSize: 12 }}
+            onClick={() => setReportMessage(null)}
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div className="results-body">
         {loading && (
           <div className="results-loading-overlay">

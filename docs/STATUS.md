@@ -72,6 +72,11 @@ Last updated: 2026-04-19 (v0.2.10)
 - Custom output variable selection
 - CLI `-w` flag for weather file (overrides YAML `weather_files`)
 
+### Editor (Desktop Workbench)
+- **Energy End-Use Dashboard** — ⚡ Energy tab with monthly stacked bar chart and annual summary table of electricity/gas/district end uses; zone-level unmet hours breakdown. Auto-detects site-level `*_kwh` columns from loaded CSV.
+- **HVAC Network expanded** — Network view renders `evap_cooler`, `vrf_outdoor_unit`, `vrf_indoor_unit`, `radiant_panel` (air-side) and `thermal_storage`, `gshp` (plant-side); `dual_duct_box` labeled correctly. All new types have distinct colors and SVG icons.
+- **View Report** — Results toolbar button opens `*_summary.html` in the default browser; shows inline message if no report is found.
+
 ### Performance
 - Solar precompute with disk persistence (`.solar` cache file next to YAML input, geometry-fingerprinted)
 - Rayon-parallelized solar precompute (embarrassingly parallel across timesteps)
