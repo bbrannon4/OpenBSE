@@ -1,17 +1,16 @@
 [package]
-name = "openbse-components"
+name = "openbse-a205"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "HVAC and plant component models (fans, coils, boilers, etc.)"
+description = "ASHRAE Standard 205 (RS0001-RS0007) equipment performance data loader and interpolator"
 
 [dependencies]
 thiserror = { workspace = true }
 serde = { workspace = true }
+serde_json = "1"
+ciborium = "0.2"
 log = { workspace = true }
-openbse-core = { workspace = true }
-openbse-psychrometrics = { workspace = true }
-openbse-a205 = { workspace = true }
 
 [dev-dependencies]
 approx = { workspace = true }

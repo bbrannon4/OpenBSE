@@ -7,6 +7,7 @@
 
 use openbse_components::boiler::Boiler;
 use openbse_components::chiller::AirCooledChiller;
+use openbse_components::chiller_a205::ChillerA205;
 use openbse_components::chw_cooling_coil::CoolingCoilCHW;
 use openbse_components::cooling_coil::CoolingCoilDX;
 use openbse_components::fan::{Fan, FanType};
@@ -870,9 +871,19 @@ pub struct FanInput {
     #[serde(default)]
     pub tag: Option<String>,
     /// Design flow rate [m³/s]. Use `autosize` to let the engine calculate.
+    /// May be omitted when `a205_file` is set — the file's nominal flow is used.
+    #[serde(default)]
     pub design_flow_rate: AutosizeValue,
     #[serde(default = "default_pressure_rise")]
     pub pressure_rise: f64,
+    /// Path to an ASHRAE Standard 205 RS0003 fan performance file
+    /// (`.a205` CBOR binary or `.a205.json` JSON).  Relative paths resolve
+    /// against the model YAML directory; absolute paths also supported.
+    /// When set, the analytical `total_efficiency` / `motor_efficiency`
+    /// fields and VAV coefficients are ignored.  `pressure_rise` is still
+    /// used as the static-pressure query into the map.
+    #[serde(default)]
+    pub a205_file: Option<String>,
     /// Motor efficiency [0-1] (default 0.9)
     #[serde(default = "default_motor_efficiency")]
     pub motor_efficiency: f64,
@@ -991,8 +1002,12 @@ pub struct CoolingCoilInput {
     #[serde(default = "default_cooling_source")]
     pub source: String,
     /// Rated total cooling capacity [W]. Use `autosize` to let the engine calculate.
+    /// Ignored (and may be omitted) when `a205_file` is set — the Standard 205
+    /// performance map is authoritative.
+    #[serde(default)]
     pub capacity: AutosizeValue,
-    /// Rated COP (coefficient of performance) — used for DX source only
+    /// Rated COP (coefficient of performance) — used for DX source only.
+    /// Ignored when `a205_file` is set.
     #[serde(default = "default_cop")]
     pub cop: f64,
     /// Rated sensible heat ratio [0-1]
@@ -1001,6 +1016,13 @@ pub struct CoolingCoilInput {
     /// Rated air flow rate [m³/s]. Use `autosize` to let the engine calculate.
     #[serde(default)]
     pub rated_airflow: AutosizeValue,
+    /// Path to an ASHRAE Standard 205 RS0004 performance file (`.a205`
+    /// CBOR binary or `.a205.json` JSON).  Relative paths resolve against
+    /// the model YAML directory; absolute paths are also supported.
+    /// When set, polynomial/table curves on this coil are ignored and the
+    /// file is authoritative.  DX `source` only.
+    #[serde(default)]
+    pub a205_file: Option<String>,
     /// Outlet temperature setpoint [°C]
     #[serde(default = "default_dx_coil_setpoint")]
     pub setpoint: f64,
@@ -1634,6 +1656,9 @@ pub struct ChillerInput {
     #[serde(default = "default_submeter")]
     pub submeter: String,
     /// Rated cooling capacity [W]. Use `autosize` to let the engine calculate.
+    /// Ignored (and may be omitted) when `a205_file` is set — the Standard 205
+    /// performance map is authoritative.
+    #[serde(default)]
     pub capacity: AutosizeValue,
     /// Rated COP at ARI conditions (typical 2.5-4.5 for air-cooled)
     #[serde(default = "default_chiller_cop")]
@@ -1676,6 +1701,26 @@ pub struct ChillerInput {
     /// When set, the chiller's condenser heat rejection drives demand on this loop.
     #[serde(default)]
     pub condenser_plant_loop: Option<String>,
+
+    /// Path to an ASHRAE Standard 205 (RS0001) chiller performance file.
+    /// May be relative to the model YAML directory, or absolute.
+    /// Supported formats: `.a205` (CBOR binary, production) and `.a205.json`
+    /// (JSON text, development).  When set, `cop`, `capacity`, and the
+    /// polynomial / table curve fields are ignored — the file is authoritative.
+    #[serde(default)]
+    pub a205_file: Option<String>,
+
+    /// Named reference to a curve in the model's `performance_curves` section,
+    /// used as CAPFT (capacity vs. temperatures).  Alternative to inline
+    /// polynomial coefficients in `capft`.  Ignored when `a205_file` is set.
+    #[serde(default)]
+    pub capft_curve: Option<String>,
+    /// Named reference for EIRFT (EIR vs. temperatures).  See `capft_curve`.
+    #[serde(default)]
+    pub eirft_curve: Option<String>,
+    /// Named reference for EIRFPLR (EIR vs. part-load ratio).  See `capft_curve`.
+    #[serde(default)]
+    pub eirfplr_curve: Option<String>,
 }
 
 fn default_chiller_cop() -> f64 {
@@ -2477,7 +2522,41 @@ pub fn parse_model_yaml(yaml: &str) -> Result<ModelInput, InputError> {
 }
 
 /// Build a simulation graph from parsed model input.
+///
+/// `model_dir` is used to resolve relative file paths (e.g. ASHRAE 205
+/// `a205_file` references) against the directory containing the model YAML.
+/// When `None`, only absolute paths can be resolved.
+pub fn build_graph_with_base(
+    model: &ModelInput,
+    model_dir: Option<&Path>,
+) -> Result<SimulationGraph, InputError> {
+    build_graph_impl(model, model_dir)
+}
+
+/// Build a simulation graph from parsed model input.
+///
+/// External file references (like `a205_file`) must be absolute paths;
+/// use [`build_graph_with_base`] when relative paths should resolve
+/// against the model YAML directory.
 pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
+    build_graph_impl(model, None)
+}
+
+fn resolve_input_path(model_dir: Option<&Path>, p: &str) -> std::path::PathBuf {
+    let path = Path::new(p);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else if let Some(base) = model_dir {
+        base.join(path)
+    } else {
+        path.to_path_buf()
+    }
+}
+
+fn build_graph_impl(
+    model: &ModelInput,
+    model_dir: Option<&Path>,
+) -> Result<SimulationGraph, InputError> {
     let mut graph = SimulationGraph::new();
 
     // Build air loops
@@ -2487,42 +2566,73 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
         for equipment in &air_loop.equipment {
             let node = match equipment {
                 EquipmentInput::Fan(f) => {
-                    let fan_type = match f.source.as_str() {
-                        "vav" | "VAV" => FanType::VAV,
-                        "on_off" | "OnOff" => FanType::OnOff,
-                        _ => FanType::ConstantVolume,
-                    };
-                    let flow = f.design_flow_rate.to_f64();
-                    let total_efficiency = f.motor_efficiency * f.impeller_efficiency;
-                    let mut fan = match fan_type {
-                        FanType::VAV => Fan::vav(
+                    // ── Mode 1: ASHRAE Standard 205 RS0003 file ─────────────
+                    if let Some(path_str) = f.a205_file.as_ref() {
+                        use openbse_components::fan_a205::FanA205;
+                        let path = resolve_input_path(model_dir, path_str);
+                        let rs0003 = openbse_a205::rs0003::Rs0003::load(&path).map_err(|e| {
+                            InputError::ParseError(format!(
+                                "fan '{}': failed to load a205_file {}: {}",
+                                f.name,
+                                path.display(),
+                                e
+                            ))
+                        })?;
+                        let design_flow = f.design_flow_rate.to_f64();
+                        let mut fan = FanA205::from_rs0003(
                             &f.name,
-                            flow,
+                            rs0003,
                             f.pressure_rise,
-                            total_efficiency,
+                            design_flow.max(0.0),
                             f.motor_efficiency,
-                            f.motor_in_airstream_fraction,
-                        ),
-                        _ => Fan::constant_volume(
-                            &f.name,
-                            flow,
-                            f.pressure_rise,
-                            total_efficiency,
-                            f.motor_efficiency,
-                            f.motor_in_airstream_fraction,
-                        ),
-                    };
-                    fan.fan_type = fan_type;
-                    fan.submeter = f.submeter.clone();
-                    // Apply tag for output classification
-                    if let Some(ref tag) = f.tag {
-                        fan.tag = tag.clone();
+                        )
+                        .map_err(|e| {
+                            InputError::ParseError(format!(
+                                "fan '{}': failed to initialize from a205 data: {}",
+                                f.name, e
+                            ))
+                        })?;
+                        fan.submeter = f.submeter.clone();
+                        if let Some(ref tag) = f.tag {
+                            fan.tag = tag.clone();
+                        }
+                        graph.add_air_component(Box::new(fan))
+                    } else {
+                        let fan_type = match f.source.as_str() {
+                            "vav" | "VAV" => FanType::VAV,
+                            "on_off" | "OnOff" => FanType::OnOff,
+                            _ => FanType::ConstantVolume,
+                        };
+                        let flow = f.design_flow_rate.to_f64();
+                        let total_efficiency = f.motor_efficiency * f.impeller_efficiency;
+                        let mut fan = match fan_type {
+                            FanType::VAV => Fan::vav(
+                                &f.name,
+                                flow,
+                                f.pressure_rise,
+                                total_efficiency,
+                                f.motor_efficiency,
+                                f.motor_in_airstream_fraction,
+                            ),
+                            _ => Fan::constant_volume(
+                                &f.name,
+                                flow,
+                                f.pressure_rise,
+                                total_efficiency,
+                                f.motor_efficiency,
+                                f.motor_in_airstream_fraction,
+                            ),
+                        };
+                        fan.fan_type = fan_type;
+                        fan.submeter = f.submeter.clone();
+                        if let Some(ref tag) = f.tag {
+                            fan.tag = tag.clone();
+                        }
+                        if let Some(coeffs) = f.vav_coefficients {
+                            fan.vav_coefficients = coeffs;
+                        }
+                        graph.add_air_component(Box::new(fan))
                     }
-                    // Apply custom VAV curve coefficients if provided
-                    if let Some(coeffs) = f.vav_coefficients {
-                        fan.vav_coefficients = coeffs;
-                    }
-                    graph.add_air_component(Box::new(fan))
                 }
                 EquipmentInput::HeatingCoil(c) => {
                     let cap = c.capacity.to_f64();
@@ -2640,57 +2750,115 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                             graph.add_air_component(Box::new(coil))
                         }
                         _ => {
-                            // DX cooling coil (default)
-                            let cap_curve = c.cap_ft_curve.as_ref().and_then(|name| {
-                                model
-                                    .performance_curves
-                                    .iter()
-                                    .find(|pc| pc.name() == name)
-                                    .cloned()
-                            });
-                            let eir_curve = c.eir_ft_curve.as_ref().and_then(|name| {
-                                model
-                                    .performance_curves
-                                    .iter()
-                                    .find(|pc| pc.name() == name)
-                                    .cloned()
-                            });
-                            let cap_fflow = c.cap_fflow_curve.as_ref().and_then(|name| {
-                                model
-                                    .performance_curves
-                                    .iter()
-                                    .find(|pc| pc.name() == name)
-                                    .cloned()
-                            });
-                            let eir_fflow = c.eir_fflow_curve.as_ref().and_then(|name| {
-                                model
-                                    .performance_curves
-                                    .iter()
-                                    .find(|pc| pc.name() == name)
-                                    .cloned()
-                            });
-                            let mut coil = CoolingCoilDX::new(
-                                &c.name,
-                                c.capacity.to_f64(),
-                                c.cop,
-                                c.shr,
-                                c.rated_airflow.to_f64(),
-                                c.setpoint,
-                            )
-                            .with_curves(cap_curve, eir_curve)
-                            .with_fflow_curves(cap_fflow, eir_fflow)
-                            .with_autocalculate_shr(c.autocalculate_shr);
-                            if let Some(plf) = c.plf_curve.as_ref().and_then(|name| {
-                                model
-                                    .performance_curves
-                                    .iter()
-                                    .find(|pc| pc.name() == name)
-                                    .cloned()
-                            }) {
-                                coil = coil.with_plf_curve(plf);
+                            // DX cooling coil (default).
+                            //
+                            // ── Mode 1: ASHRAE Standard 205 file (RS0004 or RS0002) ───────────
+                            if let Some(path_str) = c.a205_file.as_ref() {
+                                use openbse_components::cooling_coil_a205::CoolingCoilDXA205;
+                                let path = resolve_input_path(model_dir, path_str);
+                                // Accept either a raw RS0004 file or an RS0002
+                                // unitary wrapper.  Peek at metadata.schema
+                                // to choose the right loader.
+                                let schema_id = openbse_a205::peek_schema(&path).map_err(|e| {
+                                    InputError::ParseError(format!(
+                                        "cooling coil '{}': failed to read a205_file {}: {}",
+                                        c.name,
+                                        path.display(),
+                                        e
+                                    ))
+                                })?;
+                                let rs0004 = match schema_id.as_str() {
+                                    "RS0004" => openbse_a205::rs0004::Rs0004::load(&path)
+                                        .map_err(|e| {
+                                            InputError::ParseError(format!(
+                                                "cooling coil '{}': failed to load a205_file {}: {}",
+                                                c.name,
+                                                path.display(),
+                                                e
+                                            ))
+                                        })?,
+                                    "RS0002" => openbse_a205::rs0002::Rs0002::load(&path)
+                                        .map_err(|e| {
+                                            InputError::ParseError(format!(
+                                                "cooling coil '{}': failed to load a205_file (RS0002 wrapper) {}: {}",
+                                                c.name,
+                                                path.display(),
+                                                e
+                                            ))
+                                        })?
+                                        .into_dx_system(),
+                                    other => {
+                                        return Err(InputError::ParseError(format!(
+                                            "cooling coil '{}': a205_file {} has unsupported schema '{}' (expected RS0004 or RS0002)",
+                                            c.name,
+                                            path.display(),
+                                            other
+                                        )));
+                                    }
+                                };
+                                let mut coil =
+                                    CoolingCoilDXA205::from_rs0004(&c.name, rs0004, c.setpoint)
+                                        .map_err(|e| {
+                                            InputError::ParseError(format!(
+                                            "cooling coil '{}': failed to initialize from a205 data: {}",
+                                            c.name, e
+                                        ))
+                                        })?;
+                                coil.submeter = c.submeter.clone();
+                                graph.add_air_component(Box::new(coil))
+                            } else {
+                                // ── Mode 2/3: polynomial / table-curve DX ─────────
+                                let cap_curve = c.cap_ft_curve.as_ref().and_then(|name| {
+                                    model
+                                        .performance_curves
+                                        .iter()
+                                        .find(|pc| pc.name() == name)
+                                        .cloned()
+                                });
+                                let eir_curve = c.eir_ft_curve.as_ref().and_then(|name| {
+                                    model
+                                        .performance_curves
+                                        .iter()
+                                        .find(|pc| pc.name() == name)
+                                        .cloned()
+                                });
+                                let cap_fflow = c.cap_fflow_curve.as_ref().and_then(|name| {
+                                    model
+                                        .performance_curves
+                                        .iter()
+                                        .find(|pc| pc.name() == name)
+                                        .cloned()
+                                });
+                                let eir_fflow = c.eir_fflow_curve.as_ref().and_then(|name| {
+                                    model
+                                        .performance_curves
+                                        .iter()
+                                        .find(|pc| pc.name() == name)
+                                        .cloned()
+                                });
+                                let mut coil = CoolingCoilDX::new(
+                                    &c.name,
+                                    c.capacity.to_f64(),
+                                    c.cop,
+                                    c.shr,
+                                    c.rated_airflow.to_f64(),
+                                    c.setpoint,
+                                )
+                                .with_curves(cap_curve, eir_curve)
+                                .with_fflow_curves(cap_fflow, eir_fflow)
+                                .with_autocalculate_shr(c.autocalculate_shr);
+                                if let Some(plf) = c.plf_curve.as_ref().and_then(|name| {
+                                    model
+                                        .performance_curves
+                                        .iter()
+                                        .find(|pc| pc.name() == name)
+                                        .cloned()
+                                }) {
+                                    coil = coil.with_plf_curve(plf);
+                                }
+                                coil.submeter = c.submeter.clone();
+                                graph.add_air_component(Box::new(coil))
                             }
-                            coil.submeter = c.submeter.clone();
-                            graph.add_air_component(Box::new(coil))
                         }
                     }
                 }
@@ -2899,85 +3067,153 @@ pub fn build_graph(model: &ModelInput) -> Result<SimulationGraph, InputError> {
                     graph.add_plant_component(Box::new(boiler))
                 }
                 PlantEquipmentInput::Chiller(ci) => {
-                    let capacity = ci.capacity.to_f64();
-                    let chw_flow = if ci.design_chw_flow <= 0.0 {
-                        if capacity > 0.0 {
-                            capacity / (4186.0 * 5.0 * 1000.0)
+                    // ── Mode 1: ASHRAE Standard 205 binary/JSON file ─────────────
+                    if let Some(path_str) = ci.a205_file.as_ref() {
+                        let path = resolve_input_path(model_dir, path_str);
+                        let rs0001 = openbse_a205::rs0001::Rs0001::load(&path).map_err(|e| {
+                            InputError::ParseError(format!(
+                                "chiller '{}': failed to load a205_file {}: {}",
+                                ci.name,
+                                path.display(),
+                                e
+                            ))
+                        })?;
+                        let chw_flow = if ci.design_chw_flow > 0.0 {
+                            ci.design_chw_flow
                         } else {
-                            0.005
-                        }
+                            0.0
+                        };
+                        let mut chiller =
+                            ChillerA205::from_rs0001(&ci.name, rs0001, ci.chw_setpoint, chw_flow)
+                                .map_err(|e| {
+                                InputError::ParseError(format!(
+                                    "chiller '{}': failed to initialize from a205 data: {}",
+                                    ci.name, e
+                                ))
+                            })?;
+                        chiller.submeter = ci.submeter.clone();
+                        chiller.min_plr = ci.min_plr;
+                        chiller.condenser_entering_temp = ci.condenser_entering_temp;
+                        chiller.tower_approach = ci.tower_approach;
+                        graph.add_plant_component(Box::new(chiller))
                     } else {
-                        ci.design_chw_flow
-                    };
-                    let is_water_cooled = ci.condenser_type == "water_cooled";
-                    let mut chiller = AirCooledChiller::new(
-                        &ci.name,
-                        capacity,
-                        ci.cop,
-                        ci.chw_setpoint,
-                        chw_flow,
-                    );
-                    chiller.min_plr = ci.min_plr;
-                    chiller.water_cooled = is_water_cooled;
-                    chiller.condenser_entering_temp = ci.condenser_entering_temp;
-                    chiller.tower_approach = ci.tower_approach;
-                    // Convert CurveInput → PerformanceCurve for CAPFT
-                    if let Some(ref c) = ci.capft {
-                        use openbse_components::performance_curve::{CurveType, PerformanceCurve};
-                        let ct = if c.coefficients.len() >= 6 {
-                            CurveType::Biquadratic
+                        // ── Mode 2/3: polynomial coefficients or named curves ───────
+                        let capacity = ci.capacity.to_f64();
+                        let chw_flow = if ci.design_chw_flow <= 0.0 {
+                            if capacity > 0.0 {
+                                capacity / (4186.0 * 5.0 * 1000.0)
+                            } else {
+                                0.005
+                            }
                         } else {
-                            CurveType::Quadratic
+                            ci.design_chw_flow
                         };
-                        chiller.capft_curve = Some(PerformanceCurve::Polynomial {
-                            name: format!("{}_capft", ci.name),
-                            curve_type: ct,
-                            coefficients: c.coefficients.clone(),
-                            min_x: c.min_x,
-                            max_x: c.max_x,
-                            min_y: c.min_y,
-                            max_y: c.max_y,
-                            min_output: None,
-                            max_output: None,
-                        });
-                    }
-                    // Convert CurveInput → PerformanceCurve for EIRFT
-                    if let Some(ref c) = ci.eirft {
+                        let is_water_cooled = ci.condenser_type == "water_cooled";
+                        let mut chiller = AirCooledChiller::new(
+                            &ci.name,
+                            capacity,
+                            ci.cop,
+                            ci.chw_setpoint,
+                            chw_flow,
+                        );
+                        chiller.min_plr = ci.min_plr;
+                        chiller.water_cooled = is_water_cooled;
+                        chiller.condenser_entering_temp = ci.condenser_entering_temp;
+                        chiller.tower_approach = ci.tower_approach;
+
                         use openbse_components::performance_curve::{CurveType, PerformanceCurve};
-                        let ct = if c.coefficients.len() >= 6 {
-                            CurveType::Biquadratic
-                        } else {
-                            CurveType::Quadratic
+
+                        // Helper: look up a named curve from the model's performance_curves section.
+                        let named_curve = |name: &str| -> Option<PerformanceCurve> {
+                            model
+                                .performance_curves
+                                .iter()
+                                .find(|pc| pc.name() == name)
+                                .cloned()
                         };
-                        chiller.eirft_curve = Some(PerformanceCurve::Polynomial {
-                            name: format!("{}_eirft", ci.name),
-                            curve_type: ct,
-                            coefficients: c.coefficients.clone(),
-                            min_x: c.min_x,
-                            max_x: c.max_x,
-                            min_y: c.min_y,
-                            max_y: c.max_y,
-                            min_output: None,
-                            max_output: None,
-                        });
+
+                        // CAPFT: prefer named reference, fall back to inline polynomial.
+                        if let Some(name) = ci.capft_curve.as_ref() {
+                            chiller.capft_curve = named_curve(name);
+                            if chiller.capft_curve.is_none() {
+                                return Err(InputError::ParseError(format!(
+                                    "chiller '{}': capft_curve '{}' not found in performance_curves",
+                                    ci.name, name
+                                )));
+                            }
+                        } else if let Some(ref c) = ci.capft {
+                            let ct = if c.coefficients.len() >= 6 {
+                                CurveType::Biquadratic
+                            } else {
+                                CurveType::Quadratic
+                            };
+                            chiller.capft_curve = Some(PerformanceCurve::Polynomial {
+                                name: format!("{}_capft", ci.name),
+                                curve_type: ct,
+                                coefficients: c.coefficients.clone(),
+                                min_x: c.min_x,
+                                max_x: c.max_x,
+                                min_y: c.min_y,
+                                max_y: c.max_y,
+                                min_output: None,
+                                max_output: None,
+                            });
+                        }
+
+                        // EIRFT
+                        if let Some(name) = ci.eirft_curve.as_ref() {
+                            chiller.eirft_curve = named_curve(name);
+                            if chiller.eirft_curve.is_none() {
+                                return Err(InputError::ParseError(format!(
+                                    "chiller '{}': eirft_curve '{}' not found in performance_curves",
+                                    ci.name, name
+                                )));
+                            }
+                        } else if let Some(ref c) = ci.eirft {
+                            let ct = if c.coefficients.len() >= 6 {
+                                CurveType::Biquadratic
+                            } else {
+                                CurveType::Quadratic
+                            };
+                            chiller.eirft_curve = Some(PerformanceCurve::Polynomial {
+                                name: format!("{}_eirft", ci.name),
+                                curve_type: ct,
+                                coefficients: c.coefficients.clone(),
+                                min_x: c.min_x,
+                                max_x: c.max_x,
+                                min_y: c.min_y,
+                                max_y: c.max_y,
+                                min_output: None,
+                                max_output: None,
+                            });
+                        }
+
+                        // EIRFPLR
+                        if let Some(name) = ci.eirfplr_curve.as_ref() {
+                            chiller.eirfplr_curve = named_curve(name);
+                            if chiller.eirfplr_curve.is_none() {
+                                return Err(InputError::ParseError(format!(
+                                    "chiller '{}': eirfplr_curve '{}' not found in performance_curves",
+                                    ci.name, name
+                                )));
+                            }
+                        } else if let Some(ref c) = ci.eirfplr {
+                            chiller.eirfplr_curve = Some(PerformanceCurve::Polynomial {
+                                name: format!("{}_eirfplr", ci.name),
+                                curve_type: CurveType::Quadratic,
+                                coefficients: c.coefficients.clone(),
+                                min_x: c.min_x,
+                                max_x: c.max_x,
+                                min_y: 0.0,
+                                max_y: 0.0,
+                                min_output: None,
+                                max_output: None,
+                            });
+                        }
+
+                        chiller.submeter = ci.submeter.clone();
+                        graph.add_plant_component(Box::new(chiller))
                     }
-                    // Convert CurveInput → PerformanceCurve for EIRFPLR
-                    if let Some(ref c) = ci.eirfplr {
-                        use openbse_components::performance_curve::{CurveType, PerformanceCurve};
-                        chiller.eirfplr_curve = Some(PerformanceCurve::Polynomial {
-                            name: format!("{}_eirfplr", ci.name),
-                            curve_type: CurveType::Quadratic,
-                            coefficients: c.coefficients.clone(),
-                            min_x: c.min_x,
-                            max_x: c.max_x,
-                            min_y: 0.0,
-                            max_y: 0.0,
-                            min_output: None,
-                            max_output: None,
-                        });
-                    }
-                    chiller.submeter = ci.submeter.clone();
-                    graph.add_plant_component(Box::new(chiller))
                 }
                 PlantEquipmentInput::Pump(p) => {
                     let pump_type = match p.pump_type.as_str() {

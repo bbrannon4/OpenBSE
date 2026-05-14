@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-13
+
+### Added
+- **ASHRAE Standard 205 (RS0001–RS0007) equipment performance data support** — manufacturers publish equipment performance as portable CBOR (`.a205`) or JSON files; OpenBSE now consumes them directly via a new `openbse-a205` crate and matching `*_a205` components. Existing polynomial / table-curve modes are unchanged; Standard 205 is selected by adding an `a205_file:` field to a chiller, cooling coil, or fan input. Relative paths resolve against the model YAML directory; absolute paths supported.
+  - **RS0001 Chiller** — `ChillerA205` plant component. Reads a 6-axis cooling map (evap flow, evap leaving temp, condenser temp/RH/flow, compressor sequence) plus standby map; supports air-cooled, water-cooled, evaporative condenser types; continuous and discrete compressor speed control with cycling degradation. YAML: `a205_file:` on `type: chiller`. Example: `examples/vav_chw_plant_a205.yaml`.
+  - **RS0004 Air-to-Air DX** — `CoolingCoilDXA205` air component. Reads gross total / sensible / power from a 6-axis map; splits delivered total cooling into sensible (lowers T_db) and latent (lowers W) using the file's sensible/total ratio. YAML: `a205_file:` on `type: cooling_coil` with DX source. Example: `examples/residential_unitary_a205.yaml`. Closes #38.
+  - **RS0002 Unitary wrapper** — the `a205_file:` field on a cooling coil now also accepts an RS0002 unitary file (auto-extracts the embedded RS0004 DX system). Example: `examples/residential_unitary_rs0002.yaml`. Closes #39.
+  - **RS0003 Fan Assembly** — `FanA205` air component. Reads shaft power and impeller speed from a 2-D (flow, static pressure) map. Honors the file's `heat_loss_fraction` to determine fan motor heat into the airstream. YAML: `a205_file:` on `type: fan`. Example: `examples/vav_a205_fan_and_chiller.yaml`. Closes #39.
+  - **Nested RS0005 / RS0006 / RS0007** — a `FanEfficiencyChain` composes motor (RS0005) + electronic drive/VFD (RS0006) + mechanical drive/belt (RS0007) sub-components from the fan file's `assembly_components` list to compute grid-side electric power from shaft power. Falls back to a configurable motor efficiency when the file's assembly is empty. Closes #39.
+  - **Standalone sub-component overrides** — `motor_a205_file:`, `drive_a205_file:`, and `vfd_a205_file:` fields on a fan input let users swap in a manufacturer-supplied motor/belt/VFD file independently of the RS0003 fan file's nested assembly. Precedence: standalone override > nested in 205 file > fallback constant. Example: `examples/vav_a205_motor_override.yaml`. Closes #40.
+- New `openbse-a205` crate with generic N-d linear interpolator (edge-clamp extrapolation policy), CBOR/JSON auto-detecting loader, and per-RS schema modules.
+
+### Changed
+- `openbse-io::build_graph` is preserved for backwards compatibility; new `build_graph_with_base(model, model_dir)` accepts the model directory so relative `a205_file:` paths can be resolved. The CLI uses the new entry point.
+- `ChillerInput.capacity` and `CoolingCoilInput.capacity` are now optional and ignored when `a205_file:` is set (the file is authoritative on size and efficiency).
+- `ChillerInput` gains named-reference fields `capft_curve` / `eirft_curve` / `eirfplr_curve` for resolving table curves from the model's `performance_curves` section (the table-curve YAML example was previously aspirational).
+
 ## [0.2.11] - 2026-04-27
 
 ### Added

@@ -1,12 +1,15 @@
 pub mod boiler;
 pub mod chiller;
+pub mod chiller_a205;
 pub mod chw_cooling_coil;
 pub mod cooling_coil;
+pub mod cooling_coil_a205;
 pub mod cooling_tower;
 pub mod dual_duct_box;
 pub mod duct;
 pub mod evap_cooler;
 pub mod fan;
+pub mod fan_a205;
 pub mod gshp;
 pub mod heat_exchanger;
 pub mod heat_pump_coil;

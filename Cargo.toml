@@ -8,12 +8,13 @@ members = [
     "crates/openbse-psychrometrics",
     "crates/openbse-io",
     "crates/openbse-cli",
+    "crates/openbse-a205",
 ]
 exclude = ["tools/editor/src-tauri"]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.11"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bbrannon4/OpenBSE"
@@ -27,6 +28,7 @@ openbse-envelope = { path = "crates/openbse-envelope" }
 openbse-weather = { path = "crates/openbse-weather" }
 openbse-psychrometrics = { path = "crates/openbse-psychrometrics" }
 openbse-io = { path = "crates/openbse-io" }
+openbse-a205 = { path = "crates/openbse-a205" }
 
 # External dependencies
 serde = { version = "1", features = ["derive"] }
