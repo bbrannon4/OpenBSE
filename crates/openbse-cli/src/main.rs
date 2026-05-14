@@ -17,8 +17,8 @@ use openbse_core::simulation::{ControlSignals, SimulationConfig, TimestepResult}
 use openbse_core::types::{DayType, TimeStep};
 use openbse_envelope::schedule::ScheduleManager;
 use openbse_io::input::{
-    build_controllers, build_envelope, build_graph, compute_oa_fraction, parse_model_yaml,
-    resolve_thermostats, AirLoopSystemType,
+    build_controllers, build_envelope, build_graph_with_base, compute_oa_fraction,
+    parse_model_yaml, resolve_thermostats, AirLoopSystemType,
 };
 use openbse_io::output::{
     write_csv, write_parametric_results, OutputSnapshot, OutputWriter, SummaryReport,
@@ -539,7 +539,9 @@ fn main() -> Result<()> {
         );
 
         // ── 3. Build simulation components ──────────────────────────────────────
-        let mut graph = build_graph(&model).context("Failed to build simulation graph")?;
+        let model_dir = args.input.parent();
+        let mut graph =
+            build_graph_with_base(&model, model_dir).context("Failed to build simulation graph")?;
         info!("Graph built: {} components", graph.component_count());
 
         let controllers = build_controllers(&model);
