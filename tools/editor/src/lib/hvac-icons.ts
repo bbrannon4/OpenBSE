@@ -146,6 +146,16 @@ const ICONS: Record<HvacNodeType, string> = {
     <path d="M11 4 Q12 5.5, 11 7" fill="none" stroke="currentColor" stroke-width="1"/>
     <line x1="10" y1="9" x2="10" y2="12" stroke="currentColor" stroke-width="1.5"/>
     <path d="M3 12 Q5 10, 7 12 Q9 14, 11 12 Q13 10, 15 12 Q17 14, 17 14" fill="none" stroke="currentColor" stroke-width="1.5"/>`,
+
+  // External air: dashed boundary box with horizontal air-flow arrow through it
+  external_air: `<rect x="2" y="5" width="16" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/>
+    <line x1="5" y1="10" x2="15" y2="10" stroke="currentColor" stroke-width="1.5"/>
+    <polygon points="12,7 15,10 12,13" fill="currentColor"/>`,
+
+  // External plant: dashed boundary box with vertical water-flow arrow through it
+  external_plant: `<rect x="5" y="2" width="10" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/>
+    <line x1="10" y1="5" x2="10" y2="15" stroke="currentColor" stroke-width="1.5"/>
+    <polygon points="7,12 10,15 13,12" fill="currentColor"/>`,
 };
 
 /** Render an HVAC icon as an SVG element string */

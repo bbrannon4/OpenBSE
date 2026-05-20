@@ -26,6 +26,7 @@ export type HvacNodeType =
   | "humidifier"
   | "duct"
   | "evap_cooler"
+  | "external_air"
   | "vrf_outdoor"
   | "vrf_indoor"
   | "radiant_panel"
@@ -38,6 +39,7 @@ export type HvacNodeType =
   | "heat_exchanger"
   | "thermal_storage"
   | "gshp"
+  | "external_plant"
   | "coil_load";
 
 export interface HvacNodeData {
@@ -79,6 +81,7 @@ export const NODE_COLORS: Record<HvacNodeType, string> = {
   humidifier: "#b4f9f8",
   duct: "#565f89",
   evap_cooler: "#73daca",
+  external_air: "#a9b1d6",
   vrf_outdoor: "#bb9af7",
   vrf_indoor: "#c0caf5",
   radiant_panel: "#ff9e64",
@@ -91,6 +94,7 @@ export const NODE_COLORS: Record<HvacNodeType, string> = {
   heat_exchanger: "#2ac3de",
   thermal_storage: "#e0af68",
   gshp: "#2ac3de",
+  external_plant: "#a9b1d6",
   coil_load: "#e0af68",
 };
 
@@ -108,6 +112,7 @@ function equipmentType(eq: Record<string, unknown>): HvacNodeType {
     case "humidifier": return "humidifier";
     case "duct": return "duct";
     case "evap_cooler": return "evap_cooler";
+    case "external_air": return "external_air";
     case "vrf_outdoor_unit": return "vrf_outdoor";
     default: return "fan";
   }
@@ -123,6 +128,7 @@ function plantEquipmentType(eq: Record<string, unknown>): HvacNodeType {
     case "heat_exchanger": return "heat_exchanger";
     case "thermal_storage": return "thermal_storage";
     case "gshp": return "gshp";
+    case "external_plant": return "external_plant";
     default: return "pump";
   }
 }
@@ -436,6 +442,12 @@ export function buildSeparatedGraphs(model: Model): SeparatedHvacGraphs {
             "mode", "direct_effectiveness", "indirect_effectiveness",
           ]));
           break;
+        case "external_air":
+          sublabel = Array.isArray(eq.command)
+            ? (eq.command as string[]).join(" ")
+            : String(eq.command ?? "");
+          Object.assign(props, extractProperties(eq, ["command"]));
+          break;
         case "vrf_outdoor":
           sublabel = `Cap: ${fmtVal(eq.rated_cooling_capacity)} W`;
           Object.assign(props, extractProperties(eq, [
@@ -637,6 +649,12 @@ export function buildSeparatedGraphs(model: Model): SeparatedHvacGraphs {
             "rated_cooling_capacity", "rated_heating_capacity",
             "cop_cooling", "cop_heating",
           ]));
+          break;
+        case "external_plant":
+          sublabel = Array.isArray(eq.command)
+            ? (eq.command as string[]).join(" ")
+            : String(eq.command ?? "");
+          Object.assign(props, extractProperties(eq, ["command"]));
           break;
       }
 
