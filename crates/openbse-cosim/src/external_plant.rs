@@ -1,0 +1,197 @@
+//! Plant-side co-simulation proxy.
+//!
+//! `ExternalPlantComponent` implements `PlantComponent` by forwarding each
+//! timestep to an external process over stdin/stdout newline-delimited JSON.
+//!
+//! # Variable names
+//!
+//! **Inputs** (what OpenBSE sends to the external process):
+//! - `return_temp_c` — entering water temperature [°C]
+//! - `return_flow_kg_s` — water mass flow rate [kg/s]
+//! - `load_request_w` — thermal load demanded [W]; positive = heating, negative = cooling
+//! - `outdoor_temp_c` — outdoor dry-bulb temperature [°C]
+//! - `outdoor_humidity_ratio` — outdoor humidity ratio [kg/kg]
+//! - `outdoor_pressure_pa` — barometric pressure [Pa]
+//! - `sim_time_s` — simulation time elapsed [s]
+//! - `dt_s` — timestep duration [s]
+//! - `month`, `day`, `hour`, `sub_hour` — calendar position
+//!
+//! **Outputs** (what the external process must return):
+//! - `supply_temp_c` — leaving water temperature [°C] *(required)*
+//! - `supply_flow_kg_s` — leaving water flow [kg/s] *(optional, passes through inlet)*
+//! - `power_w` — electric power consumption [W] *(optional, default 0)*
+//! - `fuel_w` — fuel energy rate [W equivalent] *(optional, default 0)*
+//! - `thermal_output_w` — net heat delivered to fluid [W] *(optional, default 0)*
+
+use crate::subprocess::SubprocessTransport;
+use openbse_core::ports::{ComponentKind, PlantComponent, SimulationContext, WaterPort};
+use openbse_psychrometrics::FluidState;
+use std::collections::HashMap;
+
+pub struct ExternalPlantComponent {
+    pub name: String,
+    /// Shell command to launch the co-simulation process, e.g. `["python", "chiller.py"]`.
+    pub command: Vec<String>,
+    /// Input variable names sent each timestep.
+    pub input_vars: Vec<String>,
+    /// Output variable names expected each timestep.
+    pub output_vars: Vec<String>,
+
+    transport: Option<SubprocessTransport>,
+    last_power_w: f64,
+    last_fuel_w: f64,
+    last_thermal_w: f64,
+}
+
+impl std::fmt::Debug for ExternalPlantComponent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExternalPlantComponent")
+            .field("name", &self.name)
+            .field("command", &self.command)
+            .finish()
+    }
+}
+
+impl ExternalPlantComponent {
+    pub fn new(
+        name: impl Into<String>,
+        command: Vec<String>,
+        input_vars: Vec<String>,
+        output_vars: Vec<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            command,
+            input_vars,
+            output_vars,
+            transport: None,
+            last_power_w: 0.0,
+            last_fuel_w: 0.0,
+            last_thermal_w: 0.0,
+        }
+    }
+
+    fn ensure_started(&mut self) -> Result<(), String> {
+        if self.transport.is_none() {
+            self.transport = Some(SubprocessTransport::spawn(&self.command)?);
+        }
+        Ok(())
+    }
+
+    fn build_inputs(
+        &self,
+        inlet: &WaterPort,
+        load: f64,
+        ctx: &SimulationContext,
+    ) -> HashMap<String, f64> {
+        self.input_vars
+            .iter()
+            .map(|var| {
+                let val = match var.as_str() {
+                    "return_temp_c" => inlet.state.temp,
+                    "return_flow_kg_s" => inlet.state.mass_flow,
+                    "load_request_w" => load,
+                    "outdoor_temp_c" => ctx.outdoor_air.t_db,
+                    "outdoor_humidity_ratio" => ctx.outdoor_air.w,
+                    "outdoor_pressure_pa" => ctx.outdoor_air.p_b,
+                    "sim_time_s" => ctx.timestep.sim_time_s,
+                    "dt_s" => ctx.timestep.dt,
+                    "month" => ctx.timestep.month as f64,
+                    "day" => ctx.timestep.day as f64,
+                    "hour" => ctx.timestep.hour as f64,
+                    "sub_hour" => ctx.timestep.sub_hour as f64,
+                    _ => {
+                        log::warn!(
+                            "cosim '{}': unknown input variable '{}', sending 0",
+                            self.name,
+                            var
+                        );
+                        0.0
+                    }
+                };
+                (var.clone(), val)
+            })
+            .collect()
+    }
+}
+
+impl PlantComponent for ExternalPlantComponent {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn component_kind(&self) -> ComponentKind {
+        ComponentKind::Other
+    }
+
+    fn simulate_plant(
+        &mut self,
+        inlet: &WaterPort,
+        load: f64,
+        ctx: &SimulationContext,
+    ) -> WaterPort {
+        if inlet.state.mass_flow <= 0.0 || load == 0.0 {
+            self.last_power_w = 0.0;
+            self.last_fuel_w = 0.0;
+            self.last_thermal_w = 0.0;
+            return *inlet;
+        }
+
+        if let Err(e) = self.ensure_started() {
+            log::error!("cosim '{}': failed to start subprocess: {}", self.name, e);
+            return *inlet;
+        }
+
+        let inputs = self.build_inputs(inlet, load, ctx);
+        let time_s = ctx.timestep.sim_time_s;
+        let dt_s = ctx.timestep.dt;
+
+        let outputs = match self
+            .transport
+            .as_mut()
+            .unwrap()
+            .exchange(time_s, dt_s, &inputs)
+        {
+            Ok(o) => o,
+            Err(e) => {
+                log::error!("cosim '{}': exchange failed: {}", self.name, e);
+                return *inlet;
+            }
+        };
+
+        self.last_power_w = outputs.get("power_w").copied().unwrap_or(0.0);
+        self.last_fuel_w = outputs.get("fuel_w").copied().unwrap_or(0.0);
+        self.last_thermal_w = outputs.get("thermal_output_w").copied().unwrap_or(0.0);
+
+        let supply_temp = outputs
+            .get("supply_temp_c")
+            .copied()
+            .unwrap_or(inlet.state.temp);
+        let supply_flow = outputs
+            .get("supply_flow_kg_s")
+            .copied()
+            .unwrap_or(inlet.state.mass_flow);
+
+        WaterPort::new(FluidState::water(supply_temp, supply_flow))
+    }
+
+    fn power_consumption(&self) -> f64 {
+        self.last_power_w
+    }
+
+    fn fuel_consumption(&self) -> f64 {
+        self.last_fuel_w
+    }
+
+    fn thermal_output(&self) -> f64 {
+        self.last_thermal_w
+    }
+
+    fn detailed_outputs(&self) -> HashMap<String, f64> {
+        HashMap::from([
+            ("power_w".to_string(), self.last_power_w),
+            ("fuel_w".to_string(), self.last_fuel_w),
+            ("thermal_output_w".to_string(), self.last_thermal_w),
+        ])
+    }
+}

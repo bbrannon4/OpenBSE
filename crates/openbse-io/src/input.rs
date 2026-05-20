@@ -749,6 +749,32 @@ pub enum EquipmentInput {
     Duct(DuctInput),
     #[serde(rename = "evap_cooler")]
     EvapCooler(EvapCoolerInput),
+    #[serde(rename = "external_air")]
+    ExternalAir(ExternalAirInput),
+}
+
+/// Air-side co-simulation proxy.
+///
+/// Delegates each timestep to an external process via stdin/stdout JSON.
+///
+/// ```yaml
+/// - type: external_air
+///   name: Python AHU
+///   command: ["python", "ahu_model.py"]
+///   inputs:  [inlet_temp_c, inlet_humidity_ratio, inlet_mass_flow_kg_s, outdoor_temp_c, sim_time_s]
+///   outputs: [outlet_temp_c, outlet_humidity_ratio, power_w]
+/// ```
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExternalAirInput {
+    pub name: String,
+    /// Shell command to launch the co-simulation process.
+    pub command: Vec<String>,
+    /// Input variable names sent to the process each timestep.
+    /// See [`openbse_cosim::ExternalAirComponent`] for available names.
+    pub inputs: Vec<String>,
+    /// Output variable names expected from the process each timestep.
+    /// See [`openbse_cosim::ExternalAirComponent`] for available names.
+    pub outputs: Vec<String>,
 }
 
 /// Electric steam humidifier.
@@ -1458,6 +1484,32 @@ pub enum PlantEquipmentInput {
     HeatExchanger(HeatExchangerInput),
     #[serde(rename = "thermal_storage")]
     ThermalStorage(ThermalStorageInput),
+    #[serde(rename = "external_plant")]
+    ExternalPlant(ExternalPlantInput),
+}
+
+/// Plant-side co-simulation proxy.
+///
+/// Delegates each timestep to an external process via stdin/stdout JSON.
+///
+/// ```yaml
+/// - type: external_plant
+///   name: Python Chiller
+///   command: ["python", "chiller.py"]
+///   inputs:  [return_temp_c, return_flow_kg_s, load_request_w, outdoor_temp_c, sim_time_s]
+///   outputs: [supply_temp_c, power_w, thermal_output_w]
+/// ```
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExternalPlantInput {
+    pub name: String,
+    /// Shell command to launch the co-simulation process.
+    pub command: Vec<String>,
+    /// Input variable names sent to the process each timestep.
+    /// See [`openbse_cosim::ExternalPlantComponent`] for available names.
+    pub inputs: Vec<String>,
+    /// Output variable names expected from the process each timestep.
+    /// See [`openbse_cosim::ExternalPlantComponent`] for available names.
+    pub outputs: Vec<String>,
 }
 
 /// Pump role in the plant loop — determines staging and control behavior.
@@ -2976,6 +3028,15 @@ fn build_graph_impl(
                     ec.hx_effectiveness = e.hx_effectiveness;
                     graph.add_air_component(Box::new(ec))
                 }
+                EquipmentInput::ExternalAir(e) => {
+                    let component = openbse_cosim::ExternalAirComponent::new(
+                        &e.name,
+                        e.command.clone(),
+                        e.inputs.clone(),
+                        e.outputs.clone(),
+                    );
+                    graph.add_air_component(Box::new(component))
+                }
             };
 
             // Connect to previous component in sequence
@@ -3299,6 +3360,15 @@ fn build_graph_impl(
                     tes.ice_charge_cop_factor = ts.ice_charge_cop_factor;
                     tes.peak_hours = ts.peak_hours.clone();
                     graph.add_plant_component(Box::new(tes))
+                }
+                PlantEquipmentInput::ExternalPlant(e) => {
+                    let component = openbse_cosim::ExternalPlantComponent::new(
+                        &e.name,
+                        e.command.clone(),
+                        e.inputs.clone(),
+                        e.outputs.clone(),
+                    );
+                    graph.add_plant_component(Box::new(component))
                 }
             };
 

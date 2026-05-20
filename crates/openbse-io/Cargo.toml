@@ -14,6 +14,7 @@ log = { workspace = true }
 openbse-core = { workspace = true }
 openbse-components = { workspace = true }
 openbse-a205 = { workspace = true }
+openbse-cosim = { workspace = true }
 openbse-controls = { workspace = true }
 openbse-envelope = { workspace = true }
 openbse-weather = { workspace = true }

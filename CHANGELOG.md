@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-20
+
+### Added
+- **Co-simulation interface** — new `openbse-cosim` crate lets users replace any component with an external model running in Python, Modelica, MATLAB/Simulink, or any other tool. OpenBSE acts as simulation master; external models run as child processes and exchange one JSON message per timestep over stdin/stdout. No external libraries required.
+  - `ExternalAirComponent` — implements `AirComponent`; replaces a fan, coil, AHU, or any air-side component. Configured as `type: external_air` in YAML.
+  - `ExternalPlantComponent` — implements `PlantComponent`; replaces a chiller, boiler, pump, or any plant-side component. Configured as `type: external_plant` in YAML.
+  - Both types accept a user-defined `inputs:` list (variables OpenBSE sends) and `outputs:` list (variables the external process returns). Available inputs cover inlet conditions, outdoor conditions, simulation time, and calendar position.
+  - `python/openbse_cosim.py` — thin Python helper (`run_cosim(step_fn)`) that handles the stdin/stdout loop boilerplate.
+  - `examples/cosim_chiller/` — reference example: VAV office building with the native chiller replaced by a Python COP+PLR model (`chiller.py`). The script is self-contained and needs no external dependencies. Closes #44.
+
 ## [0.3.0] - 2026-05-13
 
 ### Added

@@ -150,6 +150,7 @@ fn build_loop_infos(
                         EquipmentInput::Humidifier(h) => h.name.clone(),
                         EquipmentInput::Duct(d) => d.name.clone(),
                         EquipmentInput::EvapCooler(e) => e.name.clone(),
+                        EquipmentInput::ExternalAir(e) => e.name.clone(),
                     }
                 })
                 .collect();
@@ -754,6 +755,9 @@ fn main() -> Result<()> {
                     openbse_io::input::EquipmentInput::EvapCooler(e) => {
                         (e.name.clone(), e.submeter.clone())
                     }
+                    openbse_io::input::EquipmentInput::ExternalAir(e) => {
+                        (e.name.clone(), "General".to_string())
+                    }
                 };
                 comp_submeter.insert(name, sm);
             }
@@ -792,6 +796,9 @@ fn main() -> Result<()> {
                     openbse_io::input::PlantEquipmentInput::HeatExchanger(_) => continue,
                     openbse_io::input::PlantEquipmentInput::ThermalStorage(ts) => {
                         (ts.name.clone(), ts.submeter.clone())
+                    }
+                    openbse_io::input::PlantEquipmentInput::ExternalPlant(e) => {
+                        (e.name.clone(), "General".to_string())
                     }
                 };
                 comp_submeter.insert(name, sm);
@@ -833,6 +840,9 @@ fn main() -> Result<()> {
                     openbse_io::input::EquipmentInput::EvapCooler(e) => {
                         (e.name.clone(), ComponentKind::EvapCooler)
                     }
+                    openbse_io::input::EquipmentInput::ExternalAir(e) => {
+                        (e.name.clone(), ComponentKind::Other)
+                    }
                 };
                 comp_kind_map.insert(name, kind);
             }
@@ -872,6 +882,9 @@ fn main() -> Result<()> {
                     }
                     openbse_io::input::PlantEquipmentInput::ThermalStorage(ts) => {
                         (ts.name.clone(), ComponentKind::ThermalStorage)
+                    }
+                    openbse_io::input::PlantEquipmentInput::ExternalPlant(e) => {
+                        (e.name.clone(), ComponentKind::Other)
                     }
                 };
                 comp_kind_map.insert(name, kind);
@@ -2854,6 +2867,9 @@ fn main() -> Result<()> {
                                             openbse_io::input::PlantEquipmentInput::ThermalStorage(
                                                 ts,
                                             ) => ts.name.clone(),
+                                            openbse_io::input::PlantEquipmentInput::ExternalPlant(
+                                                e,
+                                            ) => e.name.clone(),
                                         }
                                         })
                                         .collect();
@@ -2888,6 +2904,9 @@ fn main() -> Result<()> {
                                         openbse_io::input::PlantEquipmentInput::ThermalStorage(
                                             ts,
                                         ) => &ts.name,
+                                        openbse_io::input::PlantEquipmentInput::ExternalPlant(
+                                            e,
+                                        ) => &e.name,
                                     };
                                         let is_pump = matches!(
                                             equip,
