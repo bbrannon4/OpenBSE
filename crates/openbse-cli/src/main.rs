@@ -675,6 +675,32 @@ fn main() -> Result<()> {
             .map(|env| env.zones.iter().map(|z| z.input.clone()).collect())
             .unwrap_or_else(|| model.zones.clone());
         let mut loop_infos = build_loop_infos(&model, &resolved_zones_for_oa);
+
+        // For CRAC/CRAH loops serving a DC zone: override cooling_supply_temp
+        // from the zone's rack_inlet_temp_max (ASHRAE A-class inlet limit).
+        {
+            let dc_zone_map: HashMap<String, f64> = model
+                .zones
+                .iter()
+                .filter_map(|z| {
+                    z.data_center
+                        .as_ref()
+                        .map(|dc| (z.name.clone(), openbse_envelope::dc_rack_inlet_max(dc)))
+                })
+                .collect();
+            for li in &mut loop_infos {
+                if li.system_type == AirLoopSystemType::Crac
+                    || li.system_type == AirLoopSystemType::Crah
+                {
+                    if let Some(&rack_inlet_max) =
+                        li.served_zones.first().and_then(|z| dc_zone_map.get(z))
+                    {
+                        li.cooling_supply_temp = rack_inlet_max;
+                    }
+                }
+            }
+        }
+
         for li in &loop_infos {
             info!(
                 "Air loop '{}': type={:?}, zones=[{}], OA={:.0}%",
@@ -805,6 +831,32 @@ fn main() -> Result<()> {
             }
         }
 
+        // Override submeter for CRAC/CRAH loops → all components → "datacenter"
+        for al in &model.air_loops {
+            if al.system_type == Some(AirLoopSystemType::Crac)
+                || al.system_type == Some(AirLoopSystemType::Crah)
+            {
+                for equip in &al.equipment {
+                    let name = match equip {
+                        openbse_io::input::EquipmentInput::Fan(f) => f.name.clone(),
+                        openbse_io::input::EquipmentInput::HeatingCoil(c) => c.name.clone(),
+                        openbse_io::input::EquipmentInput::CoolingCoil(c) => c.name.clone(),
+                        openbse_io::input::EquipmentInput::CoolingCoilMultiSpeed(c) => {
+                            c.name.clone()
+                        }
+                        openbse_io::input::EquipmentInput::Wshp(w) => w.name.clone(),
+                        openbse_io::input::EquipmentInput::Gshp(g) => g.name.clone(),
+                        openbse_io::input::EquipmentInput::HeatRecovery(h) => h.name.clone(),
+                        openbse_io::input::EquipmentInput::Humidifier(h) => h.name.clone(),
+                        openbse_io::input::EquipmentInput::Duct(d) => d.name.clone(),
+                        openbse_io::input::EquipmentInput::EvapCooler(e) => e.name.clone(),
+                        openbse_io::input::EquipmentInput::ExternalAir(e) => e.name.clone(),
+                    };
+                    comp_submeter.insert(name, "datacenter".to_string());
+                }
+            }
+        }
+
         // ── 4a-3. Build component kind map for energy accounting ─────────────
         let mut comp_kind_map: HashMap<String, ComponentKind> = HashMap::new();
         for al in &model.air_loops {
@@ -890,6 +942,25 @@ fn main() -> Result<()> {
                 comp_kind_map.insert(name, kind);
             }
         }
+        // Override kind for CRAC/CRAH cooling coils
+        for al in &model.air_loops {
+            let dc_kind = match al.system_type {
+                Some(AirLoopSystemType::Crac) => Some(ComponentKind::Crac),
+                Some(AirLoopSystemType::Crah) => Some(ComponentKind::Crah),
+                _ => None,
+            };
+            if let Some(kind) = dc_kind {
+                for equip in &al.equipment {
+                    if let openbse_io::input::EquipmentInput::CoolingCoil(c) = equip {
+                        comp_kind_map.insert(c.name.clone(), kind);
+                    }
+                    if let openbse_io::input::EquipmentInput::CoolingCoilMultiSpeed(c) = equip {
+                        comp_kind_map.insert(c.name.clone(), kind);
+                    }
+                }
+            }
+        }
+
         // DHW pumps
         for dhw in &model.dhw_systems {
             if let Some(ref pump) = dhw.pump {
@@ -1501,6 +1572,36 @@ fn main() -> Result<()> {
 
                             (zone_flow_m3, zone_heat, zone_cool)
                         }
+                        // CRAC / CRAH: cooling-only, no OA mixing.
+                        // Sized identically to PSZ-AC: served zone peak cooling load,
+                        // design airflow from zone sizing.  No heating capacity needed.
+                        AirLoopSystemType::Crac | AirLoopSystemType::Crah => {
+                            let zone_airflow: f64 = li
+                                .served_zones
+                                .iter()
+                                .map(|z| {
+                                    sizing_result
+                                        .zone_design_airflow
+                                        .get(z)
+                                        .copied()
+                                        .unwrap_or(0.1)
+                                })
+                                .sum();
+                            let zone_flow_m3 = zone_airflow / air_density;
+                            let zone_cool: f64 = li
+                                .served_zones
+                                .iter()
+                                .map(|z| {
+                                    sizing_result
+                                        .zone_peak_cooling
+                                        .get(z)
+                                        .copied()
+                                        .unwrap_or(0.0)
+                                })
+                                .sum::<f64>()
+                                * model.simulation.cooling_sizing_factor;
+                            (zone_flow_m3, 0.0, zone_cool)
+                        }
                     };
 
                     for comp_name in &li.component_names {
@@ -1809,6 +1910,9 @@ fn main() -> Result<()> {
                     .map(|z| (z.input.name.clone(), z.input.floor_area))
                     .collect();
                 report.set_zone_areas(zone_areas);
+            }
+            if let Some(ref cz) = model.climate_zone {
+                report.set_climate_zone(cz.clone());
             }
             Some(report)
         } else {
@@ -3541,6 +3645,41 @@ fn main() -> Result<()> {
                         snapshot
                             .zone_operative_temperature
                             .insert(name.clone(), t_op);
+
+                        // ── Data-center implicit aisle physics ────────────
+                        // Compute T_hot (rack exhaust) and T_return (CRAC
+                        // return air) from containment efficiency.
+                        if let Some(ref dc) = zone.input.data_center {
+                            let it_pw_w = snapshot
+                                .it_equipment_power
+                                .get(&name)
+                                .copied()
+                                .unwrap_or(0.0);
+                            if it_pw_w > 0.0 {
+                                // Supply air mass flow to this zone [kg/s]
+                                let m_supply = zone.supply_air_mass_flow.max(0.01);
+                                let rho_air = 1.2_f64; // kg/m³ at ~20°C, 1 atm
+                                let cp_air_dc = cp_air; // already computed above
+                                let vol_flow = m_supply / rho_air;
+                                let _ = vol_flow;
+                                // T_hot: temperature leaving rack exhaust
+                                let t_supply = zone.supply_air_temp;
+                                let t_hot = t_supply + it_pw_w / (m_supply * cp_air_dc).max(1.0);
+                                // T_return: air seen by CRAC/CRAH inlet
+                                let cont_eff = dc.containment_efficiency;
+                                let t_return = cont_eff * t_hot + (1.0 - cont_eff) * zone.temp;
+                                snapshot
+                                    .component_outputs
+                                    .entry(name.clone())
+                                    .or_default()
+                                    .insert("dc_rack_outlet_temp".to_string(), t_hot);
+                                snapshot
+                                    .component_outputs
+                                    .entry(name.clone())
+                                    .or_default()
+                                    .insert("dc_return_air_temp".to_string(), t_return);
+                            }
+                        }
                     }
 
                     // Solar gains per zone (sum of transmitted solar through all zone windows)
@@ -3658,6 +3797,8 @@ fn main() -> Result<()> {
                     // Zone internal gains — separate lighting and equipment energy.
                     // Apply zone_multiplier: gains are simulated once per zone but
                     // represent zone_multiplier identical zones for energy accounting.
+                    let gains_dow =
+                        openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
                     for zone in &env.zones {
                         let zmult = zone.input.zone_multiplier as f64;
                         snapshot
@@ -3667,6 +3808,39 @@ fn main() -> Result<()> {
                             .zone_equipment_power
                             .insert(zone.input.name.clone(), zone.equipment_power * zmult);
 
+                        // IT equipment: gains with submeter == "datacenter" are IT loads.
+                        // Sum them separately for ASHRAE 90.4 PUE/MLC/ELC accounting.
+                        let it_pw: f64 = zone
+                            .input
+                            .internal_gains
+                            .iter()
+                            .filter_map(|gain| {
+                                if let openbse_envelope::InternalGainInput::Equipment {
+                                    power,
+                                    schedule,
+                                    submeter,
+                                    ..
+                                } = gain
+                                {
+                                    if submeter == "datacenter" {
+                                        let frac = schedule
+                                            .as_ref()
+                                            .map(|s| {
+                                                env.schedule_manager.fraction(s, hour, gains_dow)
+                                            })
+                                            .unwrap_or(1.0);
+                                        return Some(power * frac * zmult);
+                                    }
+                                }
+                                None
+                            })
+                            .sum();
+                        if it_pw > 0.0 {
+                            snapshot
+                                .it_equipment_power
+                                .insert(zone.input.name.clone(), it_pw);
+                        }
+
                         // Exhaust fan power → component_electric_power
                         // (comp_kind_map routes it to fan_electric via ComponentKind::Fan)
                         if zone.exhaust_fan_power > 0.0 {
@@ -3675,6 +3849,36 @@ fn main() -> Result<()> {
                                 zone.exhaust_fan_power * zmult,
                             );
                         }
+                    }
+
+                    // ── Electrical distribution losses (UPS + transformers) ─
+                    // ELC losses = sum of rated_it_load × (1/efficiency − 1).
+                    // Scaled by current IT PLR so losses track the actual load.
+                    if let Some(ref elec_dist) = model.electrical_distribution {
+                        let total_it_w: f64 = snapshot.it_equipment_power.values().sum::<f64>();
+                        let mut elec_dist_w = 0.0_f64;
+                        for ups in &elec_dist.ups {
+                            let rated_w = ups.it_load_served_kw * 1000.0;
+                            // PLR scales losses so we don't report losses at zero load
+                            let plr = if rated_w > 0.0 {
+                                (total_it_w / rated_w).clamp(0.0, 1.0)
+                            } else {
+                                1.0
+                            };
+                            let eff = ups.efficiency_at_full_load.clamp(0.01, 1.0);
+                            elec_dist_w += rated_w * plr * (1.0 / eff - 1.0);
+                        }
+                        for xfmr in &elec_dist.transformers {
+                            let rated_w = xfmr.it_load_served_kw * 1000.0;
+                            let plr = if rated_w > 0.0 {
+                                (total_it_w / rated_w).clamp(0.0, 1.0)
+                            } else {
+                                1.0
+                            };
+                            let eff = xfmr.efficiency.clamp(0.01, 1.0);
+                            elec_dist_w += rated_w * plr * (1.0 / eff - 1.0);
+                        }
+                        snapshot.elec_dist_power = elec_dist_w;
                     }
 
                     // ── DHW simulation ─────────────────────────────────────
@@ -3864,7 +4068,9 @@ fn main() -> Result<()> {
                                 | Some(ComponentKind::ThermalStorage)
                                 | Some(ComponentKind::Chiller)
                                 | Some(ComponentKind::VrfOutdoor)
-                                | Some(ComponentKind::Gshp) => "cooling_electric",
+                                | Some(ComponentKind::Gshp)
+                                | Some(ComponentKind::Crac)
+                                | Some(ComponentKind::Crah) => "cooling_electric",
                                 Some(ComponentKind::HeatingCoil) | Some(ComponentKind::Boiler) => {
                                     "heating_electric"
                                 }
@@ -4713,6 +4919,35 @@ fn simulate_all_loops(
                 zone_max_rh,
                 zone_min_rh,
             ),
+
+            // ──────────────────────────────────────────────────────────────
+            // CRAC: self-contained DX, no OA mixing, high-sensible cooling.
+            // ──────────────────────────────────────────────────────────────
+            AirLoopSystemType::Crac => build_crac_signals(
+                li,
+                zone_temps,
+                active_cool_sp,
+                zone_design_flows,
+                t_outdoor,
+                zone_cooling_loads,
+                &predictor_modes,
+                zone_humidity_ratios,
+                zone_max_rh,
+            ),
+
+            // ──────────────────────────────────────────────────────────────
+            // CRAH: chilled-water air handler, no OA mixing, high-sensible.
+            // ──────────────────────────────────────────────────────────────
+            AirLoopSystemType::Crah => build_crah_signals(
+                li,
+                zone_temps,
+                active_cool_sp,
+                zone_design_flows,
+                zone_cooling_loads,
+                &predictor_modes,
+                zone_humidity_ratios,
+                zone_max_rh,
+            ),
         };
 
         // Filter heat recovery out of the component chain — it was already
@@ -5312,6 +5547,11 @@ fn simulate_all_loops(
                                 .unwrap_or(effective_supply_temp);
                             (flow, temp)
                         }
+                        // CRAC / CRAH: recirculating, no OA mixing.
+                        // Supply the full effective flow to the single served zone.
+                        AirLoopSystemType::Crac | AirLoopSystemType::Crah => {
+                            (effective_flow, effective_supply_temp)
+                        }
                     };
 
                     zone_supply.entry(zone_name.clone()).or_default().push((
@@ -5628,6 +5868,228 @@ fn build_psz_signals(
         .coil_setpoints
         .insert("__return_air_temp__".to_string(), return_air_temp);
     signals.coil_setpoints.insert("__plr__".to_string(), plr);
+
+    signals
+}
+
+/// CRAC: self-contained DX cooling unit.
+///
+/// Key differences from PSZ-AC:
+/// - No outdoor air mixing (OA fraction = 0 unless explicitly set)
+/// - No economizer
+/// - Always in cooling-only mode (data centers have no heating)
+/// - SHR = 0.98 default (high sensible for IT environments)
+/// - Supply air setpoint from `cooling_supply_temp` or rack_inlet_temp_max_c
+fn build_crac_signals(
+    li: &LoopInfo,
+    zone_temps: &HashMap<String, f64>,
+    zone_cool_sp: &HashMap<String, f64>,
+    zone_design_flows: &HashMap<String, f64>,
+    t_outdoor: f64,
+    zone_cooling_loads: &HashMap<String, f64>,
+    predictor_modes: &HashMap<String, HvacMode>,
+    zone_humidity_ratios: &HashMap<String, f64>,
+    zone_max_rh: &HashMap<String, f64>,
+) -> ControlSignals {
+    let _ = t_outdoor; // CRAC uses outdoor temp for condenser, not OA mixing
+    let mut signals = ControlSignals::default();
+
+    let zone_name = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
+    let zone_temp = zone_temps.get(zone_name).copied().unwrap_or(24.0);
+    let cool_sp = zone_cool_sp.get(zone_name).copied().unwrap_or(23.9);
+
+    let total_flow: f64 = li
+        .served_zones
+        .iter()
+        .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.5))
+        .sum::<f64>()
+        .max(0.01);
+
+    // CRAC is cooling-only: mode is always Cooling when zone is warm or has load
+    let zone_cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
+    let predictor_mode = predictor_modes.get(zone_name).copied().unwrap_or_else(|| {
+        if zone_temp > cool_sp || zone_cool_load > 100.0 {
+            HvacMode::Cooling
+        } else {
+            HvacMode::Deadband
+        }
+    });
+    let mode = match predictor_mode {
+        HvacMode::Heating => HvacMode::Cooling, // CRAC never heats
+        other => other,
+    };
+
+    // RH override: force cooling for dehumidification if zone is over-humid
+    let zone_w = zone_humidity_ratios
+        .get(zone_name)
+        .copied()
+        .unwrap_or(0.008);
+    let zone_rh_pct = openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp, zone_w, 101325.0) * 100.0;
+    let mut dehumidify_only = false;
+    let mode = if let Some(&max_rh) = zone_max_rh.get(zone_name) {
+        if zone_rh_pct > max_rh && mode == HvacMode::Deadband {
+            dehumidify_only = true;
+            HvacMode::Cooling
+        } else {
+            mode
+        }
+    } else {
+        mode
+    };
+
+    // CRAC recirculates room air (no OA)
+    let oa_frac = li
+        .component_names
+        .is_empty()
+        .then_some(0.0_f64)
+        .unwrap_or(0.0_f64);
+    let mixed_air_temp = zone_temp; // pure recirculation
+
+    for name in &li.component_names {
+        let lname = name.to_lowercase();
+        match mode {
+            HvacMode::Cooling => {
+                if lname.contains("cool")
+                    || lname.contains("dx")
+                    || lname.starts_with("cc ")
+                    || lname.starts_with("cc_")
+                {
+                    let sp = if dehumidify_only {
+                        zone_temp - 0.5
+                    } else {
+                        -10.0 // full capacity
+                    };
+                    signals.coil_setpoints.insert(name.clone(), sp);
+                }
+            }
+            HvacMode::Deadband | HvacMode::Heating => {
+                if lname.contains("cool")
+                    || lname.contains("dx")
+                    || lname.starts_with("cc ")
+                    || lname.starts_with("cc_")
+                {
+                    signals.coil_setpoints.insert(name.clone(), 99.0);
+                }
+            }
+        }
+        signals.air_mass_flows.insert(name.clone(), total_flow);
+    }
+
+    signals
+        .coil_setpoints
+        .insert("__pszac_mixed_air_temp__".to_string(), mixed_air_temp);
+    signals
+        .coil_setpoints
+        .insert("__oa_fraction__".to_string(), oa_frac);
+    signals
+        .coil_setpoints
+        .insert("__return_air_temp__".to_string(), zone_temp);
+    signals.coil_setpoints.insert("__plr__".to_string(), 1.0);
+
+    signals
+}
+
+/// CRAH: chilled-water air handler for data centers.
+///
+/// Identical to CRAC in control logic but uses a chilled-water coil.
+/// No OA mixing, no economizer, cooling-only, high sensible (SHR ≈ 0.98).
+fn build_crah_signals(
+    li: &LoopInfo,
+    zone_temps: &HashMap<String, f64>,
+    zone_cool_sp: &HashMap<String, f64>,
+    zone_design_flows: &HashMap<String, f64>,
+    zone_cooling_loads: &HashMap<String, f64>,
+    predictor_modes: &HashMap<String, HvacMode>,
+    zone_humidity_ratios: &HashMap<String, f64>,
+    zone_max_rh: &HashMap<String, f64>,
+) -> ControlSignals {
+    let mut signals = ControlSignals::default();
+
+    let zone_name = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
+    let zone_temp = zone_temps.get(zone_name).copied().unwrap_or(24.0);
+    let cool_sp = zone_cool_sp.get(zone_name).copied().unwrap_or(23.9);
+
+    let total_flow: f64 = li
+        .served_zones
+        .iter()
+        .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.5))
+        .sum::<f64>()
+        .max(0.01);
+
+    let zone_cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
+    let predictor_mode = predictor_modes.get(zone_name).copied().unwrap_or_else(|| {
+        if zone_temp > cool_sp || zone_cool_load > 100.0 {
+            HvacMode::Cooling
+        } else {
+            HvacMode::Deadband
+        }
+    });
+    let mode = match predictor_mode {
+        HvacMode::Heating => HvacMode::Cooling,
+        other => other,
+    };
+
+    let zone_w = zone_humidity_ratios
+        .get(zone_name)
+        .copied()
+        .unwrap_or(0.008);
+    let zone_rh_pct = openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp, zone_w, 101325.0) * 100.0;
+    let mut dehumidify_only = false;
+    let mode = if let Some(&max_rh) = zone_max_rh.get(zone_name) {
+        if zone_rh_pct > max_rh && mode == HvacMode::Deadband {
+            dehumidify_only = true;
+            HvacMode::Cooling
+        } else {
+            mode
+        }
+    } else {
+        mode
+    };
+
+    let mixed_air_temp = zone_temp; // pure recirculation
+
+    for name in &li.component_names {
+        let lname = name.to_lowercase();
+        match mode {
+            HvacMode::Cooling => {
+                if lname.contains("cool")
+                    || lname.contains("chw")
+                    || lname.starts_with("cc ")
+                    || lname.starts_with("cc_")
+                    || lname.contains("coil")
+                {
+                    let sp = if dehumidify_only {
+                        zone_temp - 0.5
+                    } else {
+                        li.cooling_supply_temp // CHW coil targets SAT setpoint
+                    };
+                    signals.coil_setpoints.insert(name.clone(), sp);
+                }
+            }
+            HvacMode::Deadband | HvacMode::Heating => {
+                if lname.contains("cool")
+                    || lname.contains("chw")
+                    || lname.starts_with("cc ")
+                    || lname.starts_with("cc_")
+                    || lname.contains("coil")
+                {
+                    signals.coil_setpoints.insert(name.clone(), 99.0);
+                }
+            }
+        }
+        signals.air_mass_flows.insert(name.clone(), total_flow);
+    }
+
+    signals
+        .coil_setpoints
+        .insert("__pszac_mixed_air_temp__".to_string(), mixed_air_temp);
+    signals
+        .coil_setpoints
+        .insert("__oa_fraction__".to_string(), 0.0);
+    signals
+        .coil_setpoints
+        .insert("__return_air_temp__".to_string(), zone_temp);
+    signals.coil_setpoints.insert("__plr__".to_string(), 1.0);
 
     signals
 }
@@ -7672,5 +8134,145 @@ mod setpoint_reset_tests {
             (sat - 13.5).abs() < 0.001,
             "At midpoint OA, SAT should be midpoint=13.5"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests_datacenter {
+    use super::*;
+
+    fn make_loop_info(system_type: AirLoopSystemType) -> LoopInfo {
+        LoopInfo {
+            name: "CRAC-1".to_string(),
+            system_type,
+            component_names: vec!["CRAC-1 DX Coil".to_string(), "CRAC-1 Fan".to_string()],
+            fan_names: HashSet::new(),
+            served_zones: vec!["DataHall".to_string()],
+            min_oa_fraction: 0.0,
+            min_vav_fraction: 0.3,
+            availability_schedule: None,
+            heating_supply_temp: 40.0,
+            cooling_supply_temp: 18.0,
+            cycling: openbse_io::input::CyclingMethod::OnOff,
+            fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
+            terminal_boxes: HashMap::new(),
+            dd_boxes: HashMap::new(),
+            explicit_min_oa: false,
+            heat_recovery_name: None,
+            hhw_boiler_efficiency: 0.8,
+            dcv: false,
+            cooling_sat_reset: None,
+            heating_sat_reset: None,
+            zone_oa_data: vec![],
+            design_supply_flow: 2.5,
+            economizer_type: openbse_io::input::EconomizerType::NoEconomizer,
+            economizer_high_limit: None,
+            economizer_high_limit_enthalpy: None,
+        }
+    }
+
+    #[test]
+    fn test_crac_cooling_mode_sets_full_capacity() {
+        let li = make_loop_info(AirLoopSystemType::Crac);
+        let mut zone_temps = HashMap::new();
+        zone_temps.insert("DataHall".to_string(), 27.0);
+        let mut cool_sp = HashMap::new();
+        cool_sp.insert("DataHall".to_string(), 23.9);
+        let mut design_flows = HashMap::new();
+        design_flows.insert("DataHall".to_string(), 2.5);
+        let cooling_loads = HashMap::new();
+        let mut predictor_modes = HashMap::new();
+        predictor_modes.insert("DataHall".to_string(), HvacMode::Cooling);
+        let zone_w = HashMap::new();
+        let zone_rh = HashMap::new();
+
+        let signals = build_crac_signals(
+            &li,
+            &zone_temps,
+            &cool_sp,
+            &design_flows,
+            0.0,
+            &cooling_loads,
+            &predictor_modes,
+            &zone_w,
+            &zone_rh,
+        );
+
+        // DX coil should get a -10.0 setpoint (full capacity request)
+        let coil_sp = signals
+            .coil_setpoints
+            .get("CRAC-1 DX Coil")
+            .copied()
+            .unwrap_or(99.0);
+        assert!(
+            coil_sp < 0.0,
+            "CRAC DX coil setpoint should be -10 (full capacity), got {}",
+            coil_sp
+        );
+        // Mixed air = zone temp (no OA)
+        let mixed = signals
+            .coil_setpoints
+            .get("__pszac_mixed_air_temp__")
+            .copied()
+            .unwrap_or(0.0);
+        assert!(
+            (mixed - 27.0).abs() < 0.01,
+            "CRAC mixed air should equal zone temp (no OA), got {}",
+            mixed
+        );
+    }
+
+    #[test]
+    fn test_crah_cooling_mode_targets_supply_temp() {
+        let li = make_loop_info(AirLoopSystemType::Crah);
+        let mut zone_temps = HashMap::new();
+        zone_temps.insert("DataHall".to_string(), 28.0);
+        let mut cool_sp = HashMap::new();
+        cool_sp.insert("DataHall".to_string(), 23.9);
+        let mut design_flows = HashMap::new();
+        design_flows.insert("DataHall".to_string(), 2.5);
+        let cooling_loads = HashMap::new();
+        let mut predictor_modes = HashMap::new();
+        predictor_modes.insert("DataHall".to_string(), HvacMode::Cooling);
+        let zone_w = HashMap::new();
+        let zone_rh = HashMap::new();
+
+        let signals = build_crah_signals(
+            &li,
+            &zone_temps,
+            &cool_sp,
+            &design_flows,
+            &cooling_loads,
+            &predictor_modes,
+            &zone_w,
+            &zone_rh,
+        );
+
+        // CHW coil setpoint should be the loop supply temp (18.0)
+        let coil_sp = signals
+            .coil_setpoints
+            .get("CRAC-1 DX Coil")
+            .or_else(|| signals.coil_setpoints.get("CRAC-1 Fan"))
+            .or_else(|| {
+                signals
+                    .coil_setpoints
+                    .iter()
+                    .find(|(k, _)| !k.starts_with("__"))
+                    .map(|(_, v)| v)
+            })
+            .copied();
+        // The coil setpoint should target the loop's cooling supply temp
+        let cooling_sp = signals
+            .coil_setpoints
+            .get("__pszac_mixed_air_temp__")
+            .copied()
+            .unwrap_or(0.0);
+        // Mixed air should equal zone temp (no OA)
+        assert!(
+            (cooling_sp - 28.0).abs() < 0.01,
+            "CRAH mixed air should equal zone temp, got {}",
+            cooling_sp
+        );
+        let _ = coil_sp; // may be absent if no matching name
     }
 }

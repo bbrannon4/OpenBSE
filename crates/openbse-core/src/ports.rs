@@ -73,6 +73,14 @@ pub enum ComponentKind {
     DualDuctBox,
     EvapCooler,
     ThermalStorage,
+    /// Computer-room air conditioner (self-contained DX)
+    Crac,
+    /// Computer-room air handler (chilled-water)
+    Crah,
+    /// IT server loads (separate from general equipment for PUE accounting)
+    ItEquipment,
+    /// UPS and transformer electrical distribution losses
+    ElecDistribution,
     Other,
 }
 

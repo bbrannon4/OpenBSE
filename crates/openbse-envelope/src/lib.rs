@@ -42,8 +42,9 @@ pub use shading::{
 };
 pub use surface::{BoundaryCondition, SurfaceInput, SurfaceType};
 pub use zone::{
-    ExhaustFanInput, IdealLoadsAirSystem, InteriorSolarDistribution, OutdoorAirInput,
-    ThermostatScheduleEntry, VentilationScheduleEntry, ZoneInput,
+    dc_rack_inlet_max, DataCenterConfig, ExhaustFanInput, IdealLoadsAirSystem,
+    InteriorSolarDistribution, OutdoorAirInput, ThermostatScheduleEntry, VentilationScheduleEntry,
+    ZoneInput,
 };
 pub use zone_loads::{
     EquipmentGainInput, ExhaustFanTopLevel, IdealLoadsTopLevel, InfiltrationInteraction,

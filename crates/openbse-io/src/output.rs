@@ -651,6 +651,12 @@ pub struct OutputSnapshot {
     pub heat_rejection_power: HashMap<String, f64>,
     pub humidification_power: HashMap<String, f64>,
     pub heat_recovery_power: HashMap<String, f64>,
+
+    // ─── Data Center ─────────────────────────────────────────────────────────
+    /// IT equipment electric power per zone [W] (separate from general equipment)
+    pub it_equipment_power: HashMap<String, f64>,
+    /// Electrical distribution losses [W] (UPS + transformer losses, ASHRAE 90.4 ELC)
+    pub elec_dist_power: f64,
 }
 
 impl OutputSnapshot {
@@ -725,6 +731,8 @@ impl OutputSnapshot {
             heat_rejection_power: HashMap::new(),
             humidification_power: HashMap::new(),
             heat_recovery_power: HashMap::new(),
+            it_equipment_power: HashMap::new(),
+            elec_dist_power: 0.0,
         }
     }
 
@@ -971,6 +979,44 @@ impl OutputSnapshot {
                         result
                     }
                 }
+            }
+            "datacenter" => {
+                let value = match variable {
+                    "pue" => {
+                        let it: f64 = self.it_equipment_power.values().sum();
+                        let mech: f64 = self
+                            .submeter_power
+                            .get("datacenter")
+                            .map(|eu| {
+                                eu.iter()
+                                    .filter(|(k, _)| k.as_str() != "it_equipment")
+                                    .map(|(_, &v)| v)
+                                    .sum::<f64>()
+                            })
+                            .unwrap_or(0.0);
+                        if it > 0.0 {
+                            (it + mech + self.elec_dist_power) / it
+                        } else {
+                            0.0
+                        }
+                    }
+                    "it_load_kw" => self.it_equipment_power.values().sum::<f64>() / 1000.0,
+                    "mechanical_load_kw" => {
+                        self.submeter_power
+                            .get("datacenter")
+                            .map(|eu| {
+                                eu.iter()
+                                    .filter(|(k, _)| k.as_str() != "it_equipment")
+                                    .map(|(_, &v)| v)
+                                    .sum::<f64>()
+                            })
+                            .unwrap_or(0.0)
+                            / 1000.0
+                    }
+                    "electrical_loss_kw" => self.elec_dist_power / 1000.0,
+                    _ => return HashMap::new(),
+                };
+                single("Datacenter", value)
             }
             _ => HashMap::new(),
         }
@@ -1356,6 +1402,9 @@ struct MonthlyEnergy {
     // Gas end uses
     heat_gas_j: f64, // Heating gas (boiler, gas furnace) [J]
     dhw_gas_j: f64,  // DHW gas (gas water heater) [J]
+    // Data center end uses
+    it_equipment_j: f64, // IT server loads [J]
+    elec_dist_j: f64,    // UPS + transformer losses [J]
 }
 
 /// Summary report generator — produces a standard text report with
@@ -1410,6 +1459,8 @@ pub struct SummaryReport {
     zone_floor_areas: HashMap<String, f64>,
     /// Per-submeter monthly energy [J]: (submeter, end_use) -> [12 months]
     submeter_monthly_j: HashMap<(String, String), [f64; 12]>,
+    /// ASHRAE climate zone string (e.g., "5A") for 90.4 limit table lookup.
+    climate_zone: Option<String>,
 }
 
 impl SummaryReport {
@@ -1443,7 +1494,13 @@ impl SummaryReport {
             zone_peak_cooling: HashMap::new(),
             zone_floor_areas: HashMap::new(),
             submeter_monthly_j: HashMap::new(),
+            climate_zone: None,
         }
+    }
+
+    /// Set the ASHRAE climate zone for 90.4 PUE/MLC/ELC limit reporting.
+    pub fn set_climate_zone(&mut self, cz: String) {
+        self.climate_zone = Some(cz);
     }
 
     /// Set zone floor areas for W/m² calculations in zone loads summary.
@@ -1654,6 +1711,18 @@ impl SummaryReport {
         }
         for &pw in snapshot.zone_equipment_power.values() {
             me.equipment_j += pw * snapshot.dt;
+        }
+
+        // 4. Data center end uses
+        for &pw in snapshot.it_equipment_power.values() {
+            let energy = pw * snapshot.dt;
+            if energy.is_finite() {
+                me.it_equipment_j += energy;
+            }
+        }
+        let elec_dist_energy = snapshot.elec_dist_power * snapshot.dt;
+        if elec_dist_energy.is_finite() {
+            me.elec_dist_j += elec_dist_energy;
         }
 
         // Accumulate window solar data (transmitted solar is only non-zero for windows)
@@ -2468,6 +2537,76 @@ impl SummaryReport {
             }
         }
 
+        // -- Data Center Performance (ASHRAE 90.4) --
+        {
+            let annual_it_j: f64 = self.monthly.iter().map(|m| m.it_equipment_j).sum();
+            if annual_it_j > 0.0 {
+                let annual_mech_j: f64 = self
+                    .monthly
+                    .iter()
+                    .map(|m| m.cool_elec_j + m.fan_elec_j + m.pump_elec_j + m.heat_rejection_elec_j)
+                    .sum();
+                let annual_elec_dist_j: f64 = self.monthly.iter().map(|m| m.elec_dist_j).sum();
+                let annual_total_j = annual_it_j + annual_mech_j + annual_elec_dist_j;
+
+                let pue = annual_total_j / annual_it_j;
+                let mlc = annual_mech_j / annual_it_j;
+                let elc = annual_elec_dist_j / annual_it_j;
+
+                let cz_str = self.climate_zone.as_deref().unwrap_or("Unknown");
+                let mlc_limit = ashrae_90_4_mlc_limit(cz_str);
+                let elc_limit = 0.060_f64;
+
+                let mlc_pass = mlc <= mlc_limit;
+                let elc_pass = elc <= elc_limit;
+
+                writeln!(
+                    w,
+                    "-- Data Center Performance (ASHRAE 90.4) ---------------------"
+                )?;
+                writeln!(w, "  Climate Zone: {}", cz_str)?;
+                writeln!(w, "  {:-<60}", "")?;
+                writeln!(
+                    w,
+                    "  Annual IT Equipment Load:    {:>12.1} MWh",
+                    annual_it_j / 3_600_000_000.0
+                )?;
+                writeln!(
+                    w,
+                    "  Annual Mechanical Load:      {:>12.1} MWh",
+                    annual_mech_j / 3_600_000_000.0
+                )?;
+                writeln!(
+                    w,
+                    "  Annual Elec Dist Losses:     {:>12.1} MWh",
+                    annual_elec_dist_j / 3_600_000_000.0
+                )?;
+                writeln!(
+                    w,
+                    "  Annual Facility Total:       {:>12.1} MWh",
+                    annual_total_j / 3_600_000_000.0
+                )?;
+                writeln!(w)?;
+                writeln!(w, "  PUE: {:>8.3}", pue)?;
+                writeln!(
+                    w,
+                    "  MLC: {:>8.3}   (limit: {:.3} for CZ {})   {}",
+                    mlc,
+                    mlc_limit,
+                    cz_str,
+                    if mlc_pass { "PASS" } else { "FAIL" }
+                )?;
+                writeln!(
+                    w,
+                    "  ELC: {:>8.3}   (limit: {:.3})              {}",
+                    elc,
+                    elc_limit,
+                    if elc_pass { "PASS" } else { "FAIL" }
+                )?;
+                writeln!(w)?;
+            }
+        }
+
         writeln!(
             w,
             "================================================================"
@@ -2916,6 +3055,108 @@ impl SummaryReport {
             }
         }
 
+        // -- Data Center Performance (ASHRAE 90.4) --
+        {
+            let annual_it_j: f64 = self.monthly.iter().map(|m| m.it_equipment_j).sum();
+            if annual_it_j > 0.0 {
+                let annual_mech_j: f64 = self
+                    .monthly
+                    .iter()
+                    .map(|m| m.cool_elec_j + m.fan_elec_j + m.pump_elec_j + m.heat_rejection_elec_j)
+                    .sum();
+                let annual_elec_dist_j: f64 = self.monthly.iter().map(|m| m.elec_dist_j).sum();
+                let annual_total_j = annual_it_j + annual_mech_j + annual_elec_dist_j;
+
+                let pue = annual_total_j / annual_it_j;
+                let mlc = annual_mech_j / annual_it_j;
+                let elc = annual_elec_dist_j / annual_it_j;
+
+                let cz_str = self.climate_zone.as_deref().unwrap_or("Unknown");
+                let mlc_limit = ashrae_90_4_mlc_limit(cz_str);
+                let elc_limit = 0.060_f64;
+
+                let mlc_pass = mlc <= mlc_limit;
+                let elc_pass = elc <= elc_limit;
+
+                writeln!(w, "<h2>Data Center Performance (ASHRAE 90.4)</h2>")?;
+                writeln!(w, "<p>Climate Zone: <strong>{}</strong></p>", cz_str)?;
+                writeln!(w, "<table>")?;
+                html_table_row(&mut w, &["Metric", "Value", "Unit"], true)?;
+                html_table_row(
+                    &mut w,
+                    &[
+                        "Annual IT Equipment Load",
+                        &format!("{:.1}", annual_it_j / 3_600_000_000.0),
+                        "MWh",
+                    ],
+                    false,
+                )?;
+                html_table_row(
+                    &mut w,
+                    &[
+                        "Annual Mechanical Load",
+                        &format!("{:.1}", annual_mech_j / 3_600_000_000.0),
+                        "MWh",
+                    ],
+                    false,
+                )?;
+                html_table_row(
+                    &mut w,
+                    &[
+                        "Annual Elec Distribution Losses",
+                        &format!("{:.1}", annual_elec_dist_j / 3_600_000_000.0),
+                        "MWh",
+                    ],
+                    false,
+                )?;
+                html_table_row(
+                    &mut w,
+                    &[
+                        "Annual Facility Total",
+                        &format!("{:.1}", annual_total_j / 3_600_000_000.0),
+                        "MWh",
+                    ],
+                    false,
+                )?;
+                writeln!(w, "</table>")?;
+
+                writeln!(w, "<table>")?;
+                html_table_row(&mut w, &["Metric", "Value", "Limit", "Result"], true)?;
+                html_table_row(&mut w, &["PUE", &format!("{:.3}", pue), "—", "—"], false)?;
+                let mlc_result = if mlc_pass {
+                    "<span class=\"pass\">PASS</span>"
+                } else {
+                    "<span class=\"fail\">FAIL</span>"
+                };
+                html_table_row(
+                    &mut w,
+                    &[
+                        "MLC",
+                        &format!("{:.3}", mlc),
+                        &format!("{:.3} (CZ {})", mlc_limit, cz_str),
+                        mlc_result,
+                    ],
+                    false,
+                )?;
+                let elc_result = if elc_pass {
+                    "<span class=\"pass\">PASS</span>"
+                } else {
+                    "<span class=\"fail\">FAIL</span>"
+                };
+                html_table_row(
+                    &mut w,
+                    &[
+                        "ELC",
+                        &format!("{:.3}", elc),
+                        &format!("{:.3}", elc_limit),
+                        elc_result,
+                    ],
+                    false,
+                )?;
+                writeln!(w, "</table>")?;
+            }
+        }
+
         writeln!(w, "</body></html>")?;
         w.flush()?;
         Ok(())
@@ -3105,6 +3346,19 @@ struct EndUseRow {
     label: &'static str,
     monthly: [f64; 12], // in kWh
     total: f64,         // in kWh
+}
+
+/// Return the ASHRAE 90.4 MLC (mechanical load coefficient) limit for a climate zone.
+/// Uses the CZ number (first char of the string, e.g. "5" from "5A").
+fn ashrae_90_4_mlc_limit(climate_zone: &str) -> f64 {
+    let cz_num = climate_zone.chars().next().and_then(|c| c.to_digit(10));
+    match cz_num {
+        Some(1) | Some(2) => 0.050,
+        Some(3) | Some(4) => 0.060,
+        Some(5) | Some(6) => 0.070,
+        Some(7) | Some(8) => 0.080,
+        _ => 0.070, // default to moderate climate when CZ unknown
+    }
 }
 
 /// Helper to write an HTML table row.
@@ -3583,5 +3837,34 @@ variables:
             .get(&("Decorative".to_string(), "lighting".to_string()));
         assert!(dec_light.is_some());
         assert!((dec_light.unwrap()[0] - 900_000.0).abs() < 1.0); // 250W * 3600s
+    }
+
+    #[test]
+    fn test_ashrae_90_4_mlc_limits() {
+        assert!((ashrae_90_4_mlc_limit("1A") - 0.050).abs() < 1e-9);
+        assert!((ashrae_90_4_mlc_limit("2B") - 0.050).abs() < 1e-9);
+        assert!((ashrae_90_4_mlc_limit("3C") - 0.060).abs() < 1e-9);
+        assert!((ashrae_90_4_mlc_limit("5A") - 0.070).abs() < 1e-9);
+        assert!((ashrae_90_4_mlc_limit("7") - 0.080).abs() < 1e-9);
+        assert!((ashrae_90_4_mlc_limit("8A") - 0.080).abs() < 1e-9);
+        // Unknown CZ defaults to moderate
+        assert!((ashrae_90_4_mlc_limit("Unknown") - 0.070).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_it_equipment_power_accumulation() {
+        let mut report = SummaryReport::new(HashMap::new(), HashMap::new());
+        let mut snap = OutputSnapshot::new(1, 15, 12, 1, 3600.0);
+        snap.it_equipment_power
+            .insert("DataHall".to_string(), 500_000.0); // 500 kW
+        snap.elec_dist_power = 25_000.0; // 25 kW UPS losses
+        report.add_snapshot(&snap);
+
+        let annual_it: f64 = report.monthly.iter().map(|m| m.it_equipment_j).sum();
+        let annual_elec_dist: f64 = report.monthly.iter().map(|m| m.elec_dist_j).sum();
+        // 500kW * 3600s = 1,800,000,000 J
+        assert!((annual_it - 1_800_000_000.0).abs() < 1.0);
+        // 25kW * 3600s = 90,000,000 J
+        assert!((annual_elec_dist - 90_000_000.0).abs() < 1.0);
     }
 }

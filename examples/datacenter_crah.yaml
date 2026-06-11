@@ -1,0 +1,259 @@
+# OpenBSE Example: Data Center with CRAH + Chilled-Water Plant (Issue #46/#47/#48)
+#
+# Single-zone data center (500 kW IT load) served by a Computer-Room Air Handler
+# (CRAH) connected to a chilled-water plant.  Demonstrates:
+#
+#   Issue #46 — DataCenterConfig zone model: hot/cold-aisle implicit physics,
+#               rack inlet temperature limits (ASHRAE A2 class), containment.
+#   Issue #47 — CRAH system type (chilled-water air handler, no OA mixing).
+#   Issue #48 — ASHRAE 90.4 PUE / MLC / ELC summary-report section, UPS losses.
+#
+# Topology:
+#   - One zone: DataHall (1 000 m², 4 m ceiling)
+#   - CRAH air loop: recirculating fan + CHW coil, no outdoor air
+#   - CHW plant loop: one water-cooled chiller + condenser pump + CW tower
+#   - Electrical distribution: one UPS at 95% efficiency
+#   - IT load: 500 kW constant via data_center zone config
+#   - Climate zone 5A (Chicago-like) for ASHRAE 90.4 MLC limit of 0.070
+#
+# Expected summary-report (approximate, varies by weather):
+#   IT load:       ~4 380 MWh/yr
+#   Mech load:     ~300–400 MWh/yr   → MLC ≈ 0.07–0.09
+#   Elec dist:     ~23 MWh/yr        → ELC ≈ 0.005
+
+simulation:
+  timesteps_per_hour: 1
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+# Replace with a local EPW path for your site.  Any climate works; the 90.4
+# limits depend on climate_zone below (not derived from the weather file).
+weather_files:
+  - "USA_IL_Chicago-OHare.Intl.AP.725300_TMYx.epw"
+
+# ASHRAE climate zone — used for 90.4 MLC limit table lookup in the summary report.
+climate_zone: "5A"
+
+# ── Electrical Distribution (UPS losses for ELC) ─────────────────────────────
+electrical_distribution:
+  ups:
+    - name: UPS-1
+      it_load_served_kw: 500.0
+      efficiency_at_full_load: 0.95
+
+# ── Materials ─────────────────────────────────────────────────────────────────
+materials:
+  - name: Concrete 200mm
+    thickness: 0.200
+    conductivity: 1.73
+    density: 2300
+    specific_heat: 880
+
+  - name: Insulation 75mm
+    thickness: 0.075
+    conductivity: 0.036
+    density: 30
+    specific_heat: 840
+
+# ── Constructions ─────────────────────────────────────────────────────────────
+constructions:
+  - name: InsulatedWall
+    layers:
+      - material: Concrete 200mm
+      - material: Insulation 75mm
+
+  - name: InsulatedRoof
+    layers:
+      - material: Insulation 75mm
+      - material: Concrete 200mm
+
+# ── Zones ─────────────────────────────────────────────────────────────────────
+zones:
+  - name: DataHall
+    volume: 4000.0       # 1 000 m² × 4 m
+    floor_area: 1000.0
+    conditioned: true
+
+    # DataCenterConfig — drives implicit hot/cold-aisle physics and IT load.
+    data_center:
+      kw_per_rack: 10.0         # 10 kW/rack
+      rack_count: 50            # 50 racks × 10 kW = 500 kW IT load
+      equipment_class: "A2"     # ASHRAE A2: rack inlet ≤ 35°C; here we target 18°C supply
+      containment_efficiency: 0.85   # 85% hot-aisle containment
+      # Overrides the CRAH cooling_supply_temp to match ASHRAE A2 inlet limit.
+      # For cold-aisle containment this equals the supply (cold-aisle) temp.
+      rack_inlet_temp_max_c: 18.0
+      airflow_m3_per_s_per_kw: 0.0015   # 1.5 L/(s·W) — typical for air-cooled racks
+      lighting_w_per_m2: 5.0
+
+# ── Surfaces ──────────────────────────────────────────────────────────────────
+surfaces:
+  - name: South Wall
+    zone: DataHall
+    surface_type: wall
+    boundary: outdoor
+    construction: InsulatedWall
+    vertices:
+      - [0, 0, 0]
+      - [40, 0, 0]
+      - [40, 0, 4]
+      - [0, 0, 4]
+
+  - name: North Wall
+    zone: DataHall
+    surface_type: wall
+    boundary: outdoor
+    construction: InsulatedWall
+    vertices:
+      - [40, 25, 0]
+      - [0, 25, 0]
+      - [0, 25, 4]
+      - [40, 25, 4]
+
+  - name: East Wall
+    zone: DataHall
+    surface_type: wall
+    boundary: outdoor
+    construction: InsulatedWall
+    vertices:
+      - [40, 0, 0]
+      - [40, 25, 0]
+      - [40, 25, 4]
+      - [40, 0, 4]
+
+  - name: West Wall
+    zone: DataHall
+    surface_type: wall
+    boundary: outdoor
+    construction: InsulatedWall
+    vertices:
+      - [0, 25, 0]
+      - [0, 0, 0]
+      - [0, 0, 4]
+      - [0, 25, 4]
+
+  - name: Roof
+    zone: DataHall
+    surface_type: roof
+    boundary: outdoor
+    construction: InsulatedRoof
+    vertices:
+      - [0, 0, 4]
+      - [40, 0, 4]
+      - [40, 25, 4]
+      - [0, 25, 4]
+
+  - name: Floor
+    zone: DataHall
+    surface_type: floor
+    boundary: ground
+    construction: InsulatedWall
+    vertices:
+      - [0, 25, 0]
+      - [40, 25, 0]
+      - [40, 0, 0]
+      - [0, 0, 0]
+
+# ── Infiltration ──────────────────────────────────────────────────────────────
+infiltration:
+  - name: DataHall Infil
+    zones: [DataHall]
+    design_flow_rate: 0.10    # Very low — data centers are well-sealed
+    method: flow_per_exterior_surface_area
+
+# ── Thermostats ───────────────────────────────────────────────────────────────
+# CRAC/CRAH is cooling-only; thermostat defines the cooling setpoint only.
+thermostats:
+  - name: DC Thermostat
+    zones: [DataHall]
+    heating_setpoint: 15.0    # low — effectively never heating
+    cooling_setpoint: 23.9    # matches ASHRAE recommended supply + rise
+
+# ── CHW Plant Loop ────────────────────────────────────────────────────────────
+plant_loops:
+  - name: CHW Loop
+    loop_type: chilled_water
+    design_supply_temp: 7.0
+    design_return_temp: 12.0
+    supply_equipment:
+      - !chiller
+        name: CRAH Chiller
+        cooling_capacity: 800000.0   # 800 kW — oversized to handle peak
+        cop: 4.5
+        condenser_type: water_cooled
+        condenser_plant_loop: CW Loop
+        submeter: datacenter
+
+      - !pump
+        name: CHW Pump
+        design_flow_rate: 0.04
+        motor_efficiency: 0.90
+        pump_efficiency: 0.75
+        submeter: datacenter
+
+  - name: CW Loop
+    loop_type: condenser_water
+    design_supply_temp: 29.0
+    design_return_temp: 35.0
+    supply_equipment:
+      - !cooling_tower
+        name: CW Tower
+        design_range: 6.0
+        design_approach: 4.0
+        design_flow_rate: 0.05
+        fan_power: 10000.0
+        submeter: datacenter
+
+      - !pump
+        name: CW Pump
+        design_flow_rate: 0.05
+        motor_efficiency: 0.90
+        pump_efficiency: 0.75
+        submeter: datacenter
+
+# ── CRAH Air Loop ─────────────────────────────────────────────────────────────
+air_loops:
+  - name: CRAH-1
+    system_type: crah
+    zone_terminals:
+      - zone: DataHall
+
+    # CRAH is cooling-only; no heating coil needed.
+    # cooling_supply_temp is overridden at runtime by rack_inlet_temp_max_c (18°C).
+    controls:
+      cooling_supply_temp: 18.0
+      heating_supply_temp: 40.0
+
+    equipment:
+      - !fan
+        name: CRAH-1 Fan
+        design_flow_rate: 15.0     # ~30 ACH for 4 000 m³ zone
+        motor_efficiency: 0.90
+        fan_efficiency: 0.65
+        pressure_rise: 250.0
+        submeter: datacenter
+
+      - !cooling_coil
+        name: CRAH-1 CHW Coil
+        rated_capacity: 700000.0   # 700 kW at design conditions
+        rated_inlet_water_temp: 7.0
+        rated_outlet_water_temp: 12.0
+        plant_loop: CHW Loop
+        submeter: datacenter
+
+# ── Outputs ───────────────────────────────────────────────────────────────────
+outputs:
+  - path: datacenter_crah_hourly.csv
+    format: csv
+    timestep: hourly
+    variables:
+      - zone:DataHall:temperature
+      - zone:DataHall:cooling_rate
+      - zone:DataHall:supply_air_temperature
+      - component:CRAH-1 CHW Coil:electric_power
+      - component:CRAH-1 Fan:electric_power
+      - datacenter:pue
+      - datacenter:it_load_kw
+      - datacenter:mechanical_load_kw

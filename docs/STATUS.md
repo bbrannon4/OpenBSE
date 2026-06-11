@@ -1,6 +1,6 @@
 # OpenBSE Project Status
 
-Last updated: 2026-04-27 (v0.2.11)
+Last updated: 2026-06-10 (v0.5.0)
 
 ## What Works (Functional)
 
@@ -31,6 +31,8 @@ Last updated: 2026-04-27 (v0.2.11)
 - **Dual-duct CAV**: `system_type: dual_duct` — hot and cold deck AHU with per-zone `DualDuctBox` mixing terminals. Constant total zone flow, load-proportional deck blending.
 - **PTHP**: Packaged terminal heat pump with ON/OFF cycling, heat pump heating + DX cooling.
 - **GSHP**: Ground-source heat pump with Kusuda-Achenbach ground temp model (auto/EPW monthly/user monthly).
+- **CRAC**: Computer-room air conditioner (`system_type: crac`) — self-contained DX, no OA mixing, cooling-only, high-sensible. Designed for data center recirculating loops.
+- **CRAH**: Computer-room air handler (`system_type: crah`) — chilled-water coil, no OA mixing, cooling-only. Supply temperature overridden from `rack_inlet_temp_max_c` when serving a DC zone.
 
 ### HVAC Components
 - Fans: constant volume, VAV (with part-load curves), on/off
@@ -46,6 +48,7 @@ Last updated: 2026-04-27 (v0.2.11)
 - Thermal energy storage: chilled-water and ice types with full_storage/load_leveling/demand_limiting strategies
 - Radiant panels: fin-tube, chilled ceiling, electric; radiant/convective split, surface MRT distribution
 - Plant loop topological ordering: arbitrary inter-loop dependencies via HX and condenser connections
+- **Data center zone model** (`DataCenterConfig`): implicit hot/cold-aisle physics, rack inlet temperature limits (ASHRAE A1–A4), containment efficiency, IT load generation, `dc_rack_outlet_temp` and `dc_return_air_temp` output variables
 
 ### Controls
 - Zone thermostats with occupied/unoccupied setpoints
@@ -69,6 +72,7 @@ Last updated: 2026-04-27 (v0.2.11)
 - Comfort metrics: mean radiant temperature, operative temperature
 - Unmet hours time-series: per-zone per-timestep heating/cooling unmet flags
 - Submeter tagging on all energy-consuming components (lights, equipment, fans, coils, boilers, chillers, pumps, DHW, exterior) with per-submeter time-series output variables and summary report breakdown
+- **ASHRAE 90.4 Data Center Performance section** — PUE, MLC (with climate-zone limit, PASS/FAIL), ELC in text and HTML summary reports when IT loads are present
 - Custom output variable selection
 - CLI `-w` flag for weather file (overrides YAML `weather_files`)
 
@@ -94,6 +98,7 @@ Last updated: 2026-04-27 (v0.2.11)
 Planned features, bugs, and validation tasks are tracked as [GitHub Issues](https://github.com/bbrannon4/OpenBSE/issues).
 
 ### Recently completed
+- **Data center support** — `DataCenterConfig` zone model (#46), CRAC/CRAH system types (#47), ASHRAE 90.4 PUE/MLC/ELC summary reporting (#48)
 - Setpoint reset controls — OA-based and demand-based SAT reset; OA-based plant loop CHW/HHW reset
 - Evaporative cooling — direct (adiabatic), indirect (sensible), two-stage modes
 - Thermal energy storage — chilled_water and ice types, full_storage/load_leveling/demand_limiting strategies

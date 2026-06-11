@@ -470,6 +470,103 @@ pub struct ZoneInput {
     /// No limit if None (default).
     #[serde(default)]
     pub min_relative_humidity: Option<f64>,
+    /// Data center zone configuration. When present, enables implicit aisle physics
+    /// and IT load generation. Replaces or supplements the `equipment_it` block.
+    #[serde(default)]
+    pub data_center: Option<DataCenterConfig>,
+}
+
+/// ASHRAE A-class equipment inlet temperature limits [°C].
+fn rack_inlet_temp_max(config: &DataCenterConfig) -> f64 {
+    config.rack_inlet_temp_max_c.unwrap_or_else(|| {
+        match config.equipment_class.as_deref().unwrap_or("A2") {
+            "A1" => 32.0,
+            "A2" => 35.0,
+            "A3" => 40.0,
+            "A4" => 45.0,
+            _ => 35.0,
+        }
+    })
+}
+
+/// Compute the effective rack inlet temperature limit for a DC zone [°C].
+pub fn dc_rack_inlet_max(config: &DataCenterConfig) -> f64 {
+    rack_inlet_temp_max(config)
+}
+
+/// Data center zone physics configuration.
+///
+/// When present on a zone, enables implicit hot/cold-aisle physics and
+/// auto-generates IT equipment loads routed to the `ItEquipment` ComponentKind.
+///
+/// ```yaml
+/// zones:
+///   - name: Server Room 1
+///     data_center:
+///       it_load_kw: 500.0
+///       rack_outlet_temp_c: 35.0
+///       equipment_class: A2
+///       containment_efficiency: 0.85
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataCenterConfig {
+    /// Total IT load [kW] (use this or rack_count × kw_per_rack)
+    #[serde(default)]
+    pub it_load_kw: Option<f64>,
+    /// Number of racks (used with kw_per_rack)
+    #[serde(default)]
+    pub rack_count: Option<u32>,
+    /// Power per rack [kW] (used with rack_count)
+    #[serde(default)]
+    pub kw_per_rack: Option<f64>,
+    /// Schedule name for IT load fraction [0-1] (default: constant 1.0)
+    #[serde(default)]
+    pub it_load_schedule: Option<String>,
+    /// Hot-aisle rack exhaust temperature target [°C] (default 35.0)
+    #[serde(default = "default_rack_outlet_temp")]
+    pub rack_outlet_temp_c: f64,
+    /// Cold-aisle supply temperature limit [°C]. If None, derived from equipment_class.
+    #[serde(default)]
+    pub rack_inlet_temp_max_c: Option<f64>,
+    /// ASHRAE equipment class: "A1", "A2" (default), "A3", "A4"
+    #[serde(default)]
+    pub equipment_class: Option<String>,
+    /// Containment efficiency [0-1] — fraction of hot exhaust captured and
+    /// returned to CRAC/CRAH inlet rather than mixing with zone air. Default 0.85.
+    #[serde(default = "default_containment_efficiency")]
+    pub containment_efficiency: f64,
+    /// Explicit airflow per unit IT load [m³/s/kW]. If None, auto-calculated
+    /// from rack temperature difference.
+    #[serde(default)]
+    pub airflow_m3_per_s_per_kw: Option<f64>,
+    /// Lighting power density inside the data center [W/m²] (default 5.0)
+    #[serde(default)]
+    pub lighting_w_per_m2: Option<f64>,
+}
+
+fn default_rack_outlet_temp() -> f64 {
+    35.0
+}
+fn default_containment_efficiency() -> f64 {
+    0.85
+}
+
+impl DataCenterConfig {
+    /// Total IT load [W] before schedule modulation.
+    pub fn it_load_w(&self) -> f64 {
+        if let Some(kw) = self.it_load_kw {
+            return kw * 1000.0;
+        }
+        if let (Some(racks), Some(kw_per)) = (self.rack_count, self.kw_per_rack) {
+            return racks as f64 * kw_per * 1000.0;
+        }
+        0.0
+    }
+
+    /// Rack inlet temperature maximum [°C].
+    pub fn rack_inlet_max(&self) -> f64 {
+        dc_rack_inlet_max(self)
+    }
 }
 
 fn default_conditioned() -> bool {
@@ -1185,6 +1282,7 @@ mod tests {
             zone_multiplier: 1,
             max_relative_humidity: None,
             min_relative_humidity: None,
+            data_center: None,
         };
 
         // During night setback
@@ -1226,6 +1324,7 @@ mod tests {
             zone_multiplier: 1,
             max_relative_humidity: None,
             min_relative_humidity: None,
+            data_center: None,
         };
 
         // During night ventilation period (unconditional — no temp conditions)
@@ -1264,6 +1363,7 @@ mod tests {
             zone_multiplier: 1,
             max_relative_humidity: None,
             min_relative_humidity: None,
+            data_center: None,
         };
 
         // Zone hot enough, outdoor cooler → ventilate

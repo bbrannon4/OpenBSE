@@ -145,6 +145,26 @@ pub struct ModelInput {
     #[serde(default)]
     pub exterior_equipment: Vec<ExteriorEquipmentInput>,
 
+    // ─── IT Equipment ───────────────────────────────────────────────────────
+    /// IT server loads — tracked separately from general equipment for ASHRAE 90.4
+    /// PUE/MLC/ELC reporting.  Processed identically to `equipment` in the zone
+    /// heat balance but routed to the `ItEquipment` ComponentKind end-use category.
+    /// If `submeter` is omitted, auto-assigned to "datacenter".
+    #[serde(default)]
+    pub equipment_it: Vec<openbse_envelope::EquipmentGainInput>,
+
+    // ─── Electrical Distribution ─────────────────────────────────────────────
+    /// UPS and transformer losses for ASHRAE 90.4 ELC calculation.
+    #[serde(default)]
+    pub electrical_distribution: Option<ElecDistributionInput>,
+
+    // ─── Site ────────────────────────────────────────────────────────────────
+    /// ASHRAE climate zone string (e.g. "5A") — used for 90.4 PUE/MLC/ELC
+    /// compliance limits in the summary report. Optional; limits show "Unknown"
+    /// if omitted but computations still run.
+    #[serde(default)]
+    pub climate_zone: Option<String>,
+
     // ─── Outputs ────────────────────────────────────────────────────────────
     /// Custom output file definitions
     #[serde(default)]
@@ -395,6 +415,10 @@ pub enum AirLoopSystemType {
     /// Dual-duct constant air volume — hot deck + cold deck blend at each zone mixing box
     #[serde(alias = "dual_duct_cav")]
     DualDuct,
+    /// Computer-room air conditioner — self-contained DX, no OA mixing, high sensible
+    Crac,
+    /// Computer-room air handler — chilled-water coil, no OA mixing, high sensible
+    Crah,
 }
 
 impl Default for AirLoopSystemType {
@@ -460,6 +484,10 @@ pub struct AirLoopControls {
     /// Heating supply air temperature reset (optional — absent = fixed SAT)
     #[serde(default)]
     pub heating_sat_reset: Option<SatResetConfig>,
+    /// Explicit outdoor air fraction [0-1] for CRAC/CRAH systems (default 0.0).
+    /// Overrides minimum_damper_position when set.
+    #[serde(default)]
+    pub outdoor_air_fraction: Option<f64>,
 }
 
 impl Default for AirLoopControls {
@@ -475,6 +503,7 @@ impl Default for AirLoopControls {
             fan_operating_mode: FanOperatingMode::default(),
             cooling_sat_reset: None,
             heating_sat_reset: None,
+            outdoor_air_fraction: None,
         }
     }
 }
@@ -630,6 +659,24 @@ impl Default for EconomizerType {
     }
 }
 
+// ─── Condenser Type ──────────────────────────────────────────────────────────
+
+/// Condenser type for CRAC systems.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CondenserType {
+    /// Air-cooled condenser — condenser entering temp = outdoor dry-bulb
+    AirCooled,
+    /// Water-cooled condenser — condenser entering temp = condenser loop supply temp
+    WaterCooled,
+}
+
+impl Default for CondenserType {
+    fn default() -> Self {
+        CondenserType::AirCooled
+    }
+}
+
 // ─── Air Loop Input ──────────────────────────────────────────────────────────
 
 /// Air loop input definition — the user-facing topology.
@@ -647,6 +694,10 @@ pub struct AirLoopInput {
     /// Controls section — supply temps, cycling, deadband, economizer, damper position.
     #[serde(default)]
     pub controls: AirLoopControls,
+    /// Condenser type for CRAC systems (default: air_cooled).
+    /// For water-cooled, the `condenser_loop` field on the cooling coil provides the plant connection.
+    #[serde(default)]
+    pub condenser_type: CondenserType,
     /// For VAV systems: minimum flow fraction at each zone box [0-1].
     /// Zone receives at least (min_vav_fraction * design_flow) at all times.
     /// Default: 0.30.
@@ -2481,6 +2532,66 @@ fn default_exterior_fuel() -> String {
     "electricity".to_string()
 }
 
+// ─── Electrical Distribution Inputs ──────────────────────────────────────────
+
+/// Top-level electrical distribution system — UPS and transformers.
+/// Losses are computed each timestep and reported as the ASHRAE 90.4 ELC.
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct ElecDistributionInput {
+    #[serde(default)]
+    pub ups: Vec<UpsInput>,
+    #[serde(default)]
+    pub transformers: Vec<TransformerInput>,
+}
+
+fn default_ups_efficiency() -> f64 {
+    0.95
+}
+fn default_transformer_efficiency() -> f64 {
+    0.985
+}
+
+/// Uninterruptible power supply input.
+///
+/// ```yaml
+/// electrical_distribution:
+///   ups:
+///     - name: UPS-1
+///       it_load_served_kw: 500.0
+///       efficiency_at_full_load: 0.95
+/// ```
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpsInput {
+    pub name: String,
+    /// IT load capacity served by this UPS [kW]
+    pub it_load_served_kw: f64,
+    /// Efficiency at full load [0-1] (default 0.95)
+    #[serde(default = "default_ups_efficiency")]
+    pub efficiency_at_full_load: f64,
+    /// Optional efficiency curve name f(PLR) — if absent, uses constant efficiency_at_full_load
+    #[serde(default)]
+    pub efficiency_curve: Option<String>,
+}
+
+/// Step-down or isolation transformer input.
+///
+/// ```yaml
+/// electrical_distribution:
+///   transformers:
+///     - name: XFMR-1
+///       it_load_served_kw: 500.0
+///       efficiency: 0.985
+/// ```
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TransformerInput {
+    pub name: String,
+    /// IT load capacity served by this transformer [kW]
+    pub it_load_served_kw: f64,
+    /// Transformer efficiency [0-1] (default 0.985)
+    #[serde(default = "default_transformer_efficiency")]
+    pub efficiency: f64,
+}
+
 // ─── VRF System Inputs ────────────────────────────────────────────────────────
 
 fn default_vrf_cooling_cop() -> f64 {
@@ -3645,6 +3756,51 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                     latent_fraction: equip.latent_fraction,
                     schedule: equip.schedule.clone(),
                     submeter: equip.submeter.clone(),
+                });
+            }
+        }
+    }
+
+    // Resolve top-level IT equipment → internal_gains (identical to equipment for heat balance)
+    // Auto-assign "datacenter" submeter if none specified.
+    for equip in &model.equipment_it {
+        let target_zones = expand_zones(&equip.zones);
+        for zone_name in &target_zones {
+            if let Some(zone) = zones.iter_mut().find(|z| z.name == *zone_name) {
+                let power = if let Some(wpf) = equip.watts_per_area {
+                    wpf * zone.floor_area
+                } else {
+                    equip.power
+                };
+                let submeter = if equip.submeter == "General" {
+                    "datacenter".to_string()
+                } else {
+                    equip.submeter.clone()
+                };
+                zone.internal_gains.push(InternalGainInput::Equipment {
+                    power,
+                    radiant_fraction: equip.radiant_fraction,
+                    lost_fraction: equip.lost_fraction,
+                    latent_fraction: equip.latent_fraction,
+                    schedule: equip.schedule.clone(),
+                    submeter,
+                });
+            }
+        }
+    }
+
+    // Resolve DataCenterConfig IT loads → internal_gains (auto-generated IT equipment)
+    for zone in zones.iter_mut() {
+        if let Some(ref dc) = zone.data_center.clone() {
+            let it_load_w: f64 = dc.it_load_w();
+            if it_load_w > 0.0 {
+                zone.internal_gains.push(InternalGainInput::Equipment {
+                    power: it_load_w,
+                    radiant_fraction: 0.3, // standard convective+radiant split
+                    lost_fraction: 0.0,    // all heat stays in zone
+                    latent_fraction: 0.0,  // servers produce sensible heat only
+                    schedule: dc.it_load_schedule.clone(),
+                    submeter: "datacenter".to_string(),
                 });
             }
         }

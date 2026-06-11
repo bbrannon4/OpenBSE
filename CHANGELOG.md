@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-10
+
+### Added
+- **Data center zone model** (`DataCenterConfig`) — implicit hot/cold-aisle physics with configurable rack outlet temperature, containment efficiency, and ASHRAE A1–A4 inlet-temperature limits. IT load defined via `data_center:` block on a zone (auto-generates internal gains) or top-level `equipment_it:` entries. Rack outlet temperature (`dc_rack_outlet_temp`) and CRAC/CRAH return-air temperature (`dc_return_air_temp`) are available as per-zone output variables. Closes #46.
+- **CRAC and CRAH system types** — `system_type: crac` (self-contained DX, no OA mixing, high-sensible) and `system_type: crah` (chilled-water air handler, no OA). Both are cooling-only, recirculate room air, and auto-assign "datacenter" submeter to all loop components. Supply temperature is overridden from `rack_inlet_temp_max_c` when the served zone has a `DataCenterConfig`. Closes #47.
+- **ASHRAE 90.4 PUE/MLC/ELC reporting** — summary report now includes a "Data Center Performance" section (text and HTML) when IT equipment loads are present, showing annual IT load, mechanical load, electrical-distribution losses, PUE, MLC (vs climate-zone limit), and ELC (limit 0.060 all zones), with PASS/FAIL indicators. Add `climate_zone: "5A"` (or any ASHRAE CZ) to the model YAML for limit-table lookup. Closes #48.
+- **Electrical distribution losses** — `electrical_distribution:` model-level block with `ups:` and `transformers:` entries (efficiency, rated IT load). Losses scale with actual IT load PLR and are tracked in the `elec_dist_power` snapshot field for ELC computation.
+- **`equipment_it:` model-level block** — same structure as `equipment:` but routed to `ComponentKind::ItEquipment` for 90.4 accounting; auto-assigned "datacenter" submeter.
+- **`climate_zone:` model-level field** — optional ASHRAE climate zone string (e.g. `"5A"`) passed to the summary report for 90.4 MLC limit lookup.
+- New example: [`examples/datacenter_crah.yaml`](examples/datacenter_crah.yaml) — single-zone 500 kW data center with CRAH, water-cooled chiller + cooling tower, and UPS losses.
+
 ## [0.4.0] - 2026-05-20
 
 ### Added
