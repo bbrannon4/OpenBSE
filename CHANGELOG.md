@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-10
+
+### Fixed
+- `examples/datacenter_crah.yaml` — corrected multiple YAML format errors (vertex structs, `zone_terminals`, construction layer thicknesses, `economizer` struct, `minimum_damper_position` field name). Example now runs end-to-end and produces PUE/MLC/ELC output.
+- Updated example to match its intended topology: air-cooled chiller (not water-cooled), UPS Room + PDU Room cooled by dedicated air-cooled CRACs, and an Office block served by PSZ-AC.
+
 ## [0.5.0] - 2026-06-10
 
 ### Added
@@ -16,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Electrical distribution losses** — `electrical_distribution:` model-level block with `ups:` and `transformers:` entries (efficiency, rated IT load). Losses scale with actual IT load PLR and are tracked in the `elec_dist_power` snapshot field for ELC computation.
 - **`equipment_it:` model-level block** — same structure as `equipment:` but routed to `ComponentKind::ItEquipment` for 90.4 accounting; auto-assigned "datacenter" submeter.
 - **`climate_zone:` model-level field** — optional ASHRAE climate zone string (e.g. `"5A"`) passed to the summary report for 90.4 MLC limit lookup.
-- New example: [`examples/datacenter_crah.yaml`](examples/datacenter_crah.yaml) — single-zone 500 kW data center with CRAH, water-cooled chiller + cooling tower, and UPS losses.
+- New example: [`examples/datacenter_crah.yaml`](examples/datacenter_crah.yaml) — mixed-use 500 kW data center (DataHall with CRAH + air-cooled chiller, UPS/PDU electrical rooms with dedicated air-cooled CRACs) plus an Office block on PSZ-AC; demonstrates 90.4 PUE/MLC/ELC reporting alongside standard 90.1 office loads.
 
 ## [0.4.0] - 2026-05-20
 

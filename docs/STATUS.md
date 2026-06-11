@@ -1,6 +1,6 @@
 # OpenBSE Project Status
 
-Last updated: 2026-06-10 (v0.5.0)
+Last updated: 2026-06-10 (v0.5.1)
 
 ## What Works (Functional)
 
