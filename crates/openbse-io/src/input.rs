@@ -3796,12 +3796,26 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
             if it_load_w > 0.0 {
                 zone.internal_gains.push(InternalGainInput::Equipment {
                     power: it_load_w,
-                    radiant_fraction: 0.3, // standard convective+radiant split
+                    radiant_fraction: 0.0, // server exhaust is convective hot-air, not radiant
                     lost_fraction: 0.0,    // all heat stays in zone
                     latent_fraction: 0.0,  // servers produce sensible heat only
                     schedule: dc.it_load_schedule.clone(),
                     submeter: "datacenter".to_string(),
                 });
+            }
+
+            // DC lighting — default 5 W/m² per DataCenterConfig
+            if let Some(lw_per_m2) = dc.lighting_w_per_m2 {
+                let lighting_w = lw_per_m2 * zone.floor_area;
+                if lighting_w > 0.0 {
+                    zone.internal_gains.push(InternalGainInput::Lights {
+                        power: lighting_w,
+                        radiant_fraction: 0.32,
+                        return_air_fraction: 0.0,
+                        schedule: None,
+                        submeter: "datacenter".to_string(),
+                    });
+                }
             }
         }
     }

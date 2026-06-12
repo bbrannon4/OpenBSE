@@ -148,6 +148,9 @@ impl AirComponent for ExternalAirComponent {
             Ok(o) => o,
             Err(e) => {
                 log::error!("cosim '{}': exchange failed: {}", self.name, e);
+                self.last_power_w = 0.0;
+                self.last_fuel_w = 0.0;
+                self.last_thermal_w = 0.0;
                 return *inlet;
             }
         };

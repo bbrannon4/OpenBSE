@@ -997,7 +997,10 @@ impl OutputSnapshot {
                         if it > 0.0 {
                             (it + mech + self.elec_dist_power) / it
                         } else {
-                            0.0
+                            // IT load is zero (scheduled off): PUE is undefined this timestep.
+                            // Return NaN so mean aggregation doesn't silently depress annual PUE.
+                            // Use the annual ratio from SummaryReport for the true annual PUE.
+                            f64::NAN
                         }
                     }
                     "it_load_kw" => self.it_equipment_power.values().sum::<f64>() / 1000.0,
@@ -1705,12 +1708,20 @@ impl SummaryReport {
             me.heat_gas_j = 0.0;
         }
 
-        // 3. Zone internal gains — interior lighting and equipment
+        // 3. Zone internal gains — interior lighting and equipment.
+        // IT equipment is tracked separately in it_equipment_j; subtract it here
+        // so it doesn't appear in both the Equipment and IT Equipment end-use rows.
         for &pw in snapshot.zone_lighting_power.values() {
             me.lighting_j += pw * snapshot.dt;
         }
-        for &pw in snapshot.zone_equipment_power.values() {
-            me.equipment_j += pw * snapshot.dt;
+        for (&pw, zone_name) in snapshot.zone_equipment_power.iter().map(|(k, v)| (v, k)) {
+            let it_pw = snapshot
+                .it_equipment_power
+                .get(zone_name)
+                .copied()
+                .unwrap_or(0.0);
+            let equip_only = (pw - it_pw).max(0.0);
+            me.equipment_j += equip_only * snapshot.dt;
         }
 
         // 4. Data center end uses
@@ -2541,10 +2552,22 @@ impl SummaryReport {
         {
             let annual_it_j: f64 = self.monthly.iter().map(|m| m.it_equipment_j).sum();
             if annual_it_j > 0.0 {
-                let annual_mech_j: f64 = self
-                    .monthly
+                // MLC uses only DC-submeter-tagged mechanical energy so that
+                // office/other HVAC in a mixed-use building does not inflate the ratio.
+                let dc_mech_end_uses = [
+                    "fan_electric",
+                    "cooling_electric",
+                    "pump_electric",
+                    "heat_rejection",
+                ];
+                let annual_mech_j: f64 = dc_mech_end_uses
                     .iter()
-                    .map(|m| m.cool_elec_j + m.fan_elec_j + m.pump_elec_j + m.heat_rejection_elec_j)
+                    .map(|&eu| {
+                        self.submeter_monthly_j
+                            .get(&("datacenter".to_string(), eu.to_string()))
+                            .map(|arr| arr.iter().sum::<f64>())
+                            .unwrap_or(0.0)
+                    })
                     .sum();
                 let annual_elec_dist_j: f64 = self.monthly.iter().map(|m| m.elec_dist_j).sum();
                 let annual_total_j = annual_it_j + annual_mech_j + annual_elec_dist_j;
@@ -2640,6 +2663,8 @@ impl SummaryReport {
             make_row("Exterior Lighting", |m| m.ext_lighting_j),
             make_row("Interior Equipment", |m| m.equipment_j),
             make_row("Exterior Equipment", |m| m.ext_equipment_j),
+            make_row("IT Equipment", |m| m.it_equipment_j),
+            make_row("Elec Distribution", |m| m.elec_dist_j),
             make_row("Fans (Electric)", |m| m.fan_elec_j),
             make_row("Pumps (Electric)", |m| m.pump_elec_j),
             make_row("Cooling (Electric)", |m| m.cool_elec_j),
@@ -3059,10 +3084,20 @@ impl SummaryReport {
         {
             let annual_it_j: f64 = self.monthly.iter().map(|m| m.it_equipment_j).sum();
             if annual_it_j > 0.0 {
-                let annual_mech_j: f64 = self
-                    .monthly
+                let dc_mech_end_uses = [
+                    "fan_electric",
+                    "cooling_electric",
+                    "pump_electric",
+                    "heat_rejection",
+                ];
+                let annual_mech_j: f64 = dc_mech_end_uses
                     .iter()
-                    .map(|m| m.cool_elec_j + m.fan_elec_j + m.pump_elec_j + m.heat_rejection_elec_j)
+                    .map(|&eu| {
+                        self.submeter_monthly_j
+                            .get(&("datacenter".to_string(), eu.to_string()))
+                            .map(|arr| arr.iter().sum::<f64>())
+                            .unwrap_or(0.0)
+                    })
                     .sum();
                 let annual_elec_dist_j: f64 = self.monthly.iter().map(|m| m.elec_dist_j).sum();
                 let annual_total_j = annual_it_j + annual_mech_j + annual_elec_dist_j;
