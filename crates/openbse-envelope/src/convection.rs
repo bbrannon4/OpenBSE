@@ -143,7 +143,7 @@ pub fn exterior_natural_convection(t_surface: f64, t_outdoor: f64, tilt_deg: f64
 /// Formula: V(z) = V_met * (δ_met / z_met)^α_met * (z / δ_site)^α_site
 ///
 /// For default suburban terrain and standard 10m met station:
-///   WeatherFileWindModCoeff = (370/10)^0.22 = 1.5863
+///   WeatherFileWindModCoeff = (270/10)^0.14 = 1.5863  (met station: country terrain)
 ///   V(z) = V_met * 1.5863 * (z / 370)^0.22
 ///
 /// Parameters from E+ DataEnvironment.hh:

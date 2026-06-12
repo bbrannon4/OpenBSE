@@ -62,6 +62,11 @@ struct LoopInfo {
     component_names: Vec<String>,
     /// Names of fan components in this loop (for PLR-exempt identification)
     fan_names: HashSet<String>,
+    /// Names of components whose electric power carries the compressor
+    /// cycling penalty (RTF = PLR/PLF) at the system level: DX cooling
+    /// coils (single/multi-speed) and WSHP. Heat pump heating coils apply
+    /// PLF internally; electric/gas/HW heating coils have no PLF in E+.
+    dx_compressor_names: HashSet<String>,
     /// Zones served by this loop
     served_zones: Vec<String>,
     /// Minimum outdoor air fraction [0-1]. DOAS always 1.0.
@@ -162,6 +167,20 @@ fn build_loop_infos(
                     use openbse_io::input::EquipmentInput;
                     match eq {
                         EquipmentInput::Fan(f) => Some(f.name.clone()),
+                        _ => None,
+                    }
+                })
+                .collect();
+
+            let dx_compressor_names: HashSet<String> = al
+                .equipment
+                .iter()
+                .filter_map(|eq| {
+                    use openbse_io::input::EquipmentInput;
+                    match eq {
+                        EquipmentInput::CoolingCoil(c) if c.source == "dx" => Some(c.name.clone()),
+                        EquipmentInput::CoolingCoilMultiSpeed(c) => Some(c.name.clone()),
+                        EquipmentInput::Wshp(w) => Some(w.name.clone()),
                         _ => None,
                     }
                 })
@@ -271,6 +290,7 @@ fn build_loop_infos(
                 system_type,
                 component_names,
                 fan_names,
+                dx_compressor_names,
                 served_zones,
                 min_oa_fraction,
                 explicit_min_oa,
@@ -5361,15 +5381,13 @@ fn simulate_all_loops(
                     // Continuous (not no_load_off): keep full rated values.
                 } else {
                     // DX compressor electric power uses RTF (includes cycling
-                    // penalty via PLF curve). Gas furnace fuel and fan power
-                    // use PLR directly (no compressor cycling penalty).
-                    //
-                    // In E+, the PLF curve is specific to DX coils — gas
-                    // furnaces report fuel = Q / eff × PLR without cycling
-                    // degradation.  Fan power = rated × PLR (direct cycling).
-                    let is_dx_coil =
-                        !is_fan && outputs.get("fuel_power").map_or(true, |fp| *fp == 0.0);
-                    let power_factor = if is_dx_coil { rtf } else { loop_plr };
+                    // penalty via PLF curve). Everything else — gas furnace
+                    // fuel, fan power, electric resistance heat, heat pump
+                    // heating coils (which apply PLF inside the component) —
+                    // uses PLR directly, matching E+ where the PLF curve only
+                    // degrades compressor energy.
+                    let is_dx_compressor = li.dx_compressor_names.contains(comp_name);
+                    let power_factor = if is_dx_compressor { rtf } else { loop_plr };
                     if let Some(ep) = outputs.get_mut("electric_power") {
                         *ep *= power_factor;
                     }
@@ -7407,6 +7425,7 @@ mod tests {
             system_type: AirLoopSystemType::Pthp,
             component_names,
             fan_names: HashSet::new(),
+            dx_compressor_names: HashSet::new(),
             served_zones: vec!["Zone1".to_string()],
             min_oa_fraction: 0.0,
             min_vav_fraction: 0.3,
@@ -7437,6 +7456,7 @@ mod tests {
             system_type: AirLoopSystemType::PszAc,
             component_names: vec!["DX Cooling Coil".to_string()],
             fan_names: HashSet::new(),
+            dx_compressor_names: HashSet::new(),
             served_zones: vec!["Zone1".to_string()],
             min_oa_fraction: 0.15,
             min_vav_fraction: 0.3,
@@ -8209,6 +8229,7 @@ mod tests_datacenter {
             system_type,
             component_names: vec!["CRAC-1 DX Coil".to_string(), "CRAC-1 Fan".to_string()],
             fan_names: HashSet::new(),
+            dx_compressor_names: HashSet::new(),
             served_zones: vec!["DataHall".to_string()],
             min_oa_fraction: 0.0,
             min_vav_fraction: 0.3,

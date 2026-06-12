@@ -72,6 +72,24 @@ pub fn equation_of_time(day_of_year: u32) -> f64 {
     0.1645 * (2.0 * b).sin() - 0.1255 * b.cos() - 0.025 * b.sin()
 }
 
+/// Local solar hour from clock time, applying the longitude (standard
+/// meridian) correction and the equation of time.
+///
+///   solar_hour = clock_hour + (longitude/15 − time_zone) + EOT
+///
+/// Conventions match EPW headers: `longitude_deg` is east-positive
+/// (Denver ≈ −104.65), `time_zone_hr` is hours from UTC (Denver = −7,
+/// standard meridian = 15 × time_zone). A site east of its meridian
+/// sees solar noon before clock noon, so the correction is positive.
+pub fn local_solar_hour(
+    clock_hour: f64,
+    time_zone_hr: f64,
+    longitude_deg: f64,
+    day_of_year: u32,
+) -> f64 {
+    clock_hour + (longitude_deg / 15.0 - time_zone_hr) + equation_of_time(day_of_year)
+}
+
 // ─── Anisotropic Sky Diffuse Model ────────────────────────────────────────
 
 /// Extraterrestrial normal incidence irradiance [W/m²].
@@ -1454,6 +1472,52 @@ pub fn sun_direction_vector(solar_pos: &SolarPosition) -> crate::geometry::Vec3 
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
+
+    /// Almanac check for the solar-time longitude correction (NOAA solar
+    /// calculator reference). Boston (42.36°N, −71.06°E, UTC−5) sits 3.94°
+    /// east of the −75° standard meridian, so solar noon arrives ~15.8 min
+    /// before clock noon (plus EOT ≈ −8 min on the March equinox): NOAA
+    /// gives solar noon ≈ 11:52 EST on Mar 20 (day 79).
+    ///
+    /// The pre-fix formula `(time_zone − longitude/15)` had the meridian
+    /// correction sign flipped, putting solar noon at ~12:24 EST — over
+    /// 30 minutes wrong. Guard against regression.
+    #[test]
+    fn test_local_solar_hour_boston_noaa() {
+        let lon = -71.06;
+        let tz = -5.0;
+        let doy = 79; // March 20
+
+        // At clock 11:52.4 EST (11.873 h), local solar hour should be 12.0.
+        let sh = local_solar_hour(11.873, tz, lon, doy);
+        assert!(
+            (sh - 12.0).abs() < 2.0 / 60.0,
+            "solar hour at NOAA solar noon should be 12.0 ± 2 min, got {:.4}",
+            sh
+        );
+
+        // Sun position at solar noon: due south (azimuth ≈ 0 from south),
+        // altitude ≈ 90 − latitude + declination ≈ 47.2° on the equinox.
+        let pos = solar_position(doy, sh, 42.36);
+        assert!(
+            pos.azimuth.to_degrees().abs() < 1.5,
+            "azimuth at solar noon should be ~0° from south, got {:.2}°",
+            pos.azimuth.to_degrees()
+        );
+        assert!(
+            (pos.altitude.to_degrees() - 47.2).abs() < 0.6,
+            "noon altitude should be ~47.2°, got {:.2}°",
+            pos.altitude.to_degrees()
+        );
+    }
+
+    /// A site exactly on its standard meridian needs only the EOT correction.
+    #[test]
+    fn test_local_solar_hour_on_meridian() {
+        let sh = local_solar_hour(12.0, -7.0, -105.0, 172);
+        let eot = equation_of_time(172);
+        assert_relative_eq!(sh, 12.0 + eot, max_relative = 1e-12);
+    }
 
     #[test]
     fn test_solar_position_equinox_noon_equator() {

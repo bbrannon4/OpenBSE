@@ -96,9 +96,9 @@ The **desktop editor** (`openbse-editor`) is a Tauri + React app in `tools/edito
 - **CTF** — full Seem (1987) state-space conduction transfer functions matching EnergyPlus, with NoMass layer support and lumped RC fallback
 - **Exterior Convection** — DOE-2 (MoWiTT) algorithm with roughness correction
 - **Interior Convection** — ASHRAE/Walton natural convection correlations
-- **Solar** — position (Spencer 1971), Hay-Davies anisotropic sky model (circumsolar + isotropic), angular SHGC transmission (28-bin mapping per LBNL-2804E), FullExterior and FullInteriorAndExterior distribution with beam/diffuse split and VMULT redistribution
+- **Solar** — position (Spencer 1971), Perez 1990 anisotropic sky model (isotropic + circumsolar + horizon brightening, matching E+ AnisoSkyViewFactors), angular SHGC transmission (28-bin mapping per LBNL-2804E), FullExterior and FullInteriorAndExterior distribution with beam/diffuse split and VMULT redistribution
 - **External Shading** — overhangs and fins with geometric beam shadow calculation (Sutherland-Hodgman polygon clipping), diffuse sky view factor reduction, 8x8 grid sampling for multi-caster union, Suncast-style solar precompute with disk-cached `.solar` files
-- **Sky Longwave Radiation** — Berdahl-Martin sky emissivity model with cloud cover correction
+- **Sky Longwave Radiation** — Clark & Allen sky emissivity model with cloud cover correction (E+ default sky model)
 - **Interior Longwave Radiation** — MRT-based surface radiation exchange
 - **Infiltration** — EnergyPlus design flow rate model with wind dependence, ASHRAE combined infiltration model, multizone pressure network solver (Newton-Raphson with auto-generated cracks, Swami & Chandra Cp, stack effect)
 - **Internal Gains** — people, lights, equipment with radiant/convective/lost fraction split
@@ -231,7 +231,8 @@ MIT OR Apache-2.0
 - Exterior Convection: DOE-2 MoWiTT model
 - Interior Convection: Walton (1983)
 - Solar Position: Spencer (1971)
-- Sky Emissivity: Berdahl & Martin (1984)
+- Sky Emissivity: Clark & Allen (1978)
+- Anisotropic Sky Diffuse: Perez et al. (1990)
 - Window Angular Properties: LBNL-2804E (Curcija et al.)
 - ASHRAE Standard 140-2023
 - California Simulation Engine (CSE): https://github.com/cse-sim/cse

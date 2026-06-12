@@ -412,7 +412,18 @@ impl AirComponent for CoolingCoilDX {
                 let w_out_full = self.adp_w + bf * (inlet.state.w - self.adp_w);
                 let t_out_full = psych::tdb_fn_h_w(h_out_full, w_out_full);
 
-                // Total and sensible capacity at full load
+                // KNOWN DEVIATION from E+ (physics review DX-1/DX-2): the
+                // full-load output here comes from the rated-condition
+                // ADP/BF geometry, so Cap-fT/Cap-fFlow do not derate the
+                // delivered capacity (they only normalize power), and the
+                // frozen ADP misbehaves for entering air much drier than
+                // ARI rated (h_adp can approach h_in). The correct fix is
+                // E+'s per-timestep ADP recomputation from current entering
+                // conditions and TotCap·CapFT — do not partially "fix" this
+                // by rescaling to available_cap: with a frozen ADP the
+                // BF-derived SHR is unreliable for dry inlets and the
+                // rescale corrupts the sensible/latent split (caught by
+                // ASHRAE 140 case CE100).
                 let q_total_full = inlet.mass_flow * (h_in - h_out_full);
                 let q_sens_full = inlet.mass_flow * cp_air * (inlet.state.t_db - t_out_full);
 
@@ -435,12 +446,19 @@ impl AirComponent for CoolingCoilDX {
                 (qs, qt, out_t, out_w.max(1.0e-5))
             }
         } else {
-            // Constant SHR mode (original behavior): all cooling is sensible.
-            // Humidity ratio passes through unchanged.
-            let plr = (q_sensible_required / available_cap).clamp(0.0, 1.0);
-            let qs = available_cap * plr;
+            // Constant SHR mode: total = sensible / rated_SHR, with the
+            // latent portion removed from the airstream. (Previously latent
+            // was dropped entirely, under-counting compressor power by
+            // ~1/SHR whenever dehumidification would occur.)
+            let shr = self.rated_shr.clamp(0.2, 1.0);
+            let sens_cap = available_cap * shr;
+            let plr = (q_sensible_required / sens_cap).clamp(0.0, 1.0);
+            let qs = sens_cap * plr;
+            let qt = qs / shr;
             let dt = qs / (inlet.mass_flow * cp_air);
-            (qs, qs, inlet.state.t_db - dt, inlet.state.w)
+            const H_FG: f64 = 2_501_000.0;
+            let out_w = (inlet.state.w - (qt - qs) / (inlet.mass_flow * H_FG)).max(1.0e-5);
+            (qs, qt, inlet.state.t_db - dt, out_w)
         };
 
         // Electric power consumption.
@@ -778,23 +796,33 @@ impl CoolingCoilDXMultiSpeed {
         setpoint: f64,
         t_outdoor: f64,
     ) -> (AirPort, f64, f64, f64) {
-        // Capacity derate with outdoor temperature (same linear model as single-speed)
-        let cap_factor = (1.0 - 0.007 * (t_outdoor - 35.0)).max(0.5);
+        // Capacity derate with outdoor temperature (same defaults as single-speed)
+        let cap_factor = (1.0 - 0.008 * (t_outdoor - 35.0)).clamp(0.5, 1.05);
         let capacity = stage.rated_capacity * cap_factor;
         let cp = psych::cp_air_fn_w(inlet.state.w);
-        let max_sensible = inlet.mass_flow * cp * (inlet.state.t_db - setpoint);
-        let sensible = (capacity * stage.rated_shr).min(max_sensible.max(0.0));
+        let load_sensible = (inlet.mass_flow * cp * (inlet.state.t_db - setpoint)).max(0.0);
+        let sens_capacity = capacity * stage.rated_shr;
+        // Sensible delivery limited to the setpoint load; total and latent
+        // scale with the same PLR so the outlet state, reported total, and
+        // power stay mutually consistent.
+        let plr = if sens_capacity > 0.0 {
+            (load_sensible / sens_capacity).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let sensible = sens_capacity * plr;
+        let total = capacity * plr;
+        let latent = total - sensible;
         let t_out = inlet.state.t_db - sensible / (inlet.mass_flow * cp).max(1e-6);
         const H_FG: f64 = 2_501_000.0;
-        let latent = capacity - capacity * stage.rated_shr;
-        let w_out = (inlet.state.w - latent / (inlet.mass_flow * H_FG)).max(0.0);
-        let eir_factor = (1.0 + 0.003 * (t_outdoor - 35.0)).max(0.5);
-        let power = (capacity / stage.rated_cop) * eir_factor;
+        let w_out = (inlet.state.w - latent / (inlet.mass_flow * H_FG)).max(1.0e-5);
+        let eir_factor = (1.0 + 0.012 * (t_outdoor - 35.0)).clamp(0.5, 1.10);
+        let power = (capacity / stage.rated_cop) * eir_factor * plr;
         let outlet = AirPort::new(
             psych::MoistAirState::new(t_out, w_out, inlet.state.p_b),
             inlet.mass_flow,
         );
-        (outlet, capacity, sensible, power)
+        (outlet, total, sensible, power)
     }
 }
 
@@ -832,7 +860,7 @@ impl AirComponent for CoolingCoilDXMultiSpeed {
             .iter()
             .enumerate()
             .find(|(_, s)| {
-                let cap_factor = (1.0 - 0.007 * (t_outdoor - 35.0)).max(0.5);
+                let cap_factor = (1.0 - 0.008 * (t_outdoor - 35.0)).clamp(0.5, 1.05);
                 s.rated_capacity * cap_factor * s.rated_shr >= load_needed
             })
             .map(|(i, _)| i)

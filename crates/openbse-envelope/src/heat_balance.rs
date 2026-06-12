@@ -139,8 +139,9 @@ pub struct SolarCache {
 impl SolarCache {
     /// Magic bytes identifying a solar cache file.
     const MAGIC: &[u8; 8] = b"OBSE_SOL";
-    /// File format version.
-    const VERSION: u32 = 1;
+    /// File format version. v2: solar-time longitude correction sign fixed,
+    /// so v1 sunlit fractions are stale.
+    const VERSION: u32 = 2;
 
     /// Compute a geometry fingerprint from all inputs that affect shadow calcs.
     ///
@@ -1584,8 +1585,8 @@ impl BuildingEnvelope {
                     d + wh.day
                 };
 
-                let eot = solar::equation_of_time(doy);
-                let solar_hour = fractional_hour + (time_zone - longitude / 15.0) + eot;
+                let solar_hour =
+                    solar::local_solar_hour(fractional_hour, time_zone, longitude, doy);
                 let sol_pos = solar::solar_position(doy, solar_hour, latitude);
 
                 if !sol_pos.is_sunup || sol_pos.altitude <= 0.0 {
@@ -1805,9 +1806,12 @@ impl EnvelopeSolver for BuildingEnvelope {
 
         // 1. Solar position
         let doy = ctx.timestep.day_of_year();
-        let eot = solar::equation_of_time(doy);
-        let solar_hour =
-            ctx.timestep.fractional_hour() + (self.time_zone - self.longitude / 15.0) + eot;
+        let solar_hour = solar::local_solar_hour(
+            ctx.timestep.fractional_hour(),
+            self.time_zone,
+            self.longitude,
+            doy,
+        );
         let sol_pos = solar::solar_position(doy, solar_hour, self.latitude);
         let sun_dir = solar::sun_direction_vector(&sol_pos);
 
@@ -3198,7 +3202,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             let r_pane = self.surfaces[i].pane_thickness
                                 / self.surfaces[i].pane_conductivity;
                             u_glass = 1.0 / (2.0 * r_pane + 1.0 / h_gap);
-                            // Cap at 110% of NFRC-rated value: the gap model can
+                            // Cap at 105% of NFRC-rated value: the gap model can
                             // improve upon the rating (lower U in winter when gas
                             // is cooler) but should not degrade too far beyond it.
                             // At extreme temperatures, gap radiation (h_rad ∝ T³)
