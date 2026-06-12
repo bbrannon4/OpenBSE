@@ -5019,6 +5019,24 @@ fn simulate_all_loops(
             ),
         };
 
+        // Return-air humidity for mixed-air construction: served-zone average
+        // of the actual zone moisture balance. Previously synthesized as
+        // "50% RH at the mixed-air temperature", which decoupled coil latent
+        // loads from the zone moisture balance and diverged numerically for
+        // return temps above 100°C (saturation pressure exceeds atmospheric).
+        {
+            let (sum_w, n_w) = li
+                .served_zones
+                .iter()
+                .filter_map(|z| zone_humidity_ratios.get(z))
+                .fold((0.0_f64, 0usize), |(s, n), w| (s + w, n + 1));
+            if n_w > 0 {
+                signals
+                    .coil_setpoints
+                    .insert("__return_air_w__".to_string(), sum_w / n_w as f64);
+            }
+        }
+
         // Filter heat recovery out of the component chain — it was already
         // pre-processed above and its effect is baked into effective_t_outdoor.
         let chain_components: Vec<String> = if let Some(ref hr_name) = li.heat_recovery_name {
@@ -5276,7 +5294,15 @@ fn simulate_all_loops(
 
                 match mode {
                     HvacMode::Heating => {
-                        let q_capacity = supply_flow * cp_air * (supply_temp - heat_sp);
+                        // Capacity reference: the colder of setpoint and zone
+                        // temp. Near setpoint both are equivalent; when the
+                        // zone has crashed far below setpoint a capacity-
+                        // limited coil may not reach heat_sp at full load,
+                        // but supply air warmer than the zone still heats —
+                        // measuring against heat_sp alone latches PLR to 0
+                        // and the zone can never recover.
+                        let heat_ref = heat_sp.min(control_temp);
+                        let q_capacity = supply_flow * cp_air * (supply_temp - heat_ref);
                         if control_temp > heat_sp + dead_band * 0.5 {
                             // Zone well above heating setpoint (e.g., setpoint
                             // transition to unoccupied).  Stale ideal load is
@@ -5303,7 +5329,15 @@ fn simulate_all_loops(
                         }
                     }
                     HvacMode::Cooling => {
-                        let q_capacity = supply_flow * cp_air * (cool_sp - supply_temp);
+                        // Mirror of the heating capacity reference: when the
+                        // zone is far above setpoint, full-load supply may be
+                        // warmer than cool_sp yet still cooler than the zone —
+                        // it still cools. Reference the warmer of the two so a
+                        // capacity-limited coil can recover from excursions
+                        // instead of latching PLR to 0 (caught by ASHRAE 140
+                        // CE100: massless zone diverges during warmup).
+                        let cool_ref = cool_sp.max(control_temp);
+                        let q_capacity = supply_flow * cp_air * (cool_ref - supply_temp);
                         if control_temp < cool_sp - dead_band * 0.5 {
                             // Zone well below cooling setpoint — do not cool.
                             effective_min_oa
@@ -7187,12 +7221,21 @@ fn simulate_loop_components(
             .get("__effective_oa_w__")
             .copied()
             .unwrap_or(ctx.outdoor_air.w);
-        let w_indoor = openbse_psychrometrics::MoistAirState::from_tdb_rh(
-            inlet_temp_override.unwrap_or(ctx.outdoor_air.t_db),
-            0.50,
-            ctx.outdoor_air.p_b,
-        )
-        .w;
+        // Return-air humidity: actual served-zone moisture balance average
+        // (set by simulate_all_loops). Fallback for direct callers: 50% RH
+        // at the return temperature.
+        let w_indoor = signals
+            .coil_setpoints
+            .get("__return_air_w__")
+            .copied()
+            .unwrap_or_else(|| {
+                openbse_psychrometrics::MoistAirState::from_tdb_rh(
+                    inlet_temp_override.unwrap_or(ctx.outdoor_air.t_db),
+                    0.50,
+                    ctx.outdoor_air.p_b,
+                )
+                .w
+            });
         let w_mixed = oa_fraction * w_oa + (1.0 - oa_fraction) * w_indoor;
         let mixed_state =
             openbse_psychrometrics::MoistAirState::new(override_temp, w_mixed, ctx.outdoor_air.p_b);

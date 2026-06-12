@@ -12,14 +12,18 @@ Severity: **HIGH** (wrong results in common cases) / **MED** (wrong in some case
 | DX-3 constant-SHR latent dropped | **FIXED** — total = sensible/SHR, latent removed from airstream (non-default mode only). |
 | DX-4 multi-speed inconsistency | **FIXED** — sensible/total/latent/power all scale with stage PLR; derate constants unified with single-speed (0.008 cap, 0.012 EIR). |
 | S-2/S-3/C-1 doc errors | **FIXED** — README now says Perez 1990 + Clark & Allen; comments corrected. |
-| DX-1/DX-2 wet-coil curves + frozen ADP | **OPEN** — attempted capacity rescaling was reverted after ASHRAE 140 CE100 A/B showed the frozen ADP makes the BF-derived SHR unreliable for dry inlets (sensible/latent split corrupted). Needs E+'s per-timestep ADP/BF recomputation; warning comment added at the site. |
-| HR-1 unbalanced heat recovery | **OPEN** — needs exhaust flow plumbed into the component (input schema addition). |
-| HP-3 heuristic defrost | **OPEN** — implement E+ reverse-cycle defrost formulation. |
+| DX-1/DX-2 wet-coil curves + frozen ADP | **FIXED (round 2)** — full E+ `CalcDoe2DXCoil` ADP/BF method: `tsat_fn_h_pb` added to psychrometrics; ADP recomputed each timestep from current entering conditions and curve-modified capacity; dry coil when w_ADP ≥ w_in. CE100 now matches the committed validated baseline (3303 kWh) and correctly shows zero latent (dry analytical case — the old model spuriously removed 491 kWh latent). |
+| M-4 fabricated return-air humidity (found in round 2) | **FIXED** — mixed-air construction used "50% RH at the mixed-air temperature" as return humidity, decoupling coil latent loads from the zone moisture balance and exploding numerically above 100 °C. Now uses the served-zone average humidity ratio via `__return_air_w__` signal. |
+| M-5 PLR latch-up against setpoint (found in round 2) | **FIXED** — PSZ heating/cooling capacity was referenced to the setpoint (`cool_sp − supply_temp`); when a capacity-limited coil couldn't push supply past the setpoint during an excursion, PLR latched to 0 and the zone could never recover (CE100 massless zone diverged to 210 °C during warmup). Capacity now referenced to the worse of setpoint and zone temp. |
+| HR-1 unbalanced heat recovery | **FIXED (round 2)** — `exhaust_flow_ratio` input (default 1.0 = balanced, schema updated); recovery limited by C_min = ratio·C_supply, latent scaled likewise. |
+| HP-3 heuristic defrost | **FIXED (round 2)** — E+ timed-defrost formulation (DXCoils.cc): outdoor-coil T = 0.82·T_odb − 8.589, Δw frost driver, capacity mult 0.909−107.33Δw, input mult 0.90−36.45Δw, LoadDueToDefrost, per-strategy defrost power × runtime fraction. DefrostEIRfT modifier = 1.0 (no curve input yet). `defrost_min_temp` now legacy/unused. |
+| P-1 air density (1+w) factor | **FIXED (round 2)** — matched E+ `PsyRhoAirFnPbTdbW` (dropped the (1+w) factor) per the reference-standard policy. All 140 metrics stayed in range; SF gas heating moved to 7387 kWh (+4.8% vs E+ 7052 — now inside the 5% target). |
 | M-2 name-substring coil dispatch | **OPEN** — refactor to type-based dispatch (code-review phase). |
 | M-3 economizer return temp | **OPEN**. |
-| P-1 air density (1+w) factor | **OPEN — decision needed**: keep (more physically correct) or match E+ `PsyRhoAirFnPbTdbW` (reference-standard policy). ~1% systematic effect on mass flows. |
 | S-4 MRT vs ScriptF | **OPEN** — quantify against E+ before deciding. |
 | CTF-1 simple-construction heuristics | **OPEN** — document; prefer layered constructions. |
+
+Round-2 regression results (A/B): case 600 → 4305/5848 kWh (range 3993–4504 / 5432–6162 ✓), case 900 → 1715/2397 (1379–1814 / 2267–2714 ✓), CE100 → 3303.8 kWh elec (validated baseline 3303.3 ✓, latent now correctly 0), SingleFamily Boulder → heating 6247 kWh / gas 7387 kWh (−1.0% vs round 1, now +4.8% vs E+).
 
 ## Findings
 

@@ -387,7 +387,9 @@
           "description": "Heat recovery device type. Wheels transfer both sensible and latent; plates are sensible-only."
         },
         "sensible_effectiveness": { "type": "number", "default": 0.76, "minimum": 0, "maximum": 1, "description": "Sensible effectiveness at design conditions [0-1]." },
-        "latent_effectiveness": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Latent effectiveness [0-1]. 0 for sensible-only devices." }
+        "latent_effectiveness": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Latent effectiveness [0-1]. 0 for sensible-only devices." },
+        "parasitic_power": { "type": "number", "default": 0.0, "minimum": 0, "description": "Parasitic electric power [W] (wheel motor, controls)." },
+        "exhaust_flow_ratio": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Exhaust-to-supply mass flow ratio [0-1]. Recovery is limited by the exhaust stream when it carries less flow than supply (typical with building pressurization)." }
       }
     },
 

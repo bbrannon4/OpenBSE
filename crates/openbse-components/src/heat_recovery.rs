@@ -48,6 +48,12 @@ pub struct HeatRecovery {
     pub exhaust_air_w: f64,
     /// Parasitic electric power [W] (wheel motor, etc.)
     pub parasitic_power: f64,
+    /// Exhaust-to-supply mass flow ratio [0-1+] (default 1.0 = balanced).
+    /// Real systems usually exhaust less than they supply (building
+    /// pressurization); the exhaust stream then limits recovery:
+    /// Q = ε · C_min · ΔT with C_min = min(C_supply, ratio·C_supply).
+    #[serde(default = "default_exhaust_flow_ratio")]
+    pub exhaust_flow_ratio: f64,
 
     // ─── Runtime state (not serialized) ─────────────────────────────────
     /// Sensible heat recovery rate [W] (positive = heating supply air)
@@ -70,6 +76,10 @@ const BYPASS_DEADBAND: f64 = 1.0;
 /// Heat of vaporization of water at ~20 C [J/kg].
 const HFG: f64 = 2.454e6;
 
+fn default_exhaust_flow_ratio() -> f64 {
+    1.0
+}
+
 impl HeatRecovery {
     /// Create a new enthalpy wheel heat recovery unit.
     pub fn enthalpy_wheel(
@@ -87,6 +97,7 @@ impl HeatRecovery {
             exhaust_air_temp: 22.0,
             exhaust_air_w: 0.008,
             parasitic_power,
+            exhaust_flow_ratio: 1.0,
             sensible_recovery: 0.0,
             latent_recovery: 0.0,
             electric_power: 0.0,
@@ -104,6 +115,7 @@ impl HeatRecovery {
             exhaust_air_temp: 22.0,
             exhaust_air_w: 0.008,
             parasitic_power,
+            exhaust_flow_ratio: 1.0,
             sensible_recovery: 0.0,
             latent_recovery: 0.0,
             electric_power: 0.0,
@@ -151,15 +163,19 @@ impl AirComponent for HeatRecovery {
         }
 
         // ── Sensible recovery ───────────────────────────────────────────
-        // Using the effectiveness-NTU approach with C_min on the supply side
-        // (conservative: assumes balanced or supply-limited flow).
+        // Effectiveness-NTU: recovery scales with the LIMITING capacity
+        // rate. With exhaust flow below supply flow (typical — building
+        // pressurization), the exhaust stream limits what can be recovered:
+        //   Q = ε_s · C_min · (T_exhaust − T_outdoor)
+        //   C_min = min(C_supply, ratio · C_supply)
         let cp_air = psych::cp_air_fn_w(w_oa);
         let c_supply = inlet.mass_flow * cp_air; // [W/K]
+        let flow_ratio = self.exhaust_flow_ratio.clamp(0.0, 1.0);
+        let c_min = c_supply * flow_ratio;
 
-        // Q_sensible = epsilon_s * C_min * (T_exhaust - T_outdoor)
         // Positive Q means heating the outdoor air (winter), negative means
         // cooling (summer).
-        let q_sensible = self.sensible_effectiveness * c_supply * (t_exh - t_oa);
+        let q_sensible = self.sensible_effectiveness * c_min * (t_exh - t_oa);
 
         let outlet_t = t_oa + q_sensible / c_supply;
 
@@ -169,7 +185,7 @@ impl AirComponent for HeatRecovery {
             HeatRecoveryType::PlateHX => 0.0,
         };
 
-        let delta_w = latent_eff * (w_exh - w_oa);
+        let delta_w = latent_eff * flow_ratio * (w_exh - w_oa);
         let outlet_w = (w_oa + delta_w).max(psych::w_fn_tdb_rh_pb(-100.0, 0.0, inlet.state.p_b));
         let q_latent = inlet.mass_flow * HFG * delta_w;
 

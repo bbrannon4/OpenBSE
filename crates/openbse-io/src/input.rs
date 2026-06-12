@@ -1317,6 +1317,15 @@ pub struct HeatRecoveryInput {
     /// Parasitic electric power [W] (wheel motor, controls). Default 0.0.
     #[serde(default)]
     pub parasitic_power: f64,
+    /// Exhaust-to-supply mass flow ratio [0-1] (default 1.0 = balanced).
+    /// The exhaust stream limits recovery when it carries less flow than
+    /// the supply (typical with building pressurization).
+    #[serde(default = "default_exhaust_flow_ratio")]
+    pub exhaust_flow_ratio: f64,
+}
+
+fn default_exhaust_flow_ratio() -> f64 {
+    1.0
 }
 
 fn default_hr_source() -> String {
@@ -3108,6 +3117,7 @@ fn build_graph_impl(
                     };
                     let mut erv = erv;
                     erv.submeter = hr.submeter.clone();
+                    erv.exhaust_flow_ratio = hr.exhaust_flow_ratio;
                     graph.add_air_component(Box::new(erv))
                 }
                 EquipmentInput::Humidifier(h) => {

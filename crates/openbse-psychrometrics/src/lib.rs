@@ -227,6 +227,37 @@ pub fn tsat_fn_press(press: f64) -> f64 {
     t_sat
 }
 
+/// Saturation temperature from enthalpy and barometric pressure.
+///
+/// Finds the temperature on the saturation curve where the saturated moist
+/// air enthalpy equals `h`. Matches EnergyPlus `PsyTsatFnHPb` (used to
+/// locate the apparatus dew point in DX coil models).
+pub fn tsat_fn_h_pb(h: f64, p_b: f64) -> f64 {
+    // h_sat(T) is monotonically increasing — bisection over the E+ range.
+    let mut lo = -50.0_f64;
+    let mut hi = 100.0_f64;
+    let h_sat = |t: f64| h_fn_tdb_w(t, w_fn_tdb_rh_pb(t, 1.0, p_b));
+
+    if h <= h_sat(lo) {
+        return lo;
+    }
+    if h >= h_sat(hi) {
+        return hi;
+    }
+    for _ in 0..60 {
+        let mid = 0.5 * (lo + hi);
+        if h_sat(mid) < h {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+        if hi - lo < 1.0e-5 {
+            break;
+        }
+    }
+    0.5 * (lo + hi)
+}
+
 /// Wet-bulb temperature from dry-bulb, humidity ratio, and barometric pressure.
 ///
 /// Iterative solver matching EnergyPlus `PsyTwbFnTdbWPb`.
@@ -291,9 +322,13 @@ pub fn twb_fn_tdb_w_pb(t_db: f64, w: f64, p_b: f64) -> f64 {
 /// Air density [kg/m³]
 pub fn rho_air_fn_pb_tdb_w(p_b: f64, t_db: f64, w: f64) -> f64 {
     let w = w.max(W_MIN);
-    // Gas constant for dry air = 287.055 J/(kg·K)
-    // Factor (1 + W) / (1 + 1.6078 * W) accounts for moisture
-    p_b / (287.055 * (t_db + KELVIN) * (1.0 + 1.6078 * w) / (1.0 + w))
+    // E+ PsyRhoAirFnPbTdbW: rho = pb / (287 · T_K · (1 + 1.6078·W)).
+    // Note this is the dry-air partial density (kg dry air per m³ of moist
+    // air), not total moist-air density (which would carry an extra (1+W)
+    // factor, ~+1% at W=0.01). E+ uses this form consistently for
+    // volumetric-to-mass flow conversions, and E+ math is the reference
+    // standard — flows and capacities calibrate against it.
+    p_b / (287.055 * (t_db + KELVIN) * (1.0 + 1.6078 * w))
 }
 
 /// Specific volume from dry-bulb, humidity ratio, and barometric pressure.
@@ -502,6 +537,17 @@ mod tests {
         // Saturation temp at 101325 Pa should be ~100°C
         let t = tsat_fn_press(101325.0);
         assert_relative_eq!(t, 100.0, max_relative = 0.001);
+    }
+
+    #[test]
+    fn test_tsat_fn_h_pb_round_trip() {
+        // h of saturated air at 10°C should invert back to 10°C
+        for t in [0.0, 5.0, 10.0, 15.0, 20.0, 30.0] {
+            let w_sat = w_fn_tdb_rh_pb(t, 1.0, 101325.0);
+            let h = h_fn_tdb_w(t, w_sat);
+            let t_back = tsat_fn_h_pb(h, 101325.0);
+            assert_relative_eq!(t_back, t, epsilon = 0.01);
+        }
     }
 
     #[test]

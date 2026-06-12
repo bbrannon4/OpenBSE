@@ -387,64 +387,68 @@ impl AirComponent for CoolingCoilDX {
                 self.initialize_bypass_factor();
             }
 
-            // Check if coil surface is wet: entering dew point > ADP temp
-            let t_dp_entering = psych::tdp_fn_w_pb(inlet.state.w, inlet.state.p_b);
+            // E+ CalcDoe2DXCoil apparatus dew point method: the curve-modified
+            // total capacity (Cap-fT × Cap-fFlow) fixes the full-load outlet
+            // enthalpy, and the rated bypass factor locates the ADP on the
+            // saturation curve from *current* entering conditions. The SHR
+            // follows from the ADP — recomputed every timestep, so capacity
+            // derates with outdoor temperature and the sensible/latent split
+            // tracks the entering air state (dry inlets give a dry coil).
+            //
+            // Reference: EnergyPlus DXCoils.cc CalcDoe2DXCoil:
+            //   hADP = h_in − (h_in − h_out_full) / (1 − BF)
+            //   tADP = PsyTsatFnHPb(hADP)
+            //   wADP = PsyWFnTdbH(tADP, hADP)
+            //   SHR  = min((h(t_in, wADP) − hADP) / (h_in − hADP), 1)
+            let h_in = psych::h_fn_tdb_w(inlet.state.t_db, inlet.state.w);
+            let m = inlet.mass_flow;
+            let h_out_full = h_in - available_cap / m;
+            let bf = self.bypass_factor.clamp(0.0, 0.9);
+            let h_adp = h_in - (h_in - h_out_full) / (1.0 - bf);
+            let t_adp = psych::tsat_fn_h_pb(h_adp, inlet.state.p_b);
+            let w_adp = psych::w_fn_tdb_h(t_adp, h_adp);
 
-            if t_dp_entering <= self.adp_temp {
-                // Dry coil: all cooling is sensible, no dehumidification
-                let plr = (q_sensible_required / available_cap).clamp(0.0, 1.0);
-                let qs = available_cap * plr;
-                let dt = qs / (inlet.mass_flow * cp_air);
-                (qs, qs, inlet.state.t_db - dt, inlet.state.w)
+            // Dry coil when the ADP humidity ratio is at or above the
+            // entering humidity ratio (no condensation possible).
+            let shr = if w_adp >= inlet.state.w {
+                1.0
             } else {
-                // Wet coil: compute actual SHR from entering conditions and BF
-                let h_in = psych::h_fn_tdb_w(inlet.state.t_db, inlet.state.w);
-
-                // Effective ADP: recalculate at current conditions using the
-                // condition line slope method.
-                // slope = cp_moist / SHR, but SHR itself depends on slope...
-                // Use the rated BF with entering conditions to get outlet state:
-                //   h_out_full = h_adp + BF × (h_in - h_adp)
-                //   w_out_full = w_adp + BF × (w_in - w_adp)
-                // This gives the outlet at full capacity (PLR=1).
-                let bf = self.bypass_factor;
-                let h_out_full = self.adp_h + bf * (h_in - self.adp_h);
-                let w_out_full = self.adp_w + bf * (inlet.state.w - self.adp_w);
-                let t_out_full = psych::tdb_fn_h_w(h_out_full, w_out_full);
-
-                // KNOWN DEVIATION from E+ (physics review DX-1/DX-2): the
-                // full-load output here comes from the rated-condition
-                // ADP/BF geometry, so Cap-fT/Cap-fFlow do not derate the
-                // delivered capacity (they only normalize power), and the
-                // frozen ADP misbehaves for entering air much drier than
-                // ARI rated (h_adp can approach h_in). The correct fix is
-                // E+'s per-timestep ADP recomputation from current entering
-                // conditions and TotCap·CapFT — do not partially "fix" this
-                // by rescaling to available_cap: with a frozen ADP the
-                // BF-derived SHR is unreliable for dry inlets and the
-                // rescale corrupts the sensible/latent split (caught by
-                // ASHRAE 140 case CE100).
-                let q_total_full = inlet.mass_flow * (h_in - h_out_full);
-                let q_sens_full = inlet.mass_flow * cp_air * (inlet.state.t_db - t_out_full);
-
-                // PLR based on sensible load vs sensible capacity
-                let plr = if q_sens_full > 0.0 {
-                    (q_sensible_required / q_sens_full).clamp(0.0, 1.0)
+                let h_tin_wadp = psych::h_fn_tdb_w(inlet.state.t_db, w_adp);
+                let dh = h_in - h_adp;
+                if dh > 1.0 {
+                    ((h_tin_wadp - h_adp) / dh).clamp(0.0, 1.0)
                 } else {
-                    0.0
-                };
+                    1.0
+                }
+            };
 
-                // Actual delivered quantities
-                let qs = q_sens_full * plr;
-                let qt = q_total_full * plr;
-                let dt = qs / (inlet.mass_flow * cp_air);
-                let out_t = inlet.state.t_db - dt;
+            let q_sens_full = shr * available_cap;
 
-                // Outlet humidity: interpolate between entering and full-load outlet
-                let out_w = inlet.state.w - plr * (inlet.state.w - w_out_full);
+            // PLR based on sensible load vs sensible capacity
+            let plr = if q_sens_full > 0.0 {
+                (q_sensible_required / q_sens_full).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
 
-                (qs, qt, out_t, out_w.max(1.0e-5))
-            }
+            // Actual delivered quantities
+            let qs = q_sens_full * plr;
+            let qt = available_cap * plr;
+            let dt = qs / (m * cp_air);
+            let out_t = inlet.state.t_db - dt;
+
+            // Full-load outlet humidity per E+: remove the latent portion of
+            // the enthalpy change at the entering dry-bulb, then interpolate
+            // toward it by PLR (time-averaged cycling outlet).
+            let out_w = if shr >= 1.0 {
+                inlet.state.w
+            } else {
+                let h_tin_wout = h_in - (1.0 - shr) * (h_in - h_out_full);
+                let w_out_full = psych::w_fn_tdb_h(inlet.state.t_db, h_tin_wout);
+                inlet.state.w - plr * (inlet.state.w - w_out_full)
+            };
+
+            (qs, qt, out_t, out_w.max(1.0e-5))
         } else {
             // Constant SHR mode: total = sensible / rated_SHR, with the
             // latent portion removed from the airstream. (Previously latent

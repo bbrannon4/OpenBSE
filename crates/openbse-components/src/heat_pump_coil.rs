@@ -64,12 +64,15 @@ pub struct HeatPumpHeatingCoil {
     // ─── Defrost parameters ──────────────────────────────────────────────
     /// Defrost strategy
     pub defrost_strategy: DefrostStrategy,
-    /// Outdoor temperature below which defrost activates [°C] (default: 5.0)
+    /// Outdoor temperature below which defrost activates [°C] (default: 5.0).
+    /// Maps to E+ "Maximum Outdoor Dry-Bulb Temperature for Defrost Operation".
     pub defrost_onset_temp: f64,
-    /// Maximum defrost time fraction at minimum outdoor temp [0-1] (default: 0.08)
-    /// Linear ramp from 0 at defrost_onset_temp to max at defrost_min_temp.
+    /// Defrost time fraction [0-1] whenever defrost is active (default: 0.08).
+    /// Maps to E+ timed-defrost "Defrost Time Period Fraction" (E+ default 0.058333).
     pub defrost_max_fraction: f64,
-    /// Outdoor temperature at which defrost fraction reaches maximum [°C] (default: -8.33)
+    /// Legacy field, no longer used (the old linear-ramp defrost model was
+    /// replaced by the E+ timed-defrost formulation). Retained so existing
+    /// YAML inputs still parse.
     pub defrost_min_temp: f64,
     /// Resistive defrost heater power [W] (only used for Resistive strategy)
     pub defrost_heater_power: f64,
@@ -208,36 +211,71 @@ impl HeatPumpHeatingCoil {
         }
     }
 
-    /// Calculate defrost time fraction and capacity/power adjustments.
+    /// Defrost adjustments per the EnergyPlus timed-defrost model
+    /// (DXCoils.cc `CalcDXHeatingCoil`, Engineering Reference
+    /// "DX Heating Coil Model — Defrost Adjustment Factors").
     ///
-    /// Returns (net_capacity_fraction, extra_power_fraction)
-    fn defrost_adjustments(&self, t_outdoor: f64) -> (f64, f64) {
-        if t_outdoor >= self.defrost_onset_temp {
-            return (1.0, 0.0);
+    /// The outdoor coil runs colder than ambient; frost forms when its
+    /// saturation humidity ratio falls below the outdoor humidity ratio:
+    ///   T_coil = 0.82·T_odb − 8.589
+    ///   Δw     = max(1e-6, w_outdoor − w_sat(T_coil))
+    ///
+    /// Timed control (E+ default): whenever T_odb < `defrost_onset_temp`
+    /// (E+ MaxOATDefrost) the unit defrosts for a fixed fraction of each
+    /// hour (`defrost_max_fraction`, E+ Defrost Time Period Fraction):
+    ///   HeatingCapacityMultiplier = 0.909 − 107.33·Δw
+    ///   InputPowerMultiplier      = 0.90  − 36.45·Δw
+    ///   LoadDueToDefrost = 0.01·f_def·(7.222 − T_odb)·(Q_rated/1.01667)
+    ///   DefrostPower (reverse-cycle) = (Q_rated/1.01667)·f_def
+    ///     (DefrostEIRfT modifier taken as 1.0 — no defrost EIR curve input)
+    ///   DefrostPower (resistive)     = defrost_heater_power·f_def
+    fn defrost_adjustments(&self, t_outdoor: f64, w_outdoor: f64, p_b: f64) -> DefrostAdjustments {
+        let frac_defrost = self.defrost_max_fraction.clamp(0.0, 1.0);
+        if t_outdoor >= self.defrost_onset_temp || frac_defrost <= 0.0 {
+            return DefrostAdjustments {
+                capacity_multiplier: 1.0,
+                input_power_multiplier: 1.0,
+                load_due_to_defrost: 0.0,
+                defrost_power: 0.0,
+            };
         }
 
-        // Linear ramp of defrost fraction from 0 at onset to max at min_temp
-        let range = (self.defrost_onset_temp - self.defrost_min_temp).max(1.0);
-        let frac = ((self.defrost_onset_temp - t_outdoor) / range).clamp(0.0, 1.0);
-        let defrost_fraction = frac * self.defrost_max_fraction;
+        // Outdoor coil temperature and frost-driving humidity depression
+        let t_coil_out = 0.82 * t_outdoor - 8.589;
+        let w_sat_coil = psych::w_fn_tdb_rh_pb(t_coil_out, 1.0, p_b);
+        let coil_dw = (w_outdoor - w_sat_coil).max(1.0e-6);
 
-        match self.defrost_strategy {
-            DefrostStrategy::ReverseCycle => {
-                // During reverse-cycle defrost, heating stops and compressor still runs.
-                // Net capacity reduced by defrost fraction, power stays roughly the same.
-                let net_cap_fraction = 1.0 - defrost_fraction;
-                let extra_power_fraction = defrost_fraction * 0.3; // slight power increase
-                (net_cap_fraction, extra_power_fraction)
-            }
-            DefrostStrategy::Resistive => {
-                // Resistive defrost: capacity slightly reduced (coil frost),
-                // but no reverse cycle loss. Defrost heater adds extra power.
-                let net_cap_fraction = 1.0 - defrost_fraction * 0.5;
-                let extra_power_fraction = 0.0; // defrost heater power tracked separately
-                (net_cap_fraction, extra_power_fraction)
-            }
+        let capacity_multiplier = (0.909 - 107.33 * coil_dw).clamp(0.1, 1.0);
+        let input_power_multiplier = (0.90 - 36.45 * coil_dw).clamp(0.1, 1.0);
+
+        let nominal = self.rated_capacity / 1.01667;
+        let load_due_to_defrost = 0.01 * frac_defrost * (7.222 - t_outdoor) * nominal;
+
+        let defrost_power = match self.defrost_strategy {
+            // DefrostEIRfT modifier ≈ 1.0 (no defrost EIR curve plumbed yet)
+            DefrostStrategy::ReverseCycle => nominal * frac_defrost,
+            DefrostStrategy::Resistive => self.defrost_heater_power * frac_defrost,
+        };
+
+        DefrostAdjustments {
+            capacity_multiplier,
+            input_power_multiplier,
+            load_due_to_defrost,
+            defrost_power,
         }
     }
+}
+
+/// E+ defrost model outputs for one timestep.
+struct DefrostAdjustments {
+    /// Multiplier on available heating capacity (frosted-coil degradation)
+    capacity_multiplier: f64,
+    /// Multiplier on compressor input power
+    input_power_multiplier: f64,
+    /// Heat extracted from the heating capacity during reverse-cycle defrost [W]
+    load_due_to_defrost: f64,
+    /// Defrost energy use [W] (reverse-cycle compressor or resistive heater)
+    defrost_power: f64,
 }
 
 impl AirComponent for HeatPumpHeatingCoil {
@@ -286,35 +324,36 @@ impl AirComponent for HeatPumpHeatingCoil {
             let available_cap = self.available_capacity(t_outdoor, t_indoor);
             let cop = self.available_cop(t_outdoor, t_indoor);
 
-            // Apply defrost adjustments
-            let (cap_fraction, power_extra_fraction) = self.defrost_adjustments(t_outdoor);
-            let net_capacity = available_cap * cap_fraction;
+            // E+ defrost adjustments: frosted-coil capacity/power multipliers,
+            // reverse-cycle defrost load, and defrost energy use.
+            let defrost = self.defrost_adjustments(t_outdoor, ctx.outdoor_air.w, inlet.state.p_b);
+            let net_capacity = (available_cap * defrost.capacity_multiplier
+                - defrost.load_due_to_defrost)
+                .max(0.0);
 
-            // Part-load ratio
-            let plr = (q_required / net_capacity).clamp(0.0, 1.0);
+            if net_capacity > 0.0 {
+                // Part-load ratio
+                let plr = (q_required / net_capacity).clamp(0.0, 1.0);
 
-            // Heat delivered by HP
-            q_hp = net_capacity * plr;
+                // Heat delivered by HP
+                q_hp = net_capacity * plr;
 
-            // Compressor power
-            // PLF curve: PLF = 1 - Cd × (1 - PLR), Cd ≈ 0.15
-            let plf = 1.0 - 0.15 * (1.0 - plr);
-            let runtime = if plf > 0.0 { plr / plf } else { 0.0 };
+                // Compressor power
+                // PLF curve: PLF = 1 - Cd × (1 - PLR), Cd ≈ 0.15
+                let plf = 1.0 - 0.15 * (1.0 - plr);
+                let runtime = if plf > 0.0 { plr / plf } else { 0.0 };
 
-            p_compressor = if cop > 0.0 {
-                available_cap * runtime / cop * (1.0 + power_extra_fraction)
-            } else {
-                0.0
-            };
+                p_compressor = if cop > 0.0 {
+                    available_cap * defrost.capacity_multiplier / cop
+                        * defrost.input_power_multiplier
+                        * runtime
+                } else {
+                    0.0
+                };
 
-            // Resistive defrost heater power
-            if matches!(self.defrost_strategy, DefrostStrategy::Resistive)
-                && t_outdoor < self.defrost_onset_temp
-            {
-                let range = (self.defrost_onset_temp - self.defrost_min_temp).max(1.0);
-                let frac = ((self.defrost_onset_temp - t_outdoor) / range).clamp(0.0, 1.0);
-                let defrost_fraction = frac * self.defrost_max_fraction;
-                p_defrost = self.defrost_heater_power * defrost_fraction;
+                // Defrost energy (reverse-cycle compressor or resistive
+                // heater) scales with the heating runtime fraction, per E+.
+                p_defrost = defrost.defrost_power * runtime;
             }
         }
 
