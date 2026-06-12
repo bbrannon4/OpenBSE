@@ -54,7 +54,7 @@ openbse-cli              ← Depends on all above. Binary entry point, simulatio
 ## File Organization
 
 ```
-crates/                      Rust source code (8 crates)
+crates/                      Rust source code (10 crates)
 examples/                    Example YAML model files (simple_heating, vav_reheat, etc.)
 140_tests/                   ASHRAE Standard 140-2023 validation test cases
   cases/                       31 YAML input files

@@ -67,6 +67,10 @@ struct LoopInfo {
     /// coils (single/multi-speed) and WSHP. Heat pump heating coils apply
     /// PLF internally; electric/gas/HW heating coils have no PLF in E+.
     dx_compressor_names: HashSet<String>,
+    /// Component kinds by name, from the loop's equipment list. Used by the
+    /// signal builders to dispatch coil control on type instead of name
+    /// substrings (code review CR-1).
+    component_kinds: HashMap<String, ComponentKind>,
     /// Zones served by this loop
     served_zones: Vec<String>,
     /// Minimum outdoor air fraction [0-1]. DOAS always 1.0.
@@ -117,6 +121,48 @@ struct LoopInfo {
     economizer_high_limit: Option<f64>,
     /// Economizer high-limit shutoff enthalpy [J/kg] (for FixedEnthalpy / EnthalpyWithHighLimit).
     economizer_high_limit_enthalpy: Option<f64>,
+}
+
+/// Control role of a component in a signal builder's coil dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoilRole {
+    Cooling,
+    Heating,
+    Humidifier,
+    Other,
+}
+
+impl LoopInfo {
+    /// Control role for a component, dispatched on its `ComponentKind` from
+    /// the loop's equipment list. Falls back to the legacy name-substring
+    /// heuristic for components not in the map (e.g., hand-built test loops),
+    /// so unconventional names still resolve the way they used to.
+    fn coil_role(&self, name: &str) -> CoilRole {
+        match self.component_kinds.get(name) {
+            Some(ComponentKind::CoolingCoil) | Some(ComponentKind::EvapCooler) => {
+                return CoilRole::Cooling
+            }
+            Some(ComponentKind::HeatingCoil) => return CoilRole::Heating,
+            Some(ComponentKind::Humidifier) => return CoilRole::Humidifier,
+            Some(_) => return CoilRole::Other,
+            None => {}
+        }
+        let l = name.to_lowercase();
+        if l.contains("cool") || l.contains("dx") || l.starts_with("cc ") || l.starts_with("cc_") {
+            CoilRole::Cooling
+        } else if l.contains("heat")
+            || l.contains("furnace")
+            || (l.contains("hw") && !l.contains("chw"))
+            || l.starts_with("hc ")
+            || l.starts_with("hc_")
+        {
+            CoilRole::Heating
+        } else if l.contains("humid") {
+            CoilRole::Humidifier
+        } else {
+            CoilRole::Other
+        }
+    }
 }
 
 /// Per-zone data for ASHRAE 62.1 ventilation rate procedure.
@@ -182,6 +228,39 @@ fn build_loop_infos(
                         EquipmentInput::CoolingCoilMultiSpeed(c) => Some(c.name.clone()),
                         EquipmentInput::Wshp(w) => Some(w.name.clone()),
                         _ => None,
+                    }
+                })
+                .collect();
+
+            let component_kinds: HashMap<String, ComponentKind> = al
+                .equipment
+                .iter()
+                .map(|eq| {
+                    use openbse_io::input::EquipmentInput;
+                    match eq {
+                        EquipmentInput::Fan(f) => (f.name.clone(), ComponentKind::Fan),
+                        EquipmentInput::HeatingCoil(c) => {
+                            (c.name.clone(), ComponentKind::HeatingCoil)
+                        }
+                        EquipmentInput::CoolingCoil(c) => {
+                            (c.name.clone(), ComponentKind::CoolingCoil)
+                        }
+                        EquipmentInput::CoolingCoilMultiSpeed(c) => {
+                            (c.name.clone(), ComponentKind::CoolingCoil)
+                        }
+                        EquipmentInput::Wshp(w) => (w.name.clone(), ComponentKind::CoolingCoil),
+                        EquipmentInput::Gshp(g) => (g.name.clone(), ComponentKind::Gshp),
+                        EquipmentInput::HeatRecovery(h) => {
+                            (h.name.clone(), ComponentKind::HeatRecovery)
+                        }
+                        EquipmentInput::Humidifier(h) => {
+                            (h.name.clone(), ComponentKind::Humidifier)
+                        }
+                        EquipmentInput::Duct(d) => (d.name.clone(), ComponentKind::Duct),
+                        EquipmentInput::EvapCooler(e) => {
+                            (e.name.clone(), ComponentKind::EvapCooler)
+                        }
+                        EquipmentInput::ExternalAir(e) => (e.name.clone(), ComponentKind::Other),
                     }
                 })
                 .collect();
@@ -291,6 +370,7 @@ fn build_loop_infos(
                 component_names,
                 fan_names,
                 dx_compressor_names,
+                component_kinds,
                 served_zones,
                 min_oa_fraction,
                 explicit_min_oa,
@@ -1632,7 +1712,7 @@ fn main() -> Result<()> {
 
                 for comp in graph.air_components_mut() {
                     let name = comp.name().to_string();
-                    let lname = name.to_lowercase();
+                    let kind = comp.component_kind();
 
                     // Only autosize components that belong to an air loop's equipment list.
                     // Terminal boxes (VAV boxes, PFP boxes) are handled separately below
@@ -1652,15 +1732,10 @@ fn main() -> Result<()> {
                         info!("Autosized '{}' flow rate: {:.4} m³/s", name, loop_flow);
                     }
 
-                    // Autosize coil capacities
-                    if lname.contains("heat")
-                        || lname.contains("furnace")
-                        || lname.contains("preheat")
-                        || lname.contains("reheat")
-                        || (lname.contains("hw") && !lname.contains("chw"))
-                        || lname.starts_with("hc ")
-                        || lname.starts_with("hc_")
-                    {
+                    // Autosize coil capacities (dispatch on ComponentKind —
+                    // name-substring matching silently missed unconventional
+                    // coil names; see code review CR-1)
+                    if matches!(kind, ComponentKind::HeatingCoil) {
                         if let Some(cap) = comp.nominal_capacity() {
                             if is_autosize(cap) {
                                 comp.set_nominal_capacity(loop_heat);
@@ -1673,11 +1748,7 @@ fn main() -> Result<()> {
                             }
                         }
                     }
-                    if lname.contains("cool")
-                        || lname.contains("dx")
-                        || lname.starts_with("cc ")
-                        || lname.starts_with("cc_")
-                    {
+                    if matches!(kind, ComponentKind::CoolingCoil | ComponentKind::EvapCooler) {
                         if let Some(cap) = comp.nominal_capacity() {
                             if is_autosize(cap) {
                                 comp.set_nominal_capacity(loop_cool);
@@ -1692,7 +1763,7 @@ fn main() -> Result<()> {
                     }
 
                     // ── GSHP: autosize both cooling and heating capacities ───────
-                    if lname.contains("gshp") {
+                    if matches!(kind, ComponentKind::Gshp) {
                         if let Some(cool_cap) = comp.nominal_capacity() {
                             if is_autosize(cool_cap) {
                                 comp.set_nominal_capacity(loop_cool);
@@ -5031,9 +5102,7 @@ fn simulate_all_loops(
                 .filter_map(|z| zone_humidity_ratios.get(z))
                 .fold((0.0_f64, 0usize), |(s, n), w| (s + w, n + 1));
             if n_w > 0 {
-                signals
-                    .coil_setpoints
-                    .insert("__return_air_w__".to_string(), sum_w / n_w as f64);
+                signals.return_air_w = Some(sum_w / n_w as f64);
             }
         }
 
@@ -5065,11 +5134,7 @@ fn simulate_all_loops(
         // controls).  Now compute what the HR would recover and apply it
         // as a gas/electric credit via virtual components.
         if let Some(ref hr_name) = li.heat_recovery_name {
-            let oa_frac = signals
-                .coil_setpoints
-                .get("__oa_fraction__")
-                .copied()
-                .unwrap_or(effective_min_oa);
+            let oa_frac = signals.oa_fraction.unwrap_or(effective_min_oa);
             let total_flow = supply_air.as_ref().map(|s| s.mass_flow).unwrap_or(0.0);
             let oa_mass_flow = total_flow * oa_frac;
 
@@ -5369,11 +5434,7 @@ fn simulate_all_loops(
             }
         } else {
             // Non-PSZ-AC systems: no PLR cycling (they modulate internally)
-            signals
-                .coil_setpoints
-                .get("__plr__")
-                .copied()
-                .unwrap_or(1.0)
+            signals.loop_plr.unwrap_or(1.0)
         } * nightcycle_duty;
 
         if loop_plr < 1.0 {
@@ -5885,65 +5946,38 @@ fn build_psz_signals(
     let mixed_air_temp = return_air_temp * (1.0 - oa_frac) + t_outdoor * oa_frac;
 
     for name in &li.component_names {
-        let lname = name.to_lowercase();
+        let role = li.coil_role(name);
         match mode {
             HvacMode::Heating => {
                 // Proportional heating DAT: ramps from setpoint toward max (40°C)
                 // based on zone heating error. At small errors, furnace delivers
                 // warm but not hot air; at large errors, full-fire to recover.
-                if lname.contains("heat")
-                    || lname.contains("furnace")
-                    || lname.contains("hw")
-                    || lname.starts_with("hc ")
-                    || lname.starts_with("hc_")
-                {
+                if role == CoilRole::Heating {
                     signals.coil_setpoints.insert(name.clone(), heating_dat);
-                } else if lname.contains("cool")
-                    || lname.contains("dx")
-                    || lname.starts_with("cc ")
-                    || lname.starts_with("cc_")
-                {
+                } else if role == CoilRole::Cooling {
                     signals.coil_setpoints.insert(name.clone(), 99.0);
                 }
             }
             HvacMode::Cooling => {
                 // DX coil runs at full capacity when ON (PLR controls runtime).
                 // The coil setpoint is set very low so capacity is the limiter.
-                if lname.contains("cool")
-                    || lname.contains("dx")
-                    || lname.starts_with("cc ")
-                    || lname.starts_with("cc_")
-                {
+                if role == CoilRole::Cooling {
                     signals.coil_setpoints.insert(name.clone(), cooling_coil_sp);
-                } else if lname.contains("heat")
-                    || lname.contains("furnace")
-                    || lname.contains("hw")
-                    || lname.starts_with("hc ")
-                    || lname.starts_with("hc_")
-                {
+                } else if role == CoilRole::Heating {
                     signals.coil_setpoints.insert(name.clone(), -99.0);
                 }
             }
             HvacMode::Deadband => {
-                if lname.contains("heat")
-                    || lname.contains("furnace")
-                    || lname.contains("hw")
-                    || lname.starts_with("hc ")
-                    || lname.starts_with("hc_")
-                {
+                if role == CoilRole::Heating {
                     signals.coil_setpoints.insert(name.clone(), -99.0);
-                } else if lname.contains("cool")
-                    || lname.contains("dx")
-                    || lname.starts_with("cc ")
-                    || lname.starts_with("cc_")
-                {
+                } else if role == CoilRole::Cooling {
                     signals.coil_setpoints.insert(name.clone(), 99.0);
                 }
             }
         }
         // Humidification control: if zone RH < min_rh, activate humidifier
         // by setting its w_setpoint to the target humidity ratio.
-        if lname.contains("humid") {
+        if role == CoilRole::Humidifier {
             if let Some(&min_rh) = zone_min_rh.get(control_zone) {
                 if zone_rh_pct < min_rh {
                     let w_target = openbse_psychrometrics::w_fn_tdb_rh_pb(
@@ -5959,16 +5993,9 @@ fn build_psz_signals(
     }
 
     // Inject mixed air temperature, OA fraction, and PLR
-    signals
-        .coil_setpoints
-        .insert("__pszac_mixed_air_temp__".to_string(), mixed_air_temp);
-    signals
-        .coil_setpoints
-        .insert("__oa_fraction__".to_string(), oa_frac);
-    signals
-        .coil_setpoints
-        .insert("__return_air_temp__".to_string(), return_air_temp);
-    signals.coil_setpoints.insert("__plr__".to_string(), plr);
+    signals.mixed_air_temp = Some(mixed_air_temp);
+    signals.oa_fraction = Some(oa_frac);
+    signals.loop_plr = Some(plr);
 
     signals
 }
@@ -6053,14 +6080,10 @@ fn build_crac_signals(
     let mixed_air_temp = return_air_temp;
 
     for name in &li.component_names {
-        let lname = name.to_lowercase();
+        let role = li.coil_role(name);
         match mode {
             HvacMode::Cooling => {
-                if lname.contains("cool")
-                    || lname.contains("dx")
-                    || lname.starts_with("cc ")
-                    || lname.starts_with("cc_")
-                {
+                if role == CoilRole::Cooling {
                     let sp = if dehumidify_only {
                         zone_temp - 0.5
                     } else {
@@ -6070,11 +6093,7 @@ fn build_crac_signals(
                 }
             }
             HvacMode::Deadband | HvacMode::Heating => {
-                if lname.contains("cool")
-                    || lname.contains("dx")
-                    || lname.starts_with("cc ")
-                    || lname.starts_with("cc_")
-                {
+                if role == CoilRole::Cooling {
                     signals.coil_setpoints.insert(name.clone(), 99.0);
                 }
             }
@@ -6082,16 +6101,9 @@ fn build_crac_signals(
         signals.air_mass_flows.insert(name.clone(), total_flow);
     }
 
-    signals
-        .coil_setpoints
-        .insert("__pszac_mixed_air_temp__".to_string(), mixed_air_temp);
-    signals
-        .coil_setpoints
-        .insert("__oa_fraction__".to_string(), oa_frac);
-    signals
-        .coil_setpoints
-        .insert("__return_air_temp__".to_string(), return_air_temp);
-    signals.coil_setpoints.insert("__plr__".to_string(), 1.0);
+    signals.mixed_air_temp = Some(mixed_air_temp);
+    signals.oa_fraction = Some(oa_frac);
+    signals.loop_plr = Some(1.0);
 
     signals
 }
@@ -6163,15 +6175,10 @@ fn build_crah_signals(
     let mixed_air_temp = return_air_temp;
 
     for name in &li.component_names {
-        let lname = name.to_lowercase();
+        let role = li.coil_role(name);
         match mode {
             HvacMode::Cooling => {
-                if lname.contains("cool")
-                    || lname.contains("chw")
-                    || lname.starts_with("cc ")
-                    || lname.starts_with("cc_")
-                    || lname.contains("coil")
-                {
+                if role == CoilRole::Cooling {
                     let sp = if dehumidify_only {
                         zone_temp - 0.5
                     } else {
@@ -6181,12 +6188,7 @@ fn build_crah_signals(
                 }
             }
             HvacMode::Deadband | HvacMode::Heating => {
-                if lname.contains("cool")
-                    || lname.contains("chw")
-                    || lname.starts_with("cc ")
-                    || lname.starts_with("cc_")
-                    || lname.contains("coil")
-                {
+                if role == CoilRole::Cooling {
                     signals.coil_setpoints.insert(name.clone(), 99.0);
                 }
             }
@@ -6194,16 +6196,9 @@ fn build_crah_signals(
         signals.air_mass_flows.insert(name.clone(), total_flow);
     }
 
-    signals
-        .coil_setpoints
-        .insert("__pszac_mixed_air_temp__".to_string(), mixed_air_temp);
-    signals
-        .coil_setpoints
-        .insert("__oa_fraction__".to_string(), 0.0);
-    signals
-        .coil_setpoints
-        .insert("__return_air_temp__".to_string(), return_air_temp);
-    signals.coil_setpoints.insert("__plr__".to_string(), 1.0);
+    signals.mixed_air_temp = Some(mixed_air_temp);
+    signals.oa_fraction = Some(0.0);
+    signals.loop_plr = Some(1.0);
 
     signals
 }
@@ -6254,24 +6249,15 @@ fn build_doas_signals(
     let t_supply_cool = (min_cool_sp - 2.0).max(14.0); // 14°C minimum for dehumidification
 
     for name in &li.component_names {
-        let lname = name.to_lowercase();
-        if lname.contains("heat")
-            || lname.contains("preheat")
-            || lname.contains("hw")
-            || lname.starts_with("hc ")
-            || lname.starts_with("hc_")
-        {
+        let role = li.coil_role(name);
+        if role == CoilRole::Heating {
             // Fire only if OA is below heating target
             if t_outdoor < t_supply_heat {
                 signals.coil_setpoints.insert(name.clone(), t_supply_heat);
             } else {
                 signals.coil_setpoints.insert(name.clone(), -99.0); // off
             }
-        } else if lname.contains("cool")
-            || lname.contains("dx")
-            || lname.starts_with("cc ")
-            || lname.starts_with("cc_")
-        {
+        } else if role == CoilRole::Cooling {
             // Fire only if OA is above cooling target (summer dehumidification)
             if t_outdoor > t_supply_cool {
                 signals.coil_setpoints.insert(name.clone(), t_supply_cool);
@@ -6283,9 +6269,7 @@ fn build_doas_signals(
     }
 
     // DOAS inlet is always 100% outdoor air
-    signals
-        .coil_setpoints
-        .insert("__oa_fraction__".to_string(), 1.0);
+    signals.oa_fraction = Some(1.0);
 
     signals
 }
@@ -6397,7 +6381,7 @@ fn build_fcu_signals(
     //
     // FCU uses proportional modulation: coil setpoint varies with zone error.
     for name in &li.component_names {
-        let lname = name.to_lowercase();
+        let role = li.coil_role(name);
         if is_ptac {
             // PTAC / PTHP control matching EnergyPlus:
             //
@@ -6413,55 +6397,28 @@ fn build_fcu_signals(
                     // E+ PTAC (Fan:OnOff cycling): run heating coil at
                     // design supply temp during ON-period, off during
                     // OFF-period.  PLR sets the duty cycle.
-                    if lname.contains("heat")
-                        || lname.contains("reheat")
-                        || lname.contains("hw")
-                        || lname.starts_with("hc ")
-                        || lname.starts_with("hc_")
-                    {
+                    if role == CoilRole::Heating {
                         signals
                             .coil_setpoints
                             .insert(name.clone(), li.heating_supply_temp);
-                    } else if lname.contains("cool")
-                        || lname.contains("dx")
-                        || lname.starts_with("cc ")
-                        || lname.starts_with("cc_")
-                    {
+                    } else if role == CoilRole::Cooling {
                         signals.coil_setpoints.insert(name.clone(), 99.0);
                     }
                 }
                 HvacMode::Cooling => {
                     // DX cooling: run at full capacity, PLR handles cycling.
-                    if lname.contains("cool")
-                        || lname.contains("dx")
-                        || lname.starts_with("cc ")
-                        || lname.starts_with("cc_")
-                    {
+                    if role == CoilRole::Cooling {
                         signals
                             .coil_setpoints
                             .insert(name.clone(), li.cooling_supply_temp);
-                    } else if lname.contains("heat")
-                        || lname.contains("reheat")
-                        || lname.contains("hw")
-                        || lname.starts_with("hc ")
-                        || lname.starts_with("hc_")
-                    {
+                    } else if role == CoilRole::Heating {
                         signals.coil_setpoints.insert(name.clone(), -99.0);
                     }
                 }
                 HvacMode::Deadband => {
-                    if lname.contains("heat")
-                        || lname.contains("reheat")
-                        || lname.contains("hw")
-                        || lname.starts_with("hc ")
-                        || lname.starts_with("hc_")
-                    {
+                    if role == CoilRole::Heating {
                         signals.coil_setpoints.insert(name.clone(), -99.0);
-                    } else if lname.contains("cool")
-                        || lname.contains("dx")
-                        || lname.starts_with("cc ")
-                        || lname.starts_with("cc_")
-                    {
+                    } else if role == CoilRole::Cooling {
                         signals.coil_setpoints.insert(name.clone(), 99.0);
                     }
                 }
@@ -6472,68 +6429,36 @@ fn build_fcu_signals(
                 HvacMode::Heating => {
                     let error = heat_sp - zone_temp;
                     let target = (heat_sp + error.min(14.0)).clamp(heat_sp, 45.0);
-                    if lname.contains("heat")
-                        || lname.contains("reheat")
-                        || lname.contains("hw")
-                        || lname.starts_with("hc ")
-                        || lname.starts_with("hc_")
-                    {
+                    if role == CoilRole::Heating {
                         signals.coil_setpoints.insert(name.clone(), target);
-                    } else if lname.contains("cool")
-                        || lname.contains("dx")
-                        || lname.starts_with("cc ")
-                        || lname.starts_with("cc_")
-                    {
+                    } else if role == CoilRole::Cooling {
                         signals.coil_setpoints.insert(name.clone(), 99.0);
                     }
                 }
                 HvacMode::Cooling => {
                     let error = zone_temp - cool_sp;
                     let target = (cool_sp - error.min(10.0)).clamp(12.0, cool_sp);
-                    if lname.contains("cool")
-                        || lname.contains("dx")
-                        || lname.starts_with("cc ")
-                        || lname.starts_with("cc_")
-                    {
+                    if role == CoilRole::Cooling {
                         signals.coil_setpoints.insert(name.clone(), target);
-                    } else if lname.contains("heat")
-                        || lname.contains("reheat")
-                        || lname.contains("hw")
-                        || lname.starts_with("hc ")
-                        || lname.starts_with("hc_")
-                    {
+                    } else if role == CoilRole::Heating {
                         signals.coil_setpoints.insert(name.clone(), -99.0);
                     }
                 }
                 HvacMode::Deadband => {
-                    if lname.contains("heat")
-                        || lname.contains("reheat")
-                        || lname.contains("hw")
-                        || lname.starts_with("hc ")
-                        || lname.starts_with("hc_")
-                    {
+                    if role == CoilRole::Heating {
                         signals.coil_setpoints.insert(name.clone(), -99.0);
-                    } else if lname.contains("cool")
-                        || lname.contains("dx")
-                        || lname.starts_with("cc ")
-                        || lname.starts_with("cc_")
-                    {
+                    } else if role == CoilRole::Cooling {
                         signals.coil_setpoints.insert(name.clone(), 99.0);
                     }
                 }
             }
         }
         // Dehumidification-only: override cooling coil setpoint to minimize sensible cooling
-        if dehumidify_only_fcu
-            && (lname.contains("cool")
-                || lname.contains("dx")
-                || lname.starts_with("cc ")
-                || lname.starts_with("cc_"))
-        {
+        if dehumidify_only_fcu && (role == CoilRole::Cooling) {
             signals.coil_setpoints.insert(name.clone(), zone_temp - 0.5);
         }
         // Humidification control
-        if lname.contains("humid") {
+        if role == CoilRole::Humidifier {
             if let Some(&min_rh) = zone_min_rh.get(zone_name) {
                 if zone_rh_pct_fcu < min_rh {
                     let w_target =
@@ -6545,12 +6470,8 @@ fn build_fcu_signals(
         signals.air_mass_flows.insert(name.clone(), flow);
     }
 
-    signals
-        .coil_setpoints
-        .insert("__fcu_recirculation_temp__".to_string(), mixed_air_temp);
-    signals
-        .coil_setpoints
-        .insert("__oa_fraction__".to_string(), oa_frac);
+    signals.mixed_air_temp = Some(mixed_air_temp);
+    signals.oa_fraction = Some(oa_frac);
 
     signals
 }
@@ -6886,12 +6807,8 @@ fn build_vav_signals(
 
     // ── AHU coil control ──
     for name in &li.component_names {
-        let lname = name.to_lowercase();
-        if lname.contains("cool")
-            || lname.contains("dx")
-            || lname.starts_with("cc ")
-            || lname.starts_with("cc_")
-        {
+        let role = li.coil_role(name);
+        if role == CoilRole::Cooling {
             if any_cooling {
                 // AHU cooling coil targets the SAT setpoint
                 signals.coil_setpoints.insert(name.clone(), sat_setpoint);
@@ -6899,12 +6816,7 @@ fn build_vav_signals(
                 // No cooling demand — coil off
                 signals.coil_setpoints.insert(name.clone(), 99.0);
             }
-        } else if lname.contains("preheat")
-            || lname.contains("heat")
-            || lname.contains("hw")
-            || lname.starts_with("hc ")
-            || lname.starts_with("hc_")
-        {
+        } else if role == CoilRole::Heating {
             // AHU heating coil: frost protection only.
             //
             // E+ data shows the VAV_MID heating coil rarely fires — the
@@ -6924,7 +6836,7 @@ fn build_vav_signals(
             }
         }
         // Humidification control: if any served zone is below min_rh, activate humidifier
-        if lname.contains("humid") {
+        if role == CoilRole::Humidifier {
             for zone_name in &li.served_zones {
                 if let Some(&min_rh) = zone_min_rh.get(zone_name) {
                     let zone_temp_h = zone_temps.get(zone_name).copied().unwrap_or(21.0);
@@ -6951,15 +6863,8 @@ fn build_vav_signals(
     }
 
     // Inject mixed air temp + OA fraction
-    signals
-        .coil_setpoints
-        .insert("__vav_mixed_air_temp__".to_string(), mixed_air_temp);
-    signals
-        .coil_setpoints
-        .insert("__oa_fraction__".to_string(), oa_frac);
-    signals
-        .coil_setpoints
-        .insert("__return_air_temp__".to_string(), avg_zone_temp);
+    signals.mixed_air_temp = Some(mixed_air_temp);
+    signals.oa_fraction = Some(oa_frac);
 
     // Store SAT setpoint for heat recovery credit cap calculation
     signals.sat_setpoint = sat_setpoint;
@@ -7099,24 +7004,15 @@ fn build_dual_duct_signals(
     // Cold deck: target cooling_supply_temp when any zone in cooling mode
     // Both operate simultaneously — each deck heats/cools its own portion of air
     for name in &li.component_names {
-        let lname = name.to_lowercase();
-        if lname.contains("cool")
-            || lname.contains("dx")
-            || lname.starts_with("cc ")
-            || lname.starts_with("cc_")
-        {
+        let role = li.coil_role(name);
+        if role == CoilRole::Cooling {
             // Cold deck coil
             if any_cooling {
                 signals.coil_setpoints.insert(name.clone(), cold_deck_temp);
             } else {
                 signals.coil_setpoints.insert(name.clone(), 99.0);
             }
-        } else if lname.contains("heat")
-            || lname.contains("hw")
-            || lname.contains("preheat")
-            || lname.starts_with("hc ")
-            || lname.starts_with("hc_")
-        {
+        } else if role == CoilRole::Heating {
             // Hot deck coil
             if any_heating {
                 signals.coil_setpoints.insert(name.clone(), hot_deck_temp);
@@ -7138,20 +7034,13 @@ fn build_dual_duct_signals(
             / li.served_zones.len() as f64
     };
     let mixed_air_temp = avg_zone_temp * (1.0 - effective_min_oa) + t_outdoor * effective_min_oa;
-    signals
-        .coil_setpoints
-        .insert("__vav_mixed_air_temp__".to_string(), mixed_air_temp);
-    signals
-        .coil_setpoints
-        .insert("__oa_fraction__".to_string(), effective_min_oa);
-    signals
-        .coil_setpoints
-        .insert("__return_air_temp__".to_string(), avg_zone_temp);
+    signals.mixed_air_temp = Some(mixed_air_temp);
+    signals.oa_fraction = Some(effective_min_oa);
 
     // Check RH min override for humidifier
     for name in &li.component_names {
-        let lname = name.to_lowercase();
-        if lname.contains("humid") {
+        let role = li.coil_role(name);
+        if role == CoilRole::Humidifier {
             for zone_name in &li.served_zones {
                 if let Some(&min_rh) = zone_min_rh.get(zone_name) {
                     let zone_temp_h = zone_temps.get(zone_name).copied().unwrap_or(21.0);
@@ -7196,19 +7085,10 @@ fn simulate_loop_components(
     let mut outputs: HashMap<String, HashMap<String, f64>> = HashMap::new();
 
     // Check for inlet override signals (mixed air temp for PSZ, recirculation for FCU, VAV)
-    let inlet_temp_override: Option<f64> = signals
-        .coil_setpoints
-        .get("__pszac_mixed_air_temp__")
-        .or_else(|| signals.coil_setpoints.get("__fcu_recirculation_temp__"))
-        .or_else(|| signals.coil_setpoints.get("__vav_mixed_air_temp__"))
-        .copied();
+    let inlet_temp_override: Option<f64> = signals.mixed_air_temp;
 
     // OA fraction for humidity blending (defaults to 1.0 = 100% outdoor air if not set)
-    let oa_fraction = signals
-        .coil_setpoints
-        .get("__oa_fraction__")
-        .copied()
-        .unwrap_or(1.0);
+    let oa_fraction = signals.oa_fraction.unwrap_or(1.0);
 
     // Build inlet air state with proper humidity blending
     let mut inlet_air = AirPort::new(ctx.outdoor_air, 1.0);
@@ -7216,26 +7096,18 @@ fn simulate_loop_components(
         // Blend humidity: w_mixed = OA_frac * w_oa + (1 - OA_frac) * w_indoor
         // When heat recovery is present, use the post-HR outdoor humidity (effective OA w)
         // instead of raw outdoor humidity. This accounts for moisture transfer in the ERV.
-        let w_oa = signals
-            .coil_setpoints
-            .get("__effective_oa_w__")
-            .copied()
-            .unwrap_or(ctx.outdoor_air.w);
+        let w_oa = signals.effective_oa_w.unwrap_or(ctx.outdoor_air.w);
         // Return-air humidity: actual served-zone moisture balance average
         // (set by simulate_all_loops). Fallback for direct callers: 50% RH
         // at the return temperature.
-        let w_indoor = signals
-            .coil_setpoints
-            .get("__return_air_w__")
-            .copied()
-            .unwrap_or_else(|| {
-                openbse_psychrometrics::MoistAirState::from_tdb_rh(
-                    inlet_temp_override.unwrap_or(ctx.outdoor_air.t_db),
-                    0.50,
-                    ctx.outdoor_air.p_b,
-                )
-                .w
-            });
+        let w_indoor = signals.return_air_w.unwrap_or_else(|| {
+            openbse_psychrometrics::MoistAirState::from_tdb_rh(
+                inlet_temp_override.unwrap_or(ctx.outdoor_air.t_db),
+                0.50,
+                ctx.outdoor_air.p_b,
+            )
+            .w
+        });
         let w_mixed = oa_fraction * w_oa + (1.0 - oa_fraction) * w_indoor;
         let mixed_state =
             openbse_psychrometrics::MoistAirState::new(override_temp, w_mixed, ctx.outdoor_air.p_b);
@@ -7469,6 +7341,7 @@ mod tests {
             component_names,
             fan_names: HashSet::new(),
             dx_compressor_names: HashSet::new(),
+            component_kinds: HashMap::new(),
             served_zones: vec!["Zone1".to_string()],
             min_oa_fraction: 0.0,
             min_vav_fraction: 0.3,
@@ -7500,6 +7373,7 @@ mod tests {
             component_names: vec!["DX Cooling Coil".to_string()],
             fan_names: HashSet::new(),
             dx_compressor_names: HashSet::new(),
+            component_kinds: HashMap::new(),
             served_zones: vec!["Zone1".to_string()],
             min_oa_fraction: 0.15,
             min_vav_fraction: 0.3,
@@ -7844,11 +7718,7 @@ mod tests {
             &empty_rh,
             &empty_rh,
         );
-        let oa_frac_humid = signals_humid
-            .coil_setpoints
-            .get("__oa_fraction__")
-            .copied()
-            .unwrap_or(0.0);
+        let oa_frac_humid = signals_humid.oa_fraction.unwrap_or(0.0);
         assert!(
             (oa_frac_humid - li.min_oa_fraction).abs() < 0.01,
             "humid OA: economizer must stay at minimum OA, got {:.3}",
@@ -7873,11 +7743,7 @@ mod tests {
             &empty_rh,
             &empty_rh,
         );
-        let oa_frac_dry = signals_dry
-            .coil_setpoints
-            .get("__oa_fraction__")
-            .copied()
-            .unwrap_or(0.0);
+        let oa_frac_dry = signals_dry.oa_fraction.unwrap_or(0.0);
         assert!(
             oa_frac_dry > li.min_oa_fraction,
             "dry cool OA: economizer must open above minimum, got {:.3}",
@@ -8273,6 +8139,7 @@ mod tests_datacenter {
             component_names: vec!["CRAC-1 DX Coil".to_string(), "CRAC-1 Fan".to_string()],
             fan_names: HashSet::new(),
             dx_compressor_names: HashSet::new(),
+            component_kinds: HashMap::new(),
             served_zones: vec!["DataHall".to_string()],
             min_oa_fraction: 0.0,
             min_vav_fraction: 0.3,
@@ -8338,11 +8205,7 @@ mod tests_datacenter {
             coil_sp
         );
         // Mixed air = zone temp (no OA, no DC config in test)
-        let mixed = signals
-            .coil_setpoints
-            .get("__pszac_mixed_air_temp__")
-            .copied()
-            .unwrap_or(0.0);
+        let mixed = signals.mixed_air_temp.unwrap_or(0.0);
         assert!(
             (mixed - 27.0).abs() < 0.01,
             "CRAC mixed air should equal zone temp (no OA), got {}",
@@ -8392,11 +8255,7 @@ mod tests_datacenter {
             })
             .copied();
         // The coil setpoint should target the loop's cooling supply temp
-        let cooling_sp = signals
-            .coil_setpoints
-            .get("__pszac_mixed_air_temp__")
-            .copied()
-            .unwrap_or(0.0);
+        let cooling_sp = signals.mixed_air_temp.unwrap_or(0.0);
         // Mixed air should equal zone temp (no OA)
         assert!(
             (cooling_sp - 28.0).abs() < 0.01,

@@ -13,6 +13,19 @@ with E+ references, clean crate layering with no circular deps, and consistent s
 concentrated in `openbse-cli/src/main.rs` (8.4k lines) — the control/dispatch layer — not in the
 physics crates.
 
+## Fix status (2026-06-12)
+
+| Finding | Status |
+|---|---|
+| CR-1 name-substring coil dispatch | **FIXED** — `LoopInfo::component_kinds` map + `coil_role()` (kind-based, legacy name heuristic only as fallback for components not in the equipment list); sizing autosize loop dispatches on `comp.component_kind()` directly. All 9 dispatch blocks converted. |
+| CR-2 PerformanceCurve panic | **FIXED** — `evaluate()` now interpolates TableLookup curves positionally (x→axis 0, y→axis 1); `evaluate_table()` on a Polynomial logs a warning and returns the neutral modifier instead of panicking. |
+| CR-3 stringly-typed sentinels | **FIXED** — typed `ControlSignals` fields (`mixed_air_temp`, `oa_fraction`, `loop_plr`, `effective_oa_w`, `return_air_w`). The refactor confirmed the predicted failure mode twice: `__return_air_temp__` was inserted 5× and never read (dead), and `__effective_oa_w__` was read but never inserted — the ERV moisture pre-conditioning it carried was silently inoperative (now a typed field ready to be wired when HR humidity credit is implemented). |
+| CR-9 NaN-unsafe sorts | **FIXED** — `total_cmp` in sizing.rs. |
+| CR-12 README crate count | **FIXED** — 10 crates, table updated, AI_CONTEXT.md updated. |
+
+A/B regression after all fixes: cases 600/900/CE100 and SingleFamily Boulder bit-identical to the
+post-physics-fix baselines (pure refactor confirmed).
+
 ## Findings
 
 ### HIGH

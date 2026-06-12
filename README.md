@@ -51,7 +51,7 @@ cargo build --release
 cargo test --workspace
 ```
 
-**300+ unit tests** across 8 crates.
+**300+ unit tests** across 10 crates.
 
 ### Run a Simulation
 
@@ -63,7 +63,7 @@ The `-w` flag specifies the weather file (EPW). If omitted, the engine falls bac
 
 ## Architecture
 
-OpenBSE is a Rust workspace with 8 crates:
+OpenBSE is a Rust workspace with 10 crates:
 
 | Crate | Purpose |
 |-------|---------|
@@ -75,6 +75,8 @@ OpenBSE is a Rust workspace with 8 crates:
 | `openbse-envelope` | Building envelope heat balance physics |
 | `openbse-io` | YAML parsing, CSV output, design day sizing, summary reports |
 | `openbse-cli` | Command-line interface and multi-loop control dispatcher |
+| `openbse-a205` | ASHRAE Standard 205 equipment performance data (RS0001–RS0007) |
+| `openbse-cosim` | Co-simulation proxies (external air/plant components via subprocess) |
 
 No circular dependencies. Components implement traits (`AirComponent`, `PlantComponent`, `EnvelopeSolver`) defined in `openbse-core`. Rust's type system enforces physical constraints at compile time — `AirPort` and `WaterPort` are distinct types, so connecting a water pipe to an air duct won't compile.
 

@@ -84,6 +84,21 @@ pub struct ControlSignals {
     pub zone_air_flows: HashMap<String, f64>,
     /// SAT setpoint from VAV signal builder [°C], used for HR credit cap.
     pub sat_setpoint: f64,
+
+    // ── Loop-level signals ──────────────────────────────────────────────
+    // Previously smuggled through `coil_setpoints` as "__sentinel__" string
+    // keys, where a typo'd key silently fell back to a default. Typed fields
+    // make the producer/consumer contract checkable by the compiler.
+    /// Mixed-air (or recirculation) temperature entering the component chain [°C].
+    pub mixed_air_temp: Option<f64>,
+    /// Outdoor-air fraction of supply flow [0-1].
+    pub oa_fraction: Option<f64>,
+    /// Loop part-load ratio for systems that modulate internally [0-1].
+    pub loop_plr: Option<f64>,
+    /// Post-heat-recovery outdoor air humidity ratio [kg/kg].
+    pub effective_oa_w: Option<f64>,
+    /// Served-zone average return-air humidity ratio [kg/kg].
+    pub return_air_w: Option<f64>,
 }
 
 /// The simulation runner.

@@ -216,14 +216,16 @@ impl PerformanceCurve {
         }
     }
 
-    /// Evaluate a **Polynomial** curve at (x, y).
+    /// Evaluate the curve at (x, y).
     ///
     /// For single-variable curves only `x` is used. Inputs are clamped to
     /// [min_x, max_x] / [min_y, max_y]; output is clamped to
     /// [min_output, max_output] when those limits are set.
     ///
-    /// # Panics
-    /// Panics if called on a `TableLookup` variant — use [`evaluate_table`] instead.
+    /// `TableLookup` curves are interpolated positionally: `x` maps to the
+    /// first table axis and `y` to the second (additional axes evaluate at
+    /// their first grid point). This lets users wire tabular curves into
+    /// components that evaluate curves positionally (cap-fT, EIR-fT, …).
     pub fn evaluate(&self, x: f64, y: f64) -> f64 {
         let Self::Polynomial {
             curve_type,
@@ -237,9 +239,17 @@ impl PerformanceCurve {
             ..
         } = self
         else {
-            panic!(
-                "PerformanceCurve::evaluate called on TableLookup variant; use evaluate_table()"
-            );
+            let Self::TableLookup { table, .. } = self else {
+                unreachable!()
+            };
+            let mut inputs: HashMap<IndependentVariable, f64> = HashMap::new();
+            if let Some(axis) = table.axes.first() {
+                inputs.insert(axis.variable, x);
+            }
+            if let Some(axis) = table.axes.get(1) {
+                inputs.insert(axis.variable, y);
+            }
+            return self.evaluate_table(&inputs);
         };
 
         let x = x.clamp(*min_x, *max_x);
@@ -283,10 +293,7 @@ impl PerformanceCurve {
         }
     }
 
-    /// Convenience wrapper for single-variable polynomial curves.
-    ///
-    /// # Panics
-    /// See [`evaluate`].
+    /// Convenience wrapper for single-variable curves.
     pub fn evaluate_1d(&self, x: f64) -> f64 {
         self.evaluate(x, 0.0)
     }
@@ -297,11 +304,17 @@ impl PerformanceCurve {
     /// each axis declares which [`IndependentVariable`] it represents and the
     /// correct column is picked from `inputs` at runtime.
     ///
-    /// # Panics
-    /// Panics if called on a `Polynomial` variant — use [`evaluate`] instead.
+    /// Called on a `Polynomial` variant this logs a warning and returns the
+    /// neutral modifier 1.0 (named inputs cannot be mapped onto positional
+    /// polynomial arguments).
     pub fn evaluate_table(&self, inputs: &HashMap<IndependentVariable, f64>) -> f64 {
         let Self::TableLookup { table, .. } = self else {
-            panic!("PerformanceCurve::evaluate_table called on Polynomial variant; use evaluate()");
+            log::warn!(
+                "PerformanceCurve '{}': evaluate_table called on Polynomial variant; \
+                 returning neutral modifier 1.0",
+                self.name()
+            );
+            return 1.0;
         };
         let raw = interp_nd(&table.axes, &table.values, inputs, 0, 0);
         let raw = if let Some(min) = table.output_min {

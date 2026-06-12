@@ -759,7 +759,7 @@ fn monthly_peak_dry_bulb(weather_hours: &[WeatherHour]) -> [f64; 12] {
         if v.is_empty() {
             return 0.0;
         }
-        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        v.sort_by(|a, b| a.total_cmp(b));
         let idx = ((v.len() as f64 * 0.996) as usize).min(v.len() - 1);
         v[idx]
     })
@@ -795,7 +795,7 @@ fn generate_monthly_cooling_dds(
     // Find the single anchor DD: the one with the highest design temp (peak summer)
     let anchor = user_cooling_dds
         .iter()
-        .max_by(|a, b| a.design_temp.partial_cmp(&b.design_temp).unwrap())
+        .max_by(|a, b| a.design_temp.total_cmp(&b.design_temp))
         .unwrap();
 
     let anchor_month_idx = (anchor.month.saturating_sub(1)).min(11) as usize;
@@ -948,7 +948,7 @@ pub fn run_sizing(
             "Auto-generating monthly cooling DDs from anchor '{}'...",
             user_cooling_dds
                 .iter()
-                .max_by(|a, b| a.design_temp.partial_cmp(&b.design_temp).unwrap())
+                .max_by(|a, b| a.design_temp.total_cmp(&b.design_temp))
                 .map(|dd| dd.name.as_str())
                 .unwrap_or("?")
         );
