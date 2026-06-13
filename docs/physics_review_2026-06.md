@@ -122,6 +122,12 @@ Round-2 regression results (A/B): case 600 → 4305/5848 kWh (range 3993–4504 
 - **[MED] RAD-1: radiant output independent of entering water temp** — `q = rated_capacity × plr`; the `ua` field and `entering_water_temp` are unused in the heat calc. A panel fed tepid water still delivers rated output. Matters for low-temp/condensing/outdoor-reset hydronic and chilled-ceiling designs.
 - Verified: radiant/convective split routes radiant heat to surfaces/MRT (correct), ASHRAE HOF default fractions. `thermal_storage.rs` structurally sound (SoC = charge − discharge − standby UA·ΔT, ice-charge COP penalty); follow-up: confirm SoC clamped to [0, capacity] and discharge ≤ available charge.
 
+### Plant auxiliaries (`cooling_tower.rs`, `pump.rs`, condenser coupling) — reviewed 2026-06-13 (Phase 2C)
+
+- **CH-1 resolved (verified correct):** the condenser loop is loaded with `thermal + electric` = Q_evap + W_compressor from each chiller referencing it (main.rs:2652-2675), simulated after the CHW loop. Chiller condenser temp comes from a condenser setpoint or wet-bulb + tower approach (E+ SetpointManager-style); CAPFT/EIRFT use f(T_chw_leaving, T_cond_entering) — correct E+ Chiller:Electric:EIR order. Minor: chiller condenser temp is a setpoint/proxy rather than iterated against the tower's actual leaving temp (common simplification).
+- **Cooling tower — sound.** Effectiveness-NTU, T_out floored at T_wb + approach, variable-speed fan power via the E+ `CoolingTower:VariableSpeed` polynomial (coefficients match E+). No findings.
+- **Pump — sound.** Affinity-law power `P_design·(Q/Q_design)^n`, `P_design = Q·H/η`, motor-loss heat added to fluid; matches E+ Pump:VariableSpeed intent (E+ uses a cubic part-load curve — equivalent). No findings.
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
 VRF, GSHP, WSHP, radiant panel, thermal storage, evap cooler, humidifier, water heater, cooling tower internals, pumps, dual-duct/PFP/VAV boxes (note: `vav_box` has a known pre-existing test failure), CRAC/CRAH details (recently bug-fixed in v0.5.1), `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (`sizing.rs` reviewed 2026-06-13, see above.)
