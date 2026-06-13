@@ -64,22 +64,7 @@ fn build_loop_infos(
             let component_names: Vec<String> = al
                 .equipment
                 .iter()
-                .map(|eq| {
-                    use openbse_io::input::EquipmentInput;
-                    match eq {
-                        EquipmentInput::Fan(f) => f.name.clone(),
-                        EquipmentInput::HeatingCoil(c) => c.name.clone(),
-                        EquipmentInput::CoolingCoil(c) => c.name.clone(),
-                        EquipmentInput::CoolingCoilMultiSpeed(c) => c.name.clone(),
-                        EquipmentInput::Wshp(w) => w.name.clone(),
-                        EquipmentInput::Gshp(g) => g.name.clone(),
-                        EquipmentInput::HeatRecovery(hr) => hr.name.clone(),
-                        EquipmentInput::Humidifier(h) => h.name.clone(),
-                        EquipmentInput::Duct(d) => d.name.clone(),
-                        EquipmentInput::EvapCooler(e) => e.name.clone(),
-                        EquipmentInput::ExternalAir(e) => e.name.clone(),
-                    }
-                })
+                .map(|eq| eq.name().to_string())
                 .collect();
 
             let fan_names: HashSet<String> = al
@@ -111,34 +96,7 @@ fn build_loop_infos(
             let component_kinds: HashMap<String, ComponentKind> = al
                 .equipment
                 .iter()
-                .map(|eq| {
-                    use openbse_io::input::EquipmentInput;
-                    match eq {
-                        EquipmentInput::Fan(f) => (f.name.clone(), ComponentKind::Fan),
-                        EquipmentInput::HeatingCoil(c) => {
-                            (c.name.clone(), ComponentKind::HeatingCoil)
-                        }
-                        EquipmentInput::CoolingCoil(c) => {
-                            (c.name.clone(), ComponentKind::CoolingCoil)
-                        }
-                        EquipmentInput::CoolingCoilMultiSpeed(c) => {
-                            (c.name.clone(), ComponentKind::CoolingCoil)
-                        }
-                        EquipmentInput::Wshp(w) => (w.name.clone(), ComponentKind::CoolingCoil),
-                        EquipmentInput::Gshp(g) => (g.name.clone(), ComponentKind::Gshp),
-                        EquipmentInput::HeatRecovery(h) => {
-                            (h.name.clone(), ComponentKind::HeatRecovery)
-                        }
-                        EquipmentInput::Humidifier(h) => {
-                            (h.name.clone(), ComponentKind::Humidifier)
-                        }
-                        EquipmentInput::Duct(d) => (d.name.clone(), ComponentKind::Duct),
-                        EquipmentInput::EvapCooler(e) => {
-                            (e.name.clone(), ComponentKind::EvapCooler)
-                        }
-                        EquipmentInput::ExternalAir(e) => (e.name.clone(), ComponentKind::Other),
-                    }
-                })
+                .map(|eq| (eq.name().to_string(), eq.component_kind()))
                 .collect();
 
             // Detect heat recovery component in this loop (if any)
@@ -813,22 +771,7 @@ fn main() -> Result<()> {
                 || al.system_type == Some(AirLoopSystemType::Crah)
             {
                 for equip in &al.equipment {
-                    let name = match equip {
-                        openbse_io::input::EquipmentInput::Fan(f) => f.name.clone(),
-                        openbse_io::input::EquipmentInput::HeatingCoil(c) => c.name.clone(),
-                        openbse_io::input::EquipmentInput::CoolingCoil(c) => c.name.clone(),
-                        openbse_io::input::EquipmentInput::CoolingCoilMultiSpeed(c) => {
-                            c.name.clone()
-                        }
-                        openbse_io::input::EquipmentInput::Wshp(w) => w.name.clone(),
-                        openbse_io::input::EquipmentInput::Gshp(g) => g.name.clone(),
-                        openbse_io::input::EquipmentInput::HeatRecovery(h) => h.name.clone(),
-                        openbse_io::input::EquipmentInput::Humidifier(h) => h.name.clone(),
-                        openbse_io::input::EquipmentInput::Duct(d) => d.name.clone(),
-                        openbse_io::input::EquipmentInput::EvapCooler(e) => e.name.clone(),
-                        openbse_io::input::EquipmentInput::ExternalAir(e) => e.name.clone(),
-                    };
-                    comp_submeter.insert(name, "datacenter".to_string());
+                    comp_submeter.insert(equip.name().to_string(), "datacenter".to_string());
                 }
             }
         }
@@ -837,42 +780,7 @@ fn main() -> Result<()> {
         let mut comp_kind_map: HashMap<String, ComponentKind> = HashMap::new();
         for al in &model.air_loops {
             for equip in &al.equipment {
-                let (name, kind) = match equip {
-                    openbse_io::input::EquipmentInput::Fan(f) => {
-                        (f.name.clone(), ComponentKind::Fan)
-                    }
-                    openbse_io::input::EquipmentInput::HeatingCoil(c) => {
-                        (c.name.clone(), ComponentKind::HeatingCoil)
-                    }
-                    openbse_io::input::EquipmentInput::CoolingCoil(c) => {
-                        (c.name.clone(), ComponentKind::CoolingCoil)
-                    }
-                    openbse_io::input::EquipmentInput::CoolingCoilMultiSpeed(c) => {
-                        (c.name.clone(), ComponentKind::CoolingCoil)
-                    }
-                    openbse_io::input::EquipmentInput::Wshp(w) => {
-                        (w.name.clone(), ComponentKind::CoolingCoil)
-                    }
-                    openbse_io::input::EquipmentInput::Gshp(g) => {
-                        (g.name.clone(), ComponentKind::Gshp)
-                    }
-                    openbse_io::input::EquipmentInput::HeatRecovery(h) => {
-                        (h.name.clone(), ComponentKind::HeatRecovery)
-                    }
-                    openbse_io::input::EquipmentInput::Humidifier(h) => {
-                        (h.name.clone(), ComponentKind::Humidifier)
-                    }
-                    openbse_io::input::EquipmentInput::Duct(d) => {
-                        (d.name.clone(), ComponentKind::Duct)
-                    }
-                    openbse_io::input::EquipmentInput::EvapCooler(e) => {
-                        (e.name.clone(), ComponentKind::EvapCooler)
-                    }
-                    openbse_io::input::EquipmentInput::ExternalAir(e) => {
-                        (e.name.clone(), ComponentKind::Other)
-                    }
-                };
-                comp_kind_map.insert(name, kind);
+                comp_kind_map.insert(equip.name().to_string(), equip.component_kind());
             }
             for zt in &al.zone_terminals {
                 if let Some(ref terminal) = zt.terminal {
@@ -892,30 +800,7 @@ fn main() -> Result<()> {
         }
         for pl in &model.plant_loops {
             for equip in &pl.supply_equipment {
-                let (name, kind) = match equip {
-                    openbse_io::input::PlantEquipmentInput::Boiler(b) => {
-                        (b.name.clone(), ComponentKind::Boiler)
-                    }
-                    openbse_io::input::PlantEquipmentInput::Chiller(c) => {
-                        (c.name.clone(), ComponentKind::Chiller)
-                    }
-                    openbse_io::input::PlantEquipmentInput::CoolingTower(t) => {
-                        (t.name.clone(), ComponentKind::CoolingTower)
-                    }
-                    openbse_io::input::PlantEquipmentInput::Pump(p) => {
-                        (p.name.clone(), ComponentKind::Pump)
-                    }
-                    openbse_io::input::PlantEquipmentInput::HeatExchanger(h) => {
-                        (h.name.clone(), ComponentKind::HeatExchanger)
-                    }
-                    openbse_io::input::PlantEquipmentInput::ThermalStorage(ts) => {
-                        (ts.name.clone(), ComponentKind::ThermalStorage)
-                    }
-                    openbse_io::input::PlantEquipmentInput::ExternalPlant(e) => {
-                        (e.name.clone(), ComponentKind::Other)
-                    }
-                };
-                comp_kind_map.insert(name, kind);
+                comp_kind_map.insert(equip.name().to_string(), equip.component_kind());
             }
         }
         // Override kind for CRAC/CRAH cooling coils

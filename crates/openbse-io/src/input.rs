@@ -20,6 +20,7 @@ use openbse_controls::setpoint::{PlantLoopSetpoint, SetpointController};
 use openbse_controls::thermostat::{ZoneGroup, ZoneThermostat};
 use openbse_controls::Controller;
 use openbse_core::graph::SimulationGraph;
+use openbse_core::ports::ComponentKind;
 use openbse_core::simulation::SimulationConfig;
 use openbse_core::types::AutosizeValue;
 use serde::{Deserialize, Serialize};
@@ -804,6 +805,48 @@ pub enum EquipmentInput {
     ExternalAir(ExternalAirInput),
 }
 
+impl EquipmentInput {
+    /// Component name as written in the YAML.
+    pub fn name(&self) -> &str {
+        match self {
+            EquipmentInput::Fan(f) => &f.name,
+            EquipmentInput::HeatingCoil(c) => &c.name,
+            EquipmentInput::CoolingCoil(c) => &c.name,
+            EquipmentInput::CoolingCoilMultiSpeed(c) => &c.name,
+            EquipmentInput::Wshp(w) => &w.name,
+            EquipmentInput::Gshp(g) => &g.name,
+            EquipmentInput::HeatRecovery(h) => &h.name,
+            EquipmentInput::Humidifier(h) => &h.name,
+            EquipmentInput::Duct(d) => &d.name,
+            EquipmentInput::EvapCooler(e) => &e.name,
+            EquipmentInput::ExternalAir(e) => &e.name,
+        }
+    }
+
+    /// Energy-accounting [`ComponentKind`] for this equipment. This is the
+    /// single source of truth for the `EquipmentInput → ComponentKind` mapping
+    /// used by the CLI's end-use submetering (code review CR-7); it is the
+    /// *accounting* kind, which intentionally differs from a component's
+    /// physical `component_kind()` in a few cases (e.g. a WSHP cooling coil is
+    /// metered as `CoolingCoil`). CRAC/CRAH, terminal, exhaust-fan, DHW and VRF
+    /// overrides are applied by the caller on top of this base mapping.
+    pub fn component_kind(&self) -> ComponentKind {
+        match self {
+            EquipmentInput::Fan(_) => ComponentKind::Fan,
+            EquipmentInput::HeatingCoil(_) => ComponentKind::HeatingCoil,
+            EquipmentInput::CoolingCoil(_) => ComponentKind::CoolingCoil,
+            EquipmentInput::CoolingCoilMultiSpeed(_) => ComponentKind::CoolingCoil,
+            EquipmentInput::Wshp(_) => ComponentKind::CoolingCoil,
+            EquipmentInput::Gshp(_) => ComponentKind::Gshp,
+            EquipmentInput::HeatRecovery(_) => ComponentKind::HeatRecovery,
+            EquipmentInput::Humidifier(_) => ComponentKind::Humidifier,
+            EquipmentInput::Duct(_) => ComponentKind::Duct,
+            EquipmentInput::EvapCooler(_) => ComponentKind::EvapCooler,
+            EquipmentInput::ExternalAir(_) => ComponentKind::Other,
+        }
+    }
+}
+
 /// Air-side co-simulation proxy.
 ///
 /// Delegates each timestep to an external process via stdin/stdout JSON.
@@ -1546,6 +1589,36 @@ pub enum PlantEquipmentInput {
     ThermalStorage(ThermalStorageInput),
     #[serde(rename = "external_plant")]
     ExternalPlant(ExternalPlantInput),
+}
+
+impl PlantEquipmentInput {
+    /// Component name as written in the YAML.
+    pub fn name(&self) -> &str {
+        match self {
+            PlantEquipmentInput::Boiler(b) => &b.name,
+            PlantEquipmentInput::Chiller(c) => &c.name,
+            PlantEquipmentInput::Pump(p) => &p.name,
+            PlantEquipmentInput::CoolingTower(t) => &t.name,
+            PlantEquipmentInput::HeatExchanger(h) => &h.name,
+            PlantEquipmentInput::ThermalStorage(ts) => &ts.name,
+            PlantEquipmentInput::ExternalPlant(e) => &e.name,
+        }
+    }
+
+    /// Energy-accounting [`ComponentKind`] for this plant equipment. Single
+    /// source of truth for the `PlantEquipmentInput → ComponentKind` mapping
+    /// (code review CR-7).
+    pub fn component_kind(&self) -> ComponentKind {
+        match self {
+            PlantEquipmentInput::Boiler(_) => ComponentKind::Boiler,
+            PlantEquipmentInput::Chiller(_) => ComponentKind::Chiller,
+            PlantEquipmentInput::Pump(_) => ComponentKind::Pump,
+            PlantEquipmentInput::CoolingTower(_) => ComponentKind::CoolingTower,
+            PlantEquipmentInput::HeatExchanger(_) => ComponentKind::HeatExchanger,
+            PlantEquipmentInput::ThermalStorage(_) => ComponentKind::ThermalStorage,
+            PlantEquipmentInput::ExternalPlant(_) => ComponentKind::Other,
+        }
+    }
 }
 
 /// Plant-side co-simulation proxy.
