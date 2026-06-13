@@ -5453,6 +5453,34 @@ fn simulate_all_loops(
             let plf = (1.0 - 0.15 * (1.0 - loop_plr)).max(0.7);
             let rtf = loop_plr / plf;
 
+            // Extensive (time-averaged) detailed-output keys that track
+            // `thermal_output`/`mass_flow` and must be PLR-scaled so the
+            // reported CSV columns stay mutually consistent (CR-5). These are
+            // rates [W] or flows [kg/s] emitted by component `detailed_outputs()`.
+            //
+            // NOT listed here (left pre-PLR by design): intensive states such as
+            // inlet/outlet temperatures, humidity ratios, enthalpies, `plr`,
+            // `rtf`, `cop_operating`, `efficiency_operating`, `total_efficiency`,
+            // `pressure_rise`, `effectiveness`, water in/out temps. Those are
+            // on-cycle instantaneous values — a temperature or COP does not scale
+            // with runtime fraction. The system-level part-load fraction is
+            // reported separately as `__loop_plr__`.
+            const PLR_SCALED_RATE_KEYS: &[&str] = &[
+                "sensible_load",
+                "latent_load",
+                "total_load",
+                "cycling_loss",
+                "sensible_cooling_rate",
+                "latent_cooling_rate",
+                "heat_to_air",
+                "shaft_power",
+                "conduction_loss",
+                "leakage_loss",
+                "heat_transferred",
+                "source_mass_flow",
+                "water_mass_flow",
+            ];
+
             for (comp_name, outputs) in &mut loop_result {
                 let is_fan = li.fan_names.contains(comp_name);
 
@@ -5471,6 +5499,13 @@ fn simulate_all_loops(
                         }
                         if let Some(mf) = outputs.get_mut("mass_flow") {
                             *mf = 0.0;
+                        }
+                        // Keep detailed-output rates consistent with the
+                        // zeroed thermal_output/mass_flow.
+                        for key in PLR_SCALED_RATE_KEYS {
+                            if let Some(v) = outputs.get_mut(*key) {
+                                *v = 0.0;
+                            }
                         }
                     }
                     // Continuous (not no_load_off): keep full rated values.
@@ -5496,6 +5531,13 @@ fn simulate_all_loops(
                     }
                     if let Some(mf) = outputs.get_mut("mass_flow") {
                         *mf *= loop_plr;
+                    }
+                    // Time-averaged detailed-output rates/flows track
+                    // thermal_output (scale by PLR, not RTF).
+                    for key in PLR_SCALED_RATE_KEYS {
+                        if let Some(v) = outputs.get_mut(*key) {
+                            *v *= loop_plr;
+                        }
                     }
                 }
             }
