@@ -95,6 +95,13 @@ Round-2 regression results (A/B): case 600 → 4305/5848 kWh (range 3993–4504 
 - **[LOW] SIZE-4: Heating design-day uses fixed RH 50% and constant horizontal IR (300 W/m²)**; E+ derives sky IR from its sky model. Minor.
 - Verified correct: runs ALL design days (not just the first) and takes the max per zone; ideal-loads sizing (exact Q to hold each zone at setpoint) matches E+ zone-sizing intent; coincident system peak summed across zones at the same timestep; warmup-to-quasi-steady before recording peaks; airflow = load / (cp·ΔT_supply) at outdoor density.
 
+### Terminal boxes (`vav_box.rs`, `pfp_box.rs`, `dual_duct_box.rs`) — reviewed 2026-06-13 (Phase 2A)
+
+- **[MED] TERM-1: PFP box uses a static secondary (plenum) air temperature** (`pfp_box.rs:228-250`; `PFPBox::secondary_air_temp` default 24 °C, set only from YAML, never updated at runtime). During heating the parallel fan draws "24 °C plenum air" regardless of the actual zone/return temperature, overstating the warm-air benefit and injecting a spurious sensible term when the zone ≠ 24 °C. E+ draws actual plenum/return air. **GitHub #55.**
+- **[LOW] TERM-2: PFP mixed humidity uses the primary stream only** (`pfp_box.rs:239`), ignoring plenum humidity.
+- **[LOW] TERM-3: VAV hot-water reheat is a capacity-cap** (`m_w·cp·(T_in − design_outlet)`, `vav_box.rs:244-265`), not a UA/effectiveness coil; adequate but doesn't vary with entering-air temp like E+.
+- Verified correct: VAV dual-maximum control (G36 / E+ ReverseWithLimits — cooling min→max, heating min→max_reheat_fraction with reheat), electric reheat COP=1 with delivered energy consistent with the max-reheat-temp clamp; dual-duct CAV box (constant design flow, energy-weighted hot/cold deck blend) matches E+ DualDuct:ConstantVolume. **The previously-flagged `vav_box::tests::test_vav_heating_mode_with_electric_reheat` failure is resolved** (fixed by the typed-control-signals / type-based dispatch work).
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
 VRF, GSHP, WSHP, radiant panel, thermal storage, evap cooler, humidifier, water heater, cooling tower internals, pumps, dual-duct/PFP/VAV boxes (note: `vav_box` has a known pre-existing test failure), CRAC/CRAH details (recently bug-fixed in v0.5.1), `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (`sizing.rs` reviewed 2026-06-13, see above.)
