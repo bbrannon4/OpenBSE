@@ -161,6 +161,17 @@ Compared vs E+ `ElectricEquipment:ITE:AirCooled` (E+ has no dedicated CRAC/CRAH 
 - **[LOW] CRAC-5: return-temp lag** — `zone_dc_return_temps` computed once before the HVAC iteration loop from the previous step's supply temp; doesn't update across sub-iterations.
 - Verified correct: no OA mixing / no economizer (`oa_fraction = 0`); cooling-only mode mapping; deadband coil-off (SP 99); RH-driven dehumidification override (cool to zone−0.5); ASHRAE A1–A4 rack-inlet limits (32/35/40/45 °C) and SAT = rack_inlet_max; `Q = m·cp·ΔT` form internally consistent; CRAH→CHW coil (inherits chiller review), CRAC→DX coil (inherits DX-1/DX-2). The "SHR ≈ 0.98" in the builder doc-comment is **not** set by the builder — it relies on the coil's `rated_shr` (doc clarification worthwhile).
 
+## Phase 2D — core numerics & I/O edges (reviewed 2026-06-13)
+
+### AirflowNetwork (`airflow_network.rs` + `heat_balance.rs:1959-1983`) — GitHub #63
+
+AFN is opt-in (`airflow_network: enabled: true`) and not used by the validated house.
+
+- **[MED, bug] AFN-1: Swami-Chandra Cp side-ratio terms use the raw side ratio instead of `ln(side ratio)`.** The published correlation uses G = ln(SR) in `0.131·sin³(2·G·θ)` and `0.07·G²·sin²(θ/2)`; the code (airflow_network.rs:272-276) computes `side_ratio.ln().exp()` (an identity → SR) and `side_ratio²`. Verified numerically: spurious nonzero terms for square buildings (G should be 0), and ~8× error for SR=4. The `.ln().exp()` no-op betrays an intended `ln()`. Existing tests only check θ=0/180 where sin terms vanish, so they miss it.
+- **[MED, bug] AFN-2: inconsistent AFN integration — nat-vent double-counted, exhaust missing.** With AFN on, nat-vent openings are added as `LargeOpening` paths (→ `infiltration_mass_flow`) **and** re-added via the separate ASHRAE nat-vent model (`zone.nat_vent_mass_flow`, heat_balance.rs:2104-2122, 3588…) → double count. Exhaust-fan paths are built as `FixedFlow{0.0}` and never updated (heat_balance.rs:1969-1970 comment unimplemented), so mechanical exhaust is absent from the pressure solve and is instead bolted on via the ASHRAE-combined quadrature — defeating the network's main advantage (exhaust↔leakage coupling).
+- **[LOW] AFN-3:** crack density correction omits E+ viscosity term `(μ_0/μ)^(2n-1)`; large openings are single-direction orifices (no E+ two-way DetailedOpening neutral-plane model); `MIN_DP` floor vs E+ laminar transition near ΔP→0; cosmetic dead arithmetic (airflow_network.rs:400) and fixed `w=0.008` node density.
+- Verified correct: power-law mass-flow density correction `(ρ/ρ_ref)^(1-n)` (→ ρ^0.5 orifice limit); orifice eq + analytical derivative (FD-checked); stack pressure with actual node densities and correct sign/direction; wind pressure `0.5ρCpV²` at outdoor node with terrain height profile, correct sign both orientations; Newton-Raphson Jacobian (FD-checked), Gaussian elimination + partial pivoting + singular detection, damping, dual convergence; mass conservation (tests); live per-timestep zone node temp/density update (stack effect not frozen); windward Cp≈0.6, leeward negative.
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
 `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (Phase 2A `sizing.rs` and terminal boxes, Phase 2B heat-pump/radiant/storage equipment, and Phase 2C plant auxiliaries + evap cooler/humidifier/water heater/CRAC-CRAH all reviewed 2026-06-13, see above — Phase 2D core numerics & I/O edges remain.)
