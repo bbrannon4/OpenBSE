@@ -136,9 +136,16 @@ Round-2 regression results (A/B): case 600 → 4305/5848 kWh (range 3993–4504 
 - **[LOW/research] EVAP-4: no make-up water accounting** — direct/two-stage add moisture but never tally evaporated water. E+ reports evaporative water consumption. Only matters if water is metered.
 - Verified correct: direct-stage adiabatic enthalpy balance + outlet-W solve (`w_fn_tdb_h`, floored at W_in) and `Tdb_out = Tdb_in − ε·(Tdb_in − Twb_in)` approach (matches E+ direct CelDekPad); two-stage ordering (indirect → direct on intermediate state, lower recomputed wet-bulb) gives a colder outlet than either alone; no EIR/COP curve exists, so the EIR-inversion convention issue (#56/#57) does not apply.
 
+### Steam humidifier (`humidifier.rs`) — reviewed 2026-06-13 (Phase 2C) — GitHub #60
+
+- **[MED] HUM-1: RH setpoint converted at a fixed reference temperature, not the zone moisture balance.** When `w_setpoint == 0`, target = `w_fn_tdb_rh_pb(zone_cooling_setpoint, min_rh_setpoint, p_b)` (humidifier.rs:118-123) — static reference temp + RH — and the humidifier drives the supply node directly to it. E+ `SetpointManager:SingleZone:Humidity:Minimum` back-solves the required supply w from the zone air moisture mass balance, so it adapts to actual zone temp/latent load; the OpenBSE proxy does not. Static-proxy pattern (cf. #55/#56/#58/#59).
+- **[LOW] HUM-2: steam sensible heat ignored — outlet held isothermal.** `t_out = t_db` adds moisture at the inlet *vapor* enthalpy; steam actually enters at ~100 °C, so the air should gain ~Δw·130 kJ/kg extra sensible (~0.6 °C rise for Δw = 0.005). Electric energy billing unaffected (charged at full `H_STEAM_TOTAL`); only outlet temp slightly under-predicted.
+- **[LOW] HUM-3: no standby/fan power, no make-up water accounting** (cf. #59 EVAP-4).
+- Verified correct: `H_STEAM_TOTAL = 2,615,700 J/kg` = cp_water·(100 − 14.4 °C) + h_fg(100 °C) ≈ 2,615,322 — exactly the E+ steam-electric energy basis; linear part-load `power = rated_power·(moisture_actual/rated_capacity)` matches E+; capacity clamp (unmet when limited); off when `w_in ≥ w_target`; no EIR curve (convention issue N/A).
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
-humidifier, water heater, dual-duct/PFP/VAV boxes (note: `vav_box` has a known pre-existing test failure), CRAC/CRAH details (recently bug-fixed in v0.5.1), `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (`sizing.rs` reviewed 2026-06-13, see above.)
+water heater, dual-duct/PFP/VAV boxes (note: `vav_box` has a known pre-existing test failure), CRAC/CRAH details (recently bug-fixed in v0.5.1), `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (`sizing.rs` reviewed 2026-06-13, see above.)
 
 ### Still-open findings carried to GitHub issues (2026-06-13)
 
