@@ -182,6 +182,14 @@ Opt-in: activates only when all layers have `vapor_resistance_factor` + `sorptio
 - **[LOW] HAMT-4:** dry (constant) conductivity vs E+ λ(w); Magnus `p_sat` over water (no ice branch) vs Hyland–Wexler elsewhere; uniform node spacing (no near-surface refinement); hard-coded film coefficients (25/8.3).
 - Verified correct: TDMA solver; interp/sorption interpolation; harmonic-mean **heat** face conductance; backward-Euler storage `ρ·c_p·dx/dt`; activation gating (all-layers moisture data → else CTF); Magnus `p_sat` values at 0/20 °C. **Treat HAMT as not production-ready until HAMT-1/2/3 fixed.**
 
+### openbse-a205 interpolation (`interpolate.rs` + RS loaders) — GitHub #65
+
+Engine is fundamentally sound; gaps are ASHRAE 205 feature-completeness, not numerical errors.
+
+- **[LOW] A205-1: extrapolation is always constant (edge-clamp).** 205 allows per-grid-variable `linear`/`constant` extrapolation with limits; OpenBSE always clamps. Mitigated by the `in_range` flag computed per query and emitted as a per-component output variable (visible in CSV).
+- **[LOW] A205-2: linear (N-linear) interpolation only.** 205 permits `cubic` (monotone Hermite) per axis; not implemented. Linear is exact at grid points but less smooth between.
+- Verified correct: N-linear over 2^n corners with product weights (cube center = mean of 8 corners); exact recovery at grid points; degenerate single-point axes ignored; row-major strides with **last axis fastest** matching the 205/btwxt C-order convention; loaders build axes in `grid_variables` declaration order and validate lookup length against the grid product; strict monotonic-axis/arity/size checks; binary-search `locate` with correct fraction + edge clamp; pragmatic `sensible ≤ total` clamp.
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
 `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (Phase 2A `sizing.rs` and terminal boxes, Phase 2B heat-pump/radiant/storage equipment, and Phase 2C plant auxiliaries + evap cooler/humidifier/water heater/CRAC-CRAH all reviewed 2026-06-13, see above — Phase 2D core numerics & I/O edges remain.)
