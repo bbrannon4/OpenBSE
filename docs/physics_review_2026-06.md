@@ -143,9 +143,16 @@ Round-2 regression results (A/B): case 600 → 4305/5848 kWh (range 3993–4504 
 - **[LOW] HUM-3: no standby/fan power, no make-up water accounting** (cf. #59 EVAP-4).
 - Verified correct: `H_STEAM_TOTAL = 2,615,700 J/kg` = cp_water·(100 − 14.4 °C) + h_fg(100 °C) ≈ 2,615,322 — exactly the E+ steam-electric energy basis; linear part-load `power = rated_power·(moisture_actual/rated_capacity)` matches E+; capacity clamp (unmet when limited); off when `w_in ≥ w_target`; no EIR curve (convention issue N/A).
 
+### DHW water heater (`water_heater.rs`) — reviewed 2026-06-13 (Phase 2C) — GitHub #61
+
+- **[MED] WH-1: explicit-Euler full-timestep integration, no within-step cycling.** `delta_t = (q_input − q_delivered − q_loss)·dt/(m·Cp)` (water_heater.rs:196) fires full rated capacity for the whole step then jumps T by forward Euler. E+ WaterHeater:Mixed solves the tank ODE analytically and computes the heater on-fraction (shuts off when the tank reaches setpoint mid-step). Coarse timesteps overshoot the setpoint and overstate the firing-step energy; net roughly conserved across steps but per-step T and burner energy aren't E+-consistent. Small at the sub-hourly steps the validated house uses.
+- **[MED] WH-2: HPWH uses a constant COP and ignores zone-air coupling.** `HeatPump` treats `efficiency` as a fixed COP with no evaporator-air/tank-temp dependence, and never loads the surrounding zone. E+ WaterHeater:HeatPump has COP curves and removes sensible heat + moisture from the zone (a real cooling/dehumidification load); real HPWH COP also falls as the tank nears setpoint. Live-coupling pattern (cf. #56).
+- **[LOW] WH-3: tank ambient temp is a static field** (default 20 °C, never updated), so standby losses use a fixed ambient regardless of location/season. E+ can tie it to a zone/schedule. Static-proxy pattern (#55/#56/#58/#59/#60).
+- Verified correct: mixed-tank balance `q_input·eff − q_delivered − q_loss` matches E+ WaterHeater:Mixed; standby loss `UA·(T_tank − T_amb)`; draw energy `m·Cp·(T_tank − mains)` floored at 0; delivers at tank temp when capacity-limited; deadband hysteresis (fire below setpoint−deadband, off at setpoint); `Modulate` control = E+ "Modulate" intent; parasitic = pure waste every step (equal on/off-cycle, zero tank fraction); fuel vs electric routing and gas-eff/electric-COP handling.
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
-water heater, dual-duct/PFP/VAV boxes (note: `vav_box` has a known pre-existing test failure), CRAC/CRAH details (recently bug-fixed in v0.5.1), `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (`sizing.rs` reviewed 2026-06-13, see above.)
+dual-duct/PFP/VAV boxes (note: `vav_box` has a known pre-existing test failure), CRAC/CRAH details (recently bug-fixed in v0.5.1), `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (`sizing.rs` reviewed 2026-06-13, see above.)
 
 ### Still-open findings carried to GitHub issues (2026-06-13)
 
