@@ -150,9 +150,20 @@ Round-2 regression results (A/B): case 600 → 4305/5848 kWh (range 3993–4504 
 - **[LOW] WH-3: tank ambient temp is a static field** (default 20 °C, never updated), so standby losses use a fixed ambient regardless of location/season. E+ can tie it to a zone/schedule. Static-proxy pattern (#55/#56/#58/#59/#60).
 - Verified correct: mixed-tank balance `q_input·eff − q_delivered − q_loss` matches E+ WaterHeater:Mixed; standby loss `UA·(T_tank − T_amb)`; draw energy `m·Cp·(T_tank − mains)` floored at 0; delivers at tank temp when capacity-limited; deadband hysteresis (fire below setpoint−deadband, off at setpoint); `Modulate` control = E+ "Modulate" intent; parasitic = pure waste every step (equal on/off-cycle, zero tank fraction); fuel vs electric routing and gas-eff/electric-COP handling.
 
+### CRAC/CRAH data-center cooling (`airloop/lib.rs:451-650`, `main.rs:2499-2530/3705-3725`, `DataCenterConfig`) — reviewed 2026-06-13 (Phase 2C) — GitHub #62
+
+Compared vs E+ `ElectricEquipment:ITE:AirCooled` (E+ has no dedicated CRAC/CRAH object). This path was bug-fixed in v0.5.1 (lower risk); findings are modeling-fidelity vs E+.
+
+- **[MED] CRAC-1: hot-aisle air rise uses the CRAC/HVAC supply flow, not the IT flow.** `t_hot = t_supply + Q_IT/(m_supply·cp)` (main.rs:2521,3711) uses the room HVAC mass flow to carry IT heat; server fans set the IT airflow independently. E+ ITE models IT flow separately (design flow + fan/CPU curves) and derives supply/return *approach* temps. `t_hot` (and the coil-driving return temp) is only correct when CRAC flow = IT flow; bypass/recirculation breaks it.
+- **[MED] CRAC-2: constant-volume fan, no airflow modulation.** `loop_plr = 1.0` and full `total_flow` always (lib.rs:548-553,642-648); only the coil SAT modulates. Real CRAH units modulate fan speed (~cube law); constant full-flow overstates fan energy at part IT load — a dominant DC energy term.
+- **[LOW] CRAC-3: containment is a fixed-fraction blend** `t_return = η·t_hot + (1−η)·t_zone` (constant `containment_efficiency`), not E+ ITE recirculation/approach curves. Defensible simplification.
+- **[LOW] CRAC-4: dead aisle-config fields** — `rack_outlet_temp_c` and `airflow_m3_per_s_per_kw` are defined/documented in `DataCenterConfig` but never read; `t_hot` comes purely from live supply flow + IT power, so setting them has no effect. (`lighting_w_per_m2` is wired in — input.rs:3863.)
+- **[LOW] CRAC-5: return-temp lag** — `zone_dc_return_temps` computed once before the HVAC iteration loop from the previous step's supply temp; doesn't update across sub-iterations.
+- Verified correct: no OA mixing / no economizer (`oa_fraction = 0`); cooling-only mode mapping; deadband coil-off (SP 99); RH-driven dehumidification override (cool to zone−0.5); ASHRAE A1–A4 rack-inlet limits (32/35/40/45 °C) and SAT = rack_inlet_max; `Q = m·cp·ΔT` form internally consistent; CRAH→CHW coil (inherits chiller review), CRAC→DX coil (inherits DX-1/DX-2). The "SHR ≈ 0.98" in the builder doc-comment is **not** set by the builder — it relies on the coil's `rated_shr` (doc clarification worthwhile).
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
-dual-duct/PFP/VAV boxes (note: `vav_box` has a known pre-existing test failure), CRAC/CRAH details (recently bug-fixed in v0.5.1), `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (`sizing.rs` reviewed 2026-06-13, see above.)
+`airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (Phase 2A `sizing.rs` and terminal boxes, Phase 2B heat-pump/radiant/storage equipment, and Phase 2C plant auxiliaries + evap cooler/humidifier/water heater/CRAC-CRAH all reviewed 2026-06-13, see above — Phase 2D core numerics & I/O edges remain.)
 
 ### Still-open findings carried to GitHub issues (2026-06-13)
 
