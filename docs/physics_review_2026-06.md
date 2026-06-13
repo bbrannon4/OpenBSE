@@ -87,9 +87,24 @@ Round-2 regression results (A/B): case 600 → 4305/5848 kWh (range 3993–4504 
 - **[MED] HR-1: Heat recovery assumes balanced flows.** `q = ε·C_supply·(T_exh − T_OA)` (heat_recovery.rs:162) regardless of exhaust-side capacity rate. When exhaust flow < supply flow (common — exhaust is usually 80-90% of OA), recovery is overestimated; comment claims this is "conservative" but it's the opposite. E+ scales effectiveness with the flow ratio. No frost-control either.
 - **[LOW] CH-1: Chiller condenser heat rejection** isn't added to the condenser water stream inside `simulate_plant` (outlet is evaporator side only); verify the condenser-loop coupling path handles Q_cond = Q_evap + P elsewhere.
 
-## Not yet reviewed (suggest phase 2)
+### Sizing / autosizing (`sizing.rs`) — reviewed 2026-06-13 (Phase 2A)
 
-VRF, GSHP, WSHP, radiant panel, thermal storage, evap cooler, humidifier, water heater, cooling tower internals, pumps, dual-duct/PFP/VAV boxes (note: `vav_box` has a known pre-existing test failure), CRAC/CRAH details (recently bug-fixed in v0.5.1), `airflow_network.rs`, `hamt.rs`, `sizing.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases.
+- **[MED] SIZE-1: Sizing factors applied only to system central capacity, not zone loads or airflows.** `heating_sizing_factor` (default 1.25) / `cooling_sizing_factor` (default 1.15) multiply `coincident_peak_*` for the system coil (sizing.rs:1046-1047), but `run_zone_sizing` receives them as unused `_heating_sizing_factor`/`_cooling_sizing_factor` (sizing.rs:413-414). So zone peak loads, zone design airflows, and `system_airflow` (= Σ zone airflows) carry **no** safety margin, while the central coil capacity does. E+ scales the zone design load by the zone sizing factor, which flows through to zone airflow and the summed system airflow — consistent margin everywhere. Result: airflows / fan / zone-level equipment under-sized ~15-25% vs E+. (Did not bias the validated house's annual energy — capacity-margin mostly affects part-load cycling and unmet hours, not load-driven annual totals — but it is a systematic deviation from E+.) **GitHub #49.**
+- **[MED] SIZE-2: Cooling design-day solar uses a generic clear-sky model, not E+'s.** `generate_cooling_design_weather` (sizing.rs:161-169) uses `direct = 1080·exp(−0.174·airmass)`, `diffuse = 120·sin(altitude)`, with `airmass = 1/sin(altitude)`. E+ design days use the **ASHRAE Tau model** (beam/diffuse optical depths `taub`/`taud`, the modern default) or the ASHRAE ClearSky A/B/C model — and the main annual sim uses Kasten air mass, so design-day and run-period solar are computed two different ways. Deviates from E+ on cooling-capacity sizing. **GitHub #50.**
+- **[LOW] SIZE-3: Cooling design-day temperature profile is a pure cosine** (`T_max − DR·0.5·(1−cos)`), not E+'s tabulated daily temperature-range-multiplier schedule. Close but not identical near off-peak hours.
+- **[LOW] SIZE-4: Heating design-day uses fixed RH 50% and constant horizontal IR (300 W/m²)**; E+ derives sky IR from its sky model. Minor.
+- Verified correct: runs ALL design days (not just the first) and takes the max per zone; ideal-loads sizing (exact Q to hold each zone at setpoint) matches E+ zone-sizing intent; coincident system peak summed across zones at the same timestep; warmup-to-quasi-steady before recording peaks; airflow = load / (cp·ΔT_supply) at outdoor density.
+
+## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
+
+VRF, GSHP, WSHP, radiant panel, thermal storage, evap cooler, humidifier, water heater, cooling tower internals, pumps, dual-duct/PFP/VAV boxes (note: `vav_box` has a known pre-existing test failure), CRAC/CRAH details (recently bug-fixed in v0.5.1), `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (`sizing.rs` reviewed 2026-06-13, see above.)
+
+### Still-open findings carried to GitHub issues (2026-06-13)
+
+- **S-4 / view-factor approximation (GitHub #52):** interior longwave exchange now uses geometric view factors for zones with vertex geometry, but those view factors are computed from the zone's **rectangular bounding box** — non-rectangular footprints (L-shapes, curved-as-segment walls, atria) are approximated by their enclosing rectangle, and zones with no vertex geometry fall back to area-weighted MRT.
+- **M-3 / return-air lighting heat (GitHub #51):** the lights `return_air_fraction` portion of heat is dropped from the thermal balance entirely (electricity still billed) rather than delivered to the cooling coil; the economizer also uses zone temp rather than return-air temp. No effect when `return_air_fraction = 0` (all current validated models); under-counts cooling load when > 0.
+- **CTF-1 (GitHub #53):** `calculate_ctf_simple` synthesizes a layer buildup for "simple construction" inputs, tuned to ASHRAE 140 walls; users should prefer explicit layered constructions for unusual assemblies.
+- **Phase 2 review backlog tracked in GitHub #54.**
 
 ## Recommended fix order
 
