@@ -24,18 +24,13 @@ fn default_submeter() -> String {
 ///   with load (current/default behaviour).
 /// - `LeavingSetpointModulated`: outlet temperature is held at a leaving
 ///   setpoint and water flow rate is modulated to deliver the requested load.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub enum BoilerFlowMode {
     /// Fixed flow, variable outlet temperature (default).
+    #[default]
     NotModulated,
     /// Modulate flow to maintain the leaving water temperature setpoint.
     LeavingSetpointModulated,
-}
-
-impl Default for BoilerFlowMode {
-    fn default() -> Self {
-        Self::NotModulated
-    }
 }
 
 /// Boiler component matching EnergyPlus boiler model.

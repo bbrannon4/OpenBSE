@@ -6,19 +6,15 @@ use std::collections::HashMap;
 /// Surface roughness classification (affects exterior convection).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum Roughness {
     VeryRough,
     Rough,
+    #[default]
     MediumRough,
     MediumSmooth,
     Smooth,
     VerySmooth,
-}
-
-impl Default for Roughness {
-    fn default() -> Self {
-        Roughness::MediumRough
-    }
 }
 
 /// Opaque material layer properties.

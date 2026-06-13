@@ -17,8 +17,10 @@ pub enum SurfaceType {
 /// Boundary condition for a surface.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum BoundaryCondition {
     /// Exposed to outdoor air
+    #[default]
     Outdoor,
     /// In contact with ground
     Ground,
@@ -26,12 +28,6 @@ pub enum BoundaryCondition {
     Adiabatic,
     /// Adjacent to another zone (interzone surface)
     Zone(String),
-}
-
-impl Default for BoundaryCondition {
-    fn default() -> Self {
-        BoundaryCondition::Outdoor
-    }
 }
 
 /// A building surface (wall, floor, roof, window).

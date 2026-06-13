@@ -241,23 +241,20 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
 
     // Use predictor mode (from frozen ideal loads) to prevent mode
     // flip-flopping during HVAC↔envelope iteration loop.
-    let predictor_mode = predictor_modes
-        .get(control_zone)
-        .copied()
-        .unwrap_or_else(|| {
-            // Fallback: temperature-based with load-informed deadband tiebreaker
-            if control_temp > cool_sp {
-                HvacMode::Cooling
-            } else if control_temp < heat_sp {
-                HvacMode::Heating
-            } else if zone_cool_load > zone_heat_load && zone_cool_load > 100.0 {
-                HvacMode::Cooling
-            } else if zone_heat_load > zone_cool_load && zone_heat_load > 100.0 {
-                HvacMode::Heating
-            } else {
-                HvacMode::Deadband
-            }
-        });
+    let predictor_mode = predictor_modes.get(control_zone).copied().unwrap_or({
+        // Fallback: temperature-based with load-informed deadband tiebreaker
+        if control_temp > cool_sp {
+            HvacMode::Cooling
+        } else if control_temp < heat_sp {
+            HvacMode::Heating
+        } else if zone_cool_load > zone_heat_load && zone_cool_load > 100.0 {
+            HvacMode::Cooling
+        } else if zone_heat_load > zone_cool_load && zone_heat_load > 100.0 {
+            HvacMode::Heating
+        } else {
+            HvacMode::Deadband
+        }
+    });
 
     // Safety override: prevent heating when zone is already above cooling
     // setpoint (and vice versa).  With on/off cycling at high capacity,
@@ -486,7 +483,7 @@ pub fn build_crac_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
 
     // CRAC is cooling-only: mode is always Cooling when zone is warm or has load
     let zone_cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
-    let predictor_mode = predictor_modes.get(zone_name).copied().unwrap_or_else(|| {
+    let predictor_mode = predictor_modes.get(zone_name).copied().unwrap_or({
         if zone_temp > cool_sp || zone_cool_load > 100.0 {
             HvacMode::Cooling
         } else {
@@ -518,11 +515,11 @@ pub fn build_crac_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
 
     // CRAC recirculates room air (no OA). For DC zones, return air temp
     // is warmer than zone average due to rack heat — use pre-computed value.
-    let oa_frac = li
-        .component_names
-        .is_empty()
-        .then_some(0.0_f64)
-        .unwrap_or(0.0_f64);
+    let oa_frac = if li.component_names.is_empty() {
+        0.0_f64
+    } else {
+        0.0_f64
+    };
     let return_air_temp = zone_dc_return_temps
         .get(zone_name)
         .copied()
@@ -586,7 +583,7 @@ pub fn build_crah_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         .max(0.01);
 
     let zone_cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
-    let predictor_mode = predictor_modes.get(zone_name).copied().unwrap_or_else(|| {
+    let predictor_mode = predictor_modes.get(zone_name).copied().unwrap_or({
         if zone_temp > cool_sp || zone_cool_load > 100.0 {
             HvacMode::Cooling
         } else {

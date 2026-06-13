@@ -229,10 +229,7 @@ pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
         || result.z.iter().any(|v| v.is_nan())
         || result.phi.iter().any(|v| v.is_nan());
     if has_nan {
-        eprintln!(
-            "[CTF WARN] NaN in state-space CTF (rcmax={}), falling back to lumped RC",
-            rcmax
-        );
+        log::warn!("NaN in state-space CTF (rcmax={rcmax}), falling back to lumped RC");
         let u = 1.0 / total_r;
         let tau = total_r * total_c;
         let alpha = (-dt / tau).exp();
@@ -255,32 +252,29 @@ pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
     let u_expected = 1.0 / total_r;
     let u_error_pct = ((u_ctf - u_expected) / u_expected * 100.0).abs();
     if u_error_pct > 1.0 {
-        eprintln!(
-            "[CTF WARN] U-value mismatch: CTF gives {:.4} W/(m²K), expected {:.4} (error {:.1}%)",
-            u_ctf, u_expected, u_error_pct
-        );
-        eprintln!(
-            "  layers={} (massed={}), rcmax={}, terms={}, Z₀={:.2}, Y₀={:.2}, ΣΦ={:.4}",
+        use std::fmt::Write as _;
+        let mut msg = format!(
+            "U-value mismatch: CTF gives {u_ctf:.4} W/(m²K), expected {u_expected:.4} (error {u_error_pct:.1}%)\n  layers={} (massed={}), rcmax={rcmax}, terms={}, Z₀={:.2}, Y₀={:.2}, ΣΦ={sum_phi:.4}",
             layers.len(),
             massed_layers.len(),
-            rcmax,
             result.num_terms,
             result.z[0],
             result.y[0],
-            sum_phi
         );
         if r_outside_nomass > 0.0 || r_inside_nomass > 0.0 {
-            eprintln!(
-                "  NoMass R: outside={:.4}, inside={:.4}",
-                r_outside_nomass, r_inside_nomass
+            let _ = write!(
+                msg,
+                "\n  NoMass R: outside={r_outside_nomass:.4}, inside={r_inside_nomass:.4}"
             );
         }
         for (li, lp) in layer_props.iter().enumerate() {
-            eprintln!(
-                "  layer[{}]: k={:.4}, ρ={:.1}, cp={:.1}, dx={:.5}, nodes={}",
-                li, lp.k, lp.rho, lp.cp, lp.dx, lp.nodes
+            let _ = write!(
+                msg,
+                "\n  layer[{li}]: k={:.4}, ρ={:.1}, cp={:.1}, dx={:.5}, nodes={}",
+                lp.k, lp.rho, lp.cp, lp.dx, lp.nodes
             );
         }
+        log::warn!("{msg}");
     }
 
     result
@@ -494,8 +488,8 @@ pub fn calculate_ctf_simple(
             k_insul
         };
 
-        let insul = ResolvedLayer::new(actual_k_insul, rho_insul, cp_insul, t_insul);
-        let mass = ResolvedLayer::new(k_mass, rho_mass, cp_mass, t_mass);
+        let _insul = ResolvedLayer::new(actual_k_insul, rho_insul, cp_insul, t_insul);
+        let _mass = ResolvedLayer::new(k_mass, rho_mass, cp_mass, t_mass);
 
         // Layer ordering: mass_outside puts mass on the exterior of insulation.
         // Default (mass_outside=false): insulation outside, mass inside.
@@ -844,11 +838,11 @@ fn build_state_space(
 
     // C matrix: fluxes at surfaces (using boundary conductances)
     c[0] = -h_boundary_out; // c[0*n+0]: outside flux, node 0
-    c[1 * n + (n - 1)] = h_boundary_in; // inside flux, node n-1
+    c[n + (n - 1)] = h_boundary_in; // inside flux, node n-1
 
     // D matrix: direct feedthrough (using boundary conductances)
     d[0] = h_boundary_out; // d[0*2+0]: outside temp → outside flux
-    d[1 * 2 + 1] = -h_boundary_in; // inside temp → inside flux
+    d[2 + 1] = -h_boundary_in; // inside temp → inside flux
 
     (a, b, c, d)
 }
@@ -970,9 +964,7 @@ fn matrix_inverse(a: &[f64], n: usize) -> Option<Vec<f64>> {
         // Swap rows
         if max_row != col {
             for j in 0..2 * n {
-                let tmp = aug[col * 2 * n + j];
-                aug[col * 2 * n + j] = aug[max_row * 2 * n + j];
-                aug[max_row * 2 * n + j] = tmp;
+                aug.swap(col * 2 * n + j, max_row * 2 * n + j);
             }
         }
 
@@ -1138,8 +1130,8 @@ fn compute_ctf_from_state_space(
     // Note: s(0,1) = -s(1,0) by reciprocity. E+ uses s(0,1) and negates in
     // the outside equation, but we use s(1,0) directly for clarity.
     let mut x_vec = vec![s0[0]]; // s0[0*2+0]
-    let mut y_vec = vec![s0[1 * 2 + 0]]; // cross: outside temp → inside flux
-    let mut z_vec = vec![-s0[1 * 2 + 1]]; // E+ negates Z
+    let mut y_vec = vec![s0[2]]; // cross: outside temp → inside flux
+    let mut z_vec = vec![-s0[2 + 1]]; // E+ negates Z
     let mut phi_vec: Vec<f64> = Vec::new();
 
     // Step 5: Iterative R-matrix recurrence for history terms
@@ -1234,8 +1226,8 @@ fn compute_ctf_from_state_space(
 
         // Store CTF terms
         x_vec.push(s_j[0]); // s_j[0*2+0]
-        y_vec.push(s_j[1 * 2 + 0]); // cross: outside temp → inside flux
-        z_vec.push(-s_j[1 * 2 + 1]); // E+ negates Z
+        y_vec.push(s_j[2]); // cross: outside temp → inside flux
+        z_vec.push(-s_j[2 + 1]); // E+ negates Z
         phi_vec.push(-e_j); // E+ negates e
 
         // Check convergence: |e(j)| / |e(1)| < limit
@@ -1361,7 +1353,7 @@ mod tests {
     fn test_ctf_apply_equal_temps_zero_flux() {
         let mats = make_insulated_wall();
         let layer_refs = &mats;
-        let ctf = calculate_ctf(&layer_refs, 3600.0);
+        let ctf = calculate_ctf(layer_refs, 3600.0);
         let history = CtfHistory::new(ctf.num_terms.max(1), 20.0);
 
         let (q_in, q_out) = apply_ctf(&ctf, &history, 20.0, 20.0);
@@ -1375,7 +1367,7 @@ mod tests {
     fn test_ctf_heat_flows_inward_when_outdoor_warmer() {
         let mats = make_insulated_wall();
         let layer_refs = &mats;
-        let ctf = calculate_ctf(&layer_refs, 3600.0);
+        let ctf = calculate_ctf(layer_refs, 3600.0);
         let history = CtfHistory::new(ctf.num_terms.max(1), 20.0);
 
         let (q_in, _q_out) = apply_ctf(&ctf, &history, 35.0, 20.0);
@@ -1400,7 +1392,7 @@ mod tests {
             ctf.num_terms
         );
         assert!(
-            ctf.phi.len() >= 1,
+            !ctf.phi.is_empty(),
             "Concrete slab should have flux history terms"
         );
 
@@ -1449,7 +1441,7 @@ mod tests {
         let layer_refs = &mats;
         let dt = 900.0;
 
-        let ctf_layered = calculate_ctf(&layer_refs, dt);
+        let ctf_layered = calculate_ctf(layer_refs, dt);
 
         // SimpleConstruction parameters:
         // u_factor = k/t = 1.729577/0.1014984 = 17.04
@@ -1526,7 +1518,7 @@ mod tests {
         // Note: E+ #CTFs=5 means 5 history terms (j=1..5), plus j=0 term = 6 total.
         // E+ uses Phi convention where Phi(1..5) listed with CTF(1..5).
 
-        let ep_x = vec![
+        let ep_x = [
             58.08561,
             -62.622544,
             12.566595,
@@ -1534,7 +1526,7 @@ mod tests {
             0.00057884701,
             -4.1142049e-08,
         ];
-        let ep_y = vec![
+        let ep_y = [
             0.72354869,
             4.7096437,
             2.1743923,
@@ -1542,7 +1534,7 @@ mod tests {
             0.00022976293,
             1.5543709e-08,
         ];
-        let ep_z = vec![
+        let ep_z = [
             58.08561,
             -62.622544,
             12.566595,
@@ -1550,7 +1542,7 @@ mod tests {
             0.00057884701,
             -4.1142049e-08,
         ];
-        let ep_phi = vec![
+        let ep_phi = [
             0.60555731,
             -0.058066613,
             0.0006592243,
@@ -1693,7 +1685,7 @@ mod tests {
         //            = 1 / (0.0643 + 1.65 + 0.075) = 1/1.789 = 0.559 W/(m²K)
         let u_expected = 0.559;
 
-        let sum_x: f64 = ctf.x.iter().sum();
+        let _sum_x: f64 = ctf.x.iter().sum();
         let sum_y: f64 = ctf.y.iter().sum();
         let sum_z: f64 = ctf.z.iter().sum();
         let sum_phi: f64 = ctf.phi.iter().sum();
@@ -1724,8 +1716,8 @@ mod tests {
             .map(|l| {
                 let alpha = l.conductivity / (l.density * l.specific_heat);
                 let dxn = (2.0 * alpha * dt).sqrt();
-                let nodes = (l.thickness / dxn).ceil().max(6.0).min(18.0) as usize;
-                nodes
+
+                (l.thickness / dxn).ceil().max(6.0).min(18.0) as usize
             })
             .sum::<usize>()
             - 1;

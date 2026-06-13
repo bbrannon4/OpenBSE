@@ -339,19 +339,15 @@ pub struct ZoneViewFactors {
 /// Matches EnergyPlus `Building` → `Solar Distribution` field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SolarDistributionMethod {
     /// All beam solar falls on the floor (E+ "FullExterior").
     /// This is the default and most common E+ setting.
+    #[default]
     FullExterior,
     /// Beam solar is geometrically projected onto interior surfaces
     /// (E+ "FullInteriorAndExterior").
     FullInteriorAndExterior,
-}
-
-impl Default for SolarDistributionMethod {
-    fn default() -> Self {
-        SolarDistributionMethod::FullExterior
-    }
 }
 
 /// Sealed air gap conductance using ISO 15099 model.
@@ -2450,7 +2446,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             .input
                             .vertices
                             .as_ref()
-                            .map_or(false, |v| v.len() >= 3)
+                            .is_some_and(|v| v.len() >= 3)
                 });
                 if !all_have_vertices {
                     continue; // Fall back to fixed-fraction for this zone
@@ -2943,7 +2939,7 @@ impl EnvelopeSolver for BuildingEnvelope {
 
             // Collect zone temps (mutable: predictor sets t_zone_vec for ideal
             // loads zones so surfaces see the correct zone temp during iteration)
-            let mut t_zone_vec: Vec<f64> = self.zones.iter().map(|z| z.temp).collect();
+            let t_zone_vec: Vec<f64> = self.zones.iter().map(|z| z.temp).collect();
             // Predicted HVAC mode per zone is stored on zone.ideal_pred_mode
             // (locked across HVAC iterations within a physical timestep).
 
@@ -3060,34 +3056,33 @@ impl EnvelopeSolver for BuildingEnvelope {
 
                     // Per-window MRT: use view-factor weighting if available,
                     // otherwise fall back to area-weighted zone MRT.
-                    let t_mrt =
-                        if let (Some(face_i), Some(ref zvf), Some(ref fea), Some(ref feat)) = (
-                            self.surfaces[i].box_face,
-                            self.zone_view_factors.get(zi).and_then(|v| v.as_ref()),
-                            vf_face_ea.get(zi).and_then(|v| v.as_ref()),
-                            vf_face_eat.get(zi).and_then(|v| v.as_ref()),
-                        ) {
-                            // VF-weighted MRT for this window:
-                            // T_mrt = Σ_{k≠face_i} F(face_i→k)·feat[k]
-                            //       / Σ_{k≠face_i} F(face_i→k)·fea[k]
-                            let mut num = 0.0_f64;
-                            let mut den = 0.0_f64;
-                            for k in 0..6 {
-                                if k == face_i {
-                                    continue;
-                                }
-                                let f = zvf.face_vf[face_i][k];
-                                num += f * feat[k];
-                                den += f * fea[k];
+                    let t_mrt = if let (Some(face_i), Some(zvf), Some(fea), Some(feat)) = (
+                        self.surfaces[i].box_face,
+                        self.zone_view_factors.get(zi).and_then(|v| v.as_ref()),
+                        vf_face_ea.get(zi).and_then(|v| v.as_ref()),
+                        vf_face_eat.get(zi).and_then(|v| v.as_ref()),
+                    ) {
+                        // VF-weighted MRT for this window:
+                        // T_mrt = Σ_{k≠face_i} F(face_i→k)·feat[k]
+                        //       / Σ_{k≠face_i} F(face_i→k)·fea[k]
+                        let mut num = 0.0_f64;
+                        let mut den = 0.0_f64;
+                        for k in 0..6 {
+                            if k == face_i {
+                                continue;
                             }
-                            if den > 1.0e-10 {
-                                num / den
-                            } else {
-                                t_z
-                            }
+                            let f = zvf.face_vf[face_i][k];
+                            num += f * feat[k];
+                            den += f * fea[k];
+                        }
+                        if den > 1.0e-10 {
+                            num / den
                         } else {
-                            zone_mrt_for_windows.get(zi).copied().unwrap_or(t_z)
-                        };
+                            t_z
+                        }
+                    } else {
+                        zone_mrt_for_windows.get(zi).copied().unwrap_or(t_z)
+                    };
 
                     // Dynamic exterior combined coefficient: h_conv (already computed
                     // in the exterior loop above) + exterior longwave radiation split
@@ -3821,44 +3816,43 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let t_zone = t_zone_vec.get(pc.zi).copied().unwrap_or(21.0);
 
                     // Per-surface MRT: view-factor weighted or area-weighted fallback
-                    let t_mrt =
-                        if let (Some(face_i), Some(ref zvf), Some(ref fea), Some(ref feat)) = (
-                            self.surfaces[i].box_face,
-                            self.zone_view_factors.get(pc.zi).and_then(|v| v.as_ref()),
-                            opaque_face_ea.get(pc.zi).and_then(|v| v.as_ref()),
-                            opaque_face_eat.get(pc.zi).and_then(|v| v.as_ref()),
-                        ) {
-                            // VF-weighted MRT: only faces ≠ face_i contribute
-                            // (surfaces on the same face have F=0, so self is excluded)
-                            let mut num = 0.0_f64;
-                            let mut den = 0.0_f64;
-                            for k in 0..6 {
-                                if k == face_i {
-                                    continue;
-                                }
-                                let f = zvf.face_vf[face_i][k];
-                                num += f * feat[k];
-                                den += f * fea[k];
+                    let t_mrt = if let (Some(face_i), Some(zvf), Some(fea), Some(feat)) = (
+                        self.surfaces[i].box_face,
+                        self.zone_view_factors.get(pc.zi).and_then(|v| v.as_ref()),
+                        opaque_face_ea.get(pc.zi).and_then(|v| v.as_ref()),
+                        opaque_face_eat.get(pc.zi).and_then(|v| v.as_ref()),
+                    ) {
+                        // VF-weighted MRT: only faces ≠ face_i contribute
+                        // (surfaces on the same face have F=0, so self is excluded)
+                        let mut num = 0.0_f64;
+                        let mut den = 0.0_f64;
+                        for k in 0..6 {
+                            if k == face_i {
+                                continue;
                             }
-                            if den > 1.0e-10 {
-                                num / den
-                            } else {
-                                t_zone
-                            }
+                            let f = zvf.face_vf[face_i][k];
+                            num += f * feat[k];
+                            den += f * fea[k];
+                        }
+                        if den > 1.0e-10 {
+                            num / den
                         } else {
-                            // Area-weighted MRT excluding self
-                            let eps_i = self.surfaces[i].thermal_absorptance_inside;
-                            let a_i = self.surfaces[i].net_area;
-                            let ea_i = eps_i * a_i;
-                            let sum_ea_excl = zone_sum_ea[pc.zi] - ea_i;
-                            let sum_eat_excl =
-                                zone_sum_eat[pc.zi] - ea_i * self.surfaces[i].temp_inside;
-                            if sum_ea_excl > 1.0e-10 {
-                                sum_eat_excl / sum_ea_excl
-                            } else {
-                                t_zone
-                            }
-                        };
+                            t_zone
+                        }
+                    } else {
+                        // Area-weighted MRT excluding self
+                        let eps_i = self.surfaces[i].thermal_absorptance_inside;
+                        let a_i = self.surfaces[i].net_area;
+                        let ea_i = eps_i * a_i;
+                        let sum_ea_excl = zone_sum_ea[pc.zi] - ea_i;
+                        let sum_eat_excl =
+                            zone_sum_eat[pc.zi] - ea_i * self.surfaces[i].temp_inside;
+                        if sum_ea_excl > 1.0e-10 {
+                            sum_eat_excl / sum_ea_excl
+                        } else {
+                            t_zone
+                        }
+                    };
                     let t_old = t_inside_old[i];
 
                     // Inside convection coefficient (updated each iteration)
@@ -4220,7 +4214,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                                 heat_sp = reset.heating_setpoint;
                                 cool_sp = reset.cooling_setpoint;
                             } else if reset.ramp_timesteps > 0
-                                && zone.nat_vent_off_timesteps <= reset.ramp_timesteps as u32
+                                && zone.nat_vent_off_timesteps <= reset.ramp_timesteps
                             {
                                 // Ramp back: linearly blend from override to normal
                                 let frac = zone.nat_vent_off_timesteps as f64
@@ -4996,10 +4990,8 @@ impl BuildingEnvelope {
 
     pub fn reset_for_sizing(&mut self, temp: f64) {
         // Reset CTF conduction histories
-        for history in &mut self.ctf_histories {
-            if let Some(h) = history {
-                h.reset(temp);
-            }
+        for h in self.ctf_histories.iter_mut().flatten() {
+            h.reset(temp);
         }
         // Reset surface temperatures
         for surface in &mut self.surfaces {

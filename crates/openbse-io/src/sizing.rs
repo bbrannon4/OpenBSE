@@ -227,7 +227,7 @@ fn run_single_design_day(
     // lights/equipment, low for occupancy).  For OpenBSE, Full mode is the
     // closest match since we don't have design-day-specific schedule values.
     use openbse_core::ports::SizingInternalGains;
-    let gains_mode = dd.internal_gains.unwrap_or_else(|| {
+    let gains_mode = dd.internal_gains.unwrap_or({
         if is_heating_dd {
             SizingInternalGains::Off
         } else {
@@ -349,8 +349,10 @@ fn run_single_design_day(
                 };
 
                 // No supply air — ideal loads handles HVAC directly.
-                let mut hvac = ZoneHvacConditions::default();
-                hvac.oa_handled_by_hvac = oa_handled_by_hvac.clone();
+                let hvac = ZoneHvacConditions {
+                    oa_handled_by_hvac: oa_handled_by_hvac.clone(),
+                    ..Default::default()
+                };
 
                 let result = env.solve_timestep(&ctx, wh, &hvac);
                 env.update_bdf_history();
@@ -408,8 +410,8 @@ fn run_zone_sizing(
     heating_supply_temp: f64,
     cooling_supply_temp: f64,
     latitude: f64,
-    heating_sizing_factor: f64,
-    cooling_sizing_factor: f64,
+    _heating_sizing_factor: f64,
+    _cooling_sizing_factor: f64,
     oa_handled_by_hvac: &HashMap<String, bool>,
     timesteps_per_hour: u32,
     sizing_fan_delta_t: f64,
@@ -853,7 +855,7 @@ fn generate_monthly_cooling_dds(
             month,
             day,
             day_type: anchor.day_type.clone(),
-            internal_gains: anchor.internal_gains.clone(),
+            internal_gains: anchor.internal_gains,
             taub: anchor.taub,
             taud: anchor.taud,
             cooling_setpoint_schedule: anchor.cooling_setpoint_schedule.clone(),
@@ -961,7 +963,7 @@ pub fn run_sizing(
     let all_design_days: Vec<DesignDayInput> = design_days
         .iter()
         .cloned()
-        .chain(auto_cooling_dds.into_iter())
+        .chain(auto_cooling_dds)
         .collect();
 
     if all_design_days.len() > design_days.len() {

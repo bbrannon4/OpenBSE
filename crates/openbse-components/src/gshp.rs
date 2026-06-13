@@ -36,21 +36,17 @@ fn default_loop_depth() -> f64 {
 /// Selects how the GSHP determines the ground loop entering water temperature.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum GroundTempSource {
     /// Kusuda-Achenbach sinusoidal model derived from weather-file annual stats.
     /// Uses `loop_depth` [m] (1.5 m for horizontal, deeper for vertical boreholes).
+    #[default]
     Auto,
     /// EPW header monthly ground temps at 0.5 m depth when available; falls
     /// back to `Auto` if the weather file contains no ground temperature data.
     EpwMonthly,
     /// User-specified monthly ground temperatures [°C], January through December.
     Monthly([f64; 12]),
-}
-
-impl Default for GroundTempSource {
-    fn default() -> Self {
-        GroundTempSource::Auto
-    }
 }
 
 /// Operating mode of the ground-source heat pump.

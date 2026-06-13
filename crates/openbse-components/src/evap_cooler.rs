@@ -23,19 +23,15 @@ fn default_hx_effectiveness() -> f64 {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum EvapCoolerMode {
     /// Adiabatic direct: adds humidity, lowers DBT, approximately conserves enthalpy.
+    #[default]
     Direct,
     /// Indirect HX: lowers DBT using wet-bulb as driving temperature, no W addition.
     Indirect,
     /// Indirect stage followed by direct stage.
     TwoStage,
-}
-
-impl Default for EvapCoolerMode {
-    fn default() -> Self {
-        EvapCoolerMode::Direct
-    }
 }
 
 /// Evaporative cooler component (direct, indirect, or two-stage).

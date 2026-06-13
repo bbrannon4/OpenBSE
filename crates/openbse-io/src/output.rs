@@ -35,34 +35,26 @@ use std::path::Path;
 /// Reporting frequency for output files.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum OutputFrequency {
     Timestep,
+    #[default]
     Hourly,
     Daily,
     Monthly,
     RunPeriod,
 }
 
-impl Default for OutputFrequency {
-    fn default() -> Self {
-        OutputFrequency::Hourly
-    }
-}
-
 /// Aggregation method when downsampling from timestep to lower frequencies.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum Aggregation {
+    #[default]
     Mean,
     Sum,
     Min,
     Max,
-}
-
-impl Default for Aggregation {
-    fn default() -> Self {
-        Aggregation::Mean
-    }
 }
 
 /// User-defined output file configuration.
@@ -529,17 +521,27 @@ fn is_integrable(spec: &str) -> bool {
     let mut parts = spec.splitn(3, ':');
     let category = parts.next().unwrap_or("");
     let variable = parts.next().unwrap_or("");
-    match (category, variable) {
-        ("zone", "heating_energy" | "cooling_energy") => true,
-        ("building" | "submeter", _) => true,
-        (
-            "component",
-            "electric_power" | "fuel_power" | "thermal_output" | "sensible_load" | "latent_load"
-            | "total_load" | "conduction_loss" | "leakage_loss" | "cycling_loss"
-            | "conduction_gain" | "heat_rejected" | "heat_transferred" | "fan_power",
-        ) => true,
-        _ => false,
-    }
+    matches!(
+        (category, variable),
+        ("zone", "heating_energy" | "cooling_energy")
+            | ("building" | "submeter", _)
+            | (
+                "component",
+                "electric_power"
+                    | "fuel_power"
+                    | "thermal_output"
+                    | "sensible_load"
+                    | "latent_load"
+                    | "total_load"
+                    | "conduction_loss"
+                    | "leakage_loss"
+                    | "cycling_loss"
+                    | "conduction_gain"
+                    | "heat_rejected"
+                    | "heat_transferred"
+                    | "fan_power",
+            )
+    )
 }
 
 // ─── Timestep Data Collector ────────────────────────────────────────────────
@@ -1357,7 +1359,7 @@ impl OutputWriter {
             write!(writer, ",SubHour")?;
         }
         for (var_spec, entity_name) in &self.columns {
-            let variable_part = var_spec.splitn(3, ':').nth(1).unwrap_or(var_spec.as_str());
+            let variable_part = var_spec.split(':').nth(1).unwrap_or(var_spec.as_str());
             let unit = get_unit(var_spec);
             write!(writer, ",{}:{} [{}]", entity_name, variable_part, unit)?;
         }

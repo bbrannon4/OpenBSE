@@ -14,7 +14,6 @@
 //! Reference: EnergyPlus Engineering Reference, "Humidifiers"
 
 use openbse_core::ports::*;
-use openbse_core::types::*;
 use openbse_psychrometrics as psych;
 use serde::{Deserialize, Serialize};
 

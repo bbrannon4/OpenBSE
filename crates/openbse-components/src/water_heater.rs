@@ -38,23 +38,18 @@ pub enum WaterHeaterFuel {
 }
 
 /// Water heater control type.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub enum WaterHeaterControl {
     /// On/off deadband thermostat (default for storage tanks).
     /// Burner fires at full rated capacity when tank temp drops below
     /// setpoint - deadband, turns off at setpoint.
+    #[default]
     OnOff,
     /// Modulating control (matches E+ "Modulate" heater control type).
     /// Burner modulates output to exactly match the instantaneous load
     /// (draw + standby losses), capped at rated capacity.  Ideal for
     /// tankless / instantaneous water heaters.
     Modulate,
-}
-
-impl Default for WaterHeaterControl {
-    fn default() -> Self {
-        Self::OnOff
-    }
 }
 
 /// Domestic hot water storage-tank water heater.

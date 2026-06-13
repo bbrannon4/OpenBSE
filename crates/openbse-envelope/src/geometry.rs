@@ -252,7 +252,7 @@ impl std::fmt::Display for CardinalDirection {
 ///   - West:  225°–315°
 pub fn azimuth_to_cardinal(azimuth: f64) -> CardinalDirection {
     let az = ((azimuth % 360.0) + 360.0) % 360.0; // normalize to [0, 360)
-    if az >= 315.0 || az < 45.0 {
+    if !(45.0..315.0).contains(&az) {
         CardinalDirection::North
     } else if az < 135.0 {
         CardinalDirection::East
@@ -418,11 +418,11 @@ pub fn classify_box_face(tilt: f64, azimuth: f64) -> Option<usize> {
     } else {
         // Vertical (or near-vertical) wall: classify by azimuth
         let az = ((azimuth % 360.0) + 360.0) % 360.0;
-        if az >= 135.0 && az < 225.0 {
+        if (135.0..225.0).contains(&az) {
             Some(FACE_SOUTH)
-        } else if az >= 315.0 || az < 45.0 {
+        } else if !(45.0..315.0).contains(&az) {
             Some(FACE_NORTH)
-        } else if az >= 45.0 && az < 135.0 {
+        } else if (45.0..135.0).contains(&az) {
             Some(FACE_EAST)
         } else {
             Some(FACE_WEST)
@@ -685,7 +685,7 @@ mod tests {
         // All surfaces with outward-pointing normals (CCW from outside):
 
         // Floor: normal down (-Z). CCW from below = CW from above.
-        let floor = vec![
+        let floor = [
             Point3D::new(0.0, 6.0, 0.0),
             Point3D::new(8.0, 6.0, 0.0),
             Point3D::new(8.0, 0.0, 0.0),
@@ -693,7 +693,7 @@ mod tests {
         ];
 
         // Roof: normal up (+Z). CCW from above.
-        let roof = vec![
+        let roof = [
             Point3D::new(0.0, 0.0, 2.7),
             Point3D::new(8.0, 0.0, 2.7),
             Point3D::new(8.0, 6.0, 2.7),
@@ -701,7 +701,7 @@ mod tests {
         ];
 
         // South wall: normal south (-Y). CCW from south.
-        let south = vec![
+        let south = [
             Point3D::new(0.0, 0.0, 0.0),
             Point3D::new(8.0, 0.0, 0.0),
             Point3D::new(8.0, 0.0, 2.7),
@@ -709,7 +709,7 @@ mod tests {
         ];
 
         // North wall: normal north (+Y). CCW from north.
-        let north = vec![
+        let north = [
             Point3D::new(8.0, 6.0, 0.0),
             Point3D::new(0.0, 6.0, 0.0),
             Point3D::new(0.0, 6.0, 2.7),
@@ -717,7 +717,7 @@ mod tests {
         ];
 
         // East wall: normal east (+X). CCW from east.
-        let east = vec![
+        let east = [
             Point3D::new(8.0, 0.0, 0.0),
             Point3D::new(8.0, 6.0, 0.0),
             Point3D::new(8.0, 6.0, 2.7),
@@ -725,7 +725,7 @@ mod tests {
         ];
 
         // West wall: normal west (-X). CCW from west.
-        let west = vec![
+        let west = [
             Point3D::new(0.0, 6.0, 0.0),
             Point3D::new(0.0, 0.0, 0.0),
             Point3D::new(0.0, 0.0, 2.7),
@@ -747,7 +747,7 @@ mod tests {
     #[test]
     fn test_zone_floor_area() {
         // Floor polygon (downward-facing normal — CW winding from above)
-        let floor_down = vec![
+        let floor_down = [
             Point3D::new(0.0, 6.0, 0.0),
             Point3D::new(8.0, 6.0, 0.0),
             Point3D::new(8.0, 0.0, 0.0),
@@ -755,7 +755,7 @@ mod tests {
         ];
         // Floor polygon (upward-facing normal — CCW winding from above)
         // Both winding orders should produce correct area.
-        let floor_up = vec![
+        let floor_up = [
             Point3D::new(0.0, 0.0, 0.0),
             Point3D::new(8.0, 0.0, 0.0),
             Point3D::new(8.0, 6.0, 0.0),
@@ -773,7 +773,7 @@ mod tests {
         assert_relative_eq!(area, 48.0, max_relative = 0.001);
 
         // Multiple floor surfaces (e.g., L-shaped zone with two floor polygons)
-        let floor_2 = vec![
+        let floor_2 = [
             Point3D::new(8.0, 0.0, 0.0),
             Point3D::new(12.0, 0.0, 0.0),
             Point3D::new(12.0, 3.0, 0.0),

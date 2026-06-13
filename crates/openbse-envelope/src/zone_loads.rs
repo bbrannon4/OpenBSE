@@ -373,16 +373,13 @@ fn default_exhaust_motor_in_air() -> f64 {
 /// Method for combining per-person and per-area outdoor air rates.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum OaMethod {
     /// Total OA = per_person × people + per_area × floor_area (default, ASHRAE 62.1)
+    #[default]
     Sum,
     /// Total OA = max(per_person × people, per_area × floor_area)
     Maximum,
-}
-impl Default for OaMethod {
-    fn default() -> Self {
-        OaMethod::Sum
-    }
 }
 
 /// Top-level outdoor air definition, assignable to zones or zone groups.

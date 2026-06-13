@@ -604,14 +604,14 @@ fn override_or<F>(overrides: Option<&SurfaceAirflowOverride>, f: F, default: f64
 where
     F: Fn(&SurfaceAirflowOverride) -> Option<f64>,
 {
-    overrides.and_then(|o| f(o)).unwrap_or(default)
+    overrides.and_then(f).unwrap_or(default)
 }
 
 fn override_or_val<F>(overrides: Option<&SurfaceAirflowOverride>, f: F, default: f64) -> f64
 where
     F: Fn(&SurfaceAirflowOverride) -> Option<f64>,
 {
-    overrides.and_then(|o| f(o)).unwrap_or(default)
+    overrides.and_then(f).unwrap_or(default)
 }
 
 // ─── Newton-Raphson solver ──────────────────────────────────────────────────
@@ -619,11 +619,11 @@ where
 /// Update wind pressures on all exterior flow paths for current conditions.
 pub fn update_wind_pressures(
     network: &mut AirflowNetwork,
-    wind_speed_met: f64,
+    _wind_speed_met: f64,
     wind_direction: f64,
     t_outdoor: f64,
     rho_outdoor: f64,
-    terrain: Terrain,
+    _terrain: Terrain,
 ) {
     let outdoor = network.outdoor_node;
     network.nodes[outdoor].temperature = t_outdoor + 273.15;
@@ -813,7 +813,7 @@ fn compute_path_dp(
     // path midpoint and each node's reference height.
     // Using Boussinesq approximation: ΔP_stack = ρ₀ g (1/T_a - 1/T_b)(h_path - h_ref)
     // Simplified: ΔP = -ρ_a g (h - h_ref_a) + ρ_b g (h - h_ref_b)
-    let rho_avg = 0.5 * (a.density + b.density);
+    let _rho_avg = 0.5 * (a.density + b.density);
     let h = path.height;
     dp += -a.density * G * (h - a.ref_height) + b.density * G * (h - b.ref_height);
 
@@ -1263,7 +1263,7 @@ mod tests {
         assert!(converged);
 
         // Check mass conservation at each zone node
-        let mut zone_balance = vec![0.0; 2];
+        let mut zone_balance = [0.0; 2];
         for path in &network.paths {
             let a_zone = network.nodes[path.node_a].zone_index;
             let b_zone = network.nodes[path.node_b].zone_index;

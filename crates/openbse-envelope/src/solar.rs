@@ -92,16 +92,6 @@ pub fn local_solar_hour(
 
 // ─── Anisotropic Sky Diffuse Model ────────────────────────────────────────
 
-/// Extraterrestrial normal incidence irradiance [W/m²].
-///
-/// Accounts for Earth's orbital eccentricity (±3.3%).
-/// Reference: Spencer (1971).
-fn extraterrestrial_irradiance(day_of_year: u32) -> f64 {
-    const I_SC: f64 = 1367.0; // Solar constant [W/m²]
-    let day_angle = 2.0 * PI * (day_of_year as f64 - 1.0) / 365.0;
-    I_SC * (1.0 + 0.033 * day_angle.cos())
-}
-
 // ─── Perez 1990 Anisotropic Sky Model ───────────────────────────────────────
 //
 // Decomposes sky diffuse into three components for proper shading treatment:
@@ -415,7 +405,6 @@ pub fn angle_of_incidence(
     cos_aoi.clamp(0.0, 1.0).acos()
 }
 
-/// Angular SHGC modifier for glass windows.
 // ─── Glass Angular Properties ────────────────────────────────────────────────
 
 /// Compute glass angular parameters (kd, N_i, n_eff) from window properties.
@@ -917,26 +906,24 @@ pub fn sgs_select_curves(u: f64, shgc: f64) -> ([f64; 5], [f64; 5]) {
         }
     }
     // Band 5: U > 4.5424 (single-pane territory)
-    else {
-        if shgc > 0.65 {
-            (SGS_TRANS[CURVE_A], SGS_REFL[CURVE_A])
-        } else if shgc >= 0.60 {
-            let t = (0.65 - shgc) / (0.65 - 0.60);
-            (
-                lerp_curves(&SGS_TRANS[CURVE_A], &bdcd_t, t),
-                lerp_curves(&SGS_REFL[CURVE_A], &bdcd_r, t),
-            )
-        } else if shgc > 0.45 {
-            (bdcd_t, bdcd_r)
-        } else if shgc >= 0.30 {
-            let t = (0.45 - shgc) / (0.45 - 0.30);
-            (
-                lerp_curves(&bdcd_t, &SGS_TRANS[CURVE_D], t),
-                lerp_curves(&bdcd_r, &SGS_REFL[CURVE_D], t),
-            )
-        } else {
-            (SGS_TRANS[CURVE_D], SGS_REFL[CURVE_D])
-        }
+    else if shgc > 0.65 {
+        (SGS_TRANS[CURVE_A], SGS_REFL[CURVE_A])
+    } else if shgc >= 0.60 {
+        let t = (0.65 - shgc) / (0.65 - 0.60);
+        (
+            lerp_curves(&SGS_TRANS[CURVE_A], &bdcd_t, t),
+            lerp_curves(&SGS_REFL[CURVE_A], &bdcd_r, t),
+        )
+    } else if shgc > 0.45 {
+        (bdcd_t, bdcd_r)
+    } else if shgc >= 0.30 {
+        let t = (0.45 - shgc) / (0.45 - 0.30);
+        (
+            lerp_curves(&bdcd_t, &SGS_TRANS[CURVE_D], t),
+            lerp_curves(&bdcd_r, &SGS_REFL[CURVE_D], t),
+        )
+    } else {
+        (SGS_TRANS[CURVE_D], SGS_REFL[CURVE_D])
     }
 }
 
@@ -1822,7 +1809,7 @@ mod diagnostic_tests {
 
         // Also compute total solar transmittance hemispherical
         let w7_hemis_tsol = 0.601;
-        let w7_hemis_tsol_mod = w7_hemis_tsol / w7_tsol[0];
+        let _w7_hemis_tsol_mod = w7_hemis_tsol / w7_tsol[0];
         // Compute our hemispherical transmittance
         let n_samp = 200;
         let mut num_t = 0.0_f64;

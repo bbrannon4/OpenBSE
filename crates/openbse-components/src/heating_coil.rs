@@ -296,7 +296,7 @@ impl HeatingCoil {
         // When no water loop is connected, use the simple capacity model
         // (plant loop energy is tracked via boiler fuel consumption)
         let wi = match self.water_inlet {
-            Some(ref wi) if wi.state.mass_flow > 1e-10 => wi.clone(),
+            Some(ref wi) if wi.state.mass_flow > 1e-10 => *wi,
             Some(_) => {
                 // Water present but zero/negligible flow — coil is off
                 self.heating_rate = 0.0;

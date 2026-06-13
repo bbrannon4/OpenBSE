@@ -762,7 +762,7 @@ fn format_value(v: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::input::{SweepInput, SweepRange};
+    use crate::input::SweepInput;
 
     /// Helper: create a minimal ModelInput for testing overrides.
     fn test_model() -> ModelInput {

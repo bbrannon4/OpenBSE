@@ -670,7 +670,7 @@ fn main() -> Result<()> {
                 for comp_name in &li.component_names {
                     comp_zone_multiplier.insert(comp_name.clone(), mult);
                 }
-                for (_zone, term_name) in &li.terminal_boxes {
+                for term_name in li.terminal_boxes.values() {
                     comp_zone_multiplier.insert(term_name.clone(), mult);
                 }
                 info!(
@@ -4286,7 +4286,7 @@ fn main() -> Result<()> {
             for writer in &mut output_writers {
                 writer
                     .finalize_and_write_prefixed(output_dir, &input_stem)
-                    .with_context(|| format!("Failed to write custom output"))?;
+                    .with_context(|| "Failed to write custom output".to_string())?;
             }
             if !output_writers.is_empty() {
                 info!("Custom output files written: {}", output_writers.len());
@@ -4426,7 +4426,7 @@ fn simulate_all_loops(
     hour: u32,
     day_of_week: u32,
     nightcycle_timers: &mut HashMap<String, f64>,
-    dt: f64,
+    _dt: f64,
     zone_cooling_loads: &HashMap<String, f64>,
     zone_heating_loads: &HashMap<String, f64>,
     initial_zone_temps: &HashMap<String, f64>,
@@ -4464,10 +4464,10 @@ fn simulate_all_loops(
         // Without this, sub-hourly timesteps cause destructive ON/OFF
         // oscillation where the system repeatedly heats thermal mass then
         // lets it drain, wasting enormous energy.
-        let mut is_unoccupied = false;
-        let mut nightcycle_duty = 1.0_f64; // 1.0 = full operation during occupied
-        let cycling_run_time = 1800.0_f64; // E+ default: 1800 seconds (30 min)
-        let nightcycle_tolerance = 1.0_f64; // degrees C
+        let is_unoccupied = false;
+        let nightcycle_duty = 1.0_f64; // 1.0 = full operation during occupied
+        let _cycling_run_time = 1800.0_f64; // E+ default: 1800 seconds (30 min)
+        let _nightcycle_tolerance = 1.0_f64; // degrees C
 
         if let Some(ref sched_name) = li.availability_schedule {
             if let Some(mgr) = schedule_mgr {
@@ -4621,11 +4621,8 @@ fn simulate_all_loops(
             )
             .w;
             if let Some(node_idx) = graph.node_by_name(hr_name) {
-                match graph.component_mut(node_idx) {
-                    GraphComponent::Air(ref mut comp) => {
-                        comp.set_exhaust_conditions(avg_return_temp, avg_return_w);
-                    }
-                    _ => {}
+                if let GraphComponent::Air(ref mut comp) = graph.component_mut(node_idx) {
+                    comp.set_exhaust_conditions(avg_return_temp, avg_return_w);
                 }
             }
         }
@@ -4837,23 +4834,20 @@ fn simulate_all_loops(
 
             if oa_mass_flow > 0.0 {
                 if let Some(node_idx) = graph.node_by_name(hr_name) {
-                    match graph.component_mut(node_idx) {
-                        GraphComponent::Air(ref mut comp) => {
-                            let oa_inlet = AirPort::new(ctx.outdoor_air, oa_mass_flow);
-                            let hr_outlet = comp.simulate_air(&oa_inlet, ctx);
+                    if let GraphComponent::Air(ref mut comp) = graph.component_mut(node_idx) {
+                        let oa_inlet = AirPort::new(ctx.outdoor_air, oa_mass_flow);
+                        let hr_outlet = comp.simulate_air(&oa_inlet, ctx);
 
-                            hr_thermal = comp.thermal_output();
-                            let hr_electric = comp.power_consumption();
+                        hr_thermal = comp.thermal_output();
+                        let hr_electric = comp.power_consumption();
 
-                            hr_out.insert("outlet_temp".to_string(), hr_outlet.state.t_db);
-                            hr_out.insert("outlet_w".to_string(), hr_outlet.state.w);
-                            hr_out.insert("mass_flow".to_string(), oa_mass_flow);
-                            hr_out.insert("outlet_enthalpy".to_string(), hr_outlet.state.h);
-                            hr_out.insert("electric_power".to_string(), hr_electric);
-                            hr_out.insert("fuel_power".to_string(), 0.0);
-                            hr_out.insert("thermal_output".to_string(), hr_thermal);
-                        }
-                        _ => {}
+                        hr_out.insert("outlet_temp".to_string(), hr_outlet.state.t_db);
+                        hr_out.insert("outlet_w".to_string(), hr_outlet.state.w);
+                        hr_out.insert("mass_flow".to_string(), oa_mass_flow);
+                        hr_out.insert("outlet_enthalpy".to_string(), hr_outlet.state.h);
+                        hr_out.insert("electric_power".to_string(), hr_electric);
+                        hr_out.insert("fuel_power".to_string(), 0.0);
+                        hr_out.insert("thermal_output".to_string(), hr_thermal);
                     }
                 }
             } else {
@@ -6214,7 +6208,7 @@ mod tests {
             "CH2 must not stage on when CH1 PLR ({:.2}) < threshold ({:.2})",
             plr1, staging_threshold
         );
-        drop(outlet1);
+        let _ = outlet1;
 
         // Large load: 95% of chiller1 capacity → PLR ≥ 0.9 → CH2 should start
         let large_load = 95_000.0_f64;

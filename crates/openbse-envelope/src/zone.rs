@@ -633,10 +633,8 @@ impl ZoneInput {
                     continue; // Zone too cool — don't ventilate
                 }
             }
-            if entry.outdoor_temp_must_be_lower.unwrap_or(false) {
-                if outdoor_temp >= zone_temp {
-                    continue; // Outdoor air not cooler — don't ventilate
-                }
+            if entry.outdoor_temp_must_be_lower.unwrap_or(false) && outdoor_temp >= zone_temp {
+                continue; // Outdoor air not cooler — don't ventilate
             }
 
             if entry.flow_rate > 0.0 {

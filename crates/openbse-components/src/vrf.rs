@@ -190,7 +190,7 @@ impl VrfOutdoorUnit {
     /// and updates this unit's compressor_power, total_cooling, total_heating.
     pub fn coordinate(
         &mut self,
-        indoor_units: &mut Vec<VrfIndoorUnit>,
+        indoor_units: &mut [VrfIndoorUnit],
         t_outdoor: f64,
         zone_temps: &HashMap<String, f64>,
         zone_heating_setpoints: &HashMap<String, f64>,

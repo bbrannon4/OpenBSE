@@ -399,8 +399,10 @@ impl SimulationSettings {
 /// - `fcu` / `fan_coil_unit`: Per-zone recirculating fan coil (no OA mixing)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum AirLoopSystemType {
     #[serde(alias = "packaged_single_zone")]
+    #[default]
     PszAc,
     #[serde(alias = "dedicated_outdoor_air")]
     Doas,
@@ -420,12 +422,6 @@ pub enum AirLoopSystemType {
     Crac,
     /// Computer-room air handler — chilled-water coil, no OA mixing, high sensible
     Crah,
-}
-
-impl Default for AirLoopSystemType {
-    fn default() -> Self {
-        AirLoopSystemType::PszAc
-    }
 }
 
 // ─── Air Loop Controls ───────────────────────────────────────────────────────
@@ -573,17 +569,13 @@ pub enum PlantResetConfig {
 /// Capacity control method for an air loop.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum CyclingMethod {
     /// On/off cycling — system runs at full capacity or not at all
     OnOff,
     /// Proportional modulation — system output varies with load
+    #[default]
     Proportional,
-}
-
-impl Default for CyclingMethod {
-    fn default() -> Self {
-        CyclingMethod::Proportional
-    }
 }
 
 /// Fan operating mode for unitary systems (PTAC, PSZ-AC).
@@ -599,9 +591,11 @@ impl Default for CyclingMethod {
 /// with the PTAC "No Load Supply Air Flow Rate" setting.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum FanOperatingMode {
     /// Fan cycles ON/OFF with coils. During deadband, fan is OFF.
     /// Average fan power = rated × PLR (time-averaged over timestep).
+    #[default]
     Cycling,
     /// Fan runs at full speed continuously, including during deadband.
     /// Fan power = rated (always). Fan heat always delivered to zone.
@@ -611,12 +605,6 @@ pub enum FanOperatingMode {
     /// shuts OFF completely during deadband (no load).
     /// Matches E+ PTAC with Fan:OnOff and No Load Supply Air Flow Rate = 0.
     ContinuousNoLoadOff,
-}
-
-impl Default for FanOperatingMode {
-    fn default() -> Self {
-        FanOperatingMode::Cycling
-    }
 }
 
 /// Economizer controls for outdoor air mixing.
@@ -639,8 +627,10 @@ pub struct EconomizerControls {
 /// Economizer control strategy.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum EconomizerType {
     /// OA used when OA temp < return air temp
+    #[default]
     DifferentialDryBulb,
     /// OA used when OA temp < fixed high limit
     FixedDryBulb,
@@ -654,28 +644,18 @@ pub enum EconomizerType {
     NoEconomizer,
 }
 
-impl Default for EconomizerType {
-    fn default() -> Self {
-        EconomizerType::DifferentialDryBulb
-    }
-}
-
 // ─── Condenser Type ──────────────────────────────────────────────────────────
 
 /// Condenser type for CRAC systems.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum CondenserType {
     /// Air-cooled condenser — condenser entering temp = outdoor dry-bulb
+    #[default]
     AirCooled,
     /// Water-cooled condenser — condenser entering temp = condenser loop supply temp
     WaterCooled,
-}
-
-impl Default for CondenserType {
-    fn default() -> Self {
-        CondenserType::AirCooled
-    }
 }
 
 // ─── Air Loop Input ──────────────────────────────────────────────────────────
@@ -1264,19 +1244,15 @@ pub struct WshpInput {
 /// Selects how the GSHP determines entering water temperature from the ground.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum GroundTempSource {
     /// Kusuda-Achenbach sinusoidal model derived from weather-file annual stats.
+    #[default]
     Auto,
     /// EPW header monthly ground temps; falls back to Auto if unavailable.
     EpwMonthly,
     /// User-specified monthly temperatures [°C], January through December.
     Monthly([f64; 12]),
-}
-
-impl Default for GroundTempSource {
-    fn default() -> Self {
-        GroundTempSource::Auto
-    }
 }
 
 fn default_gshp_cop_cooling() -> f64 {
@@ -1778,15 +1754,11 @@ pub struct BoilerInput {
 /// YAML-friendly boiler flow mode enum.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum BoilerFlowModeInput {
+    #[default]
     NotModulated,
     LeavingSetpointModulated,
-}
-
-impl Default for BoilerFlowModeInput {
-    fn default() -> Self {
-        Self::NotModulated
-    }
 }
 
 impl BoilerFlowModeInput {
@@ -4277,6 +4249,12 @@ impl std::fmt::Display for DiagMessage {
 /// Result of model validation.
 pub struct ValidationResult {
     pub diagnostics: Vec<DiagMessage>,
+}
+
+impl Default for ValidationResult {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ValidationResult {

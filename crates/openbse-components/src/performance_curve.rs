@@ -258,21 +258,21 @@ impl PerformanceCurve {
 
         let result = match curve_type {
             CurveType::Linear => {
-                c.get(0).copied().unwrap_or(0.0) + c.get(1).copied().unwrap_or(0.0) * x
+                c.first().copied().unwrap_or(0.0) + c.get(1).copied().unwrap_or(0.0) * x
             }
             CurveType::Quadratic => {
-                c.get(0).copied().unwrap_or(0.0)
+                c.first().copied().unwrap_or(0.0)
                     + c.get(1).copied().unwrap_or(0.0) * x
                     + c.get(2).copied().unwrap_or(0.0) * x * x
             }
             CurveType::Cubic => {
-                c.get(0).copied().unwrap_or(0.0)
+                c.first().copied().unwrap_or(0.0)
                     + c.get(1).copied().unwrap_or(0.0) * x
                     + c.get(2).copied().unwrap_or(0.0) * x * x
                     + c.get(3).copied().unwrap_or(0.0) * x * x * x
             }
             CurveType::Biquadratic => {
-                c.get(0).copied().unwrap_or(0.0)
+                c.first().copied().unwrap_or(0.0)
                     + c.get(1).copied().unwrap_or(0.0) * x
                     + c.get(2).copied().unwrap_or(0.0) * x * x
                     + c.get(3).copied().unwrap_or(0.0) * y
