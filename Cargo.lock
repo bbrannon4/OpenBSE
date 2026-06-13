@@ -363,6 +363,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "openbse-airloop"
+version = "0.5.1"
+dependencies = [
+ "approx",
+ "log",
+ "openbse-components",
+ "openbse-core",
+ "openbse-envelope",
+ "openbse-io",
+ "openbse-psychrometrics",
+]
+
+[[package]]
 name = "openbse-cli"
 version = "0.5.1"
 dependencies = [
@@ -370,6 +383,7 @@ dependencies = [
  "clap",
  "env_logger",
  "log",
+ "openbse-airloop",
  "openbse-components",
  "openbse-controls",
  "openbse-core",

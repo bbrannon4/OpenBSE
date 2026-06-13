@@ -7,6 +7,7 @@ members = [
     "crates/openbse-weather",
     "crates/openbse-psychrometrics",
     "crates/openbse-io",
+    "crates/openbse-airloop",
     "crates/openbse-cli",
     "crates/openbse-a205",
     "crates/openbse-cosim",
@@ -29,6 +30,7 @@ openbse-envelope = { path = "crates/openbse-envelope" }
 openbse-weather = { path = "crates/openbse-weather" }
 openbse-psychrometrics = { path = "crates/openbse-psychrometrics" }
 openbse-io = { path = "crates/openbse-io" }
+openbse-airloop = { path = "crates/openbse-airloop" }
 openbse-a205 = { path = "crates/openbse-a205" }
 openbse-cosim = { path = "crates/openbse-cosim" }
 
