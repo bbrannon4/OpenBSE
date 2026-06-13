@@ -128,9 +128,17 @@ Round-2 regression results (A/B): case 600 → 4305/5848 kWh (range 3993–4504 
 - **Cooling tower — sound.** Effectiveness-NTU, T_out floored at T_wb + approach, variable-speed fan power via the E+ `CoolingTower:VariableSpeed` polynomial (coefficients match E+). No findings.
 - **Pump — sound.** Affinity-law power `P_design·(Q/Q_design)^n`, `P_design = Q·H/η`, motor-loss heat added to fluid; matches E+ Pump:VariableSpeed intent (E+ uses a cubic part-load curve — equivalent). No findings.
 
+### Evaporative cooler (`evap_cooler.rs`) — reviewed 2026-06-13 (Phase 2C) — GitHub #59
+
+- **[MED] EVAP-1: indirect & two-stage drive off the *primary-inlet* wet-bulb, ignoring the secondary (outdoor) stream.** `indirect_stage` (evap_cooler.rs:83-87) computes the wet-bulb limit from the primary stream being cooled, and `simulate_air` takes `_ctx` so `ctx.outdoor_air` is unused. E+ indirect coolers cool the primary stream toward the **secondary/scavenger air** wet-bulb (a separate, usually outdoor stream). Wrong achievable cooling and wet-bulb floor whenever primary inlet ≠ outdoor air (return air, or downstream of mixing/another coil). Same live-coupling pattern as #55/#56/#58. Direct mode is correct (adiabatic saturation of its own stream).
+- **[LOW] EVAP-2: indirect effectiveness is the product `effectiveness · hx_effectiveness`** (evap_cooler.rs:85), conflating the direct-pad saturation effectiveness with the indirect HX effectiveness. E+ CelDekPad applies them in series on the two streams (pad cools secondary, then HX transfers between streams); the product form is only equivalent when primary inlet = secondary inlet, compounding EVAP-1.
+- **[LOW] EVAP-3: pump power hardcoded** at `self.power = 100.0` W (evap_cooler.rs:128), not configurable and independent of size/mode; indirect/two-stage secondary-air fan power not modeled. E+ has design pump-power (and secondary fan) inputs.
+- **[LOW/research] EVAP-4: no make-up water accounting** — direct/two-stage add moisture but never tally evaporated water. E+ reports evaporative water consumption. Only matters if water is metered.
+- Verified correct: direct-stage adiabatic enthalpy balance + outlet-W solve (`w_fn_tdb_h`, floored at W_in) and `Tdb_out = Tdb_in − ε·(Tdb_in − Twb_in)` approach (matches E+ direct CelDekPad); two-stage ordering (indirect → direct on intermediate state, lower recomputed wet-bulb) gives a colder outlet than either alone; no EIR/COP curve exists, so the EIR-inversion convention issue (#56/#57) does not apply.
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
-VRF, GSHP, WSHP, radiant panel, thermal storage, evap cooler, humidifier, water heater, cooling tower internals, pumps, dual-duct/PFP/VAV boxes (note: `vav_box` has a known pre-existing test failure), CRAC/CRAH details (recently bug-fixed in v0.5.1), `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (`sizing.rs` reviewed 2026-06-13, see above.)
+humidifier, water heater, dual-duct/PFP/VAV boxes (note: `vav_box` has a known pre-existing test failure), CRAC/CRAH details (recently bug-fixed in v0.5.1), `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (`sizing.rs` reviewed 2026-06-13, see above.)
 
 ### Still-open findings carried to GitHub issues (2026-06-13)
 
