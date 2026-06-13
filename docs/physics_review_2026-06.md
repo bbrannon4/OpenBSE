@@ -110,6 +110,18 @@ Round-2 regression results (A/B): case 600 → 4305/5848 kWh (range 3993–4504 
 - **[MED] HPF-4: WSHP heating has no source-temperature dependence** (fixed capacity and COP regardless of entering water temp).
 - Verified: WSHP water-side energy balance (cooling rejects Q_evap+W, heating absorbs Q_out−W); GSHP Kusuda-Achenbach EWT model + EpwMonthly/Monthly sources; both modulate to meet the exact air load.
 
+### VRF (`vrf.rs`) — reviewed 2026-06-13 (Phase 2B) — GitHub #57
+
+- **[MED] VRF-1: no part-load efficiency curve (EIRfPLR).** Compressor power scales linearly with load (`power = load/COP × eir_mod`, temperature modifier only); E+ VRF's signature part-load efficiency gain (inverter compressors) is absent → likely over-predicts VRF energy at low PLR.
+- **[LOW] VRF-2: curve arg order/wet-bulb** — `cap_ft(t_outdoor, avg_indoor_t)` uses (outdoor_db, indoor_db); E+ cooling CapFT is f(indoor_wb, outdoor_db). HP-4 class.
+- **[LOW] VRF-3: no piping correction, no defrost.**
+- Verified: EIRfT applied in the **correct** direction here (`load/COP × eir_mod`) — opposite of the GSHP bug (#56), confirming conventions are inconsistent across heat-pump components; heat-recovery (route cooling rejection to heating zones) is a defensible simplification.
+
+### Radiant panels + thermal storage (`radiant_panel.rs`, `thermal_storage.rs`) — reviewed 2026-06-13 (Phase 2B) — GitHub #58
+
+- **[MED] RAD-1: radiant output independent of entering water temp** — `q = rated_capacity × plr`; the `ua` field and `entering_water_temp` are unused in the heat calc. A panel fed tepid water still delivers rated output. Matters for low-temp/condensing/outdoor-reset hydronic and chilled-ceiling designs.
+- Verified: radiant/convective split routes radiant heat to surfaces/MRT (correct), ASHRAE HOF default fractions. `thermal_storage.rs` structurally sound (SoC = charge − discharge − standby UA·ΔT, ice-charge COP penalty); follow-up: confirm SoC clamped to [0, capacity] and discharge ≤ available charge.
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
 VRF, GSHP, WSHP, radiant panel, thermal storage, evap cooler, humidifier, water heater, cooling tower internals, pumps, dual-duct/PFP/VAV boxes (note: `vav_box` has a known pre-existing test failure), CRAC/CRAH details (recently bug-fixed in v0.5.1), `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (`sizing.rs` reviewed 2026-06-13, see above.)
