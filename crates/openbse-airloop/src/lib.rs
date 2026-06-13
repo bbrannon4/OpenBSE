@@ -11,10 +11,6 @@
 //! in the dependency graph (it consumes the YAML input enums), so it cannot
 //! live in the lower-level `openbse-controls` crate.
 
-// The per-system-type builders take many per-zone state maps by reference;
-// grouping them into a context struct is a future cleanup (CR-4 follow-up).
-#![allow(clippy::too_many_arguments)]
-
 use std::collections::{HashMap, HashSet};
 
 use openbse_core::ports::ComponentKind;
@@ -169,22 +165,70 @@ pub fn hvac_mode(zone_temp: f64, heat_sp: f64, cool_sp: f64) -> HvacMode {
         HvacMode::Deadband
     }
 }
-pub fn build_psz_signals(
-    li: &LoopInfo,
-    zone_temps: &HashMap<String, f64>,
-    zone_heat_sp: &HashMap<String, f64>,
-    zone_cool_sp: &HashMap<String, f64>,
-    zone_design_flows: &HashMap<String, f64>,
-    t_outdoor: f64,
-    zone_cooling_loads: &HashMap<String, f64>,
-    zone_heating_loads: &HashMap<String, f64>,
-    effective_min_oa: f64,
-    predictor_modes: &HashMap<String, HvacMode>,
-    w_outdoor: f64,
-    zone_humidity_ratios: &HashMap<String, f64>,
-    zone_max_rh: &HashMap<String, f64>,
-    zone_min_rh: &HashMap<String, f64>,
-) -> ControlSignals {
+
+// ─── Signal-Builder Context ──────────────────────────────────────────────────
+//
+// Bundles the per-zone state maps and outdoor conditions that the signal
+// builders read each timestep. Replaces the long per-map argument lists
+// (CR-4 follow-up). Each builder rebinds only the fields it needs at the top
+// of its body, so the control logic is unchanged.
+
+#[derive(Clone, Copy)]
+pub struct SignalCtx<'a> {
+    /// Current zone air temperatures [°C].
+    pub zone_temps: &'a HashMap<String, f64>,
+    /// Active heating setpoints [°C].
+    pub zone_heat_sp: &'a HashMap<String, f64>,
+    /// Active cooling setpoints [°C].
+    pub zone_cool_sp: &'a HashMap<String, f64>,
+    /// Design supply air mass flows per zone [kg/s].
+    pub zone_design_flows: &'a HashMap<String, f64>,
+    /// Frozen ideal cooling loads per zone [W].
+    pub zone_cooling_loads: &'a HashMap<String, f64>,
+    /// Frozen ideal heating loads per zone [W].
+    pub zone_heating_loads: &'a HashMap<String, f64>,
+    /// Zone humidity ratios [kg/kg].
+    pub zone_humidity_ratios: &'a HashMap<String, f64>,
+    /// Zone maximum relative humidity setpoints [%].
+    pub zone_max_rh: &'a HashMap<String, f64>,
+    /// Zone minimum relative humidity setpoints [%].
+    pub zone_min_rh: &'a HashMap<String, f64>,
+    /// Zone thermal capacitances [J/K] (VAV demand reset).
+    pub zone_thermal_caps: &'a HashMap<String, f64>,
+    /// Data-center return-air temperatures [°C] (CRAC/CRAH).
+    pub zone_dc_return_temps: &'a HashMap<String, f64>,
+    /// Frozen predictor HVAC mode per zone.
+    pub predictor_modes: &'a HashMap<String, HvacMode>,
+    /// Effective (post-heat-recovery) outdoor dry-bulb [°C].
+    pub t_outdoor: f64,
+    /// Raw outdoor dry-bulb [°C] (economizer free-cooling decision).
+    pub raw_t_outdoor: f64,
+    /// Outdoor humidity ratio [kg/kg].
+    pub w_outdoor: f64,
+    /// Minimum outdoor-air fraction for this loop [0-1].
+    pub effective_min_oa: f64,
+    /// Schedule manager for occupancy-based DCV (VAV VRP).
+    pub schedule_mgr: Option<&'a ScheduleManager>,
+    /// Hour of day [0-23] for schedule lookups.
+    pub hour: u32,
+    /// Day of week [0-6] for schedule lookups.
+    pub day_of_week: u32,
+}
+pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
+    let zone_temps = ctx.zone_temps;
+    let zone_heat_sp = ctx.zone_heat_sp;
+    let zone_cool_sp = ctx.zone_cool_sp;
+    let zone_design_flows = ctx.zone_design_flows;
+    let t_outdoor = ctx.t_outdoor;
+    let zone_cooling_loads = ctx.zone_cooling_loads;
+    let zone_heating_loads = ctx.zone_heating_loads;
+    let effective_min_oa = ctx.effective_min_oa;
+    let predictor_modes = ctx.predictor_modes;
+    let w_outdoor = ctx.w_outdoor;
+    let zone_humidity_ratios = ctx.zone_humidity_ratios;
+    let zone_max_rh = ctx.zone_max_rh;
+    let zone_min_rh = ctx.zone_min_rh;
+
     let mut signals = ControlSignals::default();
 
     // Control zone = first served zone
@@ -415,18 +459,17 @@ pub fn build_psz_signals(
 /// - Always in cooling-only mode (data centers have no heating)
 /// - SHR = 0.98 default (high sensible for IT environments)
 /// - Supply air setpoint from `cooling_supply_temp` or rack_inlet_temp_max_c
-pub fn build_crac_signals(
-    li: &LoopInfo,
-    zone_temps: &HashMap<String, f64>,
-    zone_cool_sp: &HashMap<String, f64>,
-    zone_design_flows: &HashMap<String, f64>,
-    t_outdoor: f64,
-    zone_cooling_loads: &HashMap<String, f64>,
-    predictor_modes: &HashMap<String, HvacMode>,
-    zone_humidity_ratios: &HashMap<String, f64>,
-    zone_max_rh: &HashMap<String, f64>,
-    zone_dc_return_temps: &HashMap<String, f64>,
-) -> ControlSignals {
+pub fn build_crac_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
+    let zone_temps = ctx.zone_temps;
+    let zone_cool_sp = ctx.zone_cool_sp;
+    let zone_design_flows = ctx.zone_design_flows;
+    let t_outdoor = ctx.t_outdoor;
+    let zone_cooling_loads = ctx.zone_cooling_loads;
+    let predictor_modes = ctx.predictor_modes;
+    let zone_humidity_ratios = ctx.zone_humidity_ratios;
+    let zone_max_rh = ctx.zone_max_rh;
+    let zone_dc_return_temps = ctx.zone_dc_return_temps;
+
     let _ = t_outdoor; // CRAC uses outdoor temp for condenser, not OA mixing
     let mut signals = ControlSignals::default();
 
@@ -519,17 +562,16 @@ pub fn build_crac_signals(
 ///
 /// Identical to CRAC in control logic but uses a chilled-water coil.
 /// No OA mixing, no economizer, cooling-only, high sensible (SHR ≈ 0.98).
-pub fn build_crah_signals(
-    li: &LoopInfo,
-    zone_temps: &HashMap<String, f64>,
-    zone_cool_sp: &HashMap<String, f64>,
-    zone_design_flows: &HashMap<String, f64>,
-    zone_cooling_loads: &HashMap<String, f64>,
-    predictor_modes: &HashMap<String, HvacMode>,
-    zone_humidity_ratios: &HashMap<String, f64>,
-    zone_max_rh: &HashMap<String, f64>,
-    zone_dc_return_temps: &HashMap<String, f64>,
-) -> ControlSignals {
+pub fn build_crah_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
+    let zone_temps = ctx.zone_temps;
+    let zone_cool_sp = ctx.zone_cool_sp;
+    let zone_design_flows = ctx.zone_design_flows;
+    let zone_cooling_loads = ctx.zone_cooling_loads;
+    let predictor_modes = ctx.predictor_modes;
+    let zone_humidity_ratios = ctx.zone_humidity_ratios;
+    let zone_max_rh = ctx.zone_max_rh;
+    let zone_dc_return_temps = ctx.zone_dc_return_temps;
+
     let mut signals = ControlSignals::default();
 
     let zone_name = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
@@ -618,13 +660,12 @@ pub fn build_crah_signals(
 ///
 /// This prevents the DOAS from delivering supply air that is colder than the zone
 /// heating setpoint in winter (which would add heating load to the zones).
-pub fn build_doas_signals(
-    li: &LoopInfo,
-    zone_design_flows: &HashMap<String, f64>,
-    zone_heat_sp: &HashMap<String, f64>,
-    zone_cool_sp: &HashMap<String, f64>,
-    t_outdoor: f64,
-) -> ControlSignals {
+pub fn build_doas_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
+    let zone_design_flows = ctx.zone_design_flows;
+    let zone_heat_sp = ctx.zone_heat_sp;
+    let zone_cool_sp = ctx.zone_cool_sp;
+    let t_outdoor = ctx.t_outdoor;
+
     let mut signals = ControlSignals::default();
 
     // Total ventilation airflow = 30% of zone design flows
@@ -682,20 +723,17 @@ pub fn build_doas_signals(
 }
 
 /// FCU: recirculating fan coil, per-zone thermostat (one zone per FCU loop).
-pub fn build_fcu_signals(
-    li: &LoopInfo,
-    zone_temps: &HashMap<String, f64>,
-    zone_heat_sp: &HashMap<String, f64>,
-    zone_cool_sp: &HashMap<String, f64>,
-    zone_design_flows: &HashMap<String, f64>,
-    t_outdoor: f64,
-    zone_heating_loads: &HashMap<String, f64>,
-    zone_cooling_loads: &HashMap<String, f64>,
-    predictor_modes: &HashMap<String, HvacMode>,
-    zone_humidity_ratios: &HashMap<String, f64>,
-    zone_max_rh: &HashMap<String, f64>,
-    zone_min_rh: &HashMap<String, f64>,
-) -> ControlSignals {
+pub fn build_fcu_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
+    let zone_temps = ctx.zone_temps;
+    let zone_heat_sp = ctx.zone_heat_sp;
+    let zone_cool_sp = ctx.zone_cool_sp;
+    let zone_design_flows = ctx.zone_design_flows;
+    let t_outdoor = ctx.t_outdoor;
+    let predictor_modes = ctx.predictor_modes;
+    let zone_humidity_ratios = ctx.zone_humidity_ratios;
+    let zone_max_rh = ctx.zone_max_rh;
+    let zone_min_rh = ctx.zone_min_rh;
+
     let mut signals = ControlSignals::default();
 
     // FCU serves one zone (its name is the zone)
@@ -900,26 +938,25 @@ pub fn build_fcu_signals(
 ///   - Preheat: frost protection when mixed air < 4°C
 pub fn build_vav_signals(
     li: &LoopInfo,
-    zone_temps: &HashMap<String, f64>,
-    zone_heat_sp: &HashMap<String, f64>,
-    zone_cool_sp: &HashMap<String, f64>,
-    zone_design_flows: &HashMap<String, f64>,
-    t_outdoor: f64,
-    effective_min_oa: f64,
+    ctx: &SignalCtx,
     economizer_lockout: bool,
-    raw_t_outdoor: f64,
-    schedule_mgr: Option<&ScheduleManager>,
-    hour: u32,
-    day_of_week: u32,
-    zone_cooling_loads: &HashMap<String, f64>,
-    zone_heating_loads: &HashMap<String, f64>,
-    _supply_air_temp: f64,
-    zone_thermal_caps: &HashMap<String, f64>,
-    w_outdoor: f64,
-    zone_humidity_ratios: &HashMap<String, f64>,
-    zone_max_rh: &HashMap<String, f64>,
-    zone_min_rh: &HashMap<String, f64>,
 ) -> ControlSignals {
+    let zone_temps = ctx.zone_temps;
+    let zone_heat_sp = ctx.zone_heat_sp;
+    let zone_cool_sp = ctx.zone_cool_sp;
+    let zone_design_flows = ctx.zone_design_flows;
+    let t_outdoor = ctx.t_outdoor;
+    let effective_min_oa = ctx.effective_min_oa;
+    let raw_t_outdoor = ctx.raw_t_outdoor;
+    let schedule_mgr = ctx.schedule_mgr;
+    let hour = ctx.hour;
+    let day_of_week = ctx.day_of_week;
+    let zone_cooling_loads = ctx.zone_cooling_loads;
+    let zone_heating_loads = ctx.zone_heating_loads;
+    let w_outdoor = ctx.w_outdoor;
+    let zone_humidity_ratios = ctx.zone_humidity_ratios;
+    let zone_max_rh = ctx.zone_max_rh;
+    let zone_min_rh = ctx.zone_min_rh;
     let mut signals = ControlSignals::default();
 
     // ── SetpointManager:Warmest SAT calculation ──
@@ -1293,21 +1330,19 @@ pub fn build_vav_signals(
 //      - Hot deck coil: target = heating_supply_temp when any zone needs heat
 //      - Cold deck coil: target = cooling_supply_temp when any zone needs cool
 //      - Fan: receives total design flow (Σ zone design_flows)
-#[allow(clippy::too_many_arguments)]
-pub fn build_dual_duct_signals(
-    li: &mut LoopInfo,
-    zone_temps: &HashMap<String, f64>,
-    zone_heat_sp: &HashMap<String, f64>,
-    zone_cool_sp: &HashMap<String, f64>,
-    zone_design_flows: &HashMap<String, f64>,
-    t_outdoor: f64,
-    effective_min_oa: f64,
-    zone_cooling_loads: &HashMap<String, f64>,
-    zone_heating_loads: &HashMap<String, f64>,
-    zone_humidity_ratios: &HashMap<String, f64>,
-    zone_max_rh: &HashMap<String, f64>,
-    zone_min_rh: &HashMap<String, f64>,
-) -> ControlSignals {
+pub fn build_dual_duct_signals(li: &mut LoopInfo, ctx: &SignalCtx) -> ControlSignals {
+    let zone_temps = ctx.zone_temps;
+    let zone_heat_sp = ctx.zone_heat_sp;
+    let zone_cool_sp = ctx.zone_cool_sp;
+    let zone_design_flows = ctx.zone_design_flows;
+    let t_outdoor = ctx.t_outdoor;
+    let effective_min_oa = ctx.effective_min_oa;
+    let zone_cooling_loads = ctx.zone_cooling_loads;
+    let zone_heating_loads = ctx.zone_heating_loads;
+    let zone_humidity_ratios = ctx.zone_humidity_ratios;
+    let zone_max_rh = ctx.zone_max_rh;
+    let zone_min_rh = ctx.zone_min_rh;
+
     let mut signals = ControlSignals::default();
     let cp = 1005.0_f64;
     let hot_deck_temp = li.heating_supply_temp;
@@ -1473,4 +1508,152 @@ pub fn build_dual_duct_signals(
     }
 
     signals
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use openbse_io::input::{AirLoopSystemType, CyclingMethod, EconomizerType, FanOperatingMode};
+
+    fn make_loop(system_type: AirLoopSystemType, component_names: Vec<String>) -> LoopInfo {
+        LoopInfo {
+            name: "test".to_string(),
+            system_type,
+            component_names,
+            fan_names: HashSet::new(),
+            dx_compressor_names: HashSet::new(),
+            component_kinds: HashMap::new(),
+            served_zones: vec!["Zone1".to_string()],
+            min_oa_fraction: 0.15,
+            min_vav_fraction: 0.3,
+            availability_schedule: None,
+            heating_supply_temp: 40.0,
+            cooling_supply_temp: 13.0,
+            cycling: CyclingMethod::OnOff,
+            fan_operating_mode: FanOperatingMode::Cycling,
+            terminal_boxes: HashMap::new(),
+            dd_boxes: HashMap::new(),
+            explicit_min_oa: false,
+            heat_recovery_name: None,
+            hhw_boiler_efficiency: 0.8,
+            dcv: false,
+            cooling_sat_reset: None,
+            heating_sat_reset: None,
+            zone_oa_data: vec![],
+            design_supply_flow: 0.5,
+            economizer_type: EconomizerType::NoEconomizer,
+            economizer_high_limit: None,
+            economizer_high_limit_enthalpy: None,
+        }
+    }
+
+    fn one(zone: &str, v: f64) -> HashMap<String, f64> {
+        [(zone.to_string(), v)].into_iter().collect()
+    }
+
+    /// A SignalCtx wired to a single set of per-zone maps; unused fields point
+    /// at `empty`. Returned together so the maps outlive the borrow.
+    struct Fixture {
+        temps: HashMap<String, f64>,
+        heat_sp: HashMap<String, f64>,
+        cool_sp: HashMap<String, f64>,
+        flows: HashMap<String, f64>,
+        cool_loads: HashMap<String, f64>,
+        heat_loads: HashMap<String, f64>,
+        modes: HashMap<String, HvacMode>,
+        empty: HashMap<String, f64>,
+    }
+
+    impl Fixture {
+        fn ctx(&self, t_outdoor: f64) -> SignalCtx<'_> {
+            SignalCtx {
+                zone_temps: &self.temps,
+                zone_heat_sp: &self.heat_sp,
+                zone_cool_sp: &self.cool_sp,
+                zone_design_flows: &self.flows,
+                zone_cooling_loads: &self.cool_loads,
+                zone_heating_loads: &self.heat_loads,
+                zone_humidity_ratios: &self.empty,
+                zone_max_rh: &self.empty,
+                zone_min_rh: &self.empty,
+                zone_thermal_caps: &self.empty,
+                zone_dc_return_temps: &self.empty,
+                predictor_modes: &self.modes,
+                t_outdoor,
+                raw_t_outdoor: t_outdoor,
+                w_outdoor: 0.005,
+                effective_min_oa: 0.15,
+                schedule_mgr: None,
+                hour: 0,
+                day_of_week: 0,
+            }
+        }
+    }
+
+    #[test]
+    fn hvac_mode_boundaries() {
+        assert_eq!(hvac_mode(18.0, 21.0, 24.0), HvacMode::Heating);
+        assert_eq!(hvac_mode(26.0, 21.0, 24.0), HvacMode::Cooling);
+        assert_eq!(hvac_mode(22.0, 21.0, 24.0), HvacMode::Deadband);
+    }
+
+    #[test]
+    fn coil_role_dispatches_on_kind_then_name() {
+        let mut li = make_loop(AirLoopSystemType::PszAc, vec!["My Coil".to_string()]);
+        li.component_kinds
+            .insert("My Coil".to_string(), ComponentKind::HeatingCoil);
+        // ComponentKind wins over the (cooling-looking) name heuristic.
+        assert_eq!(li.coil_role("My Coil"), CoilRole::Heating);
+        // Name fallback for components not in the kind map.
+        assert_eq!(li.coil_role("DX Cooling Coil"), CoilRole::Cooling);
+        assert_eq!(li.coil_role("HW Reheat"), CoilRole::Heating);
+        assert_eq!(li.coil_role("Steam Humidifier"), CoilRole::Humidifier);
+    }
+
+    #[test]
+    fn psz_heating_mode_fires_heating_coil() {
+        let li = make_loop(
+            AirLoopSystemType::PszAc,
+            vec!["Gas Furnace".to_string(), "DX Cooling Coil".to_string()],
+        );
+        let f = Fixture {
+            temps: one("Zone1", 18.0),
+            heat_sp: one("Zone1", 21.1),
+            cool_sp: one("Zone1", 23.9),
+            flows: one("Zone1", 0.5),
+            cool_loads: one("Zone1", 0.0),
+            heat_loads: one("Zone1", 2000.0),
+            modes: [("Zone1".to_string(), HvacMode::Heating)]
+                .into_iter()
+                .collect(),
+            empty: HashMap::new(),
+        };
+        let signals = build_psz_signals(&li, &f.ctx(-5.0));
+        // Heating coil targets the design heating supply temp; cooling coil is off.
+        assert_eq!(
+            signals.coil_setpoints.get("Gas Furnace").copied(),
+            Some(li.heating_supply_temp)
+        );
+        assert_eq!(
+            signals.coil_setpoints.get("DX Cooling Coil").copied(),
+            Some(99.0)
+        );
+    }
+
+    #[test]
+    fn doas_is_always_full_outdoor_air() {
+        let li = make_loop(AirLoopSystemType::Doas, vec!["OA Coil".to_string()]);
+        let f = Fixture {
+            temps: one("Zone1", 21.0),
+            heat_sp: one("Zone1", 21.0),
+            cool_sp: one("Zone1", 24.0),
+            flows: one("Zone1", 0.4),
+            cool_loads: HashMap::new(),
+            heat_loads: HashMap::new(),
+            modes: HashMap::new(),
+            empty: HashMap::new(),
+        };
+        let signals = build_doas_signals(&li, &f.ctx(30.0));
+        assert_eq!(signals.oa_fraction, Some(1.0));
+    }
 }

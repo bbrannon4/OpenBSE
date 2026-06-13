@@ -4828,59 +4828,50 @@ fn simulate_all_loops(
             }
         }
 
+        // Per-zone state + outdoor conditions shared by every signal builder.
+        // The builders read only the fields they need (see openbse_airloop).
+        let sig_ctx = openbse_airloop::SignalCtx {
+            zone_temps,
+            zone_heat_sp: active_heat_sp,
+            zone_cool_sp: active_cool_sp,
+            zone_design_flows,
+            zone_cooling_loads,
+            zone_heating_loads,
+            zone_humidity_ratios,
+            zone_max_rh,
+            zone_min_rh,
+            zone_thermal_caps,
+            zone_dc_return_temps,
+            predictor_modes: &predictor_modes,
+            t_outdoor,
+            // All AHU controls use raw t_outdoor; HR credit is applied post-chain.
+            raw_t_outdoor: t_outdoor,
+            w_outdoor,
+            effective_min_oa,
+            schedule_mgr,
+            hour,
+            day_of_week,
+        };
+
         let mut signals = match li.system_type {
             // ──────────────────────────────────────────────────────────────
             // PSZ-AC: single-zone thermostat, mixed return + outdoor air.
             // The control zone is the first served zone.
             // ──────────────────────────────────────────────────────────────
-            AirLoopSystemType::PszAc => build_psz_signals(
-                li,
-                zone_temps,
-                active_heat_sp,
-                active_cool_sp,
-                zone_design_flows,
-                t_outdoor,
-                zone_cooling_loads,
-                zone_heating_loads,
-                effective_min_oa,
-                &predictor_modes,
-                w_outdoor,
-                zone_humidity_ratios,
-                zone_max_rh,
-                zone_min_rh,
-            ),
+            AirLoopSystemType::PszAc => build_psz_signals(li, &sig_ctx),
 
             // ──────────────────────────────────────────────────────────────
             // DOAS: 100% outdoor air, fixed supply setpoints, always runs.
             // Pre-conditions ventilation air; no zone-temperature feedback.
             // ──────────────────────────────────────────────────────────────
-            AirLoopSystemType::Doas => build_doas_signals(
-                li,
-                zone_design_flows,
-                active_heat_sp,
-                active_cool_sp,
-                t_outdoor,
-            ),
+            AirLoopSystemType::Doas => build_doas_signals(li, &sig_ctx),
 
             // ──────────────────────────────────────────────────────────────
             // FCU / PTAC / PTHP: recirculating unit, per-zone thermostat.
             // Each FCU/PTAC/PTHP loop serves exactly one zone.
             // ──────────────────────────────────────────────────────────────
             AirLoopSystemType::Fcu | AirLoopSystemType::Ptac | AirLoopSystemType::Pthp => {
-                build_fcu_signals(
-                    li,
-                    zone_temps,
-                    active_heat_sp,
-                    active_cool_sp,
-                    zone_design_flows,
-                    t_outdoor,
-                    zone_heating_loads,
-                    zone_cooling_loads,
-                    &predictor_modes,
-                    zone_humidity_ratios,
-                    zone_max_rh,
-                    zone_min_rh,
-                )
+                build_fcu_signals(li, &sig_ctx)
             }
 
             // ──────────────────────────────────────────────────────────────
@@ -4888,82 +4879,24 @@ fn simulate_all_loops(
             // All zones get cold supply air; zone-level reheat is handled
             // by separate FCU-type loops defined in the YAML.
             // ──────────────────────────────────────────────────────────────
-            AirLoopSystemType::Vav => {
-                // All controls use raw t_outdoor. HR credit is applied post-chain.
-                build_vav_signals(
-                    li,
-                    zone_temps,
-                    active_heat_sp,
-                    active_cool_sp,
-                    zone_design_flows,
-                    t_outdoor,
-                    effective_min_oa,
-                    false,
-                    t_outdoor,
-                    schedule_mgr,
-                    hour,
-                    day_of_week,
-                    zone_cooling_loads,
-                    zone_heating_loads,
-                    li.cooling_supply_temp,
-                    zone_thermal_caps,
-                    w_outdoor,
-                    zone_humidity_ratios,
-                    zone_max_rh,
-                    zone_min_rh,
-                )
-            }
+            AirLoopSystemType::Vav => build_vav_signals(li, &sig_ctx, false),
 
             // ──────────────────────────────────────────────────────────────
             // Dual-Duct CAV: hot deck + cold deck, per-zone mixing boxes.
             // Each zone always receives design_flow; the blended temperature
             // is computed from hot/cold deck temps and zone PLR.
             // ──────────────────────────────────────────────────────────────
-            AirLoopSystemType::DualDuct => build_dual_duct_signals(
-                li,
-                zone_temps,
-                active_heat_sp,
-                active_cool_sp,
-                zone_design_flows,
-                t_outdoor,
-                effective_min_oa,
-                zone_cooling_loads,
-                zone_heating_loads,
-                zone_humidity_ratios,
-                zone_max_rh,
-                zone_min_rh,
-            ),
+            AirLoopSystemType::DualDuct => build_dual_duct_signals(li, &sig_ctx),
 
             // ──────────────────────────────────────────────────────────────
             // CRAC: self-contained DX, no OA mixing, high-sensible cooling.
             // ──────────────────────────────────────────────────────────────
-            AirLoopSystemType::Crac => build_crac_signals(
-                li,
-                zone_temps,
-                active_cool_sp,
-                zone_design_flows,
-                t_outdoor,
-                zone_cooling_loads,
-                &predictor_modes,
-                zone_humidity_ratios,
-                zone_max_rh,
-                zone_dc_return_temps,
-            ),
+            AirLoopSystemType::Crac => build_crac_signals(li, &sig_ctx),
 
             // ──────────────────────────────────────────────────────────────
             // CRAH: chilled-water air handler, no OA mixing, high-sensible.
             // ──────────────────────────────────────────────────────────────
-            AirLoopSystemType::Crah => build_crah_signals(
-                li,
-                zone_temps,
-                active_cool_sp,
-                zone_design_flows,
-                zone_cooling_loads,
-                &predictor_modes,
-                zone_humidity_ratios,
-                zone_max_rh,
-                zone_dc_return_temps,
-            ),
+            AirLoopSystemType::Crah => build_crah_signals(li, &sig_ctx),
         };
 
         // Return-air humidity for mixed-air construction: served-zone average
@@ -6006,20 +5939,28 @@ mod tests {
 
         let zone_humidity_ratios: HashMap<String, f64> = HashMap::new();
         let empty_rh: HashMap<String, f64> = HashMap::new();
-        let signals = build_fcu_signals(
-            &li,
-            &zone_temps,
-            &zone_heat_sp,
-            &zone_cool_sp,
-            &zone_design_flows,
-            5.0,
-            &zone_heating_loads,
-            &zone_cooling_loads,
-            &predictor_modes,
-            &zone_humidity_ratios,
-            &empty_rh,
-            &empty_rh,
-        );
+        let ctx = openbse_airloop::SignalCtx {
+            zone_temps: &zone_temps,
+            zone_heat_sp: &zone_heat_sp,
+            zone_cool_sp: &zone_cool_sp,
+            zone_design_flows: &zone_design_flows,
+            zone_cooling_loads: &zone_cooling_loads,
+            zone_heating_loads: &zone_heating_loads,
+            zone_humidity_ratios: &zone_humidity_ratios,
+            zone_max_rh: &empty_rh,
+            zone_min_rh: &empty_rh,
+            zone_thermal_caps: &empty_rh,
+            zone_dc_return_temps: &empty_rh,
+            predictor_modes: &predictor_modes,
+            t_outdoor: 5.0,
+            raw_t_outdoor: 5.0,
+            w_outdoor: 0.005,
+            effective_min_oa: 0.0,
+            schedule_mgr: None,
+            hour: 0,
+            day_of_week: 0,
+        };
+        let signals = build_fcu_signals(&li, &ctx);
 
         // HP heating coil gets the design heating supply temp
         assert_eq!(
@@ -6065,20 +6006,28 @@ mod tests {
         let zone_humidity_ratios: HashMap<String, f64> =
             [("Zone1".to_string(), 0.010)].into_iter().collect();
         let empty_rh: HashMap<String, f64> = HashMap::new();
-        let signals = build_fcu_signals(
-            &li,
-            &zone_temps,
-            &zone_heat_sp,
-            &zone_cool_sp,
-            &zone_design_flows,
-            30.0,
-            &zone_heating_loads,
-            &zone_cooling_loads,
-            &predictor_modes,
-            &zone_humidity_ratios,
-            &empty_rh,
-            &empty_rh,
-        );
+        let ctx = openbse_airloop::SignalCtx {
+            zone_temps: &zone_temps,
+            zone_heat_sp: &zone_heat_sp,
+            zone_cool_sp: &zone_cool_sp,
+            zone_design_flows: &zone_design_flows,
+            zone_cooling_loads: &zone_cooling_loads,
+            zone_heating_loads: &zone_heating_loads,
+            zone_humidity_ratios: &zone_humidity_ratios,
+            zone_max_rh: &empty_rh,
+            zone_min_rh: &empty_rh,
+            zone_thermal_caps: &empty_rh,
+            zone_dc_return_temps: &empty_rh,
+            predictor_modes: &predictor_modes,
+            t_outdoor: 30.0,
+            raw_t_outdoor: 30.0,
+            w_outdoor: 0.005,
+            effective_min_oa: 0.0,
+            schedule_mgr: None,
+            hour: 0,
+            day_of_week: 0,
+        };
+        let signals = build_fcu_signals(&li, &ctx);
 
         assert_eq!(
             signals.coil_setpoints.get("R101 DX Cooling Coil").copied(),
@@ -6285,22 +6234,28 @@ mod tests {
         let empty_rh: HashMap<String, f64> = HashMap::new();
         // Scenario A: warm humid outdoor air — enthalpy > return → economizer closed
         // OA: 20°C, w=0.015 (h ≈ 58 kJ/kg > return ≈ 44 kJ/kg)
-        let signals_humid = build_psz_signals(
-            &li,
-            &zone_temps,
-            &zone_heat_sp,
-            &zone_cool_sp,
-            &zone_design_flows,
-            20.0, // t_outdoor
-            &zone_cooling_loads,
-            &zone_heating_loads,
-            li.min_oa_fraction,
-            &predictor_modes,
-            0.015, // w_outdoor (high)
-            &zone_humidity_ratios,
-            &empty_rh,
-            &empty_rh,
-        );
+        let ctx_humid = openbse_airloop::SignalCtx {
+            zone_temps: &zone_temps,
+            zone_heat_sp: &zone_heat_sp,
+            zone_cool_sp: &zone_cool_sp,
+            zone_design_flows: &zone_design_flows,
+            zone_cooling_loads: &zone_cooling_loads,
+            zone_heating_loads: &zone_heating_loads,
+            zone_humidity_ratios: &zone_humidity_ratios,
+            zone_max_rh: &empty_rh,
+            zone_min_rh: &empty_rh,
+            zone_thermal_caps: &empty_rh,
+            zone_dc_return_temps: &empty_rh,
+            predictor_modes: &predictor_modes,
+            t_outdoor: 20.0,
+            raw_t_outdoor: 20.0,
+            w_outdoor: 0.015, // high
+            effective_min_oa: li.min_oa_fraction,
+            schedule_mgr: None,
+            hour: 0,
+            day_of_week: 0,
+        };
+        let signals_humid = build_psz_signals(&li, &ctx_humid);
         let oa_frac_humid = signals_humid.oa_fraction.unwrap_or(0.0);
         assert!(
             (oa_frac_humid - li.min_oa_fraction).abs() < 0.01,
@@ -6310,22 +6265,13 @@ mod tests {
 
         // Scenario B: cool dry outdoor air — enthalpy < return → economizer open
         // OA: 12°C, w=0.003 (h ≈ 20 kJ/kg < return ≈ 44 kJ/kg)
-        let signals_dry = build_psz_signals(
-            &li,
-            &zone_temps,
-            &zone_heat_sp,
-            &zone_cool_sp,
-            &zone_design_flows,
-            12.0, // t_outdoor (< return temp 22°C, so old temp-based logic would also open)
-            &zone_cooling_loads,
-            &zone_heating_loads,
-            li.min_oa_fraction,
-            &predictor_modes,
-            0.003, // w_outdoor (low)
-            &zone_humidity_ratios,
-            &empty_rh,
-            &empty_rh,
-        );
+        let ctx_dry = openbse_airloop::SignalCtx {
+            t_outdoor: 12.0, // < return temp 22°C, so old temp-based logic would also open
+            raw_t_outdoor: 12.0,
+            w_outdoor: 0.003, // low
+            ..ctx_humid
+        };
+        let signals_dry = build_psz_signals(&li, &ctx_dry);
         let oa_frac_dry = signals_dry.oa_fraction.unwrap_or(0.0);
         assert!(
             oa_frac_dry > li.min_oa_fraction,
@@ -6486,22 +6432,28 @@ mod tests {
         let zone_max_rh: HashMap<String, f64> = [("Zone1".to_string(), 60.0)].into_iter().collect();
         let empty_rh: HashMap<String, f64> = HashMap::new();
 
-        let signals = build_psz_signals(
-            &li,
-            &zone_temps,
-            &zone_heat_sp,
-            &zone_cool_sp,
-            &zone_design_flows,
-            20.0,
-            &zone_cooling_loads,
-            &zone_heating_loads,
-            li.min_oa_fraction,
-            &predictor_modes,
-            0.008,
-            &zone_humidity_ratios,
-            &zone_max_rh,
-            &empty_rh,
-        );
+        let ctx = openbse_airloop::SignalCtx {
+            zone_temps: &zone_temps,
+            zone_heat_sp: &zone_heat_sp,
+            zone_cool_sp: &zone_cool_sp,
+            zone_design_flows: &zone_design_flows,
+            zone_cooling_loads: &zone_cooling_loads,
+            zone_heating_loads: &zone_heating_loads,
+            zone_humidity_ratios: &zone_humidity_ratios,
+            zone_max_rh: &zone_max_rh,
+            zone_min_rh: &empty_rh,
+            zone_thermal_caps: &empty_rh,
+            zone_dc_return_temps: &empty_rh,
+            predictor_modes: &predictor_modes,
+            t_outdoor: 20.0,
+            raw_t_outdoor: 20.0,
+            w_outdoor: 0.008,
+            effective_min_oa: li.min_oa_fraction,
+            schedule_mgr: None,
+            hour: 0,
+            day_of_week: 0,
+        };
+        let signals = build_psz_signals(&li, &ctx);
 
         // Cooling coil should be activated (setpoint not 99.0)
         let coil_sp = signals
@@ -6545,22 +6497,28 @@ mod tests {
         let zone_max_rh: HashMap<String, f64> = [("Zone1".to_string(), 60.0)].into_iter().collect();
         let empty_rh: HashMap<String, f64> = HashMap::new();
 
-        let signals = build_psz_signals(
-            &li,
-            &zone_temps,
-            &zone_heat_sp,
-            &zone_cool_sp,
-            &zone_design_flows,
-            20.0,
-            &zone_cooling_loads,
-            &zone_heating_loads,
-            li.min_oa_fraction,
-            &predictor_modes,
-            0.008,
-            &zone_humidity_ratios,
-            &zone_max_rh,
-            &empty_rh,
-        );
+        let ctx = openbse_airloop::SignalCtx {
+            zone_temps: &zone_temps,
+            zone_heat_sp: &zone_heat_sp,
+            zone_cool_sp: &zone_cool_sp,
+            zone_design_flows: &zone_design_flows,
+            zone_cooling_loads: &zone_cooling_loads,
+            zone_heating_loads: &zone_heating_loads,
+            zone_humidity_ratios: &zone_humidity_ratios,
+            zone_max_rh: &zone_max_rh,
+            zone_min_rh: &empty_rh,
+            zone_thermal_caps: &empty_rh,
+            zone_dc_return_temps: &empty_rh,
+            predictor_modes: &predictor_modes,
+            t_outdoor: 20.0,
+            raw_t_outdoor: 20.0,
+            w_outdoor: 0.008,
+            effective_min_oa: li.min_oa_fraction,
+            schedule_mgr: None,
+            hour: 0,
+            day_of_week: 0,
+        };
+        let signals = build_psz_signals(&li, &ctx);
 
         let coil_sp = signals
             .coil_setpoints
@@ -6763,18 +6721,28 @@ mod tests_datacenter {
         let zone_rh = HashMap::new();
         let dc_return: HashMap<String, f64> = HashMap::new();
 
-        let signals = build_crac_signals(
-            &li,
-            &zone_temps,
-            &cool_sp,
-            &design_flows,
-            0.0,
-            &cooling_loads,
-            &predictor_modes,
-            &zone_w,
-            &zone_rh,
-            &dc_return,
-        );
+        let ctx = openbse_airloop::SignalCtx {
+            zone_temps: &zone_temps,
+            zone_heat_sp: &zone_rh,
+            zone_cool_sp: &cool_sp,
+            zone_design_flows: &design_flows,
+            zone_cooling_loads: &cooling_loads,
+            zone_heating_loads: &zone_rh,
+            zone_humidity_ratios: &zone_w,
+            zone_max_rh: &zone_rh,
+            zone_min_rh: &zone_rh,
+            zone_thermal_caps: &zone_rh,
+            zone_dc_return_temps: &dc_return,
+            predictor_modes: &predictor_modes,
+            t_outdoor: 0.0,
+            raw_t_outdoor: 0.0,
+            w_outdoor: 0.005,
+            effective_min_oa: 0.0,
+            schedule_mgr: None,
+            hour: 0,
+            day_of_week: 0,
+        };
+        let signals = build_crac_signals(&li, &ctx);
 
         // DX coil setpoint should target the loop cooling_supply_temp (18.0)
         let coil_sp = signals
@@ -6812,17 +6780,28 @@ mod tests_datacenter {
         let zone_rh = HashMap::new();
         let dc_return: HashMap<String, f64> = HashMap::new();
 
-        let signals = build_crah_signals(
-            &li,
-            &zone_temps,
-            &cool_sp,
-            &design_flows,
-            &cooling_loads,
-            &predictor_modes,
-            &zone_w,
-            &zone_rh,
-            &dc_return,
-        );
+        let ctx = openbse_airloop::SignalCtx {
+            zone_temps: &zone_temps,
+            zone_heat_sp: &zone_rh,
+            zone_cool_sp: &cool_sp,
+            zone_design_flows: &design_flows,
+            zone_cooling_loads: &cooling_loads,
+            zone_heating_loads: &zone_rh,
+            zone_humidity_ratios: &zone_w,
+            zone_max_rh: &zone_rh,
+            zone_min_rh: &zone_rh,
+            zone_thermal_caps: &zone_rh,
+            zone_dc_return_temps: &dc_return,
+            predictor_modes: &predictor_modes,
+            t_outdoor: 0.0,
+            raw_t_outdoor: 0.0,
+            w_outdoor: 0.005,
+            effective_min_oa: 0.0,
+            schedule_mgr: None,
+            hour: 0,
+            day_of_week: 0,
+        };
+        let signals = build_crah_signals(&li, &ctx);
 
         // CHW coil setpoint should be the loop supply temp (18.0)
         let coil_sp = signals
