@@ -23,7 +23,7 @@ npm run build      # full build (tsc + vite)
 
 ## Architecture
 
-- Rust workspace with 8 crates in `crates/` — core, components, controls, envelope, weather, psychrometrics, io, cli
+- Rust workspace with 11 crates in `crates/` — core, components, controls, envelope, weather, psychrometrics, io, airloop, cli, a205, cosim
 - Tauri + React desktop editor in `tools/editor/` (excluded from Rust workspace)
 - YAML input format — schema at `docs/openbse_schema.json`
 - ASHRAE 140 test cases in `140_tests/cases/`

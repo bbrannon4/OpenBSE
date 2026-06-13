@@ -20,9 +20,13 @@ openbse-components       ← Depends on core + psychrometrics. HVAC models: fan,
 openbse-controls         ← Depends on core. Thermostats, setpoint controllers.
 openbse-envelope         ← Depends on core + psychrometrics + weather. Zone heat balance,
                             surfaces, CTF, solar, infiltration, convection, radiation.
-openbse-io               ← Depends on all above. YAML input parsing, CSV output, sizing.
+openbse-io               ← Depends on core/components/controls/envelope/weather/a205/cosim.
+                            YAML input parsing, CSV output, sizing.
+openbse-airloop          ← Depends on io + components + envelope + core + psychrometrics.
+                            Per-system-type control signal builders (PSZ/CRAC/CRAH/DOAS/
+                            FCU/VAV/dual-duct) and LoopInfo/HvacMode.
 openbse-cli              ← Depends on all above. Binary entry point, simulation driver,
-                            system-level control logic (PSZ-AC, VAV, DOAS, FCU dispatchers).
+                            multi-loop control dispatcher.
 ```
 
 ### Key Traits
@@ -54,7 +58,7 @@ openbse-cli              ← Depends on all above. Binary entry point, simulatio
 ## File Organization
 
 ```
-crates/                      Rust source code (10 crates)
+crates/                      Rust source code (11 crates)
 examples/                    Example YAML model files (simple_heating, vav_reheat, etc.)
 140_tests/                   ASHRAE Standard 140-2023 validation test cases
   cases/                       31 YAML input files
