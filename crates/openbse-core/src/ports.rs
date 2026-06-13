@@ -272,17 +272,31 @@ pub trait AirComponent: std::fmt::Debug {
 
     /// Additional component-specific output variables beyond the standard set.
     ///
-    /// Returns `snake_case_variable_name` → value pairs. Values should use
-    /// natural SI units (W, kg/s, °C, Pa, etc.).
+    /// Reports `snake_case_variable_name` → value pairs by calling `out(name,
+    /// value)` for each. Values should use natural SI units (W, kg/s, °C, Pa,
+    /// etc.). This visitor form lets the caller write directly into its own
+    /// output map without each component allocating a fresh `HashMap` per
+    /// timestep (the simulation hot path). Use [`Self::detailed_outputs`] when
+    /// a materialized map is convenient (e.g. tests).
     ///
     /// ```text
     /// // Example from a cooling coil:
-    /// { "sensible_cooling_rate" => 12000.0,  // W
-    ///   "latent_cooling_rate"   => 3000.0,   // W
-    ///   "apparatus_dewpoint"    => 10.5 }    // °C
+    /// out("sensible_cooling_rate", 12000.0);  // W
+    /// out("latent_cooling_rate",   3000.0);   // W
+    /// out("apparatus_dewpoint",    10.5);     // °C
     /// ```
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        let _ = out;
+    }
+
+    /// Convenience wrapper that materializes [`Self::report_outputs`] into a
+    /// `HashMap`. Allocates; prefer `report_outputs` on the hot path.
     fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        std::collections::HashMap::new()
+        let mut m = std::collections::HashMap::new();
+        self.report_outputs(&mut |k, v| {
+            m.insert(k.to_string(), v);
+        });
+        m
     }
 }
 
@@ -375,17 +389,31 @@ pub trait PlantComponent: std::fmt::Debug {
 
     /// Additional component-specific output variables beyond the standard set.
     ///
-    /// Returns `snake_case_variable_name` → value pairs. Values should use
-    /// natural SI units (W, kg/s, °C, Pa, etc.).
+    /// Reports `snake_case_variable_name` → value pairs by calling `out(name,
+    /// value)` for each. Values should use natural SI units (W, kg/s, °C, Pa,
+    /// etc.). This visitor form lets the caller write directly into its own
+    /// output map without each component allocating a fresh `HashMap` per
+    /// timestep (the simulation hot path). Use [`Self::detailed_outputs`] when
+    /// a materialized map is convenient (e.g. tests).
     ///
     /// ```text
     /// // Example from a boiler:
-    /// { "plr"              => 0.75,    // part-load ratio [0-1]
-    ///   "efficiency"       => 0.82,    // current thermal efficiency [0-1]
-    ///   "outlet_temp"      => 82.0 }   // °C
+    /// out("plr", 0.75);         // part-load ratio [0-1]
+    /// out("efficiency", 0.82);  // current thermal efficiency [0-1]
+    /// out("outlet_temp", 82.0); // °C
     /// ```
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        let _ = out;
+    }
+
+    /// Convenience wrapper that materializes [`Self::report_outputs`] into a
+    /// `HashMap`. Allocates; prefer `report_outputs` on the hot path.
     fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        std::collections::HashMap::new()
+        let mut m = std::collections::HashMap::new();
+        self.report_outputs(&mut |k, v| {
+            m.insert(k.to_string(), v);
+        });
+        m
     }
 }
 

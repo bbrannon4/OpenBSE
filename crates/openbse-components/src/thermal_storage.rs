@@ -241,12 +241,10 @@ impl PlantComponent for ThermalStorage {
         self.net_thermal
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("stored_energy_wh".to_string(), self.stored_energy_wh);
-        m.insert("charge_rate_w".to_string(), self.charge_rate);
-        m.insert("discharge_rate_w".to_string(), self.discharge_rate);
-        m
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("stored_energy_wh", self.stored_energy_wh);
+        out("charge_rate_w", self.charge_rate);
+        out("discharge_rate_w", self.discharge_rate);
     }
 }
 

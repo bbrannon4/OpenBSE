@@ -218,11 +218,9 @@ impl AirComponent for HeatRecovery {
         self.exhaust_air_w = w;
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("sensible_load".to_string(), self.sensible_recovery);
-        m.insert("latent_load".to_string(), self.latent_recovery);
-        m
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("sensible_load", self.sensible_recovery);
+        out("latent_load", self.latent_recovery);
     }
 }
 

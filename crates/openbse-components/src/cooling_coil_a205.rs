@@ -298,21 +298,19 @@ impl AirComponent for CoolingCoilDXA205 {
         )
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("plr".into(), self.plr);
-        m.insert("compressor_sequence".into(), self.sequence_number);
-        m.insert("in_range".into(), if self.in_range { 1.0 } else { 0.0 });
-        m.insert("sensible_cooling_rate".into(), self.sensible_cooling_rate);
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("plr", self.plr);
+        out("compressor_sequence", self.sequence_number);
+        out("in_range", if self.in_range { 1.0 } else { 0.0 });
+        out("sensible_cooling_rate", self.sensible_cooling_rate);
         let latent = (self.cooling_rate - self.sensible_cooling_rate).max(0.0);
-        m.insert("latent_cooling_rate".into(), latent);
+        out("latent_cooling_rate", latent);
         let cop = if self.power_consumption > 0.0 {
             self.cooling_rate / self.power_consumption
         } else {
             0.0
         };
-        m.insert("efficiency_operating".into(), cop);
-        m
+        out("efficiency_operating", cop);
     }
 }
 

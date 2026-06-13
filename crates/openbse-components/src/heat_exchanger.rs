@@ -201,16 +201,11 @@ impl PlantComponent for WaterToWaterHX {
         self.source_mass_flow = mass_flow;
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("heat_transferred".to_string(), self.heat_transferred);
-        m.insert("effectiveness".to_string(), self.effectiveness);
-        m.insert(
-            "source_inlet_temperature".to_string(),
-            self.source_inlet_temp,
-        );
-        m.insert("source_mass_flow".to_string(), self.source_mass_flow);
-        m
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("heat_transferred", self.heat_transferred);
+        out("effectiveness", self.effectiveness);
+        out("source_inlet_temperature", self.source_inlet_temp);
+        out("source_mass_flow", self.source_mass_flow);
     }
 }
 

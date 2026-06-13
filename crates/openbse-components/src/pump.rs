@@ -249,11 +249,9 @@ impl PlantComponent for Pump {
         self.power
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("water_mass_flow".to_string(), self.current_mass_flow);
-        m.insert("pressure_rise".to_string(), self.design_head);
-        m
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("water_mass_flow", self.current_mass_flow);
+        out("pressure_rise", self.design_head);
     }
 }
 

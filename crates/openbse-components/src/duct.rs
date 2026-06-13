@@ -140,10 +140,8 @@ impl AirComponent for Duct {
         Some(&self.ambient_zone)
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("conduction_loss".to_string(), self.conduction_loss);
-        m.insert("leakage_loss".to_string(), self.leakage_flow);
-        m
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("conduction_loss", self.conduction_loss);
+        out("leakage_loss", self.leakage_flow);
     }
 }

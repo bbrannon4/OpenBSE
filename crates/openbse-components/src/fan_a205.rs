@@ -209,13 +209,11 @@ impl AirComponent for FanA205 {
         )
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("shaft_power".into(), self.shaft_power);
-        m.insert("impeller_speed".into(), self.impeller_speed);
-        m.insert("heat_to_air".into(), self.heat_to_air);
-        m.insert("in_range".into(), if self.in_range { 1.0 } else { 0.0 });
-        m
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("shaft_power", self.shaft_power);
+        out("impeller_speed", self.impeller_speed);
+        out("heat_to_air", self.heat_to_air);
+        out("in_range", if self.in_range { 1.0 } else { 0.0 });
     }
 }
 

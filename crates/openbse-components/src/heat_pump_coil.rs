@@ -421,18 +421,16 @@ impl AirComponent for HeatPumpHeatingCoil {
         self.total_heating_rate
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("sensible_load".to_string(), self.total_heating_rate);
-        m.insert(
-            "cop_operating".to_string(),
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("sensible_load", self.total_heating_rate);
+        out(
+            "cop_operating",
             if self.compressor_power > 0.0 {
                 self.hp_heating_rate / self.compressor_power
             } else {
                 0.0
             },
         );
-        m
     }
 }
 

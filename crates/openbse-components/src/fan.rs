@@ -211,11 +211,9 @@ impl AirComponent for Fan {
         self.heat_to_air
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("pressure_rise".to_string(), self.design_pressure_rise);
-        m.insert("total_efficiency".to_string(), self.total_efficiency);
-        m
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("pressure_rise", self.design_pressure_rise);
+        out("total_efficiency", self.total_efficiency);
     }
 }
 

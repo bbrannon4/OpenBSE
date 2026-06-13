@@ -5698,10 +5698,11 @@ fn simulate_loop_components(
                 comp_outputs.insert("electric_power".to_string(), component.power_consumption());
                 comp_outputs.insert("fuel_power".to_string(), component.fuel_consumption());
                 comp_outputs.insert("thermal_output".to_string(), component.thermal_output());
-                // Merge component-specific detailed outputs
-                for (k, v) in component.detailed_outputs() {
-                    comp_outputs.insert(k, v);
-                }
+                // Merge component-specific detailed outputs (visitor avoids a
+                // per-component HashMap allocation each timestep).
+                component.report_outputs(&mut |k, v| {
+                    comp_outputs.insert(k.to_string(), v);
+                });
                 outputs.insert(comp_name.clone(), comp_outputs);
 
                 last_outlet = Some(outlet);
@@ -5769,9 +5770,9 @@ fn simulate_hvac(
                 outputs.insert("electric_power".to_string(), component.power_consumption());
                 outputs.insert("fuel_power".to_string(), component.fuel_consumption());
                 outputs.insert("thermal_output".to_string(), component.thermal_output());
-                for (k, v) in component.detailed_outputs() {
-                    outputs.insert(k, v);
-                }
+                component.report_outputs(&mut |k, v| {
+                    outputs.insert(k.to_string(), v);
+                });
                 component_outputs.insert(comp_name, outputs);
 
                 last_air_outlet = Some(outlet);
@@ -5794,9 +5795,9 @@ fn simulate_hvac(
                 outputs.insert("electric_power".to_string(), component.power_consumption());
                 outputs.insert("fuel_power".to_string(), component.fuel_consumption());
                 outputs.insert("thermal_output".to_string(), component.thermal_output());
-                for (k, v) in component.detailed_outputs() {
-                    outputs.insert(k, v);
-                }
+                component.report_outputs(&mut |k, v| {
+                    outputs.insert(k.to_string(), v);
+                });
                 component_outputs.insert(comp_name, outputs);
                 water_states.insert(node_idx, outlet);
             }

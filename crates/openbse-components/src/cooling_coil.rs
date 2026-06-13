@@ -544,31 +544,29 @@ impl AirComponent for CoolingCoilDX {
         -self.cooling_rate
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("sensible_load".to_string(), self.sensible_cooling_rate);
-        m.insert(
-            "latent_load".to_string(),
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("sensible_load", self.sensible_cooling_rate);
+        out(
+            "latent_load",
             self.cooling_rate - self.sensible_cooling_rate,
         );
-        m.insert("total_load".to_string(), self.cooling_rate);
-        m.insert(
-            "cop_operating".to_string(),
+        out("total_load", self.cooling_rate);
+        out(
+            "cop_operating",
             if self.power_consumption > 0.0 {
                 self.cooling_rate / self.power_consumption
             } else {
                 0.0
             },
         );
-        m.insert("plr".to_string(), self.plr);
-        m.insert("rtf".to_string(), self.rtf);
+        out("plr", self.plr);
+        out("rtf", self.rtf);
         let cycling_loss = if self.plr > 0.0 {
             self.cooling_rate * (1.0 - self.rtf / self.plr)
         } else {
             0.0
         };
-        m.insert("cycling_loss".to_string(), cycling_loss);
-        m
+        out("cycling_loss", cycling_loss);
     }
 }
 

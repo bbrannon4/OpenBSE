@@ -325,20 +325,12 @@ impl PlantComponent for Boiler {
         self.nominal_capacity = cap;
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("plr".to_string(), self.operating_plr);
-        m.insert(
-            "efficiency_operating".to_string(),
-            self.efficiency_operating,
-        );
-        m.insert("water_inlet_temperature".to_string(), self.water_inlet_temp);
-        m.insert(
-            "water_outlet_temperature".to_string(),
-            self.water_outlet_temp,
-        );
-        m.insert("water_mass_flow".to_string(), self.water_mass_flow);
-        m
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("plr", self.operating_plr);
+        out("efficiency_operating", self.efficiency_operating);
+        out("water_inlet_temperature", self.water_inlet_temp);
+        out("water_outlet_temperature", self.water_outlet_temp);
+        out("water_mass_flow", self.water_mass_flow);
     }
 }
 

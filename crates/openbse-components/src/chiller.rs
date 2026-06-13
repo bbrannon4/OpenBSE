@@ -295,17 +295,12 @@ impl PlantComponent for AirCooledChiller {
         Some(self.rated_capacity)
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("plr".to_string(), self.plr);
-        m.insert("efficiency_operating".to_string(), self.actual_cop);
-        m.insert("water_inlet_temperature".to_string(), self.water_inlet_temp);
-        m.insert(
-            "water_outlet_temperature".to_string(),
-            self.water_outlet_temp,
-        );
-        m.insert("water_mass_flow".to_string(), self.water_mass_flow);
-        m
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("plr", self.plr);
+        out("efficiency_operating", self.actual_cop);
+        out("water_inlet_temperature", self.water_inlet_temp);
+        out("water_outlet_temperature", self.water_outlet_temp);
+        out("water_mass_flow", self.water_mass_flow);
     }
 }
 

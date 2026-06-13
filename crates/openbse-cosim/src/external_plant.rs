@@ -190,11 +190,9 @@ impl PlantComponent for ExternalPlantComponent {
         self.last_thermal_w
     }
 
-    fn detailed_outputs(&self) -> HashMap<String, f64> {
-        HashMap::from([
-            ("power_w".to_string(), self.last_power_w),
-            ("fuel_w".to_string(), self.last_fuel_w),
-            ("thermal_output_w".to_string(), self.last_thermal_w),
-        ])
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("power_w", self.last_power_w);
+        out("fuel_w", self.last_fuel_w);
+        out("thermal_output_w", self.last_thermal_w);
     }
 }

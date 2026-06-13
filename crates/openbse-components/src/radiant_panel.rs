@@ -302,33 +302,28 @@ impl PlantComponent for RadiantPanel {
         self.rated_capacity = cap;
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("plr".to_string(), self.plr);
-        m.insert("radiant_output".to_string(), self.radiant_output.max(0.0));
-        m.insert(
-            "convective_output".to_string(),
-            self.convective_output.max(0.0),
-        );
-        m.insert("entering_water_temp".to_string(), self.entering_water_temp);
-        m.insert(
-            "radiant_panel_heating_rate".to_string(),
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("plr", self.plr);
+        out("radiant_output", self.radiant_output.max(0.0));
+        out("convective_output", self.convective_output.max(0.0));
+        out("entering_water_temp", self.entering_water_temp);
+        out(
+            "radiant_panel_heating_rate",
             if self.thermal_output_to_zone > 0.0 {
                 self.thermal_output_to_zone
             } else {
                 0.0
             },
         );
-        m.insert(
-            "radiant_panel_cooling_rate".to_string(),
+        out(
+            "radiant_panel_cooling_rate",
             if self.thermal_output_to_zone < 0.0 {
                 -self.thermal_output_to_zone
             } else {
                 0.0
             },
         );
-        m.insert("radiant_panel_electric_power".to_string(), self.power);
-        m
+        out("radiant_panel_electric_power", self.power);
     }
 }
 

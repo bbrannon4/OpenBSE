@@ -262,17 +262,12 @@ impl PlantComponent for CoolingTower {
         }
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("fan_power".to_string(), self.fan_power);
-        m.insert("heat_rejected".to_string(), self.heat_rejected);
-        m.insert("water_inlet_temperature".to_string(), self.water_inlet_temp);
-        m.insert(
-            "water_outlet_temperature".to_string(),
-            self.water_outlet_temp,
-        );
-        m.insert("water_mass_flow".to_string(), self.water_mass_flow);
-        m
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("fan_power", self.fan_power);
+        out("heat_rejected", self.heat_rejected);
+        out("water_inlet_temperature", self.water_inlet_temp);
+        out("water_outlet_temperature", self.water_outlet_temp);
+        out("water_mass_flow", self.water_mass_flow);
     }
 }
 

@@ -344,21 +344,19 @@ impl PlantComponent for ChillerA205 {
         WaterPort::new(FluidState::water(t_outlet, mass_flow))
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("plr".into(), self.plr);
-        m.insert("compressor_sequence".into(), self.sequence_number);
-        m.insert("in_range".into(), if self.in_range { 1.0 } else { 0.0 });
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("plr", self.plr);
+        out("compressor_sequence", self.sequence_number);
+        out("in_range", if self.in_range { 1.0 } else { 0.0 });
         let cop = if self.electric_power > 0.0 {
             self.actual_capacity / self.electric_power
         } else {
             0.0
         };
-        m.insert("efficiency_operating".into(), cop);
-        m.insert("water_inlet_temperature".into(), self.water_inlet_temp);
-        m.insert("water_outlet_temperature".into(), self.water_outlet_temp);
-        m.insert("water_mass_flow".into(), self.water_mass_flow);
-        m
+        out("efficiency_operating", cop);
+        out("water_inlet_temperature", self.water_inlet_temp);
+        out("water_outlet_temperature", self.water_outlet_temp);
+        out("water_mass_flow", self.water_mass_flow);
     }
 }
 

@@ -236,18 +236,16 @@ impl AirComponent for CoolingCoilCHW {
         -self.cooling_rate
     }
 
-    fn detailed_outputs(&self) -> std::collections::HashMap<String, f64> {
-        let mut m = std::collections::HashMap::new();
-        m.insert("sensible_load".to_string(), self.sensible_cooling_rate);
-        m.insert("total_load".to_string(), self.cooling_rate);
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("sensible_load", self.sensible_cooling_rate);
+        out("total_load", self.cooling_rate);
         if let Some(ref wi) = self.water_inlet {
-            m.insert("water_inlet_temperature".to_string(), wi.state.temp);
-            m.insert("water_mass_flow".to_string(), wi.state.mass_flow);
+            out("water_inlet_temperature", wi.state.temp);
+            out("water_mass_flow", wi.state.mass_flow);
         }
         if let Some(ref wo) = self.water_outlet_state {
-            m.insert("water_outlet_temperature".to_string(), wo.state.temp);
+            out("water_outlet_temperature", wo.state.temp);
         }
-        m
     }
 }
 
