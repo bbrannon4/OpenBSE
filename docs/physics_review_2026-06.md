@@ -172,6 +172,16 @@ AFN is opt-in (`airflow_network: enabled: true`) and not used by the validated h
 - **[LOW] AFN-3:** crack density correction omits E+ viscosity term `(μ_0/μ)^(2n-1)`; large openings are single-direction orifices (no E+ two-way DetailedOpening neutral-plane model); `MIN_DP` floor vs E+ laminar transition near ΔP→0; cosmetic dead arithmetic (airflow_network.rs:400) and fixed `w=0.008` node density.
 - Verified correct: power-law mass-flow density correction `(ρ/ρ_ref)^(1-n)` (→ ρ^0.5 orifice limit); orifice eq + analytical derivative (FD-checked); stack pressure with actual node densities and correct sign/direction; wind pressure `0.5ρCpV²` at outdoor node with terrain height profile, correct sign both orientations; Newton-Raphson Jacobian (FD-checked), Gaussian elimination + partial pivoting + singular detection, damping, dual convergence; mass conservation (tests); live per-timestep zone node temp/density update (stack effect not frozen); windward Cp≈0.6, leeward negative.
 
+### HAMT moisture solver (`hamt.rs`) — GitHub #64
+
+Opt-in: activates only when all layers have `vapor_resistance_factor` + `sorption_isotherm` (else CTF). No validated model supplies that data. As-is the moisture solver is quantitatively non-functional — three coupled bugs:
+
+- **[MED, bug] HAMT-1: latent heat/moisture coupling term is identically zero.** `w_prev` and `w_curr` both read `layer.moisture[ni]` (hamt.rs:369-371), so `latent ≡ 0`. The heat eq's `L_v·∂(ρ₀·w_c)/∂t` source — the whole point of coupled HAMT — is dead; heat solve is plain conduction.
+- **[MED, bug] HAMT-2: vapor conductance drops the isotherm slope.** Pa→w_c conversion uses `perm·p_sat` (hamt.rs:510,530), omitting `∂RH/∂w_c` (comment at :490 acknowledges it). Implicitly assumes RH=w_c; mis-scales vapor transport by ~5–50×.
+- **[MED, bug] HAMT-3: surface resistance applied as `DELTA_AIR/Z_M` not `1/Z_M`.** Spurious `DELTA_AIR≈2e-10` factor (hamt.rs:489,515,598) makes surface permeance ~2e-10× correct (6.6e-19 vs 3.3e-9), ~9 orders below the interior face — surfaces are effectively vapor-tight, `moisture_flux_inside` ~2e-10× too small. Test only checks flux *sign*, so it passes.
+- **[LOW] HAMT-4:** dry (constant) conductivity vs E+ λ(w); Magnus `p_sat` over water (no ice branch) vs Hyland–Wexler elsewhere; uniform node spacing (no near-surface refinement); hard-coded film coefficients (25/8.3).
+- Verified correct: TDMA solver; interp/sorption interpolation; harmonic-mean **heat** face conductance; backward-Euler storage `ρ·c_p·dx/dt`; activation gating (all-layers moisture data → else CTF); Magnus `p_sat` values at 0/20 °C. **Treat HAMT as not production-ready until HAMT-1/2/3 fixed.**
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
 `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (Phase 2A `sizing.rs` and terminal boxes, Phase 2B heat-pump/radiant/storage equipment, and Phase 2C plant auxiliaries + evap cooler/humidifier/water heater/CRAC-CRAH all reviewed 2026-06-13, see above — Phase 2D core numerics & I/O edges remain.)
