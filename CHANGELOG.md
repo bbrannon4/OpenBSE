@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-13
+
+### Added
+- **`openbse-airloop` crate** — the seven per-system-type control signal builders (PSZ, CRAC, CRAH, DOAS, FCU, VAV, dual-duct) plus `LoopInfo`/`HvacMode` moved out of the 8.4k-line CLI driver into a focused, separately-testable crate (workspace is now 11 crates). Builders take a single `SignalCtx` instead of long per-zone-map argument lists.
+
+### Changed
+- **Component detailed-output reporting is now consistent under part-load.** When the system-level PLR block scales a component's `thermal_output`/`mass_flow`, the rate/flow columns from `detailed_outputs()` (`sensible_load`, `total_load`, `latent_load`, `cycling_loss`, etc.) are scaled by the same factor, so CSV columns for a component no longer disagree (e.g. `mass_flow=0` with `total_load≠0`). Intensive states (temperatures, `plr`, COP) remain on-cycle/pre-PLR by design; system PLR is reported separately as `__loop_plr__`. *Note: part-load detailed-output columns in results CSVs now reflect time-averaged values.*
+- **Internal:** component `detailed_outputs()` replaced by a non-allocating visitor `report_outputs()` on the hot path (`detailed_outputs()` retained as a convenience wrapper); single-source `EquipmentInput::component_kind()`; CTF warnings routed through `log` instead of `eprintln!`; workspace-wide clippy cleanup.
+
 ## [0.5.1] - 2026-06-10
 
 ### Fixed
