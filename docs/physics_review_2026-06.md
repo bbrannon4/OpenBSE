@@ -102,6 +102,14 @@ Round-2 regression results (A/B): case 600 → 4305/5848 kWh (range 3993–4504 
 - **[LOW] TERM-3: VAV hot-water reheat is a capacity-cap** (`m_w·cp·(T_in − design_outlet)`, `vav_box.rs:244-265`), not a UA/effectiveness coil; adequate but doesn't vary with entering-air temp like E+.
 - Verified correct: VAV dual-maximum control (G36 / E+ ReverseWithLimits — cooling min→max, heating min→max_reheat_fraction with reheat), electric reheat COP=1 with delivered energy consistent with the max-reheat-temp clamp; dual-duct CAV box (constant design flow, energy-weighted hot/cold deck blend) matches E+ DualDuct:ConstantVolume. **The previously-flagged `vav_box::tests::test_vav_heating_mode_with_electric_reheat` failure is resolved** (fixed by the typed-control-signals / type-based dispatch work).
 
+### Water-to-air heat pumps (`gshp.rs`, `wshp.rs`) — reviewed 2026-06-13 (Phase 2B) — GitHub #56
+
+- **[MED] HPF-1: GSHP `eir_ft` applied as a COP multiplier** (`power = cap/(cop·eir_mod)`, gshp.rs:366,389), inverse of E+ EIRfT (>1 = worse). Pasting E+ EIRfT coefficients inverts the efficiency response. Default 1.0, so only bites when curves supplied.
+- **[MED] HPF-2: GSHP has no part-load cycling penalty** (not in `dx_compressor_names`, no internal PLF) — runs at full COP at any load. WSHP gets the system RTF; GSHP gets nothing.
+- **[MED] HPF-3: WSHP condenser temp proxied from outdoor-air temp** (wshp.rs:162), not the actual water loop; only capacity derates, COP constant.
+- **[MED] HPF-4: WSHP heating has no source-temperature dependence** (fixed capacity and COP regardless of entering water temp).
+- Verified: WSHP water-side energy balance (cooling rejects Q_evap+W, heating absorbs Q_out−W); GSHP Kusuda-Achenbach EWT model + EpwMonthly/Monthly sources; both modulate to meet the exact air load.
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
 VRF, GSHP, WSHP, radiant panel, thermal storage, evap cooler, humidifier, water heater, cooling tower internals, pumps, dual-duct/PFP/VAV boxes (note: `vav_box` has a known pre-existing test failure), CRAC/CRAH details (recently bug-fixed in v0.5.1), `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (`sizing.rs` reviewed 2026-06-13, see above.)
