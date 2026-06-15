@@ -479,8 +479,29 @@ fn main() -> Result<()> {
             build_graph_with_base(&model, model_dir).context("Failed to build simulation graph")?;
         info!("Graph built: {} components", graph.component_count());
 
+        // NOTE: the openbse-controls runtime is NOT wired into the main envelope
+        // driver (`simulate_all_loops`). Zone setpoints reach the simulation via
+        // the predictor / airloop signal builders, and air-loop setpoints via
+        // `AirLoopControls`. The explicit top-level `controls:` section
+        // (SetpointController / PlantLoopSetpoint) is therefore inert — build it
+        // only so we can warn the user rather than silently ignoring it (#75).
         let controllers = build_controllers(&model);
-        info!("Controllers built: {} controllers", controllers.len());
+        log::debug!("Controllers built: {} (diagnostic only)", controllers.len());
+        if !model.controls.is_empty() {
+            warn!(
+                "The top-level `controls:` section ({} entr{}) is not applied — \
+                 SetpointController/PlantLoopSetpoint are inert in the current \
+                 driver. Set component/loop setpoints via air-loop `controls:` \
+                 (heating_supply_temp/cooling_supply_temp), plant-loop setpoints, \
+                 or zone thermostats instead.",
+                model.controls.len(),
+                if model.controls.len() == 1 {
+                    "y"
+                } else {
+                    "ies"
+                },
+            );
+        }
 
         let mut envelope = build_envelope(
             &model,
