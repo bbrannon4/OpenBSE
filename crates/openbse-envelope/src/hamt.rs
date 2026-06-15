@@ -4,6 +4,27 @@
 //! transport through multi-layer walls, matching the EnergyPlus HAMT model
 //! (Künzel 1995).
 //!
+//! # ⚠️ EXPERIMENTAL — NOT PRODUCTION-READY (GitHub #64)
+//!
+//! This module is **not wired into the simulation** (`HamtState::from_construction`
+//! has no caller) and is **quantitatively non-functional** as written. A physics
+//! review (2026-06) found three coupled bugs; do not enable HAMT for any result
+//! that matters until they are fixed and validated against E+:
+//!
+//! - **HAMT-1:** the latent heat/moisture coupling source term is identically
+//!   zero — `w_prev` and `w_curr` both read `layer.moisture[ni]`, so the heat
+//!   equation's `L_v·∂(ρ₀·w_c)/∂t` term is dead and the heat solve degenerates
+//!   to plain conduction.
+//! - **HAMT-2:** the vapor conductance drops the sorption-isotherm slope
+//!   `∂RH/∂w_c` (uses `perm·p_sat` directly), mis-scaling vapor transport by
+//!   roughly 5–50×.
+//! - **HAMT-3:** surface vapor resistance is applied as `DELTA_AIR/Z_M` instead
+//!   of `1/Z_M`, a spurious ~2e-10 factor that makes the surfaces effectively
+//!   vapor-tight.
+//!
+//! The existing unit tests only check flux *sign* / TDMA mechanics, so they pass
+//! despite these errors. Treat any HAMT output as diagnostic only.
+//!
 //! Governing equations (discretized implicitly, backward Euler):
 //!
 //! Heat:
@@ -277,6 +298,16 @@ impl HamtState {
         if layers.is_empty() {
             return None;
         }
+
+        // HAMT is experimental and quantitatively non-functional (see the
+        // module-level docs / GitHub #64). Warn loudly if it is ever activated.
+        log::warn!(
+            "HAMT moisture solver activated for construction '{}', but it is \
+             EXPERIMENTAL and non-functional (GitHub #64: latent coupling is \
+             dead, vapor conductance mis-scaled, surface resistance wrong). \
+             Results are diagnostic only — prefer CTF constructions.",
+            construction.name
+        );
 
         Some(Self {
             layers,
