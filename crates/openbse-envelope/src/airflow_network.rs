@@ -269,10 +269,14 @@ pub struct AirflowNetwork {
 /// Also: ASHRAE Fundamentals 2017, Ch. 24, Eq. 3.
 pub fn cp_swami_chandra(theta_deg: f64, side_ratio: f64) -> f64 {
     let theta = theta_deg.to_radians();
+    // G = natural log of the plan side ratio (Swami & Chandra Eq. 1). The two
+    // side-ratio terms use G and G², not the raw ratio — the old code used
+    // `side_ratio.ln().exp()` (a no-op identity) and `side_ratio.powi(2)`.
+    let g = side_ratio.ln();
     let ln_arg = 1.248 - 0.703 * (theta / 2.0).sin() - 1.175 * theta.sin().powi(2)
-        + 0.131 * (2.0 * theta * side_ratio.ln().exp().min(4.0)).sin().powi(3)
+        + 0.131 * (2.0 * theta * g).sin().powi(3)
         + 0.769 * (theta / 2.0).cos()
-        + 0.07 * side_ratio.powi(2) * (theta / 2.0).sin().powi(2)
+        + 0.07 * g.powi(2) * (theta / 2.0).sin().powi(2)
         + 0.717 * (theta / 2.0).cos().powi(2);
 
     // Protect against ln(≤0)
@@ -1038,6 +1042,27 @@ mod tests {
         // Leeward face (θ=180) should have negative Cp
         let cp = cp_swami_chandra(180.0, 1.0);
         assert!(cp < 0.0, "Leeward Cp should be negative, got {cp}");
+    }
+
+    #[test]
+    fn test_cp_swami_chandra_side_ratio_at_90deg() {
+        // At θ=90° the side-ratio (G = ln(side_ratio)) terms are active — the
+        // sin(θ/2)-weighted terms don't vanish as they do at θ=0/180. This
+        // exercises the #63 fix (G = ln(side_ratio), not the raw ratio).
+        // Hand-computed from Swami & Chandra Eq. 1 with side_ratio = 2:
+        //   G = ln(2) = 0.693147,  Cp = 0.6·ln(0.567569) ≈ -0.33974.
+        let cp_sr2 = cp_swami_chandra(90.0, 2.0);
+        assert_relative_eq!(cp_sr2, -0.33974, epsilon = 1e-3);
+
+        // With side_ratio = 1, G = 0 so both side-ratio terms drop out, giving a
+        // distinctly different value (≈ -0.44272). If the side ratio were applied
+        // raw (or via the old ln().exp() identity) these would not match theory.
+        let cp_sr1 = cp_swami_chandra(90.0, 1.0);
+        assert_relative_eq!(cp_sr1, -0.44272, epsilon = 1e-3);
+        assert!(
+            (cp_sr2 - cp_sr1).abs() > 0.05,
+            "side ratio must change Cp at θ=90°: sr1={cp_sr1}, sr2={cp_sr2}"
+        );
     }
 
     #[test]
