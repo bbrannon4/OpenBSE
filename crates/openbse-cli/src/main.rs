@@ -3639,6 +3639,9 @@ fn main() -> Result<()> {
                                     snapshot
                                         .component_electric_power
                                         .insert(comp_name.clone(), pw_m);
+                                    if let Some(&kind) = comp_kind_map.get(comp_name) {
+                                        snapshot.component_kinds.insert(comp_name.clone(), kind);
+                                    }
                                 }
                             }
                         }
@@ -3646,6 +3649,9 @@ fn main() -> Result<()> {
                             snapshot
                                 .component_fuel_power
                                 .insert(comp_name.clone(), pw * zmult);
+                            if let Some(&kind) = comp_kind_map.get(comp_name) {
+                                snapshot.component_kinds.insert(comp_name.clone(), kind);
+                            }
                         }
                     }
                     // Copy full component_outputs for per-component CSV output
@@ -3727,10 +3733,13 @@ fn main() -> Result<()> {
                         // Exhaust fan power → component_electric_power
                         // (comp_kind_map routes it to fan_electric via ComponentKind::Fan)
                         if zone.exhaust_fan_power > 0.0 {
-                            snapshot.component_electric_power.insert(
-                                format!("Exhaust Fan {}", zone.input.name),
-                                zone.exhaust_fan_power * zmult,
-                            );
+                            let ef_name = format!("Exhaust Fan {}", zone.input.name);
+                            snapshot
+                                .component_kinds
+                                .insert(ef_name.clone(), ComponentKind::Fan);
+                            snapshot
+                                .component_electric_power
+                                .insert(ef_name, zone.exhaust_fan_power * zmult);
                         }
                     }
 
@@ -4174,6 +4183,9 @@ fn main() -> Result<()> {
                                     snapshot
                                         .component_electric_power
                                         .insert(comp_name.clone(), pw_m);
+                                    if let Some(&kind) = comp_kind_map.get(comp_name) {
+                                        snapshot.component_kinds.insert(comp_name.clone(), kind);
+                                    }
                                 }
                             }
                         }
@@ -4181,6 +4193,9 @@ fn main() -> Result<()> {
                             snapshot
                                 .component_fuel_power
                                 .insert(comp_name.clone(), pw * zmult);
+                            if let Some(&kind) = comp_kind_map.get(comp_name) {
+                                snapshot.component_kinds.insert(comp_name.clone(), kind);
+                            }
                         }
                     }
 
