@@ -200,6 +200,13 @@ Clean, well-tested module; minor deviations only. Hourly-by-design.
 - **[LOW, by design] SCHED-4: outputs clamped to [0,1]** — cannot represent >1 diversity, negative, or setpoint/temperature schedules; out-of-range YAML values silently clamped.
 - Verified correct: hour convention (`(hour_idx%24)+1` = 1–24, matches 1-indexed `fraction`, no off-by-one); day-type resolution priority (individual→weekday; sat/sun→weekend→weekday; holiday→sunday→weekend→weekday) — **holidays actually wired** via `holiday_set`→dow=8 in main.rs; compact-parser validation (backwards-time, >24, bare-value-last); built-in always_on/off; modular `day_of_week` with start offset.
 
+### Weather parsing (`openbse-weather/src/lib.rs`) — GitHub #67
+
+- **[MED] WX-1: EPW missing-value sentinels not detected.** `parse().unwrap_or(0.0)` only catches non-numeric tokens; numeric sentinels (Tdb 99.9, RH 999, pressure 999999, wind 999, opaque 99, solar/IR 9999) parse as literal data and feed the sim. E+ WeatherManager substitutes derived/standard values. Bounded by downstream guards for the common cases (`horiz_ir_rad` currently unused → sky model used; `opaque_sky_cover` clamped to [0,10]), but pressure/Tdb/RH/wind are unguarded if missing.
+- **[LOW] WX-2: malformed/short files tolerated silently** — bad data lines skipped with no count/contiguity check (truncated file → misaligned year); location numerics fall back to 0.0 (bad lat/long→equator, time_zone→UTC, compounding solar time). E+ errors.
+- **[LOW] WX-3:** fixed positional header parse (mitigated by `starts_with` guards); wind direction held at next-hour value across sub-hours; TMY3 doc-comment says "Berdahl-Martin" but code is Clark & Allen (S-2 class).
+- Verified correct: EPW + TMY3 field/column indices match the specs; mbar→Pa, MM/DD/YYYY, HH:MM 1–24; quoted-CSV parsing; ground-temps + DATA PERIODS (start-day-of-week) header parse; `to_air_state` W-from-RH; sub-hour interpolation linear for state, **solar held constant** (E+ integrated convention), wind speed interpolated; format auto-detect + multi-file support.
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
 `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (Phase 2A `sizing.rs` and terminal boxes, Phase 2B heat-pump/radiant/storage equipment, and Phase 2C plant auxiliaries + evap cooler/humidifier/water heater/CRAC-CRAH all reviewed 2026-06-13, see above — Phase 2D core numerics & I/O edges remain.)
