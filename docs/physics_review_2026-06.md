@@ -238,6 +238,31 @@ Beyond the Phase 2 backlog: the previously spot-checked-only core components, th
 - **[MED] DUCT-1: losses are one-way.** Conduction and leakage are correctly removed from the supply airstream (served zone de-rated correctly) but **never deposited into the surrounding ambient zone** — confirmed the only consumers of `conduction_loss`/`leakage_loss` are output names (main.rs:5165-6). E+ AirflowNetwork distribution adds conducted heat + leaked supply air (temp + moisture) to the ambient zone, feeding back into the conduction ΔT. Return-side leakage not modeled. **DUCT-2 [LOW]:** leaked-air moisture also dropped.
 - Verified correct: ε-NTU conduction with constant-temp ambient reservoir; UA=U·π·D·L; thermal_output sign.
 
+### a205 component wrappers (`cooling_coil_a205`, `chiller_a205`, `fan_a205`) — GitHub #72
+
+All three sound and use live operating conditions; minor LOW part-load gaps. DX coil correctly dehumidifies and reads live outdoor DB (no WSHP-style proxy); chiller mirrors polynomial chiller condenser coupling.
+- **[LOW] A205C-1:** discrete multi-stage DX over-delivery pro-rated linearly with no Cd penalty (within-stage cycling escapes degradation; E+ interpolates between stages).
+- **[LOW] A205CH-1/2:** chiller queries map at the file's fixed evap/cond flow axis (not actual loop flow); hardcoded `cp_water=4186`.
+- **[LOW] A205F-1:** fan queries map at fixed `design_pressure_rise` (no system curve / SP setpoint) → overstates VAV part-load fan power.
+- Verified: SI units (callers convert °C→K), net capacity/power lookups, axis order from file declaration, `in_range` to CSV, gross-of-fan accounting.
+
+### Co-simulation proxies (`openbse-cosim/`) — GitHub #73
+
+Transport glue (newline-delimited JSON over stdin/stdout); physics delegated to the external process. Clean and correct. Robustness notes only (LOW): no energy-balance consistency check between returned state and `thermal_output_w` (COSIM-1); `simulate_*` invoked per HVAC sub-iteration so stateful external models must key off `time_s` (COSIM-2, undocumented); blocking `child.wait()` on drop with no timeout (COSIM-3). Symmetric air/plant mapping, off-state passthrough, graceful error handling all verified.
+
+### Output / energy accounting (`output.rs`) — GitHub #74
+
+- **[HIGH] OUT-1: end-use categorization by component-name substring.** Both the time-series output variables and the annual summary bucket `component_electric_power`/`component_fuel_power` by lowercased name substring (fan/cool/dx/chiller/heat/furnace/hw/boiler). **Silent omission** — components lacking these substrings (VRF, GSHP, WSHP, evap cooler, oddly-named RTU compressors) are dropped from the building total (summary code: "unrecognized components are not categorized"). **Double-count** — `building:total_electric` sums independent fan/cool/heat filters additively, so a name matching multiple buckets (e.g. "HP Cooling") is counted twice (the summary's `else if` chain avoids this but still omits). Energy-reporting analog of M-2; fix = dispatch by `ComponentKind`. Validated house escapes it (conventional names).
+- Verified correct: energy integration `J = W·dt`, `kWh = J/3.6e6`; typed snapshot maps (pumps, heat rejection, humidification, heat recovery, DHW, lighting, equipment) summed by field (correct); IT-equipment subtracted from Equipment bucket; NaN/finite guards.
+
+### Not physics (no findings)
+
+`parametric.rs` (parameter-override + sweep-expansion orchestration) and `input.rs` (YAML deserialization + cross-reference validation, incl. the schedule-ref warning behind SCHED-3) are input/orchestration layers, not physics. `performance_curve.rs` reviewed under #71.
+
+## Phase 3 summary
+
+Extended review of all never-scoped areas complete. Core components (coils/fan/boiler/HX/curves) verified fundamentally correct (#71, LOW gaps). Substantive findings: **#74 [HIGH]** name-substring energy categorization (omits/double-counts unrecognized components); **#69 [MED]** CHW coil no dehumidification + air/water imbalance; **#70 [MED]** duct losses not deposited into ambient zone; plus LOW-only a205 wrappers (#72) and cosim (#73). None affect the validated single-family house.
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
 **Phase 2 complete (2026-06-13).** All backlog items reviewed: Phase 2A (`sizing.rs`, terminal boxes), 2B (GSHP/WSHP/VRF/radiant/storage), 2C (cooling tower, pumps, condenser coupling, evap cooler, humidifier, water heater, CRAC/CRAH), 2D (`airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, schedule resolution, weather parsing, shading polygon clipping). Findings filed as GitHub #49–#68. Remaining unreviewed: none in the Phase 2 scope.
