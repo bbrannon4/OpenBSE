@@ -47,14 +47,26 @@ pub struct Humidifier {
     /// Set to 0.0 to derive from min_rh_setpoint at each timestep.
     pub w_setpoint: f64,
     /// Minimum relative humidity setpoint [0-1] (e.g., 0.30 for 30% RH).
-    /// Used only when w_setpoint == 0.0. Converted to humidity ratio using
-    /// zone_cooling_setpoint as the reference temperature.
+    /// Used only when w_setpoint == 0.0. Converted to humidity ratio using the
+    /// live served-zone temperature (when the driver supplies it) or
+    /// `zone_cooling_setpoint` as a fallback.
     pub min_rh_setpoint: f64,
-    /// Zone cooling setpoint temperature [°C], used as reference for
-    /// converting min_rh_setpoint to humidity ratio.
+    /// Zone cooling setpoint temperature [°C], used as a static fallback
+    /// reference for converting min_rh_setpoint to humidity ratio when the live
+    /// zone temperature is not available.
     pub zone_cooling_setpoint: f64,
 
+    /// Served zone name (control zone of the air loop). Reported via
+    /// `ambient_zone()` so the driver feeds back the live zone temperature.
+    #[serde(skip)]
+    pub served_zone: Option<String>,
+
     // ─── Runtime state ──────────────────────────────────────────────────
+    /// Live served-zone air temperature [°C], set by the driver each timestep.
+    /// Reference temperature for the RH→w conversion (HUM-1 / #60). `None`
+    /// until the driver provides it, then falls back to `zone_cooling_setpoint`.
+    #[serde(skip)]
+    pub zone_air_temp: Option<f64>,
     /// Electric power consumed this timestep [W].
     #[serde(skip)]
     pub power: f64,
@@ -86,6 +98,8 @@ impl Humidifier {
             w_setpoint: 0.0,
             min_rh_setpoint,
             zone_cooling_setpoint,
+            served_zone: None,
+            zone_air_temp: None,
             power: 0.0,
             moisture_added: 0.0,
         }
@@ -113,13 +127,13 @@ impl AirComponent for Humidifier {
         let w_target = if self.w_setpoint > 0.0 {
             self.w_setpoint
         } else {
-            // Convert min RH to humidity ratio using the zone cooling setpoint
-            // as reference temperature (the zone is typically near this temp).
-            psych::w_fn_tdb_rh_pb(
-                self.zone_cooling_setpoint,
-                self.min_rh_setpoint,
-                inlet.state.p_b,
-            )
+            // Convert min RH to humidity ratio at the LIVE served-zone
+            // temperature when the driver supplies it (the humidity ratio for a
+            // given RH is temperature-sensitive — a static cooling-setpoint
+            // reference over-humidifies in winter). Falls back to the
+            // configured zone cooling setpoint when no live temp is available.
+            let ref_temp = self.zone_air_temp.unwrap_or(self.zone_cooling_setpoint);
+            psych::w_fn_tdb_rh_pb(ref_temp, self.min_rh_setpoint, inlet.state.p_b)
         };
 
         let w_in = inlet.state.w;
@@ -162,6 +176,17 @@ impl AirComponent for Humidifier {
 
     fn set_setpoint(&mut self, setpoint: f64) {
         self.w_setpoint = setpoint;
+    }
+
+    /// The served (control) zone — lets the driver feed back the live zone
+    /// temperature via [`Self::set_ambient_temp`] for the RH→w conversion.
+    fn ambient_zone(&self) -> Option<&str> {
+        self.served_zone.as_deref()
+    }
+
+    /// Receive the live served-zone air temperature from the driver.
+    fn set_ambient_temp(&mut self, temp: f64) {
+        self.zone_air_temp = Some(temp);
     }
 
     fn power_consumption(&self) -> f64 {
@@ -229,6 +254,38 @@ mod tests {
 
         assert_eq!(hum.power, 0.0, "Humidifier should be off when air is humid");
         assert_eq!(hum.moisture_added, 0.0);
+    }
+
+    #[test]
+    fn test_humidifier_uses_live_zone_temp_for_rh_target() {
+        // HUM-1 (#60): the RH→w fallback target must track the live served-zone
+        // temperature, not the static cooling setpoint. A colder zone needs a
+        // lower humidity ratio for the same RH, so less moisture is added.
+        let ctx = make_ctx();
+        let p_b = 101325.0;
+        // Dry supply air so the humidifier is always demand-limited (not capacity).
+        let inlet = AirPort::new(MoistAirState::new(30.0, 0.0005, p_b), 1.0);
+
+        // Static fallback at 24 °C cooling setpoint.
+        let mut warm_ref = Humidifier::new("H", 1_000_000.0, 0.30, 24.0);
+        warm_ref.simulate_air(&inlet, &ctx);
+
+        // Same humidifier, but the driver reports a live zone temp of 20 °C.
+        let mut live_ref = Humidifier::new("H", 1_000_000.0, 0.30, 24.0);
+        live_ref.set_ambient_temp(20.0);
+        live_ref.simulate_air(&inlet, &ctx);
+
+        // 30% RH at 20 °C is a lower humidity ratio than at 24 °C → less moisture.
+        assert!(
+            live_ref.moisture_added < warm_ref.moisture_added,
+            "live 20°C ref should target less moisture than static 24°C: {} vs {}",
+            live_ref.moisture_added,
+            warm_ref.moisture_added
+        );
+        // And it matches the hand-computed target at the live temperature.
+        let w_target = psych::w_fn_tdb_rh_pb(20.0, 0.30, p_b);
+        let expected = inlet.mass_flow * (w_target - inlet.state.w);
+        assert_relative_eq!(live_ref.moisture_added, expected, max_relative = 0.01);
     }
 
     #[test]
