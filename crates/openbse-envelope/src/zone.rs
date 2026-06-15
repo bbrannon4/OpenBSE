@@ -567,6 +567,31 @@ impl DataCenterConfig {
     pub fn rack_inlet_max(&self) -> f64 {
         dc_rack_inlet_max(self)
     }
+
+    /// Server (IT) air mass flow rate [kg/s] carrying `it_power_w` of heat.
+    ///
+    /// The hot-aisle rack-exhaust temperature is set by the *server fans'*
+    /// airflow, which is independent of the CRAC/CRAH supply flow (CRAC-1 /
+    /// #62). Two cases, matching E+ `ElectricEquipment:ITE:AirCooled`:
+    ///   1. Explicit `airflow_m3_per_s_per_kw` → ṁ = flow·(P_IT/1000)·ρ.
+    ///   2. Otherwise size the flow to hit the design rack ΔT
+    ///      (`rack_outlet_temp_c` − supply): ṁ = P_IT / (cp·ΔT).
+    ///
+    /// `rho` and `cp` are the moist-air density and specific heat of the
+    /// supply air; `t_supply` is the cold-aisle supply temperature [°C].
+    pub fn it_mass_flow(&self, it_power_w: f64, t_supply: f64, rho: f64, cp: f64) -> f64 {
+        if it_power_w <= 0.0 {
+            return 0.0;
+        }
+        if let Some(flow_per_kw) = self.airflow_m3_per_s_per_kw {
+            if flow_per_kw > 0.0 {
+                return flow_per_kw * (it_power_w / 1000.0) * rho;
+            }
+        }
+        // Size to the design rack temperature rise (cold aisle → hot aisle).
+        let delta_t = (self.rack_outlet_temp_c - t_supply).max(1.0);
+        (it_power_w / (cp * delta_t)).max(1.0e-3)
+    }
 }
 
 fn default_conditioned() -> bool {
@@ -1115,6 +1140,48 @@ pub fn calc_zone_loads(
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
+
+    fn dc_config() -> DataCenterConfig {
+        DataCenterConfig {
+            it_load_kw: Some(100.0),
+            rack_count: None,
+            kw_per_rack: None,
+            it_load_schedule: None,
+            rack_outlet_temp_c: 35.0,
+            rack_inlet_temp_max_c: None,
+            equipment_class: None,
+            containment_efficiency: 0.85,
+            airflow_m3_per_s_per_kw: None,
+            lighting_w_per_m2: None,
+        }
+    }
+
+    #[test]
+    fn test_it_mass_flow_sizes_to_rack_delta_t() {
+        // No explicit airflow → flow sized to hit the design rack ΔT
+        // (rack_outlet_temp_c − supply). At 18 °C supply, ΔT = 17 °C, so the
+        // hot-aisle rise lands exactly on rack_outlet_temp_c. (CRAC-1 / #62)
+        let dc = dc_config();
+        let cp = 1006.0;
+        let it_w = 100_000.0; // 100 kW
+        let t_supply = 18.0;
+        let m_it = dc.it_mass_flow(it_w, t_supply, 1.2, cp);
+        let t_hot = t_supply + it_w / (m_it * cp);
+        assert_relative_eq!(t_hot, 35.0, max_relative = 0.001);
+        // This flow is independent of any CRAC supply flow.
+        assert!(m_it > 0.0);
+    }
+
+    #[test]
+    fn test_it_mass_flow_explicit_airflow() {
+        // Explicit airflow per kW overrides the ΔT sizing.
+        let mut dc = dc_config();
+        dc.airflow_m3_per_s_per_kw = Some(0.05); // 0.05 m³/s per kW
+        let rho = 1.2;
+        let m_it = dc.it_mass_flow(100_000.0, 18.0, rho, 1006.0);
+        // 0.05 · 100 kW · 1.2 kg/m³ = 6.0 kg/s
+        assert_relative_eq!(m_it, 0.05 * 100.0 * rho, max_relative = 1e-9);
+    }
 
     #[test]
     fn test_steady_state_zone_temp() {

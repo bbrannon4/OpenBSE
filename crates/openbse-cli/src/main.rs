@@ -2550,11 +2550,17 @@ fn main() -> Result<()> {
                                 if it_pw_w <= 0.0 {
                                     return None;
                                 }
-                                let m_dot =
-                                    zone_design_flows.get(&z.input.name).copied().unwrap_or(0.5);
                                 let cp_dc = openbse_psychrometrics::cp_air_fn_w(z.humidity_ratio);
                                 let t_supply = z.supply_air_temp;
-                                let t_hot = t_supply + it_pw_w / (m_dot * cp_dc).max(1.0);
+                                // Hot-aisle rise is carried by the server (IT) airflow,
+                                // not the CRAC/CRAH supply flow (CRAC-1 / #62).
+                                let rho_dc = openbse_psychrometrics::rho_air_fn_pb_tdb_w(
+                                    101_325.0,
+                                    t_supply,
+                                    z.humidity_ratio,
+                                );
+                                let m_it = dc.it_mass_flow(it_pw_w, t_supply, rho_dc, cp_dc);
+                                let t_hot = t_supply + it_pw_w / (m_it * cp_dc).max(1.0);
                                 let t_zone = current_zone_temps
                                     .get(&z.input.name)
                                     .copied()
@@ -3819,11 +3825,18 @@ fn main() -> Result<()> {
                         // return air) from containment efficiency.
                         if let Some(ref dc) = zone.input.data_center {
                             if it_pw > 0.0 {
-                                let m_supply = zone.supply_air_mass_flow.max(0.01);
                                 let cp_air_dc =
                                     openbse_psychrometrics::cp_air_fn_w(zone.humidity_ratio);
                                 let t_supply = zone.supply_air_temp;
-                                let t_hot = t_supply + it_pw / (m_supply * cp_air_dc).max(1.0);
+                                // Hot-aisle rise is driven by the server (IT) airflow,
+                                // not the CRAC/CRAH supply flow (CRAC-1 / #62).
+                                let rho_dc = openbse_psychrometrics::rho_air_fn_pb_tdb_w(
+                                    101_325.0,
+                                    t_supply,
+                                    zone.humidity_ratio,
+                                );
+                                let m_it = dc.it_mass_flow(it_pw, t_supply, rho_dc, cp_air_dc);
+                                let t_hot = t_supply + it_pw / (m_it * cp_air_dc).max(1.0);
                                 let cont_eff = dc.containment_efficiency;
                                 let t_return = cont_eff * t_hot + (1.0 - cont_eff) * zone.temp;
                                 snapshot
