@@ -207,9 +207,18 @@ Clean, well-tested module; minor deviations only. Hourly-by-design.
 - **[LOW] WX-3:** fixed positional header parse (mitigated by `starts_with` guards); wind direction held at next-hour value across sub-hours; TMY3 doc-comment says "Berdahl-Martin" but code is Clark & Allen (S-2 class).
 - Verified correct: EPW + TMY3 field/column indices match the specs; mbar→Pa, MM/DD/YYYY, HH:MM 1–24; quoted-CSV parsing; ground-temps + DATA PERIODS (start-day-of-week) header parse; `to_air_state` W-from-RH; sub-hour interpolation linear for state, **solar held constant** (E+ integrated convention), wind speed interpolated; format auto-detect + multi-file support.
 
+### Shading polygon clipping (`shading.rs` + heat_balance.rs application) — GitHub #68
+
+Faithful E+-derived implementation; findings are accuracy tradeoffs / heuristics, all LOW.
+
+- **[LOW] SHAD-1: beam sunlit fraction uses 8×8 point sampling for multiple/semi-transparent casters** (shading.rs:302-343); single opaque caster uses exact SH clipped area. Quantized ~1.6%, thin shadows under-resolved. E+ uses exact clipping. Documented ~7 kWh tradeoff.
+- **[LOW] SHAD-2: window diffuse-sky shading capped at 25%** (`ratio.max(0.75)`, horizon ratio forced 1.0; heat_balance.rs:2292-2294) as a lumped proxy for unmodeled inter-reflections — calibration heuristic, under-counts diffuse shading for deeply-shaded windows. Opaque surfaces get the full ratio.
+- **[LOW] SHAD-3: convex/rectangular assumptions** — bounding-box sample grids waste samples on non-rect receivers (cf #52); SH clip + single-opaque-area path assume convex receiver; coplanar-caster filter (>0.99, 0.01 m) may misclassify near-coplanar shaders; block-only (no shading-surface reflection).
+- Verified correct: Sutherland-Hodgman clip (enter/leave logic, CCW left-of-edge, parametric line intersect); shoelace + Newell area; shadow projection along sun dir (t≥0 / parallel guards); local 2D basis preserves CCW for SH; beam sun-behind cull; self excluded; **diffuse application correct & E+-style** — circumsolar × sunlit (beam-shaded), isotropic sky × sky_ratio, horizon × horizon_ratio, ground unshaded; multi-caster point-sampling union avoids double-counting; diffuse sky 6×24=144 patches (matches E+); Möller-Trumbore obstruction test; overhang/fin vertex generation.
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
-`airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (Phase 2A `sizing.rs` and terminal boxes, Phase 2B heat-pump/radiant/storage equipment, and Phase 2C plant auxiliaries + evap cooler/humidifier/water heater/CRAC-CRAH all reviewed 2026-06-13, see above — Phase 2D core numerics & I/O edges remain.)
+**Phase 2 complete (2026-06-13).** All backlog items reviewed: Phase 2A (`sizing.rs`, terminal boxes), 2B (GSHP/WSHP/VRF/radiant/storage), 2C (cooling tower, pumps, condenser coupling, evap cooler, humidifier, water heater, CRAC/CRAH), 2D (`airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, schedule resolution, weather parsing, shading polygon clipping). Findings filed as GitHub #49–#68. Remaining unreviewed: none in the Phase 2 scope.
 
 ### Still-open findings carried to GitHub issues (2026-06-13)
 
