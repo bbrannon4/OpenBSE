@@ -190,6 +190,16 @@ Engine is fundamentally sound; gaps are ASHRAE 205 feature-completeness, not num
 - **[LOW] A205-2: linear (N-linear) interpolation only.** 205 permits `cubic` (monotone Hermite) per axis; not implemented. Linear is exact at grid points but less smooth between.
 - Verified correct: N-linear over 2^n corners with product weights (cube center = mean of 8 corners); exact recovery at grid points; degenerate single-point axes ignored; row-major strides with **last axis fastest** matching the 205/btwxt C-order convention; loaders build axes in `grid_variables` declaration order and validate lookup length against the grid product; strict monotonic-axis/arity/size checks; binary-search `locate` with correct fraction + edge clamp; pragmatic `sensible ≤ total` clamp.
 
+### Schedule resolution (`schedule.rs` + main.rs call sites) — GitHub #66
+
+Clean, well-tested module; minor deviations only. Hourly-by-design.
+
+- **[LOW] SCHED-1: compact "until HH:MM" silently truncates minutes** (schedule.rs:160-162 parses the hour only). `1.0 until 8:30` → `until 8:00`; sub-hour boundaries dropped without warning despite the `HH:MM` docstring.
+- **[LOW] SCHED-2: day-of-week assumes 365-day year** (Feb=28, schedule.rs:444). Leap-year runs get the wrong day-of-week after Feb 28 (~10 months of shifted weekday/weekend/holiday pattern). `jan1_dow` offset is handled.
+- **[LOW, mitigated] SCHED-3: unknown schedule → 1.0 (always-on).** Mitigated by a validation **warning** (input.rs:4381-4392); consider a hard error for HVAC-availability refs where always-on is anti-fail-safe.
+- **[LOW, by design] SCHED-4: outputs clamped to [0,1]** — cannot represent >1 diversity, negative, or setpoint/temperature schedules; out-of-range YAML values silently clamped.
+- Verified correct: hour convention (`(hour_idx%24)+1` = 1–24, matches 1-indexed `fraction`, no off-by-one); day-type resolution priority (individual→weekday; sat/sun→weekend→weekday; holiday→sunday→weekend→weekday) — **holidays actually wired** via `holiday_set`→dow=8 in main.rs; compact-parser validation (backwards-time, >24, bare-value-last); built-in always_on/off; modular `day_of_week` with start offset.
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
 `airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, shading polygon clipping internals, schedule resolution, weather parsing edge cases. (Phase 2A `sizing.rs` and terminal boxes, Phase 2B heat-pump/radiant/storage equipment, and Phase 2C plant auxiliaries + evap cooler/humidifier/water heater/CRAC-CRAH all reviewed 2026-06-13, see above — Phase 2D core numerics & I/O edges remain.)
