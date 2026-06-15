@@ -259,6 +259,24 @@ Transport glue (newline-delimited JSON over stdin/stdout); physics delegated to 
 
 `parametric.rs` (parameter-override + sweep-expansion orchestration) and `input.rs` (YAML deserialization + cross-reference validation, incl. the schedule-ref warning behind SCHED-3) are input/orchestration layers, not physics. `performance_curve.rs` reviewed under #71.
 
+## Phase 4 — control & orchestration layer (reviewed 2026-06-13)
+
+The control crate, airloop signal builders, and the main.rs driver — reviewed piecemeal before, now swept.
+
+### openbse-controls crate — GitHub #75
+
+- **[MED] CTRL-1: the entire controls runtime is dead.** `build_controllers()` is called (main.rs:482), its count logged, then dropped — nothing ever calls `.update()`/`.actions()`. main.rs runs its own loop (`simulate_all_loops`) and uses only the *types* from `core::simulation`. Consequences: the YAML `controls:` section (`SetpointController`, `PlantLoopSetpoint`) is silently inert; `ZoneThermostat`'s proportional supply-temp model (non-E+) is harmless only because it never runs; maintenance trap. Setpoints that matter reach the sim via other paths (predictor, airloop builders, component fields), so it's dead-abstraction / silent-no-op, not wrong-physics-while-running.
+
+### Airloop signal builders (`airloop/lib.rs`) — sound (GitHub #76 for the LOW note)
+
+PSZ/VAV/DOAS/FCU/PTAC/PTHP builders are well-built and E+-informed: frozen predictor (M-5 fix), safety override, all five 90.1 economizer types, SetpointManager:Warmest SAT reset, dual-maximum G36 VAV, `ComponentKind` coil dispatch (CR-1). **[LOW] AIRLOOP-1:** PSZ economizer evaluated on post-heat-recovery effective outdoor temp/enthalpy rather than `raw_t_outdoor` (provided but unused in PSZ; VAV binds it) — can mis-trigger the high-limit lockout when HR is active. Economizer return-air = control-zone temp is the prior M-3.
+
+### Driver plant allocation (`main.rs`) — GitHub #76
+
+- **[MED] PLANT-1: sequential staging threshold uses delivered/rated, not available capacity.** A unit maxed out below its rated value (derated on a hot/high-condenser day) reads PLR < threshold (default 0.9) and blocks the next stage from starting → load unmet. Gate on capacity-limited state instead.
+- **[LOW] PLANT-2: EqualSplit denominator counts all non-pump equipment** (tower/HX/storage/external), under-loading chillers/boilers when mixed types share a supply list.
+- Verified: Sequential + EqualSplit both correct in common cases (test-covered); pumps exempt; sign-correct `remaining_load`; supply conditions propagated. Energy-snapshot routing dispatches power by `ComponentKind` into typed maps (pump/humidifier/HR/tower) — coils/chillers/fans fall to `component_electric_power` which output.rs name-buckets (root of #74; fix = extend kind-dispatch to coils).
+
 ## Phase 3 summary
 
 Extended review of all never-scoped areas complete. Core components (coils/fan/boiler/HX/curves) verified fundamentally correct (#71, LOW gaps). Substantive findings: **#74 [HIGH]** name-substring energy categorization (omits/double-counts unrecognized components); **#69 [MED]** CHW coil no dehumidification + air/water imbalance; **#70 [MED]** duct losses not deposited into ambient zone; plus LOW-only a205 wrappers (#72) and cosim (#73). None affect the validated single-family house.
