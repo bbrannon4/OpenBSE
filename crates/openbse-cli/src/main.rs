@@ -765,6 +765,21 @@ fn main() -> Result<()> {
             }
         }
 
+        // ── Duct → ambient-zone map ───────────────────────────────────────────
+        // Maps each supply-duct component to the zone surrounding it, when that
+        // ambient is a real (modeled) zone rather than "outdoor"/"ground". Used
+        // to deposit duct conduction + leakage losses into that zone (#70).
+        let mut duct_ambient_zones: HashMap<String, String> = HashMap::new();
+        for al in &model.air_loops {
+            for equip in &al.equipment {
+                if let openbse_io::input::EquipmentInput::Duct(d) = equip {
+                    if d.ambient_zone != "outdoor" && d.ambient_zone != "ground" {
+                        duct_ambient_zones.insert(d.name.clone(), d.ambient_zone.clone());
+                    }
+                }
+            }
+        }
+
         // Override submeter for CRAC/CRAH loops → all components → "datacenter"
         for al in &model.air_loops {
             if al.system_type == Some(AirLoopSystemType::Crac)
@@ -3194,6 +3209,54 @@ fn main() -> Result<()> {
                                 // Accumulate radiant gains by zone.
                                 *hvac_conds.radiant_gains.entry(rp.zone.clone()).or_default() +=
                                     rp.radiant_output;
+                            }
+
+                            // ── Duct distribution losses → ambient zone (#70) ──────
+                            // Deposit each duct's conduction loss and leaked supply
+                            // air (sensible + moisture) into the zone surrounding it.
+                            // The duct already removed these from the supply stream;
+                            // here they re-enter the (usually unconditioned) ambient
+                            // zone, closing the energy/moisture balance. The duct reads
+                            // that zone's temperature as its ambient each iteration, so
+                            // the coupling converges within the HVAC iteration loop.
+                            for (duct_name, ambient_zone) in &duct_ambient_zones {
+                                let Some(outputs) = hvac_result.component_outputs.get(duct_name)
+                                else {
+                                    continue;
+                                };
+                                let cond_loss =
+                                    outputs.get("conduction_loss").copied().unwrap_or(0.0);
+                                let leak_flow = outputs.get("leakage_loss").copied().unwrap_or(0.0);
+                                let t_inlet =
+                                    outputs.get("inlet_temperature").copied().unwrap_or(0.0);
+                                let w_inlet =
+                                    outputs.get("inlet_humidity_ratio").copied().unwrap_or(0.0);
+                                let zmult =
+                                    comp_zone_multiplier.get(duct_name).copied().unwrap_or(1.0);
+                                let t_zone = current_zone_temps
+                                    .get(ambient_zone)
+                                    .copied()
+                                    .unwrap_or(t_inlet);
+                                let w_zone = zone_humidity_ratios
+                                    .get(ambient_zone)
+                                    .copied()
+                                    .unwrap_or(w_inlet);
+                                let cp = openbse_psychrometrics::cp_air_fn_w(w_inlet);
+                                let h_fg = 2_501_000.0_f64;
+                                // Conduction heat lost from the air enters the zone, plus
+                                // the sensible heat carried by leaked air relative to zone.
+                                let sensible =
+                                    (cond_loss + leak_flow * cp * (t_inlet - t_zone)) * zmult;
+                                // Moisture carried by leaked air relative to zone air.
+                                let latent = leak_flow * (w_inlet - w_zone) * h_fg * zmult;
+                                *hvac_conds
+                                    .other_sensible_gains
+                                    .entry(ambient_zone.clone())
+                                    .or_default() += sensible;
+                                *hvac_conds
+                                    .other_latent_gains
+                                    .entry(ambient_zone.clone())
+                                    .or_default() += latent;
                             }
 
                             // Step 3: Solve envelope with HVAC supply

@@ -470,6 +470,13 @@ pub struct ZoneHvacConditions {
     /// Distributed across surfaces by area × absorptance, same as internal gains radiative split.
     /// Positive = heat gain to zone surfaces.
     pub radiant_gains: HashMap<String, f64>,
+    /// Convective sensible heat deposited into a zone by HVAC distribution losses
+    /// (e.g. supply-duct conduction and supply-air leakage when the duct runs
+    /// through this zone) [W]. Positive = heat gain to the zone air.
+    pub other_sensible_gains: HashMap<String, f64>,
+    /// Latent heat deposited into a zone by HVAC distribution losses (moisture
+    /// carried by leaked supply air) [W]. Positive = moisture gain to the zone.
+    pub other_latent_gains: HashMap<String, f64>,
 }
 
 /// Results that the envelope produces each timestep.

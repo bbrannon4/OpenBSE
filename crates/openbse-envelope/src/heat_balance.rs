@@ -1950,6 +1950,14 @@ impl EnvelopeSolver for BuildingEnvelope {
             if let Some(&panel_rad) = hvac.radiant_gains.get(&zone.input.name) {
                 zone.q_internal_rad += panel_rad;
             }
+
+            // Add convective sensible gains from HVAC distribution losses — e.g.
+            // supply-duct conduction and supply-air leakage when a duct passes
+            // through this (typically unconditioned) zone (#70). Treated as a
+            // convective gain to the zone air.
+            if let Some(&other_sens) = hvac.other_sensible_gains.get(&zone.input.name) {
+                zone.q_internal_conv += other_sens;
+            }
         }
 
         // 4. Infiltration + scheduled ventilation + exhaust + outdoor air
@@ -4525,8 +4533,17 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // Store for use in main.rs return air calculation
                     zone.supply_air_humidity_ratio = w_supply;
 
-                    // Total latent gains [W] — people + equipment
-                    let q_latent = zone.people_latent + zone.equipment_latent;
+                    // Total latent gains [W] — people + equipment, plus moisture
+                    // carried by leaked supply air from ducts passing through this
+                    // zone (#70). solve_zone_humidity converts q_latent → moisture
+                    // rate via h_fg.
+                    let q_latent = zone.people_latent
+                        + zone.equipment_latent
+                        + hvac
+                            .other_latent_gains
+                            .get(&zone.input.name)
+                            .copied()
+                            .unwrap_or(0.0);
 
                     zone.humidity_ratio = crate::zone::solve_zone_humidity(
                         rho_air,
@@ -5429,6 +5446,37 @@ mod tests {
         // With HVAC supply at 35°C, zone should stay well above freezing
         let t_zone = envelope.zones[0].temp;
         assert!(t_zone > 15.0, "HVAC should keep zone warm: got {}", t_zone);
+    }
+
+    #[test]
+    fn test_other_sensible_gain_warms_zone() {
+        // Duct distribution losses (#70) deposited via other_sensible_gains must
+        // warm the surrounding zone, just like an internal convective gain.
+        let mut warm = make_simple_model();
+        warm.initialize(3600.0).unwrap();
+        let mut cold = make_simple_model();
+        cold.initialize(3600.0).unwrap();
+
+        let ctx = make_ctx();
+        let weather = make_weather_hour(0.0);
+
+        let mut hvac_warm = ZoneHvacConditions::default();
+        hvac_warm
+            .other_sensible_gains
+            .insert("TestZone".to_string(), 3000.0); // 3 kW into the zone
+        let hvac_cold = ZoneHvacConditions::default();
+
+        for _ in 0..20 {
+            warm.solve_timestep(&ctx, &weather, &hvac_warm);
+            cold.solve_timestep(&ctx, &weather, &hvac_cold);
+        }
+
+        assert!(
+            warm.zones[0].temp > cold.zones[0].temp + 1.0,
+            "other_sensible_gains should warm the zone: warm={}, cold={}",
+            warm.zones[0].temp,
+            cold.zones[0].temp
+        );
     }
 
     #[test]
