@@ -2869,14 +2869,24 @@ fn main() -> Result<()> {
                                             loop_mass_flow,
                                         ));
 
-                                    // Collect non-pump energy equipment names for EqualSplit
+                                    // Collect the load-meeting generators for the
+                                    // EqualSplit denominator. Only dispatchable
+                                    // supply units (boilers, chillers, thermal
+                                    // storage, external plant) share the loop load;
+                                    // pumps, cooling towers and heat exchangers do
+                                    // not meet the loop's primary load and must not
+                                    // inflate the denominator (which under-loads the
+                                    // chillers/boilers — PLANT-2 / #76).
                                     let energy_equip_names: Vec<String> = plant_loop
                                         .supply_equipment
                                         .iter()
                                         .filter(|eq| {
-                                            !matches!(
+                                            matches!(
                                                 eq,
-                                                openbse_io::input::PlantEquipmentInput::Pump(_)
+                                                openbse_io::input::PlantEquipmentInput::Boiler(_)
+                                                    | openbse_io::input::PlantEquipmentInput::Chiller(_)
+                                                    | openbse_io::input::PlantEquipmentInput::ThermalStorage(_)
+                                                    | openbse_io::input::PlantEquipmentInput::ExternalPlant(_)
                                             )
                                         })
                                         .map(|eq| {
@@ -2917,6 +2927,13 @@ fn main() -> Result<()> {
 
                                     // Track whether previous non-pump unit hit staging threshold
                                     let mut prev_plr: f64 = 1.0; // allow first unit to start
+                                                                 // Whether the previous non-pump unit was capacity-limited
+                                                                 // (delivered less than the load asked of it). A unit derated
+                                                                 // below its rated capacity on a hot/high-condenser day is
+                                                                 // maxed out yet reads PLR < threshold against its rating; gate
+                                                                 // the next stage on this saturation flag so a derated unit
+                                                                 // doesn't strand the load (PLANT-1 / #76).
+                                    let mut prev_saturated = false;
 
                                     for equip in &plant_loop.supply_equipment {
                                         let equip_name = match equip {
@@ -2947,12 +2964,16 @@ fn main() -> Result<()> {
                                         if !is_pump && remaining_load.abs() < 1.0 {
                                             break;
                                         }
-                                        // Sequential staging threshold guard: only start next
-                                        // non-pump unit if previous unit's PLR >= threshold
+                                        // Sequential staging threshold guard: only start the next
+                                        // non-pump unit if the previous unit's PLR >= threshold —
+                                        // OR if it was capacity-limited (saturated), in which case
+                                        // it is fully loaded even though delivered/rated < threshold
+                                        // (e.g. derated at high condenser temp).
                                         if !is_pump
                                             && plant_loop.staging_mode
                                                 == openbse_io::input::StagingMode::Sequential
                                             && prev_plr < plant_loop.staging_threshold
+                                            && !prev_saturated
                                         {
                                             break;
                                         }
@@ -3005,6 +3026,10 @@ fn main() -> Result<()> {
                                                     } else {
                                                         1.0
                                                     };
+                                                    // Saturated when it couldn't meet the load
+                                                    // asked of it (capacity-limited this step).
+                                                    prev_saturated = load_before > 1.0
+                                                        && delivered + 1.0 < equip_load;
                                                 }
 
                                                 if remaining_load > 0.0 {
@@ -6380,6 +6405,52 @@ mod tests {
             "Equal split: combined delivery {:.0} W should cover {:.0} W",
             delivered1 + delivered2,
             total_load
+        );
+    }
+
+    #[test]
+    fn test_chiller_staging_capacity_limited_unit_allows_next_stage() {
+        // PLANT-1 (#76): a unit derated below its rated capacity (e.g. high
+        // condenser temp) is maxed out yet reads delivered/rated < threshold.
+        // The Sequential staging guard must NOT strand the load — when the unit
+        // is capacity-limited (saturated), the next stage is allowed.
+        let staging_threshold = 0.9_f64;
+
+        // Derated unit: rated 100 kW but only able to deliver 80 kW this step,
+        // asked to meet 120 kW → leaves 40 kW unmet (saturated).
+        let rated = 100_000.0_f64;
+        let delivered = 80_000.0_f64;
+        let equip_load = 120_000.0_f64; // load asked of this unit
+        let load_before = equip_load;
+        let prev_plr = (delivered / rated).min(1.0); // 0.8 < threshold
+        let prev_saturated = load_before > 1.0 && delivered + 1.0 < equip_load;
+
+        assert!(
+            prev_plr < staging_threshold,
+            "derated unit reads PLR < threshold"
+        );
+        assert!(
+            prev_saturated,
+            "unit that left load unmet must be flagged saturated"
+        );
+
+        // The guard: break only if below threshold AND not saturated.
+        let next_stage_blocked = prev_plr < staging_threshold && !prev_saturated;
+        assert!(
+            !next_stage_blocked,
+            "a capacity-limited unit must allow the next stage to start"
+        );
+
+        // Contrast: a unit modulating below capacity (met its load) stays gated.
+        let delivered_mod = 50_000.0_f64;
+        let equip_load_mod = 50_000.0_f64;
+        let prev_plr_mod = (delivered_mod / rated).min(1.0); // 0.5
+        let prev_saturated_mod = equip_load_mod > 1.0 && delivered_mod + 1.0 < equip_load_mod;
+        assert!(!prev_saturated_mod);
+        let blocked_mod = prev_plr_mod < staging_threshold && !prev_saturated_mod;
+        assert!(
+            blocked_mod,
+            "a part-loaded unit must not start the next stage"
         );
     }
 

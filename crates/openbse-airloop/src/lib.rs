@@ -350,21 +350,27 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     // FixedEnthalpy: OA used when OA enthalpy < high_limit_enthalpy
     // EnthalpyWithHighLimit: differential enthalpy AND OAT < high_limit
     // NoEconomizer: always minimum OA
+    // The economizer availability decision uses the RAW outdoor dry-bulb and
+    // enthalpy (pre heat-recovery). HR preheating would otherwise mislead the
+    // high-limit/differential test into thinking OA is warmer than it is and
+    // mis-trigger the lockout. The mixed-air calc below uses the effective
+    // (post-HR) t_outdoor. Mirrors the VAV builder (AIRLOOP-1 / #76).
+    let raw_t_outdoor = ctx.raw_t_outdoor;
     let return_air_temp = control_temp;
     let return_w = zone_humidity_ratios
         .get(control_zone)
         .copied()
         .unwrap_or(0.008);
     let return_enthalpy = openbse_psychrometrics::h_fn_tdb_w(return_air_temp, return_w);
-    let outdoor_enthalpy = openbse_psychrometrics::h_fn_tdb_w(t_outdoor, w_outdoor);
+    let outdoor_enthalpy = openbse_psychrometrics::h_fn_tdb_w(raw_t_outdoor, w_outdoor);
     use openbse_io::input::EconomizerType;
     let psz_econ_available = match li.economizer_type {
         EconomizerType::NoEconomizer => false,
         EconomizerType::FixedDryBulb => {
             let limit = li.economizer_high_limit.unwrap_or(23.889);
-            t_outdoor < limit
+            raw_t_outdoor < limit
         }
-        EconomizerType::DifferentialDryBulb => t_outdoor < return_air_temp,
+        EconomizerType::DifferentialDryBulb => raw_t_outdoor < return_air_temp,
         EconomizerType::DifferentialEnthalpy => outdoor_enthalpy < return_enthalpy,
         EconomizerType::FixedEnthalpy => {
             let limit = li.economizer_high_limit_enthalpy.unwrap_or(65_200.0);
@@ -372,7 +378,7 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         }
         EconomizerType::EnthalpyWithHighLimit => {
             let temp_limit = li.economizer_high_limit.unwrap_or(23.889);
-            outdoor_enthalpy < return_enthalpy && t_outdoor < temp_limit
+            outdoor_enthalpy < return_enthalpy && raw_t_outdoor < temp_limit
         }
     };
     let oa_frac = if psz_econ_available && mode != HvacMode::Heating {
