@@ -216,6 +216,28 @@ Faithful E+-derived implementation; findings are accuracy tradeoffs / heuristics
 - **[LOW] SHAD-3: convex/rectangular assumptions** — bounding-box sample grids waste samples on non-rect receivers (cf #52); SH clip + single-opaque-area path assume convex receiver; coplanar-caster filter (>0.99, 0.01 m) may misclassify near-coplanar shaders; block-only (no shading-surface reflection).
 - Verified correct: Sutherland-Hodgman clip (enter/leave logic, CCW left-of-edge, parametric line intersect); shoelace + Newell area; shadow projection along sun dir (t≥0 / parallel guards); local 2D basis preserves CCW for SH; beam sun-behind cull; self excluded; **diffuse application correct & E+-style** — circumsolar × sunlit (beam-shaded), isotropic sky × sky_ratio, horizon × horizon_ratio, ground unshaded; multi-caster point-sampling union avoids double-counting; diffuse sky 6×24=144 patches (matches E+); Möller-Trumbore obstruction test; overhang/fin vertex generation.
 
+## Phase 3 — extended review of never-scoped areas (reviewed 2026-06-13)
+
+Beyond the Phase 2 backlog: the previously spot-checked-only core components, the a205 RS types/wrappers, co-simulation, and output/energy accounting.
+
+### Core coils / fan / boiler / HX — GitHub #71 (all sound, minor LOW gaps)
+
+- **performance_curve.rs — sound.** Polynomial forms match E+; N-linear `TableLookup` (row-major, named-axis order-independent, extrapolation modes); slot validation. **PC-1 [LOW]:** no bicubic/quad-linear forms (TableLookup mitigates). Cap-fT/EIR-fT axis-convention issues are in callers (HP-4/#56/#57), not the engine.
+- **fan.rs — sound** (E+ Fans.cc): `P=ṁ·ΔP/(η·ρ)`, `heat_to_air = shaft + (P−shaft)·motor_in_air_frac`, 4th-order VAV polynomial. **FAN-1/2 [LOW]:** VAV design mass flow uses current (not design) density; OnOff treated as CV.
+- **heating_coil.rs — sound** (E+ HeatingCoils.cc): electric/gas `Q=min(req,cap)`, fuel=`Q/η`; cross-flow-unmixed NTU effectiveness correct. **HC-1 [LOW]:** UA from counterflow LMTD but applied cross-flow (~≤15% off at rated; E+ iterates UA). **HC-2 [LOW]:** gas coil no part-load fuel curve.
+- **boiler.rs — sound** (E+ Boilers.cc): `Fuel=Load/(η·EffCurve)`, PLR clamp, NotModulated + LeavingSetpointModulated, condensing allowed. **BOIL-1 [LOW]:** efficiency curve `f(PLR)` only, not `f(PLR,T_water)`.
+- **heat_exchanger.rs — sound** (E+ FluidToFluid): `Q_max=ε·C_min·|ΔT|`, direction logic, economizer bypass. **HX-1 [LOW]:** fixed effectiveness, not flow-dependent.
+
+### CHW cooling coil (`chw_cooling_coil.rs`) — GitHub #69
+
+- **[MED] CHW-1: no dehumidification + air/water energy imbalance.** Removes only sensible heat (`w` passes through) but reports `cooling_rate = q_sensible/SHR` and the **water absorbs the full q_total** — so the chiller is charged ~1/SHR more than the air gives up, latent is billed without moisture removal, and the zone stays too humid. E+ `Coil:Cooling:Water` does a full wet-coil ADP/BF calc. CHW analog of DX-1/2/3, more severe (latent billed without removal).
+- **[LOW] CHW-2: capacity-cap only** — no UA/ε-NTU or entering-condition dependence (unlike the HW coil's optional UA model).
+
+### Duct (`duct.rs`) — GitHub #70
+
+- **[MED] DUCT-1: losses are one-way.** Conduction and leakage are correctly removed from the supply airstream (served zone de-rated correctly) but **never deposited into the surrounding ambient zone** — confirmed the only consumers of `conduction_loss`/`leakage_loss` are output names (main.rs:5165-6). E+ AirflowNetwork distribution adds conducted heat + leaked supply air (temp + moisture) to the ambient zone, feeding back into the conduction ΔT. Return-side leakage not modeled. **DUCT-2 [LOW]:** leaked-air moisture also dropped.
+- Verified correct: ε-NTU conduction with constant-temp ambient reservoir; UA=U·π·D·L; thermal_output sign.
+
 ## Not yet reviewed (Phase 2 backlog — tracked in GitHub)
 
 **Phase 2 complete (2026-06-13).** All backlog items reviewed: Phase 2A (`sizing.rs`, terminal boxes), 2B (GSHP/WSHP/VRF/radiant/storage), 2C (cooling tower, pumps, condenser coupling, evap cooler, humidifier, water heater, CRAC/CRAH), 2D (`airflow_network.rs`, `hamt.rs`, `openbse-a205` interpolation, schedule resolution, weather parsing, shading polygon clipping). Findings filed as GitHub #49–#68. Remaining unreviewed: none in the Phase 2 scope.
