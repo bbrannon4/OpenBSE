@@ -479,7 +479,7 @@ fn main() -> Result<()> {
             build_graph_with_base(&model, model_dir).context("Failed to build simulation graph")?;
         info!("Graph built: {} components", graph.component_count());
 
-        let controllers = build_controllers(&model);
+        let mut controllers = build_controllers(&model);
         info!("Controllers built: {} controllers", controllers.len());
 
         let mut envelope = build_envelope(
@@ -988,21 +988,88 @@ fn main() -> Result<()> {
         // Output directory (needed by sizing and output writers)
         let output_dir = output_path.parent().unwrap_or_else(|| Path::new("."));
 
-        // Gather zone setpoints from resolved thermostats
+        // Still needed for the has-external-HVAC check below.
         let resolved_thermostats = resolve_thermostats(&model);
+
+        // Gather zone setpoints from the controls framework.
+        //
+        // The openbse-controls layer is the single source of truth for zone
+        // setpoints: the ZoneThermostat controllers built from the model emit
+        // SetZoneSetpoints actions, which we fold into the per-zone maps consumed
+        // by the HVAC engine (`simulate_all_loops`). This makes the controls
+        // crate live on the simulation path (issue #75) and is behavior-
+        // preserving — the emitted setpoints are exactly the resolved-thermostat
+        // values that previously populated these maps directly.
+        //
+        // The thermostat setpoints are static, so the controllers are evaluated
+        // once here. Per-timestep evaluation at the predictor step (needed for
+        // schedule-varying or sensed-state setpoints) belongs with the dynamic
+        // controls work in the #75 follow-up, where it changes behavior and can
+        // be validated on its own.
         let mut zone_heating_setpoints: HashMap<String, f64> = HashMap::new();
         let mut zone_cooling_setpoints: HashMap<String, f64> = HashMap::new();
         let mut zone_unocc_heating_setpoints: HashMap<String, f64> = HashMap::new();
         let mut zone_unocc_cooling_setpoints: HashMap<String, f64> = HashMap::new();
         let mut zone_design_flows: HashMap<String, f64> = HashMap::new();
-        for tstat in &resolved_thermostats {
-            for zone_name in &tstat.zones {
-                zone_heating_setpoints.insert(zone_name.clone(), tstat.heating_setpoint);
-                zone_cooling_setpoints.insert(zone_name.clone(), tstat.cooling_setpoint);
-                zone_unocc_heating_setpoints
-                    .insert(zone_name.clone(), tstat.unoccupied_heating_setpoint);
-                zone_unocc_cooling_setpoints
-                    .insert(zone_name.clone(), tstat.unoccupied_cooling_setpoint);
+
+        {
+            use openbse_controls::state::{ControlAction, SystemState};
+
+            // SetZoneSetpoints is independent of sensed state, so trivial seeds
+            // are sufficient to extract the setpoints from each controller.
+            let seed_air = openbse_psychrometrics::MoistAirState::from_tdb_rh(20.0, 0.5, 101325.0);
+            let seed_state = SystemState::new(seed_air);
+            let seed_ctx = SimulationContext {
+                timestep: TimeStep {
+                    month: config.start_month,
+                    day: config.start_day,
+                    hour: 1,
+                    sub_hour: 1,
+                    timesteps_per_hour: config.timesteps_per_hour,
+                    sim_time_s: 0.0,
+                    dt,
+                },
+                outdoor_air: seed_air,
+                day_type: DayType::WeatherDay,
+                is_sizing: false,
+                sizing_internal_gains: SizingInternalGains::Full,
+            };
+
+            let mut unapplied_controls = 0usize;
+            for controller in controllers.iter_mut() {
+                controller.update(&seed_state, &seed_ctx);
+                for action in controller.actions() {
+                    match action {
+                        ControlAction::SetZoneSetpoints {
+                            zone,
+                            heating_setpoint,
+                            cooling_setpoint,
+                            unoccupied_heating_setpoint,
+                            unoccupied_cooling_setpoint,
+                        } => {
+                            zone_heating_setpoints.insert(zone.clone(), *heating_setpoint);
+                            zone_cooling_setpoints.insert(zone.clone(), *cooling_setpoint);
+                            zone_unocc_heating_setpoints
+                                .insert(zone.clone(), *unoccupied_heating_setpoint);
+                            zone_unocc_cooling_setpoints
+                                .insert(zone.clone(), *unoccupied_cooling_setpoint);
+                        }
+                        // SetpointController / PlantLoopSetpoint actions from the
+                        // `controls:` block. Honored in HVAC-only mode (see the
+                        // ControlSignals built later) but inert on the coupled
+                        // envelope+HVAC path pending the #75 follow-up.
+                        _ => unapplied_controls += 1,
+                    }
+                }
+            }
+
+            if unapplied_controls > 0 && envelope.is_some() {
+                warn!(
+                    "{} explicit `controls:` action(s) parsed but not applied on the coupled \
+                     envelope+HVAC path (setpoint managers / plant-loop setpoints); they take \
+                     effect only in HVAC-only mode. See issue #75.",
+                    unapplied_controls
+                );
             }
         }
 

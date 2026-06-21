@@ -3562,51 +3562,23 @@ pub fn build_controllers(model: &ModelInput) -> Vec<Box<dyn Controller>> {
     // Resolve thermostats, expanding zone group references to individual zones.
     let resolved_thermostats = resolve_thermostats(model);
 
-    // Default supply temps and design flow — these will come from air loop
-    // controls once Phase 2 is wired up. For now, use standard defaults.
-    let default_heating_supply = 35.0; // °C
-    let default_cooling_supply = 13.0; // °C
-    let default_zone_flow = 0.5; // kg/s
-
+    // Each thermostat becomes a setpoint authority for its zones. It emits the
+    // occupied + unoccupied heating/cooling setpoints; the HVAC engine computes
+    // the supply response. Supply temps and design flows are NOT a thermostat
+    // concern — they come from air-loop controls in the live engine.
     for tstat in &resolved_thermostats {
         let group = ZoneGroup {
             name: tstat.name.clone(),
             zones: tstat.zones.clone(),
             heating_setpoint: tstat.heating_setpoint,
             cooling_setpoint: tstat.cooling_setpoint,
+            unoccupied_heating_setpoint: Some(tstat.unoccupied_heating_setpoint),
+            unoccupied_cooling_setpoint: Some(tstat.unoccupied_cooling_setpoint),
             deadband: None,
         };
 
-        // Look up air loop controls for supply temps + design flow.
-        // Find the first air loop that serves any of this thermostat's zones.
-        let (heat_supply, cool_supply, zone_flow) = model
-            .air_loops
-            .iter()
-            .find(|al| {
-                al.zone_terminals
-                    .iter()
-                    .any(|zc| tstat.zones.contains(&zc.zone))
-            })
-            .map(|al| {
-                (
-                    al.controls.heating_supply_temp,
-                    al.controls.cooling_supply_temp,
-                    al.controls.design_zone_flow.to_f64(),
-                )
-            })
-            .unwrap_or((
-                default_heating_supply,
-                default_cooling_supply,
-                default_zone_flow,
-            ));
-
-        let thermostat = ZoneThermostat::from_groups(
-            &format!("{} Thermostat", tstat.name),
-            vec![group],
-            heat_supply,
-            cool_supply,
-            zone_flow,
-        );
+        let thermostat =
+            ZoneThermostat::from_groups(&format!("{} Thermostat", tstat.name), vec![group]);
         controllers.push(Box::new(thermostat));
     }
 
