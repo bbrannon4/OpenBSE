@@ -211,6 +211,13 @@ pub struct AirflowNetworkConfig {
     /// Passive species tracked on the network flows (#84), e.g. CO₂.
     #[serde(default)]
     pub species: Vec<crate::species::SpeciesConfig>,
+    /// Blower-door calibration (#92): measured air changes per hour at
+    /// 50 Pa. When set, exterior crack coefficients are uniformly scaled
+    /// after auto-generation so the whole-building envelope flow at 50 Pa
+    /// equals ach50 × building volume (windows/openings excluded, as in
+    /// the physical test).
+    #[serde(default)]
+    pub ach50: Option<f64>,
 }
 
 fn default_crack_exponent() -> f64 {
@@ -263,6 +270,7 @@ impl Default for AirflowNetworkConfig {
             adaptive_damping: default_adaptive_damping(),
             relative_tolerance: default_relative_tolerance(),
             species: Vec::new(),
+            ach50: None,
         }
     }
 }
@@ -1171,6 +1179,17 @@ pub fn build_network(
         }
     }
 
+    // Blower-door calibration (#92)
+    if let Some(ach50) = config.ach50 {
+        let building_volume: f64 = zones.iter().map(|z| z.input.volume).sum();
+        let scale = calibrate_ach50(&mut paths, outdoor_node, ach50, building_volume);
+        if (scale - 1.0).abs() > 1e-9 {
+            log::info!(
+                "AFN blower-door calibration: exterior crack coefficients scaled ×{scale:.3} to match ACH50 = {ach50}"
+            );
+        }
+    }
+
     AirflowNetwork {
         config: config.clone(),
         nodes,
@@ -1186,6 +1205,58 @@ pub fn build_network(
         duct_return_leak_path_indices,
         nat_vent_path_indices,
     }
+}
+
+/// Blower-door calibration (#92): uniformly scale exterior crack
+/// coefficients so the envelope flow at 50 Pa matches the measured ACH50.
+///
+/// Only exterior power-law cracks participate — large openings and fixed
+/// flows are excluded, matching the physical test (windows closed, fans
+/// off). Returns the applied scale factor (1.0 if no calibration applied).
+fn calibrate_ach50(
+    paths: &mut [FlowPath],
+    outdoor_node: usize,
+    ach50: f64,
+    building_volume: f64,
+) -> f64 {
+    if ach50 <= 0.0 || building_volume <= 0.0 {
+        return 1.0;
+    }
+    // Current envelope mass flow at 50 Pa across exterior cracks
+    let mut q50_current = 0.0;
+    for path in paths.iter() {
+        let is_exterior = path.node_a == outdoor_node || path.node_b == outdoor_node;
+        if !is_exterior {
+            continue;
+        }
+        if let FlowElement::PowerLawCrack {
+            coefficient,
+            exponent,
+        } = path.element
+        {
+            q50_current += coefficient * 50.0_f64.powf(exponent);
+        }
+    }
+    if q50_current <= 0.0 {
+        return 1.0;
+    }
+    // Target mass flow: ACH50 × V × ρ / 3600
+    let q50_target = ach50 * building_volume * RHO_REF / 3600.0;
+    let scale = q50_target / q50_current;
+    for path in paths.iter_mut() {
+        let is_exterior = path.node_a == outdoor_node || path.node_b == outdoor_node;
+        if !is_exterior {
+            continue;
+        }
+        if let FlowElement::PowerLawCrack {
+            ref mut coefficient,
+            ..
+        } = path.element
+        {
+            *coefficient *= scale;
+        }
+    }
+    scale
 }
 
 /// Estimate building plan side ratio from envelope wall areas.
@@ -2503,6 +2574,81 @@ cp_model: !table
             duct_return_leak_path_indices: vec![None],
             nat_vent_path_indices: vec![None],
         }
+    }
+
+    /// Blower-door calibration (#92): exterior crack coefficients scale so
+    /// the envelope flow at 50 Pa matches ACH50 × volume; openings and
+    /// interzone cracks are untouched.
+    #[test]
+    fn test_ach50_calibration() {
+        let crack = |a: usize, b: usize, c: f64| FlowPath {
+            node_a: a,
+            node_b: b,
+            height: 1.5,
+            cp: 0.0,
+            azimuth: 0.0,
+            element: FlowElement::PowerLawCrack {
+                coefficient: c,
+                exponent: 0.65,
+            },
+            source_surface: None,
+            mass_flow: 0.0,
+        };
+        // Nodes: 0,1 = zones, 2 = outdoor
+        let mut paths = vec![
+            crack(2, 0, 0.001), // exterior
+            crack(2, 1, 0.003), // exterior
+            crack(0, 1, 0.002), // interzone — must NOT scale
+            // NV opening — must NOT scale (blower door runs windows closed)
+            FlowPath {
+                node_a: 2,
+                node_b: 0,
+                height: 1.5,
+                cp: 0.0,
+                azimuth: 0.0,
+                element: FlowElement::LargeOpening {
+                    discharge_coefficient: 0.65,
+                    area: 1.0,
+                },
+                source_surface: None,
+                mass_flow: 0.0,
+            },
+        ];
+
+        let volume = 300.0;
+        let ach50 = 5.0;
+        let scale = calibrate_ach50(&mut paths, 2, ach50, volume);
+        assert!(scale > 0.0);
+
+        // Envelope crack flow at 50 Pa now equals the target
+        let q50: f64 = paths
+            .iter()
+            .filter(|p| p.node_a == 2 || p.node_b == 2)
+            .filter_map(|p| match p.element {
+                FlowElement::PowerLawCrack {
+                    coefficient,
+                    exponent,
+                } => Some(coefficient * 50.0_f64.powf(exponent)),
+                _ => None,
+            })
+            .sum();
+        let target = ach50 * volume * RHO_REF / 3600.0;
+        assert_relative_eq!(q50, target, max_relative = 1e-12);
+
+        // Interzone crack untouched
+        match paths[2].element {
+            FlowElement::PowerLawCrack { coefficient, .. } => {
+                assert_relative_eq!(coefficient, 0.002, max_relative = 1e-12)
+            }
+            _ => panic!("expected crack"),
+        }
+        // Opening untouched
+        match paths[3].element {
+            FlowElement::LargeOpening { area, .. } => assert_eq!(area, 1.0),
+            _ => panic!("expected opening"),
+        }
+        // No calibration requested → no-op
+        assert_eq!(calibrate_ach50(&mut paths, 2, 0.0, volume), 1.0);
     }
 
     /// Natural-ventilation openings under AFN (#88): the availability logic

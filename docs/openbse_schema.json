@@ -222,6 +222,7 @@
         "window_leakage_per_area": { "type": "number", "default": 0.00014, "description": "Crack leakage per unit window area [kg/s/m2/Pa^n]." },
         "door_leakage_per_perimeter": { "type": "number", "default": 0.0006, "description": "Crack leakage per unit door perimeter [kg/s/m/Pa^n]." },
         "interzone_leakage_per_area": { "type": "number", "default": 0.00004, "description": "Interzone crack leakage per unit area [kg/s/m2/Pa^n]." },
+        "ach50": { "type": "number", "description": "Blower-door calibration: measured air changes per hour at 50 Pa. Scales exterior crack coefficients to match." },
         "wall_leakage_class": { "$ref": "#/$defs/LeakageClass", "description": "ASHRAE leakage class for exterior walls. Overrides wall_leakage_per_area." },
         "window_leakage_class": { "$ref": "#/$defs/LeakageClass", "description": "ASHRAE leakage class for windows. Overrides window_leakage_per_area." },
         "interzone_leakage_class": { "$ref": "#/$defs/LeakageClass", "description": "ASHRAE leakage class for interzone surfaces. Overrides interzone_leakage_per_area." },
