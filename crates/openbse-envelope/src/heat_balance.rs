@@ -2114,14 +2114,25 @@ impl EnvelopeSolver for BuildingEnvelope {
             if let Some(ref mut transport) = self.species_transport {
                 let n = self.zones.len();
                 let mut masses = vec![0.0; n];
+                let mut densities = vec![0.0; n];
+                let mut surface_areas = vec![0.0; n];
                 let mut oa = vec![0.0; n];
                 let mut vent = vec![0.0; n];
+                let mut recirc = vec![0.0; n];
                 let mut sources = vec![vec![0.0; n]; transport.names.len()];
                 for (zi, zone) in self.zones.iter().enumerate() {
-                    masses[zi] =
-                        zone.input.volume.max(1.0) * afn.nodes[afn.zone_to_node[zi]].density;
+                    let rho = afn.nodes[afn.zone_to_node[zi]].density;
+                    masses[zi] = zone.input.volume.max(1.0) * rho;
+                    densities[zi] = rho;
+                    surface_areas[zi] = zone
+                        .surface_indices
+                        .iter()
+                        .map(|&si| self.surfaces[si].net_area)
+                        .sum();
                     oa[zi] = zone.outdoor_air_mass_flow;
                     vent[zi] = zone.ventilation_mass_flow;
+                    // Recirculated supply (for HVAC filtration, #94)
+                    recirc[zi] = (zone.supply_air_mass_flow - zone.outdoor_air_mass_flow).max(0.0);
                     for gen in &zone.input.species_generation {
                         if let Some(si) = transport.species_index(&gen.species) {
                             let frac = match &gen.schedule {
@@ -2131,8 +2142,30 @@ impl EnvelopeSolver for BuildingEnvelope {
                             sources[si][zi] += gen.rate * frac;
                         }
                     }
+                    // Occupant-linked generation (#94): follows the resolved
+                    // occupancy (sensible + latent metabolic heat).
+                    let met_w = zone.people_heat + zone.people_latent;
+                    if met_w > 0.0 {
+                        for (si, &coeff) in transport.generation_per_met_watt.iter().enumerate() {
+                            if coeff > 0.0 {
+                                sources[si][zi] += coeff * met_w;
+                            }
+                        }
+                    }
                 }
-                transport.step(afn, &masses, &oa, &vent, &sources, dt);
+                transport.step(
+                    afn,
+                    &crate::species::SpeciesZoneInputs {
+                        air_mass: &masses,
+                        air_density: &densities,
+                        surface_area: &surface_areas,
+                        oa_flow: &oa,
+                        vent_flow: &vent,
+                        recirc_flow: &recirc,
+                    },
+                    &sources,
+                    dt,
+                );
             }
         }
 

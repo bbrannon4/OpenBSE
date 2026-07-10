@@ -42,6 +42,24 @@ pub struct SpeciesConfig {
     /// Initial zone concentration [kg/kg] (defaults to outdoor).
     #[serde(default)]
     pub initial_concentration: Option<f64>,
+    /// First-order decay rate λ [1/s] (#94): radioactive decay (radon
+    /// λ ≈ 2.1e-6) or chemical loss. dC/dt includes −λ·C.
+    #[serde(default)]
+    pub decay_rate: f64,
+    /// Surface deposition velocity [m/s] (#94): sink = v_d × zone surface
+    /// area × ρ × C (particles, ozone; typically 1e-5..1e-3 m/s).
+    #[serde(default)]
+    pub deposition_velocity: f64,
+    /// HVAC filter removal efficiency [0-1] (#94), applied to recirculated
+    /// supply air (supply − outdoor air): sink = η × ṁ_recirc × C.
+    #[serde(default)]
+    pub hvac_filter_efficiency: f64,
+    /// Occupant-linked generation [kg/s per W of metabolic heat] (#94).
+    /// CO₂ ≈ 6.9e-8 (E+ uses 3.82e-8 m³/s/W at ρ_CO₂ ≈ 1.8 kg/m³).
+    /// Multiplied by each zone's scheduled occupant heat (sensible+latent),
+    /// so generation follows the occupancy schedules automatically.
+    #[serde(default)]
+    pub generation_per_met_watt: Option<f64>,
 }
 
 /// Per-zone species source.
@@ -73,8 +91,32 @@ pub struct SpeciesTransport {
     pub names: Vec<String>,
     /// Outdoor concentration per species [kg/kg].
     pub outdoor: Vec<f64>,
+    /// First-order decay rate per species [1/s] (#94).
+    pub decay_rate: Vec<f64>,
+    /// Surface deposition velocity per species [m/s] (#94).
+    pub deposition_velocity: Vec<f64>,
+    /// HVAC filter efficiency per species [0-1] (#94).
+    pub filter_efficiency: Vec<f64>,
+    /// Occupant-linked generation per species [kg/s per met W] (#94).
+    pub generation_per_met_watt: Vec<f64>,
     /// concentrations[species][zone] [kg/kg].
     pub concentrations: Vec<Vec<f64>>,
+}
+
+/// Per-zone airflow/geometry inputs for a species transport step (#94).
+pub struct SpeciesZoneInputs<'a> {
+    /// Zone air mass Mᵢ = V·ρ [kg].
+    pub air_mass: &'a [f64],
+    /// Zone air density [kg/m³] (deposition sink).
+    pub air_density: &'a [f64],
+    /// Total interior surface area per zone [m²] (deposition sink).
+    pub surface_area: &'a [f64],
+    /// HVAC outdoor-air mass flow [kg/s].
+    pub oa_flow: &'a [f64],
+    /// Scheduled ventilation mass flow [kg/s].
+    pub vent_flow: &'a [f64],
+    /// Recirculated supply mass flow [kg/s] = (supply − OA)⁺ (filter sink).
+    pub recirc_flow: &'a [f64],
 }
 
 impl SpeciesTransport {
@@ -89,6 +131,19 @@ impl SpeciesTransport {
         Self {
             names,
             outdoor,
+            decay_rate: species.iter().map(|s| s.decay_rate.max(0.0)).collect(),
+            deposition_velocity: species
+                .iter()
+                .map(|s| s.deposition_velocity.max(0.0))
+                .collect(),
+            filter_efficiency: species
+                .iter()
+                .map(|s| s.hvac_filter_efficiency.clamp(0.0, 1.0))
+                .collect(),
+            generation_per_met_watt: species
+                .iter()
+                .map(|s| s.generation_per_met_watt.unwrap_or(0.0).max(0.0))
+                .collect(),
             concentrations,
         }
     }
@@ -115,12 +170,13 @@ impl SpeciesTransport {
     pub fn step(
         &mut self,
         network: &AirflowNetwork,
-        zone_air_mass: &[f64],
-        zone_oa_flow: &[f64],
-        zone_vent_flow: &[f64],
+        inputs: &SpeciesZoneInputs,
         sources: &[Vec<f64>],
         dt: f64,
     ) {
+        let zone_air_mass = inputs.air_mass;
+        let zone_oa_flow = inputs.oa_flow;
+        let zone_vent_flow = inputs.vent_flow;
         let n_zones = network.zone_to_node.len();
         if n_zones == 0 || self.names.is_empty() || dt <= 0.0 {
             return;
@@ -175,12 +231,24 @@ impl SpeciesTransport {
 
         for (si, conc) in self.concentrations.iter_mut().enumerate() {
             let c_out = self.outdoor[si];
+            let lambda = self.decay_rate[si];
+            let v_dep = self.deposition_velocity[si];
+            let eta_filter = self.filter_efficiency[si];
 
             let mut a = vec![vec![0.0_f64; n_zones]; n_zones];
             let mut b = vec![0.0_f64; n_zones];
             for zi in 0..n_zones {
                 let m_over_dt = (zone_air_mass.get(zi).copied().unwrap_or(1.0) / dt).max(1e-9);
-                a[zi][zi] = m_over_dt + total_out[zi];
+                // Sinks (#94): first-order decay λ·M, surface deposition
+                // v_d·A·ρ, and HVAC filtration η·ṁ_recirc — all remove
+                // species mass proportional to the zone concentration.
+                let decay = lambda * zone_air_mass.get(zi).copied().unwrap_or(0.0);
+                let deposition = v_dep
+                    * inputs.surface_area.get(zi).copied().unwrap_or(0.0)
+                    * inputs.air_density.get(zi).copied().unwrap_or(1.2);
+                let filtration =
+                    eta_filter * inputs.recirc_flow.get(zi).copied().unwrap_or(0.0).max(0.0);
+                a[zi][zi] = m_over_dt + total_out[zi] + decay + deposition + filtration;
                 for zj in 0..n_zones {
                     if zj != zi {
                         a[zi][zj] -= interzone[zi][zj];
@@ -254,7 +322,23 @@ mod tests {
             name: "co2".to_string(),
             outdoor_concentration: 0.00063, // ~420 ppm
             initial_concentration: None,
+            decay_rate: 0.0,
+            deposition_velocity: 0.0,
+            hvac_filter_efficiency: 0.0,
+            generation_per_met_watt: None,
         }]
+    }
+
+    /// Zero-sink inputs for `n` zones with the given air masses.
+    fn plain_inputs(mass: &[f64]) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+        let n = mass.len();
+        (
+            vec![RHO; n], // density
+            vec![0.0; n], // surface area
+            vec![0.0; n], // OA
+            vec![0.0; n], // vent
+            vec![0.0; n], // recirc
+        )
     }
 
     /// Single zone with constant source and infiltration: concentration
@@ -272,7 +356,20 @@ mod tests {
 
         // March to steady state (time constant ≈ M/ṁ ≈ 20 min)
         for _ in 0..2000 {
-            transport.step(&network, &mass, &[0.0], &[0.0], &sources, 60.0);
+            let (rho, area, oa, vent, recirc) = plain_inputs(&mass);
+            transport.step(
+                &network,
+                &SpeciesZoneInputs {
+                    air_mass: &mass,
+                    air_density: &rho,
+                    surface_area: &area,
+                    oa_flow: &oa,
+                    vent_flow: &vent,
+                    recirc_flow: &recirc,
+                },
+                &sources,
+                60.0,
+            );
         }
 
         let expected = 0.00063 + source / m_inf;
@@ -295,7 +392,20 @@ mod tests {
         let sources = vec![vec![source, 0.0]];
 
         for _ in 0..3000 {
-            transport.step(&network, &mass, &[0.0, 0.0], &[0.0, 0.0], &sources, 60.0);
+            let (rho, area, oa, vent, recirc) = plain_inputs(&mass);
+            transport.step(
+                &network,
+                &SpeciesZoneInputs {
+                    air_mass: &mass,
+                    air_density: &rho,
+                    surface_area: &area,
+                    oa_flow: &oa,
+                    vent_flow: &vent,
+                    recirc_flow: &recirc,
+                },
+                &sources,
+                60.0,
+            );
         }
 
         // Zone 0: C_out + S/ṁ; zone 1 receives zone-0 air with no extra source
@@ -323,6 +433,10 @@ mod tests {
             name: "tracer".to_string(),
             outdoor_concentration: 0.0,
             initial_concentration: Some(0.01),
+            decay_rate: 0.0,
+            deposition_velocity: 0.0,
+            hvac_filter_efficiency: 0.0,
+            generation_per_met_watt: None,
         }];
         let mut transport = SpeciesTransport::new(&species, 1);
         let mass = vec![100.0 * RHO];
@@ -330,7 +444,20 @@ mod tests {
 
         let mut prev = transport.concentration(0, 0);
         for _ in 0..500 {
-            transport.step(&network, &mass, &[0.0], &[0.0], &sources, 60.0);
+            let (rho, area, oa, vent, recirc) = plain_inputs(&mass);
+            transport.step(
+                &network,
+                &SpeciesZoneInputs {
+                    air_mass: &mass,
+                    air_density: &rho,
+                    surface_area: &area,
+                    oa_flow: &oa,
+                    vent_flow: &vent,
+                    recirc_flow: &recirc,
+                },
+                &sources,
+                60.0,
+            );
             let c = transport.concentration(0, 0);
             assert!(c >= 0.0 && c <= prev + 1e-15, "monotone decay violated");
             prev = c;
@@ -339,6 +466,141 @@ mod tests {
             prev < 1e-6,
             "tracer should decay to outdoor level, got {prev}"
         );
+    }
+
+    /// First-order decay (#94): with no ventilation, the concentration
+    /// decays exponentially with the configured rate.
+    #[test]
+    fn test_first_order_decay() {
+        let network = scaffold(1);
+        let lambda = 1e-3; // 1/s
+        let species = vec![SpeciesConfig {
+            name: "radon".to_string(),
+            outdoor_concentration: 0.0,
+            initial_concentration: Some(1e-6),
+            decay_rate: lambda,
+            deposition_velocity: 0.0,
+            hvac_filter_efficiency: 0.0,
+            generation_per_met_watt: None,
+        }];
+        let mut transport = SpeciesTransport::new(&species, 1);
+        let mass = vec![100.0 * RHO];
+        let sources = vec![vec![0.0]];
+        let dt = 60.0;
+
+        let steps = 200;
+        for _ in 0..steps {
+            let (rho, area, oa, vent, recirc) = plain_inputs(&mass);
+            transport.step(
+                &network,
+                &SpeciesZoneInputs {
+                    air_mass: &mass,
+                    air_density: &rho,
+                    surface_area: &area,
+                    oa_flow: &oa,
+                    vent_flow: &vent,
+                    recirc_flow: &recirc,
+                },
+                &sources,
+                dt,
+            );
+        }
+        // Backward Euler: C_n = C0 / (1 + λ·dt)^n
+        let expected = 1e-6 / (1.0 + lambda * dt).powi(steps);
+        assert_relative_eq!(transport.concentration(0, 0), expected, max_relative = 1e-9);
+    }
+
+    /// HVAC filtration (#94): recirculated air through a filter lowers the
+    /// steady state to C = (S + ṁ·C_out)/(ṁ + η·ṁ_recirc).
+    #[test]
+    fn test_hvac_filtration_steady_state() {
+        let mut network = scaffold(1);
+        let m_inf = 0.05;
+        network.zone_outdoor_mass_flow[0] = m_inf;
+
+        let eta = 0.6;
+        let m_recirc = 0.2;
+        let species = vec![SpeciesConfig {
+            name: "pm".to_string(),
+            outdoor_concentration: 0.0,
+            initial_concentration: Some(0.0),
+            decay_rate: 0.0,
+            deposition_velocity: 0.0,
+            hvac_filter_efficiency: eta,
+            generation_per_met_watt: None,
+        }];
+        let mut transport = SpeciesTransport::new(&species, 1);
+        let mass = vec![50.0 * RHO];
+        let source = 1e-6;
+        let sources = vec![vec![source]];
+        let recirc = vec![m_recirc];
+        let rho = vec![RHO];
+        let area = vec![0.0];
+        let zeros = vec![0.0];
+
+        for _ in 0..3000 {
+            transport.step(
+                &network,
+                &SpeciesZoneInputs {
+                    air_mass: &mass,
+                    air_density: &rho,
+                    surface_area: &area,
+                    oa_flow: &zeros,
+                    vent_flow: &zeros,
+                    recirc_flow: &recirc,
+                },
+                &sources,
+                60.0,
+            );
+        }
+        let expected = source / (m_inf + eta * m_recirc);
+        assert_relative_eq!(transport.concentration(0, 0), expected, max_relative = 1e-6);
+    }
+
+    /// Surface deposition (#94): sink = v_d·A·ρ lowers the steady state
+    /// like an extra ventilation flow.
+    #[test]
+    fn test_deposition_sink() {
+        let mut network = scaffold(1);
+        let m_inf = 0.02;
+        network.zone_outdoor_mass_flow[0] = m_inf;
+
+        let v_d = 0.0005; // m/s
+        let a_surf = 120.0; // m²
+        let species = vec![SpeciesConfig {
+            name: "pm".to_string(),
+            outdoor_concentration: 0.0,
+            initial_concentration: Some(0.0),
+            decay_rate: 0.0,
+            deposition_velocity: v_d,
+            hvac_filter_efficiency: 0.0,
+            generation_per_met_watt: None,
+        }];
+        let mut transport = SpeciesTransport::new(&species, 1);
+        let mass = vec![50.0 * RHO];
+        let source = 1e-6;
+        let sources = vec![vec![source]];
+        let rho = vec![RHO];
+        let area = vec![a_surf];
+        let zeros = vec![0.0];
+
+        for _ in 0..3000 {
+            transport.step(
+                &network,
+                &SpeciesZoneInputs {
+                    air_mass: &mass,
+                    air_density: &rho,
+                    surface_area: &area,
+                    oa_flow: &zeros,
+                    vent_flow: &zeros,
+                    recirc_flow: &zeros,
+                },
+                &sources,
+                60.0,
+            );
+        }
+        let expected = source / (m_inf + v_d * a_surf * RHO);
+        assert_relative_eq!(transport.concentration(0, 0), expected, max_relative = 1e-6);
     }
 
     /// Return-duct leakage (#85) carries attic species into the conditioned
@@ -367,6 +629,10 @@ mod tests {
             name: "radon".to_string(),
             outdoor_concentration: 0.0,
             initial_concentration: Some(0.0),
+            decay_rate: 0.0,
+            deposition_velocity: 0.0,
+            hvac_filter_efficiency: 0.0,
+            generation_per_met_watt: None,
         }];
         let mut transport = SpeciesTransport::new(&species, 2);
         let mass = vec![50.0 * RHO, 50.0 * RHO];
@@ -374,7 +640,20 @@ mod tests {
         let sources = vec![vec![0.0, attic_source]];
 
         for _ in 0..3000 {
-            transport.step(&network, &mass, &[0.0, 0.0], &[0.0, 0.0], &sources, 60.0);
+            let (rho, area, oa, vent, recirc) = plain_inputs(&mass);
+            transport.step(
+                &network,
+                &SpeciesZoneInputs {
+                    air_mass: &mass,
+                    air_density: &rho,
+                    surface_area: &area,
+                    oa_flow: &oa,
+                    vent_flow: &vent,
+                    recirc_flow: &recirc,
+                },
+                &sources,
+                60.0,
+            );
         }
 
         // Attic steady state: S/ṁ; the zone receives attic air through the

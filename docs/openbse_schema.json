@@ -240,7 +240,11 @@
             "properties": {
               "name": { "type": "string", "description": "Species name, referenced by zone species_generation entries." },
               "outdoor_concentration": { "type": "number", "default": 0, "description": "Outdoor concentration [kg/kg]." },
-              "initial_concentration": { "type": "number", "description": "Initial zone concentration [kg/kg] (defaults to outdoor)." }
+              "initial_concentration": { "type": "number", "description": "Initial zone concentration [kg/kg] (defaults to outdoor)." },
+              "decay_rate": { "type": "number", "default": 0, "description": "First-order decay rate [1/s] (radon ~2.1e-6)." },
+              "deposition_velocity": { "type": "number", "default": 0, "description": "Surface deposition velocity [m/s]." },
+              "hvac_filter_efficiency": { "type": "number", "default": 0, "minimum": 0, "maximum": 1, "description": "Filter removal efficiency applied to recirculated supply air." },
+              "generation_per_met_watt": { "type": "number", "description": "Occupant-linked generation [kg/s per W metabolic heat]; CO2 ~6.9e-8. Follows occupancy schedules." }
             }
           }
         }
