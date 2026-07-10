@@ -2015,6 +2015,24 @@ impl EnvelopeSolver for BuildingEnvelope {
             // by the current schedule fraction (0 = closed).
             let schedule_manager = &self.schedule_manager;
             afn.update_scheduled_openings(|name| schedule_manager.fraction(name, hour, dow));
+            // Natural-ventilation openings (#88): drive the AFN opening area
+            // from the availability logic (schedule, temperature windows,
+            // wind limit). The zone-level wind-&-stack model is disabled
+            // while the AFN is active so the flow is not double-counted.
+            for (zi, zone) in self.zones.iter().enumerate() {
+                if let Some(ref nv) = zone.input.natural_ventilation {
+                    let sched_frac = if ctx.is_sizing {
+                        0.0
+                    } else {
+                        match &nv.schedule {
+                            Some(name) => schedule_manager.fraction(name, hour, dow),
+                            None => 1.0,
+                        }
+                    };
+                    let avail = nv.availability(zone.temp, t_outdoor, wind_speed_met, sched_frac);
+                    afn.update_nat_vent_opening(zi, nv.opening_area * avail);
+                }
+            }
             crate::airflow_network::solve_pressures(
                 afn,
                 wind_speed_met,
@@ -2188,15 +2206,24 @@ impl EnvelopeSolver for BuildingEnvelope {
                     }
                 };
 
-                // Temperature and wind speed conditions
                 let t_zone = zone.temp;
-                let temp_ok = t_zone >= nv.min_indoor_temp
-                    && t_zone <= nv.max_indoor_temp
-                    && t_outdoor >= nv.min_outdoor_temp
-                    && t_outdoor <= nv.max_outdoor_temp
-                    && wind_speed_met <= nv.max_wind_speed;
+                let avail = nv.availability(t_zone, t_outdoor, wind_speed_met, sched_frac);
 
-                if sched_frac > 0.0 && temp_ok {
+                if afn_active {
+                    // #88: the AFN opening carries the flow (it arrives via
+                    // infiltration_mass_flow), so the wind-&-stack model is
+                    // disabled to avoid double counting. Availability still
+                    // drives nat_vent_active for the setpoint-reset logic.
+                    zone.nat_vent_flow = 0.0;
+                    zone.nat_vent_mass_flow = 0.0;
+                    if avail > 0.0 {
+                        zone.nat_vent_active = true;
+                        zone.nat_vent_off_timesteps = 0;
+                    } else {
+                        zone.nat_vent_active = false;
+                        zone.nat_vent_off_timesteps = zone.nat_vent_off_timesteps.saturating_add(1);
+                    }
+                } else if avail > 0.0 {
                     // Wind-driven component
                     // Determine windward/leeward: the opening is windward if the
                     // angle between wind direction and the outward normal of the
@@ -2209,7 +2236,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         d
                     };
                     let cw = if angle_diff <= 90.0 { 0.55 } else { 0.30 };
-                    let v_wind = cw * nv.opening_area * sched_frac * wind_speed_met;
+                    let v_wind = cw * nv.opening_area * avail * wind_speed_met;
 
                     // Stack-driven component
                     let dt_abs = (t_zone - t_outdoor).abs();
@@ -2217,7 +2244,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let v_stack = if nv.height_difference > 0.0 && dt_abs > 0.01 {
                         let cd = nv.discharge_coefficient;
                         cd * nv.opening_area
-                            * sched_frac
+                            * avail
                             * (2.0 * 9.81 * nv.height_difference * dt_abs / t_zone_k).sqrt()
                     } else {
                         0.0

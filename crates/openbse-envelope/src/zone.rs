@@ -360,6 +360,33 @@ pub struct NaturalVentilationInput {
     pub setpoint_reset: Option<NatVentSetpointReset>,
 }
 
+impl NaturalVentilationInput {
+    /// Availability fraction [0-1] for natural ventilation (#88).
+    ///
+    /// Returns `sched_frac` when the temperature windows and wind limit
+    /// permit ventilation, 0.0 otherwise. Shared by the zone-level
+    /// wind-&-stack model and the AFN opening-area update so both use one
+    /// availability decision.
+    pub fn availability(
+        &self,
+        t_zone: f64,
+        t_outdoor: f64,
+        wind_speed: f64,
+        sched_frac: f64,
+    ) -> f64 {
+        let temp_ok = t_zone >= self.min_indoor_temp
+            && t_zone <= self.max_indoor_temp
+            && t_outdoor >= self.min_outdoor_temp
+            && t_outdoor <= self.max_outdoor_temp
+            && wind_speed <= self.max_wind_speed;
+        if temp_ok {
+            sched_frac.clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+}
+
 /// Thermostat setpoint override during natural ventilation.
 ///
 /// When natural ventilation is active, the HVAC thermostat setpoints are
@@ -1250,6 +1277,36 @@ mod tests {
         // Equivalence: mcpi·T_mix == m1·cp·T1 + m2·cp·T2 (cp cancels)
         let (m, t) = mix_advective_streams(0.07, 3.0, 0.13, 26.0);
         assert_relative_eq!(m * t, 0.07 * 3.0 + 0.13 * 26.0, max_relative = 1e-12);
+    }
+
+    /// NV availability (#88): temperature windows and wind limit gate the
+    /// schedule fraction.
+    #[test]
+    fn test_nat_vent_availability() {
+        let nv = NaturalVentilationInput {
+            opening_area: 2.0,
+            effective_angle: 0.0,
+            height_difference: 1.0,
+            discharge_coefficient: 0.65,
+            min_indoor_temp: 22.0,
+            max_indoor_temp: 100.0,
+            min_outdoor_temp: 10.0,
+            max_outdoor_temp: 30.0,
+            max_wind_speed: 15.0,
+            schedule: None,
+            setpoint_reset: None,
+        };
+        // All conditions met → schedule fraction passes through
+        assert_eq!(nv.availability(25.0, 20.0, 3.0, 1.0), 1.0);
+        assert_eq!(nv.availability(25.0, 20.0, 3.0, 0.5), 0.5);
+        // Indoor too cold
+        assert_eq!(nv.availability(20.0, 20.0, 3.0, 1.0), 0.0);
+        // Outdoor too hot
+        assert_eq!(nv.availability(25.0, 35.0, 3.0, 1.0), 0.0);
+        // Too windy
+        assert_eq!(nv.availability(25.0, 20.0, 20.0, 1.0), 0.0);
+        // Schedule fraction clamped to [0,1]
+        assert_eq!(nv.availability(25.0, 20.0, 3.0, 1.8), 1.0);
     }
 
     #[test]

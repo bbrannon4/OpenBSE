@@ -443,6 +443,12 @@ pub struct AirflowNetwork {
     /// unconditioned-space air, which is delivered to the zone. Same
     /// accumulation treatment as the supply leak paths.
     pub duct_return_leak_path_indices: Vec<Option<usize>>,
+    /// Per-zone path indices for natural-ventilation openings (#88). The
+    /// effective opening area is driven each timestep from the NV
+    /// availability logic (schedule, temperature windows, wind limit); the
+    /// zone-level wind-&-stack model is disabled while the AFN is active so
+    /// the flow is not double-counted.
+    pub nat_vent_path_indices: Vec<Option<usize>>,
 }
 
 impl AirflowNetwork {
@@ -488,6 +494,23 @@ impl AirflowNetwork {
             if let Some(path) = self.paths.get_mut(*path_idx) {
                 if let FlowElement::FixedFlow { ref mut mass_flow } = path.element {
                     *mass_flow = return_kg_s;
+                }
+            }
+        }
+    }
+
+    /// Update a natural-ventilation opening's effective area before each
+    /// AFN solve (#88). `area` = opening_area × availability (schedule
+    /// fraction gated by temperature windows and wind limit); 0 = closed.
+    pub fn update_nat_vent_opening(&mut self, zone_idx: usize, area: f64) {
+        if let Some(Some(path_idx)) = self.nat_vent_path_indices.get(zone_idx) {
+            if let Some(path) = self.paths.get_mut(*path_idx) {
+                if let FlowElement::LargeOpening {
+                    area: ref mut path_area,
+                    ..
+                } = path.element
+                {
+                    *path_area = area.max(0.0);
                 }
             }
         }
@@ -1040,10 +1063,15 @@ pub fn build_network(
         }
     }
 
-    // Natural ventilation openings (zone-level, not surface-level)
+    // Natural ventilation openings (zone-level, not surface-level).
+    // The effective area is driven each timestep from the NV availability
+    // logic (#88); while the AFN is active the zone-level wind-&-stack
+    // model is disabled so the flow is not double-counted.
+    let mut nat_vent_path_indices: Vec<Option<usize>> = vec![None; n_zones];
     for (zi, zone) in zones.iter().enumerate() {
         if let Some(ref nv) = zone.input.natural_ventilation {
             let zone_node = zone_to_node[zi];
+            nat_vent_path_indices[zi] = Some(paths.len());
             paths.push(FlowPath {
                 node_a: outdoor_node,
                 node_b: zone_node,
@@ -1156,6 +1184,7 @@ pub fn build_network(
         scheduled_openings,
         duct_supply_leak_path_indices,
         duct_return_leak_path_indices,
+        nat_vent_path_indices,
     }
 }
 
@@ -1806,6 +1835,7 @@ mod tests {
             scheduled_openings: vec![],
             duct_supply_leak_path_indices: vec![],
             duct_return_leak_path_indices: vec![],
+            nat_vent_path_indices: vec![],
         };
 
         let (converged, _iters) =
@@ -1928,6 +1958,7 @@ mod tests {
             scheduled_openings: vec![],
             duct_supply_leak_path_indices: vec![],
             duct_return_leak_path_indices: vec![],
+            nat_vent_path_indices: vec![],
         };
 
         let (converged, _) =
@@ -2054,6 +2085,7 @@ mod tests {
             scheduled_openings: vec![],
             duct_supply_leak_path_indices: vec![],
             duct_return_leak_path_indices: vec![],
+            nat_vent_path_indices: vec![],
         };
 
         let (converged, _) = solve_pressures(&mut network, 0.0, 0.0, 0.0, 1.292, Terrain::Country);
@@ -2317,6 +2349,7 @@ cp_model: !table
             scheduled_openings: vec![],
             duct_supply_leak_path_indices: vec![],
             duct_return_leak_path_indices: vec![],
+            nat_vent_path_indices: vec![],
         };
 
         // Wind from north: north facade windward (0.6), south leeward (-0.3)
@@ -2378,6 +2411,7 @@ cp_model: !table
             }],
             duct_supply_leak_path_indices: vec![],
             duct_return_leak_path_indices: vec![],
+            nat_vent_path_indices: vec![],
         };
 
         // Half-open
@@ -2467,6 +2501,42 @@ cp_model: !table
             scheduled_openings: vec![],
             duct_supply_leak_path_indices: vec![None],
             duct_return_leak_path_indices: vec![None],
+            nat_vent_path_indices: vec![None],
+        }
+    }
+
+    /// Natural-ventilation openings under AFN (#88): the availability logic
+    /// drives the opening area; closed conditions give zero area (zero flow).
+    #[test]
+    fn test_nat_vent_opening_area_update() {
+        let mut network = exhaust_fan_network(AirflowNetworkConfig::default());
+        // Treat path 0 (the crack) slot as an NV opening for zone 0
+        network.paths[0].element = FlowElement::LargeOpening {
+            discharge_coefficient: 0.65,
+            area: 2.0,
+        };
+        network.nat_vent_path_indices = vec![Some(0)];
+
+        // Half-available → half area
+        network.update_nat_vent_opening(0, 1.0);
+        match network.paths[0].element {
+            FlowElement::LargeOpening { area, .. } => {
+                assert_relative_eq!(area, 1.0, max_relative = 1e-12)
+            }
+            _ => panic!("expected LargeOpening"),
+        }
+
+        // Unavailable → closed → zero flow at any ΔP
+        network.update_nat_vent_opening(0, 0.0);
+        let (flow, dflow) = flow_and_derivative(&network.paths[0].element, 10.0, RHO_REF, RHO_REF);
+        assert_eq!(flow, 0.0);
+        assert_eq!(dflow, 0.0);
+
+        // Negative input clamps to zero
+        network.update_nat_vent_opening(0, -3.0);
+        match network.paths[0].element {
+            FlowElement::LargeOpening { area, .. } => assert_eq!(area, 0.0),
+            _ => panic!("expected LargeOpening"),
         }
     }
 
@@ -2700,6 +2770,7 @@ cp_model: !table
             scheduled_openings: vec![],
             duct_supply_leak_path_indices: vec![None, None],
             duct_return_leak_path_indices: vec![None, None],
+            nat_vent_path_indices: vec![None, None],
         };
 
         let (converged, _) =
@@ -2834,6 +2905,7 @@ cp_model: !table
             scheduled_openings: vec![],
             duct_supply_leak_path_indices: vec![Some(supply_path_idx), None],
             duct_return_leak_path_indices: vec![Some(return_path_idx), None],
+            nat_vent_path_indices: vec![Some(return_path_idx), None],
         };
 
         // Supply-dominated: 0.06 × 0.5 kg/s supply leak, 0.02 × 0.5 return leak
@@ -2972,6 +3044,7 @@ cp_model: !table
             scheduled_openings: vec![],
             duct_supply_leak_path_indices: vec![],
             duct_return_leak_path_indices: vec![],
+            nat_vent_path_indices: vec![],
         };
 
         let (converged, _) = solve_pressures(&mut network, 0.0, 0.0, 0.0, 1.292, Terrain::Suburbs);

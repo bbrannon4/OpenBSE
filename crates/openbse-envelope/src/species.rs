@@ -245,6 +245,7 @@ mod tests {
             scheduled_openings: vec![],
             duct_supply_leak_path_indices: vec![None; n_zones],
             duct_return_leak_path_indices: vec![None; n_zones],
+            nat_vent_path_indices: vec![None; n_zones],
         }
     }
 
