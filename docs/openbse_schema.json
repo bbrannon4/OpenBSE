@@ -227,7 +227,9 @@
         "interzone_leakage_class": { "$ref": "#/$defs/LeakageClass", "description": "ASHRAE leakage class for interzone surfaces. Overrides interzone_leakage_per_area." },
         "convergence_tolerance": { "type": "number", "default": 0.1, "description": "Newton-Raphson convergence tolerance [Pa]." },
         "max_iterations": { "type": "integer", "default": 30, "description": "Maximum Newton-Raphson iterations." },
-        "damping": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1, "description": "Damping factor for pressure updates." },
+        "damping": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1, "description": "Damping factor for pressure updates (starting factor when adaptive_damping is on)." },
+        "adaptive_damping": { "type": "boolean", "default": true, "description": "Adapt the Newton under-relaxation factor per iteration: grow toward a full step while the residual falls, cut on overshoot." },
+        "relative_tolerance": { "type": "number", "default": 0.0001, "description": "Relative convergence tolerance: accept when the worst zone mass residual is below this fraction of total network through-flow." },
         "species": {
           "type": "array",
           "description": "Passive species (e.g. CO2) transported on the network flows.",

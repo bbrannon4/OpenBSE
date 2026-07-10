@@ -197,8 +197,17 @@ pub struct AirflowNetworkConfig {
     #[serde(default = "default_max_iterations")]
     pub max_iterations: usize,
     /// Damping factor for Newton-Raphson update (0-1, 1 = full step).
+    /// With `adaptive_damping` this is the starting factor.
     #[serde(default = "default_damping")]
     pub damping: f64,
+    /// Adapt the Newton under-relaxation factor per iteration (#86):
+    /// grow toward a full step while the residual falls, cut on overshoot.
+    #[serde(default = "default_adaptive_damping")]
+    pub adaptive_damping: bool,
+    /// Relative convergence tolerance (#86): accept when the worst zone
+    /// mass residual falls below this fraction of total network through-flow.
+    #[serde(default = "default_relative_tolerance")]
+    pub relative_tolerance: f64,
     /// Passive species tracked on the network flows (#84), e.g. CO₂.
     #[serde(default)]
     pub species: Vec<crate::species::SpeciesConfig>,
@@ -228,6 +237,12 @@ fn default_max_iterations() -> usize {
 fn default_damping() -> f64 {
     0.75
 }
+fn default_adaptive_damping() -> bool {
+    true
+}
+fn default_relative_tolerance() -> f64 {
+    1e-4
+}
 
 impl Default for AirflowNetworkConfig {
     fn default() -> Self {
@@ -245,6 +260,8 @@ impl Default for AirflowNetworkConfig {
             convergence_tolerance: default_convergence_tol(),
             max_iterations: default_max_iterations(),
             damping: default_damping(),
+            adaptive_damping: default_adaptive_damping(),
+            relative_tolerance: default_relative_tolerance(),
             species: Vec::new(),
         }
     }
@@ -1243,7 +1260,8 @@ pub fn solve_pressures(
     let outdoor = network.outdoor_node;
     let max_iter = network.config.max_iterations;
     let tol = network.config.convergence_tolerance;
-    let damping = network.config.damping;
+    let adaptive = network.config.adaptive_damping;
+    let rel_tol = network.config.relative_tolerance;
     let weather_wind_mod_coeff = crate::convection::DEFAULT_WEATHER_WIND_MOD_COEFF;
 
     // Initialize zone pressures to 0 (or keep from previous timestep)
@@ -1253,6 +1271,12 @@ pub fn solve_pressures(
     let mut converged = false;
     let mut iter = 0;
 
+    // Adaptive under-relaxation (#86): grow the Newton step toward a full
+    // step while the residual falls, cut it when the residual rises
+    // (overshoot/oscillation). Mirrors the E+ AIRNET strategy.
+    let mut damp = network.config.damping;
+    let mut prev_residual = f64::INFINITY;
+
     for _it in 0..max_iter {
         iter = _it + 1;
 
@@ -1260,6 +1284,8 @@ pub fn solve_pressures(
         let mut residual = vec![0.0; n_zones];
         // Dense Jacobian J[i][j] = dR_i / dP_j
         let mut jacobian = vec![vec![0.0; n_zones]; n_zones];
+        // Total through-flow magnitude for the relative convergence test
+        let mut total_flow = 0.0_f64;
 
         for path in &network.paths {
             let a = path.node_a;
@@ -1279,6 +1305,7 @@ pub fn solve_pressures(
             let rho_b = network.nodes[b].density;
 
             let (flow, dflow_ddp) = flow_and_derivative(&path.element, dp, rho_a, rho_b);
+            total_flow += flow.abs();
 
             // flow > 0 means A → B: leaves A, enters B
             let a_is_zone = network.nodes[a].zone_index;
@@ -1307,13 +1334,27 @@ pub fn solve_pressures(
             }
         }
 
-        // Check convergence
+        // Dual convergence test (#86): absolute (scaled to mass-flow units,
+        // ~0.1 Pa × typical flow sensitivity) OR relative to the network's
+        // total through-flow, so large open-window flows aren't held to the
+        // tight-crack absolute tolerance. Mirrors E+'s dual criterion.
         let max_residual = residual.iter().map(|r| r.abs()).fold(0.0_f64, f64::max);
-        if max_residual < tol * RHO_REF * 0.001 {
-            // Tolerance scaled to mass flow units: ~0.1 Pa × typical flow sensitivity
+        let abs_ok = max_residual < tol * RHO_REF * 0.001;
+        let rel_ok = total_flow > 0.0 && max_residual < rel_tol * total_flow;
+        if abs_ok || rel_ok {
             converged = true;
             break;
         }
+
+        // Adaptive under-relaxation (#86)
+        if adaptive {
+            if max_residual > prev_residual {
+                damp = (damp * 0.5).max(0.1);
+            } else if max_residual < 0.3 * prev_residual {
+                damp = (damp * 1.5).min(1.0);
+            }
+        }
+        prev_residual = max_residual;
 
         // Solve J × δP = -R using Gaussian elimination with partial pivoting
         let delta_p =
@@ -1323,11 +1364,16 @@ pub fn solve_pressures(
             let max_dp = dp_vec.iter().map(|d| d.abs()).fold(0.0_f64, f64::max);
             for zi in 0..n_zones {
                 let node = &mut network.nodes[network.zone_to_node[zi]];
-                node.pressure += damping * dp_vec[zi];
+                node.pressure += damp * dp_vec[zi];
             }
 
-            // Also check pressure update convergence
-            if max_dp < tol {
+            // Pressure-update convergence: only trust a small Newton step if
+            // the mass residual is also in the right neighborhood (#86).
+            // Near the |ΔP| → 0 orifice singularity the Jacobian is steep,
+            // so steps can be tiny while the balance is still far off.
+            let residual_near =
+                max_residual < 10.0 * (tol * RHO_REF * 0.001).max(rel_tol * total_flow);
+            if max_dp < tol && residual_near {
                 converged = true;
                 break;
             }
@@ -2364,6 +2410,139 @@ cp_model: !table
             }
             _ => panic!("expected LargeOpening"),
         }
+    }
+
+    /// Builds the single-zone exhaust-fan network used by the solver
+    /// robustness tests (#86).
+    fn exhaust_fan_network(config: AirflowNetworkConfig) -> AirflowNetwork {
+        AirflowNetwork {
+            config,
+            nodes: vec![
+                PressureNode {
+                    zone_index: Some(0),
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: RHO_REF,
+                },
+                PressureNode {
+                    zone_index: None,
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: RHO_REF,
+                },
+            ],
+            paths: vec![
+                FlowPath {
+                    node_a: 1,
+                    node_b: 0,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.01,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+                FlowPath {
+                    node_a: 0,
+                    node_b: 1,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::FixedFlow { mass_flow: 0.1 },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+            ],
+            outdoor_node: 1,
+            zone_to_node: vec![0],
+            zone_outdoor_mass_flow: vec![0.0],
+            zone_interzone_flows: vec![vec![]],
+            side_ratio: 1.0,
+            hvac_net_path_indices: vec![None],
+            scheduled_openings: vec![],
+            duct_supply_leak_path_indices: vec![None],
+            duct_return_leak_path_indices: vec![None],
+        }
+    }
+
+    /// Adaptive damping (#86): converges at least as fast as the fixed
+    /// factor on the same problem, and within a tight iteration budget.
+    #[test]
+    fn test_adaptive_damping_converges_no_slower() {
+        let tight = AirflowNetworkConfig {
+            enabled: true,
+            max_iterations: 100,
+            convergence_tolerance: 1e-6,
+            relative_tolerance: 1e-12, // isolate the absolute criterion
+            damping: 0.75,
+            ..Default::default()
+        };
+
+        let mut fixed = exhaust_fan_network(AirflowNetworkConfig {
+            adaptive_damping: false,
+            ..tight.clone()
+        });
+        let (conv_fixed, iters_fixed) =
+            solve_pressures(&mut fixed, 0.0, 0.0, 20.0, RHO_REF, Terrain::Suburbs);
+
+        let mut adaptive = exhaust_fan_network(AirflowNetworkConfig {
+            adaptive_damping: true,
+            ..tight
+        });
+        let (conv_adaptive, iters_adaptive) =
+            solve_pressures(&mut adaptive, 0.0, 0.0, 20.0, RHO_REF, Terrain::Suburbs);
+
+        assert!(conv_fixed && conv_adaptive, "both variants should converge");
+        assert!(
+            iters_adaptive <= iters_fixed,
+            "adaptive damping should not be slower: {iters_adaptive} vs {iters_fixed} iterations"
+        );
+        assert!(
+            iters_adaptive < 20,
+            "adaptive damping should converge quickly, took {iters_adaptive} iterations"
+        );
+
+        // Same physical answer
+        assert_relative_eq!(
+            adaptive.nodes[0].pressure,
+            fixed.nodes[0].pressure,
+            max_relative = 1e-3
+        );
+    }
+
+    /// Relative convergence criterion (#86): a network dominated by a large
+    /// open-window flow converges via the relative test rather than being
+    /// held to the tight-crack absolute tolerance.
+    #[test]
+    fn test_relative_convergence_large_flows() {
+        let mut network = exhaust_fan_network(AirflowNetworkConfig {
+            enabled: true,
+            max_iterations: 30,
+            ..Default::default()
+        });
+        // Replace the crack with a wide-open window: flows ~2-3 orders of
+        // magnitude larger than crack flows.
+        network.paths[0].element = FlowElement::TwoWayOpening {
+            discharge_coefficient: 0.65,
+            width: 1.5,
+            height: 1.5,
+        };
+        network.paths[1].element = FlowElement::FixedFlow { mass_flow: 2.0 };
+
+        let (converged, iters) =
+            solve_pressures(&mut network, 0.0, 0.0, 20.0, RHO_REF, Terrain::Suburbs);
+        assert!(converged, "large-flow network should converge");
+        assert!(
+            iters < 20,
+            "relative criterion should accept quickly, took {iters} iterations"
+        );
+        // Window inflow balances the exhaust
+        assert_relative_eq!(network.zone_outdoor_mass_flow[0], 2.0, max_relative = 0.01);
     }
 
     /// Two-way opening (#83): pure buoyancy exchange with equal node
