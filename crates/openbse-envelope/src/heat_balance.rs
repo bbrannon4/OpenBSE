@@ -93,6 +93,8 @@ pub struct BuildingEnvelope {
     /// Passive species transport on the AFN flows (#84); None unless species
     /// are configured on the airflow network.
     pub species_transport: Option<crate::species::SpeciesTransport>,
+    /// Count of AFN pressure solves that failed to converge (#89).
+    pub afn_nonconverged_count: u64,
     /// Solar distribution method for interior beam solar radiation.
     /// FullExterior: all beam to floor.  FullInteriorAndExterior: geometric projection.
     pub solar_distribution_method: SolarDistributionMethod,
@@ -1305,6 +1307,7 @@ impl BuildingEnvelope {
             infiltration_interaction: crate::zone_loads::InfiltrationInteraction::Basic,
             airflow_network: None, // built later via build_airflow_network()
             species_transport: None,
+            afn_nonconverged_count: 0,
             solar_distribution_method,
             ctf_q_last_inside: vec![0.0; n_surfaces],
             ctf_q_last_outside: vec![0.0; n_surfaces],
@@ -2033,7 +2036,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     afn.update_nat_vent_opening(zi, nv.opening_area * avail);
                 }
             }
-            crate::airflow_network::solve_pressures(
+            let (afn_converged, afn_iters) = crate::airflow_network::solve_pressures(
                 afn,
                 wind_speed_met,
                 wind_direction,
@@ -2041,9 +2044,22 @@ impl EnvelopeSolver for BuildingEnvelope {
                 rho_outdoor,
                 self.terrain,
             );
-            // Write AFN outdoor mass flow results to zone state
+            // Surface non-convergence instead of failing silently (#89):
+            // warn on the first occurrence and every 1000th thereafter.
+            if !afn_converged {
+                self.afn_nonconverged_count += 1;
+                if self.afn_nonconverged_count == 1 || self.afn_nonconverged_count % 1000 == 0 {
+                    log::warn!(
+                        "AFN pressure solver did not converge in {afn_iters} iterations \
+                         ({} occurrences so far); results use the last iterate",
+                        self.afn_nonconverged_count,
+                    );
+                }
+            }
+            // Write AFN outdoor mass flow and zone pressure results to zone state
             for (zi, zone) in self.zones.iter_mut().enumerate() {
                 zone.infiltration_mass_flow = afn.zone_outdoor_mass_flow[zi];
+                zone.afn_pressure = afn.nodes[afn.zone_to_node[zi]].pressure;
             }
 
             // Interzone advection aggregates (#87): mass-weighted source

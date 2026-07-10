@@ -767,6 +767,8 @@ pub struct ZoneState {
     pub w_order: u8,
     /// HVAC supply air humidity ratio [kg/kg]
     pub supply_air_humidity_ratio: f64,
+    /// Zone gauge pressure from the AFN [Pa] (#89); 0 when the AFN is off.
+    pub afn_pressure: f64,
     /// AFN interzone inflow into this zone [kg/s] (#87), aggregated after
     /// each pressure solve. Zero when the AFN is off.
     pub afn_interzone_mass_flow: f64,
@@ -921,6 +923,7 @@ impl ZoneState {
             w_prev3: 0.008,
             w_order: 1,
             supply_air_humidity_ratio: 0.008,
+            afn_pressure: 0.0,
             afn_interzone_mass_flow: 0.0,
             afn_interzone_temp: 20.0,
             afn_interzone_w: 0.008,

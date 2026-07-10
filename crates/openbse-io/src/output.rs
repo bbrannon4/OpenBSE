@@ -123,6 +123,16 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
             "Zone infiltration air mass flow rate",
         ),
         (
+            "zone:pressure",
+            "Pa",
+            "Zone gauge pressure from the airflow network",
+        ),
+        (
+            "zone:species_<name>",
+            "kg/kg",
+            "Zone species concentration (e.g. zone:species_co2)",
+        ),
+        (
             "zone:nat_vent_flow",
             "m³/s",
             "Zone natural ventilation volume flow rate",
@@ -472,6 +482,8 @@ pub fn get_unit(spec: &str) -> &'static str {
             | "operative_temperature",
         ) => "°C",
         ("zone", "humidity_ratio") => "kg/kg",
+        ("zone", "pressure") => "Pa",
+        ("zone", v) if v.starts_with("species_") => "kg/kg",
         ("zone", "nat_vent_flow") => "m³/s",
         ("zone", "infiltration_mass_flow" | "supply_air_mass_flow" | "nat_vent_mass_flow") => {
             "kg/s"
@@ -634,6 +646,10 @@ pub struct OutputSnapshot {
 
     // Per-zone data (zone_name -> value)
     pub zone_temperature: HashMap<String, f64>,
+    /// Zone AFN gauge pressure [Pa] (#89); empty when the AFN is off.
+    pub zone_pressure: HashMap<String, f64>,
+    /// Zone species concentrations [kg/kg] keyed by species name (#89).
+    pub zone_species: HashMap<String, HashMap<String, f64>>,
     pub zone_humidity_ratio: HashMap<String, f64>,
     pub zone_heating_rate: HashMap<String, f64>,
     pub zone_cooling_rate: HashMap<String, f64>,
@@ -747,6 +763,8 @@ impl OutputSnapshot {
             site_diffuse_horizontal_radiation: 0.0,
             site_relative_humidity: 0.0,
             zone_temperature: HashMap::new(),
+            zone_pressure: HashMap::new(),
+            zone_species: HashMap::new(),
             zone_humidity_ratio: HashMap::new(),
             zone_heating_rate: HashMap::new(),
             zone_cooling_rate: HashMap::new(),
@@ -841,6 +859,7 @@ impl OutputSnapshot {
             },
             "zone" => match variable {
                 "temperature" => self.zone_temperature.clone(),
+                "pressure" => self.zone_pressure.clone(),
                 "humidity_ratio" => self.zone_humidity_ratio.clone(),
                 "heating_rate" => self.zone_heating_rate.clone(),
                 "cooling_rate" => self.zone_cooling_rate.clone(),
@@ -884,7 +903,14 @@ impl OutputSnapshot {
                 "operative_temperature" => self.zone_operative_temperature.clone(),
                 "unmet_heating" => self.zone_unmet_heating.clone(),
                 "unmet_cooling" => self.zone_unmet_cooling.clone(),
-                _ => HashMap::new(),
+                other => {
+                    // Dynamic species variables (#89): zone:species_<name>
+                    if let Some(species) = other.strip_prefix("species_") {
+                        self.zone_species.get(species).cloned().unwrap_or_default()
+                    } else {
+                        HashMap::new()
+                    }
+                }
             },
             "surface" => match variable {
                 "inside_temperature" => self.surface_inside_temperature.clone(),
@@ -3539,6 +3565,31 @@ mod tests {
         assert_eq!(get_unit("zone:heating_load"), "W");
         // Component temperatures
         assert_eq!(get_unit("component:outlet_temperature"), "\u{00b0}C");
+        // AFN outputs (#89)
+        assert_eq!(get_unit("zone:pressure"), "Pa");
+        assert_eq!(get_unit("zone:species_co2"), "kg/kg");
+    }
+
+    /// AFN output variables (#89): zone pressure and dynamic per-species
+    /// concentrations resolve through the zone category.
+    #[test]
+    fn test_zone_pressure_and_species_outputs() {
+        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
+        snap.zone_pressure.insert("Living".to_string(), -2.5);
+        snap.zone_species
+            .entry("co2".to_string())
+            .or_default()
+            .insert("Living".to_string(), 0.00095);
+
+        let vals = snap.get_variable_values("zone:pressure");
+        assert_eq!(vals.get("Living"), Some(&-2.5));
+
+        let vals = snap.get_variable_values("zone:species_co2");
+        assert_eq!(vals.get("Living"), Some(&0.00095));
+
+        // Unknown species yields no values (not a panic)
+        let vals = snap.get_variable_values("zone:species_radon");
+        assert!(vals.is_empty());
     }
 
     #[test]

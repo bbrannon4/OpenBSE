@@ -3499,9 +3499,25 @@ fn main() -> Result<()> {
                     snapshot.site_diffuse_horizontal_radiation = interp_weather.diffuse_horiz_rad;
                     snapshot.site_relative_humidity = interp_weather.rel_humidity;
 
+                    // AFN species concentrations (#89): zone:species_<name>
+                    if let Some(ref st) = env.species_transport {
+                        for (si, sp_name) in st.names.iter().enumerate() {
+                            let map = snapshot.zone_species.entry(sp_name.clone()).or_default();
+                            for (zi, zone) in env.zones.iter().enumerate() {
+                                map.insert(zone.input.name.clone(), st.concentration(si, zi));
+                            }
+                        }
+                    }
+                    let afn_active = env.airflow_network.is_some();
+
                     for zone in &env.zones {
                         let name = zone.input.name.clone();
                         snapshot.zone_temperature.insert(name.clone(), zone.temp);
+                        if afn_active {
+                            snapshot
+                                .zone_pressure
+                                .insert(name.clone(), zone.afn_pressure);
+                        }
                         snapshot
                             .zone_humidity_ratio
                             .insert(name.clone(), zone.humidity_ratio);
