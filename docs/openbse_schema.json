@@ -192,10 +192,19 @@
         "window_leakage_per_area": { "type": "number", "default": 0.00014, "description": "Crack leakage per unit window area [kg/s/m2/Pa^n]." },
         "door_leakage_per_perimeter": { "type": "number", "default": 0.0006, "description": "Crack leakage per unit door perimeter [kg/s/m/Pa^n]." },
         "interzone_leakage_per_area": { "type": "number", "default": 0.00004, "description": "Interzone crack leakage per unit area [kg/s/m2/Pa^n]." },
+        "wall_leakage_class": { "$ref": "#/$defs/LeakageClass", "description": "ASHRAE leakage class for exterior walls. Overrides wall_leakage_per_area." },
+        "window_leakage_class": { "$ref": "#/$defs/LeakageClass", "description": "ASHRAE leakage class for windows. Overrides window_leakage_per_area." },
+        "interzone_leakage_class": { "$ref": "#/$defs/LeakageClass", "description": "ASHRAE leakage class for interzone surfaces. Overrides interzone_leakage_per_area." },
         "convergence_tolerance": { "type": "number", "default": 0.1, "description": "Newton-Raphson convergence tolerance [Pa]." },
         "max_iterations": { "type": "integer", "default": 30, "description": "Maximum Newton-Raphson iterations." },
         "damping": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1, "description": "Damping factor for pressure updates." }
       }
+    },
+
+    "LeakageClass": {
+      "type": "string",
+      "enum": ["a", "b", "c", "d", "tight", "average", "leaky", "very_leaky"],
+      "description": "ASHRAE construction leakage class (ASHRAE Fundamentals Ch. 16 Table 1): a=tight, b=average, c=leaky, d=very leaky."
     },
 
     "SurfaceAirflowOverride": {

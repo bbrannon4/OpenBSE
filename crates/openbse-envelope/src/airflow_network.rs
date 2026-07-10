@@ -41,6 +41,68 @@ pub enum CpModel {
     HighRise,
 }
 
+/// ASHRAE construction leakage class (ASHRAE Fundamentals Ch. 16 Table 1).
+///
+/// Selects tabulated crack leakage per unit surface area instead of the
+/// manual `*_leakage_per_area` fields. Accepts either the letter class
+/// (`a`–`d`) or the descriptive alias (`tight`, `average`, `leaky`,
+/// `very_leaky`) in YAML.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LeakageClass {
+    /// Class A — tight construction.
+    #[serde(alias = "tight")]
+    A,
+    /// Class B — average construction.
+    #[serde(alias = "average")]
+    B,
+    /// Class C — leaky construction.
+    #[serde(alias = "leaky")]
+    C,
+    /// Class D — very leaky construction.
+    #[serde(alias = "very_leaky")]
+    D,
+}
+
+/// Leakage-class lookup tables: (coefficient [kg/s/m²/Pa^n], exponent n).
+///
+/// Coefficients are derived from ASHRAE Fundamentals Ch. 16 Table 1 unit
+/// effective leakage areas (ELA at 4 Pa, Cd = 1) converted to power-law mass
+/// flow coefficients at reference density:
+///   C = ρ_ref × ELA × sqrt(2·ΔP_ref/ρ_ref) / ΔP_ref^n  with ΔP_ref = 4 Pa
+/// Class D extends the table by doubling the class C leakage area.
+impl LeakageClass {
+    /// Exterior opaque walls (ELA ≈ 0.5 / 1.7 / 3.5 / 7.0 cm²/m²).
+    pub fn wall_leakage(self) -> (f64, f64) {
+        match self {
+            LeakageClass::A => (0.000063, 0.65),
+            LeakageClass::B => (0.00021, 0.65),
+            LeakageClass::C => (0.00044, 0.65),
+            LeakageClass::D => (0.00088, 0.65),
+        }
+    }
+
+    /// Windows, per unit window area (ELA ≈ 1.1 / 2.8 / 5.6 / 11.0 cm²/m²).
+    pub fn window_leakage(self) -> (f64, f64) {
+        match self {
+            LeakageClass::A => (0.00014, 0.65),
+            LeakageClass::B => (0.00035, 0.65),
+            LeakageClass::C => (0.00071, 0.65),
+            LeakageClass::D => (0.0014, 0.65),
+        }
+    }
+
+    /// Interzone partitions/ceilings (ELA ≈ 0.8 / 1.8 / 5.4 / 10.8 cm²/m²).
+    pub fn interzone_leakage(self) -> (f64, f64) {
+        match self {
+            LeakageClass::A => (0.0001, 0.65),
+            LeakageClass::B => (0.00023, 0.65),
+            LeakageClass::C => (0.00068, 0.65),
+            LeakageClass::D => (0.0014, 0.65),
+        }
+    }
+}
+
 /// Top-level airflow network configuration.
 ///
 /// Added to `SimulationSettings` as an optional field. When `enabled: true`,
@@ -78,6 +140,18 @@ pub struct AirflowNetworkConfig {
     /// Default interzone crack leakage per unit area [kg/s/m²/Pa^n].
     #[serde(default = "default_interzone_leakage")]
     pub interzone_leakage_per_area: f64,
+    /// ASHRAE leakage class for exterior walls (#80). When set, overrides
+    /// `wall_leakage_per_area` and `default_crack_exponent` for wall cracks.
+    #[serde(default)]
+    pub wall_leakage_class: Option<LeakageClass>,
+    /// ASHRAE leakage class for windows (#80). When set, overrides
+    /// `window_leakage_per_area` and `default_crack_exponent` for window cracks.
+    #[serde(default)]
+    pub window_leakage_class: Option<LeakageClass>,
+    /// ASHRAE leakage class for interzone surfaces (#80). When set, overrides
+    /// `interzone_leakage_per_area` and `default_crack_exponent` for interzone cracks.
+    #[serde(default)]
+    pub interzone_leakage_class: Option<LeakageClass>,
     /// Newton-Raphson convergence tolerance [Pa].
     #[serde(default = "default_convergence_tol")]
     pub convergence_tolerance: f64,
@@ -124,6 +198,9 @@ impl Default for AirflowNetworkConfig {
             window_leakage_per_area: default_window_leakage(),
             door_leakage_per_perimeter: default_door_leakage(),
             interzone_leakage_per_area: default_interzone_leakage(),
+            wall_leakage_class: None,
+            window_leakage_class: None,
+            interzone_leakage_class: None,
             convergence_tolerance: default_convergence_tol(),
             max_iterations: default_max_iterations(),
             damping: default_damping(),
@@ -430,6 +507,35 @@ pub fn flow_and_derivative(element: &FlowElement, dp: f64, rho_avg: f64) -> (f64
 
 // ─── Network construction ───────────────────────────────────────────────────
 
+/// Effective per-area crack leakage: (coefficient [kg/s/m²/Pa^n], exponent n).
+struct EffectiveLeakage {
+    wall: (f64, f64),
+    window: (f64, f64),
+    interzone: (f64, f64),
+}
+
+/// Resolve per-area crack leakage from the config (#80).
+///
+/// ASHRAE leakage classes take precedence; the manual `*_leakage_per_area`
+/// fields (with `default_crack_exponent`) remain the fallback.
+fn effective_leakage(config: &AirflowNetworkConfig) -> EffectiveLeakage {
+    let n = config.default_crack_exponent;
+    EffectiveLeakage {
+        wall: config
+            .wall_leakage_class
+            .map(LeakageClass::wall_leakage)
+            .unwrap_or((config.wall_leakage_per_area, n)),
+        window: config
+            .window_leakage_class
+            .map(LeakageClass::window_leakage)
+            .unwrap_or((config.window_leakage_per_area, n)),
+        interzone: config
+            .interzone_leakage_class
+            .map(LeakageClass::interzone_leakage)
+            .unwrap_or((config.interzone_leakage_per_area, n)),
+    }
+}
+
 /// Build the airflow network from building geometry.
 ///
 /// Auto-generates pressure nodes (one per zone + outdoor) and flow paths
@@ -485,6 +591,7 @@ pub fn build_network(
     let mut paths = Vec::new();
     let mut scheduled_openings = Vec::new();
     let mut processed_interzone = vec![false; surfaces.len()];
+    let leakage = effective_leakage(config);
 
     for (si, surf) in surfaces.iter().enumerate() {
         let zone_name = &surf.input.zone;
@@ -536,19 +643,14 @@ pub fn build_network(
                     });
                 } else {
                     // Default: power-law crack
-                    let c = override_or(overrides, |o| o.crack_coefficient, {
-                        let leakage = if surf.is_window {
-                            config.window_leakage_per_area
-                        } else {
-                            config.wall_leakage_per_area
-                        };
-                        leakage * surf.net_area
-                    });
-                    let n = override_or_val(
-                        overrides,
-                        |o| o.crack_exponent,
-                        config.default_crack_exponent,
-                    );
+                    let (per_area, exponent) = if surf.is_window {
+                        leakage.window
+                    } else {
+                        leakage.wall
+                    };
+                    let c =
+                        override_or(overrides, |o| o.crack_coefficient, per_area * surf.net_area);
+                    let n = override_or_val(overrides, |o| o.crack_exponent, exponent);
 
                     paths.push(FlowPath {
                         node_a: outdoor_node,
@@ -583,14 +685,13 @@ pub fn build_network(
                 let other_node = zone_to_node[other_zi];
                 let height = surf.centroid_height;
 
-                let c = override_or(overrides, |o| o.crack_coefficient, {
-                    config.interzone_leakage_per_area * surf.input.area
-                });
-                let n = override_or_val(
+                let (per_area, exponent) = leakage.interzone;
+                let c = override_or(
                     overrides,
-                    |o| o.crack_exponent,
-                    config.default_crack_exponent,
+                    |o| o.crack_coefficient,
+                    per_area * surf.input.area,
                 );
+                let n = override_or_val(overrides, |o| o.crack_exponent, exponent);
 
                 paths.push(FlowPath {
                     node_a: zone_node,
@@ -1565,6 +1666,68 @@ mod tests {
         };
         let sr = estimate_side_ratio(&areas);
         assert_relative_eq!(sr, 2.0, max_relative = 1e-10);
+    }
+
+    /// ASHRAE leakage classes (#80): coefficients grow monotonically from
+    /// tight (A) to very leaky (D) for every surface category.
+    #[test]
+    fn test_leakage_class_monotonic() {
+        let classes = [
+            LeakageClass::A,
+            LeakageClass::B,
+            LeakageClass::C,
+            LeakageClass::D,
+        ];
+        for pair in classes.windows(2) {
+            let (tighter, leakier) = (pair[0], pair[1]);
+            assert!(tighter.wall_leakage().0 < leakier.wall_leakage().0);
+            assert!(tighter.window_leakage().0 < leakier.window_leakage().0);
+            assert!(tighter.interzone_leakage().0 < leakier.interzone_leakage().0);
+        }
+        // Crack exponent is 0.65 across the table
+        for class in classes {
+            assert_eq!(class.wall_leakage().1, 0.65);
+            assert_eq!(class.window_leakage().1, 0.65);
+            assert_eq!(class.interzone_leakage().1, 0.65);
+        }
+    }
+
+    /// Leakage classes override the manual per-area fields; without a class,
+    /// the manual values (with the default exponent) remain in effect.
+    #[test]
+    fn test_leakage_class_overrides_manual_values() {
+        let manual = AirflowNetworkConfig {
+            wall_leakage_per_area: 0.0005,
+            window_leakage_per_area: 0.0007,
+            interzone_leakage_per_area: 0.0009,
+            default_crack_exponent: 0.6,
+            ..Default::default()
+        };
+        let eff = effective_leakage(&manual);
+        assert_eq!(eff.wall, (0.0005, 0.6));
+        assert_eq!(eff.window, (0.0007, 0.6));
+        assert_eq!(eff.interzone, (0.0009, 0.6));
+
+        let classed = AirflowNetworkConfig {
+            wall_leakage_class: Some(LeakageClass::C),
+            window_leakage_class: Some(LeakageClass::B),
+            interzone_leakage_class: Some(LeakageClass::D),
+            ..manual
+        };
+        let eff = effective_leakage(&classed);
+        assert_eq!(eff.wall, LeakageClass::C.wall_leakage());
+        assert_eq!(eff.window, LeakageClass::B.window_leakage());
+        assert_eq!(eff.interzone, LeakageClass::D.interzone_leakage());
+    }
+
+    /// Leakage classes parse from YAML as either letters or descriptive names.
+    #[test]
+    fn test_leakage_class_yaml_aliases() {
+        let yaml = "enabled: true\nwall_leakage_class: b\nwindow_leakage_class: tight\ninterzone_leakage_class: very_leaky\n";
+        let config: AirflowNetworkConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.wall_leakage_class, Some(LeakageClass::B));
+        assert_eq!(config.window_leakage_class, Some(LeakageClass::A));
+        assert_eq!(config.interzone_leakage_class, Some(LeakageClass::D));
     }
 
     /// Schedule-driven opening fraction (#79): the effective opening area

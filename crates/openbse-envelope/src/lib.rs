@@ -26,7 +26,9 @@ pub mod surface;
 pub mod zone;
 pub mod zone_loads;
 
-pub use airflow_network::{AirflowNetwork, AirflowNetworkConfig, SurfaceAirflowOverride};
+pub use airflow_network::{
+    AirflowNetwork, AirflowNetworkConfig, LeakageClass, SurfaceAirflowOverride,
+};
 pub use geometry::{azimuth_to_cardinal, CardinalDirection, EnvelopeAreas, Point3D};
 pub use ground_temp::GroundTempModel;
 pub use heat_balance::{BuildingEnvelope, SolarDistributionMethod};
