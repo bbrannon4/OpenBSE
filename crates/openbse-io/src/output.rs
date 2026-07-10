@@ -128,6 +128,11 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
             "Zone gauge pressure from the airflow network",
         ),
         (
+            "zone:occupied_temperature",
+            "°C",
+            "Zone air temperature at the occupied/thermostat height (room air gradient model)",
+        ),
+        (
             "zone:species_<name>",
             "kg/kg",
             "Zone species concentration (e.g. zone:species_co2)",
@@ -479,7 +484,8 @@ pub fn get_unit(spec: &str) -> &'static str {
             "temperature"
             | "supply_air_temperature"
             | "mean_radiant_temperature"
-            | "operative_temperature",
+            | "operative_temperature"
+            | "occupied_temperature",
         ) => "°C",
         ("zone", "humidity_ratio") => "kg/kg",
         ("zone", "pressure") => "Pa",
@@ -648,6 +654,9 @@ pub struct OutputSnapshot {
     pub zone_temperature: HashMap<String, f64>,
     /// Zone AFN gauge pressure [Pa] (#89); empty when the AFN is off.
     pub zone_pressure: HashMap<String, f64>,
+    /// Zone occupied-height air temperature [°C] (#91); equals the mean
+    /// air temperature for well-mixed zones.
+    pub zone_occupied_temperature: HashMap<String, f64>,
     /// Zone species concentrations [kg/kg] keyed by species name (#89).
     pub zone_species: HashMap<String, HashMap<String, f64>>,
     pub zone_humidity_ratio: HashMap<String, f64>,
@@ -764,6 +773,7 @@ impl OutputSnapshot {
             site_relative_humidity: 0.0,
             zone_temperature: HashMap::new(),
             zone_pressure: HashMap::new(),
+            zone_occupied_temperature: HashMap::new(),
             zone_species: HashMap::new(),
             zone_humidity_ratio: HashMap::new(),
             zone_heating_rate: HashMap::new(),
@@ -860,6 +870,7 @@ impl OutputSnapshot {
             "zone" => match variable {
                 "temperature" => self.zone_temperature.clone(),
                 "pressure" => self.zone_pressure.clone(),
+                "occupied_temperature" => self.zone_occupied_temperature.clone(),
                 "humidity_ratio" => self.zone_humidity_ratio.clone(),
                 "heating_rate" => self.zone_heating_rate.clone(),
                 "cooling_rate" => self.zone_cooling_rate.clone(),

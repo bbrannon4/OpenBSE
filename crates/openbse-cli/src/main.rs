@@ -2571,6 +2571,19 @@ fn main() -> Result<()> {
                             })
                             .collect();
 
+                        // Room-air stratification (#91): stratified zones return
+                        // air at the return-height temperature, so coil loads
+                        // and economizers see the stratified return.
+                        let mut zone_dc_return_temps = zone_dc_return_temps;
+                        for z in &env.zones {
+                            if z.input.room_air.is_some()
+                                && !zone_dc_return_temps.contains_key(&z.input.name)
+                            {
+                                zone_dc_return_temps
+                                    .insert(z.input.name.clone(), z.return_air_temp());
+                            }
+                        }
+
                         for hvac_iter in 0..MAX_HVAC_ITER {
                             // Step 1: Run HVAC with current zone temps and loads
                             let (mut hvac_result, zone_supply_conditions) = simulate_all_loops(
@@ -3517,6 +3530,11 @@ fn main() -> Result<()> {
                             snapshot
                                 .zone_pressure
                                 .insert(name.clone(), zone.afn_pressure);
+                        }
+                        if zone.input.room_air.is_some() {
+                            snapshot
+                                .zone_occupied_temperature
+                                .insert(name.clone(), zone.occupied_air_temp());
                         }
                         snapshot
                             .zone_humidity_ratio

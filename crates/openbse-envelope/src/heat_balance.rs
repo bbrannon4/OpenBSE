@@ -1981,6 +1981,18 @@ impl EnvelopeSolver for BuildingEnvelope {
             }
         }
 
+        // Room-air stratification (#91): effective vertical gradient this
+        // timestep (input gradient × schedule fraction; 0 = well mixed).
+        for zone in &mut self.zones {
+            zone.current_gradient = match &zone.input.room_air {
+                Some(ra) => match &ra.schedule {
+                    Some(name) => ra.gradient * self.schedule_manager.fraction(name, hour, dow),
+                    None => ra.gradient,
+                },
+                None => 0.0,
+            };
+        }
+
         // 4. Infiltration + scheduled ventilation + exhaust + outdoor air
         let w_outdoor = psych::w_fn_tdb_rh_pb(t_outdoor, weather.rel_humidity / 100.0, p_b);
         let rho_outdoor = psych::rho_air_fn_pb_tdb_w(p_b, t_outdoor, w_outdoor);
@@ -3091,6 +3103,24 @@ impl EnvelopeSolver for BuildingEnvelope {
             // Collect zone temps (mutable: predictor sets t_zone_vec for ideal
             // loads zones so surfaces see the correct zone temp during iteration)
             let t_zone_vec: Vec<f64> = self.zones.iter().map(|z| z.temp).collect();
+            // Room-air stratification (#91): per-surface local air temperature
+            // offset g·(z_surface − z_zone_mid); each interior face couples to
+            // the air at its own height. Zero for well-mixed zones.
+            let surface_air_offset: Vec<f64> = self
+                .surfaces
+                .iter()
+                .map(|surf| match self.zone_index.get(&surf.input.zone) {
+                    Some(&zi) => {
+                        let g = self.zones[zi].current_gradient;
+                        if g != 0.0 {
+                            g * (surf.centroid_height - self.zones[zi].centroid_height)
+                        } else {
+                            0.0
+                        }
+                    }
+                    None => 0.0,
+                })
+                .collect();
             // Predicted HVAC mode per zone is stored on zone.ideal_pred_mode
             // (locked across HVAC iterations within a physical timestep).
 
@@ -3203,7 +3233,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                         .get(&self.surfaces[i].input.zone)
                         .copied()
                         .unwrap_or(0);
-                    let t_z = t_zone_vec.get(zi).copied().unwrap_or(21.0);
+                    let t_z = t_zone_vec.get(zi).copied().unwrap_or(21.0)
+                        + surface_air_offset.get(i).copied().unwrap_or(0.0);
 
                     // Per-window MRT: use view-factor weighting if available,
                     // otherwise fall back to area-weighted zone MRT.
@@ -3729,7 +3760,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                                     let s = &self.surfaces[si];
                                     let ha = s.h_conv_inside * s.net_area;
                                     sum_ha_pred += ha;
-                                    sum_hat_pred += ha * s.temp_inside;
+                                    sum_hat_pred += ha * (s.temp_inside - surface_air_offset[si]);
                                 }
                                 let total_outdoor = match self.infiltration_interaction {
                                     crate::zone_loads::InfiltrationInteraction::Basic => {
@@ -3817,7 +3848,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             let s = &self.surfaces[si];
                             let ha = s.h_conv_inside * s.net_area;
                             sum_ha_pred += ha;
-                            sum_hat_pred += ha * s.temp_inside;
+                            sum_hat_pred += ha * (s.temp_inside - surface_air_offset[si]);
                         }
 
                         let total_outdoor = match self.infiltration_interaction {
@@ -3978,7 +4009,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                         None => continue,
                     };
 
-                    let t_zone = t_zone_vec.get(pc.zi).copied().unwrap_or(21.0);
+                    let t_zone =
+                        t_zone_vec.get(pc.zi).copied().unwrap_or(21.0) + surface_air_offset[i];
 
                     // Per-surface MRT: view-factor weighted or area-weighted fallback
                     let t_mrt = if let (Some(face_i), Some(zvf), Some(fea), Some(feat)) = (
@@ -4137,7 +4169,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     self.surfaces[i].q_cond_outside = q_out;
                 }
 
-                let t_zone = t_zone_vec.get(pc.zi).copied().unwrap_or(21.0);
+                let t_zone = t_zone_vec.get(pc.zi).copied().unwrap_or(21.0) + surface_air_offset[i];
                 self.surfaces[i].q_conv_inside =
                     self.surfaces[i].h_conv_inside * (self.surfaces[i].temp_inside - t_zone);
             }
@@ -4163,7 +4195,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                         sum_hat += h * a * zone.temp;
                     } else {
                         sum_ha += h * a;
-                        sum_hat += h * a * t_in;
+                        // Stratification (#91): the surface exchanges with the
+                        // local air T_mean + offset, so hA·(T_s − offset) here
+                        // keeps (sum_hat − sum_ha·T_mean) the true convective sum.
+                        sum_hat += h * a * (t_in - surface_air_offset[si]);
                     }
                 }
 
@@ -5303,6 +5338,7 @@ mod tests {
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
+            room_air: None,
         }];
 
         let surfaces = vec![
@@ -5482,6 +5518,7 @@ mod tests {
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
+            room_air: None,
         };
         let zones = vec![make_zone("ColdZone"), make_zone("WarmZone")];
 
@@ -5589,6 +5626,102 @@ mod tests {
             ..Default::default()
         });
         envelope
+    }
+
+    /// Room-air stratification (#91): with a positive gradient the roof
+    /// couples to warmer local air and runs warmer inside, while the floor
+    /// couples to cooler air and runs cooler — the end-to-end surface/zone
+    /// coupling contract. (Net zone energy can go either way since warmer
+    /// ceiling losses and reduced floor losses offset, so the assertion is
+    /// on the surface temperatures, not the net.)
+    #[test]
+    fn test_stratification_shifts_surface_coupling() {
+        let run = |gradient: Option<f64>| -> (f64, f64) {
+            let mut envelope = make_simple_model();
+            if let Some(g) = gradient {
+                envelope.zones[0].input.room_air = Some(crate::zone::RoomAirGradient {
+                    gradient: g,
+                    schedule: None,
+                    return_height: None,
+                    thermostat_height: 1.1,
+                    ceiling_height: None,
+                });
+            }
+            envelope.initialize(3600.0).unwrap();
+
+            // Cold night, no solar
+            let ctx = SimulationContext {
+                timestep: TimeStep {
+                    month: 1,
+                    day: 15,
+                    hour: 3,
+                    sub_hour: 1,
+                    timesteps_per_hour: 1,
+                    sim_time_s: 0.0,
+                    dt: 3600.0,
+                },
+                outdoor_air: MoistAirState::from_tdb_rh(-10.0, 0.5, 101325.0),
+                day_type: DayType::WeatherDay,
+                is_sizing: false,
+                sizing_internal_gains: SizingInternalGains::Full,
+            };
+            let mut weather = make_weather_hour(-10.0);
+            weather.global_horiz_rad = 0.0;
+            weather.direct_normal_rad = 0.0;
+            weather.diffuse_horiz_rad = 0.0;
+            weather.hour = 3;
+            let hvac = ZoneHvacConditions::default();
+
+            for _ in 0..10 {
+                envelope.solve_timestep(&ctx, &weather, &hvac);
+            }
+            let surf_temp = |name: &str| {
+                envelope
+                    .surfaces
+                    .iter()
+                    .find(|s| s.input.name == name)
+                    .map(|s| s.temp_inside)
+                    .unwrap()
+            };
+            (surf_temp("Roof"), surf_temp("Floor"))
+        };
+
+        let (roof_mixed, floor_mixed) = run(None);
+        let (roof_strat, floor_strat) = run(Some(3.0));
+
+        assert!(
+            roof_strat > roof_mixed + 0.3,
+            "roof should run warmer under a positive gradient: {roof_strat:.2} vs {roof_mixed:.2} °C"
+        );
+        assert!(
+            floor_strat < floor_mixed - 0.3,
+            "floor should run cooler under a positive gradient: {floor_strat:.2} vs {floor_mixed:.2} °C"
+        );
+    }
+
+    /// Room-air stratification (#91): occupied and return temperatures
+    /// straddle the mean according to the gradient after a simulated step.
+    #[test]
+    fn test_stratification_reported_temps() {
+        let mut envelope = make_simple_model();
+        envelope.zones[0].input.room_air = Some(crate::zone::RoomAirGradient {
+            gradient: 2.0,
+            schedule: None,
+            return_height: None, // default: ceiling
+            thermostat_height: 1.1,
+            ceiling_height: None,
+        });
+        envelope.initialize(3600.0).unwrap();
+        let ctx = make_ctx();
+        let weather = make_weather_hour(0.0);
+        let hvac = ZoneHvacConditions::default();
+        envelope.solve_timestep(&ctx, &weather, &hvac);
+
+        let zone = &envelope.zones[0];
+        assert!((zone.current_gradient - 2.0).abs() < 1e-12);
+        // Return (ceiling) above mean; occupied (1.1 m of a 3 m zone) below
+        assert!(zone.return_air_temp() > zone.temp + 1.0);
+        assert!(zone.occupied_air_temp() < zone.temp);
     }
 
     /// Interzone advection (#87): a doorway to a warm zone populates the
@@ -5731,6 +5864,7 @@ mod tests {
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
+            room_air: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -5931,6 +6065,7 @@ mod tests {
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
+            room_air: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -6091,6 +6226,7 @@ mod tests {
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
+            room_air: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -6233,6 +6369,7 @@ mod tests {
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
+            room_air: None,
         }];
         let surfaces = vec![SurfaceInput {
             name: "Wall".to_string(),

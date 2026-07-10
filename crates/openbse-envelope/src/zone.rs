@@ -510,6 +510,50 @@ pub struct ZoneInput {
     /// Requires species configured on the airflow network.
     #[serde(default)]
     pub species_generation: Vec<crate::species::SpeciesGenerationInput>,
+    /// In-zone vertical temperature stratification (#91).
+    #[serde(default)]
+    pub room_air: Option<RoomAirGradient>,
+}
+
+/// In-zone vertical temperature stratification (#91): constant-gradient
+/// room air model. E+ RoomAir:TemperaturePattern:ConstantGradient is the
+/// minimum reference; IDA ICE offers an equivalent gradient input.
+///
+/// The zone heat balance still solves the mean air temperature; the gradient
+/// redistributes it over height: T(z) = T_mean + gradient·(z − H/2). Interior
+/// surfaces couple to the local air temperature at their centroid height
+/// (a warm ceiling loses more heat upward), return air leaves at the
+/// return-height temperature (so coil loads and economizers see
+/// stratification), and the occupied-height temperature is reported.
+///
+/// ```yaml
+/// zones:
+///   - name: Atrium
+///     room_air:
+///       gradient: 1.5          # K/m, positive = warmer near ceiling
+///       return_height: 6.0     # m above floor (default: ceiling)
+///       thermostat_height: 1.1 # m above floor
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoomAirGradient {
+    /// Vertical temperature gradient [K/m], positive = warmer near ceiling.
+    pub gradient: f64,
+    /// Optional schedule scaling the gradient (e.g. 0 when fans force mixing).
+    #[serde(default)]
+    pub schedule: Option<String>,
+    /// Return/exhaust air height above the floor [m] (default: ceiling).
+    #[serde(default)]
+    pub return_height: Option<f64>,
+    /// Occupied/thermostat sensing height above the floor [m] (default 1.1).
+    #[serde(default = "default_thermostat_height")]
+    pub thermostat_height: f64,
+    /// Zone floor-to-ceiling height [m] (default: volume / floor_area).
+    #[serde(default)]
+    pub ceiling_height: Option<f64>,
+}
+
+fn default_thermostat_height() -> f64 {
+    1.1
 }
 
 /// Duct leakage to the unconditioned space containing the ducts (#82, #85).
@@ -767,6 +811,9 @@ pub struct ZoneState {
     pub w_order: u8,
     /// HVAC supply air humidity ratio [kg/kg]
     pub supply_air_humidity_ratio: f64,
+    /// Effective room-air vertical gradient this timestep [K/m] (#91);
+    /// 0 when the zone is well mixed.
+    pub current_gradient: f64,
     /// Zone gauge pressure from the AFN [Pa] (#89); 0 when the AFN is off.
     pub afn_pressure: f64,
     /// AFN interzone inflow into this zone [kg/s] (#87), aggregated after
@@ -909,6 +956,46 @@ pub struct ZoneState {
 }
 
 impl ZoneState {
+    /// Zone floor-to-ceiling height [m] for the room-air model (#91).
+    pub fn room_air_height(&self) -> f64 {
+        if let Some(ref ra) = self.input.room_air {
+            if let Some(h) = ra.ceiling_height {
+                return h.max(0.1);
+            }
+        }
+        if self.input.floor_area > 0.0 {
+            (self.input.volume / self.input.floor_area).max(0.1)
+        } else {
+            3.0
+        }
+    }
+
+    /// Air temperature at a height above the floor [°C] (#91):
+    /// T(z) = T_mean + gradient·(z − H/2).
+    pub fn air_temp_at_height(&self, height_above_floor: f64) -> f64 {
+        self.temp + self.current_gradient * (height_above_floor - self.room_air_height() / 2.0)
+    }
+
+    /// Return/exhaust air temperature [°C] (#91): the air-loop return draws
+    /// from the return height (default: ceiling). Equals the mean zone
+    /// temperature for well-mixed zones.
+    pub fn return_air_temp(&self) -> f64 {
+        match &self.input.room_air {
+            Some(ra) => {
+                self.air_temp_at_height(ra.return_height.unwrap_or_else(|| self.room_air_height()))
+            }
+            None => self.temp,
+        }
+    }
+
+    /// Occupied/thermostat-height air temperature [°C] (#91).
+    pub fn occupied_air_temp(&self) -> f64 {
+        match &self.input.room_air {
+            Some(ra) => self.air_temp_at_height(ra.thermostat_height),
+            None => self.temp,
+        }
+    }
+
     pub fn new(input: ZoneInput, initial_temp: f64) -> Self {
         Self {
             input,
@@ -923,6 +1010,7 @@ impl ZoneState {
             w_prev3: 0.008,
             w_order: 1,
             supply_air_humidity_ratio: 0.008,
+            current_gradient: 0.0,
             afn_pressure: 0.0,
             afn_interzone_mass_flow: 0.0,
             afn_interzone_temp: 20.0,
@@ -1282,6 +1370,67 @@ mod tests {
         assert_relative_eq!(m * t, 0.07 * 3.0 + 0.13 * 26.0, max_relative = 1e-12);
     }
 
+    /// Room-air gradient model (#91): local air temperatures follow
+    /// T(z) = T_mean + g·(z − H/2); return and occupied heights resolve.
+    #[test]
+    fn test_room_air_gradient_temps() {
+        let input = ZoneInput {
+            name: "Atrium".to_string(),
+            volume: 300.0,
+            floor_area: 50.0, // → ceiling height 6 m, mid-height 3 m
+            infiltration: vec![],
+            internal_gains: vec![],
+            internal_mass: vec![],
+            ideal_loads: None,
+            thermostat_schedule: vec![],
+            ventilation_schedule: vec![],
+            solar_distribution: None,
+            exhaust_fan: None,
+            outdoor_air: None,
+            natural_ventilation: None,
+            conditioned: true,
+            zone_multiplier: 1,
+            max_relative_humidity: None,
+            min_relative_humidity: None,
+            data_center: None,
+            duct_leakage: None,
+            species_generation: vec![],
+            room_air: Some(RoomAirGradient {
+                gradient: 1.5,
+                schedule: None,
+                return_height: Some(5.5),
+                thermostat_height: 1.1,
+                ceiling_height: None,
+            }),
+        };
+        let mut zone = ZoneState::new(input, 22.0);
+        zone.current_gradient = 1.5;
+
+        assert_relative_eq!(zone.room_air_height(), 6.0, max_relative = 1e-12);
+        // Mid-height = mean temperature
+        assert_relative_eq!(zone.air_temp_at_height(3.0), 22.0, max_relative = 1e-12);
+        // Ceiling: +1.5 K/m × 3 m = +4.5 K
+        assert_relative_eq!(zone.air_temp_at_height(6.0), 26.5, max_relative = 1e-12);
+        // Floor: −4.5 K
+        assert_relative_eq!(zone.air_temp_at_height(0.0), 17.5, max_relative = 1e-12);
+        // Return at 5.5 m: 22 + 1.5·2.5 = 25.75
+        assert_relative_eq!(zone.return_air_temp(), 25.75, max_relative = 1e-12);
+        // Occupied at 1.1 m: 22 + 1.5·(1.1 − 3.0) = 19.15
+        assert_relative_eq!(zone.occupied_air_temp(), 19.15, max_relative = 1e-12);
+
+        // Well-mixed (gradient forced to 0): everything collapses to T_mean
+        zone.current_gradient = 0.0;
+        assert_relative_eq!(zone.return_air_temp(), 22.0, max_relative = 1e-12);
+        assert_relative_eq!(zone.occupied_air_temp(), 22.0, max_relative = 1e-12);
+
+        // Zones without a room_air block report the mean everywhere
+        let mut plain = zone.clone();
+        plain.input.room_air = None;
+        plain.current_gradient = 0.0;
+        assert_eq!(plain.return_air_temp(), 22.0);
+        assert_eq!(plain.occupied_air_temp(), 22.0);
+    }
+
     /// NV availability (#88): temperature windows and wind limit gate the
     /// schedule fraction.
     #[test]
@@ -1506,6 +1655,7 @@ mod tests {
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
+            room_air: None,
         };
 
         // During night setback
@@ -1550,6 +1700,7 @@ mod tests {
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
+            room_air: None,
         };
 
         // During night ventilation period (unconditional — no temp conditions)
@@ -1591,6 +1742,7 @@ mod tests {
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
+            room_air: None,
         };
 
         // Zone hot enough, outdoor cooler → ventilate

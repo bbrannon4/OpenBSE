@@ -999,6 +999,18 @@
             "return_leakage_fraction": { "type": "number", "default": 0, "minimum": 0, "maximum": 1, "description": "Return duct leakage as a fraction of supply flow." }
           }
         },
+        "room_air": {
+          "type": "object",
+          "required": ["gradient"],
+          "description": "In-zone vertical temperature stratification (constant-gradient room air model). Interior surfaces couple to local air at their height; return air leaves at the return-height temperature; occupied-height temperature is reported via zone:occupied_temperature.",
+          "properties": {
+            "gradient": { "type": "number", "description": "Vertical temperature gradient [K/m], positive = warmer near ceiling." },
+            "schedule": { "type": "string", "description": "Optional schedule scaling the gradient (e.g. 0 when fans force mixing)." },
+            "return_height": { "type": "number", "description": "Return/exhaust air height above floor [m] (default: ceiling)." },
+            "thermostat_height": { "type": "number", "default": 1.1, "description": "Occupied/thermostat sensing height above floor [m]." },
+            "ceiling_height": { "type": "number", "description": "Zone floor-to-ceiling height [m] (default: volume / floor_area)." }
+          }
+        },
         "species_generation": {
           "type": "array",
           "description": "Passive species sources in this zone (requires species on the airflow network).",

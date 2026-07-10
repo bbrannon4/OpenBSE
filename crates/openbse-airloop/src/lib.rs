@@ -356,7 +356,14 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     // mis-trigger the lockout. The mixed-air calc below uses the effective
     // (post-HR) t_outdoor. Mirrors the VAV builder (AIRLOOP-1 / #76).
     let raw_t_outdoor = ctx.raw_t_outdoor;
-    let return_air_temp = control_temp;
+    // Return air temperature: stratified zones (#91) and data-center zones
+    // publish a return-height temperature; well-mixed zones return at the
+    // control (mean) temperature.
+    let return_air_temp = ctx
+        .zone_dc_return_temps
+        .get(control_zone)
+        .copied()
+        .unwrap_or(control_temp);
     let return_w = zone_humidity_ratios
         .get(control_zone)
         .copied()
