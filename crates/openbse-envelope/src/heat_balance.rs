@@ -1982,6 +1982,16 @@ impl EnvelopeSolver for BuildingEnvelope {
                 let net = zone.outdoor_air_mass_flow - zone.exhaust_mass_flow;
                 afn.update_hvac_net_flow(zi, net);
             }
+            // Duct leakage to unconditioned spaces (#82): leaked duct air
+            // (fractions of the supply flow, from the previous timestep)
+            // moves from the zone to the duct ambient zone.
+            for (zi, zone) in self.zones.iter().enumerate() {
+                if let Some(ref dl) = zone.input.duct_leakage {
+                    let leak = (dl.supply_leakage_fraction + dl.return_leakage_fraction)
+                        * zone.supply_air_mass_flow;
+                    afn.update_duct_leakage_flow(zi, leak.max(0.0));
+                }
+            }
             // Schedule-driven operable openings (#79): modulate opening areas
             // by the current schedule fraction (0 = closed).
             let schedule_manager = &self.schedule_manager;
@@ -5138,6 +5148,7 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
         }];
 
         let surfaces = vec![
@@ -5352,6 +5363,7 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -5550,6 +5562,7 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -5708,6 +5721,7 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -5848,6 +5862,7 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
         }];
         let surfaces = vec![SurfaceInput {
             name: "Wall".to_string(),

@@ -474,6 +474,41 @@ pub struct ZoneInput {
     /// and IT load generation. Replaces or supplements the `equipment_it` block.
     #[serde(default)]
     pub data_center: Option<DataCenterConfig>,
+    /// Duct leakage to an unconditioned space (#82). When the airflow network
+    /// is enabled, adds a FixedFlow path carrying leaked duct air from this
+    /// zone to the unconditioned zone containing the ducts.
+    #[serde(default)]
+    pub duct_leakage: Option<DuctLeakageInput>,
+}
+
+/// Duct leakage to the unconditioned space containing the ducts (#82).
+///
+/// Both supply and return leakage dump duct air (drawn from this zone's air
+/// loop) into the ambient zone: supply leaks spill supply air into the space,
+/// and return-side leakage is modeled the same way as the Duct component's
+/// leakage fraction (air lost from the duct run to its surroundings). The net
+/// AFN effect pressurizes the unconditioned space and depressurizes this zone.
+/// Leakage energy is accounted for separately by the duct component (#70), so
+/// these paths drive pressure only.
+///
+/// ```yaml
+/// zones:
+///   - name: Living
+///     duct_leakage:
+///       ambient_zone: Attic
+///       supply_leakage_fraction: 0.06
+///       return_leakage_fraction: 0.03
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DuctLeakageInput {
+    /// Zone containing the ducts (typically unconditioned: attic, crawlspace).
+    pub ambient_zone: String,
+    /// Supply duct leakage as a fraction of supply flow [0-1].
+    #[serde(default)]
+    pub supply_leakage_fraction: f64,
+    /// Return duct leakage as a fraction of supply flow [0-1].
+    #[serde(default)]
+    pub return_leakage_fraction: f64,
 }
 
 /// ASHRAE A-class equipment inlet temperature limits [°C].
@@ -1348,6 +1383,7 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
         };
 
         // During night setback
@@ -1390,6 +1426,7 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
         };
 
         // During night ventilation period (unconditional — no temp conditions)
@@ -1429,6 +1466,7 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
         };
 
         // Zone hot enough, outdoor cooler → ventilate

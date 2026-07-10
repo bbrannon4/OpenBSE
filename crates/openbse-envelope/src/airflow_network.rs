@@ -396,6 +396,10 @@ pub struct AirflowNetwork {
     /// Large openings with schedule-driven opening fraction (#79).
     /// Areas are refreshed each timestep before solving.
     pub scheduled_openings: Vec<ScheduledOpening>,
+    /// Per-zone path indices for duct leakage to the duct ambient zone (#82).
+    /// These paths drive zone pressure but are excluded from flow accumulation
+    /// (leakage energy is handled by the duct component, #70).
+    pub duct_leakage_path_indices: Vec<Option<usize>>,
 }
 
 impl AirflowNetwork {
@@ -409,6 +413,22 @@ impl AirflowNetwork {
             if let Some(path) = self.paths.get_mut(*path_idx) {
                 if let FlowElement::FixedFlow { ref mut mass_flow } = path.element {
                     *mass_flow = net_kg_s;
+                }
+            }
+        }
+    }
+
+    /// Update the duct leakage FixedFlow for a zone before each AFN solve (#82).
+    ///
+    /// `leak_kg_s` = (supply_leakage_fraction + return_leakage_fraction) ×
+    /// supply mass flow (from the previous timestep). Positive flow moves air
+    /// from the zone to the duct ambient zone, pressurizing the unconditioned
+    /// space and depressurizing the zone.
+    pub fn update_duct_leakage_flow(&mut self, zone_idx: usize, leak_kg_s: f64) {
+        if let Some(Some(path_idx)) = self.duct_leakage_path_indices.get(zone_idx) {
+            if let Some(path) = self.paths.get_mut(*path_idx) {
+                if let FlowElement::FixedFlow { ref mut mass_flow } = path.element {
+                    *mass_flow = leak_kg_s;
                 }
             }
         }
@@ -877,6 +897,33 @@ pub fn build_network(
         hvac_net_path_indices[zi] = Some(path_idx);
     }
 
+    // Duct leakage paths (#82): zone → duct ambient zone (typically an
+    // unconditioned attic or crawlspace). mass_flow = (supply_frac +
+    // return_frac) × supply flow, updated each timestep before solving.
+    // Excluded from flow accumulation — the leakage energy is already
+    // handled by the duct component (#70); these paths drive pressure only.
+    let mut duct_leakage_path_indices: Vec<Option<usize>> = vec![None; n_zones];
+    for (zi, zone) in zones.iter().enumerate() {
+        if let Some(ref dl) = zone.input.duct_leakage {
+            let ambient_zi = match zone_index.get(&dl.ambient_zone) {
+                Some(&i) if i != zi => i,
+                _ => continue, // unknown ambient zone, or ducts in this zone
+            };
+            let path_idx = paths.len();
+            paths.push(FlowPath {
+                node_a: zone_to_node[zi],
+                node_b: zone_to_node[ambient_zi],
+                height: zones[ambient_zi].centroid_height,
+                cp: 0.0,
+                azimuth: 0.0,
+                element: FlowElement::FixedFlow { mass_flow: 0.0 },
+                source_surface: None,
+                mass_flow: 0.0,
+            });
+            duct_leakage_path_indices[zi] = Some(path_idx);
+        }
+    }
+
     AirflowNetwork {
         config: config.clone(),
         nodes,
@@ -888,6 +935,7 @@ pub fn build_network(
         side_ratio,
         hvac_net_path_indices,
         scheduled_openings,
+        duct_leakage_path_indices,
     }
 }
 
@@ -1152,11 +1200,14 @@ fn post_solve(network: &mut AirflowNetwork, wind_speed_met: f64, terrain: Terrai
     let n_zones = network.zone_to_node.len();
     let weather_wind_mod_coeff = crate::convection::DEFAULT_WEATHER_WIND_MOD_COEFF;
 
-    // Build a fast lookup for HVAC net paths so we can exclude them from
-    // zone_outdoor_mass_flow accumulation (their OA is already tracked separately).
-    let hvac_path_set: std::collections::HashSet<usize> = network
+    // Build a fast lookup for HVAC net and duct leakage paths so we can
+    // exclude them from flow accumulation (HVAC OA is already tracked in
+    // zone.outdoor_air_mass_flow; duct leakage energy is handled by the
+    // duct component, #70).
+    let excluded_path_set: std::collections::HashSet<usize> = network
         .hvac_net_path_indices
         .iter()
+        .chain(network.duct_leakage_path_indices.iter())
         .filter_map(|&idx| idx)
         .collect();
 
@@ -1181,9 +1232,9 @@ fn post_solve(network: &mut AirflowNetwork, wind_speed_met: f64, terrain: Terrai
         let (flow, _) = flow_and_derivative(&path.element, dp, rho_avg);
         path.mass_flow = flow;
 
-        // HVAC net injection paths drive zone pressure but their OA content is
-        // already accounted for in zone.outdoor_air_mass_flow — skip accumulation.
-        if hvac_path_set.contains(&pi) {
+        // HVAC net injection and duct leakage paths drive zone pressure but
+        // their mass/energy content is accounted for elsewhere — skip accumulation.
+        if excluded_path_set.contains(&pi) {
             continue;
         }
 
@@ -1478,6 +1529,7 @@ mod tests {
             side_ratio: 1.0,
             hvac_net_path_indices: vec![None],
             scheduled_openings: vec![],
+            duct_leakage_path_indices: vec![],
         };
 
         let (converged, _iters) =
@@ -1598,6 +1650,7 @@ mod tests {
             side_ratio: 1.0,
             hvac_net_path_indices: vec![None, None],
             scheduled_openings: vec![],
+            duct_leakage_path_indices: vec![],
         };
 
         let (converged, _) =
@@ -1722,6 +1775,7 @@ mod tests {
             side_ratio: 1.0,
             hvac_net_path_indices: vec![None, None],
             scheduled_openings: vec![],
+            duct_leakage_path_indices: vec![],
         };
 
         let (converged, _) = solve_pressures(&mut network, 0.0, 0.0, 0.0, 1.292, Terrain::Country);
@@ -1983,6 +2037,7 @@ cp_model: !table
             side_ratio: 1.0,
             hvac_net_path_indices: vec![None],
             scheduled_openings: vec![],
+            duct_leakage_path_indices: vec![],
         };
 
         // Wind from north: north facade windward (0.6), south leeward (-0.3)
@@ -2042,6 +2097,7 @@ cp_model: !table
                 schedule: "window_opening".to_string(),
                 base_area: 2.0,
             }],
+            duct_leakage_path_indices: vec![],
         };
 
         // Half-open
@@ -2074,6 +2130,126 @@ cp_model: !table
             }
             _ => panic!("expected LargeOpening"),
         }
+    }
+
+    /// Duct leakage to an unconditioned space (#82): leaked duct air moves
+    /// from the conditioned zone to the attic, pressurizing the attic and
+    /// depressurizing the zone. The duct path is excluded from interzone
+    /// flow accumulation (its energy is handled by the duct component).
+    #[test]
+    fn test_duct_leakage_pressurizes_unconditioned_zone() {
+        let zone_node = 0usize; // conditioned zone
+        let attic_node = 1usize; // unconditioned duct ambient zone
+        let outdoor_node = 2usize;
+        let duct_path_idx = 2usize;
+
+        let mut network = AirflowNetwork {
+            config: AirflowNetworkConfig::default(),
+            nodes: vec![
+                PressureNode {
+                    zone_index: Some(0),
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: RHO_REF,
+                },
+                PressureNode {
+                    zone_index: Some(1),
+                    ref_height: 1.5, // same height to isolate the duct effect
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: RHO_REF,
+                },
+                PressureNode {
+                    zone_index: None,
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: RHO_REF,
+                },
+            ],
+            paths: vec![
+                // Outdoor → zone crack
+                FlowPath {
+                    node_a: outdoor_node,
+                    node_b: zone_node,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.005,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+                // Outdoor → attic crack
+                FlowPath {
+                    node_a: outdoor_node,
+                    node_b: attic_node,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.005,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+                // Duct leakage: zone → attic (mass flow set below)
+                FlowPath {
+                    node_a: zone_node,
+                    node_b: attic_node,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::FixedFlow { mass_flow: 0.0 },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+            ],
+            outdoor_node,
+            zone_to_node: vec![zone_node, attic_node],
+            zone_outdoor_mass_flow: vec![0.0, 0.0],
+            zone_interzone_flows: vec![vec![], vec![]],
+            side_ratio: 1.0,
+            hvac_net_path_indices: vec![None, None],
+            scheduled_openings: vec![],
+            duct_leakage_path_indices: vec![Some(duct_path_idx), None],
+        };
+
+        // (supply_frac + return_frac) × supply flow = (0.06 + 0.04) × 0.5 kg/s
+        network.update_duct_leakage_flow(0, 0.05);
+        match network.paths[duct_path_idx].element {
+            FlowElement::FixedFlow { mass_flow } => assert_eq!(mass_flow, 0.05),
+            _ => panic!("expected FixedFlow"),
+        }
+
+        let (converged, _) =
+            solve_pressures(&mut network, 0.0, 0.0, 20.0, RHO_REF, Terrain::Suburbs);
+        assert!(converged, "solver should converge");
+
+        // Supply leakage pressurizes the attic; the conditioned zone is
+        // depressurized (make-up air enters through its crack).
+        let p_zone = network.nodes[zone_node].pressure;
+        let p_attic = network.nodes[attic_node].pressure;
+        assert!(
+            p_attic > 0.0,
+            "duct ambient zone should be pressurized, got {p_attic:.3} Pa"
+        );
+        assert!(
+            p_zone < 0.0,
+            "conditioned zone should be depressurized, got {p_zone:.3} Pa"
+        );
+
+        // Make-up air infiltrates the zone (~0.05 kg/s); the attic exfiltrates.
+        assert_relative_eq!(network.zone_outdoor_mass_flow[0], 0.05, max_relative = 0.05);
+        assert!(network.zone_outdoor_mass_flow[1] < 1e-9);
+
+        // The duct leakage path is excluded from interzone flow accumulation.
+        assert!(network.zone_interzone_flows[0].is_empty());
+        assert!(network.zone_interzone_flows[1].is_empty());
     }
 
     /// Pressurised building: HVAC supplies more OA than it exhausts.
@@ -2155,6 +2331,7 @@ cp_model: !table
             side_ratio: 1.0,
             hvac_net_path_indices: vec![Some(hvac_path_idx)],
             scheduled_openings: vec![],
+            duct_leakage_path_indices: vec![],
         };
 
         let (converged, _) = solve_pressures(&mut network, 0.0, 0.0, 0.0, 1.292, Terrain::Suburbs);

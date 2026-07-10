@@ -973,7 +973,17 @@
         "floor_area": { "type": "number", "default": 0.0, "description": "Zone floor area [m2]. Auto-calculated from floor surfaces if 0." },
         "conditioned": { "type": "boolean", "default": true, "description": "Whether the zone is conditioned by HVAC." },
         "max_relative_humidity": { "type": "number", "description": "Maximum relative humidity setpoint [%] (e.g. 60). HVAC switches to dehumidification cooling when zone RH exceeds this." },
-        "min_relative_humidity": { "type": "number", "description": "Minimum relative humidity setpoint [%] (e.g. 30). Humidifier activates when zone RH falls below this." }
+        "min_relative_humidity": { "type": "number", "description": "Minimum relative humidity setpoint [%] (e.g. 30). Humidifier activates when zone RH falls below this." },
+        "duct_leakage": {
+          "type": "object",
+          "required": ["ambient_zone"],
+          "description": "Duct leakage to an unconditioned space. With the airflow network enabled, adds a pressure-driving flow path carrying leaked duct air from this zone to the zone containing the ducts.",
+          "properties": {
+            "ambient_zone": { "type": "string", "description": "Zone containing the ducts (typically unconditioned: attic, crawlspace)." },
+            "supply_leakage_fraction": { "type": "number", "default": 0, "minimum": 0, "maximum": 1, "description": "Supply duct leakage as a fraction of supply flow." },
+            "return_leakage_fraction": { "type": "number", "default": 0, "minimum": 0, "maximum": 1, "description": "Return duct leakage as a fraction of supply flow." }
+          }
+        }
       }
     },
 

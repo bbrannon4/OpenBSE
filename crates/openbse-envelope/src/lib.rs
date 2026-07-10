@@ -45,7 +45,7 @@ pub use shading::{
 };
 pub use surface::{BoundaryCondition, SurfaceInput, SurfaceType};
 pub use zone::{
-    dc_rack_inlet_max, DataCenterConfig, ExhaustFanInput, IdealLoadsAirSystem,
+    dc_rack_inlet_max, DataCenterConfig, DuctLeakageInput, ExhaustFanInput, IdealLoadsAirSystem,
     InteriorSolarDistribution, OutdoorAirInput, ThermostatScheduleEntry, VentilationScheduleEntry,
     ZoneInput,
 };
