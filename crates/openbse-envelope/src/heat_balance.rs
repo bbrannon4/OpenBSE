@@ -2028,6 +2028,40 @@ impl EnvelopeSolver for BuildingEnvelope {
                 zone.infiltration_mass_flow = afn.zone_outdoor_mass_flow[zi];
             }
 
+            // Interzone advection aggregates (#87): mass-weighted source
+            // temperature and humidity of the AFN interzone inflows, using
+            // previous-timestep zone states (lagged coupling, consistent
+            // with the HVAC net injection). These feed the zone thermal and
+            // moisture balances as an effective mixed advective stream.
+            let interzone_aggregates: Vec<(f64, f64, f64)> = afn
+                .zone_interzone_flows
+                .iter()
+                .map(|flows| {
+                    let m: f64 = flows.iter().map(|&(_, f)| f).sum();
+                    if m > 1e-12 {
+                        let t = flows
+                            .iter()
+                            .map(|&(src, f)| f * self.zones[src].temp)
+                            .sum::<f64>()
+                            / m;
+                        let w = flows
+                            .iter()
+                            .map(|&(src, f)| f * self.zones[src].humidity_ratio)
+                            .sum::<f64>()
+                            / m;
+                        (m, t, w)
+                    } else {
+                        (0.0, 20.0, 0.008)
+                    }
+                })
+                .collect();
+            for (zi, zone) in self.zones.iter_mut().enumerate() {
+                let (m, t, w) = interzone_aggregates[zi];
+                zone.afn_interzone_mass_flow = m;
+                zone.afn_interzone_temp = t;
+                zone.afn_interzone_w = w;
+            }
+
             // Passive species transport (#84): advance concentrations on the
             // solved flow field. OA/ventilation flows are the previous
             // timestep's values, consistent with the HVAC net injection.
@@ -3671,7 +3705,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                                             + zone.nat_vent_mass_flow
                                     }
                                 };
-                                let mcpi_pred = total_outdoor * cp_air;
+                                // Interzone advection (#87): fold AFN inflows
+                                let (m_adv_pred, t_out_pred) = crate::zone::mix_advective_streams(
+                                    total_outdoor,
+                                    t_outdoor,
+                                    zone.afn_interzone_mass_flow,
+                                    zone.afn_interzone_temp,
+                                );
+                                let mcpi_pred = m_adv_pred * cp_air;
                                 let q_solar_trans: f64 = zone
                                     .surface_indices
                                     .iter()
@@ -3712,7 +3753,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                                 let denom_pred = sum_ha_pred + mcpi_pred + cap_pred;
                                 if denom_pred > 1e-10 {
                                     (sum_hat_pred
-                                        + mcpi_pred * t_outdoor
+                                        + mcpi_pred * t_out_pred
                                         + q_conv_pred
                                         + cap_pred * t_prev_eff_pred)
                                         / denom_pred
@@ -3752,7 +3793,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                                     + zone.nat_vent_mass_flow
                             }
                         };
-                        let mcpi_pred = total_outdoor * cp_air;
+                        // Interzone advection (#87): fold AFN inflows
+                        let (m_adv_pred, t_out_pred) = crate::zone::mix_advective_streams(
+                            total_outdoor,
+                            t_outdoor,
+                            zone.afn_interzone_mass_flow,
+                            zone.afn_interzone_temp,
+                        );
+                        let mcpi_pred = m_adv_pred * cp_air;
 
                         let q_solar_trans: f64 = zone
                             .surface_indices
@@ -3805,7 +3853,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         let denom_pred = sum_ha_pred + mcpi_pred + cap_pred;
                         let t_free_pred = if denom_pred > 1e-10 {
                             (sum_hat_pred
-                                + mcpi_pred * t_outdoor
+                                + mcpi_pred * t_out_pred
                                 + q_conv_pred
                                 + cap_pred * t_prev_eff_pred)
                                 / denom_pred
@@ -4205,7 +4253,18 @@ impl EnvelopeSolver for BuildingEnvelope {
                             + zone.nat_vent_mass_flow
                     }
                 };
-                let mcpi = total_outdoor_mass_flow * cp_air;
+                // Interzone advection (#87): fold AFN interzone inflows into
+                // the advective stream as an effective mixed stream. The
+                // combined (m, T_mix) is mathematically identical to separate
+                // outdoor and interzone terms; shadowing t_outdoor keeps every
+                // downstream solve and report in this zone block consistent.
+                let (m_advective, t_outdoor) = crate::zone::mix_advective_streams(
+                    total_outdoor_mass_flow,
+                    t_outdoor,
+                    zone.afn_interzone_mass_flow,
+                    zone.afn_interzone_temp,
+                );
+                let mcpi = m_advective * cp_air;
 
                 let q_conv_total = zone.q_internal_conv
                     + zone.exhaust_fan_heat_to_zone  // motor waste heat staying in zone
@@ -4584,10 +4643,15 @@ impl EnvelopeSolver for BuildingEnvelope {
                         zone.w_prev3,
                     );
 
-                    // Moisture mass flows use the same outdoor air flows as the
-                    // thermal balance (total_outdoor_mass_flow already computed).
-                    let m_infil = total_outdoor_mass_flow;
-                    let w_outdoor = ctx.outdoor_air.w;
+                    // Moisture mass flows use the same advective stream as the
+                    // thermal balance: outdoor air plus AFN interzone inflows
+                    // at their mass-weighted source humidity (#87).
+                    let (m_infil, w_outdoor) = crate::zone::mix_advective_streams(
+                        total_outdoor_mass_flow,
+                        ctx.outdoor_air.w,
+                        zone.afn_interzone_mass_flow,
+                        zone.afn_interzone_w,
+                    );
 
                     // HVAC supply humidity from the air loop
                     let m_supply = zone.supply_air_mass_flow;
@@ -5325,6 +5389,218 @@ mod tests {
             horiz_ir_rad: 200.0,
             opaque_sky_cover: 5.0,
         }
+    }
+
+    /// Builds a two-zone model joined by an interzone wall; when `doorway`
+    /// is true the interzone surface is a large opening (two-way doorway).
+    fn make_two_zone_model(doorway: bool) -> BuildingEnvelope {
+        use crate::material::ConstructionLayer;
+        let materials = vec![Material {
+            name: "Concrete".to_string(),
+            conductivity: 1.311,
+            density: 2240.0,
+            specific_heat: 836.8,
+            solar_absorptance: 0.7,
+            thermal_absorptance: 0.9,
+            visible_absorptance: 0.7,
+            roughness: Roughness::MediumRough,
+            thermal_resistance: None,
+            vapor_resistance_factor: None,
+            sorption_isotherm: None,
+            liquid_transport_coeff: None,
+            thermal_absorptance_inside: None,
+        }];
+        let constructions = vec![Construction {
+            name: "Wall".to_string(),
+            layers: vec![ConstructionLayer {
+                material: "Concrete".to_string(),
+                thickness: 0.2,
+            }],
+        }];
+
+        let make_zone = |name: &str| ZoneInput {
+            name: name.to_string(),
+            volume: 150.0,
+            floor_area: 50.0,
+            infiltration: vec![],
+            internal_gains: vec![],
+            internal_mass: vec![],
+            ideal_loads: None,
+            thermostat_schedule: vec![],
+            ventilation_schedule: vec![],
+            solar_distribution: None,
+            exhaust_fan: None,
+            outdoor_air: None,
+            natural_ventilation: None,
+            conditioned: true,
+            zone_multiplier: 1,
+            max_relative_humidity: None,
+            min_relative_humidity: None,
+            data_center: None,
+            duct_leakage: None,
+            species_generation: vec![],
+        };
+        let zones = vec![make_zone("ColdZone"), make_zone("WarmZone")];
+
+        let make_wall = |name: &str, zone: &str, azimuth: f64| SurfaceInput {
+            name: name.to_string(),
+            zone: zone.to_string(),
+            surface_type: SurfaceType::Wall,
+            construction: "Wall".to_string(),
+            area: 20.0,
+            azimuth,
+            tilt: 90.0,
+            boundary: BoundaryCondition::Outdoor,
+            parent_surface: None,
+            vertices: None,
+            shading: None,
+            sun_exposure: false,
+            wind_exposure: true,
+            exposed_perimeter: None,
+            airflow: None,
+            height: None,
+            width: None,
+        };
+        let doorway_override = doorway.then(|| crate::airflow_network::SurfaceAirflowOverride {
+            large_opening: Some(true),
+            opening_fraction: Some(1.0),
+            ..Default::default()
+        });
+        let mut surfaces = vec![
+            make_wall("Cold South", "ColdZone", 180.0),
+            make_wall("Warm North", "WarmZone", 0.0),
+            // Interzone wall (both sides)
+            SurfaceInput {
+                name: "Partition A".to_string(),
+                zone: "ColdZone".to_string(),
+                surface_type: SurfaceType::Wall,
+                construction: "Wall".to_string(),
+                area: 8.0,
+                azimuth: 0.0,
+                tilt: 90.0,
+                boundary: BoundaryCondition::Zone("WarmZone".to_string()),
+                parent_surface: None,
+                vertices: None,
+                shading: None,
+                sun_exposure: false,
+                wind_exposure: false,
+                exposed_perimeter: None,
+                airflow: doorway_override.clone(),
+                height: None,
+                width: None,
+            },
+            SurfaceInput {
+                name: "Partition B".to_string(),
+                zone: "WarmZone".to_string(),
+                surface_type: SurfaceType::Wall,
+                construction: "Wall".to_string(),
+                area: 8.0,
+                azimuth: 180.0,
+                tilt: 90.0,
+                boundary: BoundaryCondition::Zone("ColdZone".to_string()),
+                parent_surface: None,
+                vertices: None,
+                shading: None,
+                sun_exposure: false,
+                wind_exposure: false,
+                exposed_perimeter: None,
+                airflow: doorway_override,
+                height: None,
+                width: None,
+            },
+        ];
+        for (zone, floor_name) in [("ColdZone", "Cold Floor"), ("WarmZone", "Warm Floor")] {
+            surfaces.push(SurfaceInput {
+                name: floor_name.to_string(),
+                zone: zone.to_string(),
+                surface_type: SurfaceType::Floor,
+                construction: "Wall".to_string(),
+                area: 50.0,
+                azimuth: 0.0,
+                tilt: 180.0,
+                boundary: BoundaryCondition::Ground,
+                parent_surface: None,
+                vertices: None,
+                shading: None,
+                sun_exposure: false,
+                wind_exposure: false,
+                exposed_perimeter: None,
+                airflow: None,
+                height: None,
+                width: None,
+            });
+        }
+
+        let mut envelope = BuildingEnvelope::from_input(
+            materials,
+            constructions,
+            vec![],
+            zones,
+            surfaces,
+            40.0,
+            -105.0,
+            -7.0,
+        );
+        envelope.build_airflow_network(&crate::airflow_network::AirflowNetworkConfig {
+            enabled: true,
+            ..Default::default()
+        });
+        envelope
+    }
+
+    /// Interzone advection (#87): a doorway to a warm zone populates the
+    /// cold zone's AFN interzone aggregates and measurably warms it relative
+    /// to the same model with only crack leakage between the zones.
+    #[test]
+    fn test_interzone_advection_warms_cold_zone() {
+        let run = |doorway: bool| -> (f64, f64, f64) {
+            let mut envelope = make_two_zone_model(doorway);
+            envelope.initialize(3600.0).unwrap();
+            // Force a large interzone temperature difference
+            for (zi, t) in [(0usize, 10.0f64), (1usize, 30.0f64)] {
+                let z = &mut envelope.zones[zi];
+                z.temp = t;
+                z.temp_prev = t;
+                z.temp_prev2 = t;
+                z.temp_prev3 = t;
+            }
+            let ctx = make_ctx();
+            let mut weather = make_weather_hour(10.0);
+            weather.wind_speed = 0.0; // isolate buoyancy exchange
+            weather.global_horiz_rad = 0.0;
+            weather.direct_normal_rad = 0.0;
+            weather.diffuse_horiz_rad = 0.0;
+            let hvac = ZoneHvacConditions::default();
+            envelope.solve_timestep(&ctx, &weather, &hvac);
+            (
+                envelope.zones[0].temp,
+                envelope.zones[0].afn_interzone_mass_flow,
+                envelope.zones[0].afn_interzone_temp,
+            )
+        };
+
+        let (t_cold_with_door, m_iz, t_iz) = run(true);
+        let (t_cold_without, m_iz_crack, _) = run(false);
+
+        // The doorway produces a substantial interzone inflow of warm air
+        assert!(
+            m_iz > 0.05,
+            "doorway should drive substantial interzone flow, got {m_iz:.4} kg/s"
+        );
+        assert!(
+            t_iz > 25.0,
+            "interzone inflow should carry warm-zone air, got {t_iz:.2} °C"
+        );
+        assert!(
+            m_iz > 10.0 * m_iz_crack.max(1e-9),
+            "doorway flow ({m_iz:.4}) should dwarf crack flow ({m_iz_crack:.6})"
+        );
+
+        // And it warms the cold zone relative to the crack-only case
+        assert!(
+            t_cold_with_door > t_cold_without + 0.5,
+            "doorway advection should warm the cold zone: {t_cold_with_door:.2} vs {t_cold_without:.2} °C"
+        );
     }
 
     #[test]

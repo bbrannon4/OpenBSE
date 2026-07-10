@@ -740,6 +740,14 @@ pub struct ZoneState {
     pub w_order: u8,
     /// HVAC supply air humidity ratio [kg/kg]
     pub supply_air_humidity_ratio: f64,
+    /// AFN interzone inflow into this zone [kg/s] (#87), aggregated after
+    /// each pressure solve. Zero when the AFN is off.
+    pub afn_interzone_mass_flow: f64,
+    /// Mass-weighted mean temperature of AFN interzone inflow [°C] (#87),
+    /// from previous-timestep source zone temps (lagged coupling).
+    pub afn_interzone_temp: f64,
+    /// Mass-weighted mean humidity ratio of AFN interzone inflow [kg/kg] (#87).
+    pub afn_interzone_w: f64,
     /// People latent heat gain [W] (scheduled, from internal gains)
     pub people_latent: f64,
     /// Equipment latent heat gain [W] (from equipment with latent_fraction)
@@ -886,6 +894,9 @@ impl ZoneState {
             w_prev3: 0.008,
             w_order: 1,
             supply_air_humidity_ratio: 0.008,
+            afn_interzone_mass_flow: 0.0,
+            afn_interzone_temp: 20.0,
+            afn_interzone_w: 0.008,
             people_latent: 0.0,
             equipment_latent: 0.0,
             lighting_gain_to_zone: 0.0,
@@ -1117,6 +1128,22 @@ pub fn solve_zone_humidity(
     }
 }
 
+/// Mix two advective air streams into one effective stream (#87).
+///
+/// Returns (combined mass flow, mass-weighted property). Used to fold AFN
+/// interzone inflows into the outdoor-air stream of the zone air balances:
+/// the combined stream (m₁+m₂) at the mixed temperature/humidity is
+/// mathematically identical to the two separate advective terms, so every
+/// existing solve path picks up interzone advection without new terms.
+pub fn mix_advective_streams(m1: f64, x1: f64, m2: f64, x2: f64) -> (f64, f64) {
+    let m = m1 + m2;
+    if m > 1e-12 {
+        (m, (m1 * x1 + m2 * x2) / m)
+    } else {
+        (0.0, x1)
+    }
+}
+
 /// Compute the Q_hvac needed to hold the zone at a target temperature.
 ///
 /// Given the zone energy balance terms, returns the convective energy
@@ -1194,6 +1221,35 @@ mod tests {
             airflow_m3_per_s_per_kw: None,
             lighting_w_per_m2: None,
         }
+    }
+
+    /// Interzone advection stream mixing (#87): mass-weighted mixing is
+    /// equivalent to the separate advective terms, and degenerates safely.
+    #[test]
+    fn test_mix_advective_streams() {
+        // 0.1 kg/s at 0°C + 0.1 kg/s at 30°C → 0.2 kg/s at 15°C
+        let (m, t) = mix_advective_streams(0.1, 0.0, 0.1, 30.0);
+        assert_relative_eq!(m, 0.2, max_relative = 1e-12);
+        assert_relative_eq!(t, 15.0, max_relative = 1e-12);
+
+        // Uneven weighting
+        let (m, t) = mix_advective_streams(0.3, 10.0, 0.1, 30.0);
+        assert_relative_eq!(m, 0.4, max_relative = 1e-12);
+        assert_relative_eq!(t, 15.0, max_relative = 1e-12);
+
+        // No interzone flow → outdoor stream unchanged
+        let (m, t) = mix_advective_streams(0.25, -5.0, 0.0, 30.0);
+        assert_relative_eq!(m, 0.25, max_relative = 1e-12);
+        assert_relative_eq!(t, -5.0, max_relative = 1e-12);
+
+        // Both zero → zero flow, first property retained (unused downstream)
+        let (m, t) = mix_advective_streams(0.0, -5.0, 0.0, 30.0);
+        assert_eq!(m, 0.0);
+        assert_eq!(t, -5.0);
+
+        // Equivalence: mcpi·T_mix == m1·cp·T1 + m2·cp·T2 (cp cancels)
+        let (m, t) = mix_advective_streams(0.07, 3.0, 0.13, 26.0);
+        assert_relative_eq!(m * t, 0.07 * 3.0 + 0.13 * 26.0, max_relative = 1e-12);
     }
 
     #[test]
