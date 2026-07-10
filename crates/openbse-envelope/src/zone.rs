@@ -479,6 +479,10 @@ pub struct ZoneInput {
     /// zone to the unconditioned zone containing the ducts.
     #[serde(default)]
     pub duct_leakage: Option<DuctLeakageInput>,
+    /// Passive species sources in this zone (#84), e.g. CO₂ generation.
+    /// Requires species configured on the airflow network.
+    #[serde(default)]
+    pub species_generation: Vec<crate::species::SpeciesGenerationInput>,
 }
 
 /// Duct leakage to the unconditioned space containing the ducts (#82, #85).
@@ -1385,6 +1389,7 @@ mod tests {
             min_relative_humidity: None,
             data_center: None,
             duct_leakage: None,
+            species_generation: vec![],
         };
 
         // During night setback
@@ -1428,6 +1433,7 @@ mod tests {
             min_relative_humidity: None,
             data_center: None,
             duct_leakage: None,
+            species_generation: vec![],
         };
 
         // During night ventilation period (unconditional — no temp conditions)
@@ -1468,6 +1474,7 @@ mod tests {
             min_relative_humidity: None,
             data_center: None,
             duct_leakage: None,
+            species_generation: vec![],
         };
 
         // Zone hot enough, outdoor cooler → ventilate

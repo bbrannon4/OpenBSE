@@ -199,6 +199,9 @@ pub struct AirflowNetworkConfig {
     /// Damping factor for Newton-Raphson update (0-1, 1 = full step).
     #[serde(default = "default_damping")]
     pub damping: f64,
+    /// Passive species tracked on the network flows (#84), e.g. CO₂.
+    #[serde(default)]
+    pub species: Vec<crate::species::SpeciesConfig>,
 }
 
 fn default_crack_exponent() -> f64 {
@@ -242,6 +245,7 @@ impl Default for AirflowNetworkConfig {
             convergence_tolerance: default_convergence_tol(),
             max_iterations: default_max_iterations(),
             damping: default_damping(),
+            species: Vec::new(),
         }
     }
 }
@@ -1498,7 +1502,7 @@ fn post_solve(network: &mut AirflowNetwork, wind_speed_met: f64, terrain: Terrai
 ///
 /// For N < 100 zones, this dense O(N³) solver is more than adequate.
 /// Returns None if the matrix is singular.
-fn solve_linear_system(a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
+pub(crate) fn solve_linear_system(a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
     let n = b.len();
     if n == 0 {
         return Some(vec![]);

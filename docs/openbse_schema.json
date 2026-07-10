@@ -227,7 +227,20 @@
         "interzone_leakage_class": { "$ref": "#/$defs/LeakageClass", "description": "ASHRAE leakage class for interzone surfaces. Overrides interzone_leakage_per_area." },
         "convergence_tolerance": { "type": "number", "default": 0.1, "description": "Newton-Raphson convergence tolerance [Pa]." },
         "max_iterations": { "type": "integer", "default": 30, "description": "Maximum Newton-Raphson iterations." },
-        "damping": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1, "description": "Damping factor for pressure updates." }
+        "damping": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1, "description": "Damping factor for pressure updates." },
+        "species": {
+          "type": "array",
+          "description": "Passive species (e.g. CO2) transported on the network flows.",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string", "description": "Species name, referenced by zone species_generation entries." },
+              "outdoor_concentration": { "type": "number", "default": 0, "description": "Outdoor concentration [kg/kg]." },
+              "initial_concentration": { "type": "number", "description": "Initial zone concentration [kg/kg] (defaults to outdoor)." }
+            }
+          }
+        }
       }
     },
 
@@ -982,6 +995,19 @@
             "ambient_zone": { "type": "string", "description": "Zone containing the ducts (typically unconditioned: attic, crawlspace)." },
             "supply_leakage_fraction": { "type": "number", "default": 0, "minimum": 0, "maximum": 1, "description": "Supply duct leakage as a fraction of supply flow." },
             "return_leakage_fraction": { "type": "number", "default": 0, "minimum": 0, "maximum": 1, "description": "Return duct leakage as a fraction of supply flow." }
+          }
+        },
+        "species_generation": {
+          "type": "array",
+          "description": "Passive species sources in this zone (requires species on the airflow network).",
+          "items": {
+            "type": "object",
+            "required": ["species", "rate"],
+            "properties": {
+              "species": { "type": "string", "description": "Configured species name." },
+              "rate": { "type": "number", "description": "Generation rate [kg/s]." },
+              "schedule": { "type": "string", "description": "Optional schedule modulating the rate [0-1]." }
+            }
           }
         }
       }

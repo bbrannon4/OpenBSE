@@ -90,6 +90,9 @@ pub struct BuildingEnvelope {
     pub infiltration_interaction: crate::zone_loads::InfiltrationInteraction,
     /// Multizone airflow network (None when AFN is disabled).
     pub airflow_network: Option<crate::airflow_network::AirflowNetwork>,
+    /// Passive species transport on the AFN flows (#84); None unless species
+    /// are configured on the airflow network.
+    pub species_transport: Option<crate::species::SpeciesTransport>,
     /// Solar distribution method for interior beam solar radiation.
     /// FullExterior: all beam to floor.  FullInteriorAndExterior: geometric projection.
     pub solar_distribution_method: SolarDistributionMethod,
@@ -1301,6 +1304,7 @@ impl BuildingEnvelope {
             envelope_areas,
             infiltration_interaction: crate::zone_loads::InfiltrationInteraction::Basic,
             airflow_network: None, // built later via build_airflow_network()
+            species_transport: None,
             solar_distribution_method,
             ctf_q_last_inside: vec![0.0; n_surfaces],
             ctf_q_last_outside: vec![0.0; n_surfaces],
@@ -1445,6 +1449,20 @@ impl BuildingEnvelope {
             network.side_ratio,
         );
         self.airflow_network = Some(network);
+
+        // Passive species transport (#84): initialized when species are
+        // configured on the airflow network.
+        if !config.species.is_empty() {
+            self.species_transport = Some(crate::species::SpeciesTransport::new(
+                &config.species,
+                self.zones.len(),
+            ));
+            log::info!(
+                "Species transport: {} species on {} zones",
+                config.species.len(),
+                self.zones.len(),
+            );
+        }
     }
 
     /// Precompute sunlit fractions for every annual timestep (Suncast-style).
@@ -2008,6 +2026,33 @@ impl EnvelopeSolver for BuildingEnvelope {
             // Write AFN outdoor mass flow results to zone state
             for (zi, zone) in self.zones.iter_mut().enumerate() {
                 zone.infiltration_mass_flow = afn.zone_outdoor_mass_flow[zi];
+            }
+
+            // Passive species transport (#84): advance concentrations on the
+            // solved flow field. OA/ventilation flows are the previous
+            // timestep's values, consistent with the HVAC net injection.
+            if let Some(ref mut transport) = self.species_transport {
+                let n = self.zones.len();
+                let mut masses = vec![0.0; n];
+                let mut oa = vec![0.0; n];
+                let mut vent = vec![0.0; n];
+                let mut sources = vec![vec![0.0; n]; transport.names.len()];
+                for (zi, zone) in self.zones.iter().enumerate() {
+                    masses[zi] =
+                        zone.input.volume.max(1.0) * afn.nodes[afn.zone_to_node[zi]].density;
+                    oa[zi] = zone.outdoor_air_mass_flow;
+                    vent[zi] = zone.ventilation_mass_flow;
+                    for gen in &zone.input.species_generation {
+                        if let Some(si) = transport.species_index(&gen.species) {
+                            let frac = match &gen.schedule {
+                                Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                                None => 1.0,
+                            };
+                            sources[si][zi] += gen.rate * frac;
+                        }
+                    }
+                }
+                transport.step(afn, &masses, &oa, &vent, &sources, dt);
             }
         }
 
@@ -5150,6 +5195,7 @@ mod tests {
             min_relative_humidity: None,
             data_center: None,
             duct_leakage: None,
+            species_generation: vec![],
         }];
 
         let surfaces = vec![
@@ -5365,6 +5411,7 @@ mod tests {
             min_relative_humidity: None,
             data_center: None,
             duct_leakage: None,
+            species_generation: vec![],
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -5564,6 +5611,7 @@ mod tests {
             min_relative_humidity: None,
             data_center: None,
             duct_leakage: None,
+            species_generation: vec![],
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -5723,6 +5771,7 @@ mod tests {
             min_relative_humidity: None,
             data_center: None,
             duct_leakage: None,
+            species_generation: vec![],
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -5864,6 +5913,7 @@ mod tests {
             min_relative_humidity: None,
             data_center: None,
             duct_leakage: None,
+            species_generation: vec![],
         }];
         let surfaces = vec![SurfaceInput {
             name: "Wall".to_string(),
