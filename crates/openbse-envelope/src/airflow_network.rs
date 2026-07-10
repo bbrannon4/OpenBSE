@@ -3020,6 +3020,257 @@ cp_model: !table
         );
     }
 
+    /// MZ-style analytical verification (#100), series configuration
+    /// (ASHRAE 140 MZ320 concept): a fan drives a known flow through two
+    /// zones in series; every path flow and zone pressure has a closed-form
+    /// solution ΔP = (ṁ/C)^(1/n).
+    #[test]
+    fn test_mz_series_fan_driven_analytic() {
+        let n = 0.65_f64;
+        let c12 = 0.004_f64; // zone1 → zone2
+        let c2o = 0.002_f64; // zone2 → outdoor
+        let fan = 0.05_f64; // kg/s forced into zone 1
+
+        // Isothermal, equal heights → no stack, no wind
+        let node = |zi: Option<usize>| PressureNode {
+            zone_index: zi,
+            ref_height: 1.5,
+            pressure: 0.0,
+            temperature: 293.15,
+            density: RHO_REF,
+        };
+        let crack = |a: usize, b: usize, c: f64| FlowPath {
+            node_a: a,
+            node_b: b,
+            height: 1.5,
+            cp: 0.0,
+            azimuth: 0.0,
+            element: FlowElement::PowerLawCrack {
+                coefficient: c,
+                exponent: n,
+            },
+            source_surface: None,
+            mass_flow: 0.0,
+        };
+        let mut network = AirflowNetwork {
+            config: AirflowNetworkConfig {
+                max_iterations: 100,
+                convergence_tolerance: 1e-4,
+                ..Default::default()
+            },
+            nodes: vec![node(Some(0)), node(Some(1)), node(None)],
+            paths: vec![
+                // Fan: outdoor → zone 1 (fixed)
+                FlowPath {
+                    node_a: 2,
+                    node_b: 0,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::FixedFlow { mass_flow: fan },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+                crack(0, 1, c12),
+                crack(1, 2, c2o),
+            ],
+            outdoor_node: 2,
+            zone_to_node: vec![0, 1],
+            zone_outdoor_mass_flow: vec![0.0, 0.0],
+            zone_interzone_flows: vec![vec![], vec![]],
+            side_ratio: 1.0,
+            hvac_net_path_indices: vec![None, None],
+            scheduled_openings: vec![],
+            duct_supply_leak_path_indices: vec![None, None],
+            duct_return_leak_path_indices: vec![None, None],
+            nat_vent_path_indices: vec![None, None],
+        };
+
+        let (converged, _) =
+            solve_pressures(&mut network, 0.0, 0.0, 20.0, RHO_REF, Terrain::Suburbs);
+        assert!(converged);
+
+        // Analytical: series flow = fan everywhere
+        let dp12 = (fan / c12).powf(1.0 / n);
+        let dp2o = (fan / c2o).powf(1.0 / n);
+        let p2 = dp2o;
+        let p1 = p2 + dp12;
+        assert_relative_eq!(network.nodes[0].pressure, p1, max_relative = 1e-3);
+        assert_relative_eq!(network.nodes[1].pressure, p2, max_relative = 1e-3);
+        assert_relative_eq!(network.paths[1].mass_flow, fan, max_relative = 1e-3);
+        assert_relative_eq!(network.paths[2].mass_flow, fan, max_relative = 1e-3);
+        // Zone 2 receives the full fan flow from zone 1
+        let inflow: f64 = network.zone_interzone_flows[1]
+            .iter()
+            .map(|&(_, m)| m)
+            .sum();
+        assert_relative_eq!(inflow, fan, max_relative = 1e-3);
+    }
+
+    /// MZ-style analytical verification (#100), parallel configuration:
+    /// an exhaust fan draws through two parallel envelope cracks with a
+    /// shared zone pressure; the split follows the coefficient ratio and
+    /// ΔP = (ṁ/(C_a+C_b))^(1/n).
+    #[test]
+    fn test_mz_parallel_paths_analytic() {
+        let n = 0.65_f64;
+        let ca = 0.003_f64;
+        let cb = 0.001_f64;
+        let fan = 0.04_f64;
+
+        let node = |zi: Option<usize>| PressureNode {
+            zone_index: zi,
+            ref_height: 1.5,
+            pressure: 0.0,
+            temperature: 293.15,
+            density: RHO_REF,
+        };
+        let crack = |c: f64| FlowPath {
+            node_a: 1,
+            node_b: 0,
+            height: 1.5,
+            cp: 0.0,
+            azimuth: 0.0,
+            element: FlowElement::PowerLawCrack {
+                coefficient: c,
+                exponent: n,
+            },
+            source_surface: None,
+            mass_flow: 0.0,
+        };
+        let mut network = AirflowNetwork {
+            config: AirflowNetworkConfig {
+                max_iterations: 100,
+                convergence_tolerance: 1e-4,
+                ..Default::default()
+            },
+            nodes: vec![node(Some(0)), node(None)],
+            paths: vec![
+                crack(ca),
+                crack(cb),
+                FlowPath {
+                    node_a: 0,
+                    node_b: 1,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::FixedFlow { mass_flow: fan },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+            ],
+            outdoor_node: 1,
+            zone_to_node: vec![0],
+            zone_outdoor_mass_flow: vec![0.0],
+            zone_interzone_flows: vec![vec![]],
+            side_ratio: 1.0,
+            hvac_net_path_indices: vec![None],
+            scheduled_openings: vec![],
+            duct_supply_leak_path_indices: vec![None],
+            duct_return_leak_path_indices: vec![None],
+            nat_vent_path_indices: vec![None],
+        };
+
+        let (converged, _) =
+            solve_pressures(&mut network, 0.0, 0.0, 20.0, RHO_REF, Terrain::Suburbs);
+        assert!(converged);
+
+        let dp = (fan / (ca + cb)).powf(1.0 / n);
+        assert_relative_eq!(network.nodes[0].pressure, -dp, max_relative = 1e-3);
+        // Split follows the coefficient ratio
+        assert_relative_eq!(
+            network.paths[0].mass_flow / network.paths[1].mass_flow,
+            ca / cb,
+            max_relative = 1e-6
+        );
+        assert_relative_eq!(network.zone_outdoor_mass_flow[0], fan, max_relative = 1e-3);
+    }
+
+    /// MZ-style analytical verification (#100), three-zone branch: the fan
+    /// flow splits between two parallel interzone branches whose series
+    /// resistances differ; each branch flow satisfies its own closed form.
+    #[test]
+    fn test_mz_three_zone_branch_analytic() {
+        let n = 0.65_f64;
+        let fan = 0.06_f64;
+        // Branch A: zone0 → zone1 (0.004) → outdoor (0.004)
+        // Branch B: zone0 → zone2 (0.002) → outdoor (0.002)
+        // Equal coefficients within a branch → equal ΔP across each element.
+        let node = |zi: Option<usize>| PressureNode {
+            zone_index: zi,
+            ref_height: 1.5,
+            pressure: 0.0,
+            temperature: 293.15,
+            density: RHO_REF,
+        };
+        let crack = |a: usize, b: usize, c: f64| FlowPath {
+            node_a: a,
+            node_b: b,
+            height: 1.5,
+            cp: 0.0,
+            azimuth: 0.0,
+            element: FlowElement::PowerLawCrack {
+                coefficient: c,
+                exponent: n,
+            },
+            source_surface: None,
+            mass_flow: 0.0,
+        };
+        let mut network = AirflowNetwork {
+            config: AirflowNetworkConfig {
+                max_iterations: 100,
+                convergence_tolerance: 1e-4,
+                ..Default::default()
+            },
+            nodes: vec![node(Some(0)), node(Some(1)), node(Some(2)), node(None)],
+            paths: vec![
+                FlowPath {
+                    node_a: 3,
+                    node_b: 0,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::FixedFlow { mass_flow: fan },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+                crack(0, 1, 0.004),
+                crack(1, 3, 0.004),
+                crack(0, 2, 0.002),
+                crack(2, 3, 0.002),
+            ],
+            outdoor_node: 3,
+            zone_to_node: vec![0, 1, 2],
+            zone_outdoor_mass_flow: vec![0.0, 0.0, 0.0],
+            zone_interzone_flows: vec![vec![], vec![], vec![]],
+            side_ratio: 1.0,
+            hvac_net_path_indices: vec![None, None, None],
+            scheduled_openings: vec![],
+            duct_supply_leak_path_indices: vec![None, None, None],
+            duct_return_leak_path_indices: vec![None, None, None],
+            nat_vent_path_indices: vec![None, None, None],
+        };
+
+        let (converged, _) =
+            solve_pressures(&mut network, 0.0, 0.0, 20.0, RHO_REF, Terrain::Suburbs);
+        assert!(converged);
+
+        // Two elements in series with equal C halve the driving pressure per
+        // element: branch flow = C·(P0/2)^n. Split between branches with
+        // C_A = 0.004, C_B = 0.002 at the same P0: ṁ_A/ṁ_B = 2.
+        let m_a = network.paths[1].mass_flow;
+        let m_b = network.paths[3].mass_flow;
+        assert_relative_eq!(m_a / m_b, 2.0, max_relative = 1e-6);
+        assert_relative_eq!(m_a + m_b, fan, max_relative = 1e-3);
+
+        // Closed form for zone 0 pressure: fan = (C_A + C_B)·(P0/2)^n
+        let p0 = 2.0 * (fan / 0.006_f64).powf(1.0 / n);
+        assert_relative_eq!(network.nodes[0].pressure, p0, max_relative = 1e-3);
+        // Interior zones sit at exactly half the driving pressure
+        assert_relative_eq!(network.nodes[1].pressure, p0 / 2.0, max_relative = 1e-3);
+        assert_relative_eq!(network.nodes[2].pressure, p0 / 2.0, max_relative = 1e-3);
+    }
+
     /// Pressure-dependent duct leak (#99): at the design point the leak
     /// equals fraction × design flow; with the fan off the duct is a
     /// passive power-law path; derivative matches finite differences.
