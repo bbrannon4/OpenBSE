@@ -249,13 +249,36 @@ pub struct AirflowNetwork {
     pub outdoor_node: usize,
     /// Mapping: zone_index → node_index.
     pub zone_to_node: Vec<usize>,
-    /// Per-zone net outdoor mass flow [kg/s] (air entering from outdoors).
-    /// Replaces `infiltration_mass_flow` in zone state.
+    /// Per-zone net outdoor mass flow [kg/s] (infiltration entering from outdoors).
+    /// Positive = infiltration. Zero when building is pressurized (exfiltration occurs
+    /// but is not counted here since zone air leaving has minimal heat-balance impact).
+    /// Replaces `infiltration_mass_flow` in zone state when AFN is active.
     pub zone_outdoor_mass_flow: Vec<f64>,
     /// Per-zone interzone flows: list of (source_zone_index, mass_flow [kg/s]).
     pub zone_interzone_flows: Vec<Vec<InterzoneFlow>>,
     /// Building plan side ratio (along-wind / cross-wind) for Cp calculation.
     pub side_ratio: f64,
+    /// Per-zone path indices for HVAC net injection (outdoor_air_supply - exhaust).
+    /// These paths drive zone pressure but are excluded from zone_outdoor_mass_flow
+    /// accumulation (the OA is already counted in zone.outdoor_air_mass_flow).
+    pub hvac_net_path_indices: Vec<Option<usize>>,
+}
+
+impl AirflowNetwork {
+    /// Update the HVAC net injection FixedFlow for a zone before each AFN solve.
+    ///
+    /// `net_kg_s` = outdoor_air_mass_flow − exhaust_mass_flow (from previous timestep).
+    /// Positive → zone is being pressurized (OA supply > exhaust).
+    /// Negative → zone is being depressurized (exhaust > OA supply).
+    pub fn update_hvac_net_flow(&mut self, zone_idx: usize, net_kg_s: f64) {
+        if let Some(Some(path_idx)) = self.hvac_net_path_indices.get(zone_idx) {
+            if let Some(path) = self.paths.get_mut(*path_idx) {
+                if let FlowElement::FixedFlow { ref mut mass_flow } = path.element {
+                    *mass_flow = net_kg_s;
+                }
+            }
+        }
+    }
 }
 
 // ─── Cp correlations ────────────────────────────────────────────────────────
@@ -579,6 +602,27 @@ pub fn build_network(
         }
     }
 
+    // HVAC net injection paths: one per zone (outdoor → zone).
+    // mass_flow = OA_supply − exhaust, updated each timestep before solving.
+    // Positive → pressurisation; negative → depressurisation.
+    // Excluded from zone_outdoor_mass_flow so OA isn't double-counted.
+    let mut hvac_net_path_indices: Vec<Option<usize>> = vec![None; n_zones];
+    for zi in 0..n_zones {
+        let zone_node = zone_to_node[zi];
+        let path_idx = paths.len();
+        paths.push(FlowPath {
+            node_a: outdoor_node,
+            node_b: zone_node,
+            height: zones[zi].centroid_height,
+            cp: 0.0,
+            azimuth: 0.0,
+            element: FlowElement::FixedFlow { mass_flow: 0.0 },
+            source_surface: None,
+            mass_flow: 0.0,
+        });
+        hvac_net_path_indices[zi] = Some(path_idx);
+    }
+
     AirflowNetwork {
         config: config.clone(),
         nodes,
@@ -588,6 +632,7 @@ pub fn build_network(
         zone_outdoor_mass_flow: vec![0.0; n_zones],
         zone_interzone_flows: vec![Vec::new(); n_zones],
         side_ratio,
+        hvac_net_path_indices,
     }
 }
 
@@ -853,6 +898,14 @@ fn post_solve(network: &mut AirflowNetwork, wind_speed_met: f64, terrain: Terrai
     let n_zones = network.zone_to_node.len();
     let weather_wind_mod_coeff = crate::convection::DEFAULT_WEATHER_WIND_MOD_COEFF;
 
+    // Build a fast lookup for HVAC net paths so we can exclude them from
+    // zone_outdoor_mass_flow accumulation (their OA is already tracked separately).
+    let hvac_path_set: std::collections::HashSet<usize> = network
+        .hvac_net_path_indices
+        .iter()
+        .filter_map(|&idx| idx)
+        .collect();
+
     // Reset accumulators
     for i in 0..n_zones {
         network.zone_outdoor_mass_flow[i] = 0.0;
@@ -860,7 +913,7 @@ fn post_solve(network: &mut AirflowNetwork, wind_speed_met: f64, terrain: Terrai
     }
 
     // Compute final flows on each path
-    for path in &mut network.paths {
+    for (pi, path) in network.paths.iter_mut().enumerate() {
         let dp = compute_path_dp(
             path,
             &network.nodes,
@@ -873,6 +926,12 @@ fn post_solve(network: &mut AirflowNetwork, wind_speed_met: f64, terrain: Terrai
             0.5 * (network.nodes[path.node_a].density + network.nodes[path.node_b].density);
         let (flow, _) = flow_and_derivative(&path.element, dp, rho_avg);
         path.mass_flow = flow;
+
+        // HVAC net injection paths drive zone pressure but their OA content is
+        // already accounted for in zone.outdoor_air_mass_flow — skip accumulation.
+        if hvac_path_set.contains(&pi) {
+            continue;
+        }
 
         // Accumulate into zone results
         let a_zone = network.nodes[path.node_a].zone_index;
@@ -1163,6 +1222,7 @@ mod tests {
             zone_outdoor_mass_flow: vec![0.0],
             zone_interzone_flows: vec![vec![]],
             side_ratio: 1.0,
+            hvac_net_path_indices: vec![None],
         };
 
         let (converged, _iters) =
@@ -1281,6 +1341,7 @@ mod tests {
             zone_outdoor_mass_flow: vec![0.0, 0.0],
             zone_interzone_flows: vec![vec![], vec![]],
             side_ratio: 1.0,
+            hvac_net_path_indices: vec![None, None],
         };
 
         let (converged, _) =
@@ -1403,6 +1464,7 @@ mod tests {
             zone_outdoor_mass_flow: vec![0.0, 0.0],
             zone_interzone_flows: vec![vec![], vec![]],
             side_ratio: 1.0,
+            hvac_net_path_indices: vec![None, None],
         };
 
         let (converged, _) = solve_pressures(&mut network, 0.0, 0.0, 0.0, 1.292, Terrain::Country);
@@ -1452,5 +1514,112 @@ mod tests {
         };
         let sr = estimate_side_ratio(&areas);
         assert_relative_eq!(sr, 2.0, max_relative = 1e-10);
+    }
+
+    /// Pressurised building: HVAC supplies more OA than it exhausts.
+    /// The solver should raise zone pressure until crack flows balance the net
+    /// injection, driving infiltration to zero (all cracks produce exfiltration).
+    #[test]
+    fn test_pressurized_building_zero_infiltration() {
+        // Single zone, two crack paths (outdoor→zone), one HVAC net path.
+        // Crack coefficient chosen so a small overpressure produces ~0.05 kg/s out.
+        let crack_c = 0.001_f64; // power-law C [kg/s/Pa^n]
+        let crack_n = 0.65_f64;
+
+        let zone_node = 0usize;
+        let outdoor_node = 1usize;
+        let hvac_path_idx = 2usize; // third path = HVAC net injection
+
+        let mut network = AirflowNetwork {
+            config: AirflowNetworkConfig::default(),
+            nodes: vec![
+                PressureNode {
+                    zone_index: Some(0),
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 293.15, // 20°C
+                    density: RHO_REF,
+                },
+                PressureNode {
+                    zone_index: None, // outdoor
+                    ref_height: 0.0,
+                    pressure: 0.0,
+                    temperature: 273.15, // 0°C
+                    density: 1.292,
+                },
+            ],
+            paths: vec![
+                // Two cracks: outdoor→zone
+                FlowPath {
+                    node_a: outdoor_node,
+                    node_b: zone_node,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: crack_c,
+                        exponent: crack_n,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+                FlowPath {
+                    node_a: outdoor_node,
+                    node_b: zone_node,
+                    height: 2.5,
+                    cp: 0.0,
+                    azimuth: 180.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: crack_c,
+                        exponent: crack_n,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+                // HVAC net injection: 0.05 kg/s OA surplus → pressurisation
+                FlowPath {
+                    node_a: outdoor_node,
+                    node_b: zone_node,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::FixedFlow { mass_flow: 0.05 },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+            ],
+            outdoor_node,
+            zone_to_node: vec![zone_node],
+            zone_outdoor_mass_flow: vec![0.0],
+            zone_interzone_flows: vec![vec![]],
+            side_ratio: 1.0,
+            hvac_net_path_indices: vec![Some(hvac_path_idx)],
+        };
+
+        let (converged, _) = solve_pressures(&mut network, 0.0, 0.0, 0.0, 1.292, Terrain::Suburbs);
+        assert!(converged, "solver should converge");
+
+        // Zone should be at positive pressure (above outdoor = 0 Pa)
+        let zone_pressure = network.nodes[zone_node].pressure;
+        assert!(
+            zone_pressure > 0.0,
+            "pressurised zone should have positive gauge pressure, got {zone_pressure:.3} Pa"
+        );
+
+        // Infiltration reported to zone should be zero — cracks flow outward
+        let infiltration = network.zone_outdoor_mass_flow[0];
+        assert!(
+            infiltration < 1e-6,
+            "pressurised building should have zero infiltration, got {infiltration:.4} kg/s"
+        );
+
+        // The two crack paths should each carry negative flow (exfiltration)
+        for (i, path) in network.paths[0..2].iter().enumerate() {
+            assert!(
+                path.mass_flow < 0.0,
+                "crack path {i} should carry exfiltration (negative), got {:.4}",
+                path.mass_flow
+            );
+        }
     }
 }

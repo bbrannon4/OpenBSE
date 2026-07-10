@@ -1974,8 +1974,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                 node.temperature = zone.temp + 273.15;
                 node.density = psych::rho_air_fn_pb_tdb_w(p_b, zone.temp, 0.008);
             }
-            // Update exhaust fan fixed-flow paths from current scheduled rates
-            // (exhaust will be computed below, so we use previous timestep value for now)
+            // Inject HVAC net outdoor exchange using PREVIOUS timestep values.
+            // net = OA_supply − exhaust: positive → pressurisation, negative → depressurisation.
+            // These paths drive zone pressure so that the crack-flow solver returns
+            // the correct infiltration (or zero when the building is pressurised).
+            for (zi, zone) in self.zones.iter().enumerate() {
+                let net = zone.outdoor_air_mass_flow - zone.exhaust_mass_flow;
+                afn.update_hvac_net_flow(zi, net);
+            }
             crate::airflow_network::solve_pressures(
                 afn,
                 wind_speed_met,
