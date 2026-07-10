@@ -70,6 +70,23 @@ pub struct CpTable {
     pub facades: Vec<CpFacade>,
 }
 
+/// Wind shelter factor for one facade (#96).
+///
+/// # Example (YAML)
+/// ```yaml
+/// airflow_network:
+///   facade_shelter:
+///     - azimuth: 90      # east facade behind a tree line
+///       multiplier: 0.5
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FacadeShelter {
+    /// Facade outward normal azimuth [degrees from north, clockwise].
+    pub azimuth: f64,
+    /// Local wind speed multiplier [0-1+]; 1.0 = unsheltered.
+    pub multiplier: f64,
+}
+
 /// Cp values for one facade, parallel to `CpTable.wind_angles`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CpFacade {
@@ -211,6 +228,12 @@ pub struct AirflowNetworkConfig {
     /// Passive species tracked on the network flows (#84), e.g. CO₂.
     #[serde(default)]
     pub species: Vec<crate::species::SpeciesConfig>,
+    /// Per-facade wind shelter multipliers (#96): local wind speed at a
+    /// path is multiplied by the nearest facade's factor (AIM-2/CONTAM
+    /// style wind modifiers for neighboring buildings, tree lines).
+    /// Folded into the wind pressure as Cp × multiplier².
+    #[serde(default)]
+    pub facade_shelter: Vec<FacadeShelter>,
     /// Blower-door calibration (#92): measured air changes per hour at
     /// 50 Pa. When set, exterior crack coefficients are uniformly scaled
     /// after auto-generation so the whole-building envelope flow at 50 Pa
@@ -270,6 +293,7 @@ impl Default for AirflowNetworkConfig {
             adaptive_damping: default_adaptive_damping(),
             relative_tolerance: default_relative_tolerance(),
             species: Vec::new(),
+            facade_shelter: Vec::new(),
             ach50: None,
         }
     }
@@ -1456,6 +1480,7 @@ pub fn update_wind_pressures(
     network.nodes[outdoor].density = rho_outdoor;
 
     let cp_model = network.config.cp_model.clone();
+    let shelter = network.config.facade_shelter.clone();
     let side_ratio = network.side_ratio;
 
     for path in &mut network.paths {
@@ -1467,6 +1492,21 @@ pub fn update_wind_pressures(
 
         // Compute Cp from wind direction vs surface azimuth
         path.cp = compute_cp(&cp_model, wind_direction, path.azimuth, side_ratio);
+
+        // Facade shelter (#96): wind pressure ∝ v², so a local wind-speed
+        // multiplier m folds into the Cp as m².
+        if !shelter.is_empty() {
+            let mult = shelter
+                .iter()
+                .min_by(|a, b| {
+                    let da = angular_distance(a.azimuth, path.azimuth);
+                    let db = angular_distance(b.azimuth, path.azimuth);
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|f| f.multiplier.max(0.0))
+                .unwrap_or(1.0);
+            path.cp *= mult * mult;
+        }
     }
 
     // Update zone node temperatures/densities
@@ -2904,6 +2944,38 @@ cp_model: !table
             "hatch should exchange both ways: lower={:?}, upper={:?}",
             network.zone_interzone_flows[0],
             network.zone_interzone_flows[1]
+        );
+    }
+
+    /// Facade shelter (#96): the nearest facade's wind multiplier scales
+    /// the wind pressure (as Cp × m²); unsheltered facades are unchanged.
+    #[test]
+    fn test_facade_shelter_scales_wind_pressure() {
+        let base_config = AirflowNetworkConfig::default();
+        let sheltered_config = AirflowNetworkConfig {
+            facade_shelter: vec![FacadeShelter {
+                azimuth: 90.0, // east facade sheltered
+                multiplier: 0.5,
+            }],
+            ..Default::default()
+        };
+
+        let make = |config: AirflowNetworkConfig| {
+            let mut n = exhaust_fan_network(config);
+            n.paths[0].azimuth = 90.0; // east-facing crack
+            n
+        };
+
+        let mut plain = make(base_config);
+        update_wind_pressures(&mut plain, 5.0, 90.0, 20.0, RHO_REF, Terrain::Suburbs);
+        let mut sheltered = make(sheltered_config);
+        update_wind_pressures(&mut sheltered, 5.0, 90.0, 20.0, RHO_REF, Terrain::Suburbs);
+
+        // Same geometry, sheltered Cp = plain Cp × 0.25
+        assert_relative_eq!(
+            sheltered.paths[0].cp,
+            plain.paths[0].cp * 0.25,
+            max_relative = 1e-12
         );
     }
 
