@@ -132,6 +132,12 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
             "°C",
             "Zone air temperature at the occupied/thermostat height (room air gradient model)",
         ),
+        ("zone:ach", "1/h", "Zone infiltration air change rate"),
+        (
+            "zone:interzone_inflow",
+            "kg/s",
+            "Total interzone airflow into the zone from the airflow network",
+        ),
         (
             "zone:species_<name>",
             "kg/kg",
@@ -489,6 +495,8 @@ pub fn get_unit(spec: &str) -> &'static str {
         ) => "°C",
         ("zone", "humidity_ratio") => "kg/kg",
         ("zone", "pressure") => "Pa",
+        ("zone", "ach") => "1/h",
+        ("zone", "interzone_inflow") => "kg/s",
         ("zone", v) if v.starts_with("species_") => "kg/kg",
         ("zone", "nat_vent_flow") => "m³/s",
         ("zone", "infiltration_mass_flow" | "supply_air_mass_flow" | "nat_vent_mass_flow") => {
@@ -657,6 +665,10 @@ pub struct OutputSnapshot {
     /// Zone occupied-height air temperature [°C] (#91); equals the mean
     /// air temperature for well-mixed zones.
     pub zone_occupied_temperature: HashMap<String, f64>,
+    /// Zone infiltration air change rate [1/h] (#97).
+    pub zone_ach: HashMap<String, f64>,
+    /// Total AFN interzone inflow into the zone [kg/s] (#97).
+    pub zone_interzone_inflow: HashMap<String, f64>,
     /// Zone species concentrations [kg/kg] keyed by species name (#89).
     pub zone_species: HashMap<String, HashMap<String, f64>>,
     pub zone_humidity_ratio: HashMap<String, f64>,
@@ -774,6 +786,8 @@ impl OutputSnapshot {
             zone_temperature: HashMap::new(),
             zone_pressure: HashMap::new(),
             zone_occupied_temperature: HashMap::new(),
+            zone_ach: HashMap::new(),
+            zone_interzone_inflow: HashMap::new(),
             zone_species: HashMap::new(),
             zone_humidity_ratio: HashMap::new(),
             zone_heating_rate: HashMap::new(),
@@ -871,6 +885,8 @@ impl OutputSnapshot {
                 "temperature" => self.zone_temperature.clone(),
                 "pressure" => self.zone_pressure.clone(),
                 "occupied_temperature" => self.zone_occupied_temperature.clone(),
+                "ach" => self.zone_ach.clone(),
+                "interzone_inflow" => self.zone_interzone_inflow.clone(),
                 "humidity_ratio" => self.zone_humidity_ratio.clone(),
                 "heating_rate" => self.zone_heating_rate.clone(),
                 "cooling_rate" => self.zone_cooling_rate.clone(),
@@ -3601,6 +3617,27 @@ mod tests {
         // Unknown species yields no values (not a panic)
         let vals = snap.get_variable_values("zone:species_radon");
         assert!(vals.is_empty());
+    }
+
+    /// AFN reporting (#97): zone ACH and interzone inflow resolve with units.
+    #[test]
+    fn test_zone_ach_and_interzone_outputs() {
+        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
+        snap.zone_ach.insert("Living".to_string(), 0.35);
+        snap.zone_interzone_inflow
+            .insert("Living".to_string(), 0.12);
+
+        assert_eq!(
+            snap.get_variable_values("zone:ach").get("Living"),
+            Some(&0.35)
+        );
+        assert_eq!(
+            snap.get_variable_values("zone:interzone_inflow")
+                .get("Living"),
+            Some(&0.12)
+        );
+        assert_eq!(get_unit("zone:ach"), "1/h");
+        assert_eq!(get_unit("zone:interzone_inflow"), "kg/s");
     }
 
     #[test]

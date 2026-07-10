@@ -3536,6 +3536,23 @@ fn main() -> Result<()> {
                                 .zone_occupied_temperature
                                 .insert(name.clone(), zone.occupied_air_temp());
                         }
+                        // Infiltration ACH and interzone inflow (#97)
+                        if zone.input.volume > 0.0 {
+                            let rho = openbse_psychrometrics::rho_air_fn_pb_tdb_w(
+                                101_325.0,
+                                zone.temp,
+                                zone.humidity_ratio,
+                            );
+                            snapshot.zone_ach.insert(
+                                name.clone(),
+                                zone.infiltration_mass_flow * 3600.0 / (rho * zone.input.volume),
+                            );
+                        }
+                        if afn_active {
+                            snapshot
+                                .zone_interzone_inflow
+                                .insert(name.clone(), zone.afn_interzone_mass_flow);
+                        }
                         snapshot
                             .zone_humidity_ratio
                             .insert(name.clone(), zone.humidity_ratio);
