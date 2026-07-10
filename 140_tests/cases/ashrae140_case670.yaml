@@ -84,10 +84,19 @@ simple_constructions:
 window_constructions:
   # Case 670 Window: single-pane clear glass (ASHRAE 140 Case 670)
   # U = 5.16 W/(m2K), SHGC = 0.864 at normal incidence (Window 7 ID 15)
+  # Full pane data from the standard's WINDOW7 report (ID 15, CLEAR_3.DAT,
+  # EnvCond=8: hi=7.8, he=16.0 — NOT NFRC films, so the film-stripping
+  # fallback misreads the rating; the pane data engages the physical path).
   - name: Case670 Window
     u_factor: 5.16
     shgc: 0.864
     visible_transmittance: 0.90
+    pane_solar_transmittance: 0.834
+    pane_solar_reflectance: 0.075
+    num_panes: 1
+    pane_conductivity: 1.0
+    pane_thickness: 0.003048
+    glass_emissivity: 0.84
 
 # ─── No air loops needed ─────────────────────────────────────────────────────
 # Ideal loads air system handles HVAC internally in the envelope solver.

@@ -988,7 +988,28 @@ impl BuildingEnvelope {
                 u_factor
             };
 
-            let u_glass = if is_window && win_gap_width > 0.0 {
+            // Single-pane first-principles (#101): with num_panes = 1 and pane
+            // thickness + conductivity, the glass conductance is physically
+            // fixed (no gap): u_glass = k/t (~330 W/m²K for 3 mm glass). The
+            // NFRC film-stripping fallback is wrong here whenever the rating
+            // was produced at non-NFRC film coefficients (e.g. ASHRAE 140's
+            // BESTEST windows are rated at hi = 7.8, he = 16.0), which leaves
+            // phantom resistance in the glass and under-predicts winter loss.
+            // No rated cap — bare glass conductance doesn't drift.
+            let single_pane_r = if is_window {
+                window_map.get(&surf_input.construction).and_then(|w| {
+                    match (w.num_panes, w.pane_conductivity, w.pane_thickness) {
+                        (Some(1), Some(pk), Some(pt)) if pt > 0.0 && pk > 0.0 => Some(pt / pk),
+                        _ => None,
+                    }
+                })
+            } else {
+                None
+            };
+
+            let u_glass = if let Some(r_pane) = single_pane_r {
+                1.0 / r_pane.max(1e-6)
+            } else if is_window && win_gap_width > 0.0 {
                 // First-principles: compute u_glass from pane + gap properties.
                 // Initial estimate at ~0°C mean gap temperature, ~15°C ΔT across gap.
                 let h_gap_init = sealed_air_gap_conductance(
@@ -5902,6 +5923,78 @@ mod tests {
             t_cold_with_door > t_cold_without + 0.5,
             "doorway advection should warm the cold zone: {t_cold_with_door:.2} vs {t_cold_without:.2} °C"
         );
+    }
+
+    /// Single-pane windows (#101): with num_panes = 1 and pane data, the
+    /// glass conductance is physical (k/t ≈ 328 for 3 mm glass) instead of
+    /// the NFRC film-stripped value (~29 for the ASHRAE 140 Case 670 window,
+    /// whose 5.16 rating was produced at hi=7.8/he=16.0, not NFRC films).
+    #[test]
+    fn test_single_pane_glass_conductance() {
+        use crate::material::ConstructionLayer;
+        let mats = vec![Material {
+            name: "Concrete".to_string(),
+            conductivity: 1.311,
+            density: 2240.0,
+            specific_heat: 836.8,
+            solar_absorptance: 0.7,
+            thermal_absorptance: 0.9,
+            visible_absorptance: 0.7,
+            roughness: Roughness::MediumRough,
+            thermal_resistance: None,
+            vapor_resistance_factor: None,
+            sorption_isotherm: None,
+            liquid_transport_coeff: None,
+            thermal_absorptance_inside: None,
+        }];
+        let cons = vec![Construction {
+            name: "Wall".to_string(),
+            layers: vec![ConstructionLayer {
+                material: "Concrete".to_string(),
+                thickness: 0.2,
+            }],
+        }];
+        let wins = vec![WindowConstruction {
+            name: "SinglePane".to_string(),
+            u_factor: 5.16,
+            shgc: 0.864,
+            visible_transmittance: 0.90,
+            solar_absorptance: None,
+            inside_absorbed_fraction: 0.5,
+            pane_solar_transmittance: Some(0.834),
+            pane_solar_reflectance: Some(0.075),
+            num_panes: Some(1),
+            gap_width: None,
+            pane_conductivity: Some(1.0),
+            pane_thickness: Some(0.003048),
+            glass_emissivity: Some(0.84),
+        }];
+        // Reuse the simple model's zone/surface layout, swapping the window
+        let template = make_simple_model();
+        let zones: Vec<ZoneInput> = template.zones.iter().map(|z| z.input.clone()).collect();
+        let mut surfs: Vec<SurfaceInput> =
+            template.surfaces.iter().map(|s| s.input.clone()).collect();
+        for s in &mut surfs {
+            if s.surface_type == SurfaceType::Window {
+                s.construction = "SinglePane".to_string();
+            }
+        }
+        let envelope =
+            BuildingEnvelope::from_input(mats, cons, wins, zones, surfs, 40.0, -105.0, -7.0);
+
+        let win = envelope
+            .surfaces
+            .iter()
+            .find(|s| s.is_window)
+            .expect("window surface");
+        // u_glass = k/t = 1.0/0.003048 ≈ 328.1, NOT the film-stripped ~28.8
+        assert!(
+            (win.u_glass - 328.08).abs() < 1.0,
+            "single-pane u_glass should be physical k/t, got {:.1}",
+            win.u_glass
+        );
+        // No gap → the runtime gap model stays disengaged (u_glass constant)
+        assert_eq!(win.gap_width, 0.0);
     }
 
     #[test]
