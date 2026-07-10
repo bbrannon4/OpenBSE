@@ -2030,23 +2030,32 @@ impl EnvelopeSolver for BuildingEnvelope {
             // by the current schedule fraction (0 = closed).
             let schedule_manager = &self.schedule_manager;
             afn.update_scheduled_openings(|name| schedule_manager.fraction(name, hour, dow));
-            // Natural-ventilation openings (#88): drive the AFN opening area
-            // from the availability logic (schedule, temperature windows,
-            // wind limit). The zone-level wind-&-stack model is disabled
-            // while the AFN is active so the flow is not double-counted.
-            for (zi, zone) in self.zones.iter().enumerate() {
-                if let Some(ref nv) = zone.input.natural_ventilation {
-                    let sched_frac = if ctx.is_sizing {
-                        0.0
-                    } else {
-                        match &nv.schedule {
-                            Some(name) => schedule_manager.fraction(name, hour, dow),
-                            None => 1.0,
-                        }
-                    };
-                    let avail = nv.availability(zone.temp, t_outdoor, wind_speed_met, sched_frac);
-                    afn.update_nat_vent_opening(zi, nv.opening_area * avail);
-                }
+            // Natural-ventilation openings (#88, #95): drive the AFN opening
+            // area from the availability logic (schedule, temperature
+            // windows, ΔT gate, wind limit) with anti-cycling hysteresis.
+            // The zone-level wind-&-stack model is disabled while the AFN is
+            // active so the flow is not double-counted; the hysteresis state
+            // is updated HERE (once per timestep) in AFN mode.
+            for zi in 0..self.zones.len() {
+                let Some(nv) = self.zones[zi].input.natural_ventilation.clone() else {
+                    continue;
+                };
+                let sched_frac = if ctx.is_sizing {
+                    0.0
+                } else {
+                    match &nv.schedule {
+                        Some(name) => schedule_manager.fraction(name, hour, dow),
+                        None => 1.0,
+                    }
+                };
+                let cond = nv.conditions_ok(self.zones[zi].temp, t_outdoor, wind_speed_met);
+                let frac = self.zones[zi].apply_nat_vent_hysteresis(
+                    sched_frac,
+                    cond,
+                    nv.min_on_timesteps,
+                    nv.min_off_timesteps,
+                );
+                afn.update_nat_vent_opening(zi, nv.opening_area * frac);
             }
             let (afn_converged, afn_iters) = crate::airflow_network::solve_pressures(
                 afn,
@@ -2268,23 +2277,26 @@ impl EnvelopeSolver for BuildingEnvelope {
                 };
 
                 let t_zone = zone.temp;
-                let avail = nv.availability(t_zone, t_outdoor, wind_speed_met, sched_frac);
 
-                if afn_active {
-                    // #88: the AFN opening carries the flow (it arrives via
-                    // infiltration_mass_flow), so the wind-&-stack model is
-                    // disabled to avoid double counting. Availability still
-                    // drives nat_vent_active for the setpoint-reset logic.
-                    zone.nat_vent_flow = 0.0;
-                    zone.nat_vent_mass_flow = 0.0;
-                    if avail > 0.0 {
-                        zone.nat_vent_active = true;
-                        zone.nat_vent_off_timesteps = 0;
-                    } else {
-                        zone.nat_vent_active = false;
-                        zone.nat_vent_off_timesteps = zone.nat_vent_off_timesteps.saturating_add(1);
-                    }
-                } else if avail > 0.0 {
+                // #88: with the AFN active, the network opening carries the
+                // flow (it arrives via infiltration_mass_flow) and the
+                // hysteresis state (#95) was already updated in the AFN
+                // block — zero the wind-&-stack flows to avoid double
+                // counting. Otherwise the hysteresis decides the effective
+                // fraction here (#95).
+                let avail = if afn_active {
+                    0.0
+                } else {
+                    let cond = nv.conditions_ok(t_zone, t_outdoor, wind_speed_met);
+                    zone.apply_nat_vent_hysteresis(
+                        sched_frac,
+                        cond,
+                        nv.min_on_timesteps,
+                        nv.min_off_timesteps,
+                    )
+                };
+
+                if avail > 0.0 {
                     // Wind-driven component
                     // Determine windward/leeward: the opening is windward if the
                     // angle between wind direction and the outward normal of the
@@ -2316,16 +2328,11 @@ impl EnvelopeSolver for BuildingEnvelope {
 
                     zone.nat_vent_flow = v_total;
                     zone.nat_vent_mass_flow = v_total * rho_outdoor;
-                    zone.nat_vent_active = true;
-                    zone.nat_vent_off_timesteps = 0;
                 } else {
+                    // nat_vent_active and the on/off counters are owned by
+                    // apply_nat_vent_hysteresis (#95); only the flows here.
                     zone.nat_vent_flow = 0.0;
                     zone.nat_vent_mass_flow = 0.0;
-                    zone.nat_vent_active = false;
-                    // Increment off-timestep counter (saturate to avoid overflow)
-                    if zone.nat_vent_off_timesteps < u32::MAX {
-                        zone.nat_vent_off_timesteps = zone.nat_vent_off_timesteps.saturating_add(1);
-                    }
                 }
             } else {
                 zone.nat_vent_flow = 0.0;

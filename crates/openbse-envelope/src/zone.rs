@@ -354,6 +354,19 @@ pub struct NaturalVentilationInput {
     /// Schedule value > 0 means ventilation is available.
     #[serde(default)]
     pub schedule: Option<String>,
+    /// Minimum indoor−outdoor ΔT [K] for ventilation (#95): only ventilate
+    /// when outdoor air is usefully cooler (T_zone − T_out ≥ this). None =
+    /// no gate.
+    #[serde(default)]
+    pub min_indoor_outdoor_delta_t: Option<f64>,
+    /// Anti-cycling hysteresis (#95): once opened, stay open at least this
+    /// many timesteps even if conditions drift out of range.
+    #[serde(default)]
+    pub min_on_timesteps: u32,
+    /// Anti-cycling hysteresis (#95): once closed, stay closed at least
+    /// this many timesteps before reopening.
+    #[serde(default)]
+    pub min_off_timesteps: u32,
     /// Thermostat setpoint override when natural ventilation is active.
     /// Widens the deadband so HVAC does not fight the outdoor air.
     #[serde(default)]
@@ -374,16 +387,27 @@ impl NaturalVentilationInput {
         wind_speed: f64,
         sched_frac: f64,
     ) -> f64 {
-        let temp_ok = t_zone >= self.min_indoor_temp
-            && t_zone <= self.max_indoor_temp
-            && t_outdoor >= self.min_outdoor_temp
-            && t_outdoor <= self.max_outdoor_temp
-            && wind_speed <= self.max_wind_speed;
-        if temp_ok {
+        if self.conditions_ok(t_zone, t_outdoor, wind_speed) {
             sched_frac.clamp(0.0, 1.0)
         } else {
             0.0
         }
+    }
+
+    /// Whether the temperature windows, ΔT gate, and wind limit permit
+    /// ventilation right now (#88, #95). Hysteresis is applied separately
+    /// via `ZoneState::apply_nat_vent_hysteresis`.
+    pub fn conditions_ok(&self, t_zone: f64, t_outdoor: f64, wind_speed: f64) -> bool {
+        let delta_t_ok = match self.min_indoor_outdoor_delta_t {
+            Some(dt) => t_zone - t_outdoor >= dt,
+            None => true,
+        };
+        t_zone >= self.min_indoor_temp
+            && t_zone <= self.max_indoor_temp
+            && t_outdoor >= self.min_outdoor_temp
+            && t_outdoor <= self.max_outdoor_temp
+            && wind_speed <= self.max_wind_speed
+            && delta_t_ok
     }
 }
 
@@ -881,6 +905,8 @@ pub struct ZoneState {
     pub nat_vent_active: bool,
     /// Timesteps since natural ventilation stopped (for setpoint ramp-back)
     pub nat_vent_off_timesteps: u32,
+    /// Consecutive timesteps natural ventilation has been active (#95).
+    pub nat_vent_on_timesteps: u32,
     /// Zone centroid height above ground [m].
     /// Used for wind speed correction in infiltration calculation.
     /// Computed as area-weighted average of zone surface centroid heights.
@@ -996,6 +1022,44 @@ impl ZoneState {
         }
     }
 
+    /// Hybrid-ventilation hysteresis (#95): decide the effective opening
+    /// fraction from the schedule fraction and instantaneous conditions,
+    /// with anti-cycling min-on/min-off holds. Updates nat_vent_active and
+    /// the on/off counters — call exactly once per timestep per zone.
+    pub fn apply_nat_vent_hysteresis(
+        &mut self,
+        sched_frac: f64,
+        conditions_ok: bool,
+        min_on: u32,
+        min_off: u32,
+    ) -> f64 {
+        let scheduled = sched_frac > 0.0;
+        let open = if self.nat_vent_active {
+            // Hold open against condition flapping, but always honor the
+            // schedule (an occupant/automation command, not noise).
+            scheduled && (conditions_ok || self.nat_vent_on_timesteps < min_on)
+        } else {
+            scheduled && conditions_ok && self.nat_vent_off_timesteps >= min_off
+        };
+        if open {
+            self.nat_vent_on_timesteps = if self.nat_vent_active {
+                self.nat_vent_on_timesteps.saturating_add(1)
+            } else {
+                1
+            };
+            self.nat_vent_active = true;
+            self.nat_vent_off_timesteps = 0;
+            sched_frac.clamp(0.0, 1.0)
+        } else {
+            if self.nat_vent_active {
+                self.nat_vent_on_timesteps = 0;
+            }
+            self.nat_vent_active = false;
+            self.nat_vent_off_timesteps = self.nat_vent_off_timesteps.saturating_add(1);
+            0.0
+        }
+    }
+
     pub fn new(input: ZoneInput, initial_temp: f64) -> Self {
         Self {
             input,
@@ -1043,7 +1107,8 @@ impl ZoneState {
             nat_vent_mass_flow: 0.0,
             nat_vent_active: false,
             nat_vent_off_timesteps: u32::MAX, // large value = long since stopped
-            centroid_height: 0.0,             // set after surface assignment
+            nat_vent_on_timesteps: 0,
+            centroid_height: 0.0, // set after surface assignment
             temp_no_hvac: initial_temp,
             ideal_pred_mode: 0,
             ideal_pred_mode_locked: false,
@@ -1375,6 +1440,99 @@ mod tests {
         assert_relative_eq!(m * t, 0.07 * 3.0 + 0.13 * 26.0, max_relative = 1e-12);
     }
 
+    /// Hybrid-ventilation hysteresis (#95): min-off blocks reopening,
+    /// min-on holds against condition flapping, schedule always closes.
+    #[test]
+    fn test_nat_vent_hysteresis() {
+        let input = ZoneInput {
+            name: "Z".to_string(),
+            volume: 100.0,
+            floor_area: 30.0,
+            infiltration: vec![],
+            internal_gains: vec![],
+            internal_mass: vec![],
+            ideal_loads: None,
+            thermostat_schedule: vec![],
+            ventilation_schedule: vec![],
+            solar_distribution: None,
+            exhaust_fan: None,
+            outdoor_air: None,
+            natural_ventilation: None,
+            conditioned: true,
+            zone_multiplier: 1,
+            max_relative_humidity: None,
+            min_relative_humidity: None,
+            data_center: None,
+            duct_leakage: None,
+            species_generation: vec![],
+            room_air: None,
+        };
+        let mut zone = ZoneState::new(input, 22.0);
+        let (min_on, min_off) = (2u32, 3u32);
+
+        // Fresh state (off long ago): conditions good → opens
+        assert_eq!(
+            zone.apply_nat_vent_hysteresis(1.0, true, min_on, min_off),
+            1.0
+        );
+        assert!(zone.nat_vent_active);
+
+        // Conditions flap off after 1 step — held open by min_on = 2
+        assert_eq!(
+            zone.apply_nat_vent_hysteresis(1.0, false, min_on, min_off),
+            1.0
+        );
+        // Second bad step: on_timesteps reached min_on → closes
+        assert_eq!(
+            zone.apply_nat_vent_hysteresis(1.0, false, min_on, min_off),
+            0.0
+        );
+        assert!(!zone.nat_vent_active);
+
+        // Conditions return immediately — reopening blocked until
+        // min_off = 3 consecutive off steps have elapsed
+        assert_eq!(
+            zone.apply_nat_vent_hysteresis(1.0, true, min_on, min_off),
+            0.0
+        );
+        assert_eq!(
+            zone.apply_nat_vent_hysteresis(1.0, true, min_on, min_off),
+            0.0
+        );
+        // off_timesteps now ≥ 3 → reopens
+        assert_eq!(
+            zone.apply_nat_vent_hysteresis(1.0, true, min_on, min_off),
+            1.0
+        );
+
+        // Schedule going to zero closes regardless of min_on hold
+        assert_eq!(
+            zone.apply_nat_vent_hysteresis(0.0, true, min_on, min_off),
+            0.0
+        );
+        assert!(!zone.nat_vent_active);
+
+        // ΔT gate (#95): outdoor must be usefully cooler
+        let nv = NaturalVentilationInput {
+            opening_area: 1.0,
+            effective_angle: 0.0,
+            height_difference: 1.0,
+            discharge_coefficient: 0.65,
+            min_indoor_temp: -100.0,
+            max_indoor_temp: 100.0,
+            min_outdoor_temp: -100.0,
+            max_outdoor_temp: 100.0,
+            max_wind_speed: 40.0,
+            schedule: None,
+            min_indoor_outdoor_delta_t: Some(2.0),
+            min_on_timesteps: 0,
+            min_off_timesteps: 0,
+            setpoint_reset: None,
+        };
+        assert!(nv.conditions_ok(25.0, 20.0, 1.0)); // ΔT = 5 ≥ 2
+        assert!(!nv.conditions_ok(25.0, 24.0, 1.0)); // ΔT = 1 < 2
+    }
+
     /// Room-air gradient model (#91): local air temperatures follow
     /// T(z) = T_mean + g·(z − H/2); return and occupied heights resolve.
     #[test]
@@ -1451,6 +1609,9 @@ mod tests {
             max_outdoor_temp: 30.0,
             max_wind_speed: 15.0,
             schedule: None,
+            min_indoor_outdoor_delta_t: None,
+            min_on_timesteps: 0,
+            min_off_timesteps: 0,
             setpoint_reset: None,
         };
         // All conditions met → schedule fraction passes through
