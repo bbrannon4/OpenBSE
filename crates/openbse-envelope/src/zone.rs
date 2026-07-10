@@ -1254,12 +1254,17 @@ pub fn solve_zone_humidity(
 /// mathematically identical to the two separate advective terms, so every
 /// existing solve path picks up interzone advection without new terms.
 pub fn mix_advective_streams(m1: f64, x1: f64, m2: f64, x2: f64) -> (f64, f64) {
-    let m = m1 + m2;
-    if m > 1e-12 {
-        (m, (m1 * x1 + m2 * x2) / m)
-    } else {
-        (0.0, x1)
+    // Short-circuit single-stream cases so the no-interzone path is
+    // bit-exact with the pre-#87 math ((m·x)/m can round off by an ulp,
+    // which matters for ASHRAE 140 cases sitting on acceptance limits).
+    if m2 <= 0.0 {
+        return (m1.max(0.0), x1);
     }
+    if m1 <= 0.0 {
+        return (m2, x2);
+    }
+    let m = m1 + m2;
+    (m, (m1 * x1 + m2 * x2) / m)
 }
 
 /// Compute the Q_hvac needed to hold the zone at a target temperature.
