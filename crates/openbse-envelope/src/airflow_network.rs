@@ -31,7 +31,7 @@ const RHO_REF: f64 = 1.2041; // at 20°C, 101325 Pa
 // ─── Configuration (YAML input) ─────────────────────────────────────────────
 
 /// Wind pressure coefficient model selection.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum CpModel {
     /// Swami & Chandra (1988) for low-rise buildings (< 3 stories).
@@ -39,6 +39,44 @@ pub enum CpModel {
     SwamiChandra,
     /// Simplified high-rise model (cosine variation, constant leeward).
     HighRise,
+    /// User-specified per-facade Cp table (#81), interpolated linearly
+    /// from the EPW wind direction each timestep.
+    Table(CpTable),
+}
+
+/// User-specified wind pressure coefficient table (#81).
+///
+/// `wind_angles` lists the wind directions (degrees from north, ascending,
+/// within [0, 360)) at which Cp values are given — e.g. 0°–315° in 45° steps.
+/// Each facade provides one Cp value per wind angle; a surface uses the
+/// facade whose azimuth is nearest its own outward normal. Interpolation is
+/// linear in wind direction with wraparound between the last and first angle.
+///
+/// # Example (YAML)
+/// ```yaml
+/// cp_model: !table
+///   wind_angles: [0, 45, 90, 135, 180, 225, 270, 315]
+///   facades:
+///     - azimuth: 0     # north facade
+///       cp: [0.6, 0.35, -0.4, -0.45, -0.3, -0.45, -0.4, 0.35]
+///     - azimuth: 180   # south facade
+///       cp: [-0.3, -0.45, -0.4, 0.35, 0.6, 0.35, -0.4, -0.45]
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CpTable {
+    /// Wind directions [degrees from north], ascending, within [0, 360).
+    pub wind_angles: Vec<f64>,
+    /// Per-facade Cp curves.
+    pub facades: Vec<CpFacade>,
+}
+
+/// Cp values for one facade, parallel to `CpTable.wind_angles`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CpFacade {
+    /// Facade outward normal azimuth [degrees from north, clockwise].
+    pub azimuth: f64,
+    /// Cp value per entry in `wind_angles`.
+    pub cp: Vec<f64>,
 }
 
 /// ASHRAE construction leakage class (ASHRAE Fundamentals Ch. 16 Table 1).
@@ -439,11 +477,79 @@ pub fn cp_high_rise(theta_deg: f64) -> f64 {
     }
 }
 
-/// Compute Cp for a surface given the angle between wind and surface normal.
-fn compute_cp(theta_deg: f64, side_ratio: f64, model: CpModel) -> f64 {
+/// Interpolate Cp from a user table (#81).
+///
+/// Picks the facade whose azimuth is nearest `surface_azimuth` (shortest
+/// angular distance), then linearly interpolates its Cp curve at `wind_dir`
+/// with wraparound between the last and first wind angle.
+pub fn cp_from_table(table: &CpTable, wind_dir: f64, surface_azimuth: f64) -> f64 {
+    let facade = table.facades.iter().min_by(|a, b| {
+        let da = angular_distance(a.azimuth, surface_azimuth);
+        let db = angular_distance(b.azimuth, surface_azimuth);
+        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let facade = match facade {
+        Some(f) => f,
+        None => return 0.0,
+    };
+
+    let n = table.wind_angles.len().min(facade.cp.len());
+    match n {
+        0 => return 0.0,
+        1 => return facade.cp[0],
+        _ => {}
+    }
+    let angles = &table.wind_angles[..n];
+    let values = &facade.cp[..n];
+
+    let wd = wind_dir.rem_euclid(360.0);
+
+    // Before the first or after the last tabulated angle: wrap around
+    // between the last and first entries.
+    if wd < angles[0] || wd >= angles[n - 1] {
+        let span = 360.0 - angles[n - 1] + angles[0];
+        let offset = if wd >= angles[n - 1] {
+            wd - angles[n - 1]
+        } else {
+            360.0 - angles[n - 1] + wd
+        };
+        let t = if span > 0.0 { offset / span } else { 0.0 };
+        return values[n - 1] + t * (values[0] - values[n - 1]);
+    }
+
+    // Interior segment: linear interpolation between bracketing angles.
+    for i in 0..n - 1 {
+        if wd >= angles[i] && wd < angles[i + 1] {
+            let span = angles[i + 1] - angles[i];
+            let t = if span > 0.0 {
+                (wd - angles[i]) / span
+            } else {
+                0.0
+            };
+            return values[i] + t * (values[i + 1] - values[i]);
+        }
+    }
+    values[n - 1]
+}
+
+/// Shortest angular distance between two compass directions [degrees, 0-180].
+fn angular_distance(a: f64, b: f64) -> f64 {
+    let d = (a - b).rem_euclid(360.0);
+    d.min(360.0 - d)
+}
+
+/// Compute Cp for a surface from the configured model.
+///
+/// `wind_dir` and `azimuth` are absolute compass directions; the correlation
+/// models use only their relative angle, while the table model also uses the
+/// azimuth to select the facade curve.
+fn compute_cp(model: &CpModel, wind_dir: f64, azimuth: f64, side_ratio: f64) -> f64 {
     match model {
-        CpModel::SwamiChandra => cp_swami_chandra(theta_deg, side_ratio),
-        CpModel::HighRise => cp_high_rise(theta_deg),
+        CpModel::SwamiChandra => {
+            cp_swami_chandra(wind_surface_angle(wind_dir, azimuth), side_ratio)
+        }
+        CpModel::HighRise => cp_high_rise(wind_surface_angle(wind_dir, azimuth)),
+        CpModel::Table(table) => cp_from_table(table, wind_dir, azimuth),
     }
 }
 
@@ -827,7 +933,7 @@ pub fn update_wind_pressures(
     network.nodes[outdoor].temperature = t_outdoor + 273.15;
     network.nodes[outdoor].density = rho_outdoor;
 
-    let cp_model = network.config.cp_model;
+    let cp_model = network.config.cp_model.clone();
     let side_ratio = network.side_ratio;
 
     for path in &mut network.paths {
@@ -838,8 +944,7 @@ pub fn update_wind_pressures(
         }
 
         // Compute Cp from wind direction vs surface azimuth
-        let theta = wind_surface_angle(wind_direction, path.azimuth);
-        path.cp = compute_cp(theta, side_ratio, cp_model);
+        path.cp = compute_cp(&cp_model, wind_direction, path.azimuth, side_ratio);
     }
 
     // Update zone node temperatures/densities
@@ -1728,6 +1833,167 @@ mod tests {
         assert_eq!(config.wall_leakage_class, Some(LeakageClass::B));
         assert_eq!(config.window_leakage_class, Some(LeakageClass::A));
         assert_eq!(config.interzone_leakage_class, Some(LeakageClass::D));
+    }
+
+    fn sample_cp_table() -> CpTable {
+        // Symmetric two-facade table, 45° steps.
+        CpTable {
+            wind_angles: vec![0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0],
+            facades: vec![
+                CpFacade {
+                    azimuth: 0.0, // north
+                    cp: vec![0.6, 0.35, -0.4, -0.45, -0.3, -0.45, -0.4, 0.35],
+                },
+                CpFacade {
+                    azimuth: 180.0, // south
+                    cp: vec![-0.3, -0.45, -0.4, 0.35, 0.6, 0.35, -0.4, -0.45],
+                },
+            ],
+        }
+    }
+
+    /// Cp table lookup (#81): exact angles, linear interpolation between
+    /// tabulated angles, and wraparound past the last entry.
+    #[test]
+    fn test_cp_table_interpolation() {
+        let table = sample_cp_table();
+
+        // Exact tabulated angles
+        assert_relative_eq!(cp_from_table(&table, 0.0, 0.0), 0.6, epsilon = 1e-12);
+        assert_relative_eq!(cp_from_table(&table, 180.0, 0.0), -0.3, epsilon = 1e-12);
+
+        // Midpoint between 0° and 45°: (0.6 + 0.35) / 2
+        assert_relative_eq!(cp_from_table(&table, 22.5, 0.0), 0.475, epsilon = 1e-12);
+
+        // Wraparound: 337.5° is midway between 315° (0.35) and 360°→0° (0.6)
+        assert_relative_eq!(cp_from_table(&table, 337.5, 0.0), 0.475, epsilon = 1e-12);
+
+        // Negative wind directions normalize into [0, 360)
+        assert_relative_eq!(
+            cp_from_table(&table, -22.5, 0.0),
+            cp_from_table(&table, 337.5, 0.0),
+            epsilon = 1e-12
+        );
+    }
+
+    /// Cp table facade selection (#81): a surface uses the facade whose
+    /// azimuth is nearest its own, with compass wraparound.
+    #[test]
+    fn test_cp_table_facade_selection() {
+        let table = sample_cp_table();
+
+        // South-facing surface picks the south facade curve
+        assert_relative_eq!(cp_from_table(&table, 180.0, 180.0), 0.6, epsilon = 1e-12);
+
+        // 350° is nearer north (0°) than south (180°) across the wrap
+        assert_relative_eq!(cp_from_table(&table, 0.0, 350.0), 0.6, epsilon = 1e-12);
+
+        // Empty table degrades to 0.0
+        let empty = CpTable {
+            wind_angles: vec![],
+            facades: vec![],
+        };
+        assert_eq!(cp_from_table(&empty, 90.0, 0.0), 0.0);
+    }
+
+    /// Cp model parses from YAML both as a correlation name and as a table.
+    #[test]
+    fn test_cp_model_yaml_parse() {
+        let config: AirflowNetworkConfig =
+            serde_yaml::from_str("enabled: true\ncp_model: swami_chandra\n").unwrap();
+        assert_eq!(config.cp_model, CpModel::SwamiChandra);
+
+        // Variant with data uses YAML tag syntax, like `boundary: !zone`.
+        let yaml = "
+enabled: true
+cp_model: !table
+  wind_angles: [0, 90, 180, 270]
+  facades:
+    - azimuth: 0
+      cp: [0.6, -0.4, -0.3, -0.4]
+";
+        let config: AirflowNetworkConfig = serde_yaml::from_str(yaml).unwrap();
+        match config.cp_model {
+            CpModel::Table(ref table) => {
+                assert_eq!(table.wind_angles.len(), 4);
+                assert_eq!(table.facades.len(), 1);
+                assert_relative_eq!(table.facades[0].cp[0], 0.6, epsilon = 1e-12);
+            }
+            ref other => panic!("expected CpModel::Table, got {other:?}"),
+        }
+    }
+
+    /// Cp table drives path Cp values inside the solver's Cp update loop.
+    #[test]
+    fn test_cp_table_in_wind_pressure_update() {
+        let config = AirflowNetworkConfig {
+            cp_model: CpModel::Table(sample_cp_table()),
+            ..Default::default()
+        };
+        let mut network = AirflowNetwork {
+            config,
+            nodes: vec![
+                PressureNode {
+                    zone_index: Some(0),
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: RHO_REF,
+                },
+                PressureNode {
+                    zone_index: None,
+                    ref_height: 0.0,
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: RHO_REF,
+                },
+            ],
+            paths: vec![
+                FlowPath {
+                    node_a: 1,
+                    node_b: 0,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0, // north facade
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.001,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+                FlowPath {
+                    node_a: 1,
+                    node_b: 0,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 180.0, // south facade
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.001,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+            ],
+            outdoor_node: 1,
+            zone_to_node: vec![0],
+            zone_outdoor_mass_flow: vec![0.0],
+            zone_interzone_flows: vec![vec![]],
+            side_ratio: 1.0,
+            hvac_net_path_indices: vec![None],
+            scheduled_openings: vec![],
+        };
+
+        // Wind from north: north facade windward (0.6), south leeward (-0.3)
+        update_wind_pressures(&mut network, 4.0, 0.0, 20.0, RHO_REF, Terrain::Suburbs);
+        assert_relative_eq!(network.paths[0].cp, 0.6, epsilon = 1e-12);
+        assert_relative_eq!(network.paths[1].cp, -0.3, epsilon = 1e-12);
+
+        // Wind from south: roles reverse
+        update_wind_pressures(&mut network, 4.0, 180.0, 20.0, RHO_REF, Terrain::Suburbs);
+        assert_relative_eq!(network.paths[0].cp, -0.3, epsilon = 1e-12);
+        assert_relative_eq!(network.paths[1].cp, 0.6, epsilon = 1e-12);
     }
 
     /// Schedule-driven opening fraction (#79): the effective opening area

@@ -186,7 +186,37 @@
       "description": "Multizone pressure network airflow configuration. When enabled, auto-generates a pressure network from building geometry and solves for pressure-driven infiltration using Newton-Raphson.",
       "properties": {
         "enabled": { "type": "boolean", "default": false, "description": "Enable the pressure network solver." },
-        "cp_model": { "type": "string", "enum": ["swami_chandra", "high_rise"], "default": "swami_chandra", "description": "Wind pressure coefficient model." },
+        "cp_model": {
+          "default": "swami_chandra",
+          "description": "Wind pressure coefficient model: a named correlation, or a user Cp table interpolated from the EPW wind direction (YAML tag form: `cp_model: !table`).",
+          "oneOf": [
+            { "type": "string", "enum": ["swami_chandra", "high_rise"] },
+            {
+              "type": "object",
+              "required": ["table"],
+              "properties": {
+                "table": {
+                  "type": "object",
+                  "required": ["wind_angles", "facades"],
+                  "properties": {
+                    "wind_angles": { "type": "array", "items": { "type": "number" }, "description": "Wind directions [deg from north], ascending, within [0, 360)." },
+                    "facades": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["azimuth", "cp"],
+                        "properties": {
+                          "azimuth": { "type": "number", "description": "Facade outward normal azimuth [deg from north]." },
+                          "cp": { "type": "array", "items": { "type": "number" }, "description": "Cp value per entry in wind_angles." }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
         "default_crack_exponent": { "type": "number", "default": 0.65, "description": "Flow exponent n for auto-generated cracks." },
         "wall_leakage_per_area": { "type": "number", "default": 0.00008, "description": "Crack leakage per unit wall area [kg/s/m2/Pa^n]." },
         "window_leakage_per_area": { "type": "number", "default": 0.00014, "description": "Crack leakage per unit window area [kg/s/m2/Pa^n]." },
