@@ -574,6 +574,16 @@ pub struct RoomAirGradient {
     /// Zone floor-to-ceiling height [m] (default: volume / floor_area).
     #[serde(default)]
     pub ceiling_height: Option<f64>,
+    /// Mundt-style load-derived gradient (#98): compute the gradient each
+    /// timestep as Q_conv/(ṁ_supply·cp·H), clamped to [0, `gradient`]
+    /// (so `gradient` acts as the cap). Zero when the system is off
+    /// (mechanical mixing assumption fails gracefully to well-mixed).
+    #[serde(default)]
+    pub mundt: bool,
+    /// HVAC control senses the occupied/thermostat-height temperature
+    /// instead of the zone mean (#98). Default false (control on mean).
+    #[serde(default)]
+    pub control_at_thermostat_height: bool,
 }
 
 fn default_thermostat_height() -> f64 {
@@ -1564,6 +1574,8 @@ mod tests {
                 return_height: Some(5.5),
                 thermostat_height: 1.1,
                 ceiling_height: None,
+                mundt: false,
+                control_at_thermostat_height: false,
             }),
         };
         let mut zone = ZoneState::new(input, 22.0);

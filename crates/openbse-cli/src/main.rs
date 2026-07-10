@@ -295,6 +295,22 @@ fn build_loop_infos(
         .collect()
 }
 
+/// Temperature the HVAC control senses for a zone (#98): the
+/// occupied/thermostat-height temperature when the room-air model opts in
+/// (control_at_thermostat_height), otherwise the zone mean.
+fn control_temp_for(z: &openbse_envelope::zone::ZoneState) -> f64 {
+    let at_thermostat = z
+        .input
+        .room_air
+        .as_ref()
+        .is_some_and(|ra| ra.control_at_thermostat_height);
+    if at_thermostat {
+        z.occupied_air_temp()
+    } else {
+        z.temp
+    }
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -2082,7 +2098,7 @@ fn main() -> Result<()> {
                         let current_zone_temps: HashMap<String, f64> = env
                             .zones
                             .iter()
-                            .map(|z| (z.input.name.clone(), z.temp))
+                            .map(|z| (z.input.name.clone(), control_temp_for(z)))
                             .collect();
                         let initial_zone_temps: HashMap<String, f64> = current_zone_temps.clone();
                         let current_cooling_loads: HashMap<String, f64> = env
@@ -2457,7 +2473,7 @@ fn main() -> Result<()> {
                         let mut current_zone_temps: HashMap<String, f64> = env
                             .zones
                             .iter()
-                            .map(|z| (z.input.name.clone(), z.temp))
+                            .map(|z| (z.input.name.clone(), control_temp_for(z)))
                             .collect();
                         // Save initial zone temps for terminal control signals (frozen across
                         // HVAC iterations to prevent oscillation).  AHU-level controls use

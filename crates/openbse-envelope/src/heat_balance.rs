@@ -1981,14 +1981,33 @@ impl EnvelopeSolver for BuildingEnvelope {
             }
         }
 
-        // Room-air stratification (#91): effective vertical gradient this
-        // timestep (input gradient × schedule fraction; 0 = well mixed).
+        // Room-air stratification (#91, #98): effective vertical gradient
+        // this timestep. Constant mode: input gradient × schedule fraction.
+        // Mundt mode (#98): load-derived g = Q_conv/(ṁ_supply·cp·H) using
+        // the previous timestep's supply flow, clamped to [0, gradient]
+        // (the input gradient acts as the cap); zero when the system is
+        // off — the space is treated as well mixed without forced supply.
         for zone in &mut self.zones {
             zone.current_gradient = match &zone.input.room_air {
-                Some(ra) => match &ra.schedule {
-                    Some(name) => ra.gradient * self.schedule_manager.fraction(name, hour, dow),
-                    None => ra.gradient,
-                },
+                Some(ra) => {
+                    let sched = match &ra.schedule {
+                        Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                        None => 1.0,
+                    };
+                    if ra.mundt {
+                        let m_sup = zone.supply_air_mass_flow;
+                        if m_sup > 1e-6 {
+                            let cp = psych::cp_air_fn_w(zone.humidity_ratio);
+                            let h = zone.room_air_height();
+                            let g = zone.q_internal_conv / (m_sup * cp * h);
+                            g.clamp(0.0, ra.gradient.max(0.0)) * sched
+                        } else {
+                            0.0
+                        }
+                    } else {
+                        ra.gradient * sched
+                    }
+                }
                 None => 0.0,
             };
         }
@@ -5685,6 +5704,8 @@ mod tests {
                     return_height: None,
                     thermostat_height: 1.1,
                     ceiling_height: None,
+                    mundt: false,
+                    control_at_thermostat_height: false,
                 });
             }
             envelope.initialize(3600.0).unwrap();
@@ -5739,6 +5760,55 @@ mod tests {
         );
     }
 
+    /// Mundt-style load-derived gradient (#98): g = Q_conv/(ṁ·cp·H),
+    /// clamped to the configured cap, zero when the system is off.
+    #[test]
+    fn test_mundt_gradient_follows_load_and_flow() {
+        let run = |supply_flow: f64| -> f64 {
+            let mut envelope = make_simple_model();
+            envelope.zones[0].input.room_air = Some(crate::zone::RoomAirGradient {
+                gradient: 5.0, // cap
+                schedule: None,
+                return_height: None,
+                thermostat_height: 1.1,
+                ceiling_height: None,
+                mundt: true,
+                control_at_thermostat_height: false,
+            });
+            envelope.initialize(3600.0).unwrap();
+            let ctx = make_ctx();
+            let weather = make_weather_hour(0.0);
+            let mut hvac = ZoneHvacConditions::default();
+            if supply_flow > 0.0 {
+                hvac.supply_temps.insert("TestZone".to_string(), 18.0);
+                hvac.supply_mass_flows
+                    .insert("TestZone".to_string(), supply_flow);
+            }
+            // Two steps so the lagged supply flow is populated
+            envelope.solve_timestep(&ctx, &weather, &hvac);
+            envelope.solve_timestep(&ctx, &weather, &hvac);
+            envelope.zones[0].current_gradient
+        };
+
+        // System off → well mixed
+        assert_eq!(run(0.0), 0.0);
+
+        // With flow: g = Q_conv/(ṁ·cp·H); make_simple_model has 500 W
+        // equipment at 30% radiant → 350 W convective, H = 3 m.
+        let g_low_flow = run(0.1);
+        let g_high_flow = run(0.4);
+        assert!(
+            g_low_flow > g_high_flow,
+            "more supply flow should mix better: {g_low_flow:.3} vs {g_high_flow:.3} K/m"
+        );
+        let cp = openbse_psychrometrics::cp_air_fn_w(0.008);
+        let expected = 350.0 / (0.4 * cp * 3.0);
+        assert!(
+            (g_high_flow - expected).abs() / expected < 0.05,
+            "Mundt gradient should match Q/(m·cp·H): got {g_high_flow:.4}, expected {expected:.4}"
+        );
+    }
+
     /// Room-air stratification (#91): occupied and return temperatures
     /// straddle the mean according to the gradient after a simulated step.
     #[test]
@@ -5750,6 +5820,8 @@ mod tests {
             return_height: None, // default: ceiling
             thermostat_height: 1.1,
             ceiling_height: None,
+            mundt: false,
+            control_at_thermostat_height: false,
         });
         envelope.initialize(3600.0).unwrap();
         let ctx = make_ctx();

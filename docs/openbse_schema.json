@@ -1025,7 +1025,9 @@
             "schedule": { "type": "string", "description": "Optional schedule scaling the gradient (e.g. 0 when fans force mixing)." },
             "return_height": { "type": "number", "description": "Return/exhaust air height above floor [m] (default: ceiling)." },
             "thermostat_height": { "type": "number", "default": 1.1, "description": "Occupied/thermostat sensing height above floor [m]." },
-            "ceiling_height": { "type": "number", "description": "Zone floor-to-ceiling height [m] (default: volume / floor_area)." }
+            "ceiling_height": { "type": "number", "description": "Zone floor-to-ceiling height [m] (default: volume / floor_area)." },
+            "mundt": { "type": "boolean", "default": false, "description": "Derive the gradient each timestep from loads and flow: Q_conv/(m_supply*cp*H), clamped to [0, gradient]; zero when the system is off." },
+            "control_at_thermostat_height": { "type": "boolean", "default": false, "description": "HVAC control senses the occupied/thermostat-height temperature instead of the zone mean." }
           }
         },
         "species_generation": {
