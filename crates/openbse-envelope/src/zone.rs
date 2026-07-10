@@ -481,15 +481,16 @@ pub struct ZoneInput {
     pub duct_leakage: Option<DuctLeakageInput>,
 }
 
-/// Duct leakage to the unconditioned space containing the ducts (#82).
+/// Duct leakage to the unconditioned space containing the ducts (#82, #85).
 ///
-/// Both supply and return leakage dump duct air (drawn from this zone's air
-/// loop) into the ambient zone: supply leaks spill supply air into the space,
-/// and return-side leakage is modeled the same way as the Duct component's
-/// leakage fraction (air lost from the duct run to its surroundings). The net
-/// AFN effect pressurizes the unconditioned space and depressurizes this zone.
-/// Leakage energy is accounted for separately by the duct component (#70), so
-/// these paths drive pressure only.
+/// Two directional AFN paths are created: supply leakage spills supply air
+/// from the duct run into the ambient zone (zone → ambient), while return
+/// leakage is air the below-ambient-pressure return duct ingests from the
+/// space and delivers to the zone (ambient → zone). A supply-dominated
+/// system pressurizes the unconditioned space and depressurizes this zone;
+/// a return-dominated one does the opposite. Leakage energy is accounted for
+/// separately by the duct component (#70), so these paths drive pressure
+/// (and species transport) only.
 ///
 /// ```yaml
 /// zones:

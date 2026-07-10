@@ -1982,14 +1982,15 @@ impl EnvelopeSolver for BuildingEnvelope {
                 let net = zone.outdoor_air_mass_flow - zone.exhaust_mass_flow;
                 afn.update_hvac_net_flow(zi, net);
             }
-            // Duct leakage to unconditioned spaces (#82): leaked duct air
-            // (fractions of the supply flow, from the previous timestep)
-            // moves from the zone to the duct ambient zone.
+            // Duct leakage to unconditioned spaces (#82, #85): directional
+            // paths, fractions of the supply flow from the previous timestep.
+            // Supply leak spills supply air into the ambient zone; return
+            // leak delivers ambient-zone air to the conditioned zone.
             for (zi, zone) in self.zones.iter().enumerate() {
                 if let Some(ref dl) = zone.input.duct_leakage {
-                    let leak = (dl.supply_leakage_fraction + dl.return_leakage_fraction)
-                        * zone.supply_air_mass_flow;
-                    afn.update_duct_leakage_flow(zi, leak.max(0.0));
+                    let supply = dl.supply_leakage_fraction * zone.supply_air_mass_flow;
+                    let ret = dl.return_leakage_fraction * zone.supply_air_mass_flow;
+                    afn.update_duct_leakage_flows(zi, supply.max(0.0), ret.max(0.0));
                 }
             }
             // Schedule-driven operable openings (#79): modulate opening areas
