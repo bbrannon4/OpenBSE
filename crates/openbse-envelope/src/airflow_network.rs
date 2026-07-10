@@ -383,6 +383,21 @@ pub enum FlowElement {
         /// Mass flow rate [kg/s].
         mass_flow: f64,
     },
+    /// Pressure-dependent duct leak (#99): power-law crack between the zone
+    /// air and the duct interior, whose driving pressure includes the duct
+    /// static (scaled to the operating point). With the fan off the offset
+    /// is zero and the duct becomes a passive leakage path between the
+    /// connected zones — physical, and impossible with fixed fractions.
+    DuctLeak {
+        /// Flow coefficient C [kg/s/Pa^n], derived from the leakage
+        /// fraction at design conditions: C = f·ṁ_design/ΔP_static^n.
+        coefficient: f64,
+        /// Flow exponent n (ASHRAE 152 duct leakage ≈ 0.6).
+        exponent: f64,
+        /// Duct static pressure offset [Pa] at the current operating point,
+        /// updated each timestep: ΔP_static,design × (ṁ/ṁ_design)².
+        static_offset: f64,
+    },
     /// Horizontal two-way opening (#93): stairwell, atrium floor, or attic
     /// hatch. Net pressure-driven orifice flow plus buoyancy-driven
     /// instability exchange when the upper zone's air is denser
@@ -526,18 +541,44 @@ impl AirflowNetwork {
         supply_kg_s: f64,
         return_kg_s: f64,
     ) {
-        if let Some(Some(path_idx)) = self.duct_supply_leak_path_indices.get(zone_idx) {
-            if let Some(path) = self.paths.get_mut(*path_idx) {
-                if let FlowElement::FixedFlow { ref mut mass_flow } = path.element {
-                    *mass_flow = supply_kg_s;
-                }
-            }
-        }
-        if let Some(Some(path_idx)) = self.duct_return_leak_path_indices.get(zone_idx) {
-            if let Some(path) = self.paths.get_mut(*path_idx) {
-                if let FlowElement::FixedFlow { ref mut mass_flow } = path.element {
-                    *mass_flow = return_kg_s;
-                }
+        self.update_duct_leakage(zone_idx, supply_kg_s, return_kg_s, None, None);
+    }
+
+    /// Full duct-leakage update (#85, #99): fixed-fraction paths take the
+    /// leak mass flows; pressure-dependent DuctLeak paths (#99) take the
+    /// operating-point static offsets (ΔP_static,design × (ṁ/ṁ_design)²).
+    pub fn update_duct_leakage(
+        &mut self,
+        zone_idx: usize,
+        supply_kg_s: f64,
+        return_kg_s: f64,
+        supply_static_offset: Option<f64>,
+        return_static_offset: Option<f64>,
+    ) {
+        let sites = [
+            (
+                self.duct_supply_leak_path_indices.get(zone_idx).copied(),
+                supply_kg_s,
+                supply_static_offset,
+            ),
+            (
+                self.duct_return_leak_path_indices.get(zone_idx).copied(),
+                return_kg_s,
+                return_static_offset,
+            ),
+        ];
+        for (idx, leak, offset) in sites {
+            let Some(Some(path_idx)) = idx else { continue };
+            let Some(path) = self.paths.get_mut(path_idx) else {
+                continue;
+            };
+            match path.element {
+                FlowElement::FixedFlow { ref mut mass_flow } => *mass_flow = leak,
+                FlowElement::DuctLeak {
+                    ref mut static_offset,
+                    ..
+                } => *static_offset = offset.unwrap_or(0.0).max(0.0),
+                _ => {}
             }
         }
     }
@@ -781,6 +822,25 @@ pub fn flow_and_derivative(element: &FlowElement, dp: f64, rho_a: f64, rho_b: f6
         }
         FlowElement::FixedFlow { mass_flow } => {
             (*mass_flow, 0.0) // no pressure dependence
+        }
+        FlowElement::DuctLeak {
+            coefficient,
+            exponent,
+            static_offset,
+        } => {
+            // Power law on the effective pressure (node ΔP + duct static),
+            // linearized through zero like the other crack elements.
+            let c = *coefficient;
+            let n = *exponent;
+            let dp_eff = dp + static_offset;
+            if dp_eff.abs() < MIN_DP {
+                let slope = c * MIN_DP.powf(n) / MIN_DP;
+                return (slope * dp_eff, slope);
+            }
+            let sign = if dp_eff >= 0.0 { 1.0 } else { -1.0 };
+            let flow = sign * c * dp_eff.abs().powf(n);
+            let dflow = c * n * dp_eff.abs().powf(n - 1.0);
+            (flow, dflow)
         }
         FlowElement::TwoWayOpening { .. } => {
             let (m_ab, m_ba, dnet) = two_way_opening_flows(element, dp, rho_a, rho_b);
@@ -1329,6 +1389,19 @@ pub fn build_network(
                 _ => continue, // unknown ambient zone, or ducts in this zone
             };
             let height = zones[ambient_zi].centroid_height;
+            // Pressure-dependent duct leaks (#99) when statics and a design
+            // flow are given: C = f·ṁ_design/ΔP_static^n. Otherwise the
+            // fixed-fraction FixedFlow model (#85).
+            let make_element = |frac: f64, static_pa: Option<f64>| -> FlowElement {
+                match (static_pa, dl.design_flow) {
+                    (Some(st), Some(design)) if st > 0.0 && design > 0.0 => FlowElement::DuctLeak {
+                        coefficient: frac * design / st.powf(dl.leak_exponent),
+                        exponent: dl.leak_exponent,
+                        static_offset: 0.0,
+                    },
+                    _ => FlowElement::FixedFlow { mass_flow: 0.0 },
+                }
+            };
             let supply_idx = paths.len();
             paths.push(FlowPath {
                 node_a: zone_to_node[zi],
@@ -1336,7 +1409,7 @@ pub fn build_network(
                 height,
                 cp: 0.0,
                 azimuth: 0.0,
-                element: FlowElement::FixedFlow { mass_flow: 0.0 },
+                element: make_element(dl.supply_leakage_fraction, dl.supply_static),
                 source_surface: None,
                 mass_flow: 0.0,
             });
@@ -1349,7 +1422,7 @@ pub fn build_network(
                 height,
                 cp: 0.0,
                 azimuth: 0.0,
-                element: FlowElement::FixedFlow { mass_flow: 0.0 },
+                element: make_element(dl.return_leakage_fraction, dl.return_static),
                 source_surface: None,
                 mass_flow: 0.0,
             });
@@ -2945,6 +3018,78 @@ cp_model: !table
             network.zone_interzone_flows[0],
             network.zone_interzone_flows[1]
         );
+    }
+
+    /// Pressure-dependent duct leak (#99): at the design point the leak
+    /// equals fraction × design flow; with the fan off the duct is a
+    /// passive power-law path; derivative matches finite differences.
+    #[test]
+    fn test_duct_leak_pressure_dependence() {
+        let frac = 0.06;
+        let design_flow = 0.5; // kg/s
+        let static_pa: f64 = 60.0;
+        let n = 0.6;
+        let c = frac * design_flow / static_pa.powf(n);
+        let mut elem = FlowElement::DuctLeak {
+            coefficient: c,
+            exponent: n,
+            static_offset: static_pa, // operating at design
+        };
+
+        // Design point (zone-ambient ΔP = 0): leak = fraction × design flow
+        let (flow, _) = flow_and_derivative(&elem, 0.0, RHO_REF, RHO_REF);
+        assert_relative_eq!(flow, frac * design_flow, max_relative = 1e-12);
+
+        // Zone pressurized relative to the attic → more leakage
+        let (flow_hi, _) = flow_and_derivative(&elem, 10.0, RHO_REF, RHO_REF);
+        assert!(flow_hi > flow);
+
+        // Fan off: offset = 0 → passive leakage driven by zone ΔP alone
+        if let FlowElement::DuctLeak {
+            ref mut static_offset,
+            ..
+        } = elem
+        {
+            *static_offset = 0.0;
+        }
+        let (flow_off, _) = flow_and_derivative(&elem, 5.0, RHO_REF, RHO_REF);
+        assert_relative_eq!(flow_off, c * 5.0_f64.powf(n), max_relative = 1e-12);
+        // and reverses with the pressure difference
+        let (flow_rev, _) = flow_and_derivative(&elem, -5.0, RHO_REF, RHO_REF);
+        assert_relative_eq!(flow_rev, -flow_off, max_relative = 1e-12);
+
+        // Analytic derivative vs finite difference
+        let eps = 1e-7;
+        for dp in [-8.0, 0.3, 12.0] {
+            let (_, d_analytic) = flow_and_derivative(&elem, dp, RHO_REF, RHO_REF);
+            let (f_p, _) = flow_and_derivative(&elem, dp + eps, RHO_REF, RHO_REF);
+            let (f_m, _) = flow_and_derivative(&elem, dp - eps, RHO_REF, RHO_REF);
+            assert_relative_eq!(d_analytic, (f_p - f_m) / (2.0 * eps), max_relative = 1e-4);
+        }
+    }
+
+    /// Duct leak update (#99): FixedFlow paths take mass flows, DuctLeak
+    /// paths take static offsets.
+    #[test]
+    fn test_update_duct_leakage_variants() {
+        let mut network = exhaust_fan_network(AirflowNetworkConfig::default());
+        network.paths[0].element = FlowElement::DuctLeak {
+            coefficient: 0.001,
+            exponent: 0.6,
+            static_offset: 0.0,
+        };
+        network.duct_supply_leak_path_indices = vec![Some(0)];
+        network.duct_return_leak_path_indices = vec![Some(1)];
+
+        network.update_duct_leakage(0, 0.03, 0.01, Some(42.0), None);
+        match network.paths[0].element {
+            FlowElement::DuctLeak { static_offset, .. } => assert_eq!(static_offset, 42.0),
+            _ => panic!("expected DuctLeak"),
+        }
+        match network.paths[1].element {
+            FlowElement::FixedFlow { mass_flow } => assert_eq!(mass_flow, 0.01),
+            _ => panic!("expected FixedFlow"),
+        }
     }
 
     /// Facade shelter (#96): the nearest facade's wind multiplier scales

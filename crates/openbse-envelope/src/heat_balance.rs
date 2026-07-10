@@ -2040,9 +2040,22 @@ impl EnvelopeSolver for BuildingEnvelope {
             // leak delivers ambient-zone air to the conditioned zone.
             for (zi, zone) in self.zones.iter().enumerate() {
                 if let Some(ref dl) = zone.input.duct_leakage {
-                    let supply = dl.supply_leakage_fraction * zone.supply_air_mass_flow;
-                    let ret = dl.return_leakage_fraction * zone.supply_air_mass_flow;
-                    afn.update_duct_leakage_flows(zi, supply.max(0.0), ret.max(0.0));
+                    let m_sup = zone.supply_air_mass_flow;
+                    let supply = dl.supply_leakage_fraction * m_sup;
+                    let ret = dl.return_leakage_fraction * m_sup;
+                    // Pressure-dependent model (#99): statics scale with the
+                    // square of the flow ratio (fan laws); zero when off.
+                    let ratio_sq = match dl.design_flow {
+                        Some(d) if d > 0.0 => (m_sup / d).powi(2),
+                        _ => 0.0,
+                    };
+                    afn.update_duct_leakage(
+                        zi,
+                        supply.max(0.0),
+                        ret.max(0.0),
+                        dl.supply_static.map(|st| st * ratio_sq),
+                        dl.return_static.map(|st| st * ratio_sq),
+                    );
                 }
             }
             // Schedule-driven operable openings (#79): modulate opening areas

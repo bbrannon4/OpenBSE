@@ -619,6 +619,25 @@ pub struct DuctLeakageInput {
     /// Return duct leakage as a fraction of supply flow [0-1].
     #[serde(default)]
     pub return_leakage_fraction: f64,
+    /// Supply duct static pressure at design flow [Pa] (#99). With
+    /// `design_flow`, leakage becomes pressure-dependent instead of a
+    /// fixed fraction.
+    #[serde(default)]
+    pub supply_static: Option<f64>,
+    /// Return duct static pressure magnitude at design flow [Pa] (#99).
+    #[serde(default)]
+    pub return_static: Option<f64>,
+    /// Design supply mass flow [kg/s] (#99); required for the
+    /// pressure-dependent model (statics scale with (ṁ/ṁ_design)²).
+    #[serde(default)]
+    pub design_flow: Option<f64>,
+    /// Duct leak flow exponent (#99); ASHRAE 152 uses ≈ 0.6.
+    #[serde(default = "default_duct_leak_exponent")]
+    pub leak_exponent: f64,
+}
+
+fn default_duct_leak_exponent() -> f64 {
+    0.6
 }
 
 /// ASHRAE A-class equipment inlet temperature limits [°C].

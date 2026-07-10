@@ -1013,7 +1013,11 @@
           "properties": {
             "ambient_zone": { "type": "string", "description": "Zone containing the ducts (typically unconditioned: attic, crawlspace)." },
             "supply_leakage_fraction": { "type": "number", "default": 0, "minimum": 0, "maximum": 1, "description": "Supply duct leakage as a fraction of supply flow." },
-            "return_leakage_fraction": { "type": "number", "default": 0, "minimum": 0, "maximum": 1, "description": "Return duct leakage as a fraction of supply flow." }
+            "return_leakage_fraction": { "type": "number", "default": 0, "minimum": 0, "maximum": 1, "description": "Return duct leakage as a fraction of supply flow." },
+            "supply_static": { "type": "number", "description": "Supply duct static pressure at design flow [Pa]. With design_flow, leakage becomes pressure-dependent." },
+            "return_static": { "type": "number", "description": "Return duct static pressure magnitude at design flow [Pa]." },
+            "design_flow": { "type": "number", "description": "Design supply mass flow [kg/s]; required for the pressure-dependent model." },
+            "leak_exponent": { "type": "number", "default": 0.6, "description": "Duct leak flow exponent (ASHRAE 152 ~0.6)." }
           }
         },
         "room_air": {
