@@ -359,6 +359,17 @@ pub enum FlowElement {
         /// Mass flow rate [kg/s].
         mass_flow: f64,
     },
+    /// Horizontal two-way opening (#93): stairwell, atrium floor, or attic
+    /// hatch. Net pressure-driven orifice flow plus buoyancy-driven
+    /// instability exchange when the upper zone's air is denser
+    /// (Cooper 1989 / Epstein 1988, as in the E+ AFE HorizontalOpening).
+    /// Convention: node_a = lower zone, node_b = upper zone.
+    HorizontalOpening {
+        /// Discharge coefficient Cd for the pressure-driven component.
+        discharge_coefficient: f64,
+        /// Opening area [m²].
+        area: f64,
+    },
     /// Two-way large opening (#83): doorway or operable window resolving
     /// buoyancy-driven counterflow above and below the neutral plane.
     ///
@@ -549,6 +560,9 @@ impl AirflowNetwork {
                     } => {
                         *width = opening.base_area * frac / height.max(1e-6);
                     }
+                    FlowElement::HorizontalOpening { ref mut area, .. } => {
+                        *area = opening.base_area * frac;
+                    }
                     _ => {}
                 }
             }
@@ -708,10 +722,17 @@ pub fn flow_and_derivative(element: &FlowElement, dp: f64, rho_a: f64, rho_b: f6
         } => {
             let c = *coefficient;
             let n = *exponent;
-            let dp_abs = dp.abs().max(MIN_DP);
-            let sign = if dp >= 0.0 { 1.0 } else { -1.0 };
             // Density correction: Q ∝ (ρ/ρ_ref)^(1-n) per ASHRAE
             let rho_corr = (rho_avg / RHO_REF).powf(1.0 - n);
+            // Below MIN_DP, linearize through zero: a sign(ΔP)·|ΔP|^n clamp
+            // is discontinuous at ΔP = 0 and traps Newton in a limit cycle
+            // whenever the balance point needs a flow inside the jump (#93).
+            if dp.abs() < MIN_DP {
+                let slope = c * rho_corr * MIN_DP.powf(n) / MIN_DP;
+                return (slope * dp, slope);
+            }
+            let dp_abs = dp.abs();
+            let sign = if dp >= 0.0 { 1.0 } else { -1.0 };
             let flow = sign * c * rho_corr * dp_abs.powf(n);
             let dflow = c * rho_corr * n * dp_abs.powf(n - 1.0);
             (flow, dflow)
@@ -722,7 +743,12 @@ pub fn flow_and_derivative(element: &FlowElement, dp: f64, rho_a: f64, rho_b: f6
         } => {
             let cd = *discharge_coefficient;
             let a = *area;
-            let dp_abs = dp.abs().max(MIN_DP);
+            // Linearize through zero below MIN_DP (see PowerLawCrack note).
+            if dp.abs() < MIN_DP {
+                let slope = cd * a * (2.0 * rho_avg * MIN_DP).sqrt() / MIN_DP;
+                return (slope * dp, slope);
+            }
+            let dp_abs = dp.abs();
             let sign = if dp >= 0.0 { 1.0 } else { -1.0 };
             let flow = sign * cd * a * (2.0 * rho_avg * dp_abs).sqrt();
             // dQ/ddp = Cd * A * sqrt(rho_avg / (2 * |dp|))
@@ -736,7 +762,94 @@ pub fn flow_and_derivative(element: &FlowElement, dp: f64, rho_a: f64, rho_b: f6
             let (m_ab, m_ba, dnet) = two_way_opening_flows(element, dp, rho_a, rho_b);
             (m_ab - m_ba, dnet)
         }
+        FlowElement::HorizontalOpening { .. } => {
+            let (m_ab, m_ba, dnet) = horizontal_opening_flows(element, dp, rho_a, rho_b);
+            (m_ab - m_ba, dnet)
+        }
     }
+}
+
+/// Directional mass flows through a horizontal opening (#93).
+///
+/// Convention: node A is the LOWER zone, node B the UPPER zone; positive
+/// net flow is upward (A → B). Two components:
+///   1. Pressure-driven orifice flow on ΔP using the upstream density.
+///   2. Buoyancy-driven instability exchange when the upper air is denser
+///      (ρ_b > ρ_a): Q_exch = 0.055·√(g·Δρ·D⁵/ρ̄) (Epstein/Cooper), ramped
+///      down linearly with |ΔP| to zero at the flooding pressure
+///      ΔP_flood = Cs²·g·Δρ·D⁵/(2A²), Cs = 0.942 (E+ AFE HorizontalOpening).
+///
+/// The returned derivative uses the orifice component only: the exchange
+/// term is nearly pressure-independent and treating it as constant keeps
+/// the Newton diagonal strictly positive.
+///
+/// Returns (ṁ_A→B, ṁ_B→A, d(ṁ_net)/d(ΔP)).
+pub fn horizontal_opening_flows(
+    element: &FlowElement,
+    dp: f64,
+    rho_a: f64,
+    rho_b: f64,
+) -> (f64, f64, f64) {
+    let (cd, area) = match element {
+        FlowElement::HorizontalOpening {
+            discharge_coefficient,
+            area,
+        } => (*discharge_coefficient, *area),
+        _ => return (0.0, 0.0, 0.0),
+    };
+    if area <= 0.0 {
+        return (0.0, 0.0, 0.0);
+    }
+
+    // Pressure-driven orifice component (upstream density). Below MIN_DP,
+    // linearize between the two ±MIN_DP endpoints so the flow is continuous
+    // through zero — otherwise Newton limit-cycles when the balance point
+    // needs a net flow smaller than the sign-flip jump (#93).
+    let (mut m_ab, mut m_ba, dflow);
+    if dp.abs() < MIN_DP {
+        let f_up = cd * area * (2.0 * rho_a * MIN_DP).sqrt();
+        let f_down = cd * area * (2.0 * rho_b * MIN_DP).sqrt();
+        let slope = (f_up + f_down) / (2.0 * MIN_DP);
+        let offset = (f_up - f_down) / 2.0;
+        let net = slope * dp + offset;
+        if net >= 0.0 {
+            m_ab = net;
+            m_ba = 0.0;
+        } else {
+            m_ab = 0.0;
+            m_ba = -net;
+        }
+        dflow = slope;
+    } else {
+        let dp_abs = dp.abs();
+        let rho_up = if dp >= 0.0 { rho_a } else { rho_b };
+        let orifice = cd * area * (2.0 * rho_up * dp_abs).sqrt();
+        dflow = cd * area * (rho_up / (2.0 * dp_abs)).sqrt();
+        if dp >= 0.0 {
+            m_ab = orifice;
+            m_ba = 0.0;
+        } else {
+            m_ab = 0.0;
+            m_ba = orifice;
+        }
+    }
+
+    // Buoyancy instability exchange: dense air above light air
+    let d_rho = rho_b - rho_a;
+    if d_rho > 1e-9 {
+        let rho_avg = 0.5 * (rho_a + rho_b);
+        // Hydraulic diameter of the equivalent circular opening
+        let dh = 2.0 * (area / std::f64::consts::PI).sqrt();
+        let q_exch = 0.055 * (G * d_rho * dh.powi(5) / rho_avg).sqrt();
+        const C_SHAPE: f64 = 0.942;
+        let dp_flood = C_SHAPE * C_SHAPE * G * d_rho * dh.powi(5) / (2.0 * area * area);
+        let fraction = (1.0 - dp.abs() / dp_flood.max(1e-12)).max(0.0);
+        // Upward leg carries lower-zone air, downward leg upper-zone air
+        m_ab += rho_a * q_exch * fraction;
+        m_ba += rho_b * q_exch * fraction;
+    }
+
+    (m_ab, m_ba, dflow.max(1e-10))
 }
 
 /// Directional mass flows through a two-way opening (#83).
@@ -771,11 +884,22 @@ pub fn two_way_opening_flows(
     let s = G * (rho_b - rho_a); // d(ΔP)/dz across the opening
 
     // Negligible density difference → uniform ΔP → one-way orifice using
-    // the upstream density.
+    // the upstream density, linearized through zero below MIN_DP (#93).
     if s.abs() < 1e-9 {
-        let dp_abs = dp.abs().max(MIN_DP);
-        let rho_up = if dp >= 0.0 { rho_a } else { rho_b };
         let area = width * height;
+        if dp.abs() < MIN_DP {
+            let f_up = cd * area * (2.0 * rho_a * MIN_DP).sqrt();
+            let f_down = cd * area * (2.0 * rho_b * MIN_DP).sqrt();
+            let slope = (f_up + f_down) / (2.0 * MIN_DP);
+            let net = slope * dp + (f_up - f_down) / 2.0;
+            return if net >= 0.0 {
+                (net, 0.0, slope)
+            } else {
+                (0.0, -net, slope)
+            };
+        }
+        let dp_abs = dp.abs();
+        let rho_up = if dp >= 0.0 { rho_a } else { rho_b };
         let mag = cd * area * (2.0 * rho_up * dp_abs).sqrt();
         let dflow = cd * area * (rho_up / (2.0 * dp_abs)).sqrt();
         return if dp >= 0.0 {
@@ -1009,8 +1133,11 @@ pub fn build_network(
                 let other_node = zone_to_node[other_zi];
                 let height = surf.centroid_height;
 
-                // Interzone doorways (#83): `large_opening` turns the surface
-                // into a two-way opening resolving buoyancy counterflow.
+                // Interzone doorways (#83) and horizontal openings (#93):
+                // `large_opening` turns the surface into a two-way opening.
+                // Vertical surfaces resolve buoyancy counterflow over the
+                // opening height; horizontal surfaces (floors, ceilings —
+                // stairwells, hatches) use the Cooper instability model.
                 let is_large_opening = overrides.and_then(|o| o.large_opening).unwrap_or(false);
                 if is_large_opening {
                     let frac = overrides.and_then(|o| o.opening_fraction).unwrap_or(1.0);
@@ -1024,6 +1151,33 @@ pub fn build_network(
                             schedule,
                             base_area,
                         });
+                    }
+                    let is_horizontal = matches!(
+                        surf.input.surface_type,
+                        SurfaceType::Floor | SurfaceType::Ceiling | SurfaceType::Roof
+                    );
+                    if is_horizontal {
+                        // Orient node_a = lower zone, node_b = upper zone
+                        let (low_node, high_node) =
+                            if zones[zi].centroid_height <= zones[other_zi].centroid_height {
+                                (zone_node, other_node)
+                            } else {
+                                (other_node, zone_node)
+                            };
+                        paths.push(FlowPath {
+                            node_a: low_node,
+                            node_b: high_node,
+                            height,
+                            cp: 0.0,
+                            azimuth: 0.0,
+                            element: FlowElement::HorizontalOpening {
+                                discharge_coefficient: cd,
+                                area: base_area,
+                            },
+                            source_surface: Some(si),
+                            mass_flow: 0.0,
+                        });
+                        continue;
                     }
                     let opening_height = surf.input.area.sqrt();
                     paths.push(FlowPath {
@@ -1376,6 +1530,7 @@ pub fn solve_pressures(
     // (overshoot/oscillation). Mirrors the E+ AIRNET strategy.
     let mut damp = network.config.damping;
     let mut prev_residual = f64::INFINITY;
+    let afn_debug = std::env::var("AFN_DEBUG").is_ok();
 
     for _it in 0..max_iter {
         iter = _it + 1;
@@ -1446,6 +1601,12 @@ pub fn solve_pressures(
             break;
         }
 
+        if afn_debug {
+            eprintln!(
+                "iter {iter}: max_residual={max_residual:.6}, total_flow={total_flow:.4}, damp={damp:.3}, P={:?}",
+                network.zone_to_node.iter().map(|&n| network.nodes[n].pressure).collect::<Vec<_>>()
+            );
+        }
         // Adaptive under-relaxation (#86)
         if adaptive {
             if max_residual > prev_residual {
@@ -1593,11 +1754,20 @@ fn post_solve(network: &mut AirflowNetwork, wind_speed_met: f64, terrain: Terrai
         let a_is_outdoor = path.node_a == outdoor;
         let b_is_outdoor = path.node_b == outdoor;
 
-        // Two-way openings (#83): record BOTH directional components, not just
-        // the net — a doorway exchanges air in both directions simultaneously,
-        // and an open window admits outdoor air even at net outflow.
-        if let FlowElement::TwoWayOpening { .. } = path.element {
-            let (m_ab, m_ba, _) = two_way_opening_flows(&path.element, dp, rho_a, rho_b);
+        // Two-way openings (#83) and horizontal openings (#93): record BOTH
+        // directional components, not just the net — a doorway or stairwell
+        // exchanges air in both directions simultaneously, and an open
+        // window admits outdoor air even at net outflow.
+        let two_way = match path.element {
+            FlowElement::TwoWayOpening { .. } => {
+                Some(two_way_opening_flows(&path.element, dp, rho_a, rho_b))
+            }
+            FlowElement::HorizontalOpening { .. } => {
+                Some(horizontal_opening_flows(&path.element, dp, rho_a, rho_b))
+            }
+            _ => None,
+        };
+        if let Some((m_ab, m_ba, _)) = two_way {
             if m_ab > 0.0 {
                 if let Some(zi_b) = b_zone {
                     if a_is_outdoor {
@@ -2574,6 +2744,167 @@ cp_model: !table
             duct_return_leak_path_indices: vec![None],
             nat_vent_path_indices: vec![None],
         }
+    }
+
+    /// Horizontal opening (#93): dense air above light air drives
+    /// bidirectional exchange even at zero pressure difference.
+    #[test]
+    fn test_horizontal_opening_unstable_exchange() {
+        let elem = FlowElement::HorizontalOpening {
+            discharge_coefficient: 0.65,
+            area: 2.0,
+        };
+        let rho_lower = 1.15; // warm lower zone
+        let rho_upper = 1.25; // cold (denser) upper zone — unstable
+
+        let (m_up, m_down, _) = horizontal_opening_flows(&elem, 0.0, rho_lower, rho_upper);
+        assert!(
+            m_up > 0.01 && m_down > 0.01,
+            "unstable stratification should exchange air both ways: up={m_up:.4}, down={m_down:.4}"
+        );
+        // Each leg carries its source-zone air density (small tolerance for
+        // the linearized orifice contribution near ΔP = 0)
+        assert_relative_eq!(m_down / m_up, rho_upper / rho_lower, max_relative = 0.02);
+
+        // Hand check against Q = 0.055·√(g·Δρ·D⁵/ρ̄)
+        let dh = 2.0 * (2.0_f64 / std::f64::consts::PI).sqrt();
+        let q = 0.055 * (G * 0.1 * dh.powi(5) / 1.2).sqrt();
+        assert_relative_eq!(m_up, rho_lower * q, max_relative = 0.02);
+    }
+
+    /// Horizontal opening (#93): stable stratification (light air above)
+    /// gives pure orifice behavior; flooding pressure kills the exchange.
+    #[test]
+    fn test_horizontal_opening_stable_and_flooding() {
+        let elem = FlowElement::HorizontalOpening {
+            discharge_coefficient: 0.65,
+            area: 2.0,
+        };
+
+        // Stable: upper zone lighter → no buoyancy exchange
+        let (m_up, m_down, _) = horizontal_opening_flows(&elem, 3.0, 1.25, 1.15);
+        let orifice = 0.65 * 2.0 * (2.0 * 1.25 * 3.0_f64).sqrt();
+        assert_relative_eq!(m_up, orifice, max_relative = 1e-9);
+        assert_eq!(m_down, 0.0);
+
+        // Unstable but far beyond the flooding pressure: exchange suppressed
+        let (m_up, m_down, _) = horizontal_opening_flows(&elem, 100.0, 1.15, 1.25);
+        let orifice = 0.65 * 2.0 * (2.0 * 1.15 * 100.0_f64).sqrt();
+        assert_relative_eq!(m_up, orifice, max_relative = 1e-9);
+        assert_eq!(m_down, 0.0);
+
+        // Net flow from flow_and_derivative is consistent
+        let (net, dnet) = flow_and_derivative(&elem, 3.0, 1.25, 1.15);
+        assert_relative_eq!(
+            net,
+            0.65 * 2.0 * (2.0 * 1.25 * 3.0_f64).sqrt(),
+            max_relative = 1e-9
+        );
+        assert!(dnet > 0.0);
+    }
+
+    /// Stacked zones joined by a hatch (#93): the solved network records
+    /// counterflow through the horizontal opening when the upper zone is
+    /// colder (denser) than the lower zone.
+    #[test]
+    fn test_stairwell_exchange_in_network() {
+        let mut network = AirflowNetwork {
+            config: AirflowNetworkConfig {
+                max_iterations: 200,
+                ..Default::default()
+            },
+            nodes: vec![
+                PressureNode {
+                    zone_index: Some(0), // lower, warm 25°C
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 298.15,
+                    density: 1.184,
+                },
+                PressureNode {
+                    zone_index: Some(1), // upper, cold 10°C
+                    ref_height: 4.5,
+                    pressure: 0.0,
+                    temperature: 283.15,
+                    density: 1.247,
+                },
+                PressureNode {
+                    zone_index: None,
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: RHO_REF,
+                },
+            ],
+            paths: vec![
+                FlowPath {
+                    node_a: 2,
+                    node_b: 0,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.01,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+                FlowPath {
+                    node_a: 2,
+                    node_b: 1,
+                    height: 4.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.01,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+                // Stair hatch: lower (0) → upper (1)
+                FlowPath {
+                    node_a: 0,
+                    node_b: 1,
+                    height: 3.0,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::HorizontalOpening {
+                        discharge_coefficient: 0.65,
+                        area: 1.0,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+            ],
+            outdoor_node: 2,
+            zone_to_node: vec![0, 1],
+            zone_outdoor_mass_flow: vec![0.0, 0.0],
+            zone_interzone_flows: vec![vec![], vec![]],
+            side_ratio: 1.0,
+            hvac_net_path_indices: vec![None, None],
+            scheduled_openings: vec![],
+            duct_supply_leak_path_indices: vec![None, None],
+            duct_return_leak_path_indices: vec![None, None],
+            nat_vent_path_indices: vec![None, None],
+        };
+
+        let (converged, _) = solve_pressures(&mut network, 0.0, 0.0, 15.0, 1.22, Terrain::Suburbs);
+        assert!(converged, "solver should converge with horizontal opening");
+
+        let lower_gets_cold = network.zone_interzone_flows[0]
+            .iter()
+            .any(|&(src, m)| src == 1 && m > 1e-3);
+        let upper_gets_warm = network.zone_interzone_flows[1]
+            .iter()
+            .any(|&(src, m)| src == 0 && m > 1e-3);
+        assert!(
+            lower_gets_cold && upper_gets_warm,
+            "hatch should exchange both ways: lower={:?}, upper={:?}",
+            network.zone_interzone_flows[0],
+            network.zone_interzone_flows[1]
+        );
     }
 
     /// Blower-door calibration (#92): exterior crack coefficients scale so
