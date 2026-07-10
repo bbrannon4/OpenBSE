@@ -162,6 +162,11 @@ pub struct SurfaceAirflowOverride {
     /// Override opening area as fraction of surface area [0-1].
     #[serde(default)]
     pub opening_fraction: Option<f64>,
+    /// Schedule name modulating the opening fraction over time [0-1].
+    /// The effective opening area is `area × opening_fraction × schedule`,
+    /// re-evaluated each timestep; a schedule value of 0 closes the opening.
+    #[serde(default)]
+    pub opening_schedule: Option<String>,
     /// Override wind pressure coefficient Cp [-].
     #[serde(default)]
     pub cp: Option<f64>,
@@ -239,6 +244,17 @@ pub struct FlowPath {
 /// Mass flow is positive = into this zone from source zone.
 pub type InterzoneFlow = (usize, f64);
 
+/// A large opening whose area is modulated by a schedule each timestep.
+#[derive(Debug, Clone)]
+pub struct ScheduledOpening {
+    /// Index of the opening's path in `AirflowNetwork.paths`.
+    pub path_index: usize,
+    /// Schedule name providing the opening fraction [0-1].
+    pub schedule: String,
+    /// Fully-open area [m²] (surface area × configured opening_fraction).
+    pub base_area: f64,
+}
+
 /// The assembled airflow network.
 #[derive(Debug, Clone)]
 pub struct AirflowNetwork {
@@ -262,6 +278,9 @@ pub struct AirflowNetwork {
     /// These paths drive zone pressure but are excluded from zone_outdoor_mass_flow
     /// accumulation (the OA is already counted in zone.outdoor_air_mass_flow).
     pub hvac_net_path_indices: Vec<Option<usize>>,
+    /// Large openings with schedule-driven opening fraction (#79).
+    /// Areas are refreshed each timestep before solving.
+    pub scheduled_openings: Vec<ScheduledOpening>,
 }
 
 impl AirflowNetwork {
@@ -275,6 +294,25 @@ impl AirflowNetwork {
             if let Some(path) = self.paths.get_mut(*path_idx) {
                 if let FlowElement::FixedFlow { ref mut mass_flow } = path.element {
                     *mass_flow = net_kg_s;
+                }
+            }
+        }
+    }
+
+    /// Refresh schedule-driven opening areas before each AFN solve (#79).
+    ///
+    /// `fraction_of` maps a schedule name to the current fraction [0-1];
+    /// the effective opening area is `base_area × fraction`. A fraction of 0
+    /// closes the opening (zero area → zero flow).
+    pub fn update_scheduled_openings<F>(&mut self, fraction_of: F)
+    where
+        F: Fn(&str) -> f64,
+    {
+        for opening in &self.scheduled_openings {
+            let frac = fraction_of(&opening.schedule).clamp(0.0, 1.0);
+            if let Some(path) = self.paths.get_mut(opening.path_index) {
+                if let FlowElement::LargeOpening { ref mut area, .. } = path.element {
+                    *area = opening.base_area * frac;
                 }
             }
         }
@@ -445,6 +483,7 @@ pub fn build_network(
     let side_ratio = estimate_side_ratio(envelope_areas);
 
     let mut paths = Vec::new();
+    let mut scheduled_openings = Vec::new();
     let mut processed_interzone = vec![false; surfaces.len()];
 
     for (si, surf) in surfaces.iter().enumerate() {
@@ -474,6 +513,14 @@ pub fn build_network(
                     let cd = overrides
                         .and_then(|o| o.discharge_coefficient)
                         .unwrap_or(0.65);
+                    let base_area = surf.input.area * frac;
+                    if let Some(schedule) = overrides.and_then(|o| o.opening_schedule.clone()) {
+                        scheduled_openings.push(ScheduledOpening {
+                            path_index: paths.len(),
+                            schedule,
+                            base_area,
+                        });
+                    }
                     paths.push(FlowPath {
                         node_a: outdoor_node,
                         node_b: zone_node,
@@ -482,7 +529,7 @@ pub fn build_network(
                         azimuth,
                         element: FlowElement::LargeOpening {
                             discharge_coefficient: cd,
-                            area: surf.input.area * frac,
+                            area: base_area,
                         },
                         source_surface: Some(si),
                         mass_flow: 0.0,
@@ -633,6 +680,7 @@ pub fn build_network(
         zone_interzone_flows: vec![Vec::new(); n_zones],
         side_ratio,
         hvac_net_path_indices,
+        scheduled_openings,
     }
 }
 
@@ -1223,6 +1271,7 @@ mod tests {
             zone_interzone_flows: vec![vec![]],
             side_ratio: 1.0,
             hvac_net_path_indices: vec![None],
+            scheduled_openings: vec![],
         };
 
         let (converged, _iters) =
@@ -1342,6 +1391,7 @@ mod tests {
             zone_interzone_flows: vec![vec![], vec![]],
             side_ratio: 1.0,
             hvac_net_path_indices: vec![None, None],
+            scheduled_openings: vec![],
         };
 
         let (converged, _) =
@@ -1465,6 +1515,7 @@ mod tests {
             zone_interzone_flows: vec![vec![], vec![]],
             side_ratio: 1.0,
             hvac_net_path_indices: vec![None, None],
+            scheduled_openings: vec![],
         };
 
         let (converged, _) = solve_pressures(&mut network, 0.0, 0.0, 0.0, 1.292, Terrain::Country);
@@ -1514,6 +1565,86 @@ mod tests {
         };
         let sr = estimate_side_ratio(&areas);
         assert_relative_eq!(sr, 2.0, max_relative = 1e-10);
+    }
+
+    /// Schedule-driven opening fraction (#79): the effective opening area
+    /// follows the schedule fraction, and a fraction of 0 closes the opening.
+    #[test]
+    fn test_scheduled_opening_area_update() {
+        let mut network = AirflowNetwork {
+            config: AirflowNetworkConfig::default(),
+            nodes: vec![
+                PressureNode {
+                    zone_index: Some(0),
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: RHO_REF,
+                },
+                PressureNode {
+                    zone_index: None,
+                    ref_height: 0.0,
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: RHO_REF,
+                },
+            ],
+            paths: vec![FlowPath {
+                node_a: 1,
+                node_b: 0,
+                height: 1.5,
+                cp: 0.0,
+                azimuth: 180.0,
+                element: FlowElement::LargeOpening {
+                    discharge_coefficient: 0.65,
+                    area: 2.0,
+                },
+                source_surface: Some(0),
+                mass_flow: 0.0,
+            }],
+            outdoor_node: 1,
+            zone_to_node: vec![0],
+            zone_outdoor_mass_flow: vec![0.0],
+            zone_interzone_flows: vec![vec![]],
+            side_ratio: 1.0,
+            hvac_net_path_indices: vec![None],
+            scheduled_openings: vec![ScheduledOpening {
+                path_index: 0,
+                schedule: "window_opening".to_string(),
+                base_area: 2.0,
+            }],
+        };
+
+        // Half-open
+        network.update_scheduled_openings(|name| {
+            assert_eq!(name, "window_opening");
+            0.5
+        });
+        match network.paths[0].element {
+            FlowElement::LargeOpening { area, .. } => {
+                assert_relative_eq!(area, 1.0, max_relative = 1e-12)
+            }
+            _ => panic!("expected LargeOpening"),
+        }
+
+        // Closed: zero area → zero flow at any ΔP
+        network.update_scheduled_openings(|_| 0.0);
+        match network.paths[0].element {
+            FlowElement::LargeOpening { area, .. } => assert_eq!(area, 0.0),
+            _ => panic!("expected LargeOpening"),
+        }
+        let (flow, dflow) = flow_and_derivative(&network.paths[0].element, 10.0, RHO_REF);
+        assert_eq!(flow, 0.0);
+        assert_eq!(dflow, 0.0);
+
+        // Schedule values outside [0,1] are clamped
+        network.update_scheduled_openings(|_| 1.7);
+        match network.paths[0].element {
+            FlowElement::LargeOpening { area, .. } => {
+                assert_relative_eq!(area, 2.0, max_relative = 1e-12)
+            }
+            _ => panic!("expected LargeOpening"),
+        }
     }
 
     /// Pressurised building: HVAC supplies more OA than it exhausts.
@@ -1594,6 +1725,7 @@ mod tests {
             zone_interzone_flows: vec![vec![]],
             side_ratio: 1.0,
             hvac_net_path_indices: vec![Some(hvac_path_idx)],
+            scheduled_openings: vec![],
         };
 
         let (converged, _) = solve_pressures(&mut network, 0.0, 0.0, 0.0, 1.292, Terrain::Suburbs);

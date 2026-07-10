@@ -207,6 +207,7 @@
         "large_opening": { "type": "boolean", "description": "Treat surface as a large opening (door, operable window)." },
         "discharge_coefficient": { "type": "number", "description": "Override discharge coefficient Cd for large opening." },
         "opening_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Opening area as fraction of surface area." },
+        "opening_schedule": { "type": "string", "description": "Schedule name modulating the opening fraction each timestep [0-1]. 0 closes the opening." },
         "cp": { "type": "number", "description": "Override wind pressure coefficient Cp." },
         "opening_height": { "type": "number", "description": "Override opening midpoint height [m]." }
       }

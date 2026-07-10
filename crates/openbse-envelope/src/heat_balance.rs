@@ -1982,6 +1982,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                 let net = zone.outdoor_air_mass_flow - zone.exhaust_mass_flow;
                 afn.update_hvac_net_flow(zi, net);
             }
+            // Schedule-driven operable openings (#79): modulate opening areas
+            // by the current schedule fraction (0 = closed).
+            let schedule_manager = &self.schedule_manager;
+            afn.update_scheduled_openings(|name| schedule_manager.fraction(name, hour, dow));
             crate::airflow_network::solve_pressures(
                 afn,
                 wind_speed_met,
