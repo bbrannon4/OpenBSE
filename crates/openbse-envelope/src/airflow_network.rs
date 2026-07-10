@@ -330,6 +330,21 @@ pub enum FlowElement {
         /// Mass flow rate [kg/s].
         mass_flow: f64,
     },
+    /// Two-way large opening (#83): doorway or operable window resolving
+    /// buoyancy-driven counterflow above and below the neutral plane.
+    ///
+    /// The pressure difference varies linearly over the opening height
+    /// (slope g·(ρ_b − ρ_a)); the orifice equation is integrated in closed
+    /// form on each side of the neutral plane, so warm air can leave through
+    /// the top of the opening while cold air enters through the bottom.
+    TwoWayOpening {
+        /// Discharge coefficient Cd (typically 0.6-0.65).
+        discharge_coefficient: f64,
+        /// Opening width [m].
+        width: f64,
+        /// Opening height (vertical extent) [m], centered on the path height.
+        height: f64,
+    },
 }
 
 /// A flow path connecting two pressure nodes.
@@ -446,8 +461,20 @@ impl AirflowNetwork {
         for opening in &self.scheduled_openings {
             let frac = fraction_of(&opening.schedule).clamp(0.0, 1.0);
             if let Some(path) = self.paths.get_mut(opening.path_index) {
-                if let FlowElement::LargeOpening { ref mut area, .. } = path.element {
-                    *area = opening.base_area * frac;
+                match path.element {
+                    FlowElement::LargeOpening { ref mut area, .. } => {
+                        *area = opening.base_area * frac;
+                    }
+                    // Two-way openings keep their vertical extent; the
+                    // schedule narrows the width (sliding-sash behavior).
+                    FlowElement::TwoWayOpening {
+                        ref mut width,
+                        height,
+                        ..
+                    } => {
+                        *width = opening.base_area * frac / height.max(1e-6);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -591,12 +618,14 @@ fn wind_surface_angle(wind_dir: f64, azimuth: f64) -> f64 {
 
 /// Compute mass flow [kg/s] through a flow element given pressure difference.
 ///
-/// `dp` = P_a - P_b + stack + wind [Pa].
-/// `rho_avg` = average air density across the element [kg/m³].
+/// `dp` = P_a - P_b + stack + wind [Pa], evaluated at the path height.
+/// `rho_a`, `rho_b` = air density at node A / node B [kg/m³].
 ///
 /// Returns (mass_flow [kg/s], d(mass_flow)/d(dp) [kg/s/Pa]).
-/// Positive flow = A → B.
-pub fn flow_and_derivative(element: &FlowElement, dp: f64, rho_avg: f64) -> (f64, f64) {
+/// Positive flow = A → B. For two-way openings the returned flow is the net
+/// of the two directional components (see `two_way_components`).
+pub fn flow_and_derivative(element: &FlowElement, dp: f64, rho_a: f64, rho_b: f64) -> (f64, f64) {
+    let rho_avg = 0.5 * (rho_a + rho_b);
     match element {
         FlowElement::PowerLawCrack {
             coefficient,
@@ -628,7 +657,96 @@ pub fn flow_and_derivative(element: &FlowElement, dp: f64, rho_avg: f64) -> (f64
         FlowElement::FixedFlow { mass_flow } => {
             (*mass_flow, 0.0) // no pressure dependence
         }
+        FlowElement::TwoWayOpening { .. } => {
+            let (m_ab, m_ba, dnet) = two_way_opening_flows(element, dp, rho_a, rho_b);
+            (m_ab - m_ba, dnet)
+        }
     }
+}
+
+/// Directional mass flows through a two-way opening (#83).
+///
+/// ΔP varies linearly over the opening height: ΔP(ζ) = dp + s·ζ with
+/// ζ ∈ [−H/2, +H/2] and slope s = g·(ρ_b − ρ_a). The orifice equation is
+/// integrated analytically on each side of the neutral plane:
+///   ṁ_A→B = Cd·W·√(2ρ_a)·∫√(ΔP⁺) dζ,   ṁ_B→A = Cd·W·√(2ρ_b)·∫√(ΔP⁻) dζ
+/// using ∫√u dζ = (2/(3|s|))·Δ(u^{3/2}) in u-space. Each component uses its
+/// upstream density. Degenerates to the one-way orifice when |s| ≈ 0.
+///
+/// Returns (ṁ_A→B, ṁ_B→A, d(ṁ_net)/d(dp)), all ≥ 0 except the derivative
+/// which is strictly positive.
+pub fn two_way_opening_flows(
+    element: &FlowElement,
+    dp: f64,
+    rho_a: f64,
+    rho_b: f64,
+) -> (f64, f64, f64) {
+    let (cd, width, height) = match element {
+        FlowElement::TwoWayOpening {
+            discharge_coefficient,
+            width,
+            height,
+        } => (*discharge_coefficient, *width, *height),
+        _ => return (0.0, 0.0, 0.0),
+    };
+    if width <= 0.0 || height <= 0.0 {
+        return (0.0, 0.0, 0.0);
+    }
+
+    let s = G * (rho_b - rho_a); // d(ΔP)/dz across the opening
+
+    // Negligible density difference → uniform ΔP → one-way orifice using
+    // the upstream density.
+    if s.abs() < 1e-9 {
+        let dp_abs = dp.abs().max(MIN_DP);
+        let rho_up = if dp >= 0.0 { rho_a } else { rho_b };
+        let area = width * height;
+        let mag = cd * area * (2.0 * rho_up * dp_abs).sqrt();
+        let dflow = cd * area * (rho_up / (2.0 * dp_abs)).sqrt();
+        return if dp >= 0.0 {
+            (mag, 0.0, dflow)
+        } else {
+            (0.0, mag, dflow)
+        };
+    }
+
+    // ΔP at the bottom and top edges of the opening.
+    let u_bot = dp - s * height / 2.0;
+    let u_top = dp + s * height / 2.0;
+    let (lo, hi) = if u_bot < u_top {
+        (u_bot, u_top)
+    } else {
+        (u_top, u_bot)
+    };
+    let s_abs = s.abs();
+
+    // A→B component (region where ΔP > 0)
+    let (m_ab, dm_ab) = if hi > 0.0 {
+        let a = lo.max(0.0);
+        let integral = (2.0 / (3.0 * s_abs)) * (hi.powf(1.5) - a.powf(1.5));
+        let dintegral = (hi.sqrt() - if lo > 0.0 { lo.sqrt() } else { 0.0 }) / s_abs;
+        let k = cd * width * (2.0 * rho_a).sqrt();
+        (k * integral, k * dintegral)
+    } else {
+        (0.0, 0.0)
+    };
+
+    // B→A component (region where ΔP < 0)
+    let (m_ba, dm_ba) = if lo < 0.0 {
+        let b = hi.min(0.0);
+        let integral = (2.0 / (3.0 * s_abs)) * ((-lo).powf(1.5) - (-b).powf(1.5));
+        // d(ṁ_BA)/d(dp) is negative: raising dp shrinks the ΔP<0 region.
+        let dintegral = ((-lo).sqrt() - if hi < 0.0 { (-hi).sqrt() } else { 0.0 }) / s_abs;
+        let k = cd * width * (2.0 * rho_b).sqrt();
+        (k * integral, k * dintegral)
+    } else {
+        (0.0, 0.0)
+    };
+
+    // d(net)/d(dp) = d(ṁ_AB)/ddp − d(ṁ_BA)/ddp; both contributions increase
+    // net flow with dp. Floor keeps the Jacobian non-singular near stagnation.
+    let dnet = (dm_ab + dm_ba).max(1e-10);
+    (m_ab, m_ba, dnet)
 }
 
 // ─── Network construction ───────────────────────────────────────────────────
@@ -754,15 +872,20 @@ pub fn build_network(
                             base_area,
                         });
                     }
+                    // Two-way opening (#83): vertical extent from the full
+                    // surface (square-equivalent); the opening fraction
+                    // narrows the width, matching a sliding sash.
+                    let opening_height = surf.input.area.sqrt();
                     paths.push(FlowPath {
                         node_a: outdoor_node,
                         node_b: zone_node,
                         height,
                         cp: 0.0, // updated per timestep
                         azimuth,
-                        element: FlowElement::LargeOpening {
+                        element: FlowElement::TwoWayOpening {
                             discharge_coefficient: cd,
-                            area: base_area,
+                            width: base_area / opening_height,
+                            height: opening_height,
                         },
                         source_surface: Some(si),
                         mass_flow: 0.0,
@@ -810,6 +933,40 @@ pub fn build_network(
                 };
                 let other_node = zone_to_node[other_zi];
                 let height = surf.centroid_height;
+
+                // Interzone doorways (#83): `large_opening` turns the surface
+                // into a two-way opening resolving buoyancy counterflow.
+                let is_large_opening = overrides.and_then(|o| o.large_opening).unwrap_or(false);
+                if is_large_opening {
+                    let frac = overrides.and_then(|o| o.opening_fraction).unwrap_or(1.0);
+                    let cd = overrides
+                        .and_then(|o| o.discharge_coefficient)
+                        .unwrap_or(0.65);
+                    let base_area = surf.input.area * frac;
+                    if let Some(schedule) = overrides.and_then(|o| o.opening_schedule.clone()) {
+                        scheduled_openings.push(ScheduledOpening {
+                            path_index: paths.len(),
+                            schedule,
+                            base_area,
+                        });
+                    }
+                    let opening_height = surf.input.area.sqrt();
+                    paths.push(FlowPath {
+                        node_a: zone_node,
+                        node_b: other_node,
+                        height,
+                        cp: 0.0,
+                        azimuth: 0.0, // irrelevant for interzone
+                        element: FlowElement::TwoWayOpening {
+                            discharge_coefficient: cd,
+                            width: base_area / opening_height,
+                            height: opening_height,
+                        },
+                        source_surface: Some(si),
+                        mass_flow: 0.0,
+                    });
+                    continue;
+                }
 
                 let (per_area, exponent) = leakage.interzone;
                 let c = override_or(
@@ -1074,9 +1231,8 @@ pub fn solve_pressures(
 
             let rho_a = network.nodes[a].density;
             let rho_b = network.nodes[b].density;
-            let rho_avg = 0.5 * (rho_a + rho_b);
 
-            let (flow, dflow_ddp) = flow_and_derivative(&path.element, dp, rho_avg);
+            let (flow, dflow_ddp) = flow_and_derivative(&path.element, dp, rho_a, rho_b);
 
             // flow > 0 means A → B: leaves A, enters B
             let a_is_zone = network.nodes[a].zone_index;
@@ -1227,9 +1383,9 @@ fn post_solve(network: &mut AirflowNetwork, wind_speed_met: f64, terrain: Terrai
             terrain,
             weather_wind_mod_coeff,
         );
-        let rho_avg =
-            0.5 * (network.nodes[path.node_a].density + network.nodes[path.node_b].density);
-        let (flow, _) = flow_and_derivative(&path.element, dp, rho_avg);
+        let rho_a = network.nodes[path.node_a].density;
+        let rho_b = network.nodes[path.node_b].density;
+        let (flow, _) = flow_and_derivative(&path.element, dp, rho_a, rho_b);
         path.mass_flow = flow;
 
         // HVAC net injection and duct leakage paths drive zone pressure but
@@ -1243,6 +1399,32 @@ fn post_solve(network: &mut AirflowNetwork, wind_speed_met: f64, terrain: Terrai
         let b_zone = network.nodes[path.node_b].zone_index;
         let a_is_outdoor = path.node_a == outdoor;
         let b_is_outdoor = path.node_b == outdoor;
+
+        // Two-way openings (#83): record BOTH directional components, not just
+        // the net — a doorway exchanges air in both directions simultaneously,
+        // and an open window admits outdoor air even at net outflow.
+        if let FlowElement::TwoWayOpening { .. } = path.element {
+            let (m_ab, m_ba, _) = two_way_opening_flows(&path.element, dp, rho_a, rho_b);
+            if m_ab > 0.0 {
+                if let Some(zi_b) = b_zone {
+                    if a_is_outdoor {
+                        network.zone_outdoor_mass_flow[zi_b] += m_ab;
+                    } else if let Some(zi_a) = a_zone {
+                        network.zone_interzone_flows[zi_b].push((zi_a, m_ab));
+                    }
+                }
+            }
+            if m_ba > 0.0 {
+                if let Some(zi_a) = a_zone {
+                    if b_is_outdoor {
+                        network.zone_outdoor_mass_flow[zi_a] += m_ba;
+                    } else if let Some(zi_b) = b_zone {
+                        network.zone_interzone_flows[zi_a].push((zi_b, m_ba));
+                    }
+                }
+            }
+            continue;
+        }
 
         // flow > 0 means A → B
         if flow > 0.0 {
@@ -1350,13 +1532,13 @@ mod tests {
             coefficient: 0.001,
             exponent: 0.65,
         };
-        let (flow, dflow) = flow_and_derivative(&elem, 4.0, RHO_REF);
+        let (flow, dflow) = flow_and_derivative(&elem, 4.0, RHO_REF, RHO_REF);
         let expected = 0.001 * 4.0_f64.powf(0.65);
         assert_relative_eq!(flow, expected, max_relative = 1e-6);
         assert!(dflow > 0.0);
 
         // Negative ΔP → negative flow
-        let (flow_neg, _) = flow_and_derivative(&elem, -4.0, RHO_REF);
+        let (flow_neg, _) = flow_and_derivative(&elem, -4.0, RHO_REF, RHO_REF);
         assert_relative_eq!(flow_neg, -expected, max_relative = 1e-6);
     }
 
@@ -1368,7 +1550,7 @@ mod tests {
             discharge_coefficient: 0.65,
             area: 1.0,
         };
-        let (flow, _) = flow_and_derivative(&elem, 2.0, 1.2);
+        let (flow, _) = flow_and_derivative(&elem, 2.0, 1.2, 1.2);
         let expected = 0.65 * (2.0 * 1.2 * 2.0_f64).sqrt();
         assert_relative_eq!(flow, expected, max_relative = 1e-6);
     }
@@ -1376,7 +1558,7 @@ mod tests {
     #[test]
     fn test_fixed_flow_element() {
         let elem = FlowElement::FixedFlow { mass_flow: 0.5 };
-        let (flow, dflow) = flow_and_derivative(&elem, 100.0, 1.2);
+        let (flow, dflow) = flow_and_derivative(&elem, 100.0, 1.2, 1.2);
         assert_eq!(flow, 0.5);
         assert_eq!(dflow, 0.0);
     }
@@ -1809,9 +1991,9 @@ mod tests {
         let eps = 1e-6;
         let rho = RHO_REF;
 
-        let (_, dflow_analytical) = flow_and_derivative(&elem, dp, rho);
-        let (f_plus, _) = flow_and_derivative(&elem, dp + eps, rho);
-        let (f_minus, _) = flow_and_derivative(&elem, dp - eps, rho);
+        let (_, dflow_analytical) = flow_and_derivative(&elem, dp, rho, rho);
+        let (f_plus, _) = flow_and_derivative(&elem, dp + eps, rho, rho);
+        let (f_minus, _) = flow_and_derivative(&elem, dp - eps, rho, rho);
         let dflow_numerical = (f_plus - f_minus) / (2.0 * eps);
 
         assert_relative_eq!(dflow_analytical, dflow_numerical, max_relative = 1e-4);
@@ -2118,7 +2300,7 @@ cp_model: !table
             FlowElement::LargeOpening { area, .. } => assert_eq!(area, 0.0),
             _ => panic!("expected LargeOpening"),
         }
-        let (flow, dflow) = flow_and_derivative(&network.paths[0].element, 10.0, RHO_REF);
+        let (flow, dflow) = flow_and_derivative(&network.paths[0].element, 10.0, RHO_REF, RHO_REF);
         assert_eq!(flow, 0.0);
         assert_eq!(dflow, 0.0);
 
@@ -2130,6 +2312,195 @@ cp_model: !table
             }
             _ => panic!("expected LargeOpening"),
         }
+    }
+
+    /// Two-way opening (#83): pure buoyancy exchange with equal node
+    /// pressures at mid-height matches the classic doorway formula
+    /// ṁ = (Cd·W/3)·√(g·Δρ·ρ_upstream)·H^{3/2}.
+    #[test]
+    fn test_two_way_opening_buoyancy_exchange() {
+        let elem = FlowElement::TwoWayOpening {
+            discharge_coefficient: 0.65,
+            width: 0.9,
+            height: 2.0,
+        };
+        let rho_a = 1.25; // cold side
+        let rho_b = 1.15; // warm side
+
+        let (m_ab, m_ba, dnet) = two_way_opening_flows(&elem, 0.0, rho_a, rho_b);
+
+        // Classic doorway exchange, upstream density per direction
+        let g_drho = G * (rho_a - rho_b);
+        let expected_ab = (0.65 * 0.9 / 3.0) * (g_drho * rho_a).sqrt() * 2.0_f64.powf(1.5);
+        let expected_ba = (0.65 * 0.9 / 3.0) * (g_drho * rho_b).sqrt() * 2.0_f64.powf(1.5);
+        assert_relative_eq!(m_ab, expected_ab, max_relative = 1e-9);
+        assert_relative_eq!(m_ba, expected_ba, max_relative = 1e-9);
+
+        // Both directions flow simultaneously; derivative is positive
+        assert!(m_ab > 0.0 && m_ba > 0.0);
+        assert!(dnet > 0.0);
+
+        // Consistency with the net flow from flow_and_derivative
+        let (net, _) = flow_and_derivative(&elem, 0.0, rho_a, rho_b);
+        assert_relative_eq!(net, m_ab - m_ba, max_relative = 1e-12);
+    }
+
+    /// Two-way opening (#83): analytic d(net)/d(ΔP) matches finite
+    /// differences with the neutral plane inside and outside the opening.
+    #[test]
+    fn test_two_way_opening_jacobian_numerical() {
+        let elem = FlowElement::TwoWayOpening {
+            discharge_coefficient: 0.6,
+            width: 1.2,
+            height: 1.8,
+        };
+        let rho_a = 1.28;
+        let rho_b = 1.16;
+        let eps = 1e-6;
+
+        for dp in [-0.4, 0.3, 5.0, -6.0] {
+            let (_, _, dnet_analytic) = two_way_opening_flows(&elem, dp, rho_a, rho_b);
+            let (f_plus, _) = flow_and_derivative(&elem, dp + eps, rho_a, rho_b);
+            let (f_minus, _) = flow_and_derivative(&elem, dp - eps, rho_a, rho_b);
+            let dnet_numeric = (f_plus - f_minus) / (2.0 * eps);
+            assert_relative_eq!(dnet_analytic, dnet_numeric, max_relative = 1e-4);
+        }
+    }
+
+    /// Two-way opening (#83): with equal densities it degenerates to the
+    /// one-way orifice with area = width × height.
+    #[test]
+    fn test_two_way_opening_degenerate_equal_density() {
+        let two_way = FlowElement::TwoWayOpening {
+            discharge_coefficient: 0.65,
+            width: 0.5,
+            height: 2.0,
+        };
+        let orifice = FlowElement::LargeOpening {
+            discharge_coefficient: 0.65,
+            area: 1.0,
+        };
+        let (f_two_way, d_two_way) = flow_and_derivative(&two_way, 3.0, 1.2, 1.2);
+        let (f_orifice, d_orifice) = flow_and_derivative(&orifice, 3.0, 1.2, 1.2);
+        assert_relative_eq!(f_two_way, f_orifice, max_relative = 1e-9);
+        assert_relative_eq!(d_two_way, d_orifice, max_relative = 1e-9);
+    }
+
+    /// Doorway between a warm and a cold zone (#83): the solved network
+    /// records simultaneous counterflow — each zone receives air from the
+    /// other through the same opening.
+    #[test]
+    fn test_doorway_counterflow_in_network() {
+        let mut network = AirflowNetwork {
+            config: AirflowNetworkConfig::default(),
+            nodes: vec![
+                PressureNode {
+                    zone_index: Some(0), // cold zone, 15°C
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 288.15,
+                    density: 1.225,
+                },
+                PressureNode {
+                    zone_index: Some(1), // warm zone, 25°C
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 298.15,
+                    density: 1.184,
+                },
+                PressureNode {
+                    zone_index: None,
+                    ref_height: 1.5,
+                    pressure: 0.0,
+                    temperature: 293.15,
+                    density: RHO_REF,
+                },
+            ],
+            paths: vec![
+                // Cracks to outdoor keep the pressure problem well-posed
+                FlowPath {
+                    node_a: 2,
+                    node_b: 0,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.002,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+                FlowPath {
+                    node_a: 2,
+                    node_b: 1,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::PowerLawCrack {
+                        coefficient: 0.002,
+                        exponent: 0.65,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+                // Doorway between the zones
+                FlowPath {
+                    node_a: 0,
+                    node_b: 1,
+                    height: 1.5,
+                    cp: 0.0,
+                    azimuth: 0.0,
+                    element: FlowElement::TwoWayOpening {
+                        discharge_coefficient: 0.65,
+                        width: 0.9,
+                        height: 2.0,
+                    },
+                    source_surface: None,
+                    mass_flow: 0.0,
+                },
+            ],
+            outdoor_node: 2,
+            zone_to_node: vec![0, 1],
+            zone_outdoor_mass_flow: vec![0.0, 0.0],
+            zone_interzone_flows: vec![vec![], vec![]],
+            side_ratio: 1.0,
+            hvac_net_path_indices: vec![None, None],
+            scheduled_openings: vec![],
+            duct_leakage_path_indices: vec![None, None],
+        };
+
+        let (converged, _) =
+            solve_pressures(&mut network, 0.0, 0.0, 20.0, RHO_REF, Terrain::Suburbs);
+        assert!(converged, "solver should converge with two-way opening");
+
+        // Counterflow: cold zone receives warm air, warm zone receives cold air
+        let cold_receives_from_warm = network.zone_interzone_flows[0]
+            .iter()
+            .any(|&(src, m)| src == 1 && m > 1e-4);
+        let warm_receives_from_cold = network.zone_interzone_flows[1]
+            .iter()
+            .any(|&(src, m)| src == 0 && m > 1e-4);
+        assert!(
+            cold_receives_from_warm,
+            "cold zone should receive warm air through the doorway: {:?}",
+            network.zone_interzone_flows[0]
+        );
+        assert!(
+            warm_receives_from_cold,
+            "warm zone should receive cold air through the doorway: {:?}",
+            network.zone_interzone_flows[1]
+        );
+
+        // The exchange dwarfs the crack flows (doorway ≫ cracks)
+        let doorway_exchange: f64 = network.zone_interzone_flows[0]
+            .iter()
+            .map(|&(_, m)| m)
+            .sum();
+        assert!(
+            doorway_exchange > 0.1,
+            "doorway exchange should be substantial, got {doorway_exchange:.4} kg/s"
+        );
     }
 
     /// Duct leakage to an unconditioned space (#82): leaked duct air moves
