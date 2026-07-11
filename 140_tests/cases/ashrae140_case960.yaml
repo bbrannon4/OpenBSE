@@ -38,6 +38,13 @@
 
 simulation:
   timesteps_per_hour: 4
+  # Geometric interior beam projection (matches the E+ reference IDF's
+  # FullInteriorAndExterior). Essential here: winter beam through the south
+  # glazing of the 2 m-deep sunspace lands mostly on the massive common
+  # wall; the previous hand-estimated fixed fractions spread it
+  # area-weighted over all walls, under-charging the wall and
+  # over-predicting back-zone heating (issue #101).
+  solar_distribution: full_interior_and_exterior
   start_month: 1
   start_day: 1
   end_month: 12
