@@ -46,6 +46,9 @@ pub fn pmv(t_air: f64, t_mrt: f64, v_air: f64, rh: f64, met: f64, clo: f64) -> f
     let h_c = convective_coeff(t_cl, t_air, v_air);
 
     // ISO 7730 Eq. (1) thermal load components
+    // The 0.42·(M−58.15) sweat-evaporation term is clamped at 0: ISO 7730 leaves
+    // it unclamped, but below ~1 met it would otherwise contribute a spurious
+    // negative loss. Harmless at met ≥ 1 (the validated range); intentional guard.
     let heat_loss = 3.05e-3 * (5733.0 - 6.99 * mw - p_a)
         + 0.42 * (mw - 58.15).max(0.0)
         + 1.7e-5 * mw * (5867.0 - p_a)
@@ -74,16 +77,28 @@ pub fn operative_temperature(t_air: f64, t_mrt: f64) -> f64 {
     (t_air + t_mrt) / 2.0
 }
 
-/// Solar MRT correction per ASHRAE 55-2023 Annex C.
+/// Solar MRT correction — direct-beam simplification of ASHRAE 55-2023 Annex C
+/// (SolarCal).
 ///
-/// Returns the increment ΔT_mrt [K] to add to the long-wave MRT when
-/// the occupant is in direct beam solar radiation.
+/// Returns the increment ΔT_mrt [K] to add to the long-wave MRT when the occupant
+/// is in direct beam solar radiation:
+///
+/// ```text
+/// ΔT_mrt = α_sw · f_p · DNI / (ε_lw · σ · 4 · T_mrt_K³)
+/// ```
+///
+/// This implements only the **direct-beam** term of the SolarCal model. The full
+/// Annex C model additionally accounts for diffuse-sky and ground-reflected
+/// short-wave radiation (via the sky-vision factor `f_svv`), the beam-exposure
+/// fraction `f_bes`, and the effective radiating-area fraction `f_eff` (~0.70).
+/// Adding those terms is tracked as a follow-up; the direct term dominates for an
+/// occupant in a sunbeam.
 ///
 /// # Arguments
 /// * `dni`        — Direct normal irradiance (beam from sun) [W/m²]
 /// * `solar_alt`  — Solar altitude angle [radians]
 /// * `t_mrt`      — Long-wave mean radiant temperature [°C]
-/// * `alpha_sw`   — Short-wave absorptivity of body/clothing (default 0.57)
+/// * `alpha_sw`   — Short-wave absorptivity of body/clothing (SolarCal default 0.67)
 /// * `epsilon_lw` — Long-wave emissivity of body (default 0.95)
 ///
 /// Returns 0.0 when the sun is below the horizon.
@@ -127,11 +142,11 @@ fn convective_coeff(t_cl: f64, t_air: f64, v_air: f64) -> f64 {
 
 fn clothing_surface_temp(mw: f64, i_cl: f64, f_cl: f64, t_air: f64, t_mrt: f64, v_air: f64) -> f64 {
     // ISO 7730 Eq. (A5) with 50/50 damping to prevent oscillation.
-    let mut t_cl = 35.7 - 0.0275 * mw;
+    let mut t_cl = 35.7 - 0.028 * mw;
     for _ in 0..150 {
         let h_c = convective_coeff(t_cl, t_air, v_air);
         let t_cl_new = 35.7
-            - 0.0275 * mw
+            - 0.028 * mw
             - i_cl
                 * (3.96e-8 * f_cl * ((t_cl + 273.15).powi(4) - (t_mrt + 273.15).powi(4))
                     + f_cl * h_c * (t_cl - t_air));
@@ -151,13 +166,11 @@ mod tests {
 
     #[test]
     fn test_pmv_neutral_conditions() {
-        // 24°C air/mrt, 50% RH, 0.1 m/s, 1.2 met, 0.5 clo → PMV ≈ −0.15 (near-neutral)
-        // Reference: pythermalcomfort / ISO 7730 Table A.1
+        // 24°C air/mrt, 50% RH, 0.1 m/s, 1.2 met, 0.5 clo → PMV ≈ −0.22 (near-neutral).
+        // Reference: pythermalcomfort / ISO 7730 Table A.1. Pinned with a tight
+        // tolerance so the test actually guards the formula (#110).
         let p = pmv(24.0, 24.0, 0.1, 0.5, 1.2, 0.5);
-        assert!(
-            p > -0.5 && p < 0.3,
-            "PMV {p:.3} out of expected neutral range"
-        );
+        assert_relative_eq!(p, -0.22, epsilon = 0.05);
     }
 
     #[test]

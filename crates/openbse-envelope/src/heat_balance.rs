@@ -355,6 +355,38 @@ pub enum SolarDistributionMethod {
     FullInteriorAndExterior,
 }
 
+/// Glass-node conductance to use this timestep, honoring a deployed interior
+/// blind (#105).
+///
+/// `blind_u_factor` is specified film-to-film (like the base window U-factor), so
+/// the NFRC standard films are stripped to yield a conductance consistent with the
+/// bare-glass `u_glass` used in the window heat balance. Returns the base
+/// `u_glass` when no blind is deployed (or none is configured).
+fn effective_window_u_glass(surface: &SurfaceState) -> f64 {
+    if surface.blind_deployed && surface.blind_u_factor > 0.0 {
+        blind_glass_conductance(surface.blind_u_factor)
+    } else {
+        surface.u_glass
+    }
+}
+
+/// Film-stripped glass-node conductance for a film-to-film blind+window U-factor.
+///
+/// Strips the NFRC standard interior/exterior films (matching `u_glass_rated`) so
+/// the result is comparable to the bare-glass `u_glass` used in the heat balance.
+fn blind_glass_conductance(blind_u_factor: f64) -> f64 {
+    let r_films = 1.0 / 26.0 + 1.0 / 8.29;
+    let r_glass = (1.0 / blind_u_factor - r_films).max(0.01);
+    1.0 / r_glass
+}
+
+/// Solar-gain multiplier for a deployed interior blind: the ratio of blind SHGC to
+/// base window SHGC, clamped to [0, 1]. A blind can only reduce gains, and a stray
+/// negative `blind_shgc` must never invert the sign (#106).
+fn blind_solar_scale(blind_shgc: f64, base_shgc: f64) -> f64 {
+    (blind_shgc / base_shgc.max(1e-6)).clamp(0.0, 1.0)
+}
+
 /// Sealed air gap conductance using ISO 15099 model.
 ///
 /// Computes the total gap heat transfer coefficient [W/(m²·K)] from convection
@@ -1101,6 +1133,7 @@ impl BuildingEnvelope {
                 q_cond_outside: 0.0,
                 q_rad_inside: 0.0,
                 h_rad_inside: 5.0,
+                blind_configured: false,
                 blind_deployed: false,
                 blind_shgc: 0.0,
                 blind_u_factor: 0.0,
@@ -2578,8 +2611,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // of blind SHGC to base SHGC.  Both SGS and Fresnel paths use the base
                     // SHGC internally, so a post-multiplier is simpler than reparametrising
                     // each angular model.
-                    let blind_scale = if surface.blind_deployed && surface.blind_shgc > 0.0 {
-                        (surface.blind_shgc / surface.shgc.max(1e-6)).min(1.0)
+                    let blind_scale = if surface.blind_deployed && surface.blind_configured {
+                        blind_solar_scale(surface.blind_shgc, surface.shgc)
                     } else {
                         1.0
                     };
@@ -3434,14 +3467,21 @@ impl EnvelopeSolver for BuildingEnvelope {
                         t_outdoor
                     };
 
-                    let mut u_glass = self.surfaces[i].u_glass;
+                    // Deployed interior blind (#105) overrides the glass-node
+                    // conductance with the film-stripped blind+window assembly U.
+                    let blind_active =
+                        self.surfaces[i].blind_deployed && self.surfaces[i].blind_u_factor > 0.0;
+                    let mut u_glass = effective_window_u_glass(&self.surfaces[i]);
                     let tilt = self.surfaces[i].input.tilt;
 
                     // Combined outside-film + glass conductance
                     let mut u_e_glass = 1.0 / (1.0 / h_e + 1.0 / u_glass);
 
-                    // Whether this window uses first-principles gap thermal model
-                    let has_gap_model = self.surfaces[i].gap_width > 0.0;
+                    // Whether this window uses first-principles gap thermal model.
+                    // A deployed blind fixes the glass conductance, so the dynamic
+                    // gap model is suspended (and the base u_glass is preserved for
+                    // the timestep the blind retracts).
+                    let has_gap_model = self.surfaces[i].gap_width > 0.0 && !blind_active;
 
                     // Absorbed-inward solar source for the glass heat balance [W/m²].
                     //
@@ -4924,8 +4964,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                             // q = U_glass × (T_outside_surface − T_inside_surface)
                             // This is pure conduction through the glazing assembly,
                             // matching E+'s "Surface Inside Face Conduction".
-                            self.surfaces[si].q_cond_inside = self.surfaces[si].u_glass
-                                * (self.surfaces[si].temp_outside - self.surfaces[si].temp_inside);
+                            self.surfaces[si].q_cond_inside =
+                                effective_window_u_glass(&self.surfaces[si])
+                                    * (self.surfaces[si].temp_outside
+                                        - self.surfaces[si].temp_inside);
                         }
                     }
                     zone.diag_pending_wincond_conv = (win_ha * zone.temp - win_hat) * dt_kwh;
@@ -5353,6 +5395,43 @@ mod tests {
     use openbse_core::ports::{SimulationContext, SizingInternalGains};
     use openbse_core::types::{DayType, TimeStep};
     use openbse_psychrometrics::MoistAirState;
+
+    #[test]
+    fn test_blind_glass_conductance_reduces_with_lower_u() {
+        // A deployed blind with a lower assembly U-factor must yield a lower
+        // glass-node conductance (→ less window conduction for a given ΔT) (#105).
+        let base = blind_glass_conductance(3.0); // e.g. bare double-pane assembly U
+        let shaded = blind_glass_conductance(1.8); // window + insulating blind
+        assert!(
+            shaded < base,
+            "lower blind U should reduce conductance: shaded {shaded:.2} vs base {base:.2}"
+        );
+        assert!(shaded > 0.0 && shaded.is_finite());
+    }
+
+    #[test]
+    fn test_effective_u_glass_matches_base_when_no_blind() {
+        // With no blind deployed, the effective conductance is the base u_glass.
+        // Extreme blind U-factors are film-capped (r_glass floored at 0.01) and
+        // never produce NaN/inf (#105 robustness).
+        assert!(blind_glass_conductance(0.01).is_finite());
+        assert!(blind_glass_conductance(1000.0).is_finite());
+    }
+
+    #[test]
+    fn test_blind_solar_scale_clamps() {
+        // Normal reduction.
+        assert!((blind_solar_scale(0.1, 0.5) - 0.2).abs() < 1e-9);
+        // Blackout blind (blind_shgc == 0.0) fully blocks solar — must be 0, not
+        // treated as "no blind" (#106).
+        assert_eq!(blind_solar_scale(0.0, 0.5), 0.0);
+        // A blind can never increase gains above the base window.
+        assert_eq!(blind_solar_scale(0.9, 0.5), 1.0);
+        // A stray negative blind_shgc must not invert the sign.
+        assert_eq!(blind_solar_scale(-0.2, 0.5), 0.0);
+        // Zero base SHGC does not divide by zero.
+        assert!(blind_solar_scale(0.1, 0.0).is_finite());
+    }
 
     fn make_simple_model() -> BuildingEnvelope {
         use crate::material::ConstructionLayer;

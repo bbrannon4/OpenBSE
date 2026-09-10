@@ -311,6 +311,66 @@ fn control_temp_for(z: &openbse_envelope::zone::ZoneState) -> f64 {
     }
 }
 
+/// Evaluate dynamic blind/shading control for every window (#104), updating
+/// `blind_configured` / `blind_deployed` / `blind_shgc` / `blind_u_factor` in place.
+///
+/// Runs once per timestep before solar gains, using previous-step surface
+/// conditions (one-step lag matches E+ WindowShadingControl). Shared by the
+/// ideal-loads and coupled-HVAC paths (#108); `zone_temps` supplies the signal for
+/// `Temperature`-triggered controls.
+fn evaluate_blind_control(
+    surfaces: &mut [openbse_envelope::surface::SurfaceState],
+    window_constructions: &HashMap<String, openbse_envelope::material::WindowConstruction>,
+    zone_temps: &HashMap<String, f64>,
+    dni: f64,
+    solar_altitude: f64,
+) {
+    use openbse_envelope::material::ShadingControlKind;
+    // Beam on a horizontal surface — first-step fallback only (see below).
+    let beam_irr = dni * solar_altitude.sin().max(0.0);
+    for surface in surfaces.iter_mut() {
+        if !surface.is_window {
+            continue;
+        }
+        let Some(ctrl) = window_constructions
+            .get(&surface.input.construction)
+            .and_then(|wc| wc.shading_control.as_ref())
+        else {
+            continue;
+        };
+        // Initialize blind properties from the construction on first encounter.
+        // `blind_configured` (not blind_shgc) is the sentinel so that a blackout
+        // blind with blind_shgc == 0.0 is still recognized (#106).
+        if !surface.blind_configured {
+            surface.blind_configured = true;
+            surface.blind_shgc = ctrl.blind_shgc;
+            surface.blind_u_factor = ctrl.blind_u_factor.unwrap_or(surface.u_factor);
+        }
+        let signal = match ctrl.kind {
+            ShadingControlKind::SolarThreshold => {
+                // Incident beam per glazing area [W/m²], lagged one timestep. Before
+                // the first solve incident_solar is 0, so fall back to horizontal
+                // beam (only affects timestep 0; daytime steps use true incidence).
+                if surface.incident_solar > 0.0 {
+                    surface.incident_solar / surface.net_area.max(1e-6)
+                } else {
+                    beam_irr
+                }
+            }
+            ShadingControlKind::Temperature => {
+                zone_temps.get(&surface.input.zone).copied().unwrap_or(21.0)
+            }
+        };
+        let trigger = ctrl.trigger_level();
+        let retract = ctrl.retract_level();
+        surface.blind_deployed = if surface.blind_deployed {
+            signal > retract
+        } else {
+            signal > trigger
+        };
+    }
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -2429,7 +2489,7 @@ fn main() -> Result<()> {
                         // ═══════════════════════════════════════════════════════
                         // IDEAL LOADS or FREE-FLOAT MODE
                         // ═══════════════════════════════════════════════════════
-                        // Blind control (#104) — same logic as coupled-HVAC path
+                        // Blind control (#104) — shared helper with coupled path (#108)
                         {
                             let doy_b = ctx.timestep.day_of_year();
                             let sh_b = openbse_envelope::solar::local_solar_hour(
@@ -2441,39 +2501,18 @@ fn main() -> Result<()> {
                             let sol_alt_b =
                                 openbse_envelope::solar::solar_position(doy_b, sh_b, env.latitude)
                                     .altitude;
-                            let beam_irr_b =
-                                interp_weather.direct_normal_rad * sol_alt_b.sin().max(0.0);
-                            for surface in &mut env.surfaces {
-                                if !surface.is_window {
-                                    continue;
-                                }
-                                let ctrl = env
-                                    .window_constructions
-                                    .get(&surface.input.construction)
-                                    .and_then(|wc| wc.shading_control.as_ref());
-                                if let Some(ctrl) = ctrl {
-                                    if surface.blind_shgc == 0.0 {
-                                        surface.blind_shgc = ctrl.blind_shgc;
-                                        surface.blind_u_factor =
-                                            ctrl.blind_u_factor.unwrap_or(surface.u_factor);
-                                    }
-                                    let signal = match ctrl.kind {
-                                        openbse_envelope::material::ShadingControlKind::SolarThreshold => {
-                                            if surface.incident_solar > 0.0 { surface.incident_solar / surface.net_area.max(1e-6) } else { beam_irr_b }
-                                        }
-                                        openbse_envelope::material::ShadingControlKind::Temperature => {
-                                            env.zones.iter().find(|z| z.input.name == surface.input.zone).map(|z| z.temp).unwrap_or(21.0)
-                                        }
-                                    };
-                                    let trigger = ctrl.trigger_level();
-                                    let retract = ctrl.retract_level();
-                                    surface.blind_deployed = if surface.blind_deployed {
-                                        signal > retract
-                                    } else {
-                                        signal > trigger
-                                    };
-                                }
-                            }
+                            let zone_temps_b: HashMap<String, f64> = env
+                                .zones
+                                .iter()
+                                .map(|z| (z.input.name.clone(), z.temp))
+                                .collect();
+                            evaluate_blind_control(
+                                &mut env.surfaces,
+                                &env.window_constructions,
+                                &zone_temps_b,
+                                interp_weather.direct_normal_rad,
+                                sol_alt_b,
+                            );
                         }
                         let hvac_conds = ZoneHvacConditions::default();
                         let env_result = env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
@@ -2650,6 +2689,7 @@ fn main() -> Result<()> {
                         // Evaluate shading control triggers once per timestep, before
                         // the HVAC iteration loop, using previous-step surface conditions
                         // (one-step lag matches E+ WindowShadingControl behavior).
+                        // Shared helper with the ideal-loads path (#108).
                         {
                             let doy = ctx.timestep.day_of_year();
                             let solar_hour = openbse_envelope::solar::local_solar_hour(
@@ -2664,51 +2704,13 @@ fn main() -> Result<()> {
                                 env.latitude,
                             )
                             .altitude;
-                            let beam_irr =
-                                interp_weather.direct_normal_rad * sol_alt.sin().max(0.0);
-
-                            for surface in &mut env.surfaces {
-                                if !surface.is_window {
-                                    continue;
-                                }
-                                let ctrl = env
-                                    .window_constructions
-                                    .get(&surface.input.construction)
-                                    .and_then(|wc| wc.shading_control.as_ref());
-                                if let Some(ctrl) = ctrl {
-                                    // Initialize blind properties from construction on first encounter
-                                    if surface.blind_shgc == 0.0 {
-                                        surface.blind_shgc = ctrl.blind_shgc;
-                                        surface.blind_u_factor =
-                                            ctrl.blind_u_factor.unwrap_or(surface.u_factor);
-                                    }
-                                    let signal = match ctrl.kind {
-                                        openbse_envelope::material::ShadingControlKind::SolarThreshold => {
-                                            // Incident beam on glazing [W/m²]: use horizontal beam ×
-                                            // cos(incidence) approximation; incident_solar from previous
-                                            // step when available, else horizontal beam.
-                                            if surface.incident_solar > 0.0 {
-                                                surface.incident_solar / surface.net_area.max(1e-6)
-                                            } else {
-                                                beam_irr
-                                            }
-                                        }
-                                        openbse_envelope::material::ShadingControlKind::Temperature => {
-                                            current_zone_temps
-                                                .get(&surface.input.zone)
-                                                .copied()
-                                                .unwrap_or(21.0)
-                                        }
-                                    };
-                                    let trigger = ctrl.trigger_level();
-                                    let retract = ctrl.retract_level();
-                                    surface.blind_deployed = if surface.blind_deployed {
-                                        signal > retract
-                                    } else {
-                                        signal > trigger
-                                    };
-                                }
-                            }
+                            evaluate_blind_control(
+                                &mut env.surfaces,
+                                &env.window_constructions,
+                                &current_zone_temps,
+                                interp_weather.direct_normal_rad,
+                                sol_alt,
+                            );
                         }
 
                         for hvac_iter in 0..MAX_HVAC_ITER {
@@ -3877,8 +3879,15 @@ fn main() -> Result<()> {
                         );
                         let ppd_val = openbse_psychrometrics::comfort::ppd(pmv_val);
 
+                        // Report long-wave MRT and solar-corrected MRT separately so
+                        // an existing consumer of mean_radiant_temperature keeps its
+                        // long-wave semantics (#109). PMV / operative temperature use
+                        // the effective (solar-corrected) value.
                         snapshot
                             .zone_mean_radiant_temperature
+                            .insert(name.clone(), mrt);
+                        snapshot
+                            .zone_effective_mrt
                             .insert(name.clone(), mrt_effective);
                         snapshot
                             .zone_operative_temperature
@@ -3940,7 +3949,7 @@ fn main() -> Result<()> {
                             .surface_inside_radiation_coefficient
                             .insert(name.clone(), surface.h_rad_inside);
                         // Blind state (#104)
-                        if surface.is_window && surface.blind_shgc > 0.0 {
+                        if surface.is_window && surface.blind_configured {
                             snapshot.window_blind_deployed.insert(
                                 name.clone(),
                                 if surface.blind_deployed { 1.0 } else { 0.0 },

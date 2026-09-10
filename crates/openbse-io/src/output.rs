@@ -733,7 +733,13 @@ pub struct OutputSnapshot {
     pub zone_gain_hvac_latent: HashMap<String, f64>,
 
     // Zone comfort metrics (#102, #103)
+    /// Long-wave (area-weighted surface) mean radiant temperature [°C], excluding
+    /// any direct-solar correction. See `zone_effective_mrt` for the value used by
+    /// PMV / operative temperature (#109).
     pub zone_mean_radiant_temperature: HashMap<String, f64>,
+    /// Effective MRT [°C] = long-wave MRT + solar correction. This is the MRT that
+    /// drives PMV and operative temperature (#109).
+    pub zone_effective_mrt: HashMap<String, f64>,
     pub zone_operative_temperature: HashMap<String, f64>,
     /// Predicted Mean Vote per ISO 7730 / ASHRAE 55 Fanger model.
     pub zone_pmv: HashMap<String, f64>,
@@ -842,6 +848,7 @@ impl OutputSnapshot {
             zone_gain_hvac_sensible: HashMap::new(),
             zone_gain_hvac_latent: HashMap::new(),
             zone_mean_radiant_temperature: HashMap::new(),
+            zone_effective_mrt: HashMap::new(),
             zone_operative_temperature: HashMap::new(),
             zone_pmv: HashMap::new(),
             zone_ppd: HashMap::new(),
@@ -941,6 +948,7 @@ impl OutputSnapshot {
                 "gain_hvac_sensible" => self.zone_gain_hvac_sensible.clone(),
                 "gain_hvac_latent" => self.zone_gain_hvac_latent.clone(),
                 "mean_radiant_temperature" => self.zone_mean_radiant_temperature.clone(),
+                "effective_mrt" => self.zone_effective_mrt.clone(),
                 "operative_temperature" => self.zone_operative_temperature.clone(),
                 "pmv" => self.zone_pmv.clone(),
                 "ppd" => self.zone_ppd.clone(),

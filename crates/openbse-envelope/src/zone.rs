@@ -465,7 +465,8 @@ pub struct ZoneComfortConfig {
     /// Relative air velocity [m/s]. Default: 0.1 (still room).
     #[serde(default = "default_air_velocity")]
     pub air_velocity: f64,
-    /// Short-wave absorptivity of clothing for solar MRT correction [0–1]. Default: 0.57.
+    /// Short-wave absorptivity of clothing for solar MRT correction [0–1].
+    /// Default: 0.67 (ASHRAE 55 SolarCal default for an average clothed body).
     #[serde(default = "default_alpha_sw")]
     pub solar_absorptivity: f64,
 }
@@ -480,7 +481,7 @@ fn default_air_velocity() -> f64 {
     0.1
 }
 fn default_alpha_sw() -> f64 {
-    0.57
+    0.67
 }
 
 impl Default for ZoneComfortConfig {

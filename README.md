@@ -101,8 +101,10 @@ The **desktop editor** (`openbse-editor`) is a Tauri + React app in `tools/edito
 - **Interior Convection** — ASHRAE/Walton natural convection correlations
 - **Solar** — position (Spencer 1971), Perez 1990 anisotropic sky model (isotropic + circumsolar + horizon brightening, matching E+ AnisoSkyViewFactors), angular SHGC transmission (28-bin mapping per LBNL-2804E), FullExterior and FullInteriorAndExterior distribution with beam/diffuse split and VMULT redistribution
 - **External Shading** — overhangs and fins with geometric beam shadow calculation (Sutherland-Hodgman polygon clipping), diffuse sky view factor reduction, 8x8 grid sampling for multi-caster union, Suncast-style solar precompute with disk-cached `.solar` files
+- **Dynamic Shading Control** — interior blinds/shades with solar-irradiance or zone-temperature triggers and configurable deployment hysteresis; adjusts window SHGC and U-factor when deployed
 - **Sky Longwave Radiation** — Clark & Allen sky emissivity model with cloud cover correction (E+ default sky model)
 - **Interior Longwave Radiation** — MRT-based surface radiation exchange
+- **Thermal Comfort** — Fanger PMV/PPD (ISO 7730 / ASHRAE 55), operative and mean radiant temperature, and direct-beam solar MRT correction (ASHRAE 55-2023 Annex C / SolarCal with the Walkenhorst projected-area factor)
 - **Infiltration** — EnergyPlus design flow rate model with wind dependence, ASHRAE combined infiltration model, multizone pressure network solver (Newton-Raphson with auto-generated cracks, Swami & Chandra Cp, stack effect)
 - **Internal Gains** — people, lights, equipment with radiant/convective/lost fraction split
 - **Zone Air Balance** — 3rd-order backward difference predictor-corrector (matching E+ ZoneTempPredictorCorrector)

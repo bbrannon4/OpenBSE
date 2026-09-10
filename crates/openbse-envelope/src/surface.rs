@@ -275,11 +275,16 @@ pub struct SurfaceState {
     pub q_cond_outside: f64,
 
     // ── Dynamic blind state (#104) ────────────────────────────────────────
+    /// True when a shading control is configured for this window. Distinguishes
+    /// "no blind" from a legitimately configured blackout blind whose
+    /// `blind_shgc` is 0.0 (#106).
+    pub blind_configured: bool,
     /// True when interior blind/shade is currently deployed for this window.
     /// Updated each timestep by the blind control logic before solar gains are computed.
     pub blind_deployed: bool,
     /// SHGC of the window+blind assembly when the blind is deployed.
-    /// Zero means no shading control is configured for this surface.
+    /// Only meaningful when `blind_configured` is true; 0.0 is a valid value
+    /// (fully opaque blackout blind).
     pub blind_shgc: f64,
     /// U-factor [W/(m²·K)] of the window+blind assembly when deployed.
     /// Zero falls back to the base window U-factor.
