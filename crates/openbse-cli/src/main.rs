@@ -2429,6 +2429,52 @@ fn main() -> Result<()> {
                         // ═══════════════════════════════════════════════════════
                         // IDEAL LOADS or FREE-FLOAT MODE
                         // ═══════════════════════════════════════════════════════
+                        // Blind control (#104) — same logic as coupled-HVAC path
+                        {
+                            let doy_b = ctx.timestep.day_of_year();
+                            let sh_b = openbse_envelope::solar::local_solar_hour(
+                                ctx.timestep.fractional_hour(),
+                                env.time_zone,
+                                env.longitude,
+                                doy_b,
+                            );
+                            let sol_alt_b =
+                                openbse_envelope::solar::solar_position(doy_b, sh_b, env.latitude)
+                                    .altitude;
+                            let beam_irr_b =
+                                interp_weather.direct_normal_rad * sol_alt_b.sin().max(0.0);
+                            for surface in &mut env.surfaces {
+                                if !surface.is_window {
+                                    continue;
+                                }
+                                let ctrl = env
+                                    .window_constructions
+                                    .get(&surface.input.construction)
+                                    .and_then(|wc| wc.shading_control.as_ref());
+                                if let Some(ctrl) = ctrl {
+                                    if surface.blind_shgc == 0.0 {
+                                        surface.blind_shgc = ctrl.blind_shgc;
+                                        surface.blind_u_factor =
+                                            ctrl.blind_u_factor.unwrap_or(surface.u_factor);
+                                    }
+                                    let signal = match ctrl.kind {
+                                        openbse_envelope::material::ShadingControlKind::SolarThreshold => {
+                                            if surface.incident_solar > 0.0 { surface.incident_solar / surface.net_area.max(1e-6) } else { beam_irr_b }
+                                        }
+                                        openbse_envelope::material::ShadingControlKind::Temperature => {
+                                            env.zones.iter().find(|z| z.input.name == surface.input.zone).map(|z| z.temp).unwrap_or(21.0)
+                                        }
+                                    };
+                                    let trigger = ctrl.trigger_level();
+                                    let retract = ctrl.retract_level();
+                                    surface.blind_deployed = if surface.blind_deployed {
+                                        signal > retract
+                                    } else {
+                                        signal > trigger
+                                    };
+                                }
+                            }
+                        }
                         let hvac_conds = ZoneHvacConditions::default();
                         let env_result = env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
                         // BDF history update happens once below, outside
@@ -2597,6 +2643,71 @@ fn main() -> Result<()> {
                             {
                                 zone_dc_return_temps
                                     .insert(z.input.name.clone(), z.return_air_temp());
+                            }
+                        }
+
+                        // ── Dynamic blind control (#104) ─────────────────────────
+                        // Evaluate shading control triggers once per timestep, before
+                        // the HVAC iteration loop, using previous-step surface conditions
+                        // (one-step lag matches E+ WindowShadingControl behavior).
+                        {
+                            let doy = ctx.timestep.day_of_year();
+                            let solar_hour = openbse_envelope::solar::local_solar_hour(
+                                ctx.timestep.fractional_hour(),
+                                env.time_zone,
+                                env.longitude,
+                                doy,
+                            );
+                            let sol_alt = openbse_envelope::solar::solar_position(
+                                doy,
+                                solar_hour,
+                                env.latitude,
+                            )
+                            .altitude;
+                            let beam_irr =
+                                interp_weather.direct_normal_rad * sol_alt.sin().max(0.0);
+
+                            for surface in &mut env.surfaces {
+                                if !surface.is_window {
+                                    continue;
+                                }
+                                let ctrl = env
+                                    .window_constructions
+                                    .get(&surface.input.construction)
+                                    .and_then(|wc| wc.shading_control.as_ref());
+                                if let Some(ctrl) = ctrl {
+                                    // Initialize blind properties from construction on first encounter
+                                    if surface.blind_shgc == 0.0 {
+                                        surface.blind_shgc = ctrl.blind_shgc;
+                                        surface.blind_u_factor =
+                                            ctrl.blind_u_factor.unwrap_or(surface.u_factor);
+                                    }
+                                    let signal = match ctrl.kind {
+                                        openbse_envelope::material::ShadingControlKind::SolarThreshold => {
+                                            // Incident beam on glazing [W/m²]: use horizontal beam ×
+                                            // cos(incidence) approximation; incident_solar from previous
+                                            // step when available, else horizontal beam.
+                                            if surface.incident_solar > 0.0 {
+                                                surface.incident_solar / surface.net_area.max(1e-6)
+                                            } else {
+                                                beam_irr
+                                            }
+                                        }
+                                        openbse_envelope::material::ShadingControlKind::Temperature => {
+                                            current_zone_temps
+                                                .get(&surface.input.zone)
+                                                .copied()
+                                                .unwrap_or(21.0)
+                                        }
+                                    };
+                                    let trigger = ctrl.trigger_level();
+                                    let retract = ctrl.retract_level();
+                                    surface.blind_deployed = if surface.blind_deployed {
+                                        signal > retract
+                                    } else {
+                                        signal > trigger
+                                    };
+                                }
                             }
                         }
 
@@ -3699,26 +3810,86 @@ fn main() -> Result<()> {
                             .zone_gain_hvac_latent
                             .insert(name.clone(), q_hvac_lat);
 
-                        // ── Comfort metrics ──────────────────────────────
+                        // ── Comfort metrics (#102, #103) ─────────────────
                         let mut sum_at = 0.0_f64;
                         let mut sum_a = 0.0_f64;
+                        let mut zone_beam_solar = 0.0_f64;
                         for &si in &zone.surface_indices {
                             let s = &env.surfaces[si];
                             sum_at += s.net_area * s.temp_inside;
                             sum_a += s.net_area;
+                            if s.is_window {
+                                zone_beam_solar += s.transmitted_solar_beam;
+                            }
                         }
                         let mrt = if sum_a > 0.0 {
                             sum_at / sum_a
                         } else {
                             zone.temp
                         };
-                        let t_op = (zone.temp + mrt) / 2.0;
+
+                        // Solar MRT correction (#103): applies when zone has direct
+                        // beam solar gains, indicating occupants may be in direct sun.
+                        let doy_c = ctx.timestep.day_of_year();
+                        let solar_hour_c = openbse_envelope::solar::local_solar_hour(
+                            ctx.timestep.fractional_hour(),
+                            env.time_zone,
+                            env.longitude,
+                            doy_c,
+                        );
+                        let sol_alt_c = openbse_envelope::solar::solar_position(
+                            doy_c,
+                            solar_hour_c,
+                            env.latitude,
+                        )
+                        .altitude;
+                        let comfort_cfg = zone.input.comfort.as_ref().cloned().unwrap_or_default();
+                        let delta_mrt_solar = if zone_beam_solar > 0.0 {
+                            openbse_psychrometrics::comfort::solar_mrt_correction(
+                                snapshot.site_direct_normal_radiation,
+                                sol_alt_c,
+                                mrt,
+                                comfort_cfg.solar_absorptivity,
+                                0.95,
+                            )
+                        } else {
+                            0.0
+                        };
+                        let mrt_effective = mrt + delta_mrt_solar;
+                        let t_op = openbse_psychrometrics::comfort::operative_temperature(
+                            zone.temp,
+                            mrt_effective,
+                        );
+
+                        // PMV / PPD via Fanger model
+                        let rh_zone = openbse_psychrometrics::rh_fn_tdb_w_pb(
+                            zone.temp,
+                            zone.humidity_ratio,
+                            101_325.0,
+                        );
+                        let pmv_val = openbse_psychrometrics::comfort::pmv(
+                            zone.temp,
+                            mrt_effective,
+                            comfort_cfg.air_velocity,
+                            rh_zone,
+                            comfort_cfg.metabolic_rate,
+                            comfort_cfg.clothing,
+                        );
+                        let ppd_val = openbse_psychrometrics::comfort::ppd(pmv_val);
+
                         snapshot
                             .zone_mean_radiant_temperature
-                            .insert(name.clone(), mrt);
+                            .insert(name.clone(), mrt_effective);
                         snapshot
                             .zone_operative_temperature
                             .insert(name.clone(), t_op);
+                        snapshot.zone_pmv.insert(name.clone(), pmv_val);
+                        snapshot.zone_ppd.insert(name.clone(), ppd_val);
+                        if delta_mrt_solar > 0.0 {
+                            snapshot
+                                .zone_solar_mrt_correction
+                                .insert(name.clone(), delta_mrt_solar);
+                        }
                     }
 
                     // Solar gains per zone (sum of transmitted solar through all zone windows)
@@ -3768,6 +3939,13 @@ fn main() -> Result<()> {
                         snapshot
                             .surface_inside_radiation_coefficient
                             .insert(name.clone(), surface.h_rad_inside);
+                        // Blind state (#104)
+                        if surface.is_window && surface.blind_shgc > 0.0 {
+                            snapshot.window_blind_deployed.insert(
+                                name.clone(),
+                                if surface.blind_deployed { 1.0 } else { 0.0 },
+                            );
+                        }
                     }
 
                     for (comp_name, vars) in &result.component_outputs {

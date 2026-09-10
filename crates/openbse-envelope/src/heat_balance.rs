@@ -1101,6 +1101,9 @@ impl BuildingEnvelope {
                 q_cond_outside: 0.0,
                 q_rad_inside: 0.0,
                 h_rad_inside: 5.0,
+                blind_deployed: false,
+                blind_shgc: 0.0,
+                blind_u_factor: 0.0,
             };
             surface_states.push(state);
         }
@@ -2571,6 +2574,16 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // units for the summary report diagnostic ratio.
                     surface.incident_solar = effective_incident * surface.net_area;
 
+                    // When a blind is deployed (#104), scale all solar gains by the ratio
+                    // of blind SHGC to base SHGC.  Both SGS and Fresnel paths use the base
+                    // SHGC internally, so a post-multiplier is simpler than reparametrising
+                    // each angular model.
+                    let blind_scale = if surface.blind_deployed && surface.blind_shgc > 0.0 {
+                        (surface.blind_shgc / surface.shgc.max(1e-6)).min(1.0)
+                    } else {
+                        1.0
+                    };
+
                     if let Some(ref sgs) = surface.sgs_model {
                         // E+ SimpleGlazingSystem angular model (LBNL-2804E curves).
                         //
@@ -2588,16 +2601,23 @@ impl EnvelopeSolver for BuildingEnvelope {
 
                         // Beam: angle-dependent Tsol and SHGC
                         let beam_transmitted =
-                            (tsol_beam * surface.net_area * shaded_beam).max(0.0);
-                        let beam_total_shgc = (shgc_beam * surface.net_area * shaded_beam).max(0.0);
+                            (tsol_beam * blind_scale * surface.net_area * shaded_beam).max(0.0);
+                        let beam_total_shgc =
+                            (shgc_beam * blind_scale * surface.net_area * shaded_beam).max(0.0);
 
                         // Diffuse: precomputed hemispherical Tsol and SHGC fractions
-                        let diff_transmitted =
-                            (sgs.tsol * sgs.diff_tsol_frac * surface.net_area * diffuse_total)
-                                .max(0.0);
-                        let diff_total_shgc =
-                            (surface.shgc * sgs.diff_shgc_frac * surface.net_area * diffuse_total)
-                                .max(0.0);
+                        let diff_transmitted = (sgs.tsol
+                            * sgs.diff_tsol_frac
+                            * blind_scale
+                            * surface.net_area
+                            * diffuse_total)
+                            .max(0.0);
+                        let diff_total_shgc = (surface.shgc
+                            * sgs.diff_shgc_frac
+                            * blind_scale
+                            * surface.net_area
+                            * diffuse_total)
+                            .max(0.0);
 
                         surface.transmitted_solar = beam_transmitted + diff_transmitted;
                         surface.transmitted_solar_beam = beam_transmitted;
@@ -2623,12 +2643,12 @@ impl EnvelopeSolver for BuildingEnvelope {
                             surface.glass_n,
                             surface.u_factor,
                         );
-                        let total_shgc_gain = beam_shgc + diff_shgc;
+                        let total_shgc_gain = (beam_shgc + diff_shgc) * blind_scale;
 
                         let ratio = surface.solar_transmittance_ratio;
                         surface.transmitted_solar = total_shgc_gain * ratio;
-                        surface.transmitted_solar_beam = beam_shgc * ratio;
-                        surface.transmitted_solar_diffuse = diff_shgc * ratio;
+                        surface.transmitted_solar_beam = beam_shgc * blind_scale * ratio;
+                        surface.transmitted_solar_diffuse = diff_shgc * blind_scale * ratio;
                     }
 
                     // Total SHGC gain (transmitted + absorbed-inward combined).
@@ -5397,6 +5417,7 @@ mod tests {
             pane_conductivity: None,
             pane_thickness: None,
             glass_emissivity: None,
+            shading_control: None,
         }];
 
         let zones = vec![ZoneInput {
@@ -5432,6 +5453,7 @@ mod tests {
             duct_leakage: None,
             species_generation: vec![],
             room_air: None,
+            comfort: None,
         }];
 
         let surfaces = vec![
@@ -5612,6 +5634,7 @@ mod tests {
             duct_leakage: None,
             species_generation: vec![],
             room_air: None,
+            comfort: None,
         };
         let zones = vec![make_zone("ColdZone"), make_zone("WarmZone")];
 
@@ -5968,6 +5991,7 @@ mod tests {
             pane_conductivity: Some(1.0),
             pane_thickness: Some(0.003048),
             glass_emissivity: Some(0.84),
+            shading_control: None,
         }];
         // Reuse the simple model's zone/surface layout, swapping the window
         let template = make_simple_model();
@@ -6083,6 +6107,7 @@ mod tests {
             duct_leakage: None,
             species_generation: vec![],
             room_air: None,
+            comfort: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -6284,6 +6309,7 @@ mod tests {
             duct_leakage: None,
             species_generation: vec![],
             room_air: None,
+            comfort: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -6445,6 +6471,7 @@ mod tests {
             duct_leakage: None,
             species_generation: vec![],
             room_air: None,
+            comfort: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -6588,6 +6615,7 @@ mod tests {
             duct_leakage: None,
             species_generation: vec![],
             room_air: None,
+            comfort: None,
         }];
         let surfaces = vec![SurfaceInput {
             name: "Wall".to_string(),

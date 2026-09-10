@@ -49,7 +49,7 @@ pub use surface::{BoundaryCondition, SurfaceInput, SurfaceType};
 pub use zone::{
     dc_rack_inlet_max, DataCenterConfig, DuctLeakageInput, ExhaustFanInput, IdealLoadsAirSystem,
     InteriorSolarDistribution, OutdoorAirInput, RoomAirGradient, ThermostatScheduleEntry,
-    VentilationScheduleEntry, ZoneInput,
+    VentilationScheduleEntry, ZoneComfortConfig, ZoneInput,
 };
 pub use zone_loads::{
     EquipmentGainInput, ExhaustFanTopLevel, IdealLoadsTopLevel, InfiltrationInteraction,

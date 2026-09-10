@@ -453,6 +453,47 @@ fn default_nat_vent_ramp_steps() -> u32 {
     4
 }
 
+/// Occupant comfort parameters for a zone (optional; defaults to ASHRAE 55 typical values).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZoneComfortConfig {
+    /// Metabolic rate [met] — 1 met = 58.15 W/m². Default: 1.2 (seated, light work).
+    #[serde(default = "default_met")]
+    pub metabolic_rate: f64,
+    /// Clothing insulation [clo] — 1 clo = 0.155 m²·K/W. Default: 0.5 (light summer).
+    #[serde(default = "default_clo")]
+    pub clothing: f64,
+    /// Relative air velocity [m/s]. Default: 0.1 (still room).
+    #[serde(default = "default_air_velocity")]
+    pub air_velocity: f64,
+    /// Short-wave absorptivity of clothing for solar MRT correction [0–1]. Default: 0.57.
+    #[serde(default = "default_alpha_sw")]
+    pub solar_absorptivity: f64,
+}
+
+fn default_met() -> f64 {
+    1.2
+}
+fn default_clo() -> f64 {
+    0.5
+}
+fn default_air_velocity() -> f64 {
+    0.1
+}
+fn default_alpha_sw() -> f64 {
+    0.57
+}
+
+impl Default for ZoneComfortConfig {
+    fn default() -> Self {
+        Self {
+            metabolic_rate: default_met(),
+            clothing: default_clo(),
+            air_velocity: default_air_velocity(),
+            solar_absorptivity: default_alpha_sw(),
+        }
+    }
+}
+
 /// Zone definition from input.
 ///
 /// Volume and floor area can be:
@@ -537,6 +578,10 @@ pub struct ZoneInput {
     /// In-zone vertical temperature stratification (#91).
     #[serde(default)]
     pub room_air: Option<RoomAirGradient>,
+    /// Occupant comfort parameters for PMV/PPD/MRT output (#102).
+    /// When absent, ASHRAE 55 defaults are used (1.2 met, 0.5 clo, 0.1 m/s).
+    #[serde(default)]
+    pub comfort: Option<ZoneComfortConfig>,
 }
 
 /// In-zone vertical temperature stratification (#91): constant-gradient
@@ -1495,6 +1540,7 @@ mod tests {
             duct_leakage: None,
             species_generation: vec![],
             room_air: None,
+            comfort: None,
         };
         let mut zone = ZoneState::new(input, 22.0);
         let (min_on, min_off) = (2u32, 3u32);
@@ -1596,6 +1642,7 @@ mod tests {
                 mundt: false,
                 control_at_thermostat_height: false,
             }),
+            comfort: None,
         };
         let mut zone = ZoneState::new(input, 22.0);
         zone.current_gradient = 1.5;
@@ -1853,6 +1900,7 @@ mod tests {
             duct_leakage: None,
             species_generation: vec![],
             room_air: None,
+            comfort: None,
         };
 
         // During night setback
@@ -1898,6 +1946,7 @@ mod tests {
             duct_leakage: None,
             species_generation: vec![],
             room_air: None,
+            comfort: None,
         };
 
         // During night ventilation period (unconditional — no temp conditions)
@@ -1940,6 +1989,7 @@ mod tests {
             duct_leakage: None,
             species_generation: vec![],
             room_air: None,
+            comfort: None,
         };
 
         // Zone hot enough, outdoor cooler → ventilate

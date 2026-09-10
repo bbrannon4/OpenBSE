@@ -732,9 +732,19 @@ pub struct OutputSnapshot {
     pub zone_gain_hvac_sensible: HashMap<String, f64>,
     pub zone_gain_hvac_latent: HashMap<String, f64>,
 
-    // Zone comfort metrics
+    // Zone comfort metrics (#102, #103)
     pub zone_mean_radiant_temperature: HashMap<String, f64>,
     pub zone_operative_temperature: HashMap<String, f64>,
+    /// Predicted Mean Vote per ISO 7730 / ASHRAE 55 Fanger model.
+    pub zone_pmv: HashMap<String, f64>,
+    /// Predicted Percentage Dissatisfied [%].
+    pub zone_ppd: HashMap<String, f64>,
+    /// Solar MRT correction [K] — increment added to long-wave MRT when occupant is in direct beam.
+    pub zone_solar_mrt_correction: HashMap<String, f64>,
+
+    // Per-window blind state (#104)
+    /// 1.0 = blind deployed, 0.0 = open. Keyed by surface name.
+    pub window_blind_deployed: HashMap<String, f64>,
 
     // Zone unmet hours time-series (0.0 or 1.0)
     pub zone_unmet_heating: HashMap<String, f64>,
@@ -833,6 +843,10 @@ impl OutputSnapshot {
             zone_gain_hvac_latent: HashMap::new(),
             zone_mean_radiant_temperature: HashMap::new(),
             zone_operative_temperature: HashMap::new(),
+            zone_pmv: HashMap::new(),
+            zone_ppd: HashMap::new(),
+            zone_solar_mrt_correction: HashMap::new(),
+            window_blind_deployed: HashMap::new(),
             zone_unmet_heating: HashMap::new(),
             zone_unmet_cooling: HashMap::new(),
             submeter_power: HashMap::new(),
@@ -928,6 +942,9 @@ impl OutputSnapshot {
                 "gain_hvac_latent" => self.zone_gain_hvac_latent.clone(),
                 "mean_radiant_temperature" => self.zone_mean_radiant_temperature.clone(),
                 "operative_temperature" => self.zone_operative_temperature.clone(),
+                "pmv" => self.zone_pmv.clone(),
+                "ppd" => self.zone_ppd.clone(),
+                "solar_mrt_correction" => self.zone_solar_mrt_correction.clone(),
                 "unmet_heating" => self.zone_unmet_heating.clone(),
                 "unmet_cooling" => self.zone_unmet_cooling.clone(),
                 other => {
@@ -951,6 +968,7 @@ impl OutputSnapshot {
                 "convection_inside" => self.surface_convection_inside.clone(),
                 "radiation_inside" => self.surface_radiation_inside.clone(),
                 "inside_radiation_coefficient" => self.surface_inside_radiation_coefficient.clone(),
+                "blind_deployed" => self.window_blind_deployed.clone(),
                 _ => HashMap::new(),
             },
             "building" => {
