@@ -79,11 +79,27 @@ impl EvapCooler {
         (t_out, w_out)
     }
 
-    /// Compute indirect-stage outlet: DBT drops toward WBT of inlet, no moisture addition.
-    fn indirect_stage(t_db: f64, w: f64, p_b: f64, effectiveness: f64, hx_eff: f64) -> (f64, f64) {
-        let t_wb = psych::twb_fn_tdb_w_pb(t_db, w, p_b);
-        let t_out = t_db - effectiveness * hx_eff * (t_db - t_wb);
-        (t_out, w) // humidity unchanged
+    /// Compute indirect-stage outlet: the primary stream is cooled sensibly
+    /// (no moisture addition) toward the wet-bulb of the **secondary/scavenger
+    /// air** (`t_wb_secondary`) — the separate stream that is evaporatively
+    /// cooled and exchanges heat with the primary across the HX. The primary
+    /// cannot be cooled below the secondary wet-bulb, and no cooling occurs when
+    /// the primary is already at or below it.
+    ///
+    /// E+ `EvaporativeCooler:Indirect:*` drives off the secondary (typically
+    /// outdoor) stream, NOT the primary inlet (EVAP-1 / #59).
+    fn indirect_stage(
+        t_db: f64,
+        w: f64,
+        t_wb_secondary: f64,
+        effectiveness: f64,
+        hx_eff: f64,
+    ) -> (f64, f64) {
+        if t_db <= t_wb_secondary {
+            return (t_db, w); // no sensible cooling available
+        }
+        let t_out = t_db - effectiveness * hx_eff * (t_db - t_wb_secondary);
+        (t_out.max(t_wb_secondary), w) // humidity unchanged, floored at secondary WB
     }
 }
 
@@ -96,7 +112,7 @@ impl AirComponent for EvapCooler {
         ComponentKind::EvapCooler
     }
 
-    fn simulate_air(&mut self, inlet: &AirPort, _ctx: &SimulationContext) -> AirPort {
+    fn simulate_air(&mut self, inlet: &AirPort, ctx: &SimulationContext) -> AirPort {
         if inlet.mass_flow <= 0.0 {
             self.power = 0.0;
             self.thermal_out = 0.0;
@@ -107,16 +123,30 @@ impl AirComponent for EvapCooler {
         let w = inlet.state.w;
         let p_b = inlet.state.p_b;
 
+        // Secondary (scavenger) stream for the indirect HX = outdoor air. Its
+        // wet-bulb sets the achievable primary-cooling floor.
+        let oa = &ctx.outdoor_air;
+        let t_wb_secondary = psych::twb_fn_tdb_w_pb(oa.t_db, oa.w, oa.p_b);
+
         let (t_out, w_out) = match self.mode {
             EvapCoolerMode::Direct => Self::direct_stage(t_db, w, p_b, self.effectiveness),
-            EvapCoolerMode::Indirect => {
-                Self::indirect_stage(t_db, w, p_b, self.effectiveness, self.hx_effectiveness)
-            }
+            EvapCoolerMode::Indirect => Self::indirect_stage(
+                t_db,
+                w,
+                t_wb_secondary,
+                self.effectiveness,
+                self.hx_effectiveness,
+            ),
             EvapCoolerMode::TwoStage => {
-                // Stage 1: indirect
-                let (t_int, w_int) =
-                    Self::indirect_stage(t_db, w, p_b, self.effectiveness, self.hx_effectiveness);
-                // Stage 2: direct on intermediate state
+                // Stage 1: indirect (driven by secondary/outdoor wet-bulb)
+                let (t_int, w_int) = Self::indirect_stage(
+                    t_db,
+                    w,
+                    t_wb_secondary,
+                    self.effectiveness,
+                    self.hx_effectiveness,
+                );
+                // Stage 2: direct adiabatic saturation of the primary stream
                 Self::direct_stage(t_int, w_int, p_b, self.effectiveness)
             }
         };
@@ -227,6 +257,47 @@ mod tests {
             outlet_2.state.t_db < outlet_i.state.t_db,
             "two-stage should be cooler than indirect alone"
         );
+    }
+
+    #[test]
+    fn test_indirect_driven_by_secondary_not_primary() {
+        // EVAP-1 (#59): indirect cooling must track the SECONDARY (outdoor) wet
+        // bulb, not the primary inlet's. With a humid primary inlet but dry
+        // outdoor (secondary) air, the achievable cooling is set by the dry
+        // outdoor wet-bulb — much colder than the primary's own wet-bulb.
+        let inlet = make_inlet(35.0, 0.60); // humid primary (high WB)
+        let mut ctx = make_ctx();
+        ctx.outdoor_air = MoistAirState::from_tdb_rh(35.0, 0.10, STD_PRESSURE); // dry secondary
+
+        let mut ec = EvapCooler::new("EC", EvapCoolerMode::Indirect);
+        let outlet = ec.simulate_air(&inlet, &ctx);
+
+        // Floor = dry outdoor wet-bulb (~17.6 °C), far below the humid primary
+        // wet-bulb (~28 °C). The old model would barely cool this humid inlet.
+        let t_wb_secondary = psych::twb_fn_tdb_w_pb(35.0, ctx.outdoor_air.w, STD_PRESSURE);
+        let t_wb_primary = psych::twb_fn_tdb_w_pb(35.0, inlet.state.w, STD_PRESSURE);
+        assert!(
+            t_wb_secondary < t_wb_primary - 5.0,
+            "secondary should be much drier"
+        );
+        // Outlet must reflect the colder secondary-driven floor.
+        let expected = 35.0 - 0.80 * 0.70 * (35.0 - t_wb_secondary);
+        assert_relative_eq!(outlet.state.t_db, expected, max_relative = 0.01);
+        // Humidity unchanged (indirect adds no moisture to the primary).
+        assert_relative_eq!(outlet.state.w, inlet.state.w, max_relative = 1e-6);
+    }
+
+    #[test]
+    fn test_indirect_no_cooling_when_secondary_warmer_than_primary() {
+        // If the secondary wet-bulb is at/above the primary dry-bulb, no
+        // sensible cooling is available.
+        let inlet = make_inlet(18.0, 0.30); // cool primary
+        let mut ctx = make_ctx();
+        ctx.outdoor_air = MoistAirState::from_tdb_rh(35.0, 0.80, STD_PRESSURE); // hot humid secondary
+
+        let mut ec = EvapCooler::new("EC", EvapCoolerMode::Indirect);
+        let outlet = ec.simulate_air(&inlet, &ctx);
+        assert_relative_eq!(outlet.state.t_db, 18.0, max_relative = 1e-6);
     }
 
     #[test]

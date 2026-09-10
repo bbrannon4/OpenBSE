@@ -1,14 +1,18 @@
 //! Chilled water cooling coil component model.
 //!
 //! Models a chilled water cooling coil connected to a chilled water plant loop.
-//! Uses a simple energy balance approach matching the pattern of the hot water
-//! heating coil: capacity limited by both air-side demand and water-side available
-//! heat transfer.
+//! Uses an apparatus-dew-point (ADP) wet-coil model: the air follows a straight
+//! condition line from the entering state toward the coil-surface ADP (mean
+//! design chilled-water temperature), condensing moisture when the entering
+//! humidity ratio exceeds w_ADP. Total cooling is limited by both air-side
+//! demand and water-side available heat transfer, and the air enthalpy drop is
+//! kept equal to the water heat gain.
 //!
 //! Physics:
 //!   Q_sensible = m_air × Cp_air × (T_air_in - T_air_out)
+//!   Q_total    = m_air × (h_air_in - h_air_out)   (= water heat gain)
 //!   Q_water    = m_water × Cp_water × (T_water_out - T_water_in)
-//!   Q_actual   = min(Q_required, nominal_capacity, Q_water_available)
+//!   Q_total    = min(Q_required_to_setpoint, nominal_capacity, Q_water_available)
 //!
 //! The coil receives chilled water from the plant loop (via set_water_inlet)
 //! and returns warmer water (via water_outlet). When no plant loop is connected,
@@ -132,7 +136,7 @@ impl AirComponent for CoolingCoilCHW {
             return *inlet;
         }
 
-        // Water-side available capacity
+        // Water-side available capacity (TOTAL: sensible + latent)
         //
         // When chilled water plant loop is coupled (water_inlet set with real
         // flow from chiller loop), capacity is limited by the water-side heat
@@ -153,30 +157,71 @@ impl AirComponent for CoolingCoilCHW {
             // No water loop connected yet — use nominal capacity directly
             self.nominal_capacity
         };
+        let cap_total_avail = self.nominal_capacity.min(water_capacity).max(0.0);
 
-        // Sensible capacity is SHR × nominal (or water) capacity
-        let shr = self.rated_shr.clamp(0.5, 1.0);
-        let available_sensible = (self.nominal_capacity * shr).min(water_capacity * shr);
+        // ── Wet-coil apparatus-dew-point (ADP) model ──────────────────────────
+        // The coil is controlled to the leaving-air setpoint; the air follows a
+        // straight condition line from the entering state toward the apparatus
+        // dew point on the saturation curve. For a chilled-water coil the ADP is
+        // the effective coil-surface temperature, taken as the mean of the design
+        // chilled-water supply/return temps. When the entering humidity ratio
+        // exceeds w_ADP the coil condenses moisture (wet); otherwise it runs dry.
+        //
+        // This removes moisture from the airstream AND keeps the air enthalpy
+        // drop equal to the water heat gain (q_total), fixing the prior model
+        // which billed the water for q_total while the air only shed q_sensible
+        // and never dehumidified (CHW-1 / GitHub #69).
+        //
+        // Reference: EnergyPlus "Coil:Cooling:Water" simple-analysis bypass model.
+        let p_b = inlet.state.p_b;
+        let t_adp = 0.5 * (self.design_water_inlet_temp + self.design_water_outlet_temp);
+        let w_adp = psych::w_fn_tdb_rh_pb(t_adp, 1.0, p_b);
 
-        // Actual sensible cooling: min of required and available
-        let q_sensible = q_sensible_required.min(available_sensible);
+        // Target leaving dry-bulb: the setpoint, but never below the ADP (the
+        // coil cannot cool the air past its own surface temperature).
+        let t_out_target = self.outlet_temp_setpoint.max(t_adp);
+        let denom = inlet.state.t_db - t_adp;
 
-        // Total cooling (sensible / SHR)
-        let q_total = if shr > 0.0 {
-            q_sensible / shr
+        // Leaving humidity ratio along the entering→ADP condition line.
+        let (q_sens_set, q_total_set, w_out_set) = if denom > 1.0e-6 {
+            let contact = ((inlet.state.t_db - t_out_target) / denom).clamp(0.0, 1.0);
+            let w_out = if inlet.state.w > w_adp {
+                inlet.state.w - contact * (inlet.state.w - w_adp)
+            } else {
+                inlet.state.w // dry coil — no condensation
+            };
+            let q_sens = inlet.mass_flow * cp_air * (inlet.state.t_db - t_out_target);
+            let h_in = psych::h_fn_tdb_w(inlet.state.t_db, inlet.state.w);
+            let h_out = psych::h_fn_tdb_w(t_out_target, w_out);
+            let q_tot = inlet.mass_flow * (h_in - h_out);
+            (q_sens.max(0.0), q_tot.max(q_sens).max(0.0), w_out)
         } else {
-            q_sensible
+            // ADP at/above entering temp — coil can only deliver sensible cooling
+            // down to the ADP with no dehumidification.
+            let q_sens = q_sensible_required;
+            (q_sens, q_sens, inlet.state.w)
         };
-        let q_total = q_total.min(self.nominal_capacity).min(water_capacity);
 
-        // Calculate outlet air temperature
-        let dt = q_sensible / (inlet.mass_flow * cp_air);
-        let outlet_t = inlet.state.t_db - dt;
+        // Part-load ratio: scale back when the available capacity can't meet the
+        // total load required to reach the setpoint. Scaling q_total and
+        // q_sensible together keeps the air and water energy balanced.
+        let plr = if q_total_set > 1.0e-6 {
+            (cap_total_avail / q_total_set).min(1.0)
+        } else {
+            0.0
+        };
+
+        let q_sensible = q_sens_set * plr;
+        let q_total = q_total_set * plr;
+        // Interpolate the leaving humidity by PLR (time-averaged): at PLR=1 the
+        // coil reaches w_out_set; at PLR<1 less moisture is removed.
+        let outlet_w = (inlet.state.w - plr * (inlet.state.w - w_out_set)).max(1.0e-5);
+        let outlet_t = inlet.state.t_db - q_sensible / (inlet.mass_flow * cp_air);
 
         self.cooling_rate = q_total;
         self.sensible_cooling_rate = q_sensible;
 
-        // Calculate water outlet temperature (water gets warmer)
+        // Calculate water outlet temperature (water gets warmer by q_total)
         if let Some(ref wi) = self.water_inlet {
             if wi.state.mass_flow > 0.0 {
                 let water_outlet_temp =
@@ -188,9 +233,8 @@ impl AirComponent for CoolingCoilCHW {
             }
         }
 
-        // Simplified: no dehumidification modeled (humidity ratio passes through)
         AirPort::new(
-            psych::MoistAirState::new(outlet_t, inlet.state.w, inlet.state.p_b),
+            psych::MoistAirState::new(outlet_t, outlet_w, p_b),
             inlet.mass_flow,
         )
     }
@@ -362,6 +406,51 @@ mod tests {
         // Should still cool (using nominal capacity fallback)
         assert!(outlet.state.t_db < 25.0);
         assert!(coil.cooling_rate > 0.0);
+    }
+
+    #[test]
+    fn test_chw_coil_dehumidifies_and_balances_air_water() {
+        // Humid entering air: the wet coil must remove moisture, and the water
+        // heat gain must equal the air enthalpy drop (no latent billed without
+        // moisture removal). Regression for CHW-1 (#69).
+        let mut coil = CoolingCoilCHW::new("CHW Wet", 50000.0, 0.75, 13.0, 0.01, 6.7, 12.2);
+        // Plenty of chilled water so capacity isn't the limiter.
+        let water_in = WaterPort::new(FluidState::water(6.7, 2.0));
+        coil.set_water_inlet(&water_in);
+
+        let inlet_state = MoistAirState::from_tdb_rh(27.0, 0.6, 101325.0); // warm & humid
+        let inlet = AirPort::new(inlet_state, 1.0);
+        let ctx = make_ctx();
+
+        let w_in = inlet_state.w;
+        let outlet = coil.simulate_air(&inlet, &ctx);
+
+        // Cooled to setpoint and dehumidified.
+        assert_relative_eq!(outlet.state.t_db, 13.0, max_relative = 0.02);
+        assert!(
+            outlet.state.w < w_in - 1.0e-4,
+            "coil must remove moisture: w_in={w_in}, w_out={}",
+            outlet.state.w
+        );
+
+        // Air enthalpy drop == reported total cooling (air/water balance).
+        let h_in = psych::h_fn_tdb_w(inlet_state.t_db, w_in);
+        let h_out = psych::h_fn_tdb_w(outlet.state.t_db, outlet.state.w);
+        let air_drop = inlet.mass_flow * (h_in - h_out);
+        assert_relative_eq!(air_drop, coil.cooling_rate, max_relative = 1e-6);
+
+        // Latent present (total > sensible) and consistent with moisture removed.
+        assert!(coil.cooling_rate > coil.sensible_cooling_rate);
+        const H_FG: f64 = 2_501_000.0;
+        let q_latent_from_w = inlet.mass_flow * (w_in - outlet.state.w) * H_FG;
+        let q_latent_reported = coil.cooling_rate - coil.sensible_cooling_rate;
+        // Within a few percent (enthalpy basis vs h_fg approximation).
+        assert!((q_latent_from_w - q_latent_reported).abs() / q_latent_reported < 0.05);
+
+        // Water outlet warmed by exactly q_total.
+        let wo = coil.water_outlet().unwrap();
+        let q_water = 2.0 * water_in.state.cp * (wo.state.temp - 6.7);
+        assert_relative_eq!(q_water, coil.cooling_rate, max_relative = 1e-6);
     }
 
     #[test]

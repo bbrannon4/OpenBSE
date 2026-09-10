@@ -267,6 +267,64 @@ impl Construction {
     }
 }
 
+/// Which condition triggers blind deployment (#104).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShadingControlKind {
+    /// Deploy when incident beam irradiance on the glazing exceeds `threshold` [W/m²].
+    SolarThreshold,
+    /// Deploy when zone air temperature exceeds `setpoint` [°C].
+    Temperature,
+}
+
+/// Dynamic blind / interior shading control attached to a window construction (#104).
+///
+/// YAML example (solar-triggered):
+/// ```yaml
+/// shading_control:
+///   type: solar_threshold
+///   threshold: 200     # W/m² incident beam on glazing
+///   hysteresis: 50     # retract at (threshold - hysteresis) W/m²
+///   blind_shgc: 0.05
+///   blind_u_factor: 1.8
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShadingControl {
+    /// Control trigger type.
+    #[serde(rename = "type")]
+    pub kind: ShadingControlKind,
+    /// Trigger threshold — irradiance [W/m²] for `solar_threshold`, temperature [°C] for `temperature`.
+    #[serde(default)]
+    pub threshold: Option<f64>,
+    /// Same as `threshold` but for temperature control; alias accepted.
+    #[serde(default)]
+    pub setpoint: Option<f64>,
+    /// Dead-band width — blind retracts when signal < (trigger − hysteresis). Default 0.
+    #[serde(default)]
+    pub hysteresis: f64,
+    /// SHGC of the window+blind assembly when blind is deployed.
+    pub blind_shgc: f64,
+    /// Overall U-factor [W/(m²·K)] of the window+blind assembly when deployed.
+    /// Defaults to the base window U-factor when absent.
+    #[serde(default)]
+    pub blind_u_factor: Option<f64>,
+}
+
+impl ShadingControl {
+    /// Trigger level (irradiance or temperature depending on `kind`).
+    pub fn trigger_level(&self) -> f64 {
+        match self.kind {
+            ShadingControlKind::SolarThreshold => self.threshold.unwrap_or(200.0),
+            ShadingControlKind::Temperature => self.setpoint.or(self.threshold).unwrap_or(26.0),
+        }
+    }
+
+    /// Retract level = trigger − hysteresis.
+    pub fn retract_level(&self) -> f64 {
+        self.trigger_level() - self.hysteresis.max(0.0)
+    }
+}
+
 /// Simplified window construction (U-factor + SHGC based).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowConstruction {
@@ -346,6 +404,10 @@ pub struct WindowConstruction {
     /// coated surface facing the gap may have ε ≈ 0.04–0.15.
     #[serde(default)]
     pub glass_emissivity: Option<f64>,
+    /// Dynamic interior shading control (#104). When present, blind state is
+    /// evaluated each timestep and the effective SHGC/U are updated accordingly.
+    #[serde(default)]
+    pub shading_control: Option<ShadingControl>,
 }
 
 fn default_vt() -> f64 {

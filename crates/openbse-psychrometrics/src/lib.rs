@@ -1,10 +1,12 @@
-//! Psychrometric property calculations for moist air.
+//! Psychrometric property calculations for moist air and thermal comfort indices.
 //!
 //! All equations match the EnergyPlus implementation (Hyland & Wexler formulation
 //! for saturation pressure, ASHRAE relationships for derived properties).
 //!
 //! Reference: EnergyPlus Engineering Reference, Chapter "Psychrometric Services"
 //! Source: github.com/NREL/EnergyPlus/src/EnergyPlus/Psychrometrics.cc
+
+pub mod comfort;
 
 /// Kelvin offset from Celsius
 const KELVIN: f64 = 273.15;

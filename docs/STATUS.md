@@ -18,6 +18,7 @@ Last updated: 2026-06-13 (v0.6.0)
 - Solar heat gains through windows (beam + diffuse, Hay-Davies anisotropic sky, angular SHGC with 28-bin mapping)
 - FullExterior and FullInteriorAndExterior solar distribution with beam/diffuse split and VMULT redistribution
 - External shading (overhangs and fins with geometric beam shadow calculation, diffuse sky view factor reduction)
+- Dynamic interior shading control (solar-irradiance or zone-temperature triggers with deployment hysteresis; adjusts window SHGC and U-factor)
 - Ground-coupled floors (monthly table or Kusuda-Achenbach model, F-factor construction support)
 - Adiabatic and interzone boundary conditions
 - Surface area auto-calculation from 3D vertex coordinates
@@ -69,7 +70,7 @@ Last updated: 2026-06-13 (v0.6.0)
 - 16 energy end-use timeseries output variables (fan, cooling, heating, pump, etc. by fuel type)
 - Per-component output variables via `ComponentName:variable` pattern (electric_power, thermal_output, PLR, COP, water temps, etc.)
 - Zone gain breakdown: 14 individual gain categories (people, lighting, equipment, infiltration, ventilation, nat vent, solar, HVAC — each sensible/latent)
-- Comfort metrics: mean radiant temperature, operative temperature
+- Comfort metrics: PMV/PPD (Fanger ISO 7730 / ASHRAE 55), long-wave and effective (solar-corrected) mean radiant temperature, operative temperature, direct-beam solar MRT correction (ASHRAE 55-2023 Annex C)
 - Unmet hours time-series: per-zone per-timestep heating/cooling unmet flags
 - Submeter tagging on all energy-consuming components (lights, equipment, fans, coils, boilers, chillers, pumps, DHW, exterior) with per-submeter time-series output variables and summary report breakdown
 - **ASHRAE 90.4 Data Center Performance section** — PUE, MLC (with climate-zone limit, PASS/FAIL), ELC in text and HTML summary reports when IT loads are present

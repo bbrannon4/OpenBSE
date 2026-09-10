@@ -354,10 +354,61 @@ pub struct NaturalVentilationInput {
     /// Schedule value > 0 means ventilation is available.
     #[serde(default)]
     pub schedule: Option<String>,
+    /// Minimum indoor−outdoor ΔT [K] for ventilation (#95): only ventilate
+    /// when outdoor air is usefully cooler (T_zone − T_out ≥ this). None =
+    /// no gate.
+    #[serde(default)]
+    pub min_indoor_outdoor_delta_t: Option<f64>,
+    /// Anti-cycling hysteresis (#95): once opened, stay open at least this
+    /// many timesteps even if conditions drift out of range.
+    #[serde(default)]
+    pub min_on_timesteps: u32,
+    /// Anti-cycling hysteresis (#95): once closed, stay closed at least
+    /// this many timesteps before reopening.
+    #[serde(default)]
+    pub min_off_timesteps: u32,
     /// Thermostat setpoint override when natural ventilation is active.
     /// Widens the deadband so HVAC does not fight the outdoor air.
     #[serde(default)]
     pub setpoint_reset: Option<NatVentSetpointReset>,
+}
+
+impl NaturalVentilationInput {
+    /// Availability fraction [0-1] for natural ventilation (#88).
+    ///
+    /// Returns `sched_frac` when the temperature windows and wind limit
+    /// permit ventilation, 0.0 otherwise. Shared by the zone-level
+    /// wind-&-stack model and the AFN opening-area update so both use one
+    /// availability decision.
+    pub fn availability(
+        &self,
+        t_zone: f64,
+        t_outdoor: f64,
+        wind_speed: f64,
+        sched_frac: f64,
+    ) -> f64 {
+        if self.conditions_ok(t_zone, t_outdoor, wind_speed) {
+            sched_frac.clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// Whether the temperature windows, ΔT gate, and wind limit permit
+    /// ventilation right now (#88, #95). Hysteresis is applied separately
+    /// via `ZoneState::apply_nat_vent_hysteresis`.
+    pub fn conditions_ok(&self, t_zone: f64, t_outdoor: f64, wind_speed: f64) -> bool {
+        let delta_t_ok = match self.min_indoor_outdoor_delta_t {
+            Some(dt) => t_zone - t_outdoor >= dt,
+            None => true,
+        };
+        t_zone >= self.min_indoor_temp
+            && t_zone <= self.max_indoor_temp
+            && t_outdoor >= self.min_outdoor_temp
+            && t_outdoor <= self.max_outdoor_temp
+            && wind_speed <= self.max_wind_speed
+            && delta_t_ok
+    }
 }
 
 /// Thermostat setpoint override during natural ventilation.
@@ -400,6 +451,48 @@ fn default_nat_vent_max_wind() -> f64 {
 }
 fn default_nat_vent_ramp_steps() -> u32 {
     4
+}
+
+/// Occupant comfort parameters for a zone (optional; defaults to ASHRAE 55 typical values).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZoneComfortConfig {
+    /// Metabolic rate [met] — 1 met = 58.15 W/m². Default: 1.2 (seated, light work).
+    #[serde(default = "default_met")]
+    pub metabolic_rate: f64,
+    /// Clothing insulation [clo] — 1 clo = 0.155 m²·K/W. Default: 0.5 (light summer).
+    #[serde(default = "default_clo")]
+    pub clothing: f64,
+    /// Relative air velocity [m/s]. Default: 0.1 (still room).
+    #[serde(default = "default_air_velocity")]
+    pub air_velocity: f64,
+    /// Short-wave absorptivity of clothing for solar MRT correction [0–1].
+    /// Default: 0.67 (ASHRAE 55 SolarCal default for an average clothed body).
+    #[serde(default = "default_alpha_sw")]
+    pub solar_absorptivity: f64,
+}
+
+fn default_met() -> f64 {
+    1.2
+}
+fn default_clo() -> f64 {
+    0.5
+}
+fn default_air_velocity() -> f64 {
+    0.1
+}
+fn default_alpha_sw() -> f64 {
+    0.67
+}
+
+impl Default for ZoneComfortConfig {
+    fn default() -> Self {
+        Self {
+            metabolic_rate: default_met(),
+            clothing: default_clo(),
+            air_velocity: default_air_velocity(),
+            solar_absorptivity: default_alpha_sw(),
+        }
+    }
 }
 
 /// Zone definition from input.
@@ -474,6 +567,123 @@ pub struct ZoneInput {
     /// and IT load generation. Replaces or supplements the `equipment_it` block.
     #[serde(default)]
     pub data_center: Option<DataCenterConfig>,
+    /// Duct leakage to an unconditioned space (#82). When the airflow network
+    /// is enabled, adds a FixedFlow path carrying leaked duct air from this
+    /// zone to the unconditioned zone containing the ducts.
+    #[serde(default)]
+    pub duct_leakage: Option<DuctLeakageInput>,
+    /// Passive species sources in this zone (#84), e.g. CO₂ generation.
+    /// Requires species configured on the airflow network.
+    #[serde(default)]
+    pub species_generation: Vec<crate::species::SpeciesGenerationInput>,
+    /// In-zone vertical temperature stratification (#91).
+    #[serde(default)]
+    pub room_air: Option<RoomAirGradient>,
+    /// Occupant comfort parameters for PMV/PPD/MRT output (#102).
+    /// When absent, ASHRAE 55 defaults are used (1.2 met, 0.5 clo, 0.1 m/s).
+    #[serde(default)]
+    pub comfort: Option<ZoneComfortConfig>,
+}
+
+/// In-zone vertical temperature stratification (#91): constant-gradient
+/// room air model. E+ RoomAir:TemperaturePattern:ConstantGradient is the
+/// minimum reference; IDA ICE offers an equivalent gradient input.
+///
+/// The zone heat balance still solves the mean air temperature; the gradient
+/// redistributes it over height: T(z) = T_mean + gradient·(z − H/2). Interior
+/// surfaces couple to the local air temperature at their centroid height
+/// (a warm ceiling loses more heat upward), return air leaves at the
+/// return-height temperature (so coil loads and economizers see
+/// stratification), and the occupied-height temperature is reported.
+///
+/// ```yaml
+/// zones:
+///   - name: Atrium
+///     room_air:
+///       gradient: 1.5          # K/m, positive = warmer near ceiling
+///       return_height: 6.0     # m above floor (default: ceiling)
+///       thermostat_height: 1.1 # m above floor
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoomAirGradient {
+    /// Vertical temperature gradient [K/m], positive = warmer near ceiling.
+    pub gradient: f64,
+    /// Optional schedule scaling the gradient (e.g. 0 when fans force mixing).
+    #[serde(default)]
+    pub schedule: Option<String>,
+    /// Return/exhaust air height above the floor [m] (default: ceiling).
+    #[serde(default)]
+    pub return_height: Option<f64>,
+    /// Occupied/thermostat sensing height above the floor [m] (default 1.1).
+    #[serde(default = "default_thermostat_height")]
+    pub thermostat_height: f64,
+    /// Zone floor-to-ceiling height [m] (default: volume / floor_area).
+    #[serde(default)]
+    pub ceiling_height: Option<f64>,
+    /// Mundt-style load-derived gradient (#98): compute the gradient each
+    /// timestep as Q_conv/(ṁ_supply·cp·H), clamped to [0, `gradient`]
+    /// (so `gradient` acts as the cap). Zero when the system is off
+    /// (mechanical mixing assumption fails gracefully to well-mixed).
+    #[serde(default)]
+    pub mundt: bool,
+    /// HVAC control senses the occupied/thermostat-height temperature
+    /// instead of the zone mean (#98). Default false (control on mean).
+    #[serde(default)]
+    pub control_at_thermostat_height: bool,
+}
+
+fn default_thermostat_height() -> f64 {
+    1.1
+}
+
+/// Duct leakage to the unconditioned space containing the ducts (#82, #85).
+///
+/// Two directional AFN paths are created: supply leakage spills supply air
+/// from the duct run into the ambient zone (zone → ambient), while return
+/// leakage is air the below-ambient-pressure return duct ingests from the
+/// space and delivers to the zone (ambient → zone). A supply-dominated
+/// system pressurizes the unconditioned space and depressurizes this zone;
+/// a return-dominated one does the opposite. Leakage energy is accounted for
+/// separately by the duct component (#70), so these paths drive pressure
+/// (and species transport) only.
+///
+/// ```yaml
+/// zones:
+///   - name: Living
+///     duct_leakage:
+///       ambient_zone: Attic
+///       supply_leakage_fraction: 0.06
+///       return_leakage_fraction: 0.03
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DuctLeakageInput {
+    /// Zone containing the ducts (typically unconditioned: attic, crawlspace).
+    pub ambient_zone: String,
+    /// Supply duct leakage as a fraction of supply flow [0-1].
+    #[serde(default)]
+    pub supply_leakage_fraction: f64,
+    /// Return duct leakage as a fraction of supply flow [0-1].
+    #[serde(default)]
+    pub return_leakage_fraction: f64,
+    /// Supply duct static pressure at design flow [Pa] (#99). With
+    /// `design_flow`, leakage becomes pressure-dependent instead of a
+    /// fixed fraction.
+    #[serde(default)]
+    pub supply_static: Option<f64>,
+    /// Return duct static pressure magnitude at design flow [Pa] (#99).
+    #[serde(default)]
+    pub return_static: Option<f64>,
+    /// Design supply mass flow [kg/s] (#99); required for the
+    /// pressure-dependent model (statics scale with (ṁ/ṁ_design)²).
+    #[serde(default)]
+    pub design_flow: Option<f64>,
+    /// Duct leak flow exponent (#99); ASHRAE 152 uses ≈ 0.6.
+    #[serde(default = "default_duct_leak_exponent")]
+    pub leak_exponent: f64,
+}
+
+fn default_duct_leak_exponent() -> f64 {
+    0.6
 }
 
 /// ASHRAE A-class equipment inlet temperature limits [°C].
@@ -566,6 +776,31 @@ impl DataCenterConfig {
     /// Rack inlet temperature maximum [°C].
     pub fn rack_inlet_max(&self) -> f64 {
         dc_rack_inlet_max(self)
+    }
+
+    /// Server (IT) air mass flow rate [kg/s] carrying `it_power_w` of heat.
+    ///
+    /// The hot-aisle rack-exhaust temperature is set by the *server fans'*
+    /// airflow, which is independent of the CRAC/CRAH supply flow (CRAC-1 /
+    /// #62). Two cases, matching E+ `ElectricEquipment:ITE:AirCooled`:
+    ///   1. Explicit `airflow_m3_per_s_per_kw` → ṁ = flow·(P_IT/1000)·ρ.
+    ///   2. Otherwise size the flow to hit the design rack ΔT
+    ///      (`rack_outlet_temp_c` − supply): ṁ = P_IT / (cp·ΔT).
+    ///
+    /// `rho` and `cp` are the moist-air density and specific heat of the
+    /// supply air; `t_supply` is the cold-aisle supply temperature [°C].
+    pub fn it_mass_flow(&self, it_power_w: f64, t_supply: f64, rho: f64, cp: f64) -> f64 {
+        if it_power_w <= 0.0 {
+            return 0.0;
+        }
+        if let Some(flow_per_kw) = self.airflow_m3_per_s_per_kw {
+            if flow_per_kw > 0.0 {
+                return flow_per_kw * (it_power_w / 1000.0) * rho;
+            }
+        }
+        // Size to the design rack temperature rise (cold aisle → hot aisle).
+        let delta_t = (self.rack_outlet_temp_c - t_supply).max(1.0);
+        (it_power_w / (cp * delta_t)).max(1.0e-3)
     }
 }
 
@@ -675,6 +910,19 @@ pub struct ZoneState {
     pub w_order: u8,
     /// HVAC supply air humidity ratio [kg/kg]
     pub supply_air_humidity_ratio: f64,
+    /// Effective room-air vertical gradient this timestep [K/m] (#91);
+    /// 0 when the zone is well mixed.
+    pub current_gradient: f64,
+    /// Zone gauge pressure from the AFN [Pa] (#89); 0 when the AFN is off.
+    pub afn_pressure: f64,
+    /// AFN interzone inflow into this zone [kg/s] (#87), aggregated after
+    /// each pressure solve. Zero when the AFN is off.
+    pub afn_interzone_mass_flow: f64,
+    /// Mass-weighted mean temperature of AFN interzone inflow [°C] (#87),
+    /// from previous-timestep source zone temps (lagged coupling).
+    pub afn_interzone_temp: f64,
+    /// Mass-weighted mean humidity ratio of AFN interzone inflow [kg/kg] (#87).
+    pub afn_interzone_w: f64,
     /// People latent heat gain [W] (scheduled, from internal gains)
     pub people_latent: f64,
     /// Equipment latent heat gain [W] (from equipment with latent_fraction)
@@ -732,6 +980,8 @@ pub struct ZoneState {
     pub nat_vent_active: bool,
     /// Timesteps since natural ventilation stopped (for setpoint ramp-back)
     pub nat_vent_off_timesteps: u32,
+    /// Consecutive timesteps natural ventilation has been active (#95).
+    pub nat_vent_on_timesteps: u32,
     /// Zone centroid height above ground [m].
     /// Used for wind speed correction in infiltration calculation.
     /// Computed as area-weighted average of zone surface centroid heights.
@@ -807,6 +1057,84 @@ pub struct ZoneState {
 }
 
 impl ZoneState {
+    /// Zone floor-to-ceiling height [m] for the room-air model (#91).
+    pub fn room_air_height(&self) -> f64 {
+        if let Some(ref ra) = self.input.room_air {
+            if let Some(h) = ra.ceiling_height {
+                return h.max(0.1);
+            }
+        }
+        if self.input.floor_area > 0.0 {
+            (self.input.volume / self.input.floor_area).max(0.1)
+        } else {
+            3.0
+        }
+    }
+
+    /// Air temperature at a height above the floor [°C] (#91):
+    /// T(z) = T_mean + gradient·(z − H/2).
+    pub fn air_temp_at_height(&self, height_above_floor: f64) -> f64 {
+        self.temp + self.current_gradient * (height_above_floor - self.room_air_height() / 2.0)
+    }
+
+    /// Return/exhaust air temperature [°C] (#91): the air-loop return draws
+    /// from the return height (default: ceiling). Equals the mean zone
+    /// temperature for well-mixed zones.
+    pub fn return_air_temp(&self) -> f64 {
+        match &self.input.room_air {
+            Some(ra) => {
+                self.air_temp_at_height(ra.return_height.unwrap_or_else(|| self.room_air_height()))
+            }
+            None => self.temp,
+        }
+    }
+
+    /// Occupied/thermostat-height air temperature [°C] (#91).
+    pub fn occupied_air_temp(&self) -> f64 {
+        match &self.input.room_air {
+            Some(ra) => self.air_temp_at_height(ra.thermostat_height),
+            None => self.temp,
+        }
+    }
+
+    /// Hybrid-ventilation hysteresis (#95): decide the effective opening
+    /// fraction from the schedule fraction and instantaneous conditions,
+    /// with anti-cycling min-on/min-off holds. Updates nat_vent_active and
+    /// the on/off counters — call exactly once per timestep per zone.
+    pub fn apply_nat_vent_hysteresis(
+        &mut self,
+        sched_frac: f64,
+        conditions_ok: bool,
+        min_on: u32,
+        min_off: u32,
+    ) -> f64 {
+        let scheduled = sched_frac > 0.0;
+        let open = if self.nat_vent_active {
+            // Hold open against condition flapping, but always honor the
+            // schedule (an occupant/automation command, not noise).
+            scheduled && (conditions_ok || self.nat_vent_on_timesteps < min_on)
+        } else {
+            scheduled && conditions_ok && self.nat_vent_off_timesteps >= min_off
+        };
+        if open {
+            self.nat_vent_on_timesteps = if self.nat_vent_active {
+                self.nat_vent_on_timesteps.saturating_add(1)
+            } else {
+                1
+            };
+            self.nat_vent_active = true;
+            self.nat_vent_off_timesteps = 0;
+            sched_frac.clamp(0.0, 1.0)
+        } else {
+            if self.nat_vent_active {
+                self.nat_vent_on_timesteps = 0;
+            }
+            self.nat_vent_active = false;
+            self.nat_vent_off_timesteps = self.nat_vent_off_timesteps.saturating_add(1);
+            0.0
+        }
+    }
+
     pub fn new(input: ZoneInput, initial_temp: f64) -> Self {
         Self {
             input,
@@ -821,6 +1149,11 @@ impl ZoneState {
             w_prev3: 0.008,
             w_order: 1,
             supply_air_humidity_ratio: 0.008,
+            current_gradient: 0.0,
+            afn_pressure: 0.0,
+            afn_interzone_mass_flow: 0.0,
+            afn_interzone_temp: 20.0,
+            afn_interzone_w: 0.008,
             people_latent: 0.0,
             equipment_latent: 0.0,
             lighting_gain_to_zone: 0.0,
@@ -849,7 +1182,8 @@ impl ZoneState {
             nat_vent_mass_flow: 0.0,
             nat_vent_active: false,
             nat_vent_off_timesteps: u32::MAX, // large value = long since stopped
-            centroid_height: 0.0,             // set after surface assignment
+            nat_vent_on_timesteps: 0,
+            centroid_height: 0.0, // set after surface assignment
             temp_no_hvac: initial_temp,
             ideal_pred_mode: 0,
             ideal_pred_mode_locked: false,
@@ -1052,6 +1386,27 @@ pub fn solve_zone_humidity(
     }
 }
 
+/// Mix two advective air streams into one effective stream (#87).
+///
+/// Returns (combined mass flow, mass-weighted property). Used to fold AFN
+/// interzone inflows into the outdoor-air stream of the zone air balances:
+/// the combined stream (m₁+m₂) at the mixed temperature/humidity is
+/// mathematically identical to the two separate advective terms, so every
+/// existing solve path picks up interzone advection without new terms.
+pub fn mix_advective_streams(m1: f64, x1: f64, m2: f64, x2: f64) -> (f64, f64) {
+    // Short-circuit single-stream cases so the no-interzone path is
+    // bit-exact with the pre-#87 math ((m·x)/m can round off by an ulp,
+    // which matters for ASHRAE 140 cases sitting on acceptance limits).
+    if m2 <= 0.0 {
+        return (m1.max(0.0), x1);
+    }
+    if m1 <= 0.0 {
+        return (m2, x2);
+    }
+    let m = m1 + m2;
+    (m, (m1 * x1 + m2 * x2) / m)
+}
+
 /// Compute the Q_hvac needed to hold the zone at a target temperature.
 ///
 /// Given the zone energy balance terms, returns the convective energy
@@ -1115,6 +1470,268 @@ pub fn calc_zone_loads(
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
+
+    fn dc_config() -> DataCenterConfig {
+        DataCenterConfig {
+            it_load_kw: Some(100.0),
+            rack_count: None,
+            kw_per_rack: None,
+            it_load_schedule: None,
+            rack_outlet_temp_c: 35.0,
+            rack_inlet_temp_max_c: None,
+            equipment_class: None,
+            containment_efficiency: 0.85,
+            airflow_m3_per_s_per_kw: None,
+            lighting_w_per_m2: None,
+        }
+    }
+
+    /// Interzone advection stream mixing (#87): mass-weighted mixing is
+    /// equivalent to the separate advective terms, and degenerates safely.
+    #[test]
+    fn test_mix_advective_streams() {
+        // 0.1 kg/s at 0°C + 0.1 kg/s at 30°C → 0.2 kg/s at 15°C
+        let (m, t) = mix_advective_streams(0.1, 0.0, 0.1, 30.0);
+        assert_relative_eq!(m, 0.2, max_relative = 1e-12);
+        assert_relative_eq!(t, 15.0, max_relative = 1e-12);
+
+        // Uneven weighting
+        let (m, t) = mix_advective_streams(0.3, 10.0, 0.1, 30.0);
+        assert_relative_eq!(m, 0.4, max_relative = 1e-12);
+        assert_relative_eq!(t, 15.0, max_relative = 1e-12);
+
+        // No interzone flow → outdoor stream unchanged
+        let (m, t) = mix_advective_streams(0.25, -5.0, 0.0, 30.0);
+        assert_relative_eq!(m, 0.25, max_relative = 1e-12);
+        assert_relative_eq!(t, -5.0, max_relative = 1e-12);
+
+        // Both zero → zero flow, first property retained (unused downstream)
+        let (m, t) = mix_advective_streams(0.0, -5.0, 0.0, 30.0);
+        assert_eq!(m, 0.0);
+        assert_eq!(t, -5.0);
+
+        // Equivalence: mcpi·T_mix == m1·cp·T1 + m2·cp·T2 (cp cancels)
+        let (m, t) = mix_advective_streams(0.07, 3.0, 0.13, 26.0);
+        assert_relative_eq!(m * t, 0.07 * 3.0 + 0.13 * 26.0, max_relative = 1e-12);
+    }
+
+    /// Hybrid-ventilation hysteresis (#95): min-off blocks reopening,
+    /// min-on holds against condition flapping, schedule always closes.
+    #[test]
+    fn test_nat_vent_hysteresis() {
+        let input = ZoneInput {
+            name: "Z".to_string(),
+            volume: 100.0,
+            floor_area: 30.0,
+            infiltration: vec![],
+            internal_gains: vec![],
+            internal_mass: vec![],
+            ideal_loads: None,
+            thermostat_schedule: vec![],
+            ventilation_schedule: vec![],
+            solar_distribution: None,
+            exhaust_fan: None,
+            outdoor_air: None,
+            natural_ventilation: None,
+            conditioned: true,
+            zone_multiplier: 1,
+            max_relative_humidity: None,
+            min_relative_humidity: None,
+            data_center: None,
+            duct_leakage: None,
+            species_generation: vec![],
+            room_air: None,
+            comfort: None,
+        };
+        let mut zone = ZoneState::new(input, 22.0);
+        let (min_on, min_off) = (2u32, 3u32);
+
+        // Fresh state (off long ago): conditions good → opens
+        assert_eq!(
+            zone.apply_nat_vent_hysteresis(1.0, true, min_on, min_off),
+            1.0
+        );
+        assert!(zone.nat_vent_active);
+
+        // Conditions flap off after 1 step — held open by min_on = 2
+        assert_eq!(
+            zone.apply_nat_vent_hysteresis(1.0, false, min_on, min_off),
+            1.0
+        );
+        // Second bad step: on_timesteps reached min_on → closes
+        assert_eq!(
+            zone.apply_nat_vent_hysteresis(1.0, false, min_on, min_off),
+            0.0
+        );
+        assert!(!zone.nat_vent_active);
+
+        // Conditions return immediately — reopening blocked until
+        // min_off = 3 consecutive off steps have elapsed
+        assert_eq!(
+            zone.apply_nat_vent_hysteresis(1.0, true, min_on, min_off),
+            0.0
+        );
+        assert_eq!(
+            zone.apply_nat_vent_hysteresis(1.0, true, min_on, min_off),
+            0.0
+        );
+        // off_timesteps now ≥ 3 → reopens
+        assert_eq!(
+            zone.apply_nat_vent_hysteresis(1.0, true, min_on, min_off),
+            1.0
+        );
+
+        // Schedule going to zero closes regardless of min_on hold
+        assert_eq!(
+            zone.apply_nat_vent_hysteresis(0.0, true, min_on, min_off),
+            0.0
+        );
+        assert!(!zone.nat_vent_active);
+
+        // ΔT gate (#95): outdoor must be usefully cooler
+        let nv = NaturalVentilationInput {
+            opening_area: 1.0,
+            effective_angle: 0.0,
+            height_difference: 1.0,
+            discharge_coefficient: 0.65,
+            min_indoor_temp: -100.0,
+            max_indoor_temp: 100.0,
+            min_outdoor_temp: -100.0,
+            max_outdoor_temp: 100.0,
+            max_wind_speed: 40.0,
+            schedule: None,
+            min_indoor_outdoor_delta_t: Some(2.0),
+            min_on_timesteps: 0,
+            min_off_timesteps: 0,
+            setpoint_reset: None,
+        };
+        assert!(nv.conditions_ok(25.0, 20.0, 1.0)); // ΔT = 5 ≥ 2
+        assert!(!nv.conditions_ok(25.0, 24.0, 1.0)); // ΔT = 1 < 2
+    }
+
+    /// Room-air gradient model (#91): local air temperatures follow
+    /// T(z) = T_mean + g·(z − H/2); return and occupied heights resolve.
+    #[test]
+    fn test_room_air_gradient_temps() {
+        let input = ZoneInput {
+            name: "Atrium".to_string(),
+            volume: 300.0,
+            floor_area: 50.0, // → ceiling height 6 m, mid-height 3 m
+            infiltration: vec![],
+            internal_gains: vec![],
+            internal_mass: vec![],
+            ideal_loads: None,
+            thermostat_schedule: vec![],
+            ventilation_schedule: vec![],
+            solar_distribution: None,
+            exhaust_fan: None,
+            outdoor_air: None,
+            natural_ventilation: None,
+            conditioned: true,
+            zone_multiplier: 1,
+            max_relative_humidity: None,
+            min_relative_humidity: None,
+            data_center: None,
+            duct_leakage: None,
+            species_generation: vec![],
+            room_air: Some(RoomAirGradient {
+                gradient: 1.5,
+                schedule: None,
+                return_height: Some(5.5),
+                thermostat_height: 1.1,
+                ceiling_height: None,
+                mundt: false,
+                control_at_thermostat_height: false,
+            }),
+            comfort: None,
+        };
+        let mut zone = ZoneState::new(input, 22.0);
+        zone.current_gradient = 1.5;
+
+        assert_relative_eq!(zone.room_air_height(), 6.0, max_relative = 1e-12);
+        // Mid-height = mean temperature
+        assert_relative_eq!(zone.air_temp_at_height(3.0), 22.0, max_relative = 1e-12);
+        // Ceiling: +1.5 K/m × 3 m = +4.5 K
+        assert_relative_eq!(zone.air_temp_at_height(6.0), 26.5, max_relative = 1e-12);
+        // Floor: −4.5 K
+        assert_relative_eq!(zone.air_temp_at_height(0.0), 17.5, max_relative = 1e-12);
+        // Return at 5.5 m: 22 + 1.5·2.5 = 25.75
+        assert_relative_eq!(zone.return_air_temp(), 25.75, max_relative = 1e-12);
+        // Occupied at 1.1 m: 22 + 1.5·(1.1 − 3.0) = 19.15
+        assert_relative_eq!(zone.occupied_air_temp(), 19.15, max_relative = 1e-12);
+
+        // Well-mixed (gradient forced to 0): everything collapses to T_mean
+        zone.current_gradient = 0.0;
+        assert_relative_eq!(zone.return_air_temp(), 22.0, max_relative = 1e-12);
+        assert_relative_eq!(zone.occupied_air_temp(), 22.0, max_relative = 1e-12);
+
+        // Zones without a room_air block report the mean everywhere
+        let mut plain = zone.clone();
+        plain.input.room_air = None;
+        plain.current_gradient = 0.0;
+        assert_eq!(plain.return_air_temp(), 22.0);
+        assert_eq!(plain.occupied_air_temp(), 22.0);
+    }
+
+    /// NV availability (#88): temperature windows and wind limit gate the
+    /// schedule fraction.
+    #[test]
+    fn test_nat_vent_availability() {
+        let nv = NaturalVentilationInput {
+            opening_area: 2.0,
+            effective_angle: 0.0,
+            height_difference: 1.0,
+            discharge_coefficient: 0.65,
+            min_indoor_temp: 22.0,
+            max_indoor_temp: 100.0,
+            min_outdoor_temp: 10.0,
+            max_outdoor_temp: 30.0,
+            max_wind_speed: 15.0,
+            schedule: None,
+            min_indoor_outdoor_delta_t: None,
+            min_on_timesteps: 0,
+            min_off_timesteps: 0,
+            setpoint_reset: None,
+        };
+        // All conditions met → schedule fraction passes through
+        assert_eq!(nv.availability(25.0, 20.0, 3.0, 1.0), 1.0);
+        assert_eq!(nv.availability(25.0, 20.0, 3.0, 0.5), 0.5);
+        // Indoor too cold
+        assert_eq!(nv.availability(20.0, 20.0, 3.0, 1.0), 0.0);
+        // Outdoor too hot
+        assert_eq!(nv.availability(25.0, 35.0, 3.0, 1.0), 0.0);
+        // Too windy
+        assert_eq!(nv.availability(25.0, 20.0, 20.0, 1.0), 0.0);
+        // Schedule fraction clamped to [0,1]
+        assert_eq!(nv.availability(25.0, 20.0, 3.0, 1.8), 1.0);
+    }
+
+    #[test]
+    fn test_it_mass_flow_sizes_to_rack_delta_t() {
+        // No explicit airflow → flow sized to hit the design rack ΔT
+        // (rack_outlet_temp_c − supply). At 18 °C supply, ΔT = 17 °C, so the
+        // hot-aisle rise lands exactly on rack_outlet_temp_c. (CRAC-1 / #62)
+        let dc = dc_config();
+        let cp = 1006.0;
+        let it_w = 100_000.0; // 100 kW
+        let t_supply = 18.0;
+        let m_it = dc.it_mass_flow(it_w, t_supply, 1.2, cp);
+        let t_hot = t_supply + it_w / (m_it * cp);
+        assert_relative_eq!(t_hot, 35.0, max_relative = 0.001);
+        // This flow is independent of any CRAC supply flow.
+        assert!(m_it > 0.0);
+    }
+
+    #[test]
+    fn test_it_mass_flow_explicit_airflow() {
+        // Explicit airflow per kW overrides the ΔT sizing.
+        let mut dc = dc_config();
+        dc.airflow_m3_per_s_per_kw = Some(0.05); // 0.05 m³/s per kW
+        let rho = 1.2;
+        let m_it = dc.it_mass_flow(100_000.0, 18.0, rho, 1006.0);
+        // 0.05 · 100 kW · 1.2 kg/m³ = 6.0 kg/s
+        assert_relative_eq!(m_it, 0.05 * 100.0 * rho, max_relative = 1e-9);
+    }
 
     #[test]
     fn test_steady_state_zone_temp() {
@@ -1281,6 +1898,10 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
+            species_generation: vec![],
+            room_air: None,
+            comfort: None,
         };
 
         // During night setback
@@ -1323,6 +1944,10 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
+            species_generation: vec![],
+            room_air: None,
+            comfort: None,
         };
 
         // During night ventilation period (unconditional — no temp conditions)
@@ -1362,6 +1987,10 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
+            species_generation: vec![],
+            room_air: None,
+            comfort: None,
         };
 
         // Zone hot enough, outdoor cooler → ventilate

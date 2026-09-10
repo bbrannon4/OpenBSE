@@ -295,6 +295,82 @@ fn build_loop_infos(
         .collect()
 }
 
+/// Temperature the HVAC control senses for a zone (#98): the
+/// occupied/thermostat-height temperature when the room-air model opts in
+/// (control_at_thermostat_height), otherwise the zone mean.
+fn control_temp_for(z: &openbse_envelope::zone::ZoneState) -> f64 {
+    let at_thermostat = z
+        .input
+        .room_air
+        .as_ref()
+        .is_some_and(|ra| ra.control_at_thermostat_height);
+    if at_thermostat {
+        z.occupied_air_temp()
+    } else {
+        z.temp
+    }
+}
+
+/// Evaluate dynamic blind/shading control for every window (#104), updating
+/// `blind_configured` / `blind_deployed` / `blind_shgc` / `blind_u_factor` in place.
+///
+/// Runs once per timestep before solar gains, using previous-step surface
+/// conditions (one-step lag matches E+ WindowShadingControl). Shared by the
+/// ideal-loads and coupled-HVAC paths (#108); `zone_temps` supplies the signal for
+/// `Temperature`-triggered controls.
+fn evaluate_blind_control(
+    surfaces: &mut [openbse_envelope::surface::SurfaceState],
+    window_constructions: &HashMap<String, openbse_envelope::material::WindowConstruction>,
+    zone_temps: &HashMap<String, f64>,
+    dni: f64,
+    solar_altitude: f64,
+) {
+    use openbse_envelope::material::ShadingControlKind;
+    // Beam on a horizontal surface — first-step fallback only (see below).
+    let beam_irr = dni * solar_altitude.sin().max(0.0);
+    for surface in surfaces.iter_mut() {
+        if !surface.is_window {
+            continue;
+        }
+        let Some(ctrl) = window_constructions
+            .get(&surface.input.construction)
+            .and_then(|wc| wc.shading_control.as_ref())
+        else {
+            continue;
+        };
+        // Initialize blind properties from the construction on first encounter.
+        // `blind_configured` (not blind_shgc) is the sentinel so that a blackout
+        // blind with blind_shgc == 0.0 is still recognized (#106).
+        if !surface.blind_configured {
+            surface.blind_configured = true;
+            surface.blind_shgc = ctrl.blind_shgc;
+            surface.blind_u_factor = ctrl.blind_u_factor.unwrap_or(surface.u_factor);
+        }
+        let signal = match ctrl.kind {
+            ShadingControlKind::SolarThreshold => {
+                // Incident beam per glazing area [W/m²], lagged one timestep. Before
+                // the first solve incident_solar is 0, so fall back to horizontal
+                // beam (only affects timestep 0; daytime steps use true incidence).
+                if surface.incident_solar > 0.0 {
+                    surface.incident_solar / surface.net_area.max(1e-6)
+                } else {
+                    beam_irr
+                }
+            }
+            ShadingControlKind::Temperature => {
+                zone_temps.get(&surface.input.zone).copied().unwrap_or(21.0)
+            }
+        };
+        let trigger = ctrl.trigger_level();
+        let retract = ctrl.retract_level();
+        surface.blind_deployed = if surface.blind_deployed {
+            signal > retract
+        } else {
+            signal > trigger
+        };
+    }
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -479,8 +555,29 @@ fn main() -> Result<()> {
             build_graph_with_base(&model, model_dir).context("Failed to build simulation graph")?;
         info!("Graph built: {} components", graph.component_count());
 
+        // NOTE: the openbse-controls runtime is NOT wired into the main envelope
+        // driver (`simulate_all_loops`). Zone setpoints reach the simulation via
+        // the predictor / airloop signal builders, and air-loop setpoints via
+        // `AirLoopControls`. The explicit top-level `controls:` section
+        // (SetpointController / PlantLoopSetpoint) is therefore inert — build it
+        // only so we can warn the user rather than silently ignoring it (#75).
         let controllers = build_controllers(&model);
-        info!("Controllers built: {} controllers", controllers.len());
+        log::debug!("Controllers built: {} (diagnostic only)", controllers.len());
+        if !model.controls.is_empty() {
+            warn!(
+                "The top-level `controls:` section ({} entr{}) is not applied — \
+                 SetpointController/PlantLoopSetpoint are inert in the current \
+                 driver. Set component/loop setpoints via air-loop `controls:` \
+                 (heating_supply_temp/cooling_supply_temp), plant-loop setpoints, \
+                 or zone thermostats instead.",
+                model.controls.len(),
+                if model.controls.len() == 1 {
+                    "y"
+                } else {
+                    "ies"
+                },
+            );
+        }
 
         let mut envelope = build_envelope(
             &model,
@@ -762,6 +859,21 @@ fn main() -> Result<()> {
                     }
                 };
                 comp_submeter.insert(name, sm);
+            }
+        }
+
+        // ── Duct → ambient-zone map ───────────────────────────────────────────
+        // Maps each supply-duct component to the zone surrounding it, when that
+        // ambient is a real (modeled) zone rather than "outdoor"/"ground". Used
+        // to deposit duct conduction + leakage losses into that zone (#70).
+        let mut duct_ambient_zones: HashMap<String, String> = HashMap::new();
+        for al in &model.air_loops {
+            for equip in &al.equipment {
+                if let openbse_io::input::EquipmentInput::Duct(d) = equip {
+                    if d.ambient_zone != "outdoor" && d.ambient_zone != "ground" {
+                        duct_ambient_zones.insert(d.name.clone(), d.ambient_zone.clone());
+                    }
+                }
             }
         }
 
@@ -2046,7 +2158,7 @@ fn main() -> Result<()> {
                         let current_zone_temps: HashMap<String, f64> = env
                             .zones
                             .iter()
-                            .map(|z| (z.input.name.clone(), z.temp))
+                            .map(|z| (z.input.name.clone(), control_temp_for(z)))
                             .collect();
                         let initial_zone_temps: HashMap<String, f64> = current_zone_temps.clone();
                         let current_cooling_loads: HashMap<String, f64> = env
@@ -2377,6 +2489,31 @@ fn main() -> Result<()> {
                         // ═══════════════════════════════════════════════════════
                         // IDEAL LOADS or FREE-FLOAT MODE
                         // ═══════════════════════════════════════════════════════
+                        // Blind control (#104) — shared helper with coupled path (#108)
+                        {
+                            let doy_b = ctx.timestep.day_of_year();
+                            let sh_b = openbse_envelope::solar::local_solar_hour(
+                                ctx.timestep.fractional_hour(),
+                                env.time_zone,
+                                env.longitude,
+                                doy_b,
+                            );
+                            let sol_alt_b =
+                                openbse_envelope::solar::solar_position(doy_b, sh_b, env.latitude)
+                                    .altitude;
+                            let zone_temps_b: HashMap<String, f64> = env
+                                .zones
+                                .iter()
+                                .map(|z| (z.input.name.clone(), z.temp))
+                                .collect();
+                            evaluate_blind_control(
+                                &mut env.surfaces,
+                                &env.window_constructions,
+                                &zone_temps_b,
+                                interp_weather.direct_normal_rad,
+                                sol_alt_b,
+                            );
+                        }
                         let hvac_conds = ZoneHvacConditions::default();
                         let env_result = env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
                         // BDF history update happens once below, outside
@@ -2421,7 +2558,7 @@ fn main() -> Result<()> {
                         let mut current_zone_temps: HashMap<String, f64> = env
                             .zones
                             .iter()
-                            .map(|z| (z.input.name.clone(), z.temp))
+                            .map(|z| (z.input.name.clone(), control_temp_for(z)))
                             .collect();
                         // Save initial zone temps for terminal control signals (frozen across
                         // HVAC iterations to prevent oscillation).  AHU-level controls use
@@ -2514,11 +2651,17 @@ fn main() -> Result<()> {
                                 if it_pw_w <= 0.0 {
                                     return None;
                                 }
-                                let m_dot =
-                                    zone_design_flows.get(&z.input.name).copied().unwrap_or(0.5);
                                 let cp_dc = openbse_psychrometrics::cp_air_fn_w(z.humidity_ratio);
                                 let t_supply = z.supply_air_temp;
-                                let t_hot = t_supply + it_pw_w / (m_dot * cp_dc).max(1.0);
+                                // Hot-aisle rise is carried by the server (IT) airflow,
+                                // not the CRAC/CRAH supply flow (CRAC-1 / #62).
+                                let rho_dc = openbse_psychrometrics::rho_air_fn_pb_tdb_w(
+                                    101_325.0,
+                                    t_supply,
+                                    z.humidity_ratio,
+                                );
+                                let m_it = dc.it_mass_flow(it_pw_w, t_supply, rho_dc, cp_dc);
+                                let t_hot = t_supply + it_pw_w / (m_it * cp_dc).max(1.0);
                                 let t_zone = current_zone_temps
                                     .get(&z.input.name)
                                     .copied()
@@ -2528,6 +2671,47 @@ fn main() -> Result<()> {
                                 Some((z.input.name.clone(), t_return))
                             })
                             .collect();
+
+                        // Room-air stratification (#91): stratified zones return
+                        // air at the return-height temperature, so coil loads
+                        // and economizers see the stratified return.
+                        let mut zone_dc_return_temps = zone_dc_return_temps;
+                        for z in &env.zones {
+                            if z.input.room_air.is_some()
+                                && !zone_dc_return_temps.contains_key(&z.input.name)
+                            {
+                                zone_dc_return_temps
+                                    .insert(z.input.name.clone(), z.return_air_temp());
+                            }
+                        }
+
+                        // ── Dynamic blind control (#104) ─────────────────────────
+                        // Evaluate shading control triggers once per timestep, before
+                        // the HVAC iteration loop, using previous-step surface conditions
+                        // (one-step lag matches E+ WindowShadingControl behavior).
+                        // Shared helper with the ideal-loads path (#108).
+                        {
+                            let doy = ctx.timestep.day_of_year();
+                            let solar_hour = openbse_envelope::solar::local_solar_hour(
+                                ctx.timestep.fractional_hour(),
+                                env.time_zone,
+                                env.longitude,
+                                doy,
+                            );
+                            let sol_alt = openbse_envelope::solar::solar_position(
+                                doy,
+                                solar_hour,
+                                env.latitude,
+                            )
+                            .altitude;
+                            evaluate_blind_control(
+                                &mut env.surfaces,
+                                &env.window_constructions,
+                                &current_zone_temps,
+                                interp_weather.direct_normal_rad,
+                                sol_alt,
+                            );
+                        }
 
                         for hvac_iter in 0..MAX_HVAC_ITER {
                             // Step 1: Run HVAC with current zone temps and loads
@@ -2833,14 +3017,24 @@ fn main() -> Result<()> {
                                             loop_mass_flow,
                                         ));
 
-                                    // Collect non-pump energy equipment names for EqualSplit
+                                    // Collect the load-meeting generators for the
+                                    // EqualSplit denominator. Only dispatchable
+                                    // supply units (boilers, chillers, thermal
+                                    // storage, external plant) share the loop load;
+                                    // pumps, cooling towers and heat exchangers do
+                                    // not meet the loop's primary load and must not
+                                    // inflate the denominator (which under-loads the
+                                    // chillers/boilers — PLANT-2 / #76).
                                     let energy_equip_names: Vec<String> = plant_loop
                                         .supply_equipment
                                         .iter()
                                         .filter(|eq| {
-                                            !matches!(
+                                            matches!(
                                                 eq,
-                                                openbse_io::input::PlantEquipmentInput::Pump(_)
+                                                openbse_io::input::PlantEquipmentInput::Boiler(_)
+                                                    | openbse_io::input::PlantEquipmentInput::Chiller(_)
+                                                    | openbse_io::input::PlantEquipmentInput::ThermalStorage(_)
+                                                    | openbse_io::input::PlantEquipmentInput::ExternalPlant(_)
                                             )
                                         })
                                         .map(|eq| {
@@ -2881,6 +3075,13 @@ fn main() -> Result<()> {
 
                                     // Track whether previous non-pump unit hit staging threshold
                                     let mut prev_plr: f64 = 1.0; // allow first unit to start
+                                                                 // Whether the previous non-pump unit was capacity-limited
+                                                                 // (delivered less than the load asked of it). A unit derated
+                                                                 // below its rated capacity on a hot/high-condenser day is
+                                                                 // maxed out yet reads PLR < threshold against its rating; gate
+                                                                 // the next stage on this saturation flag so a derated unit
+                                                                 // doesn't strand the load (PLANT-1 / #76).
+                                    let mut prev_saturated = false;
 
                                     for equip in &plant_loop.supply_equipment {
                                         let equip_name = match equip {
@@ -2911,12 +3112,16 @@ fn main() -> Result<()> {
                                         if !is_pump && remaining_load.abs() < 1.0 {
                                             break;
                                         }
-                                        // Sequential staging threshold guard: only start next
-                                        // non-pump unit if previous unit's PLR >= threshold
+                                        // Sequential staging threshold guard: only start the next
+                                        // non-pump unit if the previous unit's PLR >= threshold —
+                                        // OR if it was capacity-limited (saturated), in which case
+                                        // it is fully loaded even though delivered/rated < threshold
+                                        // (e.g. derated at high condenser temp).
                                         if !is_pump
                                             && plant_loop.staging_mode
                                                 == openbse_io::input::StagingMode::Sequential
                                             && prev_plr < plant_loop.staging_threshold
+                                            && !prev_saturated
                                         {
                                             break;
                                         }
@@ -2969,6 +3174,10 @@ fn main() -> Result<()> {
                                                     } else {
                                                         1.0
                                                     };
+                                                    // Saturated when it couldn't meet the load
+                                                    // asked of it (capacity-limited this step).
+                                                    prev_saturated = load_before > 1.0
+                                                        && delivered + 1.0 < equip_load;
                                                 }
 
                                                 if remaining_load > 0.0 {
@@ -3196,6 +3405,54 @@ fn main() -> Result<()> {
                                     rp.radiant_output;
                             }
 
+                            // ── Duct distribution losses → ambient zone (#70) ──────
+                            // Deposit each duct's conduction loss and leaked supply
+                            // air (sensible + moisture) into the zone surrounding it.
+                            // The duct already removed these from the supply stream;
+                            // here they re-enter the (usually unconditioned) ambient
+                            // zone, closing the energy/moisture balance. The duct reads
+                            // that zone's temperature as its ambient each iteration, so
+                            // the coupling converges within the HVAC iteration loop.
+                            for (duct_name, ambient_zone) in &duct_ambient_zones {
+                                let Some(outputs) = hvac_result.component_outputs.get(duct_name)
+                                else {
+                                    continue;
+                                };
+                                let cond_loss =
+                                    outputs.get("conduction_loss").copied().unwrap_or(0.0);
+                                let leak_flow = outputs.get("leakage_loss").copied().unwrap_or(0.0);
+                                let t_inlet =
+                                    outputs.get("inlet_temperature").copied().unwrap_or(0.0);
+                                let w_inlet =
+                                    outputs.get("inlet_humidity_ratio").copied().unwrap_or(0.0);
+                                let zmult =
+                                    comp_zone_multiplier.get(duct_name).copied().unwrap_or(1.0);
+                                let t_zone = current_zone_temps
+                                    .get(ambient_zone)
+                                    .copied()
+                                    .unwrap_or(t_inlet);
+                                let w_zone = zone_humidity_ratios
+                                    .get(ambient_zone)
+                                    .copied()
+                                    .unwrap_or(w_inlet);
+                                let cp = openbse_psychrometrics::cp_air_fn_w(w_inlet);
+                                let h_fg = 2_501_000.0_f64;
+                                // Conduction heat lost from the air enters the zone, plus
+                                // the sensible heat carried by leaked air relative to zone.
+                                let sensible =
+                                    (cond_loss + leak_flow * cp * (t_inlet - t_zone)) * zmult;
+                                // Moisture carried by leaked air relative to zone air.
+                                let latent = leak_flow * (w_inlet - w_zone) * h_fg * zmult;
+                                *hvac_conds
+                                    .other_sensible_gains
+                                    .entry(ambient_zone.clone())
+                                    .or_default() += sensible;
+                                *hvac_conds
+                                    .other_latent_gains
+                                    .entry(ambient_zone.clone())
+                                    .or_default() += latent;
+                            }
+
                             // Step 3: Solve envelope with HVAC supply
                             let env_result = env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
 
@@ -3384,9 +3641,47 @@ fn main() -> Result<()> {
                     snapshot.site_diffuse_horizontal_radiation = interp_weather.diffuse_horiz_rad;
                     snapshot.site_relative_humidity = interp_weather.rel_humidity;
 
+                    // AFN species concentrations (#89): zone:species_<name>
+                    if let Some(ref st) = env.species_transport {
+                        for (si, sp_name) in st.names.iter().enumerate() {
+                            let map = snapshot.zone_species.entry(sp_name.clone()).or_default();
+                            for (zi, zone) in env.zones.iter().enumerate() {
+                                map.insert(zone.input.name.clone(), st.concentration(si, zi));
+                            }
+                        }
+                    }
+                    let afn_active = env.airflow_network.is_some();
+
                     for zone in &env.zones {
                         let name = zone.input.name.clone();
                         snapshot.zone_temperature.insert(name.clone(), zone.temp);
+                        if afn_active {
+                            snapshot
+                                .zone_pressure
+                                .insert(name.clone(), zone.afn_pressure);
+                        }
+                        if zone.input.room_air.is_some() {
+                            snapshot
+                                .zone_occupied_temperature
+                                .insert(name.clone(), zone.occupied_air_temp());
+                        }
+                        // Infiltration ACH and interzone inflow (#97)
+                        if zone.input.volume > 0.0 {
+                            let rho = openbse_psychrometrics::rho_air_fn_pb_tdb_w(
+                                101_325.0,
+                                zone.temp,
+                                zone.humidity_ratio,
+                            );
+                            snapshot.zone_ach.insert(
+                                name.clone(),
+                                zone.infiltration_mass_flow * 3600.0 / (rho * zone.input.volume),
+                            );
+                        }
+                        if afn_active {
+                            snapshot
+                                .zone_interzone_inflow
+                                .insert(name.clone(), zone.afn_interzone_mass_flow);
+                        }
                         snapshot
                             .zone_humidity_ratio
                             .insert(name.clone(), zone.humidity_ratio);
@@ -3517,26 +3812,93 @@ fn main() -> Result<()> {
                             .zone_gain_hvac_latent
                             .insert(name.clone(), q_hvac_lat);
 
-                        // ── Comfort metrics ──────────────────────────────
+                        // ── Comfort metrics (#102, #103) ─────────────────
                         let mut sum_at = 0.0_f64;
                         let mut sum_a = 0.0_f64;
+                        let mut zone_beam_solar = 0.0_f64;
                         for &si in &zone.surface_indices {
                             let s = &env.surfaces[si];
                             sum_at += s.net_area * s.temp_inside;
                             sum_a += s.net_area;
+                            if s.is_window {
+                                zone_beam_solar += s.transmitted_solar_beam;
+                            }
                         }
                         let mrt = if sum_a > 0.0 {
                             sum_at / sum_a
                         } else {
                             zone.temp
                         };
-                        let t_op = (zone.temp + mrt) / 2.0;
+
+                        // Solar MRT correction (#103): applies when zone has direct
+                        // beam solar gains, indicating occupants may be in direct sun.
+                        let doy_c = ctx.timestep.day_of_year();
+                        let solar_hour_c = openbse_envelope::solar::local_solar_hour(
+                            ctx.timestep.fractional_hour(),
+                            env.time_zone,
+                            env.longitude,
+                            doy_c,
+                        );
+                        let sol_alt_c = openbse_envelope::solar::solar_position(
+                            doy_c,
+                            solar_hour_c,
+                            env.latitude,
+                        )
+                        .altitude;
+                        let comfort_cfg = zone.input.comfort.as_ref().cloned().unwrap_or_default();
+                        let delta_mrt_solar = if zone_beam_solar > 0.0 {
+                            openbse_psychrometrics::comfort::solar_mrt_correction(
+                                snapshot.site_direct_normal_radiation,
+                                sol_alt_c,
+                                mrt,
+                                comfort_cfg.solar_absorptivity,
+                                0.95,
+                            )
+                        } else {
+                            0.0
+                        };
+                        let mrt_effective = mrt + delta_mrt_solar;
+                        let t_op = openbse_psychrometrics::comfort::operative_temperature(
+                            zone.temp,
+                            mrt_effective,
+                        );
+
+                        // PMV / PPD via Fanger model
+                        let rh_zone = openbse_psychrometrics::rh_fn_tdb_w_pb(
+                            zone.temp,
+                            zone.humidity_ratio,
+                            101_325.0,
+                        );
+                        let pmv_val = openbse_psychrometrics::comfort::pmv(
+                            zone.temp,
+                            mrt_effective,
+                            comfort_cfg.air_velocity,
+                            rh_zone,
+                            comfort_cfg.metabolic_rate,
+                            comfort_cfg.clothing,
+                        );
+                        let ppd_val = openbse_psychrometrics::comfort::ppd(pmv_val);
+
+                        // Report long-wave MRT and solar-corrected MRT separately so
+                        // an existing consumer of mean_radiant_temperature keeps its
+                        // long-wave semantics (#109). PMV / operative temperature use
+                        // the effective (solar-corrected) value.
                         snapshot
                             .zone_mean_radiant_temperature
                             .insert(name.clone(), mrt);
                         snapshot
+                            .zone_effective_mrt
+                            .insert(name.clone(), mrt_effective);
+                        snapshot
                             .zone_operative_temperature
                             .insert(name.clone(), t_op);
+                        snapshot.zone_pmv.insert(name.clone(), pmv_val);
+                        snapshot.zone_ppd.insert(name.clone(), ppd_val);
+                        if delta_mrt_solar > 0.0 {
+                            snapshot
+                                .zone_solar_mrt_correction
+                                .insert(name.clone(), delta_mrt_solar);
+                        }
                     }
 
                     // Solar gains per zone (sum of transmitted solar through all zone windows)
@@ -3586,6 +3948,13 @@ fn main() -> Result<()> {
                         snapshot
                             .surface_inside_radiation_coefficient
                             .insert(name.clone(), surface.h_rad_inside);
+                        // Blind state (#104)
+                        if surface.is_window && surface.blind_configured {
+                            snapshot.window_blind_deployed.insert(
+                                name.clone(),
+                                if surface.blind_deployed { 1.0 } else { 0.0 },
+                            );
+                        }
                     }
 
                     for (comp_name, vars) in &result.component_outputs {
@@ -3639,6 +4008,9 @@ fn main() -> Result<()> {
                                     snapshot
                                         .component_electric_power
                                         .insert(comp_name.clone(), pw_m);
+                                    if let Some(&kind) = comp_kind_map.get(comp_name) {
+                                        snapshot.component_kinds.insert(comp_name.clone(), kind);
+                                    }
                                 }
                             }
                         }
@@ -3646,6 +4018,9 @@ fn main() -> Result<()> {
                             snapshot
                                 .component_fuel_power
                                 .insert(comp_name.clone(), pw * zmult);
+                            if let Some(&kind) = comp_kind_map.get(comp_name) {
+                                snapshot.component_kinds.insert(comp_name.clone(), kind);
+                            }
                         }
                     }
                     // Copy full component_outputs for per-component CSV output
@@ -3704,11 +4079,18 @@ fn main() -> Result<()> {
                         // return air) from containment efficiency.
                         if let Some(ref dc) = zone.input.data_center {
                             if it_pw > 0.0 {
-                                let m_supply = zone.supply_air_mass_flow.max(0.01);
                                 let cp_air_dc =
                                     openbse_psychrometrics::cp_air_fn_w(zone.humidity_ratio);
                                 let t_supply = zone.supply_air_temp;
-                                let t_hot = t_supply + it_pw / (m_supply * cp_air_dc).max(1.0);
+                                // Hot-aisle rise is driven by the server (IT) airflow,
+                                // not the CRAC/CRAH supply flow (CRAC-1 / #62).
+                                let rho_dc = openbse_psychrometrics::rho_air_fn_pb_tdb_w(
+                                    101_325.0,
+                                    t_supply,
+                                    zone.humidity_ratio,
+                                );
+                                let m_it = dc.it_mass_flow(it_pw, t_supply, rho_dc, cp_air_dc);
+                                let t_hot = t_supply + it_pw / (m_it * cp_air_dc).max(1.0);
                                 let cont_eff = dc.containment_efficiency;
                                 let t_return = cont_eff * t_hot + (1.0 - cont_eff) * zone.temp;
                                 snapshot
@@ -3727,10 +4109,13 @@ fn main() -> Result<()> {
                         // Exhaust fan power → component_electric_power
                         // (comp_kind_map routes it to fan_electric via ComponentKind::Fan)
                         if zone.exhaust_fan_power > 0.0 {
-                            snapshot.component_electric_power.insert(
-                                format!("Exhaust Fan {}", zone.input.name),
-                                zone.exhaust_fan_power * zmult,
-                            );
+                            let ef_name = format!("Exhaust Fan {}", zone.input.name);
+                            snapshot
+                                .component_kinds
+                                .insert(ef_name.clone(), ComponentKind::Fan);
+                            snapshot
+                                .component_electric_power
+                                .insert(ef_name, zone.exhaust_fan_power * zmult);
                         }
                     }
 
@@ -4174,6 +4559,9 @@ fn main() -> Result<()> {
                                     snapshot
                                         .component_electric_power
                                         .insert(comp_name.clone(), pw_m);
+                                    if let Some(&kind) = comp_kind_map.get(comp_name) {
+                                        snapshot.component_kinds.insert(comp_name.clone(), kind);
+                                    }
                                 }
                             }
                         }
@@ -4181,6 +4569,9 @@ fn main() -> Result<()> {
                             snapshot
                                 .component_fuel_power
                                 .insert(comp_name.clone(), pw * zmult);
+                            if let Some(&kind) = comp_kind_map.get(comp_name) {
+                                snapshot.component_kinds.insert(comp_name.clone(), kind);
+                            }
                         }
                     }
 
@@ -6281,6 +6672,52 @@ mod tests {
             "Equal split: combined delivery {:.0} W should cover {:.0} W",
             delivered1 + delivered2,
             total_load
+        );
+    }
+
+    #[test]
+    fn test_chiller_staging_capacity_limited_unit_allows_next_stage() {
+        // PLANT-1 (#76): a unit derated below its rated capacity (e.g. high
+        // condenser temp) is maxed out yet reads delivered/rated < threshold.
+        // The Sequential staging guard must NOT strand the load — when the unit
+        // is capacity-limited (saturated), the next stage is allowed.
+        let staging_threshold = 0.9_f64;
+
+        // Derated unit: rated 100 kW but only able to deliver 80 kW this step,
+        // asked to meet 120 kW → leaves 40 kW unmet (saturated).
+        let rated = 100_000.0_f64;
+        let delivered = 80_000.0_f64;
+        let equip_load = 120_000.0_f64; // load asked of this unit
+        let load_before = equip_load;
+        let prev_plr = (delivered / rated).min(1.0); // 0.8 < threshold
+        let prev_saturated = load_before > 1.0 && delivered + 1.0 < equip_load;
+
+        assert!(
+            prev_plr < staging_threshold,
+            "derated unit reads PLR < threshold"
+        );
+        assert!(
+            prev_saturated,
+            "unit that left load unmet must be flagged saturated"
+        );
+
+        // The guard: break only if below threshold AND not saturated.
+        let next_stage_blocked = prev_plr < staging_threshold && !prev_saturated;
+        assert!(
+            !next_stage_blocked,
+            "a capacity-limited unit must allow the next stage to start"
+        );
+
+        // Contrast: a unit modulating below capacity (met its load) stays gated.
+        let delivered_mod = 50_000.0_f64;
+        let equip_load_mod = 50_000.0_f64;
+        let prev_plr_mod = (delivered_mod / rated).min(1.0); // 0.5
+        let prev_saturated_mod = equip_load_mod > 1.0 && delivered_mod + 1.0 < equip_load_mod;
+        assert!(!prev_saturated_mod);
+        let blocked_mod = prev_plr_mod < staging_threshold && !prev_saturated_mod;
+        assert!(
+            blocked_mod,
+            "a part-loaded unit must not start the next stage"
         );
     }
 

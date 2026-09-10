@@ -186,16 +186,87 @@
       "description": "Multizone pressure network airflow configuration. When enabled, auto-generates a pressure network from building geometry and solves for pressure-driven infiltration using Newton-Raphson.",
       "properties": {
         "enabled": { "type": "boolean", "default": false, "description": "Enable the pressure network solver." },
-        "cp_model": { "type": "string", "enum": ["swami_chandra", "high_rise"], "default": "swami_chandra", "description": "Wind pressure coefficient model." },
+        "cp_model": {
+          "default": "swami_chandra",
+          "description": "Wind pressure coefficient model: a named correlation, or a user Cp table interpolated from the EPW wind direction (YAML tag form: `cp_model: !table`).",
+          "oneOf": [
+            { "type": "string", "enum": ["swami_chandra", "high_rise"] },
+            {
+              "type": "object",
+              "required": ["table"],
+              "properties": {
+                "table": {
+                  "type": "object",
+                  "required": ["wind_angles", "facades"],
+                  "properties": {
+                    "wind_angles": { "type": "array", "items": { "type": "number" }, "description": "Wind directions [deg from north], ascending, within [0, 360)." },
+                    "facades": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["azimuth", "cp"],
+                        "properties": {
+                          "azimuth": { "type": "number", "description": "Facade outward normal azimuth [deg from north]." },
+                          "cp": { "type": "array", "items": { "type": "number" }, "description": "Cp value per entry in wind_angles." }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
         "default_crack_exponent": { "type": "number", "default": 0.65, "description": "Flow exponent n for auto-generated cracks." },
         "wall_leakage_per_area": { "type": "number", "default": 0.00008, "description": "Crack leakage per unit wall area [kg/s/m2/Pa^n]." },
         "window_leakage_per_area": { "type": "number", "default": 0.00014, "description": "Crack leakage per unit window area [kg/s/m2/Pa^n]." },
         "door_leakage_per_perimeter": { "type": "number", "default": 0.0006, "description": "Crack leakage per unit door perimeter [kg/s/m/Pa^n]." },
         "interzone_leakage_per_area": { "type": "number", "default": 0.00004, "description": "Interzone crack leakage per unit area [kg/s/m2/Pa^n]." },
+        "ach50": { "type": "number", "description": "Blower-door calibration: measured air changes per hour at 50 Pa. Scales exterior crack coefficients to match." },
+        "facade_shelter": {
+          "type": "array",
+          "description": "Per-facade wind shelter multipliers (AIM-2 style). Nearest facade by azimuth applies; folds into wind pressure as multiplier squared.",
+          "items": {
+            "type": "object",
+            "required": ["azimuth", "multiplier"],
+            "properties": {
+              "azimuth": { "type": "number", "description": "Facade outward normal azimuth [deg from north]." },
+              "multiplier": { "type": "number", "description": "Local wind speed multiplier [0-1+]; 1.0 = unsheltered." }
+            }
+          }
+        },
+        "wall_leakage_class": { "$ref": "#/$defs/LeakageClass", "description": "ASHRAE leakage class for exterior walls. Overrides wall_leakage_per_area." },
+        "window_leakage_class": { "$ref": "#/$defs/LeakageClass", "description": "ASHRAE leakage class for windows. Overrides window_leakage_per_area." },
+        "interzone_leakage_class": { "$ref": "#/$defs/LeakageClass", "description": "ASHRAE leakage class for interzone surfaces. Overrides interzone_leakage_per_area." },
         "convergence_tolerance": { "type": "number", "default": 0.1, "description": "Newton-Raphson convergence tolerance [Pa]." },
         "max_iterations": { "type": "integer", "default": 30, "description": "Maximum Newton-Raphson iterations." },
-        "damping": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1, "description": "Damping factor for pressure updates." }
+        "damping": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1, "description": "Damping factor for pressure updates (starting factor when adaptive_damping is on)." },
+        "adaptive_damping": { "type": "boolean", "default": true, "description": "Adapt the Newton under-relaxation factor per iteration: grow toward a full step while the residual falls, cut on overshoot." },
+        "relative_tolerance": { "type": "number", "default": 0.0001, "description": "Relative convergence tolerance: accept when the worst zone mass residual is below this fraction of total network through-flow." },
+        "species": {
+          "type": "array",
+          "description": "Passive species (e.g. CO2) transported on the network flows.",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string", "description": "Species name, referenced by zone species_generation entries." },
+              "outdoor_concentration": { "type": "number", "default": 0, "description": "Outdoor concentration [kg/kg]." },
+              "initial_concentration": { "type": "number", "description": "Initial zone concentration [kg/kg] (defaults to outdoor)." },
+              "decay_rate": { "type": "number", "default": 0, "description": "First-order decay rate [1/s] (radon ~2.1e-6)." },
+              "deposition_velocity": { "type": "number", "default": 0, "description": "Surface deposition velocity [m/s]." },
+              "hvac_filter_efficiency": { "type": "number", "default": 0, "minimum": 0, "maximum": 1, "description": "Filter removal efficiency applied to recirculated supply air." },
+              "generation_per_met_watt": { "type": "number", "description": "Occupant-linked generation [kg/s per W metabolic heat]; CO2 ~6.9e-8. Follows occupancy schedules." }
+            }
+          }
+        }
       }
+    },
+
+    "LeakageClass": {
+      "type": "string",
+      "enum": ["a", "b", "c", "d", "tight", "average", "leaky", "very_leaky"],
+      "description": "ASHRAE construction leakage class (ASHRAE Fundamentals Ch. 16 Table 1): a=tight, b=average, c=leaky, d=very leaky."
     },
 
     "SurfaceAirflowOverride": {
@@ -207,6 +278,7 @@
         "large_opening": { "type": "boolean", "description": "Treat surface as a large opening (door, operable window)." },
         "discharge_coefficient": { "type": "number", "description": "Override discharge coefficient Cd for large opening." },
         "opening_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Opening area as fraction of surface area." },
+        "opening_schedule": { "type": "string", "description": "Schedule name modulating the opening fraction each timestep [0-1]. 0 closes the opening." },
         "cp": { "type": "number", "description": "Override wind pressure coefficient Cp." },
         "opening_height": { "type": "number", "description": "Override opening midpoint height [m]." }
       }
@@ -856,7 +928,20 @@
         "visible_transmittance": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1 },
         "solar_absorptance": { "type": "number", "minimum": 0, "maximum": 1, "description": "Glass solar absorptance [0-1]. Estimated from SHGC if omitted." },
         "inside_absorbed_fraction": { "type": "number", "default": 0.5, "minimum": 0, "maximum": 1 },
-        "glass_emissivity": { "type": "number", "default": 0.84, "minimum": 0, "maximum": 1, "description": "Glass hemispherical emissivity for interior and exterior longwave radiation exchange. Defaults to 0.84 (uncoated soda-lime glass). Use lower values for low-e coatings." }
+        "glass_emissivity": { "type": "number", "default": 0.84, "minimum": 0, "maximum": 1, "description": "Glass hemispherical emissivity for interior and exterior longwave radiation exchange. Defaults to 0.84 (uncoated soda-lime glass). Use lower values for low-e coatings." },
+        "shading_control": {
+          "type": "object",
+          "description": "Dynamic interior blind/shade control (#104). Triggers on solar irradiance or zone temperature; scales solar gains by blind_shgc/base_shgc when deployed.",
+          "required": ["type", "blind_shgc"],
+          "properties": {
+            "type": { "type": "string", "enum": ["solar_threshold", "temperature"], "description": "Trigger type: `solar_threshold` deploys when incident beam on the glazing [W/m²] exceeds the threshold; `temperature` deploys when zone air temperature exceeds the setpoint [°C]." },
+            "threshold": { "type": "number", "description": "For solar_threshold: beam irradiance on glazing [W/m²] to deploy blind." },
+            "setpoint": { "type": "number", "description": "For temperature: zone air temperature [°C] to deploy blind." },
+            "hysteresis": { "type": "number", "default": 0.0, "description": "Dead-band below threshold/setpoint before blind retracts [same units as trigger]." },
+            "blind_shgc": { "type": "number", "minimum": 0, "maximum": 1, "description": "SHGC of window+blind assembly when deployed. Solar gains are multiplied by blind_shgc/base_shgc." },
+            "blind_u_factor": { "type": "number", "description": "U-factor [W/(m²·K)] of window+blind assembly when deployed. Omit to keep the base window U-factor." }
+          }
+        }
       }
     },
 
@@ -933,7 +1018,58 @@
         "floor_area": { "type": "number", "default": 0.0, "description": "Zone floor area [m2]. Auto-calculated from floor surfaces if 0." },
         "conditioned": { "type": "boolean", "default": true, "description": "Whether the zone is conditioned by HVAC." },
         "max_relative_humidity": { "type": "number", "description": "Maximum relative humidity setpoint [%] (e.g. 60). HVAC switches to dehumidification cooling when zone RH exceeds this." },
-        "min_relative_humidity": { "type": "number", "description": "Minimum relative humidity setpoint [%] (e.g. 30). Humidifier activates when zone RH falls below this." }
+        "min_relative_humidity": { "type": "number", "description": "Minimum relative humidity setpoint [%] (e.g. 30). Humidifier activates when zone RH falls below this." },
+        "duct_leakage": {
+          "type": "object",
+          "required": ["ambient_zone"],
+          "description": "Duct leakage to an unconditioned space. With the airflow network enabled, adds a pressure-driving flow path carrying leaked duct air from this zone to the zone containing the ducts.",
+          "properties": {
+            "ambient_zone": { "type": "string", "description": "Zone containing the ducts (typically unconditioned: attic, crawlspace)." },
+            "supply_leakage_fraction": { "type": "number", "default": 0, "minimum": 0, "maximum": 1, "description": "Supply duct leakage as a fraction of supply flow." },
+            "return_leakage_fraction": { "type": "number", "default": 0, "minimum": 0, "maximum": 1, "description": "Return duct leakage as a fraction of supply flow." },
+            "supply_static": { "type": "number", "description": "Supply duct static pressure at design flow [Pa]. With design_flow, leakage becomes pressure-dependent." },
+            "return_static": { "type": "number", "description": "Return duct static pressure magnitude at design flow [Pa]." },
+            "design_flow": { "type": "number", "description": "Design supply mass flow [kg/s]; required for the pressure-dependent model." },
+            "leak_exponent": { "type": "number", "default": 0.6, "description": "Duct leak flow exponent (ASHRAE 152 ~0.6)." }
+          }
+        },
+        "room_air": {
+          "type": "object",
+          "required": ["gradient"],
+          "description": "In-zone vertical temperature stratification (constant-gradient room air model). Interior surfaces couple to local air at their height; return air leaves at the return-height temperature; occupied-height temperature is reported via zone:occupied_temperature.",
+          "properties": {
+            "gradient": { "type": "number", "description": "Vertical temperature gradient [K/m], positive = warmer near ceiling." },
+            "schedule": { "type": "string", "description": "Optional schedule scaling the gradient (e.g. 0 when fans force mixing)." },
+            "return_height": { "type": "number", "description": "Return/exhaust air height above floor [m] (default: ceiling)." },
+            "thermostat_height": { "type": "number", "default": 1.1, "description": "Occupied/thermostat sensing height above floor [m]." },
+            "ceiling_height": { "type": "number", "description": "Zone floor-to-ceiling height [m] (default: volume / floor_area)." },
+            "mundt": { "type": "boolean", "default": false, "description": "Derive the gradient each timestep from loads and flow: Q_conv/(m_supply*cp*H), clamped to [0, gradient]; zero when the system is off." },
+            "control_at_thermostat_height": { "type": "boolean", "default": false, "description": "HVAC control senses the occupied/thermostat-height temperature instead of the zone mean." }
+          }
+        },
+        "comfort": {
+          "type": "object",
+          "description": "Occupant thermal comfort parameters for PMV/PPD calculation (#102, #103). Omit to use defaults (1.2 met, 0.5 clo, 0.1 m/s).",
+          "properties": {
+            "metabolic_rate": { "type": "number", "default": 1.2, "description": "Metabolic rate [met]. 1.0=seated quiet, 1.2=office work, 2.0=walking." },
+            "clothing": { "type": "number", "default": 0.5, "description": "Clothing insulation [clo]. 0.5=summer light, 1.0=winter typical." },
+            "air_velocity": { "type": "number", "default": 0.1, "description": "Relative air velocity [m/s] at the occupant location." },
+            "solar_absorptivity": { "type": "number", "default": 0.57, "description": "Short-wave absorptivity of the body/clothing for solar MRT correction (ASHRAE 55 Annex C)." }
+          }
+        },
+        "species_generation": {
+          "type": "array",
+          "description": "Passive species sources in this zone (requires species on the airflow network).",
+          "items": {
+            "type": "object",
+            "required": ["species", "rate"],
+            "properties": {
+              "species": { "type": "string", "description": "Configured species name." },
+              "rate": { "type": "number", "description": "Generation rate [kg/s]." },
+              "schedule": { "type": "string", "description": "Optional schedule modulating the rate [0-1]." }
+            }
+          }
+        }
       }
     },
 
@@ -1104,7 +1240,7 @@
         "variables": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Variable specs to include in output. Format: `category:variable` (all entities) or `category:variable:name_filter` (specific entity or glob with `*`).\n\nExamples: `zone:temperature`, `zone:temperature:living_unit1`, `surface:transmitted_solar:Window*`, `building:fan_electric`, `component:outlet_temperature`.\n\n**Site variables:** site:outdoor_temperature [°C], site:wind_speed [m/s], site:direct_normal_radiation [W/m²], site:diffuse_horizontal_radiation [W/m²], site:relative_humidity [%]\n\n**Zone state variables:** zone:temperature [°C], zone:humidity_ratio [kg/kg], zone:heating_rate [W], zone:cooling_rate [W], zone:heating_energy [J], zone:cooling_energy [J], zone:infiltration_mass_flow [kg/s], zone:nat_vent_flow [m³/s], zone:nat_vent_mass_flow [kg/s], zone:nat_vent_active [-], zone:internal_gains_convective [W], zone:internal_gains_radiative [W], zone:supply_air_temperature [°C], zone:supply_air_mass_flow [kg/s]\n\n**Zone gain breakdown (all W, positive = heat into zone):** zone:gain_people_sensible, zone:gain_people_latent, zone:gain_lighting, zone:gain_equipment_sensible, zone:gain_equipment_latent, zone:gain_infiltration_sensible, zone:gain_infiltration_latent, zone:gain_ventilation_sensible, zone:gain_ventilation_latent, zone:gain_natural_ventilation_sensible, zone:gain_natural_ventilation_latent, zone:gain_solar, zone:gain_hvac_sensible, zone:gain_hvac_latent\n\n**Zone comfort variables:** zone:mean_radiant_temperature [°C], zone:operative_temperature [°C]\n\n**Zone unmet variables:** zone:unmet_heating [-] (0 or 1), zone:unmet_cooling [-] (0 or 1)\n\n**Surface variables:** surface:inside_temperature [°C], surface:outside_temperature [°C], surface:inside_convection_coefficient [W/(m²·K)], surface:incident_solar [W/m²], surface:transmitted_solar [W], surface:cond_inside [W], surface:convection_inside [W], surface:radiation_inside [W], surface:inside_radiation_coefficient [W/(m²·K)]\n\n**Component variables:** component:outlet_temperature [°C], component:inlet_temperature [°C], component:mass_flow [kg/s], component:outlet_humidity_ratio [kg/kg], component:electric_power [W], component:fuel_power [W], component:thermal_output [W], component:cop_operating [-], component:plr [-], component:rtf [-], component:sensible_load [W], component:latent_load [W], component:total_load [W], component:conduction_loss [W], component:leakage_loss [W], component:pressure_rise [Pa], component:total_efficiency [-], component:effectiveness [-]. Use name_filter to select a specific component: `component:outlet_temperature:MyAHU`.\n\n**Building energy totals:** building:fan_electric [W], building:cooling_electric [W], building:heating_electric [W], building:heating_gas [W], building:pump_electric [W], building:heat_rejection [W], building:humidification [W], building:heat_recovery [W], building:dhw_electric [W], building:dhw_gas [W], building:lighting [W], building:ext_lighting [W], building:equipment [W], building:ext_equipment [W], building:total_electric [W], building:total_gas [W]\n\n**Submeter variables:** submeter:total_electric [W], submeter:total_gas [W], submeter:total [W], submeter:lighting [W], submeter:equipment [W], submeter:heating_gas [W], submeter:cooling_electric [W], submeter:fan_electric [W], submeter:dhw_gas [W]. Use name_filter to select a specific submeter: `submeter:lighting:Decorative`."
+          "description": "Variable specs to include in output. Format: `category:variable` (all entities) or `category:variable:name_filter` (specific entity or glob with `*`).\n\nExamples: `zone:temperature`, `zone:temperature:living_unit1`, `surface:transmitted_solar:Window*`, `building:fan_electric`, `component:outlet_temperature`.\n\n**Site variables:** site:outdoor_temperature [°C], site:wind_speed [m/s], site:direct_normal_radiation [W/m²], site:diffuse_horizontal_radiation [W/m²], site:relative_humidity [%]\n\n**Zone state variables:** zone:temperature [°C], zone:humidity_ratio [kg/kg], zone:heating_rate [W], zone:cooling_rate [W], zone:heating_energy [J], zone:cooling_energy [J], zone:infiltration_mass_flow [kg/s], zone:nat_vent_flow [m³/s], zone:nat_vent_mass_flow [kg/s], zone:nat_vent_active [-], zone:internal_gains_convective [W], zone:internal_gains_radiative [W], zone:supply_air_temperature [°C], zone:supply_air_mass_flow [kg/s]\n\n**Zone gain breakdown (all W, positive = heat into zone):** zone:gain_people_sensible, zone:gain_people_latent, zone:gain_lighting, zone:gain_equipment_sensible, zone:gain_equipment_latent, zone:gain_infiltration_sensible, zone:gain_infiltration_latent, zone:gain_ventilation_sensible, zone:gain_ventilation_latent, zone:gain_natural_ventilation_sensible, zone:gain_natural_ventilation_latent, zone:gain_solar, zone:gain_hvac_sensible, zone:gain_hvac_latent\n\n**Zone comfort variables:** zone:mean_radiant_temperature [°C] (long-wave, area-weighted surface MRT), zone:effective_mrt [°C] (long-wave MRT + solar correction; the MRT that drives PMV and operative temperature), zone:operative_temperature [°C], zone:pmv [-] (Predicted Mean Vote, −3 cold … 0 neutral … +3 hot), zone:ppd [%] (Predicted Percentage Dissatisfied), zone:solar_mrt_correction [K] (ASHRAE 55 Annex C direct-beam solar MRT increment)\n\n**Zone unmet variables:** zone:unmet_heating [-] (0 or 1), zone:unmet_cooling [-] (0 or 1)\n\n**Surface variables:** surface:inside_temperature [°C], surface:outside_temperature [°C], surface:inside_convection_coefficient [W/(m²·K)], surface:incident_solar [W/m²], surface:transmitted_solar [W], surface:cond_inside [W], surface:convection_inside [W], surface:radiation_inside [W], surface:inside_radiation_coefficient [W/(m²·K)], surface:blind_deployed [-] (1=deployed, 0=retracted; only emitted for windows with shading_control)\n\n**Component variables:** component:outlet_temperature [°C], component:inlet_temperature [°C], component:mass_flow [kg/s], component:outlet_humidity_ratio [kg/kg], component:electric_power [W], component:fuel_power [W], component:thermal_output [W], component:cop_operating [-], component:plr [-], component:rtf [-], component:sensible_load [W], component:latent_load [W], component:total_load [W], component:conduction_loss [W], component:leakage_loss [W], component:pressure_rise [Pa], component:total_efficiency [-], component:effectiveness [-]. Use name_filter to select a specific component: `component:outlet_temperature:MyAHU`.\n\n**Building energy totals:** building:fan_electric [W], building:cooling_electric [W], building:heating_electric [W], building:heating_gas [W], building:pump_electric [W], building:heat_rejection [W], building:humidification [W], building:heat_recovery [W], building:dhw_electric [W], building:dhw_gas [W], building:lighting [W], building:ext_lighting [W], building:equipment [W], building:ext_equipment [W], building:total_electric [W], building:total_gas [W]\n\n**Submeter variables:** submeter:total_electric [W], submeter:total_gas [W], submeter:total [W], submeter:lighting [W], submeter:equipment [W], submeter:heating_gas [W], submeter:cooling_electric [W], submeter:fan_electric [W], submeter:dhw_gas [W]. Use name_filter to select a specific submeter: `submeter:lighting:Decorative`."
         }
       }
     }

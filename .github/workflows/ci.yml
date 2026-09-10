@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "physics-review-*"]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -46,16 +47,41 @@ jobs:
         with:
           python-version: '3.12'
 
+      # Tamper evidence: the acceptance ranges are the pass/fail law for this
+      # suite. Changing them requires updating this pinned hash in the same
+      # commit, so any change to the criteria is always an explicit,
+      # reviewable diff — the ranges can never drift silently to make a
+      # failing engine "pass".
+      - name: Verify acceptance ranges are untampered
+        run: |
+          echo "217eefe83887198c927473f1efa4172d385c68a0032a2fb772304ce8e077383c  140_tests/acceptance_ranges_140_2023.json" | sha256sum -c -
+
       - name: Build release
         run: cargo build --release
 
+      # The normative weather CSV is licensed (gitignored); reconstruct it
+      # from the in-repo EPW. This exercises the SAME TMY3 input path as
+      # local validation (verified identical to 0.1 kWh on all cases).
+      - name: Reconstruct normative weather
+        run: python3 140_tests/scripts/reconstruct_140_weather.py
+
+      # Fail hard on any case that crashes — a missing summary must never
+      # silently read as a pass.
       - name: Run all 140 cases
+        working-directory: 140_tests/cases
         run: |
-          for yaml in 140_tests/cases/ashrae140_case[0-9]*.yaml; do
+          for yaml in ashrae140_case[0-9]*.yaml; do
             echo "::group::$(basename "$yaml")"
-            ./target/release/openbse "$yaml" -w 140_tests/weather/725650TYCST.epw || echo "WARN: $yaml exited non-zero"
+            ../../target/release/openbse "$yaml" || { echo "CASE FAILED TO RUN: $yaml"; exit 1; }
             echo "::endgroup::"
           done
 
-      - name: Check for regressions
+      - name: Check acceptance ranges
         run: python3 140_tests/scripts/build_140_csv.py --ci
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ashrae140-results
+          path: 140_tests/scripts/FULL_140_RESULTS.csv

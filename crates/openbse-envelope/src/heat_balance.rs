@@ -90,6 +90,11 @@ pub struct BuildingEnvelope {
     pub infiltration_interaction: crate::zone_loads::InfiltrationInteraction,
     /// Multizone airflow network (None when AFN is disabled).
     pub airflow_network: Option<crate::airflow_network::AirflowNetwork>,
+    /// Passive species transport on the AFN flows (#84); None unless species
+    /// are configured on the airflow network.
+    pub species_transport: Option<crate::species::SpeciesTransport>,
+    /// Count of AFN pressure solves that failed to converge (#89).
+    pub afn_nonconverged_count: u64,
     /// Solar distribution method for interior beam solar radiation.
     /// FullExterior: all beam to floor.  FullInteriorAndExterior: geometric projection.
     pub solar_distribution_method: SolarDistributionMethod,
@@ -348,6 +353,38 @@ pub enum SolarDistributionMethod {
     /// Beam solar is geometrically projected onto interior surfaces
     /// (E+ "FullInteriorAndExterior").
     FullInteriorAndExterior,
+}
+
+/// Glass-node conductance to use this timestep, honoring a deployed interior
+/// blind (#105).
+///
+/// `blind_u_factor` is specified film-to-film (like the base window U-factor), so
+/// the NFRC standard films are stripped to yield a conductance consistent with the
+/// bare-glass `u_glass` used in the window heat balance. Returns the base
+/// `u_glass` when no blind is deployed (or none is configured).
+fn effective_window_u_glass(surface: &SurfaceState) -> f64 {
+    if surface.blind_deployed && surface.blind_u_factor > 0.0 {
+        blind_glass_conductance(surface.blind_u_factor)
+    } else {
+        surface.u_glass
+    }
+}
+
+/// Film-stripped glass-node conductance for a film-to-film blind+window U-factor.
+///
+/// Strips the NFRC standard interior/exterior films (matching `u_glass_rated`) so
+/// the result is comparable to the bare-glass `u_glass` used in the heat balance.
+fn blind_glass_conductance(blind_u_factor: f64) -> f64 {
+    let r_films = 1.0 / 26.0 + 1.0 / 8.29;
+    let r_glass = (1.0 / blind_u_factor - r_films).max(0.01);
+    1.0 / r_glass
+}
+
+/// Solar-gain multiplier for a deployed interior blind: the ratio of blind SHGC to
+/// base window SHGC, clamped to [0, 1]. A blind can only reduce gains, and a stray
+/// negative `blind_shgc` must never invert the sign (#106).
+fn blind_solar_scale(blind_shgc: f64, base_shgc: f64) -> f64 {
+    (blind_shgc / base_shgc.max(1e-6)).clamp(0.0, 1.0)
 }
 
 /// Sealed air gap conductance using ISO 15099 model.
@@ -983,7 +1020,28 @@ impl BuildingEnvelope {
                 u_factor
             };
 
-            let u_glass = if is_window && win_gap_width > 0.0 {
+            // Single-pane first-principles (#101): with num_panes = 1 and pane
+            // thickness + conductivity, the glass conductance is physically
+            // fixed (no gap): u_glass = k/t (~330 W/m²K for 3 mm glass). The
+            // NFRC film-stripping fallback is wrong here whenever the rating
+            // was produced at non-NFRC film coefficients (e.g. ASHRAE 140's
+            // BESTEST windows are rated at hi = 7.8, he = 16.0), which leaves
+            // phantom resistance in the glass and under-predicts winter loss.
+            // No rated cap — bare glass conductance doesn't drift.
+            let single_pane_r = if is_window {
+                window_map.get(&surf_input.construction).and_then(|w| {
+                    match (w.num_panes, w.pane_conductivity, w.pane_thickness) {
+                        (Some(1), Some(pk), Some(pt)) if pt > 0.0 && pk > 0.0 => Some(pt / pk),
+                        _ => None,
+                    }
+                })
+            } else {
+                None
+            };
+
+            let u_glass = if let Some(r_pane) = single_pane_r {
+                1.0 / r_pane.max(1e-6)
+            } else if is_window && win_gap_width > 0.0 {
                 // First-principles: compute u_glass from pane + gap properties.
                 // Initial estimate at ~0°C mean gap temperature, ~15°C ΔT across gap.
                 let h_gap_init = sealed_air_gap_conductance(
@@ -1075,6 +1133,10 @@ impl BuildingEnvelope {
                 q_cond_outside: 0.0,
                 q_rad_inside: 0.0,
                 h_rad_inside: 5.0,
+                blind_configured: false,
+                blind_deployed: false,
+                blind_shgc: 0.0,
+                blind_u_factor: 0.0,
             };
             surface_states.push(state);
         }
@@ -1301,6 +1363,8 @@ impl BuildingEnvelope {
             envelope_areas,
             infiltration_interaction: crate::zone_loads::InfiltrationInteraction::Basic,
             airflow_network: None, // built later via build_airflow_network()
+            species_transport: None,
+            afn_nonconverged_count: 0,
             solar_distribution_method,
             ctf_q_last_inside: vec![0.0; n_surfaces],
             ctf_q_last_outside: vec![0.0; n_surfaces],
@@ -1445,6 +1509,20 @@ impl BuildingEnvelope {
             network.side_ratio,
         );
         self.airflow_network = Some(network);
+
+        // Passive species transport (#84): initialized when species are
+        // configured on the airflow network.
+        if !config.species.is_empty() {
+            self.species_transport = Some(crate::species::SpeciesTransport::new(
+                &config.species,
+                self.zones.len(),
+            ));
+            log::info!(
+                "Species transport: {} species on {} zones",
+                config.species.len(),
+                self.zones.len(),
+            );
+        }
     }
 
     /// Precompute sunlit fractions for every annual timestep (Suncast-style).
@@ -1950,6 +2028,45 @@ impl EnvelopeSolver for BuildingEnvelope {
             if let Some(&panel_rad) = hvac.radiant_gains.get(&zone.input.name) {
                 zone.q_internal_rad += panel_rad;
             }
+
+            // Add convective sensible gains from HVAC distribution losses — e.g.
+            // supply-duct conduction and supply-air leakage when a duct passes
+            // through this (typically unconditioned) zone (#70). Treated as a
+            // convective gain to the zone air.
+            if let Some(&other_sens) = hvac.other_sensible_gains.get(&zone.input.name) {
+                zone.q_internal_conv += other_sens;
+            }
+        }
+
+        // Room-air stratification (#91, #98): effective vertical gradient
+        // this timestep. Constant mode: input gradient × schedule fraction.
+        // Mundt mode (#98): load-derived g = Q_conv/(ṁ_supply·cp·H) using
+        // the previous timestep's supply flow, clamped to [0, gradient]
+        // (the input gradient acts as the cap); zero when the system is
+        // off — the space is treated as well mixed without forced supply.
+        for zone in &mut self.zones {
+            zone.current_gradient = match &zone.input.room_air {
+                Some(ra) => {
+                    let sched = match &ra.schedule {
+                        Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                        None => 1.0,
+                    };
+                    if ra.mundt {
+                        let m_sup = zone.supply_air_mass_flow;
+                        if m_sup > 1e-6 {
+                            let cp = psych::cp_air_fn_w(zone.humidity_ratio);
+                            let h = zone.room_air_height();
+                            let g = zone.q_internal_conv / (m_sup * cp * h);
+                            g.clamp(0.0, ra.gradient.max(0.0)) * sched
+                        } else {
+                            0.0
+                        }
+                    } else {
+                        ra.gradient * sched
+                    }
+                }
+                None => 0.0,
+            };
         }
 
         // 4. Infiltration + scheduled ventilation + exhaust + outdoor air
@@ -1966,9 +2083,70 @@ impl EnvelopeSolver for BuildingEnvelope {
                 node.temperature = zone.temp + 273.15;
                 node.density = psych::rho_air_fn_pb_tdb_w(p_b, zone.temp, 0.008);
             }
-            // Update exhaust fan fixed-flow paths from current scheduled rates
-            // (exhaust will be computed below, so we use previous timestep value for now)
-            crate::airflow_network::solve_pressures(
+            // Inject HVAC net outdoor exchange using PREVIOUS timestep values.
+            // net = OA_supply − exhaust: positive → pressurisation, negative → depressurisation.
+            // These paths drive zone pressure so that the crack-flow solver returns
+            // the correct infiltration (or zero when the building is pressurised).
+            for (zi, zone) in self.zones.iter().enumerate() {
+                let net = zone.outdoor_air_mass_flow - zone.exhaust_mass_flow;
+                afn.update_hvac_net_flow(zi, net);
+            }
+            // Duct leakage to unconditioned spaces (#82, #85): directional
+            // paths, fractions of the supply flow from the previous timestep.
+            // Supply leak spills supply air into the ambient zone; return
+            // leak delivers ambient-zone air to the conditioned zone.
+            for (zi, zone) in self.zones.iter().enumerate() {
+                if let Some(ref dl) = zone.input.duct_leakage {
+                    let m_sup = zone.supply_air_mass_flow;
+                    let supply = dl.supply_leakage_fraction * m_sup;
+                    let ret = dl.return_leakage_fraction * m_sup;
+                    // Pressure-dependent model (#99): statics scale with the
+                    // square of the flow ratio (fan laws); zero when off.
+                    let ratio_sq = match dl.design_flow {
+                        Some(d) if d > 0.0 => (m_sup / d).powi(2),
+                        _ => 0.0,
+                    };
+                    afn.update_duct_leakage(
+                        zi,
+                        supply.max(0.0),
+                        ret.max(0.0),
+                        dl.supply_static.map(|st| st * ratio_sq),
+                        dl.return_static.map(|st| st * ratio_sq),
+                    );
+                }
+            }
+            // Schedule-driven operable openings (#79): modulate opening areas
+            // by the current schedule fraction (0 = closed).
+            let schedule_manager = &self.schedule_manager;
+            afn.update_scheduled_openings(|name| schedule_manager.fraction(name, hour, dow));
+            // Natural-ventilation openings (#88, #95): drive the AFN opening
+            // area from the availability logic (schedule, temperature
+            // windows, ΔT gate, wind limit) with anti-cycling hysteresis.
+            // The zone-level wind-&-stack model is disabled while the AFN is
+            // active so the flow is not double-counted; the hysteresis state
+            // is updated HERE (once per timestep) in AFN mode.
+            for zi in 0..self.zones.len() {
+                let Some(nv) = self.zones[zi].input.natural_ventilation.clone() else {
+                    continue;
+                };
+                let sched_frac = if ctx.is_sizing {
+                    0.0
+                } else {
+                    match &nv.schedule {
+                        Some(name) => schedule_manager.fraction(name, hour, dow),
+                        None => 1.0,
+                    }
+                };
+                let cond = nv.conditions_ok(self.zones[zi].temp, t_outdoor, wind_speed_met);
+                let frac = self.zones[zi].apply_nat_vent_hysteresis(
+                    sched_frac,
+                    cond,
+                    nv.min_on_timesteps,
+                    nv.min_off_timesteps,
+                );
+                afn.update_nat_vent_opening(zi, nv.opening_area * frac);
+            }
+            let (afn_converged, afn_iters) = crate::airflow_network::solve_pressures(
                 afn,
                 wind_speed_met,
                 wind_direction,
@@ -1976,9 +2154,116 @@ impl EnvelopeSolver for BuildingEnvelope {
                 rho_outdoor,
                 self.terrain,
             );
-            // Write AFN outdoor mass flow results to zone state
+            // Surface non-convergence instead of failing silently (#89):
+            // warn on the first occurrence and every 1000th thereafter.
+            if !afn_converged {
+                self.afn_nonconverged_count += 1;
+                if self.afn_nonconverged_count == 1 || self.afn_nonconverged_count % 1000 == 0 {
+                    log::warn!(
+                        "AFN pressure solver did not converge in {afn_iters} iterations \
+                         ({} occurrences so far); results use the last iterate",
+                        self.afn_nonconverged_count,
+                    );
+                }
+            }
+            // Write AFN outdoor mass flow and zone pressure results to zone state
             for (zi, zone) in self.zones.iter_mut().enumerate() {
                 zone.infiltration_mass_flow = afn.zone_outdoor_mass_flow[zi];
+                zone.afn_pressure = afn.nodes[afn.zone_to_node[zi]].pressure;
+            }
+
+            // Interzone advection aggregates (#87): mass-weighted source
+            // temperature and humidity of the AFN interzone inflows, using
+            // previous-timestep zone states (lagged coupling, consistent
+            // with the HVAC net injection). These feed the zone thermal and
+            // moisture balances as an effective mixed advective stream.
+            let interzone_aggregates: Vec<(f64, f64, f64)> = afn
+                .zone_interzone_flows
+                .iter()
+                .map(|flows| {
+                    let m: f64 = flows.iter().map(|&(_, f)| f).sum();
+                    if m > 1e-12 {
+                        let t = flows
+                            .iter()
+                            .map(|&(src, f)| f * self.zones[src].temp)
+                            .sum::<f64>()
+                            / m;
+                        let w = flows
+                            .iter()
+                            .map(|&(src, f)| f * self.zones[src].humidity_ratio)
+                            .sum::<f64>()
+                            / m;
+                        (m, t, w)
+                    } else {
+                        (0.0, 20.0, 0.008)
+                    }
+                })
+                .collect();
+            for (zi, zone) in self.zones.iter_mut().enumerate() {
+                let (m, t, w) = interzone_aggregates[zi];
+                zone.afn_interzone_mass_flow = m;
+                zone.afn_interzone_temp = t;
+                zone.afn_interzone_w = w;
+            }
+
+            // Passive species transport (#84): advance concentrations on the
+            // solved flow field. OA/ventilation flows are the previous
+            // timestep's values, consistent with the HVAC net injection.
+            if let Some(ref mut transport) = self.species_transport {
+                let n = self.zones.len();
+                let mut masses = vec![0.0; n];
+                let mut densities = vec![0.0; n];
+                let mut surface_areas = vec![0.0; n];
+                let mut oa = vec![0.0; n];
+                let mut vent = vec![0.0; n];
+                let mut recirc = vec![0.0; n];
+                let mut sources = vec![vec![0.0; n]; transport.names.len()];
+                for (zi, zone) in self.zones.iter().enumerate() {
+                    let rho = afn.nodes[afn.zone_to_node[zi]].density;
+                    masses[zi] = zone.input.volume.max(1.0) * rho;
+                    densities[zi] = rho;
+                    surface_areas[zi] = zone
+                        .surface_indices
+                        .iter()
+                        .map(|&si| self.surfaces[si].net_area)
+                        .sum();
+                    oa[zi] = zone.outdoor_air_mass_flow;
+                    vent[zi] = zone.ventilation_mass_flow;
+                    // Recirculated supply (for HVAC filtration, #94)
+                    recirc[zi] = (zone.supply_air_mass_flow - zone.outdoor_air_mass_flow).max(0.0);
+                    for gen in &zone.input.species_generation {
+                        if let Some(si) = transport.species_index(&gen.species) {
+                            let frac = match &gen.schedule {
+                                Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                                None => 1.0,
+                            };
+                            sources[si][zi] += gen.rate * frac;
+                        }
+                    }
+                    // Occupant-linked generation (#94): follows the resolved
+                    // occupancy (sensible + latent metabolic heat).
+                    let met_w = zone.people_heat + zone.people_latent;
+                    if met_w > 0.0 {
+                        for (si, &coeff) in transport.generation_per_met_watt.iter().enumerate() {
+                            if coeff > 0.0 {
+                                sources[si][zi] += coeff * met_w;
+                            }
+                        }
+                    }
+                }
+                transport.step(
+                    afn,
+                    &crate::species::SpeciesZoneInputs {
+                        air_mass: &masses,
+                        air_density: &densities,
+                        surface_area: &surface_areas,
+                        oa_flow: &oa,
+                        vent_flow: &vent,
+                        recirc_flow: &recirc,
+                    },
+                    &sources,
+                    dt,
+                );
             }
         }
 
@@ -2080,15 +2365,27 @@ impl EnvelopeSolver for BuildingEnvelope {
                     }
                 };
 
-                // Temperature and wind speed conditions
                 let t_zone = zone.temp;
-                let temp_ok = t_zone >= nv.min_indoor_temp
-                    && t_zone <= nv.max_indoor_temp
-                    && t_outdoor >= nv.min_outdoor_temp
-                    && t_outdoor <= nv.max_outdoor_temp
-                    && wind_speed_met <= nv.max_wind_speed;
 
-                if sched_frac > 0.0 && temp_ok {
+                // #88: with the AFN active, the network opening carries the
+                // flow (it arrives via infiltration_mass_flow) and the
+                // hysteresis state (#95) was already updated in the AFN
+                // block — zero the wind-&-stack flows to avoid double
+                // counting. Otherwise the hysteresis decides the effective
+                // fraction here (#95).
+                let avail = if afn_active {
+                    0.0
+                } else {
+                    let cond = nv.conditions_ok(t_zone, t_outdoor, wind_speed_met);
+                    zone.apply_nat_vent_hysteresis(
+                        sched_frac,
+                        cond,
+                        nv.min_on_timesteps,
+                        nv.min_off_timesteps,
+                    )
+                };
+
+                if avail > 0.0 {
                     // Wind-driven component
                     // Determine windward/leeward: the opening is windward if the
                     // angle between wind direction and the outward normal of the
@@ -2101,7 +2398,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         d
                     };
                     let cw = if angle_diff <= 90.0 { 0.55 } else { 0.30 };
-                    let v_wind = cw * nv.opening_area * sched_frac * wind_speed_met;
+                    let v_wind = cw * nv.opening_area * avail * wind_speed_met;
 
                     // Stack-driven component
                     let dt_abs = (t_zone - t_outdoor).abs();
@@ -2109,7 +2406,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     let v_stack = if nv.height_difference > 0.0 && dt_abs > 0.01 {
                         let cd = nv.discharge_coefficient;
                         cd * nv.opening_area
-                            * sched_frac
+                            * avail
                             * (2.0 * 9.81 * nv.height_difference * dt_abs / t_zone_k).sqrt()
                     } else {
                         0.0
@@ -2120,16 +2417,11 @@ impl EnvelopeSolver for BuildingEnvelope {
 
                     zone.nat_vent_flow = v_total;
                     zone.nat_vent_mass_flow = v_total * rho_outdoor;
-                    zone.nat_vent_active = true;
-                    zone.nat_vent_off_timesteps = 0;
                 } else {
+                    // nat_vent_active and the on/off counters are owned by
+                    // apply_nat_vent_hysteresis (#95); only the flows here.
                     zone.nat_vent_flow = 0.0;
                     zone.nat_vent_mass_flow = 0.0;
-                    zone.nat_vent_active = false;
-                    // Increment off-timestep counter (saturate to avoid overflow)
-                    if zone.nat_vent_off_timesteps < u32::MAX {
-                        zone.nat_vent_off_timesteps = zone.nat_vent_off_timesteps.saturating_add(1);
-                    }
                 }
             } else {
                 zone.nat_vent_flow = 0.0;
@@ -2315,6 +2607,16 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // units for the summary report diagnostic ratio.
                     surface.incident_solar = effective_incident * surface.net_area;
 
+                    // When a blind is deployed (#104), scale all solar gains by the ratio
+                    // of blind SHGC to base SHGC.  Both SGS and Fresnel paths use the base
+                    // SHGC internally, so a post-multiplier is simpler than reparametrising
+                    // each angular model.
+                    let blind_scale = if surface.blind_deployed && surface.blind_configured {
+                        blind_solar_scale(surface.blind_shgc, surface.shgc)
+                    } else {
+                        1.0
+                    };
+
                     if let Some(ref sgs) = surface.sgs_model {
                         // E+ SimpleGlazingSystem angular model (LBNL-2804E curves).
                         //
@@ -2332,16 +2634,23 @@ impl EnvelopeSolver for BuildingEnvelope {
 
                         // Beam: angle-dependent Tsol and SHGC
                         let beam_transmitted =
-                            (tsol_beam * surface.net_area * shaded_beam).max(0.0);
-                        let beam_total_shgc = (shgc_beam * surface.net_area * shaded_beam).max(0.0);
+                            (tsol_beam * blind_scale * surface.net_area * shaded_beam).max(0.0);
+                        let beam_total_shgc =
+                            (shgc_beam * blind_scale * surface.net_area * shaded_beam).max(0.0);
 
                         // Diffuse: precomputed hemispherical Tsol and SHGC fractions
-                        let diff_transmitted =
-                            (sgs.tsol * sgs.diff_tsol_frac * surface.net_area * diffuse_total)
-                                .max(0.0);
-                        let diff_total_shgc =
-                            (surface.shgc * sgs.diff_shgc_frac * surface.net_area * diffuse_total)
-                                .max(0.0);
+                        let diff_transmitted = (sgs.tsol
+                            * sgs.diff_tsol_frac
+                            * blind_scale
+                            * surface.net_area
+                            * diffuse_total)
+                            .max(0.0);
+                        let diff_total_shgc = (surface.shgc
+                            * sgs.diff_shgc_frac
+                            * blind_scale
+                            * surface.net_area
+                            * diffuse_total)
+                            .max(0.0);
 
                         surface.transmitted_solar = beam_transmitted + diff_transmitted;
                         surface.transmitted_solar_beam = beam_transmitted;
@@ -2367,12 +2676,12 @@ impl EnvelopeSolver for BuildingEnvelope {
                             surface.glass_n,
                             surface.u_factor,
                         );
-                        let total_shgc_gain = beam_shgc + diff_shgc;
+                        let total_shgc_gain = (beam_shgc + diff_shgc) * blind_scale;
 
                         let ratio = surface.solar_transmittance_ratio;
                         surface.transmitted_solar = total_shgc_gain * ratio;
-                        surface.transmitted_solar_beam = beam_shgc * ratio;
-                        surface.transmitted_solar_diffuse = diff_shgc * ratio;
+                        surface.transmitted_solar_beam = beam_shgc * blind_scale * ratio;
+                        surface.transmitted_solar_diffuse = diff_shgc * blind_scale * ratio;
                     }
 
                     // Total SHGC gain (transmitted + absorbed-inward combined).
@@ -2940,6 +3249,24 @@ impl EnvelopeSolver for BuildingEnvelope {
             // Collect zone temps (mutable: predictor sets t_zone_vec for ideal
             // loads zones so surfaces see the correct zone temp during iteration)
             let t_zone_vec: Vec<f64> = self.zones.iter().map(|z| z.temp).collect();
+            // Room-air stratification (#91): per-surface local air temperature
+            // offset g·(z_surface − z_zone_mid); each interior face couples to
+            // the air at its own height. Zero for well-mixed zones.
+            let surface_air_offset: Vec<f64> = self
+                .surfaces
+                .iter()
+                .map(|surf| match self.zone_index.get(&surf.input.zone) {
+                    Some(&zi) => {
+                        let g = self.zones[zi].current_gradient;
+                        if g != 0.0 {
+                            g * (surf.centroid_height - self.zones[zi].centroid_height)
+                        } else {
+                            0.0
+                        }
+                    }
+                    None => 0.0,
+                })
+                .collect();
             // Predicted HVAC mode per zone is stored on zone.ideal_pred_mode
             // (locked across HVAC iterations within a physical timestep).
 
@@ -3052,7 +3379,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                         .get(&self.surfaces[i].input.zone)
                         .copied()
                         .unwrap_or(0);
-                    let t_z = t_zone_vec.get(zi).copied().unwrap_or(21.0);
+                    let t_z = t_zone_vec.get(zi).copied().unwrap_or(21.0)
+                        + surface_air_offset.get(i).copied().unwrap_or(0.0);
 
                     // Per-window MRT: use view-factor weighting if available,
                     // otherwise fall back to area-weighted zone MRT.
@@ -3139,14 +3467,21 @@ impl EnvelopeSolver for BuildingEnvelope {
                         t_outdoor
                     };
 
-                    let mut u_glass = self.surfaces[i].u_glass;
+                    // Deployed interior blind (#105) overrides the glass-node
+                    // conductance with the film-stripped blind+window assembly U.
+                    let blind_active =
+                        self.surfaces[i].blind_deployed && self.surfaces[i].blind_u_factor > 0.0;
+                    let mut u_glass = effective_window_u_glass(&self.surfaces[i]);
                     let tilt = self.surfaces[i].input.tilt;
 
                     // Combined outside-film + glass conductance
                     let mut u_e_glass = 1.0 / (1.0 / h_e + 1.0 / u_glass);
 
-                    // Whether this window uses first-principles gap thermal model
-                    let has_gap_model = self.surfaces[i].gap_width > 0.0;
+                    // Whether this window uses first-principles gap thermal model.
+                    // A deployed blind fixes the glass conductance, so the dynamic
+                    // gap model is suspended (and the base u_glass is preserved for
+                    // the timestep the blind retracts).
+                    let has_gap_model = self.surfaces[i].gap_width > 0.0 && !blind_active;
 
                     // Absorbed-inward solar source for the glass heat balance [W/m²].
                     //
@@ -3578,7 +3913,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                                     let s = &self.surfaces[si];
                                     let ha = s.h_conv_inside * s.net_area;
                                     sum_ha_pred += ha;
-                                    sum_hat_pred += ha * s.temp_inside;
+                                    sum_hat_pred += ha * (s.temp_inside - surface_air_offset[si]);
                                 }
                                 let total_outdoor = match self.infiltration_interaction {
                                     crate::zone_loads::InfiltrationInteraction::Basic => {
@@ -3597,7 +3932,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                                             + zone.nat_vent_mass_flow
                                     }
                                 };
-                                let mcpi_pred = total_outdoor * cp_air;
+                                // Interzone advection (#87): fold AFN inflows
+                                let (m_adv_pred, t_out_pred) = crate::zone::mix_advective_streams(
+                                    total_outdoor,
+                                    t_outdoor,
+                                    zone.afn_interzone_mass_flow,
+                                    zone.afn_interzone_temp,
+                                );
+                                let mcpi_pred = m_adv_pred * cp_air;
                                 let q_solar_trans: f64 = zone
                                     .surface_indices
                                     .iter()
@@ -3638,7 +3980,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                                 let denom_pred = sum_ha_pred + mcpi_pred + cap_pred;
                                 if denom_pred > 1e-10 {
                                     (sum_hat_pred
-                                        + mcpi_pred * t_outdoor
+                                        + mcpi_pred * t_out_pred
                                         + q_conv_pred
                                         + cap_pred * t_prev_eff_pred)
                                         / denom_pred
@@ -3659,7 +4001,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             let s = &self.surfaces[si];
                             let ha = s.h_conv_inside * s.net_area;
                             sum_ha_pred += ha;
-                            sum_hat_pred += ha * s.temp_inside;
+                            sum_hat_pred += ha * (s.temp_inside - surface_air_offset[si]);
                         }
 
                         let total_outdoor = match self.infiltration_interaction {
@@ -3678,7 +4020,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                                     + zone.nat_vent_mass_flow
                             }
                         };
-                        let mcpi_pred = total_outdoor * cp_air;
+                        // Interzone advection (#87): fold AFN inflows
+                        let (m_adv_pred, t_out_pred) = crate::zone::mix_advective_streams(
+                            total_outdoor,
+                            t_outdoor,
+                            zone.afn_interzone_mass_flow,
+                            zone.afn_interzone_temp,
+                        );
+                        let mcpi_pred = m_adv_pred * cp_air;
 
                         let q_solar_trans: f64 = zone
                             .surface_indices
@@ -3731,7 +4080,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         let denom_pred = sum_ha_pred + mcpi_pred + cap_pred;
                         let t_free_pred = if denom_pred > 1e-10 {
                             (sum_hat_pred
-                                + mcpi_pred * t_outdoor
+                                + mcpi_pred * t_out_pred
                                 + q_conv_pred
                                 + cap_pred * t_prev_eff_pred)
                                 / denom_pred
@@ -3813,7 +4162,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                         None => continue,
                     };
 
-                    let t_zone = t_zone_vec.get(pc.zi).copied().unwrap_or(21.0);
+                    let t_zone =
+                        t_zone_vec.get(pc.zi).copied().unwrap_or(21.0) + surface_air_offset[i];
 
                     // Per-surface MRT: view-factor weighted or area-weighted fallback
                     let t_mrt = if let (Some(face_i), Some(zvf), Some(fea), Some(feat)) = (
@@ -3972,7 +4322,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     self.surfaces[i].q_cond_outside = q_out;
                 }
 
-                let t_zone = t_zone_vec.get(pc.zi).copied().unwrap_or(21.0);
+                let t_zone = t_zone_vec.get(pc.zi).copied().unwrap_or(21.0) + surface_air_offset[i];
                 self.surfaces[i].q_conv_inside =
                     self.surfaces[i].h_conv_inside * (self.surfaces[i].temp_inside - t_zone);
             }
@@ -3998,7 +4348,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                         sum_hat += h * a * zone.temp;
                     } else {
                         sum_ha += h * a;
-                        sum_hat += h * a * t_in;
+                        // Stratification (#91): the surface exchanges with the
+                        // local air T_mean + offset, so hA·(T_s − offset) here
+                        // keeps (sum_hat − sum_ha·T_mean) the true convective sum.
+                        sum_hat += h * a * (t_in - surface_air_offset[si]);
                     }
                 }
 
@@ -4131,7 +4484,18 @@ impl EnvelopeSolver for BuildingEnvelope {
                             + zone.nat_vent_mass_flow
                     }
                 };
-                let mcpi = total_outdoor_mass_flow * cp_air;
+                // Interzone advection (#87): fold AFN interzone inflows into
+                // the advective stream as an effective mixed stream. The
+                // combined (m, T_mix) is mathematically identical to separate
+                // outdoor and interzone terms; shadowing t_outdoor keeps every
+                // downstream solve and report in this zone block consistent.
+                let (m_advective, t_outdoor) = crate::zone::mix_advective_streams(
+                    total_outdoor_mass_flow,
+                    t_outdoor,
+                    zone.afn_interzone_mass_flow,
+                    zone.afn_interzone_temp,
+                );
+                let mcpi = m_advective * cp_air;
 
                 let q_conv_total = zone.q_internal_conv
                     + zone.exhaust_fan_heat_to_zone  // motor waste heat staying in zone
@@ -4510,10 +4874,15 @@ impl EnvelopeSolver for BuildingEnvelope {
                         zone.w_prev3,
                     );
 
-                    // Moisture mass flows use the same outdoor air flows as the
-                    // thermal balance (total_outdoor_mass_flow already computed).
-                    let m_infil = total_outdoor_mass_flow;
-                    let w_outdoor = ctx.outdoor_air.w;
+                    // Moisture mass flows use the same advective stream as the
+                    // thermal balance: outdoor air plus AFN interzone inflows
+                    // at their mass-weighted source humidity (#87).
+                    let (m_infil, w_outdoor) = crate::zone::mix_advective_streams(
+                        total_outdoor_mass_flow,
+                        ctx.outdoor_air.w,
+                        zone.afn_interzone_mass_flow,
+                        zone.afn_interzone_w,
+                    );
 
                     // HVAC supply humidity from the air loop
                     let m_supply = zone.supply_air_mass_flow;
@@ -4525,8 +4894,17 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // Store for use in main.rs return air calculation
                     zone.supply_air_humidity_ratio = w_supply;
 
-                    // Total latent gains [W] — people + equipment
-                    let q_latent = zone.people_latent + zone.equipment_latent;
+                    // Total latent gains [W] — people + equipment, plus moisture
+                    // carried by leaked supply air from ducts passing through this
+                    // zone (#70). solve_zone_humidity converts q_latent → moisture
+                    // rate via h_fg.
+                    let q_latent = zone.people_latent
+                        + zone.equipment_latent
+                        + hvac
+                            .other_latent_gains
+                            .get(&zone.input.name)
+                            .copied()
+                            .unwrap_or(0.0);
 
                     zone.humidity_ratio = crate::zone::solve_zone_humidity(
                         rho_air,
@@ -4586,8 +4964,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                             // q = U_glass × (T_outside_surface − T_inside_surface)
                             // This is pure conduction through the glazing assembly,
                             // matching E+'s "Surface Inside Face Conduction".
-                            self.surfaces[si].q_cond_inside = self.surfaces[si].u_glass
-                                * (self.surfaces[si].temp_outside - self.surfaces[si].temp_inside);
+                            self.surfaces[si].q_cond_inside =
+                                effective_window_u_glass(&self.surfaces[si])
+                                    * (self.surfaces[si].temp_outside
+                                        - self.surfaces[si].temp_inside);
                         }
                     }
                     zone.diag_pending_wincond_conv = (win_ha * zone.temp - win_hat) * dt_kwh;
@@ -5016,6 +5396,43 @@ mod tests {
     use openbse_core::types::{DayType, TimeStep};
     use openbse_psychrometrics::MoistAirState;
 
+    #[test]
+    fn test_blind_glass_conductance_reduces_with_lower_u() {
+        // A deployed blind with a lower assembly U-factor must yield a lower
+        // glass-node conductance (→ less window conduction for a given ΔT) (#105).
+        let base = blind_glass_conductance(3.0); // e.g. bare double-pane assembly U
+        let shaded = blind_glass_conductance(1.8); // window + insulating blind
+        assert!(
+            shaded < base,
+            "lower blind U should reduce conductance: shaded {shaded:.2} vs base {base:.2}"
+        );
+        assert!(shaded > 0.0 && shaded.is_finite());
+    }
+
+    #[test]
+    fn test_effective_u_glass_matches_base_when_no_blind() {
+        // With no blind deployed, the effective conductance is the base u_glass.
+        // Extreme blind U-factors are film-capped (r_glass floored at 0.01) and
+        // never produce NaN/inf (#105 robustness).
+        assert!(blind_glass_conductance(0.01).is_finite());
+        assert!(blind_glass_conductance(1000.0).is_finite());
+    }
+
+    #[test]
+    fn test_blind_solar_scale_clamps() {
+        // Normal reduction.
+        assert!((blind_solar_scale(0.1, 0.5) - 0.2).abs() < 1e-9);
+        // Blackout blind (blind_shgc == 0.0) fully blocks solar — must be 0, not
+        // treated as "no blind" (#106).
+        assert_eq!(blind_solar_scale(0.0, 0.5), 0.0);
+        // A blind can never increase gains above the base window.
+        assert_eq!(blind_solar_scale(0.9, 0.5), 1.0);
+        // A stray negative blind_shgc must not invert the sign.
+        assert_eq!(blind_solar_scale(-0.2, 0.5), 0.0);
+        // Zero base SHGC does not divide by zero.
+        assert!(blind_solar_scale(0.1, 0.0).is_finite());
+    }
+
     fn make_simple_model() -> BuildingEnvelope {
         use crate::material::ConstructionLayer;
         let materials = vec![
@@ -5079,6 +5496,7 @@ mod tests {
             pane_conductivity: None,
             pane_thickness: None,
             glass_emissivity: None,
+            shading_control: None,
         }];
 
         let zones = vec![ZoneInput {
@@ -5111,6 +5529,10 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
+            species_generation: vec![],
+            room_air: None,
+            comfort: None,
         }];
 
         let surfaces = vec![
@@ -5242,6 +5664,442 @@ mod tests {
         }
     }
 
+    /// Builds a two-zone model joined by an interzone wall; when `doorway`
+    /// is true the interzone surface is a large opening (two-way doorway).
+    fn make_two_zone_model(doorway: bool) -> BuildingEnvelope {
+        use crate::material::ConstructionLayer;
+        let materials = vec![Material {
+            name: "Concrete".to_string(),
+            conductivity: 1.311,
+            density: 2240.0,
+            specific_heat: 836.8,
+            solar_absorptance: 0.7,
+            thermal_absorptance: 0.9,
+            visible_absorptance: 0.7,
+            roughness: Roughness::MediumRough,
+            thermal_resistance: None,
+            vapor_resistance_factor: None,
+            sorption_isotherm: None,
+            liquid_transport_coeff: None,
+            thermal_absorptance_inside: None,
+        }];
+        let constructions = vec![Construction {
+            name: "Wall".to_string(),
+            layers: vec![ConstructionLayer {
+                material: "Concrete".to_string(),
+                thickness: 0.2,
+            }],
+        }];
+
+        let make_zone = |name: &str| ZoneInput {
+            name: name.to_string(),
+            volume: 150.0,
+            floor_area: 50.0,
+            infiltration: vec![],
+            internal_gains: vec![],
+            internal_mass: vec![],
+            ideal_loads: None,
+            thermostat_schedule: vec![],
+            ventilation_schedule: vec![],
+            solar_distribution: None,
+            exhaust_fan: None,
+            outdoor_air: None,
+            natural_ventilation: None,
+            conditioned: true,
+            zone_multiplier: 1,
+            max_relative_humidity: None,
+            min_relative_humidity: None,
+            data_center: None,
+            duct_leakage: None,
+            species_generation: vec![],
+            room_air: None,
+            comfort: None,
+        };
+        let zones = vec![make_zone("ColdZone"), make_zone("WarmZone")];
+
+        let make_wall = |name: &str, zone: &str, azimuth: f64| SurfaceInput {
+            name: name.to_string(),
+            zone: zone.to_string(),
+            surface_type: SurfaceType::Wall,
+            construction: "Wall".to_string(),
+            area: 20.0,
+            azimuth,
+            tilt: 90.0,
+            boundary: BoundaryCondition::Outdoor,
+            parent_surface: None,
+            vertices: None,
+            shading: None,
+            sun_exposure: false,
+            wind_exposure: true,
+            exposed_perimeter: None,
+            airflow: None,
+            height: None,
+            width: None,
+        };
+        let doorway_override = doorway.then(|| crate::airflow_network::SurfaceAirflowOverride {
+            large_opening: Some(true),
+            opening_fraction: Some(1.0),
+            ..Default::default()
+        });
+        let mut surfaces = vec![
+            make_wall("Cold South", "ColdZone", 180.0),
+            make_wall("Warm North", "WarmZone", 0.0),
+            // Interzone wall (both sides)
+            SurfaceInput {
+                name: "Partition A".to_string(),
+                zone: "ColdZone".to_string(),
+                surface_type: SurfaceType::Wall,
+                construction: "Wall".to_string(),
+                area: 8.0,
+                azimuth: 0.0,
+                tilt: 90.0,
+                boundary: BoundaryCondition::Zone("WarmZone".to_string()),
+                parent_surface: None,
+                vertices: None,
+                shading: None,
+                sun_exposure: false,
+                wind_exposure: false,
+                exposed_perimeter: None,
+                airflow: doorway_override.clone(),
+                height: None,
+                width: None,
+            },
+            SurfaceInput {
+                name: "Partition B".to_string(),
+                zone: "WarmZone".to_string(),
+                surface_type: SurfaceType::Wall,
+                construction: "Wall".to_string(),
+                area: 8.0,
+                azimuth: 180.0,
+                tilt: 90.0,
+                boundary: BoundaryCondition::Zone("ColdZone".to_string()),
+                parent_surface: None,
+                vertices: None,
+                shading: None,
+                sun_exposure: false,
+                wind_exposure: false,
+                exposed_perimeter: None,
+                airflow: doorway_override,
+                height: None,
+                width: None,
+            },
+        ];
+        for (zone, floor_name) in [("ColdZone", "Cold Floor"), ("WarmZone", "Warm Floor")] {
+            surfaces.push(SurfaceInput {
+                name: floor_name.to_string(),
+                zone: zone.to_string(),
+                surface_type: SurfaceType::Floor,
+                construction: "Wall".to_string(),
+                area: 50.0,
+                azimuth: 0.0,
+                tilt: 180.0,
+                boundary: BoundaryCondition::Ground,
+                parent_surface: None,
+                vertices: None,
+                shading: None,
+                sun_exposure: false,
+                wind_exposure: false,
+                exposed_perimeter: None,
+                airflow: None,
+                height: None,
+                width: None,
+            });
+        }
+
+        let mut envelope = BuildingEnvelope::from_input(
+            materials,
+            constructions,
+            vec![],
+            zones,
+            surfaces,
+            40.0,
+            -105.0,
+            -7.0,
+        );
+        envelope.build_airflow_network(&crate::airflow_network::AirflowNetworkConfig {
+            enabled: true,
+            ..Default::default()
+        });
+        envelope
+    }
+
+    /// Room-air stratification (#91): with a positive gradient the roof
+    /// couples to warmer local air and runs warmer inside, while the floor
+    /// couples to cooler air and runs cooler — the end-to-end surface/zone
+    /// coupling contract. (Net zone energy can go either way since warmer
+    /// ceiling losses and reduced floor losses offset, so the assertion is
+    /// on the surface temperatures, not the net.)
+    #[test]
+    fn test_stratification_shifts_surface_coupling() {
+        let run = |gradient: Option<f64>| -> (f64, f64) {
+            let mut envelope = make_simple_model();
+            if let Some(g) = gradient {
+                envelope.zones[0].input.room_air = Some(crate::zone::RoomAirGradient {
+                    gradient: g,
+                    schedule: None,
+                    return_height: None,
+                    thermostat_height: 1.1,
+                    ceiling_height: None,
+                    mundt: false,
+                    control_at_thermostat_height: false,
+                });
+            }
+            envelope.initialize(3600.0).unwrap();
+
+            // Cold night, no solar
+            let ctx = SimulationContext {
+                timestep: TimeStep {
+                    month: 1,
+                    day: 15,
+                    hour: 3,
+                    sub_hour: 1,
+                    timesteps_per_hour: 1,
+                    sim_time_s: 0.0,
+                    dt: 3600.0,
+                },
+                outdoor_air: MoistAirState::from_tdb_rh(-10.0, 0.5, 101325.0),
+                day_type: DayType::WeatherDay,
+                is_sizing: false,
+                sizing_internal_gains: SizingInternalGains::Full,
+            };
+            let mut weather = make_weather_hour(-10.0);
+            weather.global_horiz_rad = 0.0;
+            weather.direct_normal_rad = 0.0;
+            weather.diffuse_horiz_rad = 0.0;
+            weather.hour = 3;
+            let hvac = ZoneHvacConditions::default();
+
+            for _ in 0..10 {
+                envelope.solve_timestep(&ctx, &weather, &hvac);
+            }
+            let surf_temp = |name: &str| {
+                envelope
+                    .surfaces
+                    .iter()
+                    .find(|s| s.input.name == name)
+                    .map(|s| s.temp_inside)
+                    .unwrap()
+            };
+            (surf_temp("Roof"), surf_temp("Floor"))
+        };
+
+        let (roof_mixed, floor_mixed) = run(None);
+        let (roof_strat, floor_strat) = run(Some(3.0));
+
+        assert!(
+            roof_strat > roof_mixed + 0.3,
+            "roof should run warmer under a positive gradient: {roof_strat:.2} vs {roof_mixed:.2} °C"
+        );
+        assert!(
+            floor_strat < floor_mixed - 0.3,
+            "floor should run cooler under a positive gradient: {floor_strat:.2} vs {floor_mixed:.2} °C"
+        );
+    }
+
+    /// Mundt-style load-derived gradient (#98): g = Q_conv/(ṁ·cp·H),
+    /// clamped to the configured cap, zero when the system is off.
+    #[test]
+    fn test_mundt_gradient_follows_load_and_flow() {
+        let run = |supply_flow: f64| -> f64 {
+            let mut envelope = make_simple_model();
+            envelope.zones[0].input.room_air = Some(crate::zone::RoomAirGradient {
+                gradient: 5.0, // cap
+                schedule: None,
+                return_height: None,
+                thermostat_height: 1.1,
+                ceiling_height: None,
+                mundt: true,
+                control_at_thermostat_height: false,
+            });
+            envelope.initialize(3600.0).unwrap();
+            let ctx = make_ctx();
+            let weather = make_weather_hour(0.0);
+            let mut hvac = ZoneHvacConditions::default();
+            if supply_flow > 0.0 {
+                hvac.supply_temps.insert("TestZone".to_string(), 18.0);
+                hvac.supply_mass_flows
+                    .insert("TestZone".to_string(), supply_flow);
+            }
+            // Two steps so the lagged supply flow is populated
+            envelope.solve_timestep(&ctx, &weather, &hvac);
+            envelope.solve_timestep(&ctx, &weather, &hvac);
+            envelope.zones[0].current_gradient
+        };
+
+        // System off → well mixed
+        assert_eq!(run(0.0), 0.0);
+
+        // With flow: g = Q_conv/(ṁ·cp·H); make_simple_model has 500 W
+        // equipment at 30% radiant → 350 W convective, H = 3 m.
+        let g_low_flow = run(0.1);
+        let g_high_flow = run(0.4);
+        assert!(
+            g_low_flow > g_high_flow,
+            "more supply flow should mix better: {g_low_flow:.3} vs {g_high_flow:.3} K/m"
+        );
+        let cp = openbse_psychrometrics::cp_air_fn_w(0.008);
+        let expected = 350.0 / (0.4 * cp * 3.0);
+        assert!(
+            (g_high_flow - expected).abs() / expected < 0.05,
+            "Mundt gradient should match Q/(m·cp·H): got {g_high_flow:.4}, expected {expected:.4}"
+        );
+    }
+
+    /// Room-air stratification (#91): occupied and return temperatures
+    /// straddle the mean according to the gradient after a simulated step.
+    #[test]
+    fn test_stratification_reported_temps() {
+        let mut envelope = make_simple_model();
+        envelope.zones[0].input.room_air = Some(crate::zone::RoomAirGradient {
+            gradient: 2.0,
+            schedule: None,
+            return_height: None, // default: ceiling
+            thermostat_height: 1.1,
+            ceiling_height: None,
+            mundt: false,
+            control_at_thermostat_height: false,
+        });
+        envelope.initialize(3600.0).unwrap();
+        let ctx = make_ctx();
+        let weather = make_weather_hour(0.0);
+        let hvac = ZoneHvacConditions::default();
+        envelope.solve_timestep(&ctx, &weather, &hvac);
+
+        let zone = &envelope.zones[0];
+        assert!((zone.current_gradient - 2.0).abs() < 1e-12);
+        // Return (ceiling) above mean; occupied (1.1 m of a 3 m zone) below
+        assert!(zone.return_air_temp() > zone.temp + 1.0);
+        assert!(zone.occupied_air_temp() < zone.temp);
+    }
+
+    /// Interzone advection (#87): a doorway to a warm zone populates the
+    /// cold zone's AFN interzone aggregates and measurably warms it relative
+    /// to the same model with only crack leakage between the zones.
+    #[test]
+    fn test_interzone_advection_warms_cold_zone() {
+        let run = |doorway: bool| -> (f64, f64, f64) {
+            let mut envelope = make_two_zone_model(doorway);
+            envelope.initialize(3600.0).unwrap();
+            // Force a large interzone temperature difference
+            for (zi, t) in [(0usize, 10.0f64), (1usize, 30.0f64)] {
+                let z = &mut envelope.zones[zi];
+                z.temp = t;
+                z.temp_prev = t;
+                z.temp_prev2 = t;
+                z.temp_prev3 = t;
+            }
+            let ctx = make_ctx();
+            let mut weather = make_weather_hour(10.0);
+            weather.wind_speed = 0.0; // isolate buoyancy exchange
+            weather.global_horiz_rad = 0.0;
+            weather.direct_normal_rad = 0.0;
+            weather.diffuse_horiz_rad = 0.0;
+            let hvac = ZoneHvacConditions::default();
+            envelope.solve_timestep(&ctx, &weather, &hvac);
+            (
+                envelope.zones[0].temp,
+                envelope.zones[0].afn_interzone_mass_flow,
+                envelope.zones[0].afn_interzone_temp,
+            )
+        };
+
+        let (t_cold_with_door, m_iz, t_iz) = run(true);
+        let (t_cold_without, m_iz_crack, _) = run(false);
+
+        // The doorway produces a substantial interzone inflow of warm air
+        assert!(
+            m_iz > 0.05,
+            "doorway should drive substantial interzone flow, got {m_iz:.4} kg/s"
+        );
+        assert!(
+            t_iz > 25.0,
+            "interzone inflow should carry warm-zone air, got {t_iz:.2} °C"
+        );
+        assert!(
+            m_iz > 10.0 * m_iz_crack.max(1e-9),
+            "doorway flow ({m_iz:.4}) should dwarf crack flow ({m_iz_crack:.6})"
+        );
+
+        // And it warms the cold zone relative to the crack-only case
+        assert!(
+            t_cold_with_door > t_cold_without + 0.5,
+            "doorway advection should warm the cold zone: {t_cold_with_door:.2} vs {t_cold_without:.2} °C"
+        );
+    }
+
+    /// Single-pane windows (#101): with num_panes = 1 and pane data, the
+    /// glass conductance is physical (k/t ≈ 328 for 3 mm glass) instead of
+    /// the NFRC film-stripped value (~29 for the ASHRAE 140 Case 670 window,
+    /// whose 5.16 rating was produced at hi=7.8/he=16.0, not NFRC films).
+    #[test]
+    fn test_single_pane_glass_conductance() {
+        use crate::material::ConstructionLayer;
+        let mats = vec![Material {
+            name: "Concrete".to_string(),
+            conductivity: 1.311,
+            density: 2240.0,
+            specific_heat: 836.8,
+            solar_absorptance: 0.7,
+            thermal_absorptance: 0.9,
+            visible_absorptance: 0.7,
+            roughness: Roughness::MediumRough,
+            thermal_resistance: None,
+            vapor_resistance_factor: None,
+            sorption_isotherm: None,
+            liquid_transport_coeff: None,
+            thermal_absorptance_inside: None,
+        }];
+        let cons = vec![Construction {
+            name: "Wall".to_string(),
+            layers: vec![ConstructionLayer {
+                material: "Concrete".to_string(),
+                thickness: 0.2,
+            }],
+        }];
+        let wins = vec![WindowConstruction {
+            name: "SinglePane".to_string(),
+            u_factor: 5.16,
+            shgc: 0.864,
+            visible_transmittance: 0.90,
+            solar_absorptance: None,
+            inside_absorbed_fraction: 0.5,
+            pane_solar_transmittance: Some(0.834),
+            pane_solar_reflectance: Some(0.075),
+            num_panes: Some(1),
+            gap_width: None,
+            pane_conductivity: Some(1.0),
+            pane_thickness: Some(0.003048),
+            glass_emissivity: Some(0.84),
+            shading_control: None,
+        }];
+        // Reuse the simple model's zone/surface layout, swapping the window
+        let template = make_simple_model();
+        let zones: Vec<ZoneInput> = template.zones.iter().map(|z| z.input.clone()).collect();
+        let mut surfs: Vec<SurfaceInput> =
+            template.surfaces.iter().map(|s| s.input.clone()).collect();
+        for s in &mut surfs {
+            if s.surface_type == SurfaceType::Window {
+                s.construction = "SinglePane".to_string();
+            }
+        }
+        let envelope =
+            BuildingEnvelope::from_input(mats, cons, wins, zones, surfs, 40.0, -105.0, -7.0);
+
+        let win = envelope
+            .surfaces
+            .iter()
+            .find(|s| s.is_window)
+            .expect("window surface");
+        // u_glass = k/t = 1.0/0.003048 ≈ 328.1, NOT the film-stripped ~28.8
+        assert!(
+            (win.u_glass - 328.08).abs() < 1.0,
+            "single-pane u_glass should be physical k/t, got {:.1}",
+            win.u_glass
+        );
+        // No gap → the runtime gap model stays disengaged (u_glass constant)
+        assert_eq!(win.gap_width, 0.0);
+    }
+
     #[test]
     fn test_envelope_initialization() {
         let mut envelope = make_simple_model();
@@ -5325,6 +6183,10 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
+            species_generation: vec![],
+            room_air: None,
+            comfort: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -5432,6 +6294,37 @@ mod tests {
     }
 
     #[test]
+    fn test_other_sensible_gain_warms_zone() {
+        // Duct distribution losses (#70) deposited via other_sensible_gains must
+        // warm the surrounding zone, just like an internal convective gain.
+        let mut warm = make_simple_model();
+        warm.initialize(3600.0).unwrap();
+        let mut cold = make_simple_model();
+        cold.initialize(3600.0).unwrap();
+
+        let ctx = make_ctx();
+        let weather = make_weather_hour(0.0);
+
+        let mut hvac_warm = ZoneHvacConditions::default();
+        hvac_warm
+            .other_sensible_gains
+            .insert("TestZone".to_string(), 3000.0); // 3 kW into the zone
+        let hvac_cold = ZoneHvacConditions::default();
+
+        for _ in 0..20 {
+            warm.solve_timestep(&ctx, &weather, &hvac_warm);
+            cold.solve_timestep(&ctx, &weather, &hvac_cold);
+        }
+
+        assert!(
+            warm.zones[0].temp > cold.zones[0].temp + 1.0,
+            "other_sensible_gains should warm the zone: warm={}, cold={}",
+            warm.zones[0].temp,
+            cold.zones[0].temp
+        );
+    }
+
+    #[test]
     fn test_envelope_window_area_subtracted_from_parent() {
         let envelope = make_simple_model();
         // South Wall: gross 20m², window 4m² → net 16m²
@@ -5492,6 +6385,10 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
+            species_generation: vec![],
+            room_air: None,
+            comfort: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -5650,6 +6547,10 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
+            species_generation: vec![],
+            room_air: None,
+            comfort: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -5790,6 +6691,10 @@ mod tests {
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
+            duct_leakage: None,
+            species_generation: vec![],
+            room_air: None,
+            comfort: None,
         }];
         let surfaces = vec![SurfaceInput {
             name: "Wall".to_string(),

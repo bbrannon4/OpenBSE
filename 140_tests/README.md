@@ -12,7 +12,7 @@
 
 See `results/FULL_140_RESULTS.csv` for the complete pass/fail matrix.
 
-**Tight margins to watch:** Case 960 heating (exactly at ceiling), Case 980FF mean temp (exactly at floor), Case 640/680/695 heating within 15 kWh of ceiling.
+**Tight margins to watch:** Case 980FF mean temp (exactly at floor), Case 640/680/695 heating within 15 kWh of ceiling. (Case 960 heating gained ~80 kWh of margin once the sunspace switched to geometric interior solar distribution, and Case 670 sits mid-range since the single-pane first-principles path — see issue #101.)
 
 ## Running Tests
 

@@ -173,7 +173,25 @@ impl WaterHeater {
                 // else: remain in current state (hysteresis)
                 if self.is_heating {
                     let input = self.capacity;
-                    (input * self.efficiency, input)
+                    let q_to_tank_full = input * self.efficiency;
+                    // Within-step cycling (WH-1 / #61): if firing at full capacity
+                    // would drive the tank past the setpoint before the step ends,
+                    // the burner only runs for the fraction of the step needed to
+                    // reach the setpoint (E+ shuts the element off mid-step). Without
+                    // this, coarse timesteps overshoot the setpoint and overstate the
+                    // firing energy.
+                    let net = q_to_tank_full - q_delivered - q_loss;
+                    let mut on_frac = 1.0_f64;
+                    if net > 0.0 && self.tank_temp < self.setpoint_temp && m_tank > 0.0 {
+                        let time_to_setpoint =
+                            (self.setpoint_temp - self.tank_temp) * m_tank * CP_WATER / net;
+                        if time_to_setpoint < dt {
+                            on_frac = (time_to_setpoint / dt).clamp(0.0, 1.0);
+                            // Reached the setpoint mid-step → element cycles off.
+                            self.is_heating = false;
+                        }
+                    }
+                    (q_to_tank_full * on_frac, input * on_frac)
                 } else {
                     (0.0, 0.0)
                 }
@@ -525,6 +543,42 @@ mod tests {
         wh.tank_temp = 60.0;
         wh.simulate(0.0, 10.0, 60.0);
         assert!(!wh.is_heating, "Burner should turn off at setpoint");
+    }
+
+    #[test]
+    fn test_within_step_cycling_no_overshoot() {
+        // WH-1 (#61): on a coarse timestep, full-capacity firing must not drive
+        // the tank far past the setpoint — the burner cycles off mid-step.
+        let mut wh = WaterHeater::new(
+            "Cycling Test",
+            WaterHeaterFuel::Gas,
+            200.0,
+            11_720.0,
+            0.80,
+            60.0,
+            2.0,
+        );
+        wh.ambient_temp = 20.0;
+        wh.tank_temp = 58.0; // just below setpoint
+        wh.is_heating = true; // already firing
+
+        // One full HOUR timestep. Full firing would overshoot to ~98 °C.
+        wh.simulate(0.0, 10.0, 3600.0);
+
+        // Tank lands at/just below the setpoint, not far past it.
+        assert!(
+            wh.tank_temperature() <= 60.0 + 1e-6 && wh.tank_temperature() > 59.0,
+            "tank should settle near setpoint, got {}",
+            wh.tank_temperature()
+        );
+        // Element cycled off after reaching the setpoint.
+        assert!(!wh.is_heating, "burner should cycle off at setpoint");
+        // Averaged firing energy is far below full capacity (small on-fraction).
+        assert!(
+            wh.fuel_power() > 0.0 && wh.fuel_power() < 2000.0,
+            "firing energy should reflect a small on-fraction, got {}",
+            wh.fuel_power()
+        );
     }
 
     #[test]

@@ -20,45 +20,27 @@ OUTPUT_PATH = os.path.join(
 # ---------------------------------------------------------------------------
 # ASHRAE 140-2023 Acceptance Ranges
 # ---------------------------------------------------------------------------
+# Loaded from ../acceptance_ranges_140_2023.json — the single, tamper-evidenced
+# source of truth (CI pins its SHA-256; see .github/workflows/ci.yml). Do NOT
+# inline ranges here: any change to the acceptance criteria must show up as an
+# explicit diff to the JSON *and* the pinned hash in the same commit.
+import json
+
+_RANGES_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "acceptance_ranges_140_2023.json",
+)
+with open(_RANGES_PATH) as _f:
+    _RANGES = json.load(_f)
+
 # Load cases: (H_min, H_max, C_min, C_max) in kWh
-LOAD_RANGES = {
-    "600":  (3993, 4504, 5432, 6162),
-    "610":  (4066, 4592, 4117, 4382),
-    "620":  (4094, 4719, 3841, 4404),
-    "630":  (4356, 5139, 2573, 3074),
-    "640":  (2403, 2682, 5237, 5893),
-    "650":  (0,    0,    4186, 4945),
-    "660":  (3574, 3821, 2966, 3340),
-    "670":  (5300, 6140, 5954, 6623),
-    "680":  (1732, 2286, 5932, 6529),
-    "685":  (4532, 5042, 8238, 9130),
-    "695":  (2385, 2892, 8386, 9172),
-    "900":  (1379, 1814, 2267, 2714),
-    "910":  (1648, 2163, 1191, 1490),
-    "920":  (2956, 3607, 2549, 3128),
-    "930":  (3524, 4384, 1654, 2161),
-    "940":  (863,  1389, 2203, 2613),
-    "950":  (0,    0,    586,  707),
-    "960":  (2522, 2860, 789,  950),
-    "980":  (246,  720,  3501, 3995),
-    "985":  (2120, 2801, 5880, 7273),
-    "995":  (755,  1330, 6771, 7482),
-}
+LOAD_RANGES = {k: tuple(v) for k, v in _RANGES["load_ranges_kwh"].items()}
 
 # Free-float temperature ranges: (max_lo, max_hi, min_lo, min_hi, mean_lo, mean_hi)
-FF_RANGES = {
-    "600ff": (62.4, 68.4, -13.8, -9.9,  24.3, 26.1),
-    "650ff": (61.1, 66.8, -17.8, -16.7, 17.6, 18.9),
-    "680ff": (69.8, 78.5, -8.1,  -5.7,  30.2, 33.3),
-    "900ff": (43.3, 46.0,  0.6,   2.2,  24.5, 25.7),
-    "950ff": (36.1, 37.1, -13.4, -12.5, 14.3, 15.0),
-    "980ff": (48.5, 52.8,  7.3,  12.5,  30.5, 33.3),
-}
+FF_RANGES = {k: tuple(v) for k, v in _RANGES["free_float_temp_ranges_c"].items()}
 
 # 960 Sun Zone temperature ranges
-SZ_RANGES = {
-    "960 SZ": (48.1, 53.2, 4.2, 8.0, 26.8, 29.5),
-}
+SZ_RANGES = {k: tuple(v) for k, v in _RANGES["sun_zone_temp_ranges_c"].items()}
 
 # ---------------------------------------------------------------------------
 # Known failures — these are tracked but do not fail CI.

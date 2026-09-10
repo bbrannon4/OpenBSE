@@ -337,27 +337,89 @@ fn parse_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
     let parse_f64 = |idx: usize| -> f64 { fields[idx].trim().parse().unwrap_or(0.0) };
     let parse_u32 = |idx: usize| -> u32 { fields[idx].trim().parse().unwrap_or(0) };
 
+    // EPW missing-value sentinels (EnergyPlus AuxiliaryPrograms, "EPW CSV
+    // Format"). A literal sentinel must NOT be fed to the simulation as data —
+    // E+ WeatherManager substitutes derived/standard values. We do the same
+    // statelessly (WX-1 / #67). `missing(value, sentinel)` treats values at or
+    // beyond the sentinel as absent (sentinels sit far outside physical ranges).
+    let missing = |v: f64, sentinel: f64| -> bool { v >= sentinel - 1.0e-6 };
+
+    // Pressure: 999999 Pa sentinel → standard sea-level pressure.
+    let mut pressure = parse_f64(9);
+    if missing(pressure, 999_999.0) || pressure <= 0.0 {
+        pressure = 101_325.0;
+    }
+
+    // Dry-bulb & dew-point: 99.9 °C sentinel. A missing dry-bulb is rare and
+    // severe; fall back to the dew point (saturated) when available, else 0 °C.
+    let mut dry_bulb = parse_f64(6);
+    let mut dew_point = parse_f64(7);
+    let db_missing = missing(dry_bulb, 99.9);
+    let dp_missing = missing(dew_point, 99.9);
+    if db_missing {
+        dry_bulb = if dp_missing { 0.0 } else { dew_point };
+    }
+    if dp_missing {
+        dew_point = dry_bulb; // saturated fallback (Tdp ≤ Tdb)
+    }
+
+    // Relative humidity: 999 % sentinel → derive from dry-bulb + dew point.
+    let mut rel_humidity = parse_f64(8);
+    if missing(rel_humidity, 999.0) || rel_humidity <= 0.0 {
+        // At the dew point the air is saturated, so its humidity ratio is the
+        // actual ratio; recover RH at the dry-bulb from it.
+        let w = psych::w_fn_tdb_rh_pb(dew_point, 1.0, pressure);
+        let rh = psych::rh_fn_tdb_w_pb(dry_bulb, w, pressure);
+        rel_humidity = (rh * 100.0).clamp(1.0, 100.0);
+    }
+
+    // Solar/IR: 9999 W/m² sentinel → 0 (treat as no measured flux).
+    let parse_rad = |idx: usize, sentinel: f64| -> f64 {
+        let v = parse_f64(idx);
+        if missing(v, sentinel) {
+            0.0
+        } else {
+            v
+        }
+    };
+
+    // Wind speed: 999 m/s sentinel → calm (0). Wind direction: 999° → north.
+    let mut wind_speed = parse_f64(21);
+    if missing(wind_speed, 999.0) {
+        wind_speed = 0.0;
+    }
+    let mut wind_direction = parse_f64(20);
+    if missing(wind_direction, 999.0) {
+        wind_direction = 0.0;
+    }
+
+    // Opaque sky cover: 99 (tenths) sentinel → mid-range default.
+    let mut opaque_sky_cover = parse_f64(23);
+    if missing(opaque_sky_cover, 99.0) {
+        opaque_sky_cover = 5.0;
+    }
+
     Ok(WeatherHour {
         year: parse_u32(0),
         month: parse_u32(1),
         day: parse_u32(2),
         hour: parse_u32(3),
         // Field 4 = minute, Field 5 = data source flags
-        dry_bulb: parse_f64(6),
-        dew_point: parse_f64(7),
-        rel_humidity: parse_f64(8),
-        pressure: parse_f64(9),
+        dry_bulb,
+        dew_point,
+        rel_humidity,
+        pressure,
         // Field 10 = extraterrestrial horiz rad
         // Field 11 = extraterrestrial direct normal rad
-        horiz_ir_rad: parse_f64(12),
-        global_horiz_rad: parse_f64(13),
-        direct_normal_rad: parse_f64(14),
-        diffuse_horiz_rad: parse_f64(15),
+        horiz_ir_rad: parse_rad(12, 9999.0),
+        global_horiz_rad: parse_rad(13, 9999.0),
+        direct_normal_rad: parse_rad(14, 9999.0),
+        diffuse_horiz_rad: parse_rad(15, 9999.0),
         // Fields 16-19 = illuminance data
-        wind_direction: parse_f64(20),
-        wind_speed: parse_f64(21),
+        wind_direction,
+        wind_speed,
         // Field 22 = total sky cover
-        opaque_sky_cover: parse_f64(23),
+        opaque_sky_cover,
         // Fields 24+ = visibility, ceiling, weather codes, etc.
     })
 }
@@ -643,6 +705,72 @@ mod tests {
         assert!((data.location.elevation - 1614.0).abs() < 1.0);
         assert_eq!(data.hours.len(), 1);
         assert!((data.hours[0].dry_bulb - (-5.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_epw_missing_value_sentinels_substituted() {
+        // EPW missing-value sentinels must be replaced, not fed as data (#67).
+        // Tdb=99.9, RH=999, pressure=999999, GHI/DNI/DHI=9999, wind=999,
+        // opaque=99 are all missing; Tdp=10.0 is valid.
+        let header = "LOCATION,Denver,CO,USA,TMY3,725650,39.74,-104.98,-7.0,1614.0\n\
+            DESIGN CONDITIONS,0\n\
+            TYPICAL/EXTREME PERIODS,0\n\
+            GROUND TEMPERATURES,0\n\
+            HOLIDAYS/DAYLIGHT SAVINGS,No,0,0,0\n\
+            COMMENTS 1,test\n\
+            COMMENTS 2,test\n\
+            DATA PERIODS,1,1,Data,Sunday,1/1,12/31\n";
+        let data_line = "1984,1,1,1,60,flags,99.9,10.0,999,999999,0,0,9999,9999,9999,9999,\
+            0,0,0,0,999,999,99,99,16.1,77777,9,999999999,0,0.039,0,88,0.000,0.0,0\n";
+        let epw = format!("{header}{data_line}");
+
+        let data = read_epw(epw.as_bytes()).unwrap();
+        let h = &data.hours[0];
+
+        // Pressure → standard.
+        assert!(
+            (h.pressure - 101_325.0).abs() < 1.0,
+            "pressure={}",
+            h.pressure
+        );
+        // Missing dry-bulb falls back to the valid dew point.
+        assert!((h.dry_bulb - 10.0).abs() < 0.01, "dry_bulb={}", h.dry_bulb);
+        // RH derived: Tdb == Tdp ⇒ saturated ⇒ ~100%.
+        assert!(h.rel_humidity > 95.0, "rel_humidity={}", h.rel_humidity);
+        assert!(h.rel_humidity <= 100.0);
+        // Solar sentinels → 0.
+        assert_eq!(h.global_horiz_rad, 0.0);
+        assert_eq!(h.direct_normal_rad, 0.0);
+        assert_eq!(h.diffuse_horiz_rad, 0.0);
+        // Wind sentinel → calm.
+        assert_eq!(h.wind_speed, 0.0);
+        // Opaque sky cover sentinel → mid-range, not 99.
+        assert!(h.opaque_sky_cover < 11.0);
+    }
+
+    #[test]
+    fn test_epw_rh_derived_from_dewpoint_when_missing() {
+        // Valid Tdb=20, Tdp=10, RH=999 missing → RH derived (~52%).
+        let header = "LOCATION,Denver,CO,USA,TMY3,725650,39.74,-104.98,-7.0,1614.0\n\
+            DESIGN CONDITIONS,0\n\
+            TYPICAL/EXTREME PERIODS,0\n\
+            GROUND TEMPERATURES,0\n\
+            HOLIDAYS/DAYLIGHT SAVINGS,No,0,0,0\n\
+            COMMENTS 1,test\n\
+            COMMENTS 2,test\n\
+            DATA PERIODS,1,1,Data,Sunday,1/1,12/31\n";
+        let data_line = "1984,1,1,1,60,flags,20.0,10.0,999,101325,0,0,300,0,0,0,\
+            0,0,0,0,180,3.0,5,5,16.1,77777,9,999999999,0,0.039,0,88,0.000,0.0,0\n";
+        let epw = format!("{header}{data_line}");
+
+        let h = &read_epw(epw.as_bytes()).unwrap().hours[0];
+        assert!((h.dry_bulb - 20.0).abs() < 0.01);
+        // Tdp 10 °C at 20 °C dry-bulb ≈ 52% RH.
+        assert!(
+            (45.0..60.0).contains(&h.rel_humidity),
+            "rel_humidity={}",
+            h.rel_humidity
+        );
     }
 
     #[test]

@@ -24,6 +24,7 @@
 //! - `zone:temperature:living_unit1` — specific zone
 //! - `surface:transmitted_solar:Window*` — all surfaces starting with "Window"
 
+use openbse_core::ports::ComponentKind;
 use openbse_core::simulation::TimestepResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -120,6 +121,27 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
             "zone:infiltration_mass_flow",
             "kg/s",
             "Zone infiltration air mass flow rate",
+        ),
+        (
+            "zone:pressure",
+            "Pa",
+            "Zone gauge pressure from the airflow network",
+        ),
+        (
+            "zone:occupied_temperature",
+            "°C",
+            "Zone air temperature at the occupied/thermostat height (room air gradient model)",
+        ),
+        ("zone:ach", "1/h", "Zone infiltration air change rate"),
+        (
+            "zone:interzone_inflow",
+            "kg/s",
+            "Total interzone airflow into the zone from the airflow network",
+        ),
+        (
+            "zone:species_<name>",
+            "kg/kg",
+            "Zone species concentration (e.g. zone:species_co2)",
         ),
         (
             "zone:nat_vent_flow",
@@ -468,9 +490,14 @@ pub fn get_unit(spec: &str) -> &'static str {
             "temperature"
             | "supply_air_temperature"
             | "mean_radiant_temperature"
-            | "operative_temperature",
+            | "operative_temperature"
+            | "occupied_temperature",
         ) => "°C",
         ("zone", "humidity_ratio") => "kg/kg",
+        ("zone", "pressure") => "Pa",
+        ("zone", "ach") => "1/h",
+        ("zone", "interzone_inflow") => "kg/s",
+        ("zone", v) if v.starts_with("species_") => "kg/kg",
         ("zone", "nat_vent_flow") => "m³/s",
         ("zone", "infiltration_mass_flow" | "supply_air_mass_flow" | "nat_vent_mass_flow") => {
             "kg/s"
@@ -546,6 +573,71 @@ fn is_integrable(spec: &str) -> bool {
 
 // ─── Timestep Data Collector ────────────────────────────────────────────────
 
+/// Electric end-use bucket for a generic HVAC component (fan, coil, chiller…).
+///
+/// Used to categorize `component_electric_power` entries without dropping or
+/// double-counting odd-named components. Pumps, towers, humidifiers, heat
+/// recovery and DHW are routed to typed snapshot maps upstream and never reach
+/// this classifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ElecEndUse {
+    Fan,
+    Cooling,
+    Heating,
+    Other,
+}
+
+/// Classify a generic electric HVAC component into a building end use.
+///
+/// Dispatches on the component `kind` first (robust to naming), falling back to
+/// substring matching on `name` only when the kind is unknown — e.g. for the
+/// kind-less snapshots constructed directly in unit tests. The `hw && !chw`
+/// guard in the fallback keeps chilled-water ("CHW") coils from reading as
+/// heating just because the name contains "hw".
+pub fn elec_end_use(kind: Option<ComponentKind>, name: &str) -> ElecEndUse {
+    match kind {
+        Some(ComponentKind::Fan) => return ElecEndUse::Fan,
+        Some(
+            ComponentKind::CoolingCoil
+            | ComponentKind::EvapCooler
+            | ComponentKind::Chiller
+            | ComponentKind::Crac
+            | ComponentKind::Crah
+            | ComponentKind::VrfIndoor
+            | ComponentKind::VrfOutdoor
+            | ComponentKind::Gshp
+            | ComponentKind::ThermalStorage,
+        ) => return ElecEndUse::Cooling,
+        Some(ComponentKind::HeatingCoil) => return ElecEndUse::Heating,
+        // Other kinds (Boiler is gas; Duct/HeatExchanger/RadiantPanel/etc. carry
+        // no electric power) fall through to the name heuristic below, which lets
+        // any unexpected electric draw still land somewhere countable.
+        Some(_) | None => {}
+    }
+
+    let l = name.to_lowercase();
+    if l.contains("fan") {
+        ElecEndUse::Fan
+    } else if l.contains("cool")
+        || l.contains("dx")
+        || l.contains("chiller")
+        || l.starts_with("cc ")
+        || l.starts_with("cc_")
+    {
+        ElecEndUse::Cooling
+    } else if l.contains("heat")
+        || l.contains("furnace")
+        || l.starts_with("hc ")
+        || l.starts_with("hc_")
+        // "hw" (hot-water coil) but not "chw" (chilled-water coil)
+        || (l.contains("hw") && !l.contains("chw"))
+    {
+        ElecEndUse::Heating
+    } else {
+        ElecEndUse::Other
+    }
+}
+
 /// Snapshot of all simulation state at a single timestep.
 ///
 /// This is the intermediate data that flows from the simulation loop
@@ -568,6 +660,17 @@ pub struct OutputSnapshot {
 
     // Per-zone data (zone_name -> value)
     pub zone_temperature: HashMap<String, f64>,
+    /// Zone AFN gauge pressure [Pa] (#89); empty when the AFN is off.
+    pub zone_pressure: HashMap<String, f64>,
+    /// Zone occupied-height air temperature [°C] (#91); equals the mean
+    /// air temperature for well-mixed zones.
+    pub zone_occupied_temperature: HashMap<String, f64>,
+    /// Zone infiltration air change rate [1/h] (#97).
+    pub zone_ach: HashMap<String, f64>,
+    /// Total AFN interzone inflow into the zone [kg/s] (#97).
+    pub zone_interzone_inflow: HashMap<String, f64>,
+    /// Zone species concentrations [kg/kg] keyed by species name (#89).
+    pub zone_species: HashMap<String, HashMap<String, f64>>,
     pub zone_humidity_ratio: HashMap<String, f64>,
     pub zone_heating_rate: HashMap<String, f64>,
     pub zone_cooling_rate: HashMap<String, f64>,
@@ -604,6 +707,11 @@ pub struct OutputSnapshot {
     // Per-component energy end uses (component_name -> watts)
     pub component_electric_power: HashMap<String, f64>,
     pub component_fuel_power: HashMap<String, f64>,
+    // Component kind (by name) for the entries in component_electric_power /
+    // component_fuel_power. Lets end-use categorization dispatch on kind instead
+    // of fragile substring matching on the component name. Not Serialize — only
+    // used in-process for energy accounting.
+    pub component_kinds: HashMap<String, ComponentKind>,
     // Internal gains by type (zone_name -> watts)
     pub zone_lighting_power: HashMap<String, f64>,
     pub zone_equipment_power: HashMap<String, f64>,
@@ -624,9 +732,25 @@ pub struct OutputSnapshot {
     pub zone_gain_hvac_sensible: HashMap<String, f64>,
     pub zone_gain_hvac_latent: HashMap<String, f64>,
 
-    // Zone comfort metrics
+    // Zone comfort metrics (#102, #103)
+    /// Long-wave (area-weighted surface) mean radiant temperature [°C], excluding
+    /// any direct-solar correction. See `zone_effective_mrt` for the value used by
+    /// PMV / operative temperature (#109).
     pub zone_mean_radiant_temperature: HashMap<String, f64>,
+    /// Effective MRT [°C] = long-wave MRT + solar correction. This is the MRT that
+    /// drives PMV and operative temperature (#109).
+    pub zone_effective_mrt: HashMap<String, f64>,
     pub zone_operative_temperature: HashMap<String, f64>,
+    /// Predicted Mean Vote per ISO 7730 / ASHRAE 55 Fanger model.
+    pub zone_pmv: HashMap<String, f64>,
+    /// Predicted Percentage Dissatisfied [%].
+    pub zone_ppd: HashMap<String, f64>,
+    /// Solar MRT correction [K] — increment added to long-wave MRT when occupant is in direct beam.
+    pub zone_solar_mrt_correction: HashMap<String, f64>,
+
+    // Per-window blind state (#104)
+    /// 1.0 = blind deployed, 0.0 = open. Keyed by surface name.
+    pub window_blind_deployed: HashMap<String, f64>,
 
     // Zone unmet hours time-series (0.0 or 1.0)
     pub zone_unmet_heating: HashMap<String, f64>,
@@ -676,6 +800,11 @@ impl OutputSnapshot {
             site_diffuse_horizontal_radiation: 0.0,
             site_relative_humidity: 0.0,
             zone_temperature: HashMap::new(),
+            zone_pressure: HashMap::new(),
+            zone_occupied_temperature: HashMap::new(),
+            zone_ach: HashMap::new(),
+            zone_interzone_inflow: HashMap::new(),
+            zone_species: HashMap::new(),
             zone_humidity_ratio: HashMap::new(),
             zone_heating_rate: HashMap::new(),
             zone_cooling_rate: HashMap::new(),
@@ -703,6 +832,7 @@ impl OutputSnapshot {
             air_loop_outlet_humidity_ratio: HashMap::new(),
             component_electric_power: HashMap::new(),
             component_fuel_power: HashMap::new(),
+            component_kinds: HashMap::new(),
             zone_gain_people_sensible: HashMap::new(),
             zone_gain_people_latent: HashMap::new(),
             zone_gain_lighting: HashMap::new(),
@@ -718,7 +848,12 @@ impl OutputSnapshot {
             zone_gain_hvac_sensible: HashMap::new(),
             zone_gain_hvac_latent: HashMap::new(),
             zone_mean_radiant_temperature: HashMap::new(),
+            zone_effective_mrt: HashMap::new(),
             zone_operative_temperature: HashMap::new(),
+            zone_pmv: HashMap::new(),
+            zone_ppd: HashMap::new(),
+            zone_solar_mrt_correction: HashMap::new(),
+            window_blind_deployed: HashMap::new(),
             zone_unmet_heating: HashMap::new(),
             zone_unmet_cooling: HashMap::new(),
             submeter_power: HashMap::new(),
@@ -738,6 +873,22 @@ impl OutputSnapshot {
         }
     }
 
+    /// Sum the generic electric-component power that classifies into `target`.
+    ///
+    /// Dispatches on each component's recorded [`ComponentKind`] (when present)
+    /// and falls back to its name. Only `component_electric_power` entries are
+    /// considered — pumps, towers, humidifiers, heat recovery and DHW live in
+    /// their own typed maps and must not be double-counted here.
+    fn component_elec_by_use(&self, target: ElecEndUse) -> f64 {
+        self.component_electric_power
+            .iter()
+            .filter(|(name, _)| {
+                elec_end_use(self.component_kinds.get(*name).copied(), name) == target
+            })
+            .map(|(_, &v)| v)
+            .sum()
+    }
+
     /// Get all entity→value pairs for a given category and variable name.
     fn get_category_values(&self, category: &str, variable: &str) -> HashMap<String, f64> {
         match category {
@@ -753,6 +904,10 @@ impl OutputSnapshot {
             },
             "zone" => match variable {
                 "temperature" => self.zone_temperature.clone(),
+                "pressure" => self.zone_pressure.clone(),
+                "occupied_temperature" => self.zone_occupied_temperature.clone(),
+                "ach" => self.zone_ach.clone(),
+                "interzone_inflow" => self.zone_interzone_inflow.clone(),
                 "humidity_ratio" => self.zone_humidity_ratio.clone(),
                 "heating_rate" => self.zone_heating_rate.clone(),
                 "cooling_rate" => self.zone_cooling_rate.clone(),
@@ -793,10 +948,21 @@ impl OutputSnapshot {
                 "gain_hvac_sensible" => self.zone_gain_hvac_sensible.clone(),
                 "gain_hvac_latent" => self.zone_gain_hvac_latent.clone(),
                 "mean_radiant_temperature" => self.zone_mean_radiant_temperature.clone(),
+                "effective_mrt" => self.zone_effective_mrt.clone(),
                 "operative_temperature" => self.zone_operative_temperature.clone(),
+                "pmv" => self.zone_pmv.clone(),
+                "ppd" => self.zone_ppd.clone(),
+                "solar_mrt_correction" => self.zone_solar_mrt_correction.clone(),
                 "unmet_heating" => self.zone_unmet_heating.clone(),
                 "unmet_cooling" => self.zone_unmet_cooling.clone(),
-                _ => HashMap::new(),
+                other => {
+                    // Dynamic species variables (#89): zone:species_<name>
+                    if let Some(species) = other.strip_prefix("species_") {
+                        self.zone_species.get(species).cloned().unwrap_or_default()
+                    } else {
+                        HashMap::new()
+                    }
+                }
             },
             "surface" => match variable {
                 "inside_temperature" => self.surface_inside_temperature.clone(),
@@ -810,43 +976,15 @@ impl OutputSnapshot {
                 "convection_inside" => self.surface_convection_inside.clone(),
                 "radiation_inside" => self.surface_radiation_inside.clone(),
                 "inside_radiation_coefficient" => self.surface_inside_radiation_coefficient.clone(),
+                "blind_deployed" => self.window_blind_deployed.clone(),
                 _ => HashMap::new(),
             },
             "building" => {
                 let value = match variable {
-                    "fan_electric" => self
-                        .component_electric_power
-                        .iter()
-                        .filter(|(n, _)| n.to_lowercase().contains("fan"))
-                        .map(|(_, &v)| v)
-                        .sum(),
-                    "cooling_electric" => self
-                        .component_electric_power
-                        .iter()
-                        .filter(|(n, _)| {
-                            let l = n.to_lowercase();
-                            l.contains("cool") || l.contains("dx") || l.contains("chiller")
-                        })
-                        .map(|(_, &v)| v)
-                        .sum(),
-                    "heating_electric" => self
-                        .component_electric_power
-                        .iter()
-                        .filter(|(n, _)| {
-                            let l = n.to_lowercase();
-                            l.contains("heat") || l.contains("furnace")
-                        })
-                        .map(|(_, &v)| v)
-                        .sum(),
-                    "heating_gas" => self
-                        .component_fuel_power
-                        .iter()
-                        .filter(|(n, _)| {
-                            let l = n.to_lowercase();
-                            l.contains("boiler") || l.contains("heat") || l.contains("furnace")
-                        })
-                        .map(|(_, &v)| v)
-                        .sum(),
+                    "fan_electric" => self.component_elec_by_use(ElecEndUse::Fan),
+                    "cooling_electric" => self.component_elec_by_use(ElecEndUse::Cooling),
+                    "heating_electric" => self.component_elec_by_use(ElecEndUse::Heating),
+                    "heating_gas" => self.component_fuel_power.values().sum(),
                     "pump_electric" => self.pump_electric_power.values().sum(),
                     "heat_rejection" => self.heat_rejection_power.values().sum(),
                     "humidification" => self.humidification_power.values().sum(),
@@ -858,32 +996,10 @@ impl OutputSnapshot {
                     "equipment" => self.zone_equipment_power.values().sum(),
                     "ext_equipment" => self.ext_equipment_power.values().sum(),
                     "total_electric" => {
-                        let fans: f64 = self
-                            .component_electric_power
-                            .iter()
-                            .filter(|(n, _)| n.to_lowercase().contains("fan"))
-                            .map(|(_, &v)| v)
-                            .sum();
-                        let cooling: f64 = self
-                            .component_electric_power
-                            .iter()
-                            .filter(|(n, _)| {
-                                let l = n.to_lowercase();
-                                l.contains("cool") || l.contains("dx") || l.contains("chiller")
-                            })
-                            .map(|(_, &v)| v)
-                            .sum();
-                        let heating: f64 = self
-                            .component_electric_power
-                            .iter()
-                            .filter(|(n, _)| {
-                                let l = n.to_lowercase();
-                                l.contains("heat") || l.contains("furnace")
-                            })
-                            .map(|(_, &v)| v)
-                            .sum();
-                        fans + cooling
-                            + heating
+                        // Sum EVERY generic electric component exactly once, plus
+                        // every typed electric map. Bulletproof against the old
+                        // name-filter omission/double-count bug.
+                        self.component_electric_power.values().sum::<f64>()
                             + self.pump_electric_power.values().sum::<f64>()
                             + self.heat_rejection_power.values().sum::<f64>()
                             + self.humidification_power.values().sum::<f64>()
@@ -895,16 +1011,9 @@ impl OutputSnapshot {
                             + self.ext_equipment_power.values().sum::<f64>()
                     }
                     "total_gas" => {
-                        let heating: f64 = self
-                            .component_fuel_power
-                            .iter()
-                            .filter(|(n, _)| {
-                                let l = n.to_lowercase();
-                                l.contains("boiler") || l.contains("heat") || l.contains("furnace")
-                            })
-                            .map(|(_, &v)| v)
-                            .sum();
-                        heating + self.dhw_fuel_power.values().sum::<f64>()
+                        // All fuel-burning components are gas heating; plus DHW gas.
+                        self.component_fuel_power.values().sum::<f64>()
+                            + self.dhw_fuel_power.values().sum::<f64>()
                     }
                     _ => return HashMap::new(),
                 };
@@ -1400,6 +1509,7 @@ struct MonthlyEnergy {
     humidification_elec_j: f64, // Humidifier electric [J]
     heat_recovery_elec_j: f64,  // Heat recovery electric (wheel motor, etc.) [J]
     dhw_elec_j: f64,            // DHW electric (water heater) [J]
+    other_elec_j: f64,          // Uncategorized electric HVAC components [J]
     lighting_j: f64,            // Interior lighting [J]
     ext_lighting_j: f64,        // Exterior lighting [J]
     equipment_j: f64,           // Interior equipment/plug loads [J]
@@ -1662,46 +1772,28 @@ impl SummaryReport {
             }
         }
 
-        // 2. Generic HVAC component power — name-based matching for fans, coils, plant equip
-        //    Pumps, ext equipment, DHW, etc. are handled by typed maps above.
-        //    Unknown components are ignored (no fallback to cooling).
+        // 2. Generic HVAC component power — categorize by ComponentKind (robust to
+        //    naming), with a name fallback for kind-less entries. Pumps, ext
+        //    equipment, DHW, etc. are handled by typed maps above. Unrecognized
+        //    components land in `other_elec_j` so they are still counted in the
+        //    annual electric total (which is the sum of the end-use rows).
         for (comp_name, &pw) in &snapshot.component_electric_power {
-            let lname = comp_name.to_lowercase();
             let energy = pw * snapshot.dt;
             if !energy.is_finite() {
                 continue;
             }
-            if lname.contains("fan") {
-                me.fan_elec_j += energy;
-            } else if lname.contains("cool")
-                || lname.contains("dx")
-                || lname.contains("chiller")
-                || lname.starts_with("cc ")
-                || lname.starts_with("cc_")
-            {
-                me.cool_elec_j += energy;
-            } else if lname.contains("heat")
-                || lname.contains("furnace")
-                || lname.contains("hw")
-                || lname.starts_with("hc ")
-                || lname.starts_with("hc_")
-            {
-                me.heat_elec_j += energy;
+            let kind = snapshot.component_kinds.get(comp_name).copied();
+            match elec_end_use(kind, comp_name) {
+                ElecEndUse::Fan => me.fan_elec_j += energy,
+                ElecEndUse::Cooling => me.cool_elec_j += energy,
+                ElecEndUse::Heating => me.heat_elec_j += energy,
+                ElecEndUse::Other => me.other_elec_j += energy,
             }
-            // else: unrecognized components are not categorized
-            // (pumps, ext equipment, DHW handled via typed snapshot fields)
         }
-        for (comp_name, &pw) in &snapshot.component_fuel_power {
-            let lname = comp_name.to_lowercase();
+        // All fuel-burning HVAC components are gas heating (boilers, gas furnaces).
+        for &pw in snapshot.component_fuel_power.values() {
             let energy = pw * snapshot.dt;
-            if !energy.is_finite() {
-                continue;
-            }
-            if lname.contains("boiler")
-                || lname.contains("heat")
-                || lname.contains("furnace")
-                || lname.contains("hw")
-            {
+            if energy.is_finite() {
                 me.heat_gas_j += energy;
             }
         }
@@ -2671,6 +2763,7 @@ impl SummaryReport {
             make_row("Pumps (Electric)", |m| m.pump_elec_j),
             make_row("Cooling (Electric)", |m| m.cool_elec_j),
             make_row("Heating (Electric)", |m| m.heat_elec_j),
+            make_row("Other (Electric)", |m| m.other_elec_j),
             make_row("Heating (Gas)", |m| m.heat_gas_j),
             make_row("Heat Rejection", |m| m.heat_rejection_elec_j),
             make_row("Humidification", |m| m.humidification_elec_j),
@@ -3525,6 +3618,52 @@ mod tests {
         assert_eq!(get_unit("zone:heating_load"), "W");
         // Component temperatures
         assert_eq!(get_unit("component:outlet_temperature"), "\u{00b0}C");
+        // AFN outputs (#89)
+        assert_eq!(get_unit("zone:pressure"), "Pa");
+        assert_eq!(get_unit("zone:species_co2"), "kg/kg");
+    }
+
+    /// AFN output variables (#89): zone pressure and dynamic per-species
+    /// concentrations resolve through the zone category.
+    #[test]
+    fn test_zone_pressure_and_species_outputs() {
+        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
+        snap.zone_pressure.insert("Living".to_string(), -2.5);
+        snap.zone_species
+            .entry("co2".to_string())
+            .or_default()
+            .insert("Living".to_string(), 0.00095);
+
+        let vals = snap.get_variable_values("zone:pressure");
+        assert_eq!(vals.get("Living"), Some(&-2.5));
+
+        let vals = snap.get_variable_values("zone:species_co2");
+        assert_eq!(vals.get("Living"), Some(&0.00095));
+
+        // Unknown species yields no values (not a panic)
+        let vals = snap.get_variable_values("zone:species_radon");
+        assert!(vals.is_empty());
+    }
+
+    /// AFN reporting (#97): zone ACH and interzone inflow resolve with units.
+    #[test]
+    fn test_zone_ach_and_interzone_outputs() {
+        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
+        snap.zone_ach.insert("Living".to_string(), 0.35);
+        snap.zone_interzone_inflow
+            .insert("Living".to_string(), 0.12);
+
+        assert_eq!(
+            snap.get_variable_values("zone:ach").get("Living"),
+            Some(&0.35)
+        );
+        assert_eq!(
+            snap.get_variable_values("zone:interzone_inflow")
+                .get("Living"),
+            Some(&0.12)
+        );
+        assert_eq!(get_unit("zone:ach"), "1/h");
+        assert_eq!(get_unit("zone:interzone_inflow"), "kg/s");
     }
 
     #[test]
@@ -3693,6 +3832,48 @@ variables:
         // Unknown component filter returns empty
         let vals = snap.get_variable_values("component:fuel_power:FakeComp");
         assert!(vals.is_empty());
+    }
+
+    #[test]
+    fn test_total_electric_counts_odd_named_components_once() {
+        // Regression for #74: building:total_electric must include components
+        // whose names don't match any fan/cool/heat substring (e.g. "VRF-1"),
+        // and must not double-count names that hit multiple buckets.
+        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
+        snap.component_electric_power
+            .insert("VRF-1".to_string(), 1000.0); // odd name, no substring match
+        snap.component_electric_power
+            .insert("Supply Fan".to_string(), 200.0);
+        // Name hits both "cool" and "heat" — must be counted exactly once.
+        snap.component_electric_power
+            .insert("Heat-Cool Unit".to_string(), 300.0);
+
+        // total_electric must equal the plain sum of every electric component.
+        let total = snap.get_variable_values("building:total_electric");
+        assert_eq!(total.get("Building"), Some(&1500.0));
+
+        // The odd-named VRF lands in "Other" via the name fallback (no kind set).
+        assert_eq!(elec_end_use(None, "VRF-1"), ElecEndUse::Other);
+        // With a kind, VRF routes to Cooling.
+        assert_eq!(
+            elec_end_use(Some(ComponentKind::VrfOutdoor), "VRF-1"),
+            ElecEndUse::Cooling
+        );
+
+        // Summary report: the annual total is the sum of its category rows, so
+        // VRF-1 must survive into "Other (Electric)" and be counted in the total.
+        let mut report = SummaryReport::new(HashMap::new(), HashMap::new());
+        report.add_snapshot(&snap);
+        let rows = report.compute_enduse_rows();
+        let other = rows.iter().find(|r| r.label == "Other (Electric)").unwrap();
+        assert!((other.total - 1.0).abs() < 1e-9); // 1000 W * 3600 s = 1 kWh
+        let elec_total: f64 = rows
+            .iter()
+            .filter(|r| !r.label.contains("Gas"))
+            .map(|r| r.total)
+            .sum();
+        // 1500 W * 3600 s = 1.5 kWh total electric.
+        assert!((elec_total - 1.5).abs() < 1e-9);
     }
 
     #[test]

@@ -819,6 +819,33 @@ window_constructions:
 
 The `glass_emissivity` field controls longwave radiation exchange between the glass surface and the room interior (and exterior). The default of 0.84 is correct for uncoated soda-lime glass. Use a lower value for low-e coated windows.
 
+#### Dynamic Shading Control
+
+An optional `shading_control` block deploys an interior blind/shade based on solar irradiance or zone temperature, with deployment hysteresis. When deployed, solar gains are scaled by `blind_shgc / shgc` and (if `blind_u_factor` is given) the window U-factor switches to the blind+window assembly value. The control is evaluated once per timestep before solar gains, using the previous step's surface conditions (one-step lag, matching E+ `WindowShadingControl`).
+
+```yaml
+window_constructions:
+  - name: South Glazing
+    u_factor: 2.7
+    shgc: 0.39
+    shading_control:
+      type: solar_threshold   # or: temperature
+      threshold: 200          # deploy above 200 W/m² incident beam on glazing
+      hysteresis: 50          # retract below (threshold − 50) W/m²
+      blind_shgc: 0.05        # assembly SHGC when deployed (0.0 = blackout)
+      blind_u_factor: 1.8     # optional; defaults to the base window U-factor
+```
+
+| Field | Meaning |
+|-------|---------|
+| `type` | `solar_threshold` (incident beam [W/m²]) or `temperature` (zone air temp [°C]) |
+| `threshold` | Trigger level; for `temperature` you may use `setpoint` instead (default 26 °C; solar default 200 W/m²) |
+| `hysteresis` | Dead-band width; blind retracts when the signal falls below `trigger − hysteresis` (default 0) |
+| `blind_shgc` | Assembly SHGC when deployed (required). `0.0` is a valid blackout blind |
+| `blind_u_factor` | Assembly U-factor [W/(m²·K)] when deployed; defaults to the base window U-factor |
+
+The per-window `surface:blind_deployed` output (1 = deployed, 0 = retracted) is emitted for any window with a `shading_control`.
+
 ### Zones
 
 Define thermal zones with their volume, infiltration, internal gains, and advanced features. Volume and floor area default to 0, which triggers auto-calculation from surface vertices: volume is computed from the zone's enclosed floor polygon extruded to ceiling height, and floor area is the sum of floor-type surface areas. You only need to specify explicit values when the geometry is not modeled or when overriding the auto-calculation.
@@ -883,6 +910,27 @@ You can specify infiltration as either `design_flow_rate` (m³/s) or `air_change
 | `volume` | 0.0 (auto-calculate) | Zone air volume [m³] |
 | `floor_area` | 0.0 (auto-calculate) | Zone floor area [m²] |
 | `conditioned` | `true` | Whether zone has HVAC; `false` = free-floating |
+
+#### Comfort configuration
+
+An optional per-zone `comfort` block sets the occupant parameters used for the PMV/PPD and solar-MRT outputs. All fields are optional and default to ASHRAE 55 typical values.
+
+```yaml
+zones:
+  - name: Living
+    comfort:
+      metabolic_rate: 1.2     # [met] 1 met = 58.15 W/m²
+      clothing: 0.5           # [clo] 1 clo = 0.155 m²·K/W
+      air_velocity: 0.1       # [m/s] relative air velocity
+      solar_absorptivity: 0.67 # [–] short-wave absorptivity of clothing (SolarCal)
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `metabolic_rate` | 1.2 | Metabolic rate [met] (seated, light work) |
+| `clothing` | 0.5 | Clothing insulation [clo] (light summer) |
+| `air_velocity` | 0.1 | Relative air velocity [m/s] (still room) |
+| `solar_absorptivity` | 0.67 | Short-wave absorptivity of clothing for the solar MRT correction |
 
 #### Infiltration defaults
 
@@ -1225,8 +1273,14 @@ Variables use the format `category:variable` or `category:variable:name_filter`.
 **Zone comfort variables:**
 | Variable | Unit | Description |
 |----------|------|-------------|
-| `zone:mean_radiant_temperature` | °C | Area-weighted MRT from interior surface temps |
-| `zone:operative_temperature` | °C | Average of air temp and MRT |
+| `zone:mean_radiant_temperature` | °C | Long-wave, area-weighted MRT from interior surface temps |
+| `zone:effective_mrt` | °C | Long-wave MRT + solar correction; the MRT used for PMV and operative temperature |
+| `zone:operative_temperature` | °C | Average of air temp and effective MRT (valid for still air ≤ 0.2 m/s) |
+| `zone:pmv` | – | Predicted Mean Vote, Fanger ISO 7730 / ASHRAE 55 (−3 cold … 0 neutral … +3 hot) |
+| `zone:ppd` | % | Predicted Percentage Dissatisfied |
+| `zone:solar_mrt_correction` | K | Direct-beam solar MRT increment (ASHRAE 55-2023 Annex C) |
+
+Comfort inputs are set per zone via an optional `comfort:` block (`metabolic_rate` [met], `clothing` [clo], `air_velocity` [m/s], `solar_absorptivity` [–]); defaults are 1.2 met, 0.5 clo, 0.1 m/s, 0.67.
 
 **Zone unmet hours (time-series):**
 | Variable | Description |

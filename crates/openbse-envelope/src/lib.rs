@@ -22,11 +22,15 @@ pub mod material;
 pub mod schedule;
 pub mod shading;
 pub mod solar;
+pub mod species;
 pub mod surface;
 pub mod zone;
 pub mod zone_loads;
 
-pub use airflow_network::{AirflowNetwork, AirflowNetworkConfig, SurfaceAirflowOverride};
+pub use airflow_network::{
+    AirflowNetwork, AirflowNetworkConfig, CpFacade, CpModel, CpTable, LeakageClass,
+    SurfaceAirflowOverride,
+};
 pub use geometry::{azimuth_to_cardinal, CardinalDirection, EnvelopeAreas, Point3D};
 pub use ground_temp::GroundTempModel;
 pub use heat_balance::{BuildingEnvelope, SolarDistributionMethod};
@@ -40,11 +44,12 @@ pub use schedule::{day_of_week, ScheduleInput, ScheduleManager};
 pub use shading::{
     FinInput, OverhangInput, ShadingCalculation, ShadingSurfaceInput, WindowShadingInput,
 };
+pub use species::{SpeciesConfig, SpeciesGenerationInput, SpeciesTransport, SpeciesZoneInputs};
 pub use surface::{BoundaryCondition, SurfaceInput, SurfaceType};
 pub use zone::{
-    dc_rack_inlet_max, DataCenterConfig, ExhaustFanInput, IdealLoadsAirSystem,
-    InteriorSolarDistribution, OutdoorAirInput, ThermostatScheduleEntry, VentilationScheduleEntry,
-    ZoneInput,
+    dc_rack_inlet_max, DataCenterConfig, DuctLeakageInput, ExhaustFanInput, IdealLoadsAirSystem,
+    InteriorSolarDistribution, OutdoorAirInput, RoomAirGradient, ThermostatScheduleEntry,
+    VentilationScheduleEntry, ZoneComfortConfig, ZoneInput,
 };
 pub use zone_loads::{
     EquipmentGainInput, ExhaustFanTopLevel, IdealLoadsTopLevel, InfiltrationInteraction,

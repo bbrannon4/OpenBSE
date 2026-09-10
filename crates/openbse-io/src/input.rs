@@ -3173,6 +3173,9 @@ fn build_graph_impl(
                         h.zone_cooling_setpoint,
                     );
                     hum.submeter = h.submeter.clone();
+                    // Served (control) zone → driver feeds back the live zone temp
+                    // for the RH→w conversion (#60).
+                    hum.served_zone = air_loop.zone_terminals.first().map(|zc| zc.zone.clone());
                     graph.add_air_component(Box::new(hum))
                 }
                 EquipmentInput::Duct(d) => {
