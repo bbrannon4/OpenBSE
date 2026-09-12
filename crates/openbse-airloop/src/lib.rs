@@ -59,6 +59,8 @@ pub struct LoopInfo {
     /// Fan operating mode: cycling (fan cycles with coils) or continuous
     /// (fan runs at full speed always, coils cycle ON/OFF).
     pub fan_operating_mode: openbse_io::input::FanOperatingMode,
+    /// Cooling cycling degradation coefficient Cd: PLF = 1 − Cd·(1−PLR).
+    pub cooling_part_load_cd: f64,
     /// Terminal box component names per zone (zone_name -> component_name).
     /// Only populated for loops with VAV/PFP terminal boxes defined in YAML.
     pub terminal_boxes: HashMap<String, String>,
@@ -91,6 +93,31 @@ pub struct LoopInfo {
     pub economizer_high_limit: Option<f64>,
     /// Economizer high-limit shutoff enthalpy [J/kg] (for FixedEnthalpy / EnthalpyWithHighLimit).
     pub economizer_high_limit_enthalpy: Option<f64>,
+    /// Supply-fan air temperature rise at design [°C]. A draw-through fan sits
+    /// downstream of the coils, so the SingleZone SAT reset must aim the coil
+    /// leaving temperature this much below the supply temperature that holds the
+    /// zone (the fan reheats the air before it reaches the zone). Computed from
+    /// the supply fan's design pressure rise / efficiency / motor placement.
+    pub supply_fan_dt: f64,
+    /// Return-fan air temperature rise at design [°C]. A return fan on the
+    /// return-air path heats the return air before it mixes with outdoor air,
+    /// raising the mixed-air (coil entering) temperature. 0.0 = no return fan.
+    pub return_fan_dt: f64,
+    /// Hold the central cooling coil at a fixed leaving-air temperature
+    /// (`cooling_supply_temp`) instead of the SetpointManager:Warmest reset
+    /// (ASHRAE 140 §11 AE300/AE400 terminal-reheat systems).
+    pub fixed_cooling_sat: bool,
+    /// Central preheat-coil leaving-air setpoint [°C], when the AHU heating coil
+    /// tempers the mixed air to a fixed temperature instead of frost-protection.
+    pub preheat_setpoint: Option<f64>,
+    /// Per-zone VAV terminal minimum flow fraction (zone_name → fraction). Lets
+    /// the terminal-reheat control size the minimum airflow per zone (constant
+    /// volume = 1.0). Empty for loops without VAV terminal boxes.
+    pub terminal_min_flow: HashMap<String, f64>,
+    /// Fixed minimum outdoor-air mass flow [kg/s] (optional). When set, the OA
+    /// fraction is this flow divided by the current total supply flow, so a VAV
+    /// system throttling down draws a rising OA fraction (fixed OA volume).
+    pub min_oa_flow_mass: Option<f64>,
 }
 
 /// Control role of a component in a signal builder's coil dispatch.
@@ -284,6 +311,28 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         }
     }
 
+    // SingleZone SAT reset: align the economizer/OA mode with the reset's own
+    // heating-vs-cooling decision (main.rs drives the coils from q_heat/q_cool,
+    // not the zone-temperature mode). When heating and cooling setpoints are
+    // equal (ASHRAE 140 §11 AE), a tiny undershoot would otherwise flip the
+    // predictor to Heating and suppress the economizer on a cooling case.
+    let single_zone_sat = matches!(
+        li.cooling_sat_reset,
+        Some(openbse_io::input::SatResetConfig::SingleZone { .. })
+    ) || matches!(
+        li.heating_sat_reset,
+        Some(openbse_io::input::SatResetConfig::SingleZone { .. })
+    );
+    if single_zone_sat {
+        mode = if zone_cool_load > zone_heat_load && zone_cool_load > 0.0 {
+            HvacMode::Cooling
+        } else if zone_heat_load > 0.0 {
+            HvacMode::Heating
+        } else {
+            HvacMode::Deadband
+        };
+    }
+
     // Total design flow for this loop
     let mut total_flow = 0.0f64;
     for zone_name in &li.served_zones {
@@ -368,6 +417,11 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         .get(control_zone)
         .copied()
         .unwrap_or(0.008);
+    // A return fan (when present) heats the return air before it mixes with
+    // outdoor air. The economizer availability test still uses the pre-fan
+    // return condition (the standard control-sensor location); only the
+    // mixed-air temperature sees the fan-heated return air.
+    let mixing_return_temp = return_air_temp + li.return_fan_dt;
     let return_enthalpy = openbse_psychrometrics::h_fn_tdb_w(return_air_temp, return_w);
     let outdoor_enthalpy = openbse_psychrometrics::h_fn_tdb_w(raw_t_outdoor, w_outdoor);
     use openbse_io::input::EconomizerType;
@@ -389,25 +443,61 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         }
     };
     let oa_frac = if psz_econ_available && mode != HvacMode::Heating {
-        // Economizer: modulate OA to approach SAT target in mixed air.
+        // Economizer: modulate OA to approach the SAT target in mixed air.
         // Active in both Cooling and Deadband — provides free cooling from
         // outdoor air, reducing or eliminating mechanical cooling.  Matches
         // E+'s economizer which operates whenever OA conditions are favorable,
         // regardless of whether the cooling coil is currently active.
-        let delta = return_air_temp - t_outdoor;
-        if delta > 0.1 {
-            let needed = (return_air_temp - econ_target) / delta;
-            needed.clamp(effective_min_oa, 1.0)
+        //
+        // `psz_econ_available` already encodes that outdoor air is beneficial
+        // (cooler than return for dry-bulb, lower-enthalpy for enthalpy types),
+        // so the only question is how much OA to admit:
+        //   • OA colder than the supply target → blend with return to land on
+        //     the target (avoid overshooting cold, which would need reheat).
+        //   • OA warmer than the target but still favorable → 100% OA for the
+        //     most free cooling; the coil handles the remaining sensible load
+        //     (ASHRAE 140 §11 AE226 dry-bulb and AE245 enthalpy both run 100%).
+        if t_outdoor <= econ_target {
+            let delta = return_air_temp - t_outdoor;
+            if delta > 0.1 {
+                ((return_air_temp - econ_target) / delta).clamp(effective_min_oa, 1.0)
+            } else {
+                effective_min_oa
+            }
         } else {
-            effective_min_oa
+            1.0
         }
     } else {
         effective_min_oa
     };
-    let mixed_air_temp = return_air_temp * (1.0 - oa_frac) + t_outdoor * oa_frac;
+    let mixed_air_temp = mixing_return_temp * (1.0 - oa_frac) + t_outdoor * oa_frac;
+
+    // SingleZone SAT reset: the supply-temp reset (main.rs) already set both
+    // coils' leaving-air setpoints to hold the zone exactly — the active coil
+    // at the zone-tracking SAT, the inactive coil parked out of the air's way.
+    // Drive the coils straight to those setpoints (modulating, continuous) and
+    // skip the on/off mode gating, which bang-bangs a massless zone.
+    // (`single_zone_sat` is computed above, where it also aligns the OA mode.)
 
     for name in &li.component_names {
         let role = li.coil_role(name);
+        if single_zone_sat {
+            match role {
+                CoilRole::Heating => {
+                    signals
+                        .coil_setpoints
+                        .insert(name.clone(), li.heating_supply_temp);
+                }
+                CoilRole::Cooling => {
+                    signals
+                        .coil_setpoints
+                        .insert(name.clone(), li.cooling_supply_temp);
+                }
+                _ => {}
+            }
+            signals.air_mass_flows.insert(name.clone(), flow);
+            continue;
+        }
         match mode {
             HvacMode::Heating => {
                 // Proportional heating DAT: ramps from setpoint toward max (40°C)
@@ -1001,8 +1091,15 @@ pub fn build_vav_signals(
             sat_setpoint = sat_setpoint.min(sat_needed);
         }
     }
-    // Clamp to E+ SetpointManager range
-    let sat_setpoint = sat_setpoint.clamp(sat_min, sat_max);
+    // Clamp to E+ SetpointManager range — unless the coil is held at a fixed
+    // scheduled SAT (ASHRAE 140 §11 AE300/AE400 terminal-reheat systems), where
+    // the central cooling coil always targets `cooling_supply_temp` and the
+    // per-zone reheat coils trim the supply to hold each zone.
+    let sat_setpoint = if li.fixed_cooling_sat {
+        li.cooling_supply_temp
+    } else {
+        sat_setpoint.clamp(sat_min, sat_max)
+    };
 
     // ── Compute zone flows using the SAT-derived supply temp ──
     //
@@ -1037,37 +1134,78 @@ pub fn build_vav_signals(
             base_mode
         };
 
-        let zone_flow = match mode {
-            HvacMode::Cooling => {
-                let cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
-                if cool_load > 100.0 {
-                    // m = Q / (Cp × (T_zone - SAT))
-                    let dt = (zone_temp - sat_setpoint).max(1.0);
-                    let m_needed = cool_load / (cp * dt);
-                    let min_flow = design_flow * li.min_vav_fraction;
-                    let flow = m_needed.clamp(min_flow, design_flow);
-                    let frac =
-                        ((flow - min_flow) / (design_flow - min_flow).max(0.001)).clamp(0.0, 1.0);
-                    max_cooling_demand = max_cooling_demand.max(frac);
-                    flow
-                } else {
-                    // Dehumidification-only: run at minimum flow to activate DX coil
-                    design_flow * li.min_vav_fraction
+        // Fixed-SAT terminal-reheat zones (ASHRAE 140 §11 AE300/AE400): the box
+        // flow must match what the terminal reheat control (in the CLI simulate
+        // loop) actually delivers, so the AHU coil/fan see the same total flow.
+        // A cooling zone modulates flow to meet its load off the fixed cold deck
+        // (down to the per-zone minimum); every other zone sits at minimum.
+        let zone_flow = if li.fixed_cooling_sat {
+            let cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
+            let heat_load = zone_heating_loads.get(zone_name).copied().unwrap_or(0.0);
+            let net_gain = cool_load - heat_load;
+            let min_frac = li
+                .terminal_min_flow
+                .get(zone_name)
+                .copied()
+                .unwrap_or(li.min_vav_fraction);
+            let min_flow = design_flow * min_frac;
+            let deck_dt = (cool_sp - sat_setpoint).max(0.1);
+            if net_gain > 0.0 {
+                (net_gain / (cp * deck_dt)).clamp(min_flow, design_flow)
+            } else {
+                min_flow
+            }
+        } else {
+            match mode {
+                HvacMode::Cooling => {
+                    let cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
+                    if cool_load > 100.0 {
+                        // m = Q / (Cp × (T_zone - SAT))
+                        let dt = (zone_temp - sat_setpoint).max(1.0);
+                        let m_needed = cool_load / (cp * dt);
+                        let min_flow = design_flow * li.min_vav_fraction;
+                        let flow = m_needed.clamp(min_flow, design_flow);
+                        let frac = ((flow - min_flow) / (design_flow - min_flow).max(0.001))
+                            .clamp(0.0, 1.0);
+                        max_cooling_demand = max_cooling_demand.max(frac);
+                        flow
+                    } else {
+                        // Dehumidification-only: run at minimum flow to activate DX coil
+                        design_flow * li.min_vav_fraction
+                    }
                 }
+                HvacMode::Heating => {
+                    let error = (heat_sp - zone_temp).clamp(0.0, 5.0);
+                    let frac = li.min_vav_fraction
+                        + (v_heat_max_frac - li.min_vav_fraction) * (error / 5.0);
+                    design_flow * frac
+                }
+                HvacMode::Deadband => design_flow * li.min_vav_fraction,
             }
-            HvacMode::Heating => {
-                let error = (heat_sp - zone_temp).clamp(0.0, 5.0);
-                let frac =
-                    li.min_vav_fraction + (v_heat_max_frac - li.min_vav_fraction) * (error / 5.0);
-                design_flow * frac
-            }
-            HvacMode::Deadband => design_flow * li.min_vav_fraction,
         };
 
         signals.zone_air_flows.insert(zone_name.clone(), zone_flow);
         total_flow += zone_flow;
     }
     total_flow = total_flow.max(0.05);
+
+    // Part-flow fraction (current total flow ÷ sum of design zone flows). A VAV
+    // supply fan's heat scales with the cube of flow while the mass it warms
+    // scales linearly, so the air temperature rise across the fan scales with the
+    // SQUARE of the flow fraction. The fixed-SAT coil aims the leaving-air
+    // temperature below the supply setpoint by this reduced rise, so a throttled
+    // VAV system does not overcool (ASHRAE 140 §11 AE400).
+    let design_total_flow: f64 = li
+        .served_zones
+        .iter()
+        .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.0))
+        .sum();
+    let flow_frac = if design_total_flow > 1.0e-6 {
+        (total_flow / design_total_flow).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let effective_supply_fan_dt = li.supply_fan_dt * flow_frac * flow_frac;
 
     // ── ASHRAE 62.1 §6.2.5 Multi-Zone VRP: System Ventilation Efficiency ──
     //
@@ -1135,15 +1273,40 @@ pub fn build_vav_signals(
         effective_min_oa
     };
 
+    // Fixed minimum outdoor-air VOLUME (E+ Controller:OutdoorAir FixedMinimum):
+    // the OA controller holds a constant OA mass flow, so the OA fraction is that
+    // flow divided by the current total supply. As a VAV system throttles down the
+    // OA fraction rises toward 100%. Overrides the design-fraction floor.
+    let vrp_min_oa = if let Some(min_oa_mass) = li.min_oa_flow_mass {
+        (min_oa_mass / total_flow).clamp(0.0, 1.0)
+    } else {
+        vrp_min_oa
+    };
+
     // ── Return air temperature (flow-weighted average of zone temps) ──
+    // Weight each zone by its supply airflow: the return stream is the mix of the
+    // zones' outlets, so a higher-flow zone dominates the return (and thus the
+    // mixed-air) temperature. Falls back to a simple mean when flows are absent.
     let avg_zone_temp = if li.served_zones.is_empty() {
         21.0
     } else {
-        li.served_zones
-            .iter()
-            .map(|z| zone_temps.get(z).copied().unwrap_or(21.0))
-            .sum::<f64>()
-            / li.served_zones.len() as f64
+        let mut num = 0.0;
+        let mut den = 0.0;
+        for z in &li.served_zones {
+            let t = zone_temps.get(z).copied().unwrap_or(21.0);
+            let w = zone_design_flows.get(z).copied().unwrap_or(1.0).max(1.0e-6);
+            num += t * w;
+            den += w;
+        }
+        if den > 0.0 {
+            num / den
+        } else {
+            li.served_zones
+                .iter()
+                .map(|z| zone_temps.get(z).copied().unwrap_or(21.0))
+                .sum::<f64>()
+                / li.served_zones.len() as f64
+        }
     };
 
     // ── Economizer: modulating differential dry-bulb ──
@@ -1235,13 +1398,21 @@ pub fn build_vav_signals(
         // HR active → economizer locked to minimum OA
         vrp_min_oa
     } else if any_cooling && econ_available {
-        // Economizer: modulate OA for free cooling
-        let delta = avg_zone_temp - raw_t_outdoor;
-        let econ_oa = if delta > 0.1 {
-            let needed = (avg_zone_temp - sat_setpoint) / delta;
-            needed.clamp(vrp_min_oa, 1.0)
+        // Economizer: modulate OA for free cooling. `econ_available` already
+        // encodes that outdoor air is beneficial (cooler for dry-bulb, lower
+        // enthalpy for enthalpy types), so the only question is how much OA:
+        //   • OA colder than the SAT → blend with return to land on the SAT;
+        //   • OA warmer than the SAT but still favorable → 100% OA (an enthalpy
+        //     economizer importing warm-but-dry air; ASHRAE 140 §11 AE345/AE445).
+        let econ_oa = if raw_t_outdoor <= sat_setpoint {
+            let delta = avg_zone_temp - raw_t_outdoor;
+            if delta > 0.1 {
+                ((avg_zone_temp - sat_setpoint) / delta).clamp(vrp_min_oa, 1.0)
+            } else {
+                vrp_min_oa
+            }
         } else {
-            vrp_min_oa
+            1.0
         };
 
         // LockoutWithHeating: if the resulting mixed air is below SAT,
@@ -1256,20 +1427,39 @@ pub fn build_vav_signals(
     } else {
         vrp_min_oa
     };
-    // Mixed air uses effective (post-HR) outdoor temperature
-    let mixed_air_temp = avg_zone_temp * (1.0 - oa_frac) + t_outdoor * oa_frac;
+    // Mixed air uses effective (post-HR) outdoor temperature. A return fan (when
+    // present) heats the return air before it mixes with outdoor air.
+    let mixed_air_temp = (avg_zone_temp + li.return_fan_dt) * (1.0 - oa_frac) + t_outdoor * oa_frac;
 
     // ── AHU coil control ──
     for name in &li.component_names {
         let role = li.coil_role(name);
         if role == CoilRole::Cooling {
-            if any_cooling {
+            if li.fixed_cooling_sat {
+                // Fixed scheduled SAT: the coil always targets its leaving-air
+                // setpoint. A draw-through supply fan downstream reheats the air,
+                // so the coil aims that much below the supply SAT to land the
+                // supply air on setpoint (E+ SetpointManager:MixedAir). The coil
+                // self-limits (does nothing when the entering air is already below
+                // the target), so heating-mode cases — where the preheated mixed
+                // air is colder than the SAT — leave it off.
+                signals
+                    .coil_setpoints
+                    .insert(name.clone(), sat_setpoint - effective_supply_fan_dt);
+            } else if any_cooling {
                 // AHU cooling coil targets the SAT setpoint
                 signals.coil_setpoints.insert(name.clone(), sat_setpoint);
             } else {
                 // No cooling demand — coil off
                 signals.coil_setpoints.insert(name.clone(), 99.0);
             }
+        } else if role == CoilRole::Heating && li.preheat_setpoint.is_some() {
+            // Central preheat coil holding a fixed leaving temperature: temper the
+            // mixed air up to the preheat setpoint (the coil self-limits when the
+            // mixed air is already warmer).
+            signals
+                .coil_setpoints
+                .insert(name.clone(), li.preheat_setpoint.unwrap());
         } else if role == CoilRole::Heating {
             // AHU heating coil: frost protection only.
             //
@@ -1541,7 +1731,10 @@ mod tests {
             cooling_supply_temp: 13.0,
             cycling: CyclingMethod::OnOff,
             fan_operating_mode: FanOperatingMode::Cycling,
+            cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
+            terminal_min_flow: HashMap::new(),
+            min_oa_flow_mass: None,
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
@@ -1554,6 +1747,10 @@ mod tests {
             economizer_type: EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            supply_fan_dt: 0.0,
+            return_fan_dt: 0.0,
+            fixed_cooling_sat: false,
+            preheat_setpoint: None,
         }
     }
 

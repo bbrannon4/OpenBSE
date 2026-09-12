@@ -485,6 +485,50 @@ pub struct AirLoopControls {
     /// Overrides minimum_damper_position when set.
     #[serde(default)]
     pub outdoor_air_fraction: Option<f64>,
+    /// Cooling cycling degradation coefficient Cd for the part-load fraction
+    /// PLF = 1 − Cd·(1−PLR), applied to compressor and condenser-fan energy at
+    /// part load. Default 0.15 (EnergyPlus default); ASHRAE 140 HVAC BESTEST
+    /// specifies 0.229.
+    #[serde(default = "default_cooling_part_load_cd")]
+    pub cooling_part_load_cd: f64,
+    /// Return-fan design pressure rise [Pa] (optional — absent = no return fan).
+    /// A return fan on the return-air path heats the return air before it mixes
+    /// with outdoor air, raising the mixed-air (coil entering) temperature. Used
+    /// by the SingleZone air handler (ASHRAE 140 §11 AE); the air temperature
+    /// rise is dP / (efficiency · ρ · cp), independent of flow.
+    #[serde(default)]
+    pub return_fan_pressure_rise: Option<f64>,
+    /// Return-fan total efficiency [0-1] (default 0.7). Only used when
+    /// `return_fan_pressure_rise` is set.
+    #[serde(default = "default_return_fan_efficiency")]
+    pub return_fan_total_efficiency: f64,
+    /// Hold the central cooling coil at a FIXED leaving-air temperature
+    /// (`cooling_supply_temp`) instead of the SetpointManager:Warmest reset.
+    /// Used by the ASHRAE 140 §11 constant-volume / VAV terminal-reheat systems
+    /// (AE300/AE400), whose central chilled-water coil holds a scheduled SAT
+    /// while per-zone reheat coils trim the supply to hold each zone.
+    #[serde(default)]
+    pub fixed_cooling_sat: bool,
+    /// Central preheat-coil leaving-air setpoint [°C] (optional). When set, the
+    /// AHU heating coil holds this fixed temperature (e.g. 7.22 °C) to temper the
+    /// mixed air, rather than the default frost-protection-only behavior.
+    #[serde(default)]
+    pub preheat_setpoint: Option<f64>,
+    /// Fixed minimum outdoor-air flow [m³/s] (optional). Models an OA controller
+    /// that holds a constant outdoor-air VOLUME regardless of supply flow, so the
+    /// OA fraction rises as a VAV system throttles down (E+ Controller:OutdoorAir
+    /// FixedMinimum). When set it overrides `minimum_damper_position` as the OA
+    /// floor. Used by the ASHRAE 140 §11 AE400 VAV reheat cases.
+    #[serde(default)]
+    pub minimum_oa_flow: Option<f64>,
+}
+
+fn default_cooling_part_load_cd() -> f64 {
+    0.15
+}
+
+fn default_return_fan_efficiency() -> f64 {
+    0.7
 }
 
 impl Default for AirLoopControls {
@@ -501,6 +545,12 @@ impl Default for AirLoopControls {
             cooling_sat_reset: None,
             heating_sat_reset: None,
             outdoor_air_fraction: None,
+            cooling_part_load_cd: 0.15,
+            return_fan_pressure_rise: None,
+            return_fan_total_efficiency: 0.7,
+            fixed_cooling_sat: false,
+            preheat_setpoint: None,
+            minimum_oa_flow: None,
         }
     }
 }
@@ -546,6 +596,17 @@ pub enum SatResetConfig {
         /// Step size per timestep [°C] (default 0.5)
         #[serde(default = "default_sat_step")]
         step: f64,
+    },
+    /// Reset SAT each timestep to the temperature that holds the control zone
+    /// exactly at its setpoint, given the zone's sensible load and the supply
+    /// mass flow (EnergyPlus SetpointManager:SingleZone). Used by constant-
+    /// volume single-zone systems (ASHRAE 140 Section 11 AE cases), where the
+    /// supply temperature — not the flow — modulates to meet the load.
+    SingleZone {
+        /// Minimum SAT [°C]
+        sat_min: f64,
+        /// Maximum SAT [°C]
+        sat_max: f64,
     },
 }
 
@@ -1126,6 +1187,10 @@ pub struct CoolingCoilInput {
     /// Outlet temperature setpoint [°C]
     #[serde(default = "default_dx_coil_setpoint")]
     pub setpoint: f64,
+    /// Rated outdoor (condenser) fan power [W] — DX source only. Runs with the
+    /// compressor; energy is reported under cooling electricity. Default 0.
+    #[serde(default)]
+    pub condenser_fan_power: f64,
     /// Reference to a top-level performance curve name for capacity f(T)
     #[serde(default)]
     pub cap_ft_curve: Option<String>,
@@ -1435,6 +1500,12 @@ pub struct VavBoxInput {
     /// Maximum reheat discharge air temperature [°C] (default 35.0)
     #[serde(default)]
     pub max_reheat_temp: Option<f64>,
+    /// Maximum flow fraction during reheat [0-1] (E+ "Damper Heating Action").
+    /// The heating-mode damper opens from the minimum toward this fraction of
+    /// maximum flow. Set equal to `min_flow_fraction` to hold minimum flow during
+    /// reheat (reheat-first control); default 0.5 (ASHRAE G36 dual-maximum).
+    #[serde(default)]
+    pub max_reheat_fraction: Option<f64>,
     /// Plant loop name for hot water reheat
     #[serde(default)]
     pub plant_loop: Option<String>,
@@ -3063,6 +3134,7 @@ fn build_graph_impl(
                                 )
                                 .with_curves(cap_curve, eir_curve)
                                 .with_fflow_curves(cap_fflow, eir_fflow)
+                                .with_condenser_fan_power(c.condenser_fan_power)
                                 .with_autocalculate_shr(c.autocalculate_shr);
                                 if let Some(plf) = c.plf_curve.as_ref().and_then(|name| {
                                     model
@@ -3244,6 +3316,12 @@ fn build_graph_impl(
                             vb.reheat_capacity.to_f64(),
                         );
                         box_component.submeter = vb.submeter.clone();
+                        if let Some(t) = vb.max_reheat_temp {
+                            box_component.max_reheat_temp = t;
+                        }
+                        if let Some(f) = vb.max_reheat_fraction {
+                            box_component.max_reheat_fraction = f;
+                        }
                         graph.add_air_component(Box::new(box_component))
                     }
                     TerminalInput::PfpBox(pb) => {
@@ -3928,6 +4006,7 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                     wind_coefficient: infil.wind_coefficient,
                     wind_squared_coefficient: infil.wind_squared_coefficient,
                     schedule: infil.schedule.clone(),
+                    density_basis: infil.density_basis,
                 });
             }
         }
@@ -4042,6 +4121,21 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                 if !il.thermostat_schedule.is_empty() {
                     zone.thermostat_schedule = il.thermostat_schedule.clone();
                 }
+            }
+        }
+    }
+
+    // Copy thermostat setback schedules onto their zones so the ideal-load
+    // predictor sees the same hourly setpoints as the HVAC control (used by
+    // real-HVAC cases such as ASHRAE 140 Section 10 HE220/HE230).
+    let resolved_tstats = resolve_thermostats(model);
+    for tstat in &resolved_tstats {
+        if tstat.thermostat_schedule.is_empty() {
+            continue;
+        }
+        for zone_name in expand_zones(&tstat.zones) {
+            if let Some(zone) = zones.iter_mut().find(|z| z.name == zone_name) {
+                zone.thermostat_schedule = tstat.thermostat_schedule.clone();
             }
         }
     }

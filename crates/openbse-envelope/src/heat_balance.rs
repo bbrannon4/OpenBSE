@@ -2284,6 +2284,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         Some(name) => self.schedule_manager.fraction(name, hour, dow),
                         None => 1.0,
                     };
+                    let rho_zone = psych::rho_air_fn_pb_tdb_w(p_b, zone.temp, w_outdoor);
                     zone.infiltration_mass_flow += infiltration::calc_infiltration_mass_flow(
                         infil,
                         zone.input.volume,
@@ -2291,6 +2292,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         t_outdoor,
                         wind_speed_local,
                         rho_outdoor,
+                        rho_zone,
                     ) * sched_mult;
                 }
             }

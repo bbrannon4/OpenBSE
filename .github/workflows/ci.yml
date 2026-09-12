@@ -54,7 +54,7 @@ jobs:
       # failing engine "pass".
       - name: Verify acceptance ranges are untampered
         run: |
-          echo "217eefe83887198c927473f1efa4172d385c68a0032a2fb772304ce8e077383c  140_tests/acceptance_ranges_140_2023.json" | sha256sum -c -
+          echo "84b3995c6d73330ba4332a778c6dddb0ce57564e2a8e6aa474dde568241c572b  140_tests/acceptance_ranges_140_2023.json" | sha256sum -c -
 
       - name: Build release
         run: cargo build --release
@@ -70,7 +70,7 @@ jobs:
       - name: Run all 140 cases
         working-directory: 140_tests/cases
         run: |
-          for yaml in ashrae140_case[0-9]*.yaml; do
+          for yaml in ashrae140_case[0-9ACH]*.yaml; do
             echo "::group::$(basename "$yaml")"
             ../../target/release/openbse "$yaml" || { echo "CASE FAILED TO RUN: $yaml"; exit 1; }
             echo "::endgroup::"

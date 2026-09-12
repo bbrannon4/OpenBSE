@@ -36,6 +36,24 @@ with open(_RANGES_PATH) as _f:
 # Load cases: (H_min, H_max, C_min, C_max) in kWh
 LOAD_RANGES = {k: tuple(v) for k, v in _RANGES["load_ranges_kwh"].items()}
 
+# Section 9a cooling-equipment February-total ranges: {case: {metric: [lo, hi]}}
+CE_RANGES = _RANGES.get("ce_february_ranges_kwh", {})
+
+# Section 10 fuel-fired furnace ranges: {case: {metric: [lo, hi]}}
+HE_RANGES = _RANGES.get("he_ranges", {})
+
+# Section 11 air-side equipment ranges (single-zone AE200 series): {case: {metric: [lo, hi]}}
+AE_RANGES = _RANGES.get("ae_ranges", {})
+
+# Section 11 two-zone terminal-reheat ranges (AE300 CV / AE400 VAV): central-coil loads.
+AE_REHEAT_RANGES = _RANGES.get("ae_reheat_ranges", {})
+
+# Natural-gas higher heating value used to convert furnace fuel input (J) to a
+# volumetric flow (m³/s) — 38 MJ/m³, from the reference programs' input/fuel
+# ratio. HE cases run Jan–Mar (2160 h).
+HE_GAS_HHV_J_PER_M3 = 38.0e6
+HE_RUN_SECONDS = 2160 * 3600
+
 # Free-float temperature ranges: (max_lo, max_hi, min_lo, min_hi, mean_lo, mean_hi)
 FF_RANGES = {k: tuple(v) for k, v in _RANGES["free_float_temp_ranges_c"].items()}
 
@@ -48,7 +66,7 @@ SZ_RANGES = {k: tuple(v) for k, v in _RANGES["sun_zone_temp_ranges_c"].items()}
 # When a known failure starts passing, CI prints a notice so you can promote it.
 # When a currently-passing check regresses, CI fails.
 # ---------------------------------------------------------------------------
-KNOWN_FAILURES = set()  # All 63 checks currently pass as of 2026-04-04
+KNOWN_FAILURES = set()  # All 251 checks currently pass (TF + CE + HE + AE200)
 
 
 def read_load_results(case):
@@ -112,6 +130,191 @@ def read_960_sz_temps():
     if not temps:
         return None, None, None
     return max(temps), min(temps), sum(temps) / len(temps)
+
+
+def _feb_rows(path):
+    """Return the February hourly rows from an OpenBSE output CSV."""
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        return [r for r in csv.DictReader(f) if int(r["Month"]) == 2]
+
+
+def _col_sum(rows, needle):
+    """Sum a column (matched by substring) over rows, converting W·h → kWh."""
+    if not rows:
+        return 0.0
+    keys = [k for k in rows[0] if needle in k]
+    if not keys:
+        return 0.0
+    return sum(float(r[keys[0]]) for r in rows) / 1000.0
+
+
+def read_ce_february(case):
+    """Extract ASHRAE 140 Section 9a February totals for a CE case.
+
+    Returns a dict of the gated metrics (kWh, plus COP), or None if the case
+    output is missing. Cooling-energy split, coil load, and COP follow the
+    Std140_CE_a glossary:
+      cool_total = compressor + supply_fan + condenser_fan
+      zone_sensible = coil_sensible − supply_fan_heat   (draw-through fan)
+      cop = zone_total_load / cool_total
+    """
+    hvac = _feb_rows(os.path.join(BASE_DIR, f"ashrae140_case{case}_hvac_results.csv"))
+    if not hvac:
+        return None
+    comp = _col_sum(hvac, "compressor_power")
+    cond = _col_sum(hvac, "condenser_fan_power")
+    sfan = _col_sum(hvac, "Supply Fan:electric_power")
+    coil_total = _col_sum(hvac, "total_load")
+    coil_sens = _col_sum(hvac, "sensible_load")
+    coil_lat = _col_sum(hvac, "latent_load")
+    cool_total = comp + cond + sfan
+    zone_total = (coil_sens - sfan) + coil_lat  # fan heat is sensible only
+    cop = zone_total / cool_total if cool_total > 0 else 0.0
+    return {
+        "cool_total": cool_total,
+        "compressor": comp,
+        "supply_fan": sfan,
+        "cond_fan": cond,
+        "coil_total": coil_total,
+        "coil_sens": coil_sens,
+        "coil_lat": coil_lat,
+        "cop": cop,
+    }
+
+
+def read_he_results(case):
+    """Extract ASHRAE 140 Section 10 furnace annual totals for an HE case.
+
+    Returns furnace load and input (GJ), fuel consumption (m³/s), both-fans
+    energy (kWh), and mean/max/min zone temperature (°C), or None if missing.
+    """
+    hp = os.path.join(BASE_DIR, f"ashrae140_case{case}_hvac_results.csv")
+    zp = os.path.join(BASE_DIR, f"ashrae140_case{case}_zone_results.csv")
+    if not os.path.exists(hp):
+        return None
+    with open(hp) as f:
+        hvac = list(csv.DictReader(f))
+    if not hvac:
+        return None
+
+    def wh_sum(needle):
+        keys = [k for k in hvac[0] if needle in k]
+        return sum(float(r[keys[0]]) for r in hvac) if keys else 0.0
+
+    load_gj = wh_sum("Gas Furnace:thermal_output") * 3600 / 1e9
+    input_gj = wh_sum("Gas Furnace:fuel_power") * 3600 / 1e9
+    fuel_m3s = input_gj * 1e9 / (HE_GAS_HHV_J_PER_M3 * HE_RUN_SECONDS)
+    fan_kwh = wh_sum("Circulating Fan:electric_power") / 1000.0
+    result = {"load": load_gj, "input": input_gj, "fuel": fuel_m3s, "fan": fan_kwh}
+    if os.path.exists(zp):
+        with open(zp) as f:
+            zrows = list(csv.DictReader(f))
+        tkeys = [k for k in zrows[0] if "temperature" in k]
+        if tkeys and zrows:
+            temps = [float(r[tkeys[0]]) for r in zrows]
+            result["meanT"] = sum(temps) / len(temps)
+            result["maxT"] = max(temps)
+            result["minT"] = min(temps)
+    return result
+
+
+HE_METRIC_LABELS = {
+    "load": "Furnace Load (GJ)",
+    "input": "Furnace Input (GJ)",
+    "fuel": "Fuel Consumption (m3/s)",
+    "fan": "Fan Energy (kWh)",
+    "meanT": "Mean Zone Temp (C)",
+    "maxT": "Max Zone Temp (C)",
+    "minT": "Min Zone Temp (C)",
+}
+
+
+# Human-readable metric labels for the CE February-total checks.
+CE_METRIC_LABELS = {
+    "cool_total": "Feb Cooling Total (kWh)",
+    "compressor": "Feb Compressor (kWh)",
+    "supply_fan": "Feb Supply Fan (kWh)",
+    "cond_fan": "Feb Condenser Fan (kWh)",
+    "coil_total": "Feb Coil Load Total (kWh)",
+    "coil_sens": "Feb Coil Load Sensible (kWh)",
+    "coil_lat": "Feb Coil Load Latent (kWh)",
+    "cop": "COP",
+}
+
+
+def read_ae_results(case):
+    """Extract ASHRAE 140 Section 11 single-zone air-handler steady-state coil
+    loads for an AE case: the last simulated hour's heating-coil load (QH) and
+    cooling-coil sensible/latent/total loads (QCsens/QClat/QCtot), in kW.
+
+    A case has only its active coil, so the absent coil's metrics read 0.0.
+    Returns a dict keyed QH/QCsens/QClat/QCtot, or None if the file is missing.
+    """
+    hp = os.path.join(BASE_DIR, f"ashrae140_case{case}_hvac_results.csv")
+    if not os.path.exists(hp):
+        return None
+    with open(hp) as f:
+        hvac = list(csv.DictReader(f))
+    if not hvac:
+        return None
+    last = hvac[-1]
+
+    def col(needle):
+        keys = [k for k in last if needle in k]
+        return float(last[keys[0]]) / 1000.0 if keys else 0.0
+
+    return {
+        "QH": col("Heating Coil:thermal_output"),
+        "QCsens": col("Cooling Coil:sensible_load"),
+        "QClat": col("Cooling Coil:latent_load"),
+        "QCtot": col("Cooling Coil:total_load"),
+    }
+
+
+AE_METRIC_LABELS = {
+    "QH": "Heating Coil Load (kW)",
+    "QCsens": "Cooling Coil Sensible (kW)",
+    "QClat": "Cooling Coil Latent (kW)",
+    "QCtot": "Cooling Coil Total (kW)",
+}
+
+
+def read_ae_reheat_results(case):
+    """Extract ASHRAE 140 Section 11 two-zone terminal-reheat central-coil loads
+    for an AE300/AE400 case: the last hour's preheat-coil load (QHpre) and central
+    cooling-coil sensible/latent/total loads (QCsens/QClat/QCtot), in kW.
+
+    Returns a dict keyed QHpre/QCsens/QClat/QCtot, or None if the file is missing.
+    """
+    hp = os.path.join(BASE_DIR, f"ashrae140_case{case}_hvac_results.csv")
+    if not os.path.exists(hp):
+        return None
+    with open(hp) as f:
+        hvac = list(csv.DictReader(f))
+    if not hvac:
+        return None
+    last = hvac[-1]
+
+    def col(needle):
+        keys = [k for k in last if needle in k]
+        return float(last[keys[0]]) / 1000.0 if keys else 0.0
+
+    return {
+        "QHpre": col("Preheat Coil:thermal_output"),
+        "QCsens": col("Cooling Coil:sensible_load"),
+        "QClat": col("Cooling Coil:latent_load"),
+        "QCtot": col("Cooling Coil:total_load"),
+    }
+
+
+AE_REHEAT_METRIC_LABELS = {
+    "QHpre": "Preheat Coil Load (kW)",
+    "QCsens": "Cooling Coil Sensible (kW)",
+    "QClat": "Cooling Coil Latent (kW)",
+    "QCtot": "Cooling Coil Total (kW)",
+}
 
 
 def evaluate(value, lo, hi):
@@ -237,6 +440,116 @@ def main():
                 rows.append([case, metric, val, lo, hi, status, f"{delta:.1f}", ""])
                 fail_details.append(f"  Case {case} {metric}: OpenBSE={val}, "
                                     f"Range=[{lo}, {hi}], Delta={delta:.1f}")
+
+    # --- Section 9a cooling-equipment cases (CE100–CE200) ---
+    for case in sorted(CE_RANGES.keys(), key=lambda x: int(x[2:])):
+        results = read_ce_february(case)
+        if results is None:
+            missing.append(case)
+            continue
+        ranges = CE_RANGES[case]
+        for metric in ["cool_total", "compressor", "supply_fan", "cond_fan",
+                       "coil_total", "coil_sens", "coil_lat", "cop"]:
+            if metric not in ranges:
+                continue
+            lo, hi = ranges[metric]
+            val = round(results[metric], 3 if metric == "cop" else 1)
+            label = CE_METRIC_LABELS[metric]
+            status, delta = evaluate(val, lo, hi)
+            key = (case, label)
+            if status == "PASS":
+                pass_count += 1
+                passed_keys.add(key)
+                rows.append([case, label, val, lo, hi, status, "", ""])
+            else:
+                fail_count += 1
+                failed_keys.add(key)
+                pct = pct_delta(delta, lo, hi)
+                rows.append([case, label, val, lo, hi, status, f"{delta:.1f}", pct])
+                fail_details.append(f"  Case {case} {label}: OpenBSE={val}, "
+                                    f"Range=[{lo}, {hi}], Delta={delta:.1f}")
+
+    # --- Section 10 fuel-fired furnace cases (HE100–HE230) ---
+    for case in sorted(HE_RANGES.keys(), key=lambda x: int(x[2:])):
+        results = read_he_results(case)
+        if results is None:
+            missing.append(case)
+            continue
+        ranges = HE_RANGES[case]
+        for metric in ["load", "input", "fuel", "fan", "meanT", "maxT", "minT"]:
+            if metric not in ranges or metric not in results:
+                continue
+            lo, hi = ranges[metric]
+            digits = 6 if metric == "fuel" else 3
+            val = round(results[metric], digits)
+            label = HE_METRIC_LABELS[metric]
+            status, delta = evaluate(val, lo, hi)
+            key = (case, label)
+            if status == "PASS":
+                pass_count += 1
+                passed_keys.add(key)
+                rows.append([case, label, val, lo, hi, status, "", ""])
+            else:
+                fail_count += 1
+                failed_keys.add(key)
+                pct = pct_delta(delta, lo, hi)
+                rows.append([case, label, val, lo, hi, status, f"{delta:.4g}", pct])
+                fail_details.append(f"  Case {case} {label}: OpenBSE={val}, "
+                                    f"Range=[{lo}, {hi}], Delta={delta:.4g}")
+
+    # --- Section 11 air-side equipment cases (AE200 single-zone series) ---
+    for case in sorted(AE_RANGES.keys(), key=lambda x: int(x[2:])):
+        results = read_ae_results(case)
+        if results is None:
+            missing.append(case)
+            continue
+        ranges = AE_RANGES[case]
+        for metric in ["QH", "QCsens", "QClat", "QCtot"]:
+            if metric not in ranges or metric not in results:
+                continue
+            lo, hi = ranges[metric]
+            val = round(results[metric], 4)
+            label = AE_METRIC_LABELS[metric]
+            status, delta = evaluate(val, lo, hi)
+            key = (case, label)
+            if status == "PASS":
+                pass_count += 1
+                passed_keys.add(key)
+                rows.append([case, label, val, lo, hi, status, "", ""])
+            else:
+                fail_count += 1
+                failed_keys.add(key)
+                pct = pct_delta(delta, lo, hi)
+                rows.append([case, label, val, lo, hi, status, f"{delta:.4g}", pct])
+                fail_details.append(f"  Case {case} {label}: OpenBSE={val}, "
+                                    f"Range=[{lo}, {hi}], Delta={delta:.4g}")
+
+    # --- Section 11 two-zone terminal-reheat cases (AE300 CV / AE400 VAV) ---
+    for case in sorted(AE_REHEAT_RANGES.keys(), key=lambda x: int(x[2:])):
+        results = read_ae_reheat_results(case)
+        if results is None:
+            missing.append(case)
+            continue
+        ranges = AE_REHEAT_RANGES[case]
+        for metric in ["QHpre", "QCsens", "QClat", "QCtot"]:
+            if metric not in ranges or metric not in results:
+                continue
+            lo, hi = ranges[metric]
+            val = round(results[metric], 4)
+            label = AE_REHEAT_METRIC_LABELS[metric]
+            status, delta = evaluate(val, lo, hi)
+            key = (case, label)
+            if status == "PASS":
+                pass_count += 1
+                passed_keys.add(key)
+                rows.append([case, label, val, lo, hi, status, "", ""])
+            else:
+                fail_count += 1
+                failed_keys.add(key)
+                pct = pct_delta(delta, lo, hi)
+                rows.append([case, label, val, lo, hi, status, f"{delta:.4g}", pct])
+                fail_details.append(f"  Case {case} {label}: OpenBSE={val}, "
+                                    f"Range=[{lo}, {hi}], Delta={delta:.4g}")
 
     # --- Write CSV ---
     with open(OUTPUT_PATH, "w", newline="") as f:

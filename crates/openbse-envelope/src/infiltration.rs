@@ -39,6 +39,27 @@ pub struct InfiltrationInput {
     /// E.g., PNNL infiltration schedule: 1.0 when HVAC off, 0.25 when on.
     #[serde(default)]
     pub schedule: Option<String>,
+    /// Air-density basis for converting the design volume flow to a mass flow.
+    /// `outdoor` (default): use outdoor-air density — the actual mass of
+    /// outside air entering (temperature-dependent). `zone`: use zone-air
+    /// density, matching the EnergyPlus ZoneInfiltration:DesignFlowRate
+    /// convention, which yields a temperature-independent mass flow for a fixed
+    /// design flow rate (required by the ASHRAE 140 Section 10 furnace cases).
+    #[serde(default)]
+    pub density_basis: InfiltrationDensityBasis,
+}
+
+/// Which air density converts the infiltration design volume flow to mass flow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum InfiltrationDensityBasis {
+    /// Outdoor-air density (default): physically the mass of outdoor air
+    /// entering; temperature-dependent.
+    #[default]
+    Outdoor,
+    /// Zone-air density: constant mass flow at a fixed design flow rate,
+    /// matching EnergyPlus.
+    Zone,
 }
 
 fn default_a() -> f64 {
@@ -55,6 +76,7 @@ impl Default for InfiltrationInput {
             wind_coefficient: 0.0,
             wind_squared_coefficient: 0.0,
             schedule: None,
+            density_basis: InfiltrationDensityBasis::Outdoor,
         }
     }
 }
@@ -85,6 +107,9 @@ pub fn calc_infiltration_flow(
 }
 
 /// Calculate infiltration mass flow rate [kg/s].
+///
+/// The volume flow is converted to a mass flow using either the outdoor-air or
+/// the zone-air density, per `input.density_basis`.
 pub fn calc_infiltration_mass_flow(
     input: &InfiltrationInput,
     zone_volume: f64,
@@ -92,8 +117,13 @@ pub fn calc_infiltration_mass_flow(
     t_outdoor: f64,
     wind_speed: f64,
     rho_outdoor: f64,
+    rho_zone: f64,
 ) -> f64 {
-    calc_infiltration_flow(input, zone_volume, t_zone, t_outdoor, wind_speed) * rho_outdoor
+    let rho = match input.density_basis {
+        InfiltrationDensityBasis::Outdoor => rho_outdoor,
+        InfiltrationDensityBasis::Zone => rho_zone,
+    };
+    calc_infiltration_flow(input, zone_volume, t_zone, t_outdoor, wind_speed) * rho
 }
 
 #[cfg(test)]

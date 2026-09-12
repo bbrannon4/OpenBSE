@@ -200,8 +200,11 @@ impl AirComponent for VAVBox {
         } else if self.control_signal > 0.0 {
             // HEATING MODE: dual-maximum (ReverseWithLimits)
             // Damper opens from min_flow toward max_reheat_fraction for more
-            // reheat capacity. Higher heating demand → wider damper.
-            let heat_max_flow = self.max_air_flow * self.max_reheat_fraction;
+            // reheat capacity. Higher heating demand → wider damper. The heating
+            // maximum never drops below the minimum flow, so a constant-volume
+            // box (min_flow_fraction = 1.0) holds full flow through reheat.
+            let heat_max_flow =
+                self.max_air_flow * self.max_reheat_fraction.max(self.min_flow_fraction);
             let heat_frac = self.control_signal.clamp(0.0, 1.0);
             let flow = min_flow + heat_frac * (heat_max_flow - min_flow);
             (flow, true)

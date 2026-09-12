@@ -136,6 +136,7 @@ fn build_loop_infos(
 
             // Build terminal box map: zone_name -> component_name
             let mut terminal_boxes: HashMap<String, String> = HashMap::new();
+            let mut terminal_min_flow: HashMap<String, f64> = HashMap::new();
             let mut dd_boxes: HashMap<String, openbse_components::dual_duct_box::DualDuctBox> =
                 HashMap::new();
             for zc in &al.zone_terminals {
@@ -143,6 +144,7 @@ fn build_loop_infos(
                     match terminal {
                         openbse_io::input::TerminalInput::VavBox(vb) => {
                             terminal_boxes.insert(zc.zone.clone(), vb.name.clone());
+                            terminal_min_flow.insert(zc.zone.clone(), vb.min_flow_fraction);
                         }
                         openbse_io::input::TerminalInput::PfpBox(pb) => {
                             terminal_boxes.insert(zc.zone.clone(), pb.name.clone());
@@ -214,7 +216,9 @@ fn build_loop_infos(
                 cooling_supply_temp: al.controls.cooling_supply_temp,
                 cycling: al.controls.cycling,
                 fan_operating_mode: al.controls.fan_operating_mode,
+                cooling_part_load_cd: al.controls.cooling_part_load_cd,
                 terminal_boxes,
+                terminal_min_flow,
                 dd_boxes,
                 heat_recovery_name,
                 hhw_boiler_efficiency,
@@ -290,6 +294,38 @@ fn build_loop_infos(
                         }
                     })
                     .unwrap_or(1.0),
+                supply_fan_dt: al
+                    .equipment
+                    .iter()
+                    .find_map(|eq| {
+                        use openbse_io::input::EquipmentInput;
+                        if let EquipmentInput::Fan(f) = eq {
+                            // Design air temperature rise across a draw-through
+                            // fan: dT = dP·motor_factor / (total_eff·rho·cp),
+                            // independent of flow (both heat-to-air and the
+                            // mass flow scale with the design flow rate).
+                            let total_eff = (f.motor_efficiency * f.impeller_efficiency).max(0.01);
+                            let motor_factor = f.motor_efficiency
+                                + (1.0 - f.motor_efficiency) * f.motor_in_airstream_fraction;
+                            let rho = 1.2_f64;
+                            let cp = 1006.0_f64;
+                            Some(f.pressure_rise * motor_factor / (total_eff * rho * cp))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(0.0),
+                return_fan_dt: al
+                    .controls
+                    .return_fan_pressure_rise
+                    .map(|dp| {
+                        let eff = al.controls.return_fan_total_efficiency.max(0.01);
+                        dp / (eff * 1.2 * 1006.0)
+                    })
+                    .unwrap_or(0.0),
+                fixed_cooling_sat: al.controls.fixed_cooling_sat,
+                preheat_setpoint: al.controls.preheat_setpoint,
+                min_oa_flow_mass: al.controls.minimum_oa_flow.map(|v| v * 1.229),
             }
         })
         .collect()
@@ -1118,12 +1154,42 @@ fn main() -> Result<()> {
             }
         }
 
+        // Per-zone hourly heating-setpoint schedules (e.g. night setback), so
+        // the HVAC control uses the same scheduled setpoint as the ideal-load
+        // predictor. Empty for zones without a schedule.
+        let mut zone_heat_sp_schedule: HashMap<
+            String,
+            Vec<openbse_envelope::zone::ThermostatScheduleEntry>,
+        > = HashMap::new();
+        for tstat in &resolved_thermostats {
+            if tstat.thermostat_schedule.is_empty() {
+                continue;
+            }
+            for zone_name in &tstat.zones {
+                zone_heat_sp_schedule.insert(zone_name.clone(), tstat.thermostat_schedule.clone());
+            }
+        }
+
         // Gather design zone flows from air loop controls (not thermostats).
-        // Each air loop's controls.design_zone_flow applies to all zones it serves.
+        // Each air loop's controls.design_zone_flow applies to all zones it
+        // serves, EXCEPT a zone whose VAV terminal box declares an explicit
+        // max_air_flow — that per-zone design flow takes precedence (multi-zone
+        // reheat systems give each zone its own design airflow).
         for al in &model.air_loops {
             let flow = al.controls.design_zone_flow.to_f64();
             for zc in &al.zone_terminals {
-                zone_design_flows.insert(zc.zone.clone(), flow);
+                let zone_flow = match &zc.terminal {
+                    Some(openbse_io::input::TerminalInput::VavBox(vb)) => {
+                        let mx = vb.max_air_flow.to_f64();
+                        if mx > 0.0 {
+                            mx
+                        } else {
+                            flow
+                        }
+                    }
+                    _ => flow,
+                };
+                zone_design_flows.insert(zc.zone.clone(), zone_flow);
             }
         }
 
@@ -2207,6 +2273,7 @@ fn main() -> Result<()> {
                             &zone_cooling_setpoints,
                             &zone_unocc_heating_setpoints,
                             &zone_unocc_cooling_setpoints,
+                            &zone_heat_sp_schedule,
                             &zone_design_flows,
                             t_outdoor,
                             Some(&env.schedule_manager),
@@ -2724,6 +2791,7 @@ fn main() -> Result<()> {
                                 &zone_cooling_setpoints,
                                 &zone_unocc_heating_setpoints,
                                 &zone_unocc_cooling_setpoints,
+                                &zone_heat_sp_schedule,
                                 &zone_design_flows,
                                 t_outdoor,
                                 Some(&env.schedule_manager),
@@ -4811,6 +4879,7 @@ fn simulate_all_loops(
     zone_cool_sp: &HashMap<String, f64>,
     zone_unocc_heat_sp: &HashMap<String, f64>,
     zone_unocc_cool_sp: &HashMap<String, f64>,
+    zone_heat_sp_schedule: &HashMap<String, Vec<openbse_envelope::zone::ThermostatScheduleEntry>>,
     zone_design_flows: &HashMap<String, f64>,
     t_outdoor: f64,
     schedule_mgr: Option<&ScheduleManager>,
@@ -5099,6 +5168,54 @@ fn simulate_all_loops(
                     &zone_vav_plrs,
                 );
             }
+            // SingleZone SAT reset (EnergyPlus SetpointManager:SingleZone): the
+            // supply temperature is reset to the value that holds the control
+            // zone exactly at its setpoint given the zone sensible load and the
+            // supply mass flow. Constant-volume single-zone systems (ASHRAE 140
+            // §11 AE) modulate supply temperature, not flow, to meet the load.
+            if matches!(
+                li.cooling_sat_reset,
+                Some(openbse_io::input::SatResetConfig::SingleZone { .. })
+            ) || matches!(
+                li.heating_sat_reset,
+                Some(openbse_io::input::SatResetConfig::SingleZone { .. })
+            ) {
+                if let Some(zname) = li.served_zones.first() {
+                    let cp = 1006.0_f64;
+                    let m_dot = zone_design_flows.get(zname).copied().unwrap_or(0.5);
+                    let q_heat = zone_heating_loads.get(zname).copied().unwrap_or(0.0);
+                    let q_cool = zone_cooling_loads.get(zname).copied().unwrap_or(0.0);
+                    let heat_sp = active_heat_sp.get(zname).copied().unwrap_or(21.1);
+                    let cool_sp = active_cool_sp.get(zname).copied().unwrap_or(23.9);
+                    let (smin, smax) = match &li.cooling_sat_reset {
+                        Some(openbse_io::input::SatResetConfig::SingleZone {
+                            sat_min,
+                            sat_max,
+                        }) => (*sat_min, *sat_max),
+                        _ => (4.0, 50.0),
+                    };
+                    let denom = (m_dot * cp).max(1.0);
+                    // The supply fan is downstream of the coils (draw-through),
+                    // so it reheats the air by supply_fan_dt before it reaches
+                    // the zone. Aim the coil leaving temperature that much below
+                    // the supply temperature that holds the zone, so the air
+                    // arrives at the zone at the intended temperature.
+                    let fan_dt = li.supply_fan_dt;
+                    if q_heat >= q_cool && q_heat > 0.0 {
+                        // Heating: raise supply above the setpoint; keep the
+                        // downstream cooling coil off (setpoint above supply).
+                        let sat = (heat_sp + q_heat / denom - fan_dt).clamp(smin, smax);
+                        li.heating_supply_temp = sat;
+                        li.cooling_supply_temp = sat + 20.0;
+                    } else if q_cool > 0.0 {
+                        // Cooling: drop supply below the setpoint; keep the
+                        // upstream heating coil off (setpoint below supply).
+                        let sat = (cool_sp - q_cool / denom - fan_dt).clamp(smin, smax);
+                        li.cooling_supply_temp = sat;
+                        li.heating_supply_temp = sat - 20.0;
+                    }
+                }
+            }
         }
 
         // Per-zone state + outdoor conditions shared by every signal builder.
@@ -5362,7 +5479,19 @@ fn simulate_all_loops(
         // reducing net cooling capacity).
         //
         // For non-PSZ-AC systems, PLR = 1.0 (they handle modulation internally).
-        let loop_plr = if li.system_type == AirLoopSystemType::PszAc
+        // A SingleZone SAT-reset loop modulates supply temperature (not flow)
+        // to hold the zone, so it runs continuously (no PLR cycling): the reset
+        // above already set the supply temp that meets the load exactly.
+        let single_zone_sat = matches!(
+            li.cooling_sat_reset,
+            Some(openbse_io::input::SatResetConfig::SingleZone { .. })
+        ) || matches!(
+            li.heating_sat_reset,
+            Some(openbse_io::input::SatResetConfig::SingleZone { .. })
+        );
+        let loop_plr = if single_zone_sat {
+            1.0
+        } else if li.system_type == AirLoopSystemType::PszAc
             || li.system_type == AirLoopSystemType::Ptac
             || li.system_type == AirLoopSystemType::Pthp
         {
@@ -5376,7 +5505,23 @@ fn simulate_all_loops(
             let zone_heat_load =
                 zone_heating_loads.get(control_zone).copied().unwrap_or(0.0) * zmult_plr;
             let control_temp = zone_temps.get(control_zone).copied().unwrap_or(21.0);
-            let heat_sp = active_heat_sp.get(control_zone).copied().unwrap_or(21.1);
+            // A per-zone hourly setpoint schedule (night setback) overrides the
+            // constant setpoint, matching the ideal-load predictor.
+            let scheduled_heat_sp = zone_heat_sp_schedule.get(control_zone).and_then(|entries| {
+                entries
+                    .iter()
+                    .find(|e| {
+                        if e.start_hour <= e.end_hour {
+                            hour >= e.start_hour && hour <= e.end_hour
+                        } else {
+                            hour >= e.start_hour || hour <= e.end_hour
+                        }
+                    })
+                    .map(|e| e.heating_setpoint)
+            });
+            let heat_sp = scheduled_heat_sp
+                .or_else(|| active_heat_sp.get(control_zone).copied())
+                .unwrap_or(21.1);
             let cool_sp = active_cool_sp.get(control_zone).copied().unwrap_or(23.9);
             // Use predictor mode (from frozen ideal loads) — stable across
             // HVAC iterations, preventing mode flip-flop at setpoint boundary.
@@ -5529,7 +5674,8 @@ fn simulate_all_loops(
             // cooling delivered (startup losses, refrigerant migration, etc.).
             // Default: PLF = 1 - Cd*(1-PLR) with Cd=0.15 (E+ default).
             // Fan power uses PLR directly (no cycling penalty).
-            let plf = (1.0 - 0.15 * (1.0 - loop_plr)).max(0.7);
+            let cd = li.cooling_part_load_cd;
+            let plf = (1.0 - cd * (1.0 - loop_plr)).max(0.5);
             let rtf = loop_plr / plf;
 
             // Extensive (time-averaged) detailed-output keys that track
@@ -5596,9 +5742,29 @@ fn simulate_all_loops(
                     // uses PLR directly, matching E+ where the PLF curve only
                     // degrades compressor energy.
                     let is_dx_compressor = li.dx_compressor_names.contains(comp_name);
-                    let power_factor = if is_dx_compressor { rtf } else { loop_plr };
+                    // In an on/off DX system the supply fan cycles with the
+                    // compressor, so its runtime is RTF (not PLR). Applies only
+                    // when the loop has a DX compressor — modulating systems and
+                    // non-DX cycling loops keep PLR-based fan energy.
+                    let loop_has_dx = !li.dx_compressor_names.is_empty();
+                    let power_factor = if is_dx_compressor || (is_fan && loop_has_dx) {
+                        rtf
+                    } else {
+                        loop_plr
+                    };
                     if let Some(ep) = outputs.get_mut("electric_power") {
                         *ep *= power_factor;
+                    }
+                    // DX electric split: compressor and condenser fan both carry
+                    // the cycling penalty (scale by RTF); the indoor/supply fan
+                    // uses PLR (handled via `electric_power` on the fan
+                    // component). Matches ASHRAE 140 HVAC BESTEST, where CDF is
+                    // applied to compressor and outdoor-fan energy only.
+                    if let Some(v) = outputs.get_mut("compressor_power") {
+                        *v *= rtf;
+                    }
+                    if let Some(v) = outputs.get_mut("condenser_fan_power") {
+                        *v *= rtf;
                     }
                     if let Some(fp) = outputs.get_mut("fuel_power") {
                         *fp *= loop_plr;
@@ -5730,7 +5896,8 @@ fn simulate_all_loops(
                         .get(zone_name)
                         .copied()
                         .unwrap_or(vav_max_flow * 0.3);
-                    let min_flow = vav_max_flow * 0.3;
+                    let min_flow_frac = li.terminal_min_flow.get(zone_name).copied().unwrap_or(0.3);
+                    let min_flow = vav_max_flow * min_flow_frac;
                     let mode = if zone_temp_init < heat_sp {
                         HvacMode::Heating
                     } else if zone_temp_init > cool_sp {
@@ -5738,17 +5905,55 @@ fn simulate_all_loops(
                     } else {
                         HvacMode::Deadband
                     };
-                    let control_signal = match mode {
-                        HvacMode::Heating if zone_heat_load > 0.0 => {
-                            (zone_heat_load / reheat_cap).clamp(0.0, 1.0)
-                        }
-                        HvacMode::Cooling if zone_cool_load > 0.0 => {
-                            let frac = ((desired_zone_flow - min_flow)
-                                / (vav_max_flow - min_flow).max(0.001))
-                            .clamp(0.0, 1.0);
+                    let control_signal = if li.fixed_cooling_sat {
+                        // Terminal-reheat systems (ASHRAE 140 §11 AE300/AE400):
+                        // the central coil delivers a fixed cold-deck temperature
+                        // (`supply_temp`) and each terminal holds its zone. The
+                        // supply air that balances an imposed-load adiabatic zone
+                        // at flow m is  T_supply = T_set − net_gain/(m·cp), with
+                        // net_gain = Q_cool − Q_heat (>0 for a zone gaining heat).
+                        //
+                        //  • If the cold deck alone can meet a cooling zone at a
+                        //    flow ≥ minimum, the box modulates flow (VAV) and needs
+                        //    no reheat: m_needed = net_gain / (cp·(T_set − deck)).
+                        //  • Otherwise the box sits at minimum flow and the reheat
+                        //    coil trims the deck up to the holding temperature.
+                        // A constant-volume box (min fraction 1.0) always takes the
+                        // reheat branch at full flow.
+                        let cp = 1006.0_f64;
+                        let net_gain = zone_cool_load - zone_heat_load;
+                        let deck_dt = (cool_sp - supply_temp).max(0.1);
+                        let m_needed = if net_gain > 0.0 {
+                            net_gain / (cp * deck_dt)
+                        } else {
+                            0.0
+                        };
+                        if m_needed >= min_flow && net_gain > 0.0 {
+                            // Cooling met by flow modulation — no reheat.
+                            let flow = m_needed.min(vav_max_flow);
+                            let frac = ((flow - min_flow) / (vav_max_flow - min_flow).max(1.0e-6))
+                                .clamp(0.0, 1.0);
                             -frac
+                        } else {
+                            // Minimum flow + reheat to hold the zone.
+                            let m_cp = (min_flow * cp).max(1.0);
+                            let t_supply_target = cool_sp - net_gain / m_cp;
+                            let q_reheat = min_flow * cp * (t_supply_target - supply_temp);
+                            (q_reheat / reheat_cap).clamp(0.0, 1.0)
                         }
-                        _ => 0.0, // Deadband or no load
+                    } else {
+                        match mode {
+                            HvacMode::Heating if zone_heat_load > 0.0 => {
+                                (zone_heat_load / reheat_cap).clamp(0.0, 1.0)
+                            }
+                            HvacMode::Cooling if zone_cool_load > 0.0 => {
+                                let frac = ((desired_zone_flow - min_flow)
+                                    / (vav_max_flow - min_flow).max(0.001))
+                                .clamp(0.0, 1.0);
+                                -frac
+                            }
+                            _ => 0.0, // Deadband or no load
+                        }
                     };
 
                     if let Some(node_idx) = graph.node_by_name(term_name) {
@@ -6137,7 +6342,9 @@ mod tests {
             cooling_supply_temp: 13.0,
             cycling: openbse_io::input::CyclingMethod::OnOff,
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
+            cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
+            terminal_min_flow: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
@@ -6150,6 +6357,11 @@ mod tests {
             economizer_type: openbse_io::input::EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            supply_fan_dt: 0.0,
+            return_fan_dt: 0.0,
+            fixed_cooling_sat: false,
+            preheat_setpoint: None,
+            min_oa_flow_mass: None,
         }
     }
 
@@ -6169,7 +6381,9 @@ mod tests {
             cooling_supply_temp: 13.0,
             cycling: openbse_io::input::CyclingMethod::OnOff,
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
+            cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
+            terminal_min_flow: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
@@ -6182,6 +6396,11 @@ mod tests {
             economizer_type: econ_type,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            supply_fan_dt: 0.0,
+            return_fan_dt: 0.0,
+            fixed_cooling_sat: false,
+            preheat_setpoint: None,
+            min_oa_flow_mass: None,
         }
     }
 
@@ -6881,6 +7100,7 @@ fn apply_sat_reset(
                 (current_sat + step).min(*sat_max)
             }
         }
+        SatResetConfig::SingleZone { .. } => current_sat,
     }
 }
 
@@ -6915,6 +7135,7 @@ fn apply_sat_reset_heating(
                 (current_sat - step).max(*sat_min)
             }
         }
+        SatResetConfig::SingleZone { .. } => current_sat,
     }
 }
 
@@ -7006,7 +7227,9 @@ mod tests_datacenter {
             cooling_supply_temp: 18.0,
             cycling: openbse_io::input::CyclingMethod::OnOff,
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
+            cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
+            terminal_min_flow: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
@@ -7019,6 +7242,11 @@ mod tests_datacenter {
             economizer_type: openbse_io::input::EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            supply_fan_dt: 0.0,
+            return_fan_dt: 0.0,
+            fixed_cooling_sat: false,
+            preheat_setpoint: None,
+            min_oa_flow_mass: None,
         }
     }
 

@@ -219,6 +219,10 @@ pub struct InfiltrationTopLevel {
     /// Schedule name for time-varying infiltration multiplier
     #[serde(default)]
     pub schedule: Option<String>,
+    /// Air-density basis for the volume→mass flow conversion: `outdoor`
+    /// (default) or `zone` (EnergyPlus convention; constant mass flow).
+    #[serde(default)]
+    pub density_basis: crate::infiltration::InfiltrationDensityBasis,
 }
 
 fn default_coeff_a() -> f64 {
@@ -513,6 +517,13 @@ pub struct ThermostatInput {
     /// Unoccupied (night setback) cooling setpoint [°C] (default 29.44 / 85°F)
     #[serde(default = "default_unocc_cooling")]
     pub unoccupied_cooling_setpoint: f64,
+    /// Optional hourly setpoint schedule (e.g. night setback). When present,
+    /// each entry's [start_hour, end_hour] window overrides the constant
+    /// setpoints for those hours; hours outside every window fall back to
+    /// `heating_setpoint` / `cooling_setpoint`. Applied to both the zone
+    /// ideal-load predictor and the HVAC control so they stay consistent.
+    #[serde(default)]
+    pub thermostat_schedule: Vec<crate::zone::ThermostatScheduleEntry>,
 }
 
 fn default_tstat_heating() -> f64 {

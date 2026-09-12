@@ -36,6 +36,11 @@ pub struct CoolingCoilDX {
     pub rated_airflow: f64,
     /// Desired outlet air temperature setpoint [°C]
     pub outlet_temp_setpoint: f64,
+    /// Rated outdoor (condenser) fan power [W]. Runs whenever the compressor
+    /// runs; its part-load energy is deposited as electric consumption
+    /// alongside the compressor. Default 0 (fan heat/energy not modeled).
+    #[serde(default)]
+    pub condenser_fan_power: f64,
 
     /// Optional capacity modifier curve: f(T_wb_entering, T_db_outdoor)
     #[serde(skip)]
@@ -89,9 +94,15 @@ pub struct CoolingCoilDX {
     /// Sensible cooling rate [W]
     #[serde(skip)]
     pub sensible_cooling_rate: f64,
-    /// Electric power consumption [W]
+    /// Electric power consumption [W] (compressor + condenser fan)
     #[serde(skip)]
     pub power_consumption: f64,
+    /// Compressor-only electric power [W] (on-cycle, pre part-load scaling)
+    #[serde(skip)]
+    pub compressor_power: f64,
+    /// Condenser (outdoor) fan electric power [W] (on-cycle, pre-scaling)
+    #[serde(skip)]
+    pub condenser_fan_actual: f64,
     /// Part-load ratio from last simulate_air call
     #[serde(skip)]
     pub plr: f64,
@@ -126,6 +137,7 @@ impl CoolingCoilDX {
             rated_shr,
             rated_airflow,
             outlet_temp_setpoint: setpoint,
+            condenser_fan_power: 0.0,
             cap_ft_curve: None,
             eir_ft_curve: None,
             plf_curve: None,
@@ -141,9 +153,17 @@ impl CoolingCoilDX {
             cooling_rate: 0.0,
             sensible_cooling_rate: 0.0,
             power_consumption: 0.0,
+            compressor_power: 0.0,
+            condenser_fan_actual: 0.0,
             plr: 0.0,
             rtf: 0.0,
         }
+    }
+
+    /// Set the rated outdoor (condenser) fan power [W].
+    pub fn with_condenser_fan_power(mut self, power: f64) -> Self {
+        self.condenser_fan_power = power;
+        self
     }
 
     /// Attach performance curves for capacity and EIR modifiers.
@@ -342,6 +362,8 @@ impl AirComponent for CoolingCoilDX {
             self.cooling_rate = 0.0;
             self.sensible_cooling_rate = 0.0;
             self.power_consumption = 0.0;
+            self.compressor_power = 0.0;
+            self.condenser_fan_actual = 0.0;
             self.plr = 0.0;
             self.rtf = 0.0;
             return *inlet;
@@ -359,6 +381,8 @@ impl AirComponent for CoolingCoilDX {
             self.cooling_rate = 0.0;
             self.sensible_cooling_rate = 0.0;
             self.power_consumption = 0.0;
+            self.compressor_power = 0.0;
+            self.condenser_fan_actual = 0.0;
             self.plr = 0.0;
             self.rtf = 0.0;
             return *inlet;
@@ -410,19 +434,39 @@ impl AirComponent for CoolingCoilDX {
 
             // Dry coil when the ADP humidity ratio is at or above the
             // entering humidity ratio (no condensation possible).
-            let shr = if w_adp >= inlet.state.w {
-                1.0
+            //
+            // Dry-coil capacity correction (#115): the curve-modified capacity
+            // is a *total* (enthalpy-basis) capacity — the coil driving the air
+            // from h_in to the ADP enthalpy. When the coil runs dry, only the
+            // SENSIBLE portion of that enthalpy path is delivered:
+            //   sensible_fraction = cp·(t_in − t_adp) / (h_in − h_adp).
+            // The unused latent capability (the coil never reaches saturation)
+            // is not delivered, so the effective full-load capacity is the
+            // sensible heat-transfer capacity, which is < total. Without this,
+            // a dry coil overstates capacity by ~1/sensible_fraction, shortening
+            // runtime and under-counting fan/compressor energy. Matches the
+            // manufacturer sensible-capacity column of a DX performance map.
+            // Reference: EnergyPlus DXCoils.cc CalcDoe2DXCoil (dry-coil branch).
+            let (shr, eff_cap) = if w_adp >= inlet.state.w {
+                let dh = h_in - h_adp;
+                let sens_fraction = if dh > 1.0 {
+                    (cp_air * (inlet.state.t_db - t_adp) / dh).clamp(0.1, 1.0)
+                } else {
+                    1.0
+                };
+                (1.0, available_cap * sens_fraction)
             } else {
                 let h_tin_wadp = psych::h_fn_tdb_w(inlet.state.t_db, w_adp);
                 let dh = h_in - h_adp;
-                if dh > 1.0 {
+                let shr = if dh > 1.0 {
                     ((h_tin_wadp - h_adp) / dh).clamp(0.0, 1.0)
                 } else {
                     1.0
-                }
+                };
+                (shr, available_cap)
             };
 
-            let q_sens_full = shr * available_cap;
+            let q_sens_full = shr * eff_cap;
 
             // PLR based on sensible load vs sensible capacity
             let plr = if q_sens_full > 0.0 {
@@ -433,7 +477,7 @@ impl AirComponent for CoolingCoilDX {
 
             // Actual delivered quantities
             let qs = q_sens_full * plr;
-            let qt = available_cap * plr;
+            let qt = eff_cap * plr;
             let dt = qs / (m * cp_air);
             let out_t = inlet.state.t_db - dt;
 
@@ -473,11 +517,20 @@ impl AirComponent for CoolingCoilDX {
         } else {
             0.0
         };
-        self.power_consumption = if available_cop > 0.0 {
+        self.compressor_power = if available_cop > 0.0 {
             available_cap * plr_power / available_cop
         } else {
             0.0
         };
+        // Outdoor (condenser) fan runs at rated power whenever the compressor
+        // is on. The system-level part-load fraction (loop_plr) scales this to
+        // a time-averaged value, matching the indoor supply fan's treatment.
+        self.condenser_fan_actual = if plr_power > 0.0 {
+            self.condenser_fan_power
+        } else {
+            0.0
+        };
+        self.power_consumption = self.compressor_power + self.condenser_fan_actual;
 
         self.cooling_rate = q_total;
         self.sensible_cooling_rate = q_sensible;
@@ -551,6 +604,10 @@ impl AirComponent for CoolingCoilDX {
             self.cooling_rate - self.sensible_cooling_rate,
         );
         out("total_load", self.cooling_rate);
+        // Electric power split (on-cycle values; the system applies the
+        // part-load fraction to these keys — see PLR_SCALED_RATE_KEYS).
+        out("compressor_power", self.compressor_power);
+        out("condenser_fan_power", self.condenser_fan_actual);
         out(
             "cop_operating",
             if self.power_consumption > 0.0 {
