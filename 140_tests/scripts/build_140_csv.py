@@ -36,6 +36,9 @@ with open(_RANGES_PATH) as _f:
 # Load cases: (H_min, H_max, C_min, C_max) in kWh
 LOAD_RANGES = {k: tuple(v) for k, v in _RANGES["load_ranges_kwh"].items()}
 
+# Section 9a cooling-equipment February-total ranges: {case: {metric: [lo, hi]}}
+CE_RANGES = _RANGES.get("ce_february_ranges_kwh", {})
+
 # Free-float temperature ranges: (max_lo, max_hi, min_lo, min_hi, mean_lo, mean_hi)
 FF_RANGES = {k: tuple(v) for k, v in _RANGES["free_float_temp_ranges_c"].items()}
 
@@ -112,6 +115,71 @@ def read_960_sz_temps():
     if not temps:
         return None, None, None
     return max(temps), min(temps), sum(temps) / len(temps)
+
+
+def _feb_rows(path):
+    """Return the February hourly rows from an OpenBSE output CSV."""
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        return [r for r in csv.DictReader(f) if int(r["Month"]) == 2]
+
+
+def _col_sum(rows, needle):
+    """Sum a column (matched by substring) over rows, converting W·h → kWh."""
+    if not rows:
+        return 0.0
+    keys = [k for k in rows[0] if needle in k]
+    if not keys:
+        return 0.0
+    return sum(float(r[keys[0]]) for r in rows) / 1000.0
+
+
+def read_ce_february(case):
+    """Extract ASHRAE 140 Section 9a February totals for a CE case.
+
+    Returns a dict of the gated metrics (kWh, plus COP), or None if the case
+    output is missing. Cooling-energy split, coil load, and COP follow the
+    Std140_CE_a glossary:
+      cool_total = compressor + supply_fan + condenser_fan
+      zone_sensible = coil_sensible − supply_fan_heat   (draw-through fan)
+      cop = zone_total_load / cool_total
+    """
+    hvac = _feb_rows(os.path.join(BASE_DIR, f"ashrae140_case{case}_hvac_results.csv"))
+    if not hvac:
+        return None
+    comp = _col_sum(hvac, "compressor_power")
+    cond = _col_sum(hvac, "condenser_fan_power")
+    sfan = _col_sum(hvac, "Supply Fan:electric_power")
+    coil_total = _col_sum(hvac, "total_load")
+    coil_sens = _col_sum(hvac, "sensible_load")
+    coil_lat = _col_sum(hvac, "latent_load")
+    cool_total = comp + cond + sfan
+    zone_total = (coil_sens - sfan) + coil_lat  # fan heat is sensible only
+    cop = zone_total / cool_total if cool_total > 0 else 0.0
+    return {
+        "cool_total": cool_total,
+        "compressor": comp,
+        "supply_fan": sfan,
+        "cond_fan": cond,
+        "coil_total": coil_total,
+        "coil_sens": coil_sens,
+        "coil_lat": coil_lat,
+        "cop": cop,
+    }
+
+
+# Human-readable metric labels for the CE February-total checks.
+CE_METRIC_LABELS = {
+    "cool_total": "Feb Cooling Total (kWh)",
+    "compressor": "Feb Compressor (kWh)",
+    "supply_fan": "Feb Supply Fan (kWh)",
+    "cond_fan": "Feb Condenser Fan (kWh)",
+    "coil_total": "Feb Coil Load Total (kWh)",
+    "coil_sens": "Feb Coil Load Sensible (kWh)",
+    "coil_lat": "Feb Coil Load Latent (kWh)",
+    "cop": "COP",
+}
 
 
 def evaluate(value, lo, hi):
@@ -236,6 +304,34 @@ def main():
                 failed_keys.add(key)
                 rows.append([case, metric, val, lo, hi, status, f"{delta:.1f}", ""])
                 fail_details.append(f"  Case {case} {metric}: OpenBSE={val}, "
+                                    f"Range=[{lo}, {hi}], Delta={delta:.1f}")
+
+    # --- Section 9a cooling-equipment cases (CE100–CE200) ---
+    for case in sorted(CE_RANGES.keys(), key=lambda x: int(x[2:])):
+        results = read_ce_february(case)
+        if results is None:
+            missing.append(case)
+            continue
+        ranges = CE_RANGES[case]
+        for metric in ["cool_total", "compressor", "supply_fan", "cond_fan",
+                       "coil_total", "coil_sens", "coil_lat", "cop"]:
+            if metric not in ranges:
+                continue
+            lo, hi = ranges[metric]
+            val = round(results[metric], 3 if metric == "cop" else 1)
+            label = CE_METRIC_LABELS[metric]
+            status, delta = evaluate(val, lo, hi)
+            key = (case, label)
+            if status == "PASS":
+                pass_count += 1
+                passed_keys.add(key)
+                rows.append([case, label, val, lo, hi, status, "", ""])
+            else:
+                fail_count += 1
+                failed_keys.add(key)
+                pct = pct_delta(delta, lo, hi)
+                rows.append([case, label, val, lo, hi, status, f"{delta:.1f}", pct])
+                fail_details.append(f"  Case {case} {label}: OpenBSE={val}, "
                                     f"Range=[{lo}, {hi}], Delta={delta:.1f}")
 
     # --- Write CSV ---

@@ -59,6 +59,8 @@ pub struct LoopInfo {
     /// Fan operating mode: cycling (fan cycles with coils) or continuous
     /// (fan runs at full speed always, coils cycle ON/OFF).
     pub fan_operating_mode: openbse_io::input::FanOperatingMode,
+    /// Cooling cycling degradation coefficient Cd: PLF = 1 − Cd·(1−PLR).
+    pub cooling_part_load_cd: f64,
     /// Terminal box component names per zone (zone_name -> component_name).
     /// Only populated for loops with VAV/PFP terminal boxes defined in YAML.
     pub terminal_boxes: HashMap<String, String>,
@@ -1541,6 +1543,7 @@ mod tests {
             cooling_supply_temp: 13.0,
             cycling: CyclingMethod::OnOff,
             fan_operating_mode: FanOperatingMode::Cycling,
+            cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,

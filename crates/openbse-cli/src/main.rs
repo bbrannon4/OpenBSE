@@ -214,6 +214,7 @@ fn build_loop_infos(
                 cooling_supply_temp: al.controls.cooling_supply_temp,
                 cycling: al.controls.cycling,
                 fan_operating_mode: al.controls.fan_operating_mode,
+                cooling_part_load_cd: al.controls.cooling_part_load_cd,
                 terminal_boxes,
                 dd_boxes,
                 heat_recovery_name,
@@ -5529,7 +5530,8 @@ fn simulate_all_loops(
             // cooling delivered (startup losses, refrigerant migration, etc.).
             // Default: PLF = 1 - Cd*(1-PLR) with Cd=0.15 (E+ default).
             // Fan power uses PLR directly (no cycling penalty).
-            let plf = (1.0 - 0.15 * (1.0 - loop_plr)).max(0.7);
+            let cd = li.cooling_part_load_cd;
+            let plf = (1.0 - cd * (1.0 - loop_plr)).max(0.5);
             let rtf = loop_plr / plf;
 
             // Extensive (time-averaged) detailed-output keys that track
@@ -5596,9 +5598,29 @@ fn simulate_all_loops(
                     // uses PLR directly, matching E+ where the PLF curve only
                     // degrades compressor energy.
                     let is_dx_compressor = li.dx_compressor_names.contains(comp_name);
-                    let power_factor = if is_dx_compressor { rtf } else { loop_plr };
+                    // In an on/off DX system the supply fan cycles with the
+                    // compressor, so its runtime is RTF (not PLR). Applies only
+                    // when the loop has a DX compressor — modulating systems and
+                    // non-DX cycling loops keep PLR-based fan energy.
+                    let loop_has_dx = !li.dx_compressor_names.is_empty();
+                    let power_factor = if is_dx_compressor || (is_fan && loop_has_dx) {
+                        rtf
+                    } else {
+                        loop_plr
+                    };
                     if let Some(ep) = outputs.get_mut("electric_power") {
                         *ep *= power_factor;
+                    }
+                    // DX electric split: compressor and condenser fan both carry
+                    // the cycling penalty (scale by RTF); the indoor/supply fan
+                    // uses PLR (handled via `electric_power` on the fan
+                    // component). Matches ASHRAE 140 HVAC BESTEST, where CDF is
+                    // applied to compressor and outdoor-fan energy only.
+                    if let Some(v) = outputs.get_mut("compressor_power") {
+                        *v *= rtf;
+                    }
+                    if let Some(v) = outputs.get_mut("condenser_fan_power") {
+                        *v *= rtf;
                     }
                     if let Some(fp) = outputs.get_mut("fuel_power") {
                         *fp *= loop_plr;
@@ -6137,6 +6159,7 @@ mod tests {
             cooling_supply_temp: 13.0,
             cycling: openbse_io::input::CyclingMethod::OnOff,
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
+            cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
@@ -6169,6 +6192,7 @@ mod tests {
             cooling_supply_temp: 13.0,
             cycling: openbse_io::input::CyclingMethod::OnOff,
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
+            cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
@@ -7006,6 +7030,7 @@ mod tests_datacenter {
             cooling_supply_temp: 18.0,
             cycling: openbse_io::input::CyclingMethod::OnOff,
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
+            cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,

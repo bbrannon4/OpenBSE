@@ -485,6 +485,16 @@ pub struct AirLoopControls {
     /// Overrides minimum_damper_position when set.
     #[serde(default)]
     pub outdoor_air_fraction: Option<f64>,
+    /// Cooling cycling degradation coefficient Cd for the part-load fraction
+    /// PLF = 1 − Cd·(1−PLR), applied to compressor and condenser-fan energy at
+    /// part load. Default 0.15 (EnergyPlus default); ASHRAE 140 HVAC BESTEST
+    /// specifies 0.229.
+    #[serde(default = "default_cooling_part_load_cd")]
+    pub cooling_part_load_cd: f64,
+}
+
+fn default_cooling_part_load_cd() -> f64 {
+    0.15
 }
 
 impl Default for AirLoopControls {
@@ -501,6 +511,7 @@ impl Default for AirLoopControls {
             cooling_sat_reset: None,
             heating_sat_reset: None,
             outdoor_air_fraction: None,
+            cooling_part_load_cd: 0.15,
         }
     }
 }
@@ -1126,6 +1137,10 @@ pub struct CoolingCoilInput {
     /// Outlet temperature setpoint [°C]
     #[serde(default = "default_dx_coil_setpoint")]
     pub setpoint: f64,
+    /// Rated outdoor (condenser) fan power [W] — DX source only. Runs with the
+    /// compressor; energy is reported under cooling electricity. Default 0.
+    #[serde(default)]
+    pub condenser_fan_power: f64,
     /// Reference to a top-level performance curve name for capacity f(T)
     #[serde(default)]
     pub cap_ft_curve: Option<String>,
@@ -3063,6 +3078,7 @@ fn build_graph_impl(
                                 )
                                 .with_curves(cap_curve, eir_curve)
                                 .with_fflow_curves(cap_fflow, eir_fflow)
+                                .with_condenser_fan_power(c.condenser_fan_power)
                                 .with_autocalculate_shr(c.autocalculate_shr);
                                 if let Some(plf) = c.plf_curve.as_ref().and_then(|name| {
                                     model
