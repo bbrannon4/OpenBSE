@@ -45,6 +45,9 @@ HE_RANGES = _RANGES.get("he_ranges", {})
 # Section 11 air-side equipment ranges (single-zone AE200 series): {case: {metric: [lo, hi]}}
 AE_RANGES = _RANGES.get("ae_ranges", {})
 
+# Section 11 two-zone terminal-reheat ranges (AE300 CV / AE400 VAV): central-coil loads.
+AE_REHEAT_RANGES = _RANGES.get("ae_reheat_ranges", {})
+
 # Natural-gas higher heating value used to convert furnace fuel input (J) to a
 # volumetric flow (m³/s) — 38 MJ/m³, from the reference programs' input/fuel
 # ratio. HE cases run Jan–Mar (2160 h).
@@ -278,6 +281,42 @@ AE_METRIC_LABELS = {
 }
 
 
+def read_ae_reheat_results(case):
+    """Extract ASHRAE 140 Section 11 two-zone terminal-reheat central-coil loads
+    for an AE300/AE400 case: the last hour's preheat-coil load (QHpre) and central
+    cooling-coil sensible/latent/total loads (QCsens/QClat/QCtot), in kW.
+
+    Returns a dict keyed QHpre/QCsens/QClat/QCtot, or None if the file is missing.
+    """
+    hp = os.path.join(BASE_DIR, f"ashrae140_case{case}_hvac_results.csv")
+    if not os.path.exists(hp):
+        return None
+    with open(hp) as f:
+        hvac = list(csv.DictReader(f))
+    if not hvac:
+        return None
+    last = hvac[-1]
+
+    def col(needle):
+        keys = [k for k in last if needle in k]
+        return float(last[keys[0]]) / 1000.0 if keys else 0.0
+
+    return {
+        "QHpre": col("Preheat Coil:thermal_output"),
+        "QCsens": col("Cooling Coil:sensible_load"),
+        "QClat": col("Cooling Coil:latent_load"),
+        "QCtot": col("Cooling Coil:total_load"),
+    }
+
+
+AE_REHEAT_METRIC_LABELS = {
+    "QHpre": "Preheat Coil Load (kW)",
+    "QCsens": "Cooling Coil Sensible (kW)",
+    "QClat": "Cooling Coil Latent (kW)",
+    "QCtot": "Cooling Coil Total (kW)",
+}
+
+
 def evaluate(value, lo, hi):
     """Return (status, delta). delta is signed distance outside range, or 0."""
     if lo <= value <= hi:
@@ -471,6 +510,33 @@ def main():
             lo, hi = ranges[metric]
             val = round(results[metric], 4)
             label = AE_METRIC_LABELS[metric]
+            status, delta = evaluate(val, lo, hi)
+            key = (case, label)
+            if status == "PASS":
+                pass_count += 1
+                passed_keys.add(key)
+                rows.append([case, label, val, lo, hi, status, "", ""])
+            else:
+                fail_count += 1
+                failed_keys.add(key)
+                pct = pct_delta(delta, lo, hi)
+                rows.append([case, label, val, lo, hi, status, f"{delta:.4g}", pct])
+                fail_details.append(f"  Case {case} {label}: OpenBSE={val}, "
+                                    f"Range=[{lo}, {hi}], Delta={delta:.4g}")
+
+    # --- Section 11 two-zone terminal-reheat cases (AE300 CV / AE400 VAV) ---
+    for case in sorted(AE_REHEAT_RANGES.keys(), key=lambda x: int(x[2:])):
+        results = read_ae_reheat_results(case)
+        if results is None:
+            missing.append(case)
+            continue
+        ranges = AE_REHEAT_RANGES[case]
+        for metric in ["QHpre", "QCsens", "QClat", "QCtot"]:
+            if metric not in ranges or metric not in results:
+                continue
+            lo, hi = ranges[metric]
+            val = round(results[metric], 4)
+            label = AE_REHEAT_METRIC_LABELS[metric]
             status, delta = evaluate(val, lo, hi)
             key = (case, label)
             if status == "PASS":

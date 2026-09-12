@@ -502,6 +502,25 @@ pub struct AirLoopControls {
     /// `return_fan_pressure_rise` is set.
     #[serde(default = "default_return_fan_efficiency")]
     pub return_fan_total_efficiency: f64,
+    /// Hold the central cooling coil at a FIXED leaving-air temperature
+    /// (`cooling_supply_temp`) instead of the SetpointManager:Warmest reset.
+    /// Used by the ASHRAE 140 §11 constant-volume / VAV terminal-reheat systems
+    /// (AE300/AE400), whose central chilled-water coil holds a scheduled SAT
+    /// while per-zone reheat coils trim the supply to hold each zone.
+    #[serde(default)]
+    pub fixed_cooling_sat: bool,
+    /// Central preheat-coil leaving-air setpoint [°C] (optional). When set, the
+    /// AHU heating coil holds this fixed temperature (e.g. 7.22 °C) to temper the
+    /// mixed air, rather than the default frost-protection-only behavior.
+    #[serde(default)]
+    pub preheat_setpoint: Option<f64>,
+    /// Fixed minimum outdoor-air flow [m³/s] (optional). Models an OA controller
+    /// that holds a constant outdoor-air VOLUME regardless of supply flow, so the
+    /// OA fraction rises as a VAV system throttles down (E+ Controller:OutdoorAir
+    /// FixedMinimum). When set it overrides `minimum_damper_position` as the OA
+    /// floor. Used by the ASHRAE 140 §11 AE400 VAV reheat cases.
+    #[serde(default)]
+    pub minimum_oa_flow: Option<f64>,
 }
 
 fn default_cooling_part_load_cd() -> f64 {
@@ -529,6 +548,9 @@ impl Default for AirLoopControls {
             cooling_part_load_cd: 0.15,
             return_fan_pressure_rise: None,
             return_fan_total_efficiency: 0.7,
+            fixed_cooling_sat: false,
+            preheat_setpoint: None,
+            minimum_oa_flow: None,
         }
     }
 }
@@ -1478,6 +1500,12 @@ pub struct VavBoxInput {
     /// Maximum reheat discharge air temperature [°C] (default 35.0)
     #[serde(default)]
     pub max_reheat_temp: Option<f64>,
+    /// Maximum flow fraction during reheat [0-1] (E+ "Damper Heating Action").
+    /// The heating-mode damper opens from the minimum toward this fraction of
+    /// maximum flow. Set equal to `min_flow_fraction` to hold minimum flow during
+    /// reheat (reheat-first control); default 0.5 (ASHRAE G36 dual-maximum).
+    #[serde(default)]
+    pub max_reheat_fraction: Option<f64>,
     /// Plant loop name for hot water reheat
     #[serde(default)]
     pub plant_loop: Option<String>,
@@ -3288,6 +3316,12 @@ fn build_graph_impl(
                             vb.reheat_capacity.to_f64(),
                         );
                         box_component.submeter = vb.submeter.clone();
+                        if let Some(t) = vb.max_reheat_temp {
+                            box_component.max_reheat_temp = t;
+                        }
+                        if let Some(f) = vb.max_reheat_fraction {
+                            box_component.max_reheat_fraction = f;
+                        }
                         graph.add_air_component(Box::new(box_component))
                     }
                     TerminalInput::PfpBox(pb) => {

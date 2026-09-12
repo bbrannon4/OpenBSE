@@ -1066,5 +1066,260 @@
         2.2458
       ]
     }
+  },
+  "_provenance_ae_reheat": "ASHRAE 140-2023 Section 11 two-zone terminal-reheat cases: constant-volume AE301-AE345 and VAV AE401-AE445. Steady-state last-hour CENTRAL-coil loads [kW] \u2014 preheat (QHpre) and cooling sensible/latent/total (QCsens/QClat/QCtot) \u2014 from the quasi-analytical solution and six whole-building programs (Std140_AE_CVVV_Results.xlsx: QAS, DEEAP, DeST, DOE-2.2, EnergyPlus, IES-VE, TRNSYS). Range per metric = [min, max] across all programs, padded by max(0.05 kW, 1.5%) for the added modeling latitude of two-zone terminal-reheat control. The zone reheat loads are a secondary (non-gated) output.",
+  "ae_reheat_ranges": {
+    "AE301": {
+      "QHpre": [
+        2.8898,
+        3.8451
+      ],
+      "QCsens": [
+        -0.05,
+        0.05
+      ],
+      "QClat": [
+        -0.05,
+        0.05
+      ],
+      "QCtot": [
+        -0.05,
+        0.05
+      ]
+    },
+    "AE303": {
+      "QHpre": [
+        -0.05,
+        0.05
+      ],
+      "QCsens": [
+        6.3187,
+        6.8365
+      ],
+      "QClat": [
+        -0.05,
+        0.05
+      ],
+      "QCtot": [
+        6.3187,
+        6.8365
+      ]
+    },
+    "AE304": {
+      "QHpre": [
+        -0.05,
+        0.05
+      ],
+      "QCsens": [
+        9.7349,
+        10.475
+      ],
+      "QClat": [
+        6.1088,
+        7.116
+      ],
+      "QCtot": [
+        15.8476,
+        17.3256
+      ]
+    },
+    "AE305": {
+      "QHpre": [
+        -0.05,
+        0.05
+      ],
+      "QCsens": [
+        8.788,
+        9.5236
+      ],
+      "QClat": [
+        -0.05,
+        0.05
+      ],
+      "QCtot": [
+        8.788,
+        9.5236
+      ]
+    },
+    "AE306": {
+      "QHpre": [
+        -0.05,
+        0.05
+      ],
+      "QCsens": [
+        8.4637,
+        9.0549
+      ],
+      "QClat": [
+        5.3423,
+        6.195
+      ],
+      "QCtot": [
+        13.8093,
+        15.0242
+      ]
+    },
+    "AE326": {
+      "QHpre": [
+        -0.05,
+        0.05
+      ],
+      "QCsens": [
+        7.9689,
+        8.5975
+      ],
+      "QClat": [
+        11.5191,
+        13.0724
+      ],
+      "QCtot": [
+        19.6289,
+        21.3082
+      ]
+    },
+    "AE345": {
+      "QHpre": [
+        -0.05,
+        0.05
+      ],
+      "QCsens": [
+        9.1395,
+        9.8529
+      ],
+      "QClat": [
+        -0.05,
+        0.05
+      ],
+      "QCtot": [
+        9.1395,
+        9.8529
+      ]
+    },
+    "AE401": {
+      "QHpre": [
+        10.0856,
+        10.9798
+      ],
+      "QCsens": [
+        -0.05,
+        0.05
+      ],
+      "QClat": [
+        -0.05,
+        0.05
+      ],
+      "QCtot": [
+        -0.05,
+        0.05
+      ]
+    },
+    "AE403": {
+      "QHpre": [
+        -0.05,
+        0.05
+      ],
+      "QCsens": [
+        1.3487,
+        1.5163
+      ],
+      "QClat": [
+        -0.05,
+        0.05
+      ],
+      "QCtot": [
+        1.3487,
+        1.5163
+      ]
+    },
+    "AE404": {
+      "QHpre": [
+        -0.05,
+        0.05
+      ],
+      "QCsens": [
+        7.2211,
+        7.5705
+      ],
+      "QClat": [
+        5.8181,
+        6.6792
+      ],
+      "QCtot": [
+        13.0972,
+        14.2412
+      ]
+    },
+    "AE405": {
+      "QHpre": [
+        -0.05,
+        0.05
+      ],
+      "QCsens": [
+        4.0288,
+        4.2053
+      ],
+      "QClat": [
+        -0.05,
+        0.05
+      ],
+      "QCtot": [
+        4.0288,
+        4.2053
+      ]
+    },
+    "AE406": {
+      "QHpre": [
+        -0.05,
+        0.05
+      ],
+      "QCsens": [
+        3.5118,
+        3.7353
+      ],
+      "QClat": [
+        4.4203,
+        5.0431
+      ],
+      "QCtot": [
+        8.046,
+        8.7245
+      ]
+    },
+    "AE426": {
+      "QHpre": [
+        -0.05,
+        0.05
+      ],
+      "QCsens": [
+        3.4614,
+        3.6969
+      ],
+      "QClat": [
+        5.104,
+        5.7172
+      ],
+      "QCtot": [
+        8.6664,
+        9.3453
+      ]
+    },
+    "AE445": {
+      "QHpre": [
+        -0.05,
+        0.05
+      ],
+      "QCsens": [
+        4.082,
+        4.2543
+      ],
+      "QClat": [
+        -0.05,
+        0.05
+      ],
+      "QCtot": [
+        4.082,
+        4.2543
+      ]
+    }
   }
 }

@@ -136,6 +136,7 @@ fn build_loop_infos(
 
             // Build terminal box map: zone_name -> component_name
             let mut terminal_boxes: HashMap<String, String> = HashMap::new();
+            let mut terminal_min_flow: HashMap<String, f64> = HashMap::new();
             let mut dd_boxes: HashMap<String, openbse_components::dual_duct_box::DualDuctBox> =
                 HashMap::new();
             for zc in &al.zone_terminals {
@@ -143,6 +144,7 @@ fn build_loop_infos(
                     match terminal {
                         openbse_io::input::TerminalInput::VavBox(vb) => {
                             terminal_boxes.insert(zc.zone.clone(), vb.name.clone());
+                            terminal_min_flow.insert(zc.zone.clone(), vb.min_flow_fraction);
                         }
                         openbse_io::input::TerminalInput::PfpBox(pb) => {
                             terminal_boxes.insert(zc.zone.clone(), pb.name.clone());
@@ -216,6 +218,7 @@ fn build_loop_infos(
                 fan_operating_mode: al.controls.fan_operating_mode,
                 cooling_part_load_cd: al.controls.cooling_part_load_cd,
                 terminal_boxes,
+                terminal_min_flow,
                 dd_boxes,
                 heat_recovery_name,
                 hhw_boiler_efficiency,
@@ -320,6 +323,9 @@ fn build_loop_infos(
                         dp / (eff * 1.2 * 1006.0)
                     })
                     .unwrap_or(0.0),
+                fixed_cooling_sat: al.controls.fixed_cooling_sat,
+                preheat_setpoint: al.controls.preheat_setpoint,
+                min_oa_flow_mass: al.controls.minimum_oa_flow.map(|v| v * 1.229),
             }
         })
         .collect()
@@ -1165,11 +1171,25 @@ fn main() -> Result<()> {
         }
 
         // Gather design zone flows from air loop controls (not thermostats).
-        // Each air loop's controls.design_zone_flow applies to all zones it serves.
+        // Each air loop's controls.design_zone_flow applies to all zones it
+        // serves, EXCEPT a zone whose VAV terminal box declares an explicit
+        // max_air_flow — that per-zone design flow takes precedence (multi-zone
+        // reheat systems give each zone its own design airflow).
         for al in &model.air_loops {
             let flow = al.controls.design_zone_flow.to_f64();
             for zc in &al.zone_terminals {
-                zone_design_flows.insert(zc.zone.clone(), flow);
+                let zone_flow = match &zc.terminal {
+                    Some(openbse_io::input::TerminalInput::VavBox(vb)) => {
+                        let mx = vb.max_air_flow.to_f64();
+                        if mx > 0.0 {
+                            mx
+                        } else {
+                            flow
+                        }
+                    }
+                    _ => flow,
+                };
+                zone_design_flows.insert(zc.zone.clone(), zone_flow);
             }
         }
 
@@ -5876,7 +5896,8 @@ fn simulate_all_loops(
                         .get(zone_name)
                         .copied()
                         .unwrap_or(vav_max_flow * 0.3);
-                    let min_flow = vav_max_flow * 0.3;
+                    let min_flow_frac = li.terminal_min_flow.get(zone_name).copied().unwrap_or(0.3);
+                    let min_flow = vav_max_flow * min_flow_frac;
                     let mode = if zone_temp_init < heat_sp {
                         HvacMode::Heating
                     } else if zone_temp_init > cool_sp {
@@ -5884,17 +5905,55 @@ fn simulate_all_loops(
                     } else {
                         HvacMode::Deadband
                     };
-                    let control_signal = match mode {
-                        HvacMode::Heating if zone_heat_load > 0.0 => {
-                            (zone_heat_load / reheat_cap).clamp(0.0, 1.0)
-                        }
-                        HvacMode::Cooling if zone_cool_load > 0.0 => {
-                            let frac = ((desired_zone_flow - min_flow)
-                                / (vav_max_flow - min_flow).max(0.001))
-                            .clamp(0.0, 1.0);
+                    let control_signal = if li.fixed_cooling_sat {
+                        // Terminal-reheat systems (ASHRAE 140 §11 AE300/AE400):
+                        // the central coil delivers a fixed cold-deck temperature
+                        // (`supply_temp`) and each terminal holds its zone. The
+                        // supply air that balances an imposed-load adiabatic zone
+                        // at flow m is  T_supply = T_set − net_gain/(m·cp), with
+                        // net_gain = Q_cool − Q_heat (>0 for a zone gaining heat).
+                        //
+                        //  • If the cold deck alone can meet a cooling zone at a
+                        //    flow ≥ minimum, the box modulates flow (VAV) and needs
+                        //    no reheat: m_needed = net_gain / (cp·(T_set − deck)).
+                        //  • Otherwise the box sits at minimum flow and the reheat
+                        //    coil trims the deck up to the holding temperature.
+                        // A constant-volume box (min fraction 1.0) always takes the
+                        // reheat branch at full flow.
+                        let cp = 1006.0_f64;
+                        let net_gain = zone_cool_load - zone_heat_load;
+                        let deck_dt = (cool_sp - supply_temp).max(0.1);
+                        let m_needed = if net_gain > 0.0 {
+                            net_gain / (cp * deck_dt)
+                        } else {
+                            0.0
+                        };
+                        if m_needed >= min_flow && net_gain > 0.0 {
+                            // Cooling met by flow modulation — no reheat.
+                            let flow = m_needed.min(vav_max_flow);
+                            let frac = ((flow - min_flow) / (vav_max_flow - min_flow).max(1.0e-6))
+                                .clamp(0.0, 1.0);
                             -frac
+                        } else {
+                            // Minimum flow + reheat to hold the zone.
+                            let m_cp = (min_flow * cp).max(1.0);
+                            let t_supply_target = cool_sp - net_gain / m_cp;
+                            let q_reheat = min_flow * cp * (t_supply_target - supply_temp);
+                            (q_reheat / reheat_cap).clamp(0.0, 1.0)
                         }
-                        _ => 0.0, // Deadband or no load
+                    } else {
+                        match mode {
+                            HvacMode::Heating if zone_heat_load > 0.0 => {
+                                (zone_heat_load / reheat_cap).clamp(0.0, 1.0)
+                            }
+                            HvacMode::Cooling if zone_cool_load > 0.0 => {
+                                let frac = ((desired_zone_flow - min_flow)
+                                    / (vav_max_flow - min_flow).max(0.001))
+                                .clamp(0.0, 1.0);
+                                -frac
+                            }
+                            _ => 0.0, // Deadband or no load
+                        }
                     };
 
                     if let Some(node_idx) = graph.node_by_name(term_name) {
@@ -6285,6 +6344,7 @@ mod tests {
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
+            terminal_min_flow: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
@@ -6299,6 +6359,9 @@ mod tests {
             economizer_high_limit_enthalpy: None,
             supply_fan_dt: 0.0,
             return_fan_dt: 0.0,
+            fixed_cooling_sat: false,
+            preheat_setpoint: None,
+            min_oa_flow_mass: None,
         }
     }
 
@@ -6320,6 +6383,7 @@ mod tests {
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
+            terminal_min_flow: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
@@ -6334,6 +6398,9 @@ mod tests {
             economizer_high_limit_enthalpy: None,
             supply_fan_dt: 0.0,
             return_fan_dt: 0.0,
+            fixed_cooling_sat: false,
+            preheat_setpoint: None,
+            min_oa_flow_mass: None,
         }
     }
 
@@ -7162,6 +7229,7 @@ mod tests_datacenter {
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
+            terminal_min_flow: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
@@ -7176,6 +7244,9 @@ mod tests_datacenter {
             economizer_high_limit_enthalpy: None,
             supply_fan_dt: 0.0,
             return_fan_dt: 0.0,
+            fixed_cooling_sat: false,
+            preheat_setpoint: None,
+            min_oa_flow_mass: None,
         }
     }
 
