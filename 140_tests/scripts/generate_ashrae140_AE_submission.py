@@ -83,6 +83,181 @@ def col(row, needle):
     return float(row[keys[0]]) if keys else 0.0
 
 
+# ── Detailed node-state tables (S-columns) ────────────────────────────────────
+# Outdoor-air humidity ratio [kg/kg] for each constant-condition weather point,
+# and the weather point serving each case (see gen_ae_weather.py).
+OA_W = {"AE_m29": 0.000259, "AE_155": 0.002992, "AE_269": 0.016980,
+        "AE_249": 0.004579, "AE_230": 0.015743}
+CASE_WEATHER = {
+    "AE101": "AE_m29", "AE103": "AE_155", "AE104": "AE_269",
+    "AE201": "AE_m29", "AE203": "AE_155", "AE204": "AE_269", "AE205": "AE_249",
+    "AE206": "AE_230", "AE226": "AE_230", "AE245": "AE_249",
+    "AE301": "AE_m29", "AE303": "AE_155", "AE304": "AE_269", "AE305": "AE_249",
+    "AE306": "AE_230", "AE326": "AE_230", "AE345": "AE_249",
+    "AE401": "AE_m29", "AE403": "AE_155", "AE404": "AE_269", "AE405": "AE_249",
+    "AE406": "AE_230", "AE426": "AE_230", "AE445": "AE_249",
+}
+RF_DT = 0.295  # return-fan air temperature rise [°C] (AE200/AE300/AE400)
+
+
+def spec_vol_l(t, w):
+    """Moist-air specific volume [L per kg dry air]."""
+    return 1000.0 * 0.287042 * (t + 273.15) * (1.0 + 1.607858 * w) / 101.325
+
+
+def enthalpy_jg(t, w):
+    """Moist-air enthalpy [J per g dry air = kJ/kg dry air]."""
+    return 1.006 * t + w * (2501.0 + 1.86 * t)
+
+
+def oa_fraction(t_return, t_mixed, t_oa):
+    """Outdoor-air fraction from the mixed-air temperature lever
+    (t_mixed = f·t_oa + (1-f)·t_return). Robust while |t_return - t_oa| is
+    non-trivial; clamped to [0, 1]. (The zone-level OA column is empty because
+    outdoor air is mixed at the air-loop level, not per zone.)"""
+    denom = t_return - t_oa
+    if abs(denom) < 0.5:
+        return 0.0
+    return max(0.0, min(1.0, (t_return - t_mixed) / denom))
+
+
+def results_row(case):
+    fp = os.path.join(CASES_DIR, f"ashrae140_case{case}_results.csv")
+    if not os.path.exists(fp):
+        return None
+    rows = list(csv.DictReader(open(fp)))
+    return rows[-1] if rows else None
+
+
+def zone_row(case):
+    fp = os.path.join(CASES_DIR, f"ashrae140_case{case}_zone_results.csv")
+    if not os.path.exists(fp):
+        return {}
+    rows = list(csv.DictReader(open(fp)))
+    return rows[-1] if rows else {}
+
+
+def rc(row, comp, field):
+    """Read a `<case> <comp>:<field>` column from a _results row (0.0 if absent)."""
+    for k, v in row.items():
+        if comp in k and k.rsplit(":", 1)[-1].split(" ")[0] == field:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return 0.0
+    return 0.0
+
+
+def nodes_single(case, is_fancoil):
+    """Return an ordered list of (T, w, mass|None) for the single-coil detailed
+    table nodes: oa, ma, hco, cco, sa, z1, then (rfi, rfo) or (ra)."""
+    r = results_row(case)
+    if r is None:
+        return None
+    z = zone_row(case)
+    oa_t = rc(r, "Weather", "outdoor_temp") or rc(r, ":outdoor", "temp")
+    oa_w = OA_W[CASE_WEATHER[case]]
+    zt = float(next((v for k, v in z.items() if "temperature" in k), 21.0))
+    zw = float(next((v for k, v in z.items() if "humidity_ratio" in k), 0.008))
+    rf_dt = 0.0 if is_fancoil else RF_DT
+    heating = any("Heating Coil" in k for k in r)
+    if heating:
+        ma = (rc(r, "Heating Coil", "inlet_temperature"),
+              rc(r, "Heating Coil", "inlet_humidity_ratio"))
+        hco = (rc(r, "Heating Coil", "outlet_temperature"), ma[1])
+        cco = hco
+        total = rc(r, "Heating Coil", "mass_flow")
+    else:
+        ma = (rc(r, "Cooling Coil", "inlet_temperature"),
+              rc(r, "Cooling Coil", "inlet_humidity_ratio"))
+        hco = ma
+        cco = (rc(r, "Cooling Coil", "outlet_temperature"),
+               rc(r, "Cooling Coil", "outlet_w") or rc(r, "Cooling Coil", "outlet_humidity_ratio"))
+        total = rc(r, "Cooling Coil", "mass_flow")
+    sa = (rc(r, "Supply Fan", "outlet_temperature"),
+          rc(r, "Supply Fan", "outlet_w") or rc(r, "Supply Fan", "outlet_humidity_ratio"))
+    oa_mass = total * oa_fraction(zt + rf_dt, ma[0], oa_t)
+    ret = max(0.0, total - oa_mass)
+    base = [
+        (oa_t, oa_w, oa_mass), (ma[0], ma[1], total), (hco[0], hco[1], total),
+        (cco[0], cco[1], total), (sa[0], sa[1], total), (zt, zw, None),
+    ]
+    if is_fancoil:
+        base.append((zt, zw, None))                       # ra (return, no fan)
+    else:
+        base.append((zt, zw, ret))                        # rfi
+        base.append((zt + RF_DT, zw, ret))                # rfo
+    return base
+
+
+def nodes_reheat(case):
+    """Ordered (T, w, mass|None) for the two-zone detailed nodes: oa, ma,
+    preheat-out, cco, sa, z1-supply, z2-supply, z1-air, z2-air, rfi, rfo."""
+    r = results_row(case)
+    if r is None:
+        return None
+    z = zone_row(case)
+    oa_t = rc(r, "Weather", "outdoor_temp") or rc(r, ":outdoor", "temp")
+    oa_w = OA_W[CASE_WEATHER[case]]
+    total = rc(r, "Cooling Coil", "mass_flow")
+    ma = (rc(r, "Preheat Coil", "inlet_temperature"),
+          rc(r, "Preheat Coil", "inlet_humidity_ratio"))
+    pho = (rc(r, "Preheat Coil", "outlet_temperature"), ma[1])
+    cco = (rc(r, "Cooling Coil", "outlet_temperature"),
+           rc(r, "Cooling Coil", "outlet_w") or rc(r, "Cooling Coil", "outlet_humidity_ratio"))
+    sa = (rc(r, "Supply Fan", "outlet_temperature"),
+          rc(r, "Supply Fan", "outlet_w") or rc(r, "Supply Fan", "outlet_humidity_ratio"))
+    z1s = (rc(r, "Z1 Reheat", "outlet_temp"), rc(r, "Z1 Reheat", "outlet_w"))
+    z2s = (rc(r, "Z2 Reheat", "outlet_temp"), rc(r, "Z2 Reheat", "outlet_w"))
+    m1 = rc(r, "Zone1", "supply_air_mass_flow")
+    m2 = rc(r, "Zone2", "supply_air_mass_flow")
+    zt = {n: float(v) for k, v in z.items() if "temperature" in k
+          for n in [k.split(":")[0].split(" ")[-1]]}
+    zw = {n: float(v) for k, v in z.items() if "humidity_ratio" in k
+          for n in [k.split(":")[0].split(" ")[-1]]}
+    z1t, z1w = zt.get("Zone1", 21.0), zw.get("Zone1", 0.008)
+    z2t, z2w = zt.get("Zone2", 21.0), zw.get("Zone2", 0.008)
+    denom = (m1 + m2) or 1.0
+    rt = (z1t * m1 + z2t * m2) / denom
+    rw = (z1w * m1 + z2w * m2) / denom
+    oa_mass = total * oa_fraction(rt + RF_DT, ma[0], oa_t)
+    mret = max(0.0, total - oa_mass)
+    return [
+        (oa_t, oa_w, oa_mass), (ma[0], ma[1], total), (pho[0], pho[1], total),
+        (cco[0], cco[1], total), (sa[0], sa[1], total),
+        (z1s[0], z1s[1], m1), (z2s[0], z2s[1], m2),
+        (z1t, z1w, None), (z2t, z2w, None),
+        (rt, rw, mret), (rt + RF_DT, rw, mret),
+    ]
+
+
+def write_detail(ws, start_row, first_col, nodes):
+    """Write a node block: 5 variable rows × node columns from `first_col`."""
+    for j, (t, w, mass) in enumerate(nodes):
+        c = first_col + j
+        ws.cell(start_row + 0, c, round(t, 4))
+        ws.cell(start_row + 1, c, round(w, 6))
+        ws.cell(start_row + 2, c, round(spec_vol_l(t, w), 4))
+        ws.cell(start_row + 3, c, round(enthalpy_jg(t, w), 4))
+        if mass is not None:
+            ws.cell(start_row + 4, c, round(mass / (1.0 + w), 6))  # → dry-air mass
+
+
+# Detailed-table start rows (dry-bulb row of each case's 5-row block).
+SINGLE_DETAIL_ROWS = {
+    "AE101": 61, "AE103": 66, "AE104": 71,
+    "AE201": 89, "AE203": 94, "AE204": 99, "AE205": 104, "AE206": 109,
+    "AE226": 114, "AE245": 119,
+}
+REHEAT_DETAIL_ROWS = {
+    "AE301": 137, "AE303": 142, "AE304": 147, "AE305": 152, "AE306": 157,
+    "AE326": 162, "AE345": 167,
+    "AE401": 185, "AE403": 190, "AE404": 195, "AE405": 200, "AE406": 205,
+    "AE426": 210, "AE445": 215,
+}
+S_COL = 19  # column S
+
+
 # ── Single-coil series (fan-coil AE100, single-zone AE200) ────────────────────
 # (case, imposed_zone_sensible_W, imposed_zone_latent_W)
 SINGLE = {
@@ -194,6 +369,21 @@ def main():
     print("Terminal-reheat series (AE300 CV / AE400 VAV):")
     for case, row in REHEAT_ROWS.items():
         fill_reheat(ws, case, row)
+
+    # Detailed node-state tables (S-columns)
+    print("Detailed node states:")
+    n_detail = 0
+    for case, srow in SINGLE_DETAIL_ROWS.items():
+        nodes = nodes_single(case, is_fancoil=case.startswith("AE1"))
+        if nodes:
+            write_detail(ws, srow, S_COL, nodes)
+            n_detail += 1
+    for case, srow in REHEAT_DETAIL_ROWS.items():
+        nodes = nodes_reheat(case)
+        if nodes:
+            write_detail(ws, srow, S_COL, nodes)
+            n_detail += 1
+    print(f"  wrote detailed node states for {n_detail} cases")
 
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     wb.save(args.output)
