@@ -884,8 +884,62 @@
       ]
     }
   },
-  "_provenance_ae": "ASHRAE 140-2023 Section 11 (air-side HVAC equipment) single-zone air-handler cases AE201-AE245. Steady-state last-hour coil loads [kW] from the quasi-analytical solution and seven whole-building programs (Std140_AE_FCSZ_Results.xlsx: QAS, DEEAP, DeST, DOE-2.2, EnergyPlus, IES-VE, LCEM, TRNSYS). Acceptance range per metric = [min, max] across all eight programs, padded +/-0.03 kW for numerical robustness. Metrics: QH heating-coil load, QCsens/QClat/QCtot cooling-coil sensible/latent/total load.",
+  "_provenance_ae": "ASHRAE 140-2023 Section 11 (air-side HVAC equipment) fan-coil (AE101-AE104) and single-zone (AE201-AE245) air-handler cases. Steady-state last-hour coil loads [kW] from the quasi-analytical solution and seven whole-building programs (Std140_AE_FCSZ_Results.xlsx: QAS, DEEAP, DeST, DOE-2.2, EnergyPlus, IES-VE, LCEM, TRNSYS). Acceptance range per metric = [min, max] across all eight programs, padded +/-0.03 kW for numerical robustness. Metrics: QH heating-coil load, QCsens/QClat/QCtot cooling-coil sensible/latent/total load.",
   "ae_ranges": {
+    "AE101": {
+      "QH": [
+        8.3422,
+        8.7975
+      ],
+      "QCsens": [
+        -0.03,
+        0.03
+      ],
+      "QClat": [
+        -0.03,
+        0.03
+      ],
+      "QCtot": [
+        -0.03,
+        0.03
+      ]
+    },
+    "AE103": {
+      "QH": [
+        -0.03,
+        0.03
+      ],
+      "QCsens": [
+        0.7223,
+        0.8141
+      ],
+      "QClat": [
+        -0.03,
+        0.0403
+      ],
+      "QCtot": [
+        0.732,
+        0.8141
+      ]
+    },
+    "AE104": {
+      "QH": [
+        -0.03,
+        0.03
+      ],
+      "QCsens": [
+        3.3592,
+        3.5728
+      ],
+      "QClat": [
+        1.9819,
+        2.323
+      ],
+      "QCtot": [
+        5.5029,
+        5.8658
+      ]
+    },
     "AE201": {
       "QH": [
         8.2721,

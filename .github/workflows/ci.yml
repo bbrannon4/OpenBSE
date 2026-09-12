@@ -54,7 +54,7 @@ jobs:
       # failing engine "pass".
       - name: Verify acceptance ranges are untampered
         run: |
-          echo "9ee06bb2061845b4ae3fd4ad77ff99f86386d4945d57e6590986abf19527866f  140_tests/acceptance_ranges_140_2023.json" | sha256sum -c -
+          echo "f6f64cfe4d0d22f7b9e6815d84ff958f2a2a17aad7cc4b124d43886c175e4ba8  140_tests/acceptance_ranges_140_2023.json" | sha256sum -c -
 
       - name: Build release
         run: cargo build --release
