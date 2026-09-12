@@ -291,6 +291,35 @@ fn build_loop_infos(
                         }
                     })
                     .unwrap_or(1.0),
+                supply_fan_dt: al
+                    .equipment
+                    .iter()
+                    .find_map(|eq| {
+                        use openbse_io::input::EquipmentInput;
+                        if let EquipmentInput::Fan(f) = eq {
+                            // Design air temperature rise across a draw-through
+                            // fan: dT = dP·motor_factor / (total_eff·rho·cp),
+                            // independent of flow (both heat-to-air and the
+                            // mass flow scale with the design flow rate).
+                            let total_eff = (f.motor_efficiency * f.impeller_efficiency).max(0.01);
+                            let motor_factor = f.motor_efficiency
+                                + (1.0 - f.motor_efficiency) * f.motor_in_airstream_fraction;
+                            let rho = 1.2_f64;
+                            let cp = 1006.0_f64;
+                            Some(f.pressure_rise * motor_factor / (total_eff * rho * cp))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(0.0),
+                return_fan_dt: al
+                    .controls
+                    .return_fan_pressure_rise
+                    .map(|dp| {
+                        let eff = al.controls.return_fan_total_efficiency.max(0.01);
+                        dp / (eff * 1.2 * 1006.0)
+                    })
+                    .unwrap_or(0.0),
             }
         })
         .collect()
@@ -5119,6 +5148,54 @@ fn simulate_all_loops(
                     &zone_vav_plrs,
                 );
             }
+            // SingleZone SAT reset (EnergyPlus SetpointManager:SingleZone): the
+            // supply temperature is reset to the value that holds the control
+            // zone exactly at its setpoint given the zone sensible load and the
+            // supply mass flow. Constant-volume single-zone systems (ASHRAE 140
+            // §11 AE) modulate supply temperature, not flow, to meet the load.
+            if matches!(
+                li.cooling_sat_reset,
+                Some(openbse_io::input::SatResetConfig::SingleZone { .. })
+            ) || matches!(
+                li.heating_sat_reset,
+                Some(openbse_io::input::SatResetConfig::SingleZone { .. })
+            ) {
+                if let Some(zname) = li.served_zones.first() {
+                    let cp = 1006.0_f64;
+                    let m_dot = zone_design_flows.get(zname).copied().unwrap_or(0.5);
+                    let q_heat = zone_heating_loads.get(zname).copied().unwrap_or(0.0);
+                    let q_cool = zone_cooling_loads.get(zname).copied().unwrap_or(0.0);
+                    let heat_sp = active_heat_sp.get(zname).copied().unwrap_or(21.1);
+                    let cool_sp = active_cool_sp.get(zname).copied().unwrap_or(23.9);
+                    let (smin, smax) = match &li.cooling_sat_reset {
+                        Some(openbse_io::input::SatResetConfig::SingleZone {
+                            sat_min,
+                            sat_max,
+                        }) => (*sat_min, *sat_max),
+                        _ => (4.0, 50.0),
+                    };
+                    let denom = (m_dot * cp).max(1.0);
+                    // The supply fan is downstream of the coils (draw-through),
+                    // so it reheats the air by supply_fan_dt before it reaches
+                    // the zone. Aim the coil leaving temperature that much below
+                    // the supply temperature that holds the zone, so the air
+                    // arrives at the zone at the intended temperature.
+                    let fan_dt = li.supply_fan_dt;
+                    if q_heat >= q_cool && q_heat > 0.0 {
+                        // Heating: raise supply above the setpoint; keep the
+                        // downstream cooling coil off (setpoint above supply).
+                        let sat = (heat_sp + q_heat / denom - fan_dt).clamp(smin, smax);
+                        li.heating_supply_temp = sat;
+                        li.cooling_supply_temp = sat + 20.0;
+                    } else if q_cool > 0.0 {
+                        // Cooling: drop supply below the setpoint; keep the
+                        // upstream heating coil off (setpoint below supply).
+                        let sat = (cool_sp - q_cool / denom - fan_dt).clamp(smin, smax);
+                        li.cooling_supply_temp = sat;
+                        li.heating_supply_temp = sat - 20.0;
+                    }
+                }
+            }
         }
 
         // Per-zone state + outdoor conditions shared by every signal builder.
@@ -5382,7 +5459,19 @@ fn simulate_all_loops(
         // reducing net cooling capacity).
         //
         // For non-PSZ-AC systems, PLR = 1.0 (they handle modulation internally).
-        let loop_plr = if li.system_type == AirLoopSystemType::PszAc
+        // A SingleZone SAT-reset loop modulates supply temperature (not flow)
+        // to hold the zone, so it runs continuously (no PLR cycling): the reset
+        // above already set the supply temp that meets the load exactly.
+        let single_zone_sat = matches!(
+            li.cooling_sat_reset,
+            Some(openbse_io::input::SatResetConfig::SingleZone { .. })
+        ) || matches!(
+            li.heating_sat_reset,
+            Some(openbse_io::input::SatResetConfig::SingleZone { .. })
+        );
+        let loop_plr = if single_zone_sat {
+            1.0
+        } else if li.system_type == AirLoopSystemType::PszAc
             || li.system_type == AirLoopSystemType::Ptac
             || li.system_type == AirLoopSystemType::Pthp
         {
@@ -6208,6 +6297,8 @@ mod tests {
             economizer_type: openbse_io::input::EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            supply_fan_dt: 0.0,
+            return_fan_dt: 0.0,
         }
     }
 
@@ -6241,6 +6332,8 @@ mod tests {
             economizer_type: econ_type,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            supply_fan_dt: 0.0,
+            return_fan_dt: 0.0,
         }
     }
 
@@ -6940,6 +7033,7 @@ fn apply_sat_reset(
                 (current_sat + step).min(*sat_max)
             }
         }
+        SatResetConfig::SingleZone { .. } => current_sat,
     }
 }
 
@@ -6974,6 +7068,7 @@ fn apply_sat_reset_heating(
                 (current_sat - step).max(*sat_min)
             }
         }
+        SatResetConfig::SingleZone { .. } => current_sat,
     }
 }
 
@@ -7079,6 +7174,8 @@ mod tests_datacenter {
             economizer_type: openbse_io::input::EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            supply_fan_dt: 0.0,
+            return_fan_dt: 0.0,
         }
     }
 

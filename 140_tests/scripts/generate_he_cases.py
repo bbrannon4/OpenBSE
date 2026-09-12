@@ -100,7 +100,7 @@ simulation:
   end_day: 31
 
 weather_files:
-  - "{c['w']}.epw"
+  - "../weather/{c['w']}.epw"
 
 simple_constructions:
   - name: Adiabatic Wall

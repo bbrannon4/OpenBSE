@@ -93,6 +93,16 @@ pub struct LoopInfo {
     pub economizer_high_limit: Option<f64>,
     /// Economizer high-limit shutoff enthalpy [J/kg] (for FixedEnthalpy / EnthalpyWithHighLimit).
     pub economizer_high_limit_enthalpy: Option<f64>,
+    /// Supply-fan air temperature rise at design [°C]. A draw-through fan sits
+    /// downstream of the coils, so the SingleZone SAT reset must aim the coil
+    /// leaving temperature this much below the supply temperature that holds the
+    /// zone (the fan reheats the air before it reaches the zone). Computed from
+    /// the supply fan's design pressure rise / efficiency / motor placement.
+    pub supply_fan_dt: f64,
+    /// Return-fan air temperature rise at design [°C]. A return fan on the
+    /// return-air path heats the return air before it mixes with outdoor air,
+    /// raising the mixed-air (coil entering) temperature. 0.0 = no return fan.
+    pub return_fan_dt: f64,
 }
 
 /// Control role of a component in a signal builder's coil dispatch.
@@ -286,6 +296,28 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         }
     }
 
+    // SingleZone SAT reset: align the economizer/OA mode with the reset's own
+    // heating-vs-cooling decision (main.rs drives the coils from q_heat/q_cool,
+    // not the zone-temperature mode). When heating and cooling setpoints are
+    // equal (ASHRAE 140 §11 AE), a tiny undershoot would otherwise flip the
+    // predictor to Heating and suppress the economizer on a cooling case.
+    let single_zone_sat = matches!(
+        li.cooling_sat_reset,
+        Some(openbse_io::input::SatResetConfig::SingleZone { .. })
+    ) || matches!(
+        li.heating_sat_reset,
+        Some(openbse_io::input::SatResetConfig::SingleZone { .. })
+    );
+    if single_zone_sat {
+        mode = if zone_cool_load > zone_heat_load && zone_cool_load > 0.0 {
+            HvacMode::Cooling
+        } else if zone_heat_load > 0.0 {
+            HvacMode::Heating
+        } else {
+            HvacMode::Deadband
+        };
+    }
+
     // Total design flow for this loop
     let mut total_flow = 0.0f64;
     for zone_name in &li.served_zones {
@@ -370,6 +402,11 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         .get(control_zone)
         .copied()
         .unwrap_or(0.008);
+    // A return fan (when present) heats the return air before it mixes with
+    // outdoor air. The economizer availability test still uses the pre-fan
+    // return condition (the standard control-sensor location); only the
+    // mixed-air temperature sees the fan-heated return air.
+    let mixing_return_temp = return_air_temp + li.return_fan_dt;
     let return_enthalpy = openbse_psychrometrics::h_fn_tdb_w(return_air_temp, return_w);
     let outdoor_enthalpy = openbse_psychrometrics::h_fn_tdb_w(raw_t_outdoor, w_outdoor);
     use openbse_io::input::EconomizerType;
@@ -391,25 +428,61 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         }
     };
     let oa_frac = if psz_econ_available && mode != HvacMode::Heating {
-        // Economizer: modulate OA to approach SAT target in mixed air.
+        // Economizer: modulate OA to approach the SAT target in mixed air.
         // Active in both Cooling and Deadband — provides free cooling from
         // outdoor air, reducing or eliminating mechanical cooling.  Matches
         // E+'s economizer which operates whenever OA conditions are favorable,
         // regardless of whether the cooling coil is currently active.
-        let delta = return_air_temp - t_outdoor;
-        if delta > 0.1 {
-            let needed = (return_air_temp - econ_target) / delta;
-            needed.clamp(effective_min_oa, 1.0)
+        //
+        // `psz_econ_available` already encodes that outdoor air is beneficial
+        // (cooler than return for dry-bulb, lower-enthalpy for enthalpy types),
+        // so the only question is how much OA to admit:
+        //   • OA colder than the supply target → blend with return to land on
+        //     the target (avoid overshooting cold, which would need reheat).
+        //   • OA warmer than the target but still favorable → 100% OA for the
+        //     most free cooling; the coil handles the remaining sensible load
+        //     (ASHRAE 140 §11 AE226 dry-bulb and AE245 enthalpy both run 100%).
+        if t_outdoor <= econ_target {
+            let delta = return_air_temp - t_outdoor;
+            if delta > 0.1 {
+                ((return_air_temp - econ_target) / delta).clamp(effective_min_oa, 1.0)
+            } else {
+                effective_min_oa
+            }
         } else {
-            effective_min_oa
+            1.0
         }
     } else {
         effective_min_oa
     };
-    let mixed_air_temp = return_air_temp * (1.0 - oa_frac) + t_outdoor * oa_frac;
+    let mixed_air_temp = mixing_return_temp * (1.0 - oa_frac) + t_outdoor * oa_frac;
+
+    // SingleZone SAT reset: the supply-temp reset (main.rs) already set both
+    // coils' leaving-air setpoints to hold the zone exactly — the active coil
+    // at the zone-tracking SAT, the inactive coil parked out of the air's way.
+    // Drive the coils straight to those setpoints (modulating, continuous) and
+    // skip the on/off mode gating, which bang-bangs a massless zone.
+    // (`single_zone_sat` is computed above, where it also aligns the OA mode.)
 
     for name in &li.component_names {
         let role = li.coil_role(name);
+        if single_zone_sat {
+            match role {
+                CoilRole::Heating => {
+                    signals
+                        .coil_setpoints
+                        .insert(name.clone(), li.heating_supply_temp);
+                }
+                CoilRole::Cooling => {
+                    signals
+                        .coil_setpoints
+                        .insert(name.clone(), li.cooling_supply_temp);
+                }
+                _ => {}
+            }
+            signals.air_mass_flows.insert(name.clone(), flow);
+            continue;
+        }
         match mode {
             HvacMode::Heating => {
                 // Proportional heating DAT: ramps from setpoint toward max (40°C)
@@ -1557,6 +1630,8 @@ mod tests {
             economizer_type: EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            supply_fan_dt: 0.0,
+            return_fan_dt: 0.0,
         }
     }
 

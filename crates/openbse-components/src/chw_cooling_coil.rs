@@ -159,47 +159,37 @@ impl AirComponent for CoolingCoilCHW {
         };
         let cap_total_avail = self.nominal_capacity.min(water_capacity).max(0.0);
 
-        // ── Wet-coil apparatus-dew-point (ADP) model ──────────────────────────
-        // The coil is controlled to the leaving-air setpoint; the air follows a
-        // straight condition line from the entering state toward the apparatus
-        // dew point on the saturation curve. For a chilled-water coil the ADP is
-        // the effective coil-surface temperature, taken as the mean of the design
-        // chilled-water supply/return temps. When the entering humidity ratio
-        // exceeds w_ADP the coil condenses moisture (wet); otherwise it runs dry.
+        // ── Leaving-saturation wet-coil model ─────────────────────────────────
+        // The coil is controlled to the leaving-air dry-bulb setpoint. A real
+        // chilled-water coil that is condensing leaves the air at (or very near)
+        // saturation at the leaving temperature: the quasi-analytical ASHRAE 140
+        // §11 solution reports RHcco = 100% for every wet case (AE204/206/226)
+        // and RHcco < 50% (entering humidity unchanged) for every dry case.
         //
-        // This removes moisture from the airstream AND keeps the air enthalpy
-        // drop equal to the water heat gain (q_total), fixing the prior model
-        // which billed the water for q_total while the air only shed q_sensible
-        // and never dehumidified (CHW-1 / GitHub #69).
+        // So the leaving humidity ratio is the smaller of the entering ratio and
+        // the saturation ratio at the leaving temperature:
+        //   w_out = min(w_in, w_sat(T_leaving))
+        // When w_in ≤ w_sat the coil runs dry (w unchanged, latent = 0); when
+        // w_in > w_sat it condenses moisture down to saturation (wet, latent > 0).
+        // The air enthalpy drop then equals the total water heat gain, so the air
+        // and water energy balances close (fixes CHW-1 / GitHub #69, which left
+        // the coil billing the water for q_total while never dehumidifying).
         //
-        // Reference: EnergyPlus "Coil:Cooling:Water" simple-analysis bypass model.
+        // Reference: ASHRAE 140-2023 §11 quasi-analytical solution; EnergyPlus
+        // "Coil:Cooling:Water" detailed model leaves wet-coil air at saturation.
         let p_b = inlet.state.p_b;
-        let t_adp = 0.5 * (self.design_water_inlet_temp + self.design_water_outlet_temp);
-        let w_adp = psych::w_fn_tdb_rh_pb(t_adp, 1.0, p_b);
-
-        // Target leaving dry-bulb: the setpoint, but never below the ADP (the
-        // coil cannot cool the air past its own surface temperature).
-        let t_out_target = self.outlet_temp_setpoint.max(t_adp);
-        let denom = inlet.state.t_db - t_adp;
-
-        // Leaving humidity ratio along the entering→ADP condition line.
-        let (q_sens_set, q_total_set, w_out_set) = if denom > 1.0e-6 {
-            let contact = ((inlet.state.t_db - t_out_target) / denom).clamp(0.0, 1.0);
-            let w_out = if inlet.state.w > w_adp {
-                inlet.state.w - contact * (inlet.state.w - w_adp)
-            } else {
-                inlet.state.w // dry coil — no condensation
-            };
+        let t_out_target = self.outlet_temp_setpoint;
+        let (q_sens_set, q_total_set, w_out_set) = if inlet.state.t_db - t_out_target > 1.0e-6 {
+            let w_sat_out = psych::w_fn_tdb_rh_pb(t_out_target, 1.0, p_b);
+            let w_out = inlet.state.w.min(w_sat_out); // condense to saturation when wet
             let q_sens = inlet.mass_flow * cp_air * (inlet.state.t_db - t_out_target);
             let h_in = psych::h_fn_tdb_w(inlet.state.t_db, inlet.state.w);
             let h_out = psych::h_fn_tdb_w(t_out_target, w_out);
             let q_tot = inlet.mass_flow * (h_in - h_out);
             (q_sens.max(0.0), q_tot.max(q_sens).max(0.0), w_out)
         } else {
-            // ADP at/above entering temp — coil can only deliver sensible cooling
-            // down to the ADP with no dehumidification.
-            let q_sens = q_sensible_required;
-            (q_sens, q_sens, inlet.state.w)
+            // Setpoint at/above entering temp — no cooling.
+            (0.0, 0.0, inlet.state.w)
         };
 
         // Part-load ratio: scale back when the available capacity can't meet the
@@ -283,6 +273,10 @@ impl AirComponent for CoolingCoilCHW {
     fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
         out("sensible_load", self.sensible_cooling_rate);
         out("total_load", self.cooling_rate);
+        out(
+            "latent_load",
+            (self.cooling_rate - self.sensible_cooling_rate).max(0.0),
+        );
         if let Some(ref wi) = self.water_inlet {
             out("water_inlet_temperature", wi.state.temp);
             out("water_mass_flow", wi.state.mass_flow);

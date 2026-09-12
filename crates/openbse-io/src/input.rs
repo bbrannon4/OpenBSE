@@ -491,10 +491,25 @@ pub struct AirLoopControls {
     /// specifies 0.229.
     #[serde(default = "default_cooling_part_load_cd")]
     pub cooling_part_load_cd: f64,
+    /// Return-fan design pressure rise [Pa] (optional — absent = no return fan).
+    /// A return fan on the return-air path heats the return air before it mixes
+    /// with outdoor air, raising the mixed-air (coil entering) temperature. Used
+    /// by the SingleZone air handler (ASHRAE 140 §11 AE); the air temperature
+    /// rise is dP / (efficiency · ρ · cp), independent of flow.
+    #[serde(default)]
+    pub return_fan_pressure_rise: Option<f64>,
+    /// Return-fan total efficiency [0-1] (default 0.7). Only used when
+    /// `return_fan_pressure_rise` is set.
+    #[serde(default = "default_return_fan_efficiency")]
+    pub return_fan_total_efficiency: f64,
 }
 
 fn default_cooling_part_load_cd() -> f64 {
     0.15
+}
+
+fn default_return_fan_efficiency() -> f64 {
+    0.7
 }
 
 impl Default for AirLoopControls {
@@ -512,6 +527,8 @@ impl Default for AirLoopControls {
             heating_sat_reset: None,
             outdoor_air_fraction: None,
             cooling_part_load_cd: 0.15,
+            return_fan_pressure_rise: None,
+            return_fan_total_efficiency: 0.7,
         }
     }
 }
@@ -557,6 +574,17 @@ pub enum SatResetConfig {
         /// Step size per timestep [°C] (default 0.5)
         #[serde(default = "default_sat_step")]
         step: f64,
+    },
+    /// Reset SAT each timestep to the temperature that holds the control zone
+    /// exactly at its setpoint, given the zone's sensible load and the supply
+    /// mass flow (EnergyPlus SetpointManager:SingleZone). Used by constant-
+    /// volume single-zone systems (ASHRAE 140 Section 11 AE cases), where the
+    /// supply temperature — not the flow — modulates to meet the load.
+    SingleZone {
+        /// Minimum SAT [°C]
+        sat_min: f64,
+        /// Maximum SAT [°C]
+        sat_max: f64,
     },
 }
 
