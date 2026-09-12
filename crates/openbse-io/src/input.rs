@@ -3944,6 +3944,7 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                     wind_coefficient: infil.wind_coefficient,
                     wind_squared_coefficient: infil.wind_squared_coefficient,
                     schedule: infil.schedule.clone(),
+                    density_basis: infil.density_basis,
                 });
             }
         }
@@ -4058,6 +4059,21 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                 if !il.thermostat_schedule.is_empty() {
                     zone.thermostat_schedule = il.thermostat_schedule.clone();
                 }
+            }
+        }
+    }
+
+    // Copy thermostat setback schedules onto their zones so the ideal-load
+    // predictor sees the same hourly setpoints as the HVAC control (used by
+    // real-HVAC cases such as ASHRAE 140 Section 10 HE220/HE230).
+    let resolved_tstats = resolve_thermostats(model);
+    for tstat in &resolved_tstats {
+        if tstat.thermostat_schedule.is_empty() {
+            continue;
+        }
+        for zone_name in expand_zones(&tstat.zones) {
+            if let Some(zone) = zones.iter_mut().find(|z| z.name == zone_name) {
+                zone.thermostat_schedule = tstat.thermostat_schedule.clone();
             }
         }
     }

@@ -1119,6 +1119,22 @@ fn main() -> Result<()> {
             }
         }
 
+        // Per-zone hourly heating-setpoint schedules (e.g. night setback), so
+        // the HVAC control uses the same scheduled setpoint as the ideal-load
+        // predictor. Empty for zones without a schedule.
+        let mut zone_heat_sp_schedule: HashMap<
+            String,
+            Vec<openbse_envelope::zone::ThermostatScheduleEntry>,
+        > = HashMap::new();
+        for tstat in &resolved_thermostats {
+            if tstat.thermostat_schedule.is_empty() {
+                continue;
+            }
+            for zone_name in &tstat.zones {
+                zone_heat_sp_schedule.insert(zone_name.clone(), tstat.thermostat_schedule.clone());
+            }
+        }
+
         // Gather design zone flows from air loop controls (not thermostats).
         // Each air loop's controls.design_zone_flow applies to all zones it serves.
         for al in &model.air_loops {
@@ -2208,6 +2224,7 @@ fn main() -> Result<()> {
                             &zone_cooling_setpoints,
                             &zone_unocc_heating_setpoints,
                             &zone_unocc_cooling_setpoints,
+                            &zone_heat_sp_schedule,
                             &zone_design_flows,
                             t_outdoor,
                             Some(&env.schedule_manager),
@@ -2725,6 +2742,7 @@ fn main() -> Result<()> {
                                 &zone_cooling_setpoints,
                                 &zone_unocc_heating_setpoints,
                                 &zone_unocc_cooling_setpoints,
+                                &zone_heat_sp_schedule,
                                 &zone_design_flows,
                                 t_outdoor,
                                 Some(&env.schedule_manager),
@@ -4812,6 +4830,7 @@ fn simulate_all_loops(
     zone_cool_sp: &HashMap<String, f64>,
     zone_unocc_heat_sp: &HashMap<String, f64>,
     zone_unocc_cool_sp: &HashMap<String, f64>,
+    zone_heat_sp_schedule: &HashMap<String, Vec<openbse_envelope::zone::ThermostatScheduleEntry>>,
     zone_design_flows: &HashMap<String, f64>,
     t_outdoor: f64,
     schedule_mgr: Option<&ScheduleManager>,
@@ -5377,7 +5396,23 @@ fn simulate_all_loops(
             let zone_heat_load =
                 zone_heating_loads.get(control_zone).copied().unwrap_or(0.0) * zmult_plr;
             let control_temp = zone_temps.get(control_zone).copied().unwrap_or(21.0);
-            let heat_sp = active_heat_sp.get(control_zone).copied().unwrap_or(21.1);
+            // A per-zone hourly setpoint schedule (night setback) overrides the
+            // constant setpoint, matching the ideal-load predictor.
+            let scheduled_heat_sp = zone_heat_sp_schedule.get(control_zone).and_then(|entries| {
+                entries
+                    .iter()
+                    .find(|e| {
+                        if e.start_hour <= e.end_hour {
+                            hour >= e.start_hour && hour <= e.end_hour
+                        } else {
+                            hour >= e.start_hour || hour <= e.end_hour
+                        }
+                    })
+                    .map(|e| e.heating_setpoint)
+            });
+            let heat_sp = scheduled_heat_sp
+                .or_else(|| active_heat_sp.get(control_zone).copied())
+                .unwrap_or(21.1);
             let cool_sp = active_cool_sp.get(control_zone).copied().unwrap_or(23.9);
             // Use predictor mode (from frozen ideal loads) — stable across
             // HVAC iterations, preventing mode flip-flop at setpoint boundary.

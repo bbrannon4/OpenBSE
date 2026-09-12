@@ -39,6 +39,15 @@ LOAD_RANGES = {k: tuple(v) for k, v in _RANGES["load_ranges_kwh"].items()}
 # Section 9a cooling-equipment February-total ranges: {case: {metric: [lo, hi]}}
 CE_RANGES = _RANGES.get("ce_february_ranges_kwh", {})
 
+# Section 10 fuel-fired furnace ranges: {case: {metric: [lo, hi]}}
+HE_RANGES = _RANGES.get("he_ranges", {})
+
+# Natural-gas higher heating value used to convert furnace fuel input (J) to a
+# volumetric flow (m³/s) — 38 MJ/m³, from the reference programs' input/fuel
+# ratio. HE cases run Jan–Mar (2160 h).
+HE_GAS_HHV_J_PER_M3 = 38.0e6
+HE_RUN_SECONDS = 2160 * 3600
+
 # Free-float temperature ranges: (max_lo, max_hi, min_lo, min_hi, mean_lo, mean_hi)
 FF_RANGES = {k: tuple(v) for k, v in _RANGES["free_float_temp_ranges_c"].items()}
 
@@ -167,6 +176,53 @@ def read_ce_february(case):
         "coil_lat": coil_lat,
         "cop": cop,
     }
+
+
+def read_he_results(case):
+    """Extract ASHRAE 140 Section 10 furnace annual totals for an HE case.
+
+    Returns furnace load and input (GJ), fuel consumption (m³/s), both-fans
+    energy (kWh), and mean/max/min zone temperature (°C), or None if missing.
+    """
+    hp = os.path.join(BASE_DIR, f"ashrae140_case{case}_hvac_results.csv")
+    zp = os.path.join(BASE_DIR, f"ashrae140_case{case}_zone_results.csv")
+    if not os.path.exists(hp):
+        return None
+    with open(hp) as f:
+        hvac = list(csv.DictReader(f))
+    if not hvac:
+        return None
+
+    def wh_sum(needle):
+        keys = [k for k in hvac[0] if needle in k]
+        return sum(float(r[keys[0]]) for r in hvac) if keys else 0.0
+
+    load_gj = wh_sum("Gas Furnace:thermal_output") * 3600 / 1e9
+    input_gj = wh_sum("Gas Furnace:fuel_power") * 3600 / 1e9
+    fuel_m3s = input_gj * 1e9 / (HE_GAS_HHV_J_PER_M3 * HE_RUN_SECONDS)
+    fan_kwh = wh_sum("Circulating Fan:electric_power") / 1000.0
+    result = {"load": load_gj, "input": input_gj, "fuel": fuel_m3s, "fan": fan_kwh}
+    if os.path.exists(zp):
+        with open(zp) as f:
+            zrows = list(csv.DictReader(f))
+        tkeys = [k for k in zrows[0] if "temperature" in k]
+        if tkeys and zrows:
+            temps = [float(r[tkeys[0]]) for r in zrows]
+            result["meanT"] = sum(temps) / len(temps)
+            result["maxT"] = max(temps)
+            result["minT"] = min(temps)
+    return result
+
+
+HE_METRIC_LABELS = {
+    "load": "Furnace Load (GJ)",
+    "input": "Furnace Input (GJ)",
+    "fuel": "Fuel Consumption (m3/s)",
+    "fan": "Fan Energy (kWh)",
+    "meanT": "Mean Zone Temp (C)",
+    "maxT": "Max Zone Temp (C)",
+    "minT": "Min Zone Temp (C)",
+}
 
 
 # Human-readable metric labels for the CE February-total checks.
@@ -333,6 +389,34 @@ def main():
                 rows.append([case, label, val, lo, hi, status, f"{delta:.1f}", pct])
                 fail_details.append(f"  Case {case} {label}: OpenBSE={val}, "
                                     f"Range=[{lo}, {hi}], Delta={delta:.1f}")
+
+    # --- Section 10 fuel-fired furnace cases (HE100–HE230) ---
+    for case in sorted(HE_RANGES.keys(), key=lambda x: int(x[2:])):
+        results = read_he_results(case)
+        if results is None:
+            missing.append(case)
+            continue
+        ranges = HE_RANGES[case]
+        for metric in ["load", "input", "fuel", "fan", "meanT", "maxT", "minT"]:
+            if metric not in ranges or metric not in results:
+                continue
+            lo, hi = ranges[metric]
+            digits = 6 if metric == "fuel" else 3
+            val = round(results[metric], digits)
+            label = HE_METRIC_LABELS[metric]
+            status, delta = evaluate(val, lo, hi)
+            key = (case, label)
+            if status == "PASS":
+                pass_count += 1
+                passed_keys.add(key)
+                rows.append([case, label, val, lo, hi, status, "", ""])
+            else:
+                fail_count += 1
+                failed_keys.add(key)
+                pct = pct_delta(delta, lo, hi)
+                rows.append([case, label, val, lo, hi, status, f"{delta:.4g}", pct])
+                fail_details.append(f"  Case {case} {label}: OpenBSE={val}, "
+                                    f"Range=[{lo}, {hi}], Delta={delta:.4g}")
 
     # --- Write CSV ---
     with open(OUTPUT_PATH, "w", newline="") as f:

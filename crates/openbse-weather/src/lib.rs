@@ -328,7 +328,13 @@ fn parse_location_header(
 
 fn parse_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
     let fields: Vec<&str> = line.split(',').collect();
-    if fields.len() < 35 {
+    // A standard EPW data record has 35 fields, but the trailing columns
+    // (precipitation, albedo, optical depths, …) are optional and older or
+    // artificial files often omit them — e.g. the BLAST-derived ASHRAE 140
+    // Section 10 furnace weather (FurnBest-*.epw) carries 32. This parser only
+    // reads through opaque sky cover (index 23), so require just that many;
+    // EnergyPlus is likewise tolerant of short records.
+    if fields.len() < 24 {
         return Err(WeatherError::InvalidFormat(
             "Data line has too few fields".into(),
         ));
