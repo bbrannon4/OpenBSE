@@ -125,6 +125,12 @@ struct LayerProps {
 /// creating finite-difference nodes. This matches EnergyPlus's treatment of
 /// `Material:NoMass`, where the resistance is folded into the boundary
 /// conductance between the surface and the first/last massed node.
+///
+/// NoMass layers between massed layers (e.g. insulation in a cavity wall) become
+/// a single resistive node pair, as EnergyPlus does for interior resistive
+/// layers: no capacitance of their own, a conductance of 1/R between the two
+/// adjacent interface nodes, which take their capacitance from the neighbouring
+/// massed layers. Adjacent interior NoMass layers are combined first.
 pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
     let total_r: f64 = layers.iter().map(|l| l.resistance()).sum();
 
@@ -178,24 +184,43 @@ pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
         };
     }
 
-    // Compute nodes per layer and build LayerProps (massed layers only)
-    let layer_props: Vec<LayerProps> = massed_layers
-        .iter()
-        .map(|l| {
-            let alpha = l.conductivity / (l.density * l.specific_heat);
-            let dxn = (2.0 * alpha * dt).sqrt();
-            let nodes_raw = (l.thickness / dxn).ceil() as usize;
-            let nodes = nodes_raw.max(MIN_NODES).min(MAX_CTF_TERMS);
-            let dx = l.thickness / nodes as f64;
-            LayerProps {
-                k: l.conductivity,
-                rho: l.density,
-                cp: l.specific_heat,
-                dx,
-                nodes,
+    // Compute nodes per layer and build LayerProps. `massed_layers` starts and ends
+    // with a massed layer; NoMass layers in between get one node with k = 1 and
+    // dx = R (E+ `Construction::calculateTransferFunction`, resistive layers), so the
+    // conductance across them is 1/R and they add no capacitance.
+    let mut layer_props: Vec<LayerProps> = Vec::with_capacity(massed_layers.len());
+    for l in massed_layers {
+        if is_massless(l) {
+            let r = l.resistance();
+            if r <= 0.0 {
+                continue; // no resistance, nothing to model
             }
-        })
-        .collect();
+            match layer_props.last_mut() {
+                // Combine adjacent resistive layers (E+ does the same)
+                Some(prev) if prev.rho * prev.cp == 0.0 => prev.dx += r,
+                _ => layer_props.push(LayerProps {
+                    k: 1.0,
+                    rho: 0.0,
+                    cp: 0.0,
+                    dx: r,
+                    nodes: 1,
+                }),
+            }
+            continue;
+        }
+        let alpha = l.conductivity / (l.density * l.specific_heat);
+        let dxn = (2.0 * alpha * dt).sqrt();
+        let nodes_raw = (l.thickness / dxn).ceil() as usize;
+        let nodes = nodes_raw.max(MIN_NODES).min(MAX_CTF_TERMS);
+        let dx = l.thickness / nodes as f64;
+        layer_props.push(LayerProps {
+            k: l.conductivity,
+            rho: l.density,
+            cp: l.specific_heat,
+            dx,
+            nodes,
+        });
+    }
 
     // Total state-space nodes: sum(nodes) - 1 (following E+ convention)
     let rcmax: usize = layer_props.iter().map(|l| l.nodes).sum::<usize>() - 1;
@@ -1828,6 +1853,59 @@ mod tests {
             }
             hist_s.shift(t_out, 20.0, q_s, qo_s);
             hist_l.shift(t_out, 20.0, q_l, qo_l);
+        }
+    }
+
+    /// Steady-state U-value of a CTF set from its X, Y and Z series.
+    fn ctf_u_values(ctf: &CtfCoefficients) -> [f64; 3] {
+        let denom = 1.0 - ctf.phi.iter().sum::<f64>();
+        [
+            ctf.x.iter().sum::<f64>() / denom,
+            ctf.y.iter().sum::<f64>() / denom,
+            ctf.z.iter().sum::<f64>() / denom,
+        ]
+    }
+
+    #[test]
+    fn test_nomass_layer_between_massed_layers() {
+        // Masonry cavity wall: 100 mm brick | NoMass insulation R = 1.5 | 100 mm block.
+        // The NoMass resistance sits between two massed layers, so it cannot be folded
+        // into a boundary conductance; it must stay in the state-space model.
+        let brick = ResolvedLayer::new(0.77, 1700.0, 800.0, 0.1);
+        let block = ResolvedLayer::new(0.51, 1400.0, 1000.0, 0.1);
+        let layers = vec![
+            brick.clone(),
+            ResolvedLayer::new_no_mass(1.5, 0.06),
+            block.clone(),
+        ];
+        let u_expected = 1.0 / (0.1 / 0.77 + 1.5 + 0.1 / 0.51);
+
+        for dt in [3600.0, 900.0, 300.0] {
+            let ctf = calculate_ctf(&layers, dt);
+            assert!(
+                ctf.num_terms > 1 && !ctf.phi.is_empty(),
+                "dt={dt}: expected a dynamic CTF, got a steady-state fallback"
+            );
+            for u in ctf_u_values(&ctf) {
+                assert_relative_eq!(u, u_expected, max_relative = 0.01);
+            }
+        }
+
+        // Adjacent NoMass layers act like one layer with the summed resistance.
+        let split = vec![
+            brick,
+            ResolvedLayer::new_no_mass(0.5, 0.02),
+            ResolvedLayer::new_no_mass(1.0, 0.04),
+            block,
+        ];
+        let ctf_single = calculate_ctf(&layers, 900.0);
+        let ctf_split = calculate_ctf(&split, 900.0);
+        assert_eq!(ctf_split.num_terms, ctf_single.num_terms);
+        for (a, b) in ctf_split.z.iter().zip(&ctf_single.z) {
+            assert_relative_eq!(*a, *b, max_relative = 1e-9);
+        }
+        for (a, b) in ctf_split.phi.iter().zip(&ctf_single.phi) {
+            assert_relative_eq!(*a, *b, max_relative = 1e-9);
         }
     }
 
