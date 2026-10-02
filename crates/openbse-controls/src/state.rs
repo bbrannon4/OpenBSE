@@ -103,6 +103,22 @@ pub enum ControlAction {
 
     /// Set a zone's target supply air temperature [°C]
     SetZoneSupplyTemp { zone: String, supply_temp: f64 },
+
+    /// Set a zone's heating/cooling setpoints (occupied + unoccupied) [°C].
+    ///
+    /// The controller owns the full deadband: it emits both the heating and
+    /// cooling setpoints (plus their unoccupied setback/setup values) rather
+    /// than a single target. The HVAC engine (`simulate_all_loops`) then
+    /// computes the supply response that meets those setpoints — control
+    /// authority (what temperature the zone wants) and capacity response (how
+    /// the system delivers it) stay cleanly separated.
+    SetZoneSetpoints {
+        zone: String,
+        heating_setpoint: f64,
+        cooling_setpoint: f64,
+        unoccupied_heating_setpoint: f64,
+        unoccupied_cooling_setpoint: f64,
+    },
 }
 
 impl ControlAction {
@@ -115,6 +131,7 @@ impl ControlAction {
             ControlAction::SetPlantLoad { component, .. } => component,
             ControlAction::SetZoneAirFlow { zone, .. } => zone,
             ControlAction::SetZoneSupplyTemp { zone, .. } => zone,
+            ControlAction::SetZoneSetpoints { zone, .. } => zone,
         }
     }
 }
