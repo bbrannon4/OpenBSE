@@ -163,24 +163,26 @@ def main():
     wb = xl_copy(rb)
     ws = wb.get_sheet(0)
 
-    # ── Program-identity header (official "YourData" submission layout) ──
-    # The portal's completeness check requires the program name; the other fields
-    # mirror the template so the submission is self-describing. (label cell, value
-    # cell, value) using 0-indexed (row, col).
+    # ── Program-identity header ──
+    # Labels sit in column F; VALUES sit in column J (4 columns right), matching
+    # the accepted reference submissions (EnergyPlus, DOE-2.1E, CA-SIS) rather
+    # than the quirky "YourData" example tab. The program-name and
+    # organization-long values sit one row BELOW their labels (J2, J7); the short
+    # name, dates, and short organization sit on the label row (J4, J5, J8).
     date_style = xlwt.easyxf(num_format_str="M/D/YYYY")
-    ws.write(0, 5, "Program Name and Version (with full build detail):")
-    ws.write(1, 5, PROGRAM_NAME)                       # F2
-    ws.write(2, 5, "Program Version Release Date:")
+    ws.write(0, 5, "Program Name and Version (with full build detail):")  # F1
+    ws.write(1, 9, PROGRAM_NAME)                       # J2  program name+version
+    ws.write(2, 5, "Program Version Release Date:")    # F3
     ws.write(2, 9, VERSION_RELEASE_DATE, date_style)   # J3
-    ws.write(3, 5, "Program Name for Tables and Charts (short):")
+    ws.write(3, 5, "Program Name for Tables and Charts (short):")  # F4
     ws.write(3, 9, PROGRAM_SHORT)                      # J4
-    ws.write(4, 5, "Results Submission Date:")
+    ws.write(4, 5, "Results Submission Date:")         # F5
     ws.write(4, 9, SUBMISSION_DATE, date_style)        # J5
-    ws.write(5, 5, "Modeler Organization for Titles (long):")
-    ws.write(6, 5, ORG_LONG)                           # F7
-    ws.write(7, 5, "Modeler Organization for Tables and Charts (short):")
+    ws.write(5, 5, "Modeler Organization for Titles (long):")  # F6
+    ws.write(6, 9, ORG_LONG)                           # J7  organization (long)
+    ws.write(7, 5, "Modeler Organization for Tables and Charts (short):")  # F8
     ws.write(7, 9, ORG_SHORT)                          # J8
-    ws.write(17, 0, "Program Name:")
+    ws.write(17, 0, "Program Name:")                   # A18
     ws.write(17, 2, PROGRAM_NAME)                      # C18
 
     written = 0
