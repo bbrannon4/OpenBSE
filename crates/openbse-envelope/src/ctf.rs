@@ -254,18 +254,14 @@ pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
         || result.z.iter().any(|v| v.is_nan())
         || result.phi.iter().any(|v| v.is_nan());
     if has_nan {
-        log::warn!("NaN in state-space CTF (rcmax={rcmax}), falling back to lumped RC");
-        let u = 1.0 / total_r;
-        let tau = total_r * total_c;
-        let alpha = (-dt / tau).exp();
-        let c0 = u * (1.0 - alpha);
-        return CtfCoefficients {
-            x: vec![c0],
-            y: vec![c0],
-            z: vec![c0],
-            phi: vec![alpha],
-            num_terms: 1,
-        };
+        panic!(
+            "NaN in CTF state-space matrix (rcmax={rcmax}, layers={}, massed={}). \
+             This indicates a degenerate construction (zero or infinite conductivity, \
+             zero thickness, or zero density/specific-heat on a massed layer). \
+             Check the construction definition.",
+            layers.len(),
+            massed_layers.len(),
+        );
     }
 
     // Diagnostic: verify steady-state U-value from CTF coefficients
@@ -279,7 +275,9 @@ pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
     if u_error_pct > 1.0 {
         use std::fmt::Write as _;
         let mut msg = format!(
-            "U-value mismatch: CTF gives {u_ctf:.4} W/(m²K), expected {u_expected:.4} (error {u_error_pct:.1}%)\n  layers={} (massed={}), rcmax={rcmax}, terms={}, Z₀={:.2}, Y₀={:.2}, ΣΦ={sum_phi:.4}",
+            "CTF U-value mismatch: computed {u_ctf:.4} W/(m²K), expected {u_expected:.4} \
+             (error {u_error_pct:.1}%)\n  layers={} (massed={}), rcmax={rcmax}, \
+             terms={}, Z₀={:.2}, Y₀={:.2}, ΣΦ={sum_phi:.4}",
             layers.len(),
             massed_layers.len(),
             result.num_terms,
@@ -299,7 +297,11 @@ pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
                 lp.k, lp.rho, lp.cp, lp.dx, lp.nodes
             );
         }
-        log::warn!("{msg}");
+        if u_error_pct > 5.0 {
+            panic!("{msg}");
+        } else {
+            log::warn!("{msg}");
+        }
     }
 
     result
@@ -1061,16 +1063,17 @@ fn compute_ctf_from_state_space(
     let a_inv = match matrix_inverse(a, n) {
         Some(inv) => inv,
         None => {
-            // Singular A matrix — fall back to steady-state
-            log::warn!("Singular A matrix in CTF calculation, using steady-state fallback");
-            let u = d[0]; // D(1,1) = d[0*2+0]
-            return CtfCoefficients {
-                x: vec![u.abs()],
-                y: vec![u.abs()],
-                z: vec![u.abs()],
-                phi: vec![],
-                num_terms: 1,
-            };
+            // A singular matrix means the construction has zero net capacitance
+            // in the state-space (e.g., all-NoMass layers, or layers with zero
+            // density/cp). After PR #120 this should be unreachable for valid
+            // constructions — NoMass layers are handled as resistive nodes, not
+            // zero-capacity state-space rows. If this fires, the construction
+            // definition is degenerate.
+            panic!(
+                "Singular A matrix in CTF state-space (n={n}): construction has no \
+                 effective thermal capacitance. Check that all non-NoMass layers have \
+                 non-zero density and specific heat."
+            );
         }
     };
 
@@ -1272,7 +1275,11 @@ fn compute_ctf_from_state_space(
     }
 
     if !converged {
-        log::warn!("CTF convergence not reached in {} terms", MAX_CTF_TERMS);
+        panic!(
+            "CTF convergence not reached in {MAX_CTF_TERMS} terms. The construction has \
+             too many layers or extreme thermal properties. Consider splitting it into \
+             sub-constructions or reducing the number of massed layers."
+        );
     }
 
     let num_terms = x_vec.len();
