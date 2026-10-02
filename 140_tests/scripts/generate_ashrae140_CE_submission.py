@@ -18,16 +18,27 @@ exist:  for c in CE100 ... CE200; do openbse ashrae140_case$c.yaml; done
 
 import argparse
 import csv
+import datetime
 import os
 import statistics
 import sys
 
 try:
     import xlrd
-    import xlwt  # noqa: F401  (needed by xlutils.copy)
+    import xlwt
     from xlutils.copy import copy as xl_copy
 except ImportError:
     sys.exit("xlrd, xlwt and xlutils are required: pip install xlrd xlwt xlutils")
+
+# Program identity for the submission header (official "YourData" layout). The
+# portal's completeness check requires at least the program name; organization
+# and dates mirror the template's fields — edit ORG / dates for your submission.
+PROGRAM_NAME = "OpenBSE 0.6.0"
+PROGRAM_SHORT = "OpenBSE"
+ORG_LONG = "OpenBSE"
+ORG_SHORT = "OpenBSE"
+VERSION_RELEASE_DATE = datetime.date(2026, 10, 1)
+SUBMISSION_DATE = datetime.date(2026, 10, 1)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CASES_DIR = os.path.join(os.path.dirname(HERE), "cases")
@@ -151,6 +162,26 @@ def main():
     rb = xlrd.open_workbook(args.template, formatting_info=True)
     wb = xl_copy(rb)
     ws = wb.get_sheet(0)
+
+    # ── Program-identity header (official "YourData" submission layout) ──
+    # The portal's completeness check requires the program name; the other fields
+    # mirror the template so the submission is self-describing. (label cell, value
+    # cell, value) using 0-indexed (row, col).
+    date_style = xlwt.easyxf(num_format_str="M/D/YYYY")
+    ws.write(0, 5, "Program Name and Version (with full build detail):")
+    ws.write(1, 5, PROGRAM_NAME)                       # F2
+    ws.write(2, 5, "Program Version Release Date:")
+    ws.write(2, 9, VERSION_RELEASE_DATE, date_style)   # J3
+    ws.write(3, 5, "Program Name for Tables and Charts (short):")
+    ws.write(3, 9, PROGRAM_SHORT)                      # J4
+    ws.write(4, 5, "Results Submission Date:")
+    ws.write(4, 9, SUBMISSION_DATE, date_style)        # J5
+    ws.write(5, 5, "Modeler Organization for Titles (long):")
+    ws.write(6, 5, ORG_LONG)                           # F7
+    ws.write(7, 5, "Modeler Organization for Tables and Charts (short):")
+    ws.write(7, 9, ORG_SHORT)                          # J8
+    ws.write(17, 0, "Program Name:")
+    ws.write(17, 2, PROGRAM_NAME)                      # C18
 
     written = 0
     for i, case in enumerate(CASES):
