@@ -47,7 +47,10 @@ COLS = {  # metric -> 0-indexed column
     "cool_total": 1, "compressor": 2, "supply_fan": 3, "cond_fan": 4,
     "coil_total": 5, "coil_sens": 6, "coil_lat": 7,
     "zone_total": 8, "zone_sens": 9, "zone_lat": 10,
+    # February MEAN (L,M,N), MAXIMUM (O,P,Q), MINIMUM (R,S,T)
     "cop": 11, "idb": 12, "humrat": 13,
+    "cop_max": 14, "idb_max": 15, "humrat_max": 16,
+    "cop_min": 17, "idb_min": 18, "humrat_min": 19,
 }
 
 
@@ -72,6 +75,33 @@ def _mean(rows, needle):
     return statistics.mean(float(r[ks[0]]) for r in rows) if ks else None
 
 
+def _series(rows, needle):
+    """Hourly values of the first column matching `needle` (empty if absent)."""
+    if not rows:
+        return []
+    ks = [k for k in rows[0] if needle in k]
+    return [float(r[ks[0]]) for r in rows] if ks else []
+
+
+def _hourly_cop(hvac):
+    """February hourly COP = zone load removed / cooling energy, for the hours the
+    system operates (cooling energy above a small threshold)."""
+    comp = _series(hvac, "compressor_power")
+    cond = _series(hvac, "condenser_fan_power")
+    sfan = _series(hvac, "Supply Fan:electric_power")
+    sens = _series(hvac, "sensible_load")
+    lat = _series(hvac, "latent_load")
+    n = len(hvac)
+    cops = []
+    for i in range(n):
+        sf = sfan[i] if sfan else 0.0
+        energy = comp[i] + cond[i] + sf
+        zload = (sens[i] - sf) + lat[i]  # zone load = coil load minus draw-through fan heat
+        if energy > 1.0:
+            cops.append(zload / energy)
+    return cops
+
+
 def extract(case):
     hvac = _feb(os.path.join(CASES_DIR, f"ashrae140_case{case}_hvac_results.csv"))
     zone = _feb(os.path.join(CASES_DIR, f"ashrae140_case{case}_zone_results.csv"))
@@ -87,7 +117,10 @@ def extract(case):
     zone_lat = coil_lat
     zone_total = zone_sens + zone_lat
     cool_total = comp + cond + sfan
-    return {
+    cops = _hourly_cop(hvac)
+    temps = _series(zone, "temperature")
+    hums = _series(zone, "humidity_ratio")
+    out = {
         "cool_total": cool_total, "compressor": comp, "supply_fan": sfan,
         "cond_fan": cond, "coil_total": coil_total, "coil_sens": coil_sens,
         "coil_lat": coil_lat, "zone_total": zone_total, "zone_sens": zone_sens,
@@ -96,6 +129,14 @@ def extract(case):
         "idb": _mean(zone, "temperature"),
         "humrat": _mean(zone, "humidity_ratio"),
     }
+    # February maxima / minima (steady-state CE cases: max == min == mean)
+    out["cop_max"] = max(cops) if cops else out["cop"]
+    out["cop_min"] = min(cops) if cops else out["cop"]
+    out["idb_max"] = max(temps) if temps else out["idb"]
+    out["idb_min"] = min(temps) if temps else out["idb"]
+    out["humrat_max"] = max(hums) if hums else out["humrat"]
+    out["humrat_min"] = min(hums) if hums else out["humrat"]
+    return out
 
 
 def main():
@@ -122,7 +163,7 @@ def main():
             v = r[metric]
             if v is None:
                 continue
-            ws.write(row, col, round(v, 5 if metric == "humrat" else 3))
+            ws.write(row, col, round(v, 5 if metric.startswith("humrat") else 3))
         written += 1
 
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
