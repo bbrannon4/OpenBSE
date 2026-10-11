@@ -563,6 +563,14 @@ pub struct ZoneInput {
     /// No limit if None (default).
     #[serde(default)]
     pub min_relative_humidity: Option<f64>,
+    /// Cap the zone air humidity ratio at saturation for the zone temperature,
+    /// condensing out the excess (default: false). Matters for a sealed zone
+    /// that sits idle and cools: with no HVAC and no infiltration nothing
+    /// removes moisture, so without the cap the zone holds its warm-season
+    /// humidity ratio and reports RH above 100%. EnergyPlus applies this bound
+    /// unconditionally (CorrectZoneHumRat).
+    #[serde(default)]
+    pub limit_humidity_to_saturation: bool,
     /// Data center zone configuration. When present, enables implicit aisle physics
     /// and IT load generation. Replaces or supplements the `equipment_it` block.
     #[serde(default)]
@@ -1535,6 +1543,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -1629,6 +1638,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -1895,6 +1905,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -1941,6 +1952,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -1984,6 +1996,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,

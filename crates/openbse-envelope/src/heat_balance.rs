@@ -4924,6 +4924,15 @@ impl EnvelopeSolver for BuildingEnvelope {
                         w_supply,
                         q_latent,
                     );
+
+                    // Opt-in: zone air cannot hold more moisture than saturation
+                    // at its own temperature — the excess condenses out.
+                    if zone.input.limit_humidity_to_saturation {
+                        let w_sat = psych::w_fn_tdb_rh_pb(zone.temp, 1.0, p_b);
+                        if zone.humidity_ratio > w_sat {
+                            zone.humidity_ratio = w_sat;
+                        }
+                    }
                 }
 
                 // ─── Diagnostic accumulators ─────────────────────────────
@@ -5533,6 +5542,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -5714,6 +5724,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -6187,6 +6198,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -6389,6 +6401,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -6551,6 +6564,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -6695,6 +6709,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
