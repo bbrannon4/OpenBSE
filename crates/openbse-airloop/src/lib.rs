@@ -46,6 +46,9 @@ pub struct LoopInfo {
     /// Minimum outdoor air fraction [0-1]. DOAS always 1.0.
     /// Resolved from controls.minimum_damper_position or auto-calculated.
     pub min_oa_fraction: f64,
+    /// Schedule scaling `min_oa_fraction` hour by hour (from
+    /// controls.minimum_oa_schedule). None = constant minimum.
+    pub min_oa_schedule: Option<String>,
     /// Minimum VAV box flow fraction [0-1]. Only used for VAV.
     pub min_vav_fraction: f64,
     /// HVAC availability schedule name. When schedule value is 0, system is OFF.
@@ -1725,6 +1728,7 @@ mod tests {
             component_kinds: HashMap::new(),
             served_zones: vec!["Zone1".to_string()],
             min_oa_fraction: 0.15,
+            min_oa_schedule: None,
             min_vav_fraction: 0.3,
             availability_schedule: None,
             heating_supply_temp: 40.0,

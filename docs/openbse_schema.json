@@ -377,6 +377,7 @@
         "deadband": { "type": "number", "default": 1.0, "description": "Thermostat deadband [C]." },
         "design_zone_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design air flow rate per zone [kg/s]. Use 'autosize' for auto-calculation." },
         "minimum_damper_position": { "type": "number", "minimum": 0, "maximum": 1, "description": "Minimum outdoor air damper position [0-1]. Set to 1.0 for DOAS." },
+        "minimum_oa_schedule": { "type": "string", "description": "Schedule whose hourly value multiplies the minimum outdoor-air fraction (proportional minimum). Seasonal schedules are honored." },
         "economizer": { "$ref": "#/$defs/EconomizerControls" }
       }
     },
@@ -399,6 +400,7 @@
         "motor_efficiency": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Motor efficiency [0-1]." },
         "impeller_efficiency": { "type": "number", "default": 0.71, "minimum": 0, "maximum": 1, "description": "Impeller (fan blade) efficiency [0-1]. Total efficiency = motor * impeller." },
         "motor_in_airstream_fraction": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Fraction of motor waste heat entering the airstream [0-1]." },
+        "air_density": { "type": "number", "exclusiveMinimum": 0, "description": "Fixed air density [kg/m3] for the fan power calculation. Default: actual fan-inlet density. Set the standard density (about 1.204 at sea level) to rate the fan at standard air, as EnergyPlus does." },
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." }
       }
     },

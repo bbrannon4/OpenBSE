@@ -76,6 +76,7 @@ surfaces:
 
 air_loops:
   - name: CE DX System
+    system_type: psz_ac
     controls:
       cooling_supply_temp: 13.0
       heating_supply_temp: 40.0
@@ -83,7 +84,7 @@ air_loops:
       fan_operating_mode: cycling
       deadband: 1.0
       minimum_damper_position: 0.0
-      design_zone_flow: 2.266
+      design_zone_flow: 2.2726
       cooling_part_load_cd: 0.229
     equipment:
       - type: cooling_coil
@@ -106,6 +107,7 @@ air_loops:
         motor_efficiency: 0.94
         impeller_efficiency: 0.121
         motor_in_airstream_fraction: 1.0
+        air_density: 1.2037
     zones:
       - zone: CE525 Zone
 

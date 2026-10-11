@@ -209,6 +209,7 @@ fn build_loop_infos(
                 component_kinds,
                 served_zones,
                 min_oa_fraction,
+                min_oa_schedule: al.controls.minimum_oa_schedule.clone(),
                 explicit_min_oa,
                 min_vav_fraction: al.min_vav_fraction,
                 availability_schedule: al.availability_schedule.clone(),
@@ -5094,6 +5095,16 @@ fn simulate_all_loops(
             li.min_oa_fraction
         };
 
+        // Scheduled minimum outdoor air (E+ proportional minimum): the hour's
+        // schedule value scales the minimum fraction.
+        let effective_min_oa = match (&li.min_oa_schedule, schedule_mgr) {
+            (Some(sched_name), Some(mgr)) => {
+                effective_min_oa
+                    * mgr.fraction_doy(sched_name, hour, day_of_week, ctx.timestep.day_of_year())
+            }
+            _ => effective_min_oa,
+        };
+
         // Select active setpoints based on occupied/unoccupied state
         let active_heat_sp = if is_unoccupied {
             zone_unocc_heat_sp
@@ -6471,6 +6482,7 @@ mod tests {
             component_kinds: HashMap::new(),
             served_zones: vec!["Zone1".to_string()],
             min_oa_fraction: 0.0,
+            min_oa_schedule: None,
             min_vav_fraction: 0.3,
             availability_schedule: None,
             heating_supply_temp: 45.0,
@@ -6510,6 +6522,7 @@ mod tests {
             component_kinds: HashMap::new(),
             served_zones: vec!["Zone1".to_string()],
             min_oa_fraction: 0.15,
+            min_oa_schedule: None,
             min_vav_fraction: 0.3,
             availability_schedule: None,
             heating_supply_temp: 40.0,
@@ -7356,6 +7369,7 @@ mod tests_datacenter {
             component_kinds: HashMap::new(),
             served_zones: vec!["DataHall".to_string()],
             min_oa_fraction: 0.0,
+            min_oa_schedule: None,
             min_vav_fraction: 0.3,
             availability_schedule: None,
             heating_supply_temp: 40.0,

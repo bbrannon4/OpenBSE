@@ -2053,7 +2053,7 @@ impl EnvelopeSolver for BuildingEnvelope {
             zone.current_gradient = match &zone.input.room_air {
                 Some(ra) => {
                     let sched = match &ra.schedule {
-                        Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                        Some(name) => self.schedule_manager.fraction_doy(name, hour, dow, doy),
                         None => 1.0,
                     };
                     if ra.mundt {
@@ -2123,7 +2123,9 @@ impl EnvelopeSolver for BuildingEnvelope {
             // Schedule-driven operable openings (#79): modulate opening areas
             // by the current schedule fraction (0 = closed).
             let schedule_manager = &self.schedule_manager;
-            afn.update_scheduled_openings(|name| schedule_manager.fraction(name, hour, dow));
+            afn.update_scheduled_openings(|name| {
+                schedule_manager.fraction_doy(name, hour, dow, doy)
+            });
             // Natural-ventilation openings (#88, #95): drive the AFN opening
             // area from the availability logic (schedule, temperature
             // windows, ΔT gate, wind limit) with anti-cycling hysteresis.
@@ -2138,7 +2140,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     0.0
                 } else {
                     match &nv.schedule {
-                        Some(name) => schedule_manager.fraction(name, hour, dow),
+                        Some(name) => schedule_manager.fraction_doy(name, hour, dow, doy),
                         None => 1.0,
                     }
                 };
@@ -2239,7 +2241,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     for gen in &zone.input.species_generation {
                         if let Some(si) = transport.species_index(&gen.species) {
                             let frac = match &gen.schedule {
-                                Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                                Some(name) => {
+                                    self.schedule_manager.fraction_doy(name, hour, dow, doy)
+                                }
                                 None => 1.0,
                             };
                             sources[si][zi] += gen.rate * frac;
@@ -2286,7 +2290,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                 zone.infiltration_mass_flow = 0.0;
                 for infil in &zone.input.infiltration {
                     let sched_mult = match &infil.schedule {
-                        Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                        Some(name) => self.schedule_manager.fraction_doy(name, hour, dow, doy),
                         None => 1.0,
                     };
                     let rho_zone = psych::rho_air_fn_pb_tdb_w(p_b, zone.temp, w_outdoor);
@@ -2319,7 +2323,7 @@ impl EnvelopeSolver for BuildingEnvelope {
             //   HeatToZone = Power - HeatToAir  (motor heat NOT in airstream stays in zone)
             if let Some(ref exhaust) = zone.input.exhaust_fan {
                 let exhaust_frac = match &exhaust.schedule {
-                    Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                    Some(name) => self.schedule_manager.fraction_doy(name, hour, dow, doy),
                     None => 1.0,
                 };
                 let vol_flow = exhaust.flow_rate * exhaust_frac;
@@ -2367,7 +2371,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     0.0
                 } else {
                     match &nv.schedule {
-                        Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                        Some(name) => self.schedule_manager.fraction_doy(name, hour, dow, doy),
                         None => 1.0,
                     }
                 };
@@ -2447,7 +2451,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             count, schedule, ..
                         } => {
                             let frac = match (schedule, Some(&self.schedule_manager)) {
-                                (Some(name), Some(mgr)) => mgr.fraction(name, hour, dow),
+                                (Some(name), Some(mgr)) => mgr.fraction_doy(name, hour, dow, doy),
                                 _ => 1.0,
                             };
                             Some(count * frac)

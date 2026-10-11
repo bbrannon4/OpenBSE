@@ -521,6 +521,13 @@ pub struct AirLoopControls {
     /// floor. Used by the ASHRAE 140 §11 AE400 VAV reheat cases.
     #[serde(default)]
     pub minimum_oa_flow: Option<f64>,
+    /// Schedule scaling the minimum outdoor-air fraction (optional). The hour's
+    /// schedule value multiplies `minimum_damper_position` (or the auto-computed
+    /// minimum), so the minimum OA can follow a daily and seasonal profile —
+    /// E+ Controller:OutdoorAir "Minimum Outdoor Air Schedule" with a
+    /// proportional minimum. Seasonal (`seasons:`) schedules are honored.
+    #[serde(default)]
+    pub minimum_oa_schedule: Option<String>,
 }
 
 fn default_cooling_part_load_cd() -> f64 {
@@ -551,6 +558,7 @@ impl Default for AirLoopControls {
             fixed_cooling_sat: false,
             preheat_setpoint: None,
             minimum_oa_flow: None,
+            minimum_oa_schedule: None,
         }
     }
 }
@@ -1053,6 +1061,12 @@ pub struct FanInput {
     pub impeller_efficiency: f64,
     #[serde(default = "default_motor_in_airstream")]
     pub motor_in_airstream_fraction: f64,
+    /// Fixed air density [kg/m³] for the fan power calculation (optional).
+    /// Default: the actual fan-inlet density. Set the standard density
+    /// (≈1.204 at sea level) to rate the fan at standard air as EnergyPlus
+    /// does, so power depends only on mass flow.
+    #[serde(default)]
+    pub air_density: Option<f64>,
     /// VAV fan power curve coefficients [C1..C5].
     /// Power = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4
     /// Default matches typical ASHRAE forward-curved centrifugal fan.
@@ -2912,6 +2926,7 @@ fn build_graph_impl(
                             ),
                         };
                         fan.fan_type = fan_type;
+                        fan.air_density = f.air_density;
                         fan.submeter = f.submeter.clone();
                         if let Some(ref tag) = f.tag {
                             fan.tag = tag.clone();
