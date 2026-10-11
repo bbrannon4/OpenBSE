@@ -543,31 +543,23 @@ pub fn get_unit(spec: &str) -> &'static str {
     }
 }
 
-/// Whether a variable should default to sum aggregation (energy, power).
+/// Whether a variable is a true ENERGY accumulation that must be summed when
+/// reducing sub-timestep values to an output period.
+///
+/// Only genuine per-timestep energy quantities belong here: zone heating/cooling
+/// energy and the building/submeter energy meters. Component outputs such as
+/// `electric_power`, `thermal_output`, `*_load` and `fan_power` are instantaneous
+/// RATES in watts — they must be time-AVERAGED to the period (the default Mean
+/// aggregation), not summed, or a case run at N sub-timesteps per hour would
+/// report N× the true hourly power. (At 1 timestep/hour sum == mean, so this
+/// distinction only matters for sub-hourly runs such as the §9B dynamic cases.)
 fn is_integrable(spec: &str) -> bool {
     let mut parts = spec.splitn(3, ':');
     let category = parts.next().unwrap_or("");
     let variable = parts.next().unwrap_or("");
     matches!(
         (category, variable),
-        ("zone", "heating_energy" | "cooling_energy")
-            | ("building" | "submeter", _)
-            | (
-                "component",
-                "electric_power"
-                    | "fuel_power"
-                    | "thermal_output"
-                    | "sensible_load"
-                    | "latent_load"
-                    | "total_load"
-                    | "conduction_loss"
-                    | "leakage_loss"
-                    | "cycling_loss"
-                    | "conduction_gain"
-                    | "heat_rejected"
-                    | "heat_transferred"
-                    | "fan_power",
-            )
+        ("zone", "heating_energy" | "cooling_energy") | ("building" | "submeter", _)
     )
 }
 
@@ -3889,10 +3881,20 @@ variables:
 
     #[test]
     fn test_component_variable_is_integrable() {
-        assert!(is_integrable("component:electric_power"));
-        assert!(is_integrable("component:fuel_power"));
-        assert!(is_integrable("component:sensible_load"));
-        assert!(is_integrable("component:conduction_loss"));
+        // Only true energy accumulations are summed when downsampling to a
+        // coarser output frequency. Component rate [W] variables are NOT
+        // integrable — they are time-averaged (Mean), so a sub-hourly timestep
+        // does not inflate the reported hourly power by the number of substeps.
+        assert!(is_integrable("zone:heating_energy"));
+        assert!(is_integrable("zone:cooling_energy"));
+        assert!(is_integrable("building:electricity"));
+        assert!(is_integrable("submeter:fans"));
+        // Component rates (power/load) are time-averaged, not summed.
+        assert!(!is_integrable("component:electric_power"));
+        assert!(!is_integrable("component:fuel_power"));
+        assert!(!is_integrable("component:sensible_load"));
+        assert!(!is_integrable("component:conduction_loss"));
+        assert!(!is_integrable("component:compressor_power"));
         assert!(!is_integrable("component:plr"));
         assert!(!is_integrable("component:outlet_temperature"));
     }

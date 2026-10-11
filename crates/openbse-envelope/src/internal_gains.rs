@@ -128,7 +128,7 @@ pub struct ResolvedGain {
 /// If a `ScheduleManager` is provided, schedule fractions are looked up by name.
 /// Otherwise, all gains run at 100% (backward compatible).
 pub fn resolve_gains(gains: &[InternalGainInput]) -> ResolvedGain {
-    resolve_gains_scheduled(gains, None, 1, 1)
+    resolve_gains_scheduled(gains, None, 1, 1, 1)
 }
 
 /// Resolve gains with schedule support.
@@ -136,11 +136,13 @@ pub fn resolve_gains(gains: &[InternalGainInput]) -> ResolvedGain {
 /// `schedule_mgr` — optional schedule manager for time-varying fractions
 /// `hour` — hour of day (1-24)
 /// `day_of_week` — 1=Monday through 7=Sunday
+/// `day_of_year` — 1-365, for resolving seasonal (date-range) schedules
 pub fn resolve_gains_scheduled(
     gains: &[InternalGainInput],
     schedule_mgr: Option<&crate::schedule::ScheduleManager>,
     hour: u32,
     day_of_week: u32,
+    day_of_year: u32,
 ) -> ResolvedGain {
     let mut result = ResolvedGain::default();
 
@@ -155,7 +157,8 @@ pub fn resolve_gains_scheduled(
                 sensible_gain_per_person,
                 latent_gain_per_person,
             } => {
-                let frac = schedule_fraction(schedule, schedule_mgr, hour, day_of_week);
+                let frac =
+                    schedule_fraction(schedule, schedule_mgr, hour, day_of_week, day_of_year);
                 let sensible_per_person =
                     sensible_gain_per_person.unwrap_or(activity_level * sensible_fraction);
                 let latent_per_person =
@@ -175,7 +178,8 @@ pub fn resolve_gains_scheduled(
                 schedule,
                 submeter: _,
             } => {
-                let frac = schedule_fraction(schedule, schedule_mgr, hour, day_of_week);
+                let frac =
+                    schedule_fraction(schedule, schedule_mgr, hour, day_of_week, day_of_year);
                 let total = power * frac;
                 let to_zone = total * (1.0 - return_air_fraction);
                 result.radiative += to_zone * radiant_fraction;
@@ -192,7 +196,8 @@ pub fn resolve_gains_scheduled(
                 schedule,
                 submeter: _,
             } => {
-                let frac = schedule_fraction(schedule, schedule_mgr, hour, day_of_week);
+                let frac =
+                    schedule_fraction(schedule, schedule_mgr, hour, day_of_week, day_of_year);
                 let total = power * frac;
                 // Only the non-lost portion enters the zone as heat
                 let to_zone = total * (1.0 - lost_fraction);
@@ -219,9 +224,10 @@ fn schedule_fraction(
     schedule_mgr: Option<&crate::schedule::ScheduleManager>,
     hour: u32,
     day_of_week: u32,
+    day_of_year: u32,
 ) -> f64 {
     match (schedule_name, schedule_mgr) {
-        (Some(name), Some(mgr)) => mgr.fraction(name, hour, day_of_week),
+        (Some(name), Some(mgr)) => mgr.fraction_doy(name, hour, day_of_week, day_of_year),
         _ => 1.0,
     }
 }
@@ -308,6 +314,7 @@ mod tests {
             thursday: None,
             friday: None,
             compact: None,
+            seasons: None,
         }]);
 
         let gains = vec![InternalGainInput::Equipment {
@@ -320,11 +327,11 @@ mod tests {
         }];
 
         // Weekday: 50% schedule → 500W
-        let resolved = resolve_gains_scheduled(&gains, Some(&schedules), 12, 1);
+        let resolved = resolve_gains_scheduled(&gains, Some(&schedules), 12, 1, 1);
         assert_relative_eq!(resolved.total, 500.0);
 
         // Weekend: 0% schedule → 0W
-        let resolved = resolve_gains_scheduled(&gains, Some(&schedules), 12, 6);
+        let resolved = resolve_gains_scheduled(&gains, Some(&schedules), 12, 6, 1);
         assert_relative_eq!(resolved.total, 0.0);
     }
 

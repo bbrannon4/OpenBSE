@@ -1971,6 +1971,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             None,
                             hour,
                             dow,
+                            doy,
                         )
                     }
                     SizingInternalGains::Scheduled => {
@@ -1980,6 +1981,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             Some(&self.schedule_manager),
                             hour,
                             dow,
+                            doy,
                         )
                     }
                     SizingInternalGains::FullWhenOccupied => {
@@ -1991,6 +1993,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             Some(&self.schedule_manager),
                             hour,
                             dow,
+                            doy,
                         );
                         if scheduled.total > 0.0 {
                             internal_gains::resolve_gains_scheduled(
@@ -1998,6 +2001,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                                 None,
                                 hour,
                                 dow,
+                                doy,
                             )
                         } else {
                             internal_gains::ResolvedGain::default()
@@ -2011,6 +2015,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     Some(&self.schedule_manager),
                     hour,
                     dow,
+                    doy,
                 )
             };
             zone.q_internal_conv = gains.convective;

@@ -1,0 +1,255 @@
+#!/usr/bin/env python3
+"""Generate ASHRAE 140-2023 Section 9B (CE_b) dynamic HVAC BESTEST cooling cases.
+
+The §9B tests (CE300-CE545) drive a single near-adiabatic zone with scheduled
+internal gains and a performance-map unitary DX cooling system through a full
+year of New Orleans weather, probing part-load, outdoor-air, economizer, latent
+and thermostat behavior. Reverse-engineered from the reference EnergyPlus inputs
+(Std140_CE_b_Files/.../EnergyPlus/CaseE3xx.idf).
+
+Base building (all cases): 14 x 14 x 3 m = 588 m^3 adiabatic zone; peak sensible
+internal gain 18758 W (convective) and latent 1466 W, each on a per-case day
+schedule; cooling setpoint per case; draw-through constant-volume supply fan;
+fixed outdoor air; DX coil with the E300 performance map (CapFT/EIRFT biquadratic
++ PLF = 0.771 + 0.229*PLR). Annual run; compared to the §9B comparative ranges.
+
+Run: python3 140_tests/scripts/generate_ce_b_cases.py
+"""
+
+import os
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+CASES_DIR = os.path.join(os.path.dirname(HERE), "cases")
+
+# ── E300 DX performance curves (from CaseE300.idf) ────────────────────────────
+# Biquadratic f(Twb_entering_C, Todb_outdoor_C), normalized to 1.0 at 19.44/35.
+CAPFT = (0.952735372, -0.000932873, 0.000927172, -0.001291389, -2.65899e-05, -0.000305038)
+EIRFT = (0.535665387, -0.000900699, -0.000155223, 0.012769543, 0.000163848, -0.000158128)
+# Grid shared with the CE_a tables (indoor wet-bulb x outdoor dry-bulb, deg C).
+TWB = [15.0000, 17.2222, 19.4444, 21.6667]
+TODB = [29.4444, 32.2222, 35.0000, 37.7778, 40.5556, 46.1111]
+
+
+def biquad(c, x, y):
+    return c[0] + c[1] * x + c[2] * x * x + c[3] * y + c[4] * y * y + c[5] * x * y
+
+
+def curve_table(name, coeffs):
+    rows = []
+    for wb in TWB:
+        rows.append("        - [" + ", ".join(f"{biquad(coeffs, wb, od):.6f}" for od in TODB) + "]")
+    axvals = ", ".join(f"{v:.4f}" for v in TWB)
+    odvals = ", ".join(f"{v:.4f}" for v in TODB)
+    return f"""  - name: {name}
+    table:
+      axes:
+        - variable: indoor_wet_bulb
+          values: [{axvals}]
+          extrapolation: linear
+        - variable: outdoor_dry_bulb
+          values: [{odvals}]
+          extrapolation: linear
+      values:
+{chr(10).join(rows)}
+      output_min: 0.0"""
+
+
+# ── Day schedules (24 hourly fractions) referenced by the cases ───────────────
+# Reproduced verbatim from the reference EnergyPlus DAYSCHEDULE objects
+# (CaseE3xx.idf). Sensible loads use Day Sch 1-6; latent loads use Day Sch 11-15.
+F = 0.15625
+DAYSCH = {
+    # Sensible-load day profiles
+    1: [F] * 24,
+    2: [F] * 9 + [0.375] * 9 + [F] * 6,
+    3: [F] * 8 + [0.5] * 11 + [F] * 5,
+    4: [0.375] * 8 + [0.5, 0.5, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 0.5, 0.5, 0.5, 0.5] + [0.375] * 4,
+    5: [F] * 8 + [0.5] * 8 + [F] * 8,
+    6: [F] * 8 + [0.5, 0.5, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 0.5, 0.5, 0.5, 0.5] + [0.375] * 4,
+    # Latent-load day profiles
+    11: [0.0] * 8 + [0.25] * 12 + [0.0] * 4,
+    12: [0.0] * 9 + [1.0] * 9 + [0.0] * 6,
+    13: [0.0] * 8 + [1.0] * 11 + [0.0] * 5,
+    14: [0.0] * 8 + [1.0] * 12 + [0.0] * 4,
+    15: [0.0] * 8 + [1.0] * 8 + [0.0] * 8,
+}
+
+# Seasonal date ranges shared by the sensible (Sch 1) and latent (Sch 2)
+# schedules: (start_month, start_day, end_month, end_day, sensible_daysch,
+# latent_daysch). Verbatim from the reference IDF SCHEDULE objects.
+SEASONS = [
+    (1, 1, 3, 10, 1, 11),
+    (3, 11, 4, 10, 2, 12),
+    (4, 11, 4, 11, 1, 11),
+    (4, 12, 4, 20, 3, 13),
+    (4, 21, 10, 12, 4, 14),
+    (10, 13, 10, 18, 5, 15),
+    (10, 19, 11, 5, 6, 14),
+    (11, 6, 12, 31, 1, 11),
+]
+
+# ── Case table ────────────────────────────────────────────────────────────────
+# setpoint [C]; oa [m3/s]; econ. All CE_b cases share the seasonal internal-gain
+# schedule structure above; cases differ by setpoint, OA flow and economizer.
+SENS_PEAK, LAT_PEAK = 18758.0, 1466.0
+CASES = {
+    "CE300": dict(sp=25.0, oa=0.283166667, econ=None),
+}
+
+
+def _arr(frac):
+    return "[" + ", ".join(f"{v:.5f}" for v in frac) + "]"
+
+
+def seasonal_sched_block(name, kind):
+    """Emit a seasonal schedule. `kind` is 'sens' or 'lat' (picks the day sched
+    column in SEASONS). The top-level weekday is the first period (winter base)."""
+    col = 4 if kind == "sens" else 5
+    base = DAYSCH[SEASONS[0][col]]
+    lines = [f"  - name: {name}", f"    weekday: {_arr(base)}", "    seasons:"]
+    for s in SEASONS:
+        sm, sd, em, ed = s[0], s[1], s[2], s[3]
+        prof = DAYSCH[s[col]]
+        lines.append(
+            f"      - {{start_month: {sm}, start_day: {sd}, "
+            f"end_month: {em}, end_day: {ed}, weekday: {_arr(prof)}}}"
+        )
+    return "\n".join(lines)
+
+
+def make_yaml(case, c):
+    z = f"{case} Zone"
+    sens_sched = f"{case} SensSch"
+    lat_sched = f"{case} LatSch"
+    return f"""# ASHRAE 140-2023 Section 9B — Case {case} (dynamic HVAC BESTEST cooling)
+# GENERATED by 140_tests/scripts/generate_ce_b_cases.py.
+# 588 m^3 adiabatic zone, New Orleans annual weather, performance-map DX unit.
+
+simulation:
+  timesteps_per_hour: 4
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - "CE300.csv"
+
+schedules:
+{seasonal_sched_block(sens_sched, 'sens')}
+{seasonal_sched_block(lat_sched, 'lat')}
+
+simple_constructions:
+  - name: Adiabatic Wall
+    u_factor: 0.01
+    thickness: 0.01
+    thermal_capacity: 0.0
+    solar_absorptance: 0.1
+    thermal_absorptance: 0.9
+    roughness: rough
+
+zones:
+  - name: {z}
+    volume: 588.0
+    floor_area: 196.0
+
+equipment:
+  - name: {case} Sensible Gain
+    zones: [{z}]
+    power: {SENS_PEAK}
+    radiant_fraction: 0.0
+    latent_fraction: 0.0
+    schedule: {sens_sched}
+  - name: {case} Latent Gain
+    zones: [{z}]
+    power: {LAT_PEAK}
+    radiant_fraction: 0.0
+    latent_fraction: 1.0
+    schedule: {lat_sched}
+
+surfaces:
+  - {{name: {case} N, zone: {z}, type: wall, construction: Adiabatic Wall, boundary: adiabatic, vertices: [{{x: 14.0, y: 14.0, z: 0}},{{x: 0.0, y: 14.0, z: 0}},{{x: 0.0, y: 14.0, z: 3.0}},{{x: 14.0, y: 14.0, z: 3.0}}]}}
+  - {{name: {case} S, zone: {z}, type: wall, construction: Adiabatic Wall, boundary: adiabatic, vertices: [{{x: 0.0, y: 0.0, z: 0}},{{x: 14.0, y: 0.0, z: 0}},{{x: 14.0, y: 0.0, z: 3.0}},{{x: 0.0, y: 0.0, z: 3.0}}]}}
+  - {{name: {case} E, zone: {z}, type: wall, construction: Adiabatic Wall, boundary: adiabatic, vertices: [{{x: 14.0, y: 0.0, z: 0}},{{x: 14.0, y: 14.0, z: 0}},{{x: 14.0, y: 14.0, z: 3.0}},{{x: 14.0, y: 0.0, z: 3.0}}]}}
+  - {{name: {case} W, zone: {z}, type: wall, construction: Adiabatic Wall, boundary: adiabatic, vertices: [{{x: 0.0, y: 14.0, z: 0}},{{x: 0.0, y: 0.0, z: 0}},{{x: 0.0, y: 0.0, z: 3.0}},{{x: 0.0, y: 14.0, z: 3.0}}]}}
+  - {{name: {case} Roof, zone: {z}, type: roof, construction: Adiabatic Wall, boundary: adiabatic, vertices: [{{x: 0.0, y: 0.0, z: 3.0}},{{x: 14.0, y: 0.0, z: 3.0}},{{x: 14.0, y: 14.0, z: 3.0}},{{x: 0.0, y: 14.0, z: 3.0}}]}}
+  - {{name: {case} Floor, zone: {z}, type: floor, construction: Adiabatic Wall, boundary: adiabatic, vertices: [{{x: 0.0, y: 14.0, z: 0}},{{x: 14.0, y: 14.0, z: 0}},{{x: 14.0, y: 0.0, z: 0}},{{x: 0.0, y: 0.0, z: 0}}]}}
+
+air_loops:
+  - name: CE DX System
+    controls:
+      cooling_supply_temp: 13.0
+      heating_supply_temp: 40.0
+      cycling: proportional
+      fan_operating_mode: continuous
+      deadband: 1.0
+      minimum_damper_position: {round(c['oa'] / 1.888, 5)}
+      design_zone_flow: 2.266
+      cooling_part_load_cd: 0.229
+    equipment:
+      - type: cooling_coil
+        name: {case} DX Cooling Coil
+        source: dx
+        capacity: 33280.0
+        cop: 3.0448
+        shr: 0.8043
+        rated_airflow: 1.888
+        setpoint: 13.0
+        autocalculate_shr: true
+        condenser_fan_power: 930.0
+        cap_ft_curve: "CE300 DX CapFT"
+        eir_ft_curve: "CE300 DX EIRFT"
+      - type: fan
+        name: {case} Supply Fan
+        source: constant_volume
+        design_flow_rate: 1.888
+        pressure_rise: 74.7
+        motor_efficiency: 0.94
+        impeller_efficiency: 0.121
+        motor_in_airstream_fraction: 1.0
+    zones:
+      - zone: {z}
+
+zone_groups:
+  - name: {case} Zone Group
+    zones: [{z}]
+
+thermostats:
+  - name: {case} Thermostat
+    zones: [{case} Zone Group]
+    cooling_setpoint: {c['sp']}
+    heating_setpoint: 10.0
+
+outputs:
+  - file: "zone_results.csv"
+    frequency: hourly
+    variables:
+      - "zone:temperature"
+      - "zone:humidity_ratio"
+  - file: "hvac_results.csv"
+    frequency: hourly
+    variables:
+      - "component:compressor_power"
+      - "component:condenser_fan_power"
+      - "component:electric_power"
+      - "component:total_load"
+      - "component:sensible_load"
+      - "component:latent_load"
+
+summary_report: true
+
+performance_curves:
+{curve_table("CE300 DX CapFT", CAPFT)}
+{curve_table("CE300 DX EIRFT", EIRFT)}
+"""
+
+
+def main():
+    for case, c in CASES.items():
+        with open(os.path.join(CASES_DIR, f"ashrae140_case{case}.yaml"), "w") as f:
+            f.write(make_yaml(case, c))
+        print(f"wrote ashrae140_case{case}.yaml")
+
+
+if __name__ == "__main__":
+    main()

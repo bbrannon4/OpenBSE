@@ -5578,6 +5578,22 @@ fn simulate_all_loops(
 
             let cp_air = 1006.0_f64; // J/(kg·K)
 
+            // Minimum compressor part-load fraction. `effective_min_oa` is the
+            // minimum OUTDOOR-AIR airflow fraction, not a minimum compressor
+            // runtime. In continuous-fan mode the fan always moves full flow, so
+            // ventilation is met regardless of the compressor, and the
+            // compressor must be free to cycle fully OFF (floor 0) — otherwise a
+            // non-zero OA fraction pins the compressor on and over-cools the
+            // zone in mild hours. In cycling-fan mode the fan cycles WITH the
+            // compressor, so the min-OA fraction doubles as the minimum runtime
+            // needed to deliver ventilation air, and the floor stays.
+            let plr_floor =
+                if li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous {
+                    0.0
+                } else {
+                    effective_min_oa
+                };
+
             if let Some(ref supply) = supply_air {
                 let supply_temp = supply.state.t_db;
                 let supply_flow = supply.mass_flow;
@@ -5642,9 +5658,9 @@ fn simulate_all_loops(
                             // Zone well above heating setpoint (e.g., setpoint
                             // transition to unoccupied).  Stale ideal load is
                             // for the old setpoint — do not heat.
-                            effective_min_oa
+                            plr_floor
                         } else if q_capacity < 100.0 {
-                            effective_min_oa
+                            plr_floor
                         } else {
                             // Correct frozen ideal load for zone temp changes
                             // during HVAC iteration.
@@ -5654,12 +5670,12 @@ fn simulate_all_loops(
                             if corrected_load > 10.0 {
                                 let adj_load = (corrected_load - q_fan).max(0.0);
                                 let adj_cap = (q_capacity - q_fan).max(1.0);
-                                (adj_load / adj_cap).clamp(effective_min_oa, 1.0)
+                                (adj_load / adj_cap).clamp(plr_floor, 1.0)
                             } else {
                                 // Fallback: proportional zone error for transients
                                 let error = (heat_sp - control_temp).max(0.0);
                                 let max_dt = (supply_temp - heat_sp).max(1.0);
-                                (error / max_dt).clamp(effective_min_oa, 1.0)
+                                (error / max_dt).clamp(plr_floor, 1.0)
                             }
                         }
                     }
@@ -5675,32 +5691,49 @@ fn simulate_all_loops(
                         let q_capacity = supply_flow * cp_air * (cool_ref - supply_temp);
                         if control_temp < cool_sp - dead_band * 0.5 {
                             // Zone well below cooling setpoint — do not cool.
-                            effective_min_oa
+                            plr_floor
                         } else if q_capacity < 100.0 {
-                            effective_min_oa
+                            plr_floor
                         } else {
                             // Correct frozen ideal load for zone temp changes
                             let correction = zone_cap * (control_temp - init_temp);
                             let corrected_load = (zone_cool_load + correction).max(0.0);
 
+                            // Outdoor-air sensible load. With a continuous fan
+                            // and a cycling compressor, outdoor air is drawn in
+                            // during both the on- and off-cycle, so (exactly
+                            // like continuous-fan heat) the OA sensible load
+                            // adds to BOTH the numerator and the capacity:
+                            //   PLR = (L + Q_fan + Q_oa) / (Cap + Q_fan + Q_oa)
+                            // When OA is warmer than the zone it raises runtime;
+                            // when colder it provides free cooling and lowers
+                            // it. The ideal-load predictor excludes OA (the loop
+                            // handles it via supply air), so without this term
+                            // the OA load never reaches the coil's runtime and
+                            // the coil is scaled down to the zone load alone.
+                            // Zero when the loop carries no OA (oa_frac == 0),
+                            // so non-OA cases are unaffected.
+                            let oa_frac = signals.oa_fraction.unwrap_or(effective_min_oa);
+                            let q_oa = oa_frac * supply_flow * cp_air * (t_outdoor - control_temp);
+
                             if corrected_load > 10.0 {
-                                let adj_load = corrected_load + q_fan;
-                                let adj_cap = q_capacity + q_fan;
-                                (adj_load / adj_cap).clamp(effective_min_oa, 1.0)
+                                let adj_load = corrected_load + q_fan + q_oa;
+                                let adj_cap = (q_capacity + q_fan + q_oa).max(1.0);
+                                (adj_load / adj_cap).clamp(plr_floor, 1.0)
                             } else {
                                 let error = (control_temp - cool_sp).max(0.0);
                                 let max_dt = (cool_sp - supply_temp).max(1.0);
-                                (error / max_dt).clamp(effective_min_oa, 1.0)
+                                (error / max_dt).clamp(plr_floor, 1.0)
                             }
                         }
                     }
                     HvacMode::Deadband => {
                         // No active heating or cooling; fan only (if continuous).
-                        effective_min_oa
+                        plr_floor
                     }
                 }
             } else {
-                effective_min_oa
+                plr_floor
             }
         } else {
             // Non-PSZ-AC systems: no PLR cycling (they modulate internally)
@@ -5866,20 +5899,35 @@ fn simulate_all_loops(
                     //   ON-cycle  (PLR fraction):   T = supply_temp (coils active + fan heat)
                     //   OFF-cycle (1-PLR fraction): T = T_zone + ΔT_fan (recirculated + fan heat)
                     //
-                    // Average supply temp = PLR × T_supply + (1-PLR) × (T_zone + ΔT_fan)
+                    // Average supply temp = PLR × T_supply + (1-PLR) × (T_mixed + ΔT_fan)
                     //
-                    // Since OA=0 for PTAC, T_mixed = T_zone (return air = zone air).
+                    // During the OFF-cycle the compressor is idle but the
+                    // continuous fan keeps drawing the loop's minimum outdoor
+                    // air, so the air returned to the zone is the MIXED air
+                    // (return + OA), not pure recirculated zone air. Using zone
+                    // air here would silently drop the (1-PLR) fraction of the
+                    // outdoor-air sensible and latent load — which for a lightly
+                    // loaded cycling DX unit (low PLR) is most of the OA load,
+                    // leaving the zone too dry and the coil roughly half-sized
+                    // (ASHRAE 140-2023 §9B CE300-series). When the loop carries
+                    // no OA (oa_frac = 0, e.g. PTAC) T_mixed collapses to T_zone,
+                    // and at PLR = 1 the OFF term vanishes entirely, so neither
+                    // no-OA nor fully-modulating systems are affected.
                     let control_zone = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
                     let t_zone = zone_temps.get(control_zone).copied().unwrap_or(21.0);
                     let w_zone = zone_humidity_ratios
                         .get(control_zone)
                         .copied()
                         .unwrap_or(0.008);
-                    let t_off = t_zone + continuous_fan_heat_rise;
+                    let oa_frac = signals.oa_fraction.unwrap_or(0.0).clamp(0.0, 1.0);
+                    let w_oa = signals.effective_oa_w.unwrap_or(ctx.outdoor_air.w);
+                    let t_mixed_off = (1.0 - oa_frac) * t_zone + oa_frac * t_outdoor;
+                    let w_mixed_off = (1.0 - oa_frac) * w_zone + oa_frac * w_oa;
+                    let t_off = t_mixed_off + continuous_fan_heat_rise;
                     let t_avg = loop_plr * supply_temp + (1.0 - loop_plr) * t_off;
                     // Blend supply humidity ratio: ON-cycle uses coil outlet w,
-                    // OFF-cycle recirculates zone air (no dehumidification).
-                    let w_avg = loop_plr * supply_w + (1.0 - loop_plr) * w_zone;
+                    // OFF-cycle delivers mixed (return + OA) air undehumidified.
+                    let w_avg = loop_plr * supply_w + (1.0 - loop_plr) * w_mixed_off;
                     (supply.mass_flow, t_avg, w_avg)
                 } else {
                     // Cycling fan mode: PLR-scaled flow at full supply temp.
