@@ -45,12 +45,12 @@ from ce_b_results import ANNUAL_ROWS, CASES, CaseOutput
 
 # Program identity for the submission header — kept identical to the Section 9a
 # submission (generate_ashrae140_CE_submission.py). Edit ORG / dates as needed.
-PROGRAM_NAME = "OpenBSE 0.6.0"
+PROGRAM_NAME = "OpenBSE 0.7.0"
 PROGRAM_SHORT = "OpenBSE"
 ORG_LONG = "OpenBSE"
 ORG_SHORT = "OpenBSE"
-VERSION_RELEASE_DATE = datetime.date(2026, 10, 1)
-SUBMISSION_DATE = datetime.date(2026, 10, 1)
+VERSION_RELEASE_DATE = datetime.date(2026, 10, 11)
+SUBMISSION_DATE = datetime.date(2026, 10, 11)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_TEMPLATE = os.path.expanduser(

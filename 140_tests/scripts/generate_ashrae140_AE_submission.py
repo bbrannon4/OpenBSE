@@ -42,7 +42,7 @@ DEFAULT_OUTPUT = os.path.join(
 )
 
 PROGRAM_NAME = "OpenBSE"
-PROGRAM_VERSION = "0.6.0"
+PROGRAM_VERSION = "0.7.0"
 
 # Imposed latent gain is identical across the series (586.1 W zone 1); zone 2 in
 # the two-zone cases adds 879.2 W. Values below are per-case imposed loads [kW].
