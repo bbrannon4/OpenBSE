@@ -2716,7 +2716,7 @@ fn main() -> Result<()> {
                         // HVAC, computed by the envelope.  Frozen from the PREVIOUS
                         // timestep and used for mode determination from the FIRST
                         // HVAC iteration (no need to wait for envelope to run).
-                        let predictor_no_hvac_temps: HashMap<String, f64> = env
+                        let mut predictor_no_hvac_temps: HashMap<String, f64> = env
                             .zones
                             .iter()
                             .map(|z| (z.input.name.clone(), z.temp_no_hvac))
@@ -3633,6 +3633,20 @@ fn main() -> Result<()> {
                                 }
                             }
 
+                            // Opt-in: refresh the mode predictor ONCE, from this
+                            // first envelope solve, so it reflects the current
+                            // timestep's gains and weather rather than the previous
+                            // timestep's. It is then held for the remaining
+                            // iterations exactly as the default is (see below).
+                            let refresh_predictor =
+                                model.simulation.current_timestep_predictor && hvac_iter == 0;
+                            if refresh_predictor {
+                                for z in &env.zones {
+                                    predictor_no_hvac_temps
+                                        .insert(z.input.name.clone(), z.temp_no_hvac);
+                                }
+                            }
+
                             // Do NOT update predictor_no_hvac_temps during HVAC
                             // iterations. temp_no_hvac depends on surface temps
                             // which change with zone temp (HVAC-dependent), causing
@@ -3645,7 +3659,9 @@ fn main() -> Result<()> {
                             final_hvac_result = Some(hvac_result);
                             final_env_result = Some(env_result);
 
-                            if max_delta <= HVAC_CONV_TOL {
+                            // A refreshed predictor may call for a different mode,
+                            // so the first iteration never counts as converged.
+                            if max_delta <= HVAC_CONV_TOL && !refresh_predictor {
                                 break;
                             }
                         }
@@ -3780,6 +3796,8 @@ fn main() -> Result<()> {
                     snapshot.site_direct_normal_radiation = interp_weather.direct_normal_rad;
                     snapshot.site_diffuse_horizontal_radiation = interp_weather.diffuse_horiz_rad;
                     snapshot.site_relative_humidity = interp_weather.rel_humidity;
+                    snapshot.site_barometric_pressure = interp_weather.pressure;
+                    snapshot.site_humidity_ratio = interp_weather.to_air_state().w;
 
                     // AFN species concentrations (#89): zone:species_<name>
                     if let Some(ref st) = env.species_transport {
@@ -3825,6 +3843,14 @@ fn main() -> Result<()> {
                         snapshot
                             .zone_humidity_ratio
                             .insert(name.clone(), zone.humidity_ratio);
+                        snapshot.zone_relative_humidity.insert(
+                            name.clone(),
+                            openbse_psychrometrics::rh_fn_tdb_w_pb(
+                                zone.temp,
+                                zone.humidity_ratio,
+                                interp_weather.pressure,
+                            ) * 100.0,
+                        );
                         snapshot
                             .zone_heating_rate
                             .insert(name.clone(), zone.heating_load);
@@ -4649,6 +4675,8 @@ fn main() -> Result<()> {
                     snapshot.site_direct_normal_radiation = interp_weather.direct_normal_rad;
                     snapshot.site_diffuse_horizontal_radiation = interp_weather.diffuse_horiz_rad;
                     snapshot.site_relative_humidity = interp_weather.rel_humidity;
+                    snapshot.site_barometric_pressure = interp_weather.pressure;
+                    snapshot.site_humidity_ratio = interp_weather.to_air_state().w;
 
                     for (comp_name, vars) in &result.component_outputs {
                         if comp_name == "Weather" {

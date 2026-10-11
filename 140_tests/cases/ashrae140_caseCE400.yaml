@@ -5,6 +5,7 @@
 
 simulation:
   timesteps_per_hour: 4
+  current_timestep_predictor: true
   start_month: 1
   start_day: 1
   end_month: 12
@@ -99,6 +100,7 @@ air_loops:
         rated_airflow: 1.888
         setpoint: 13.0
         autocalculate_shr: true
+        dry_coil_wet_bulb_iteration: true
         condenser_fan_power: 930.0
         cap_ft_curve: "CE300 DX CapFT"
         eir_ft_curve: "CE300 DX EIRFT"
@@ -129,7 +131,14 @@ outputs:
     frequency: hourly
     variables:
       - "zone:temperature"
-      - "zone:humidity_ratio"
+      - "zone:humidity_ratio_gkg"
+      - "zone:relative_humidity"
+  - file: "site_results.csv"
+    frequency: hourly
+    variables:
+      - "site:outdoor_temperature"
+      - "site:humidity_ratio_gkg"
+      - "site:barometric_pressure"
   - file: "hvac_results.csv"
     frequency: hourly
     variables:
@@ -139,6 +148,8 @@ outputs:
       - "component:total_load"
       - "component:sensible_load"
       - "component:latent_load"
+      - "component:inlet_temperature"
+      - "component:inlet_humidity_ratio"
 
 summary_report: true
 

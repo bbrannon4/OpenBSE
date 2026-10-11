@@ -146,8 +146,10 @@ def summer_day_step(base, peak):
 STEP_15_100 = summer_day_step(0.15, 1)
 STEP_15_50 = summer_day_step(0.15, 0.5)
 STEP_0_100 = summer_day_step(0, 1)
-# CE530-CE545: infiltration runs for the first week of January only, flushing
-# the zone to outdoor humidity before the dry-coil season starts.
+# CE530-CE545: infiltration for the first week of January only. This is NOT in
+# the test specification (which has no infiltration); the reference EnergyPlus
+# input adds it "to get zone humidity ratio initialized", and it is kept here
+# so the dry-coil zone starts the year at the same humidity as that reference.
 FIRST_WEEK = sched((1, 1, 1, 7, "1x24"), (1, 8, 12, 31, "0x24"))
 
 # ── Case table ────────────────────────────────────────────────────────────────
@@ -298,6 +300,7 @@ def make_yaml(case, c):
 
 simulation:
   timesteps_per_hour: 4
+  current_timestep_predictor: true
   start_month: 1
   start_day: 1
   end_month: 12
@@ -357,6 +360,7 @@ air_loops:
         rated_airflow: 1.888
         setpoint: 13.0
         autocalculate_shr: true
+        dry_coil_wet_bulb_iteration: true
         condenser_fan_power: 930.0
         cap_ft_curve: "CE300 DX CapFT"
         eir_ft_curve: "CE300 DX EIRFT"
@@ -387,7 +391,14 @@ outputs:
     frequency: hourly
     variables:
       - "zone:temperature"
-      - "zone:humidity_ratio"
+      - "zone:humidity_ratio_gkg"
+      - "zone:relative_humidity"
+  - file: "site_results.csv"
+    frequency: hourly
+    variables:
+      - "site:outdoor_temperature"
+      - "site:humidity_ratio_gkg"
+      - "site:barometric_pressure"
   - file: "hvac_results.csv"
     frequency: hourly
     variables:
@@ -397,6 +408,8 @@ outputs:
       - "component:total_load"
       - "component:sensible_load"
       - "component:latent_load"
+      - "component:inlet_temperature"
+      - "component:inlet_humidity_ratio"
 
 summary_report: true
 

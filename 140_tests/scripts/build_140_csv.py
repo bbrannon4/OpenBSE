@@ -10,6 +10,8 @@ import csv
 import os
 import sys
 
+import ce_b_results
+
 # Base directory: cases/ subdirectory of 140_tests/
 BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cases")
 OUTPUT_PATH = os.path.join(
@@ -39,6 +41,11 @@ LOAD_RANGES = {k: tuple(v) for k, v in _RANGES["load_ranges_kwh"].items()}
 # Section 9a cooling-equipment February-total ranges: {case: {metric: [lo, hi]}}
 CE_RANGES = _RANGES.get("ce_february_ranges_kwh", {})
 
+# Section 9B dynamic cooling-equipment annual ranges: {row: {metric: [lo, hi]}}.
+# Rows are cases, plus the May-September rows the standard reports for
+# CE500 and CE510.
+CE_B_RANGES = _RANGES.get("ce_b_ranges", {})
+
 # Section 10 fuel-fired furnace ranges: {case: {metric: [lo, hi]}}
 HE_RANGES = _RANGES.get("he_ranges", {})
 
@@ -66,7 +73,14 @@ SZ_RANGES = {k: tuple(v) for k, v in _RANGES["sun_zone_temp_ranges_c"].items()}
 # When a known failure starts passing, CI prints a notice so you can promote it.
 # When a currently-passing check regresses, CI fails.
 # ---------------------------------------------------------------------------
-KNOWN_FAILURES = set()  # All 251 checks currently pass (TF + CE + HE + AE200)
+KNOWN_FAILURES = {
+    # CE540 (dry coil, 15 C setpoint): OpenBSE's runtime matches EnergyPlus
+    # (supply fan within 1%), but EnergyPlus does not report condenser-fan
+    # energy, so this range comes only from the programs that interpolate the
+    # performance map, which run about 9% longer here than the fitted
+    # biquadratic curve does this far below its data.
+    ("CE540", "Annual Condenser Fan (kWh)"),
+}
 
 
 def read_load_results(case):
@@ -182,6 +196,23 @@ def read_ce_february(case):
         "coil_lat": coil_lat,
         "cop": cop,
     }
+
+
+# Human-readable metric labels for the Section 9B checks, in report order.
+# (metric key, label, rounding digits)
+CE_B_METRICS = [
+    ("cool_total", "Cooling Total (kWh)", 1),
+    ("compressor", "Compressor (kWh)", 1),
+    ("cond_fan", "Condenser Fan (kWh)", 1),
+    ("supply_fan", "Supply Fan (kWh)", 1),
+    ("coil_total", "Coil Load Total (kWh)", 1),
+    ("coil_sens", "Coil Load Sensible (kWh)", 1),
+    ("coil_lat", "Coil Load Latent (kWh)", 1),
+    ("cop2", "COP2", 3),
+    ("idb", "Mean IDB (C)", 2),
+    ("humrat", "Mean Humidity Ratio (kg/kg)", 5),
+    ("rh", "Mean Relative Humidity (%)", 2),
+]
 
 
 def read_he_results(case):
@@ -468,6 +499,36 @@ def main():
                 rows.append([case, label, val, lo, hi, status, f"{delta:.1f}", pct])
                 fail_details.append(f"  Case {case} {label}: OpenBSE={val}, "
                                     f"Range=[{lo}, {hi}], Delta={delta:.1f}")
+
+    # --- Section 9B dynamic cooling-equipment cases (CE300–CE545) ---
+    for row_label, row_case, months in ce_b_results.ANNUAL_ROWS:
+        if row_label not in CE_B_RANGES:
+            continue
+        results = ce_b_results.annual_results(row_case, months)
+        if results is None:
+            missing.append(row_label)
+            continue
+        ranges = CE_B_RANGES[row_label]
+        period = "May-Sep" if months else "Annual"
+        for metric, name, digits in CE_B_METRICS:
+            if metric not in ranges:
+                continue
+            lo, hi = ranges[metric]
+            val = round(results[metric], digits)
+            label = f"{period} {name}"
+            status, delta = evaluate(val, lo, hi)
+            key = (row_case, label)
+            if status == "PASS":
+                pass_count += 1
+                passed_keys.add(key)
+                rows.append([row_case, label, val, lo, hi, status, "", ""])
+            else:
+                fail_count += 1
+                failed_keys.add(key)
+                pct = pct_delta(delta, lo, hi)
+                rows.append([row_case, label, val, lo, hi, status, f"{delta:.4g}", pct])
+                fail_details.append(f"  Case {row_case} {label}: OpenBSE={val}, "
+                                    f"Range=[{lo}, {hi}], Delta={delta:.4g}")
 
     # --- Section 10 fuel-fired furnace cases (HE100–HE230) ---
     for case in sorted(HE_RANGES.keys(), key=lambda x: int(x[2:])):

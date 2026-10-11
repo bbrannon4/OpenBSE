@@ -168,6 +168,7 @@
       "description": "Global simulation parameters.",
       "properties": {
         "timesteps_per_hour": { "type": "integer", "default": 1, "minimum": 1, "maximum": 60, "description": "Number of simulation timesteps per hour." },
+        "current_timestep_predictor": { "type": "boolean", "default": false, "description": "Evaluate the HVAC mode predictor with the current timestep's gains and weather (refreshed once after the first HVAC iteration) instead of carrying it over from the previous timestep. Removes the one-timestep start-up lag when a load switches on in a lightweight, idle zone." },
         "start_month": { "type": "integer", "default": 1, "minimum": 1, "maximum": 12 },
         "start_day": { "type": "integer", "default": 1, "minimum": 1, "maximum": 31 },
         "end_month": { "type": "integer", "default": 12, "minimum": 1, "maximum": 12 },

@@ -237,6 +237,20 @@ pub struct SimulationSettings {
     #[serde(default = "default_ground_surface_temps")]
     pub ground_surface_temperatures: Vec<f64>,
 
+    /// Evaluate the HVAC mode predictor with the CURRENT timestep's gains and
+    /// weather (default false).
+    ///
+    /// By default the air-loop control decides heating / cooling / deadband
+    /// from the free-floating zone temperature computed at the end of the
+    /// previous timestep. When a load switches on in a lightweight zone that
+    /// was idle, that prediction is one timestep stale: the system sits out
+    /// the first timestep and the zone overshoots its setpoint before being
+    /// pulled back. With this on, the prediction is refreshed once per
+    /// timestep, after the first HVAC iteration has re-solved the envelope
+    /// with current conditions, and then held for the remaining iterations.
+    #[serde(default)]
+    pub current_timestep_predictor: bool,
+
     /// Heating sizing factor applied to zone design loads and airflows.
     ///
     /// Matches EnergyPlus `Sizing:Parameters` → `Heating Sizing Factor`.
@@ -1256,6 +1270,13 @@ pub struct CoolingCoilInput {
     /// bypass factor method (E+ style). When false, use constant rated SHR.
     #[serde(default = "default_autocalculate_shr")]
     pub autocalculate_shr: bool,
+    /// Dry-coil capacity by wet-bulb iteration (default false). When the DX
+    /// coil runs dry, find the entering wet-bulb at which it would just be
+    /// dry and evaluate the capacity and EIR curves there, as EnergyPlus
+    /// does, instead of at the actual (lower) wet-bulb. Only used with
+    /// `autocalculate_shr`.
+    #[serde(default)]
+    pub dry_coil_wet_bulb_iteration: bool,
 
     // ─── Chilled water fields (only used when source: chilled_water) ──
     /// Design chilled water flow rate [m³/s]
@@ -3183,6 +3204,7 @@ fn build_graph_impl(
                                 .with_fflow_curves(cap_fflow, eir_fflow)
                                 .with_condenser_fan_power(c.condenser_fan_power)
                                 .with_autocalculate_shr(c.autocalculate_shr);
+                                coil.dry_coil_wet_bulb_iteration = c.dry_coil_wet_bulb_iteration;
                                 if let Some(plf) = c.plf_curve.as_ref().and_then(|name| {
                                     model
                                         .performance_curves
