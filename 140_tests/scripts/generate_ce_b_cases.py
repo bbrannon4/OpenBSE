@@ -191,7 +191,7 @@ air_loops:
         name: {case} DX Cooling Coil
         source: dx
         capacity: 33280.0
-        cop: 3.0448
+        cop: 3.3256
         shr: 0.8043
         rated_airflow: 1.888
         setpoint: 13.0
