@@ -84,7 +84,7 @@ pub struct ScheduleSeason {
 }
 
 /// Day-of-year (1–365, non-leap) for a month/day, saturating on bad input.
-fn day_of_year_from_md(month: u32, day: u32) -> u32 {
+pub fn day_of_year_from_md(month: u32, day: u32) -> u32 {
     const DIM: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     let m = month.clamp(1, 12) as usize;
     let mut doy = day;

@@ -2310,13 +2310,24 @@ fn main() -> Result<()> {
                             })
                             .collect();
                         let warmup_dc_return: HashMap<String, f64> = HashMap::new();
+                        // Cooling setpoints in force this timestep: a `thermostat_schedule`
+                        // entry (e.g. a summer-only night setup) overrides the constant.
+                        let scheduled_cool_sp = scheduled_cooling_setpoints(
+                            &zone_cooling_setpoints,
+                            &zone_heat_sp_schedule,
+                            hour,
+                            ctx.timestep.day_of_year(),
+                        );
+                        let zone_cooling_setpoints = scheduled_cool_sp
+                            .as_ref()
+                            .unwrap_or(&zone_cooling_setpoints);
                         let (_, zone_supply_conditions) = simulate_all_loops(
                             &mut graph,
                             &ctx,
                             &mut loop_infos,
                             &current_zone_temps,
                             &zone_heating_setpoints,
-                            &zone_cooling_setpoints,
+                            zone_cooling_setpoints,
                             &zone_unocc_heating_setpoints,
                             &zone_unocc_cooling_setpoints,
                             &zone_heat_sp_schedule,
@@ -2826,6 +2837,17 @@ fn main() -> Result<()> {
                             );
                         }
 
+                        // Cooling setpoints in force this timestep: a `thermostat_schedule`
+                        // entry (e.g. a summer-only night setup) overrides the constant.
+                        let scheduled_cool_sp = scheduled_cooling_setpoints(
+                            &zone_cooling_setpoints,
+                            &zone_heat_sp_schedule,
+                            hour,
+                            ctx.timestep.day_of_year(),
+                        );
+                        let zone_cooling_setpoints = scheduled_cool_sp
+                            .as_ref()
+                            .unwrap_or(&zone_cooling_setpoints);
                         for hvac_iter in 0..MAX_HVAC_ITER {
                             // Step 1: Run HVAC with current zone temps and loads
                             let (mut hvac_result, zone_supply_conditions) = simulate_all_loops(
@@ -2834,7 +2856,7 @@ fn main() -> Result<()> {
                                 &mut loop_infos,
                                 &current_zone_temps,
                                 &zone_heating_setpoints,
-                                &zone_cooling_setpoints,
+                                zone_cooling_setpoints,
                                 &zone_unocc_heating_setpoints,
                                 &zone_unocc_cooling_setpoints,
                                 &zone_heat_sp_schedule,
@@ -3377,7 +3399,7 @@ fn main() -> Result<()> {
                                     t_outdoor,
                                     &current_zone_temps,
                                     &zone_heating_setpoints,
-                                    &zone_cooling_setpoints,
+                                    zone_cooling_setpoints,
                                     ctx.outdoor_air.w,
                                 );
                                 // Record compressor energy in hvac_result outputs
@@ -3836,7 +3858,9 @@ fn main() -> Result<()> {
                         let is_conditioned = zone.input.conditioned;
 
                         if has_setpoints && is_conditioned {
-                            let (heat_sp, cool_sp) = zone.input.active_setpoints(hour);
+                            let (heat_sp, cool_sp) = zone
+                                .input
+                                .active_setpoints(hour, ctx.timestep.day_of_year());
                             snapshot.zone_heating_setpoint.insert(name.clone(), heat_sp);
                             snapshot.zone_cooling_setpoint.insert(name.clone(), cool_sp);
 
@@ -5553,16 +5577,11 @@ fn simulate_all_loops(
             let control_temp = zone_temps.get(control_zone).copied().unwrap_or(21.0);
             // A per-zone hourly setpoint schedule (night setback) overrides the
             // constant setpoint, matching the ideal-load predictor.
+            let doy = ctx.timestep.day_of_year();
             let scheduled_heat_sp = zone_heat_sp_schedule.get(control_zone).and_then(|entries| {
                 entries
                     .iter()
-                    .find(|e| {
-                        if e.start_hour <= e.end_hour {
-                            hour >= e.start_hour && hour <= e.end_hour
-                        } else {
-                            hour >= e.start_hour || hour <= e.end_hour
-                        }
-                    })
+                    .find(|e| e.applies(hour, doy))
                     .map(|e| e.heating_setpoint)
             });
             let heat_sp = scheduled_heat_sp
@@ -6394,6 +6413,28 @@ fn resolve_path(input_file: &Path, relative_path: &str) -> PathBuf {
             .unwrap_or_else(|| Path::new("."))
             .join(relative_path)
     }
+}
+
+/// Cooling setpoints in force at one timestep: the constant thermostat value
+/// for each zone, overridden by whichever `thermostat_schedule` entry applies
+/// at this hour and date. Returns `None` when no zone has a schedule, so the
+/// caller keeps using the constant map untouched.
+fn scheduled_cooling_setpoints(
+    base: &HashMap<String, f64>,
+    schedules: &HashMap<String, Vec<openbse_envelope::zone::ThermostatScheduleEntry>>,
+    hour: u32,
+    day_of_year: u32,
+) -> Option<HashMap<String, f64>> {
+    if schedules.is_empty() {
+        return None;
+    }
+    let mut out = base.clone();
+    for (zone, entries) in schedules {
+        if let Some(entry) = entries.iter().find(|e| e.applies(hour, day_of_year)) {
+            out.insert(zone.clone(), entry.cooling_setpoint);
+        }
+    }
+    Some(out)
 }
 
 fn day_of_year(month: u32, day: u32, dims: &[u32; 12]) -> u32 {

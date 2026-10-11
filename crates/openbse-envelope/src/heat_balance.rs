@@ -3896,7 +3896,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     } else if zone.ideal_pred_mode_locked {
                         // Reuse locked mode — still need to set t_zone_vec
                         let pred_mode = zone.ideal_pred_mode;
-                        let (heat_sp, cool_sp) = zone.input.active_setpoints(hour);
+                        let (heat_sp, cool_sp) = zone
+                            .input
+                            .active_setpoints(hour, ctx.timestep.day_of_year());
                         let t_zone = match pred_mode {
                             1 => heat_sp,
                             -1 => cool_sp,
@@ -4095,7 +4097,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                             zone.temp_prev
                         };
 
-                        let (heat_sp, cool_sp) = zone.input.active_setpoints(hour);
+                        let (heat_sp, cool_sp) = zone
+                            .input
+                            .active_setpoints(hour, ctx.timestep.day_of_year());
                         let il = zone.input.ideal_loads.as_ref().unwrap();
                         let mut pred_mode = if t_free_pred < heat_sp {
                             1_i8
@@ -4570,7 +4574,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     );
 
                     // Step 2: Get active setpoints (may vary by schedule)
-                    let (mut heat_sp, mut cool_sp) = zone.input.active_setpoints(hour);
+                    let (mut heat_sp, mut cool_sp) = zone
+                        .input
+                        .active_setpoints(hour, ctx.timestep.day_of_year());
 
                     // Step 2b: Natural ventilation setpoint reset.
                     //

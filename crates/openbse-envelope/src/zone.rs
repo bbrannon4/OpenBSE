@@ -101,6 +101,51 @@ pub struct ThermostatScheduleEntry {
     pub heating_setpoint: f64,
     /// Cooling setpoint during this period [°C]
     pub cooling_setpoint: f64,
+    /// Optional date range (inclusive) restricting the entry to part of the
+    /// year, e.g. a summer-only night setup. All four fields must be given;
+    /// a range whose end precedes its start wraps across the new year. An
+    /// entry without a date range applies all year.
+    #[serde(default)]
+    pub start_month: Option<u32>,
+    #[serde(default)]
+    pub start_day: Option<u32>,
+    #[serde(default)]
+    pub end_month: Option<u32>,
+    #[serde(default)]
+    pub end_day: Option<u32>,
+}
+
+impl ThermostatScheduleEntry {
+    /// Whether this entry is in force at `hour` (1-24) of day-of-year
+    /// `day_of_year` (1-365).
+    pub fn applies(&self, hour: u32, day_of_year: u32) -> bool {
+        let hour_ok = if self.start_hour <= self.end_hour {
+            hour >= self.start_hour && hour <= self.end_hour
+        } else {
+            // Wraps past midnight (e.g., 23 to 7)
+            hour >= self.start_hour || hour <= self.end_hour
+        };
+        if !hour_ok {
+            return false;
+        }
+        match (
+            self.start_month,
+            self.start_day,
+            self.end_month,
+            self.end_day,
+        ) {
+            (Some(sm), Some(sd), Some(em), Some(ed)) => {
+                let start = crate::schedule::day_of_year_from_md(sm, sd);
+                let end = crate::schedule::day_of_year_from_md(em, ed);
+                if start <= end {
+                    day_of_year >= start && day_of_year <= end
+                } else {
+                    day_of_year >= start || day_of_year <= end
+                }
+            }
+            _ => true,
+        }
+    }
 }
 
 /// Ventilation schedule entry — defines extra ventilation for a time period.
@@ -820,23 +865,20 @@ fn default_zone_multiplier() -> u32 {
 }
 
 impl ZoneInput {
-    /// Get the active thermostat setpoints for a given hour of day.
+    /// Get the active thermostat setpoints for a given hour (1-24) and
+    /// day-of-year (1-365).
     ///
     /// If a thermostat schedule is defined, returns the setpoints for the
-    /// matching period. Otherwise, returns the ideal_loads default setpoints
-    /// (or 20/27 if no ideal loads).
-    pub fn active_setpoints(&self, hour: u32) -> (f64, f64) {
+    /// first matching period. Otherwise, returns the ideal_loads default
+    /// setpoints (or 20/27 if no ideal loads).
+    pub fn active_setpoints(&self, hour: u32, day_of_year: u32) -> (f64, f64) {
         // Check thermostat schedule first
-        for entry in &self.thermostat_schedule {
-            let in_range = if entry.start_hour <= entry.end_hour {
-                hour >= entry.start_hour && hour <= entry.end_hour
-            } else {
-                // Wraps past midnight (e.g., 23 to 7)
-                hour >= entry.start_hour || hour <= entry.end_hour
-            };
-            if in_range {
-                return (entry.heating_setpoint, entry.cooling_setpoint);
-            }
+        if let Some(entry) = self
+            .thermostat_schedule
+            .iter()
+            .find(|e| e.applies(hour, day_of_year))
+        {
+            return (entry.heating_setpoint, entry.cooling_setpoint);
         }
 
         // Fall back to ideal_loads setpoints
@@ -1897,6 +1939,10 @@ mod tests {
                 end_hour: 7,
                 heating_setpoint: 10.0,
                 cooling_setpoint: 99.0,
+                start_month: None,
+                start_day: None,
+                end_month: None,
+                end_day: None,
             }],
             ventilation_schedule: vec![],
             solar_distribution: None,
@@ -1916,12 +1962,12 @@ mod tests {
         };
 
         // During night setback
-        let (h, c) = input.active_setpoints(3);
+        let (h, c) = input.active_setpoints(3, 1);
         assert_relative_eq!(h, 10.0);
         assert_relative_eq!(c, 99.0);
 
         // During day (falls through to ideal_loads defaults)
-        let (h, c) = input.active_setpoints(12);
+        let (h, c) = input.active_setpoints(12, 1);
         assert_relative_eq!(h, 20.0);
         assert_relative_eq!(c, 27.0);
     }

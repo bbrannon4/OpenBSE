@@ -157,6 +157,8 @@ def c500(**kw):
 CASES = {
     "CE300": c300(),
     "CE310": c300(lat=(9379.0, LAT_310)),
+    # 35 C setup for hours 21-24 and 1-7, Apr 21 - Oct 12 only; 25 C otherwise.
+    "CE350": c300(setup=(35.0, 21, 7, 4, 21, 10, 12)),
     "CE360": c300(sens=(29310.0, SENS_360)),
     "CE500": c500(),
     "CE510": c500(sens=(21103.0, GAIN_510), lat=(8573.0, GAIN_510)),
@@ -201,6 +203,21 @@ def gain_block(case, z, c):
     latent_fraction: 1.0
     schedule: {lat_sched}""")
     return scheds, equip
+
+
+def setup_block(c):
+    """Seasonal night setup (CE350): a higher cooling setpoint during the given
+    hours, only inside the date range. `setup` = (setpoint, start_hour,
+    end_hour, start_month, start_day, end_month, end_day); hours wrap midnight."""
+    if not c.get("setup"):
+        return ""
+    sp, h0, h1, sm, sd, em, ed = c["setup"]
+    return (
+        "    thermostat_schedule:\n"
+        f"      - {{start_hour: {h0}, end_hour: {h1}, heating_setpoint: -50.0, "
+        f"cooling_setpoint: {sp}, start_month: {sm}, start_day: {sd}, "
+        f"end_month: {em}, end_day: {ed}}}\n"
+    )
 
 
 def make_yaml(case, c):
@@ -295,7 +312,7 @@ thermostats:
     zones: [{case} Zone Group]
     cooling_setpoint: {c['sp']}
     heating_setpoint: -50.0   # cooling-only thermostat: the zone is never heated
-
+{setup_block(c)}
 outputs:
   - file: "zone_results.csv"
     frequency: hourly
