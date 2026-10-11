@@ -190,6 +190,14 @@ CASES = {
     # 35 C setup for hours 21-24 and 1-7, Apr 21 - Oct 12 only; 25 C otherwise.
     "CE350": c300(setup=(35.0, 21, 7, 4, 21, 10, 12)),
     "CE360": c300(sens=(29310.0, SENS_360)),
+    # Economizer cases: minimum outdoor air as CE300, modulating up to 100%.
+    # All reset the mixed-air target to the load (SetpointManager:Warmest,
+    # 1.46-25 C). econ = (type, extra options).
+    "CE400": c300(econ=("differential_dry_bulb", {})),
+    "CE410": c300(econ=("differential_dry_bulb", {"compressor_lockout": "true"})),
+    "CE420": c300(econ=("differential_dry_bulb", {"max_outdoor_temp": 20.0})),
+    "CE430": c300(econ=("differential_enthalpy", {})),
+    "CE440": c300(econ=("differential_enthalpy", {"max_outdoor_enthalpy": 47250.0})),
     "CE500": c500(),
     "CE510": c500(sens=(21103.0, GAIN_510), lat=(8573.0, GAIN_510)),
     "CE520": c500(sp=15.0),
@@ -252,6 +260,19 @@ def setup_block(c):
         f"cooling_setpoint: {sp}, start_month: {sm}, start_day: {sd}, "
         f"end_month: {em}, end_day: {ed}}}\n"
     )
+
+
+def econ_block(c):
+    if not c.get("econ"):
+        return ""
+    etype, extra = c["econ"]
+    lines = [
+        "      economizer:",
+        f"        economizer_type: {etype}",
+        "        load_reset: {min_supply_temp: 1.46, max_supply_temp: 25.0}",
+    ]
+    lines += [f"        {k}: {v}" for k, v in extra.items()]
+    return "\n".join(lines) + "\n"
 
 
 def make_yaml(case, c):
@@ -324,7 +345,7 @@ air_loops:
       fan_operating_mode: {c['fan']}
       deadband: 1.0
       minimum_damper_position: {round(c['oa'] / 1.888, 5)}
-{oa_sched_line}      design_zone_flow: {MASS_FLOW}
+{oa_sched_line}{econ_block(c)}      design_zone_flow: {MASS_FLOW}
       cooling_part_load_cd: 0.229
     equipment:
       - type: cooling_coil

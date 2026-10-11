@@ -363,7 +363,19 @@
       "properties": {
         "economizer_type": { "$ref": "#/$defs/EconomizerType" },
         "high_limit": { "type": "number", "description": "High limit shutoff temperature [C] (for fixed_dry_bulb and enthalpy_with_high_limit)." },
-        "high_limit_enthalpy": { "type": "number", "description": "High limit shutoff enthalpy [J/kg] (for fixed_enthalpy and enthalpy_with_high_limit). Default: 65200 J/kg (~28 BTU/lb, ASHRAE 90.1)." }
+        "high_limit_enthalpy": { "type": "number", "description": "High limit shutoff enthalpy [J/kg] (for fixed_enthalpy and enthalpy_with_high_limit). Default: 65200 J/kg (~28 BTU/lb, ASHRAE 90.1)." },
+        "max_outdoor_temp": { "type": "number", "description": "Additional fixed outdoor dry-bulb limit [C], AND-ed with the economizer_type test." },
+        "max_outdoor_enthalpy": { "type": "number", "description": "Additional fixed outdoor enthalpy limit [J/kg], AND-ed with the economizer_type test." },
+        "load_reset": {
+          "type": "object",
+          "required": ["min_supply_temp", "max_supply_temp"],
+          "description": "Reset the economizer mixed-air target to the supply temperature that just meets the zone cooling load, within these bounds.",
+          "properties": {
+            "min_supply_temp": { "type": "number", "description": "Lowest supply-air temperature the reset may ask for [C]." },
+            "max_supply_temp": { "type": "number", "description": "Highest supply-air temperature the reset may ask for [C]." }
+          }
+        },
+        "compressor_lockout": { "type": "boolean", "default": false, "description": "Non-integrated economizer: the compressor and the economizer never run together." }
       }
     },
 

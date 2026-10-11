@@ -1973,6 +1973,28 @@ mod tests {
     }
 
     #[test]
+    fn test_thermostat_schedule_date_range() {
+        // Night setup (hours 21-7) confined to Apr 21 - Oct 12.
+        let entry = ThermostatScheduleEntry {
+            start_hour: 21,
+            end_hour: 7,
+            heating_setpoint: -50.0,
+            cooling_setpoint: 35.0,
+            start_month: Some(4),
+            start_day: Some(21),
+            end_month: Some(10),
+            end_day: Some(12),
+        };
+        let doy = crate::schedule::day_of_year_from_md;
+        assert!(entry.applies(23, doy(7, 1))); // summer night
+        assert!(entry.applies(3, doy(4, 21))); // first day, early morning
+        assert!(!entry.applies(12, doy(7, 1))); // summer midday
+        assert!(!entry.applies(23, doy(4, 20))); // day before the window
+        assert!(!entry.applies(23, doy(10, 13))); // day after the window
+        assert!(!entry.applies(3, doy(1, 15))); // winter night
+    }
+
+    #[test]
     fn test_ventilation_schedule() {
         let input = ZoneInput {
             name: "Test".to_string(),

@@ -277,6 +277,34 @@ mod tests {
     }
 
     #[test]
+    fn test_fixed_density_fan_power_ignores_inlet_temperature() {
+        // Same mass flow of cold (dense) and warm air. On the default
+        // inlet-density basis the cold air is a smaller volume and draws less
+        // power; rated at a fixed density the power is the same for both.
+        let ctx = make_ctx();
+        let mass_flow = 1.2;
+        let cold = AirPort::new(MoistAirState::from_tdb_rh(5.0, 0.5, 101325.0), mass_flow);
+        let warm = AirPort::new(MoistAirState::from_tdb_rh(30.0, 0.5, 101325.0), mass_flow);
+
+        let mut fan = Fan::constant_volume("Test Fan", 1.0, 600.0, 0.7, 0.9, 1.0);
+        fan.simulate_air(&cold, &ctx);
+        let p_cold = fan.power;
+        fan.simulate_air(&warm, &ctx);
+        assert!(p_cold < fan.power);
+
+        fan.air_density = Some(1.2);
+        fan.simulate_air(&cold, &ctx);
+        let p_cold = fan.power;
+        fan.simulate_air(&warm, &ctx);
+        assert_relative_eq!(p_cold, fan.power, max_relative = 1e-12);
+        assert_relative_eq!(
+            fan.power,
+            mass_flow / 1.2 * 600.0 / 0.7,
+            max_relative = 1e-12
+        );
+    }
+
+    #[test]
     fn test_fan_zero_flow() {
         let mut fan = Fan::constant_volume("Test Fan", 1.0, 600.0, 0.7, 0.9, 1.0);
         let inlet = AirPort::new(MoistAirState::from_tdb_rh(20.0, 0.5, 101325.0), 0.0);

@@ -278,6 +278,9 @@ fn build_loop_infos(
                     .economizer
                     .as_ref()
                     .and_then(|e| e.high_limit_enthalpy),
+                economizer_options: openbse_airloop::EconomizerOptions::from_controls(
+                    al.controls.economizer.as_ref(),
+                ),
                 design_supply_flow: al
                     .equipment
                     .iter()
@@ -6504,6 +6507,7 @@ mod tests {
             economizer_type: openbse_io::input::EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            economizer_options: openbse_airloop::EconomizerOptions::default(),
             supply_fan_dt: 0.0,
             return_fan_dt: 0.0,
             fixed_cooling_sat: false,
@@ -6544,6 +6548,7 @@ mod tests {
             economizer_type: econ_type,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            economizer_options: openbse_airloop::EconomizerOptions::default(),
             supply_fan_dt: 0.0,
             return_fan_dt: 0.0,
             fixed_cooling_sat: false,
@@ -7391,6 +7396,7 @@ mod tests_datacenter {
             economizer_type: openbse_io::input::EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            economizer_options: openbse_airloop::EconomizerOptions::default(),
             supply_fan_dt: 0.0,
             return_fan_dt: 0.0,
             fixed_cooling_sat: false,

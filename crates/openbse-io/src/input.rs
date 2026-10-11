@@ -691,6 +691,38 @@ pub struct EconomizerControls {
     /// Default: 65,200 J/kg (≈ 28 BTU/lb, ASHRAE 90.1 baseline).
     #[serde(default)]
     pub high_limit_enthalpy: Option<f64>,
+    /// Additional fixed outdoor dry-bulb limit [°C], AND-ed with whichever
+    /// `economizer_type` test applies: the economizer is disabled when the
+    /// outdoor temperature exceeds it. E.g. differential dry-bulb plus a
+    /// 20 °C cap (E+ Controller:OutdoorAir "Economizer Maximum Limit Dry-Bulb").
+    #[serde(default)]
+    pub max_outdoor_temp: Option<f64>,
+    /// Additional fixed outdoor enthalpy limit [J/kg], AND-ed with the
+    /// `economizer_type` test in the same way.
+    #[serde(default)]
+    pub max_outdoor_enthalpy: Option<f64>,
+    /// Reset the economizer's mixed-air target to the supply temperature that
+    /// just meets the zone cooling load (optional). Without it the economizer
+    /// targets the fixed `cooling_supply_temp`, which over-cools the zone
+    /// whenever free cooling exceeds the load.
+    #[serde(default)]
+    pub load_reset: Option<EconomizerLoadReset>,
+    /// Non-integrated economizer: the compressor and the economizer never run
+    /// together. When outdoor air alone can meet the load the compressor is
+    /// locked out; when it cannot, the damper returns to minimum and the
+    /// compressor carries the load. Default false (integrated).
+    #[serde(default)]
+    pub compressor_lockout: bool,
+}
+
+/// Bounds on the load-reset supply-air temperature (E+ SetpointManager:Warmest
+/// feeding SetpointManager:MixedAir).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct EconomizerLoadReset {
+    /// Lowest supply-air temperature the reset may ask for [°C]
+    pub min_supply_temp: f64,
+    /// Highest supply-air temperature the reset may ask for [°C]
+    pub max_supply_temp: f64,
 }
 
 /// Economizer control strategy.
