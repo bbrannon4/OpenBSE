@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-11
+
+### Added
+- **ASHRAE 140-2023 Section 9B (CE_b) dynamic HVAC BESTEST cooling** — all 20 cases (CE300–CE545) implemented, gated, and within the §9B comparative ranges on every primary metric (cooling/compressor energy, coil loads, COP2, zone temperature and humidity). The validation gate now runs 550 checks. Portal submission spreadsheet `Std140_CE_b_Output.xls` added.
+- **Seasonal (date-range) schedules** — a `seasons:` list on any schedule, each period carrying its own day profile, resolved by day-of-year. Enables the CE_b internal-gain, outdoor-air, and thermostat schedules whose daily pattern changes over the year.
+- **Performance-map DX outdoor-air coupling** on the PSZ cycling path — the off-cycle supply now delivers mixed (return + outdoor) air, the outdoor-air load is carried in the compressor part-load ratio, and a continuous supply fan no longer pins the compressor on at minimum outdoor air.
+- **Air-side economizer extensions** — compressor lockout, fixed temperature/enthalpy high limits combined with a differential test, and a WARMEST/mixed-air load-reset supply target (CE400–CE440).
+- **Scheduled minimum outdoor air** and **seasonal-schedule-aware infiltration** (CE320–CE340, CE530–CE545); **seasonal thermostat cooling-setpoint** support on the DX path (CE350).
+
+### Changed
+- Sub-hourly output aggregation: component rate `[W]` variables are time-averaged when downsampling to a coarser reporting frequency instead of summed (no change at a 1-timestep-per-hour reporting cadence).
+- Regenerated the ASHRAE 140 portal submission spreadsheets (TF, CE_a, CE_b, HE, AE) for v0.7.0.
+
 ## [0.6.0] - 2026-06-13
 
 ### Added

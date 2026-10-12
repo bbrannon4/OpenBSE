@@ -101,6 +101,51 @@ pub struct ThermostatScheduleEntry {
     pub heating_setpoint: f64,
     /// Cooling setpoint during this period [°C]
     pub cooling_setpoint: f64,
+    /// Optional date range (inclusive) restricting the entry to part of the
+    /// year, e.g. a summer-only night setup. All four fields must be given;
+    /// a range whose end precedes its start wraps across the new year. An
+    /// entry without a date range applies all year.
+    #[serde(default)]
+    pub start_month: Option<u32>,
+    #[serde(default)]
+    pub start_day: Option<u32>,
+    #[serde(default)]
+    pub end_month: Option<u32>,
+    #[serde(default)]
+    pub end_day: Option<u32>,
+}
+
+impl ThermostatScheduleEntry {
+    /// Whether this entry is in force at `hour` (1-24) of day-of-year
+    /// `day_of_year` (1-365).
+    pub fn applies(&self, hour: u32, day_of_year: u32) -> bool {
+        let hour_ok = if self.start_hour <= self.end_hour {
+            hour >= self.start_hour && hour <= self.end_hour
+        } else {
+            // Wraps past midnight (e.g., 23 to 7)
+            hour >= self.start_hour || hour <= self.end_hour
+        };
+        if !hour_ok {
+            return false;
+        }
+        match (
+            self.start_month,
+            self.start_day,
+            self.end_month,
+            self.end_day,
+        ) {
+            (Some(sm), Some(sd), Some(em), Some(ed)) => {
+                let start = crate::schedule::day_of_year_from_md(sm, sd);
+                let end = crate::schedule::day_of_year_from_md(em, ed);
+                if start <= end {
+                    day_of_year >= start && day_of_year <= end
+                } else {
+                    day_of_year >= start || day_of_year <= end
+                }
+            }
+            _ => true,
+        }
+    }
 }
 
 /// Ventilation schedule entry — defines extra ventilation for a time period.
@@ -563,6 +608,14 @@ pub struct ZoneInput {
     /// No limit if None (default).
     #[serde(default)]
     pub min_relative_humidity: Option<f64>,
+    /// Cap the zone air humidity ratio at saturation for the zone temperature,
+    /// condensing out the excess (default: false). Matters for a sealed zone
+    /// that sits idle and cools: with no HVAC and no infiltration nothing
+    /// removes moisture, so without the cap the zone holds its warm-season
+    /// humidity ratio and reports RH above 100%. EnergyPlus applies this bound
+    /// unconditionally (CorrectZoneHumRat).
+    #[serde(default)]
+    pub limit_humidity_to_saturation: bool,
     /// Data center zone configuration. When present, enables implicit aisle physics
     /// and IT load generation. Replaces or supplements the `equipment_it` block.
     #[serde(default)]
@@ -812,23 +865,20 @@ fn default_zone_multiplier() -> u32 {
 }
 
 impl ZoneInput {
-    /// Get the active thermostat setpoints for a given hour of day.
+    /// Get the active thermostat setpoints for a given hour (1-24) and
+    /// day-of-year (1-365).
     ///
     /// If a thermostat schedule is defined, returns the setpoints for the
-    /// matching period. Otherwise, returns the ideal_loads default setpoints
-    /// (or 20/27 if no ideal loads).
-    pub fn active_setpoints(&self, hour: u32) -> (f64, f64) {
+    /// first matching period. Otherwise, returns the ideal_loads default
+    /// setpoints (or 20/27 if no ideal loads).
+    pub fn active_setpoints(&self, hour: u32, day_of_year: u32) -> (f64, f64) {
         // Check thermostat schedule first
-        for entry in &self.thermostat_schedule {
-            let in_range = if entry.start_hour <= entry.end_hour {
-                hour >= entry.start_hour && hour <= entry.end_hour
-            } else {
-                // Wraps past midnight (e.g., 23 to 7)
-                hour >= entry.start_hour || hour <= entry.end_hour
-            };
-            if in_range {
-                return (entry.heating_setpoint, entry.cooling_setpoint);
-            }
+        if let Some(entry) = self
+            .thermostat_schedule
+            .iter()
+            .find(|e| e.applies(hour, day_of_year))
+        {
+            return (entry.heating_setpoint, entry.cooling_setpoint);
         }
 
         // Fall back to ideal_loads setpoints
@@ -1535,6 +1585,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -1629,6 +1680,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -1887,6 +1939,10 @@ mod tests {
                 end_hour: 7,
                 heating_setpoint: 10.0,
                 cooling_setpoint: 99.0,
+                start_month: None,
+                start_day: None,
+                end_month: None,
+                end_day: None,
             }],
             ventilation_schedule: vec![],
             solar_distribution: None,
@@ -1895,6 +1951,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -1905,14 +1962,36 @@ mod tests {
         };
 
         // During night setback
-        let (h, c) = input.active_setpoints(3);
+        let (h, c) = input.active_setpoints(3, 1);
         assert_relative_eq!(h, 10.0);
         assert_relative_eq!(c, 99.0);
 
         // During day (falls through to ideal_loads defaults)
-        let (h, c) = input.active_setpoints(12);
+        let (h, c) = input.active_setpoints(12, 1);
         assert_relative_eq!(h, 20.0);
         assert_relative_eq!(c, 27.0);
+    }
+
+    #[test]
+    fn test_thermostat_schedule_date_range() {
+        // Night setup (hours 21-7) confined to Apr 21 - Oct 12.
+        let entry = ThermostatScheduleEntry {
+            start_hour: 21,
+            end_hour: 7,
+            heating_setpoint: -50.0,
+            cooling_setpoint: 35.0,
+            start_month: Some(4),
+            start_day: Some(21),
+            end_month: Some(10),
+            end_day: Some(12),
+        };
+        let doy = crate::schedule::day_of_year_from_md;
+        assert!(entry.applies(23, doy(7, 1))); // summer night
+        assert!(entry.applies(3, doy(4, 21))); // first day, early morning
+        assert!(!entry.applies(12, doy(7, 1))); // summer midday
+        assert!(!entry.applies(23, doy(4, 20))); // day before the window
+        assert!(!entry.applies(23, doy(10, 13))); // day after the window
+        assert!(!entry.applies(3, doy(1, 15))); // winter night
     }
 
     #[test]
@@ -1941,6 +2020,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -1984,6 +2064,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,

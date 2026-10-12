@@ -237,6 +237,20 @@ pub struct SimulationSettings {
     #[serde(default = "default_ground_surface_temps")]
     pub ground_surface_temperatures: Vec<f64>,
 
+    /// Evaluate the HVAC mode predictor with the CURRENT timestep's gains and
+    /// weather (default false).
+    ///
+    /// By default the air-loop control decides heating / cooling / deadband
+    /// from the free-floating zone temperature computed at the end of the
+    /// previous timestep. When a load switches on in a lightweight zone that
+    /// was idle, that prediction is one timestep stale: the system sits out
+    /// the first timestep and the zone overshoots its setpoint before being
+    /// pulled back. With this on, the prediction is refreshed once per
+    /// timestep, after the first HVAC iteration has re-solved the envelope
+    /// with current conditions, and then held for the remaining iterations.
+    #[serde(default)]
+    pub current_timestep_predictor: bool,
+
     /// Heating sizing factor applied to zone design loads and airflows.
     ///
     /// Matches EnergyPlus `Sizing:Parameters` → `Heating Sizing Factor`.
@@ -521,6 +535,13 @@ pub struct AirLoopControls {
     /// floor. Used by the ASHRAE 140 §11 AE400 VAV reheat cases.
     #[serde(default)]
     pub minimum_oa_flow: Option<f64>,
+    /// Schedule scaling the minimum outdoor-air fraction (optional). The hour's
+    /// schedule value multiplies `minimum_damper_position` (or the auto-computed
+    /// minimum), so the minimum OA can follow a daily and seasonal profile —
+    /// E+ Controller:OutdoorAir "Minimum Outdoor Air Schedule" with a
+    /// proportional minimum. Seasonal (`seasons:`) schedules are honored.
+    #[serde(default)]
+    pub minimum_oa_schedule: Option<String>,
 }
 
 fn default_cooling_part_load_cd() -> f64 {
@@ -551,6 +572,7 @@ impl Default for AirLoopControls {
             fixed_cooling_sat: false,
             preheat_setpoint: None,
             minimum_oa_flow: None,
+            minimum_oa_schedule: None,
         }
     }
 }
@@ -683,6 +705,38 @@ pub struct EconomizerControls {
     /// Default: 65,200 J/kg (≈ 28 BTU/lb, ASHRAE 90.1 baseline).
     #[serde(default)]
     pub high_limit_enthalpy: Option<f64>,
+    /// Additional fixed outdoor dry-bulb limit [°C], AND-ed with whichever
+    /// `economizer_type` test applies: the economizer is disabled when the
+    /// outdoor temperature exceeds it. E.g. differential dry-bulb plus a
+    /// 20 °C cap (E+ Controller:OutdoorAir "Economizer Maximum Limit Dry-Bulb").
+    #[serde(default)]
+    pub max_outdoor_temp: Option<f64>,
+    /// Additional fixed outdoor enthalpy limit [J/kg], AND-ed with the
+    /// `economizer_type` test in the same way.
+    #[serde(default)]
+    pub max_outdoor_enthalpy: Option<f64>,
+    /// Reset the economizer's mixed-air target to the supply temperature that
+    /// just meets the zone cooling load (optional). Without it the economizer
+    /// targets the fixed `cooling_supply_temp`, which over-cools the zone
+    /// whenever free cooling exceeds the load.
+    #[serde(default)]
+    pub load_reset: Option<EconomizerLoadReset>,
+    /// Non-integrated economizer: the compressor and the economizer never run
+    /// together. When outdoor air alone can meet the load the compressor is
+    /// locked out; when it cannot, the damper returns to minimum and the
+    /// compressor carries the load. Default false (integrated).
+    #[serde(default)]
+    pub compressor_lockout: bool,
+}
+
+/// Bounds on the load-reset supply-air temperature (E+ SetpointManager:Warmest
+/// feeding SetpointManager:MixedAir).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct EconomizerLoadReset {
+    /// Lowest supply-air temperature the reset may ask for [°C]
+    pub min_supply_temp: f64,
+    /// Highest supply-air temperature the reset may ask for [°C]
+    pub max_supply_temp: f64,
 }
 
 /// Economizer control strategy.
@@ -1053,6 +1107,12 @@ pub struct FanInput {
     pub impeller_efficiency: f64,
     #[serde(default = "default_motor_in_airstream")]
     pub motor_in_airstream_fraction: f64,
+    /// Fixed air density [kg/m³] for the fan power calculation (optional).
+    /// Default: the actual fan-inlet density. Set the standard density
+    /// (≈1.204 at sea level) to rate the fan at standard air as EnergyPlus
+    /// does, so power depends only on mass flow.
+    #[serde(default)]
+    pub air_density: Option<f64>,
     /// VAV fan power curve coefficients [C1..C5].
     /// Power = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4
     /// Default matches typical ASHRAE forward-curved centrifugal fan.
@@ -1095,6 +1155,11 @@ pub struct HeatingCoilInput {
     /// Ignored for `heat_pump` coils — use `cop` instead.
     #[serde(default = "default_efficiency")]
     pub efficiency: f64,
+    /// On-cycle parasitic electric load [W] for `gas` coils (default 0.0), e.g.
+    /// a draft / inducer fan. Runs with the burner and adds no heat to the
+    /// supply air (E+ Coil:Heating:Fuel "On Cycle Parasitic Electric Load").
+    #[serde(default)]
+    pub parasitic_electric_load: f64,
 
     // ─── Heat pump fields (only used when source: heat_pump) ────────
     /// Rated COP for heat pump (default 3.0)
@@ -1210,6 +1275,13 @@ pub struct CoolingCoilInput {
     /// bypass factor method (E+ style). When false, use constant rated SHR.
     #[serde(default = "default_autocalculate_shr")]
     pub autocalculate_shr: bool,
+    /// Dry-coil capacity by wet-bulb iteration (default false). When the DX
+    /// coil runs dry, find the entering wet-bulb at which it would just be
+    /// dry and evaluate the capacity and EIR curves there, as EnergyPlus
+    /// does, instead of at the actual (lower) wet-bulb. Only used with
+    /// `autocalculate_shr`.
+    #[serde(default)]
+    pub dry_coil_wet_bulb_iteration: bool,
 
     // ─── Chilled water fields (only used when source: chilled_water) ──
     /// Design chilled water flow rate [m³/s]
@@ -2912,6 +2984,7 @@ fn build_graph_impl(
                             ),
                         };
                         fan.fan_type = fan_type;
+                        fan.air_density = f.air_density;
                         fan.submeter = f.submeter.clone();
                         if let Some(ref tag) = f.tag {
                             fan.tag = tag.clone();
@@ -3001,6 +3074,7 @@ fn build_graph_impl(
                         "gas" | "Gas" | "furnace" | "Furnace" => {
                             let mut coil = HeatingCoil::gas(&c.name, cap, c.setpoint, c.efficiency);
                             coil.submeter = c.submeter.clone();
+                            coil.parasitic_electric_load = c.parasitic_electric_load;
                             graph.add_air_component(Box::new(coil))
                         }
                         _ => {
@@ -3136,6 +3210,7 @@ fn build_graph_impl(
                                 .with_fflow_curves(cap_fflow, eir_fflow)
                                 .with_condenser_fan_power(c.condenser_fan_power)
                                 .with_autocalculate_shr(c.autocalculate_shr);
+                                coil.dry_coil_wet_bulb_iteration = c.dry_coil_wet_bulb_iteration;
                                 if let Some(plf) = c.plf_curve.as_ref().and_then(|name| {
                                     model
                                         .performance_curves

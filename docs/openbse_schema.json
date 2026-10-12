@@ -168,6 +168,7 @@
       "description": "Global simulation parameters.",
       "properties": {
         "timesteps_per_hour": { "type": "integer", "default": 1, "minimum": 1, "maximum": 60, "description": "Number of simulation timesteps per hour." },
+        "current_timestep_predictor": { "type": "boolean", "default": false, "description": "Evaluate the HVAC mode predictor with the current timestep's gains and weather (refreshed once after the first HVAC iteration) instead of carrying it over from the previous timestep. Removes the one-timestep start-up lag when a load switches on in a lightweight, idle zone." },
         "start_month": { "type": "integer", "default": 1, "minimum": 1, "maximum": 12 },
         "start_day": { "type": "integer", "default": 1, "minimum": 1, "maximum": 31 },
         "end_month": { "type": "integer", "default": 12, "minimum": 1, "maximum": 12 },
@@ -363,7 +364,19 @@
       "properties": {
         "economizer_type": { "$ref": "#/$defs/EconomizerType" },
         "high_limit": { "type": "number", "description": "High limit shutoff temperature [C] (for fixed_dry_bulb and enthalpy_with_high_limit)." },
-        "high_limit_enthalpy": { "type": "number", "description": "High limit shutoff enthalpy [J/kg] (for fixed_enthalpy and enthalpy_with_high_limit). Default: 65200 J/kg (~28 BTU/lb, ASHRAE 90.1)." }
+        "high_limit_enthalpy": { "type": "number", "description": "High limit shutoff enthalpy [J/kg] (for fixed_enthalpy and enthalpy_with_high_limit). Default: 65200 J/kg (~28 BTU/lb, ASHRAE 90.1)." },
+        "max_outdoor_temp": { "type": "number", "description": "Additional fixed outdoor dry-bulb limit [C], AND-ed with the economizer_type test." },
+        "max_outdoor_enthalpy": { "type": "number", "description": "Additional fixed outdoor enthalpy limit [J/kg], AND-ed with the economizer_type test." },
+        "load_reset": {
+          "type": "object",
+          "required": ["min_supply_temp", "max_supply_temp"],
+          "description": "Reset the economizer mixed-air target to the supply temperature that just meets the zone cooling load, within these bounds.",
+          "properties": {
+            "min_supply_temp": { "type": "number", "description": "Lowest supply-air temperature the reset may ask for [C]." },
+            "max_supply_temp": { "type": "number", "description": "Highest supply-air temperature the reset may ask for [C]." }
+          }
+        },
+        "compressor_lockout": { "type": "boolean", "default": false, "description": "Non-integrated economizer: the compressor and the economizer never run together." }
       }
     },
 
@@ -377,6 +390,7 @@
         "deadband": { "type": "number", "default": 1.0, "description": "Thermostat deadband [C]." },
         "design_zone_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design air flow rate per zone [kg/s]. Use 'autosize' for auto-calculation." },
         "minimum_damper_position": { "type": "number", "minimum": 0, "maximum": 1, "description": "Minimum outdoor air damper position [0-1]. Set to 1.0 for DOAS." },
+        "minimum_oa_schedule": { "type": "string", "description": "Schedule whose hourly value multiplies the minimum outdoor-air fraction (proportional minimum). Seasonal schedules are honored." },
         "economizer": { "$ref": "#/$defs/EconomizerControls" }
       }
     },
@@ -399,6 +413,7 @@
         "motor_efficiency": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Motor efficiency [0-1]." },
         "impeller_efficiency": { "type": "number", "default": 0.71, "minimum": 0, "maximum": 1, "description": "Impeller (fan blade) efficiency [0-1]. Total efficiency = motor * impeller." },
         "motor_in_airstream_fraction": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Fraction of motor waste heat entering the airstream [0-1]." },
+        "air_density": { "type": "number", "exclusiveMinimum": 0, "description": "Fixed air density [kg/m3] for the fan power calculation. Default: actual fan-inlet density. Set the standard density (about 1.204 at sea level) to rate the fan at standard air, as EnergyPlus does." },
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." }
       }
     },
@@ -418,7 +433,8 @@
         },
         "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Nominal heating capacity [W]." },
         "setpoint": { "type": "number", "default": 35.0, "description": "Outlet air temperature setpoint [C]." },
-        "efficiency": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Heating efficiency [0-1]. 1.0 for electric, <1.0 for gas. Ignored for hot_water source (boiler handles efficiency)." }
+        "efficiency": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Heating efficiency [0-1]. 1.0 for electric, <1.0 for gas. Ignored for hot_water source (boiler handles efficiency)." },
+        "parasitic_electric_load": { "type": "number", "default": 0.0, "minimum": 0, "description": "On-cycle parasitic electric load [W] for gas coils (draft / inducer fan). Runs with the burner; adds no heat to the supply air." }
       }
     },
 
@@ -1017,6 +1033,7 @@
         "volume": { "type": "number", "default": 0.0, "description": "Zone air volume [m3]. Auto-calculated from surfaces if 0." },
         "floor_area": { "type": "number", "default": 0.0, "description": "Zone floor area [m2]. Auto-calculated from floor surfaces if 0." },
         "conditioned": { "type": "boolean", "default": true, "description": "Whether the zone is conditioned by HVAC." },
+        "limit_humidity_to_saturation": { "type": "boolean", "default": false, "description": "Cap zone air humidity ratio at saturation for the zone temperature (excess condenses). Matters for a sealed, idle zone that cools." },
         "max_relative_humidity": { "type": "number", "description": "Maximum relative humidity setpoint [%] (e.g. 60). HVAC switches to dehumidification cooling when zone RH exceeds this." },
         "min_relative_humidity": { "type": "number", "description": "Minimum relative humidity setpoint [%] (e.g. 30). Humidifier activates when zone RH falls below this." },
         "duct_leakage": {

@@ -70,6 +70,15 @@ pub struct CoolingCoilDX {
     /// When true, compute SHR each timestep via apparatus dew point method.
     /// When false, use constant rated_shr (or SHR=1.0 if no latent model).
     pub autocalculate_shr: bool,
+    /// Dry-coil capacity by wet-bulb iteration (opt-in, E+ CalcDoe2DXCoil).
+    /// When the coil runs dry, raise the entering humidity ratio at constant
+    /// dry-bulb until the coil is just dry, and take the capacity and EIR
+    /// curves at that wet-bulb, so air far drier than the dry-out point is
+    /// not read as a much weaker coil. When false (default), the capacity at
+    /// the actual wet-bulb is scaled by the sensible fraction of the path to
+    /// the apparatus dew point (#115).
+    #[serde(default)]
+    pub dry_coil_wet_bulb_iteration: bool,
     /// Bypass factor derived from rated SHR at ARI conditions.
     /// Computed once, then reused each timestep.
     #[serde(skip)]
@@ -145,6 +154,7 @@ impl CoolingCoilDX {
             eir_fflow_curve: None,
             eir_normalization: 1.0,
             autocalculate_shr: false,
+            dry_coil_wet_bulb_iteration: false,
             bypass_factor: 0.0,
             adp_temp: 0.0,
             adp_w: 0.0,
@@ -401,8 +411,8 @@ impl AirComponent for CoolingCoilDX {
         };
 
         // Available capacity and COP at current conditions (with flow fraction)
-        let available_cap = self.available_capacity(t_outdoor, t_wb_inlet, flow_fraction);
-        let available_cop = self.available_cop(t_outdoor, t_wb_inlet, flow_fraction);
+        let mut available_cap = self.available_capacity(t_outdoor, t_wb_inlet, flow_fraction);
+        let mut available_cop = self.available_cop(t_outdoor, t_wb_inlet, flow_fraction);
 
         // ── Compute SHR and split sensible/latent cooling ──
         let (q_sensible, q_total, outlet_t, outlet_w) = if self.autocalculate_shr {
@@ -426,11 +436,37 @@ impl AirComponent for CoolingCoilDX {
             //   SHR  = min((h(t_in, wADP) − hADP) / (h_in − hADP), 1)
             let h_in = psych::h_fn_tdb_w(inlet.state.t_db, inlet.state.w);
             let m = inlet.mass_flow;
-            let h_out_full = h_in - available_cap / m;
             let bf = self.bypass_factor.clamp(0.0, 0.9);
-            let h_adp = h_in - (h_in - h_out_full) / (1.0 - bf);
-            let t_adp = psych::tsat_fn_h_pb(h_adp, inlet.state.p_b);
-            let w_adp = psych::w_fn_tdb_h(t_adp, h_adp);
+            let adp_for = |cap: f64| {
+                let h_out_full = h_in - cap / m;
+                let h_adp = h_in - (h_in - h_out_full) / (1.0 - bf);
+                let t_adp = psych::tsat_fn_h_pb(h_adp, inlet.state.p_b);
+                (h_adp, t_adp, psych::w_fn_tdb_h(t_adp, h_adp))
+            };
+            let (mut h_adp, mut t_adp, mut w_adp) = adp_for(available_cap);
+
+            // Dry-coil wet-bulb iteration (opt-in), after E+ CalcDoe2DXCoil:
+            // walk the entering humidity ratio up toward the ADP humidity
+            // ratio (relaxation 0.4, 1% tolerance) and re-evaluate the curves
+            // at the resulting wet-bulb. Entering enthalpy stays the actual
+            // one, so the capacity found is delivered entirely as sensible.
+            let mut dry_iterated = false;
+            if self.dry_coil_wet_bulb_iteration && w_adp > inlet.state.w {
+                let mut w_eff = inlet.state.w.max(1.0e-5);
+                for _ in 0..30 {
+                    let w_error = (w_eff - w_adp) / w_eff;
+                    w_eff = 0.4 * w_adp + 0.6 * w_eff;
+                    let t_wb_eff = psych::twb_fn_tdb_w_pb(inlet.state.t_db, w_eff, inlet.state.p_b);
+                    available_cap = self.available_capacity(t_outdoor, t_wb_eff, flow_fraction);
+                    available_cop = self.available_cop(t_outdoor, t_wb_eff, flow_fraction);
+                    (h_adp, t_adp, w_adp) = adp_for(available_cap);
+                    if w_error.abs() <= 0.01 {
+                        break;
+                    }
+                }
+                dry_iterated = true;
+            }
+            let h_out_full = h_in - available_cap / m;
 
             // Dry coil when the ADP humidity ratio is at or above the
             // entering humidity ratio (no condensation possible).
@@ -447,7 +483,9 @@ impl AirComponent for CoolingCoilDX {
             // runtime and under-counting fan/compressor energy. Matches the
             // manufacturer sensible-capacity column of a DX performance map.
             // Reference: EnergyPlus DXCoils.cc CalcDoe2DXCoil (dry-coil branch).
-            let (shr, eff_cap) = if w_adp >= inlet.state.w {
+            let (shr, eff_cap) = if dry_iterated {
+                (1.0, available_cap)
+            } else if w_adp >= inlet.state.w {
                 let dh = h_in - h_adp;
                 let sens_fraction = if dh > 1.0 {
                     (cp_air * (inlet.state.t_db - t_adp) / dh).clamp(0.1, 1.0)
@@ -785,6 +823,52 @@ mod tests {
         assert_relative_eq!(outlet.state.w, inlet.state.w, epsilon = 1e-6);
         // But temperature should still drop (sensible cooling)
         assert!(outlet.state.t_db < inlet.state.t_db);
+    }
+
+    #[test]
+    fn test_dry_coil_wet_bulb_iteration_reduces_humidity_dependence() {
+        // Two entering states at 30 °C, both far too dry to wet the coil. With
+        // a wet-bulb-dependent capacity curve the default method reads the
+        // drier air as a weaker coil. The iteration evaluates the curve at the
+        // dry-out wet-bulb instead, which is higher for both, so the coil
+        // delivers more and the gap between the two states narrows.
+        use crate::performance_curve::{CurveType, PerformanceCurve};
+        let cap_ft = || PerformanceCurve::Polynomial {
+            name: "CapFT".to_string(),
+            curve_type: CurveType::Biquadratic,
+            coefficients: vec![
+                0.952735372,
+                -0.000932873,
+                0.000927172,
+                -0.001291389,
+                -2.65899e-05,
+                -0.000305038,
+            ],
+            min_x: 0.0,
+            max_x: 100.0,
+            min_y: 0.0,
+            max_y: 100.0,
+            min_output: None,
+            max_output: None,
+        };
+        let full_load_drop = |iterate: bool, w: f64| {
+            let mut coil = CoolingCoilDX::new("DX", 33280.0, 3.3, 0.8043, 1.888, -10.0)
+                .with_curves(Some(cap_ft()), None)
+                .with_autocalculate_shr(true);
+            coil.dry_coil_wet_bulb_iteration = iterate;
+            let inlet = AirPort::new(MoistAirState::new(30.0, w, 101325.0), 2.27);
+            let outlet = coil.simulate_air(&inlet, &make_ctx(30.0));
+            assert_relative_eq!(outlet.state.w, w, epsilon = 1e-9);
+            30.0 - outlet.state.t_db
+        };
+
+        let (drier, dry) = (full_load_drop(false, 0.004), full_load_drop(false, 0.006));
+        let (drier_it, dry_it) = (full_load_drop(true, 0.004), full_load_drop(true, 0.006));
+        assert!(drier_it > drier && dry_it > dry);
+        // The iteration keeps the actual entering enthalpy (as E+ does), so
+        // some dependence on entering humidity remains.
+        let (gap, gap_it) = ((dry - drier) / dry, (dry_it - drier_it) / dry_it);
+        assert!(gap_it < 0.75 * gap, "default {gap} vs iterated {gap_it}");
     }
 }
 

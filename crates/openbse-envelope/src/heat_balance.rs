@@ -1971,6 +1971,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             None,
                             hour,
                             dow,
+                            doy,
                         )
                     }
                     SizingInternalGains::Scheduled => {
@@ -1980,6 +1981,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             Some(&self.schedule_manager),
                             hour,
                             dow,
+                            doy,
                         )
                     }
                     SizingInternalGains::FullWhenOccupied => {
@@ -1991,6 +1993,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             Some(&self.schedule_manager),
                             hour,
                             dow,
+                            doy,
                         );
                         if scheduled.total > 0.0 {
                             internal_gains::resolve_gains_scheduled(
@@ -1998,6 +2001,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                                 None,
                                 hour,
                                 dow,
+                                doy,
                             )
                         } else {
                             internal_gains::ResolvedGain::default()
@@ -2011,6 +2015,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     Some(&self.schedule_manager),
                     hour,
                     dow,
+                    doy,
                 )
             };
             zone.q_internal_conv = gains.convective;
@@ -2048,7 +2053,7 @@ impl EnvelopeSolver for BuildingEnvelope {
             zone.current_gradient = match &zone.input.room_air {
                 Some(ra) => {
                     let sched = match &ra.schedule {
-                        Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                        Some(name) => self.schedule_manager.fraction_doy(name, hour, dow, doy),
                         None => 1.0,
                     };
                     if ra.mundt {
@@ -2118,7 +2123,9 @@ impl EnvelopeSolver for BuildingEnvelope {
             // Schedule-driven operable openings (#79): modulate opening areas
             // by the current schedule fraction (0 = closed).
             let schedule_manager = &self.schedule_manager;
-            afn.update_scheduled_openings(|name| schedule_manager.fraction(name, hour, dow));
+            afn.update_scheduled_openings(|name| {
+                schedule_manager.fraction_doy(name, hour, dow, doy)
+            });
             // Natural-ventilation openings (#88, #95): drive the AFN opening
             // area from the availability logic (schedule, temperature
             // windows, ΔT gate, wind limit) with anti-cycling hysteresis.
@@ -2133,7 +2140,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     0.0
                 } else {
                     match &nv.schedule {
-                        Some(name) => schedule_manager.fraction(name, hour, dow),
+                        Some(name) => schedule_manager.fraction_doy(name, hour, dow, doy),
                         None => 1.0,
                     }
                 };
@@ -2234,7 +2241,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     for gen in &zone.input.species_generation {
                         if let Some(si) = transport.species_index(&gen.species) {
                             let frac = match &gen.schedule {
-                                Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                                Some(name) => {
+                                    self.schedule_manager.fraction_doy(name, hour, dow, doy)
+                                }
                                 None => 1.0,
                             };
                             sources[si][zi] += gen.rate * frac;
@@ -2281,7 +2290,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                 zone.infiltration_mass_flow = 0.0;
                 for infil in &zone.input.infiltration {
                     let sched_mult = match &infil.schedule {
-                        Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                        Some(name) => self.schedule_manager.fraction_doy(name, hour, dow, doy),
                         None => 1.0,
                     };
                     let rho_zone = psych::rho_air_fn_pb_tdb_w(p_b, zone.temp, w_outdoor);
@@ -2314,7 +2323,7 @@ impl EnvelopeSolver for BuildingEnvelope {
             //   HeatToZone = Power - HeatToAir  (motor heat NOT in airstream stays in zone)
             if let Some(ref exhaust) = zone.input.exhaust_fan {
                 let exhaust_frac = match &exhaust.schedule {
-                    Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                    Some(name) => self.schedule_manager.fraction_doy(name, hour, dow, doy),
                     None => 1.0,
                 };
                 let vol_flow = exhaust.flow_rate * exhaust_frac;
@@ -2362,7 +2371,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     0.0
                 } else {
                     match &nv.schedule {
-                        Some(name) => self.schedule_manager.fraction(name, hour, dow),
+                        Some(name) => self.schedule_manager.fraction_doy(name, hour, dow, doy),
                         None => 1.0,
                     }
                 };
@@ -2442,7 +2451,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             count, schedule, ..
                         } => {
                             let frac = match (schedule, Some(&self.schedule_manager)) {
-                                (Some(name), Some(mgr)) => mgr.fraction(name, hour, dow),
+                                (Some(name), Some(mgr)) => mgr.fraction_doy(name, hour, dow, doy),
                                 _ => 1.0,
                             };
                             Some(count * frac)
@@ -3891,7 +3900,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     } else if zone.ideal_pred_mode_locked {
                         // Reuse locked mode — still need to set t_zone_vec
                         let pred_mode = zone.ideal_pred_mode;
-                        let (heat_sp, cool_sp) = zone.input.active_setpoints(hour);
+                        let (heat_sp, cool_sp) = zone
+                            .input
+                            .active_setpoints(hour, ctx.timestep.day_of_year());
                         let t_zone = match pred_mode {
                             1 => heat_sp,
                             -1 => cool_sp,
@@ -4090,7 +4101,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                             zone.temp_prev
                         };
 
-                        let (heat_sp, cool_sp) = zone.input.active_setpoints(hour);
+                        let (heat_sp, cool_sp) = zone
+                            .input
+                            .active_setpoints(hour, ctx.timestep.day_of_year());
                         let il = zone.input.ideal_loads.as_ref().unwrap();
                         let mut pred_mode = if t_free_pred < heat_sp {
                             1_i8
@@ -4565,7 +4578,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                     );
 
                     // Step 2: Get active setpoints (may vary by schedule)
-                    let (mut heat_sp, mut cool_sp) = zone.input.active_setpoints(hour);
+                    let (mut heat_sp, mut cool_sp) = zone
+                        .input
+                        .active_setpoints(hour, ctx.timestep.day_of_year());
 
                     // Step 2b: Natural ventilation setpoint reset.
                     //
@@ -4919,6 +4934,15 @@ impl EnvelopeSolver for BuildingEnvelope {
                         w_supply,
                         q_latent,
                     );
+
+                    // Opt-in: zone air cannot hold more moisture than saturation
+                    // at its own temperature — the excess condenses out.
+                    if zone.input.limit_humidity_to_saturation {
+                        let w_sat = psych::w_fn_tdb_rh_pb(zone.temp, 1.0, p_b);
+                        if zone.humidity_ratio > w_sat {
+                            zone.humidity_ratio = w_sat;
+                        }
+                    }
                 }
 
                 // ─── Diagnostic accumulators ─────────────────────────────
@@ -5528,6 +5552,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -5709,6 +5734,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -6182,6 +6208,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -6384,6 +6411,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -6546,6 +6574,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,
@@ -6690,6 +6719,7 @@ mod tests {
             natural_ventilation: None,
             conditioned: true,
             zone_multiplier: 1,
+            limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
             data_center: None,

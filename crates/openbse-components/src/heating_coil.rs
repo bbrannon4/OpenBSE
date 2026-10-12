@@ -115,6 +115,12 @@ pub struct HeatingCoil {
     /// method instead of the simple capacity-based model.
     pub ua_model: Option<UaModelConfig>,
 
+    /// On-cycle parasitic electric load [W] of a gas coil (draft / inducer
+    /// fan). Drawn in proportion to burner firing; its heat leaves with the
+    /// flue gas, so it never reaches the supply air. Default 0.0.
+    #[serde(default)]
+    pub parasitic_electric_load: f64,
+
     // ─── Runtime state ──────────────────────────────────────────────────
     #[serde(skip)]
     pub heating_rate: f64,
@@ -140,6 +146,7 @@ impl HeatingCoil {
             design_water_inlet_temp: 0.0,
             design_water_outlet_temp: 0.0,
             ua_model: None,
+            parasitic_electric_load: 0.0,
             heating_rate: 0.0,
             energy_consumption: 0.0,
             water_inlet: None,
@@ -164,6 +171,7 @@ impl HeatingCoil {
             design_water_inlet_temp: 0.0,
             design_water_outlet_temp: 0.0,
             ua_model: None,
+            parasitic_electric_load: 0.0,
             heating_rate: 0.0,
             energy_consumption: 0.0,
             water_inlet: None,
@@ -191,6 +199,7 @@ impl HeatingCoil {
             design_water_inlet_temp: water_inlet_temp,
             design_water_outlet_temp: water_outlet_temp,
             ua_model: None,
+            parasitic_electric_load: 0.0,
             heating_rate: 0.0,
             energy_consumption: 0.0,
             water_inlet: None,
@@ -223,6 +232,7 @@ impl HeatingCoil {
             design_water_inlet_temp: water_inlet_temp,
             design_water_outlet_temp: water_outlet_temp,
             ua_model: Some(ua_cfg),
+            parasitic_electric_load: 0.0,
             heating_rate: 0.0,
             energy_consumption: 0.0,
             water_inlet: None,
@@ -482,6 +492,14 @@ impl AirComponent for HeatingCoil {
     fn power_consumption(&self) -> f64 {
         match self.coil_type {
             HeatingCoilType::Electric => self.energy_consumption,
+            // E+ Coil:Heating:Fuel on-cycle parasitic electric load: scales
+            // with the burner firing fraction (load / nominal capacity).
+            HeatingCoilType::Gas
+                if self.parasitic_electric_load > 0.0 && self.nominal_capacity > 0.0 =>
+            {
+                self.parasitic_electric_load
+                    * (self.heating_rate / self.nominal_capacity).clamp(0.0, 1.0)
+            }
             _ => 0.0, // gas/HW coils don't consume electricity
         }
     }
@@ -569,6 +587,47 @@ mod tests {
 
         assert_relative_eq!(outlet.state.t_db, 25.0, max_relative = 0.001);
         assert_eq!(coil.heating_rate, 0.0);
+    }
+
+    #[test]
+    fn test_gas_coil_parasitic_electric_follows_firing_fraction() {
+        let ctx = make_ctx();
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0), 1.0);
+
+        // Default: a gas coil draws no electricity.
+        let mut plain = HeatingCoil::gas("Furnace", 10000.0, 50.0, 0.8);
+        plain.simulate_air(&inlet, &ctx);
+        assert_eq!(plain.power_consumption(), 0.0);
+
+        // Capacity-limited (full fire): the whole parasitic load is drawn,
+        // and fuel use and delivered heat are unchanged by it.
+        let mut full = HeatingCoil::gas("Furnace", 10000.0, 50.0, 0.8);
+        full.parasitic_electric_load = 50.0;
+        let outlet = full.simulate_air(&inlet, &ctx);
+        assert_relative_eq!(full.heating_rate, 10000.0, max_relative = 1e-9);
+        assert_relative_eq!(full.power_consumption(), 50.0, max_relative = 1e-9);
+        assert_eq!(full.fuel_consumption(), plain.fuel_consumption());
+        assert_eq!(outlet.state.t_db, {
+            let mut p = HeatingCoil::gas("Furnace", 10000.0, 50.0, 0.8);
+            p.simulate_air(&inlet, &ctx).state.t_db
+        });
+
+        // Setpoint-limited (part fire): scales with load / capacity.
+        let mut part = HeatingCoil::gas("Furnace", 10000.0, 12.0, 0.8);
+        part.parasitic_electric_load = 50.0;
+        part.simulate_air(&inlet, &ctx);
+        let fraction = part.heating_rate / 10000.0;
+        assert!(fraction > 0.0 && fraction < 1.0);
+        assert_relative_eq!(
+            part.power_consumption(),
+            50.0 * fraction,
+            max_relative = 1e-9
+        );
+
+        // Idle: nothing drawn.
+        let warm = AirPort::new(MoistAirState::from_tdb_rh(30.0, 0.5, 101325.0), 1.0);
+        part.simulate_air(&warm, &ctx);
+        assert_eq!(part.power_consumption(), 0.0);
     }
 
     // ─── UA model tests ──────────────────────────────────────────────

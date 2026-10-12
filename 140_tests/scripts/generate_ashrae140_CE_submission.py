@@ -33,12 +33,12 @@ except ImportError:
 # Program identity for the submission header (official "YourData" layout). The
 # portal's completeness check requires at least the program name; organization
 # and dates mirror the template's fields — edit ORG / dates for your submission.
-PROGRAM_NAME = "OpenBSE 0.6.0"
+PROGRAM_NAME = "OpenBSE 0.7.0"
 PROGRAM_SHORT = "OpenBSE"
 ORG_LONG = "OpenBSE"
 ORG_SHORT = "OpenBSE"
-VERSION_RELEASE_DATE = datetime.date(2026, 10, 1)
-SUBMISSION_DATE = datetime.date(2026, 10, 1)
+VERSION_RELEASE_DATE = datetime.date(2026, 10, 11)
+SUBMISSION_DATE = datetime.date(2026, 10, 11)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CASES_DIR = os.path.join(os.path.dirname(HERE), "cases")

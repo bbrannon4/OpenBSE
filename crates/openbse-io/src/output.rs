@@ -98,6 +98,12 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
         ("zone:temperature", "°C", "Zone air dry-bulb temperature"),
         ("zone:humidity_ratio", "kg/kg", "Zone air humidity ratio"),
         (
+            "zone:humidity_ratio_gkg",
+            "g/kg",
+            "Zone air humidity ratio in g/kg (finer resolution than kg/kg)",
+        ),
+        ("zone:relative_humidity", "%", "Zone air relative humidity"),
+        (
             "zone:heating_rate",
             "W",
             "Zone heating load (positive = needs heating)",
@@ -374,6 +380,16 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
             "Diffuse horizontal solar radiation",
         ),
         ("site:relative_humidity", "%", "Outdoor relative humidity"),
+        (
+            "site:humidity_ratio_gkg",
+            "g/kg",
+            "Outdoor air humidity ratio in g/kg",
+        ),
+        (
+            "site:barometric_pressure",
+            "Pa",
+            "Outdoor barometric pressure",
+        ),
         // Component / HVAC variables
         (
             "component:outlet_temperature",
@@ -502,6 +518,8 @@ pub fn get_unit(spec: &str) -> &'static str {
         ("zone", "infiltration_mass_flow" | "supply_air_mass_flow" | "nat_vent_mass_flow") => {
             "kg/s"
         }
+        ("zone", "relative_humidity") => "%",
+        ("zone", "humidity_ratio_gkg") => "g/kg",
         ("zone", "heating_energy" | "cooling_energy") => "J",
         ("zone", "nat_vent_active" | "unmet_heating" | "unmet_cooling") => "-",
         ("zone", _) => "W",
@@ -515,6 +533,8 @@ pub fn get_unit(spec: &str) -> &'static str {
         ("site", "outdoor_temperature") => "°C",
         ("site", "wind_speed") => "m/s",
         ("site", "relative_humidity") => "%",
+        ("site", "barometric_pressure") => "Pa",
+        ("site", "humidity_ratio_gkg") => "g/kg",
         ("site", _) => "W/m²",
         ("building" | "submeter", _) => "W",
         (
@@ -543,31 +563,23 @@ pub fn get_unit(spec: &str) -> &'static str {
     }
 }
 
-/// Whether a variable should default to sum aggregation (energy, power).
+/// Whether a variable is a true ENERGY accumulation that must be summed when
+/// reducing sub-timestep values to an output period.
+///
+/// Only genuine per-timestep energy quantities belong here: zone heating/cooling
+/// energy and the building/submeter energy meters. Component outputs such as
+/// `electric_power`, `thermal_output`, `*_load` and `fan_power` are instantaneous
+/// RATES in watts — they must be time-AVERAGED to the period (the default Mean
+/// aggregation), not summed, or a case run at N sub-timesteps per hour would
+/// report N× the true hourly power. (At 1 timestep/hour sum == mean, so this
+/// distinction only matters for sub-hourly runs such as the §9B dynamic cases.)
 fn is_integrable(spec: &str) -> bool {
     let mut parts = spec.splitn(3, ':');
     let category = parts.next().unwrap_or("");
     let variable = parts.next().unwrap_or("");
     matches!(
         (category, variable),
-        ("zone", "heating_energy" | "cooling_energy")
-            | ("building" | "submeter", _)
-            | (
-                "component",
-                "electric_power"
-                    | "fuel_power"
-                    | "thermal_output"
-                    | "sensible_load"
-                    | "latent_load"
-                    | "total_load"
-                    | "conduction_loss"
-                    | "leakage_loss"
-                    | "cycling_loss"
-                    | "conduction_gain"
-                    | "heat_rejected"
-                    | "heat_transferred"
-                    | "fan_power",
-            )
+        ("zone", "heating_energy" | "cooling_energy") | ("building" | "submeter", _)
     )
 }
 
@@ -657,6 +669,9 @@ pub struct OutputSnapshot {
     pub site_direct_normal_radiation: f64,
     pub site_diffuse_horizontal_radiation: f64,
     pub site_relative_humidity: f64,
+    pub site_barometric_pressure: f64,
+    /// Outdoor air humidity ratio [kg/kg].
+    pub site_humidity_ratio: f64,
 
     // Per-zone data (zone_name -> value)
     pub zone_temperature: HashMap<String, f64>,
@@ -672,6 +687,8 @@ pub struct OutputSnapshot {
     /// Zone species concentrations [kg/kg] keyed by species name (#89).
     pub zone_species: HashMap<String, HashMap<String, f64>>,
     pub zone_humidity_ratio: HashMap<String, f64>,
+    /// Zone air relative humidity [%] at the outdoor barometric pressure.
+    pub zone_relative_humidity: HashMap<String, f64>,
     pub zone_heating_rate: HashMap<String, f64>,
     pub zone_cooling_rate: HashMap<String, f64>,
     pub zone_infiltration_mass_flow: HashMap<String, f64>,
@@ -799,6 +816,8 @@ impl OutputSnapshot {
             site_direct_normal_radiation: 0.0,
             site_diffuse_horizontal_radiation: 0.0,
             site_relative_humidity: 0.0,
+            site_barometric_pressure: 0.0,
+            site_humidity_ratio: 0.0,
             zone_temperature: HashMap::new(),
             zone_pressure: HashMap::new(),
             zone_occupied_temperature: HashMap::new(),
@@ -806,6 +825,7 @@ impl OutputSnapshot {
             zone_interzone_inflow: HashMap::new(),
             zone_species: HashMap::new(),
             zone_humidity_ratio: HashMap::new(),
+            zone_relative_humidity: HashMap::new(),
             zone_heating_rate: HashMap::new(),
             zone_cooling_rate: HashMap::new(),
             zone_infiltration_mass_flow: HashMap::new(),
@@ -900,6 +920,8 @@ impl OutputSnapshot {
                     single("Site", self.site_diffuse_horizontal_radiation)
                 }
                 "relative_humidity" => single("Site", self.site_relative_humidity),
+                "barometric_pressure" => single("Site", self.site_barometric_pressure),
+                "humidity_ratio_gkg" => single("Site", self.site_humidity_ratio * 1000.0),
                 _ => HashMap::new(),
             },
             "zone" => match variable {
@@ -909,6 +931,12 @@ impl OutputSnapshot {
                 "ach" => self.zone_ach.clone(),
                 "interzone_inflow" => self.zone_interzone_inflow.clone(),
                 "humidity_ratio" => self.zone_humidity_ratio.clone(),
+                "relative_humidity" => self.zone_relative_humidity.clone(),
+                "humidity_ratio_gkg" => self
+                    .zone_humidity_ratio
+                    .iter()
+                    .map(|(name, w)| (name.clone(), w * 1000.0))
+                    .collect(),
                 "heating_rate" => self.zone_heating_rate.clone(),
                 "cooling_rate" => self.zone_cooling_rate.clone(),
                 "heating_energy" => self
@@ -3889,10 +3917,20 @@ variables:
 
     #[test]
     fn test_component_variable_is_integrable() {
-        assert!(is_integrable("component:electric_power"));
-        assert!(is_integrable("component:fuel_power"));
-        assert!(is_integrable("component:sensible_load"));
-        assert!(is_integrable("component:conduction_loss"));
+        // Only true energy accumulations are summed when downsampling to a
+        // coarser output frequency. Component rate [W] variables are NOT
+        // integrable — they are time-averaged (Mean), so a sub-hourly timestep
+        // does not inflate the reported hourly power by the number of substeps.
+        assert!(is_integrable("zone:heating_energy"));
+        assert!(is_integrable("zone:cooling_energy"));
+        assert!(is_integrable("building:electricity"));
+        assert!(is_integrable("submeter:fans"));
+        // Component rates (power/load) are time-averaged, not summed.
+        assert!(!is_integrable("component:electric_power"));
+        assert!(!is_integrable("component:fuel_power"));
+        assert!(!is_integrable("component:sensible_load"));
+        assert!(!is_integrable("component:conduction_loss"));
+        assert!(!is_integrable("component:compressor_power"));
         assert!(!is_integrable("component:plr"));
         assert!(!is_integrable("component:outlet_temperature"));
     }

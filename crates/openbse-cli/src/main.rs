@@ -209,6 +209,7 @@ fn build_loop_infos(
                 component_kinds,
                 served_zones,
                 min_oa_fraction,
+                min_oa_schedule: al.controls.minimum_oa_schedule.clone(),
                 explicit_min_oa,
                 min_vav_fraction: al.min_vav_fraction,
                 availability_schedule: al.availability_schedule.clone(),
@@ -277,6 +278,9 @@ fn build_loop_infos(
                     .economizer
                     .as_ref()
                     .and_then(|e| e.high_limit_enthalpy),
+                economizer_options: openbse_airloop::EconomizerOptions::from_controls(
+                    al.controls.economizer.as_ref(),
+                ),
                 design_supply_flow: al
                     .equipment
                     .iter()
@@ -2310,13 +2314,24 @@ fn main() -> Result<()> {
                             })
                             .collect();
                         let warmup_dc_return: HashMap<String, f64> = HashMap::new();
+                        // Cooling setpoints in force this timestep: a `thermostat_schedule`
+                        // entry (e.g. a summer-only night setup) overrides the constant.
+                        let scheduled_cool_sp = scheduled_cooling_setpoints(
+                            &zone_cooling_setpoints,
+                            &zone_heat_sp_schedule,
+                            hour,
+                            ctx.timestep.day_of_year(),
+                        );
+                        let zone_cooling_setpoints = scheduled_cool_sp
+                            .as_ref()
+                            .unwrap_or(&zone_cooling_setpoints);
                         let (_, zone_supply_conditions) = simulate_all_loops(
                             &mut graph,
                             &ctx,
                             &mut loop_infos,
                             &current_zone_temps,
                             &zone_heating_setpoints,
-                            &zone_cooling_setpoints,
+                            zone_cooling_setpoints,
                             &zone_unocc_heating_setpoints,
                             &zone_unocc_cooling_setpoints,
                             &zone_heat_sp_schedule,
@@ -2701,7 +2716,7 @@ fn main() -> Result<()> {
                         // HVAC, computed by the envelope.  Frozen from the PREVIOUS
                         // timestep and used for mode determination from the FIRST
                         // HVAC iteration (no need to wait for envelope to run).
-                        let predictor_no_hvac_temps: HashMap<String, f64> = env
+                        let mut predictor_no_hvac_temps: HashMap<String, f64> = env
                             .zones
                             .iter()
                             .map(|z| (z.input.name.clone(), z.temp_no_hvac))
@@ -2826,6 +2841,17 @@ fn main() -> Result<()> {
                             );
                         }
 
+                        // Cooling setpoints in force this timestep: a `thermostat_schedule`
+                        // entry (e.g. a summer-only night setup) overrides the constant.
+                        let scheduled_cool_sp = scheduled_cooling_setpoints(
+                            &zone_cooling_setpoints,
+                            &zone_heat_sp_schedule,
+                            hour,
+                            ctx.timestep.day_of_year(),
+                        );
+                        let zone_cooling_setpoints = scheduled_cool_sp
+                            .as_ref()
+                            .unwrap_or(&zone_cooling_setpoints);
                         for hvac_iter in 0..MAX_HVAC_ITER {
                             // Step 1: Run HVAC with current zone temps and loads
                             let (mut hvac_result, zone_supply_conditions) = simulate_all_loops(
@@ -2834,7 +2860,7 @@ fn main() -> Result<()> {
                                 &mut loop_infos,
                                 &current_zone_temps,
                                 &zone_heating_setpoints,
-                                &zone_cooling_setpoints,
+                                zone_cooling_setpoints,
                                 &zone_unocc_heating_setpoints,
                                 &zone_unocc_cooling_setpoints,
                                 &zone_heat_sp_schedule,
@@ -3377,7 +3403,7 @@ fn main() -> Result<()> {
                                     t_outdoor,
                                     &current_zone_temps,
                                     &zone_heating_setpoints,
-                                    &zone_cooling_setpoints,
+                                    zone_cooling_setpoints,
                                     ctx.outdoor_air.w,
                                 );
                                 // Record compressor energy in hvac_result outputs
@@ -3607,6 +3633,20 @@ fn main() -> Result<()> {
                                 }
                             }
 
+                            // Opt-in: refresh the mode predictor ONCE, from this
+                            // first envelope solve, so it reflects the current
+                            // timestep's gains and weather rather than the previous
+                            // timestep's. It is then held for the remaining
+                            // iterations exactly as the default is (see below).
+                            let refresh_predictor =
+                                model.simulation.current_timestep_predictor && hvac_iter == 0;
+                            if refresh_predictor {
+                                for z in &env.zones {
+                                    predictor_no_hvac_temps
+                                        .insert(z.input.name.clone(), z.temp_no_hvac);
+                                }
+                            }
+
                             // Do NOT update predictor_no_hvac_temps during HVAC
                             // iterations. temp_no_hvac depends on surface temps
                             // which change with zone temp (HVAC-dependent), causing
@@ -3619,7 +3659,9 @@ fn main() -> Result<()> {
                             final_hvac_result = Some(hvac_result);
                             final_env_result = Some(env_result);
 
-                            if max_delta <= HVAC_CONV_TOL {
+                            // A refreshed predictor may call for a different mode,
+                            // so the first iteration never counts as converged.
+                            if max_delta <= HVAC_CONV_TOL && !refresh_predictor {
                                 break;
                             }
                         }
@@ -3754,6 +3796,8 @@ fn main() -> Result<()> {
                     snapshot.site_direct_normal_radiation = interp_weather.direct_normal_rad;
                     snapshot.site_diffuse_horizontal_radiation = interp_weather.diffuse_horiz_rad;
                     snapshot.site_relative_humidity = interp_weather.rel_humidity;
+                    snapshot.site_barometric_pressure = interp_weather.pressure;
+                    snapshot.site_humidity_ratio = interp_weather.to_air_state().w;
 
                     // AFN species concentrations (#89): zone:species_<name>
                     if let Some(ref st) = env.species_transport {
@@ -3799,6 +3843,14 @@ fn main() -> Result<()> {
                         snapshot
                             .zone_humidity_ratio
                             .insert(name.clone(), zone.humidity_ratio);
+                        snapshot.zone_relative_humidity.insert(
+                            name.clone(),
+                            openbse_psychrometrics::rh_fn_tdb_w_pb(
+                                zone.temp,
+                                zone.humidity_ratio,
+                                interp_weather.pressure,
+                            ) * 100.0,
+                        );
                         snapshot
                             .zone_heating_rate
                             .insert(name.clone(), zone.heating_load);
@@ -3836,7 +3888,9 @@ fn main() -> Result<()> {
                         let is_conditioned = zone.input.conditioned;
 
                         if has_setpoints && is_conditioned {
-                            let (heat_sp, cool_sp) = zone.input.active_setpoints(hour);
+                            let (heat_sp, cool_sp) = zone
+                                .input
+                                .active_setpoints(hour, ctx.timestep.day_of_year());
                             snapshot.zone_heating_setpoint.insert(name.clone(), heat_sp);
                             snapshot.zone_cooling_setpoint.insert(name.clone(), cool_sp);
 
@@ -4621,6 +4675,8 @@ fn main() -> Result<()> {
                     snapshot.site_direct_normal_radiation = interp_weather.direct_normal_rad;
                     snapshot.site_diffuse_horizontal_radiation = interp_weather.diffuse_horiz_rad;
                     snapshot.site_relative_humidity = interp_weather.rel_humidity;
+                    snapshot.site_barometric_pressure = interp_weather.pressure;
+                    snapshot.site_humidity_ratio = interp_weather.to_air_state().w;
 
                     for (comp_name, vars) in &result.component_outputs {
                         if comp_name == "Weather" {
@@ -5068,6 +5124,16 @@ fn simulate_all_loops(
             dcv_frac.max(area_floor).min(li.min_oa_fraction)
         } else {
             li.min_oa_fraction
+        };
+
+        // Scheduled minimum outdoor air (E+ proportional minimum): the hour's
+        // schedule value scales the minimum fraction.
+        let effective_min_oa = match (&li.min_oa_schedule, schedule_mgr) {
+            (Some(sched_name), Some(mgr)) => {
+                effective_min_oa
+                    * mgr.fraction_doy(sched_name, hour, day_of_week, ctx.timestep.day_of_year())
+            }
+            _ => effective_min_oa,
         };
 
         // Select active setpoints based on occupied/unoccupied state
@@ -5553,16 +5619,11 @@ fn simulate_all_loops(
             let control_temp = zone_temps.get(control_zone).copied().unwrap_or(21.0);
             // A per-zone hourly setpoint schedule (night setback) overrides the
             // constant setpoint, matching the ideal-load predictor.
+            let doy = ctx.timestep.day_of_year();
             let scheduled_heat_sp = zone_heat_sp_schedule.get(control_zone).and_then(|entries| {
                 entries
                     .iter()
-                    .find(|e| {
-                        if e.start_hour <= e.end_hour {
-                            hour >= e.start_hour && hour <= e.end_hour
-                        } else {
-                            hour >= e.start_hour || hour <= e.end_hour
-                        }
-                    })
+                    .find(|e| e.applies(hour, doy))
                     .map(|e| e.heating_setpoint)
             });
             let heat_sp = scheduled_heat_sp
@@ -5577,6 +5638,22 @@ fn simulate_all_loops(
                 .unwrap_or_else(|| hvac_mode(control_temp, heat_sp, cool_sp));
 
             let cp_air = 1006.0_f64; // J/(kg·K)
+
+            // Minimum compressor part-load fraction. `effective_min_oa` is the
+            // minimum OUTDOOR-AIR airflow fraction, not a minimum compressor
+            // runtime. In continuous-fan mode the fan always moves full flow, so
+            // ventilation is met regardless of the compressor, and the
+            // compressor must be free to cycle fully OFF (floor 0) — otherwise a
+            // non-zero OA fraction pins the compressor on and over-cools the
+            // zone in mild hours. In cycling-fan mode the fan cycles WITH the
+            // compressor, so the min-OA fraction doubles as the minimum runtime
+            // needed to deliver ventilation air, and the floor stays.
+            let plr_floor =
+                if li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous {
+                    0.0
+                } else {
+                    effective_min_oa
+                };
 
             if let Some(ref supply) = supply_air {
                 let supply_temp = supply.state.t_db;
@@ -5642,9 +5719,9 @@ fn simulate_all_loops(
                             // Zone well above heating setpoint (e.g., setpoint
                             // transition to unoccupied).  Stale ideal load is
                             // for the old setpoint — do not heat.
-                            effective_min_oa
+                            plr_floor
                         } else if q_capacity < 100.0 {
-                            effective_min_oa
+                            plr_floor
                         } else {
                             // Correct frozen ideal load for zone temp changes
                             // during HVAC iteration.
@@ -5654,12 +5731,12 @@ fn simulate_all_loops(
                             if corrected_load > 10.0 {
                                 let adj_load = (corrected_load - q_fan).max(0.0);
                                 let adj_cap = (q_capacity - q_fan).max(1.0);
-                                (adj_load / adj_cap).clamp(effective_min_oa, 1.0)
+                                (adj_load / adj_cap).clamp(plr_floor, 1.0)
                             } else {
                                 // Fallback: proportional zone error for transients
                                 let error = (heat_sp - control_temp).max(0.0);
                                 let max_dt = (supply_temp - heat_sp).max(1.0);
-                                (error / max_dt).clamp(effective_min_oa, 1.0)
+                                (error / max_dt).clamp(plr_floor, 1.0)
                             }
                         }
                     }
@@ -5675,32 +5752,49 @@ fn simulate_all_loops(
                         let q_capacity = supply_flow * cp_air * (cool_ref - supply_temp);
                         if control_temp < cool_sp - dead_band * 0.5 {
                             // Zone well below cooling setpoint — do not cool.
-                            effective_min_oa
+                            plr_floor
                         } else if q_capacity < 100.0 {
-                            effective_min_oa
+                            plr_floor
                         } else {
                             // Correct frozen ideal load for zone temp changes
                             let correction = zone_cap * (control_temp - init_temp);
                             let corrected_load = (zone_cool_load + correction).max(0.0);
 
+                            // Outdoor-air sensible load. With a continuous fan
+                            // and a cycling compressor, outdoor air is drawn in
+                            // during both the on- and off-cycle, so (exactly
+                            // like continuous-fan heat) the OA sensible load
+                            // adds to BOTH the numerator and the capacity:
+                            //   PLR = (L + Q_fan + Q_oa) / (Cap + Q_fan + Q_oa)
+                            // When OA is warmer than the zone it raises runtime;
+                            // when colder it provides free cooling and lowers
+                            // it. The ideal-load predictor excludes OA (the loop
+                            // handles it via supply air), so without this term
+                            // the OA load never reaches the coil's runtime and
+                            // the coil is scaled down to the zone load alone.
+                            // Zero when the loop carries no OA (oa_frac == 0),
+                            // so non-OA cases are unaffected.
+                            let oa_frac = signals.oa_fraction.unwrap_or(effective_min_oa);
+                            let q_oa = oa_frac * supply_flow * cp_air * (t_outdoor - control_temp);
+
                             if corrected_load > 10.0 {
-                                let adj_load = corrected_load + q_fan;
-                                let adj_cap = q_capacity + q_fan;
-                                (adj_load / adj_cap).clamp(effective_min_oa, 1.0)
+                                let adj_load = corrected_load + q_fan + q_oa;
+                                let adj_cap = (q_capacity + q_fan + q_oa).max(1.0);
+                                (adj_load / adj_cap).clamp(plr_floor, 1.0)
                             } else {
                                 let error = (control_temp - cool_sp).max(0.0);
                                 let max_dt = (cool_sp - supply_temp).max(1.0);
-                                (error / max_dt).clamp(effective_min_oa, 1.0)
+                                (error / max_dt).clamp(plr_floor, 1.0)
                             }
                         }
                     }
                     HvacMode::Deadband => {
                         // No active heating or cooling; fan only (if continuous).
-                        effective_min_oa
+                        plr_floor
                     }
                 }
             } else {
-                effective_min_oa
+                plr_floor
             }
         } else {
             // Non-PSZ-AC systems: no PLR cycling (they modulate internally)
@@ -5866,20 +5960,35 @@ fn simulate_all_loops(
                     //   ON-cycle  (PLR fraction):   T = supply_temp (coils active + fan heat)
                     //   OFF-cycle (1-PLR fraction): T = T_zone + ΔT_fan (recirculated + fan heat)
                     //
-                    // Average supply temp = PLR × T_supply + (1-PLR) × (T_zone + ΔT_fan)
+                    // Average supply temp = PLR × T_supply + (1-PLR) × (T_mixed + ΔT_fan)
                     //
-                    // Since OA=0 for PTAC, T_mixed = T_zone (return air = zone air).
+                    // During the OFF-cycle the compressor is idle but the
+                    // continuous fan keeps drawing the loop's minimum outdoor
+                    // air, so the air returned to the zone is the MIXED air
+                    // (return + OA), not pure recirculated zone air. Using zone
+                    // air here would silently drop the (1-PLR) fraction of the
+                    // outdoor-air sensible and latent load — which for a lightly
+                    // loaded cycling DX unit (low PLR) is most of the OA load,
+                    // leaving the zone too dry and the coil roughly half-sized
+                    // (ASHRAE 140-2023 §9B CE300-series). When the loop carries
+                    // no OA (oa_frac = 0, e.g. PTAC) T_mixed collapses to T_zone,
+                    // and at PLR = 1 the OFF term vanishes entirely, so neither
+                    // no-OA nor fully-modulating systems are affected.
                     let control_zone = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
                     let t_zone = zone_temps.get(control_zone).copied().unwrap_or(21.0);
                     let w_zone = zone_humidity_ratios
                         .get(control_zone)
                         .copied()
                         .unwrap_or(0.008);
-                    let t_off = t_zone + continuous_fan_heat_rise;
+                    let oa_frac = signals.oa_fraction.unwrap_or(0.0).clamp(0.0, 1.0);
+                    let w_oa = signals.effective_oa_w.unwrap_or(ctx.outdoor_air.w);
+                    let t_mixed_off = (1.0 - oa_frac) * t_zone + oa_frac * t_outdoor;
+                    let w_mixed_off = (1.0 - oa_frac) * w_zone + oa_frac * w_oa;
+                    let t_off = t_mixed_off + continuous_fan_heat_rise;
                     let t_avg = loop_plr * supply_temp + (1.0 - loop_plr) * t_off;
                     // Blend supply humidity ratio: ON-cycle uses coil outlet w,
-                    // OFF-cycle recirculates zone air (no dehumidification).
-                    let w_avg = loop_plr * supply_w + (1.0 - loop_plr) * w_zone;
+                    // OFF-cycle delivers mixed (return + OA) air undehumidified.
+                    let w_avg = loop_plr * supply_w + (1.0 - loop_plr) * w_mixed_off;
                     (supply.mass_flow, t_avg, w_avg)
                 } else {
                     // Cycling fan mode: PLR-scaled flow at full supply temp.
@@ -6348,6 +6457,28 @@ fn resolve_path(input_file: &Path, relative_path: &str) -> PathBuf {
     }
 }
 
+/// Cooling setpoints in force at one timestep: the constant thermostat value
+/// for each zone, overridden by whichever `thermostat_schedule` entry applies
+/// at this hour and date. Returns `None` when no zone has a schedule, so the
+/// caller keeps using the constant map untouched.
+fn scheduled_cooling_setpoints(
+    base: &HashMap<String, f64>,
+    schedules: &HashMap<String, Vec<openbse_envelope::zone::ThermostatScheduleEntry>>,
+    hour: u32,
+    day_of_year: u32,
+) -> Option<HashMap<String, f64>> {
+    if schedules.is_empty() {
+        return None;
+    }
+    let mut out = base.clone();
+    for (zone, entries) in schedules {
+        if let Some(entry) = entries.iter().find(|e| e.applies(hour, day_of_year)) {
+            out.insert(zone.clone(), entry.cooling_setpoint);
+        }
+    }
+    Some(out)
+}
+
 fn day_of_year(month: u32, day: u32, dims: &[u32; 12]) -> u32 {
     let mut doy = 0u32;
     for m in 0..(month - 1) as usize {
@@ -6382,6 +6513,7 @@ mod tests {
             component_kinds: HashMap::new(),
             served_zones: vec!["Zone1".to_string()],
             min_oa_fraction: 0.0,
+            min_oa_schedule: None,
             min_vav_fraction: 0.3,
             availability_schedule: None,
             heating_supply_temp: 45.0,
@@ -6403,6 +6535,7 @@ mod tests {
             economizer_type: openbse_io::input::EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            economizer_options: openbse_airloop::EconomizerOptions::default(),
             supply_fan_dt: 0.0,
             return_fan_dt: 0.0,
             fixed_cooling_sat: false,
@@ -6421,6 +6554,7 @@ mod tests {
             component_kinds: HashMap::new(),
             served_zones: vec!["Zone1".to_string()],
             min_oa_fraction: 0.15,
+            min_oa_schedule: None,
             min_vav_fraction: 0.3,
             availability_schedule: None,
             heating_supply_temp: 40.0,
@@ -6442,6 +6576,7 @@ mod tests {
             economizer_type: econ_type,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            economizer_options: openbse_airloop::EconomizerOptions::default(),
             supply_fan_dt: 0.0,
             return_fan_dt: 0.0,
             fixed_cooling_sat: false,
@@ -7267,6 +7402,7 @@ mod tests_datacenter {
             component_kinds: HashMap::new(),
             served_zones: vec!["DataHall".to_string()],
             min_oa_fraction: 0.0,
+            min_oa_schedule: None,
             min_vav_fraction: 0.3,
             availability_schedule: None,
             heating_supply_temp: 40.0,
@@ -7288,6 +7424,7 @@ mod tests_datacenter {
             economizer_type: openbse_io::input::EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            economizer_options: openbse_airloop::EconomizerOptions::default(),
             supply_fan_dt: 0.0,
             return_fan_dt: 0.0,
             fixed_cooling_sat: false,

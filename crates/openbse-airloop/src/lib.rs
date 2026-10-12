@@ -46,6 +46,9 @@ pub struct LoopInfo {
     /// Minimum outdoor air fraction [0-1]. DOAS always 1.0.
     /// Resolved from controls.minimum_damper_position or auto-calculated.
     pub min_oa_fraction: f64,
+    /// Schedule scaling `min_oa_fraction` hour by hour (from
+    /// controls.minimum_oa_schedule). None = constant minimum.
+    pub min_oa_schedule: Option<String>,
     /// Minimum VAV box flow fraction [0-1]. Only used for VAV.
     pub min_vav_fraction: f64,
     /// HVAC availability schedule name. When schedule value is 0, system is OFF.
@@ -93,6 +96,9 @@ pub struct LoopInfo {
     pub economizer_high_limit: Option<f64>,
     /// Economizer high-limit shutoff enthalpy [J/kg] (for FixedEnthalpy / EnthalpyWithHighLimit).
     pub economizer_high_limit_enthalpy: Option<f64>,
+    /// Opt-in economizer refinements (extra fixed limits, load reset,
+    /// compressor lockout). All off by default.
+    pub economizer_options: EconomizerOptions,
     /// Supply-fan air temperature rise at design [°C]. A draw-through fan sits
     /// downstream of the coils, so the SingleZone SAT reset must aim the coil
     /// leaving temperature this much below the supply temperature that holds the
@@ -199,6 +205,35 @@ pub fn hvac_mode(zone_temp: f64, heat_sp: f64, cool_sp: f64) -> HvacMode {
 // builders read each timestep. Replaces the long per-map argument lists
 // (CR-4 follow-up). Each builder rebinds only the fields it needs at the top
 // of its body, so the control logic is unchanged.
+
+/// Opt-in economizer refinements, resolved from `controls.economizer`.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct EconomizerOptions {
+    /// Fixed outdoor dry-bulb limit [°C] AND-ed with the economizer-type test.
+    pub max_outdoor_temp: Option<f64>,
+    /// Fixed outdoor enthalpy limit [J/kg] AND-ed with the economizer-type test.
+    pub max_outdoor_enthalpy: Option<f64>,
+    /// Load reset bounds (min, max supply-air temperature [°C]). When set, the
+    /// mixed-air target is the supply temperature that just meets the zone
+    /// load instead of the fixed `cooling_supply_temp`.
+    pub load_reset: Option<(f64, f64)>,
+    /// Non-integrated economizer: compressor and economizer never run together.
+    pub compressor_lockout: bool,
+}
+
+impl EconomizerOptions {
+    pub fn from_controls(econ: Option<&openbse_io::input::EconomizerControls>) -> Self {
+        match econ {
+            Some(e) => Self {
+                max_outdoor_temp: e.max_outdoor_temp,
+                max_outdoor_enthalpy: e.max_outdoor_enthalpy,
+                load_reset: e.load_reset.map(|r| (r.min_supply_temp, r.max_supply_temp)),
+                compressor_lockout: e.compressor_lockout,
+            },
+            None => Self::default(),
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct SignalCtx<'a> {
@@ -378,7 +413,18 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     // E+'s Controller:OutdoorAir behavior where the OA damper targets the
     // mixed-air setpoint derived from the cooling-coil leaving-air temp.
     // Use the loop's cooling SAT as the economizer target.
-    let econ_target = li.cooling_supply_temp;
+    let econ_opts = li.economizer_options;
+    // Load reset (opt-in, E+ SetpointManager:Warmest → MixedAir): target the
+    // supply temperature that just meets the control zone's cooling load at
+    // full flow, less the draw-through fan rise, so free cooling is throttled
+    // to the load instead of over-cooling the zone.
+    let econ_target = match econ_opts.load_reset {
+        Some((sat_min, sat_max)) => {
+            let sat = (cool_sp - zone_cool_load / (total_flow * 1006.0)).clamp(sat_min, sat_max);
+            sat - li.supply_fan_dt
+        }
+        None => li.cooling_supply_temp,
+    };
     // Coil setpoint: -10°C forces the DX coil to run at full physical capacity.
     // In dehumidification-only mode, use zone_temp - 0.5 to minimize sensible
     // cooling while still operating the coil in the wet region.
@@ -442,34 +488,61 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
             outdoor_enthalpy < return_enthalpy && raw_t_outdoor < temp_limit
         }
     };
-    let oa_frac = if psz_econ_available && mode != HvacMode::Heating {
-        // Economizer: modulate OA to approach the SAT target in mixed air.
-        // Active in both Cooling and Deadband — provides free cooling from
-        // outdoor air, reducing or eliminating mechanical cooling.  Matches
-        // E+'s economizer which operates whenever OA conditions are favorable,
-        // regardless of whether the cooling coil is currently active.
-        //
-        // `psz_econ_available` already encodes that outdoor air is beneficial
-        // (cooler than return for dry-bulb, lower-enthalpy for enthalpy types),
-        // so the only question is how much OA to admit:
-        //   • OA colder than the supply target → blend with return to land on
-        //     the target (avoid overshooting cold, which would need reheat).
-        //   • OA warmer than the target but still favorable → 100% OA for the
-        //     most free cooling; the coil handles the remaining sensible load
-        //     (ASHRAE 140 §11 AE226 dry-bulb and AE245 enthalpy both run 100%).
-        if t_outdoor <= econ_target {
+    // Extra fixed limits (opt-in), AND-ed with the type test above.
+    let psz_econ_available = psz_econ_available
+        && econ_opts
+            .max_outdoor_temp
+            .is_none_or(|limit| raw_t_outdoor < limit)
+        && econ_opts
+            .max_outdoor_enthalpy
+            .is_none_or(|limit| outdoor_enthalpy < limit);
+    let oa_frac =
+        if psz_econ_available && mode != HvacMode::Heating && econ_opts.load_reset.is_some() {
+            // Load-reset modulation (E+ Controller:OutdoorAir): open the damper
+            // just far enough for the mixed air to land on the target. Outdoor
+            // air warmer than the return air cannot cool, whatever its enthalpy,
+            // so the damper stays at minimum then.
             let delta = return_air_temp - t_outdoor;
-            if delta > 0.1 {
-                ((return_air_temp - econ_target) / delta).clamp(effective_min_oa, 1.0)
+            let wanted = if delta > 0.1 {
+                (return_air_temp - econ_target) / delta
             } else {
+                0.0
+            };
+            if econ_opts.compressor_lockout && wanted > 1.0 {
+                // Outdoor air alone cannot meet the load: close to minimum and
+                // let the compressor carry it (non-integrated economizer).
                 effective_min_oa
+            } else {
+                wanted.clamp(effective_min_oa, 1.0)
+            }
+        } else if psz_econ_available && mode != HvacMode::Heating {
+            // Economizer: modulate OA to approach the SAT target in mixed air.
+            // Active in both Cooling and Deadband — provides free cooling from
+            // outdoor air, reducing or eliminating mechanical cooling.  Matches
+            // E+'s economizer which operates whenever OA conditions are favorable,
+            // regardless of whether the cooling coil is currently active.
+            //
+            // `psz_econ_available` already encodes that outdoor air is beneficial
+            // (cooler than return for dry-bulb, lower-enthalpy for enthalpy types),
+            // so the only question is how much OA to admit:
+            //   • OA colder than the supply target → blend with return to land on
+            //     the target (avoid overshooting cold, which would need reheat).
+            //   • OA warmer than the target but still favorable → 100% OA for the
+            //     most free cooling; the coil handles the remaining sensible load
+            //     (ASHRAE 140 §11 AE226 dry-bulb and AE245 enthalpy both run 100%).
+            if t_outdoor <= econ_target {
+                let delta = return_air_temp - t_outdoor;
+                if delta > 0.1 {
+                    ((return_air_temp - econ_target) / delta).clamp(effective_min_oa, 1.0)
+                } else {
+                    effective_min_oa
+                }
+            } else {
+                1.0
             }
         } else {
-            1.0
-        }
-    } else {
-        effective_min_oa
-    };
+            effective_min_oa
+        };
     let mixed_air_temp = mixing_return_temp * (1.0 - oa_frac) + t_outdoor * oa_frac;
 
     // SingleZone SAT reset: the supply-temp reset (main.rs) already set both
@@ -1725,6 +1798,7 @@ mod tests {
             component_kinds: HashMap::new(),
             served_zones: vec!["Zone1".to_string()],
             min_oa_fraction: 0.15,
+            min_oa_schedule: None,
             min_vav_fraction: 0.3,
             availability_schedule: None,
             heating_supply_temp: 40.0,
@@ -1747,6 +1821,7 @@ mod tests {
             economizer_type: EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
+            economizer_options: EconomizerOptions::default(),
             supply_fan_dt: 0.0,
             return_fan_dt: 0.0,
             fixed_cooling_sat: false,
@@ -1845,6 +1920,76 @@ mod tests {
             signals.coil_setpoints.get("DX Cooling Coil").copied(),
             Some(99.0)
         );
+    }
+
+    /// PSZ loop in cooling with a differential dry-bulb economizer and a load
+    /// reset: zone at its 25 °C setpoint, 1 kg/s supply, no fan rise.
+    fn econ_loop_and_fixture(cool_load: f64) -> (LoopInfo, Fixture) {
+        let mut li = make_loop(
+            AirLoopSystemType::PszAc,
+            vec!["DX Cooling Coil".to_string()],
+        );
+        li.economizer_type = EconomizerType::DifferentialDryBulb;
+        li.economizer_options.load_reset = Some((1.46, 25.0));
+        let f = Fixture {
+            temps: one("Zone1", 25.0),
+            heat_sp: one("Zone1", 10.0),
+            cool_sp: one("Zone1", 25.0),
+            flows: one("Zone1", 1.0),
+            cool_loads: one("Zone1", cool_load),
+            heat_loads: one("Zone1", 0.0),
+            modes: [("Zone1".to_string(), HvacMode::Cooling)]
+                .into_iter()
+                .collect(),
+            empty: HashMap::new(),
+        };
+        (li, f)
+    }
+
+    #[test]
+    fn economizer_load_reset_throttles_outdoor_air_to_the_load() {
+        // 5030 W at 1 kg/s needs 20 °C supply; 15 °C outdoor air and 25 °C
+        // return give that at exactly 50% outdoor air.
+        let (li, f) = econ_loop_and_fixture(5030.0);
+        let signals = build_psz_signals(&li, &f.ctx(15.0));
+        let oa = signals.oa_fraction.unwrap();
+        assert!((oa - 0.5).abs() < 1e-9, "oa_fraction = {oa}");
+
+        // Without the reset the fixed 13 °C target asks for 100% outdoor air.
+        let mut fixed = li.clone();
+        fixed.economizer_options.load_reset = None;
+        let signals = build_psz_signals(&fixed, &f.ctx(15.0));
+        assert_eq!(signals.oa_fraction, Some(1.0));
+    }
+
+    #[test]
+    fn economizer_lockout_closes_damper_when_outdoor_air_cannot_meet_load() {
+        // 15090 W needs 10 °C supply — colder than the 15 °C outdoor air.
+        let (mut li, f) = econ_loop_and_fixture(15090.0);
+        // Integrated: wide open, compressor makes up the rest.
+        let signals = build_psz_signals(&li, &f.ctx(15.0));
+        assert_eq!(signals.oa_fraction, Some(1.0));
+        // Non-integrated: back to minimum outdoor air.
+        li.economizer_options.compressor_lockout = true;
+        let signals = build_psz_signals(&li, &f.ctx(15.0));
+        assert_eq!(signals.oa_fraction, Some(li.min_oa_fraction));
+        // ...but still free-cools when outdoor air alone is enough.
+        let (mut li, f) = econ_loop_and_fixture(5030.0);
+        li.economizer_options.compressor_lockout = true;
+        let signals = build_psz_signals(&li, &f.ctx(15.0));
+        assert!((signals.oa_fraction.unwrap() - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn economizer_extra_fixed_limit_is_anded_with_the_differential_test() {
+        // 22 °C outdoor air passes the differential test (below 25 °C return)
+        // but not a 20 °C fixed cap.
+        let (mut li, f) = econ_loop_and_fixture(15090.0);
+        let signals = build_psz_signals(&li, &f.ctx(22.0));
+        assert_eq!(signals.oa_fraction, Some(1.0));
+        li.economizer_options.max_outdoor_temp = Some(20.0);
+        let signals = build_psz_signals(&li, &f.ctx(22.0));
+        assert_eq!(signals.oa_fraction, Some(li.min_oa_fraction));
     }
 
     #[test]

@@ -63,11 +63,44 @@ pub struct CompactScheduleInput {
     pub holiday: Option<String>,
 }
 
+/// One date-range period of a seasonal schedule.
+///
+/// Holds a full day-type profile (at minimum a 24-value `weekday`) that applies
+/// only between `start_month`/`start_day` and `end_month`/`end_day`, inclusive.
+/// Ranges may wrap across the new year (e.g. 11/6 → 3/10). Used to express
+/// schedules whose daily pattern changes over the year — e.g. the ASHRAE
+/// 140-2023 §9B (CE_b) internal-gain schedules, which ramp up in summer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduleSeason {
+    pub start_month: u32,
+    pub start_day: u32,
+    pub end_month: u32,
+    pub end_day: u32,
+    /// Hourly fractions for weekdays in this period, length 24.
+    pub weekday: Vec<f64>,
+    /// Optional weekend profile for this period; falls back to `weekday`.
+    #[serde(default)]
+    pub weekend: Option<Vec<f64>>,
+}
+
+/// Day-of-year (1–365, non-leap) for a month/day, saturating on bad input.
+pub fn day_of_year_from_md(month: u32, day: u32) -> u32 {
+    const DIM: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let m = month.clamp(1, 12) as usize;
+    let mut doy = day;
+    for item in DIM.iter().take(m - 1) {
+        doy += item;
+    }
+    doy
+}
+
 /// A named schedule with hourly fractional values for different day types.
 ///
-/// Supports two input modes:
+/// Supports three input modes:
 /// 1. **Explicit**: 24-value `weekday`/`weekend`/etc. arrays
 /// 2. **Compact**: `compact` struct with `"value until HH:MM"` strings
+/// 3. **Seasonal**: `seasons` list of date-range periods, each with its own
+///    day profile (resolved by day-of-year via [`ScheduleInput::fraction_doy`]).
 ///
 /// When `compact` is provided, it is resolved to explicit arrays at
 /// construction time in `ScheduleManager::from_inputs()`.
@@ -110,6 +143,13 @@ pub struct ScheduleInput {
     /// When provided, resolved to explicit arrays during ScheduleManager construction.
     #[serde(default)]
     pub compact: Option<CompactScheduleInput>,
+    /// Seasonal (date-range) day profiles. When present and a period matches the
+    /// query day-of-year, it overrides the top-level day arrays. The top-level
+    /// `weekday` (defaulting to always-on) is the fallback for any day not
+    /// covered by a period, and is what the date-unaware [`ScheduleInput::fraction`]
+    /// returns.
+    #[serde(default)]
+    pub seasons: Option<Vec<ScheduleSeason>>,
 }
 
 fn default_always_on() -> Vec<f64> {
@@ -348,6 +388,39 @@ impl ScheduleInput {
         }
     }
 
+    /// Seasonal fraction: like [`Self::fraction`] but resolves `seasons` by
+    /// day-of-year (1–365) first, falling back to the date-unaware day arrays
+    /// when no period matches (or no seasons are defined).
+    pub fn fraction_doy(&self, hour: u32, day_of_week: u32, day_of_year: u32) -> f64 {
+        if let Some(seasons) = &self.seasons {
+            for s in seasons {
+                let start = day_of_year_from_md(s.start_month, s.start_day);
+                let end = day_of_year_from_md(s.end_month, s.end_day);
+                let in_range = if start <= end {
+                    day_of_year >= start && day_of_year <= end
+                } else {
+                    // Wraps across the new year.
+                    day_of_year >= start || day_of_year <= end
+                };
+                if in_range {
+                    let is_weekend = day_of_week >= 6;
+                    let values = if is_weekend {
+                        s.weekend.as_ref().unwrap_or(&s.weekday)
+                    } else {
+                        &s.weekday
+                    };
+                    let idx = ((hour as usize).saturating_sub(1)).min(23);
+                    return if idx < values.len() {
+                        values[idx].clamp(0.0, 1.0)
+                    } else {
+                        values.last().copied().unwrap_or(1.0).clamp(0.0, 1.0)
+                    };
+                }
+            }
+        }
+        self.fraction(hour, day_of_week)
+    }
+
     /// Create an "always on" schedule (fraction = 1.0 at all times).
     pub fn always_on(name: &str) -> Self {
         Self {
@@ -363,6 +436,7 @@ impl ScheduleInput {
             thursday: None,
             friday: None,
             compact: None,
+            seasons: None,
         }
     }
 
@@ -381,6 +455,7 @@ impl ScheduleInput {
             thursday: None,
             friday: None,
             compact: None,
+            seasons: None,
         }
     }
 }
@@ -429,6 +504,16 @@ impl ScheduleManager {
         match self.schedules.get(name) {
             Some(sched) => sched.fraction(hour, day_of_week),
             None => 1.0, // Unknown schedule defaults to always on
+        }
+    }
+
+    /// Look up a schedule fraction with day-of-year awareness, so seasonal
+    /// (date-range) schedules resolve correctly. Equivalent to [`Self::fraction`]
+    /// for non-seasonal schedules. Returns 1.0 if the schedule is not found.
+    pub fn fraction_doy(&self, name: &str, hour: u32, day_of_week: u32, day_of_year: u32) -> f64 {
+        match self.schedules.get(name) {
+            Some(sched) => sched.fraction_doy(hour, day_of_week, day_of_year),
+            None => 1.0,
         }
     }
 }
@@ -486,6 +571,7 @@ mod tests {
             thursday: None,
             friday: None,
             compact: None,
+            seasons: None,
         };
         assert_eq!(s.fraction(12, 1), 1.0); // Monday
         assert_eq!(s.fraction(12, 5), 1.0); // Friday
@@ -508,6 +594,7 @@ mod tests {
             thursday: None,
             friday: None,
             compact: None,
+            seasons: None,
         };
         assert_eq!(s.fraction(12, 1), 1.0); // Monday → weekday
         assert_eq!(s.fraction(12, 5), 1.0); // Friday → weekday
@@ -530,6 +617,7 @@ mod tests {
             thursday: None,
             friday: None,
             compact: None,
+            seasons: None,
         };
         assert_eq!(s.fraction(12, 6), 0.8); // Saturday → saturday (specific)
         assert_eq!(s.fraction(12, 7), 0.5); // Sunday → weekend (fallback)
@@ -550,6 +638,7 @@ mod tests {
             thursday: None,
             friday: Some(vec![0.5; 24]),
             compact: None,
+            seasons: None,
         };
         assert_eq!(s.fraction(12, 1), 0.1); // Monday → monday override
         assert_eq!(s.fraction(12, 2), 1.0); // Tuesday → weekday fallback
@@ -579,6 +668,7 @@ mod tests {
             thursday: None,
             friday: None,
             compact: None,
+            seasons: None,
         };
 
         assert_eq!(s.fraction(3, 2), 0.0); // Weekday 2am-3am
@@ -601,6 +691,7 @@ mod tests {
             thursday: None,
             friday: None,
             compact: None,
+            seasons: None,
         }];
         let mgr = ScheduleManager::from_inputs(inputs);
 
@@ -684,6 +775,7 @@ mod tests {
                 sunday: None,
                 holiday: None,
             }),
+            seasons: None,
         };
         s.resolve_compact().unwrap();
 
@@ -728,6 +820,7 @@ mod tests {
                 sunday: None,
                 holiday: None,
             }),
+            seasons: None,
         }];
         let mgr = ScheduleManager::from_inputs(inputs);
 

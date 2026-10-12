@@ -49,6 +49,15 @@ pub struct Fan {
     /// Fraction of motor waste heat entering the airstream [0-1]
     pub motor_in_airstream_fraction: f64,
 
+    /// Fixed air density [kg/m³] for converting mass flow to volume flow in the
+    /// power calculation. `None` (default) uses the actual fan-inlet density, so
+    /// a fan moving a fixed mass flow of cold, dense air draws less power than
+    /// its nameplate. Setting the standard density rates the fan at standard
+    /// air, as EnergyPlus does (Fan RhoAirStdInit): power then depends only on
+    /// mass flow.
+    #[serde(default)]
+    pub air_density: Option<f64>,
+
     // VAV fan curve coefficients: Power = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4
     pub vav_coefficients: [f64; 5],
 
@@ -79,6 +88,7 @@ impl Fan {
             total_efficiency,
             motor_efficiency,
             motor_in_airstream_fraction,
+            air_density: None,
             vav_coefficients: [1.0, 0.0, 0.0, 0.0, 0.0],
             power: 0.0,
             heat_to_air: 0.0,
@@ -104,6 +114,7 @@ impl Fan {
             total_efficiency,
             motor_efficiency,
             motor_in_airstream_fraction,
+            air_density: None,
             // Default VAV fan curve (typical forward-curved centrifugal)
             vav_coefficients: [0.0407598940, 0.08804497, -0.0729636, 0.9437398, 0.0],
             power: 0.0,
@@ -173,7 +184,7 @@ impl AirComponent for Fan {
     }
 
     fn simulate_air(&mut self, inlet: &AirPort, _ctx: &SimulationContext) -> AirPort {
-        let rho = inlet.state.rho();
+        let rho = self.air_density.unwrap_or_else(|| inlet.state.rho());
         self.calculate(inlet.mass_flow, rho);
 
         if inlet.mass_flow <= 0.0 {
@@ -263,6 +274,34 @@ mod tests {
 
         // Humidity ratio should be unchanged
         assert_relative_eq!(outlet.state.w, inlet.state.w, max_relative = 0.001);
+    }
+
+    #[test]
+    fn test_fixed_density_fan_power_ignores_inlet_temperature() {
+        // Same mass flow of cold (dense) and warm air. On the default
+        // inlet-density basis the cold air is a smaller volume and draws less
+        // power; rated at a fixed density the power is the same for both.
+        let ctx = make_ctx();
+        let mass_flow = 1.2;
+        let cold = AirPort::new(MoistAirState::from_tdb_rh(5.0, 0.5, 101325.0), mass_flow);
+        let warm = AirPort::new(MoistAirState::from_tdb_rh(30.0, 0.5, 101325.0), mass_flow);
+
+        let mut fan = Fan::constant_volume("Test Fan", 1.0, 600.0, 0.7, 0.9, 1.0);
+        fan.simulate_air(&cold, &ctx);
+        let p_cold = fan.power;
+        fan.simulate_air(&warm, &ctx);
+        assert!(p_cold < fan.power);
+
+        fan.air_density = Some(1.2);
+        fan.simulate_air(&cold, &ctx);
+        let p_cold = fan.power;
+        fan.simulate_air(&warm, &ctx);
+        assert_relative_eq!(p_cold, fan.power, max_relative = 1e-12);
+        assert_relative_eq!(
+            fan.power,
+            mass_flow / 1.2 * 600.0 / 0.7,
+            max_relative = 1e-12
+        );
     }
 
     #[test]
