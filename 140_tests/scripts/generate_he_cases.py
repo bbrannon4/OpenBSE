@@ -23,21 +23,25 @@ CASES_DIR = os.path.join(os.path.dirname(HERE), "cases")
 # flow is temperature-independent, as in the reference programs.
 INFIL_FLOW = 0.1657
 
-# case -> dict(weather, efficiency, fan, furnace_kw, setback)
-#   fan: None | "continuous" | "cycling"
-FAN_KW = 0.2006  # both-fans power [kW] (SUPPLY-KW basis), ~200 W
+# case -> dict(weather, efficiency, fan, furnace_kw, setback, draft)
+#   fan:   None | "continuous" | "cycling"   (200 W circulating fan)
+#   draft: draft-fan power [W]; cycles with the burner (DOE-2 FURNACE-AUX-KW,
+#          EnergyPlus COIL:Gas:Heating parasitic electric load). The test's
+#          "fan energy (both fans)" is circulating fan + draft fan.
+FAN_KW = 0.2006  # circulating-fan power [kW] (SUPPLY-KW basis), ~200 W
+DRAFT_FAN_W = 50.0
 CASES = {
-    "HE100": dict(w="FurnBest-a", eff=1.00, fan=None, kw=10.0, setback=False),
-    "HE110": dict(w="FurnBest-a", eff=0.80, fan=None, kw=10.0, setback=False),
-    "HE120": dict(w="FurnBest-c", eff=0.80, fan=None, kw=10.0, setback=False),
-    "HE130": dict(w="FurnBest-d", eff=0.80, fan=None, kw=10.0, setback=False),
-    "HE140": dict(w="FurnBest-e", eff=0.80, fan=None, kw=10.0, setback=False),
-    "HE150": dict(w="FurnBest-e", eff=0.80, fan="continuous", kw=10.0, setback=False),
-    "HE160": dict(w="FurnBest-e", eff=0.80, fan="cycling", kw=10.0, setback=False),
-    "HE170": dict(w="FurnBest-e", eff=0.80, fan="continuous", kw=10.0, setback=False),
-    "HE210": dict(w="FurnBest-f", eff=0.80, fan="cycling", kw=10.0, setback=False),
-    "HE220": dict(w="FurnBest-f", eff=0.80, fan="cycling", kw=10.0, setback=True),
-    "HE230": dict(w="FurnBest-f", eff=0.80, fan="cycling", kw=5.0, setback=True),
+    "HE100": dict(w="FurnBest-a", eff=1.00, fan=None, kw=10.0, setback=False, draft=0.0),
+    "HE110": dict(w="FurnBest-a", eff=0.80, fan=None, kw=10.0, setback=False, draft=0.0),
+    "HE120": dict(w="FurnBest-c", eff=0.80, fan=None, kw=10.0, setback=False, draft=0.0),
+    "HE130": dict(w="FurnBest-d", eff=0.80, fan=None, kw=10.0, setback=False, draft=0.0),
+    "HE140": dict(w="FurnBest-e", eff=0.80, fan=None, kw=10.0, setback=False, draft=0.0),
+    "HE150": dict(w="FurnBest-e", eff=0.80, fan="continuous", kw=10.0, setback=False, draft=0.0),
+    "HE160": dict(w="FurnBest-e", eff=0.80, fan="cycling", kw=10.0, setback=False, draft=0.0),
+    "HE170": dict(w="FurnBest-e", eff=0.80, fan="continuous", kw=10.0, setback=False, draft=DRAFT_FAN_W),
+    "HE210": dict(w="FurnBest-f", eff=0.80, fan="cycling", kw=10.0, setback=False, draft=DRAFT_FAN_W),
+    "HE220": dict(w="FurnBest-f", eff=0.80, fan="cycling", kw=10.0, setback=True, draft=DRAFT_FAN_W),
+    "HE230": dict(w="FurnBest-f", eff=0.80, fan="cycling", kw=5.0, setback=True, draft=DRAFT_FAN_W),
 }
 
 WALLS = [
@@ -78,6 +82,8 @@ def make_yaml(case, c):
         motor_in_airstream_fraction: 1.0
 """
     fan_mode = "continuous" if c["fan"] == "continuous" else "cycling"
+    # Emitted only when present so the other cases' YAML stays byte-identical.
+    draft_line = f"        parasitic_electric_load: {c['draft']}\n" if c["draft"] else ""
     # Night setback (HE220/HE230): 15 C hours 1-6, 20 C otherwise (DOE-2 spec).
     heat_sp_line = "    heating_setpoint: 20.0"
     if c["setback"]:
@@ -142,7 +148,7 @@ air_loops:
         capacity: {c['kw'] * 1000.0}
         efficiency: {c['eff']}
         setpoint: 50.0
-{fan_block}    zones:
+{draft_line}{fan_block}    zones:
       - zone: {z}
 
 zone_groups:

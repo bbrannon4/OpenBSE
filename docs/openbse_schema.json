@@ -433,7 +433,8 @@
         },
         "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Nominal heating capacity [W]." },
         "setpoint": { "type": "number", "default": 35.0, "description": "Outlet air temperature setpoint [C]." },
-        "efficiency": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Heating efficiency [0-1]. 1.0 for electric, <1.0 for gas. Ignored for hot_water source (boiler handles efficiency)." }
+        "efficiency": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Heating efficiency [0-1]. 1.0 for electric, <1.0 for gas. Ignored for hot_water source (boiler handles efficiency)." },
+        "parasitic_electric_load": { "type": "number", "default": 0.0, "minimum": 0, "description": "On-cycle parasitic electric load [W] for gas coils (draft / inducer fan). Runs with the burner; adds no heat to the supply air." }
       }
     },
 

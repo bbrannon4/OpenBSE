@@ -68,7 +68,12 @@ def extract(case):
         "load": load,
         "input": inp,
         "fuel": inp * 1e9 / (GAS_HHV_J_PER_M3 * RUN_SECONDS),
-        "fan": wh_sum("Circulating Fan:electric_power") / 1000.0,
+        # "Both fans": circulating fan plus the draft fan, which the furnace
+        # reports as its own electric power (zero for cases without one).
+        "fan": (
+            wh_sum("Circulating Fan:electric_power") + wh_sum("Gas Furnace:electric_power")
+        )
+        / 1000.0,
     }
     if os.path.exists(zp):
         with open(zp) as f:

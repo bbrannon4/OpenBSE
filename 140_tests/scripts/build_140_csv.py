@@ -237,7 +237,11 @@ def read_he_results(case):
     load_gj = wh_sum("Gas Furnace:thermal_output") * 3600 / 1e9
     input_gj = wh_sum("Gas Furnace:fuel_power") * 3600 / 1e9
     fuel_m3s = input_gj * 1e9 / (HE_GAS_HHV_J_PER_M3 * HE_RUN_SECONDS)
-    fan_kwh = wh_sum("Circulating Fan:electric_power") / 1000.0
+    # "Both fans": circulating fan plus the draft fan, which the furnace
+    # reports as its own electric power (zero for cases without one).
+    fan_kwh = (
+        wh_sum("Circulating Fan:electric_power") + wh_sum("Gas Furnace:electric_power")
+    ) / 1000.0
     result = {"load": load_gj, "input": input_gj, "fuel": fuel_m3s, "fan": fan_kwh}
     if os.path.exists(zp):
         with open(zp) as f:

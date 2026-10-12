@@ -1155,6 +1155,11 @@ pub struct HeatingCoilInput {
     /// Ignored for `heat_pump` coils — use `cop` instead.
     #[serde(default = "default_efficiency")]
     pub efficiency: f64,
+    /// On-cycle parasitic electric load [W] for `gas` coils (default 0.0), e.g.
+    /// a draft / inducer fan. Runs with the burner and adds no heat to the
+    /// supply air (E+ Coil:Heating:Fuel "On Cycle Parasitic Electric Load").
+    #[serde(default)]
+    pub parasitic_electric_load: f64,
 
     // ─── Heat pump fields (only used when source: heat_pump) ────────
     /// Rated COP for heat pump (default 3.0)
@@ -3069,6 +3074,7 @@ fn build_graph_impl(
                         "gas" | "Gas" | "furnace" | "Furnace" => {
                             let mut coil = HeatingCoil::gas(&c.name, cap, c.setpoint, c.efficiency);
                             coil.submeter = c.submeter.clone();
+                            coil.parasitic_electric_load = c.parasitic_electric_load;
                             graph.add_air_component(Box::new(coil))
                         }
                         _ => {

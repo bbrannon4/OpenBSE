@@ -58,6 +58,7 @@ air_loops:
         capacity: 10000.0
         efficiency: 0.8
         setpoint: 50.0
+        parasitic_electric_load: 50.0
       - type: fan
         name: HE210 Circulating Fan
         source: constant_volume
