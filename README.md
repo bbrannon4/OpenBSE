@@ -150,7 +150,21 @@ The **desktop editor** (`openbse-editor`) is a Tauri + React app in `tools/edito
 
 ### ASHRAE Standard 140-2023
 
-Test cases are in [`140_tests/`](140_tests/). 28 cases from Section 7 (Building Thermal Envelope) plus Case CE100 (Cooling Equipment) have been implemented. Current status: **63 of 63 metrics pass** (100%) against the standard's prescribed acceptance ranges.
+Test cases are in [`140_tests/`](140_tests/). The building-envelope and HVAC-equipment test suites are implemented — 96 cases across four sections. Current status: **549 of 550 gate checks pass**.
+
+| Section | Cases | Gate checks passing |
+|---|---|---|
+| 7 — Building thermal envelope and fabric loads (600 and 900 series) | 27 | 63 / 63 |
+| 9A — Cooling equipment, analytical verification (CE100–CE200) | 14 | 112 / 112 |
+| 9B — Cooling equipment, dynamic comparative (CE300–CE545) | 20 | 230 / 231 |
+| 10 — Heating equipment, fuel-fired furnace (HE100–HE230) | 11 | 48 / 48 |
+| 11 — Air-side HVAC equipment (AE101–AE445) | 24 | 96 / 96 |
+
+The gate runs in CI on every commit. Its ranges are taken from the standard's analytical solutions and example results; how each was derived is recorded in [`acceptance_ranges_140_2023.json`](140_tests/acceptance_ranges_140_2023.json). The one open miss is CE540 annual condenser-fan energy.
+
+Against the standard's software acceptance criteria (Normative Annex A3), OpenBSE's results are within range on all 114 range cases: thermal fabric low mass 21 of 21, thermal fabric high mass 19 of 19, cooling equipment 14 of 14, heating equipment 6 of 6, and air-side equipment 54 of 54. See [`140_tests/README.md`](140_tests/README.md) for the breakdown.
+
+Not yet implemented: weather drivers (Section 6), the Section 7 in-depth diagnostic cases (195–470, 800, 810), ground-coupled slab-on-grade (Section 8), and the Class II procedures (Section 12).
 
 ### DOE Prototype Comparison (EnergyPlus)
 

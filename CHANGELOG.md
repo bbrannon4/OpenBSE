@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Performance-map DX outdoor-air coupling** on the PSZ cycling path — the off-cycle supply now delivers mixed (return + outdoor) air, the outdoor-air load is carried in the compressor part-load ratio, and a continuous supply fan no longer pins the compressor on at minimum outdoor air.
 - **Air-side economizer extensions** — compressor lockout, fixed temperature/enthalpy high limits combined with a differential test, and a WARMEST/mixed-air load-reset supply target (CE400–CE440).
 - **Scheduled minimum outdoor air** and **seasonal-schedule-aware infiltration** (CE320–CE340, CE530–CE545); **seasonal thermostat cooling-setpoint** support on the DX path (CE350).
+- **Gas-furnace draft-fan power** — opt-in `parasitic_electric_load` [W] on gas heating coils (EnergyPlus `Coil:Heating:Fuel` on-cycle parasitic electric load). Runs with the burner and adds no heat to the supply air. The Section 10 cases HE170, HE210, HE220 and HE230 now include their 50 W draft fan in reported fan energy.
 
 ### Changed
 - Sub-hourly output aggregation: component rate `[W]` variables are time-averaged when downsampling to a coarser reporting frequency instead of summed (no change at a 1-timestep-per-hour reporting cadence).

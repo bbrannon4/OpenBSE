@@ -6,7 +6,7 @@ Last updated: 2026-06-13 (v0.6.0)
 
 ### Simulation Engine
 - Single-zone and multi-zone heat balance with 3rd-order backward difference predictor-corrector
-- ASHRAE Standard 140-2023: 28 cases implemented, 63/63 metrics pass (100%)
+- ASHRAE Standard 140-2023: Sections 7, 9A, 9B, 10 and 11 implemented (96 cases); 549 of 550 gate checks pass (as of v0.7.0)
 - Weather file processing (EPW/CSV format)
 - Design-day autosizing for fans, coils, boilers, chillers with configurable oversize factors
 - Annual, multi-month, and custom period simulations
