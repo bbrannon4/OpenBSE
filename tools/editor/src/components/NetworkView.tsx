@@ -98,8 +98,8 @@ export function NetworkView({
         <div className="hvac-empty">
           <p>No HVAC systems in model</p>
           <p className="hint">
-            Open a model with air_loops or plant_loops defined to see the
-            network topology.
+            Open a model with air_loops, plant_loops, or vrf_systems defined
+            to see the network topology.
           </p>
         </div>
       </div>
