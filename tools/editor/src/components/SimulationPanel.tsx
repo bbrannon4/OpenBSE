@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { getRememberedWeather, rememberWeather } from "../lib/weather-memory";
 
 interface SimulationOutput {
   stream: "stdout" | "stderr";
@@ -29,7 +30,18 @@ export function SimulationPanel({
   onSave,
   onSimulationComplete,
 }: SimulationPanelProps) {
-  const [weatherPath, setWeatherPath] = useState<string | null>(null);
+  const [weatherPath, setWeatherPath] = useState<string | null>(() =>
+    getRememberedWeather(modelPath)
+  );
+  const [trackedModelPath, setTrackedModelPath] = useState(modelPath);
+  if (modelPath !== trackedModelPath) {
+    setTrackedModelPath(modelPath);
+    const saved = getRememberedWeather(modelPath);
+    // Keep a selection made on a not-yet-saved model once it gets a path
+    if (saved || trackedModelPath !== null) {
+      setWeatherPath(saved);
+    }
+  }
   const [status, setStatus] = useState<SimStatus>("idle");
   const [outputLines, setOutputLines] = useState<SimulationOutput[]>([]);
   const [expanded, setExpanded] = useState(false);
@@ -82,11 +94,17 @@ export function SimulationPanel({
       });
       if (selected) {
         setWeatherPath(selected as string);
+        if (modelPath) rememberWeather(modelPath, selected as string);
       }
     } catch (e) {
       console.error("Weather file picker error:", e);
     }
-  }, []);
+  }, [modelPath]);
+
+  const clearWeatherFile = useCallback(() => {
+    setWeatherPath(null);
+    if (modelPath) rememberWeather(modelPath, null);
+  }, [modelPath]);
 
   const runSimulation = useCallback(async () => {
     if (!modelPath) return;
@@ -100,6 +118,8 @@ export function SimulationPanel({
       console.error("Save failed:", e);
       // Continue anyway — the file on disk might still be usable
     }
+
+    if (weatherPath) rememberWeather(modelPath, weatherPath);
 
     // Derive output path: same dir as model, with .csv extension
     const outputPath = modelPath.replace(/\.(yaml|yml)$/i, "_results.csv");
@@ -126,7 +146,7 @@ export function SimulationPanel({
     }
   }, [modelPath, weatherPath, dirty, onSave]);
 
-  const weatherFileName = weatherPath?.split("/").pop() ?? null;
+  const weatherFileName = weatherPath?.split(/[\\/]/).pop() ?? null;
 
   const statusLabel =
     status === "running"
@@ -165,9 +185,18 @@ export function SimulationPanel({
             Weather
           </button>
           {weatherFileName && (
-            <span className="sim-weather-name" title={weatherPath ?? undefined}>
-              {weatherFileName}
-            </span>
+            <>
+              <span className="sim-weather-name" title={weatherPath ?? undefined}>
+                {weatherFileName}
+              </span>
+              <button
+                className="btn-header"
+                onClick={clearWeatherFile}
+                title="Clear selection and use weather_files from the model"
+              >
+                ×
+              </button>
+            </>
           )}
           <button
             className="btn-run"
