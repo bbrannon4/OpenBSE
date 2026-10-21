@@ -11,6 +11,7 @@
 //! - Ground temperature model (Kusuda-Achenbach)
 
 pub mod airflow_network;
+pub mod comfort_grid;
 pub mod convection;
 pub mod ctf;
 pub mod geometry;

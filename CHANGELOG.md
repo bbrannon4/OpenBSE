@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Comfort-grid engine** (#136, phase 1 of the spatial comfort map; not yet reachable from input or output). It splits a zone's floor into occupant points and gives each point its own view factors to the real surface polygons, with ISO 7726 seated/standing (azimuth-averaged) or sphere occupant models. Per point it computes MRT, direct sun through the windows, operative temperature, PMV and PPD. Each zone reports how much of the view its surfaces cover, so open enclosures (missing walls, area-only surfaces) can be flagged. Zone air is well mixed, so the grid varies only through the radiant field and direct sun; it is not a CFD air field.
+
 ### Changed
 - **Output aggregation is now per variable**. Energy meters (`building:*`, `submeter:*`, `zone:heating_energy`/`cooling_energy`) are summed, everything else is time-averaged, and any variable can be overridden with an `@mean|@sum|@min|@max` suffix (e.g. `zone:temperature@max`). The file-level `aggregation:` key is deprecated: it still applies to non-energy variables without a suffix and logs a warning.
 - `building:*` and `submeter:*` output columns are now integrated energy in **Wh** (Σ power·dt) instead of summed watts labelled `[W]`. Values are unchanged at one timestep per hour and no longer N× too large at sub-hourly timesteps. Summing other rates integrates them too (kg/s → kg, m³/s → m³, unmet/active flags → hours).
