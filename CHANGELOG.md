@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Output aggregation is now per variable**. Energy meters (`building:*`, `submeter:*`, `zone:heating_energy`/`cooling_energy`) are summed, everything else is time-averaged, and any variable can be overridden with an `@mean|@sum|@min|@max` suffix (e.g. `zone:temperature@max`). The file-level `aggregation:` key is deprecated: it still applies to non-energy variables without a suffix and logs a warning.
+- `building:*` and `submeter:*` output columns are now integrated energy in **Wh** (Σ power·dt) instead of summed watts labelled `[W]`. Values are unchanged at one timestep per hour and no longer N× too large at sub-hourly timesteps. Summing other rates integrates them too (kg/s → kg, m³/s → m³, unmet/active flags → hours).
+- VRF electricity is split between Heating (Electric) and Cooling (Electric) by indoor-unit mode, instead of all being reported as cooling.
+- Fan `source` values other than `constant_volume`, `vav` and `on_off` are now an input error. Previously, values such as `variable` or `variable_volume` silently ran as constant volume.
+- Fixed examples that used ignored keys: `examples/datacenter_crah.yaml` (fan `source`, pump efficiency, unoccupied setpoint names) and `prototype_tests/large_office/LargeOffice_Boulder*.yaml` (data-center fans now actually run as VAV, which changes their results). `schema_sync` now fails on any unknown key in a repo YAML.
+
+### Fixed
+- Legacy underscore output variable names (`zone_temperature`, `zone_heating_energy`, …) were silently dropped, so their output files were never written. They are now accepted as aliases for `zone:temperature` etc., and variables that match no data log a warning.
+- Workbench: the Energy tab now shows end uses and unmet hours from the summary report; the Network tab shows VRF systems; the selected weather file is remembered per model.
+- `docs/openbse_schema.json` brought in sync with the engine. It now covers `vrf_systems`, `dhw_systems`, `radiant_panels`, `exterior_equipment`, `equipment_it`, `electrical_distribution`, `shading_surfaces`, `f_factor_constructions`, `climate_zone`, and many nested fields, so these are editable in the Workbench. A new `schema_sync` test fails if the schema and engine inputs drift apart.
+- Workbench: the sidebar lists any schema class not yet categorized; curve, plant-loop and schedule reference fields offer dropdowns; the Network tab's Air Side / Water Side toggles are always clickable (an empty side shows a blank diagram).
+- Fan `motor_a205_file`, `drive_a205_file` and `vfd_a205_file` were ignored; they now override the RS-0003 fan's sub-components.
+- Custom output files dropped components that were idle on the first timestep. For example, a chiller off at 1 a.m. on January 1 never appeared all year. Idle plant equipment and VRF outdoor units now report zeros. Exact-name component variables keep their column and warn at the end of the run if they never report data.
+- Plant equipment now writes its own reported outputs (e.g. co-simulation `power_w`), not just electric, fuel and thermal power.
+- Output variables in the wrong order (`zone:<name>:<variable>`) now log a warning instead of silently producing nothing. Fixed this ordering in `examples/datacenter_crah.yaml` and `examples/cosim_chiller/building.yaml`.
+
 ## [0.7.0] - 2026-10-11
 
 ### Added

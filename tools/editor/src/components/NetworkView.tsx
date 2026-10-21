@@ -98,8 +98,8 @@ export function NetworkView({
         <div className="hvac-empty">
           <p>No HVAC systems in model</p>
           <p className="hint">
-            Open a model with air_loops or plant_loops defined to see the
-            network topology.
+            Open a model with air_loops, plant_loops, or vrf_systems defined
+            to see the network topology.
           </p>
         </div>
       </div>
@@ -131,14 +131,12 @@ export function NetworkView({
           <button
             className={`btn-agg ${mode === "air" ? "active" : ""}`}
             onClick={() => setMode("air")}
-            disabled={!hasAir}
           >
             Air Side
           </button>
           <button
             className={`btn-agg ${mode === "water" ? "active" : ""}`}
             onClick={() => setMode("water")}
-            disabled={!hasWater}
           >
             Water Side
           </button>
@@ -151,7 +149,17 @@ export function NetworkView({
         </span>
       </div>
       <div className="network-body">
-        <HvacDiagram graph={activeGraph} onNodeClick={handleNodeClick} />
+        {activeGraph.nodes.length > 0 ? (
+          <HvacDiagram graph={activeGraph} onNodeClick={handleNodeClick} />
+        ) : (
+          <div className="hvac-empty">
+            <p className="hint">
+              {mode === "water"
+                ? "No water-side systems (plant_loops) in this model"
+                : "No air-side systems (air_loops or vrf_systems) in this model"}
+            </p>
+          </div>
+        )}
         {selectedComponent && (
           <div className="network-var-panel">
             <div className="network-var-panel-header">

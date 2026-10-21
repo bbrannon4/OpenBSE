@@ -111,37 +111,37 @@ const CATALOG: CatalogGroup[] = [
     category: "building",
     label: "Building Energy Totals",
     vars: [
-      { name: "fan_electric",      unit: "W", desc: "Fan electric power" },
-      { name: "cooling_electric",  unit: "W", desc: "Cooling electric power" },
-      { name: "heating_electric",  unit: "W", desc: "Heating electric power" },
-      { name: "heating_gas",       unit: "W", desc: "Heating gas power" },
-      { name: "pump_electric",     unit: "W", desc: "Pump electric power" },
-      { name: "heat_rejection",    unit: "W", desc: "Heat rejection power" },
-      { name: "humidification",    unit: "W", desc: "Humidification power" },
-      { name: "heat_recovery",     unit: "W", desc: "Heat recovery power" },
-      { name: "dhw_electric",      unit: "W", desc: "DHW electric power" },
-      { name: "dhw_gas",           unit: "W", desc: "DHW gas power" },
-      { name: "lighting",          unit: "W", desc: "Lighting electric power" },
-      { name: "ext_lighting",      unit: "W", desc: "Exterior lighting power" },
-      { name: "equipment",         unit: "W", desc: "Equipment electric power" },
-      { name: "ext_equipment",     unit: "W", desc: "Exterior equipment power" },
-      { name: "total_electric",    unit: "W", desc: "Total electric power" },
-      { name: "total_gas",         unit: "W", desc: "Total gas power" },
+      { name: "fan_electric",      unit: "Wh",desc: "Fan electric energy" },
+      { name: "cooling_electric",  unit: "Wh",desc: "Cooling electric energy" },
+      { name: "heating_electric",  unit: "Wh",desc: "Heating electric energy" },
+      { name: "heating_gas",       unit: "Wh",desc: "Heating gas energy" },
+      { name: "pump_electric",     unit: "Wh",desc: "Pump electric energy" },
+      { name: "heat_rejection",    unit: "Wh",desc: "Heat rejection energy" },
+      { name: "humidification",    unit: "Wh",desc: "Humidification energy" },
+      { name: "heat_recovery",     unit: "Wh",desc: "Heat recovery energy" },
+      { name: "dhw_electric",      unit: "Wh",desc: "DHW electric energy" },
+      { name: "dhw_gas",           unit: "Wh",desc: "DHW gas energy" },
+      { name: "lighting",          unit: "Wh",desc: "Lighting electric energy" },
+      { name: "ext_lighting",      unit: "Wh",desc: "Exterior lighting energy" },
+      { name: "equipment",         unit: "Wh",desc: "Equipment electric energy" },
+      { name: "ext_equipment",     unit: "Wh",desc: "Exterior equipment energy" },
+      { name: "total_electric",    unit: "Wh",desc: "Total electric energy" },
+      { name: "total_gas",         unit: "Wh",desc: "Total gas energy" },
     ],
   },
   {
     category: "submeter",
     label: "Submeter",
     vars: [
-      { name: "total_electric",   unit: "W", desc: "Total electric power" },
-      { name: "total_gas",        unit: "W", desc: "Total gas power" },
-      { name: "total",            unit: "W", desc: "Total all-fuel power" },
-      { name: "lighting",         unit: "W", desc: "Lighting power" },
-      { name: "equipment",        unit: "W", desc: "Equipment power" },
-      { name: "heating_gas",      unit: "W", desc: "Heating gas power" },
-      { name: "cooling_electric", unit: "W", desc: "Cooling electric power" },
-      { name: "fan_electric",     unit: "W", desc: "Fan electric power" },
-      { name: "dhw_gas",          unit: "W", desc: "DHW gas power" },
+      { name: "total_electric",   unit: "Wh",desc: "Total electric energy" },
+      { name: "total_gas",        unit: "Wh",desc: "Total gas energy" },
+      { name: "total",            unit: "Wh",desc: "Total all-fuel energy" },
+      { name: "lighting",         unit: "Wh",desc: "Lighting energy" },
+      { name: "equipment",        unit: "Wh",desc: "Equipment energy" },
+      { name: "heating_gas",      unit: "Wh",desc: "Heating gas energy" },
+      { name: "cooling_electric", unit: "Wh",desc: "Cooling electric energy" },
+      { name: "fan_electric",     unit: "Wh",desc: "Fan electric energy" },
+      { name: "dhw_gas",          unit: "Wh",desc: "DHW gas energy" },
     ],
   },
 ];
@@ -152,11 +152,21 @@ const FILTERABLE = new Set(["zone", "surface", "component", "submeter"]);
 const FREQUENCIES = ["timestep", "hourly", "daily", "monthly", "run_period"] as const;
 const AGGREGATIONS = ["mean", "sum", "min", "max"] as const;
 
+/** Variables summed by default (energy meters); everything else is averaged. */
+function defaultAggregation(category: string, variable: string): string {
+  if (category === "building" || category === "submeter") return "sum";
+  if (category === "zone" && (variable === "heating_energy" || variable === "cooling_energy")) {
+    return "sum";
+  }
+  return "mean";
+}
+
 // ===== Types =====
 
 interface OutputFile {
   file: string;
   frequency?: string;
+  /** Deprecated file-wide aggregation, preserved only if already present. */
   aggregation?: string;
   variables: string[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -172,33 +182,58 @@ interface OutputsEditorProps {
 
 // ===== Helpers =====
 
-function parseSpec(spec: string): { category: string; variable: string; filter: string } {
-  const parts = spec.split(":");
+function parseSpec(spec: string): {
+  category: string;
+  variable: string;
+  filter: string;
+  agg: string;
+} {
+  let base = spec;
+  let agg = "";
+  const at = spec.lastIndexOf("@");
+  if (at >= 0) {
+    const suffix = spec.slice(at + 1).trim().toLowerCase();
+    if ((AGGREGATIONS as readonly string[]).includes(suffix)) {
+      base = spec.slice(0, at);
+      agg = suffix;
+    }
+  }
+  const parts = base.split(":");
   return {
     category: parts[0] ?? "",
     variable: parts[1] ?? "",
     filter: parts.slice(2).join(":"),
+    agg,
   };
 }
 
-function buildSpec(category: string, variable: string, filter: string): string {
+function buildSpec(
+  category: string,
+  variable: string,
+  filter: string,
+  agg = "",
+  keepSuffix = false
+): string {
   const f = filter.trim();
-  return f ? `${category}:${variable}:${f}` : `${category}:${variable}`;
+  const base = f ? `${category}:${variable}:${f}` : `${category}:${variable}`;
+  if (!agg) return base;
+  return keepSuffix || agg !== defaultAggregation(category, variable) ? `${base}@${agg}` : base;
 }
 
 function toOutputFile(raw: unknown): OutputFile {
   if (typeof raw === "object" && raw !== null) {
     const r = raw as Record<string, unknown>;
-    return {
+    const out: OutputFile = {
       file: typeof r.file === "string" ? r.file : "",
       frequency: typeof r.frequency === "string" ? r.frequency : "hourly",
-      aggregation: typeof r.aggregation === "string" ? r.aggregation : "mean",
       variables: Array.isArray(r.variables)
         ? (r.variables as unknown[]).filter((v): v is string => typeof v === "string")
         : [],
     };
+    if (typeof r.aggregation === "string") out.aggregation = r.aggregation;
+    return out;
   }
-  return { file: "", frequency: "hourly", aggregation: "mean", variables: [] };
+  return { file: "", frequency: "hourly", variables: [] };
 }
 
 // ===== Component =====
@@ -213,7 +248,6 @@ export function OutputsEditor({ instances, onUpdate }: OutputsEditorProps) {
   const current: OutputFile = safeInstances[idx] ?? {
     file: "",
     frequency: "hourly",
-    aggregation: "mean",
     variables: [],
   };
 
@@ -228,7 +262,6 @@ export function OutputsEditor({ instances, onUpdate }: OutputsEditorProps) {
     const newFile: OutputFile = {
       file: `output_${n}.csv`,
       frequency: "hourly",
-      aggregation: "mean",
       variables: [],
     };
     const arr = [...safeInstances, newFile];
@@ -256,10 +289,25 @@ export function OutputsEditor({ instances, onUpdate }: OutputsEditorProps) {
   }
 
   function updateVariableFilter(i: number, filter: string) {
-    const { category, variable } = parseSpec(current.variables[i]);
+    const { category, variable, agg } = parseSpec(current.variables[i]);
     const vars = [...current.variables];
-    vars[i] = buildSpec(category, variable, filter);
+    vars[i] = buildSpec(category, variable, filter, agg, !!current.aggregation);
     updateCurrent({ variables: vars });
+  }
+
+  function updateVariableAgg(i: number, agg: string) {
+    const { category, variable, filter } = parseSpec(current.variables[i]);
+    const vars = [...current.variables];
+    vars[i] = buildSpec(category, variable, filter, agg, !!current.aggregation);
+    updateCurrent({ variables: vars });
+  }
+
+  function clearLegacyAggregation() {
+    const arr = [...safeInstances];
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { aggregation: _legacy, ...rest } = current;
+    arr[idx] = rest as OutputFile;
+    onUpdate(arr);
   }
 
   function moveVariable(i: number, dir: "up" | "down") {
@@ -369,20 +417,15 @@ export function OutputsEditor({ instances, onUpdate }: OutputsEditorProps) {
                 ))}
               </select>
             </label>
-            <label className="output-setting-field">
-              <span className="output-setting-label">Aggregation</span>
-              <select
-                className="output-setting-select"
-                value={current.aggregation ?? "mean"}
-                onChange={(e) => updateCurrent({ aggregation: e.target.value })}
-              >
-                {AGGREGATIONS.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {current.aggregation && (
+              <div className="output-setting-field hint" title="Aggregation is now set per variable">
+                File-wide aggregation “{current.aggregation}” is deprecated (applies only to
+                non-energy variables without a per-variable setting).{" "}
+                <button className="btn-icon" onClick={clearLegacyAggregation}>
+                  Remove
+                </button>
+              </div>
+            )}
           </div>
 
           {/* ---- Split pane ---- */}
@@ -468,14 +511,24 @@ export function OutputsEditor({ instances, onUpdate }: OutputsEditorProps) {
                           ⓘ
                         </span>
                       </th>
+                      <th>
+                        Aggregation{" "}
+                        <span
+                          className="hint"
+                          title="How timesteps are combined into each reporting period. Energy meters default to sum (W → Wh); everything else defaults to mean."
+                        >
+                          ⓘ
+                        </span>
+                      </th>
                       <th>Spec</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {current.variables.map((spec, i) => {
-                      const { category, variable, filter } = parseSpec(spec);
+                      const { category, variable, filter, agg } = parseSpec(spec);
                       const filterable = FILTERABLE.has(category);
+                      const defAgg = defaultAggregation(category, variable);
                       return (
                         <tr key={i}>
                           <td className="var-spec-cell">
@@ -495,6 +548,19 @@ export function OutputsEditor({ instances, onUpdate }: OutputsEditorProps) {
                             ) : (
                               <span className="var-no-filter">—</span>
                             )}
+                          </td>
+                          <td className="var-filter-cell">
+                            <select
+                              className="var-filter-input"
+                              value={agg || defAgg}
+                              onChange={(e) => updateVariableAgg(i, e.target.value)}
+                            >
+                              {AGGREGATIONS.map((a) => (
+                                <option key={a} value={a}>
+                                  {a === defAgg ? `${a} (default)` : a}
+                                </option>
+                              ))}
+                            </select>
                           </td>
                           <td className="var-full-spec">
                             <code>{spec}</code>

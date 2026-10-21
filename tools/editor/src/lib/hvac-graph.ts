@@ -4,6 +4,7 @@
  * Produces TWO separate graphs:
  *   - Air-side: OA → equipment → zones (left-to-right)
  *     Water coils show a plant-loop badge but NO cross-graph edges
+ *     Top-level VRF systems: outdoor unit → indoor units → zones
  *   - Water-side: Pump → boiler/chiller → coils served
  *     Coils show which air loop they belong to
  */
@@ -358,6 +359,45 @@ export function buildSeparatedGraphs(model: Model): SeparatedHvacGraphs {
 
   const zoneNodeIds = new Map<string, string>();
 
+  /** Get (or create) the single shared node for a zone. */
+  const ensureZoneNode = (zoneName: string, systemName: string): string => {
+    const existing = zoneNodeIds.get(zoneName);
+    if (existing) return existing;
+
+    const zoneId = nextId("zone");
+    zoneNodeIds.set(zoneName, zoneId);
+
+    const zi = zoneInfo.get(zoneName);
+    const zoneProps: Record<string, string | number | boolean> = {};
+    if (zi) {
+      if (zi.volume !== undefined) zoneProps.volume = `${zi.volume} m\u00B3`;
+      if (zi.floor_area !== undefined) zoneProps.floor_area = `${zi.floor_area} m\u00B2`;
+    }
+
+    const sublabel = zi
+      ? [
+          zi.volume !== undefined ? `${zi.volume} m\u00B3` : "",
+          zi.floor_area !== undefined ? `${zi.floor_area} m\u00B2` : "",
+        ].filter(Boolean).join(" | ") || undefined
+      : undefined;
+
+    airNodes.push({
+      id: zoneId,
+      type: "hvacNode",
+      position: { x: 0, y: 0 },
+      data: {
+        hvacType: "zone",
+        label: zoneName,
+        sublabel,
+        properties: zoneProps,
+        airLoop: systemName,
+        componentName: zoneName,
+      },
+    });
+
+    return zoneId;
+  };
+
   for (const loop of airLoops) {
     const loopName = String(loop.name ?? "Air Loop");
     const equipment: Record<string, unknown>[] =
@@ -539,40 +579,7 @@ export function buildSeparatedGraphs(model: Model): SeparatedHvacGraphs {
         }
       }
 
-      // Zone node (deduplicate)
-      let zoneId = zoneNodeIds.get(zoneName);
-      if (!zoneId) {
-        zoneId = nextId("zone");
-        zoneNodeIds.set(zoneName, zoneId);
-
-        const zi = zoneInfo.get(zoneName);
-        const zoneProps: Record<string, string | number | boolean> = {};
-        if (zi) {
-          if (zi.volume !== undefined) zoneProps.volume = `${zi.volume} m\u00B3`;
-          if (zi.floor_area !== undefined) zoneProps.floor_area = `${zi.floor_area} m\u00B2`;
-        }
-
-        const sublabel = zi
-          ? [
-              zi.volume !== undefined ? `${zi.volume} m\u00B3` : "",
-              zi.floor_area !== undefined ? `${zi.floor_area} m\u00B2` : "",
-            ].filter(Boolean).join(" | ") || undefined
-          : undefined;
-
-        airNodes.push({
-          id: zoneId,
-          type: "hvacNode",
-          position: { x: 0, y: 0 },
-          data: {
-            hvacType: "zone",
-            label: zoneName,
-            sublabel,
-            properties: zoneProps,
-            airLoop: loopName,
-            componentName: zoneName,
-          },
-        });
-      }
+      const zoneId = ensureZoneNode(zoneName, loopName);
 
       airEdges.push({
         id: `e_${connectTo}_${zoneId}`,
@@ -581,6 +588,85 @@ export function buildSeparatedGraphs(model: Model): SeparatedHvacGraphs {
         type: "smoothstep",
         style: ZONE_EDGE,
       });
+    }
+  }
+
+  // ------------------------------------------------------------
+  // Top-level VRF systems: outdoor unit → indoor units → zones
+  // ------------------------------------------------------------
+
+  const vrfSystems: Record<string, unknown>[] = model.vrf_systems ?? [];
+  const zoneGroups: Record<string, unknown>[] = model.zone_groups ?? [];
+
+  for (const sys of vrfSystems) {
+    const sysName = String(sys.name ?? "VRF System");
+    const odu = (sys.outdoor_unit ?? {}) as Record<string, unknown>;
+    const indoorUnits = (sys.indoor_units ?? []) as Record<string, unknown>[];
+
+    const oduId = nextId("vrf_odu");
+    const oduName = String(odu.name ?? `${sysName} Outdoor Unit`);
+    airNodes.push({
+      id: oduId,
+      type: "hvacNode",
+      position: { x: 0, y: 0 },
+      data: {
+        hvacType: "vrf_outdoor",
+        label: oduName,
+        sublabel: `${sysName}${odu.heat_recovery === true ? " | Heat Recovery" : ""}`,
+        properties: extractProperties(odu, [
+          "rated_cooling_capacity", "rated_heating_capacity",
+          "rated_cooling_cop", "rated_heating_cop", "heat_recovery",
+          "cooling_cap_ft", "cooling_eir_ft", "heating_cap_ft",
+          "heating_eir_ft", "submeter",
+        ]),
+        airLoop: sysName,
+        componentName: oduName,
+      },
+    });
+
+    for (const iu of indoorUnits) {
+      const zoneRefs: string[] = [];
+      if (iu.zone !== undefined && iu.zone !== null) zoneRefs.push(String(iu.zone));
+      if (Array.isArray(iu.zones)) zoneRefs.push(...(iu.zones as unknown[]).map(String));
+      const zones = [...new Set(resolveZones(zoneRefs, zoneGroups))];
+
+      const iuId = nextId("vrf_idu");
+      const iuName = String(iu.name ?? `VRF IDU - ${zoneRefs.join(", ") || "Zone"}`);
+      airNodes.push({
+        id: iuId,
+        type: "hvacNode",
+        position: { x: 0, y: 0 },
+        data: {
+          hvacType: "vrf_indoor",
+          label: iuName,
+          sublabel: "VRF Indoor Unit",
+          properties: extractProperties(iu, [
+            "zone", "cooling_capacity", "heating_capacity", "rated_airflow",
+            "cooling_supply_temp", "heating_supply_temp", "submeter",
+          ]),
+          airLoop: sysName,
+          componentName: iuName,
+        },
+      });
+
+      airEdges.push({
+        id: `e_${oduId}_${iuId}`,
+        source: oduId,
+        target: iuId,
+        type: "smoothstep",
+        style: AIR_EDGE,
+      });
+
+      for (const zoneName of zones) {
+        const zoneId = ensureZoneNode(zoneName, sysName);
+        airEdges.push({
+          id: `e_${iuId}_${zoneId}`,
+          source: iuId,
+          target: zoneId,
+          type: "smoothstep",
+          style: ZONE_EDGE,
+        });
+      }
     }
   }
 

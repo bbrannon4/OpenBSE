@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import ReactEChartsCore from "echarts-for-react/lib/core";
 import * as echarts from "echarts/core";
 import { BarChart } from "echarts/charts";
@@ -11,30 +12,42 @@ import { CanvasRenderer } from "echarts/renderers";
 import type { ResultCase } from "../App";
 import type { UnitSystem } from "../lib/units";
 import type { CsvVariable, ParsedCsv } from "../lib/csv";
+import { parseSummaryCsv, summaryPathFor, type SummaryReport } from "../lib/summary-csv";
 
 echarts.use([BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer]);
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const KWH_TO_KBTU = 3.41214;
 
-const END_USE_COLORS: Record<string, string> = {
-  cooling: "#7aa2f7",
-  heating: "#f7768e",
-  fans: "#9aa5ce",
-  fan: "#9aa5ce",
-  pumps: "#bb9af7",
-  pump: "#bb9af7",
-  lighting: "#e0af68",
-  lights: "#e0af68",
-  equipment: "#9ece6a",
-  dhw: "#73daca",
-  hot_water: "#73daca",
-  refrigeration: "#7dcfff",
-};
+// Ordered: more specific keys must come before generic ones they contain.
+const END_USE_COLORS: Array<[string, string]> = [
+  ["heating (gas)", "#ff9e64"],
+  ["natural_gas", "#ff9e64"],
+  ["heat rejection", "#2ac3de"],
+  ["heat recovery", "#c0caf5"],
+  ["humidification", "#b4f9f8"],
+  ["it equipment", "#ff007c"],
+  ["distribution", "#565f89"],
+  ["cooling", "#7aa2f7"],
+  ["heating", "#f7768e"],
+  ["fans", "#9aa5ce"],
+  ["fan", "#9aa5ce"],
+  ["pumps", "#bb9af7"],
+  ["pump", "#bb9af7"],
+  ["exterior lighting", "#d4a95a"],
+  ["lighting", "#e0af68"],
+  ["lights", "#e0af68"],
+  ["exterior equipment", "#73a35a"],
+  ["equipment", "#9ece6a"],
+  ["dhw", "#73daca"],
+  ["hot_water", "#73daca"],
+  ["refrigeration", "#7dcfff"],
+];
 
 function endUseColor(endUse: string): string {
-  for (const [key, color] of Object.entries(END_USE_COLORS)) {
-    if (endUse.includes(key)) return color;
+  const lower = endUse.toLowerCase();
+  for (const [key, color] of END_USE_COLORS) {
+    if (lower.includes(key)) return color;
   }
   return "#9aa5ce";
 }
@@ -151,6 +164,58 @@ export interface EnergyViewProps {
   unitSystem: UnitSystem;
 }
 
+interface EndUseSeries {
+  label: string;
+  color: string;
+  /** 12 monthly values [kWh] */
+  monthly: number[];
+}
+
+/** Load `<model>_summary.csv` for the active case (or any summary among the cases). */
+function useSummaryReport(cases: ResultCase[], activeCase: ResultCase | null) {
+  const candidates = useMemo(() => {
+    const paths: string[] = [];
+    const own = activeCase ? summaryPathFor(activeCase.path) : null;
+    if (own) paths.push(own);
+    for (const c of cases) {
+      if (/_summary\.csv$/i.test(c.path) && !paths.includes(c.path)) paths.push(c.path);
+    }
+    return paths;
+  }, [cases, activeCase]);
+  const key = candidates.join("|");
+
+  const [state, setState] = useState<{ key: string; report: SummaryReport | null }>({
+    key: "",
+    report: null,
+  });
+
+  useEffect(() => {
+    if (candidates.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const path of candidates) {
+        try {
+          const text = await invoke<string>("read_yaml_file", { path });
+          const report = parseSummaryCsv(text);
+          if (report.endUses.length > 0) {
+            if (!cancelled) setState({ key, report });
+            return;
+          }
+        } catch {
+          // Not present (e.g. summary_report disabled) — try the next candidate.
+        }
+      }
+      if (!cancelled) setState({ key, report: null });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  return state.key === key ? state.report : null;
+}
+
 export function EnergyView({
   cases,
   activeCaseIdx,
@@ -161,25 +226,37 @@ export function EnergyView({
   const activeCase = cases[activeCaseIdx] ?? null;
   const parsed: ParsedCsv | null = activeCase?.parsed ?? null;
 
-  const endUses = useMemo(() => (parsed ? findEnergyEndUses(parsed) : []), [parsed]);
-  const unmetHours = useMemo(() => (parsed ? findUnmetHours(parsed) : []), [parsed]);
+  const summary = useSummaryReport(cases, activeCase);
+  const legacyEndUses = useMemo(() => (parsed ? findEnergyEndUses(parsed) : []), [parsed]);
+  const legacyUnmet = useMemo(() => (parsed ? findUnmetHours(parsed) : []), [parsed]);
+
+  const endUses: EndUseSeries[] = useMemo(() => {
+    if (summary) {
+      return summary.endUses
+        .filter((eu) => eu.monthly.some((v) => v !== 0))
+        .map((eu) => ({ label: eu.label, color: endUseColor(eu.label), monthly: eu.monthly }));
+    }
+    if (!parsed) return [];
+    return legacyEndUses.map((eu) => ({
+      label: eu.label,
+      color: eu.color,
+      monthly: aggregateMonthlySum(parsed, eu.varIdx),
+    }));
+  }, [summary, parsed, legacyEndUses]);
 
   const chartOption = useMemo(() => {
-    if (!parsed || endUses.length === 0) return null;
+    if (endUses.length === 0) return null;
 
     const multiplier = unitSystem === "IP" ? KWH_TO_KBTU : 1;
     const unit = unitSystem === "IP" ? "kBtu" : "kWh";
 
-    const series = endUses.map((eu) => {
-      const monthly = aggregateMonthlySum(parsed, eu.varIdx);
-      return {
-        name: eu.label,
-        type: "bar" as const,
-        stack: "total",
-        data: monthly.map((v) => +(v * multiplier).toFixed(1)),
-        itemStyle: { color: eu.color },
-      };
-    });
+    const series = endUses.map((eu) => ({
+      name: eu.label,
+      type: "bar" as const,
+      stack: "total",
+      data: eu.monthly.map((v) => +(v * multiplier).toFixed(1)),
+      itemStyle: { color: eu.color },
+    }));
 
     return {
       backgroundColor: "transparent",
@@ -236,38 +313,45 @@ export function EnergyView({
       },
       series,
     };
-  }, [parsed, endUses, unitSystem]);
+  }, [endUses, unitSystem]);
 
   const annualSummary = useMemo(() => {
-    if (!parsed || endUses.length === 0) return [];
+    if (endUses.length === 0) return [];
     const multiplier = unitSystem === "IP" ? KWH_TO_KBTU : 1;
     const rows = endUses.map((eu) => {
-      const monthly = aggregateMonthlySum(parsed, eu.varIdx);
-      const annual = monthly.reduce((s, v) => s + v, 0) * multiplier;
+      const annual = eu.monthly.reduce((s, v) => s + v, 0) * multiplier;
       return { label: eu.label, color: eu.color, annual };
     });
     const total = rows.reduce((s, r) => s + r.annual, 0);
     return rows
       .map((r) => ({ ...r, pct: total > 0 ? (r.annual / total) * 100 : 0 }))
       .sort((a, b) => b.annual - a.annual);
-  }, [parsed, endUses, unitSystem]);
+  }, [endUses, unitSystem]);
 
   const unmetSummary = useMemo(() => {
-    const heatingTotal = unmetHours
+    const byZone = new Map<string, { heating: number; cooling: number }>();
+    if (summary && (summary.unmetHeatingHours !== null || summary.unmetCoolingHours !== null)) {
+      return {
+        available: true,
+        heatingTotal: summary.unmetHeatingHours ?? 0,
+        coolingTotal: summary.unmetCoolingHours ?? 0,
+        byZone,
+      };
+    }
+    const heatingTotal = legacyUnmet
       .filter((u) => u.type === "heating")
       .reduce((s, u) => s + u.total, 0);
-    const coolingTotal = unmetHours
+    const coolingTotal = legacyUnmet
       .filter((u) => u.type === "cooling")
       .reduce((s, u) => s + u.total, 0);
-    const byZone = new Map<string, { heating: number; cooling: number }>();
-    for (const u of unmetHours) {
+    for (const u of legacyUnmet) {
       const z = byZone.get(u.zone) ?? { heating: 0, cooling: 0 };
       if (u.type === "heating") z.heating = u.total;
       else z.cooling = u.total;
       byZone.set(u.zone, z);
     }
-    return { heatingTotal, coolingTotal, byZone };
-  }, [unmetHours]);
+    return { available: legacyUnmet.length > 0, heatingTotal, coolingTotal, byZone };
+  }, [summary, legacyUnmet]);
 
   const unit = unitSystem === "IP" ? "kBtu" : "kWh";
 
@@ -315,17 +399,17 @@ export function EnergyView({
           </div>
         )}
 
-        {parsed && endUses.length === 0 && (
+        {!loading && endUses.length === 0 && (
           <div className="results-empty">
             <p>No energy end-use data found.</p>
             <p className="hint">
-              Make sure the simulation has run and outputs includes end-use variables,
-              or that the CSV file contains site-level energy columns.
+              End uses come from the summary report (&lt;model&gt;_summary.csv). Set
+              summary_report: true in the model and re-run the simulation.
             </p>
           </div>
         )}
 
-        {parsed && endUses.length > 0 && (
+        {endUses.length > 0 && (
           <div className="energy-content">
             <div className="energy-section">
               <h3 className="energy-section-title">Monthly Energy by End Use</h3>
@@ -382,7 +466,7 @@ export function EnergyView({
               </div>
             </div>
 
-            {unmetHours.length > 0 && (
+            {unmetSummary.available && (
               <div className="energy-section">
                 <h3 className="energy-section-title">Unmet Hours</h3>
                 <div className="energy-unmet-summary">
@@ -441,12 +525,6 @@ export function EnergyView({
                 )}
               </div>
             )}
-          </div>
-        )}
-
-        {!parsed && !loading && (
-          <div className="results-empty">
-            <p>Select a case to view energy data</p>
           </div>
         )}
       </div>

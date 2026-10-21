@@ -47,6 +47,10 @@ pub enum OutputFrequency {
 }
 
 /// Aggregation method when downsampling from timestep to lower frequencies.
+///
+/// Each variable has its own default (energy meters → `Sum`, everything else →
+/// `Mean`), which can be overridden per variable with an `@mean|@sum|@min|@max`
+/// suffix on the variable spec.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
@@ -58,6 +62,27 @@ pub enum Aggregation {
     Max,
 }
 
+impl Aggregation {
+    fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "mean" | "avg" | "average" => Some(Self::Mean),
+            "sum" => Some(Self::Sum),
+            "min" => Some(Self::Min),
+            "max" => Some(Self::Max),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Mean => "mean",
+            Self::Sum => "sum",
+            Self::Min => "min",
+            Self::Max => "max",
+        }
+    }
+}
+
 /// User-defined output file configuration.
 ///
 /// ```yaml
@@ -66,11 +91,12 @@ pub enum Aggregation {
 ///     frequency: hourly
 ///     variables:
 ///       - zone:temperature
+///       - zone:temperature@max             # per-variable aggregation override
 ///       - zone:heating_rate
 ///       - zone:cooling_rate
 ///       - zone:temperature:living_unit1    # specific zone
 ///       - surface:transmitted_solar:Window*  # glob filter
-///       - building:fan_electric
+///       - building:fan_electric            # energy meter → summed to Wh
 ///       - component:outlet_temperature
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,11 +106,51 @@ pub struct OutputFileConfig {
     /// Reporting frequency
     #[serde(default)]
     pub frequency: OutputFrequency,
-    /// Aggregation method for downsampled data
-    #[serde(default)]
-    pub aggregation: Aggregation,
+    /// Deprecated file-wide aggregation. Aggregation is now per variable (each
+    /// variable has a sensible default, overridable with an `@agg` suffix). When
+    /// present, this is only applied to non-energy variables without a suffix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aggregation: Option<Aggregation>,
     /// List of variable names to include
     pub variables: Vec<String>,
+}
+
+/// Categories accepted as the first segment of a variable spec.
+const VARIABLE_CATEGORIES: &[&str] = &[
+    "zone",
+    "surface",
+    "site",
+    "building",
+    "component",
+    "submeter",
+    "datacenter",
+];
+
+/// Parse a user variable spec into its canonical `category:variable[:filter]`
+/// form plus an optional aggregation override.
+///
+/// Accepts an `@mean|@sum|@min|@max` suffix and the legacy underscore form
+/// (`zone_temperature` → `zone:temperature`) that older input files use.
+pub fn parse_variable_spec(raw: &str) -> (String, Option<Aggregation>) {
+    let raw = raw.trim();
+    let (base, agg) = match raw.rsplit_once('@') {
+        Some((base, suffix)) => match Aggregation::parse(suffix) {
+            Some(agg) => (base.trim(), Some(agg)),
+            None => (raw, None),
+        },
+        None => (raw, None),
+    };
+    if !base.contains(':') {
+        for cat in VARIABLE_CATEGORIES {
+            if let Some(var) = base
+                .strip_prefix(cat)
+                .and_then(|rest| rest.strip_prefix('_'))
+            {
+                return (format!("{cat}:{var}"), agg);
+            }
+        }
+    }
+    (base.to_string(), agg)
 }
 
 // ─── Variable Registry ──────────────────────────────────────────────────────
@@ -583,6 +649,39 @@ fn is_integrable(spec: &str) -> bool {
     )
 }
 
+/// Default reduction for a variable: energy quantities are summed, everything
+/// else (temperatures, rates, ratios) is time-averaged.
+fn default_aggregation(spec: &str) -> Aggregation {
+    if is_integrable(spec) {
+        Aggregation::Sum
+    } else {
+        Aggregation::Mean
+    }
+}
+
+/// How a `Sum` reduction is computed for a variable and the resulting unit.
+///
+/// Rate variables are integrated over time (Σ value·dt × `scale`) so the result
+/// is independent of the timestep: W → Wh, kg/s → kg, on/off flags → hours.
+/// Quantities that are already per-timestep energies (J) are summed directly.
+/// Returns `(unit, Some(scale))` for integration or `(unit, None)` for a plain sum.
+fn summed_unit(spec: &str) -> (&'static str, Option<f64>) {
+    let variable = spec.split(':').nth(1).unwrap_or("");
+    if matches!(
+        variable,
+        "unmet_heating" | "unmet_cooling" | "nat_vent_active"
+    ) {
+        return ("h", Some(1.0 / 3600.0));
+    }
+    match get_unit(spec) {
+        "W" => ("Wh", Some(1.0 / 3600.0)),
+        "W/m²" => ("Wh/m²", Some(1.0 / 3600.0)),
+        "kg/s" => ("kg", Some(1.0)),
+        "m³/s" => ("m³", Some(1.0)),
+        other => (other, None),
+    }
+}
+
 // ─── Timestep Data Collector ────────────────────────────────────────────────
 
 /// Electric end-use bucket for a generic HVAC component (fan, coil, chiller…).
@@ -729,6 +828,10 @@ pub struct OutputSnapshot {
     // of fragile substring matching on the component name. Not Serialize — only
     // used in-process for energy accounting.
     pub component_kinds: HashMap<String, ComponentKind>,
+    // Heating-mode share [W] of a dual-mode component's `component_electric_power`
+    // (e.g. a VRF outdoor unit serving heating and cooling indoor units). The
+    // remainder is classified by the component's kind.
+    pub component_heating_electric_power: HashMap<String, f64>,
     // Internal gains by type (zone_name -> watts)
     pub zone_lighting_power: HashMap<String, f64>,
     pub zone_equipment_power: HashMap<String, f64>,
@@ -853,6 +956,7 @@ impl OutputSnapshot {
             component_electric_power: HashMap::new(),
             component_fuel_power: HashMap::new(),
             component_kinds: HashMap::new(),
+            component_heating_electric_power: HashMap::new(),
             zone_gain_people_sensible: HashMap::new(),
             zone_gain_people_latent: HashMap::new(),
             zone_gain_lighting: HashMap::new(),
@@ -902,11 +1006,24 @@ impl OutputSnapshot {
     fn component_elec_by_use(&self, target: ElecEndUse) -> f64 {
         self.component_electric_power
             .iter()
-            .filter(|(name, _)| {
-                elec_end_use(self.component_kinds.get(*name).copied(), name) == target
-            })
-            .map(|(_, &v)| v)
+            .flat_map(|(name, &pw)| self.split_component_elec(name, pw))
+            .filter(|(use_, _)| *use_ == target)
+            .map(|(_, v)| v)
             .sum()
+    }
+
+    /// Split one generic electric component's power into end uses: its
+    /// heating-mode share (dual-mode equipment only) and the remainder,
+    /// classified by kind/name. The two parts always sum to `pw`.
+    pub fn split_component_elec(&self, name: &str, pw: f64) -> [(ElecEndUse, f64); 2] {
+        let heat = self
+            .component_heating_electric_power
+            .get(name)
+            .copied()
+            .unwrap_or(0.0)
+            .clamp(0.0, pw.max(0.0));
+        let base = elec_end_use(self.component_kinds.get(name).copied(), name);
+        [(ElecEndUse::Heating, heat), (base, pw - heat)]
     }
 
     /// Get all entity→value pairs for a given category and variable name.
@@ -1230,10 +1347,12 @@ fn glob_matches(pattern: &str, text: &str) -> bool {
 /// Manages buffering and writing of output data for one output file.
 pub struct OutputWriter {
     config: OutputFileConfig,
-    /// Column layout: (variable_name, entity_name) pairs
-    columns: Vec<(String, String)>,
-    /// Accumulator for aggregation: column_index -> (sum, count, min, max)
-    accum: Vec<(f64, u32, f64, f64)>,
+    /// Parsed variable list: (canonical spec, aggregation, explicit override?)
+    variables: Vec<(String, Aggregation, bool)>,
+    /// Column layout, one per (variable, entity) pair
+    columns: Vec<OutputColumn>,
+    /// Per-column accumulator for the current period
+    accum: Vec<Accumulator>,
     /// Current aggregation period key (month, day, hour_key)
     current_period: Option<(u32, u32, u32)>,
     /// The month/day/hour/sub_hour from the first snapshot of the current period.
@@ -1243,6 +1362,43 @@ pub struct OutputWriter {
     rows: Vec<OutputRow>,
     /// Whether columns have been discovered
     columns_resolved: bool,
+}
+
+#[derive(Debug)]
+struct OutputColumn {
+    spec: String,
+    entity: String,
+    agg: Aggregation,
+    /// Header label for the variable part (includes `@agg` when non-default)
+    label: String,
+    unit: &'static str,
+    /// For `Sum`: integrate Σ value·dt × scale instead of a plain sum
+    integrate_scale: Option<f64>,
+    /// Whether any snapshot has reported a value for this column. Starts
+    /// false only for exact-name component columns created before their
+    /// component reported anything.
+    seen: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Accumulator {
+    sum: f64,
+    integral: f64,
+    count: u32,
+    min: f64,
+    max: f64,
+}
+
+impl Default for Accumulator {
+    fn default() -> Self {
+        Self {
+            sum: 0.0,
+            integral: 0.0,
+            count: 0,
+            min: f64::MAX,
+            max: f64::MIN,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1256,8 +1412,32 @@ struct OutputRow {
 
 impl OutputWriter {
     pub fn new(config: OutputFileConfig) -> Self {
+        if let Some(agg) = config.aggregation {
+            log::warn!(
+                "outputs '{}': file-level `aggregation: {}` is deprecated — aggregation is \
+                 per variable (append @mean/@sum/@min/@max to a variable to override). \
+                 Applying it only to non-energy variables without a suffix.",
+                config.file,
+                agg.as_str()
+            );
+        }
+        let variables = config
+            .variables
+            .iter()
+            .map(|raw| {
+                let (spec, explicit) = parse_variable_spec(raw);
+                let default = default_aggregation(&spec);
+                let agg = match (explicit, config.aggregation) {
+                    (Some(agg), _) => agg,
+                    (None, Some(legacy)) if default == Aggregation::Mean => legacy,
+                    _ => default,
+                };
+                (spec, agg, agg != default)
+            })
+            .collect();
         Self {
             config,
+            variables,
             columns: Vec::new(),
             period_label: None,
             accum: Vec::new(),
@@ -1267,13 +1447,39 @@ impl OutputWriter {
         }
     }
 
+    fn push_column(&mut self, spec: &str, entity: String, agg: Aggregation, non_default: bool) {
+        let variable_part = spec.split(':').nth(1).unwrap_or(spec);
+        let label = if non_default {
+            format!("{variable_part}@{}", agg.as_str())
+        } else {
+            variable_part.to_string()
+        };
+        let (unit, integrate_scale) = if agg == Aggregation::Sum {
+            summed_unit(spec)
+        } else {
+            (get_unit(spec), None)
+        };
+        self.columns.push(OutputColumn {
+            spec: spec.to_string(),
+            entity,
+            agg,
+            label,
+            unit,
+            integrate_scale,
+            seen: true,
+        });
+    }
+
     /// Discover columns from the first snapshot.
     ///
     /// Some variables (e.g. `zone:gain_solar`) may have empty HashMaps in
     /// the first timestep (midnight — no solar). To avoid permanently
     /// dropping these columns, we fall back to entity names from a reference
     /// variable in the same category (`zone:temperature` for zone variables,
-    /// `surface:inside_temperature` for surface variables).
+    /// `surface:inside_temperature` for surface variables). A component
+    /// variable with an exact (non-wildcard) name keeps its column, since the
+    /// component may simply be idle at the first timestep; columns that never
+    /// receive data are reported by [`Self::warn_unseen_columns`].
     fn resolve_columns(&mut self, snapshot: &OutputSnapshot) {
         if self.columns_resolved {
             return;
@@ -1295,7 +1501,8 @@ impl OutputWriter {
             v
         };
 
-        for var_name in &self.config.variables {
+        let variables = std::mem::take(&mut self.variables);
+        for (var_name, agg, non_default) in &variables {
             let values = snapshot.get_variable_values(var_name);
             let mut entity_names: Vec<String> = values.keys().cloned().collect();
             entity_names.sort();
@@ -1305,31 +1512,59 @@ impl OutputWriter {
                 // entity list for the matching category so that the column is
                 // created and will receive data in later timesteps.
                 let category = var_name.split(':').next().unwrap_or("");
+                let filter = var_name.splitn(3, ':').nth(2);
                 let fallback = match category {
                     "zone" => &zone_entities,
                     "surface" => &surface_entities,
-                    _ => continue, // site/building: truly missing, skip
+                    "component" if filter.is_some_and(|f| !f.contains('*')) => {
+                        let name = filter.unwrap_or_default().to_string();
+                        self.push_column(var_name, name, *agg, *non_default);
+                        if let Some(col) = self.columns.last_mut() {
+                            col.seen = false;
+                        }
+                        continue;
+                    }
+                    _ => {
+                        log::warn!(
+                            "outputs '{}': variable '{}' matched no data and was skipped \
+                             (expected <category>:<variable>:<name filter>)",
+                            self.config.file,
+                            var_name
+                        );
+                        continue;
+                    }
                 };
                 // Apply name filter if present (e.g. "zone:gain_solar:living*")
-                let filter = var_name.splitn(3, ':').nth(2);
+                let before = self.columns.len();
                 for entity in fallback {
                     let include = match filter {
                         None | Some("*") => true,
                         Some(pat) => glob_matches(pat, entity),
                     };
                     if include {
-                        self.columns.push((var_name.clone(), entity.clone()));
+                        self.push_column(var_name, entity.clone(), *agg, *non_default);
                     }
+                }
+                if self.columns.len() == before {
+                    log::warn!(
+                        "outputs '{}': variable '{}' matched no {} names and was skipped \
+                         (expected {}:<variable>:<name filter>)",
+                        self.config.file,
+                        var_name,
+                        category,
+                        category
+                    );
                 }
                 continue;
             }
 
             for entity in entity_names {
-                self.columns.push((var_name.clone(), entity));
+                self.push_column(var_name, entity, *agg, *non_default);
             }
         }
+        self.variables = variables;
 
-        self.accum = vec![(0.0, 0, f64::MAX, f64::MIN); self.columns.len()];
+        self.accum = vec![Accumulator::default(); self.columns.len()];
         self.columns_resolved = true;
     }
 
@@ -1376,18 +1611,22 @@ impl OutputWriter {
         }
 
         // Accumulate values
-        for (i, (var_name, entity_name)) in self.columns.iter().enumerate() {
-            let values = snapshot.get_variable_values(var_name);
-            let val = values.get(entity_name).copied().unwrap_or(0.0);
+        let dt = snapshot.dt;
+        for (col, acc) in self.columns.iter_mut().zip(self.accum.iter_mut()) {
+            let values = snapshot.get_variable_values(&col.spec);
+            let val = match values.get(&col.entity) {
+                Some(&v) => {
+                    col.seen = true;
+                    v
+                }
+                None => 0.0,
+            };
 
-            self.accum[i].0 += val; // sum
-            self.accum[i].1 += 1; // count
-            if val < self.accum[i].2 {
-                self.accum[i].2 = val;
-            } // min
-            if val > self.accum[i].3 {
-                self.accum[i].3 = val;
-            } // max
+            acc.sum += val;
+            acc.integral += val * dt;
+            acc.count += 1;
+            acc.min = acc.min.min(val);
+            acc.max = acc.max.max(val);
         }
 
         // For timestep frequency, flush immediately
@@ -1403,31 +1642,24 @@ impl OutputWriter {
 
     /// Flush accumulated data as one output row.
     fn flush_period(&mut self, month: u32, day: u32, hour: u32, sub_hour: u32) {
-        if self.accum.is_empty() || self.accum[0].1 == 0 {
+        if self.accum.is_empty() || self.accum[0].count == 0 {
             return;
         }
 
         let mut values = Vec::with_capacity(self.columns.len());
-        for (i, (var_name, _)) in self.columns.iter().enumerate() {
-            let (sum, count, min, max) = self.accum[i];
-            if count == 0 {
+        for (col, acc) in self.columns.iter().zip(&self.accum) {
+            if acc.count == 0 {
                 values.push(0.0);
                 continue;
             }
-
-            // Choose aggregation: use variable-specific default for energy vars,
-            // otherwise use the user's configured aggregation
-            let agg = if is_integrable(var_name) {
-                Aggregation::Sum
-            } else {
-                self.config.aggregation
-            };
-
-            let val = match agg {
-                Aggregation::Mean => sum / count as f64,
-                Aggregation::Sum => sum,
-                Aggregation::Min => min,
-                Aggregation::Max => max,
+            let val = match col.agg {
+                Aggregation::Mean => acc.sum / acc.count as f64,
+                Aggregation::Sum => match col.integrate_scale {
+                    Some(scale) => acc.integral * scale,
+                    None => acc.sum,
+                },
+                Aggregation::Min => acc.min,
+                Aggregation::Max => acc.max,
             };
             values.push(val);
         }
@@ -1442,14 +1674,29 @@ impl OutputWriter {
 
         // Reset accumulators
         for acc in &mut self.accum {
-            *acc = (0.0, 0, f64::MAX, f64::MIN);
+            *acc = Accumulator::default();
         }
         self.current_period = None;
         self.period_label = None;
     }
 
+    /// Warn about columns that never received data during the run, e.g. a
+    /// misspelled component name or a variable that component doesn't report.
+    fn warn_unseen_columns(&self) {
+        for col in self.columns.iter().filter(|c| !c.seen) {
+            log::warn!(
+                "outputs '{}': variable '{}' never reported data for '{}' — check the \
+                 component name and variable (column written as zeros)",
+                self.config.file,
+                col.spec,
+                col.entity
+            );
+        }
+    }
+
     /// Finalize (flush any remaining data) and write to file.
     pub fn finalize_and_write(&mut self, output_dir: &Path) -> Result<(), OutputError> {
+        self.warn_unseen_columns();
         // Flush any remaining accumulated data using the period's own label
         if self.current_period.is_some() {
             if let Some((pm, pd, ph, ps)) = self.period_label {
@@ -1474,6 +1721,7 @@ impl OutputWriter {
         output_dir: &Path,
         stem: &str,
     ) -> Result<(), OutputError> {
+        self.warn_unseen_columns();
         if let Some((m, d, h)) = self.current_period {
             self.flush_period(m, d, h, 0);
         }
@@ -1495,10 +1743,8 @@ impl OutputWriter {
         if self.config.frequency == OutputFrequency::Timestep {
             write!(writer, ",SubHour")?;
         }
-        for (var_spec, entity_name) in &self.columns {
-            let variable_part = var_spec.split(':').nth(1).unwrap_or(var_spec.as_str());
-            let unit = get_unit(var_spec);
-            write!(writer, ",{}:{} [{}]", entity_name, variable_part, unit)?;
+        for col in &self.columns {
+            write!(writer, ",{}:{} [{}]", col.entity, col.label, col.unit)?;
         }
         writeln!(writer)?;
 
@@ -1806,16 +2052,17 @@ impl SummaryReport {
         //    components land in `other_elec_j` so they are still counted in the
         //    annual electric total (which is the sum of the end-use rows).
         for (comp_name, &pw) in &snapshot.component_electric_power {
-            let energy = pw * snapshot.dt;
-            if !energy.is_finite() {
-                continue;
-            }
-            let kind = snapshot.component_kinds.get(comp_name).copied();
-            match elec_end_use(kind, comp_name) {
-                ElecEndUse::Fan => me.fan_elec_j += energy,
-                ElecEndUse::Cooling => me.cool_elec_j += energy,
-                ElecEndUse::Heating => me.heat_elec_j += energy,
-                ElecEndUse::Other => me.other_elec_j += energy,
+            for (use_, part) in snapshot.split_component_elec(comp_name, pw) {
+                let energy = part * snapshot.dt;
+                if !energy.is_finite() {
+                    continue;
+                }
+                match use_ {
+                    ElecEndUse::Fan => me.fan_elec_j += energy,
+                    ElecEndUse::Cooling => me.cool_elec_j += energy,
+                    ElecEndUse::Heating => me.heat_elec_j += energy,
+                    ElecEndUse::Other => me.other_elec_j += energy,
+                }
             }
         }
         // All fuel-burning HVAC components are gas heating (boilers, gas furnaces).
@@ -3722,7 +3969,7 @@ mod tests {
         let config = OutputFileConfig {
             file: "test.csv".to_string(),
             frequency: OutputFrequency::Timestep,
-            aggregation: Aggregation::Mean,
+            aggregation: None,
             variables: vec!["site:outdoor_temperature".to_string()],
         };
         let mut writer = OutputWriter::new(config);
@@ -3743,7 +3990,7 @@ mod tests {
         let config = OutputFileConfig {
             file: "test.csv".to_string(),
             frequency: OutputFrequency::Hourly,
-            aggregation: Aggregation::Mean,
+            aggregation: None,
             variables: vec!["site:outdoor_temperature".to_string()],
         };
         let mut writer = OutputWriter::new(config);
@@ -3763,6 +4010,37 @@ mod tests {
         // Hour 1 should be flushed with mean = 2.5
         assert_eq!(writer.rows.len(), 1);
         assert!((writer.rows[0].values[0] - 2.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_named_component_column_survives_idle_first_timestep() {
+        let config = OutputFileConfig {
+            file: "test.csv".to_string(),
+            frequency: OutputFrequency::Timestep,
+            aggregation: None,
+            variables: vec![
+                "component:electric_power:Chiller 1".to_string(),
+                "component:electric_power:Typo Chiller".to_string(),
+                "component:electric_power:Chill*".to_string(),
+            ],
+        };
+        let mut writer = OutputWriter::new(config);
+
+        // Chiller idle (absent) at the first timestep, running at the second.
+        writer.add_snapshot(&OutputSnapshot::new(1, 1, 1, 1, 3600.0));
+        let mut snap = OutputSnapshot::new(1, 1, 2, 1, 3600.0);
+        snap.component_outputs.insert(
+            "Chiller 1".to_string(),
+            HashMap::from([("electric_power".to_string(), 5000.0)]),
+        );
+        writer.add_snapshot(&snap);
+
+        // Exact names keep their columns; a wildcard with no match is skipped.
+        let entities: Vec<_> = writer.columns.iter().map(|c| c.entity.as_str()).collect();
+        assert_eq!(entities, ["Chiller 1", "Typo Chiller"]);
+        assert_eq!(writer.rows[1].values, [5000.0, 0.0]);
+        let seen: Vec<_> = writer.columns.iter().map(|c| c.seen).collect();
+        assert_eq!(seen, [true, false]);
     }
 
     #[test]
@@ -3827,7 +4105,7 @@ variables:
 "#;
         let config: OutputFileConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.frequency, OutputFrequency::Daily);
-        assert_eq!(config.aggregation, Aggregation::Sum);
+        assert_eq!(config.aggregation, Some(Aggregation::Sum));
         assert_eq!(config.variables, vec!["zone_heating_energy"]);
     }
 
@@ -3902,6 +4180,31 @@ variables:
             .sum();
         // 1500 W * 3600 s = 1.5 kWh total electric.
         assert!((elec_total - 1.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_dual_mode_component_splits_heating_electric() {
+        // A VRF outdoor unit drawing 1000 W, 600 W of it for heating-mode indoor
+        // units, must report 600 W heating and 400 W cooling — not all cooling.
+        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
+        snap.component_electric_power
+            .insert("ODU".to_string(), 1000.0);
+        snap.component_kinds
+            .insert("ODU".to_string(), ComponentKind::VrfOutdoor);
+        snap.component_heating_electric_power
+            .insert("ODU".to_string(), 600.0);
+
+        let get = |spec: &str| snap.get_variable_values(spec)["Building"];
+        assert!((get("building:heating_electric") - 600.0).abs() < 1e-9);
+        assert!((get("building:cooling_electric") - 400.0).abs() < 1e-9);
+        assert!((get("building:total_electric") - 1000.0).abs() < 1e-9);
+
+        let mut report = SummaryReport::new(HashMap::new(), HashMap::new());
+        report.add_snapshot(&snap);
+        let rows = report.compute_enduse_rows();
+        let row = |label: &str| rows.iter().find(|r| r.label == label).unwrap().total;
+        assert!((row("Heating (Electric)") - 0.6).abs() < 1e-9);
+        assert!((row("Cooling (Electric)") - 0.4).abs() < 1e-9);
     }
 
     #[test]
@@ -4064,6 +4367,133 @@ variables:
         assert_eq!(get_unit("submeter:equipment:Kitchen"), "W");
         assert!(is_integrable("submeter:fan_electric:General"));
         assert!(is_integrable("submeter:lighting:Decorative"));
+        assert_eq!(
+            summed_unit("submeter:lighting:General"),
+            ("Wh", Some(1.0 / 3600.0))
+        );
+    }
+
+    #[test]
+    fn test_parse_variable_spec() {
+        assert_eq!(
+            parse_variable_spec("zone:temperature"),
+            ("zone:temperature".to_string(), None)
+        );
+        assert_eq!(
+            parse_variable_spec("zone:temperature:Living*@max"),
+            (
+                "zone:temperature:Living*".to_string(),
+                Some(Aggregation::Max)
+            )
+        );
+        assert_eq!(
+            parse_variable_spec(" building:total_electric@SUM "),
+            (
+                "building:total_electric".to_string(),
+                Some(Aggregation::Sum)
+            )
+        );
+        // Legacy underscore names are normalized.
+        assert_eq!(
+            parse_variable_spec("zone_heating_energy"),
+            ("zone:heating_energy".to_string(), None)
+        );
+        assert_eq!(
+            parse_variable_spec("site_outdoor_temperature@min"),
+            (
+                "site:outdoor_temperature".to_string(),
+                Some(Aggregation::Min)
+            )
+        );
+        // Unknown suffix is left in place (no silent reinterpretation).
+        assert_eq!(
+            parse_variable_spec("zone:temperature@bogus"),
+            ("zone:temperature@bogus".to_string(), None)
+        );
+    }
+
+    fn run_writer(variables: &[&str], legacy: Option<Aggregation>) -> OutputWriter {
+        let config = OutputFileConfig {
+            file: "test.csv".to_string(),
+            frequency: OutputFrequency::Hourly,
+            aggregation: legacy,
+            variables: variables.iter().map(|s| s.to_string()).collect(),
+        };
+        let mut writer = OutputWriter::new(config);
+        // 4 × 15-min timesteps in hour 1, then one in hour 2 to flush.
+        for (hour, sub, temp, power) in [
+            (1, 1, 20.0, 1000.0),
+            (1, 2, 22.0, 2000.0),
+            (1, 3, 18.0, 3000.0),
+            (1, 4, 24.0, 2000.0),
+            (2, 1, 0.0, 0.0),
+        ] {
+            let mut snap = OutputSnapshot::new(1, 1, hour, sub, 900.0);
+            snap.zone_temperature.insert("Z".to_string(), temp);
+            snap.zone_heating_rate.insert("Z".to_string(), power);
+            snap.zone_lighting_power.insert("Z".to_string(), power);
+            writer.add_snapshot(&snap);
+        }
+        writer
+    }
+
+    #[test]
+    fn test_per_variable_default_aggregation() {
+        let w = run_writer(
+            &[
+                "zone:temperature",
+                "zone:heating_rate",
+                "zone:heating_energy",
+                "building:lighting",
+            ],
+            None,
+        );
+        let row = &w.rows[0].values;
+        assert!((row[0] - 21.0).abs() < 1e-9); // mean temperature
+        assert!((row[1] - 2000.0).abs() < 1e-9); // mean power [W]
+        assert!((row[2] - 7_200_000.0).abs() < 1e-6); // summed energy [J]
+                                                      // Meter is integrated to Wh — not N× the power at sub-hourly timesteps.
+        assert!((row[3] - 2000.0).abs() < 1e-9);
+        assert_eq!(w.columns[3].unit, "Wh");
+        assert_eq!(w.columns[3].label, "lighting");
+    }
+
+    #[test]
+    fn test_per_variable_aggregation_override() {
+        let w = run_writer(
+            &[
+                "zone:temperature@max",
+                "zone:temperature@min",
+                "zone:heating_rate@sum",
+                "zone_temperature",
+            ],
+            None,
+        );
+        let row = &w.rows[0].values;
+        assert!((row[0] - 24.0).abs() < 1e-9);
+        assert!((row[1] - 18.0).abs() < 1e-9);
+        assert!((row[2] - 2000.0).abs() < 1e-9); // 8000 W·15 min = 2000 Wh
+        assert!((row[3] - 21.0).abs() < 1e-9); // legacy name resolves
+        assert_eq!(w.columns[0].label, "temperature@max");
+        assert_eq!(w.columns[0].unit, "°C");
+        assert_eq!(w.columns[2].unit, "Wh");
+        assert_eq!(w.columns[3].label, "temperature");
+    }
+
+    #[test]
+    fn test_legacy_file_aggregation_only_applies_to_non_energy() {
+        let w = run_writer(
+            &[
+                "zone:temperature",
+                "zone:heating_energy",
+                "zone:temperature@mean",
+            ],
+            Some(Aggregation::Max),
+        );
+        let row = &w.rows[0].values;
+        assert!((row[0] - 24.0).abs() < 1e-9); // legacy fallback
+        assert!((row[1] - 7_200_000.0).abs() < 1e-6); // energy still summed
+        assert!((row[2] - 21.0).abs() < 1e-9); // explicit suffix wins
     }
 
     #[test]

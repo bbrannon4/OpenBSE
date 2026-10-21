@@ -10077,7 +10077,7 @@ air_loops:
   equipment:
   - type: fan
     name: DC_basement Supply Fan
-    source: variable_volume
+    source: vav
     design_flow_rate: autosize
     pressure_rise: 637.689
     impeller_efficiency: 0.65

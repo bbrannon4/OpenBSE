@@ -509,8 +509,8 @@ thermostats:
     zones: [Office]
     heating_setpoint: 21.0
     cooling_setpoint: 24.0
-    heating_setpoint_unoccupied: 15.0
-    cooling_setpoint_unoccupied: 28.0
+    unoccupied_heating_setpoint: 15.0
+    unoccupied_cooling_setpoint: 28.0
 
 # ── Plant Loops ───────────────────────────────────────────────────────────────
 # Air-cooled chiller — no cooling tower or condenser loop.
@@ -531,7 +531,7 @@ plant_loops:
         name: CHW Pump
         design_flow_rate: autosize
         motor_efficiency: 0.90
-        pump_efficiency: 0.75
+        impeller_efficiency: 0.75
         submeter: datacenter
 
 # ── Air Loops ─────────────────────────────────────────────────────────────────
@@ -548,7 +548,7 @@ air_loops:
     equipment:
       - type: fan
         name: CRAH-1 Fan
-        source: variable
+        source: vav
         design_flow_rate: autosize
         motor_efficiency: 0.90
         impeller_efficiency: 0.65
@@ -575,7 +575,7 @@ air_loops:
     equipment:
       - type: fan
         name: CRAC-UPS Fan
-        source: variable
+        source: vav
         design_flow_rate: autosize
         motor_efficiency: 0.85
         impeller_efficiency: 0.60
@@ -602,7 +602,7 @@ air_loops:
     equipment:
       - type: fan
         name: CRAC-PDU Fan
-        source: variable
+        source: vav
         design_flow_rate: autosize
         motor_efficiency: 0.85
         impeller_efficiency: 0.60
@@ -655,22 +655,22 @@ outputs:
   - file: datacenter_hourly.csv
     frequency: hourly
     variables:
-      - zone:DataHall:temperature
-      - zone:UPS Room:temperature
-      - zone:PDU Room:temperature
-      - zone:Office:temperature
-      - zone:DataHall:dc_rack_outlet_temp
-      - zone:DataHall:dc_return_air_temp
+      - zone:temperature:DataHall
+      - zone:temperature:UPS Room
+      - zone:temperature:PDU Room
+      - zone:temperature:Office
+      - zone:dc_rack_outlet_temp:DataHall
+      - zone:dc_return_air_temp:DataHall
       - datacenter:pue
       - datacenter:it_load_kw
       - datacenter:mechanical_load_kw
       - datacenter:electrical_loss_kw
-      - zone:DataHall:cooling_rate
-      - zone:UPS Room:cooling_rate
-      - zone:PDU Room:cooling_rate
-      - zone:Office:cooling_rate
-      - component:DataHall Chiller:electric_power
-      - component:CRAH-1 Fan:electric_power
-      - component:CRAC-UPS DX Coil:electric_power
-      - component:CRAC-PDU DX Coil:electric_power
-      - component:Office DX Coil:electric_power
+      - zone:cooling_rate:DataHall
+      - zone:cooling_rate:UPS Room
+      - zone:cooling_rate:PDU Room
+      - zone:cooling_rate:Office
+      - component:electric_power:DataHall Chiller
+      - component:electric_power:CRAH-1 Fan
+      - component:electric_power:CRAC-UPS DX Coil
+      - component:electric_power:CRAC-PDU DX Coil
+      - component:electric_power:Office DX Coil

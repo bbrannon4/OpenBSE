@@ -87,7 +87,6 @@ outputs:
 
   - file: "energy_monthly.csv"
     frequency: monthly
-    aggregation: sum
     variables:
       - zone_heating_energy
       - zone_cooling_energy

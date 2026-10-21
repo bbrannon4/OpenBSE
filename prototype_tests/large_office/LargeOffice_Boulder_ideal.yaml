@@ -42,9 +42,6 @@ simulation:
     day: 23
   - month: 12
     day: 25
-  daylight_saving:
-    start: "2nd Sunday in March"
-    end: "1st Sunday in November"
 weather_files:
 - /Users/benjaminbrannon/Documents/GitHub/OpenBSE/prototype_tests/Denver-Buckley.epw
 design_days:

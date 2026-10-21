@@ -14,12 +14,18 @@ const FIELD_TO_SOURCE: Record<string, string | string[]> = {
   // Schedule references
   schedule: "schedules",
   availability_schedule: "schedules",
+  minimum_oa_schedule: "schedules",
 
   // Zone references (single string fields)
   zone: "zones",
 
   // Construction references
-  construction: ["constructions", "simple_constructions", "window_constructions"],
+  construction: [
+    "constructions",
+    "simple_constructions",
+    "window_constructions",
+    "f_factor_constructions",
+  ],
 
   // Material references
   material: "materials",
@@ -27,9 +33,23 @@ const FIELD_TO_SOURCE: Record<string, string | string[]> = {
   // Performance curve references
   cap_ft_curve: "performance_curves",
   eir_ft_curve: "performance_curves",
+  plf_curve: "performance_curves",
+  cap_fflow_curve: "performance_curves",
+  eir_fflow_curve: "performance_curves",
+  capft_curve: "performance_curves",
+  eirft_curve: "performance_curves",
+  eirfplr_curve: "performance_curves",
+  efficiency_curve: "performance_curves",
+  cooling_cap_ft: "performance_curves",
+  cooling_eir_ft: "performance_curves",
+  heating_cap_ft: "performance_curves",
+  heating_eir_ft: "performance_curves",
 
   // Plant loop references
   loop_name: "plant_loops",
+  plant_loop: "plant_loops",
+  condenser_plant_loop: "plant_loops",
+  source_loop: "plant_loops",
 
   // Component references (air loop equipment names)
   component: "__equipment_names__",
