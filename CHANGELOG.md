@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Output aggregation is now per variable**. Energy meters (`building:*`, `submeter:*`, `zone:heating_energy`/`cooling_energy`) are summed, everything else is time-averaged, and any variable can be overridden with an `@mean|@sum|@min|@max` suffix (e.g. `zone:temperature@max`). The file-level `aggregation:` key is deprecated: it still applies to non-energy variables without a suffix and logs a warning.
+- `building:*` and `submeter:*` output columns are now integrated energy in **Wh** (Σ power·dt) instead of summed watts labelled `[W]`. Values are unchanged at one timestep per hour and no longer N× too large at sub-hourly timesteps. Summing other rates integrates them too (kg/s → kg, m³/s → m³, unmet/active flags → hours).
+- VRF electricity is split between Heating (Electric) and Cooling (Electric) by indoor-unit mode, instead of all being reported as cooling.
+
+### Fixed
+- Legacy underscore output variable names (`zone_temperature`, `zone_heating_energy`, …) were silently dropped, so their output files were never written. They are now accepted as aliases for `zone:temperature` etc., and variables that match no data log a warning.
+- Workbench: the Energy tab now shows end uses and unmet hours from the summary report; the Network tab shows VRF systems; the selected weather file is remembered per model.
 ## [0.7.0] - 2026-10-11
 
 ### Added

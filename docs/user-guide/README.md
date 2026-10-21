@@ -1193,10 +1193,10 @@ Define CSV output files with selectable variables and reporting frequencies:
 ```yaml
 outputs:
   - file: "zone_results.csv"
-    frequency: hourly        # timestep | hourly | daily | monthly | runperiod
-    aggregation: mean        # mean | sum | min | max
+    frequency: hourly        # timestep | hourly | daily | monthly | run_period
     variables:
       - zone:temperature
+      - zone:temperature@max             # hourly peak instead of hourly mean
       - zone:heating_rate
       - zone:gain_solar
       - zone:mean_radiant_temperature
@@ -1213,6 +1213,11 @@ outputs:
       - component:cop_operating
       - component:electric_power:Supply Fan  # specific component
       - component:plr
+  - file: "energy_monthly.csv"
+    frequency: monthly
+    variables:
+      - building:total_electric          # meters are summed → Wh
+      - zone:unmet_heating@sum           # flag summed → unmet hours
 ```
 
 ### Variable Naming Scheme
@@ -1222,6 +1227,18 @@ Variables use the format `category:variable` or `category:variable:name_filter`.
 - **`category:variable`** — returns data for all entities (all zones, all surfaces, all components)
 - **`category:variable:ZoneName`** — returns data for the named entity only
 - **`category:variable:Window*`** — glob filter; `*` matches any characters
+- **`...@mean` / `@sum` / `@min` / `@max`** — override how the variable is reduced to the reporting frequency
+
+### Aggregation
+
+Each variable has its own default reduction when timesteps are combined into a reporting period:
+
+- **Energy** — `zone:heating_energy`, `zone:cooling_energy`, and all `building:*` and `submeter:*` meters — is **summed**. Meters are integrated over time and reported in **Wh**.
+- **Everything else** (temperatures, rates, flows, ratios) is **time-averaged**.
+
+Append `@mean`, `@sum`, `@min` or `@max` to a variable to override the default. Summing a rate integrates it over time, so W becomes Wh, kg/s becomes kg, m³/s becomes m³ and 0/1 flags become hours. When the reduction differs from the default, the column header shows the suffix, for example `Zone 1:temperature@max [°C]`.
+
+The legacy file-wide `aggregation:` key is deprecated. If present, it still applies to non-energy variables without a suffix, and a warning is logged.
 
 ### Available Output Variables
 
@@ -1339,25 +1356,25 @@ Additional component-specific variables:
 | Duct | `component:conduction_loss` | W | Conduction heat loss |
 | Duct | `component:leakage_loss` | W | Leakage loss |
 
-**Building energy totals:**
+**Building energy meters** (summed over each reporting period, Wh):
 | Variable | Unit | Description |
 |----------|------|-------------|
-| `building:fan_electric` | W | All fan electric power |
-| `building:cooling_electric` | W | DX/chiller electric power |
-| `building:heating_electric` | W | Heating electric power |
-| `building:heating_gas` | W | Heating gas/fuel power |
-| `building:pump_electric` | W | Pump electric power |
-| `building:heat_rejection` | W | Cooling tower electric power |
-| `building:humidification` | W | Humidifier electric power |
-| `building:heat_recovery` | W | Heat recovery electric power |
-| `building:dhw_electric` | W | DHW electric power |
-| `building:dhw_gas` | W | DHW gas/fuel power |
-| `building:lighting` | W | Interior lighting power |
-| `building:ext_lighting` | W | Exterior lighting power |
-| `building:equipment` | W | Interior equipment power |
-| `building:ext_equipment` | W | Exterior equipment power |
-| `building:total_electric` | W | Total electric power |
-| `building:total_gas` | W | Total gas/fuel power |
+| `building:fan_electric` | Wh | All fan electric energy |
+| `building:cooling_electric` | Wh | DX/chiller electric energy |
+| `building:heating_electric` | Wh | Heating electric energy |
+| `building:heating_gas` | Wh | Heating gas/fuel energy |
+| `building:pump_electric` | Wh | Pump electric energy |
+| `building:heat_rejection` | Wh | Cooling tower electric energy |
+| `building:humidification` | Wh | Humidifier electric energy |
+| `building:heat_recovery` | Wh | Heat recovery electric energy |
+| `building:dhw_electric` | Wh | DHW electric energy |
+| `building:dhw_gas` | Wh | DHW gas/fuel energy |
+| `building:lighting` | Wh | Interior lighting energy |
+| `building:ext_lighting` | Wh | Exterior lighting energy |
+| `building:equipment` | Wh | Interior equipment energy |
+| `building:ext_equipment` | Wh | Exterior equipment energy |
+| `building:total_electric` | Wh | Total electric energy |
+| `building:total_gas` | Wh | Total gas/fuel energy |
 
 ### Submeters
 
@@ -1389,17 +1406,17 @@ air_loops:
         submeter: HVAC-Zone1    # tag fan to a submeter
 ```
 
-**Submeter output variables** use the format `submeter:end_use` (all meters) or `submeter:end_use:MeterName` (specific meter):
+**Submeter output variables** are energy meters (summed over each reporting period, Wh) and use the format `submeter:end_use` (all meters) or `submeter:end_use:MeterName` (specific meter):
 
 | Variable | Description |
 |----------|-------------|
-| `submeter:lighting` | All submeter lighting power [W] |
-| `submeter:lighting:Decorative` | Lighting power for the "Decorative" submeter [W] |
-| `submeter:equipment:Kitchen` | Equipment power for the "Kitchen" submeter [W] |
-| `submeter:fan_electric:HVAC-Zone1` | Fan power for the "HVAC-Zone1" submeter [W] |
-| `submeter:total_electric` | Sum of all electric end uses (per submeter) [W] |
-| `submeter:total_gas` | Sum of all gas end uses (per submeter) [W] |
-| `submeter:total` | Sum of all end uses (per submeter) [W] |
+| `submeter:lighting` | All submeter lighting energy [Wh] |
+| `submeter:lighting:Decorative` | Lighting energy for the "Decorative" submeter [Wh] |
+| `submeter:equipment:Kitchen` | Equipment energy for the "Kitchen" submeter [Wh] |
+| `submeter:fan_electric:HVAC-Zone1` | Fan energy for the "HVAC-Zone1" submeter [Wh] |
+| `submeter:total_electric` | Sum of all electric end uses (per submeter) [Wh] |
+| `submeter:total_gas` | Sum of all gas end uses (per submeter) [Wh] |
+| `submeter:total` | Sum of all end uses (per submeter) [Wh] |
 
 End-use categories: `fan_electric`, `cooling_electric`, `heating_electric`, `heating_gas`, `pump_electric`, `heat_rejection`, `humidification`, `heat_recovery`, `dhw_electric`, `dhw_gas`, `lighting`, `ext_lighting`, `equipment`, `ext_equipment`.
 
