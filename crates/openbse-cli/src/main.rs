@@ -3406,13 +3406,26 @@ fn main() -> Result<()> {
                                     zone_cooling_setpoints,
                                     ctx.outdoor_air.w,
                                 );
-                                // Record compressor energy in hvac_result outputs
+                                // Record compressor energy in hvac_result outputs,
+                                // with the heating-mode share so end uses split
+                                // correctly (power is allocated to indoor units).
                                 if odu.compressor_power > 0.0 {
-                                    hvac_result
+                                    let heating_power: f64 = idu_vec
+                                        .iter()
+                                        .filter(|iu| {
+                                            iu.mode == openbse_components::vrf::VrfMode::Heating
+                                        })
+                                        .map(|iu| iu.power)
+                                        .sum();
+                                    let outs = hvac_result
                                         .component_outputs
                                         .entry(odu.name.clone())
-                                        .or_default()
-                                        .insert("electric_power".to_string(), odu.compressor_power);
+                                        .or_default();
+                                    outs.insert("electric_power".to_string(), odu.compressor_power);
+                                    outs.insert(
+                                        "heating_electric_power".to_string(),
+                                        heating_power,
+                                    );
                                 }
                             }
 
@@ -4179,6 +4192,11 @@ fn main() -> Result<()> {
                                     if let Some(&kind) = comp_kind_map.get(comp_name) {
                                         snapshot.component_kinds.insert(comp_name.clone(), kind);
                                     }
+                                    if let Some(&hp) = vars.get("heating_electric_power") {
+                                        snapshot
+                                            .component_heating_electric_power
+                                            .insert(comp_name.clone(), hp * zmult);
+                                    }
                                 }
                             }
                         }
@@ -4527,7 +4545,16 @@ fn main() -> Result<()> {
                                 }
                                 _ => "misc_electric",
                             };
-                            add(sm, meter, end_use, pw);
+                            let heat = snapshot
+                                .component_heating_electric_power
+                                .get(comp_name)
+                                .copied()
+                                .unwrap_or(0.0)
+                                .clamp(0.0, pw.max(0.0));
+                            if heat > 0.0 {
+                                add(sm, meter, "heating_electric", heat);
+                            }
+                            add(sm, meter, end_use, pw - heat);
                         }
                         for (comp_name, &pw) in &snapshot.component_fuel_power {
                             let meter = comp_submeter
@@ -4731,6 +4758,11 @@ fn main() -> Result<()> {
                                         .insert(comp_name.clone(), pw_m);
                                     if let Some(&kind) = comp_kind_map.get(comp_name) {
                                         snapshot.component_kinds.insert(comp_name.clone(), kind);
+                                    }
+                                    if let Some(&hp) = vars.get("heating_electric_power") {
+                                        snapshot
+                                            .component_heating_electric_power
+                                            .insert(comp_name.clone(), hp * zmult);
                                     }
                                 }
                             }
