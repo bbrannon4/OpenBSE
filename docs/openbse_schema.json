@@ -88,6 +88,12 @@
       "default": [],
       "description": "Simplified constructions defined by U-factor and lumped thermal capacity."
     },
+    "f_factor_constructions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/FFactorConstruction" },
+      "default": [],
+      "description": "F-factor ground floor constructions (perimeter-based slab heat loss, Q = F × P × (T_zone − T_ground)). Matches EnergyPlus Construction:FfactorGroundFloor. Surfaces using these must specify `exposed_perimeter`."
+    },
     "zones": {
       "type": "array",
       "items": { "$ref": "#/$defs/Zone" },
@@ -99,6 +105,12 @@
       "items": { "$ref": "#/$defs/Surface" },
       "default": [],
       "description": "Building surfaces (walls, floors, roofs, windows)."
+    },
+    "shading_surfaces": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ShadingSurface" },
+      "default": [],
+      "description": "External shading surfaces (overhangs, fins, neighboring buildings). These only cast shadows — no thermal mass. Requires `simulation.shading_calculation: detailed`."
     },
     "people": {
       "type": "array",
@@ -148,6 +160,44 @@
       "default": [],
       "description": "Ideal loads air systems for zone load testing without real HVAC."
     },
+    "dhw_systems": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/DhwSystem" },
+      "default": [],
+      "description": "Domestic hot water systems (water heater, draw loads, optional recirculation pump)."
+    },
+    "vrf_systems": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/VrfSystem" },
+      "default": [],
+      "description": "Variable refrigerant flow systems (one outdoor unit serving per-zone indoor units)."
+    },
+    "radiant_panels": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/RadiantPanel" },
+      "default": [],
+      "description": "Zone-level radiant panels (fin-tube radiators, chilled ceilings, electric panels)."
+    },
+    "exterior_equipment": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ExteriorEquipment" },
+      "default": [],
+      "description": "Exterior equipment — facility-level loads not in any zone (exterior lighting, signage, etc.)."
+    },
+    "equipment_it": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/EquipmentGain" },
+      "default": [],
+      "description": "IT server loads, tracked separately from general equipment for ASHRAE 90.4 PUE/MLC/ELC reporting. Processed identically to `equipment` in the zone heat balance but reported under the IT equipment end use. If `submeter` is omitted, auto-assigned to \"datacenter\"."
+    },
+    "electrical_distribution": {
+      "$ref": "#/$defs/ElectricalDistribution",
+      "description": "UPS and transformer losses for ASHRAE 90.4 ELC calculation."
+    },
+    "climate_zone": {
+      "type": "string",
+      "description": "ASHRAE climate zone (e.g. \"5A\") — used for ASHRAE 90.4 PUE/MLC/ELC compliance limits in the summary report. Optional; limits show \"Unknown\" if omitted."
+    },
     "outputs": {
       "type": "array",
       "items": { "$ref": "#/$defs/OutputFile" },
@@ -178,6 +228,30 @@
         "infiltration_interaction": { "type": "string", "enum": ["basic", "ashrae_combined"], "default": "basic", "description": "How infiltration combines with exhaust. 'ashrae_combined' uses sqrt(infil^2 + exhaust^2)." },
         "solar_distribution": { "type": "string", "enum": ["full_exterior", "full_interior_and_exterior"], "default": "full_exterior", "description": "Interior solar distribution method." },
         "airflow_network": { "$ref": "#/$defs/AirflowNetworkConfig" },
+        "ground_surface_temperatures": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 12,
+          "maxItems": 12,
+          "default": [18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18],
+          "description": "Monthly ground surface temperatures [C], January through December, for surfaces with `boundary: ground`. Matches EnergyPlus Site:GroundTemperature:BuildingSurface."
+        },
+        "heating_sizing_factor": { "type": "number", "default": 1.25, "description": "Heating sizing factor applied to zone design loads and airflows (EnergyPlus Sizing:Parameters). 1.25 = 25% safety margin." },
+        "cooling_sizing_factor": { "type": "number", "default": 1.15, "description": "Cooling sizing factor applied to zone design loads and airflows (EnergyPlus Sizing:Parameters). 1.15 = 15% safety margin." },
+        "sizing_fan_delta_t": { "type": "number", "default": 0.0, "description": "Fan heat temperature rise added to the cooling design supply air temperature when sizing zone cooling airflows [C]. ~2.2 for typical VAV office systems." },
+        "holidays": {
+          "type": "array",
+          "default": [],
+          "description": "Holiday dates. On these days every schedule uses its `holiday` profile (falling back to sunday → weekend → weekday). Matches EnergyPlus RunPeriodControl:SpecialDays (Holiday).",
+          "items": {
+            "type": "object",
+            "required": ["month", "day"],
+            "properties": {
+              "month": { "type": "integer", "minimum": 1, "maximum": 12 },
+              "day": { "type": "integer", "minimum": 1, "maximum": 31 }
+            }
+          }
+        },
         "run_parametrics": { "type": "boolean", "default": true, "description": "Whether to execute parametric runs defined in the parametrics section. Set to false to run the base model only without deleting parametric definitions." }
       }
     },
@@ -299,7 +373,11 @@
         "wind_speed": { "type": "number", "description": "Wind speed [m/s]." },
         "month": { "type": "integer", "minimum": 1, "maximum": 12 },
         "day": { "type": "integer", "minimum": 1, "maximum": 31 },
-        "day_type": { "type": "string", "enum": ["summer_design", "winter_design"], "description": "Design day type." }
+        "day_type": { "type": "string", "enum": ["summer", "winter", "summer_design", "winter_design", "cooling", "heating"], "description": "Design day type. Matched by substring: values containing 'summer' or 'cool' are cooling design days; 'winter' or 'heat' are heating design days." },
+        "internal_gains": { "type": "string", "enum": ["off", "full", "scheduled", "full_when_occupied"], "description": "Internal gains during this design day: off (0%), full (100% at all hours), scheduled (follow normal schedules), full_when_occupied (full when schedule > 0). Defaults by day_type: heating → off, cooling → full." },
+        "taub": { "type": "number", "description": "ASHRAE Tau solar model beam optical depth (cooling design days)." },
+        "taud": { "type": "number", "description": "ASHRAE Tau solar model diffuse optical depth (cooling design days)." },
+        "cooling_setpoint_schedule": { "type": "array", "items": { "type": "number" }, "minItems": 24, "maxItems": 24, "description": "Hourly cooling setpoints for this design day [C], hours 1–24. Overrides the thermostat's constant cooling setpoint during sizing (models setup/pulldown)." }
       }
     },
 
@@ -319,29 +397,142 @@
 
     "PerformanceCurve": {
       "type": "object",
-      "required": ["name", "curve_type", "coefficients"],
-      "description": "Reusable performance curve. Modifies rated equipment performance as a function of operating conditions.",
+      "required": [
+        "name"
+      ],
+      "description": "Reusable performance curve. Modifies rated equipment performance as a function of operating conditions. Give either a polynomial (`curve_type` + `coefficients`, optional bounds) or a manufacturer data `table` (N-linear interpolation), not both.",
       "properties": {
-        "name": { "type": "string", "description": "Unique curve name for referencing from components." },
-        "curve_type": { "$ref": "#/$defs/CurveType" },
+        "name": {
+          "type": "string",
+          "description": "Unique curve name for referencing from components."
+        },
+        "curve_type": {
+          "$ref": "#/$defs/CurveType"
+        },
         "coefficients": {
           "type": "array",
-          "items": { "type": "number" },
+          "items": {
+            "type": "number"
+          },
           "description": "Polynomial coefficients. Count depends on curve_type: linear=2, quadratic=3, cubic=4, biquadratic=6."
         },
-        "min_x": { "type": "number", "default": -100.0, "description": "Minimum independent variable x." },
-        "max_x": { "type": "number", "default": 100.0, "description": "Maximum independent variable x." },
-        "min_y": { "type": "number", "default": -100.0, "description": "Minimum independent variable y (biquadratic only)." },
-        "max_y": { "type": "number", "default": 100.0, "description": "Maximum independent variable y (biquadratic only)." },
-        "min_output": { "type": "number", "description": "Minimum allowed output value (optional clamp)." },
-        "max_output": { "type": "number", "description": "Maximum allowed output value (optional clamp)." }
+        "min_x": {
+          "type": "number",
+          "default": -100.0,
+          "description": "Minimum independent variable x."
+        },
+        "max_x": {
+          "type": "number",
+          "default": 100.0,
+          "description": "Maximum independent variable x."
+        },
+        "min_y": {
+          "type": "number",
+          "default": -100.0,
+          "description": "Minimum independent variable y (biquadratic only)."
+        },
+        "max_y": {
+          "type": "number",
+          "default": 100.0,
+          "description": "Maximum independent variable y (biquadratic only)."
+        },
+        "min_output": {
+          "type": "number",
+          "description": "Minimum allowed output value (optional clamp)."
+        },
+        "max_output": {
+          "type": "number",
+          "description": "Maximum allowed output value (optional clamp)."
+        },
+        "table": {
+          "type": "object",
+          "required": [
+            "axes",
+            "values"
+          ],
+          "description": "Lookup table definition.",
+          "properties": {
+            "axes": {
+              "type": "array",
+              "description": "Independent-variable axes. When a table is used positionally (cap-fT, EIR-fT, ...), x maps to the first axis and y to the second.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "variable",
+                  "values"
+                ],
+                "properties": {
+                  "variable": {
+                    "type": "string",
+                    "enum": [
+                      "outdoor_dry_bulb",
+                      "outdoor_wet_bulb",
+                      "indoor_dry_bulb",
+                      "indoor_wet_bulb",
+                      "entering_water_temp",
+                      "leaving_water_temp",
+                      "part_load_ratio",
+                      "airflow_fraction",
+                      "water_flow_fraction"
+                    ],
+                    "description": "Physical variable this axis represents (temperatures in [C], fractions in [0-1])."
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "description": "Breakpoints — strictly increasing."
+                  },
+                  "extrapolation": {
+                    "type": "string",
+                    "enum": [
+                      "hold_edge",
+                      "linear"
+                    ],
+                    "default": "hold_edge",
+                    "description": "Behavior outside the breakpoints: clamp to the edge value, or extrapolate linearly."
+                  }
+                }
+              }
+            },
+            "values": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  }
+                }
+              ],
+              "description": "Row-major output values (axis 0 varies slowest). Length must equal the product of the axis lengths. May also be given as a nested list of rows, which is flattened."
+            },
+            "output_min": {
+              "type": "number",
+              "description": "Minimum allowed output value (optional clamp)."
+            },
+            "output_max": {
+              "type": "number",
+              "description": "Maximum allowed output value (optional clamp)."
+            }
+          }
+        }
       }
     },
 
     "AirLoopSystemType": {
       "type": "string",
-      "enum": ["psz_ac", "doas", "fcu", "vav", "ptac", "pthp", "variable_air_volume", "dedicated_outdoor_air", "fan_coil_unit", "packaged_terminal", "packaged_terminal_heat_pump", "packaged_single_zone"],
-      "description": "HVAC system type hint. Usually auto-detected from equipment and controls. Descriptive aliases are accepted: variable_air_volume (=vav), dedicated_outdoor_air (=doas), fan_coil_unit (=fcu), packaged_terminal (=ptac), packaged_terminal_heat_pump (=pthp), packaged_single_zone (=psz_ac)."
+      "enum": ["psz_ac", "doas", "fcu", "vav", "ptac", "pthp", "dual_duct", "crac", "crah", "variable_air_volume", "dedicated_outdoor_air", "fan_coil_unit", "packaged_terminal", "packaged_terminal_heat_pump", "packaged_single_zone", "dual_duct_cav"],
+      "description": "HVAC system type hint. Usually auto-detected from equipment and controls. dual_duct = dual-duct constant air volume (hot + cold deck blended at each zone mixing box); crac = computer-room air conditioner (self-contained DX, no OA mixing); crah = computer-room air handler (chilled-water coil, no OA mixing). Descriptive aliases are accepted: variable_air_volume (=vav), dedicated_outdoor_air (=doas), fan_coil_unit (=fcu), packaged_terminal (=ptac), packaged_terminal_heat_pump (=pthp), packaged_single_zone (=psz_ac), dual_duct_cav (=dual_duct)."
     },
 
     "CyclingMethod": {
@@ -388,16 +579,78 @@
         "cooling_supply_temp": { "type": "number", "default": 13.0, "description": "Design cooling supply air temperature [C]." },
         "cycling": { "$ref": "#/$defs/CyclingMethod" },
         "deadband": { "type": "number", "default": 1.0, "description": "Thermostat deadband [C]." },
-        "design_zone_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design air flow rate per zone [kg/s]. Use 'autosize' for auto-calculation." },
-        "minimum_damper_position": { "type": "number", "minimum": 0, "maximum": 1, "description": "Minimum outdoor air damper position [0-1]. Set to 1.0 for DOAS." },
+        "design_zone_flow": { "$ref": "#/$defs/AutosizeOrNumber", "default": 0.5, "description": "Design air flow rate per zone [kg/s]. Use 'autosize' for auto-calculation." },
+        "minimum_damper_position": { "type": "number", "minimum": 0, "maximum": 1, "description": "Minimum outdoor air damper position [0-1]. Set to 1.0 for DOAS. If omitted, auto-calculated from zone outdoor air requirements (falls back to 0.20 if no outdoor_air definitions exist)." },
         "minimum_oa_schedule": { "type": "string", "description": "Schedule whose hourly value multiplies the minimum outdoor-air fraction (proportional minimum). Seasonal schedules are honored." },
-        "economizer": { "$ref": "#/$defs/EconomizerControls" }
+        "economizer": { "$ref": "#/$defs/EconomizerControls" },
+        "fan_operating_mode": { "$ref": "#/$defs/FanOperatingMode" },
+        "cooling_sat_reset": { "$ref": "#/$defs/SatReset", "description": "Cooling supply air temperature reset (absent = fixed SAT)." },
+        "heating_sat_reset": { "$ref": "#/$defs/SatReset", "description": "Heating supply air temperature reset (absent = fixed SAT)." },
+        "outdoor_air_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Explicit outdoor air fraction [0-1] for CRAC/CRAH systems. Overrides minimum_damper_position when set." },
+        "cooling_part_load_cd": { "type": "number", "default": 0.15, "description": "Cooling cycling degradation coefficient Cd for PLF = 1 − Cd·(1−PLR), applied to compressor and condenser-fan energy at part load. 0.15 = EnergyPlus default; ASHRAE 140 HVAC BESTEST uses 0.229." },
+        "return_fan_pressure_rise": { "type": "number", "description": "Return-fan design pressure rise [Pa] (absent = no return fan). Heats the return air before it mixes with outdoor air." },
+        "return_fan_total_efficiency": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1, "description": "Return-fan total efficiency [0-1]. Only used when return_fan_pressure_rise is set." },
+        "fixed_cooling_sat": { "type": "boolean", "default": false, "description": "Hold the central cooling coil at a fixed leaving-air temperature (cooling_supply_temp) instead of the warmest-zone reset." },
+        "preheat_setpoint": { "type": "number", "description": "Central preheat-coil leaving-air setpoint [C]. When set, the AHU heating coil holds this temperature to temper the mixed air (otherwise frost protection only)." },
+        "minimum_oa_flow": { "type": "number", "description": "Fixed minimum outdoor-air volume flow [m3/s], held regardless of supply flow (E+ Controller:OutdoorAir FixedMinimum). Overrides minimum_damper_position as the OA floor." }
+      }
+    },
+
+    "FanOperatingMode": {
+      "type": "string",
+      "enum": ["cycling", "continuous", "continuous_no_load_off"],
+      "default": "cycling",
+      "description": "Fan operating mode. cycling = fan cycles with coils (off in deadband); continuous = fan always at full speed; continuous_no_load_off = full speed while heating/cooling, off in deadband (E+ PTAC with no-load flow = 0)."
+    },
+
+    "SatReset": {
+      "description": "Supply air temperature reset strategy.",
+      "oneOf": [
+        { "$ref": "#/$defs/OaSatReset" },
+        { "$ref": "#/$defs/DemandSatReset" },
+        { "$ref": "#/$defs/SingleZoneSatReset" }
+      ]
+    },
+
+    "OaSatReset": {
+      "type": "object",
+      "required": ["type", "sat_min", "sat_max", "oa_low", "oa_high"],
+      "description": "Reset SAT linearly with outdoor air temperature (ASHRAE 90.1 G3.1.3.12).",
+      "properties": {
+        "type": { "type": "string", "const": "oa_reset" },
+        "sat_min": { "type": "number", "description": "SAT at hot outdoor conditions (oa_high) [C]." },
+        "sat_max": { "type": "number", "description": "SAT at cool outdoor conditions (oa_low) [C]." },
+        "oa_low": { "type": "number", "description": "Outdoor temperature at which SAT = sat_max [C]." },
+        "oa_high": { "type": "number", "description": "Outdoor temperature at which SAT = sat_min [C]." }
+      }
+    },
+
+    "DemandSatReset": {
+      "type": "object",
+      "required": ["type", "sat_min", "sat_max"],
+      "description": "Reset SAT upward until the most-loaded VAV box reaches 100% open.",
+      "properties": {
+        "type": { "type": "string", "const": "demand_reset" },
+        "sat_min": { "type": "number", "description": "Lowest allowed SAT [C]." },
+        "sat_max": { "type": "number", "description": "Highest allowed SAT [C]." },
+        "step": { "type": "number", "default": 0.5, "description": "Step size per timestep [C]." }
+      }
+    },
+
+    "SingleZoneSatReset": {
+      "type": "object",
+      "required": ["type", "sat_min", "sat_max"],
+      "description": "Reset SAT each timestep to hold the control zone exactly at setpoint (EnergyPlus SetpointManager:SingleZone).",
+      "properties": {
+        "type": { "type": "string", "const": "single_zone" },
+        "sat_min": { "type": "number", "description": "Minimum SAT [C]." },
+        "sat_max": { "type": "number", "description": "Maximum SAT [C]." }
       }
     },
 
     "Fan": {
       "type": "object",
-      "required": ["type", "name", "design_flow_rate"],
+      "required": ["type", "name"],
       "description": "Fan component.",
       "properties": {
         "type": { "type": "string", "const": "fan" },
@@ -406,16 +659,19 @@
           "type": "string",
           "enum": ["constant_volume", "vav", "on_off"],
           "default": "constant_volume",
-          "description": "Fan type/source."
+          "description": "Fan type/source. Any value other than vav / on_off is treated as constant_volume."
         },
-        "design_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design air volume flow rate [m3/s]." },
+        "tag": { "type": "string", "description": "Free-form tag for output classification (e.g. supply, return, exhaust, transfer, relief). Used for end-use subcategory reporting." },
+        "design_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design air volume flow rate [m3/s]. May be omitted when a205_file is set (the file's nominal flow is used)." },
         "pressure_rise": { "type": "number", "default": 600.0, "description": "Design pressure rise [Pa]." },
+        "a205_file": { "type": "string", "description": "Path to an ASHRAE Standard 205 RS0003 fan performance file (.a205 CBOR or .a205.json). Relative paths resolve against the model YAML directory. When set, the analytical efficiencies and VAV coefficients are ignored; pressure_rise is still the static-pressure query." },
         "motor_efficiency": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Motor efficiency [0-1]." },
         "impeller_efficiency": { "type": "number", "default": 0.71, "minimum": 0, "maximum": 1, "description": "Impeller (fan blade) efficiency [0-1]. Total efficiency = motor * impeller." },
         "motor_in_airstream_fraction": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Fraction of motor waste heat entering the airstream [0-1]." },
         "air_density": { "type": "number", "exclusiveMinimum": 0, "description": "Fixed air density [kg/m3] for the fan power calculation. Default: actual fan-inlet density. Set the standard density (about 1.204 at sea level) to rate the fan at standard air, as EnergyPlus does." },
-        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." }
-      }
+                "vav_coefficients": { "type": "array", "items": { "type": "number" }, "minItems": 5, "maxItems": 5, "description": "VAV fan power curve coefficients [C1..C5]: power fraction = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4. Default: typical ASHRAE forward-curved centrifugal fan." },
+                "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." }
+              }
     },
 
     "HeatingCoil": {
@@ -427,20 +683,34 @@
         "name": { "type": "string" },
         "source": {
           "type": "string",
-          "enum": ["electric", "gas", "hot_water"],
+          "enum": ["electric", "gas", "hot_water", "heat_pump"],
+          "x-aliases": ["furnace", "hp"],
           "default": "electric",
-          "description": "Heating energy source."
+          "description": "Heating energy source. heat_pump = air-source heat pump DX heating coil (uses cop instead of efficiency). 'furnace' is accepted as an alias of gas, 'hp' of heat_pump."
         },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
         "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Nominal heating capacity [W]." },
         "setpoint": { "type": "number", "default": 35.0, "description": "Outlet air temperature setpoint [C]." },
         "efficiency": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Heating efficiency [0-1]. 1.0 for electric, <1.0 for gas. Ignored for hot_water source (boiler handles efficiency)." },
-        "parasitic_electric_load": { "type": "number", "default": 0.0, "minimum": 0, "description": "On-cycle parasitic electric load [W] for gas coils (draft / inducer fan). Runs with the burner; adds no heat to the supply air." }
+        "parasitic_electric_load": { "type": "number", "default": 0.0, "minimum": 0, "description": "On-cycle parasitic electric load [W] for gas coils (draft / inducer fan). Runs with the burner; adds no heat to the supply air." },
+        "cop": { "type": "number", "default": 3.0, "description": "Rated heating COP (heat_pump source only)." },
+        "rated_airflow": { "type": "number", "default": 0.0, "description": "Rated airflow [m3/s] (heat_pump source only). 0 = derived from capacity (~500 CFM/ton)." },
+        "supplemental_capacity": { "type": "number", "default": 0.0, "minimum": 0, "description": "Supplemental electric resistance capacity [W] (heat_pump source only; 0 = none)." },
+        "lockout_temp": { "type": "number", "description": "Compressor low-temperature lockout [C] (heat_pump source only). Default: -17.78 (0 F)." },
+        "cap_ft_curve": { "type": "string", "description": "Name of a top-level performance curve for capacity f(T_outdoor) (heat_pump source only)." },
+        "eir_ft_curve": { "type": "string", "description": "Name of a top-level performance curve for EIR f(T_outdoor) (heat_pump source only)." },
+        "plant_loop": { "type": "string", "description": "Hot water plant loop this coil connects to (hot_water source only)." },
+        "ua_model": { "type": "boolean", "default": false, "description": "Use the UA-based (NTU-effectiveness cross-flow) model for hot water coils instead of the simple capacity-based model." },
+        "rated_water_inlet_temp": { "type": "number", "description": "Rated water inlet temperature [C] for the UA model (default 82.2)." },
+        "rated_water_outlet_temp": { "type": "number", "description": "Rated water outlet temperature [C] for the UA model (default 71.1)." },
+        "rated_air_inlet_temp": { "type": "number", "description": "Rated air inlet temperature [C] for the UA model (default 16.6)." },
+        "rated_air_outlet_temp": { "type": "number", "description": "Rated air outlet temperature [C] for the UA model (default 32.2)." }
       }
     },
 
     "CoolingCoil": {
       "type": "object",
-      "required": ["type", "name", "capacity"],
+      "required": ["type", "name"],
       "description": "Cooling coil component (DX or chilled water).",
       "properties": {
         "type": { "type": "string", "const": "cooling_coil" },
@@ -448,16 +718,29 @@
         "source": {
           "type": "string",
           "enum": ["dx", "chilled_water"],
+          "x-aliases": ["chw"],
           "default": "dx",
-          "description": "Cooling energy source."
+          "description": "Cooling energy source. 'chw' is accepted as an alias of chilled_water."
         },
-        "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated total cooling capacity [W] at ARI conditions." },
-        "cop": { "type": "number", "default": 3.5, "description": "Rated COP (coefficient of performance)." },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated total cooling capacity [W] at ARI conditions. May be omitted when a205_file is set." },
+        "cop": { "type": "number", "default": 3.5, "description": "Rated COP (coefficient of performance). DX source only; ignored when a205_file is set." },
         "shr": { "type": "number", "default": 0.8, "minimum": 0, "maximum": 1, "description": "Rated sensible heat ratio [0-1]." },
         "rated_airflow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated air volume flow rate [m3/s]." },
+        "a205_file": { "type": "string", "description": "Path to an ASHRAE Standard 205 RS0004 DX performance file (.a205 CBOR or .a205.json). Relative paths resolve against the model YAML directory. When set, curves on this coil are ignored. DX source only." },
         "setpoint": { "type": "number", "default": 13.0, "description": "Outlet air temperature setpoint [C]." },
+        "condenser_fan_power": { "type": "number", "default": 0.0, "minimum": 0, "description": "Rated outdoor (condenser) fan power [W], DX source only. Runs with the compressor; reported under cooling electricity." },
         "cap_ft_curve": { "type": "string", "description": "Name of a top-level performance curve for capacity f(T_wb, T_outdoor)." },
-        "eir_ft_curve": { "type": "string", "description": "Name of a top-level performance curve for EIR f(T_wb, T_outdoor)." }
+        "eir_ft_curve": { "type": "string", "description": "Name of a top-level performance curve for EIR f(T_wb, T_outdoor)." },
+        "plf_curve": { "type": "string", "description": "Name of a top-level performance curve for part-load fraction f(PLR)." },
+        "cap_fflow_curve": { "type": "string", "description": "Name of a top-level performance curve for capacity f(flow fraction)." },
+        "eir_fflow_curve": { "type": "string", "description": "Name of a top-level performance curve for EIR f(flow fraction)." },
+        "autocalculate_shr": { "type": "boolean", "default": true, "description": "Compute SHR each timestep with the apparatus dew point / bypass factor method (E+ style). false = constant rated SHR." },
+        "dry_coil_wet_bulb_iteration": { "type": "boolean", "default": false, "description": "When the DX coil runs dry, evaluate capacity/EIR curves at the wet-bulb at which the coil would just be dry (as EnergyPlus does). Only used with autocalculate_shr." },
+        "design_water_flow_rate": { "type": "number", "default": 0.0, "description": "Design chilled water flow rate [m3/s] (chilled_water source only)." },
+        "design_water_inlet_temp": { "type": "number", "default": 6.7, "description": "Design chilled water supply temperature [C] (chilled_water source only)." },
+        "design_water_outlet_temp": { "type": "number", "default": 12.2, "description": "Design chilled water return temperature [C] (chilled_water source only)." },
+        "plant_loop": { "type": "string", "description": "Chilled water plant loop this coil connects to (chilled_water source only)." }
       }
     },
 
@@ -474,10 +757,148 @@
           "default": "wheel",
           "description": "Heat recovery device type. Wheels transfer both sensible and latent; plates are sensible-only."
         },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
         "sensible_effectiveness": { "type": "number", "default": 0.76, "minimum": 0, "maximum": 1, "description": "Sensible effectiveness at design conditions [0-1]." },
         "latent_effectiveness": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Latent effectiveness [0-1]. 0 for sensible-only devices." },
         "parasitic_power": { "type": "number", "default": 0.0, "minimum": 0, "description": "Parasitic electric power [W] (wheel motor, controls)." },
         "exhaust_flow_ratio": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Exhaust-to-supply mass flow ratio [0-1]. Recovery is limited by the exhaust stream when it carries less flow than supply (typical with building pressurization)." }
+      }
+    },
+
+    "DxMultiSpeedCoil": {
+      "type": "object",
+      "required": ["type", "name", "speeds"],
+      "description": "Multi-speed DX cooling coil.",
+      "properties": {
+        "type": { "type": "string", "const": "dx_multispeed" },
+        "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "speeds": {
+          "type": "array",
+          "description": "Speed stages ordered from lowest to highest capacity.",
+          "items": {
+            "type": "object",
+            "required": ["rated_capacity", "rated_airflow"],
+            "properties": {
+              "rated_capacity": { "type": "number", "description": "Total cooling capacity at rated conditions [W]." },
+              "cop": { "type": "number", "default": 3.5, "description": "COP at rated conditions." },
+              "shr": { "type": "number", "default": 0.8, "minimum": 0, "maximum": 1, "description": "Sensible heat ratio at rated conditions [0-1]." },
+              "rated_airflow": { "type": "number", "description": "Rated air flow rate [m3/s]." }
+            }
+          }
+        },
+        "setpoint": { "type": "number", "default": 13.0, "description": "Outlet air temperature setpoint [C]." }
+      }
+    },
+
+    "Wshp": {
+      "type": "object",
+      "required": ["type", "name", "rated_cooling_capacity", "rated_heating_capacity"],
+      "description": "Water-source heat pump.",
+      "properties": {
+        "type": { "type": "string", "const": "wshp" },
+        "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "rated_cooling_capacity": { "type": "number", "description": "Rated cooling capacity [W]." },
+        "rated_heating_capacity": { "type": "number", "description": "Rated heating capacity [W]." },
+        "cop_cooling": { "type": "number", "default": 4.5, "description": "COP in cooling mode." },
+        "cop_heating": { "type": "number", "default": 4.0, "description": "COP in heating mode." },
+        "setpoint": { "type": "number", "default": 13.0, "description": "Outlet air temperature setpoint [C]." }
+      }
+    },
+
+    "GroundTempSource": {
+      "description": "How the GSHP determines entering water temperature from the ground: auto (Kusuda-Achenbach model from weather-file annual stats), epw_monthly (EPW header monthly ground temps, falls back to auto), or {monthly: [12 values]} user-specified monthly temperatures [C], January–December.",
+      "default": "auto",
+      "oneOf": [
+        { "type": "string", "enum": ["auto", "epw_monthly"] },
+        {
+          "type": "object",
+          "required": ["monthly"],
+          "properties": {
+            "monthly": { "type": "array", "items": { "type": "number" }, "minItems": 12, "maxItems": 12, "description": "Monthly ground temperatures [C], January through December." }
+          }
+        }
+      ]
+    },
+
+    "Gshp": {
+      "type": "object",
+      "required": ["type", "name", "rated_cooling_capacity", "rated_heating_capacity", "outlet_temp_setpoint", "rated_airflow"],
+      "description": "Ground-source heat pump.",
+      "properties": {
+        "type": { "type": "string", "const": "gshp" },
+        "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "rated_cooling_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated cooling capacity [W]." },
+        "rated_heating_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated heating capacity [W]." },
+        "cop_cooling": { "type": "number", "default": 4.5, "description": "COP in cooling mode." },
+        "cop_heating": { "type": "number", "default": 4.0, "description": "COP in heating mode." },
+        "outlet_temp_setpoint": { "type": "number", "description": "Supply air temperature setpoint [C]." },
+        "rated_airflow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated volumetric airflow [m3/s]." },
+        "ground_temp_source": { "$ref": "#/$defs/GroundTempSource" },
+        "loop_depth": { "type": "number", "default": 1.5, "description": "Ground loop burial depth [m]." },
+        "cooling_cap_ft": { "type": "string", "description": "Optional cooling capacity f(EWT, indoor DBT) curve name." },
+        "cooling_eir_ft": { "type": "string", "description": "Optional cooling EIR f(EWT, indoor DBT) curve name." },
+        "heating_cap_ft": { "type": "string", "description": "Optional heating capacity f(EWT, indoor DBT) curve name." },
+        "heating_eir_ft": { "type": "string", "description": "Optional heating EIR f(EWT, indoor DBT) curve name." }
+      }
+    },
+
+    "Humidifier": {
+      "type": "object",
+      "required": ["type", "name"],
+      "description": "Electric steam humidifier.",
+      "properties": {
+        "type": { "type": "string", "const": "humidifier" },
+        "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "rated_power": { "type": "number", "default": 100000.0, "description": "Maximum electric power [W]." },
+        "min_rh_setpoint": { "type": "number", "default": 0.30, "minimum": 0, "maximum": 1, "description": "Minimum relative humidity setpoint [0-1]." },
+        "zone_cooling_setpoint": { "type": "number", "default": 24.0, "description": "Zone cooling setpoint [C] used as the reference for the RH to humidity-ratio conversion." }
+      }
+    },
+
+    "Duct": {
+      "type": "object",
+      "required": ["type", "name", "length"],
+      "description": "Air duct with conduction losses and leakage.",
+      "properties": {
+        "type": { "type": "string", "const": "duct" },
+        "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "length": { "type": "number", "description": "Duct length [m]." },
+        "diameter": { "type": "number", "default": 0.3, "description": "Duct hydraulic diameter [m]." },
+        "u_value": { "type": "number", "default": 0.71, "description": "Overall U-value [W/m2-K] (0.71 = R-8 insulation)." },
+        "leakage_fraction": { "type": "number", "default": 0.04, "minimum": 0, "maximum": 1, "description": "Fraction of air lost through leaks [0-1]." },
+        "ambient_zone": { "type": "string", "default": "outdoor", "description": "Surroundings of the duct: 'outdoor', 'ground', or a zone name." }
+      }
+    },
+
+    "EvapCooler": {
+      "type": "object",
+      "required": ["type", "name"],
+      "description": "Evaporative cooler (direct, indirect, or two-stage).",
+      "properties": {
+        "type": { "type": "string", "const": "evap_cooler" },
+        "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "mode": { "type": "string", "enum": ["direct", "indirect", "two_stage"], "default": "direct", "description": "direct = adiabatic (adds moisture); indirect = HX using wet-bulb as driving temperature (no moisture added); two_stage = indirect followed by direct." },
+        "effectiveness": { "type": "number", "default": 0.80, "minimum": 0, "maximum": 1, "description": "Saturation effectiveness of the direct stage [0-1]." },
+        "hx_effectiveness": { "type": "number", "default": 0.70, "minimum": 0, "maximum": 1, "description": "Heat exchanger effectiveness of the indirect stage [0-1]." }
+      }
+    },
+
+    "ExternalAir": {
+      "type": "object",
+      "required": ["type", "name", "command", "inputs", "outputs"],
+      "description": "Air-side co-simulation proxy. Delegates each timestep to an external process via stdin/stdout JSON.",
+      "properties": {
+        "type": { "type": "string", "const": "external_air" },
+        "name": { "type": "string" },
+        "command": { "type": "array", "items": { "type": "string" }, "description": "Command line used to launch the co-simulation process (e.g. [python, ahu_model.py])." },
+        "inputs": { "type": "array", "items": { "type": "string" }, "description": "Input variable names sent to the process each timestep (e.g. inlet_temp_c, inlet_humidity_ratio, inlet_mass_flow_kg_s, outdoor_temp_c, sim_time_s)." },
+        "outputs": { "type": "array", "items": { "type": "string" }, "description": "Output variable names expected back each timestep (e.g. outlet_temp_c, outlet_humidity_ratio, power_w)." }
       }
     },
 
@@ -486,9 +907,72 @@
         { "$ref": "#/$defs/Fan" },
         { "$ref": "#/$defs/HeatingCoil" },
         { "$ref": "#/$defs/CoolingCoil" },
-        { "$ref": "#/$defs/HeatRecovery" }
+        { "$ref": "#/$defs/DxMultiSpeedCoil" },
+        { "$ref": "#/$defs/Wshp" },
+        { "$ref": "#/$defs/Gshp" },
+        { "$ref": "#/$defs/HeatRecovery" },
+        { "$ref": "#/$defs/Humidifier" },
+        { "$ref": "#/$defs/Duct" },
+        { "$ref": "#/$defs/EvapCooler" },
+        { "$ref": "#/$defs/ExternalAir" }
       ],
       "description": "An air-side equipment component. Discriminated by the 'type' field."
+    },
+
+    "VavBox": {
+      "type": "object",
+      "required": ["type", "name", "max_air_flow"],
+      "description": "Variable air volume terminal with optional reheat coil.",
+      "properties": {
+        "type": { "type": "string", "const": "vav_box" },
+        "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "max_air_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Maximum primary air flow [kg/s]." },
+        "min_flow_fraction": { "type": "number", "default": 0.30, "minimum": 0, "maximum": 1, "description": "Minimum flow fraction [0-1]." },
+        "reheat_type": { "type": "string", "enum": ["none", "electric", "hot_water"], "x-aliases": ["hw"], "default": "none", "description": "Reheat coil type." },
+        "reheat_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Reheat coil capacity [W]." },
+        "max_reheat_temp": { "type": "number", "description": "Maximum reheat discharge air temperature [C] (default 35.0)." },
+        "max_reheat_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Maximum flow fraction during reheat [0-1] (E+ Damper Heating Action). Set equal to min_flow_fraction for reheat-first control; default 0.5 (ASHRAE G36 dual-maximum)." },
+        "plant_loop": { "type": "string", "description": "Hot water plant loop for hot_water reheat." }
+      }
+    },
+
+    "PfpBox": {
+      "type": "object",
+      "required": ["type", "name", "max_primary_flow", "secondary_fan_flow"],
+      "description": "Parallel fan-powered terminal box with secondary fan and electric reheat.",
+      "properties": {
+        "type": { "type": "string", "const": "pfp_box" },
+        "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "max_primary_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Maximum primary air flow [kg/s]." },
+        "min_primary_fraction": { "type": "number", "default": 0.30, "minimum": 0, "maximum": 1, "description": "Minimum primary flow fraction [0-1]." },
+        "secondary_fan_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Secondary fan flow rate [kg/s]." },
+        "reheat_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Electric reheat coil capacity [W]." },
+        "secondary_air_temp": { "type": "number", "description": "Secondary (plenum) air temperature [C]. Default: zone return air temperature." }
+      }
+    },
+
+    "DualDuctBox": {
+      "type": "object",
+      "required": ["type", "name", "design_flow"],
+      "description": "Dual-duct constant-volume mixing box that blends hot and cold deck supply air.",
+      "properties": {
+        "type": { "type": "string", "const": "dual_duct_box" },
+        "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "design_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design total supply flow [kg/s]." },
+        "min_flow_fraction": { "type": "number", "default": 0.20, "minimum": 0, "maximum": 1, "description": "Minimum flow fraction for each damper [0-1]." }
+      }
+    },
+
+    "Terminal": {
+      "oneOf": [
+        { "$ref": "#/$defs/VavBox" },
+        { "$ref": "#/$defs/PfpBox" },
+        { "$ref": "#/$defs/DualDuctBox" }
+      ],
+      "description": "Zone terminal box. Discriminated by the 'type' field."
     },
 
     "ZoneConnection": {
@@ -497,7 +981,9 @@
       "description": "Zone served by an air loop.",
       "properties": {
         "zone": { "type": "string", "description": "Zone name." },
-        "terminal": { "type": "string", "description": "Optional terminal unit name (for VAV boxes)." }
+        "terminal": { "$ref": "#/$defs/Terminal", "description": "Optional terminal box (VAV, PFP, or dual-duct). Omit for a direct connection." },
+        "per_person_oa": { "type": "number", "description": "DCV outdoor air per person [m3/s-person] (ASHRAE 62.1 Rp). Only used when dcv is true on the air loop." },
+        "per_area_oa": { "type": "number", "description": "DCV outdoor air per floor area [m3/s-m2] (ASHRAE 62.1 Ra). Only used when dcv is true on the air loop." }
       }
     },
 
@@ -512,8 +998,10 @@
           "description": "Optional system type hint. Auto-detected if omitted: VAV fan -> vav, damper=1.0 -> doas, default -> psz_ac. Use 'fcu' explicitly for fan coil units."
         },
         "controls": { "$ref": "#/$defs/AirLoopControls" },
+        "condenser_type": { "type": "string", "enum": ["air_cooled", "water_cooled"], "default": "air_cooled", "description": "Condenser type for CRAC systems. For water_cooled, the cooling coil's plant connection provides the condenser loop." },
         "min_vav_fraction": { "type": "number", "default": 0.30, "minimum": 0, "maximum": 1, "description": "Minimum VAV box flow fraction [0-1]. Only used for VAV systems." },
         "availability_schedule": { "type": "string", "description": "Schedule name. When schedule value is 0, system is OFF." },
+        "dcv": { "type": "boolean", "default": false, "description": "Demand-controlled ventilation: recalculate the minimum OA each timestep from current occupancy x per-person OA + per-area OA (ASHRAE 62.1 VRP). Uses per_person_oa / per_area_oa on the zone terminals." },
         "equipment": {
           "type": "array",
           "items": { "$ref": "#/$defs/Equipment" },
@@ -523,6 +1011,7 @@
           "type": "array",
           "items": { "$ref": "#/$defs/ZoneConnection" },
           "default": [],
+          "x-aliases": ["zones"],
           "description": "Zone terminal connections served by this air loop. (Alias: 'zones' is accepted for backward compatibility.)"
         }
       }
@@ -535,21 +1024,25 @@
       "properties": {
         "type": { "type": "string", "const": "boiler" },
         "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
         "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Nominal heating capacity [W]." },
         "efficiency": { "type": "number", "default": 0.80, "minimum": 0, "maximum": 1, "description": "Combustion efficiency [0-1]." },
         "design_outlet_temp": { "type": "number", "default": 82.0, "description": "Design hot water outlet temperature [C]." },
-        "design_water_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design water flow rate [m3/s]." }
+        "design_water_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design water flow rate [m3/s]." },
+        "efficiency_curve": { "type": "string", "description": "Name of a top-level performance curve for efficiency f(PLR)." },
+        "flow_mode": { "type": "string", "enum": ["not_modulated", "leaving_setpoint_modulated"], "default": "not_modulated", "description": "Boiler water flow mode." }
       }
     },
 
     "Chiller": {
       "type": "object",
-      "required": ["type", "name", "capacity"],
+      "required": ["type", "name"],
       "description": "Electric chiller with COP and optional condenser water loop connection.",
       "properties": {
         "type": { "type": "string", "const": "chiller" },
         "name": { "type": "string" },
-        "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Nominal cooling capacity [W]." },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Nominal cooling capacity [W]. May be omitted when a205_file is set." },
         "cop": { "type": "number", "default": 3.5, "description": "Rated COP at ARI conditions." },
         "chw_setpoint": { "type": "number", "default": 7.0, "description": "Chilled water supply setpoint [C]." },
         "design_chw_flow": { "type": "number", "default": 0.0, "description": "Design chilled water flow rate [m3/s]. Auto-calculated if 0." },
@@ -560,10 +1053,16 @@
           "description": "Condenser heat rejection method."
         },
         "condenser_plant_loop": { "type": "string", "description": "Name of the condenser water plant loop. Required for water_cooled chillers." },
+        "condenser_entering_temp": { "type": "number", "description": "Water-cooled only: fixed condenser entering water temperature [C] (E+ scheduled condenser setpoint). If omitted, outdoor wet-bulb + tower_approach is used." },
+        "tower_approach": { "type": "number", "default": 5.56, "description": "Water-cooled fallback: approach from outdoor wet-bulb to condenser entering water temperature [C]. Only used when condenser_entering_temp is not set." },
         "min_plr": { "type": "number", "default": 0.25, "minimum": 0, "maximum": 1, "description": "Minimum part-load ratio before cycling." },
         "capft": { "$ref": "#/$defs/CurveInput", "description": "Capacity-f(T) biquadratic curve. x = leaving CHW temp, y = entering condenser temp." },
         "eirft": { "$ref": "#/$defs/CurveInput", "description": "EIR-f(T) biquadratic curve." },
-        "eirfplr": { "$ref": "#/$defs/CurveInput", "description": "EIR-f(PLR) quadratic curve." }
+        "eirfplr": { "$ref": "#/$defs/CurveInput", "description": "EIR-f(PLR) quadratic curve." },
+        "capft_curve": { "type": "string", "description": "Name of a top-level performance curve used as CAPFT. Alternative to inline capft. Ignored when a205_file is set." },
+        "eirft_curve": { "type": "string", "description": "Name of a top-level performance curve used as EIRFT. Alternative to inline eirft." },
+        "eirfplr_curve": { "type": "string", "description": "Name of a top-level performance curve used as EIRFPLR. Alternative to inline eirfplr." },
+        "a205_file": { "type": "string", "description": "Path to an ASHRAE Standard 205 RS0001 chiller performance file (.a205 CBOR or .a205.json), relative to the model YAML or absolute. When set, cop, capacity and curve fields are ignored." }
       }
     },
 
@@ -576,9 +1075,9 @@
 
     "PumpControlStrategy": {
       "type": "string",
-      "enum": ["demand", "continuous", "staged"],
+      "enum": ["demand", "continuous", "staged", "intermittent"],
       "default": "demand",
-      "description": "Pump control strategy. 'demand' = flow varies with load, 'continuous' = constant speed when plant is active, 'staged' = OFF unless staged on by plant controller."
+      "description": "Pump control strategy. 'demand' = flow varies with load, 'continuous' = constant speed when plant is active, 'staged' = OFF unless staged on by plant controller, 'intermittent' = cycles on/off within the timestep to match demand (E+ Intermittent; same as demand for variable-speed pumps)."
     },
 
     "Pump": {
@@ -588,6 +1087,7 @@
       "properties": {
         "type": { "type": "string", "const": "pump" },
         "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
         "pump_type": {
           "type": "string",
           "enum": ["constant_speed", "variable_speed"],
@@ -599,6 +1099,7 @@
         "motor_efficiency": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Motor efficiency [0-1]." },
         "impeller_efficiency": { "type": "number", "default": 0.667, "minimum": 0, "maximum": 1, "description": "Impeller/hydraulic efficiency [0-1]. Total efficiency = motor_efficiency * impeller_efficiency." },
         "num_pumps": { "type": "integer", "default": 1, "minimum": 1, "description": "Number of pumps in headered configuration. Each pump's flow = total / num_pumps." },
+        "motor_heat_to_fluid_fraction": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Fraction of motor inefficiency heat added to the fluid stream [0-1] (E+ Fraction of Motor Inefficiencies to Fluid Stream)." },
         "power_curve": {
           "type": "array",
           "items": { "type": "number" },
@@ -616,6 +1117,7 @@
       "properties": {
         "type": { "type": "string", "const": "cooling_tower" },
         "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
         "tower_type": {
           "type": "string",
           "enum": ["single_speed", "two_speed", "variable_speed"],
@@ -660,19 +1162,70 @@
 
     "CurveInput": {
       "type": "object",
-      "description": "Performance curve coefficients (quadratic, biquadratic, or cubic).",
+      "required": ["coefficients"],
+      "description": "Inline performance curve coefficients (quadratic or biquadratic). The curve type is inferred from the number of coefficients.",
       "properties": {
         "coefficients": {
           "type": "array",
           "items": { "type": "number" },
-          "description": "Curve coefficients. Length determines type: 3 = quadratic, 6 = biquadratic, 4 = cubic."
+          "description": "Curve coefficients. 3 = quadratic f(x) = c1 + c2*x + c3*x^2; 6 = biquadratic f(x,y) = c1 + c2*x + c3*x^2 + c4*y + c5*y^2 + c6*x*y."
         },
-        "min_x": { "type": "number", "description": "Minimum x input value." },
-        "max_x": { "type": "number", "description": "Maximum x input value." },
-        "min_y": { "type": "number", "description": "Minimum y input value (biquadratic only)." },
-        "max_y": { "type": "number", "description": "Maximum y input value (biquadratic only)." },
-        "min_output": { "type": "number", "description": "Minimum output clamp." },
-        "max_output": { "type": "number", "description": "Maximum output clamp." }
+        "min_x": { "type": "number", "default": -100.0, "description": "Minimum x input value." },
+        "max_x": { "type": "number", "default": 100.0, "description": "Maximum x input value." },
+        "min_y": { "type": "number", "default": -100.0, "description": "Minimum y input value (biquadratic only)." },
+        "max_y": { "type": "number", "default": 100.0, "description": "Maximum y input value (biquadratic only)." }
+      }
+    },
+
+    "TesControlStrategy": {
+      "description": "Thermal storage control strategy: full_storage (charge off-peak, discharge during peak hours), load_leveling (chiller runs at a constant rate; TES supplements demand), or {demand_limiting: {threshold_w}} (discharge to keep building peak demand below threshold [W]).",
+      "oneOf": [
+        { "type": "string", "enum": ["full_storage", "load_leveling"] },
+        {
+          "type": "object",
+          "required": ["demand_limiting"],
+          "properties": {
+            "demand_limiting": {
+              "type": "object",
+              "required": ["threshold_w"],
+              "properties": {
+                "threshold_w": { "type": "number", "description": "Building peak demand threshold [W]." }
+              }
+            }
+          }
+        }
+      ]
+    },
+
+    "ThermalStorage": {
+      "type": "object",
+      "required": ["type", "name", "tes_type", "capacity_wh", "max_charge_rate", "max_discharge_rate", "control_strategy"],
+      "description": "Thermal energy storage (chilled water or ice) plant component.",
+      "properties": {
+        "type": { "type": "string", "const": "thermal_storage" },
+        "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "tes_type": { "type": "string", "enum": ["chilled_water", "ice"], "description": "Storage medium." },
+        "capacity_wh": { "type": "number", "description": "Storage capacity [Wh]." },
+        "max_charge_rate": { "type": "number", "description": "Maximum charge rate [W]." },
+        "max_discharge_rate": { "type": "number", "description": "Maximum discharge rate [W]." },
+        "loss_ua": { "type": "number", "default": 5.0, "description": "Standby loss UA [W/K]." },
+        "ice_charge_cop_factor": { "type": "number", "default": 0.85, "description": "COP penalty factor when making ice." },
+        "control_strategy": { "$ref": "#/$defs/TesControlStrategy" },
+        "peak_hours": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 24 }, "default": [], "description": "Peak hours (1-24) during which charging is suppressed." }
+      }
+    },
+
+    "ExternalPlant": {
+      "type": "object",
+      "required": ["type", "name", "command", "inputs", "outputs"],
+      "description": "Plant-side co-simulation proxy. Delegates each timestep to an external process via stdin/stdout JSON.",
+      "properties": {
+        "type": { "type": "string", "const": "external_plant" },
+        "name": { "type": "string" },
+        "command": { "type": "array", "items": { "type": "string" }, "description": "Command line used to launch the co-simulation process (e.g. [python, chiller.py])." },
+        "inputs": { "type": "array", "items": { "type": "string" }, "description": "Input variable names sent to the process each timestep (e.g. return_temp_c, return_flow_kg_s, load_request_w, outdoor_temp_c, sim_time_s)." },
+        "outputs": { "type": "array", "items": { "type": "string" }, "description": "Output variable names expected back each timestep (e.g. supply_temp_c, power_w, thermal_output_w)." }
       }
     },
 
@@ -682,7 +1235,9 @@
         { "$ref": "#/$defs/Chiller" },
         { "$ref": "#/$defs/Pump" },
         { "$ref": "#/$defs/CoolingTower" },
-        { "$ref": "#/$defs/HeatExchanger" }
+        { "$ref": "#/$defs/HeatExchanger" },
+        { "$ref": "#/$defs/ThermalStorage" },
+        { "$ref": "#/$defs/ExternalPlant" }
       ],
       "description": "Plant-side equipment. Discriminated by the 'type' field."
     },
@@ -698,7 +1253,23 @@
           "items": { "$ref": "#/$defs/PlantEquipment" }
         },
         "design_supply_temp": { "type": "number", "default": 82.0, "description": "Design supply water temperature [C]." },
-        "design_delta_t": { "type": "number", "default": 11.0, "description": "Design supply-return temperature difference [C]." }
+        "design_delta_t": { "type": "number", "default": 11.0, "description": "Design supply-return temperature difference [C]." },
+        "staging_mode": { "type": "string", "enum": ["sequential", "equal_split"], "default": "sequential", "description": "Staging strategy for multiple chillers/boilers. sequential = load each unit fully before starting the next; equal_split = share load equally across units." },
+        "staging_threshold": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "PLR above which the next unit stages on in sequential mode [0-1]." },
+        "setpoint_reset": { "$ref": "#/$defs/PlantSetpointReset", "description": "Supply temperature reset (absent = fixed design_supply_temp)." }
+      }
+    },
+
+    "PlantSetpointReset": {
+      "type": "object",
+      "required": ["type", "sp_min", "sp_max", "oa_low", "oa_high"],
+      "description": "Plant loop supply temperature reset linear with outdoor air temperature.",
+      "properties": {
+        "type": { "type": "string", "const": "oa_reset" },
+        "sp_min": { "type": "number", "description": "Setpoint at oa_high [C] (CHW: coldest; HHW: warmest)." },
+        "sp_max": { "type": "number", "description": "Setpoint at oa_low [C] (CHW: warmest; HHW: coldest)." },
+        "oa_low": { "type": "number", "description": "Outdoor temperature at which the setpoint is sp_max [C]." },
+        "oa_high": { "type": "number", "description": "Outdoor temperature at which the setpoint is sp_min [C]." }
       }
     },
 
@@ -722,7 +1293,29 @@
         "heating_setpoint": { "type": "number", "default": 21.1, "description": "Occupied heating setpoint [C]." },
         "cooling_setpoint": { "type": "number", "default": 23.9, "description": "Occupied cooling setpoint [C]." },
         "unoccupied_heating_setpoint": { "type": "number", "default": 15.56, "description": "Unoccupied heating setpoint [C]." },
-        "unoccupied_cooling_setpoint": { "type": "number", "default": 29.44, "description": "Unoccupied cooling setpoint [C]." }
+        "unoccupied_cooling_setpoint": { "type": "number", "default": 29.44, "description": "Unoccupied cooling setpoint [C]." },
+        "thermostat_schedule": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ThermostatScheduleEntry" },
+          "default": [],
+          "description": "Optional hourly setpoint schedule (e.g. night setback). Each entry's [start_hour, end_hour] window overrides the constant setpoints; hours outside every window use heating_setpoint / cooling_setpoint."
+        }
+      }
+    },
+
+    "ThermostatScheduleEntry": {
+      "type": "object",
+      "required": ["start_hour", "end_hour", "heating_setpoint", "cooling_setpoint"],
+      "description": "Setpoints for a time-of-day window, optionally restricted to a date range.",
+      "properties": {
+        "start_hour": { "type": "integer", "minimum": 0, "maximum": 24, "description": "Start hour (inclusive)." },
+        "end_hour": { "type": "integer", "minimum": 0, "maximum": 24, "description": "End hour (inclusive). If end < start the window wraps past midnight." },
+        "heating_setpoint": { "type": "number", "description": "Heating setpoint during this window [C]." },
+        "cooling_setpoint": { "type": "number", "description": "Cooling setpoint during this window [C]." },
+        "start_month": { "type": "integer", "minimum": 1, "maximum": 12, "description": "Optional date-range start month. All four date fields must be given together; a range whose end precedes its start wraps across the new year." },
+        "start_day": { "type": "integer", "minimum": 1, "maximum": 31, "description": "Optional date-range start day." },
+        "end_month": { "type": "integer", "minimum": 1, "maximum": 12, "description": "Optional date-range end month." },
+        "end_day": { "type": "integer", "minimum": 1, "maximum": 31, "description": "Optional date-range end day." }
       }
     },
 
@@ -770,11 +1363,12 @@
           "additionalProperties": { "type": "number" },
           "description": "Scalar parameter overrides as 'ComponentName.field_name': value pairs. The component name must match a named object in the model (zone, thermostat, material, fan, coil, boiler, chiller, etc.). The field name must be a numeric field on that component (e.g., efficiency, cop, capacity, heating_setpoint)."
         },
-        "include": {
+        "includes": {
           "type": "array",
           "items": { "$ref": "#/$defs/SectionOverride" },
           "default": [],
-          "description": "Section replacements from external YAML files (Level 2 — not yet implemented)."
+          "x-aliases": ["include"],
+          "description": "Section replacements from external YAML files (Level 2 — not yet implemented). 'include' is accepted as an alias."
         }
       }
     },
@@ -886,8 +1480,50 @@
           "items": { "type": "number" },
           "minItems": 24,
           "maxItems": 24,
-          "description": "Holiday hourly values."
+          "description": "Holiday hourly values (falls back to sunday, then weekend, then weekday)."
+        },
+        "monday": { "type": "array", "items": { "type": "number" }, "minItems": 24, "maxItems": 24, "description": "Monday-specific hourly values (overrides weekday)." },
+        "tuesday": { "type": "array", "items": { "type": "number" }, "minItems": 24, "maxItems": 24, "description": "Tuesday-specific hourly values (overrides weekday)." },
+        "wednesday": { "type": "array", "items": { "type": "number" }, "minItems": 24, "maxItems": 24, "description": "Wednesday-specific hourly values (overrides weekday)." },
+        "thursday": { "type": "array", "items": { "type": "number" }, "minItems": 24, "maxItems": 24, "description": "Thursday-specific hourly values (overrides weekday)." },
+        "friday": { "type": "array", "items": { "type": "number" }, "minItems": 24, "maxItems": 24, "description": "Friday-specific hourly values (overrides weekday)." },
+        "compact": { "$ref": "#/$defs/CompactSchedule" },
+        "seasons": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ScheduleSeason" },
+          "description": "Seasonal (date-range) day profiles. A matching period overrides the top-level day arrays; the top-level weekday is the fallback for days not covered by any period."
         }
+      }
+    },
+
+    "CompactSchedule": {
+      "type": "object",
+      "description": "Compact schedule strings using EnergyPlus-inspired syntax, e.g. \"0 until 8:00, 1.0 until 18:00, 0\". A bare value without 'until' fills the remaining hours. Alternative to explicit 24-value arrays; individual days override their group (weekday = Mon-Fri, weekend = Sat-Sun).",
+      "properties": {
+        "weekday": { "type": "string", "description": "Monday–Friday profile." },
+        "weekend": { "type": "string", "description": "Saturday–Sunday profile." },
+        "monday": { "type": "string" },
+        "tuesday": { "type": "string" },
+        "wednesday": { "type": "string" },
+        "thursday": { "type": "string" },
+        "friday": { "type": "string" },
+        "saturday": { "type": "string" },
+        "sunday": { "type": "string" },
+        "holiday": { "type": "string" }
+      }
+    },
+
+    "ScheduleSeason": {
+      "type": "object",
+      "required": ["start_month", "start_day", "end_month", "end_day", "weekday"],
+      "description": "One date-range period of a seasonal schedule (inclusive; may wrap across the new year).",
+      "properties": {
+        "start_month": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "start_day": { "type": "integer", "minimum": 1, "maximum": 31 },
+        "end_month": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "end_day": { "type": "integer", "minimum": 1, "maximum": 31 },
+        "weekday": { "type": "array", "items": { "type": "number" }, "minItems": 24, "maxItems": 24, "description": "Hourly fractions for weekdays in this period." },
+        "weekend": { "type": "array", "items": { "type": "number" }, "minItems": 24, "maxItems": 24, "description": "Optional weekend profile for this period (falls back to weekday)." }
       }
     },
 
@@ -900,17 +1536,22 @@
 
     "Material": {
       "type": "object",
-      "required": ["name", "conductivity", "density", "specific_heat"],
-      "description": "Thermophysical material properties.",
+      "required": ["name"],
+      "description": "Thermophysical material properties. Thickness is given on the construction layer. For a no-mass (resistance-only) material, set thermal_resistance; conductivity/density/specific_heat are then ignored.",
       "properties": {
         "name": { "type": "string" },
-        "conductivity": { "type": "number", "description": "Thermal conductivity [W/(m*K)]." },
-        "density": { "type": "number", "description": "Density [kg/m3]." },
-        "specific_heat": { "type": "number", "description": "Specific heat [J/(kg*K)]." },
+        "conductivity": { "type": "number", "default": 1.0, "description": "Thermal conductivity [W/(m*K)]. Ignored when thermal_resistance is set." },
+        "density": { "type": "number", "default": 1.0, "description": "Density [kg/m3]. Ignored when thermal_resistance is set." },
+        "specific_heat": { "type": "number", "default": 1000.0, "description": "Specific heat [J/(kg*K)]. Ignored when thermal_resistance is set." },
         "solar_absorptance": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1 },
         "thermal_absorptance": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Hemispherical emissivity for longwave radiation exchange. For layered constructions, the outside material value is used for exterior LW radiation and the inside material value for interior LW radiation." },
         "visible_absorptance": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1 },
-        "roughness": { "$ref": "#/$defs/Roughness" }
+        "roughness": { "$ref": "#/$defs/Roughness" },
+        "thermal_resistance": { "type": "number", "exclusiveMinimum": 0, "description": "Thermal resistance [m2*K/W] for a no-mass material (EnergyPlus Material:NoMass). Zero thermal mass; only resistance matters." },
+        "vapor_resistance_factor": { "type": "number", "description": "Vapor resistance factor mu [-] relative to still air (HAMT moisture transport only)." },
+        "sorption_isotherm": { "type": "array", "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }, "description": "Sorption isotherm as [relative_humidity [0-1], moisture_content [kg/kg]] pairs (HAMT only)." },
+        "liquid_transport_coeff": { "type": "array", "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }, "description": "Liquid transport coefficient as [moisture_content [kg/kg], D_w [m2/s]] pairs (HAMT capillary term; omitted if absent)." },
+        "thermal_absorptance_inside": { "type": "number", "minimum": 0, "maximum": 1, "description": "Inside-face thermal absorptance (emissivity) [0-1]. Falls back to thermal_absorptance when absent." }
       }
     },
 
@@ -945,6 +1586,12 @@
         "solar_absorptance": { "type": "number", "minimum": 0, "maximum": 1, "description": "Glass solar absorptance [0-1]. Estimated from SHGC if omitted." },
         "inside_absorbed_fraction": { "type": "number", "default": 0.5, "minimum": 0, "maximum": 1 },
         "glass_emissivity": { "type": "number", "default": 0.84, "minimum": 0, "maximum": 1, "description": "Glass hemispherical emissivity for interior and exterior longwave radiation exchange. Defaults to 0.84 (uncoated soda-lime glass). Use lower values for low-e coatings." },
+        "pane_solar_transmittance": { "type": "number", "minimum": 0, "maximum": 1, "description": "Per-pane solar transmittance at normal incidence [0-1]. With pane_solar_reflectance, enables Fresnel-based angular SHGC modifiers (e.g. 0.834 per 3 mm clear pane)." },
+        "pane_solar_reflectance": { "type": "number", "minimum": 0, "maximum": 1, "description": "Per-pane front solar reflectance at normal incidence [0-1] (e.g. 0.075 per 3 mm clear pane). Used with pane_solar_transmittance." },
+        "num_panes": { "type": "integer", "minimum": 1, "maximum": 3, "description": "Number of glass panes (1 = single, 2 = double, 3 = triple). With gap_width / pane_conductivity / pane_thickness, enables the first-principles ISO 15099 gas-gap thermal model instead of NFRC film stripping." },
+        "gap_width": { "type": "number", "description": "Gas gap width between panes [m] (e.g. 0.012)." },
+        "pane_conductivity": { "type": "number", "description": "Pane thermal conductivity [W/(m*K)] (standard glass 1.0)." },
+        "pane_thickness": { "type": "number", "description": "Pane thickness [m] (e.g. 0.003175)." },
         "shading_control": {
           "type": "object",
           "description": "Dynamic interior blind/shade control (#104). Triggers on solar irradiance or zone temperature; scales solar gains by blind_shgc/base_shgc when deployed.",
@@ -972,11 +1619,28 @@
         "thermal_capacity": { "type": "number", "default": 50000.0, "description": "Areal thermal capacity [J/(m2*K)]." },
         "solar_absorptance": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1 },
         "thermal_absorptance": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1 },
-        "roughness": { "$ref": "#/$defs/Roughness" }
+        "roughness": { "$ref": "#/$defs/Roughness" },
+        "mass_outside": { "type": "boolean", "default": false, "description": "Place the thermal mass layer outside the insulation (e.g. ASHRAE 140 Case 900 exterior concrete block). Default: mass on the inside." },
+        "mass_conductivity": { "type": "number", "description": "Mass layer thermal conductivity [W/(m*K)] (default 1.0; CMU 0.51, poured concrete 1.4). Heavyweight constructions (thermal_capacity >= 30 kJ/m2K) only." },
+        "mass_density": { "type": "number", "description": "Mass layer density [kg/m3] (default 2000; CMU 1400, poured concrete 2300). Heavyweight constructions only." }
       }
     },
 
-    "SurfaceType": {
+    "FFactorConstruction": {
+      "type": "object",
+      "required": ["name", "f_factor"],
+      "description": "F-factor ground floor construction (ASHRAE F-factor method, E+ Construction:FfactorGroundFloor): Q = F x P x (T_zone - T_ground). Each surface using it must set exposed_perimeter.",
+      "properties": {
+        "name": { "type": "string" },
+        "f_factor": { "type": "number", "description": "Slab edge heat loss coefficient [W/(m*K)]." },
+        "thermal_capacity": { "type": "number", "default": 400000.0, "description": "Areal thermal capacity of the slab [J/(m2*K)]." },
+        "solar_absorptance": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1, "description": "Inside (floor surface) solar absorptance [0-1]." },
+        "thermal_absorptance": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1 },
+        "ground_temperatures": { "type": "array", "items": { "type": "number" }, "minItems": 12, "maxItems": 12, "description": "Monthly ground temperatures [C], January–December (E+ Site:GroundTemperature:FCfactorMethod). If omitted, the building-level ground temperature model is used." }
+      }
+    },
+
+            "SurfaceType": {
       "type": "string",
       "enum": ["wall", "floor", "roof", "ceiling", "window"],
       "description": "Surface category."
@@ -1020,7 +1684,55 @@
           "items": { "$ref": "#/$defs/Point3D" },
           "description": "3D vertex coordinates (counter-clockwise from outside view)."
         },
-        "airflow": { "$ref": "#/$defs/SurfaceAirflowOverride" }
+        "airflow": { "$ref": "#/$defs/SurfaceAirflowOverride" },
+        "shading": { "$ref": "#/$defs/WindowShading" },
+        "sun_exposure": { "type": "boolean", "default": true, "description": "Whether the exterior face receives solar radiation. Set false for slab-on-grade floors (E+ NoSun)." },
+        "wind_exposure": { "type": "boolean", "default": true, "description": "Whether the exterior face sees wind-driven convection (false = natural convection only, E+ NoWind)." },
+        "exposed_perimeter": { "type": "number", "description": "Exposed perimeter [m] for F-factor ground floors. Required when the construction is an f_factor_constructions entry; U_eff = F x P / A." },
+        "height": { "type": "number", "description": "Window height [m] for the ISO 15099 interior convection model (default sqrt(area))." },
+        "width": { "type": "number", "description": "Window width [m] for the ISO 15099 interior convection model (default sqrt(area))." }
+      }
+    },
+
+    "WindowShading": {
+      "type": "object",
+      "description": "Window shading devices (windows only). Shading polygons are generated from these parameters relative to the window geometry. Requires shading_calculation: detailed to have an effect.",
+      "properties": {
+        "overhang": {
+          "type": "object",
+          "required": ["depth"],
+          "description": "Horizontal overhang above the window.",
+          "properties": {
+            "depth": { "type": "number", "description": "Projection depth from the wall plane [m]." },
+            "offset_above": { "type": "number", "default": 0.0, "description": "Vertical offset above the window top edge [m]." },
+            "left_extension": { "type": "number", "default": 0.0, "description": "Extension beyond the window's left edge [m]." },
+            "right_extension": { "type": "number", "default": 0.0, "description": "Extension beyond the window's right edge [m]." }
+          }
+        },
+        "left_fin": { "$ref": "#/$defs/Fin", "description": "Vertical fin on the left side of the window (viewed from outside)." },
+        "right_fin": { "$ref": "#/$defs/Fin", "description": "Vertical fin on the right side of the window (viewed from outside)." }
+      }
+    },
+
+    "Fin": {
+      "type": "object",
+      "required": ["depth"],
+      "description": "Vertical fin beside a window.",
+      "properties": {
+        "depth": { "type": "number", "description": "Projection depth from the wall plane [m]." },
+        "extend_below": { "type": "number", "default": 0.0, "description": "Extension below the window bottom [m]." },
+        "extend_above": { "type": "number", "default": 0.0, "description": "Extension above the window top [m]." }
+      }
+    },
+
+    "ShadingSurface": {
+      "type": "object",
+      "required": ["name", "vertices"],
+      "description": "Detached shading surface (E+ Shading:Site:Detailed). Casts shadows only; no thermal mass or heat balance. Requires shading_calculation: detailed.",
+      "properties": {
+        "name": { "type": "string" },
+        "vertices": { "type": "array", "items": { "$ref": "#/$defs/Point3D" }, "minItems": 3, "description": "3D vertices, counter-clockwise from outside." },
+        "solar_transmittance": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Solar transmittance [0-1]. 0 = opaque." }
       }
     },
 
@@ -1086,7 +1798,227 @@
               "schedule": { "type": "string", "description": "Optional schedule modulating the rate [0-1]." }
             }
           }
+        },
+        "zone_multiplier": { "type": "integer", "default": 1, "minimum": 1, "description": "Number of identical copies of this zone (E+ Zone Multiplier). Loads, airflows and HVAC energy are multiplied; zone temperature is computed once." },
+        "infiltration": {
+          "oneOf": [
+            { "$ref": "#/$defs/ZoneInfiltration" },
+            { "type": "array", "items": { "$ref": "#/$defs/ZoneInfiltration" } }
+          ],
+          "description": "Zone-level infiltration: a single object or a list (e.g. envelope cracks + door opening). Prefer the top-level `infiltration` section for multi-zone assignment."
+        },
+        "internal_gains": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ZoneInternalGain" },
+          "description": "Zone-level internal gains. Prefer the top-level people / lights / equipment sections for multi-zone assignment."
+        },
+        "internal_mass": {
+          "type": "array",
+          "description": "Internal thermal mass (furniture, contents), modeled as adiabatic surfaces exchanging with the zone on both sides (E+ InternalMass).",
+          "items": {
+            "type": "object",
+            "required": ["construction", "area"],
+            "properties": {
+              "construction": { "type": "string", "description": "Layered construction name." },
+              "area": { "type": "number", "description": "Exposed surface area [m2] (typically ~1x floor area)." }
+            }
+          }
+        },
+        "ideal_loads": {
+          "type": "object",
+          "description": "Zone-level ideal loads air system (on/off control to setpoints). Prefer the top-level `ideal_loads` section.",
+          "properties": {
+            "heating_capacity": { "type": "number", "default": 1000000, "description": "Maximum heating capacity [W]." },
+            "cooling_capacity": { "type": "number", "default": 1000000, "description": "Maximum cooling capacity [W]." },
+            "heating_setpoint": { "type": "number", "default": 20.0, "description": "Heating setpoint [C]." },
+            "cooling_setpoint": { "type": "number", "default": 27.0, "description": "Cooling setpoint [C]." }
+          }
+        },
+        "thermostat_schedule": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ThermostatScheduleEntry" },
+          "description": "Time-of-day (and optional date-range) setpoint overrides for this zone."
+        },
+        "ventilation_schedule": {
+          "type": "array",
+          "description": "Time-of-day ventilation entries for this zone. Prefer the top-level `ventilation` section.",
+          "items": {
+            "type": "object",
+            "required": ["start_hour", "end_hour"],
+            "properties": {
+              "start_hour": { "type": "integer", "minimum": 0, "maximum": 23, "description": "Start hour (inclusive)." },
+              "end_hour": { "type": "integer", "minimum": 0, "maximum": 24, "description": "End hour (exclusive)." },
+              "flow_rate": { "type": "number", "default": 0, "description": "Ventilation flow rate [m3/s]." },
+              "ach_rate": { "type": "number", "default": 0, "x-aliases": ["air_changes_per_hour"], "description": "Ventilation rate [ACH]." },
+              "min_indoor_temp": { "type": "number", "description": "Only ventilate when zone temperature exceeds this [C]." },
+              "outdoor_temp_must_be_lower": { "type": "boolean", "description": "Only ventilate when outdoor is cooler than indoor." }
+            }
+          }
+        },
+        "solar_distribution": {
+          "type": "object",
+          "description": "Fractions of transmitted solar absorbed by floor/walls/ceiling (should sum to 1).",
+          "properties": {
+            "floor_fraction": { "type": "number", "default": 0.642, "minimum": 0, "maximum": 1 },
+            "wall_fraction": { "type": "number", "default": 0.191, "minimum": 0, "maximum": 1 },
+            "ceiling_fraction": { "type": "number", "default": 0.167, "minimum": 0, "maximum": 1 }
+          }
+        },
+        "exhaust_fan": {
+          "type": "object",
+          "required": ["flow_rate"],
+          "description": "Zone-level exhaust fan. Prefer the top-level `exhaust_fans` section.",
+          "properties": {
+            "tag": { "type": "string", "default": "exhaust", "description": "Free-form tag for output classification." },
+            "flow_rate": { "type": "number", "description": "Exhaust flow rate [m3/s]." },
+            "pressure_rise": { "type": "number", "default": 0.0, "description": "Design pressure rise [Pa] (0 = no fan power)." },
+            "total_efficiency": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1 },
+            "motor_efficiency": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1 },
+            "motor_in_airstream_fraction": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1 },
+            "schedule": { "type": "string", "description": "Operating schedule (default always on)." }
+          }
+        },
+        "outdoor_air": {
+          "type": "object",
+          "description": "Zone-level ASHRAE 62.1 outdoor air / exhaust requirement. Prefer the top-level `outdoor_air` section.",
+          "properties": {
+            "per_person": { "type": "number", "default": 0, "description": "OA per person [m3/s per person]." },
+            "per_area": { "type": "number", "default": 0, "description": "OA per floor area [m3/s per m2]." },
+            "absolute": { "type": "number", "default": 0, "description": "Absolute OA flow [m3/s]." },
+            "ach": { "type": "number", "default": 0, "description": "OA as air changes per hour [1/h]." },
+            "oa_method": { "$ref": "#/$defs/OaMethod" },
+            "exhaust_per_person": { "type": "number", "default": 0, "description": "Exhaust per person [m3/s per person]." },
+            "exhaust_per_area": { "type": "number", "default": 0, "description": "Exhaust per floor area [m3/s per m2]." },
+            "exhaust_absolute": { "type": "number", "default": 0, "description": "Absolute exhaust flow [m3/s]." },
+            "exhaust_ach": { "type": "number", "default": 0, "description": "Exhaust as air changes per hour [1/h]." },
+            "exhaust_method": { "$ref": "#/$defs/OaMethod" }
+          }
+        },
+        "natural_ventilation": { "$ref": "#/$defs/NaturalVentilation" },
+        "data_center": { "$ref": "#/$defs/DataCenter" }
+      }
+    },
+
+    "ZoneInfiltration": {
+      "type": "object",
+      "description": "Zone-level infiltration (E+ ZoneInfiltration:DesignFlowRate): Q = Q_design x (A + B*|dT| + C*V + D*V^2) x schedule.",
+      "properties": {
+        "design_flow_rate": { "type": "number", "default": 0, "description": "Design infiltration flow rate [m3/s]." },
+        "air_changes_per_hour": { "type": "number", "default": 0, "description": "Alternative: infiltration rate [ACH] (converted using zone volume)." },
+        "constant_coefficient": { "type": "number", "default": 1.0, "x-aliases": ["coeff_a"], "description": "Coefficient A." },
+        "temperature_coefficient": { "type": "number", "default": 0.0, "x-aliases": ["coeff_b"], "description": "Coefficient B [1/C]." },
+        "wind_coefficient": { "type": "number", "default": 0.0, "x-aliases": ["coeff_c"], "description": "Coefficient C [s/m]." },
+        "wind_squared_coefficient": { "type": "number", "default": 0.0, "x-aliases": ["coeff_d"], "description": "Coefficient D [s2/m2]." },
+        "schedule": { "type": "string", "description": "Infiltration multiplier schedule name." },
+        "density_basis": { "$ref": "#/$defs/InfiltrationDensityBasis" }
+      }
+    },
+
+    "InfiltrationDensityBasis": {
+      "type": "string",
+      "enum": ["outdoor", "zone"],
+      "default": "outdoor",
+      "description": "Air density used to convert design volume flow to mass flow. `outdoor`: outdoor-air density (temperature-dependent mass flow). `zone`: zone-air density (E+ ZoneInfiltration:DesignFlowRate convention; required by ASHRAE 140 Section 10 furnace cases)."
+    },
+
+    "ZoneInternalGain": {
+      "oneOf": [
+        { "$ref": "#/$defs/ZonePeopleGain" },
+        { "$ref": "#/$defs/ZoneLightsGain" },
+        { "$ref": "#/$defs/ZoneEquipmentGain" }
+      ]
+    },
+
+    "ZonePeopleGain": {
+      "type": "object",
+      "required": ["type", "count"],
+      "description": "Zone-level occupant gain.",
+      "properties": {
+        "type": { "type": "string", "const": "people" },
+        "count": { "type": "number", "description": "Number of people." },
+        "activity_level": { "type": "number", "default": 120.0, "description": "Total heat per person [W]." },
+        "sensible_fraction": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1, "description": "Sensible fraction of activity_level (remainder is latent)." },
+        "radiant_fraction": { "type": "number", "default": 0.3, "minimum": 0, "maximum": 1, "description": "Radiant fraction of sensible heat." },
+        "schedule": { "type": "string" },
+        "sensible_gain_per_person": { "type": "number", "description": "Explicit sensible gain [W/person]; overrides activity_level x sensible_fraction." },
+        "latent_gain_per_person": { "type": "number", "description": "Explicit latent gain [W/person]; overrides activity_level x (1 - sensible_fraction)." }
+      }
+    },
+
+    "ZoneLightsGain": {
+      "type": "object",
+      "required": ["type", "power"],
+      "description": "Zone-level lighting gain.",
+      "properties": {
+        "type": { "type": "string", "const": "lights" },
+        "power": { "type": "number", "description": "Lighting power [W]." },
+        "radiant_fraction": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1 },
+        "return_air_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of heat to the return air plenum [0-1]." },
+        "schedule": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use reporting." }
+      }
+    },
+
+    "ZoneEquipmentGain": {
+      "type": "object",
+      "required": ["type", "power"],
+      "description": "Zone-level equipment gain.",
+      "properties": {
+        "type": { "type": "string", "const": "equipment" },
+        "power": { "type": "number", "description": "Equipment power [W]." },
+        "radiant_fraction": { "type": "number", "default": 0.3, "minimum": 0, "maximum": 1 },
+        "lost_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of heat that does not enter the zone [0-1]." },
+        "latent_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Latent fraction of the non-lost heat [0-1]." },
+        "schedule": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use reporting." }
+      }
+    },
+
+    "NaturalVentilation": {
+      "type": "object",
+      "required": ["opening_area"],
+      "description": "Wind- and stack-driven natural ventilation through operable openings (E+ ZoneVentilation:WindandStackOpenArea). V = sqrt(V_wind^2 + V_stack^2).",
+      "properties": {
+        "opening_area": { "type": "number", "description": "Opening area [m2]." },
+        "effective_angle": { "type": "number", "default": 0.0, "description": "Opening orientation [degrees from north, clockwise] for windward/leeward determination." },
+        "height_difference": { "type": "number", "default": 0.0, "description": "Height difference for the stack effect [m]." },
+        "discharge_coefficient": { "type": "number", "default": 0.65, "description": "Discharge coefficient for stack-driven flow." },
+        "min_indoor_temp": { "type": "number", "default": -100.0, "description": "Minimum indoor temperature to allow ventilation [C]." },
+        "max_indoor_temp": { "type": "number", "default": 100.0, "description": "Maximum indoor temperature to allow ventilation [C]." },
+        "min_outdoor_temp": { "type": "number", "default": -100.0, "description": "Minimum outdoor temperature [C]." },
+        "max_outdoor_temp": { "type": "number", "default": 100.0, "description": "Maximum outdoor temperature [C]." },
+        "max_wind_speed": { "type": "number", "default": 40.0, "description": "Maximum wind speed [m/s]." },
+        "schedule": { "type": "string", "description": "Availability schedule (> 0 = available). If omitted, always available except on design days." },
+        "min_indoor_outdoor_delta_t": { "type": "number", "description": "Only ventilate when T_zone - T_out >= this [K]." },
+        "min_on_timesteps": { "type": "integer", "default": 0, "minimum": 0, "description": "Anti-cycling: once open, stay open at least this many timesteps." },
+        "min_off_timesteps": { "type": "integer", "default": 0, "minimum": 0, "description": "Anti-cycling: once closed, stay closed at least this many timesteps." },
+        "setpoint_reset": {
+          "type": "object",
+          "required": ["heating_setpoint", "cooling_setpoint"],
+          "description": "Widened thermostat setpoints while natural ventilation is active; ramps back over ramp_timesteps when it stops.",
+          "properties": {
+            "heating_setpoint": { "type": "number", "description": "Override heating setpoint [C]." },
+            "cooling_setpoint": { "type": "number", "description": "Override cooling setpoint [C]." },
+            "ramp_timesteps": { "type": "integer", "default": 4, "minimum": 0, "description": "Timesteps to ramp back to normal setpoints." }
+          }
         }
+      }
+    },
+
+    "DataCenter": {
+      "type": "object",
+      "description": "Data center zone physics: implicit hot/cold-aisle model with auto-generated IT equipment load.",
+      "properties": {
+        "it_load_kw": { "type": "number", "description": "Total IT load [kW] (or use rack_count x kw_per_rack)." },
+        "rack_count": { "type": "integer", "minimum": 0, "description": "Number of racks (with kw_per_rack)." },
+        "kw_per_rack": { "type": "number", "description": "Power per rack [kW] (with rack_count)." },
+        "it_load_schedule": { "type": "string", "description": "IT load fraction schedule [0-1] (default constant 1.0)." },
+        "rack_outlet_temp_c": { "type": "number", "default": 35.0, "description": "Hot-aisle rack exhaust temperature target [C]." },
+        "rack_inlet_temp_max_c": { "type": "number", "description": "Cold-aisle supply temperature limit [C]. Derived from equipment_class if omitted." },
+        "equipment_class": { "type": "string", "enum": ["A1", "A2", "A3", "A4"], "default": "A2", "description": "ASHRAE equipment class (inlet max A1 32, A2 35, A3 40, A4 45 C)." },
+        "containment_efficiency": { "type": "number", "default": 0.85, "minimum": 0, "maximum": 1, "description": "Fraction of hot exhaust returned directly to the cooling unit rather than mixing with zone air." },
+        "airflow_m3_per_s_per_kw": { "type": "number", "description": "Explicit airflow per IT kW [m3/s/kW]. Auto-calculated from rack temperature rise if omitted." },
+        "lighting_w_per_m2": { "type": "number", "description": "Lighting power density in the data hall [W/m2] (default 5.0)." }
       }
     },
 
@@ -1100,7 +2032,8 @@
         "count": { "type": "number", "default": 0, "description": "Absolute number of people." },
         "people_per_area": { "type": "number", "description": "Occupant density [people/m2]." },
         "area_per_person": { "type": "number", "description": "Area per occupant [m2/person]." },
-        "activity_level": { "type": "number", "default": 120.0, "description": "Metabolic rate [W/person]." },
+        "activity_level": { "type": "number", "default": 120.0, "description": "Total metabolic heat [W/person], split into sensible/latent via sensible_fraction." },
+        "sensible_fraction": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1, "description": "Sensible fraction of activity_level [0-1] (0.62 seated, 0.58 office, 0.50 walking, 0.38 heavy exercise)." },
         "sensible_gain_per_person": { "type": "number", "description": "Sensible heat gain per person [W/person]. Alternative to activity_level * sensible_fraction. Overrides activity_level when specified." },
         "latent_gain_per_person": { "type": "number", "description": "Latent heat gain per person [W/person]. Alternative to activity_level * (1 - sensible_fraction). Overrides activity_level when specified." },
         "radiant_fraction": { "type": "number", "default": 0.3, "minimum": 0, "maximum": 1, "description": "Fraction of heat gain that is radiant [0-1]." },
@@ -1156,7 +2089,8 @@
         "temperature_coefficient": { "type": "number", "default": 0.0, "description": "Coefficient B [1/C]." },
         "wind_coefficient": { "type": "number", "default": 0.0, "description": "Coefficient C [s/m]." },
         "wind_squared_coefficient": { "type": "number", "default": 0.0, "description": "Coefficient D [s2/m2]." },
-        "schedule": { "type": "string", "description": "Infiltration schedule name." }
+        "schedule": { "type": "string", "description": "Infiltration schedule name." },
+        "density_basis": { "$ref": "#/$defs/InfiltrationDensityBasis" }
       }
     },
 
@@ -1177,7 +2111,7 @@
         "start_hour": { "type": "integer", "default": 0, "minimum": 0, "maximum": 23 },
         "end_hour": { "type": "integer", "default": 24, "minimum": 0, "maximum": 24 },
         "flow_rate": { "type": "number", "default": 0, "description": "Design ventilation flow rate [m3/s]." },
-        "air_changes_per_hour": { "type": "number", "default": 0, "description": "Ventilation rate [ACH]." },
+        "ach_rate": { "type": "number", "default": 0, "x-aliases": ["air_changes_per_hour"], "description": "Ventilation rate [ACH] (converted using zone volume)." },
         "per_person": { "type": "number", "description": "Per-person ventilation rate [m3/s per person]." },
         "per_area": { "type": "number", "description": "Per-area ventilation rate [m3/s per m2]." },
         "combining_method": { "$ref": "#/$defs/VentilationCombiningMethod" },
@@ -1194,6 +2128,11 @@
         "name": { "type": "string" },
         "zones": { "type": "array", "items": { "type": "string" }, "description": "Zone or zone group names." },
         "flow_rate": { "type": "number", "description": "Exhaust flow rate [m3/s]." },
+        "tag": { "type": "string", "default": "exhaust", "description": "Free-form tag for end-use subcategory reporting." },
+        "pressure_rise": { "type": "number", "default": 0.0, "description": "Design pressure rise [Pa] (0 = no fan power)." },
+        "total_efficiency": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1, "description": "Total fan efficiency (fan x belt x motor x VFD) [0-1]." },
+        "motor_efficiency": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1 },
+        "motor_in_airstream_fraction": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Fraction of motor waste heat entering the exhaust airstream [0-1]." },
         "schedule": { "type": "string", "description": "Exhaust fan schedule name." }
       }
     },
@@ -1214,7 +2153,14 @@
         "zones": { "type": "array", "items": { "type": "string" }, "description": "Zone or zone group names." },
         "per_person": { "type": "number", "default": 0, "description": "OA per person [m3/s per person]." },
         "per_area": { "type": "number", "default": 0, "description": "OA per floor area [m3/s per m2]." },
-        "oa_method": { "$ref": "#/$defs/OaMethod", "description": "Method for combining per-person and per-area rates. Default: 'sum'." }
+        "oa_method": { "$ref": "#/$defs/OaMethod", "description": "Method for combining per-person and per-area rates. Default: 'sum'." },
+        "absolute": { "type": "number", "default": 0, "description": "Absolute supply OA flow [m3/s]." },
+        "ach": { "type": "number", "default": 0, "description": "Supply OA as air changes per hour [1/h]." },
+        "exhaust_per_person": { "type": "number", "default": 0, "description": "Exhaust per person [m3/s per person]." },
+        "exhaust_per_area": { "type": "number", "default": 0, "description": "Exhaust per floor area [m3/s per m2]." },
+        "exhaust_absolute": { "type": "number", "default": 0, "description": "Absolute exhaust flow [m3/s]." },
+        "exhaust_ach": { "type": "number", "default": 0, "description": "Exhaust as air changes per hour [1/h]." },
+        "exhaust_method": { "$ref": "#/$defs/OaMethod", "description": "Method for combining exhaust rates. Default: 'sum'." }
       }
     },
 
@@ -1228,7 +2174,212 @@
         "heating_setpoint": { "type": "number", "default": 20.0, "description": "Ideal heating setpoint [C]." },
         "cooling_setpoint": { "type": "number", "default": 27.0, "description": "Ideal cooling setpoint [C]." },
         "heating_capacity": { "type": "number", "default": 1000000, "description": "Maximum heating capacity [W]." },
-        "cooling_capacity": { "type": "number", "default": 1000000, "description": "Maximum cooling capacity [W]." }
+        "cooling_capacity": { "type": "number", "default": 1000000, "description": "Maximum cooling capacity [W]." },
+        "thermostat_schedule": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ThermostatScheduleEntry" },
+          "description": "Time-of-day setpoint changes (e.g. ASHRAE 140 Case 640 night setback)."
+        }
+      }
+    },
+
+    "MainsTemperature": {
+      "oneOf": [
+        { "type": "number", "description": "Fixed mains temperature [C]." },
+        {
+          "type": "object",
+          "required": ["correlation"],
+          "description": "Seasonal mains temperature (E+ Site:WaterMainsTemperature Correlation method).",
+          "properties": {
+            "correlation": {
+              "type": "object",
+              "required": ["annual_avg_temp", "max_monthly_delta"],
+              "properties": {
+                "annual_avg_temp": { "type": "number", "description": "Annual average outdoor dry-bulb temperature [C]." },
+                "max_monthly_delta": { "type": "number", "description": "Maximum difference between monthly average outdoor temperatures [C]." },
+                "latitude": { "type": "number", "description": "Site latitude [degrees]. Defaults to the weather file latitude." }
+              }
+            }
+          }
+        }
+      ],
+      "default": 10.0,
+      "description": "Cold water mains temperature: a fixed value [C] or {correlation: {...}}."
+    },
+
+    "WaterHeater": {
+      "type": "object",
+      "required": ["name", "tank_volume", "capacity"],
+      "description": "Storage tank water heater with deadband thermostat control.",
+      "properties": {
+        "name": { "type": "string" },
+        "fuel_type": { "type": "string", "enum": ["gas", "electric", "heat_pump"], "x-aliases": ["hpwh"], "default": "gas", "description": "Fuel type. Unrecognized values fall back to gas." },
+        "tank_volume": { "type": "number", "description": "Tank storage volume [L]." },
+        "capacity": { "type": "number", "description": "Burner/element input capacity [W]." },
+        "efficiency": { "type": "number", "default": 0.8, "description": "Thermal efficiency [0-1] for gas/electric; COP for heat_pump." },
+        "setpoint": { "type": "number", "default": 60.0, "description": "Tank setpoint temperature [C]." },
+        "ua_standby": { "type": "number", "default": 2.0, "description": "Standby loss coefficient [W/K]." },
+        "deadband": { "type": "number", "default": 5.0, "description": "Thermostat deadband [C]." },
+        "parasitic_power": { "type": "number", "default": 0.0, "description": "Constant parasitic fuel draw that does not heat the tank (pilot, controls) [W]." },
+        "control_type": { "type": "string", "enum": ["on_off", "modulate"], "default": "on_off", "description": "Heater control: on/off cycling or modulating (tankless)." },
+        "ambient_zone": { "type": "string", "description": "Zone whose air temperature drives standby losses (default constant 20 C)." }
+      }
+    },
+
+    "DhwLoad": {
+      "type": "object",
+      "required": ["name", "peak_flow_rate"],
+      "description": "Hot water draw profile (end use).",
+      "properties": {
+        "name": { "type": "string" },
+        "peak_flow_rate": { "type": "number", "description": "Peak hot water draw [L/s]." },
+        "schedule": { "type": "string", "description": "Fraction-of-peak schedule [0-1]. Always at peak if omitted." },
+        "use_temperature": { "type": "number", "default": 43.3, "description": "Target use temperature at the fixture [C]." }
+      }
+    },
+
+    "DhwSystem": {
+      "type": "object",
+      "required": ["name", "water_heater"],
+      "description": "Domestic hot water system: water heater, draw profiles and mains temperature.",
+      "properties": {
+        "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "water_heater": { "$ref": "#/$defs/WaterHeater" },
+        "loads": { "type": "array", "items": { "$ref": "#/$defs/DhwLoad" }, "description": "Hot water draw profiles." },
+        "mains_temperature": { "$ref": "#/$defs/MainsTemperature" },
+        "pump": { "$ref": "#/$defs/DhwPump" }
+      }
+    },
+
+    "DhwPump": {
+      "type": "object",
+      "required": ["name", "design_flow_rate"],
+      "description": "Optional DHW circulation pump; runs whenever there is a draw. Same fields as the plant `pump` equipment, without the `type` tag.",
+      "properties": {
+        "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "pump_type": { "type": "string", "enum": ["constant_speed", "variable_speed"], "default": "variable_speed", "description": "Pump motor type." },
+        "design_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design water flow rate [m3/s]." },
+        "design_head": { "type": "number", "default": 179352.0, "description": "Design pump head [Pa]." },
+        "motor_efficiency": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Motor efficiency [0-1]." },
+        "impeller_efficiency": { "type": "number", "default": 0.667, "minimum": 0, "maximum": 1, "description": "Impeller/hydraulic efficiency [0-1]." },
+        "num_pumps": { "type": "integer", "default": 1, "minimum": 1, "description": "Number of headered pumps." },
+        "motor_heat_to_fluid_fraction": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Fraction of motor inefficiency heat added to the fluid [0-1]." },
+        "power_curve": { "type": "array", "items": { "type": "number" }, "description": "Part-load power curve coefficients [c1, c2, c3, c4]." },
+        "role": { "$ref": "#/$defs/PumpRole" },
+        "control_strategy": { "$ref": "#/$defs/PumpControlStrategy" }
+      }
+    },
+
+    "RadiantPanel": {
+      "type": "object",
+      "required": ["name", "zone", "rated_capacity"],
+      "description": "Zone radiant panel (fin-tube radiator, chilled ceiling, electric radiant heater).",
+      "properties": {
+        "name": { "type": "string" },
+        "zone": { "type": "string", "description": "Zone served." },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "source": { "type": "string", "enum": ["hot_water", "chilled_water", "electric"], "default": "hot_water", "description": "Heat source type." },
+        "rated_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated capacity [W] or 'autosize'." },
+        "radiant_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Radiant fraction of output [0-1]. Default 0.5 (hot_water/electric), 0.7 (chilled_water)." },
+        "plant_loop": { "type": "string", "description": "Plant loop name (required for hot_water and chilled_water)." },
+        "ua": { "type": "number", "description": "Optional UA [W/K]; output becomes UA x (T_water - T_zone) instead of PLR x rated_capacity." }
+      }
+    },
+
+    "ExteriorEquipment": {
+      "type": "object",
+      "required": ["name", "power"],
+      "description": "Facility-level exterior load not assigned to any zone (parking lot lighting, signage). Adds to facility energy without zone gains.",
+      "properties": {
+        "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use reporting (takes precedence over subcategory)." },
+        "power": { "type": "number", "description": "Design power [W]." },
+        "schedule": { "type": "string", "description": "Fraction schedule [0-1]. Always at full power if omitted." },
+        "fuel": { "type": "string", "enum": ["electricity", "natural_gas"], "default": "electricity" },
+        "subcategory": { "type": "string", "description": "Legacy end-use subcategory label; use submeter instead." },
+        "astronomical_clock": { "type": "boolean", "default": false, "description": "Only operate at night (solar altitude <= 0), like E+ Exterior:Lights AstronomicalClock." }
+      }
+    },
+
+    "ElectricalDistribution": {
+      "type": "object",
+      "description": "Electrical distribution system (UPS and transformers). Losses are computed each timestep and reported as the ASHRAE 90.4 electrical loss component (ELC).",
+      "properties": {
+        "ups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "it_load_served_kw"],
+            "description": "Uninterruptible power supply.",
+            "properties": {
+              "name": { "type": "string" },
+              "it_load_served_kw": { "type": "number", "description": "IT load capacity served [kW]." },
+              "efficiency_at_full_load": { "type": "number", "default": 0.95, "minimum": 0, "maximum": 1, "description": "Efficiency at full load [0-1]." },
+              "efficiency_curve": { "type": "string", "description": "Optional efficiency curve f(PLR); constant efficiency_at_full_load if omitted." }
+            }
+          }
+        },
+        "transformers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "it_load_served_kw"],
+            "description": "Step-down or isolation transformer.",
+            "properties": {
+              "name": { "type": "string" },
+              "it_load_served_kw": { "type": "number", "description": "IT load capacity served [kW]." },
+              "efficiency": { "type": "number", "default": 0.985, "minimum": 0, "maximum": 1, "description": "Transformer efficiency [0-1]." }
+            }
+          }
+        }
+      }
+    },
+
+    "VrfSystem": {
+      "type": "object",
+      "required": ["name", "outdoor_unit", "indoor_units"],
+      "description": "Variable refrigerant flow system: one outdoor unit serving multiple zone indoor units.",
+      "properties": {
+        "name": { "type": "string" },
+        "outdoor_unit": { "$ref": "#/$defs/VrfOutdoorUnit" },
+        "indoor_units": { "type": "array", "items": { "$ref": "#/$defs/VrfIndoorUnit" } }
+      }
+    },
+
+    "VrfOutdoorUnit": {
+      "type": "object",
+      "required": ["name", "rated_cooling_capacity", "rated_heating_capacity"],
+      "description": "VRF outdoor unit (compressor).",
+      "properties": {
+        "name": { "type": "string" },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "rated_cooling_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated total cooling capacity [W] or 'autosize'." },
+        "rated_heating_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated total heating capacity [W] or 'autosize'." },
+        "rated_cooling_cop": { "type": "number", "default": 3.5, "description": "Rated cooling COP [W/W]." },
+        "rated_heating_cop": { "type": "number", "default": 4.0, "description": "Rated heating COP [W/W]." },
+        "heat_recovery": { "type": "boolean", "default": false, "description": "Enable simultaneous heating/cooling heat recovery." },
+        "cooling_cap_ft": { "type": "string", "description": "Cooling capacity curve name f(outdoor_db, indoor_t)." },
+        "cooling_eir_ft": { "type": "string", "description": "Cooling EIR curve name f(outdoor_db, indoor_t)." },
+        "heating_cap_ft": { "type": "string", "description": "Heating capacity curve name f(outdoor_db, indoor_t)." },
+        "heating_eir_ft": { "type": "string", "description": "Heating EIR curve name f(outdoor_db, indoor_t)." }
+      }
+    },
+
+    "VrfIndoorUnit": {
+      "type": "object",
+      "required": ["name", "zone", "cooling_capacity", "heating_capacity", "rated_airflow"],
+      "description": "VRF indoor unit (fan coil) serving one zone.",
+      "properties": {
+        "name": { "type": "string" },
+        "zone": { "type": "string", "description": "Zone served." },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "cooling_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated cooling capacity [W] or 'autosize'." },
+        "heating_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated heating capacity [W] or 'autosize'." },
+        "rated_airflow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated supply airflow [m3/s] or 'autosize'." },
+        "cooling_supply_temp": { "type": "number", "default": 13.0, "description": "Cooling supply air temperature [C]." },
+        "heating_supply_temp": { "type": "number", "default": 40.0, "description": "Heating supply air temperature [C]." }
       }
     },
 

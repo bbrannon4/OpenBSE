@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Legacy underscore output variable names (`zone_temperature`, `zone_heating_energy`, …) were silently dropped, so their output files were never written. They are now accepted as aliases for `zone:temperature` etc., and variables that match no data log a warning.
 - Workbench: the Energy tab now shows end uses and unmet hours from the summary report; the Network tab shows VRF systems; the selected weather file is remembered per model.
+- `docs/openbse_schema.json` brought in sync with the engine. It now covers `vrf_systems`, `dhw_systems`, `radiant_panels`, `exterior_equipment`, `equipment_it`, `electrical_distribution`, `shading_surfaces`, `f_factor_constructions`, `climate_zone`, and many nested fields, so these are editable in the Workbench. A new `schema_sync` test fails if the schema and engine inputs drift apart.
+- Workbench: the sidebar lists any schema class not yet categorized; curve, plant-loop and schedule reference fields offer dropdowns; the Network tab's Air Side / Water Side toggles are always clickable (an empty side shows a blank diagram).
+
 ## [0.7.0] - 2026-10-11
 
 ### Added
