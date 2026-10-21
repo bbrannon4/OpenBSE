@@ -659,12 +659,15 @@
           "type": "string",
           "enum": ["constant_volume", "vav", "on_off"],
           "default": "constant_volume",
-          "description": "Fan type/source. Any value other than vav / on_off is treated as constant_volume."
+          "description": "Fan type: constant_volume, vav (variable volume) or on_off. Other values are rejected."
         },
         "tag": { "type": "string", "description": "Free-form tag for output classification (e.g. supply, return, exhaust, transfer, relief). Used for end-use subcategory reporting." },
         "design_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design air volume flow rate [m3/s]. May be omitted when a205_file is set (the file's nominal flow is used)." },
         "pressure_rise": { "type": "number", "default": 600.0, "description": "Design pressure rise [Pa]." },
         "a205_file": { "type": "string", "description": "Path to an ASHRAE Standard 205 RS0003 fan performance file (.a205 CBOR or .a205.json). Relative paths resolve against the model YAML directory. When set, the analytical efficiencies and VAV coefficients are ignored; pressure_rise is still the static-pressure query." },
+        "motor_a205_file": { "type": "string", "description": "Optional standalone ASHRAE 205 RS0005 motor file. Replaces the motor embedded in a205_file. Only used when a205_file is set." },
+        "drive_a205_file": { "type": "string", "description": "Optional standalone RS0007 mechanical (belt) drive file. Replaces the drive embedded in a205_file. Only used when a205_file is set." },
+        "vfd_a205_file": { "type": "string", "description": "Optional standalone RS0006 electronic motor drive (VFD) file. Replaces the VFD nested in the motor. Only used when a205_file is set." },
         "motor_efficiency": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Motor efficiency [0-1]." },
         "impeller_efficiency": { "type": "number", "default": 0.71, "minimum": 0, "maximum": 1, "description": "Impeller (fan blade) efficiency [0-1]. Total efficiency = motor * impeller." },
         "motor_in_airstream_fraction": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Fraction of motor waste heat entering the airstream [0-1]." },

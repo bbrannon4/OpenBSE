@@ -576,7 +576,6 @@ outputs:
       - zone:supply_air_temperature
       - zone:supply_air_mass_flow
       - site:outdoor_temperature
-      - component:Python Chiller:power_w
-      - component:Python Chiller:thermal_output_w
-
+      - component:power_w:Python Chiller
+      - component:thermal_output_w:Python Chiller
 summary_report: true

@@ -3033,6 +3033,21 @@ fn main() -> Result<()> {
                                     }
                                 }
 
+                                // Idle equipment reports zero, so it is still visible
+                                // to output files that resolve columns on the first
+                                // timestep; running units overwrite these below.
+                                for equip in &plant_loop.supply_equipment {
+                                    hvac_result
+                                        .component_outputs
+                                        .entry(equip.name().to_string())
+                                        .or_insert_with(|| {
+                                            ["electric_power", "fuel_power", "thermal_output"]
+                                                .into_iter()
+                                                .map(|k| (k.to_string(), 0.0))
+                                                .collect()
+                                        });
+                                }
+
                                 // ── Simulate loop equipment ──────────────────────
                                 if total_load.abs() > 0.0 {
                                     let loop_mass_flow =
@@ -3289,6 +3304,9 @@ fn main() -> Result<()> {
                                                 let delivered = component.thermal_output().abs();
                                                 let mut plant_outputs: HashMap<String, f64> =
                                                     HashMap::new();
+                                                component.report_outputs(&mut |k, v| {
+                                                    plant_outputs.insert(k.to_string(), v);
+                                                });
                                                 plant_outputs.insert(
                                                     "electric_power".to_string(),
                                                     component.power_consumption(),
@@ -3409,24 +3427,21 @@ fn main() -> Result<()> {
                                 // Record compressor energy in hvac_result outputs,
                                 // with the heating-mode share so end uses split
                                 // correctly (power is allocated to indoor units).
-                                if odu.compressor_power > 0.0 {
-                                    let heating_power: f64 = idu_vec
-                                        .iter()
-                                        .filter(|iu| {
-                                            iu.mode == openbse_components::vrf::VrfMode::Heating
-                                        })
-                                        .map(|iu| iu.power)
-                                        .sum();
-                                    let outs = hvac_result
-                                        .component_outputs
-                                        .entry(odu.name.clone())
-                                        .or_default();
-                                    outs.insert("electric_power".to_string(), odu.compressor_power);
-                                    outs.insert(
-                                        "heating_electric_power".to_string(),
-                                        heating_power,
-                                    );
-                                }
+                                // Recorded even when off so the outdoor unit is
+                                // always visible to custom output files.
+                                let heating_power: f64 = idu_vec
+                                    .iter()
+                                    .filter(|iu| {
+                                        iu.mode == openbse_components::vrf::VrfMode::Heating
+                                    })
+                                    .map(|iu| iu.power)
+                                    .sum();
+                                let outs = hvac_result
+                                    .component_outputs
+                                    .entry(odu.name.clone())
+                                    .or_default();
+                                outs.insert("electric_power".to_string(), odu.compressor_power);
+                                outs.insert("heating_electric_power".to_string(), heating_power);
                             }
 
                             let mut hvac_conds = ZoneHvacConditions::default();

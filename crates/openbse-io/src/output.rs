@@ -1374,6 +1374,10 @@ struct OutputColumn {
     unit: &'static str,
     /// For `Sum`: integrate Σ value·dt × scale instead of a plain sum
     integrate_scale: Option<f64>,
+    /// Whether any snapshot has reported a value for this column. Starts
+    /// false only for exact-name component columns created before their
+    /// component reported anything.
+    seen: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1462,6 +1466,7 @@ impl OutputWriter {
             label,
             unit,
             integrate_scale,
+            seen: true,
         });
     }
 
@@ -1471,7 +1476,10 @@ impl OutputWriter {
     /// the first timestep (midnight — no solar). To avoid permanently
     /// dropping these columns, we fall back to entity names from a reference
     /// variable in the same category (`zone:temperature` for zone variables,
-    /// `surface:inside_temperature` for surface variables).
+    /// `surface:inside_temperature` for surface variables). A component
+    /// variable with an exact (non-wildcard) name keeps its column, since the
+    /// component may simply be idle at the first timestep; columns that never
+    /// receive data are reported by [`Self::warn_unseen_columns`].
     fn resolve_columns(&mut self, snapshot: &OutputSnapshot) {
         if self.columns_resolved {
             return;
@@ -1504,12 +1512,22 @@ impl OutputWriter {
                 // entity list for the matching category so that the column is
                 // created and will receive data in later timesteps.
                 let category = var_name.split(':').next().unwrap_or("");
+                let filter = var_name.splitn(3, ':').nth(2);
                 let fallback = match category {
                     "zone" => &zone_entities,
                     "surface" => &surface_entities,
+                    "component" if filter.is_some_and(|f| !f.contains('*')) => {
+                        let name = filter.unwrap_or_default().to_string();
+                        self.push_column(var_name, name, *agg, *non_default);
+                        if let Some(col) = self.columns.last_mut() {
+                            col.seen = false;
+                        }
+                        continue;
+                    }
                     _ => {
                         log::warn!(
-                            "outputs '{}': variable '{}' matched no data and was skipped",
+                            "outputs '{}': variable '{}' matched no data and was skipped \
+                             (expected <category>:<variable>:<name filter>)",
                             self.config.file,
                             var_name
                         );
@@ -1517,7 +1535,7 @@ impl OutputWriter {
                     }
                 };
                 // Apply name filter if present (e.g. "zone:gain_solar:living*")
-                let filter = var_name.splitn(3, ':').nth(2);
+                let before = self.columns.len();
                 for entity in fallback {
                     let include = match filter {
                         None | Some("*") => true,
@@ -1526,6 +1544,16 @@ impl OutputWriter {
                     if include {
                         self.push_column(var_name, entity.clone(), *agg, *non_default);
                     }
+                }
+                if self.columns.len() == before {
+                    log::warn!(
+                        "outputs '{}': variable '{}' matched no {} names and was skipped \
+                         (expected {}:<variable>:<name filter>)",
+                        self.config.file,
+                        var_name,
+                        category,
+                        category
+                    );
                 }
                 continue;
             }
@@ -1584,9 +1612,15 @@ impl OutputWriter {
 
         // Accumulate values
         let dt = snapshot.dt;
-        for (col, acc) in self.columns.iter().zip(self.accum.iter_mut()) {
+        for (col, acc) in self.columns.iter_mut().zip(self.accum.iter_mut()) {
             let values = snapshot.get_variable_values(&col.spec);
-            let val = values.get(&col.entity).copied().unwrap_or(0.0);
+            let val = match values.get(&col.entity) {
+                Some(&v) => {
+                    col.seen = true;
+                    v
+                }
+                None => 0.0,
+            };
 
             acc.sum += val;
             acc.integral += val * dt;
@@ -1646,8 +1680,23 @@ impl OutputWriter {
         self.period_label = None;
     }
 
+    /// Warn about columns that never received data during the run, e.g. a
+    /// misspelled component name or a variable that component doesn't report.
+    fn warn_unseen_columns(&self) {
+        for col in self.columns.iter().filter(|c| !c.seen) {
+            log::warn!(
+                "outputs '{}': variable '{}' never reported data for '{}' — check the \
+                 component name and variable (column written as zeros)",
+                self.config.file,
+                col.spec,
+                col.entity
+            );
+        }
+    }
+
     /// Finalize (flush any remaining data) and write to file.
     pub fn finalize_and_write(&mut self, output_dir: &Path) -> Result<(), OutputError> {
+        self.warn_unseen_columns();
         // Flush any remaining accumulated data using the period's own label
         if self.current_period.is_some() {
             if let Some((pm, pd, ph, ps)) = self.period_label {
@@ -1672,6 +1721,7 @@ impl OutputWriter {
         output_dir: &Path,
         stem: &str,
     ) -> Result<(), OutputError> {
+        self.warn_unseen_columns();
         if let Some((m, d, h)) = self.current_period {
             self.flush_period(m, d, h, 0);
         }
@@ -3960,6 +4010,37 @@ mod tests {
         // Hour 1 should be flushed with mean = 2.5
         assert_eq!(writer.rows.len(), 1);
         assert!((writer.rows[0].values[0] - 2.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_named_component_column_survives_idle_first_timestep() {
+        let config = OutputFileConfig {
+            file: "test.csv".to_string(),
+            frequency: OutputFrequency::Timestep,
+            aggregation: None,
+            variables: vec![
+                "component:electric_power:Chiller 1".to_string(),
+                "component:electric_power:Typo Chiller".to_string(),
+                "component:electric_power:Chill*".to_string(),
+            ],
+        };
+        let mut writer = OutputWriter::new(config);
+
+        // Chiller idle (absent) at the first timestep, running at the second.
+        writer.add_snapshot(&OutputSnapshot::new(1, 1, 1, 1, 3600.0));
+        let mut snap = OutputSnapshot::new(1, 1, 2, 1, 3600.0);
+        snap.component_outputs.insert(
+            "Chiller 1".to_string(),
+            HashMap::from([("electric_power".to_string(), 5000.0)]),
+        );
+        writer.add_snapshot(&snap);
+
+        // Exact names keep their columns; a wildcard with no match is skipped.
+        let entities: Vec<_> = writer.columns.iter().map(|c| c.entity.as_str()).collect();
+        assert_eq!(entities, ["Chiller 1", "Typo Chiller"]);
+        assert_eq!(writer.rows[1].values, [5000.0, 0.0]);
+        let seen: Vec<_> = writer.columns.iter().map(|c| c.seen).collect();
+        assert_eq!(seen, [true, false]);
     }
 
     #[test]

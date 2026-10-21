@@ -356,33 +356,6 @@ fn schema_top_level_keys_match_model_input() {
     );
 }
 
-/// Known problems in example YAMLs (not schema drift). Each entry hides a
-/// real bug in an example, so fix the example and delete the entry rather
-/// than adding new ones.
-///
-/// Example keys that serde silently ignores (`"file: key path"`).
-const KNOWN_IGNORED: &[&str] = &[
-    // Plant pump field is `impeller_efficiency`; this value is dropped.
-    "examples/datacenter_crah.yaml: .plant_loops[].supply_equipment[].pump_efficiency",
-    // Typos for `unoccupied_cooling_setpoint` / `unoccupied_heating_setpoint`.
-    "examples/datacenter_crah.yaml: .thermostats[].cooling_setpoint_unoccupied",
-    "examples/datacenter_crah.yaml: .thermostats[].heating_setpoint_unoccupied",
-    // The example documents Standard 205 motor/drive/VFD sub-component
-    // overrides, but FanInput has no `motor_a205_file` field, so it's dropped.
-    "examples/vav_a205_motor_override.yaml: .air_loops[].equipment[].motor_a205_file",
-    // `simulation` has no daylight-saving option.
-    "prototype_tests/large_office/LargeOffice_Boulder_ideal.yaml: .simulation.daylight_saving",
-];
-
-/// Example values the engine does not recognise and silently replaces with a
-/// default (key path as reported).
-const KNOWN_UNDESCRIBED: &[&str] = &[
-    // Fan `source` only matches vav / on_off; these fall back to constant
-    // volume (examples/datacenter_crah.yaml, LargeOffice_Boulder.yaml).
-    ".air_loops[].equipment[].source (enum value 'variable')",
-    ".air_loops[].equipment[].source (enum value 'variable_volume')",
-];
-
 /// Inline model exercising structs that no example/test YAML uses yet, so the
 /// serialized-form check (which emits every field of every struct present)
 /// covers them too. Values are arbitrary; it only needs to deserialize.
@@ -551,11 +524,7 @@ fn schema_describes_all_example_models() {
     // A schema property is stale only if no model ever serialized it.
     let stale: Vec<_> = stale.difference(&seen).collect();
 
-    let ignored: Vec<_> = ignored
-        .into_keys()
-        .filter(|k| !KNOWN_IGNORED.contains(&k.as_str()))
-        .collect();
-    undescribed.retain(|p, _| !KNOWN_UNDESCRIBED.contains(&p.as_str()));
+    let ignored: Vec<_> = ignored.into_keys().collect();
     let mut msg = String::new();
     if !undescribed.is_empty() {
         msg += "\nKey paths not described by docs/openbse_schema.json:\n";

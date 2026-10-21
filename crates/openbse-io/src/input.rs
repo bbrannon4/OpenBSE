@@ -840,7 +840,7 @@ impl AirLoopInput {
         // Check for VAV fan
         for eq in &self.equipment {
             if let EquipmentInput::Fan(f) = eq {
-                if f.source.eq_ignore_ascii_case("vav") {
+                if matches!(f.fan_type(), Ok(FanType::VAV)) {
                     return AirLoopSystemType::Vav;
                 }
             }
@@ -1099,6 +1099,18 @@ pub struct FanInput {
     /// used as the static-pressure query into the map.
     #[serde(default)]
     pub a205_file: Option<String>,
+    /// Optional standalone ASHRAE 205 RS0005 motor file. Replaces the motor
+    /// embedded in `a205_file`. Only used when `a205_file` is set.
+    #[serde(default)]
+    pub motor_a205_file: Option<String>,
+    /// Optional standalone RS0007 mechanical (belt) drive file. Replaces the
+    /// drive embedded in `a205_file`. Only used when `a205_file` is set.
+    #[serde(default)]
+    pub drive_a205_file: Option<String>,
+    /// Optional standalone RS0006 electronic motor drive (VFD) file. Replaces
+    /// the VFD nested in the motor. Only used when `a205_file` is set.
+    #[serde(default)]
+    pub vfd_a205_file: Option<String>,
     /// Motor efficiency [0-1] (default 0.9)
     #[serde(default = "default_motor_efficiency")]
     pub motor_efficiency: f64,
@@ -1122,6 +1134,22 @@ pub struct FanInput {
 
 fn default_fan_source() -> String {
     "constant_volume".to_string()
+}
+
+impl FanInput {
+    /// Parse `source` strictly; an unrecognized value is an error rather than
+    /// silently falling back to constant volume.
+    pub fn fan_type(&self) -> Result<FanType, InputError> {
+        match self.source.to_ascii_lowercase().as_str() {
+            "constant_volume" | "constantvolume" => Ok(FanType::ConstantVolume),
+            "vav" => Ok(FanType::VAV),
+            "on_off" | "onoff" => Ok(FanType::OnOff),
+            other => Err(InputError::ValidationError(format!(
+                "fan '{}': unknown source '{}' (expected constant_volume, vav, or on_off)",
+                self.name, other
+            ))),
+        }
+    }
 }
 fn default_pressure_rise() -> f64 {
     600.0
@@ -2926,6 +2954,7 @@ fn build_graph_impl(
         for equipment in &air_loop.equipment {
             let node = match equipment {
                 EquipmentInput::Fan(f) => {
+                    let fan_type = f.fan_type()?;
                     // ── Mode 1: ASHRAE Standard 205 RS0003 file ─────────────
                     if let Some(path_str) = f.a205_file.as_ref() {
                         use openbse_components::fan_a205::FanA205;
@@ -2939,12 +2968,48 @@ fn build_graph_impl(
                             ))
                         })?;
                         let design_flow = f.design_flow_rate.to_f64();
-                        let mut fan = FanA205::from_rs0003(
+                        let load_sub = |field: &str, file: &Option<String>| {
+                            file.as_ref().map(|p| {
+                                let path = resolve_input_path(model_dir, p);
+                                (field.to_string(), path)
+                            })
+                        };
+                        let sub_err = |field: String, path: &Path, e: openbse_a205::A205Error| {
+                            InputError::ParseError(format!(
+                                "fan '{}': failed to load {} {}: {}",
+                                f.name,
+                                field,
+                                path.display(),
+                                e
+                            ))
+                        };
+                        let motor = load_sub("motor_a205_file", &f.motor_a205_file)
+                            .map(|(field, path)| {
+                                openbse_a205::rs0005::Rs0005::load(&path)
+                                    .map_err(|e| sub_err(field, &path, e))
+                            })
+                            .transpose()?;
+                        let drive = load_sub("drive_a205_file", &f.drive_a205_file)
+                            .map(|(field, path)| {
+                                openbse_a205::rs0007::Rs0007::load(&path)
+                                    .map_err(|e| sub_err(field, &path, e))
+                            })
+                            .transpose()?;
+                        let vfd = load_sub("vfd_a205_file", &f.vfd_a205_file)
+                            .map(|(field, path)| {
+                                openbse_a205::rs0006::Rs0006::load(&path)
+                                    .map_err(|e| sub_err(field, &path, e))
+                            })
+                            .transpose()?;
+                        let mut fan = FanA205::from_rs0003_with_overrides(
                             &f.name,
                             rs0003,
                             f.pressure_rise,
                             design_flow.max(0.0),
                             f.motor_efficiency,
+                            motor,
+                            drive,
+                            vfd,
                         )
                         .map_err(|e| {
                             InputError::ParseError(format!(
@@ -2958,11 +3023,6 @@ fn build_graph_impl(
                         }
                         graph.add_air_component(Box::new(fan))
                     } else {
-                        let fan_type = match f.source.as_str() {
-                            "vav" | "VAV" => FanType::VAV,
-                            "on_off" | "OnOff" => FanType::OnOff,
-                            _ => FanType::ConstantVolume,
-                        };
                         let flow = f.design_flow_rate.to_f64();
                         let total_efficiency = f.motor_efficiency * f.impeller_efficiency;
                         let mut fan = match fan_type {
@@ -4688,6 +4748,25 @@ mod tests {
             "East Office should have resolved infiltration"
         );
         assert!(east_zone.input.infiltration[0].design_flow_rate > 0.0);
+    }
+
+    #[test]
+    fn test_fan_source_parsing_rejects_unknown() {
+        let fan = |source: &str| -> FanInput {
+            serde_yaml::from_str(&format!("name: F\nsource: {source}\n")).unwrap()
+        };
+        assert!(matches!(fan("vav").fan_type(), Ok(FanType::VAV)));
+        assert!(matches!(fan("VAV").fan_type(), Ok(FanType::VAV)));
+        assert!(matches!(fan("on_off").fan_type(), Ok(FanType::OnOff)));
+        assert!(matches!(
+            fan("constant_volume").fan_type(),
+            Ok(FanType::ConstantVolume)
+        ));
+        let err = fan("variable_volume").fan_type().unwrap_err().to_string();
+        assert!(
+            err.contains("variable_volume") && err.contains("'F'"),
+            "{err}"
+        );
     }
 
     #[test]

@@ -66,3 +66,35 @@ air_loops:
         msg
     );
 }
+
+#[test]
+fn missing_motor_override_is_loaded_not_ignored() {
+    let fan_file = workspace_root().join("examples/equipment/Fan_Continuous.RS0003.a205.json");
+    let yaml = format!(
+        r#"
+simulation: {{}}
+weather_files: []
+zones:
+  - name: Z1
+    volume: 100.0
+    floor_area: 25.0
+air_loops:
+  - name: AHU
+    equipment:
+      - type: fan
+        name: TestFan
+        pressure_rise: 700.0
+        a205_file: '{}'
+        motor_a205_file: /nonexistent/motor.a205.json
+    zone_terminals:
+      - zone: Z1
+"#,
+        fan_file.display()
+    );
+    let model = parse_model_yaml(&yaml).expect("parse");
+    let msg = match build_graph_with_base(&model, None) {
+        Ok(_) => panic!("expected missing motor_a205_file to error"),
+        Err(e) => e.to_string(),
+    };
+    assert!(msg.contains("motor_a205_file"), "{msg}");
+}
