@@ -6,7 +6,7 @@ import type { ClassInfo } from "../lib/schema";
 const categoryOrder: { label: string; keys: string[] }[] = [
   {
     label: "General",
-    keys: ["simulation", "design_days", "schedules"],
+    keys: ["simulation", "climate_zone", "design_days", "schedules"],
   },
   {
     label: "Envelope",
@@ -15,6 +15,7 @@ const categoryOrder: { label: string; keys: string[] }[] = [
       "constructions",
       "simple_constructions",
       "window_constructions",
+      "f_factor_constructions",
     ],
   },
   {
@@ -22,9 +23,11 @@ const categoryOrder: { label: string; keys: string[] }[] = [
     keys: [
       "zones",
       "surfaces",
+      "shading_surfaces",
       "people",
       "lights",
       "equipment",
+      "equipment_it",
       "infiltration",
       "ventilation",
       "exhaust_fans",
@@ -37,6 +40,8 @@ const categoryOrder: { label: string; keys: string[] }[] = [
     keys: [
       "air_loops",
       "plant_loops",
+      "vrf_systems",
+      "radiant_panels",
       "zone_groups",
       "thermostats",
       "controls",
@@ -44,10 +49,29 @@ const categoryOrder: { label: string; keys: string[] }[] = [
     ],
   },
   {
+    label: "Service Water & Electrical",
+    keys: ["dhw_systems", "exterior_equipment", "electrical_distribution"],
+  },
+  {
     label: "Output",
     keys: ["outputs", "summary_report", "parametrics"],
   },
 ];
+
+// Edited elsewhere (Simulation panel), so not listed as a class.
+const hiddenKeys = new Set(["weather_files"]);
+
+const categorizedKeys = new Set(categoryOrder.flatMap((c) => c.keys));
+
+/** Any schema class not placed above still gets listed, so new schema keys are never invisible. */
+function withUncategorized(classes: ClassInfo[]) {
+  const extra = classes
+    .map((c) => c.key)
+    .filter((k) => !categorizedKeys.has(k) && !hiddenKeys.has(k));
+  return extra.length > 0
+    ? [...categoryOrder, { label: "Other", keys: extra }]
+    : categoryOrder;
+}
 
 interface ClassBrowserProps {
   classes: ClassInfo[];
@@ -90,7 +114,7 @@ export function ClassBrowser({
         </div>
       </div>
       <div className="class-browser-list">
-        {categoryOrder.map((category) => {
+        {withUncategorized(classes).map((category) => {
           const categoryClasses = category.keys
             .map((k) => classMap.get(k))
             .filter((c): c is ClassInfo => c !== undefined)
