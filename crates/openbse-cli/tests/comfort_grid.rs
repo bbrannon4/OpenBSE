@@ -26,7 +26,7 @@ fn example_writes_consistent_comfort_json() {
     let status = Command::new(env!("CARGO_BIN_EXE_openbse"))
         .arg(&model)
         .arg("-w")
-        .arg(root.join("prototype_tests/Denver-Buckley.epw"))
+        .arg(root.join("140_tests/weather/725650TYCST.epw"))
         .current_dir(&dir)
         .output()
         .expect("run openbse");

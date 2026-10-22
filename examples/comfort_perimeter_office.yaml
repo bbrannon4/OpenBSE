@@ -26,7 +26,7 @@ simulation:
   terrain: city
 
 weather_files:
-  - ../prototype_tests/Denver-Buckley.epw
+  - ../140_tests/weather/725650TYCST.epw
 
 comfort_grid:
   spacing: 0.5
