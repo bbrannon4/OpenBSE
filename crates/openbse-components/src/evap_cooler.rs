@@ -2,7 +2,8 @@
 //!
 //! Three modes:
 //!   Direct: adiabatic humidification — DBT drops, W rises, enthalpy conserved.
-//!   Indirect: sensible cooling via HX using outdoor WBT as driving force, no W change.
+//!   Indirect: outdoor secondary air is cooled by its own pad, then cools the
+//!     supply sensibly across a heat exchanger (no moisture added to the supply).
 //!   TwoStage: indirect followed by direct.
 //!
 //! Reference: EnergyPlus Engineering Reference, "Evaporative Coolers"
@@ -19,6 +20,12 @@ fn default_evap_effectiveness() -> f64 {
 }
 fn default_hx_effectiveness() -> f64 {
     0.70
+}
+fn default_pump_power() -> f64 {
+    100.0
+}
+fn default_secondary_air_flow_ratio() -> f64 {
+    1.0
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -48,12 +55,29 @@ pub struct EvapCooler {
     /// Heat exchanger effectiveness [0-1] for indirect stage (default 0.70)
     #[serde(default = "default_hx_effectiveness")]
     pub hx_effectiveness: f64,
+    /// Recirculating water pump power while the cooler operates [W] (default 100).
+    #[serde(default = "default_pump_power")]
+    pub pump_power: f64,
+    /// Secondary (scavenger) air fan power while an indirect stage operates [W]
+    /// (default 0).
+    #[serde(default)]
+    pub secondary_fan_power: f64,
+    /// Secondary to primary air mass flow ratio for the indirect stage (default
+    /// 1.0). Sets how much water the secondary pad evaporates.
+    #[serde(default = "default_secondary_air_flow_ratio")]
+    pub secondary_air_flow_ratio: f64,
 
     // ─── Runtime state ──────────────────────────────────────────────────
+    /// Electric power this timestep [W]: pump, plus the secondary fan for an
+    /// operating indirect stage.
     #[serde(skip)]
-    pub power: f64, // small pump power [W]
+    pub power: f64,
     #[serde(skip)]
     pub thermal_out: f64,
+    /// Water evaporated this timestep [kg/s]: the direct pad plus the secondary
+    /// pad of an indirect stage (drift and blowdown are not modelled).
+    #[serde(skip)]
+    pub water_consumption: f64,
 }
 
 impl EvapCooler {
@@ -64,8 +88,12 @@ impl EvapCooler {
             mode,
             effectiveness: 0.80,
             hx_effectiveness: 0.70,
+            pump_power: 100.0,
+            secondary_fan_power: 0.0,
+            secondary_air_flow_ratio: 1.0,
             power: 0.0,
             thermal_out: 0.0,
+            water_consumption: 0.0,
         }
     }
 
@@ -79,27 +107,31 @@ impl EvapCooler {
         (t_out, w_out)
     }
 
-    /// Compute indirect-stage outlet: the primary stream is cooled sensibly
-    /// (no moisture addition) toward the wet-bulb of the **secondary/scavenger
-    /// air** (`t_wb_secondary`) — the separate stream that is evaporatively
-    /// cooled and exchanges heat with the primary across the HX. The primary
-    /// cannot be cooled below the secondary wet-bulb, and no cooling occurs when
-    /// the primary is already at or below it.
+    /// Compute indirect-stage outlet, as E+ `EvaporativeCooler:Indirect:CelDekPad`
+    /// does: the secondary (scavenger) stream is first cooled by its own pad
+    /// toward its wet-bulb, then cools the primary sensibly across the HX:
     ///
-    /// E+ `EvaporativeCooler:Indirect:*` drives off the secondary (typically
-    /// outdoor) stream, NOT the primary inlet (EVAP-1 / #59).
+    ///   T_sec_out  = T_sec − ε_sat·(T_sec − T_wb_sec)
+    ///   T_prim_out = T_prim − ε_hx·(T_prim − T_sec_out)
+    ///
+    /// The older product form ε_sat·ε_hx·(T_prim − T_wb_sec) only agrees when
+    /// the primary and secondary inlets are the same air (EVAP-2 / #59).
+    /// Returns the primary outlet (t, w) and the secondary pad outlet humidity
+    /// ratio (for water use), or `None` when the secondary air cannot cool the
+    /// primary.
     fn indirect_stage(
         t_db: f64,
         w: f64,
-        t_wb_secondary: f64,
-        effectiveness: f64,
+        secondary: &psych::MoistAirState,
+        sat_eff: f64,
         hx_eff: f64,
-    ) -> (f64, f64) {
-        if t_db <= t_wb_secondary {
-            return (t_db, w); // no sensible cooling available
+    ) -> Option<(f64, f64, f64)> {
+        let (t_sec_out, w_sec_out) =
+            Self::direct_stage(secondary.t_db, secondary.w, secondary.p_b, sat_eff);
+        if t_db <= t_sec_out {
+            return None;
         }
-        let t_out = t_db - effectiveness * hx_eff * (t_db - t_wb_secondary);
-        (t_out.max(t_wb_secondary), w) // humidity unchanged, floored at secondary WB
+        Some((t_db - hx_eff * (t_db - t_sec_out), w, w_sec_out))
     }
 }
 
@@ -116,6 +148,7 @@ impl AirComponent for EvapCooler {
         if inlet.mass_flow <= 0.0 {
             self.power = 0.0;
             self.thermal_out = 0.0;
+            self.water_consumption = 0.0;
             return *inlet;
         }
 
@@ -123,30 +156,31 @@ impl AirComponent for EvapCooler {
         let w = inlet.state.w;
         let p_b = inlet.state.p_b;
 
-        // Secondary (scavenger) stream for the indirect HX = outdoor air. Its
-        // wet-bulb sets the achievable primary-cooling floor.
+        // Secondary (scavenger) stream for the indirect HX = outdoor air.
         let oa = &ctx.outdoor_air;
-        let t_wb_secondary = psych::twb_fn_tdb_w_pb(oa.t_db, oa.w, oa.p_b);
+        let m_secondary = inlet.mass_flow * self.secondary_air_flow_ratio.max(0.0);
+
+        // Water evaporated by the secondary pad, and whether an indirect stage
+        // ran (its secondary fan only runs then).
+        let mut secondary_water = 0.0;
+        let mut indirect_ran = false;
+        let mut run_indirect = |t: f64, w_: f64| -> (f64, f64) {
+            match Self::indirect_stage(t, w_, oa, self.effectiveness, self.hx_effectiveness) {
+                Some((t_out, w_out, w_sec_out)) => {
+                    indirect_ran = true;
+                    secondary_water = m_secondary * (w_sec_out - oa.w).max(0.0);
+                    (t_out, w_out)
+                }
+                None => (t, w_),
+            }
+        };
 
         let (t_out, w_out) = match self.mode {
             EvapCoolerMode::Direct => Self::direct_stage(t_db, w, p_b, self.effectiveness),
-            EvapCoolerMode::Indirect => Self::indirect_stage(
-                t_db,
-                w,
-                t_wb_secondary,
-                self.effectiveness,
-                self.hx_effectiveness,
-            ),
+            EvapCoolerMode::Indirect => run_indirect(t_db, w),
             EvapCoolerMode::TwoStage => {
-                // Stage 1: indirect (driven by secondary/outdoor wet-bulb)
-                let (t_int, w_int) = Self::indirect_stage(
-                    t_db,
-                    w,
-                    t_wb_secondary,
-                    self.effectiveness,
-                    self.hx_effectiveness,
-                );
-                // Stage 2: direct adiabatic saturation of the primary stream
+                // Stage 1: indirect; stage 2: direct saturation of the primary.
+                let (t_int, w_int) = run_indirect(t_db, w);
                 Self::direct_stage(t_int, w_int, p_b, self.effectiveness)
             }
         };
@@ -155,7 +189,21 @@ impl AirComponent for EvapCooler {
         let h_out = psych::h_fn_tdb_w(t_out, w_out);
         // Thermal output: negative = cooling (removes enthalpy from air)
         self.thermal_out = inlet.mass_flow * (h_out - h_in);
-        self.power = 100.0; // small recirculation pump
+
+        let direct_water = inlet.mass_flow * (w_out - w).max(0.0);
+        self.water_consumption = direct_water + secondary_water;
+        // The pump runs only while some stage is actually cooling.
+        let operating = t_out < t_db - 1.0e-9;
+        self.power = if operating {
+            self.pump_power
+                + if indirect_ran {
+                    self.secondary_fan_power
+                } else {
+                    0.0
+                }
+        } else {
+            0.0
+        };
 
         AirPort::new(
             openbse_psychrometrics::MoistAirState::new(t_out, w_out, p_b),
@@ -169,6 +217,10 @@ impl AirComponent for EvapCooler {
 
     fn thermal_output(&self) -> f64 {
         self.thermal_out
+    }
+
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("water_consumption", self.water_consumption);
     }
 }
 
@@ -298,6 +350,75 @@ mod tests {
         let mut ec = EvapCooler::new("EC", EvapCoolerMode::Indirect);
         let outlet = ec.simulate_air(&inlet, &ctx);
         assert_relative_eq!(outlet.state.t_db, 18.0, max_relative = 1e-6);
+    }
+
+    #[test]
+    fn test_indirect_stages_in_series_when_primary_differs_from_secondary() {
+        // EVAP-2 (#59): with return-like primary air at 30 °C and hot, dry
+        // outdoor secondary air, the secondary pad acts first, then the HX.
+        let mut ctx = make_ctx();
+        ctx.outdoor_air = MoistAirState::from_tdb_rh(40.0, 0.10, STD_PRESSURE);
+        let inlet = make_inlet(30.0, 0.30);
+        let mut ec = EvapCooler::new("EC", EvapCoolerMode::Indirect);
+        let outlet = ec.simulate_air(&inlet, &ctx);
+
+        let oa = &ctx.outdoor_air;
+        let t_wb_sec = psych::twb_fn_tdb_w_pb(oa.t_db, oa.w, oa.p_b);
+        let t_sec_out = 40.0 - 0.80 * (40.0 - t_wb_sec);
+        let expected = 30.0 - 0.70 * (30.0 - t_sec_out);
+        assert_relative_eq!(outlet.state.t_db, expected, max_relative = 1e-3);
+        // The product form would have used the primary's 30 °C against the
+        // secondary wet-bulb and given a different answer.
+        let product = 30.0 - 0.80 * 0.70 * (30.0 - t_wb_sec);
+        assert!((expected - product).abs() > 0.1);
+    }
+
+    #[test]
+    fn test_pump_and_secondary_fan_only_while_cooling() {
+        let ctx = make_ctx(); // 35 °C, 20 % RH outdoors
+        let mut ec = EvapCooler::new("EC", EvapCoolerMode::Indirect);
+        ec.pump_power = 250.0;
+        ec.secondary_fan_power = 400.0;
+        ec.simulate_air(&make_inlet(35.0, 0.15), &ctx);
+        assert_eq!(ec.power, 650.0);
+
+        // Primary already colder than the cooled secondary air: nothing runs.
+        ec.simulate_air(&make_inlet(15.0, 0.30), &ctx);
+        assert_eq!(ec.power, 0.0);
+
+        // A direct cooler never runs the secondary fan.
+        let mut direct = EvapCooler::new("D", EvapCoolerMode::Direct);
+        direct.pump_power = 250.0;
+        direct.secondary_fan_power = 400.0;
+        direct.simulate_air(&make_inlet(35.0, 0.15), &ctx);
+        assert_eq!(direct.power, 250.0);
+    }
+
+    #[test]
+    fn test_water_consumption() {
+        let ctx = make_ctx();
+        let inlet = make_inlet(35.0, 0.15);
+
+        let mut direct = EvapCooler::new("D", EvapCoolerMode::Direct);
+        let out = direct.simulate_air(&inlet, &ctx);
+        assert_relative_eq!(
+            direct.water_consumption,
+            inlet.mass_flow * (out.state.w - inlet.state.w),
+            max_relative = 1e-9
+        );
+
+        // Indirect: the supply gains no moisture; the secondary pad evaporates
+        // water in proportion to the secondary flow.
+        let mut ind = EvapCooler::new("I", EvapCoolerMode::Indirect);
+        ind.secondary_air_flow_ratio = 2.0;
+        ind.simulate_air(&inlet, &ctx);
+        let oa = &ctx.outdoor_air;
+        let (_, w_sec) = EvapCooler::direct_stage(oa.t_db, oa.w, oa.p_b, 0.80);
+        assert_relative_eq!(
+            ind.water_consumption,
+            2.0 * inlet.mass_flow * (w_sec - oa.w),
+            max_relative = 1e-9
+        );
     }
 
     #[test]

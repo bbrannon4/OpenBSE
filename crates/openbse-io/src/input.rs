@@ -1139,6 +1139,23 @@ pub struct EvapCoolerInput {
     /// Heat exchanger effectiveness [0-1] for indirect stage (default 0.70)
     #[serde(default = "default_evap_hx_effectiveness")]
     pub hx_effectiveness: f64,
+    /// Recirculating water pump power while the cooler operates [W] (default 100).
+    #[serde(default = "default_evap_pump_power")]
+    pub pump_power: f64,
+    /// Secondary air fan power while an indirect stage operates [W] (default 0).
+    #[serde(default)]
+    pub secondary_fan_power: f64,
+    /// Secondary to primary air mass flow ratio for the indirect stage (default 1.0).
+    #[serde(default = "default_evap_secondary_flow_ratio")]
+    pub secondary_air_flow_ratio: f64,
+}
+
+fn default_evap_pump_power() -> f64 {
+    100.0
+}
+
+fn default_evap_secondary_flow_ratio() -> f64 {
+    1.0
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -3543,6 +3560,9 @@ fn build_graph_impl(
                     ec.submeter = e.submeter.clone();
                     ec.effectiveness = e.effectiveness;
                     ec.hx_effectiveness = e.hx_effectiveness;
+                    ec.pump_power = e.pump_power;
+                    ec.secondary_fan_power = e.secondary_fan_power;
+                    ec.secondary_air_flow_ratio = e.secondary_air_flow_ratio;
                     graph.add_air_component(Box::new(ec))
                 }
                 EquipmentInput::ExternalAir(e) => {

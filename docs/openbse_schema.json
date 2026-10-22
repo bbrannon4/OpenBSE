@@ -901,9 +901,12 @@
         "type": { "type": "string", "const": "evap_cooler" },
         "name": { "type": "string" },
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
-        "mode": { "type": "string", "enum": ["direct", "indirect", "two_stage"], "default": "direct", "description": "direct = adiabatic (adds moisture); indirect = HX using wet-bulb as driving temperature (no moisture added); two_stage = indirect followed by direct." },
+        "mode": { "type": "string", "enum": ["direct", "indirect", "two_stage"], "default": "direct", "description": "direct = adiabatic (adds moisture); indirect = outdoor secondary air cooled by its own pad cools the supply across a heat exchanger (no moisture added to the supply); two_stage = indirect followed by direct." },
         "effectiveness": { "type": "number", "default": 0.80, "minimum": 0, "maximum": 1, "description": "Saturation effectiveness of the direct stage [0-1]." },
-        "hx_effectiveness": { "type": "number", "default": 0.70, "minimum": 0, "maximum": 1, "description": "Heat exchanger effectiveness of the indirect stage [0-1]." }
+        "hx_effectiveness": { "type": "number", "default": 0.70, "minimum": 0, "maximum": 1, "description": "Heat exchanger effectiveness of the indirect stage [0-1]." },
+        "pump_power": { "type": "number", "default": 100.0, "minimum": 0, "description": "Recirculating water pump power while the cooler is cooling [W]." },
+        "secondary_fan_power": { "type": "number", "default": 0.0, "minimum": 0, "description": "Secondary (scavenger) air fan power while an indirect stage is cooling [W]." },
+        "secondary_air_flow_ratio": { "type": "number", "default": 1.0, "minimum": 0, "description": "Secondary to primary air mass flow ratio for the indirect stage; sets the water the secondary pad evaporates." }
       }
     },
 
