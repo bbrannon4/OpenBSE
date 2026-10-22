@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed examples that used ignored keys: `examples/datacenter_crah.yaml` (fan `source`, pump efficiency, unoccupied setpoint names) and `prototype_tests/large_office/LargeOffice_Boulder*.yaml` (data-center fans now actually run as VAV, which changes their results). `schema_sync` now fails on any unknown key in a repo YAML.
 
 ### Fixed
+- Windows' share of radiant internal gains (people, lights, equipment, radiant panels) was computed but never applied, so it left the heat balance: about 7% of radiant gains in ASHRAE 140 case 600, 11% in the comfort example. It now warms the glass, as in EnergyPlus (#142). Annual heating falls and cooling rises slightly, by about 0.5%.
 - **Surfaces wound the wrong way faced the wrong direction.** Azimuth and tilt come from vertex order, so a surface listed clockwise from outside was simulated facing backwards: wrong solar, sky exchange and convection, and the wrong face in the interior radiant model. The engine now detects these surfaces without trusting any winding and reverses them, with a warning in the `.err` file. Detection: all of a zone's vertices lie on one side of the surface's plane, or a window faces the opposite way to its parent. Fixed in the repo models, which changes their results:
   - `examples/office_vrf.yaml`: the north conference window was simulated facing south.
   - `examples/retail_rtu.yaml`: 6 interior partitions sat on the wrong face of the radiant model, so the storefront glass never exchanged radiation with them.
