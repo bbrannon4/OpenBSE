@@ -240,7 +240,15 @@ npm run build              # full build (tsc + vite)
 
 ## License
 
-MIT OR Apache-2.0
+Copyright (C) 2026 bbrannon4 and contributors.
+
+OpenBSE is licensed under the [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`). You may use it for any purpose, including paid work. If you distribute OpenBSE or a modified version, or let others interact with a modified version over a network, you must make the corresponding source available under the same license.
+
+Versions up to and including v0.7.0 were released under `MIT OR Apache-2.0` and remain available under those terms.
+
+## Commercial Licensing
+
+This project is licensed under AGPL-3.0. If you wish to use this software in a commercial or proprietary environment without being bound by copyleft requirements, contact [@bbrannon4 on GitHub](https://github.com/bbrannon4) for commercial licensing options.
 
 ## References
 

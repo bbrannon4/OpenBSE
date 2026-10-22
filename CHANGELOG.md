@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - PNG export with title, legend and north arrow.
 
 ### Changed
+- **License changed to AGPL-3.0-only** (previously `MIT OR Apache-2.0`). Releases up to and including v0.7.0 remain available under their original terms. Also resolves the mismatch in #122, where the manifests declared a dual license but only the MIT text was included.
 - Comfort grid: an hour counts as "in direct sun" only when the sun raises the occupant's MRT by at least 1 K. Faint beam, such as through a shade's openness, no longer marks a seat as sunlit.
 - **Output aggregation is now per variable**. Energy meters (`building:*`, `submeter:*`, `zone:heating_energy`/`cooling_energy`) are summed, everything else is time-averaged, and any variable can be overridden with an `@mean|@sum|@min|@max` suffix (e.g. `zone:temperature@max`). The file-level `aggregation:` key is deprecated: it still applies to non-energy variables without a suffix and logs a warning.
 - `building:*` and `submeter:*` output columns are now integrated energy in **Wh** (Σ power·dt) instead of summed watts labelled `[W]`. Values are unchanged at one timestep per hour and no longer N× too large at sub-hourly timesteps. Summing other rates integrates them too (kg/s → kg, m³/s → m³, unmet/active flags → hours).
