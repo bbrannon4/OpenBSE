@@ -1084,6 +1084,7 @@ impl BuildingEnvelope {
                 absorbed_solar_outside: 0.0,
                 transmitted_solar: 0.0,
                 transmitted_solar_beam: 0.0,
+                cos_incidence: 0.0,
                 transmitted_solar_diffuse: 0.0,
                 absorbed_solar_inside_window: 0.0,
                 window_solar_absorptance: win_solar_absorptance,
@@ -2572,6 +2573,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     doy,
                     self.elevation,
                 );
+                surface.cos_incidence = components.cos_aoi.max(0.0);
                 // Anisotropic diffuse shading (HD total with Perez F1 decomposition):
                 //   beam × SunlitFrac (directional beam, blocked by overhangs/fins)
                 //   circumsolar × SunlitFrac (directional diffuse, same shading as beam)
@@ -2735,6 +2737,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     surface.absorbed_solar_inside_window = 0.0;
                 }
             } else {
+                surface.cos_incidence = 0.0;
                 surface.incident_solar = 0.0;
                 surface.transmitted_solar = 0.0;
                 surface.transmitted_solar_beam = 0.0;

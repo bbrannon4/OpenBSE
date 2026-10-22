@@ -19,6 +19,7 @@ use std::f64::consts::PI;
 
 use openbse_psychrometrics::comfort;
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::geometry::{newell_normal, polygon_centroid, Point3D, Vec3};
@@ -40,7 +41,8 @@ const MAX_CANDIDATE_POINTS: usize = 5_000_000;
 const KELVIN: f64 = 273.15;
 
 /// How an occupant point weights the surfaces it sees.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OccupantModel {
     /// ISO 7726 seated person, with plane radiant temperatures averaged over
     /// azimuth.
@@ -120,15 +122,15 @@ pub struct GridSurface {
 
 #[derive(Debug, Error, PartialEq)]
 pub enum GridError {
-    #[error("comfort grid needs at least one floor surface with vertices")]
+    #[error("no floor surface with vertices")]
     NoFloor,
-    #[error("comfort grid: surface {0} has fewer than 3 vertices or zero area")]
+    #[error("surface {0} has fewer than 3 vertices or zero area")]
     DegenerateSurface(usize),
-    #[error("comfort grid: window {window} has an invalid host index {host}")]
+    #[error("window {window} has an invalid host index {host}")]
     InvalidHost { window: usize, host: usize },
-    #[error("comfort grid: {0}")]
+    #[error("{0}")]
     InvalidSettings(String),
-    #[error("comfort grid: no points fit inside the floor with the given wall offset")]
+    #[error("no points fit inside the floor with the given wall offset")]
     NoPoints,
 }
 

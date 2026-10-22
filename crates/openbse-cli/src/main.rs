@@ -1999,6 +1999,18 @@ fn main() -> Result<()> {
             None
         };
 
+        // Spatial comfort grid (#136): opt-in, and only meaningful with an envelope.
+        let mut comfort_recorder = match (&model.comfort_grid, &envelope) {
+            (Some(cfg), Some(env)) => {
+                Some(openbse_io::comfort_grid::ComfortGridRecorder::new(cfg, env))
+            }
+            (Some(_), None) => {
+                warn!("comfort_grid needs zones and surfaces; ignoring it");
+                None
+            }
+            _ => None,
+        };
+
         info!(
             "Output: {} custom file(s), summary report: {}",
             output_writers.len(),
@@ -4681,6 +4693,9 @@ fn main() -> Result<()> {
                     if let Some(ref mut report) = summary_report {
                         report.add_snapshot(&snapshot);
                     }
+                    if let Some(ref mut recorder) = comfort_recorder {
+                        recorder.record_timestep(env, &ctx.timestep);
+                    }
 
                     results.push(result);
                 } else {
@@ -4919,6 +4934,16 @@ fn main() -> Result<()> {
                     .write_summary_csv(&summary_csv)
                     .with_context(|| "Failed to write summary report (csv)".to_string())?;
                 info!("Summary report written to: {}", summary_csv.display());
+            }
+
+            if let (Some(recorder), Some(env)) = (&comfort_recorder, &envelope) {
+                if !recorder.is_empty() {
+                    let path = output_dir.join(format!("{}_comfort.json", input_stem));
+                    recorder
+                        .write(&path, env)
+                        .with_context(|| format!("Failed to write {}", path.display()))?;
+                    info!("Comfort grid written to: {}", path.display());
+                }
             }
         }
 
