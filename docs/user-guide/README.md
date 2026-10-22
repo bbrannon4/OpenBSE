@@ -842,10 +842,48 @@ window_constructions:
 | `type` | `solar_threshold` (incident beam [W/m²]) or `temperature` (zone air temp [°C]) |
 | `threshold` | Trigger level; for `temperature` you may use `setpoint` instead (default 26 °C; solar default 200 W/m²) |
 | `hysteresis` | Dead-band width; blind retracts when the signal falls below `trigger − hysteresis` (default 0) |
-| `blind_shgc` | Assembly SHGC when deployed (required). `0.0` is a valid blackout blind |
+| `blind_shgc` | Assembly SHGC when deployed (required unless `shade` is given). `0.0` is a valid blackout blind |
 | `blind_u_factor` | Assembly U-factor [W/(m²·K)] when deployed; defaults to the base window U-factor |
 
 The per-window `surface:blind_deployed` output (1 = deployed, 0 = retracted) is emitted for any window with a `shading_control`.
+
+##### Interior shade as a layer
+
+`blind_shgc` treats the shade as a change in the window's rating, so the shade has no temperature of its own. To study a real shade, such as a roller shade that warms up in the sun and radiates to the room, give a `shade` block instead. While deployed, the shade is then modelled as its own layer on the room side of the glass:
+
+```yaml
+    shading_control:
+      type: solar_threshold
+      threshold: 200
+      hysteresis: 50
+      shade:
+        solar_transmittance: 0.10   # total, including openness
+        solar_reflectance: 0.60
+        openness: 0.05              # share of beam passing straight through as beam
+        emissivity: 0.9             # long-wave, both faces
+        distance_to_glass: 0.05     # m
+```
+
+- **Solar.** Light transmitted by the glass meets the shade. The shade absorbs 1 − τ − ρ of it and reflects ρ back toward the glass, counting the bounces between glass and shade. What it transmits enters the room as diffuse light, except the openness share of the beam, which stays beam. So a lowered shade removes most of the floor sun patch and most of the direct sun on occupants.
+- **Heat.** Glass, shade and the air in the gap between them are solved together:
+  - long-wave exchange between glass and shade;
+  - convection from both faces into the gap air, which room air ventilates by buoyancy (simplified ISO 15099 vented cavity);
+  - convection and long-wave exchange between the shade and the room.
+  - The window's share of radiant internal gains lands on the shade.
+- **What the room sees.** While deployed, the room's radiant exchange and the comfort grid use the shade's temperature for that window. `surface:shade_temperature` reports it (NaN while retracted), and `surface:inside_temperature` stays the glass face, as in EnergyPlus.
+- **Simplifications.** The fabric is thin and opaque to long-wave radiation, so its own conduction resistance is neglected. Solar properties are hemispherical.
+- **Validation.** ASHRAE 140 case 600 with an always-down roller shade (τ 0.10, ρ 0.60, ε 0.9, 50 mm gap), against EnergyPlus 25.2 with `WindowMaterial:Shade` + `InteriorShade`:
+
+  | | EnergyPlus | OpenBSE |
+  |---|---|---|
+  | Annual heating | 4,731 kWh | 4,699 kWh (−0.7%) |
+  | Annual cooling | 2,676 kWh | 2,733 kWh (+2.1%) |
+  | Solar transmitted through the shade | 550 kWh | 569 kWh |
+  | Hourly shade temperature | | RMSE 0.49 K, bias −0.2 K |
+
+  The gap's buoyancy discharge factor was calibrated in this comparison.
+
+See `examples/roller_shade_office.yaml`.
 
 ### Zones
 
