@@ -433,10 +433,10 @@ surfaces:
     construction: Interior Partition
     boundary: !zone "Office"
     vertices:
-      - {x: 0.0, y: 5.0, z: 0.0}
       - {x: 4.0, y: 5.0, z: 0.0}
-      - {x: 4.0, y: 5.0, z: 3.66}
+      - {x: 0.0, y: 5.0, z: 0.0}
       - {x: 0.0, y: 5.0, z: 3.66}
+      - {x: 4.0, y: 5.0, z: 3.66}
 
   # Interior partition: Sales → Restroom (x=4 to x=6, y=5)
   - name: Sales-Restroom Wall
@@ -445,10 +445,10 @@ surfaces:
     construction: Interior Partition
     boundary: !zone "Restroom"
     vertices:
-      - {x: 4.0, y: 5.0, z: 0.0}
       - {x: 6.0, y: 5.0, z: 0.0}
-      - {x: 6.0, y: 5.0, z: 3.66}
+      - {x: 4.0, y: 5.0, z: 0.0}
       - {x: 4.0, y: 5.0, z: 3.66}
+      - {x: 6.0, y: 5.0, z: 3.66}
 
   # Interior partition: Sales → Storage (x=6 to x=12, y=5)
   - name: Sales-Storage Wall
@@ -457,10 +457,10 @@ surfaces:
     construction: Interior Partition
     boundary: !zone "Storage"
     vertices:
-      - {x: 6.0,  y: 5.0, z: 0.0}
       - {x: 12.0, y: 5.0, z: 0.0}
-      - {x: 12.0, y: 5.0, z: 3.66}
+      - {x: 6.0,  y: 5.0, z: 0.0}
       - {x: 6.0,  y: 5.0, z: 3.66}
+      - {x: 12.0, y: 5.0, z: 3.66}
 
   # ════════════════════════════════════════════════════════
   # OFFICE SURFACES
@@ -497,10 +497,10 @@ surfaces:
     construction: Interior Partition
     boundary: !zone "Sales Area"
     vertices:
-      - {x: 4.0, y: 5.0, z: 0.0}
       - {x: 0.0, y: 5.0, z: 0.0}
-      - {x: 0.0, y: 5.0, z: 3.66}
+      - {x: 4.0, y: 5.0, z: 0.0}
       - {x: 4.0, y: 5.0, z: 3.66}
+      - {x: 0.0, y: 5.0, z: 3.66}
 
   # East wall (interior partition to Restroom)
   - name: Office-Restroom Wall
@@ -573,10 +573,10 @@ surfaces:
     construction: Interior Partition
     boundary: !zone "Sales Area"
     vertices:
-      - {x: 6.0, y: 5.0, z: 0.0}
       - {x: 4.0, y: 5.0, z: 0.0}
-      - {x: 4.0, y: 5.0, z: 3.66}
+      - {x: 6.0, y: 5.0, z: 0.0}
       - {x: 6.0, y: 5.0, z: 3.66}
+      - {x: 4.0, y: 5.0, z: 3.66}
 
   # East wall (interior partition to Storage)
   - name: Restroom-Storage Wall
@@ -661,10 +661,10 @@ surfaces:
     construction: Interior Partition
     boundary: !zone "Sales Area"
     vertices:
-      - {x: 12.0, y: 5.0, z: 0.0}
       - {x: 6.0,  y: 5.0, z: 0.0}
-      - {x: 6.0,  y: 5.0, z: 3.66}
+      - {x: 12.0, y: 5.0, z: 0.0}
       - {x: 12.0, y: 5.0, z: 3.66}
+      - {x: 6.0,  y: 5.0, z: 3.66}
 
   # Roof — adiabatic
   - name: Storage Roof

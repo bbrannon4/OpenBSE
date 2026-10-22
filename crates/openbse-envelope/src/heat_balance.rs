@@ -574,6 +574,12 @@ impl BuildingEnvelope {
 
         let initial_temp = 21.0;
 
+        // Azimuth and tilt come from the vertex order, so surfaces wound the
+        // wrong way are fixed before geometry is resolved.
+        for (name, fix) in crate::surface::orient_surfaces(&mut surfaces) {
+            log::warn!("{}", fix.message(&name));
+        }
+
         // Resolve geometry from vertices (if present)
         for surf in &mut surfaces {
             surf.resolve_geometry();

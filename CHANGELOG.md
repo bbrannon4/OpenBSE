@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed examples that used ignored keys: `examples/datacenter_crah.yaml` (fan `source`, pump efficiency, unoccupied setpoint names) and `prototype_tests/large_office/LargeOffice_Boulder*.yaml` (data-center fans now actually run as VAV, which changes their results). `schema_sync` now fails on any unknown key in a repo YAML.
 
 ### Fixed
+- **Surfaces wound the wrong way faced the wrong direction.** Azimuth and tilt come from vertex order, so a surface listed clockwise from outside was simulated facing backwards: wrong solar, sky exchange and convection, and the wrong face in the interior radiant model. The engine now detects these surfaces without trusting any winding and reverses them, with a warning in the `.err` file. Detection: all of a zone's vertices lie on one side of the surface's plane, or a window faces the opposite way to its parent. Fixed in the repo models, which changes their results:
+  - `examples/office_vrf.yaml`: the north conference window was simulated facing south.
+  - `examples/retail_rtu.yaml`: 6 interior partitions sat on the wrong face of the radiant model, so the storefront glass never exchanged radiation with them.
+  - `prototype_tests/large_office/LargeOffice_Boulder*.yaml`: 48 floors and ceilings, including the top-floor ZN_3 roof, which faced the ground.
+  - `prototype_tests/single_family/SingleFamily_CZ5B_Boulder*.yaml`: the basement ceiling.
+  
+  A new `surface_winding` test fails if any repo model needs this correction.
 - Legacy underscore output variable names (`zone_temperature`, `zone_heating_energy`, …) were silently dropped, so their output files were never written. They are now accepted as aliases for `zone:temperature` etc., and variables that match no data log a warning.
 - Workbench: the Energy tab now shows end uses and unmet hours from the summary report; the Network tab shows VRF systems; the selected weather file is remembered per model.
 - `docs/openbse_schema.json` brought in sync with the engine. It now covers `vrf_systems`, `dhw_systems`, `radiant_panels`, `exterior_equipment`, `equipment_it`, `electrical_distribution`, `shading_surfaces`, `f_factor_constructions`, `climate_zone`, and many nested fields, so these are editable in the Workbench. A new `schema_sync` test fails if the schema and engine inputs drift apart.

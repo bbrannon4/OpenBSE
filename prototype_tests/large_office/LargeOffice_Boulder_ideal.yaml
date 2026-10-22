@@ -2379,16 +2379,16 @@ surfaces:
   construction: Ground Floor
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 48.7381
     z: 0.0
+  - x: 73.1072
+    y: 44.1649
+    z: 0.0
   - x: 0.0
     y: 44.1649
     z: 0.0
-  - x: 73.1072
-    y: 44.1649
-    z: 0.0
-  - x: 73.1072
+  - x: 0.0
     y: 48.7381
     z: 0.0
 - name: P_bot_ZN3 Ceiling
@@ -2397,16 +2397,16 @@ surfaces:
   construction: Adiabatic Assembly
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 44.1649
     z: 3.9624
+  - x: 73.1072
+    y: 48.7381
+    z: 3.9624
   - x: 0.0
     y: 48.7381
     z: 3.9624
-  - x: 73.1072
-    y: 48.7381
-    z: 3.9624
-  - x: 73.1072
+  - x: 0.0
     y: 44.1649
     z: 3.9624
 - name: P_bot_ZN4 West Wall
@@ -5956,16 +5956,16 @@ surfaces:
   construction: Interior Floor
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 48.7381
     z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
   - x: 0.0
     y: 44.1649
     z: 3.9624
-  - x: 73.1072
-    y: 44.1649
-    z: 3.9624
-  - x: 73.1072
+  - x: 0.0
     y: 48.7381
     z: 3.9624
 - name: P_mid_ZN3 Floor_f3
@@ -5974,16 +5974,16 @@ surfaces:
   construction: Interior Floor
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 48.7381
     z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
   - x: 0.0
     y: 44.1649
     z: 3.9624
-  - x: 73.1072
-    y: 44.1649
-    z: 3.9624
-  - x: 73.1072
+  - x: 0.0
     y: 48.7381
     z: 3.9624
 - name: P_mid_ZN3 Floor_f4
@@ -5992,16 +5992,16 @@ surfaces:
   construction: Interior Floor
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 48.7381
     z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
   - x: 0.0
     y: 44.1649
     z: 3.9624
-  - x: 73.1072
-    y: 44.1649
-    z: 3.9624
-  - x: 73.1072
+  - x: 0.0
     y: 48.7381
     z: 3.9624
 - name: P_mid_ZN3 Floor_f5
@@ -6010,16 +6010,16 @@ surfaces:
   construction: Interior Floor
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 48.7381
     z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
   - x: 0.0
     y: 44.1649
     z: 3.9624
-  - x: 73.1072
-    y: 44.1649
-    z: 3.9624
-  - x: 73.1072
+  - x: 0.0
     y: 48.7381
     z: 3.9624
 - name: P_mid_ZN3 Floor_f6
@@ -6028,16 +6028,16 @@ surfaces:
   construction: Interior Floor
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 48.7381
     z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
   - x: 0.0
     y: 44.1649
     z: 3.9624
-  - x: 73.1072
-    y: 44.1649
-    z: 3.9624
-  - x: 73.1072
+  - x: 0.0
     y: 48.7381
     z: 3.9624
 - name: P_mid_ZN3 Floor_f7
@@ -6046,16 +6046,16 @@ surfaces:
   construction: Interior Floor
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 48.7381
     z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
   - x: 0.0
     y: 44.1649
     z: 3.9624
-  - x: 73.1072
-    y: 44.1649
-    z: 3.9624
-  - x: 73.1072
+  - x: 0.0
     y: 48.7381
     z: 3.9624
 - name: P_mid_ZN3 Floor_f8
@@ -6064,16 +6064,16 @@ surfaces:
   construction: Interior Floor
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 48.7381
     z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
   - x: 0.0
     y: 44.1649
     z: 3.9624
-  - x: 73.1072
-    y: 44.1649
-    z: 3.9624
-  - x: 73.1072
+  - x: 0.0
     y: 48.7381
     z: 3.9624
 - name: P_mid_ZN3 Floor_f9
@@ -6082,16 +6082,16 @@ surfaces:
   construction: Interior Floor
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 48.7381
     z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
   - x: 0.0
     y: 44.1649
     z: 3.9624
-  - x: 73.1072
-    y: 44.1649
-    z: 3.9624
-  - x: 73.1072
+  - x: 0.0
     y: 48.7381
     z: 3.9624
 - name: P_mid_ZN3 Floor_f10
@@ -6100,16 +6100,16 @@ surfaces:
   construction: Interior Floor
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 48.7381
     z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
   - x: 0.0
     y: 44.1649
     z: 3.9624
-  - x: 73.1072
-    y: 44.1649
-    z: 3.9624
-  - x: 73.1072
+  - x: 0.0
     y: 48.7381
     z: 3.9624
 - name: P_mid_ZN3 Floor_f11
@@ -6118,16 +6118,16 @@ surfaces:
   construction: Interior Floor
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 48.7381
     z: 3.9624
+  - x: 73.1072
+    y: 44.1649
+    z: 3.9624
   - x: 0.0
     y: 44.1649
     z: 3.9624
-  - x: 73.1072
-    y: 44.1649
-    z: 3.9624
-  - x: 73.1072
+  - x: 0.0
     y: 48.7381
     z: 3.9624
 - name: P_mid_ZN3 Ceiling_f2
@@ -6136,16 +6136,16 @@ surfaces:
   construction: Adiabatic Assembly
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 44.1649
     z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
   - x: 0.0
     y: 48.7381
     z: 7.9248
-  - x: 73.1072
-    y: 48.7381
-    z: 7.9248
-  - x: 73.1072
+  - x: 0.0
     y: 44.1649
     z: 7.9248
 - name: P_mid_ZN3 Ceiling_f3
@@ -6154,16 +6154,16 @@ surfaces:
   construction: Adiabatic Assembly
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 44.1649
     z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
   - x: 0.0
     y: 48.7381
     z: 7.9248
-  - x: 73.1072
-    y: 48.7381
-    z: 7.9248
-  - x: 73.1072
+  - x: 0.0
     y: 44.1649
     z: 7.9248
 - name: P_mid_ZN3 Ceiling_f4
@@ -6172,16 +6172,16 @@ surfaces:
   construction: Adiabatic Assembly
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 44.1649
     z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
   - x: 0.0
     y: 48.7381
     z: 7.9248
-  - x: 73.1072
-    y: 48.7381
-    z: 7.9248
-  - x: 73.1072
+  - x: 0.0
     y: 44.1649
     z: 7.9248
 - name: P_mid_ZN3 Ceiling_f5
@@ -6190,16 +6190,16 @@ surfaces:
   construction: Adiabatic Assembly
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 44.1649
     z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
   - x: 0.0
     y: 48.7381
     z: 7.9248
-  - x: 73.1072
-    y: 48.7381
-    z: 7.9248
-  - x: 73.1072
+  - x: 0.0
     y: 44.1649
     z: 7.9248
 - name: P_mid_ZN3 Ceiling_f6
@@ -6208,16 +6208,16 @@ surfaces:
   construction: Adiabatic Assembly
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 44.1649
     z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
   - x: 0.0
     y: 48.7381
     z: 7.9248
-  - x: 73.1072
-    y: 48.7381
-    z: 7.9248
-  - x: 73.1072
+  - x: 0.0
     y: 44.1649
     z: 7.9248
 - name: P_mid_ZN3 Ceiling_f7
@@ -6226,16 +6226,16 @@ surfaces:
   construction: Adiabatic Assembly
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 44.1649
     z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
   - x: 0.0
     y: 48.7381
     z: 7.9248
-  - x: 73.1072
-    y: 48.7381
-    z: 7.9248
-  - x: 73.1072
+  - x: 0.0
     y: 44.1649
     z: 7.9248
 - name: P_mid_ZN3 Ceiling_f8
@@ -6244,16 +6244,16 @@ surfaces:
   construction: Adiabatic Assembly
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 44.1649
     z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
   - x: 0.0
     y: 48.7381
     z: 7.9248
-  - x: 73.1072
-    y: 48.7381
-    z: 7.9248
-  - x: 73.1072
+  - x: 0.0
     y: 44.1649
     z: 7.9248
 - name: P_mid_ZN3 Ceiling_f9
@@ -6262,16 +6262,16 @@ surfaces:
   construction: Adiabatic Assembly
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 44.1649
     z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
   - x: 0.0
     y: 48.7381
     z: 7.9248
-  - x: 73.1072
-    y: 48.7381
-    z: 7.9248
-  - x: 73.1072
+  - x: 0.0
     y: 44.1649
     z: 7.9248
 - name: P_mid_ZN3 Ceiling_f10
@@ -6280,16 +6280,16 @@ surfaces:
   construction: Adiabatic Assembly
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 44.1649
     z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
   - x: 0.0
     y: 48.7381
     z: 7.9248
-  - x: 73.1072
-    y: 48.7381
-    z: 7.9248
-  - x: 73.1072
+  - x: 0.0
     y: 44.1649
     z: 7.9248
 - name: P_mid_ZN3 Ceiling_f11
@@ -6298,16 +6298,16 @@ surfaces:
   construction: Adiabatic Assembly
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 44.1649
     z: 7.9248
+  - x: 73.1072
+    y: 48.7381
+    z: 7.9248
   - x: 0.0
     y: 48.7381
     z: 7.9248
-  - x: 73.1072
-    y: 48.7381
-    z: 7.9248
-  - x: 73.1072
+  - x: 0.0
     y: 44.1649
     z: 7.9248
 - name: P_mid_ZN4 West Wall_f2
@@ -7571,16 +7571,16 @@ surfaces:
   construction: Interior Floor
   boundary: adiabatic
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 48.7381
     z: 43.5864
+  - x: 73.1072
+    y: 44.1649
+    z: 43.5864
   - x: 0.0
     y: 44.1649
     z: 43.5864
-  - x: 73.1072
-    y: 44.1649
-    z: 43.5864
-  - x: 73.1072
+  - x: 0.0
     y: 48.7381
     z: 43.5864
 - name: P_top_ZN3 Roof
@@ -7589,16 +7589,16 @@ surfaces:
   construction: Flat Roof
   boundary: outdoor
   vertices:
-  - x: 0.0
+  - x: 73.1072
     y: 44.1649
     z: 47.5488
+  - x: 73.1072
+    y: 48.7381
+    z: 47.5488
   - x: 0.0
     y: 48.7381
     z: 47.5488
-  - x: 73.1072
-    y: 48.7381
-    z: 47.5488
-  - x: 73.1072
+  - x: 0.0
     y: 44.1649
     z: 47.5488
 - name: P_top_ZN4 West Wall
@@ -7915,16 +7915,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 4.5732
-    z: 0.0
-  - x: 69.448
-    y: 4.5732
+    y: 44.1649
     z: 0.0
   - x: 69.448
     y: 44.1649
+    z: 0.0
+  - x: 69.448
+    y: 4.5732
     z: 0.0
   - x: 68.534
-    y: 44.1649
+    y: 4.5732
     z: 0.0
 - name: DC_bot Ceiling
   zone: DataCenter_bot_ZN_6
@@ -7933,16 +7933,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 44.1649
-    z: 3.9624
-  - x: 69.448
-    y: 44.1649
+    y: 4.5732
     z: 3.9624
   - x: 69.448
     y: 4.5732
+    z: 3.9624
+  - x: 69.448
+    y: 44.1649
     z: 3.9624
   - x: 68.534
-    y: 4.5732
+    y: 44.1649
     z: 3.9624
 - name: DC_bot Walls
   zone: DataCenter_bot_ZN_6
@@ -7969,16 +7969,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 4.5732
-    z: 3.9624
-  - x: 69.448
-    y: 4.5732
+    y: 44.1649
     z: 3.9624
   - x: 69.448
     y: 44.1649
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
     z: 3.9624
   - x: 68.534
-    y: 44.1649
+    y: 4.5732
     z: 3.9624
 - name: DC_mid Floor_f3
   zone: DataCenter_mid_ZN_6_f3
@@ -7987,16 +7987,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 4.5732
-    z: 3.9624
-  - x: 69.448
-    y: 4.5732
+    y: 44.1649
     z: 3.9624
   - x: 69.448
     y: 44.1649
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
     z: 3.9624
   - x: 68.534
-    y: 44.1649
+    y: 4.5732
     z: 3.9624
 - name: DC_mid Floor_f4
   zone: DataCenter_mid_ZN_6_f4
@@ -8005,16 +8005,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 4.5732
-    z: 3.9624
-  - x: 69.448
-    y: 4.5732
+    y: 44.1649
     z: 3.9624
   - x: 69.448
     y: 44.1649
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
     z: 3.9624
   - x: 68.534
-    y: 44.1649
+    y: 4.5732
     z: 3.9624
 - name: DC_mid Floor_f5
   zone: DataCenter_mid_ZN_6_f5
@@ -8023,16 +8023,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 4.5732
-    z: 3.9624
-  - x: 69.448
-    y: 4.5732
+    y: 44.1649
     z: 3.9624
   - x: 69.448
     y: 44.1649
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
     z: 3.9624
   - x: 68.534
-    y: 44.1649
+    y: 4.5732
     z: 3.9624
 - name: DC_mid Floor_f6
   zone: DataCenter_mid_ZN_6_f6
@@ -8041,16 +8041,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 4.5732
-    z: 3.9624
-  - x: 69.448
-    y: 4.5732
+    y: 44.1649
     z: 3.9624
   - x: 69.448
     y: 44.1649
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
     z: 3.9624
   - x: 68.534
-    y: 44.1649
+    y: 4.5732
     z: 3.9624
 - name: DC_mid Floor_f7
   zone: DataCenter_mid_ZN_6_f7
@@ -8059,16 +8059,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 4.5732
-    z: 3.9624
-  - x: 69.448
-    y: 4.5732
+    y: 44.1649
     z: 3.9624
   - x: 69.448
     y: 44.1649
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
     z: 3.9624
   - x: 68.534
-    y: 44.1649
+    y: 4.5732
     z: 3.9624
 - name: DC_mid Floor_f8
   zone: DataCenter_mid_ZN_6_f8
@@ -8077,16 +8077,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 4.5732
-    z: 3.9624
-  - x: 69.448
-    y: 4.5732
+    y: 44.1649
     z: 3.9624
   - x: 69.448
     y: 44.1649
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
     z: 3.9624
   - x: 68.534
-    y: 44.1649
+    y: 4.5732
     z: 3.9624
 - name: DC_mid Floor_f9
   zone: DataCenter_mid_ZN_6_f9
@@ -8095,16 +8095,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 4.5732
-    z: 3.9624
-  - x: 69.448
-    y: 4.5732
+    y: 44.1649
     z: 3.9624
   - x: 69.448
     y: 44.1649
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
     z: 3.9624
   - x: 68.534
-    y: 44.1649
+    y: 4.5732
     z: 3.9624
 - name: DC_mid Floor_f10
   zone: DataCenter_mid_ZN_6_f10
@@ -8113,16 +8113,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 4.5732
-    z: 3.9624
-  - x: 69.448
-    y: 4.5732
+    y: 44.1649
     z: 3.9624
   - x: 69.448
     y: 44.1649
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
     z: 3.9624
   - x: 68.534
-    y: 44.1649
+    y: 4.5732
     z: 3.9624
 - name: DC_mid Floor_f11
   zone: DataCenter_mid_ZN_6_f11
@@ -8131,16 +8131,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 4.5732
-    z: 3.9624
-  - x: 69.448
-    y: 4.5732
+    y: 44.1649
     z: 3.9624
   - x: 69.448
     y: 44.1649
+    z: 3.9624
+  - x: 69.448
+    y: 4.5732
     z: 3.9624
   - x: 68.534
-    y: 44.1649
+    y: 4.5732
     z: 3.9624
 - name: DC_mid Ceiling_f2
   zone: DataCenter_mid_ZN_6_f2
@@ -8149,16 +8149,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 44.1649
-    z: 7.9248
-  - x: 69.448
-    y: 44.1649
+    y: 4.5732
     z: 7.9248
   - x: 69.448
     y: 4.5732
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
     z: 7.9248
   - x: 68.534
-    y: 4.5732
+    y: 44.1649
     z: 7.9248
 - name: DC_mid Ceiling_f3
   zone: DataCenter_mid_ZN_6_f3
@@ -8167,16 +8167,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 44.1649
-    z: 7.9248
-  - x: 69.448
-    y: 44.1649
+    y: 4.5732
     z: 7.9248
   - x: 69.448
     y: 4.5732
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
     z: 7.9248
   - x: 68.534
-    y: 4.5732
+    y: 44.1649
     z: 7.9248
 - name: DC_mid Ceiling_f4
   zone: DataCenter_mid_ZN_6_f4
@@ -8185,16 +8185,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 44.1649
-    z: 7.9248
-  - x: 69.448
-    y: 44.1649
+    y: 4.5732
     z: 7.9248
   - x: 69.448
     y: 4.5732
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
     z: 7.9248
   - x: 68.534
-    y: 4.5732
+    y: 44.1649
     z: 7.9248
 - name: DC_mid Ceiling_f5
   zone: DataCenter_mid_ZN_6_f5
@@ -8203,16 +8203,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 44.1649
-    z: 7.9248
-  - x: 69.448
-    y: 44.1649
+    y: 4.5732
     z: 7.9248
   - x: 69.448
     y: 4.5732
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
     z: 7.9248
   - x: 68.534
-    y: 4.5732
+    y: 44.1649
     z: 7.9248
 - name: DC_mid Ceiling_f6
   zone: DataCenter_mid_ZN_6_f6
@@ -8221,16 +8221,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 44.1649
-    z: 7.9248
-  - x: 69.448
-    y: 44.1649
+    y: 4.5732
     z: 7.9248
   - x: 69.448
     y: 4.5732
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
     z: 7.9248
   - x: 68.534
-    y: 4.5732
+    y: 44.1649
     z: 7.9248
 - name: DC_mid Ceiling_f7
   zone: DataCenter_mid_ZN_6_f7
@@ -8239,16 +8239,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 44.1649
-    z: 7.9248
-  - x: 69.448
-    y: 44.1649
+    y: 4.5732
     z: 7.9248
   - x: 69.448
     y: 4.5732
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
     z: 7.9248
   - x: 68.534
-    y: 4.5732
+    y: 44.1649
     z: 7.9248
 - name: DC_mid Ceiling_f8
   zone: DataCenter_mid_ZN_6_f8
@@ -8257,16 +8257,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 44.1649
-    z: 7.9248
-  - x: 69.448
-    y: 44.1649
+    y: 4.5732
     z: 7.9248
   - x: 69.448
     y: 4.5732
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
     z: 7.9248
   - x: 68.534
-    y: 4.5732
+    y: 44.1649
     z: 7.9248
 - name: DC_mid Ceiling_f9
   zone: DataCenter_mid_ZN_6_f9
@@ -8275,16 +8275,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 44.1649
-    z: 7.9248
-  - x: 69.448
-    y: 44.1649
+    y: 4.5732
     z: 7.9248
   - x: 69.448
     y: 4.5732
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
     z: 7.9248
   - x: 68.534
-    y: 4.5732
+    y: 44.1649
     z: 7.9248
 - name: DC_mid Ceiling_f10
   zone: DataCenter_mid_ZN_6_f10
@@ -8293,16 +8293,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 44.1649
-    z: 7.9248
-  - x: 69.448
-    y: 44.1649
+    y: 4.5732
     z: 7.9248
   - x: 69.448
     y: 4.5732
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
     z: 7.9248
   - x: 68.534
-    y: 4.5732
+    y: 44.1649
     z: 7.9248
 - name: DC_mid Ceiling_f11
   zone: DataCenter_mid_ZN_6_f11
@@ -8311,16 +8311,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 44.1649
-    z: 7.9248
-  - x: 69.448
-    y: 44.1649
+    y: 4.5732
     z: 7.9248
   - x: 69.448
     y: 4.5732
+    z: 7.9248
+  - x: 69.448
+    y: 44.1649
     z: 7.9248
   - x: 68.534
-    y: 4.5732
+    y: 44.1649
     z: 7.9248
 - name: DC_mid Walls_f2
   zone: DataCenter_mid_ZN_6_f2
@@ -8509,16 +8509,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 4.5732
-    z: 43.5864
-  - x: 69.448
-    y: 4.5732
+    y: 44.1649
     z: 43.5864
   - x: 69.448
     y: 44.1649
+    z: 43.5864
+  - x: 69.448
+    y: 4.5732
     z: 43.5864
   - x: 68.534
-    y: 44.1649
+    y: 4.5732
     z: 43.5864
 - name: DC_top Ceiling
   zone: DataCenter_top_ZN_6
@@ -8527,16 +8527,16 @@ surfaces:
   boundary: adiabatic
   vertices:
   - x: 68.534
-    y: 44.1649
-    z: 47.5488
-  - x: 69.448
-    y: 44.1649
+    y: 4.5732
     z: 47.5488
   - x: 69.448
     y: 4.5732
+    z: 47.5488
+  - x: 69.448
+    y: 44.1649
     z: 47.5488
   - x: 68.534
-    y: 4.5732
+    y: 44.1649
     z: 47.5488
 - name: DC_top Walls
   zone: DataCenter_top_ZN_6
