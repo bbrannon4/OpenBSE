@@ -615,7 +615,10 @@ pub fn get_unit(spec: &str) -> &'static str {
             | "source_inlet_temperature",
         ) => "°C",
         ("component", "outlet_humidity_ratio" | "inlet_humidity_ratio") => "kg/kg",
-        ("component", "mass_flow" | "water_mass_flow" | "source_mass_flow") => "kg/s",
+        (
+            "component",
+            "mass_flow" | "water_mass_flow" | "source_mass_flow" | "water_consumption",
+        ) => "kg/s",
         ("component", "inlet_enthalpy" | "outlet_enthalpy") => "J/kg",
         ("component", "pressure_rise") => "Pa",
         (

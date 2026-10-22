@@ -872,7 +872,8 @@
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
         "rated_power": { "type": "number", "default": 100000.0, "description": "Maximum electric power [W]." },
         "min_rh_setpoint": { "type": "number", "default": 0.30, "minimum": 0, "maximum": 1, "description": "Minimum relative humidity setpoint [0-1]." },
-        "zone_cooling_setpoint": { "type": "number", "default": 24.0, "description": "Zone cooling setpoint [C] used as the reference for the RH to humidity-ratio conversion." }
+        "zone_cooling_setpoint": { "type": "number", "default": 24.0, "description": "Zone cooling setpoint [C] used as the reference for the RH to humidity-ratio conversion." },
+        "standby_power": { "type": "number", "default": 0.0, "minimum": 0, "description": "Electric power drawn by the controls whenever the unit is available, whether or not it is humidifying [W]." }
       }
     },
 

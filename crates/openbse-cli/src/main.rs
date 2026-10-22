@@ -5960,6 +5960,7 @@ fn simulate_all_loops(
                 "heat_transferred",
                 "source_mass_flow",
                 "water_mass_flow",
+                "water_consumption",
             ];
 
             for (comp_name, outputs) in &mut loop_result {

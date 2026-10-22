@@ -1053,6 +1053,10 @@ pub struct HumidifierInput {
     /// Should match the cooling thermostat setpoint of the zone served (default 24.0).
     #[serde(default = "default_zone_cooling_sp")]
     pub zone_cooling_setpoint: f64,
+    /// Electric power drawn by the controls whenever the unit is available,
+    /// whether or not it is humidifying [W] (default 0).
+    #[serde(default)]
+    pub standby_power: f64,
 }
 fn default_humidifier_power() -> f64 {
     100_000.0
@@ -3516,6 +3520,7 @@ fn build_graph_impl(
                         h.zone_cooling_setpoint,
                     );
                     hum.submeter = h.submeter.clone();
+                    hum.standby_power = h.standby_power;
                     // Served (control) zone → driver feeds back the live zone temp
                     // for the RH→w conversion (#60).
                     hum.served_zone = air_loop.zone_terminals.first().map(|zc| zc.zone.clone());

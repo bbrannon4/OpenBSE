@@ -31,6 +31,11 @@ fn default_submeter() -> String {
 /// enthalpy difference for sizing the rated steam capacity from rated power.
 const H_STEAM_TOTAL: f64 = 2_615_700.0;
 
+/// Enthalpy of the steam entering the airstream [J/kg]: water vapour at
+/// 100 °C on the psychrometric basis of `h_fn_tdb_w` (h_fg + cp_vapour·T),
+/// as EnergyPlus uses `PsyHgAirFnWTdb(0, 100)`.
+const H_STEAM_100C: f64 = 2.50094e6 + 1.85895e3 * 100.0;
+
 /// Electric steam humidifier.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Humidifier {
@@ -55,6 +60,11 @@ pub struct Humidifier {
     /// reference for converting min_rh_setpoint to humidity ratio when the live
     /// zone temperature is not available.
     pub zone_cooling_setpoint: f64,
+
+    /// Electric power drawn by the controls whenever the unit is available,
+    /// whether or not it is humidifying [W] (E+ "Standby Power"). Default 0.
+    #[serde(default)]
+    pub standby_power: f64,
 
     /// Served zone name (control zone of the air loop). Reported via
     /// `ambient_zone()` so the driver feeds back the live zone temperature.
@@ -98,6 +108,7 @@ impl Humidifier {
             w_setpoint: 0.0,
             min_rh_setpoint,
             zone_cooling_setpoint,
+            standby_power: 0.0,
             served_zone: None,
             zone_air_temp: None,
             power: 0.0,
@@ -116,9 +127,9 @@ impl AirComponent for Humidifier {
     }
 
     fn simulate_air(&mut self, inlet: &AirPort, _ctx: &SimulationContext) -> AirPort {
-        // No air flow → humidifier off
+        // No air flow → humidifier off (its controls stay on standby)
         if inlet.mass_flow <= 0.0 {
-            self.power = 0.0;
+            self.power = self.standby_power;
             self.moisture_added = 0.0;
             return *inlet;
         }
@@ -140,7 +151,7 @@ impl AirComponent for Humidifier {
 
         // If supply air is already humid enough, no humidification needed
         if w_in >= w_target {
-            self.power = 0.0;
+            self.power = self.standby_power;
             self.moisture_added = 0.0;
             return *inlet;
         }
@@ -153,20 +164,21 @@ impl AirComponent for Humidifier {
         let moisture_actual = moisture_needed.min(self.rated_capacity);
 
         // Part-load power
-        if self.rated_capacity > 0.0 {
-            self.power = self.rated_power * (moisture_actual / self.rated_capacity);
+        let humidifying_power = if self.rated_capacity > 0.0 {
+            self.rated_power * (moisture_actual / self.rated_capacity)
         } else {
-            self.power = 0.0;
-        }
+            0.0
+        };
+        self.power = humidifying_power + self.standby_power;
         self.moisture_added = moisture_actual;
 
-        // Update outlet air state: add moisture, slight temperature increase from steam
-        let w_out = w_in + moisture_actual / inlet.mass_flow;
-        // Steam at ~100°C enters airstream, raising temp slightly
-        // ΔT ≈ moisture_actual × (h_steam - h_vapor_at_T_in) / (m_air × cp_air)
-        // For simplicity, use small temp rise from latent heat absorbed
-        let t_out = inlet.state.t_db; // Steam humidifier: approximately isothermal for dry air
-                                      // (the steam energy goes into moisture, not sensible heating)
+        // The steam enters at 100 °C, so it brings sensible heat as well as
+        // moisture: the outlet enthalpy rises by Δw·h_steam(100 °C), warming the
+        // air slightly (~0.7 K for Δw = 0.005), as in E+ Humidifier:Steam:Electric.
+        let dw = moisture_actual / inlet.mass_flow;
+        let w_out = w_in + dw;
+        let h_out = psych::h_fn_tdb_w(inlet.state.t_db, w_in) + dw * H_STEAM_100C;
+        let t_out = psych::tdb_fn_h_w(h_out, w_out);
 
         AirPort::new(
             psych::MoistAirState::new(t_out, w_out, inlet.state.p_b),
@@ -191,6 +203,11 @@ impl AirComponent for Humidifier {
 
     fn power_consumption(&self) -> f64 {
         self.power
+    }
+
+    /// Make-up water equals the steam added [kg/s].
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        out("water_consumption", self.moisture_added);
     }
 }
 
@@ -217,6 +234,55 @@ mod tests {
             is_sizing: false,
             sizing_internal_gains: SizingInternalGains::Full,
         }
+    }
+
+    #[test]
+    fn test_steam_brings_sensible_heat() {
+        // #60: steam enters at 100 °C, so the outlet must carry the steam's
+        // enthalpy: m_air·(h_out − h_in) = m_steam·h_steam(100 °C).
+        let mut hum = Humidifier::new("Hum", 100_000.0, 0.30, 24.0);
+        let inlet = AirPort::new(MoistAirState::new(20.0, 0.002, 101_325.0), 2.0);
+        let outlet = hum.simulate_air(&inlet, &make_ctx());
+        assert!(hum.moisture_added > 0.0);
+        let h_in = psych::h_fn_tdb_w(inlet.state.t_db, inlet.state.w);
+        let h_out = psych::h_fn_tdb_w(outlet.state.t_db, outlet.state.w);
+        assert_relative_eq!(
+            inlet.mass_flow * (h_out - h_in),
+            hum.moisture_added * H_STEAM_100C,
+            max_relative = 1e-6
+        );
+        let dw = outlet.state.w - inlet.state.w;
+        let dt = outlet.state.t_db - inlet.state.t_db;
+        // ~0.15 K per g/kg of added moisture at 20 °C.
+        assert!(dt > 0.0 && dt < 200.0 * dw, "dt={dt}, dw={dw}");
+    }
+
+    #[test]
+    fn test_standby_power_and_water_consumption() {
+        let mut hum = Humidifier::new("Hum", 100_000.0, 0.30, 24.0);
+        hum.standby_power = 50.0;
+        let ctx = make_ctx();
+
+        // Humid air: no humidification, controls still on standby.
+        let humid = AirPort::new(MoistAirState::new(22.0, 0.012, 101_325.0), 2.0);
+        hum.simulate_air(&humid, &ctx);
+        assert_eq!(hum.power, 50.0);
+        // No air flow: still on standby.
+        hum.simulate_air(&AirPort::new(humid.state, 0.0), &ctx);
+        assert_eq!(hum.power, 50.0);
+
+        // Dry air: humidifying power on top of standby; water use = steam added.
+        let dry = AirPort::new(MoistAirState::new(22.0, 0.002, 101_325.0), 2.0);
+        hum.simulate_air(&dry, &ctx);
+        let expected = 100_000.0 * hum.moisture_added / hum.rated_capacity + 50.0;
+        assert_relative_eq!(hum.power, expected, max_relative = 1e-9);
+        let mut water = None;
+        hum.report_outputs(&mut |k, v| {
+            if k == "water_consumption" {
+                water = Some(v);
+            }
+        });
+        assert_eq!(water, Some(hum.moisture_added));
     }
 
     #[test]
