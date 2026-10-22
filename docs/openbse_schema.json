@@ -208,10 +208,24 @@
       "type": "boolean",
       "default": true,
       "description": "Whether to generate the standard summary report."
-    }
+    },
+    "comfort_grid": { "$ref": "#/$defs/ComfortGrid" }
   },
 
   "$defs": {
+
+    "ComfortGrid": {
+      "type": "object",
+      "description": "Spatial thermal comfort grid (opt-in). Lays occupant points on each zone's floor and gives each its own mean radiant temperature and direct-sun exposure, written to <stem>_comfort.json for the Workbench's Comfort tab. Zone air is well mixed, so air temperature and humidity are uniform within a zone: the grid shows radiant and solar variation only, not a CFD air field. Zones need vertices on all their surfaces.",
+      "properties": {
+        "spacing": { "type": "number", "default": 0.5, "minimum": 0.05, "description": "Distance between grid points [m]." },
+        "wall_offset": { "type": "number", "default": 0.5, "minimum": 0, "description": "Minimum distance from points to the floor edge [m]." },
+        "height": { "type": "number", "minimum": 0, "description": "Point height above the floor [m]. Defaults to 0.6 for seated or sphere, 1.1 for standing." },
+        "occupant": { "type": "string", "enum": ["seated", "standing", "sphere"], "default": "seated", "description": "How points weight the surfaces they see: ISO 7726 seated or standing person (averaged over facing direction), or a uniform sphere like a globe thermometer." },
+        "zones": { "type": "array", "items": { "type": "string" }, "description": "Zones to grid. Empty means every zone whose surfaces all have vertices." },
+        "pmv_limit": { "type": "number", "default": 0.5, "minimum": 0, "description": "|PMV| at or below this counts as comfortable in the annual statistics." }
+      }
+    },
 
     "SimulationSettings": {
       "type": "object",
@@ -1786,7 +1800,7 @@
             "metabolic_rate": { "type": "number", "default": 1.2, "description": "Metabolic rate [met]. 1.0=seated quiet, 1.2=office work, 2.0=walking." },
             "clothing": { "type": "number", "default": 0.5, "description": "Clothing insulation [clo]. 0.5=summer light, 1.0=winter typical." },
             "air_velocity": { "type": "number", "default": 0.1, "description": "Relative air velocity [m/s] at the occupant location." },
-            "solar_absorptivity": { "type": "number", "default": 0.57, "description": "Short-wave absorptivity of the body/clothing for solar MRT correction (ASHRAE 55 Annex C)." }
+            "solar_absorptivity": { "type": "number", "default": 0.67, "description": "Short-wave absorptivity of the body/clothing for solar MRT correction (ASHRAE 55 Annex C)." }
           }
         },
         "species_generation": {

@@ -1,0 +1,209 @@
+# OpenBSE example — spatial thermal comfort grid
+#
+# A corner perimeter office on a middle floor: 8 m (E-W) x 6 m (N-S) x 3 m,
+# with a 7 m ribbon window on the south facade and a 4 m window on the west.
+# Floor, ceiling and the north/east partitions are adiabatic, so all radiant
+# and solar variation across the room comes from the two glazed facades.
+#
+# The `comfort_grid` block writes `comfort_perimeter_office_comfort.json`:
+# occupant points every 0.5 m with their own mean radiant temperature, sun
+# exposure through the windows, and annual comfort statistics. Open it in the
+# Workbench's Comfort tab.
+#
+# Zone air is well mixed, so air temperature and humidity are the same at
+# every point. The grid shows radiant and solar variation only; it is not a
+# CFD air-temperature field.
+#
+# Coordinate system: X=East, Y=North, Z=Up; vertices counter-clockwise as
+# seen from outside.
+
+simulation:
+  timesteps_per_hour: 4
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+  terrain: city
+
+weather_files:
+  - ../prototype_tests/Denver-Buckley.epw
+
+comfort_grid:
+  spacing: 0.5
+  wall_offset: 0.5
+  occupant: seated
+  pmv_limit: 0.5
+
+simple_constructions:
+  - name: Exterior Wall
+    u_factor: 0.35
+    thickness: 0.25
+    thermal_capacity: 60000.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+
+  - name: Interior Partition
+    u_factor: 1.5
+    thickness: 0.12
+    thermal_capacity: 20000.0
+    solar_absorptance: 0.5
+    thermal_absorptance: 0.9
+
+  - name: Interior Slab
+    u_factor: 2.0
+    thickness: 0.2
+    thermal_capacity: 400000.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+
+window_constructions:
+  # Typical low-e double glazing, without blinds, so the sun patch and the
+  # cooler glass in winter both show up across the room.
+  - name: Low-e Double
+    u_factor: 1.8
+    shgc: 0.40
+    visible_transmittance: 0.60
+
+schedules:
+  - name: Office Occupancy
+    compact:
+      weekday: "0 until 8:00, 1.0 until 12:00, 0.5 until 13:00, 1.0 until 17:00, 0"
+      weekend: "0"
+      holiday: "0"
+
+zones:
+  - name: Perimeter Office
+    comfort:
+      metabolic_rate: 1.1
+      # A year-round compromise between summer (0.5 clo) and winter (1.0 clo)
+      # office clothing.
+      clothing: 0.7
+      air_velocity: 0.1
+
+people:
+  - name: Office People
+    zones: [Perimeter Office]
+    count: 4.0
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Office Occupancy
+
+lights:
+  - name: Office Lights
+    zones: [Perimeter Office]
+    power: 400.0
+    schedule: Office Occupancy
+
+equipment:
+  - name: Office Equipment
+    zones: [Perimeter Office]
+    power: 480.0
+    radiant_fraction: 0.3
+    schedule: Office Occupancy
+
+infiltration:
+  - name: Office Infiltration
+    zones: [Perimeter Office]
+    air_changes_per_hour: 0.2
+
+ideal_loads:
+  - name: Office Ideal Loads
+    zones: [Perimeter Office]
+    heating_setpoint: 21.0
+    cooling_setpoint: 24.0
+    heating_capacity: 20000.0
+    cooling_capacity: 20000.0
+
+surfaces:
+  - name: South Wall
+    zone: Perimeter Office
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 3.0}
+      - {x: 0.0, y: 0.0, z: 3.0}
+
+  - name: South Window
+    zone: Perimeter Office
+    type: window
+    construction: Low-e Double
+    boundary: outdoor
+    parent_surface: South Wall
+    vertices:
+      - {x: 0.5, y: 0.0, z: 0.8}
+      - {x: 7.5, y: 0.0, z: 0.8}
+      - {x: 7.5, y: 0.0, z: 2.6}
+      - {x: 0.5, y: 0.0, z: 2.6}
+
+  - name: West Wall
+    zone: Perimeter Office
+    type: wall
+    construction: Exterior Wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 3.0}
+      - {x: 0.0, y: 6.0, z: 3.0}
+
+  - name: West Window
+    zone: Perimeter Office
+    type: window
+    construction: Low-e Double
+    boundary: outdoor
+    parent_surface: West Wall
+    vertices:
+      - {x: 0.0, y: 5.0, z: 0.8}
+      - {x: 0.0, y: 1.0, z: 0.8}
+      - {x: 0.0, y: 1.0, z: 2.6}
+      - {x: 0.0, y: 5.0, z: 2.6}
+
+  - name: North Partition
+    zone: Perimeter Office
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 0.0, y: 6.0, z: 3.0}
+      - {x: 8.0, y: 6.0, z: 3.0}
+
+  - name: East Partition
+    zone: Perimeter Office
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 3.0}
+      - {x: 8.0, y: 0.0, z: 3.0}
+
+  - name: Ceiling
+    zone: Perimeter Office
+    type: ceiling
+    construction: Interior Slab
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 0.0, z: 3.0}
+      - {x: 8.0, y: 0.0, z: 3.0}
+      - {x: 8.0, y: 6.0, z: 3.0}
+      - {x: 0.0, y: 6.0, z: 3.0}
+
+  - name: Floor
+    zone: Perimeter Office
+    type: floor
+    construction: Interior Slab
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 6.0, z: 0.0}
+      - {x: 8.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+
+summary_report: true

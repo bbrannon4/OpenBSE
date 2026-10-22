@@ -173,10 +173,55 @@ pub struct ModelInput {
     /// Whether to generate the standard summary report (default: true)
     #[serde(default = "default_summary_report")]
     pub summary_report: bool,
+    /// Spatial thermal comfort grid (opt-in). Writes `<stem>_comfort.json`.
+    #[serde(default)]
+    pub comfort_grid: Option<ComfortGridInput>,
 }
 
 fn default_summary_report() -> bool {
     true
+}
+
+/// Spatial thermal comfort grid settings (#136).
+///
+/// Occupant points are laid on each zone's floor and given their own mean
+/// radiant temperature and direct-sun exposure. Zone air is well mixed, so
+/// air temperature and humidity are uniform within a zone; the grid shows
+/// radiant and solar variation only.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComfortGridInput {
+    /// Distance between grid points [m].
+    #[serde(default = "default_comfort_spacing")]
+    pub spacing: f64,
+    /// Minimum distance from points to the floor edge [m].
+    #[serde(default = "default_comfort_wall_offset")]
+    pub wall_offset: f64,
+    /// Point height above the floor [m]. Defaults to 0.6 seated or sphere,
+    /// 1.1 standing.
+    #[serde(default)]
+    pub height: Option<f64>,
+    /// How points weight the surfaces they see: `seated`, `standing` or
+    /// `sphere`.
+    #[serde(default)]
+    pub occupant: openbse_envelope::comfort_grid::OccupantModel,
+    /// Zones to grid. Empty means every zone whose surfaces all have vertices.
+    #[serde(default)]
+    pub zones: Vec<String>,
+    /// |PMV| at or below this counts as comfortable.
+    #[serde(default = "default_comfort_pmv_limit")]
+    pub pmv_limit: f64,
+}
+
+fn default_comfort_spacing() -> f64 {
+    0.5
+}
+
+fn default_comfort_wall_offset() -> f64 {
+    0.5
+}
+
+fn default_comfort_pmv_limit() -> f64 {
+    0.5
 }
 
 fn default_submeter() -> String {

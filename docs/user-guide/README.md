@@ -23,6 +23,7 @@ OpenBSE (**Open Building Simulation Engine**) is a modern, open-source building 
   - [Surfaces](#surfaces)
   - [Parametric Runs](#parametric-runs)
 - [Output](#output)
+  - [Spatial Comfort Grid](#spatial-comfort-grid)
 - [Autosizing](#autosizing)
 - [Units Reference](#units-reference)
 - [Example Models](#example-models)
@@ -1443,6 +1444,45 @@ Set `summary_report: false` to suppress report generation.
 
 ---
 
+### Spatial Comfort Grid
+
+The optional `comfort_grid` block lays occupant points across each zone's floor and gives every point its own mean radiant temperature (MRT) and direct-sun exposure. Results go to `<stem>_comfort.json`, which the Workbench's Comfort tab displays.
+
+> **Physics limit.** Zone air is well mixed: there is one air node per zone, so air temperature and humidity are the same at every point. All variation across the room comes from the radiant field (warm or cold glass and walls, from their view factors) and from direct sun on the occupant. The grid is **not** a CFD air-temperature field and does not show stratification, drafts or jets.
+
+```yaml
+comfort_grid:
+  spacing: 0.5        # m between points
+  wall_offset: 0.5    # m kept clear of the floor edge
+  occupant: seated    # seated | standing | sphere
+  # height: 0.6       # m; default 0.6 seated/sphere, 1.1 standing
+  # zones: [Perimeter Office]   # default: every zone with full geometry
+  pmv_limit: 0.5      # |PMV| at or below this counts as comfortable
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `spacing` | 0.5 | Distance between grid points [m] |
+| `wall_offset` | 0.5 | Minimum distance from points to the floor edge [m] |
+| `occupant` | `seated` | `seated`/`standing`: ISO 7726 person with plane radiant temperatures averaged over facing direction. `sphere`: uniform solid angle, as a globe thermometer sees the room |
+| `height` | 0.6 / 1.1 | Point height above the floor [m] |
+| `zones` | all eligible | Zones to grid |
+| `pmv_limit` | 0.5 | Comfort threshold for the annual statistics |
+
+Occupant parameters (met, clo, air velocity, solar absorptivity) come from each zone's `comfort:` block.
+
+**Which zones can be gridded.** Every surface of the zone needs `vertices`; a zone with any area-only surface is skipped (listed under `skipped_zones` in the output). Zones narrower than twice the wall offset have no room for points. Internal mass is not part of the occupant's view because it has no geometry. When a zone's surfaces do not close the room (missing walls, gaps), the uncovered part of each point's view is treated as the average of the surfaces it does see, and a warning reports the lowest coverage.
+
+**What is computed.** View factors from each point to each surface polygon are computed once. Each hour the run averages surface temperatures, zone air temperature and humidity, and each window's transmitted beam irradiance over the hour's timesteps. For every occupied hour (people schedule above zero) and point:
+
+- MRT = (Σ F·T⁴)^¼ over the zone's surfaces;
+- direct sun: a ray from the point toward the sun at mid-hour is tested against the zone's windows; a hit adds the ASHRAE 55 SolarCal direct-beam MRT increment, using the beam actually transmitted by that window (angular transmittance, sunlit fraction and blinds included). External shading dims the whole sun patch instead of moving its edge;
+- operative temperature and the PMV class against `pmv_limit`.
+
+**Output.** `<stem>_comfort.json` holds the grid points, view factors, hourly surface temperatures, hourly window beam irradiance, the hourly sun direction, hourly zone air temperature, RH and occupancy, and per-point annual statistics: comfortable, cold, hot and sunlit occupied hours, and mean and maximum operative temperature. A viewer recomputes any hour's MRT from the view factors and surface temperatures, so the file does not store every point for every hour. For the DOE large office (178,000 points) a full year is about 45 MB, and the grid adds well under 1% to the run time.
+
+See `examples/comfort_perimeter_office.yaml`.
+
 ## Autosizing
 
 Fans and coils support automatic sizing with the `autosize` keyword. When a capacity or flow rate is set to `autosize`, the engine calculates the value from design day conditions.
@@ -1511,7 +1551,7 @@ All inputs and outputs use SI units:
 
 ## Example Models
 
-Eight example models are provided in the `examples/` directory, demonstrating different system types and complexity levels:
+Example models in the `examples/` directory demonstrate different system types and complexity levels:
 
 | File | Description |
 |------|-------------|
@@ -1524,6 +1564,7 @@ Eight example models are provided in the `examples/` directory, demonstrating di
 | [`multi_year_parametric.yaml`](../../examples/multi_year_parametric.yaml) | Multi-year parametric runs with weather file and parameter overrides. |
 | [`parametric_sweep.yaml`](../../examples/parametric_sweep.yaml) | Parametric sweep analysis — explicit runs with overrides plus auto-generated sweep runs. |
 | [`1zone_uncontrolled.yaml`](../../examples/1zone_uncontrolled.yaml) | Single-zone free-floating model — no HVAC, just building envelope. |
+| [`comfort_perimeter_office.yaml`](../../examples/comfort_perimeter_office.yaml) | Corner perimeter office with south and west glazing and a `comfort_grid` block: per-point MRT, sun patches and annual comfort statistics for the Workbench's Comfort tab. |
 
 ---
 

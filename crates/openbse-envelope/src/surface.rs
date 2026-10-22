@@ -161,6 +161,10 @@ pub struct SurfaceState {
     pub transmitted_solar: f64,
     /// Beam component of transmitted solar [W]
     pub transmitted_solar_beam: f64,
+    /// Cosine of the beam's angle of incidence on the outside face (0 when
+    /// the sun is behind the surface or down). Kept so a window's transmitted
+    /// beam power can be turned back into beam irradiance.
+    pub cos_incidence: f64,
     /// Diffuse component of transmitted solar [W]
     pub transmitted_solar_diffuse: f64,
     /// Solar absorbed by window glazing that flows into the zone [W]

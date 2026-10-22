@@ -54,7 +54,7 @@ const categoryOrder: { label: string; keys: string[] }[] = [
   },
   {
     label: "Output",
-    keys: ["outputs", "summary_report", "parametrics"],
+    keys: ["outputs", "summary_report", "comfort_grid", "parametrics"],
   },
 ];
 
