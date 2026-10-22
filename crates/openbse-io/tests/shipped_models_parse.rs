@@ -17,8 +17,7 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-#[test]
-fn shipped_models_parse() {
+fn shipped_models() -> (PathBuf, Vec<PathBuf>) {
     let root = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
     let mut files = Vec::new();
     for dir in ["examples", "140_tests/cases", "prototype_tests"] {
@@ -26,6 +25,12 @@ fn shipped_models_parse() {
     }
     files.sort();
     assert!(!files.is_empty());
+    (root, files)
+}
+
+#[test]
+fn shipped_models_parse() {
+    let (root, files) = shipped_models();
     let failures: Vec<String> = files
         .iter()
         .filter_map(|f| {
@@ -42,6 +47,27 @@ fn shipped_models_parse() {
         files.len(),
         failures.join("\n")
     );
+}
+
+#[test]
+fn shipped_models_connect_their_plant_loops() {
+    // A water coil left off its plant loop heats or cools for free while the
+    // loop's boiler or chiller sits idle.
+    let (root, files) = shipped_models();
+    let failures: Vec<String> = files
+        .iter()
+        .filter_map(|f| {
+            let text = std::fs::read_to_string(f).unwrap();
+            let model = openbse_io::input::parse_model_yaml(&text).ok()?;
+            let mut result = openbse_io::ValidationResult::new();
+            openbse_io::plant::validate_plant_connections(&model, &mut result);
+            (result.error_count() > 0).then(|| {
+                let path = f.strip_prefix(&root).unwrap_or(f).display();
+                format!("{path}:\n{}", result.to_err_file())
+            })
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 fn parse_error(yaml: &str) -> String {

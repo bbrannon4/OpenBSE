@@ -14,6 +14,7 @@
 
 use crate::performance_curve::PerformanceCurve;
 use openbse_core::ports::*;
+use openbse_core::types::is_autosize;
 use openbse_psychrometrics::FluidState;
 use serde::{Deserialize, Serialize};
 
@@ -292,7 +293,15 @@ impl PlantComponent for AirCooledChiller {
         self.actual_capacity
     }
     fn nominal_capacity(&self) -> Option<f64> {
-        Some(self.rated_capacity)
+        if is_autosize(self.rated_capacity) {
+            None
+        } else {
+            Some(self.rated_capacity)
+        }
+    }
+
+    fn set_nominal_capacity(&mut self, cap: f64) {
+        self.rated_capacity = cap;
     }
 
     fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
@@ -309,7 +318,7 @@ mod tests {
     use super::*;
     use crate::performance_curve::{CurveType, PerformanceCurve};
     use approx::assert_relative_eq;
-    use openbse_core::types::{DayType, TimeStep};
+    use openbse_core::types::{DayType, TimeStep, AUTOSIZE};
     use openbse_psychrometrics::MoistAirState;
 
     fn make_ctx(t_outdoor: f64) -> SimulationContext {
@@ -402,6 +411,23 @@ mod tests {
         );
         assert!(chiller.electric_power > 0.0);
         assert_relative_eq!(chiller.plr, 1.0, epsilon = 0.01);
+    }
+
+    #[test]
+    fn test_autosized_chiller_takes_its_sized_capacity() {
+        // The autosize sentinel used to be run as a −99,999 W capacity,
+        // giving PLR ≈ −5 and a quarter of the rated COP.
+        let mut chiller = AirCooledChiller::new("Autosized", AUTOSIZE, 3.0, 7.0, 0.005);
+        assert_eq!(chiller.nominal_capacity(), None);
+        chiller.set_nominal_capacity(100_000.0);
+        assert_eq!(chiller.nominal_capacity(), Some(100_000.0));
+
+        let inlet = WaterPort::new(FluidState::water(12.0, 5.0));
+        chiller.simulate_plant(&inlet, 50_000.0, &make_ctx(29.4));
+        assert_relative_eq!(chiller.plr, 0.5, epsilon = 1e-9);
+        assert_relative_eq!(chiller.actual_capacity, 50_000.0, epsilon = 1e-6);
+        chiller.simulate_plant(&inlet, 100_000.0, &make_ctx(29.4));
+        assert_relative_eq!(chiller.actual_cop, 3.0, epsilon = 1e-9);
     }
 
     #[test]

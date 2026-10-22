@@ -4907,6 +4907,10 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
         }
     }
 
+    // ── Validate plant loop connections ────────────────────────────────────
+
+    crate::plant::validate_plant_connections(model, &mut result);
+
     // ── Validate window shading controls ───────────────────────────────────
 
     for wc in &model.window_constructions {

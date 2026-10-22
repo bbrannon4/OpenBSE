@@ -620,14 +620,15 @@ air_loops:
         source: hot_water
         capacity: autosize
         setpoint: 35.0
+        plant_loop: HHW Loop
 
       - type: cooling_coil
         name: AHU CHW Cooling Coil
+        source: chilled_water
         capacity: autosize
-        cop: 4.0
         shr: 0.80
-        rated_airflow: autosize
         setpoint: 13.0
+        plant_loop: CHW Loop
 
     zone_terminals:
       - zone: South Perimeter

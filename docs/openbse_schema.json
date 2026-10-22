@@ -716,7 +716,7 @@
         "lockout_temp": { "type": "number", "description": "Compressor low-temperature lockout [C] (heat_pump source only). Default: -17.78 (0 F)." },
         "cap_ft_curve": { "type": "string", "description": "Name of a top-level performance curve for capacity f(T_outdoor) (heat_pump source only)." },
         "eir_ft_curve": { "type": "string", "description": "Name of a top-level performance curve for EIR f(T_outdoor) (heat_pump source only)." },
-        "plant_loop": { "type": "string", "description": "Hot water plant loop this coil connects to (hot_water source only)." },
+        "plant_loop": { "type": "string", "description": "Hot water plant loop that supplies this coil (hot_water source only). Required when the model has plant loops; in a model without plant loops a hot_water coil is an ideal water source." },
         "ua_model": { "type": "boolean", "default": false, "description": "Use the UA-based (NTU-effectiveness cross-flow) model for hot water coils instead of the simple capacity-based model." },
         "rated_water_inlet_temp": { "type": "number", "description": "Rated water inlet temperature [C] for the UA model (default 82.2)." },
         "rated_water_outlet_temp": { "type": "number", "description": "Rated water outlet temperature [C] for the UA model (default 71.1)." },
@@ -757,7 +757,7 @@
         "design_water_flow_rate": { "type": "number", "default": 0.0, "description": "Design chilled water flow rate [m3/s] (chilled_water source only)." },
         "design_water_inlet_temp": { "type": "number", "default": 6.7, "description": "Design chilled water supply temperature [C] (chilled_water source only)." },
         "design_water_outlet_temp": { "type": "number", "default": 12.2, "description": "Design chilled water return temperature [C] (chilled_water source only)." },
-        "plant_loop": { "type": "string", "description": "Chilled water plant loop this coil connects to (chilled_water source only)." }
+        "plant_loop": { "type": "string", "description": "Chilled water plant loop that supplies this coil (chilled_water source only). Required when the model has plant loops; in a model without plant loops a chilled_water coil is an ideal water source." }
       }
     },
 
@@ -954,7 +954,7 @@
         "reheat_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Reheat coil capacity [W]." },
         "max_reheat_temp": { "type": "number", "description": "Maximum reheat discharge air temperature [C] (default 35.0)." },
         "max_reheat_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Maximum flow fraction during reheat [0-1] (E+ Damper Heating Action). Set equal to min_flow_fraction for reheat-first control; default 0.5 (ASHRAE G36 dual-maximum)." },
-        "plant_loop": { "type": "string", "description": "Hot water plant loop for hot_water reheat." }
+        "plant_loop": { "type": "string", "description": "Hot water plant loop for hot_water reheat. Required when the model has plant loops." }
       }
     },
 
@@ -1046,10 +1046,10 @@
         "type": { "type": "string", "const": "boiler" },
         "name": { "type": "string" },
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
-        "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Nominal heating capacity [W]." },
+        "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Nominal heating capacity [W]. 'autosize' sizes it to the loop design load: the sum of the design capacities of the coils, terminals and panels on the loop (E+ Sizing:Plant, non-coincident). Every autosized boiler on a loop gets the whole load." },
         "efficiency": { "type": "number", "default": 0.80, "minimum": 0, "maximum": 1, "description": "Combustion efficiency [0-1]." },
         "design_outlet_temp": { "type": "number", "default": 82.0, "description": "Design hot water outlet temperature [C]." },
-        "design_water_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design water flow rate [m3/s]." },
+        "design_water_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design water flow rate [m3/s]. 'autosize' carries the loop design load at the loop design_delta_t." },
         "efficiency_curve": { "type": "string", "description": "Name of a top-level performance curve for efficiency f(PLR)." },
         "flow_mode": { "type": "string", "enum": ["not_modulated", "leaving_setpoint_modulated"], "default": "not_modulated", "description": "Boiler water flow mode." }
       }
@@ -1063,7 +1063,7 @@
         "type": { "type": "string", "const": "chiller" },
         "name": { "type": "string" },
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
-        "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Nominal cooling capacity [W]. May be omitted when a205_file is set." },
+        "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Nominal cooling capacity [W]. 'autosize' sizes it to the loop design load: the sum of the design capacities of the coils and panels on the loop (E+ Sizing:Plant, non-coincident). Every autosized chiller on a loop gets the whole load. May be omitted when a205_file is set." },
         "cop": { "type": "number", "default": 3.5, "description": "Rated COP at ARI conditions." },
         "chw_setpoint": { "type": "number", "default": 7.0, "description": "Chilled water supply setpoint [C]." },
         "design_chw_flow": { "type": "number", "default": 0.0, "description": "Design chilled water flow rate [m3/s]. Auto-calculated if 0." },
@@ -1115,7 +1115,7 @@
           "default": "variable_speed",
           "description": "Pump motor type."
         },
-        "design_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design water flow rate [m3/s]." },
+        "design_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design water flow rate [m3/s]. 'autosize' sizes a condenser-loop pump from the chillers' heat rejection, a heating-only or cooling-only loop pump from the design-day coincident peak load, and others from the installed boiler and chiller capacity; the loop design load is the fallback." },
         "design_head": { "type": "number", "default": 179352.0, "description": "Design pump head [Pa]. Default ~60 ft H2O." },
         "motor_efficiency": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Motor efficiency [0-1]." },
         "impeller_efficiency": { "type": "number", "default": 0.667, "minimum": 0, "maximum": 1, "description": "Impeller/hydraulic efficiency [0-1]. Total efficiency = motor_efficiency * impeller_efficiency." },
@@ -1145,7 +1145,7 @@
           "default": "variable_speed",
           "description": "Fan speed control type."
         },
-        "design_water_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design water flow rate [m3/s]. Use 'autosize' to size from condenser demand." },
+        "design_water_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design water flow rate [m3/s]. Use 'autosize' to size from condenser demand: chiller capacity x (1 + 1/COP)." },
         "design_air_flow": { "type": "number", "description": "Design air flow rate [m3/s]." },
         "design_fan_power": { "type": "number", "description": "Design fan power [W]." },
         "design_inlet_water_temp": { "type": "number", "default": 35.0, "description": "Design inlet water temperature [C]." },
@@ -1170,7 +1170,7 @@
         "name": { "type": "string" },
         "source_loop": { "type": "string", "description": "Name of the source plant loop this HX draws from / rejects to." },
         "effectiveness": { "type": "number", "default": 0.80, "minimum": 0, "maximum": 1, "description": "Heat transfer effectiveness [0-1]." },
-        "design_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design flow rate on the demand side [m3/s]." },
+        "design_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design flow rate on the demand side [m3/s]. 'autosize' carries this loop's design load at its design_delta_t." },
         "control_mode": {
           "type": "string",
           "enum": ["always_on", "economizer"],
@@ -2321,7 +2321,7 @@
         "source": { "type": "string", "enum": ["hot_water", "chilled_water", "electric"], "default": "hot_water", "description": "Heat source type." },
         "rated_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated capacity [W] or 'autosize'." },
         "radiant_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Radiant fraction of output [0-1]. Default 0.5 (hot_water/electric), 0.7 (chilled_water)." },
-        "plant_loop": { "type": "string", "description": "Plant loop name (required for hot_water and chilled_water)." },
+        "plant_loop": { "type": "string", "description": "Plant loop name (required for hot_water and chilled_water when the model has plant loops)." },
         "ua": { "type": "number", "description": "Optional UA [W/K]; output becomes UA x (T_water - T_zone) instead of PLR x rated_capacity." }
       }
     },
