@@ -432,3 +432,75 @@ export function colorFor(scale: ColorScale, value: number): [number, number, num
 export function comfortPathFor(modelPath: string): string {
   return modelPath.replace(/\.ya?ml$/i, "") + "_comfort.json";
 }
+
+// ─── Annual statistics ───────────────────────────────────────────────────────
+
+export type AnnualMetric =
+  | "comfortable"
+  | "cold"
+  | "hot"
+  | "sun"
+  | "mean_operative"
+  | "max_operative";
+
+// One-hue blue ramp, dark to light: more comfortable hours read brighter.
+const BLUE_SEQUENTIAL = ["#14233f", "#184f95", "#256abf", "#3987e5", "#6da7ec", "#b7d3f6"];
+const RED_SEQUENTIAL = ["#3a2326", "#7a2a2c", "#b8302f", "#e34948", "#f08a87", "#f9c6c3"];
+
+/**
+ * Hour counts are shown as a share of the zone's occupied hours, so zones
+ * with different schedules share one scale.
+ */
+export const ANNUAL_SCALES: Record<AnnualMetric, ColorScale> = {
+  comfortable: { min: 0, max: 100, stops: BLUE_SEQUENTIAL, unit: "%", label: "Comfortable (% of occupied hours)" },
+  cold: { min: 0, max: 50, stops: BLUE_SEQUENTIAL, unit: "%", label: "Too cold (% of occupied hours)" },
+  hot: { min: 0, max: 50, stops: RED_SEQUENTIAL, unit: "%", label: "Too warm (% of occupied hours)" },
+  sun: { min: 0, max: 50, stops: SEQUENTIAL, unit: "%", label: "In direct sun (% of occupied hours)" },
+  mean_operative: { min: 16, max: 32, stops: DIVERGING, unit: "°C", label: "Mean operative temperature (occupied)" },
+  max_operative: { min: 24, max: 40, stops: RED_SEQUENTIAL, unit: "°C", label: "Maximum operative temperature (occupied)" },
+};
+
+/** Value of an annual metric at one point; NaN for a zone never occupied. */
+export function annualValue(zone: ComfortZone, point: number, metric: AnnualMetric): number {
+  const a = zone.aggregates;
+  const share = (hours: number) => (a.occupied_hours > 0 ? (100 * hours) / a.occupied_hours : NaN);
+  switch (metric) {
+    case "comfortable": return share(a.comfortable_hours[point]);
+    case "cold": return share(a.cold_hours[point]);
+    case "hot": return share(a.hot_hours[point]);
+    case "sun": return share(a.sun_hours[point]);
+    case "mean_operative": return a.mean_operative_temperature[point] ?? NaN;
+    case "max_operative": return a.max_operative_temperature[point] ?? NaN;
+  }
+}
+
+/**
+ * Spatial comfort autonomy: share of points (floor area, since points are on
+ * a regular grid) that are comfortable for at least `threshold`% of occupied
+ * hours. Zones that were never occupied are left out.
+ */
+export function spatialComfortAutonomy(zones: ComfortZone[], threshold: number): number | null {
+  let total = 0;
+  let passing = 0;
+  for (const z of zones) {
+    if (z.aggregates.occupied_hours === 0) continue;
+    for (let i = 0; i < z.points.length; i++) {
+      total++;
+      if (annualValue(z, i, "comfortable") >= threshold) passing++;
+    }
+  }
+  return total > 0 ? (100 * passing) / total : null;
+}
+
+// ─── Levels ──────────────────────────────────────────────────────────────────
+
+/**
+ * Floor elevation of each zone, from its lowest point less the occupant
+ * height, rounded to 0.1 m so zones on one storey share a level.
+ */
+export function zoneLevels(data: ComfortData): number[] {
+  return data.zones.map((z) => {
+    const minZ = Math.min(...z.points.map((p) => p[2]));
+    return Math.round((minZ - data.settings.height) * 10) / 10;
+  });
+}
