@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 ///         initial_concentration: 0.00063
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SpeciesConfig {
     /// Species name (referenced by zone `species_generation` entries).
     pub name: String,
@@ -74,6 +75,7 @@ pub struct SpeciesConfig {
 ///         schedule: occupancy
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SpeciesGenerationInput {
     /// Species name (must match a configured species).
     pub species: String,

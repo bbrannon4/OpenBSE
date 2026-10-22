@@ -32,6 +32,7 @@ const RHO_REF: f64 = 1.2041; // at 20°C, 101325 Pa
 
 /// Wind pressure coefficient model selection.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum CpModel {
     /// Swami & Chandra (1988) for low-rise buildings (< 3 stories).
@@ -63,6 +64,7 @@ pub enum CpModel {
 ///       cp: [-0.3, -0.45, -0.4, 0.35, 0.6, 0.35, -0.4, -0.45]
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct CpTable {
     /// Wind directions [degrees from north], ascending, within [0, 360).
     pub wind_angles: Vec<f64>,
@@ -80,6 +82,7 @@ pub struct CpTable {
 ///       multiplier: 0.5
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct FacadeShelter {
     /// Facade outward normal azimuth [degrees from north, clockwise].
     pub azimuth: f64,
@@ -89,6 +92,7 @@ pub struct FacadeShelter {
 
 /// Cp values for one facade, parallel to `CpTable.wind_angles`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct CpFacade {
     /// Facade outward normal azimuth [degrees from north, clockwise].
     pub azimuth: f64,
@@ -103,6 +107,7 @@ pub struct CpFacade {
 /// (`a`–`d`) or the descriptive alias (`tight`, `average`, `leaky`,
 /// `very_leaky`) in YAML.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum LeakageClass {
     /// Class A — tight construction.
@@ -172,6 +177,7 @@ impl LeakageClass {
 ///     wall_leakage_per_area: 0.00008
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AirflowNetworkConfig {
     /// Enable the pressure network solver.
     #[serde(default)]
@@ -314,6 +320,7 @@ impl Default for AirflowNetworkConfig {
 ///       discharge_coefficient: 0.65
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SurfaceAirflowOverride {
     /// Override crack flow coefficient C [kg/s/Pa^n].
     #[serde(default)]

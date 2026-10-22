@@ -35,6 +35,7 @@ use std::path::Path;
 
 /// Reporting frequency for output files.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum OutputFrequency {
@@ -52,6 +53,7 @@ pub enum OutputFrequency {
 /// `Mean`), which can be overridden per variable with an `@mean|@sum|@min|@max`
 /// suffix on the variable spec.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum Aggregation {
@@ -100,6 +102,7 @@ impl Aggregation {
 ///       - component:outlet_temperature
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OutputFileConfig {
     /// Output file name (relative to simulation directory)
     pub file: String,
@@ -617,7 +620,10 @@ pub fn get_unit(spec: &str) -> &'static str {
             | "source_inlet_temperature",
         ) => "°C",
         ("component", "outlet_humidity_ratio" | "inlet_humidity_ratio") => "kg/kg",
-        ("component", "mass_flow" | "water_mass_flow" | "source_mass_flow") => "kg/s",
+        (
+            "component",
+            "mass_flow" | "water_mass_flow" | "source_mass_flow" | "water_consumption",
+        ) => "kg/s",
         ("component", "inlet_enthalpy" | "outlet_enthalpy") => "J/kg",
         ("component", "pressure_rise") => "Pa",
         (

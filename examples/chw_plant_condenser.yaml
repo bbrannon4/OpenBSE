@@ -121,106 +121,149 @@ constructions:
       - material: Roof Insulation
         thickness: 0.15
 
+simple_constructions:
   - name: Interior Floor
-    type: simple
-    u_value: 5.0
-    thermal_mass: 50000.0
+    u_factor: 5.0
+    thermal_capacity: 50000.0
 
+window_constructions:
   - name: Office Window
-    type: window
-    u_value: 3.0
+    u_factor: 3.0
     shgc: 0.4
 
 zones:
   - name: South Zone
     volume: 610.0
     floor_area: 200.0
-    people:
-      count: 10
-      activity_level: 120.0
-      radiant_fraction: 0.30
-      schedule: Office Occupancy
-    lights:
-      power_density: 10.0
-      radiant_fraction: 0.72
-      schedule: Office Lighting
-    equipment:
-      power_density: 10.0
-      radiant_fraction: 0.30
-      schedule: Office Equipment
-    infiltration:
-      design_flow_rate: 0.05
-    surfaces:
-      - name: South Wall
-        type: wall
-        construction: Exterior Wall
-        boundary: outdoor
-        area: 30.5
-        azimuth: 180
-        tilt: 90
-      - name: S Roof
-        type: roof
-        construction: Roof
-        boundary: outdoor
-        area: 200.0
-        azimuth: 0
-        tilt: 0
-      - name: S Floor
-        type: floor
-        construction: Interior Floor
-        boundary: ground
-        area: 200.0
-      - name: S Window
-        type: window
-        construction: Office Window
-        boundary: outdoor
-        parent: South Wall
-        area: 12.0
 
   - name: North Zone
     volume: 610.0
     floor_area: 200.0
-    people:
-      count: 8
-      activity_level: 120.0
-      radiant_fraction: 0.30
-      schedule: Office Occupancy
-    lights:
-      power_density: 10.0
-      radiant_fraction: 0.72
-      schedule: Office Lighting
-    equipment:
-      power_density: 10.0
-      radiant_fraction: 0.30
-      schedule: Office Equipment
-    infiltration:
-      design_flow_rate: 0.05
-    surfaces:
-      - name: North Wall
-        type: wall
-        construction: Exterior Wall
-        boundary: outdoor
-        area: 30.5
-        azimuth: 0
-        tilt: 90
-      - name: N Roof
-        type: roof
-        construction: Roof
-        boundary: outdoor
-        area: 200.0
-        azimuth: 0
-        tilt: 0
-      - name: N Floor
-        type: floor
-        construction: Interior Floor
-        boundary: ground
-        area: 200.0
-      - name: N Window
-        type: window
-        construction: Office Window
-        boundary: outdoor
-        parent: North Wall
-        area: 12.0
+
+surfaces:
+  - name: South Wall
+    type: wall
+    zone: South Zone
+    construction: Exterior Wall
+    boundary: outdoor
+    area: 30.5
+    azimuth: 180
+    tilt: 90
+
+  - name: S Roof
+    type: roof
+    zone: South Zone
+    construction: Roof
+    boundary: outdoor
+    area: 200.0
+    azimuth: 0
+    tilt: 0
+
+  - name: S Floor
+    type: floor
+    zone: South Zone
+    construction: Interior Floor
+    boundary: ground
+    area: 200.0
+    azimuth: 0
+    tilt: 180
+
+  - name: S Window
+    type: window
+    zone: South Zone
+    construction: Office Window
+    parent_surface: South Wall
+    boundary: outdoor
+    area: 12.0
+    azimuth: 180
+    tilt: 90
+
+  - name: North Wall
+    type: wall
+    zone: North Zone
+    construction: Exterior Wall
+    boundary: outdoor
+    area: 30.5
+    azimuth: 0
+    tilt: 90
+
+  - name: N Roof
+    type: roof
+    zone: North Zone
+    construction: Roof
+    boundary: outdoor
+    area: 200.0
+    azimuth: 0
+    tilt: 0
+
+  - name: N Floor
+    type: floor
+    zone: North Zone
+    construction: Interior Floor
+    boundary: ground
+    area: 200.0
+    azimuth: 0
+    tilt: 180
+
+  - name: N Window
+    type: window
+    zone: North Zone
+    construction: Office Window
+    parent_surface: North Wall
+    boundary: outdoor
+    area: 12.0
+    azimuth: 0
+    tilt: 90
+
+people:
+  - name: South Zone People
+    zones: [South Zone]
+    count: 10
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Office Occupancy
+
+  - name: North Zone People
+    zones: [North Zone]
+    count: 8
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Office Occupancy
+
+lights:
+  - name: South Zone Lights
+    zones: [South Zone]
+    watts_per_area: 10.0
+    radiant_fraction: 0.72
+    schedule: Office Lighting
+
+  - name: North Zone Lights
+    zones: [North Zone]
+    watts_per_area: 10.0
+    radiant_fraction: 0.72
+    schedule: Office Lighting
+
+equipment:
+  - name: South Zone Equipment
+    zones: [South Zone]
+    watts_per_area: 10.0
+    radiant_fraction: 0.3
+    schedule: Office Equipment
+
+  - name: North Zone Equipment
+    zones: [North Zone]
+    watts_per_area: 10.0
+    radiant_fraction: 0.3
+    schedule: Office Equipment
+
+infiltration:
+  - name: South Zone Infiltration
+    zones: [South Zone]
+    design_flow_rate: 0.05
+
+  - name: North Zone Infiltration
+    zones: [North Zone]
+    design_flow_rate: 0.05
 
 # --- HVAC: VAV with water-cooled chiller ---
 
@@ -230,28 +273,27 @@ air_loops:
     equipment:
       - type: fan
         name: AHU Supply Fan
-        fan_type: vav
+        source: vav
         design_flow_rate: autosize
-        design_pressure: 1000.0
-        efficiency: 0.70
+        pressure_rise: 1000.0
         motor_efficiency: 0.90
+        impeller_efficiency: 0.78   # total ≈ 0.70
       - type: cooling_coil
         name: CHW Cooling Coil
         source: chilled_water
         plant_loop: CHW Loop
-        design_capacity: autosize
-        cop: 3.5
+        capacity: autosize
       - type: heating_coil
         name: HW Preheat Coil
         source: hot_water
         plant_loop: HHW Loop
-        design_capacity: autosize
+        capacity: autosize
     zone_terminals:
       - zone: South Zone
         terminal:
           type: vav_box
           name: South VAV Box
-          design_flow_rate: autosize
+          max_air_flow: autosize
           min_flow_fraction: 0.30
           reheat_type: hot_water
           plant_loop: HHW Loop
@@ -259,15 +301,16 @@ air_loops:
         terminal:
           type: vav_box
           name: North VAV Box
-          design_flow_rate: autosize
+          max_air_flow: autosize
           min_flow_fraction: 0.30
           reheat_type: hot_water
           plant_loop: HHW Loop
     controls:
-      supply_air_temp: 13.0
+      cooling_supply_temp: 13.0
       heating_supply_temp: 35.0
       minimum_damper_position: 0.30
-      economizer: differential_dry_bulb
+      economizer:
+        economizer_type: differential_dry_bulb
 
 # --- Plant Loops ---
 

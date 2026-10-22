@@ -18,7 +18,9 @@ use openbse_weather::WeatherHour;
 use std::collections::HashMap;
 
 use crate::convection;
-use crate::ctf::{apply_ctf, calculate_ctf, calculate_ctf_simple, CtfCoefficients, CtfHistory};
+use crate::ctf::{
+    apply_ctf, try_calculate_ctf, try_calculate_ctf_simple, CtfCoefficients, CtfHistory,
+};
 use crate::geometry;
 use crate::ground_temp::GroundTempModel;
 use crate::infiltration;
@@ -33,6 +35,9 @@ use crate::zone::{InteriorSolarDistribution, ZoneInput, ZoneState};
 /// The building envelope heat balance solver.
 #[derive(Debug, Clone)]
 pub struct BuildingEnvelope {
+    /// Warnings raised during `initialize` (e.g. a CTF whose steady-state U is
+    /// 1–5% off). The CLI copies them into the `.err` file so they are counted.
+    pub init_warnings: Vec<String>,
     pub zones: Vec<ZoneState>,
     pub surfaces: Vec<SurfaceState>,
     pub ctf_coefficients: Vec<Option<CtfCoefficients>>,
@@ -1624,6 +1629,7 @@ impl BuildingEnvelope {
         }
 
         BuildingEnvelope {
+            init_warnings: Vec::new(),
             zones: zone_states,
             surfaces: surface_states,
             ctf_coefficients: vec![None; n_surfaces],
@@ -2071,18 +2077,28 @@ impl BuildingEnvelope {
     }
 
     /// Compute CTF coefficients for all opaque surfaces.
-    fn compute_all_ctf(&mut self) {
+    ///
+    /// A construction whose CTF cannot be computed is an error naming the
+    /// construction and surface; running on would put wrong or non-finite
+    /// conduction into the heat balance with no visible sign of it.
+    fn compute_all_ctf(&mut self) -> Result<(), String> {
+        self.init_warnings.clear();
+        let mut warned: std::collections::HashSet<String> = std::collections::HashSet::new();
         for i in 0..self.surfaces.len() {
             if self.surfaces[i].is_window {
                 continue;
             }
-            let construction_name = &self.surfaces[i].input.construction;
+            let construction_name = self.surfaces[i].input.construction.clone();
+            let surface_name = self.surfaces[i].input.name.clone();
+            let dt = self.dt;
+            let fail = |err: String| ctf_failure(&construction_name, &surface_name, dt, &err);
 
             // Try layered construction first
-            if let Some(construction) = self.constructions.get(construction_name).cloned() {
+            if let Some(construction) = self.constructions.get(&construction_name).cloned() {
                 let resolved_layers = construction.resolve_layers(&self.materials);
                 if !resolved_layers.is_empty() {
-                    let ctf = calculate_ctf(&resolved_layers, self.dt);
+                    let ctf = try_calculate_ctf(&resolved_layers, self.dt).map_err(fail)?;
+                    self.note_ctf_error(&ctf, &construction_name, &mut warned);
                     // Temporary: log CTF coefficients for comparison with E+
                     log::info!(
                         "CTF for '{}' (construction '{}'): terms={}, Z[0]={:.6}, Y[0]={:.6e}, X[0]={:.6}",
@@ -2112,15 +2128,17 @@ impl BuildingEnvelope {
             }
 
             // Try simple construction
-            if let Some(sc) = self.simple_constructions.get(construction_name).cloned() {
-                let ctf = calculate_ctf_simple(
+            if let Some(sc) = self.simple_constructions.get(&construction_name).cloned() {
+                let ctf = try_calculate_ctf_simple(
                     sc.u_factor,
                     sc.thermal_capacity,
                     self.dt,
                     sc.mass_outside,
                     sc.mass_conductivity,
                     sc.mass_density,
-                );
+                )
+                .map_err(fail)?;
+                self.note_ctf_error(&ctf, &construction_name, &mut warned);
                 let history = CtfHistory::new(ctf.num_terms.max(1), 21.0);
                 self.ctf_coefficients[i] = Some(ctf);
                 self.ctf_histories[i] = Some(history);
@@ -2128,15 +2146,43 @@ impl BuildingEnvelope {
             }
 
             // Try F-factor ground floor construction
-            if let Some(fc) = self.f_factor_constructions.get(construction_name).cloned() {
+            if let Some(fc) = self.f_factor_constructions.get(&construction_name).cloned() {
                 // Effective U = F × P / A (already computed and stored in surface u_factor)
                 let u_eff = self.surfaces[i].u_factor;
-                let ctf =
-                    calculate_ctf_simple(u_eff, fc.thermal_capacity, self.dt, false, None, None);
+                let ctf = try_calculate_ctf_simple(
+                    u_eff,
+                    fc.thermal_capacity,
+                    self.dt,
+                    false,
+                    None,
+                    None,
+                )
+                .map_err(fail)?;
+                self.note_ctf_error(&ctf, &construction_name, &mut warned);
                 let history = CtfHistory::new(ctf.num_terms.max(1), 21.0);
                 self.ctf_coefficients[i] = Some(ctf);
                 self.ctf_histories[i] = Some(history);
             }
+        }
+        Ok(())
+    }
+
+    /// Record a warning (once per construction) when a CTF's steady-state U is
+    /// noticeably off but still within the 5% that `try_calculate_ctf` accepts.
+    fn note_ctf_error(
+        &mut self,
+        ctf: &CtfCoefficients,
+        construction: &str,
+        warned: &mut std::collections::HashSet<String>,
+    ) {
+        if ctf.steady_state_error_pct > 1.0 && warned.insert(construction.to_string()) {
+            let msg = format!(
+                "Construction '{construction}': its CTF steady-state U is {:.1}% off the \
+                 value from its layers",
+                ctf.steady_state_error_pct
+            );
+            log::warn!("{msg}");
+            self.init_warnings.push(msg);
         }
     }
 
@@ -2146,10 +2192,21 @@ impl BuildingEnvelope {
     }
 }
 
+/// Describe a CTF failure with the construction and surface it belongs to and
+/// the usual remedy: thick, massive layers need a longer time step than a high
+/// `timesteps_per_hour` gives.
+fn ctf_failure(construction: &str, surface: &str, dt: f64, err: &str) -> String {
+    format!(
+        "Construction '{construction}' (surface '{surface}'): {err}. The conduction transfer \
+         function could not be computed at a {dt:.0} s time step. Thick, massive layers often \
+         need a longer step: try fewer timesteps_per_hour, or check the layer properties."
+    )
+}
+
 impl EnvelopeSolver for BuildingEnvelope {
     fn initialize(&mut self, dt: f64) -> Result<(), String> {
         self.dt = dt;
-        self.compute_all_ctf();
+        self.compute_all_ctf()?;
         self.initialized = true;
         Ok(())
     }

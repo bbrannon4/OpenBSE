@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Surface type classification.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum SurfaceType {
     Wall,
@@ -18,6 +19,7 @@ pub enum SurfaceType {
 
 /// Boundary condition for a surface.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum BoundaryCondition {
@@ -42,6 +44,7 @@ pub enum BoundaryCondition {
 /// If both vertices and explicit values are provided, `resolve_geometry()`
 /// will overwrite the explicit values with computed ones.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SurfaceInput {
     pub name: String,
     /// Zone this surface belongs to

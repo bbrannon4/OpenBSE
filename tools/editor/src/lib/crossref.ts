@@ -18,6 +18,7 @@ const FIELD_TO_SOURCE: Record<string, string | string[]> = {
 
   // Zone references (single string fields)
   zone: "zones",
+  ambient_zone: "zones",
 
   // Construction references
   construction: [
@@ -44,6 +45,8 @@ const FIELD_TO_SOURCE: Record<string, string | string[]> = {
   cooling_eir_ft: "performance_curves",
   heating_cap_ft: "performance_curves",
   heating_eir_ft: "performance_curves",
+  capacity_curve: "performance_curves",
+  cop_curve: "performance_curves",
 
   // Plant loop references
   loop_name: "plant_loops",

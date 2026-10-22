@@ -37,6 +37,7 @@ openbse-cosim = { path = "crates/openbse-cosim" }
 # External dependencies
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
+serde_ignored = "0.1"
 csv = "1"
 thiserror = "2"
 petgraph = "0.6"

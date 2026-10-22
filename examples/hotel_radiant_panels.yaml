@@ -45,7 +45,7 @@ plant_loops:
         impeller_efficiency: 0.667
       - type: boiler
         name: Hotel-Boiler
-        nominal_capacity: 30000.0
+        capacity: 30000.0
         efficiency: 0.80
         design_outlet_temp: 82.0
         design_water_flow_rate: autosize
@@ -140,7 +140,7 @@ surfaces:
     area: 15.0
     azimuth: 0.0
     tilt: 90.0
-    surface_type: wall
+    type: wall
 
   - name: Room101-ExtWall-W
     zone: Room-101
@@ -149,7 +149,7 @@ surfaces:
     area: 12.0
     azimuth: 270.0
     tilt: 90.0
-    surface_type: wall
+    type: wall
 
   - name: Room101-Roof
     zone: Room-101
@@ -158,7 +158,7 @@ surfaces:
     area: 25.0
     azimuth: 0.0
     tilt: 0.0
-    surface_type: roof
+    type: roof
 
   - name: Room101-Floor
     zone: Room-101
@@ -167,16 +167,17 @@ surfaces:
     area: 25.0
     azimuth: 0.0
     tilt: 180.0
-    surface_type: floor
+    type: floor
 
   - name: Room101-Window-N
+    parent_surface: Room101-ExtWall-N
     zone: Room-101
     construction: DoublePane
     boundary: outdoor
     area: 3.0
     azimuth: 0.0
     tilt: 90.0
-    surface_type: window
+    type: window
 
   # Room-102 surfaces
   - name: Room102-ExtWall-N
@@ -186,7 +187,7 @@ surfaces:
     area: 12.0
     azimuth: 0.0
     tilt: 90.0
-    surface_type: wall
+    type: wall
 
   - name: Room102-ExtWall-E
     zone: Room-102
@@ -195,7 +196,7 @@ surfaces:
     area: 10.0
     azimuth: 90.0
     tilt: 90.0
-    surface_type: wall
+    type: wall
 
   - name: Room102-Roof
     zone: Room-102
@@ -204,7 +205,7 @@ surfaces:
     area: 20.0
     azimuth: 0.0
     tilt: 0.0
-    surface_type: roof
+    type: roof
 
   - name: Room102-Floor
     zone: Room-102
@@ -213,27 +214,28 @@ surfaces:
     area: 20.0
     azimuth: 0.0
     tilt: 180.0
-    surface_type: floor
+    type: floor
 
   - name: Room102-Window-N
+    parent_surface: Room102-ExtWall-N
     zone: Room-102
     construction: DoublePane
     boundary: outdoor
     area: 2.4
     azimuth: 0.0
     tilt: 90.0
-    surface_type: window
+    type: window
 
 # ── Internal Gains ───────────────────────────────────────────────────────────
 people:
-  - zones: [Room-101, Room-102]
-    type: people
+  - name: Hotel Guests
+    zones: [Room-101, Room-102]
     count: 2.0
     activity_level: 120.0
     sensible_fraction: 0.6
     radiant_fraction: 0.3
 
 infiltration:
-  - zones: [Room-101, Room-102]
+  - name: Hotel Infiltration
+    zones: [Room-101, Room-102]
     design_flow_rate: 0.0005
-    method: constant

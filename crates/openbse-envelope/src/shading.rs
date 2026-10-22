@@ -41,6 +41,7 @@ use serde::{Deserialize, Serialize};
 ///   end_month: 12
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum ShadingCalculation {
     /// No geometric shadow calculations. All outdoor surfaces receive full,
@@ -77,6 +78,7 @@ pub enum ShadingCalculation {
 ///       - {x: 20.0, y: -5.0, z: 10.0}
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ShadingSurfaceInput {
     pub name: String,
     /// 3D vertices, counter-clockwise from outside (Newell convention).
@@ -110,6 +112,7 @@ pub struct ShadingSurfaceInput {
 ///         depth: 0.5
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WindowShadingInput {
     /// Horizontal overhang above the window.
     #[serde(default)]
@@ -127,6 +130,7 @@ pub struct WindowShadingInput {
 /// The overhang is a horizontal rectangle that projects outward from the
 /// wall plane, positioned above the window.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OverhangInput {
     /// Projection depth from the wall plane [m].
     pub depth: f64,
@@ -146,6 +150,7 @@ pub struct OverhangInput {
 /// A fin is a vertical rectangle that projects outward from the wall plane,
 /// positioned at the side of the window.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FinInput {
     /// Projection depth from the wall plane [m].
     pub depth: f64,
