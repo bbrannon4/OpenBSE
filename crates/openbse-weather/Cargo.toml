@@ -7,6 +7,7 @@ description = "EPW weather file reader and design day processing"
 
 [dependencies]
 thiserror = { workspace = true }
+log = { workspace = true }
 serde = { workspace = true }
 csv = { workspace = true }
 openbse-psychrometrics = { workspace = true }

@@ -196,89 +196,98 @@ pub fn read_epw<R: Read>(reader: R) -> Result<WeatherData, WeatherError> {
     // Parse header (8 header lines)
     let location = parse_location_header(&mut lines)?;
 
-    // Skip header lines 2-7, but parse specific lines:
-    //   Line 2 (index 0): DESIGN CONDITIONS (skip)
-    //   Line 3 (index 1): TYPICAL/EXTREME PERIODS (skip)
-    //   Line 4 (index 2): GROUND TEMPERATURES (parse!)
-    //   Line 5 (index 3): HOLIDAYS/DAYLIGHT SAVINGS (skip)
-    //   Line 6 (index 4): COMMENTS 1 (skip)
-    //   Line 7 (index 5): COMMENTS 2 (skip)
-    //   Line 8 (index 6): DATA PERIODS (parse for start day of week)
+    // The seven header lines after LOCATION (DESIGN CONDITIONS, TYPICAL/EXTREME
+    // PERIODS, GROUND TEMPERATURES, HOLIDAYS/DAYLIGHT SAVINGS, COMMENTS 1,
+    // COMMENTS 2, DATA PERIODS) are recognised by keyword rather than position,
+    // so a reordered header still parses. Only GROUND TEMPERATURES and DATA
+    // PERIODS carry values the engine uses.
     let mut start_day_of_week = 1u32; // Default: Monday
     let mut ground_temperatures: Vec<EpwGroundTemps> = Vec::new();
     for i in 0..7 {
-        if let Some(Ok(line)) = lines.next() {
-            // Line 4 (index 2): GROUND TEMPERATURES
-            // Format: GROUND TEMPERATURES,N_depths,depth1,soil_cond,soil_dens,soil_cp,
-            //         Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec[,depth2,...]
-            // Each depth profile has 16 fields: depth, conductivity, density, specific_heat,
-            // then 12 monthly temperatures.
-            if i == 2 && line.starts_with("GROUND TEMPERATURES") {
-                let fields: Vec<&str> = line.split(',').collect();
-                if fields.len() >= 2 {
-                    let n_depths: usize = fields[1].trim().parse().unwrap_or(0);
-                    // Each depth has 16 fields after the header (depth + 3 soil props + 12 temps)
-                    let mut offset = 2; // Start after "GROUND TEMPERATURES,N"
-                    for _ in 0..n_depths {
-                        if offset + 16 <= fields.len() {
-                            let depth: f64 = fields[offset].trim().parse().unwrap_or(0.0);
-                            // Skip soil_conductivity, soil_density, soil_specific_heat
-                            let temp_start = offset + 4; // 12 monthly temps
-                            let mut monthly_temps = [0.0f64; 12];
-                            for m in 0..12 {
-                                if temp_start + m < fields.len() {
-                                    monthly_temps[m] =
-                                        fields[temp_start + m].trim().parse().unwrap_or(0.0);
-                                }
+        let line = match lines.next() {
+            Some(line) => line.map_err(|e| WeatherError::IoError(e.to_string()))?,
+            None => {
+                return Err(WeatherError::InvalidFormat(format!(
+                    "EPW header ends after {} lines; an EPW file has 8 header lines",
+                    i + 1
+                )))
+            }
+        };
+        // A data record where a header line belongs would otherwise be consumed
+        // as header and every later hour would shift by one.
+        if line.trim_start().starts_with(|c: char| c.is_ascii_digit()) {
+            return Err(WeatherError::InvalidFormat(format!(
+                "line {}: expected an EPW header line but found a data record \
+                 (an EPW file has 8 header lines)",
+                i + 2
+            )));
+        }
+        // GROUND TEMPERATURES
+        // Format: GROUND TEMPERATURES,N_depths,depth1,soil_cond,soil_dens,soil_cp,
+        //         Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec[,depth2,...]
+        // Each depth profile has 16 fields: depth, conductivity, density, specific_heat,
+        // then 12 monthly temperatures.
+        if line.starts_with("GROUND TEMPERATURES") {
+            let fields: Vec<&str> = line.split(',').collect();
+            if fields.len() >= 2 {
+                let n_depths: usize = fields[1].trim().parse().unwrap_or(0);
+                // Each depth has 16 fields after the header (depth + 3 soil props + 12 temps)
+                let mut offset = 2; // Start after "GROUND TEMPERATURES,N"
+                for _ in 0..n_depths {
+                    if offset + 16 <= fields.len() {
+                        let depth: f64 = fields[offset].trim().parse().unwrap_or(0.0);
+                        // Skip soil_conductivity, soil_density, soil_specific_heat
+                        let temp_start = offset + 4; // 12 monthly temps
+                        let mut monthly_temps = [0.0f64; 12];
+                        for m in 0..12 {
+                            if temp_start + m < fields.len() {
+                                monthly_temps[m] =
+                                    fields[temp_start + m].trim().parse().unwrap_or(0.0);
                             }
-                            ground_temperatures.push(EpwGroundTemps {
-                                depth,
-                                monthly_temps,
-                            });
-                            offset += 16;
-                        } else {
-                            break;
                         }
+                        ground_temperatures.push(EpwGroundTemps {
+                            depth,
+                            monthly_temps,
+                        });
+                        offset += 16;
+                    } else {
+                        break;
                     }
                 }
             }
+        }
 
-            // Line 8 (index 6): DATA PERIODS
-            // Format: DATA PERIODS,N,timesteps,Name,StartDayOfWeek,StartDate,EndDate
-            if i == 6 && line.starts_with("DATA PERIODS") {
-                let fields: Vec<&str> = line.split(',').collect();
-                if fields.len() >= 5 {
-                    start_day_of_week = match fields[4].trim().to_lowercase().as_str() {
-                        "monday" => 1,
-                        "tuesday" => 2,
-                        "wednesday" => 3,
-                        "thursday" => 4,
-                        "friday" => 5,
-                        "saturday" => 6,
-                        "sunday" => 7,
-                        _ => 1, // Default to Monday
-                    };
-                }
+        // Format: DATA PERIODS,N,timesteps,Name,StartDayOfWeek,StartDate,EndDate
+        if line.starts_with("DATA PERIODS") {
+            let fields: Vec<&str> = line.split(',').collect();
+            if fields.len() >= 5 {
+                start_day_of_week = match fields[4].trim().to_lowercase().as_str() {
+                    "monday" => 1,
+                    "tuesday" => 2,
+                    "wednesday" => 3,
+                    "thursday" => 4,
+                    "friday" => 5,
+                    "saturday" => 6,
+                    "sunday" => 7,
+                    _ => 1, // Default to Monday
+                };
             }
         }
     }
 
-    // Parse hourly data
-    let mut hours = Vec::with_capacity(8760);
-    for line_result in lines {
+    // Parse hourly data. A malformed record is an error, not skipped: skipping
+    // it would shift every later hour onto the wrong date.
+    let mut records = Vec::with_capacity(8760);
+    for (idx, line_result) in lines.enumerate() {
+        let line_no = idx + 9; // after the 8 header lines, 1-based
         let line = line_result.map_err(|e| WeatherError::IoError(e.to_string()))?;
         if line.trim().is_empty() {
             continue;
         }
-        match parse_data_line(&line) {
-            Ok(hour) => hours.push(hour),
-            Err(_) => continue, // Skip malformed lines
-        }
+        let hour = parse_data_line(&line).map_err(|e| at_line(line_no, e))?;
+        records.push((line_no, hour));
     }
-
-    if hours.is_empty() {
-        return Err(WeatherError::NoData);
-    }
+    let hours = finish_hourly_records(records)?;
 
     Ok(WeatherData {
         location,
@@ -319,10 +328,10 @@ fn parse_location_header(
         country: fields[3].to_string(),
         source: fields[4].to_string(),
         wmo: fields[5].to_string(),
-        latitude: fields[6].parse().unwrap_or(0.0),
-        longitude: fields[7].parse().unwrap_or(0.0),
-        time_zone: fields[8].parse().unwrap_or(0.0),
-        elevation: fields[9].parse().unwrap_or(0.0),
+        latitude: location_number(fields[6], "latitude")?,
+        longitude: location_number(fields[7], "longitude")?,
+        time_zone: location_number(fields[8], "time zone")?,
+        elevation: location_number(fields[9], "elevation")?,
     })
 }
 
@@ -341,7 +350,11 @@ fn parse_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
     }
 
     let parse_f64 = |idx: usize| -> f64 { fields[idx].trim().parse().unwrap_or(0.0) };
-    let parse_u32 = |idx: usize| -> u32 { fields[idx].trim().parse().unwrap_or(0) };
+    let parse_u32 = |idx: usize, name: &str| -> Result<u32, WeatherError> {
+        fields[idx].trim().parse().map_err(|_| {
+            WeatherError::InvalidFormat(format!("invalid {name} '{}'", fields[idx].trim()))
+        })
+    };
 
     // EPW missing-value sentinels (EnergyPlus AuxiliaryPrograms, "EPW CSV
     // Format"). A literal sentinel must NOT be fed to the simulation as data —
@@ -406,10 +419,10 @@ fn parse_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
     }
 
     Ok(WeatherHour {
-        year: parse_u32(0),
-        month: parse_u32(1),
-        day: parse_u32(2),
-        hour: parse_u32(3),
+        year: parse_u32(0, "year")?,
+        month: parse_u32(1, "month")?,
+        day: parse_u32(2, "day")?,
+        hour: parse_u32(3, "hour")?,
         // Field 4 = minute, Field 5 = data source flags
         dry_bulb,
         dew_point,
@@ -471,22 +484,18 @@ pub fn read_tmy3<R: Read>(reader: R) -> Result<WeatherData, WeatherError> {
     // Line 2: Column headers (skip)
     lines.next();
 
-    // Parse hourly data
-    let mut hours = Vec::with_capacity(8760);
-    for line_result in lines {
+    // Parse hourly data (malformed records are errors; see read_epw).
+    let mut records = Vec::with_capacity(8760);
+    for (idx, line_result) in lines.enumerate() {
+        let line_no = idx + 3; // after the 2 header lines, 1-based
         let line = line_result.map_err(|e| WeatherError::IoError(e.to_string()))?;
         if line.trim().is_empty() {
             continue;
         }
-        match parse_tmy3_data_line(&line) {
-            Ok(hour) => hours.push(hour),
-            Err(_) => continue,
-        }
+        let hour = parse_tmy3_data_line(&line).map_err(|e| at_line(line_no, e))?;
+        records.push((line_no, hour));
     }
-
-    if hours.is_empty() {
-        return Err(WeatherError::NoData);
-    }
+    let hours = finish_hourly_records(records)?;
 
     Ok(WeatherData {
         location,
@@ -516,10 +525,10 @@ fn parse_tmy3_location(line: &str) -> Result<WeatherLocation, WeatherError> {
     let wmo = fields[0].clone();
     let city = fields[1].trim_matches('"').to_string();
     let state = fields[2].clone();
-    let time_zone: f64 = fields[3].parse().unwrap_or(0.0);
-    let latitude: f64 = fields[4].parse().unwrap_or(0.0);
-    let longitude: f64 = fields[5].parse().unwrap_or(0.0);
-    let elevation: f64 = fields[6].parse().unwrap_or(0.0);
+    let time_zone = location_number(&fields[3], "time zone")?;
+    let latitude = location_number(&fields[4], "latitude")?;
+    let longitude = location_number(&fields[5], "longitude")?;
+    let elevation = location_number(&fields[6], "elevation")?;
 
     Ok(WeatherLocation {
         city,
@@ -573,24 +582,33 @@ fn parse_tmy3_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
 
     // Parse date: MM/DD/YYYY
     let date_str = fields[0].trim();
+    let bad_date = || WeatherError::InvalidFormat(format!("invalid date '{date_str}'"));
     let date_parts: Vec<&str> = date_str.split('/').collect();
-    let (month, day, year) = if date_parts.len() == 3 {
-        (
-            date_parts[0].parse().unwrap_or(1u32),
-            date_parts[1].parse().unwrap_or(1u32),
-            date_parts[2].parse().unwrap_or(1995u32),
-        )
-    } else {
-        (1, 1, 1995)
-    };
+    if date_parts.len() != 3 {
+        return Err(bad_date());
+    }
+    let month: u32 = date_parts[0].parse().map_err(|_| bad_date())?;
+    let day: u32 = date_parts[1].parse().map_err(|_| bad_date())?;
+    let year: u32 = date_parts[2].parse().map_err(|_| bad_date())?;
+
+    if !(1..=12).contains(&month) {
+        return Err(bad_date());
+    }
 
     // Parse time: HH:MM — TMY3 uses 01:00-24:00 convention
     let time_str = fields[1].trim();
-    let time_parts: Vec<&str> = time_str.split(':').collect();
-    let hour: u32 = if !time_parts.is_empty() {
-        time_parts[0].parse().unwrap_or(1)
+    let hour: u32 = time_str
+        .split(':')
+        .next()
+        .and_then(|h| h.parse().ok())
+        .ok_or_else(|| WeatherError::InvalidFormat(format!("invalid time '{time_str}'")))?;
+    // Some exports write the hour ending at midnight as 00:00 of the next day
+    // rather than 24:00 of the same day; normalise to the 01–24 convention.
+    let (month, day, year, hour) = if hour == 0 {
+        let (m, d, y) = previous_day(month, day, year);
+        (m, d, y, 24)
     } else {
-        1
+        (month, day, year, hour)
     };
 
     // TMY3 CSV column indices (0-indexed):
@@ -625,8 +643,8 @@ fn parse_tmy3_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
     let wind_direction = parse_f64(43);
     let wind_speed = parse_f64(46);
 
-    // TMY3 doesn't include horizontal IR radiation directly;
-    // we set to 0 and rely on Berdahl-Martin sky model in heat_balance.rs
+    // TMY3 doesn't include horizontal IR radiation directly; it stays 0 and the
+    // heat balance derives sky radiation from the Clark & Allen sky model.
     let horiz_ir_rad = 0.0;
 
     Ok(WeatherHour {
@@ -646,6 +664,120 @@ fn parse_tmy3_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
         horiz_ir_rad,
         opaque_sky_cover,
     })
+}
+
+// ─── Record validation ──────────────────────────────────────────────────────
+
+/// Days per month in the simulation calendar, which has no leap day.
+const DAYS_IN_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/// Parse a numeric LOCATION field. A bad latitude, longitude or time zone must
+/// not quietly become 0 (the equator, Greenwich, UTC).
+fn location_number(raw: &str, name: &str) -> Result<f64, WeatherError> {
+    raw.trim().parse().map_err(|_| {
+        WeatherError::InvalidFormat(format!("location header: invalid {name} '{}'", raw.trim()))
+    })
+}
+
+/// Prefix a record parse error with the file line it came from.
+fn at_line(line_no: usize, err: WeatherError) -> WeatherError {
+    match err {
+        WeatherError::InvalidFormat(msg) => {
+            WeatherError::InvalidFormat(format!("line {line_no}: {msg}"))
+        }
+        other => other,
+    }
+}
+
+/// The calendar day before (month, day) in `year`, honouring leap years so a
+/// leap year's "03/01 00:00" maps to 29 February (which is then dropped).
+fn previous_day(month: u32, day: u32, year: u32) -> (u32, u32, u32) {
+    if day > 1 {
+        return (month, day - 1, year);
+    }
+    if month == 1 {
+        return (12, 31, year.saturating_sub(1));
+    }
+    let prev = month - 1;
+    let leap = (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400);
+    let days = if prev == 2 && leap {
+        29
+    } else {
+        DAYS_IN_MONTH[(prev - 1) as usize]
+    };
+    (prev, days, year)
+}
+
+/// The hour that follows (month, day, hour) in the no-leap-day calendar.
+fn next_hour(month: u32, day: u32, hour: u32) -> (u32, u32, u32) {
+    if hour < 24 {
+        (month, day, hour + 1)
+    } else if day < DAYS_IN_MONTH[(month - 1) as usize] {
+        (month, day + 1, 1)
+    } else {
+        (month % 12 + 1, 1, 1)
+    }
+}
+
+/// Drop 29 February and require consecutive hourly records.
+///
+/// The engine treats record N as hour N of a non-leap year, so a leap day, a
+/// gap, a duplicate or sub-hourly data would shift every later hour onto the
+/// wrong date. Leap days are dropped (as EnergyPlus does for a run period
+/// without one); anything else is an error naming the offending line.
+fn finish_hourly_records(
+    records: Vec<(usize, WeatherHour)>,
+) -> Result<Vec<WeatherHour>, WeatherError> {
+    let total = records.len();
+    let records: Vec<(usize, WeatherHour)> = records
+        .into_iter()
+        .filter(|(_, h)| !(h.month == 2 && h.day == 29))
+        .collect();
+    let dropped = total - records.len();
+    if dropped > 0 {
+        log::warn!(
+            "Weather file contains 29 February: its {dropped} hourly records were dropped \
+             because the simulation calendar has no leap day"
+        );
+    }
+    if records.is_empty() {
+        return Err(WeatherError::NoData);
+    }
+
+    for (line_no, h) in &records {
+        let valid = (1..=12).contains(&h.month)
+            && h.day >= 1
+            && h.day <= DAYS_IN_MONTH[(h.month - 1) as usize]
+            && (1..=24).contains(&h.hour);
+        if !valid {
+            return Err(WeatherError::InvalidFormat(format!(
+                "line {line_no}: invalid date {:02}/{:02} hour {}",
+                h.month, h.day, h.hour
+            )));
+        }
+    }
+    for pair in records.windows(2) {
+        let (_, prev) = &pair[0];
+        let (line_no, cur) = &pair[1];
+        let expected = next_hour(prev.month, prev.day, prev.hour);
+        if (cur.month, cur.day, cur.hour) != expected {
+            return Err(WeatherError::InvalidFormat(format!(
+                "line {line_no}: expected {:02}/{:02} hour {} after {:02}/{:02} hour {}, \
+                 found {:02}/{:02} hour {} (records must be consecutive hours; \
+                 sub-hourly weather data is not supported)",
+                expected.0,
+                expected.1,
+                expected.2,
+                prev.month,
+                prev.day,
+                prev.hour,
+                cur.month,
+                cur.day,
+                cur.hour
+            )));
+        }
+    }
+    Ok(records.into_iter().map(|(_, h)| h).collect())
 }
 
 // ─── Auto-Detect Weather File Format ────────────────────────────────────────
@@ -834,6 +966,147 @@ mod tests {
         );
         assert!((h.dry_bulb - (-2.2)).abs() < 0.01);
         assert!((h.wind_speed - 1.7).abs() < 0.01);
+    }
+
+    const EPW_HEADER: &str = "LOCATION,Denver,CO,USA,TMY3,725650,39.74,-104.98,-7.0,1614.0\n\
+        DESIGN CONDITIONS,0\n\
+        TYPICAL/EXTREME PERIODS,0\n\
+        GROUND TEMPERATURES,0\n\
+        HOLIDAYS/DAYLIGHT SAVINGS,No,0,0,0\n\
+        COMMENTS 1,test\n\
+        COMMENTS 2,test\n\
+        DATA PERIODS,1,1,Data,Sunday,1/1,12/31\n";
+
+    fn epw_record(month: u32, day: u32, hour: u32) -> String {
+        format!(
+            "1984,{month},{day},{hour},60,flags,-5.0,-11.0,63,83200,0,0,280,0,0,0,\
+             0,0,0,0,320,4.1,10,9,16.1,77777,9,999999999,0,0.039,0,88,0.000,0.0,0\n"
+        )
+    }
+
+    fn epw_with(header: &str, stamps: &[(u32, u32, u32)]) -> String {
+        let mut s = header.to_string();
+        for &(m, d, h) in stamps {
+            s.push_str(&epw_record(m, d, h));
+        }
+        s
+    }
+
+    fn invalid_message(result: Result<WeatherData, WeatherError>) -> String {
+        match result {
+            Err(WeatherError::InvalidFormat(msg)) => msg,
+            other => panic!("expected InvalidFormat, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_epw_consecutive_hours_across_day_and_month() {
+        let epw = epw_with(EPW_HEADER, &[(1, 31, 23), (1, 31, 24), (2, 1, 1)]);
+        assert_eq!(read_epw(epw.as_bytes()).unwrap().hours.len(), 3);
+    }
+
+    #[test]
+    fn test_epw_gap_in_hours_is_an_error() {
+        // Skipping 01/01 hour 2 would shift every later hour by one (#67).
+        let epw = epw_with(EPW_HEADER, &[(1, 1, 1), (1, 1, 3)]);
+        let msg = invalid_message(read_epw(epw.as_bytes()));
+        assert!(msg.contains("line 10"), "{msg}");
+        assert!(msg.contains("expected 01/01 hour 2"), "{msg}");
+    }
+
+    #[test]
+    fn test_epw_duplicate_hour_is_an_error() {
+        let epw = epw_with(EPW_HEADER, &[(1, 1, 1), (1, 1, 1)]);
+        assert!(invalid_message(read_epw(epw.as_bytes())).contains("consecutive"));
+    }
+
+    #[test]
+    fn test_epw_malformed_record_is_an_error_not_skipped() {
+        let mut epw = epw_with(EPW_HEADER, &[(1, 1, 1)]);
+        epw.push_str("1984,1,1,2,60,truncated\n");
+        epw.push_str(&epw_record(1, 1, 3));
+        let msg = invalid_message(read_epw(epw.as_bytes()));
+        assert!(msg.contains("line 10"), "{msg}");
+    }
+
+    #[test]
+    fn test_epw_leap_day_records_are_dropped() {
+        let mut stamps = vec![(2, 28, 24)];
+        stamps.extend((1..=24).map(|h| (2, 29, h)));
+        stamps.push((3, 1, 1));
+        let data = read_epw(epw_with(EPW_HEADER, &stamps).as_bytes()).unwrap();
+        assert_eq!(data.hours.len(), 2);
+        assert_eq!((data.hours[1].month, data.hours[1].day), (3, 1));
+    }
+
+    #[test]
+    fn test_epw_invalid_latitude_is_an_error() {
+        let header = EPW_HEADER.replace("39.74", "north");
+        let epw = epw_with(&header, &[(1, 1, 1)]);
+        assert!(invalid_message(read_epw(epw.as_bytes())).contains("latitude"));
+    }
+
+    #[test]
+    fn test_epw_missing_header_line_is_an_error() {
+        let header = EPW_HEADER.replace("COMMENTS 2,test\n", "");
+        let epw = epw_with(&header, &[(1, 1, 1), (1, 1, 2)]);
+        assert!(invalid_message(read_epw(epw.as_bytes())).contains("8 header lines"));
+    }
+
+    #[test]
+    fn test_epw_header_lines_found_by_keyword() {
+        // DATA PERIODS before GROUND TEMPERATURES: both still parsed.
+        let header = "LOCATION,Denver,CO,USA,TMY3,725650,39.74,-104.98,-7.0,1614.0\n\
+            DESIGN CONDITIONS,0\n\
+            TYPICAL/EXTREME PERIODS,0\n\
+            DATA PERIODS,1,1,Data,Wednesday,1/1,12/31\n\
+            HOLIDAYS/DAYLIGHT SAVINGS,No,0,0,0\n\
+            COMMENTS 1,test\n\
+            COMMENTS 2,test\n\
+            GROUND TEMPERATURES,1,.5,,,,1,2,3,4,5,6,7,8,9,10,11,12\n";
+        let data = read_epw(epw_with(header, &[(1, 1, 1)]).as_bytes()).unwrap();
+        assert_eq!(data.start_day_of_week, 3);
+        assert_eq!(data.ground_temperatures.len(), 1);
+        assert_eq!(data.ground_temperatures[0].monthly_temps[11], 12.0);
+    }
+
+    #[test]
+    fn test_tmy3_invalid_date_is_an_error() {
+        let tmy3 = "725650,\"DENVER\",CO,-7.0,39.833,-104.650,1650\n\
+            Date,Time,headers...\n\
+            13/40/1995,10:00,433,1415,266,1,17,494,1,21,115,1,17,27534,1,17,43873,1,21,14050,1,17,2191,1,32,8,E,9,4,E,9,-2.2,E,9,-7.0,E,9,66,A,7,827,E,9,200,E,9,1.7,E,9,-9900,?,0,11251,E,9\n";
+        let msg = invalid_message(read_tmy3(tmy3.as_bytes()));
+        assert!(msg.contains("line 3"), "{msg}");
+    }
+
+    #[test]
+    fn test_tmy3_midnight_as_next_day_zero_hour() {
+        // "01/02 00:00" is the hour ending at midnight on 01/01 → 01/01 hour 24,
+        // and a leap year's "03/01 00:00" is 29 February (then dropped).
+        let row = |date: &str, time: &str| {
+            format!(
+                "{date},{time},0,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,2,E,9,2,E,9,\
+                 -18.0,E,9,-19.7,E,9,85,A,7,837,E,9,0,E,9,0.0,E,9,-9900,?,0,20306,E,9\n"
+            )
+        };
+        let head = "725650,\"DENVER\",CO,-7.0,39.833,-104.650,1650\nDate,Time,headers\n";
+        let tmy3 = format!(
+            "{head}{}{}{}",
+            row("01/01/1995", "23:00"),
+            row("01/02/1995", "00:00"),
+            row("01/02/1995", "01:00")
+        );
+        let data = read_tmy3(tmy3.as_bytes()).unwrap();
+        let stamps: Vec<_> = data
+            .hours
+            .iter()
+            .map(|h| (h.month, h.day, h.hour))
+            .collect();
+        assert_eq!(stamps, vec![(1, 1, 23), (1, 1, 24), (1, 2, 1)]);
+
+        assert_eq!(previous_day(3, 1, 1996), (2, 29, 1996));
+        assert_eq!(previous_day(3, 1, 1995), (2, 28, 1995));
+        assert_eq!(previous_day(1, 1, 1996), (12, 31, 1995));
     }
 
     #[test]

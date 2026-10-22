@@ -1097,7 +1097,38 @@ fn main() -> Result<()> {
 
         let start_hour = day_of_year(config.start_month, config.start_day, &days_in_months) * 24;
         let end_hour = (day_of_year(config.end_month, config.end_day, &days_in_months) + 1) * 24;
-        let end_hour = end_hour.min(weather_data.hours.len() as u32);
+        // Weather record N is used as hour N of the year, so the file must start
+        // on 1 January and reach the end of the run period. Trimming the run to
+        // a short file would silently drop the missing days.
+        if let Some(first) = weather_data.hours.first() {
+            if (first.month, first.day, first.hour) != (1, 1, 1) {
+                anyhow::bail!(
+                    "Weather file {} starts on {:02}/{:02} hour {}; it must start on 01/01 hour 1",
+                    weather_path.display(),
+                    first.month,
+                    first.day,
+                    first.hour
+                );
+            }
+        }
+        if end_hour as usize > weather_data.hours.len() {
+            let (last_month, last_day, last_hour) = weather_data
+                .hours
+                .last()
+                .map_or((0, 0, 0), |h| (h.month, h.day, h.hour));
+            anyhow::bail!(
+                "Weather file {} ends on {:02}/{:02} hour {} ({} hourly records), but the run \
+                 period ends on {:02}/{:02}. Use a weather file that covers the whole period \
+                 or shorten the run.",
+                weather_path.display(),
+                last_month,
+                last_day,
+                last_hour,
+                weather_data.hours.len(),
+                config.end_month,
+                config.end_day
+            );
+        }
         let total_timesteps = (end_hour - start_hour) * config.timesteps_per_hour;
 
         info!(
