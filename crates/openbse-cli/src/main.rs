@@ -53,6 +53,96 @@ struct Args {
     verbose: bool,
 }
 
+/// Contained hot-aisle exhaust reaching a data-center zone's CRAC/CRAH inlet.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct HotAisleReturn {
+    /// Return-air temperature the cooling unit sees [°C].
+    temp: f64,
+    /// IT heat carried straight to the unit without entering the room air [W].
+    bypass_heat: f64,
+}
+
+/// Return air of each data-center zone with IT load: contained hot-aisle
+/// exhaust mixed with room air at the unit's inlet.
+///
+/// Servers move their own airflow (CRAC-1 / #62): inlet at the cold-aisle
+/// supply temperature, exhaust at `T_hot = T_supply + Q_IT/(ṁ_IT·cp)`.
+/// Containment ducts `η·ṁ_IT` of that exhaust to the unit, where it mixes by
+/// mass with room air to make up the unit's flow `ṁ_unit`:
+/// `T_return = T_zone + min(η·ṁ_IT, ṁ_unit)/ṁ_unit · (T_hot − T_zone)`.
+/// With matched flows this is the plain `η` blend; it is a simplification of
+/// EnergyPlus's ITE:AirCooled recirculation and approach curves (CRAC-3).
+///
+/// The heat above room temperature in the return, `ṁ_unit·cp·(T_return − T_zone)`,
+/// never reaches the room air, so the caller removes it from the zone balance.
+/// Without that the IT heat would count twice: once as a zone gain and again
+/// in the return air the coil cools.
+///
+/// `ṁ_unit` and `T_supply` are the supply last delivered to the zone, the same
+/// flow the zone balance sees, so room and coil agree once iterations converge.
+fn data_center_return_temps(
+    env: &openbse_envelope::BuildingEnvelope,
+    current_zone_temps: &HashMap<String, f64>,
+    hour: u32,
+    dow: u32,
+) -> HashMap<String, HotAisleReturn> {
+    env.zones
+        .iter()
+        .filter_map(|z| {
+            let dc = z.input.data_center.as_ref()?;
+            let frac = dc
+                .it_load_schedule
+                .as_ref()
+                .map(|s| env.schedule_manager.fraction(s, hour, dow))
+                .unwrap_or(1.0);
+            let it_pw_w = dc.it_load_w() * frac;
+            let m_unit = z.supply_air_mass_flow;
+            if it_pw_w <= 0.0 || m_unit <= 1.0e-6 {
+                return None;
+            }
+            let cp = openbse_psychrometrics::cp_air_fn_w(z.humidity_ratio);
+            let t_supply = z.supply_air_temp;
+            let rho =
+                openbse_psychrometrics::rho_air_fn_pb_tdb_w(101_325.0, t_supply, z.humidity_ratio);
+            let m_it = dc.it_mass_flow(it_pw_w, t_supply, rho, cp);
+            let t_zone = current_zone_temps
+                .get(&z.input.name)
+                .copied()
+                .unwrap_or(z.temp);
+            let ret = hot_aisle_return(
+                t_zone,
+                t_supply,
+                it_pw_w,
+                m_it,
+                m_unit,
+                dc.containment_efficiency,
+                cp,
+            );
+            Some((z.input.name.clone(), ret))
+        })
+        .collect()
+}
+
+/// Mix the captured share of the server exhaust with room air at the unit
+/// inlet (see [`data_center_return_temps`]). Flows in kg/s, `cp` in J/(kg·K).
+fn hot_aisle_return(
+    t_zone: f64,
+    t_supply: f64,
+    it_power_w: f64,
+    m_it: f64,
+    m_unit: f64,
+    containment: f64,
+    cp: f64,
+) -> HotAisleReturn {
+    let t_hot = t_supply + it_power_w / (m_it * cp);
+    let m_captured = (containment.clamp(0.0, 1.0) * m_it).min(m_unit);
+    let bypass_heat = m_captured * cp * (t_hot - t_zone);
+    HotAisleReturn {
+        temp: t_zone + bypass_heat / (m_unit * cp),
+        bypass_heat,
+    }
+}
+
 fn build_loop_infos(
     model: &openbse_io::input::ModelInput,
     resolved_zones: &[openbse_envelope::ZoneInput],
@@ -78,6 +168,10 @@ fn build_loop_infos(
                     }
                 })
                 .collect();
+
+            let variable_speed_fan = al.equipment.iter().any(
+                |eq| matches!(eq, openbse_io::input::EquipmentInput::Fan(f) if f.source == "vav"),
+            );
 
             let dx_compressor_names: HashSet<String> = al
                 .equipment
@@ -205,6 +299,7 @@ fn build_loop_infos(
                 system_type,
                 component_names,
                 fan_names,
+                variable_speed_fan,
                 dx_compressor_names,
                 component_kinds,
                 served_zones,
@@ -2813,61 +2908,27 @@ fn main() -> Result<()> {
                             })
                             .collect();
 
-                        // Pre-compute DC zone return air temps using previous
-                        // timestep's supply conditions. Frozen for HVAC iteration
-                        // (same approach as zone_humidity_ratios). Falls back to
-                        // zone_temp for non-DC zones.
-                        let zone_dc_return_temps: HashMap<String, f64> = env
+                        // Return-air temperatures seen by the coils: contained hot
+                        // aisles for data-center zones (recomputed each HVAC iteration
+                        // below) and, for stratified zones (#91), the return-height
+                        // temperature (frozen for the timestep).
+                        let stratified_returns: Vec<(String, f64)> = env
                             .zones
                             .iter()
-                            .filter_map(|z| {
-                                let dc = z.input.data_center.as_ref()?;
-                                let it_base_w = dc.it_load_w();
-                                if it_base_w <= 0.0 {
-                                    return None;
-                                }
-                                let frac = dc
-                                    .it_load_schedule
-                                    .as_ref()
-                                    .map(|s| env.schedule_manager.fraction(s, hour, dow))
-                                    .unwrap_or(1.0);
-                                let it_pw_w = it_base_w * frac;
-                                if it_pw_w <= 0.0 {
-                                    return None;
-                                }
-                                let cp_dc = openbse_psychrometrics::cp_air_fn_w(z.humidity_ratio);
-                                let t_supply = z.supply_air_temp;
-                                // Hot-aisle rise is carried by the server (IT) airflow,
-                                // not the CRAC/CRAH supply flow (CRAC-1 / #62).
-                                let rho_dc = openbse_psychrometrics::rho_air_fn_pb_tdb_w(
-                                    101_325.0,
-                                    t_supply,
-                                    z.humidity_ratio,
-                                );
-                                let m_it = dc.it_mass_flow(it_pw_w, t_supply, rho_dc, cp_dc);
-                                let t_hot = t_supply + it_pw_w / (m_it * cp_dc).max(1.0);
-                                let t_zone = current_zone_temps
-                                    .get(&z.input.name)
-                                    .copied()
-                                    .unwrap_or(z.temp);
-                                let t_return = dc.containment_efficiency * t_hot
-                                    + (1.0 - dc.containment_efficiency) * t_zone;
-                                Some((z.input.name.clone(), t_return))
-                            })
+                            .filter(|z| z.input.room_air.is_some())
+                            .map(|z| (z.input.name.clone(), z.return_air_temp()))
                             .collect();
-
-                        // Room-air stratification (#91): stratified zones return
-                        // air at the return-height temperature, so coil loads
-                        // and economizers see the stratified return.
-                        let mut zone_dc_return_temps = zone_dc_return_temps;
-                        for z in &env.zones {
-                            if z.input.room_air.is_some()
-                                && !zone_dc_return_temps.contains_key(&z.input.name)
-                            {
-                                zone_dc_return_temps
-                                    .insert(z.input.name.clone(), z.return_air_temp());
+                        let with_stratified = |dc: &HashMap<String, HotAisleReturn>| {
+                            let mut temps: HashMap<String, f64> =
+                                dc.iter().map(|(n, r)| (n.clone(), r.temp)).collect();
+                            for (name, t) in &stratified_returns {
+                                temps.entry(name.clone()).or_insert(*t);
                             }
-                        }
+                            temps
+                        };
+                        let mut dc_returns =
+                            data_center_return_temps(env, &current_zone_temps, hour, dow);
+                        let mut zone_dc_return_temps = with_stratified(&dc_returns);
 
                         // ── Dynamic blind control (#104) ─────────────────────────
                         // Evaluate shading control triggers once per timestep, before
@@ -2909,6 +2970,14 @@ fn main() -> Result<()> {
                             .as_ref()
                             .unwrap_or(&zone_cooling_setpoints);
                         for hvac_iter in 0..MAX_HVAC_ITER {
+                            // The hot-aisle return follows the supply the units are
+                            // producing now, not last timestep's (CRAC-5 / #62).
+                            if hvac_iter > 0 {
+                                dc_returns =
+                                    data_center_return_temps(env, &current_zone_temps, hour, dow);
+                                zone_dc_return_temps = with_stratified(&dc_returns);
+                            }
+
                             // Step 1: Run HVAC with current zone temps and loads
                             let (mut hvac_result, zone_supply_conditions) = simulate_all_loops(
                                 &mut graph,
@@ -3675,6 +3744,21 @@ fn main() -> Result<()> {
                                     .other_latent_gains
                                     .entry(ambient_zone.clone())
                                     .or_default() += latent;
+                            }
+
+                            // Contained hot-aisle heat goes straight to the CRAC/CRAH
+                            // return, which the coil has just cooled; it is not a gain
+                            // to the room air (#62).
+                            for (zone_name, ret) in &dc_returns {
+                                let served = damped_supply
+                                    .get(zone_name)
+                                    .is_some_and(|&(_, m, _)| m > 1.0e-6);
+                                if served {
+                                    *hvac_conds
+                                        .other_sensible_gains
+                                        .entry(zone_name.clone())
+                                        .or_default() -= ret.bypass_heat;
+                                }
                             }
 
                             // Step 3: Solve envelope with HVAC supply
@@ -6620,12 +6704,41 @@ fn month_day_from_hour(hour_of_year: u32, dims: &[u32; 12]) -> (u32, u32) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_hot_aisle_return_conserves_it_heat() {
+        // #62: the heat the unit sees above room temperature must be exactly the
+        // heat removed from the room, and never more than the captured IT heat.
+        let cp = 1006.0;
+        let (t_zone, t_supply, q_it) = (24.0, 18.0, 500_000.0);
+        let m_it = q_it / (cp * 17.0); // 35 °C rack exhaust
+
+        // Unit moves more air than the servers: captured exhaust mixes with room air.
+        let m_unit = 2.0 * m_it;
+        let r = hot_aisle_return(t_zone, t_supply, q_it, m_it, m_unit, 0.85, cp);
+        assert!((m_unit * cp * (r.temp - t_zone) - r.bypass_heat).abs() < 1e-6);
+        assert!(r.bypass_heat > 0.0 && r.bypass_heat <= 0.85 * q_it);
+        assert!(r.temp > t_zone && r.temp < 35.0, "{}", r.temp);
+
+        // Matched flows reduce to the plain containment blend.
+        let r = hot_aisle_return(t_zone, t_supply, q_it, m_it, m_it, 0.85, cp);
+        assert!((r.temp - (0.85 * 35.0 + 0.15 * t_zone)).abs() < 1e-9);
+
+        // Unit starved of air: its whole return is hot-aisle exhaust, no hotter.
+        let r = hot_aisle_return(t_zone, t_supply, q_it, m_it, 0.5 * m_it, 0.85, cp);
+        assert!((r.temp - 35.0).abs() < 1e-9);
+
+        // No containment: the unit sees room air and all IT heat stays in the room.
+        let r = hot_aisle_return(t_zone, t_supply, q_it, m_it, m_unit, 0.0, cp);
+        assert_eq!((r.temp, r.bypass_heat), (t_zone, 0.0));
+    }
+
     fn make_pthp_loop(component_names: Vec<String>) -> LoopInfo {
         LoopInfo {
             name: "test_pthp".to_string(),
             system_type: AirLoopSystemType::Pthp,
             component_names,
             fan_names: HashSet::new(),
+            variable_speed_fan: false,
             dx_compressor_names: HashSet::new(),
             component_kinds: HashMap::new(),
             served_zones: vec!["Zone1".to_string()],
@@ -6667,6 +6780,7 @@ mod tests {
             system_type: AirLoopSystemType::PszAc,
             component_names: vec!["DX Cooling Coil".to_string()],
             fan_names: HashSet::new(),
+            variable_speed_fan: false,
             dx_compressor_names: HashSet::new(),
             component_kinds: HashMap::new(),
             served_zones: vec!["Zone1".to_string()],
@@ -7515,6 +7629,7 @@ mod tests_datacenter {
             system_type,
             component_names: vec!["CRAC-1 DX Coil".to_string(), "CRAC-1 Fan".to_string()],
             fan_names: HashSet::new(),
+            variable_speed_fan: false,
             dx_compressor_names: HashSet::new(),
             component_kinds: HashMap::new(),
             served_zones: vec!["DataHall".to_string()],

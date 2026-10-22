@@ -32,6 +32,9 @@ pub struct LoopInfo {
     pub component_names: Vec<String>,
     /// Names of fan components in this loop (for PLR-exempt identification)
     pub fan_names: HashSet<String>,
+    /// True when the loop's supply fan is variable-speed (`source: vav`).
+    /// CRAC/CRAH units modulate their airflow only when it is.
+    pub variable_speed_fan: bool,
     /// Names of components whose electric power carries the compressor
     /// cycling penalty (RTF = PLR/PLF) at the system level: DX cooling
     /// coils (single/multi-speed) and WSHP. Heat pump heating coils apply
@@ -624,14 +627,45 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     signals
 }
 
+/// Supply air mass flow for a CRAC/CRAH unit.
+///
+/// A variable-speed fan delivers the flow that removes the zone's cooling load
+/// at the supply setpoint, `ṁ = Q / (cp·(T_zone_sp − T_supply))`, bounded by
+/// the loop's minimum flow fraction and design flow; outside cooling it idles
+/// at the minimum. Fan energy then follows the VAV fan curve, which is where a
+/// modulating CRAH saves most of its energy at part IT load (CRAC-2 / #62).
+/// A constant-volume fan always moves design flow.
+fn data_center_supply_flow(
+    li: &LoopInfo,
+    design_flow: f64,
+    mode: HvacMode,
+    cooling_load: f64,
+    zone_cool_sp: f64,
+    zone_w: f64,
+) -> f64 {
+    if !li.variable_speed_fan {
+        return design_flow;
+    }
+    let min_flow = design_flow * li.min_vav_fraction.clamp(0.0, 1.0);
+    if mode != HvacMode::Cooling {
+        return min_flow;
+    }
+    let cp = openbse_psychrometrics::cp_air_fn_w(zone_w);
+    let delta_t = (zone_cool_sp - li.cooling_supply_temp).max(1.0);
+    (cooling_load.max(0.0) / (cp * delta_t)).clamp(min_flow, design_flow)
+}
+
 /// CRAC: self-contained DX cooling unit.
 ///
 /// Key differences from PSZ-AC:
 /// - No outdoor air mixing (OA fraction = 0 unless explicitly set)
 /// - No economizer
 /// - Always in cooling-only mode (data centers have no heating)
-/// - SHR = 0.98 default (high sensible for IT environments)
+/// - High-sensible operation comes from the coil's configured `shr`
+///   (e.g. 0.98); the builder does not set it.
 /// - Supply air setpoint from `cooling_supply_temp` or rack_inlet_temp_max_c
+/// - Airflow modulates with load when the fan is variable-speed
+///   ([`data_center_supply_flow`])
 pub fn build_crac_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     let zone_temps = ctx.zone_temps;
     let zone_cool_sp = ctx.zone_cool_sp;
@@ -691,16 +725,14 @@ pub fn build_crac_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
 
     // CRAC recirculates room air (no OA). For DC zones, return air temp
     // is warmer than zone average due to rack heat — use pre-computed value.
-    let oa_frac = if li.component_names.is_empty() {
-        0.0_f64
-    } else {
-        0.0_f64
-    };
+    let oa_frac = 0.0_f64;
     let return_air_temp = zone_dc_return_temps
         .get(zone_name)
         .copied()
         .unwrap_or(zone_temp);
     let mixed_air_temp = return_air_temp;
+    let supply_flow =
+        data_center_supply_flow(li, total_flow, mode, zone_cool_load, cool_sp, zone_w);
 
     for name in &li.component_names {
         let role = li.coil_role(name);
@@ -721,7 +753,7 @@ pub fn build_crac_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
                 }
             }
         }
-        signals.air_mass_flows.insert(name.clone(), total_flow);
+        signals.air_mass_flows.insert(name.clone(), supply_flow);
     }
 
     signals.mixed_air_temp = Some(mixed_air_temp);
@@ -734,7 +766,8 @@ pub fn build_crac_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
 /// CRAH: chilled-water air handler for data centers.
 ///
 /// Identical to CRAC in control logic but uses a chilled-water coil.
-/// No OA mixing, no economizer, cooling-only, high sensible (SHR ≈ 0.98).
+/// No OA mixing, no economizer, cooling-only. Airflow modulates with load when
+/// the fan is variable-speed ([`data_center_supply_flow`]).
 pub fn build_crah_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     let zone_temps = ctx.zone_temps;
     let zone_cool_sp = ctx.zone_cool_sp;
@@ -795,6 +828,8 @@ pub fn build_crah_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         .copied()
         .unwrap_or(zone_temp);
     let mixed_air_temp = return_air_temp;
+    let supply_flow =
+        data_center_supply_flow(li, total_flow, mode, zone_cool_load, cool_sp, zone_w);
 
     for name in &li.component_names {
         let role = li.coil_role(name);
@@ -815,7 +850,7 @@ pub fn build_crah_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
                 }
             }
         }
-        signals.air_mass_flows.insert(name.clone(), total_flow);
+        signals.air_mass_flows.insert(name.clone(), supply_flow);
     }
 
     signals.mixed_air_temp = Some(mixed_air_temp);
@@ -1794,6 +1829,7 @@ mod tests {
             system_type,
             component_names,
             fan_names: HashSet::new(),
+            variable_speed_fan: false,
             dx_compressor_names: HashSet::new(),
             component_kinds: HashMap::new(),
             served_zones: vec!["Zone1".to_string()],
@@ -2007,5 +2043,45 @@ mod tests {
         };
         let signals = build_doas_signals(&li, &f.ctx(30.0));
         assert_eq!(signals.oa_fraction, Some(1.0));
+    }
+
+    #[test]
+    fn test_data_center_supply_flow_tracks_load_only_with_variable_fan() {
+        // CRAC-2 (#62): a variable-speed CRAH fan delivers the flow that meets
+        // the load at the supply setpoint; a constant-volume fan stays at design.
+        let mut li = make_loop(AirLoopSystemType::Crah, vec![]);
+        li.cooling_supply_temp = 18.0;
+        let design = 10.0; // kg/s
+        let w = 0.008;
+        let cp = openbse_psychrometrics::cp_air_fn_w(w);
+
+        // Constant volume: design flow whatever the load or mode.
+        assert_eq!(
+            data_center_supply_flow(&li, design, HvacMode::Cooling, 20_000.0, 24.0, w),
+            design
+        );
+        assert_eq!(
+            data_center_supply_flow(&li, design, HvacMode::Deadband, 0.0, 24.0, w),
+            design
+        );
+
+        li.variable_speed_fan = true;
+        // 30 kW at a 6 K supply difference needs 30_000 / (cp·6) ≈ 4.98 kg/s.
+        let flow = data_center_supply_flow(&li, design, HvacMode::Cooling, 30_000.0, 24.0, w);
+        assert!((flow - 30_000.0 / (cp * 6.0)).abs() < 1e-9, "{flow}");
+        // Light load and no cooling both idle at the minimum fraction (0.3).
+        assert_eq!(
+            data_center_supply_flow(&li, design, HvacMode::Cooling, 1_000.0, 24.0, w),
+            3.0
+        );
+        assert_eq!(
+            data_center_supply_flow(&li, design, HvacMode::Deadband, 30_000.0, 24.0, w),
+            3.0
+        );
+        // More load than design flow can carry: capped at design.
+        assert_eq!(
+            data_center_supply_flow(&li, design, HvacMode::Cooling, 1.0e6, 24.0, w),
+            design
+        );
     }
 }

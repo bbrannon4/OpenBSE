@@ -4789,6 +4789,31 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
         check_schedule(&e.schedule, "Equipment", &e.name, &mut result);
     }
 
+    // ── Validate data-center server airflow ────────────────────────────────
+    //
+    // Server airflow sets the hot-aisle temperature the CRAC/CRAH sees. Real
+    // servers move about 0.05–0.15 m³/s per kW (a 5–15 K rise); a value off
+    // by a unit factor gives a rise of hundreds of kelvin (#62).
+    for z in &model.zones {
+        let Some(flow_per_kw) = z
+            .data_center
+            .as_ref()
+            .and_then(|dc| dc.airflow_m3_per_s_per_kw)
+        else {
+            continue;
+        };
+        if flow_per_kw > 0.0 {
+            let rise_k = 1000.0 / (flow_per_kw * 1.2 * 1006.0);
+            if rise_k > 30.0 {
+                result.warn(format!(
+                    "Zone '{}': data_center airflow_m3_per_s_per_kw = {} gives a {:.0} K \
+                     server air temperature rise; servers typically move 0.05-0.15 m3/s per kW",
+                    z.name, flow_per_kw, rise_k
+                ));
+            }
+        }
+    }
+
     // ── Validate infiltration ──────────────────────────────────────────────
 
     for inf in &model.infiltration {
@@ -4875,6 +4900,24 @@ surfaces:
         let report = validate_model(&model).to_err_file();
         assert!(report.contains("'North Window'"), "{report}");
         assert!(!report.contains("'North Wall':"), "{report}");
+    }
+
+    #[test]
+    fn validation_warns_on_implausible_server_airflow() {
+        let model_with = |flow: f64| {
+            parse_model_yaml(&format!(
+                "simulation: {{}}\nweather_files: []\nzones:\n  - name: Hall\n    data_center:\n      it_load_kw: 100\n      airflow_m3_per_s_per_kw: {flow}\n"
+            ))
+            .unwrap()
+        };
+        // 0.0015 m³/s per kW (the old example value) means a ~550 K rise.
+        let report = validate_model(&model_with(0.0015)).to_err_file();
+        assert!(
+            report.contains("'Hall'") && report.contains("airflow"),
+            "{report}"
+        );
+        let report = validate_model(&model_with(0.1)).to_err_file();
+        assert!(!report.contains("airflow"), "{report}");
     }
 
     #[test]

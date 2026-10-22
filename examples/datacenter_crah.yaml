@@ -26,11 +26,38 @@ simulation:
   end_month: 12
   end_day: 31
 
+# Not shipped with the repo: download a Chicago O'Hare EPW (e.g. from
+# climate.onebuilding.org) or pass one with `-w`.
 weather_files:
   - "USA_IL_Chicago-OHare.Intl.AP.725300_TMYx.epw"
 
 # ASHRAE climate zone — 90.4 MLC limit lookup (Table 6.2).
 climate_zone: "5A"
+
+# Every capacity and airflow below is `autosize`, and sizing runs only from
+# design days. Chicago O'Hare (725300) annual conditions from the E+ .ddy.
+design_days:
+  - name: Chicago Heating 99.6%
+    design_temp: -20.0
+    daily_range: 0.0
+    humidity_type: wetbulb
+    humidity_value: -20.0
+    pressure: 98934.0
+    wind_speed: 4.9
+    month: 1
+    day: 21
+    day_type: winter
+
+  - name: Chicago Cooling 0.4%
+    design_temp: 33.3
+    daily_range: 10.5
+    humidity_type: wetbulb
+    humidity_value: 23.7
+    pressure: 98934.0
+    wind_speed: 5.2
+    month: 7
+    day: 21
+    day_type: summer
 
 # ── Electrical Distribution (UPS + transformer losses → ELC) ──────────────────
 # Heat generated here is also modeled as equipment gains in the zones below so
@@ -117,7 +144,7 @@ zones:
       equipment_class: "A2"               # inlet limit 35 °C; supply target 18 °C
       containment_efficiency: 0.85
       rack_inlet_temp_max_c: 18.0
-      airflow_m3_per_s_per_kw: 0.0015
+      rack_outlet_temp_c: 35.0             # hot-aisle exhaust; sets the server airflow
       lighting_w_per_m2: 5.0
 
   - name: UPS Room
