@@ -89,6 +89,13 @@ fn write_yaml_file(path: String, contents: String) -> Result<(), String> {
     std::fs::write(&path, &contents).map_err(|e| format!("Failed to write file {path}: {e}"))
 }
 
+/// Write raw bytes, e.g. a PNG export of the Comfort view. The fs plugin is
+/// only granted text writes, and a dedicated command keeps that scope narrow.
+#[tauri::command]
+fn write_binary_file(path: String, contents: Vec<u8>) -> Result<(), String> {
+    std::fs::write(&path, &contents).map_err(|e| format!("Failed to write file {path}: {e}"))
+}
+
 /// Find the openbse CLI binary by searching:
 /// 1. Tauri resource directory (bundled by installer — works on all platforms)
 /// 2. Next to the executable (fallback for portable/dev installs)
@@ -496,6 +503,7 @@ pub fn run() {
             scan_project_folder,
             open_in_browser,
             find_summary_report,
+            write_binary_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

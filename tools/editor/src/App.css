@@ -3087,3 +3087,120 @@ input[type="number"]::-webkit-outer-spin-button {
   pointer-events: none;
   opacity: 0.9;
 }
+
+.comfort-segment {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.comfort-segment button {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: none;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.comfort-segment button + button {
+  border-left: 1px solid var(--border);
+}
+
+.comfort-segment button.active {
+  background: var(--accent-dim);
+  color: var(--text-primary);
+}
+
+.comfort-picker {
+  position: relative;
+}
+
+.comfort-picker-button,
+.comfort-export,
+.comfort-picker-row button,
+.comfort-picker-levels button {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.comfort-picker-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 10;
+  width: 280px;
+  max-height: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.comfort-picker-row {
+  display: flex;
+  gap: 6px;
+}
+
+.comfort-picker-heading {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.comfort-picker-levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.comfort-picker-filter {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.comfort-picker-list {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+}
+
+.comfort-picker-list label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.comfort-export-status {
+  color: var(--green);
+  font-size: 11px;
+}
+
+.comfort-slider input[type="number"] {
+  width: 52px;
+  margin: 0 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
