@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
+import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import {
@@ -51,6 +51,10 @@ export function ComfortView({ modelPath, reloadKey, unitSystem }: Props) {
   const [hourOfDay, setHourOfDay] = useState(9);
   const [playing, setPlaying] = useState(false);
   const [hovered, setHovered] = useState<{ zone: number; point: number; x: number; y: number } | null>(null);
+  const compass = useRef<HTMLDivElement>(null);
+  const setBearing = useCallback((rad: number) => {
+    if (compass.current) compass.current.style.transform = `rotate(${-rad}rad)`;
+  }, []);
 
   useEffect(() => {
     if (!path) return;
@@ -167,7 +171,15 @@ export function ComfortView({ modelPath, reloadKey, unitSystem }: Props) {
             />
           </group>
           <CameraFit data={data} zoneFilter={zoneFilter} />
+          <CompassUpdater onBearing={setBearing} />
         </Canvas>
+
+        <div className="comfort-compass" ref={compass} title="North">
+          <svg viewBox="0 0 40 40" width="40" height="40" aria-label="North arrow">
+            <polygon points="20,3 27,26 20,21 13,26" fill="#c0caf5" />
+            <text x="20" y="37" textAnchor="middle" fontSize="9" fill="#c0caf5">N</text>
+          </svg>
+        </div>
 
         <Legend metric={metric} unitSystem={unitSystem} />
         {hovered && (
@@ -447,6 +459,28 @@ function CameraFit({ data, zoneFilter }: { data: ComfortData; zoneFilter: number
   }, [data, zoneFilter, get]);
 
   return <OrbitControls ref={controls} makeDefault enableDamping={false} />;
+}
+
+// ─── North arrow ────────────────────────────────────────────────────────────
+
+/**
+ * Turns the north arrow with the camera. North is +Y in the model, which is
+ * -Z inside the rotated scene. The screen's "up" direction, projected onto
+ * the ground, gives the bearing the viewer is facing; north sits at minus
+ * that bearing on screen. Writing the DOM style directly avoids a React
+ * render every frame.
+ */
+function CompassUpdater({ onBearing }: { onBearing: (rad: number) => void }) {
+  const up = useMemo(() => new THREE.Vector3(), []);
+  const fwd = useMemo(() => new THREE.Vector3(), []);
+  useFrame(({ camera }) => {
+    up.setFromMatrixColumn(camera.matrixWorld, 1);
+    camera.getWorldDirection(fwd);
+    // Looking straight down, screen-up is horizontal; looking level, use forward.
+    const v = Math.hypot(up.x, up.z) > Math.hypot(fwd.x, fwd.z) ? up : fwd;
+    onBearing(Math.atan2(v.x, -v.z));
+  });
+  return null;
 }
 
 // ─── Legend and tooltip ─────────────────────────────────────────────────────
