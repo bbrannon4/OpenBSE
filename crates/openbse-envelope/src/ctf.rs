@@ -34,6 +34,10 @@ pub struct CtfCoefficients {
     pub phi: Vec<f64>,
     /// Number of CTF terms
     pub num_terms: usize,
+    /// How far the steady-state U implied by the coefficients is from the
+    /// construction's own U, in percent. Above 5% the CTF is rejected; between
+    /// 1% and 5% the caller reports a warning.
+    pub steady_state_error_pct: f64,
 }
 
 /// CTF history state for one surface (persists across timesteps).
@@ -131,7 +135,7 @@ struct LayerProps {
 /// layers: no capacitance of their own, a conductance of 1/R between the two
 /// adjacent interface nodes, which take their capacitance from the neighbouring
 /// massed layers. Adjacent interior NoMass layers are combined first.
-pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
+pub fn try_calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> Result<CtfCoefficients, String> {
     let total_r: f64 = layers.iter().map(|l| l.resistance()).sum();
 
     // Partition layers into massless (outside/inside boundary) and massed (interior).
@@ -175,13 +179,14 @@ pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
     // Very low thermal mass or no massed layers: steady-state CTF
     if total_c < 1.0 || massed_layers.is_empty() || total_r <= 0.0 {
         let u = if total_r > 0.0 { 1.0 / total_r } else { 5.0 };
-        return CtfCoefficients {
+        return Ok(CtfCoefficients {
             x: vec![u],
             y: vec![u],
             z: vec![u],
             phi: vec![],
             num_terms: 1,
-        };
+            steady_state_error_pct: 0.0,
+        });
     }
 
     // Compute nodes per layer and build LayerProps. `massed_layers` starts and ends
@@ -231,13 +236,14 @@ pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
         let tau = total_r * total_c;
         let alpha = (-dt / tau).exp();
         let c0 = u * (1.0 - alpha);
-        return CtfCoefficients {
+        return Ok(CtfCoefficients {
             x: vec![c0],
             y: vec![c0],
             z: vec![c0],
             phi: vec![alpha],
             num_terms: 1,
-        };
+            steady_state_error_pct: 0.0,
+        });
     }
 
     // Build state-space matrices with NoMass boundary resistances
@@ -245,23 +251,22 @@ pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
         build_state_space(&layer_props, rcmax, r_outside_nomass, r_inside_nomass);
 
     // Compute CTF from state-space
-    let result = compute_ctf_from_state_space(&a_mat, &b_vec, &c_vec, &d_vec, rcmax, dt);
+    let mut result = compute_ctf_from_state_space(&a_mat, &b_vec, &c_vec, &d_vec, rcmax, dt)?;
 
-    // Safety guard: if state-space produced NaN (extreme constructions with
-    // very high R and thick synthetic layers), fall back to lumped 1-node RC.
+    // A non-finite solution means the construction is degenerate; running with
+    // it would put NaN or inf into the heat balance.
     let has_nan = result.x.iter().any(|v| v.is_nan())
         || result.y.iter().any(|v| v.is_nan())
         || result.z.iter().any(|v| v.is_nan())
         || result.phi.iter().any(|v| v.is_nan());
     if has_nan {
-        panic!(
-            "NaN in CTF state-space matrix (rcmax={rcmax}, layers={}, massed={}). \
-             This indicates a degenerate construction (zero or infinite conductivity, \
-             zero thickness, or zero density/specific-heat on a massed layer). \
-             Check the construction definition.",
+        return Err(format!(
+            "the CTF state-space solution is not finite (rcmax={rcmax}, layers={}, \
+             massed={}): a layer has zero or infinite conductivity, zero thickness, or \
+             zero density or specific heat",
             layers.len(),
             massed_layers.len(),
-        );
+        ));
     }
 
     // Diagnostic: verify steady-state U-value from CTF coefficients
@@ -272,11 +277,12 @@ pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
     let u_ctf = sum_z / (1.0 - sum_phi);
     let u_expected = 1.0 / total_r;
     let u_error_pct = ((u_ctf - u_expected) / u_expected * 100.0).abs();
-    if u_error_pct > 1.0 {
+    result.steady_state_error_pct = u_error_pct;
+    if u_error_pct > 5.0 {
         use std::fmt::Write as _;
         let mut msg = format!(
-            "CTF U-value mismatch: computed {u_ctf:.4} W/(m²K), expected {u_expected:.4} \
-             (error {u_error_pct:.1}%)\n  layers={} (massed={}), rcmax={rcmax}, \
+            "the CTF steady-state U is {u_ctf:.4} W/(m²K) but the layers give {u_expected:.4} \
+             ({u_error_pct:.1}% off)\n  layers={} (massed={}), rcmax={rcmax}, \
              terms={}, Z₀={:.2}, Y₀={:.2}, ΣΦ={sum_phi:.4}",
             layers.len(),
             massed_layers.len(),
@@ -297,14 +303,17 @@ pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
                 lp.k, lp.rho, lp.cp, lp.dx, lp.nodes
             );
         }
-        if u_error_pct > 5.0 {
-            panic!("{msg}");
-        } else {
-            log::warn!("{msg}");
-        }
+        return Err(msg);
     }
 
-    result
+    Ok(result)
+}
+
+/// Panicking form of [`try_calculate_ctf`], for tests and callers that build
+/// constructions known to be valid. The simulation uses the `try_` form so a
+/// bad construction becomes an error message instead of a crash.
+pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
+    try_calculate_ctf(layers, dt).unwrap_or_else(|e| panic!("{e}"))
 }
 
 /// Calculate CTF coefficients from overall U-factor and thermal capacity.
@@ -317,33 +326,35 @@ pub fn calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> CtfCoefficients {
 ///   C = ρ·cp·thickness  →  ρ·cp = C / thickness
 ///
 /// We pick reasonable ρ and cp values that give the correct product.
-pub fn calculate_ctf_simple(
+pub fn try_calculate_ctf_simple(
     u_factor: f64,
     thermal_capacity: f64,
     dt: f64,
     mass_outside: bool,
     mass_conductivity: Option<f64>,
     mass_density: Option<f64>,
-) -> CtfCoefficients {
+) -> Result<CtfCoefficients, String> {
     if u_factor <= 0.0 {
-        return CtfCoefficients {
+        return Ok(CtfCoefficients {
             x: vec![0.0],
             y: vec![0.0],
             z: vec![0.0],
             phi: vec![],
             num_terms: 1,
-        };
+            steady_state_error_pct: 0.0,
+        });
     }
 
     // Very low thermal mass: steady-state
     if thermal_capacity < 1.0 {
-        return CtfCoefficients {
+        return Ok(CtfCoefficients {
             x: vec![u_factor],
             y: vec![u_factor],
             z: vec![u_factor],
             phi: vec![],
             num_terms: 1,
-        };
+            steady_state_error_pct: 0.0,
+        });
     }
 
     // Reconstruct a synthetic material for the state-space CTF method.
@@ -360,13 +371,14 @@ pub fn calculate_ctf_simple(
     if tau < 10.0 * dt {
         let alpha_val = (-dt / tau).exp();
         let c0 = u_factor * (1.0 - alpha_val);
-        return CtfCoefficients {
+        return Ok(CtfCoefficients {
             x: vec![c0],
             y: vec![c0],
             z: vec![c0],
             phi: vec![alpha_val],
             num_terms: 1,
-        };
+            steady_state_error_pct: 0.0,
+        });
     }
 
     // ─── Lightweight constructions (C < 30 kJ/m²K) ──────────────────────────
@@ -420,7 +432,7 @@ pub fn calculate_ctf_simple(
 
             let insul_layer = ResolvedLayer::new(k_adj, rho_insul, cp_insul, t_insul);
             let int_layer = ResolvedLayer::new(k_int, rho_int, cp_int, t_int);
-            return calculate_ctf(&[insul_layer, int_layer], dt);
+            return try_calculate_ctf(&[insul_layer, int_layer], dt);
         }
 
         // ── Wall/roof: [wood ext | insulation | plasterboard int] ───────
@@ -466,7 +478,7 @@ pub fn calculate_ctf_simple(
         let ext_layer = ResolvedLayer::new(k_ext, rho_ext, cp_ext, t_ext);
         let insul_layer = ResolvedLayer::new(k_adj, rho_insul, cp_insul, t_insul);
         let int_layer = ResolvedLayer::new(k_int, rho_int, cp_int, t_int);
-        return calculate_ctf(&[ext_layer, insul_layer, int_layer], dt);
+        return try_calculate_ctf(&[ext_layer, insul_layer, int_layer], dt);
     }
 
     // ─── Heavyweight / mass-outside constructions ────────────────────────────
@@ -561,7 +573,7 @@ pub fn calculate_ctf_simple(
                 ResolvedLayer::new(actual_k_insul_adj, rho_insul, cp_insul, t_insul_adj);
             let finish_layer = ResolvedLayer::new(k_fin, rho_fin, cp_fin, t_fin);
 
-            return calculate_ctf(&[mass_layer, insul_layer, finish_layer], dt);
+            return try_calculate_ctf(&[mass_layer, insul_layer, finish_layer], dt);
         } else {
             // ── Mass-inside construction: insulation outside, mass inside ───
             //
@@ -582,7 +594,7 @@ pub fn calculate_ctf_simple(
                 // mass that slows the floor's interior transient response.
                 let nomass_insul = ResolvedLayer::new_no_mass(r_insul, r_insul * k_insul);
                 let mass_layer = ResolvedLayer::new(k_mass, rho_mass, cp_mass, t_mass);
-                return calculate_ctf(&[nomass_insul, mass_layer], dt);
+                return try_calculate_ctf(&[nomass_insul, mass_layer], dt);
             }
 
             // ── Wall-like: [wood siding (ext) | foam insulation | mass (int)] ──
@@ -638,7 +650,7 @@ pub fn calculate_ctf_simple(
                 ResolvedLayer::new(k_insul_final, rho_insul_hw, cp_insul_hw, t_insul_final);
             let mass_layer = ResolvedLayer::new(k_mass, rho_mass, cp_mass, t_mass_hw);
 
-            return calculate_ctf(&[wood_layer, insul_layer, mass_layer], dt);
+            return try_calculate_ctf(&[wood_layer, insul_layer, mass_layer], dt);
         }
     }
 
@@ -652,7 +664,27 @@ pub fn calculate_ctf_simple(
 
     let layer = ResolvedLayer::new(k_eff, rho_eff, cp_eff, thickness);
 
-    calculate_ctf(&[layer], dt)
+    try_calculate_ctf(&[layer], dt)
+}
+
+/// Panicking form of [`try_calculate_ctf_simple`]; see [`calculate_ctf`].
+pub fn calculate_ctf_simple(
+    u_factor: f64,
+    thermal_capacity: f64,
+    dt: f64,
+    mass_outside: bool,
+    mass_conductivity: Option<f64>,
+    mass_density: Option<f64>,
+) -> CtfCoefficients {
+    try_calculate_ctf_simple(
+        u_factor,
+        thermal_capacity,
+        dt,
+        mass_outside,
+        mass_conductivity,
+        mass_density,
+    )
+    .unwrap_or_else(|e| panic!("{e}"))
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1055,7 +1087,7 @@ fn compute_ctf_from_state_space(
     d: &[f64], // 2×2
     n: usize,
     dt: f64,
-) -> CtfCoefficients {
+) -> Result<CtfCoefficients, String> {
     // Step 1: Matrix exponential exp(A*dt)
     let a_exp = matrix_exponential(a, n, dt);
 
@@ -1063,17 +1095,14 @@ fn compute_ctf_from_state_space(
     let a_inv = match matrix_inverse(a, n) {
         Some(inv) => inv,
         None => {
-            // A singular matrix means the construction has zero net capacitance
-            // in the state-space (e.g., all-NoMass layers, or layers with zero
-            // density/cp). After PR #120 this should be unreachable for valid
-            // constructions — NoMass layers are handled as resistive nodes, not
-            // zero-capacity state-space rows. If this fires, the construction
-            // definition is degenerate.
-            panic!(
-                "Singular A matrix in CTF state-space (n={n}): construction has no \
-                 effective thermal capacitance. Check that all non-NoMass layers have \
-                 non-zero density and specific heat."
-            );
+            // A singular matrix means zero net capacitance in the state space.
+            // NoMass layers are resistive nodes, so for a valid construction this
+            // is unreachable; reaching it means the layer data is degenerate.
+            return Err(format!(
+                "the CTF state-space matrix is singular (n={n}): the construction has no \
+                 effective thermal capacitance. Check that every layer that is not \
+                 no_mass has non-zero density and specific heat"
+            ));
         }
     };
 
@@ -1275,22 +1304,21 @@ fn compute_ctf_from_state_space(
     }
 
     if !converged {
-        panic!(
-            "CTF convergence not reached in {MAX_CTF_TERMS} terms. The construction has \
-             too many layers or extreme thermal properties. Consider splitting it into \
-             sub-constructions or reducing the number of massed layers."
-        );
+        return Err(format!(
+            "the CTF series did not converge within {MAX_CTF_TERMS} terms"
+        ));
     }
 
     let num_terms = x_vec.len();
 
-    CtfCoefficients {
+    Ok(CtfCoefficients {
         x: x_vec,
         y: y_vec,
         z: z_vec,
         phi: phi_vec,
         num_terms,
-    }
+        steady_state_error_pct: 0.0,
+    })
 }
 
 /// Apply CTF to compute surface heat fluxes for one timestep.
@@ -1861,6 +1889,30 @@ mod tests {
             hist_s.shift(t_out, 20.0, q_s, qo_s);
             hist_l.shift(t_out, 20.0, q_l, qo_l);
         }
+    }
+
+    #[test]
+    fn test_heavy_wall_short_timestep_is_an_error_not_a_panic() {
+        // #121: 15 mm plaster | 365 mm solid brick | 15 mm plaster. At 15 min the
+        // CTF is fine; at 5 min the series does not converge, which must come back
+        // as an error the caller can report (it used to run on with a U off by
+        // orders of magnitude, then later crash).
+        let plaster = ResolvedLayer::new(0.7, 1400.0, 1000.0, 0.015);
+        let brick = ResolvedLayer::new(0.77, 1700.0, 800.0, 0.365);
+        let layers = vec![plaster.clone(), brick, plaster];
+
+        let ok = try_calculate_ctf(&layers, 900.0).expect("15-minute CTF converges");
+        assert!(
+            ok.steady_state_error_pct < 1.0,
+            "{}",
+            ok.steady_state_error_pct
+        );
+
+        let err = try_calculate_ctf(&layers, 300.0).expect_err("5-minute CTF must fail");
+        assert!(
+            err.contains("did not converge") || err.contains("steady-state U"),
+            "{err}"
+        );
     }
 
     /// Steady-state U-value of a CTF set from its X, Y and Z series.

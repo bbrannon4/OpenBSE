@@ -532,7 +532,7 @@ fn main() -> Result<()> {
         }
 
         // ── 1b. Validate model cross-references ────────────────────────────────
-        let validation = openbse_io::validate_model(&model);
+        let mut validation = openbse_io::validate_model(&model);
 
         // Write .err file (always, even if no errors — matches E+ behavior)
         let err_path = args.input.with_extension("err");
@@ -1141,10 +1141,23 @@ fn main() -> Result<()> {
             total_timesteps,
         );
 
-        // Initialize envelope
+        // Initialize envelope. Its warnings and errors go into the .err file
+        // with the validation diagnostics, so a run that failed or carries
+        // numerical warnings never reports "Errors: 0, Warnings: 0".
         if let Some(ref mut env) = envelope {
-            env.initialize(dt)
-                .map_err(|e| anyhow::anyhow!("Failed to initialize envelope: {}", e))?;
+            let init = env.initialize(dt);
+            for w in &env.init_warnings {
+                validation.push_warning(w.clone());
+            }
+            if let Err(e) = &init {
+                validation.push_severe(e.clone());
+            }
+            if init.is_err() || !env.init_warnings.is_empty() {
+                if let Err(e) = std::fs::write(&err_path, validation.to_err_file()) {
+                    warn!("Could not write error file {}: {}", err_path.display(), e);
+                }
+            }
+            init.map_err(|e| anyhow::anyhow!("Failed to initialize envelope: {}", e))?;
         }
 
         // Output directory (needed by sizing and output writers)

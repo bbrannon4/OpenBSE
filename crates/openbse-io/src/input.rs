@@ -4527,6 +4527,17 @@ impl ValidationResult {
         });
     }
 
+    /// Add a warning found after validation (e.g. while initializing the
+    /// envelope), so it is written to and counted in the `.err` file.
+    pub fn push_warning(&mut self, msg: String) {
+        self.warn(msg);
+    }
+
+    /// Add a severe error found after validation; see [`Self::push_warning`].
+    pub fn push_severe(&mut self, msg: String) {
+        self.severe(msg);
+    }
+
     /// Number of severe errors.
     pub fn error_count(&self) -> usize {
         self.diagnostics
