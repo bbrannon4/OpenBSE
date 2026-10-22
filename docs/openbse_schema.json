@@ -400,7 +400,7 @@
         { "type": "number" },
         { "type": "string", "const": "autosize" }
       ],
-      "description": "Either a numeric value or the string 'autosize' to let the engine calculate."
+      "description": "Either a numeric value or the string 'autosize' to let the engine calculate. Air-side values are sized from design_days; a run whose autosize value nothing sizes stops with an error naming it."
     },
 
     "CurveType": {
