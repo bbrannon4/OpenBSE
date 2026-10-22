@@ -249,6 +249,10 @@ impl PlantComponent for CoolingTower {
         self.design_water_flow = flow;
     }
 
+    fn unsized_fields(&self) -> Vec<&'static str> {
+        autosize_fields([("design_water_flow", self.design_water_flow)])
+    }
+
     fn power_consumption(&self) -> f64 {
         self.fan_power
     }

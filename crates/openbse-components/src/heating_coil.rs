@@ -489,6 +489,10 @@ impl AirComponent for HeatingCoil {
         }
     }
 
+    fn unsized_fields(&self) -> Vec<&'static str> {
+        openbse_core::types::autosize_fields([("capacity", self.nominal_capacity)])
+    }
+
     fn power_consumption(&self) -> f64 {
         match self.coil_type {
             HeatingCoilType::Electric => self.energy_consumption,

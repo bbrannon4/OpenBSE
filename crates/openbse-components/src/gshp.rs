@@ -422,6 +422,22 @@ impl AirComponent for GroundSourceHeatPump {
         self.rated_heating_capacity = cap;
     }
 
+    fn set_design_air_flow_rate(&mut self, flow: f64) {
+        // Sizing offers the loop flow to every component that reports no
+        // design flow; take it only in place of `autosize`.
+        if openbse_core::types::is_autosize(self.rated_airflow) {
+            self.rated_airflow = flow;
+        }
+    }
+
+    fn unsized_fields(&self) -> Vec<&'static str> {
+        openbse_core::types::autosize_fields([
+            ("rated_cooling_capacity", self.rated_cooling_capacity),
+            ("rated_heating_capacity", self.rated_heating_capacity),
+            ("rated_airflow", self.rated_airflow),
+        ])
+    }
+
     fn configure_ground_source(
         &mut self,
         t_mean: f64,

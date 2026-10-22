@@ -213,6 +213,11 @@ impl SimulationGraph {
         self.name_to_node.keys().map(|s| s.as_str())
     }
 
+    /// Iterate over all components in the order they were added.
+    pub fn components(&self) -> impl Iterator<Item = &GraphComponent> {
+        self.graph.node_weights()
+    }
+
     /// Iterate over all air components mutably (for autosizing).
     pub fn air_components_mut(&mut self) -> Vec<&mut Box<dyn AirComponent>> {
         self.graph

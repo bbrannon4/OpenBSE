@@ -245,6 +245,10 @@ impl PlantComponent for Pump {
         self.design_flow_rate = flow;
     }
 
+    fn unsized_fields(&self) -> Vec<&'static str> {
+        autosize_fields([("design_flow_rate", self.design_flow_rate)])
+    }
+
     fn power_consumption(&self) -> f64 {
         self.power
     }
