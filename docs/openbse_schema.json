@@ -1615,15 +1615,27 @@
         "pane_thickness": { "type": "number", "description": "Pane thickness [m] (e.g. 0.003175)." },
         "shading_control": {
           "type": "object",
-          "description": "Dynamic interior blind/shade control (#104). Triggers on solar irradiance or zone temperature; scales solar gains by blind_shgc/base_shgc when deployed.",
-          "required": ["type", "blind_shgc"],
+          "description": "Dynamic interior blind/shade control (#104). Triggers on solar irradiance or zone temperature. Either give blind_shgc (and optionally blind_u_factor) to scale the assembly, or a shade block to model the shade as its own layer, with a temperature that reaches the comfort grid (#144).",
+          "required": ["type"],
           "properties": {
             "type": { "type": "string", "enum": ["solar_threshold", "temperature"], "description": "Trigger type: `solar_threshold` deploys when incident beam on the glazing [W/m²] exceeds the threshold; `temperature` deploys when zone air temperature exceeds the setpoint [°C]." },
             "threshold": { "type": "number", "description": "For solar_threshold: beam irradiance on glazing [W/m²] to deploy blind." },
             "setpoint": { "type": "number", "description": "For temperature: zone air temperature [°C] to deploy blind." },
             "hysteresis": { "type": "number", "default": 0.0, "description": "Dead-band below threshold/setpoint before blind retracts [same units as trigger]." },
-            "blind_shgc": { "type": "number", "minimum": 0, "maximum": 1, "description": "SHGC of window+blind assembly when deployed. Solar gains are multiplied by blind_shgc/base_shgc." },
-            "blind_u_factor": { "type": "number", "description": "U-factor [W/(m²·K)] of window+blind assembly when deployed. Omit to keep the base window U-factor." }
+            "blind_shgc": { "type": "number", "minimum": 0, "maximum": 1, "description": "SHGC of window+blind assembly when deployed. Solar gains are multiplied by blind_shgc/base_shgc. Required unless a shade block is given." },
+            "blind_u_factor": { "type": "number", "description": "U-factor [W/(m²·K)] of window+blind assembly when deployed. Omit to keep the base window U-factor." },
+            "shade": {
+              "type": "object",
+              "description": "Interior shade (e.g. roller shade) modelled as a layer on the room side of the glass (#144). When deployed it absorbs part of the solar, gets warm, and the room and the comfort grid see its temperature; light through it is diffuse except the openness share. Replaces blind_shgc/blind_u_factor.",
+              "required": ["solar_transmittance", "solar_reflectance"],
+              "properties": {
+                "solar_transmittance": { "type": "number", "minimum": 0, "maximum": 1, "description": "Total solar transmittance, including the openness." },
+                "solar_reflectance": { "type": "number", "minimum": 0, "maximum": 1, "description": "Solar reflectance (both faces)." },
+                "openness": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.0, "description": "Fraction of beam passing straight through the weave as beam; part of solar_transmittance." },
+                "emissivity": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.9, "description": "Long-wave emissivity (both faces). The fabric is treated as opaque to long-wave radiation." },
+                "distance_to_glass": { "type": "number", "minimum": 0, "default": 0.05, "description": "Distance between the glass and the shade [m]; sets how freely room air circulates through the gap." }
+              }
+            }
           }
         }
       }

@@ -492,8 +492,17 @@ fn evaluate_blind_control(
         // blind with blind_shgc == 0.0 is still recognized (#106).
         if !surface.blind_configured {
             surface.blind_configured = true;
-            surface.blind_shgc = ctrl.blind_shgc;
-            surface.blind_u_factor = ctrl.blind_u_factor.unwrap_or(surface.u_factor);
+            // A physical shade layer (#144) is modelled on its own, so the
+            // assembly-rating fields stay neutral: SHGC scaling of 1 and the
+            // base glass conductance.
+            surface.shade = ctrl.shade.clone();
+            if surface.shade.is_some() {
+                surface.blind_shgc = surface.shgc;
+                surface.blind_u_factor = 0.0;
+            } else {
+                surface.blind_shgc = ctrl.blind_shgc.unwrap_or(surface.shgc);
+                surface.blind_u_factor = ctrl.blind_u_factor.unwrap_or(surface.u_factor);
+            }
         }
         let signal = match ctrl.kind {
             ShadingControlKind::SolarThreshold => {
@@ -4303,9 +4312,26 @@ fn main() -> Result<()> {
 
                     for surface in &env.surfaces {
                         let name = surface.input.name.clone();
+                        // A window reports its glass face, as in E+; with a shade
+                        // down, temp_inside is the shade the room sees (#144).
+                        let inside = if surface.is_window {
+                            surface.temp_glass_inside
+                        } else {
+                            surface.temp_inside
+                        };
                         snapshot
                             .surface_inside_temperature
-                            .insert(name.clone(), surface.temp_inside);
+                            .insert(name.clone(), inside);
+                        if surface.shade.is_some() {
+                            let shade_t = if surface.blind_deployed {
+                                surface.temp_inside
+                            } else {
+                                f64::NAN
+                            };
+                            snapshot
+                                .surface_shade_temperature
+                                .insert(name.clone(), shade_t);
+                        }
                         snapshot
                             .surface_outside_temperature
                             .insert(name.clone(), surface.temp_outside);

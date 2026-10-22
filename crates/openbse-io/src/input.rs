@@ -4907,6 +4907,29 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
         }
     }
 
+    // ── Validate window shading controls ───────────────────────────────────
+
+    for wc in &model.window_constructions {
+        let Some(ctrl) = &wc.shading_control else {
+            continue;
+        };
+        match &ctrl.shade {
+            Some(shade) => {
+                for problem in shade.problems() {
+                    result.severe(format!(
+                        "Window construction '{}' shading_control shade: {problem}",
+                        wc.name
+                    ));
+                }
+            }
+            None if ctrl.blind_shgc.is_none() => result.severe(format!(
+                "Window construction '{}' shading_control needs blind_shgc or a shade block",
+                wc.name
+            )),
+            None => {}
+        }
+    }
+
     // ── Validate surface winding ───────────────────────────────────────────
     //
     // The engine reverses these surfaces itself; reporting them here puts the

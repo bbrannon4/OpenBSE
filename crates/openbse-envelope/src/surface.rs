@@ -450,6 +450,18 @@ pub struct SurfaceState {
     /// U-factor [W/(m²·K)] of the window+blind assembly when deployed.
     /// Zero falls back to the base window U-factor.
     pub blind_u_factor: f64,
+    /// Physical interior shade layer (#144), copied from the shading control.
+    /// When present and deployed, the window is solved as glass + shade.
+    pub shade: Option<crate::material::InteriorShade>,
+    /// Inner glass face temperature [°C]. Equal to `temp_inside` unless a
+    /// shade layer is down, when `temp_inside` is the shade (the face the
+    /// room sees) and this is the glass behind it.
+    pub temp_glass_inside: f64,
+    /// Solar absorbed by the deployed shade layer [W].
+    pub shade_absorbed_solar: f64,
+    /// Solar reflected by the deployed shade and absorbed on its way back
+    /// through the glass [W].
+    pub glass_reflected_absorbed: f64,
 }
 
 #[cfg(test)]

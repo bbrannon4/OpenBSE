@@ -397,6 +397,11 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
             "Surface outside face temperature",
         ),
         (
+            "surface:shade_temperature",
+            "°C",
+            "Interior shade layer temperature (windows with a shade; NaN while retracted)",
+        ),
+        (
             "surface:inside_convection_coefficient",
             "W/(m²·K)",
             "Inside convection coefficient",
@@ -592,7 +597,7 @@ pub fn get_unit(spec: &str) -> &'static str {
         ("zone", "heating_energy" | "cooling_energy") => "J",
         ("zone", "nat_vent_active" | "unmet_heating" | "unmet_cooling") => "-",
         ("zone", _) => "W",
-        ("surface", "inside_temperature" | "outside_temperature") => "°C",
+        ("surface", "inside_temperature" | "outside_temperature" | "shade_temperature") => "°C",
         (
             "surface",
             "inside_convection_coefficient" | "h_conv_inside" | "inside_radiation_coefficient",
@@ -808,6 +813,8 @@ pub struct OutputSnapshot {
     // Per-surface data (surface_name -> value)
     pub surface_inside_temperature: HashMap<String, f64>,
     pub surface_outside_temperature: HashMap<String, f64>,
+    /// Interior shade layer temperature [°C], windows with a shade only (#144).
+    pub surface_shade_temperature: HashMap<String, f64>,
     pub surface_inside_convection_coefficient: HashMap<String, f64>,
     pub surface_incident_solar: HashMap<String, f64>,
     pub surface_transmitted_solar: HashMap<String, f64>,
@@ -947,6 +954,7 @@ impl OutputSnapshot {
             zone_supply_air_mass_flow: HashMap::new(),
             surface_inside_temperature: HashMap::new(),
             surface_outside_temperature: HashMap::new(),
+            surface_shade_temperature: HashMap::new(),
             surface_inside_convection_coefficient: HashMap::new(),
             surface_incident_solar: HashMap::new(),
             surface_transmitted_solar: HashMap::new(),
@@ -1118,6 +1126,7 @@ impl OutputSnapshot {
             "surface" => match variable {
                 "inside_temperature" => self.surface_inside_temperature.clone(),
                 "outside_temperature" => self.surface_outside_temperature.clone(),
+                "shade_temperature" => self.surface_shade_temperature.clone(),
                 "inside_convection_coefficient" => {
                     self.surface_inside_convection_coefficient.clone()
                 }

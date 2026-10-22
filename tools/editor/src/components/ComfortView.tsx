@@ -267,6 +267,7 @@ export function ComfortView({ modelPath, reloadKey, unitSystem }: Props) {
           {/* The model is Z-up; three.js is Y-up. */}
           <group rotation={[-Math.PI / 2, 0, 0]}>
             <Building data={data} zones={zones} showRoof={showRoof} />
+            {mode === "hour" && <ShadeLayers data={data} zones={zones} hour={hour} />}
             <GridTiles data={data} zones={zones} scale={scale} valueAt={valueAt} onHover={setHovered} />
           </group>
           <CameraFit key={view} data={data} zones={zones} view={view} />
@@ -312,6 +313,7 @@ export function ComfortView({ modelPath, reloadKey, unitSystem }: Props) {
           <div className="comfort-time-label">
             <strong>{label.date}</strong> {label.time}
             {values && occupancyNote(values, zones)}
+            {shadeNote(data, zones, hour)}
           </div>
           <label className="comfort-slider">
             Day
@@ -369,6 +371,20 @@ function defaultHour(data: ComfortData): number {
     if (data.zones.some((z) => z.occupancy[h] > 0)) return h;
   }
   return start;
+}
+
+/** Windows of the shown zones with a shade layer down this hour. */
+function deployedShades(data: ComfortData, zones: number[], hour: number) {
+  const inSelection = surfaceVisible(data, zones);
+  return data.surfaces
+    .filter((s) => s.type === "window" && inSelection(s))
+    .map((s) => ({ surface: s, fraction: s.shade_deployed?.[hour] ?? 0 }))
+    .filter((d) => d.fraction > 0);
+}
+
+function shadeNote(data: ComfortData, zones: number[], hour: number): string {
+  const n = deployedShades(data, zones, hour).length;
+  return n > 0 ? ` · shades down on ${n} window${n === 1 ? "" : "s"}` : "";
 }
 
 function occupancyNote(values: HourValues, zones: number[]): string {
@@ -524,6 +540,40 @@ function Building({ data, zones, showRoof }: { data: ComfortData; zones: number[
       <lineSegments geometry={geoms.edges}>
         <lineBasicMaterial color="#565f89" transparent opacity={0.8} />
       </lineSegments>
+    </>
+  );
+}
+
+/**
+ * Lowered shades drawn over their windows, more opaque the more of the hour
+ * they were down. The comfort grid already uses the shade's temperature.
+ */
+function ShadeLayers({ data, zones, hour }: { data: ComfortData; zones: number[]; hour: number }) {
+  const shades = useMemo(
+    () =>
+      deployedShades(data, zones, hour).map(({ surface, fraction }) => ({
+        key: surface.name,
+        fraction,
+        geometry: bufferGeometry(triangulate(surface.vertices)),
+      })),
+    [data, zones, hour]
+  );
+  useEffect(() => () => shades.forEach((s) => s.geometry.dispose()), [shades]);
+  return (
+    <>
+      {shades.map((s) => (
+        <mesh key={s.key} geometry={s.geometry} renderOrder={2}>
+          <meshBasicMaterial
+            color="#d9c9a8"
+            transparent
+            opacity={0.35 + 0.5 * s.fraction}
+            side={THREE.DoubleSide}
+            depthWrite={false}
+            polygonOffset
+            polygonOffsetFactor={-1}
+          />
+        </mesh>
+      ))}
     </>
   );
 }

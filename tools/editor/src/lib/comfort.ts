@@ -17,8 +17,11 @@ export interface ComfortSurface {
   zone: string;
   type: "wall" | "floor" | "roof" | "ceiling" | "window";
   vertices: [number, number, number][];
+  /** The face the room sees: a shade layer's temperature while it is down. */
   inside_temperature?: number[];
   beam_irradiance?: number[];
+  /** Hourly fraction of time a shade layer was down; windows with one only. */
+  shade_deployed?: number[];
 }
 
 export interface ComfortAggregates {
@@ -455,6 +458,7 @@ export const ANNUAL_SCALES: Record<AnnualMetric, ColorScale> = {
   comfortable: { min: 0, max: 100, stops: BLUE_SEQUENTIAL, unit: "%", label: "Comfortable (% of occupied hours)" },
   cold: { min: 0, max: 50, stops: BLUE_SEQUENTIAL, unit: "%", label: "Too cold (% of occupied hours)" },
   hot: { min: 0, max: 50, stops: RED_SEQUENTIAL, unit: "%", label: "Too warm (% of occupied hours)" },
+  // An hour counts when direct sun raises the occupant's MRT by at least 1 K.
   sun: { min: 0, max: 50, stops: SEQUENTIAL, unit: "%", label: "In direct sun (% of occupied hours)" },
   mean_operative: { min: 16, max: 32, stops: DIVERGING, unit: "°C", label: "Mean operative temperature (occupied)" },
   max_operative: { min: 24, max: 40, stops: RED_SEQUENTIAL, unit: "°C", label: "Maximum operative temperature (occupied)" },

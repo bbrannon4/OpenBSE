@@ -284,7 +284,7 @@ pub enum ShadingControlKind {
 
 /// Dynamic blind / interior shading control attached to a window construction (#104).
 ///
-/// YAML example (solar-triggered):
+/// YAML example (solar-triggered, assembly-rating blind):
 /// ```yaml
 /// shading_control:
 ///   type: solar_threshold
@@ -292,6 +292,18 @@ pub enum ShadingControlKind {
 ///   hysteresis: 50     # retract at (threshold - hysteresis) W/m²
 ///   blind_shgc: 0.05
 ///   blind_u_factor: 1.8
+/// ```
+///
+/// With a `shade:` block the shade is modelled as its own layer (#144) and
+/// `blind_shgc` / `blind_u_factor` are not used:
+/// ```yaml
+/// shading_control:
+///   type: solar_threshold
+///   threshold: 200
+///   shade:
+///     solar_transmittance: 0.10
+///     solar_reflectance: 0.60
+///     openness: 0.03
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -308,12 +320,89 @@ pub struct ShadingControl {
     /// Dead-band width — blind retracts when signal < (trigger − hysteresis). Default 0.
     #[serde(default)]
     pub hysteresis: f64,
-    /// SHGC of the window+blind assembly when blind is deployed.
-    pub blind_shgc: f64,
+    /// SHGC of the window+blind assembly when blind is deployed. Required
+    /// unless `shade` is given.
+    #[serde(default)]
+    pub blind_shgc: Option<f64>,
     /// Overall U-factor [W/(m²·K)] of the window+blind assembly when deployed.
     /// Defaults to the base window U-factor when absent.
     #[serde(default)]
     pub blind_u_factor: Option<f64>,
+    /// Physical interior shade layer (#144). When present it replaces the
+    /// `blind_shgc` / `blind_u_factor` assembly rating.
+    #[serde(default)]
+    pub shade: Option<InteriorShade>,
+}
+
+/// Optical and thermal properties of an interior shade (e.g. a roller shade),
+/// modelled as a layer on the room side of the glazing.
+///
+/// Matches the inputs of EnergyPlus `WindowMaterial:Shade` that matter for a
+/// thin fabric: solar properties are hemispherical, the fabric is treated as
+/// opaque to long-wave radiation, and its own conduction resistance is
+/// neglected (a fabric of ~1 mm has R ≈ 0.01 m²·K/W).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InteriorShade {
+    /// Total solar transmittance, including the openness [0–1].
+    pub solar_transmittance: f64,
+    /// Solar reflectance (both faces) [0–1].
+    pub solar_reflectance: f64,
+    /// Fraction of beam that passes straight through the weave as beam
+    /// [0–1]; the rest of the transmitted solar is diffuse.
+    #[serde(default)]
+    pub openness: f64,
+    /// Long-wave emissivity (both faces) [0–1].
+    #[serde(default = "default_shade_emissivity")]
+    pub emissivity: f64,
+    /// Distance between the glass and the shade [m]. Sets how freely room air
+    /// circulates through the gap.
+    #[serde(default = "default_shade_distance")]
+    pub distance_to_glass: f64,
+}
+
+fn default_shade_emissivity() -> f64 {
+    0.9
+}
+
+fn default_shade_distance() -> f64 {
+    0.05
+}
+
+impl InteriorShade {
+    /// Solar absorptance, 1 − τ − ρ.
+    pub fn solar_absorptance(&self) -> f64 {
+        (1.0 - self.solar_transmittance - self.solar_reflectance).max(0.0)
+    }
+
+    /// Problems with the properties, for input validation.
+    pub fn problems(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        let unit = |name: &str, v: f64, out: &mut Vec<String>| {
+            if !(0.0..=1.0).contains(&v) {
+                out.push(format!("{name} must be between 0 and 1, got {v}"));
+            }
+        };
+        unit("solar_transmittance", self.solar_transmittance, &mut out);
+        unit("solar_reflectance", self.solar_reflectance, &mut out);
+        unit("openness", self.openness, &mut out);
+        unit("emissivity", self.emissivity, &mut out);
+        if self.solar_transmittance + self.solar_reflectance > 1.0 {
+            out.push("solar_transmittance + solar_reflectance must not exceed 1".to_string());
+        }
+        if self.openness > self.solar_transmittance {
+            out.push("openness is part of solar_transmittance and cannot exceed it".to_string());
+        }
+        if self.emissivity <= 0.0 {
+            out.push("emissivity must be above 0".to_string());
+        }
+        if self.distance_to_glass.is_nan() || self.distance_to_glass <= 0.0 {
+            out.push(format!(
+                "distance_to_glass must be positive, got {}",
+                self.distance_to_glass
+            ));
+        }
+        out
+    }
 }
 
 impl ShadingControl {
