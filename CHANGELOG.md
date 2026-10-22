@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Interior shades as a layer** (#144). A `shade:` block on `shading_control` models a roller shade or similar with its own optical and thermal properties (solar transmittance and reflectance, openness, emissivity, distance to glass), instead of an SHGC swap. While deployed:
+  - glass, shade and gap air are solved together, so the shade warms in the sun;
+  - the room and the comfort grid see the shade's temperature;
+  - only the openness lets beam through;
+  - the window's share of radiant internal gains lands on the shade.
+  
+  Validated against EnergyPlus 25.2 on ASHRAE 140 case 600 with a roller shade: heating −0.7%, cooling +2.1%, hourly shade temperature within 0.49 K RMSE. New output `surface:shade_temperature`. The comfort JSON records when each shade is down, and the Workbench draws lowered shades. Example: `examples/roller_shade_office.yaml`.
 - **Spatial comfort grid** (#136). A new opt-in `comfort_grid:` block lays occupant points across each zone's floor (default spacing 0.5 m) and writes `<stem>_comfort.json`. Each point gets its own mean radiant temperature, from view factors to the real surface polygons, using an ISO 7726 seated or standing person (averaged over facing direction) or a sphere. It also gets direct sun through the windows, using the beam each window actually transmits. Per-point annual statistics cover occupied hours: comfortable, cold, hot and sunlit hours, and mean and maximum operative temperature. The file also keeps hourly surface temperatures, window beam and sun direction, so a viewer can recompute any hour. Zones need vertices on every surface; others are skipped and listed. Zone air is well mixed, so the grid shows radiant and solar variation only, not a CFD air field. The grid adds well under 1% to run time (the DOE large office: 178,000 points, about 45 MB per year). Example: `examples/comfort_perimeter_office.yaml`.
 - **Workbench Comfort tab** (#136): a 3D view of the comfort grid. It shows semi-transparent walls, tinted windows and a coloured tile per occupant point. Pick a metric (operative temperature, MRT, sun on the occupant, PMV or PPD), then step through any day and hour or play the day. You can isolate a zone, toggle roofs, and hover for point values. Colour scales are fixed per metric. A banner states that zone air is well mixed, so the colours show radiant and solar variation only.
 - **Comfort tab, phase 4** (#136):
@@ -18,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **License changed to AGPL-3.0-only** (previously `MIT OR Apache-2.0`). Releases up to and including v0.7.0 remain available under their original terms. Also resolves the mismatch in #122, where the manifests declared a dual license but only the MIT text was included.
+- Comfort grid: an hour counts as "in direct sun" only when the sun raises the occupant's MRT by at least 1 K. Faint beam, such as through a shade's openness, no longer marks a seat as sunlit.
 - **Output aggregation is now per variable**. Energy meters (`building:*`, `submeter:*`, `zone:heating_energy`/`cooling_energy`) are summed, everything else is time-averaged, and any variable can be overridden with an `@mean|@sum|@min|@max` suffix (e.g. `zone:temperature@max`). The file-level `aggregation:` key is deprecated: it still applies to non-energy variables without a suffix and logs a warning.
 - `building:*` and `submeter:*` output columns are now integrated energy in **Wh** (Σ power·dt) instead of summed watts labelled `[W]`. Values are unchanged at one timestep per hour and no longer N× too large at sub-hourly timesteps. Summing other rates integrates them too (kg/s → kg, m³/s → m³, unmet/active flags → hours).
 - VRF electricity is split between Heating (Electric) and Cooling (Electric) by indoor-unit mode, instead of all being reported as cooling.

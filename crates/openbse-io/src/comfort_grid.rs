@@ -41,6 +41,11 @@ const PHYSICS_NOTE: &str = "Zone air is well mixed (one air node per zone), so a
 const BODY_EMISSIVITY: f64 = 0.95;
 const PSYCH_PRESSURE: f64 = 101_325.0;
 
+/// An hour counts as "in direct sun" only when the sun raises the occupant's
+/// MRT by at least this much [K]. Beam through a shade's openness is real but
+/// faint, and counting it would make a shaded seat look sunlit.
+const SUN_HOUR_MIN_DELTA_MRT: f64 = 1.0;
+
 /// Below this coverage a zone's enclosure has real gaps worth a warning.
 const LOW_COVERAGE: f64 = 0.95;
 
@@ -80,10 +85,14 @@ pub struct ComfortGridRecorder {
     /// Envelope surface index per slot (surfaces of gridded zones).
     slot_surfaces: Vec<usize>,
     slot_is_window: Vec<bool>,
+    /// Windows with a physical shade layer (#144).
+    slot_has_shade: Vec<bool>,
     surface_temps: Vec<Vec<f32>>,
     window_beam: Vec<Vec<f32>>,
+    shade_deployed: Vec<Vec<f32>>,
     acc_temp: Vec<f64>,
     acc_beam: Vec<f64>,
+    acc_deployed: Vec<f64>,
     acc_steps: u32,
 
     sun: [Vec<f32>; 3],
@@ -199,6 +208,10 @@ impl ComfortGridRecorder {
             .iter()
             .map(|&si| env.surfaces[si].is_window)
             .collect();
+        let slot_has_shade = slot_surfaces
+            .iter()
+            .map(|&si| shade_configured(env, si))
+            .collect();
         Self {
             settings,
             pmv_limit: input.pmv_limit,
@@ -206,10 +219,13 @@ impl ComfortGridRecorder {
             skipped,
             slot_surfaces,
             slot_is_window,
+            slot_has_shade,
             surface_temps: vec![Vec::new(); n_slots],
             window_beam: vec![Vec::new(); n_slots],
+            shade_deployed: vec![Vec::new(); n_slots],
             acc_temp: vec![0.0; n_slots],
             acc_beam: vec![0.0; n_slots],
+            acc_deployed: vec![0.0; n_slots],
             acc_steps: 0,
             sun: [Vec::new(), Vec::new(), Vec::new()],
             start_hour_of_year: None,
@@ -233,7 +249,11 @@ impl ComfortGridRecorder {
 
         for (slot, &si) in self.slot_surfaces.iter().enumerate() {
             let s = &env.surfaces[si];
+            // The face the room sees: the shade when one is down (#144).
             self.acc_temp[slot] += s.temp_inside;
+            if s.blind_deployed && s.shade.is_some() {
+                self.acc_deployed[slot] += 1.0;
+            }
             if self.slot_is_window[slot] {
                 self.acc_beam[slot] +=
                     window_beam_irradiance(s.transmitted_solar_beam, s.net_area, s.cos_incidence);
@@ -261,6 +281,9 @@ impl ComfortGridRecorder {
             self.surface_temps[slot].push(round(temps[slot], 2));
             if self.slot_is_window[slot] {
                 self.window_beam[slot].push(round(beams[slot], 1));
+            }
+            if self.slot_has_shade[slot] {
+                self.shade_deployed[slot].push(round(self.acc_deployed[slot] / n, 2));
             }
         }
 
@@ -311,7 +334,6 @@ impl ComfortGridRecorder {
                     0.0
                 };
                 let delta = if beam > 0.0 {
-                    z.sun[i] += 1;
                     solar_mrt_correction(
                         beam,
                         pos.altitude,
@@ -322,6 +344,9 @@ impl ComfortGridRecorder {
                 } else {
                     0.0
                 };
+                if delta >= SUN_HOUR_MIN_DELTA_MRT {
+                    z.sun[i] += 1;
+                }
                 let mrt_eff = mrt + delta;
                 let operative =
                     openbse_psychrometrics::comfort::operative_temperature(t_air, mrt_eff);
@@ -337,6 +362,7 @@ impl ComfortGridRecorder {
 
         self.acc_temp.iter_mut().for_each(|v| *v = 0.0);
         self.acc_beam.iter_mut().for_each(|v| *v = 0.0);
+        self.acc_deployed.iter_mut().for_each(|v| *v = 0.0);
         self.acc_steps = 0;
     }
 
@@ -368,6 +394,9 @@ impl ComfortGridRecorder {
                 beam_irradiance: slot
                     .filter(|&k| self.slot_is_window[k])
                     .map(|k| self.window_beam[k].as_slice()),
+                shade_deployed: slot
+                    .filter(|&k| self.slot_has_shade[k])
+                    .map(|k| self.shade_deployed[k].as_slice()),
             });
         }
 
@@ -532,6 +561,19 @@ fn grid_zone(
     Ok((grid, members))
 }
 
+/// Whether a window's construction has a physical shade layer. Known before
+/// the first timestep, unlike `SurfaceState::shade`, which the blind control
+/// fills in lazily.
+fn shade_configured(env: &BuildingEnvelope, si: usize) -> bool {
+    let s = &env.surfaces[si];
+    s.is_window
+        && env
+            .window_constructions
+            .get(&s.input.construction)
+            .and_then(|wc| wc.shading_control.as_ref())
+            .is_some_and(|c| c.shade.is_some())
+}
+
 fn people_of(gains: &[InternalGainInput]) -> Vec<(f64, Option<String>)> {
     gains
         .iter()
@@ -638,6 +680,10 @@ struct SurfaceOut<'a> {
     /// Transmitted beam irradiance normal to the beam [W/m²], windows only.
     #[serde(skip_serializing_if = "Option::is_none")]
     beam_irradiance: Option<&'a [f32]>,
+    /// Hourly fraction of the time a shade layer was down (#144); only for
+    /// windows that have one. `inside_temperature` is the shade's while down.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    shade_deployed: Option<&'a [f32]>,
 }
 
 #[derive(Serialize)]
