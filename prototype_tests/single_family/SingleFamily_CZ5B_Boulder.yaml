@@ -653,7 +653,7 @@ dhw_systems:
     efficiency: 0.97
     setpoint: 48.0            # 118.4 F (dhw_setpt schedule = 48 °C constant)
     ua_standby: 0.0           # E+ IDF Off Cycle Loss Coefficient = 0 W/K
-    ambient_zone: unheatedbsmt_unit1  # E+ Ambient Temperature Zone Name
+    ambient_zone: unheatedbsmt  # E+ Ambient Temperature Zone Name (unheatedbsmt_unit1)
     deadband: 2.0
     control_type: modulate    # E+ Heater Control Type = Modulate (tankless)
   loads:

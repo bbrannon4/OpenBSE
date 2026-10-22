@@ -4729,7 +4729,8 @@ impl ValidationResult {
 /// Checks that every zone name, zone group name, and schedule name referenced
 /// by people, lights, equipment, infiltration, ventilation, exhaust fans,
 /// outdoor air, ideal loads, thermostats, and air loop zone_terminals actually
-/// exists in the model definitions.
+/// exists in the model definitions, and that every surface and internal mass
+/// names a defined construction of the right kind.
 ///
 /// Returns a `ValidationResult` containing all warnings and errors found.
 pub fn validate_model(model: &ModelInput) -> ValidationResult {
@@ -4911,6 +4912,71 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     crate::plant::validate_plant_connections(model, &mut result);
 
+    // ── Validate construction references ───────────────────────────────────
+    //
+    // The envelope looks a surface's construction up by name and, when none
+    // matches, falls back to a placeholder (U = 5.0 opaque, U = 3.0 and
+    // SHGC = 0.7 glazed), so a misspelt name used to run with made-up physics.
+    // Windows are looked up only among window constructions and other
+    // surfaces only among the opaque kinds, so the wrong kind is just as lost.
+
+    let window_construction_names: std::collections::HashSet<&str> = model
+        .window_constructions
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
+    let opaque_construction_names: std::collections::HashSet<&str> = model
+        .constructions
+        .iter()
+        .map(|c| c.name.as_str())
+        .chain(model.simple_constructions.iter().map(|c| c.name.as_str()))
+        .chain(model.f_factor_constructions.iter().map(|c| c.name.as_str()))
+        .collect();
+
+    let check_construction =
+        |name: &str, is_window: bool, referrer: &str, result: &mut ValidationResult| {
+            let (wanted, other, wanted_kind) = if is_window {
+                (
+                    &window_construction_names,
+                    &opaque_construction_names,
+                    "window_constructions",
+                )
+            } else {
+                (
+                    &opaque_construction_names,
+                    &window_construction_names,
+                    "constructions, simple_constructions or f_factor_constructions",
+                )
+            };
+            if wanted.contains(name) {
+                return;
+            }
+            if other.contains(name) {
+                result.severe(format!(
+                    "Construction '{}' referenced by {} is the wrong kind: it must be \
+                     defined in {}",
+                    name, referrer, wanted_kind
+                ));
+            } else {
+                result.severe(format!(
+                    "Construction '{}' referenced by {} not found in {}",
+                    name, referrer, wanted_kind
+                ));
+            }
+        };
+
+    for s in &model.surfaces {
+        let is_window = s.surface_type == openbse_envelope::SurfaceType::Window;
+        let referrer = format!("surface '{}'", s.name);
+        check_construction(&s.construction, is_window, &referrer, &mut result);
+    }
+    for z in &model.zones {
+        for im in &z.internal_mass {
+            let referrer = format!("internal_mass of zone '{}'", z.name);
+            check_construction(&im.construction, false, &referrer, &mut result);
+        }
+    }
+
     // ── Validate window shading controls ───────────────────────────────────
 
     for wc in &model.window_constructions {
@@ -4957,6 +5023,10 @@ mod tests {
         let yaml = r#"
 simulation: {}
 weather_files: []
+simple_constructions:
+  - {name: C, u_factor: 0.5}
+window_constructions:
+  - {name: G, u_factor: 2.0, shgc: 0.4}
 zones:
   - name: Room
 surfaces:
@@ -4966,9 +5036,93 @@ surfaces:
   - {name: North Window, zone: Room, type: window, construction: G, parent_surface: North Wall, vertices: [{x: 1, y: 5, z: 1}, {x: 5, y: 5, z: 1}, {x: 5, y: 5, z: 2}, {x: 1, y: 5, z: 2}]}
 "#;
         let model = parse_model_yaml(yaml).unwrap();
-        let report = validate_model(&model).to_err_file();
+        let validation = validate_model(&model);
+        assert_eq!(validation.error_count(), 0, "{}", validation.to_err_file());
+        let report = validation.to_err_file();
         assert!(report.contains("'North Window'"), "{report}");
         assert!(!report.contains("'North Wall':"), "{report}");
+    }
+
+    /// A model with one wall, one window and one internal mass, whose
+    /// construction names are supplied by the caller.
+    fn construction_ref_model(wall: &str, window: &str, mass: &str) -> ModelInput {
+        parse_model_yaml(&format!(
+            r#"
+simulation: {{}}
+weather_files: []
+materials:
+  - {{name: M, conductivity: 1.0, density: 2000, specific_heat: 900}}
+constructions:
+  - {{name: Layered, layers: [{{material: M, thickness: 0.1}}]}}
+simple_constructions:
+  - {{name: Simple, u_factor: 0.5}}
+f_factor_constructions:
+  - {{name: Slab, f_factor: 0.7}}
+window_constructions:
+  - {{name: Glass, u_factor: 2.0, shgc: 0.4}}
+zones:
+  - name: Room
+    internal_mass:
+      - {{construction: {mass}, area: 10}}
+surfaces:
+  - {{name: Wall, zone: Room, type: wall, construction: {wall}, area: 10, azimuth: 180}}
+  - {{name: Window, zone: Room, type: window, construction: {window}, parent_surface: Wall, area: 2, azimuth: 180}}
+"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn validation_accepts_every_construction_kind() {
+        for opaque in ["Layered", "Simple", "Slab"] {
+            let validation = validate_model(&construction_ref_model(opaque, "Glass", opaque));
+            assert_eq!(
+                validation.error_count(),
+                0,
+                "{opaque}: {}",
+                validation.to_err_file()
+            );
+        }
+    }
+
+    #[test]
+    fn validation_rejects_undefined_construction() {
+        // Each of these used to run with a placeholder U-factor.
+        let validation = validate_model(&construction_ref_model("Missing", "NoGlass", "NoMass"));
+        assert_eq!(validation.error_count(), 3, "{}", validation.to_err_file());
+        let report = validation.to_err_file();
+        assert!(
+            report.contains("Construction 'Missing' referenced by surface 'Wall' not found"),
+            "{report}"
+        );
+        assert!(
+            report.contains("Construction 'NoGlass' referenced by surface 'Window' not found"),
+            "{report}"
+        );
+        assert!(
+            report.contains("Construction 'NoMass' referenced by internal_mass of zone 'Room'"),
+            "{report}"
+        );
+    }
+
+    #[test]
+    fn validation_rejects_construction_of_the_wrong_kind() {
+        // A window naming an opaque construction (or a wall naming glazing)
+        // misses the lookup the envelope does for its surface type.
+        let validation = validate_model(&construction_ref_model("Glass", "Layered", "Glass"));
+        assert_eq!(validation.error_count(), 3, "{}", validation.to_err_file());
+        let report = validation.to_err_file();
+        assert!(
+            report.contains(
+                "Construction 'Layered' referenced by surface 'Window' is the wrong kind: \
+                 it must be defined in window_constructions"
+            ),
+            "{report}"
+        );
+        assert!(
+            report.contains("Construction 'Glass' referenced by surface 'Wall' is the wrong kind"),
+            "{report}"
+        );
     }
 
     #[test]
