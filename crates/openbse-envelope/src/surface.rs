@@ -1,6 +1,8 @@
 //! Surface geometry and boundary condition definitions.
 
-use crate::geometry::{self, Point3D};
+use std::collections::HashMap;
+
+use crate::geometry::{self, Point3D, Vec3};
 use serde::{Deserialize, Serialize};
 
 /// Surface type classification.
@@ -129,6 +131,158 @@ impl SurfaceInput {
             }
         }
     }
+}
+
+/// Why [`orient_surfaces`] reversed a surface's vertex order.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WindingFix {
+    /// Every other vertex of the zone lay on the side the normal pointed to,
+    /// so the normal pointed into the zone.
+    FacedIntoZone,
+    /// A window's normal opposed its parent surface's (named here).
+    OpposedParent(String),
+}
+
+impl WindingFix {
+    /// Warning text for a surface this fix was applied to.
+    pub fn message(&self, surface: &str) -> String {
+        match self {
+            WindingFix::FacedIntoZone => format!(
+                "Surface '{surface}': vertices are wound so it faces into its zone; \
+                 the engine reverses them. List vertices counter-clockwise as seen from outside."
+            ),
+            WindingFix::OpposedParent(parent) => format!(
+                "Window '{surface}': vertices face the opposite way to parent surface \
+                 '{parent}'; the engine reverses them. List vertices counter-clockwise as \
+                 seen from outside."
+            ),
+        }
+    }
+}
+
+/// Distance [m] within which a zone vertex counts as lying in a surface's
+/// plane. The repo models carry four decimals, so 1 mm clears rounding while
+/// staying far below any real room dimension.
+const PLANE_TOL: f64 = 1e-3;
+
+/// Reverses the vertices of surfaces wound into their zone, so that
+/// `resolve_geometry` derives the right azimuth and tilt.
+///
+/// A surface wound the wrong way faces the opposite direction for solar, sky
+/// exchange, convection and the interior box view factors. This test trusts no
+/// vertex order. When every vertex of a zone lies on one side of a surface's
+/// plane, the zone is on that side whatever the winding says. Surfaces with
+/// zone vertices on both sides (re-entrant walls of non-convex zones) are left
+/// alone; a window on one is checked against its parent instead.
+///
+/// Returns each reversed surface's name and the reason.
+pub fn orient_surfaces(surfaces: &mut [SurfaceInput]) -> Vec<(String, WindingFix)> {
+    let mut decided = vec![false; surfaces.len()];
+    let into_zone: Vec<usize> = {
+        let mut zone_points: HashMap<&str, Vec<Point3D>> = HashMap::new();
+        for s in surfaces.iter() {
+            if s.surface_type == SurfaceType::Window {
+                continue;
+            }
+            if let Some(v) = polygon(s) {
+                zone_points
+                    .entry(s.zone.as_str())
+                    .or_default()
+                    .extend_from_slice(v);
+            }
+        }
+        let mut out = Vec::new();
+        for (i, s) in surfaces.iter().enumerate() {
+            let (Some(v), Some(pts)) = (polygon(s), zone_points.get(s.zone.as_str())) else {
+                continue;
+            };
+            if let Some(zone_in_front) = zone_side(v, pts) {
+                decided[i] = true;
+                if zone_in_front {
+                    out.push(i);
+                }
+            }
+        }
+        out
+    };
+
+    let mut fixes = Vec::new();
+    for i in into_zone {
+        if let Some(v) = surfaces[i].vertices.as_mut() {
+            reverse_winding(v);
+        }
+        fixes.push((surfaces[i].name.clone(), WindingFix::FacedIntoZone));
+    }
+
+    // Parent normals are read after the fixes above, so a window is matched to
+    // its corrected wall.
+    let normals: HashMap<String, Vec3> = surfaces
+        .iter()
+        .filter_map(|s| polygon(s).map(|v| (s.name.clone(), geometry::newell_normal(v))))
+        .collect();
+    for (i, s) in surfaces.iter_mut().enumerate() {
+        if decided[i] || s.surface_type != SurfaceType::Window {
+            continue;
+        }
+        let Some(parent) = s.parent_surface.clone() else {
+            continue;
+        };
+        let (Some(v), Some(parent_normal)) = (polygon(s), normals.get(&parent)) else {
+            continue;
+        };
+        if geometry::newell_normal(v).dot(parent_normal) < 0.0 {
+            if let Some(v) = s.vertices.as_mut() {
+                reverse_winding(v);
+            }
+            fixes.push((s.name.clone(), WindingFix::OpposedParent(parent)));
+        }
+    }
+    fixes
+}
+
+fn polygon(s: &SurfaceInput) -> Option<&[Point3D]> {
+    s.vertices
+        .as_deref()
+        .filter(|v| v.len() >= 3 && geometry::newell_normal(v).magnitude() > 1e-12)
+}
+
+/// `Some(true)` when the zone lies on the side the polygon's normal points
+/// to, `Some(false)` when it lies behind, `None` when it is on both sides or
+/// entirely in the plane.
+fn zone_side(poly: &[Point3D], zone_points: &[Point3D]) -> Option<bool> {
+    let n = geometry::newell_normal(poly).normalize();
+    let c = geometry::polygon_centroid(poly);
+    let (mut front, mut back) = (false, false);
+    for p in zone_points {
+        let d = (*p - c).dot(&n);
+        if d > PLANE_TOL {
+            front = true;
+        } else if d < -PLANE_TOL {
+            back = true;
+        }
+    }
+    match (front, back) {
+        (true, false) => Some(true),
+        (false, true) => Some(false),
+        _ => None,
+    }
+}
+
+/// Reverses a polygon's winding. A vertical polygon is then rotated to start
+/// at its lowest edge, so a window still reads [BL, BR, TR, TL] from outside,
+/// which overhang and fin generation rely on.
+fn reverse_winding(v: &mut [Point3D]) {
+    v.reverse();
+    let n = geometry::newell_normal(v);
+    if n.z.abs() > 0.1 * n.magnitude() {
+        return;
+    }
+    let len = v.len();
+    let edge_height = |i: usize| v[i].z + v[(i + 1) % len].z;
+    let lowest = (0..len)
+        .min_by(|&a, &b| edge_height(a).total_cmp(&edge_height(b)))
+        .unwrap_or(0);
+    v.rotate_left(lowest);
 }
 
 /// Runtime surface state used during simulation.
@@ -293,4 +447,233 @@ pub struct SurfaceState {
     /// U-factor [W/(m²·K)] of the window+blind assembly when deployed.
     /// Zero falls back to the base window U-factor.
     pub blind_u_factor: f64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type V = (f64, f64, f64);
+
+    fn surf(name: &str, zone: &str, ty: &str, verts: &[V], parent: Option<&str>) -> SurfaceInput {
+        let vs: Vec<String> = verts
+            .iter()
+            .map(|(x, y, z)| format!("{{x: {x}, y: {y}, z: {z}}}"))
+            .collect();
+        let parent = parent
+            .map(|p| format!("parent_surface: {p}\n"))
+            .unwrap_or_default();
+        let yaml = format!(
+            "name: {name}\nzone: {zone}\ntype: {ty}\nconstruction: C\n{parent}vertices: [{}]\n",
+            vs.join(", ")
+        );
+        serde_yaml::from_str(&yaml).unwrap()
+    }
+
+    /// 6 × 5 × 3 box, wound counter-clockwise from outside, with a window on
+    /// the south wall listed [BL, BR, TR, TL].
+    fn room() -> Vec<SurfaceInput> {
+        vec![
+            surf(
+                "floor",
+                "Z",
+                "floor",
+                &[(0., 0., 0.), (0., 5., 0.), (6., 5., 0.), (6., 0., 0.)],
+                None,
+            ),
+            surf(
+                "ceiling",
+                "Z",
+                "roof",
+                &[(0., 0., 3.), (6., 0., 3.), (6., 5., 3.), (0., 5., 3.)],
+                None,
+            ),
+            surf(
+                "south",
+                "Z",
+                "wall",
+                &[(0., 0., 0.), (6., 0., 0.), (6., 0., 3.), (0., 0., 3.)],
+                None,
+            ),
+            surf(
+                "north",
+                "Z",
+                "wall",
+                &[(6., 5., 0.), (0., 5., 0.), (0., 5., 3.), (6., 5., 3.)],
+                None,
+            ),
+            surf(
+                "east",
+                "Z",
+                "wall",
+                &[(6., 0., 0.), (6., 5., 0.), (6., 5., 3.), (6., 0., 3.)],
+                None,
+            ),
+            surf(
+                "west",
+                "Z",
+                "wall",
+                &[(0., 5., 0.), (0., 0., 0.), (0., 0., 3.), (0., 5., 3.)],
+                None,
+            ),
+            surf(
+                "window",
+                "Z",
+                "window",
+                &[(1., 0., 1.), (5., 0., 1.), (5., 0., 2.), (1., 0., 2.)],
+                Some("south"),
+            ),
+        ]
+    }
+
+    fn reversed(s: &SurfaceInput) -> SurfaceInput {
+        let mut s = s.clone();
+        s.vertices.as_mut().unwrap().reverse();
+        s
+    }
+
+    fn resolved(mut s: SurfaceInput) -> SurfaceInput {
+        s.resolve_geometry();
+        s
+    }
+
+    #[test]
+    fn correct_room_is_left_alone() {
+        let mut surfaces = room();
+        assert!(orient_surfaces(&mut surfaces).is_empty());
+    }
+
+    #[test]
+    fn reversed_floor_and_ceiling_are_fixed() {
+        let mut surfaces = room();
+        surfaces[0] = reversed(&surfaces[0]);
+        surfaces[1] = reversed(&surfaces[1]);
+        let fixes = orient_surfaces(&mut surfaces);
+        assert_eq!(
+            fixes,
+            vec![
+                ("floor".to_string(), WindingFix::FacedIntoZone),
+                ("ceiling".to_string(), WindingFix::FacedIntoZone),
+            ]
+        );
+        assert!((resolved(surfaces[0].clone()).tilt - 180.0).abs() < 1e-9);
+        assert!(resolved(surfaces[1].clone()).tilt.abs() < 1e-9);
+    }
+
+    #[test]
+    fn reversed_window_faces_out_and_starts_bottom_left() {
+        let mut surfaces = room();
+        surfaces[6] = reversed(&surfaces[6]);
+        let fixes = orient_surfaces(&mut surfaces);
+        assert_eq!(
+            fixes,
+            vec![("window".to_string(), WindingFix::FacedIntoZone)]
+        );
+        let w = resolved(surfaces[6].clone());
+        assert!((w.azimuth - 180.0).abs() < 1e-9);
+        let v = w.vertices.unwrap();
+        // Seen from the south, bottom-left is the west end.
+        assert_eq!((v[0].x, v[0].z), (1.0, 1.0));
+        assert_eq!((v[1].x, v[1].z), (5.0, 1.0));
+        assert_eq!((v[2].x, v[2].z), (5.0, 2.0));
+    }
+
+    #[test]
+    fn open_zone_is_still_oriented() {
+        // A sliver zone with only a floor, a ceiling and one wall, like the
+        // large office data-center zones.
+        let mut surfaces = vec![reversed(&room()[0]), room()[1].clone(), room()[2].clone()];
+        let fixes = orient_surfaces(&mut surfaces);
+        assert_eq!(
+            fixes,
+            vec![("floor".to_string(), WindingFix::FacedIntoZone)]
+        );
+    }
+
+    /// L-shaped zone: 6 × 6 with the north-east 3 × 3 quadrant cut out.
+    fn l_room() -> Vec<SurfaceInput> {
+        let h = 3.0;
+        let outline = [(0., 0.), (6., 0.), (6., 3.), (3., 3.), (3., 6.), (0., 6.)];
+        let mut out = vec![
+            surf(
+                "floor",
+                "L",
+                "floor",
+                &outline
+                    .iter()
+                    .rev()
+                    .map(|&(x, y)| (x, y, 0.))
+                    .collect::<Vec<_>>(),
+                None,
+            ),
+            surf(
+                "ceiling",
+                "L",
+                "roof",
+                &outline.iter().map(|&(x, y)| (x, y, h)).collect::<Vec<_>>(),
+                None,
+            ),
+        ];
+        // Walls follow the counter-clockwise outline, so each is wound
+        // counter-clockwise from outside.
+        for i in 0..outline.len() {
+            let (a, b) = (outline[i], outline[(i + 1) % outline.len()]);
+            out.push(surf(
+                &format!("wall{i}"),
+                "L",
+                "wall",
+                &[(a.0, a.1, 0.), (b.0, b.1, 0.), (b.0, b.1, h), (a.0, a.1, h)],
+                None,
+            ));
+        }
+        out
+    }
+
+    #[test]
+    fn re_entrant_walls_are_skipped_but_windows_follow_their_parent() {
+        let mut surfaces = l_room();
+        assert!(orient_surfaces(&mut surfaces).is_empty());
+
+        // wall3 runs (3,3) → (3,6) and faces east into the notch; zone
+        // vertices lie on both sides of its plane, so only the parent check
+        // can catch a reversed window on it.
+        let mut surfaces = l_room();
+        surfaces.push(surf(
+            "notch window",
+            "L",
+            "window",
+            &[(3., 5., 1.), (3., 4., 1.), (3., 4., 2.), (3., 5., 2.)],
+            Some("wall3"),
+        ));
+        let fixes = orient_surfaces(&mut surfaces);
+        assert_eq!(
+            fixes,
+            vec![(
+                "notch window".to_string(),
+                WindingFix::OpposedParent("wall3".to_string())
+            )]
+        );
+        let w = resolved(surfaces.last().unwrap().clone());
+        assert!((w.azimuth - 90.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn zones_do_not_see_each_other() {
+        // Two rooms side by side: the shared wall's plane would split the
+        // combined vertex set, so each zone must be tested on its own.
+        let mut surfaces = room();
+        for s in room() {
+            let mut s = s;
+            s.zone = "Z2".to_string();
+            s.name = format!("{}2", s.name);
+            if let Some(p) = s.parent_surface.as_mut() {
+                p.push('2');
+            }
+            for v in s.vertices.as_mut().unwrap() {
+                v.x += 6.0;
+            }
+            surfaces.push(s);
+        }
+        assert!(orient_surfaces(&mut surfaces).is_empty());
+    }
 }

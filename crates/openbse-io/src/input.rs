@@ -4713,12 +4713,42 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
         }
     }
 
+    // ── Validate surface winding ───────────────────────────────────────────
+    //
+    // The engine reverses these surfaces itself; reporting them here puts the
+    // warning in the .err file, where input problems are read.
+    let mut surfaces = model.surfaces.clone();
+    for (name, fix) in openbse_envelope::surface::orient_surfaces(&mut surfaces) {
+        result.warn(fix.message(&name));
+    }
+
     result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validation_reports_reversed_window() {
+        // The window's vertices run west to east seen from the north, so it
+        // faces south while its wall faces north.
+        let yaml = r#"
+simulation: {}
+weather_files: []
+zones:
+  - name: Room
+surfaces:
+  - {name: Floor, zone: Room, type: floor, construction: C, vertices: [{x: 0, y: 0, z: 0}, {x: 0, y: 5, z: 0}, {x: 6, y: 5, z: 0}, {x: 6, y: 0, z: 0}]}
+  - {name: Roof, zone: Room, type: roof, construction: C, vertices: [{x: 0, y: 0, z: 3}, {x: 6, y: 0, z: 3}, {x: 6, y: 5, z: 3}, {x: 0, y: 5, z: 3}]}
+  - {name: North Wall, zone: Room, type: wall, construction: C, vertices: [{x: 6, y: 5, z: 0}, {x: 0, y: 5, z: 0}, {x: 0, y: 5, z: 3}, {x: 6, y: 5, z: 3}]}
+  - {name: North Window, zone: Room, type: window, construction: G, parent_surface: North Wall, vertices: [{x: 1, y: 5, z: 1}, {x: 5, y: 5, z: 1}, {x: 5, y: 5, z: 2}, {x: 1, y: 5, z: 2}]}
+"#;
+        let model = parse_model_yaml(yaml).unwrap();
+        let report = validate_model(&model).to_err_file();
+        assert!(report.contains("'North Window'"), "{report}");
+        assert!(!report.contains("'North Wall':"), "{report}");
+    }
 
     #[test]
     fn test_parse_example_yaml_with_envelope() {

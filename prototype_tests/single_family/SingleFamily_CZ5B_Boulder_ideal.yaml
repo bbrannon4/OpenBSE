@@ -911,10 +911,10 @@ surfaces:
   construction: Basement Ceiling
   boundary: !zone 'living_unit1'
   vertices:
-  - {x: 12.133, y: 0.0, z: 0.0}
-  - {x: 0.0, y: 0.0, z: 0.0}
-  - {x: 0.0, y: 9.100, z: 0.0}
   - {x: 12.133, y: 9.100, z: 0.0}
+  - {x: 0.0, y: 9.100, z: 0.0}
+  - {x: 0.0, y: 0.0, z: 0.0}
+  - {x: 12.133, y: 0.0, z: 0.0}
 
 # Basement south wall (ground boundary)
 - name: Bsmt Wall South

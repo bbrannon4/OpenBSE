@@ -450,10 +450,10 @@ surfaces:
     boundary: outdoor
     parent_surface: Conf North Wall
     vertices:
-      - {x: 1.0, y: 17.5, z: 0.9}
       - {x: 9.0, y: 17.5, z: 0.9}
-      - {x: 9.0, y: 17.5, z: 2.9}
+      - {x: 1.0, y: 17.5, z: 0.9}
       - {x: 1.0, y: 17.5, z: 2.9}
+      - {x: 9.0, y: 17.5, z: 2.9}
 
   - name: Conf East Wall
     zone: Conference
