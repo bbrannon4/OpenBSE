@@ -40,6 +40,7 @@ use serde::{Deserialize, Serialize};
 /// Individual days (`monday`..`friday`, `saturday`, `sunday`) override
 /// the group they belong to.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CompactScheduleInput {
     #[serde(default)]
     pub weekday: Option<String>,
@@ -71,6 +72,7 @@ pub struct CompactScheduleInput {
 /// schedules whose daily pattern changes over the year — e.g. the ASHRAE
 /// 140-2023 §9B (CE_b) internal-gain schedules, which ramp up in summer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ScheduleSeason {
     pub start_month: u32,
     pub start_day: u32,
@@ -109,6 +111,7 @@ pub fn day_of_year_from_md(month: u32, day: u32) -> u32 {
 /// `sunday` > `weekend` > `weekday` for Sundays, `holiday` > `sunday` for holidays.
 /// Individual weekday overrides (`monday`..`friday`) take priority over `weekday`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ScheduleInput {
     pub name: String,
     /// Hourly fractions for weekdays (Mon–Fri), length 24. Index 0 = hour 1 (00:00–01:00).

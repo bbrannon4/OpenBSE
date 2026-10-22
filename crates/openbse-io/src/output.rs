@@ -35,6 +35,7 @@ use std::path::Path;
 
 /// Reporting frequency for output files.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum OutputFrequency {
@@ -52,6 +53,7 @@ pub enum OutputFrequency {
 /// `Mean`), which can be overridden per variable with an `@mean|@sum|@min|@max`
 /// suffix on the variable spec.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum Aggregation {
@@ -100,6 +102,7 @@ impl Aggregation {
 ///       - component:outlet_temperature
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OutputFileConfig {
     /// Output file name (relative to simulation directory)
     pub file: String,

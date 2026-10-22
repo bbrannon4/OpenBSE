@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 /// Surface roughness classification (affects exterior convection).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum Roughness {
@@ -27,6 +28,7 @@ pub enum Roughness {
 /// will have zero thermal mass — only its resistance matters. The
 /// `conductivity`, `density`, and `specific_heat` fields are ignored.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Material {
     pub name: String,
     /// Thermal conductivity [W/(m·K)].
@@ -131,6 +133,7 @@ pub fn layer_resistance(mat: &Material, thickness: f64) -> f64 {
 
 /// A construction layer — pairs a material with its thickness.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConstructionLayer {
     /// Material name (references a Material definition)
     pub material: String,
@@ -219,6 +222,7 @@ impl ResolvedLayer {
 
 /// A multi-layer opaque construction (outside to inside).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Construction {
     pub name: String,
     /// Layers ordered outside to inside, each pairing a material name with thickness
@@ -269,6 +273,7 @@ impl Construction {
 
 /// Which condition triggers blind deployment (#104).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum ShadingControlKind {
     /// Deploy when incident beam irradiance on the glazing exceeds `threshold` [W/m²].
@@ -289,6 +294,7 @@ pub enum ShadingControlKind {
 ///   blind_u_factor: 1.8
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ShadingControl {
     /// Control trigger type.
     #[serde(rename = "type")]
@@ -327,6 +333,7 @@ impl ShadingControl {
 
 /// Simplified window construction (U-factor + SHGC based).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WindowConstruction {
     pub name: String,
     /// Overall U-factor including film coefficients [W/(m²·K)]
@@ -552,6 +559,7 @@ pub fn sgs_tsol_from_shgc(shgc: f64, u_factor: f64) -> f64 {
 /// just give the overall U-factor, thickness, and thermal capacity.
 /// Ideal for early design, ASHRAE 140 tests, and quick parametric studies.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SimpleConstruction {
     pub name: String,
     /// Overall U-factor [W/(m²·K)] (conductance, no film coefficients)
@@ -618,6 +626,7 @@ fn default_thermal_capacity() -> f64 {
 ///     U_eff = F × P / A
 /// and uses the construction's ground temperatures for the soil boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FFactorConstruction {
     pub name: String,
     /// F-factor (slab edge heat loss coefficient) [W/(m·K)]

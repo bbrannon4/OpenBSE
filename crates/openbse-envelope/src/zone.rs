@@ -51,6 +51,7 @@ where
 ///
 /// All energy is 100% convective to zone air (ASHRAE 140 requirement).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct IdealLoadsAirSystem {
     /// Maximum heating capacity [W] (default: 1,000,000 = 1 MW)
     #[serde(default = "default_ideal_capacity")]
@@ -92,6 +93,7 @@ impl Default for IdealLoadsAirSystem {
 /// Used for Case 640 (thermostat setback): different setpoints at different
 /// times of day, with linear ramp between periods.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ThermostatScheduleEntry {
     /// Start hour (0-23, inclusive)
     pub start_hour: u32,
@@ -159,6 +161,7 @@ impl ThermostatScheduleEntry {
 ///
 /// If neither condition is set, ventilation is unconditional during the schedule.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VentilationScheduleEntry {
     /// Start hour (0-23, inclusive)
     pub start_hour: u32,
@@ -187,6 +190,7 @@ pub struct VentilationScheduleEntry {
 ///
 /// If not specified, all transmitted solar goes to zone air (simplified).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InteriorSolarDistribution {
     /// Fraction of transmitted solar that goes to floor surfaces [0-1]
     #[serde(default = "default_floor_fraction")]
@@ -225,6 +229,7 @@ impl Default for InteriorSolarDistribution {
 /// The exhausted air is replaced by infiltration or transfer air from adjacent spaces.
 /// Uses the same fan physics as supply/return fans for power calculation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExhaustFanInput {
     /// Free-form tag for output classification (default "exhaust")
     #[serde(default = "default_exhaust_fan_tag")]
@@ -273,6 +278,7 @@ fn default_exhaust_fan_motor_in_air() -> f64 {
 ///   - Sum:     total = exhaust_per_person × people + exhaust_per_area × floor_area + exhaust_absolute + exhaust_ach × V/3600
 ///   - Maximum: total = max(...)
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OutdoorAirInput {
     // ── Supply outdoor air ────────────────────────────────────────
     /// Outdoor air per person [m³/s-person] (e.g., 0.003539606 = 7.5 cfm/person)
@@ -327,6 +333,7 @@ pub struct OutdoorAirInput {
 ///     area: 88.25      # typically 1× floor area
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InternalMassInput {
     /// Construction name (must reference a defined layered construction)
     pub construction: String,
@@ -366,6 +373,7 @@ pub struct InternalMassInput {
 ///     ramp_timesteps: 4
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NaturalVentilationInput {
     /// Opening area [m²]
     pub opening_area: f64,
@@ -463,6 +471,7 @@ impl NaturalVentilationInput {
 /// ventilation stops, setpoints ramp linearly back to normal over
 /// `ramp_timesteps` timesteps.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NatVentSetpointReset {
     /// Override heating setpoint [°C] (e.g., 12.78 — much lower than normal)
     pub heating_setpoint: f64,
@@ -500,6 +509,7 @@ fn default_nat_vent_ramp_steps() -> u32 {
 
 /// Occupant comfort parameters for a zone (optional; defaults to ASHRAE 55 typical values).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ZoneComfortConfig {
     /// Metabolic rate [met] — 1 met = 58.15 W/m². Default: 1.2 (seated, light work).
     #[serde(default = "default_met")]
@@ -546,6 +556,7 @@ impl Default for ZoneComfortConfig {
 /// 1. Specified explicitly in YAML (existing behavior)
 /// 2. Auto-calculated from surface vertices if set to 0.0 (default)
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ZoneInput {
     pub name: String,
     /// Zone air volume [m³] (0.0 = auto-calculate from surface vertices)
@@ -658,6 +669,7 @@ pub struct ZoneInput {
 ///       thermostat_height: 1.1 # m above floor
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RoomAirGradient {
     /// Vertical temperature gradient [K/m], positive = warmer near ceiling.
     pub gradient: f64,
@@ -709,6 +721,7 @@ fn default_thermostat_height() -> f64 {
 ///       return_leakage_fraction: 0.03
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DuctLeakageInput {
     /// Zone containing the ducts (typically unconditioned: attic, crawlspace).
     pub ambient_zone: String,
@@ -772,6 +785,7 @@ pub fn dc_rack_inlet_max(config: &DataCenterConfig) -> f64 {
 ///       containment_efficiency: 0.85
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DataCenterConfig {
     /// Total IT load [kW] (use this or rack_count × kw_per_rack)
     #[serde(default)]

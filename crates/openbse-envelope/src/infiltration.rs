@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 /// where A = constant_coefficient, B = temperature_coefficient,
 /// C = wind_coefficient [s/m], D = wind_squared_coefficient [s²/m²].
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InfiltrationInput {
     /// Design infiltration volume flow rate [m³/s]
     #[serde(default)]
@@ -51,6 +52,7 @@ pub struct InfiltrationInput {
 
 /// Which air density converts the infiltration design volume flow to mass flow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum InfiltrationDensityBasis {
     /// Outdoor-air density (default): physically the mass of outdoor air

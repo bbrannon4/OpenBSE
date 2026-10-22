@@ -118,15 +118,23 @@ materials:
     thermal_absorptance_inside: 0.9
 
 # --- Constructions ---
+# Layer thicknesses are typical values for each assembly.
 constructions:
   - name: Exterior Wall
-    layers: [Concrete Wall, Insulation, Gypsum Board]
+    layers:
+      - {material: Concrete Wall, thickness: 0.2}
+      - {material: Insulation, thickness: 0.05}
+      - {material: Gypsum Board, thickness: 0.0127}
 
   - name: Roof Assembly
-    layers: [Roof Membrane, Insulation, Gypsum Board]
+    layers:
+      - {material: Roof Membrane, thickness: 0.0095}
+      - {material: Insulation, thickness: 0.1}
+      - {material: Gypsum Board, thickness: 0.0127}
 
   - name: Interior Floor
-    layers: [Concrete Slab]
+    layers:
+      - {material: Concrete Slab, thickness: 0.1}
 
 # --- Window Constructions ---
 window_constructions:
@@ -159,6 +167,7 @@ zones:
 surfaces:
   # Perimeter south wall
   - name: Perim-South-Wall
+    type: wall
     construction: Exterior Wall
     zone: Perimeter
     area: 42.0        # 12m wide × 3.5m tall
@@ -166,6 +175,8 @@ surfaces:
     azimuth: 180.0    # south-facing
 
   - name: Perim-South-Window
+    type: window
+    parent_surface: Perim-South-Wall
     construction: Double Pane Low-E
     zone: Perimeter
     area: 16.8        # 40% WWR of south wall
@@ -173,6 +184,7 @@ surfaces:
     azimuth: 180.0
 
   - name: Perim-North-Wall
+    type: wall
     construction: Exterior Wall
     zone: Perimeter
     area: 42.0
@@ -180,6 +192,7 @@ surfaces:
     azimuth: 0.0
 
   - name: Perim-Roof
+    type: roof
     construction: Roof Assembly
     zone: Perimeter
     area: 120.0
@@ -187,6 +200,7 @@ surfaces:
     azimuth: 0.0
 
   - name: Perim-Floor
+    type: floor
     construction: Interior Floor
     zone: Perimeter
     area: 120.0
@@ -196,6 +210,7 @@ surfaces:
 
   # Interior zone surfaces
   - name: Interior-Roof
+    type: roof
     construction: Roof Assembly
     zone: Interior
     area: 200.0
@@ -203,6 +218,7 @@ surfaces:
     azimuth: 0.0
 
   - name: Interior-Floor
+    type: floor
     construction: Interior Floor
     zone: Interior
     area: 200.0
@@ -212,6 +228,7 @@ surfaces:
 
   # Conference zone
   - name: Conf-East-Wall
+    type: wall
     construction: Exterior Wall
     zone: Conference
     area: 28.0        # 8m wide × 3.5m tall
@@ -219,6 +236,8 @@ surfaces:
     azimuth: 90.0
 
   - name: Conf-East-Window
+    type: window
+    parent_surface: Conf-East-Wall
     construction: Double Pane Low-E
     zone: Conference
     area: 8.4         # 30% WWR
@@ -226,6 +245,7 @@ surfaces:
     azimuth: 90.0
 
   - name: Conf-Roof
+    type: roof
     construction: Roof Assembly
     zone: Conference
     area: 80.0
@@ -233,6 +253,7 @@ surfaces:
     azimuth: 0.0
 
   - name: Conf-Floor
+    type: floor
     construction: Interior Floor
     zone: Conference
     area: 80.0
@@ -247,56 +268,56 @@ people:
     count: 12.0          # 10 m²/person
     schedule: Office Occupancy
     sensible_fraction: 0.60
-    metabolic_rate: 120.0
+    activity_level: 120.0
 
   - name: Interior People
     zones: [Interior]
     count: 20.0          # 10 m²/person
     schedule: Office Occupancy
     sensible_fraction: 0.60
-    metabolic_rate: 120.0
+    activity_level: 120.0
 
   - name: Conference People
     zones: [Conference]
     count: 20.0          # 4 m²/person (conference density)
     schedule: Conference Occupancy
     sensible_fraction: 0.60
-    metabolic_rate: 130.0
+    activity_level: 130.0
 
 lights:
   - name: Perimeter Lights
     zones: [Perimeter]
-    power_density: 10.0   # W/m²
+    watts_per_area: 10.0   # W/m²
     schedule: Office Lighting
 
   - name: Interior Lights
     zones: [Interior]
-    power_density: 10.0
+    watts_per_area: 10.0
     schedule: Office Lighting
 
   - name: Conference Lights
     zones: [Conference]
-    power_density: 12.0
+    watts_per_area: 12.0
     schedule: Conference Occupancy
 
 equipment:
   - name: Perimeter Equipment
     zones: [Perimeter]
-    power_density: 10.0   # W/m²
+    watts_per_area: 10.0   # W/m²
     schedule: Office Equipment
     latent_fraction: 0.0
     lost_fraction: 0.0
 
   - name: Interior Equipment
     zones: [Interior]
-    power_density: 15.0
+    watts_per_area: 15.0
     schedule: Office Equipment
     latent_fraction: 0.0
     lost_fraction: 0.0
 
   - name: Conference Equipment
     zones: [Conference]
-    power_density: 8.0
+    watts_per_area: 8.0
     schedule: Conference Occupancy
     latent_fraction: 0.0
     lost_fraction: 0.0
@@ -304,11 +325,11 @@ equipment:
 infiltration:
   - name: Perimeter Infiltration
     zones: [Perimeter]
-    design_flow_rate: 0.000396   # 0.33 ACH at 120 m² × 3.5m = 420 m³
+    air_changes_per_hour: 0.33
 
   - name: Conference Infiltration
     zones: [Conference]
-    design_flow_rate: 0.000132   # 0.33 ACH at 80 m² × 3.5m = 280 m³
+    air_changes_per_hour: 0.33
 
 # --- Air Loops ---
 air_loops:
@@ -367,7 +388,6 @@ plant_loops:
         name: DD-Boiler
         capacity: autosize
         efficiency: 0.80
-        source: natural_gas
         design_outlet_temp: 82.0
 
       - type: pump

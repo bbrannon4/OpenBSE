@@ -27,6 +27,7 @@ fn default_submeter() -> String {
 ///     activity_level: 120.0
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PeopleInput {
     pub name: String,
     /// Zone or zone-group names this applies to
@@ -79,6 +80,7 @@ fn default_people_radiant() -> f64 {
 
 /// Top-level lights definition, assignable to zones or zone groups.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LightsInput {
     pub name: String,
     /// Zone or zone-group names this applies to
@@ -109,6 +111,7 @@ fn default_lights_radiant() -> f64 {
 
 /// Top-level equipment definition, assignable to zones or zone groups.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EquipmentGainInput {
     pub name: String,
     /// Zone or zone-group names this applies to
@@ -163,6 +166,7 @@ fn default_equip_radiant() -> f64 {
 ///   # infiltration_interaction: ashrae_combined  # ASHRAE model
 /// ```
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum InfiltrationInteraction {
     /// Fixed infiltration rate, independent of exhaust/HVAC (E+ default)
@@ -187,6 +191,7 @@ pub enum InfiltrationInteraction {
 ///     flow_per_exterior_wall_area: 0.000302   # ASHRAE 90.1 baseline
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InfiltrationTopLevel {
     pub name: String,
     /// Zone or zone-group names this applies to
@@ -245,6 +250,7 @@ fn default_coeff_a() -> f64 {
 ///     combining_method: maximum   # take the larger of per-person and per-area
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum VentilationCombiningMethod {
     /// Sum all ventilation requirements (default)
@@ -278,6 +284,7 @@ pub enum VentilationCombiningMethod {
 ///     combining_method: sum      # ASHRAE 62.1 VRP: Rp*Pz + Ra*Az
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VentilationTopLevel {
     pub name: String,
     /// Zone or zone-group names this applies to
@@ -332,6 +339,7 @@ fn default_end_hour() -> u32 {
 ///     motor_in_airstream_fraction: 1.0
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExhaustFanTopLevel {
     pub name: String,
     /// Zone or zone-group names this applies to
@@ -376,6 +384,7 @@ fn default_exhaust_motor_in_air() -> f64 {
 
 /// Method for combining per-person and per-area outdoor air rates.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 pub enum OaMethod {
@@ -410,6 +419,7 @@ pub enum OaMethod {
 ///     exhaust_absolute: 0.02832   # 60 cfm kitchen exhaust
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OutdoorAirTopLevel {
     pub name: String,
     /// Zone or zone-group names this applies to
@@ -452,6 +462,7 @@ pub struct OutdoorAirTopLevel {
 
 /// Top-level ideal loads definition, assignable to zones or zone groups.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct IdealLoadsTopLevel {
     pub name: String,
     /// Zone or zone-group names this applies to
@@ -501,6 +512,7 @@ fn default_capacity() -> f64 {
 ///     unoccupied_cooling_setpoint: 29.44
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ThermostatInput {
     pub name: String,
     /// Zone or zone-group names this thermostat controls

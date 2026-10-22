@@ -11,6 +11,7 @@ fn default_submeter() -> String {
 
 /// Internal gain specification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum InternalGainInput {
     People {

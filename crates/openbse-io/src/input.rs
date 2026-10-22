@@ -31,6 +31,7 @@ pub use openbse_envelope::SolarDistributionMethod;
 
 /// Top-level model definition.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ModelInput {
     /// Simulation settings
     pub simulation: SimulationSettings,
@@ -189,6 +190,7 @@ fn default_summary_report() -> bool {
 /// air temperature and humidity are uniform within a zone; the grid shows
 /// radiant and solar variation only.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ComfortGridInput {
     /// Distance between grid points [m].
     #[serde(default = "default_comfort_spacing")]
@@ -229,6 +231,7 @@ fn default_submeter() -> String {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SimulationSettings {
     #[serde(default = "default_timesteps_per_hour")]
     pub timesteps_per_hour: u32,
@@ -391,6 +394,7 @@ fn default_run_parametrics() -> bool {
 
 /// A fixed-date holiday.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HolidayDate {
     pub month: u32,
     pub day: u32,
@@ -457,6 +461,7 @@ impl SimulationSettings {
 /// - `pthp` / `packaged_terminal_heat_pump`: Packaged terminal heat pump — HP heating + DX cooling, ON/OFF cycling
 /// - `fcu` / `fan_coil_unit`: Per-zone recirculating fan coil (no OA mixing)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum AirLoopSystemType {
@@ -505,6 +510,7 @@ pub enum AirLoopSystemType {
 ///         economizer_type: differential_dry_bulb
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AirLoopControls {
     /// Target supply air temperature for heating [°C] (default 35.0)
     #[serde(default = "default_controls_heating_supply")]
@@ -640,6 +646,7 @@ fn default_sat_step() -> f64 {
 
 /// Supply air temperature reset configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SatResetConfig {
     /// Reset SAT linearly with outdoor air temperature (ASHRAE 90.1 G3.1.3.12).
@@ -679,6 +686,7 @@ pub enum SatResetConfig {
 
 /// Plant loop setpoint reset configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PlantResetConfig {
     /// Reset linearly with outdoor air temperature.
@@ -696,6 +704,7 @@ pub enum PlantResetConfig {
 
 /// Capacity control method for an air loop.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum CyclingMethod {
@@ -718,6 +727,7 @@ pub enum CyclingMethod {
 /// Matches EnergyPlus Fan:OnOff / Fan:ConstantVolume behavior combined
 /// with the PTAC "No Load Supply Air Flow Rate" setting.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum FanOperatingMode {
@@ -737,6 +747,7 @@ pub enum FanOperatingMode {
 
 /// Economizer controls for outdoor air mixing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EconomizerControls {
     /// Economizer type (default: differential_dry_bulb)
     #[serde(default)]
@@ -777,6 +788,7 @@ pub struct EconomizerControls {
 /// Bounds on the load-reset supply-air temperature (E+ SetpointManager:Warmest
 /// feeding SetpointManager:MixedAir).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct EconomizerLoadReset {
     /// Lowest supply-air temperature the reset may ask for [°C]
     pub min_supply_temp: f64,
@@ -786,6 +798,7 @@ pub struct EconomizerLoadReset {
 
 /// Economizer control strategy.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum EconomizerType {
@@ -808,6 +821,7 @@ pub enum EconomizerType {
 
 /// Condenser type for CRAC systems.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum CondenserType {
@@ -822,6 +836,7 @@ pub enum CondenserType {
 
 /// Air loop input definition — the user-facing topology.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AirLoopInput {
     pub name: String,
     /// System type hint — if omitted, auto-detected from components and controls.
@@ -919,6 +934,7 @@ fn default_min_vav_fraction() -> f64 {
 /// Individual equipment specification.
 /// Uses `type` to select the component category and `source` for the specific variant.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(tag = "type")]
 pub enum EquipmentInput {
     #[serde(rename = "fan")]
@@ -999,6 +1015,7 @@ impl EquipmentInput {
 ///   outputs: [outlet_temp_c, outlet_humidity_ratio, power_w]
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExternalAirInput {
     pub name: String,
     /// Shell command to launch the co-simulation process.
@@ -1020,6 +1037,7 @@ pub struct ExternalAirInput {
 ///   min_rh_setpoint: 0.30
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HumidifierInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General")
@@ -1058,6 +1076,7 @@ fn default_zone_cooling_sp() -> f64 {
 ///   ambient_zone: basement
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DuctInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General")
@@ -1103,6 +1122,7 @@ fn default_evap_hx_effectiveness() -> f64 {
 
 /// Evaporative cooler input (direct, indirect, or two-stage).
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EvapCoolerInput {
     pub name: String,
     #[serde(default = "default_submeter")]
@@ -1118,6 +1138,7 @@ pub struct EvapCoolerInput {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FanInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General")
@@ -1210,6 +1231,7 @@ fn default_motor_in_airstream() -> f64 {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HeatingCoilInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General")
@@ -1292,6 +1314,7 @@ fn default_hp_cop() -> f64 {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CoolingCoilInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General")
@@ -1395,6 +1418,7 @@ fn default_chw_return_temp() -> f64 {
 
 /// One speed stage for a multi-speed DX cooling coil.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DXSpeedInput {
     /// Total cooling capacity at rated conditions [W]
     pub rated_capacity: f64,
@@ -1410,6 +1434,7 @@ pub struct DXSpeedInput {
 
 /// Multi-speed DX cooling coil input.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CoolingCoilDXMultiSpeedInput {
     pub name: String,
     #[serde(default = "default_submeter")]
@@ -1430,6 +1455,7 @@ fn default_wshp_cop_heating() -> f64 {
 
 /// Water-source heat pump input.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WshpInput {
     pub name: String,
     #[serde(default = "default_submeter")]
@@ -1453,6 +1479,7 @@ pub struct WshpInput {
 
 /// Selects how the GSHP determines entering water temperature from the ground.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum GroundTempSource {
@@ -1490,6 +1517,7 @@ fn default_loop_depth() -> f64 {
 ///   loop_depth: 1.5
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GshpInput {
     pub name: String,
     #[serde(default = "default_submeter")]
@@ -1529,6 +1557,7 @@ pub struct GshpInput {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HeatRecoveryInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General")
@@ -1578,6 +1607,7 @@ fn default_sensible_effectiveness() -> f64 {
 ///       reheat_capacity: autosize
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ZoneConnection {
     pub zone: String,
     /// Terminal box for this zone (VAV box, PFP box, or omitted for direct connection)
@@ -1599,6 +1629,7 @@ pub struct ZoneConnection {
 /// They modulate airflow, provide reheat, and optionally add
 /// secondary fan power (PFP boxes).
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(tag = "type")]
 pub enum TerminalInput {
     /// Variable Air Volume box with optional reheat
@@ -1626,6 +1657,7 @@ pub enum TerminalInput {
 ///   plant_loop: HHW Loop         # required for hot_water reheat
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VavBoxInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General")
@@ -1668,6 +1700,7 @@ pub struct VavBoxInput {
 ///   reheat_capacity: 5000
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PfpBoxInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General")
@@ -1698,6 +1731,7 @@ pub struct PfpBoxInput {
 ///   min_flow_fraction: 0.20   # optional, default 0.20
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DualDuctBoxInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General")
@@ -1723,6 +1757,7 @@ fn default_reheat_type() -> String {
 
 /// Equipment staging strategy for plant loops with multiple chillers or boilers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum StagingMode {
     /// Load each unit in sequence until it is fully loaded, then start the next.
@@ -1738,6 +1773,7 @@ fn default_staging_threshold() -> f64 {
 
 /// Plant loop input definition.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlantLoopInput {
     pub name: String,
     pub supply_equipment: Vec<PlantEquipmentInput>,
@@ -1765,6 +1801,7 @@ fn default_delta_t() -> f64 {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(tag = "type")]
 pub enum PlantEquipmentInput {
     #[serde(rename = "boiler")]
@@ -1825,6 +1862,7 @@ impl PlantEquipmentInput {
 ///   outputs: [supply_temp_c, power_w, thermal_output_w]
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExternalPlantInput {
     pub name: String,
     /// Shell command to launch the co-simulation process.
@@ -1839,6 +1877,7 @@ pub struct ExternalPlantInput {
 
 /// Pump role in the plant loop — determines staging and control behavior.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum PumpRole {
     /// Single pump or unspecified (default behavior)
@@ -1854,6 +1893,7 @@ pub enum PumpRole {
 
 /// Pump control strategy — how the pump modulates flow.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum PumpControlStrategy {
     /// Pump follows load — flow varies with demand (default for variable_speed)
@@ -1876,6 +1916,7 @@ pub enum PumpControlStrategy {
 /// accounts for hydraulic/mechanical losses in the pump impeller, distinct
 /// from motor losses. The effective "total efficiency" ≈ 0.9 × 0.667 = 0.60.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PumpInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General")
@@ -1945,6 +1986,7 @@ fn default_pump_motor_eff() -> f64 {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BoilerInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General")
@@ -1969,6 +2011,7 @@ pub struct BoilerInput {
 
 /// YAML-friendly boiler flow mode enum.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum BoilerFlowModeInput {
@@ -2003,6 +2046,7 @@ fn default_boiler_outlet_temp() -> f64 {
 ///   - 3 coefficients → quadratic: f(x) = c1 + c2*x + c3*x²
 ///   - 6 coefficients → biquadratic: f(x,y) = c1 + c2*x + c3*x² + c4*y + c5*y² + c6*x*y
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CurveInput {
     pub coefficients: Vec<f64>,
     #[serde(default = "default_curve_min")]
@@ -2023,6 +2067,7 @@ fn default_curve_max() -> f64 {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChillerInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General")
@@ -2114,6 +2159,7 @@ fn default_chiller_min_plr() -> f64 {
 
 /// Cooling tower input for condenser water loops.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CoolingTowerInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General")
@@ -2166,6 +2212,7 @@ fn default_ct_range() -> f64 {
 /// Can operate in always-on mode (general inter-loop HX) or economizer mode
 /// (activates only when source conditions enable free cooling).
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HeatExchangerInput {
     pub name: String,
     /// Name of the source plant loop this HX draws from/rejects to
@@ -2206,6 +2253,7 @@ fn default_ice_charge_cop_factor() -> f64 {
 
 /// Thermal energy storage plant component input.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ThermalStorageInput {
     pub name: String,
     #[serde(default = "default_submeter")]
@@ -2232,6 +2280,7 @@ pub struct ThermalStorageInput {
 
 /// Design day input.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DesignDayInput {
     pub name: String,
     pub design_temp: f64,
@@ -2293,6 +2342,7 @@ pub struct DesignDayInput {
 ///     zones: [East Office, West Office, North Office]
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ZoneGroupInput {
     pub name: String,
     pub zones: Vec<String>,
@@ -2302,6 +2352,7 @@ pub struct ZoneGroupInput {
 
 /// Control definition — sets setpoints on components and loops.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(tag = "type")]
 pub enum ControlInput {
     /// Fixed setpoint on a coil or component
@@ -2313,6 +2364,7 @@ pub enum ControlInput {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SetpointInput {
     pub name: String,
     /// Target component name
@@ -2322,6 +2374,7 @@ pub struct SetpointInput {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlantLoopSetpointInput {
     pub name: String,
     /// Target plant loop name
@@ -2335,6 +2388,7 @@ pub struct PlantLoopSetpointInput {
 /// Allows varying parameters across multiple simulation runs — this is
 /// the automation-first approach for batch analysis workflows.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ParametricInput {
     /// Named parameter sets. Each key is a run name, values override model parameters.
     #[serde(default)]
@@ -2349,6 +2403,7 @@ pub struct ParametricInput {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ParametricRun {
     pub name: String,
     /// Optional override weather file for this run
@@ -2373,6 +2428,7 @@ pub struct ParametricRun {
 ///     replaces: [air_loops, plant_loops, thermostats]
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SectionOverride {
     /// Path to partial YAML file
     pub file: String,
@@ -2390,6 +2446,7 @@ pub struct SectionOverride {
 ///     range: { min: 3.0, max: 5.0, step: 0.5 }
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SweepInput {
     /// Override key in "ComponentName.field_name" format
     pub parameter: String,
@@ -2425,6 +2482,7 @@ impl SweepInput {
 
 /// Range specification for sweep generation.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SweepRange {
     pub min: f64,
     pub max: f64,
@@ -2502,6 +2560,7 @@ impl MainsTemperature {
 
 /// Parameters for the ASHRAE mains water temperature correlation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MainsCorrelation {
     /// Annual average outdoor air dry-bulb temperature [°C].
     pub annual_avg_temp: f64,
@@ -2585,6 +2644,7 @@ pub fn mains_water_temperature(
 ///         use_temperature: 43.3
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DhwSystemInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General")
@@ -2620,6 +2680,7 @@ pub struct DhwSystemInput {
 /// Models a storage tank water heater with deadband thermostat control.
 /// Fuel types: gas (burner), electric (resistance element), or heat_pump (HPWH).
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WaterHeaterInput {
     pub name: String,
     /// Fuel type: "gas", "electric", "heat_pump" (default: "gas")
@@ -2665,6 +2726,7 @@ pub struct WaterHeaterInput {
 /// Each load represents a hot water end use (showers, sinks, laundry, etc.)
 /// with a peak flow rate and a schedule that modulates it over time.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DhwLoadInput {
     pub name: String,
     /// Peak hot water draw rate [L/s]
@@ -2706,6 +2768,7 @@ fn default_use_temp() -> f64 {
 
 /// Heat source type for a radiant panel, parsed from YAML.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum RadiantPanelSourceInput {
     HotWater,
@@ -2729,6 +2792,7 @@ fn default_radiant_panel_source() -> RadiantPanelSourceInput {
 ///     plant_loop: HW-Loop
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RadiantPanelInput {
     pub name: String,
     /// Zone this panel serves.
@@ -2775,6 +2839,7 @@ impl RadiantPanelInput {
 /// The power draw is added to facility electricity (or gas) consumption
 /// without contributing to any zone's internal gains.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExteriorEquipmentInput {
     pub name: String,
     /// Submeter label for end-use reporting (default: "General").
@@ -2807,6 +2872,7 @@ fn default_exterior_fuel() -> String {
 /// Top-level electrical distribution system — UPS and transformers.
 /// Losses are computed each timestep and reported as the ASHRAE 90.4 ELC.
 #[derive(Debug, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ElecDistributionInput {
     #[serde(default)]
     pub ups: Vec<UpsInput>,
@@ -2831,6 +2897,7 @@ fn default_transformer_efficiency() -> f64 {
 ///       efficiency_at_full_load: 0.95
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpsInput {
     pub name: String,
     /// IT load capacity served by this UPS [kW]
@@ -2853,6 +2920,7 @@ pub struct UpsInput {
 ///       efficiency: 0.985
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TransformerInput {
     pub name: String,
     /// IT load capacity served by this transformer [kW]
@@ -2879,6 +2947,7 @@ fn default_vrf_heating_supply_temp() -> f64 {
 
 /// A complete VRF system: one outdoor unit with multiple indoor units.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VrfSystemInput {
     pub name: String,
     pub outdoor_unit: VrfOutdoorUnitInput,
@@ -2887,6 +2956,7 @@ pub struct VrfSystemInput {
 
 /// VRF outdoor unit (compressor).
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VrfOutdoorUnitInput {
     pub name: String,
     #[serde(default = "default_submeter")]
@@ -2920,6 +2990,7 @@ pub struct VrfOutdoorUnitInput {
 
 /// VRF indoor unit (fan-coil) serving a single zone.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VrfIndoorUnitInput {
     pub name: String,
     /// Zone this unit serves
@@ -2950,8 +3021,28 @@ pub fn load_model(path: &Path) -> Result<ModelInput, InputError> {
 }
 
 /// Parse YAML string into a model.
+///
+/// A key the input structs don't recognise is an error listing every such key
+/// with its path. Serde would otherwise drop it and apply the field's default,
+/// so a misspelt key (`efficency:`) silently changes the model.
+///
+/// Keys nested inside untagged enums are not checked: serde buffers that
+/// content before choosing a variant, so it never reaches the ignored-key hook.
 pub fn parse_model_yaml(yaml: &str) -> Result<ModelInput, InputError> {
-    serde_yaml::from_str(yaml).map_err(|e| InputError::ParseError(e.to_string()))
+    let mut unknown: Vec<String> = Vec::new();
+    let model: ModelInput =
+        serde_ignored::deserialize(serde_yaml::Deserializer::from_str(yaml), |path| {
+            unknown.push(path.to_string())
+        })
+        .map_err(|e| InputError::ParseError(e.to_string()))?;
+    if !unknown.is_empty() {
+        return Err(InputError::ParseError(format!(
+            "unknown key{} (misspelt, or not supported by this version of OpenBSE): {}",
+            if unknown.len() == 1 { "" } else { "s" },
+            unknown.join(", ")
+        )));
+    }
+    Ok(model)
 }
 
 /// Build a simulation graph from parsed model input.

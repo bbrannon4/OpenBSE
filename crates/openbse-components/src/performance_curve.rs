@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 /// Physical variable an axis represents — determines which runtime value to look up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum IndependentVariable {
     OutdoorDryBulb,    // °C
@@ -50,6 +51,7 @@ impl IndependentVariable {
 // ─── Extrapolation mode ────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum ExtrapolationMode {
     #[default]
@@ -60,6 +62,7 @@ pub enum ExtrapolationMode {
 // ─── Table axis ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TableAxis {
     pub variable: IndependentVariable,
     /// Breakpoints — must be strictly monotonically increasing.
@@ -71,6 +74,7 @@ pub struct TableAxis {
 // ─── Table data ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TableData {
     pub axes: Vec<TableAxis>,
     /// Flat row-major values. Length must equal the product of all axis lengths.
@@ -156,6 +160,7 @@ pub const SLOT_FAN_POWER_FFLOW: &[&[IndependentVariable]] =
 
 /// Functional form for a Polynomial curve.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum CurveType {
     /// f(x,y) = c1 + c2*x + c3*x² + c4*y + c5*y² + c6*x*y
