@@ -16,8 +16,18 @@
 //! Deadband control: burner fires when T_tank < setpoint - deadband,
 //!                   turns off when T_tank >= setpoint.
 //!
+//! Heat pump water heaters follow EnergyPlus
+//! Coil:WaterHeating:AirToWaterHeatPump:Pumped (WH-2 / #61): capacity and COP
+//! are the rated values times curves of evaporator-inlet wet-bulb and tank
+//! water temperature; the evaporator draws the condenser heat less the
+//! compressor power from the surrounding air, split sensible/latent by the
+//! DOE-2 bypass-factor method; below a minimum inlet air temperature the
+//! compressor locks out and only the backup element heats the tank.
+//!
 //! Reference: EnergyPlus Engineering Reference, "Water Heaters"
 
+use crate::performance_curve::{CurveType, PerformanceCurve};
+use openbse_psychrometrics as psych;
 use serde::{Deserialize, Serialize};
 
 /// Specific heat capacity of water [J/(kg*K)].
@@ -25,6 +35,27 @@ const CP_WATER: f64 = 4186.0;
 
 /// Density of water [kg/L] (approximation at typical DHW temperatures).
 const RHO_WATER: f64 = 1.0;
+
+/// Barometric pressure for the evaporator-air psychrometrics [Pa].
+const P_ATM: f64 = 101_325.0;
+
+/// Heat pump rating point, the EnergyPlus defaults (the DOE test conditions):
+/// evaporator inlet air 19.7 °C dry-bulb / 13.5 °C wet-bulb, tank water 57.5 °C.
+const HP_RATED_INLET_DB: f64 = 19.7;
+const HP_RATED_INLET_WB: f64 = 13.5;
+const HP_RATED_WATER_TEMP: f64 = 57.5;
+
+/// Evaporator airflow per watt of rated heating capacity [m³/s/W], the
+/// EnergyPlus autocalculated value (31.25 cfm/MBH).
+const HP_EVAP_FLOW_PER_W: f64 = 5.035e-5;
+
+/// EnergyPlus `HeatPumpWaterHeater.idf` curves `HPWHHeatingCapFTemp` and
+/// `HPWHHeatingCOPFTemp`: biquadratic in x = evaporator inlet wet-bulb [°C]
+/// (0–40) and y = tank water temperature [°C] (20–90).
+const HP_DEFAULT_CAP_COEFFS: [f64; 6] =
+    [0.369827, 0.043341, -0.00023, 0.000466, 0.000026, -0.00027];
+const HP_DEFAULT_COP_COEFFS: [f64; 6] =
+    [1.19713, 0.077849, -0.0000016, -0.02675, 0.000296, -0.00112];
 
 /// Water heater fuel / energy source type.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -88,6 +119,22 @@ pub struct WaterHeater {
     pub parasitic_power: f64,
     /// Heater control type (OnOff or Modulate). Default: OnOff.
     pub control_type: WaterHeaterControl,
+    /// Humidity ratio of the air around the tank [kg/kg], the heat pump's
+    /// evaporator inlet. Default: 50% RH at 20 °C.
+    pub ambient_w: f64,
+    /// Heat pump: heating-capacity modifier f(evaporator inlet wet-bulb [°C],
+    /// tank water [°C]), 1.0 at the rating point.
+    pub hp_capacity_curve: PerformanceCurve,
+    /// Heat pump: COP modifier, same inputs and normalisation.
+    pub hp_cop_curve: PerformanceCurve,
+    /// Heat pump: evaporator sensible heat ratio at the rating point.
+    pub hp_rated_shr: f64,
+    /// Heat pump: the compressor is locked out below this evaporator inlet
+    /// air dry-bulb [°C].
+    pub hp_min_inlet_temp: f64,
+    /// Heat pump: backup resistance element [W], the only heat source while
+    /// the compressor is locked out.
+    pub backup_capacity: f64,
 
     // ---- Runtime state (not serialised) ------------------------------------
     /// Current average tank temperature [degC].
@@ -102,6 +149,115 @@ pub struct WaterHeater {
     /// Whether the burner / element is currently on (deadband hysteresis).
     #[serde(skip)]
     pub is_heating: bool,
+    /// Tank shell loss to the surrounding air this step [W].
+    #[serde(skip)]
+    pub standby_loss: f64,
+    /// Sensible heat the heat pump's evaporator drew from the surrounding air [W].
+    #[serde(skip)]
+    pub evaporator_sensible: f64,
+    /// Latent heat (condensed moisture) the evaporator drew from the air [W].
+    #[serde(skip)]
+    pub evaporator_latent: f64,
+    /// Evaporator bypass factor, derived once from the rated SHR.
+    #[serde(skip)]
+    hp_bypass_factor: Option<f64>,
+}
+
+/// Heat available to the tank this step.
+struct HeatSource {
+    /// Heat to the tank at full output [W].
+    q_max: f64,
+    /// Energy input at full output [W].
+    input_max: f64,
+    /// Sensible fraction of the evaporator heat; `None` when no compressor runs.
+    evaporator_shr: Option<f64>,
+}
+
+/// An EnergyPlus HPWH curve rescaled to 1.0 at the rating point, so the
+/// heater's `efficiency` stays its rated COP.
+fn normalised_hp_curve(name: &str, coefficients: [f64; 6]) -> PerformanceCurve {
+    let curve = |coefficients: Vec<f64>| PerformanceCurve::Polynomial {
+        name: name.to_string(),
+        curve_type: CurveType::Biquadratic,
+        coefficients,
+        min_x: 0.0,
+        max_x: 40.0,
+        min_y: 20.0,
+        max_y: 90.0,
+        min_output: None,
+        max_output: None,
+    };
+    let at_rating = curve(coefficients.to_vec()).evaluate(HP_RATED_INLET_WB, HP_RATED_WATER_TEMP);
+    curve(coefficients.iter().map(|c| c / at_rating).collect())
+}
+
+/// Default heat pump capacity modifier (EnergyPlus `HPWHHeatingCapFTemp`).
+fn default_hp_capacity_curve() -> PerformanceCurve {
+    normalised_hp_curve("default_hpwh_cap_ft", HP_DEFAULT_CAP_COEFFS)
+}
+
+/// Default heat pump COP modifier (EnergyPlus `HPWHHeatingCOPFTemp`).
+fn default_hp_cop_curve() -> PerformanceCurve {
+    normalised_hp_curve("default_hpwh_cop_ft", HP_DEFAULT_COP_COEFFS)
+}
+
+/// Evaporator bypass factor from rated conditions (EnergyPlus `CalcCBF`): the
+/// rated load and SHR fix the outlet state, and the line from inlet through
+/// outlet meets the saturation curve at the apparatus dew point.
+fn rated_bypass_factor(q_evap: f64, m_air: f64, shr: f64) -> f64 {
+    const FALLBACK: f64 = 0.2;
+    if q_evap <= 0.0 || m_air <= 0.0 {
+        return FALLBACK;
+    }
+    let (t_in, w_in) = (
+        HP_RATED_INLET_DB,
+        psych::w_fn_tdb_twb_pb(HP_RATED_INLET_DB, HP_RATED_INLET_WB, P_ATM),
+    );
+    let h_in = psych::h_fn_tdb_w(t_in, w_in);
+    let dh = q_evap / m_air;
+    let w_out = psych::w_fn_tdb_h(t_in, h_in - (1.0 - shr.clamp(0.5, 1.0)) * dh);
+    let h_out = h_in - dh;
+    let t_out = psych::tdb_fn_h_w(h_out, w_out);
+    let point = |s: f64| (t_in + s * (t_out - t_in), w_in + s * (w_out - w_in));
+    let supersaturated = |s: f64| {
+        let (t, w) = point(s);
+        w >= psych::w_fn_tdb_rh_pb(t, 1.0, P_ATM)
+    };
+    let (mut lo, mut hi) = (1.0_f64, 2.0_f64);
+    while !supersaturated(hi) {
+        if hi > 1.0e3 {
+            return FALLBACK;
+        }
+        (lo, hi) = (hi, 2.0 * hi);
+    }
+    for _ in 0..60 {
+        let mid = 0.5 * (lo + hi);
+        if supersaturated(mid) {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    let (t_adp, w_adp) = point(hi);
+    let h_adp = psych::h_fn_tdb_w(t_adp, w_adp);
+    ((h_out - h_adp) / (h_in - h_adp)).clamp(0.0, 0.9)
+}
+
+/// Sensible heat ratio of the evaporator at the current inlet air (EnergyPlus
+/// `CalcDoe2DXCoil`): the bypass factor places the apparatus dew point, and a
+/// dew point above the inlet humidity means a dry coil.
+fn evaporator_shr(t_in: f64, w_in: f64, q_evap: f64, m_air: f64, bypass_factor: f64) -> f64 {
+    if q_evap <= 0.0 || m_air <= 0.0 {
+        return 1.0;
+    }
+    let h_in = psych::h_fn_tdb_w(t_in, w_in);
+    let h_adp = h_in - q_evap / m_air / (1.0 - bypass_factor);
+    let t_adp = psych::tsat_fn_h_pb(h_adp, P_ATM);
+    let w_adp = psych::w_fn_tdb_h(t_adp, h_adp);
+    if w_adp >= w_in {
+        return 1.0;
+    }
+    ((psych::h_fn_tdb_w(t_in, w_adp) - h_adp) / (h_in - h_adp)).clamp(0.0, 1.0)
 }
 
 impl WaterHeater {
@@ -136,11 +292,83 @@ impl WaterHeater {
             ambient_temp: 20.0,
             parasitic_power: 0.0,
             control_type: WaterHeaterControl::OnOff,
+            ambient_w: psych::w_fn_tdb_rh_pb(20.0, 0.5, P_ATM),
+            hp_capacity_curve: default_hp_capacity_curve(),
+            hp_cop_curve: default_hp_cop_curve(),
+            // EnergyPlus defaults for the HPWH coil and compressor cut-out.
+            hp_rated_shr: 0.85,
+            hp_min_inlet_temp: 10.0,
+            backup_capacity: 0.0,
             // Initialise tank at setpoint
             tank_temp: setpoint,
             heating_rate: 0.0,
             energy_input: 0.0,
             is_heating: false,
+            standby_loss: 0.0,
+            evaporator_sensible: 0.0,
+            evaporator_latent: 0.0,
+            hp_bypass_factor: None,
+        }
+    }
+
+    /// Heat pump evaporator air mass flow [kg/s] (single-speed fan at the
+    /// EnergyPlus autocalculated rated flow).
+    fn evaporator_mass_flow(&self) -> f64 {
+        let rated_heating = self.capacity * self.efficiency;
+        HP_EVAP_FLOW_PER_W
+            * rated_heating
+            * psych::rho_air_fn_pb_tdb_w(P_ATM, self.ambient_temp, self.ambient_w)
+    }
+
+    /// The heat source for this step: the rated burner or element, or the heat
+    /// pump at the current evaporator air and tank temperatures.
+    fn heat_source(&mut self) -> HeatSource {
+        if self.fuel_type != WaterHeaterFuel::HeatPump {
+            return HeatSource {
+                q_max: self.capacity * self.efficiency,
+                input_max: self.capacity,
+                evaporator_shr: None,
+            };
+        }
+        if self.ambient_temp < self.hp_min_inlet_temp {
+            return HeatSource {
+                q_max: self.backup_capacity,
+                input_max: self.backup_capacity,
+                evaporator_shr: None,
+            };
+        }
+        let t_wb = psych::twb_fn_tdb_w_pb(self.ambient_temp, self.ambient_w, P_ATM);
+        let cap_mod = self
+            .hp_capacity_curve
+            .evaluate(t_wb, self.tank_temp)
+            .max(0.0);
+        let cop = (self.efficiency * self.hp_cop_curve.evaluate(t_wb, self.tank_temp)).max(1.0);
+        let q_max = self.capacity * self.efficiency * cap_mod;
+
+        let m_air = self.evaporator_mass_flow();
+        let bypass_factor = *self.hp_bypass_factor.get_or_insert_with(|| {
+            let rated_heating = self.capacity * self.efficiency;
+            let rated_evap = rated_heating * (1.0 - 1.0 / self.efficiency.max(1.0));
+            let rated_m_air = HP_EVAP_FLOW_PER_W
+                * rated_heating
+                * psych::rho_air_fn_pb_tdb_w(
+                    P_ATM,
+                    HP_RATED_INLET_DB,
+                    psych::w_fn_tdb_twb_pb(HP_RATED_INLET_DB, HP_RATED_INLET_WB, P_ATM),
+                );
+            rated_bypass_factor(rated_evap, rated_m_air, self.hp_rated_shr)
+        });
+        let q_evap = q_max * (1.0 - 1.0 / cop);
+        HeatSource {
+            q_max,
+            input_max: q_max / cop,
+            evaporator_shr: Some(evaporator_shr(
+                self.ambient_temp,
+                self.ambient_w,
+                q_evap,
+                m_air,
+                bypass_factor,
+            )),
         }
     }
 
@@ -161,6 +389,7 @@ impl WaterHeater {
         let q_loss = self.ua_standby * (self.tank_temp - self.ambient_temp);
 
         // --- Burner / element input -----------------------------------------
+        let source = self.heat_source();
         let (q_input, energy_input) = match self.control_type {
             WaterHeaterControl::OnOff => {
                 // Deadband thermostat: fires at full capacity when tank
@@ -172,8 +401,8 @@ impl WaterHeater {
                 }
                 // else: remain in current state (hysteresis)
                 if self.is_heating {
-                    let input = self.capacity;
-                    let q_to_tank_full = input * self.efficiency;
+                    let input = source.input_max;
+                    let q_to_tank_full = source.q_max;
                     // Within-step cycling (WH-1 / #61): if firing at full capacity
                     // would drive the tank past the setpoint before the step ends,
                     // the burner only runs for the fraction of the step needed to
@@ -201,9 +430,13 @@ impl WaterHeater {
                 // load exactly, capped at rated capacity.  Matches E+
                 // "Modulate" heater control type used for tankless heaters.
                 let q_needed = (q_delivered + q_loss).max(0.0);
-                let input = (q_needed / self.efficiency).min(self.capacity);
-                self.is_heating = input > 0.0;
-                (input * self.efficiency, input)
+                let frac = if source.q_max > 0.0 {
+                    (q_needed / source.q_max).min(1.0)
+                } else {
+                    0.0
+                };
+                self.is_heating = frac > 0.0;
+                (source.q_max * frac, source.input_max * frac)
             }
         };
 
@@ -220,6 +453,14 @@ impl WaterHeater {
         // Include constant parasitic draw (pilot light, controls, etc.)
         // Parasitic does NOT heat the tank — it is pure fuel waste.
         self.energy_input = energy_input + self.parasitic_power;
+        self.standby_loss = q_loss;
+
+        // The evaporator supplies the condenser heat the compressor does not.
+        let q_evap = (q_input - energy_input).max(0.0);
+        (self.evaporator_sensible, self.evaporator_latent) = match source.evaporator_shr {
+            Some(shr) => (shr * q_evap, (1.0 - shr) * q_evap),
+            None => (0.0, 0.0),
+        };
     }
 
     /// Electric power consumption [W].
@@ -627,5 +868,109 @@ mod tests {
             (actual_delta - expected_delta).abs() < 1e-6,
             "dT mismatch: actual={actual_delta}, expected={expected_delta}"
         );
+    }
+
+    fn hpwh() -> WaterHeater {
+        // 1.2 kW compressor input, rated COP 3.0 → 3.6 kW to the tank.
+        let mut wh = WaterHeater::new(
+            "HPWH",
+            WaterHeaterFuel::HeatPump,
+            200.0,
+            1200.0,
+            3.0,
+            60.0,
+            2.0,
+        );
+        wh.ambient_temp = HP_RATED_INLET_DB;
+        wh.ambient_w = psych::w_fn_tdb_twb_pb(HP_RATED_INLET_DB, HP_RATED_INLET_WB, P_ATM);
+        wh.tank_temp = HP_RATED_WATER_TEMP;
+        wh
+    }
+
+    fn cop(wh: &mut WaterHeater) -> f64 {
+        let s = wh.heat_source();
+        s.q_max / s.input_max
+    }
+
+    #[test]
+    fn test_heat_pump_cop_follows_air_and_tank_temperature() {
+        // WH-2 (#61): rated COP and capacity at the rating point, COP falling as
+        // the tank heats up and rising with warmer evaporator air.
+        let mut wh = hpwh();
+        let s = wh.heat_source();
+        // (to the wet-bulb solver's round-trip precision)
+        assert!((s.q_max / 3600.0 - 1.0).abs() < 1e-6, "{}", s.q_max);
+        assert!((cop(&mut wh) / 3.0 - 1.0).abs() < 1e-6);
+
+        wh.tank_temp = 40.0;
+        let cop_cool_tank = cop(&mut wh);
+        wh.tank_temp = 65.0;
+        let cop_hot_tank = cop(&mut wh);
+        assert!(
+            cop_cool_tank > 3.0 && cop_hot_tank < 3.0,
+            "{cop_cool_tank} {cop_hot_tank}"
+        );
+
+        wh.tank_temp = HP_RATED_WATER_TEMP;
+        wh.ambient_temp = 27.0;
+        wh.ambient_w = psych::w_fn_tdb_rh_pb(27.0, 0.5, P_ATM);
+        assert!(cop(&mut wh) > 3.0);
+    }
+
+    #[test]
+    fn test_heat_pump_locks_out_on_cold_air_and_uses_backup() {
+        // Below the minimum inlet air temperature (10 °C, E+ default) only the
+        // backup element heats the tank, at an efficiency of 1, and nothing is
+        // drawn from the air.
+        let mut wh = hpwh();
+        wh.backup_capacity = 4500.0;
+        wh.ambient_temp = 5.0;
+        wh.ambient_w = psych::w_fn_tdb_rh_pb(5.0, 0.6, P_ATM);
+        wh.tank_temp = 45.0;
+        wh.simulate(0.0, 10.0, 60.0);
+        assert!((wh.electric_power() - 4500.0).abs() < 1e-9);
+        assert!((wh.heating_rate - 4500.0).abs() < 1e-9);
+        assert_eq!((wh.evaporator_sensible, wh.evaporator_latent), (0.0, 0.0));
+    }
+
+    #[test]
+    fn test_heat_pump_evaporator_cools_and_dries_the_air() {
+        // Heat drawn from the air is the tank heat less the compressor power.
+        // Humid air gives a wet coil (latent > 0); dry air a dry one.
+        let mut wh = hpwh();
+        wh.tank_temp = 45.0;
+        wh.simulate(0.0, 10.0, 60.0);
+        let q_evap = wh.heating_rate - wh.electric_power();
+        assert!(q_evap > 0.0);
+        assert!((wh.evaporator_sensible + wh.evaporator_latent - q_evap).abs() < 1e-6);
+        assert!(
+            wh.evaporator_latent > 0.0,
+            "rated inlet air should condense"
+        );
+        let shr = wh.evaporator_sensible / q_evap;
+        assert!(shr > 0.6 && shr < 1.0, "{shr}");
+
+        let mut dry = hpwh();
+        dry.tank_temp = 45.0;
+        dry.ambient_w = psych::w_fn_tdb_rh_pb(HP_RATED_INLET_DB, 0.15, P_ATM);
+        dry.simulate(0.0, 10.0, 60.0);
+        assert_eq!(dry.evaporator_latent, 0.0);
+        assert!(dry.evaporator_sensible > 0.0);
+    }
+
+    #[test]
+    fn test_standby_loss_is_reported() {
+        let mut wh = WaterHeater::new(
+            "Tank",
+            WaterHeaterFuel::Gas,
+            200.0,
+            10_000.0,
+            0.8,
+            60.0,
+            2.0,
+        );
+        wh.ambient_temp = 15.0;
+        wh.simulate(0.0, 10.0, 60.0);
+        assert!((wh.standby_loss - 2.0 * (60.0 - 15.0)).abs() < 1e-9);
     }
 }

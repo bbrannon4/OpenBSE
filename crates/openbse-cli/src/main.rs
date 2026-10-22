@@ -53,6 +53,20 @@ struct Args {
     verbose: bool,
 }
 
+/// Add convective sensible and latent gains [W] per zone to the zone balance.
+fn add_zone_gains(hvac_conds: &mut ZoneHvacConditions, gains: &HashMap<String, (f64, f64)>) {
+    for (zone, &(sensible, latent)) in gains {
+        *hvac_conds
+            .other_sensible_gains
+            .entry(zone.clone())
+            .or_default() += sensible;
+        *hvac_conds
+            .other_latent_gains
+            .entry(zone.clone())
+            .or_default() += latent;
+    }
+}
+
 /// Contained hot-aisle exhaust reaching a data-center zone's CRAC/CRAH inlet.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct HotAisleReturn {
@@ -1063,7 +1077,7 @@ fn main() -> Result<()> {
         let mut dhw_systems: Vec<openbse_components::water_heater::WaterHeater> = model
             .dhw_systems
             .iter()
-            .map(|dhw_input| {
+            .map(|dhw_input| -> Result<_> {
                 use openbse_components::water_heater::{WaterHeater, WaterHeaterFuel};
                 let fuel = match dhw_input.water_heater.fuel_type.as_str() {
                     "electric" | "Electric" => WaterHeaterFuel::Electric,
@@ -1087,9 +1101,36 @@ fn main() -> Result<()> {
                     }
                     _ => openbse_components::water_heater::WaterHeaterControl::OnOff,
                 };
-                wh
+                let wh_input = &dhw_input.water_heater;
+                let named_curve = |name: &Option<String>, field: &str| -> Result<_> {
+                    name.as_ref()
+                        .map(|n| {
+                            model
+                                .performance_curves
+                                .iter()
+                                .find(|pc| pc.name() == n)
+                                .cloned()
+                                .with_context(|| {
+                                    format!(
+                                        "water heater '{}': {field} '{n}' not found in performance_curves",
+                                        wh_input.name
+                                    )
+                                })
+                        })
+                        .transpose()
+                };
+                if let Some(curve) = named_curve(&wh_input.capacity_curve, "capacity_curve")? {
+                    wh.hp_capacity_curve = curve;
+                }
+                if let Some(curve) = named_curve(&wh_input.cop_curve, "cop_curve")? {
+                    wh.hp_cop_curve = curve;
+                }
+                wh.hp_rated_shr = wh_input.rated_shr;
+                wh.hp_min_inlet_temp = wh_input.min_inlet_air_temp;
+                wh.backup_capacity = wh_input.backup_capacity;
+                Ok(wh)
             })
-            .collect();
+            .collect::<Result<_>>()?;
         if !dhw_systems.is_empty() {
             info!("DHW systems built: {}", dhw_systems.len());
         }
@@ -2702,6 +2743,11 @@ fn main() -> Result<()> {
             "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
         ];
         let mut last_progress_day = 0u32;
+        // Heat (sensible, latent) [W] that water heaters put into their ambient
+        // zones last timestep: tank standby losses, less what a heat pump's
+        // evaporator draws from the air (#61). Applied with a one-step lag, as
+        // the DHW systems are simulated after the zone heat balance.
+        let mut dhw_zone_gains: HashMap<String, (f64, f64)> = HashMap::new();
 
         for hour_idx in start_hour..end_hour {
             let weather_hour = &weather_data.hours[hour_idx as usize];
@@ -2793,7 +2839,8 @@ fn main() -> Result<()> {
                                 sol_alt_b,
                             );
                         }
-                        let hvac_conds = ZoneHvacConditions::default();
+                        let mut hvac_conds = ZoneHvacConditions::default();
+                        add_zone_gains(&mut hvac_conds, &dhw_zone_gains);
                         let env_result = env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
                         // BDF history update happens once below, outside
                         // this if/else — do NOT call it here too.
@@ -3746,6 +3793,8 @@ fn main() -> Result<()> {
                                     .or_default() += latent;
                             }
 
+                            add_zone_gains(&mut hvac_conds, &dhw_zone_gains);
+
                             // Contained hot-aisle heat goes straight to the CRAC/CRAH
                             // return, which the coil has just cooled; it is not a gain
                             // to the room air (#62).
@@ -4512,6 +4561,7 @@ fn main() -> Result<()> {
                     if env.holiday_set.contains(&(month, day)) {
                         dhw_dow = 8;
                     }
+                    dhw_zone_gains.clear();
                     for (dhw_idx, (dhw_sys, dhw_input)) in
                         dhw_systems.iter_mut().zip(&model.dhw_systems).enumerate()
                     {
@@ -4550,7 +4600,25 @@ fn main() -> Result<()> {
                             })
                             .sum();
 
+                        // The tank exchanges heat with its ambient zone's air (WH-3),
+                        // which is also a heat pump's evaporator inlet (WH-2).
+                        let ambient_zone = dhw_input
+                            .water_heater
+                            .ambient_zone
+                            .as_ref()
+                            .and_then(|name| env.zones.iter().find(|z| &z.input.name == name));
+                        if let Some(zone) = ambient_zone {
+                            dhw_sys.ambient_temp = zone.temp;
+                            dhw_sys.ambient_w = zone.humidity_ratio;
+                        }
+
                         dhw_sys.simulate(total_draw, t_mains, dt);
+
+                        if let Some(zone) = ambient_zone {
+                            let gains = dhw_zone_gains.entry(zone.input.name.clone()).or_default();
+                            gains.0 += dhw_sys.standby_loss - dhw_sys.evaporator_sensible;
+                            gains.1 -= dhw_sys.evaporator_latent;
+                        }
 
                         let ep = dhw_sys.electric_power();
                         let fp = dhw_sys.fuel_power();

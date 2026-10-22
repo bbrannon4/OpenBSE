@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed examples that used ignored keys: `examples/datacenter_crah.yaml` (fan `source`, pump efficiency, unoccupied setpoint names) and `prototype_tests/large_office/LargeOffice_Boulder*.yaml` (data-center fans now actually run as VAV, which changes their results). `schema_sync` now fails on any unknown key in a repo YAML.
 
 ### Fixed
+- **Water heaters exchange heat with the zone they sit in, and heat pump water heaters follow EnergyPlus** (#61).
+  - **`ambient_zone` now works.** It was accepted but ignored, so every tank lost heat to a fixed 20 °C. The tank now loses heat at that zone's air temperature, and the losses warm the zone. This changes `ApartmentMidRise_Boulder` (tank in G Corridor, as in its E+ model): DHW gas −0.5%, heating gas −1.6%, cooling +0.9%.
+  - **Heat pump capacity and COP vary.** They are now the rated values times curves of evaporator-inlet wet-bulb and tank water temperature, after EnergyPlus `Coil:WaterHeating:AirToWaterHeatPump`, instead of a fixed COP. COP falls as the tank heats up and rises with warmer air. `efficiency` is the COP at the rating point (19.7 °C dry-bulb / 13.5 °C wet-bulb air, 57.5 °C water). By default the curves are EnergyPlus's example HPWH curves rescaled to 1.0 at that point; `capacity_curve` and `cop_curve` override them.
+  - **The heat pump cools and dries its zone.** Its evaporator draws the tank heat less the compressor power from the zone air. The split between cooling and drying uses EnergyPlus's bypass-factor method from `rated_shr` (default 0.85), so dry air gives a dry coil.
+  - **Compressor cutout and backup element.** Below `min_inlet_air_temp` (default 10 °C) the compressor is off and only `backup_capacity` (a resistance element, default 0 W) heats the tank.
+  - **Unknown zone is an error.** An `ambient_zone` that names no zone is now a validation error.
 - **CRAC/CRAH data-center cooling conserves the IT heat and modulates airflow** (#62).
   - **IT heat counted once.** Contained hot-aisle exhaust now mixes by mass with room air at the unit inlet. The heat it carries straight to the coil is taken out of the room's balance. Previously the IT heat was a zone gain and was counted again in the return air, so the coil cooled heat that didn't exist.
   - **Airflow modulates.** With a `vav` fan, airflow tracks the load between the loop's `min_vav_fraction` and design flow, instead of running at full flow all year.

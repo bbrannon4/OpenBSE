@@ -2237,13 +2237,18 @@
         "fuel_type": { "type": "string", "enum": ["gas", "electric", "heat_pump"], "x-aliases": ["hpwh"], "default": "gas", "description": "Fuel type. Unrecognized values fall back to gas." },
         "tank_volume": { "type": "number", "description": "Tank storage volume [L]." },
         "capacity": { "type": "number", "description": "Burner/element input capacity [W]." },
-        "efficiency": { "type": "number", "default": 0.8, "description": "Thermal efficiency [0-1] for gas/electric; COP for heat_pump." },
+        "efficiency": { "type": "number", "default": 0.8, "description": "Thermal efficiency [0-1] for gas/electric; for heat_pump, the COP at the rating point (19.7 C dry-bulb / 13.5 C wet-bulb air, 57.5 C water)." },
         "setpoint": { "type": "number", "default": 60.0, "description": "Tank setpoint temperature [C]." },
         "ua_standby": { "type": "number", "default": 2.0, "description": "Standby loss coefficient [W/K]." },
         "deadband": { "type": "number", "default": 5.0, "description": "Thermostat deadband [C]." },
         "parasitic_power": { "type": "number", "default": 0.0, "description": "Constant parasitic fuel draw that does not heat the tank (pilot, controls) [W]." },
         "control_type": { "type": "string", "enum": ["on_off", "modulate"], "default": "on_off", "description": "Heater control: on/off cycling or modulating (tankless)." },
-        "ambient_zone": { "type": "string", "description": "Zone whose air temperature drives standby losses (default constant 20 C)." }
+        "ambient_zone": { "type": "string", "description": "Zone the tank sits in: its air temperature drives standby losses (default constant 20 C), the losses heat that zone, and a heat pump draws its evaporator air (heat and moisture) from it." },
+        "capacity_curve": { "type": "string", "description": "heat_pump only: heating-capacity modifier f(evaporator inlet wet-bulb [C], tank water [C]), 1.0 at the rating point. Default: the EnergyPlus example HPWH curve." },
+        "cop_curve": { "type": "string", "description": "heat_pump only: COP modifier f(evaporator inlet wet-bulb [C], tank water [C]), 1.0 at the rating point. Default: the EnergyPlus example HPWH curve." },
+        "rated_shr": { "type": "number", "default": 0.85, "minimum": 0.5, "maximum": 1, "description": "heat_pump only: evaporator sensible heat ratio at the rating point." },
+        "min_inlet_air_temp": { "type": "number", "default": 10.0, "description": "heat_pump only: the compressor is locked out below this evaporator inlet air dry-bulb [C]." },
+        "backup_capacity": { "type": "number", "default": 0.0, "minimum": 0, "description": "heat_pump only: backup resistance element [W], the only heat source while the compressor is locked out." }
       }
     },
 

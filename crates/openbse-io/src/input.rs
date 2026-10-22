@@ -2736,10 +2736,32 @@ pub struct WaterHeaterInput {
     pub control_type: String,
     /// Optional ambient temperature zone name.
     /// If set, the water heater uses the zone's air temperature for standby
-    /// loss calculation instead of the default constant 20 °C.
-    /// Matches E+ WaterHeater:Mixed "Ambient Temperature Zone Name" field.
+    /// loss calculation instead of the default constant 20 °C, and its
+    /// standby losses (and a heat pump's evaporator cooling and drying) go
+    /// into that zone. Matches E+ WaterHeater:Mixed "Ambient Temperature
+    /// Zone Name".
     #[serde(default)]
     pub ambient_zone: Option<String>,
+    /// Heat pump only: heating-capacity modifier curve name, f(evaporator
+    /// inlet wet-bulb [°C], tank water [°C]), 1.0 at the rating point
+    /// (19.7 °C / 13.5 °C wet-bulb air, 57.5 °C water). Default: the
+    /// EnergyPlus example HPWH curve.
+    #[serde(default)]
+    pub capacity_curve: Option<String>,
+    /// Heat pump only: COP modifier curve name, same inputs as `capacity_curve`.
+    #[serde(default)]
+    pub cop_curve: Option<String>,
+    /// Heat pump only: evaporator sensible heat ratio at the rating point (default 0.85).
+    #[serde(default = "default_wh_rated_shr")]
+    pub rated_shr: f64,
+    /// Heat pump only: compressor locked out below this inlet air dry-bulb [°C]
+    /// (default 10, E+ "Minimum Inlet Air Temperature for Compressor Operation").
+    #[serde(default = "default_wh_min_inlet_air_temp")]
+    pub min_inlet_air_temp: f64,
+    /// Heat pump only: backup resistance element capacity [W], used while the
+    /// compressor is locked out (default 0).
+    #[serde(default)]
+    pub backup_capacity: f64,
 }
 
 /// DHW draw profile (load).
@@ -2777,6 +2799,12 @@ fn default_wh_ua() -> f64 {
 }
 fn default_wh_deadband() -> f64 {
     5.0
+}
+fn default_wh_rated_shr() -> f64 {
+    0.85
+}
+fn default_wh_min_inlet_air_temp() -> f64 {
+    10.0
 }
 fn default_wh_control() -> String {
     "on_off".to_string()
@@ -4787,6 +4815,20 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     for e in &model.equipment {
         check_zone_refs(&e.zones, "Equipment", &e.name, &mut result);
         check_schedule(&e.schedule, "Equipment", &e.name, &mut result);
+    }
+
+    // ── Validate water heater ambient zones ────────────────────────────────
+
+    for dhw in &model.dhw_systems {
+        let wh = &dhw.water_heater;
+        if let Some(zone) = &wh.ambient_zone {
+            if !zone_names.contains(zone.as_str()) {
+                result.severe(format!(
+                    "Zone '{}' referenced as ambient_zone by water heater '{}' not found in zones list",
+                    zone, wh.name
+                ));
+            }
+        }
     }
 
     // ── Validate data-center server airflow ────────────────────────────────
