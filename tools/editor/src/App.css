@@ -2871,3 +2871,209 @@ input[type="number"]::-webkit-outer-spin-button {
 .warn-text {
   color: var(--yellow) !important;
 }
+
+/* ===== Comfort tab ===== */
+
+.comfort-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.comfort-empty {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+
+.comfort-empty h3 {
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.comfort-empty p {
+  max-width: 560px;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.comfort-toolbar,
+.comfort-time {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.comfort-time {
+  border-bottom: none;
+  border-top: 1px solid var(--border);
+}
+
+.comfort-toolbar label,
+.comfort-slider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.comfort-toolbar select {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+.comfort-check input {
+  margin: 0;
+}
+
+.comfort-note {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.comfort-empty .comfort-note {
+  margin: 12px 0 0;
+}
+
+.comfort-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.comfort-legend {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  width: 260px;
+  padding: 10px 12px;
+  background: rgba(31, 32, 51, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.comfort-legend-title {
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.comfort-legend-bar {
+  height: 10px;
+  border-radius: 3px;
+}
+
+.comfort-legend-ticks {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.comfort-legend-hint {
+  margin-top: 4px;
+  color: var(--text-muted);
+}
+
+.comfort-warnings {
+  position: absolute;
+  right: 16px;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--yellow);
+}
+
+.comfort-warnings div {
+  background: rgba(31, 32, 51, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: help;
+}
+
+.comfort-tooltip {
+  position: absolute;
+  pointer-events: none;
+  min-width: 190px;
+  padding: 8px 10px;
+  background: rgba(26, 27, 38, 0.96);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  z-index: 2;
+}
+
+.comfort-tooltip-title {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.comfort-tooltip-sub {
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.comfort-tooltip table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.comfort-tooltip td {
+  padding: 1px 0;
+}
+
+.comfort-tooltip td:last-child {
+  text-align: right;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.comfort-play {
+  background: var(--accent-dim);
+  color: var(--text-primary);
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.comfort-time-label {
+  min-width: 230px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.comfort-time-label strong {
+  color: var(--text-primary);
+}
+
+.comfort-slider input[type="range"] {
+  width: 220px;
+}
+
+.comfort-scale-name {
+  margin-left: auto;
+  color: var(--text-muted);
+}

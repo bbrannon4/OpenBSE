@@ -1481,6 +1481,8 @@ Occupant parameters (met, clo, air velocity, solar absorptivity) come from each 
 
 **Output.** `<stem>_comfort.json` holds the grid points, view factors, hourly surface temperatures, hourly window beam irradiance, the hourly sun direction, hourly zone air temperature, RH and occupancy, and per-point annual statistics: comfortable, cold, hot and sunlit occupied hours, and mean and maximum operative temperature. A viewer recomputes any hour's MRT from the view factors and surface temperatures, so the file does not store every point for every hour. For the DOE large office (178,000 points) a full year is about 45 MB, and the grid adds well under 1% to the run time.
 
+**Comfort tab.** The Workbench's Comfort tab opens `<stem>_comfort.json` for the loaded model in a 3D view: semi-transparent walls, tinted windows, and a coloured tile per grid point at occupant height. Pick a metric (operative temperature, MRT, sun on the occupant as an MRT increase, PMV or PPD), a day and an hour, or press Play to step through the day. Isolate one zone, show or hide roofs and ceilings, and hover a tile to read its values. Colour scales are fixed per metric so colours mean the same thing at every hour. The tab recomputes the chosen hour from the file with the same formulas as the engine; over a year it reproduces the engine's per-point statistics to within the file's rounding.
+
 See `examples/comfort_perimeter_office.yaml`.
 
 ## Autosizing

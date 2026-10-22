@@ -11,6 +11,7 @@ import { ResultsView } from "./components/ResultsView";
 import { NetworkView } from "./components/NetworkView";
 import { ParametricView } from "./components/ParametricView";
 import { EnergyView } from "./components/EnergyView";
+import { ComfortView } from "./components/ComfortView";
 import { HelpDialog } from "./components/HelpDialog";
 import { parseSchema } from "./lib/schema";
 import type { ClassInfo } from "./lib/schema";
@@ -23,7 +24,7 @@ import "./App.css";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Model = Record<string, any>;
 
-type ViewMode = "edit" | "network" | "charts" | "parametric" | "energy";
+type ViewMode = "edit" | "network" | "charts" | "parametric" | "energy" | "comfort";
 
 const ZoneTag = new yaml.Type("!zone", {
   kind: "scalar",
@@ -475,6 +476,8 @@ function App() {
             onClick={() => setViewMode("parametric")}>&#8644; Parametric</button>
           <button className={`view-tab ${viewMode === "energy" ? "active" : ""}`}
             onClick={() => setViewMode("energy")}>&#9889; Energy</button>
+          <button className={`view-tab ${viewMode === "comfort" ? "active" : ""}`}
+            onClick={() => setViewMode("comfort")}>&#9681; Comfort</button>
         </nav>
         <div className="header-results-status">
           {resultsName ? (
@@ -614,6 +617,8 @@ function App() {
           loadAndParseCsv={loadAndParseCsv}
           setCases={setResultsCases}
         />
+      ) : viewMode === "comfort" ? (
+        <ComfortView modelPath={filePath} reloadKey={resultsCases} unitSystem={unitSystem} />
       ) : viewMode === "energy" ? (
         <EnergyView
           cases={resultsCases}
