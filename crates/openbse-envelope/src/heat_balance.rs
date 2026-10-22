@@ -362,6 +362,27 @@ pub enum SolarDistributionMethod {
 /// the NFRC standard films are stripped to yield a conductance consistent with the
 /// bare-glass `u_glass` used in the window heat balance. Returns the base
 /// `u_glass` when no blind is deployed (or none is configured).
+impl BuildingEnvelope {
+    /// Radiant internal gain absorbed per unit area by each surface of a zone
+    /// [W/m²]: the zone's radiant gains spread evenly over all its surfaces,
+    /// windows included, so the shares add back up to the zone total.
+    fn zone_radiant_gain_flux(&self, zi: usize) -> f64 {
+        let Some(zone) = self.zones.get(zi) else {
+            return 0.0;
+        };
+        let area: f64 = zone
+            .surface_indices
+            .iter()
+            .map(|&si| self.surfaces[si].net_area)
+            .sum();
+        if area > 0.0 {
+            zone.q_internal_rad / area
+        } else {
+            0.0
+        }
+    }
+}
+
 fn effective_window_u_glass(surface: &SurfaceState) -> f64 {
     if surface.blind_deployed && surface.blind_u_factor > 0.0 {
         blind_glass_conductance(surface.blind_u_factor)
@@ -3514,6 +3535,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                     } else {
                         0.0
                     };
+                    // The window's area share of the zone's radiant internal gains,
+                    // absorbed by the inner pane as in E+ (QRadThermInAbs). Without it
+                    // that share reached no surface and left the heat balance (#142).
+                    let q_int_rad_per_area = self.zone_radiant_gain_flux(zi);
 
                     // Iteratively solve glass temperature using 3-node balance:
                     //   u_e_glass·(T_ext_eff - T_glass) = h_conv·(T_glass - T_zone)
@@ -3530,7 +3555,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                         t_glass = (u_e_glass * t_ext_eff
                             + h_conv_in * t_z
                             + h_rad_in * t_mrt
-                            + q_solar_abs_per_area)
+                            + q_solar_abs_per_area
+                            + q_int_rad_per_area)
                             / (u_e_glass + h_conv_in + h_rad_in);
 
                         // Dynamic gap thermal model (ISO 15099): recompute u_glass
@@ -3674,8 +3700,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // corrupted the dynamic gap model (which uses T_ext_surf to
                     // compute gap ΔT), inflating u_glass and making the glass
                     // ~4°C too cold during peak solar.
-                    let q_interior =
-                        h_conv_in * (t_z - t_glass) + q_rad_interior + q_solar_abs_per_area;
+                    let q_interior = h_conv_in * (t_z - t_glass)
+                        + q_rad_interior
+                        + q_solar_abs_per_area
+                        + q_int_rad_per_area;
                     let t_ext_surf = t_glass - q_interior / u_glass;
                     self.surfaces[i].temp_outside = t_ext_surf;
 
@@ -3737,13 +3765,6 @@ impl EnvelopeSolver for BuildingEnvelope {
                         }
                     }
 
-                    // Radiative gains (internal + solar distribution)
-                    let zone_rad_gain = if zi < self.zones.len() {
-                        self.zones[zi].q_internal_rad
-                    } else {
-                        0.0
-                    };
-
                     // Solar distribution: use geometric beam + VMULT if available,
                     // otherwise fall back to fixed fractions
                     let q_solar_to_surface = if zi < has_geometric_distribution.len()
@@ -3799,21 +3820,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                         0.0
                     };
 
-                    let zone_total_area: f64 = if zi < self.zones.len() {
-                        self.zones[zi]
-                            .surface_indices
-                            .iter()
-                            .map(|&si| self.surfaces[si].net_area)
-                            .sum()
-                    } else {
-                        1.0
-                    };
-
-                    let q_rad_to_surface = if zone_total_area > 0.0 {
-                        zone_rad_gain * self.surfaces[i].net_area / zone_total_area
-                    } else {
-                        0.0
-                    };
+                    // Radiative internal gains, spread over all zone surfaces
+                    // (windows take their share in the glass balance).
+                    let q_rad_to_surface =
+                        self.zone_radiant_gain_flux(zi) * self.surfaces[i].net_area;
 
                     // Window LW radiation is now handled through the unified
                     // face-averaged MRT — no separate redistribution needed.
@@ -6360,6 +6370,47 @@ mod tests {
             warm.zones[0].temp,
             cold.zones[0].temp
         );
+    }
+
+    #[test]
+    fn test_radiant_gains_reach_every_surface_including_windows() {
+        // #142: the windows' share used to be computed but never applied.
+        let mut envelope = make_simple_model();
+        envelope.zones[0].q_internal_rad = 1200.0;
+        let flux = envelope.zone_radiant_gain_flux(0);
+        let delivered: f64 = envelope.zones[0]
+            .surface_indices
+            .iter()
+            .map(|&si| flux * envelope.surfaces[si].net_area)
+            .sum();
+        assert!((delivered - 1200.0).abs() < 1e-9, "delivered {delivered}");
+        let window = envelope.surfaces.iter().find(|s| s.is_window).unwrap();
+        assert!(flux * window.net_area > 0.0);
+    }
+
+    #[test]
+    fn test_radiant_gain_warms_window_glass() {
+        // The glass must warm by more than the warmer opaque surfaces alone
+        // would make it, because it now takes its share of the gain directly.
+        let run = |radiant: f64| {
+            let mut env = make_simple_model();
+            env.initialize(3600.0).unwrap();
+            let ctx = make_ctx();
+            let weather = make_weather_hour(0.0);
+            let mut hvac = ZoneHvacConditions::default();
+            hvac.radiant_gains.insert("TestZone".to_string(), radiant);
+            for _ in 0..10 {
+                env.solve_timestep(&ctx, &weather, &hvac);
+            }
+            let w = env.surfaces.iter().find(|s| s.is_window).unwrap();
+            (w.temp_inside, env.zones[0].temp)
+        };
+        let (glass_off, _) = run(0.0);
+        let (glass_on, _) = run(3000.0);
+        // Measured: +16.0 K with the direct share, +13.3 K when the glass is
+        // warmed only through the opaque surfaces (the #142 bug).
+        let rise = glass_on - glass_off;
+        assert!(rise > 14.6, "glass warmed by only {rise:.2} K");
     }
 
     #[test]
