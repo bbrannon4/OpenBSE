@@ -2549,7 +2549,7 @@ impl SweepRange {
 /// soil thermal lag). The +6°C offset and 0.4127 ratio match E+'s
 /// `Site:WaterMainsTemperature` Correlation method.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum MainsTemperature {
     /// Fixed constant temperature [°C].
     Fixed(f64),
@@ -3075,8 +3075,8 @@ pub fn load_model(path: &Path) -> Result<ModelInput, InputError> {
 /// with its path. Serde would otherwise drop it and apply the field's default,
 /// so a misspelt key (`efficency:`) silently changes the model.
 ///
-/// Keys nested inside untagged enums are not checked: serde buffers that
-/// content before choosing a variant, so it never reaches the ignored-key hook.
+/// Nested maps use container-level unknown-field checks as well: serde may
+/// buffer enum content before choosing a variant and bypass the ignored-key hook.
 pub fn parse_model_yaml(yaml: &str) -> Result<ModelInput, InputError> {
     let mut unknown: Vec<String> = Vec::new();
     let model: ModelInput =
