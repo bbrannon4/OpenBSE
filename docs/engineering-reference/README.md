@@ -596,7 +596,7 @@ Parasitic = Parasitic_design · PLR
 
 **Module:** `chiller.rs`
 
-**Purpose:** Models an air-cooled electric chiller that produces chilled water for cooling coils on a plant loop. Performance degrades with increasing outdoor temperature and part-load operation.
+**Purpose:** Models an air-cooled electric chiller that produces chilled water for cooling coils on a plant loop. Performance degrades with increasing condenser temperature. Part-load efficiency follows the EIR-f(PLR) curve; without one, COP stays constant across part load.
 
 #### Inputs
 
@@ -607,7 +607,7 @@ Parasitic = Parasitic_design · PLR
 | `rated_cop` | — | required | Rated COP at ARI conditions (typically 2.5-4.0) |
 | `chw_setpoint` | C | required | Chilled water supply setpoint |
 | `design_chw_flow` | m3/s | required | Design chilled water flow rate |
-| `min_plr` | — | 0.1 | Minimum part-load ratio |
+| `min_plr` | — | 0.25 | Minimum part-load ratio; below it the chiller cycles |
 
 #### Outputs
 
@@ -631,27 +631,29 @@ Cap_factor = clamp(1.0 - 0.015 * (T_outdoor - 29.4), 0.5, 1.1)
 Available_capacity = Rated_capacity * Cap_factor
 ```
 
-**Step 2: Part-load ratio**
-```
-PLR = clamp(Load / Available_capacity, PLR_min, 1.0)
-Actual_capacity = PLR * Available_capacity
-```
+**Step 2: Part-load ratio and cycling**
 
-**Step 3: COP correction**
-
-COP degrades with both outdoor temperature and part-load operation:
+Below `min_plr` the chiller cycles on at `min_plr` and off (E+ `ChillerCyclingRatio`):
 
 ```
-COP_factor = clamp(1.0 - 0.02 * (T_outdoor - 29.4), 0.4, 1.1)
-PLR_factor = clamp(0.5 + 0.75 * PLR - 0.25 * PLR^2, 0.3, 1.0)
-Actual_COP = max(Rated_COP * COP_factor * PLR_factor, 0.5)
+PLR = min(Load / Available_capacity, 1.0)
+PLR_op = max(PLR, min_plr)
+Cycling_ratio = min(PLR / min_plr, 1.0)
+Actual_capacity = PLR_op * Available_capacity * Cycling_ratio
 ```
 
-The PLR efficiency curve `0.5 + 0.75*PLR - 0.25*PLR^2` models the characteristic efficiency degradation at low part-loads where compressor cycling losses dominate.
+**Step 3: Electric power (E+ Chiller:Electric:EIR)**
 
-**Step 4: Electric power and outlet temperature**
 ```
-Electric_power = Actual_capacity / Actual_COP
+Electric_power = Available_capacity * (1 / Rated_COP) * EIRFT * EIRFPLR(PLR_op) * Cycling_ratio
+```
+
+With an `eirft` curve, EIRFT is evaluated at (CHW setpoint, condenser temperature). Without one, it falls back to `1 / clamp(1.0 - 0.02 * (T_condenser - 29.4), 0.4, 1.1)`.
+
+With an `eirfplr` curve, EIRFPLR is evaluated at `PLR_op`. E+ requires this curve and has no default. Without one, OpenBSE uses `EIRFPLR = PLR_op`. Because EIRFPLR scales the *available* capacity, this keeps the COP at `Rated_COP / EIRFT` at every part load, with no part-load advantage or penalty. Below `min_plr` the cycling ratio keeps the time-averaged COP the same. 99 of the 111 air-cooled chillers in the E+ `AirCooledChiller.idf` dataset use exactly this curve.
+
+**Step 4: Outlet temperature**
+```
 dT = Actual_capacity / (m_water * Cp_water)
 T_outlet = max(T_inlet - dT, T_chw_setpoint - 2.0)
 ```

@@ -1080,7 +1080,7 @@
         "min_plr": { "type": "number", "default": 0.25, "minimum": 0, "maximum": 1, "description": "Minimum part-load ratio before cycling." },
         "capft": { "$ref": "#/$defs/CurveInput", "description": "Capacity-f(T) biquadratic curve. x = leaving CHW temp, y = entering condenser temp." },
         "eirft": { "$ref": "#/$defs/CurveInput", "description": "EIR-f(T) biquadratic curve." },
-        "eirfplr": { "$ref": "#/$defs/CurveInput", "description": "EIR-f(PLR) quadratic curve." },
+        "eirfplr": { "$ref": "#/$defs/CurveInput", "description": "EIR-f(PLR) quadratic curve. x = part-load ratio, clamped to min_plr..1; normalized to 1.0 at PLR = 1. E+ requires this curve. When neither eirfplr nor eirfplr_curve is set, EIRFPLR = PLR: the chiller keeps its rated COP (adjusted only by eirft) at every part load, as 99 of the 111 air-cooled chillers in the E+ AirCooledChiller.idf dataset do." },
         "capft_curve": { "type": "string", "description": "Name of a top-level performance curve used as CAPFT. Alternative to inline capft. Ignored when a205_file is set." },
         "eirft_curve": { "type": "string", "description": "Name of a top-level performance curve used as EIRFT. Alternative to inline eirft." },
         "eirfplr_curve": { "type": "string", "description": "Name of a top-level performance curve used as EIRFPLR. Alternative to inline eirfplr." },

@@ -49,6 +49,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `doas_fancoil`: gas 0 → 105 MWh.
     - `datacenter_crah` (Chicago): chiller 591 kW, PLR 0.70–0.97; PUE 2.21 → 1.46.
   - New tests check that every shipped model connects its water coils, and that coil loads reach an autosized boiler and chiller end to end.
+- **A chiller without an EIR-f(PLR) curve now keeps its rated COP at part load.** Chiller power is available capacity × (1/COP) × EIRFT × EIRFPLR × cycling ratio. Without an `eirfplr` curve, EIRFPLR was a flat 1.0, so the chiller drew full-load power at any load. Its COP fell to max(PLR, `min_plr`) × rated COP: 1.75 at PLR 0.5 for a 3.5-COP chiller.
+  - EnergyPlus requires this curve. The fallback is now EIRFPLR = PLR, clamped to `min_plr`..1. COP stays at its rated value adjusted only by EIRFT, including while the chiller cycles below `min_plr`. 99 of the 111 air-cooled chillers in EnergyPlus's `AirCooledChiller.idf` dataset use exactly this curve.
+  - Chillers with an `eirfplr` curve are unchanged, and no ASHRAE 140 case has a chiller.
+  - Annual chiller results that change (seasonal COP, cooling electricity). Coil loads are unchanged. Seasonal COP can exceed rated because, without an `eirft` curve, the linear EIRFT fallback raises COP when the condenser is cooler than 29.4 °C.
+    - `datacenter_crah` (Chicago TMY3): COP 2.77 → 3.49, rated 3.2; PUE 1.455 → 1.384.
+    - `vav_reheat`: COP 1.44 → 3.93, rated 3.8; 12.5 → 4.6 MWh.
+    - `vav_chw_plant`: COP 1.44 → 3.62, rated 3.5; 6.6 → 2.6 MWh.
+    - `doas_fancoil`: COP 1.16 → 3.56, rated 3.5; 10.3 → 3.3 MWh.
+    - `chw_plant_condenser`: COP 1.65 → 6.59, rated 6.0; 4.1 → 1.0 MWh.
+    - `prototype_tests/hospital/Hospital_STD2022_Boulder.yaml`: COP 2.65 and 1.62 → 6.15 and 6.13, rated 5.6; 710 → 297 MWh against EnergyPlus's 412 MWh, so +72% becomes −28%. A gap remains because the YAML carries no chiller curves. The EnergyPlus prototype uses `Chiller:Electric:ReformulatedEIR` (as in E+'s `ASHRAE901_Hospital_STD2019_Denver.idf`), whose part-load curve also depends on condenser temperature.
 - **Dual-duct boxes with `design_flow: autosize` are now sized.** A 0.5 kg/s placeholder kept sizing from replacing the value, so every such box ran at 0.5 kg/s whatever its zone needed. In `examples/office_dual_duct.yaml` the three boxes now get 0.36, 0.30 and 0.23 kg/s from design-day sizing; before, they summed to 1.5 kg/s against a fan sized for about 0.9 kg/s. Annual results change: fans 15.6 → 9.1 MWh, cooling electricity 16.3 → 10.4 MWh, unmet hours 3,520 → 2. Gas rises from 10.3 to 78.5 MWh. The old run delivered 68 MWh of zone heating on 10.3 MWh of gas, so its energy balance did not close. Now the 38 °C hot deck's minimum flow is heated and mixed with cold-deck air all year, as in any dual-duct system.
 - **Two shipped models that failed validation run again.**
   - `prototype_tests/single_family/SingleFamily_CZ5B_Boulder.yaml`: since #150 rejects an unknown `ambient_zone`, the model has failed validation, because its water heater named the EnergyPlus zone `unheatedbsmt_unit1` instead of `unheatedbsmt`. Results are unchanged, because the tank's standby UA is 0.

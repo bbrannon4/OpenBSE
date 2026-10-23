@@ -5,7 +5,8 @@
 //!
 //! Supports both air-cooled and water-cooled chillers. When performance curves
 //! (CAPFT, EIRFT, EIRFPLR) are provided, they are used directly. Otherwise,
-//! simplified linear fallbacks are used for air-cooled units.
+//! simplified linear fallbacks are used for CAPFT and EIRFT (air-cooled), and
+//! EIRFPLR = PLR (constant COP across part load).
 //!
 //! For water-cooled chillers without a condenser water loop, the condenser
 //! entering water temperature is estimated from outdoor wet-bulb + tower_approach.
@@ -179,17 +180,21 @@ impl AirCooledChiller {
 
     /// EIRFPLR: EIR modifier as function of part load ratio.
     ///
-    /// If an eirfplr_curve is set, evaluates the quadratic curve.
-    /// Otherwise uses a simplified linear curve (EIR increases with PLR).
+    /// If an eirfplr_curve is set, evaluates it. Otherwise EIRFPLR = PLR.
+    ///
+    /// E+ Chiller:Electric:EIR requires this curve and has no default. The
+    /// fallback keeps the chiller at its rated COP (adjusted only by EIRFT) at
+    /// every part load, with no part-load advantage or penalty: power scales
+    /// with PLR because EIRFPLR multiplies the *available* capacity, not the
+    /// load. 99 of the 111 air-cooled chillers in E+'s AirCooledChiller.idf
+    /// dataset use exactly this curve. Below min_plr the chiller cycles at
+    /// min_plr, so its time-averaged COP stays at rated there too.
     fn eir_modifier_plr(&self, plr: f64) -> f64 {
         let p = plr.clamp(self.min_plr, 1.0);
         if let Some(ref curve) = self.eirfplr_curve {
             curve.evaluate_1d(p).max(0.01)
         } else {
-            // Simplified quadratic fallback (constant EIR at all PLR)
-            // This is intentionally flat so that without curves, the chiller
-            // uses rated COP at all load levels (no part-load advantage).
-            1.0
+            p
         }
     }
 }
@@ -493,6 +498,24 @@ mod tests {
             "Actual cap ({:.0}) should be close to load (10000)",
             chiller.actual_capacity
         );
+    }
+
+    #[test]
+    fn test_chiller_without_eirfplr_curve_keeps_rated_cop_at_part_load() {
+        // A flat EIRFPLR = 1.0 fallback used to draw full-load power at any
+        // load, so COP fell to max(PLR, min_plr) × rated COP (1.75 at PLR 0.5).
+        // At the 29.4 °C reference, CAPFT = EIRFT = 1 and COP is rated.
+        let mut chiller = AirCooledChiller::new("No Curves", 100_000.0, 3.5, 7.0, 0.005);
+        let inlet = WaterPort::new(FluidState::water(12.0, 5.0));
+        let ctx = make_ctx(29.4);
+        // 0.1 is below min_plr (0.25) and exercises on/off cycling.
+        for plr in [0.1, 0.2, 0.25, 0.5, 0.75, 1.0] {
+            let load = plr * 100_000.0;
+            chiller.simulate_plant(&inlet, load, &ctx);
+            assert_relative_eq!(chiller.actual_capacity, load, epsilon = 1e-6);
+            assert_relative_eq!(chiller.electric_power, load / 3.5, epsilon = 1e-6);
+            assert_relative_eq!(chiller.actual_cop, 3.5, epsilon = 1e-9);
+        }
     }
 
     #[test]
