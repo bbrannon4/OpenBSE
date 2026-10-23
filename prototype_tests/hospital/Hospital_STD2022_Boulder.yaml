@@ -2425,6 +2425,7 @@ air_loops:
     name: VAV1 ERV
     source: wheel
     sensible_effectiveness: 0.70
+    cooling_sensible_effectiveness: 0.75  # E+ DOE prototype wheels: 0.70 heating, 0.75 cooling
     latent_effectiveness: 0.60
     parasitic_power: 3154.0
   - type: heating_coil
@@ -2560,6 +2561,7 @@ air_loops:
     name: VAV2 ERV
     source: wheel
     sensible_effectiveness: 0.70
+    cooling_sensible_effectiveness: 0.75  # E+ DOE prototype wheels: 0.70 heating, 0.75 cooling
     latent_effectiveness: 0.60
     parasitic_power: 2500.0
   - type: heating_coil
@@ -2715,6 +2717,7 @@ air_loops:
     name: VAV_ER ERV
     source: wheel
     sensible_effectiveness: 0.70
+    cooling_sensible_effectiveness: 0.75  # E+ DOE prototype wheels: 0.70 heating, 0.75 cooling
     latent_effectiveness: 0.60
     parasitic_power: 1500.0
   - type: heating_coil
@@ -2771,6 +2774,7 @@ air_loops:
     name: VAV_OR ERV
     source: wheel
     sensible_effectiveness: 0.70
+    cooling_sensible_effectiveness: 0.75  # E+ DOE prototype wheels: 0.70 heating, 0.75 cooling
     latent_effectiveness: 0.60
     parasitic_power: 1200.0
   - type: heating_coil
@@ -2827,6 +2831,7 @@ air_loops:
     name: VAV_ICU ERV
     source: wheel
     sensible_effectiveness: 0.70
+    cooling_sensible_effectiveness: 0.75  # E+ DOE prototype wheels: 0.70 heating, 0.75 cooling
     latent_effectiveness: 0.60
     parasitic_power: 1540.0
   - type: heating_coil
@@ -2894,6 +2899,7 @@ air_loops:
     name: VAV_PATRMS ERV
     source: wheel
     sensible_effectiveness: 0.70
+    cooling_sensible_effectiveness: 0.75  # E+ DOE prototype wheels: 0.70 heating, 0.75 cooling
     latent_effectiveness: 0.60
     parasitic_power: 3000.0
   - type: heating_coil
@@ -2957,6 +2963,7 @@ air_loops:
     name: VAV_LABS ERV
     source: wheel
     sensible_effectiveness: 0.70
+    cooling_sensible_effectiveness: 0.75  # E+ DOE prototype wheels: 0.70 heating, 0.75 cooling
     latent_effectiveness: 0.60
     parasitic_power: 1500.0
   - type: heating_coil

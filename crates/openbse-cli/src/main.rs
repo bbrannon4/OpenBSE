@@ -281,41 +281,6 @@ fn build_loop_infos(
                 }
             }
 
-            // Find the boiler efficiency for the HHW plant loop serving this
-            // loop's hot water coils (used for HR gas credit calculation).
-            let hhw_boiler_efficiency = {
-                use openbse_io::input::{EquipmentInput, PlantEquipmentInput};
-                // Find the plant loop name from the first HW coil's plant_loop field
-                let hw_plant_loop: Option<&str> = al.equipment.iter().find_map(|eq| {
-                    if let EquipmentInput::HeatingCoil(c) = eq {
-                        if c.source == "hot_water" {
-                            c.plant_loop.as_deref()
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                });
-                // Find the boiler on that plant loop
-                let eff = hw_plant_loop.and_then(|pl_name| {
-                    model
-                        .plant_loops
-                        .iter()
-                        .find(|pl| pl.name == pl_name)
-                        .and_then(|pl| {
-                            pl.supply_equipment.iter().find_map(|eq| {
-                                if let PlantEquipmentInput::Boiler(b) = eq {
-                                    Some(b.efficiency)
-                                } else {
-                                    None
-                                }
-                            })
-                        })
-                });
-                eff.unwrap_or(0.80) // Default 80% if no boiler found
-            };
-
             LoopInfo {
                 name: al.name.clone(),
                 system_type,
@@ -339,7 +304,6 @@ fn build_loop_infos(
                 terminal_min_flow,
                 dd_boxes,
                 heat_recovery_name,
-                hhw_boiler_efficiency,
                 dcv: al.dcv,
                 cooling_sat_reset: al.controls.cooling_sat_reset.clone(),
                 heating_sat_reset: al.controls.heating_sat_reset.clone(),
@@ -1971,7 +1935,7 @@ fn main() -> Result<()> {
                 // Unlike AHU components (sized to system-wide peaks), terminals
                 // are sized to their individual zone's peak loads:
                 //   max_air_flow    = zone peak design airflow [kg/s]
-                //   reheat_capacity = zone peak heating load [W] × 1.25 safety factor
+                //   reheat_capacity = see `terminal_reheat_capacity`
                 //
                 for li in &loop_infos {
                     for (zone_name, term_name) in &li.terminal_boxes {
@@ -1994,7 +1958,6 @@ fn main() -> Result<()> {
                                     );
                                 }
 
-                                // Size terminal reheat capacity from zone peak heating load
                                 if let Some(cap) = comp.nominal_capacity() {
                                     if is_autosize(cap) {
                                         let zone_heat = sizing_result
@@ -2003,9 +1966,26 @@ fn main() -> Result<()> {
                                             .copied()
                                             .unwrap_or(0.0)
                                             * model.simulation.heating_sizing_factor;
-                                        comp.set_nominal_capacity(zone_heat);
-                                        info!("Autosized terminal '{}' reheat capacity: {:.0} W ({:.1} kW)",
-                                        term_name, zone_heat, zone_heat / 1000.0);
+                                        let zone_temp = resolved_thermostats
+                                            .iter()
+                                            .find(|t| t.zones.contains(zone_name))
+                                            .map(|t| t.heating_setpoint)
+                                            .unwrap_or(21.0);
+                                        let reheat = terminal_reheat_capacity(
+                                            zone_heat,
+                                            comp.reheat_primary_air_flow().unwrap_or(0.0),
+                                            li.cooling_supply_temp,
+                                            zone_temp,
+                                        );
+                                        comp.set_nominal_capacity(reheat);
+                                        info!(
+                                            "Autosized terminal '{}' reheat capacity: {:.0} W \
+                                             ({:.1} kW; zone load {:.0} W)",
+                                            term_name,
+                                            reheat,
+                                            reheat / 1000.0,
+                                            zone_heat
+                                        );
                                     }
                                 }
                             }
@@ -2544,6 +2524,11 @@ fn main() -> Result<()> {
                             .iter()
                             .map(|z| (z.input.name.clone(), z.ideal_heating_load))
                             .collect();
+                        let loads_to_heating_sp: HashMap<String, f64> = env
+                            .zones
+                            .iter()
+                            .map(|z| (z.input.name.clone(), z.load_to_heating_setpoint))
+                            .collect();
 
                         // Single HVAC pass (no iterating during warmup — faster)
                         let empty_predictor: HashMap<String, f64> = HashMap::new();
@@ -2601,6 +2586,7 @@ fn main() -> Result<()> {
                             dt,
                             &current_cooling_loads,
                             &current_heating_loads,
+                            &loads_to_heating_sp,
                             &initial_zone_temps,
                             &zone_thermal_caps,
                             &empty_predictor,
@@ -2974,6 +2960,11 @@ fn main() -> Result<()> {
                             .iter()
                             .map(|z| (z.input.name.clone(), z.ideal_heating_load))
                             .collect();
+                        let mut loads_to_heating_sp: HashMap<String, f64> = env
+                            .zones
+                            .iter()
+                            .map(|z| (z.input.name.clone(), z.load_to_heating_setpoint))
+                            .collect();
 
                         let mut final_hvac_result = None;
                         let mut final_env_result = None;
@@ -3113,6 +3104,7 @@ fn main() -> Result<()> {
                                 dt,
                                 &current_cooling_loads,
                                 &current_heating_loads,
+                                &loads_to_heating_sp,
                                 &initial_zone_temps,
                                 &zone_thermal_caps,
                                 &predictor_no_hvac_temps,
@@ -3767,6 +3759,8 @@ fn main() -> Result<()> {
                                 if z.input.conditioned {
                                     current_heating_loads
                                         .insert(z.input.name.clone(), z.ideal_heating_load);
+                                    loads_to_heating_sp
+                                        .insert(z.input.name.clone(), z.load_to_heating_setpoint);
                                     current_cooling_loads
                                         .insert(z.input.name.clone(), z.ideal_cooling_load);
                                 }
@@ -5198,6 +5192,7 @@ fn simulate_all_loops(
     _dt: f64,
     zone_cooling_loads: &HashMap<String, f64>,
     zone_heating_loads: &HashMap<String, f64>,
+    zone_loads_to_heating_sp: &HashMap<String, f64>,
     initial_zone_temps: &HashMap<String, f64>,
     zone_thermal_caps: &HashMap<String, f64>,
     predictor_no_hvac_temps: &HashMap<String, f64>,
@@ -5355,57 +5350,6 @@ fn simulate_all_loops(
             zone_cool_sp
         };
 
-        // ── Heat Recovery Pre-Processing ────────────────────────────────
-        //
-        // If this loop has a heat recovery component, compute the effective
-        // outdoor air temperature and humidity AFTER the HR wheel.  The HR
-        // pre-conditions outdoor air using exhaust (return) air:
-        //
-        //   T_effective = T_outdoor + ε_s × (T_return - T_outdoor)
-        //   W_effective = W_outdoor + ε_l × (W_return - W_outdoor)
-        //
-        // ── Credit-based approach ───────────────────────────────────
-        //
-        // The HR is NOT included in the signal builder or component chain.
-        // Instead, the simulation runs as if there's no HR (using raw
-        // outdoor temp for ALL control decisions and mixed air calculations).
-        // After the component chain runs, we compute the HR's thermal
-        // recovery and apply it as a gas credit.
-        //
-        // This approach is necessary because the inline approach (using
-        // effective_t_outdoor in mixed air) causes paradoxical heating gas
-        // increases: warmer mixed air triggers cooling mode more often,
-        // dropping SAT to 12.8°C, which then requires massive terminal
-        // reheat from the boiler.  Until per-zone VAV flow modulation is
-        // implemented, the credit approach is more accurate.
-        //
-        // EXHAUST CONDITIONS: Use the zone HEATING SETPOINT (~21°C) as
-        // the design exhaust temperature.  Zones can be unrealistically
-        // cold (–60 to –140°C) because the simulation runs without HR.
-        // The setpoint represents the intended operating point.
-        if let Some(ref hr_name) = li.heat_recovery_name {
-            let avg_return_temp = if li.served_zones.is_empty() {
-                22.0
-            } else {
-                li.served_zones
-                    .iter()
-                    .map(|z| active_heat_sp.get(z).copied().unwrap_or(21.0))
-                    .sum::<f64>()
-                    / li.served_zones.len() as f64
-            };
-            let avg_return_w = openbse_psychrometrics::MoistAirState::from_tdb_rh(
-                avg_return_temp,
-                0.50,
-                ctx.outdoor_air.p_b,
-            )
-            .w;
-            if let Some(node_idx) = graph.node_by_name(hr_name) {
-                if let GraphComponent::Air(ref mut comp) = graph.component_mut(node_idx) {
-                    comp.set_exhaust_conditions(avg_return_temp, avg_return_w);
-                }
-            }
-        }
-
         // ── Predictor Mode ─────────────────────────────────────────────
         //
         // E+-style predictor for HVAC mode determination.
@@ -5553,7 +5497,8 @@ fn simulate_all_loops(
             zone_dc_return_temps,
             predictor_modes: &predictor_modes,
             t_outdoor,
-            // All AHU controls use raw t_outdoor; HR credit is applied post-chain.
+            // Controls see outdoor air before heat recovery, which is applied
+            // to the mixed air after the builder runs (see below).
             raw_t_outdoor: t_outdoor,
             w_outdoor,
             effective_min_oa,
@@ -5624,8 +5569,15 @@ fn simulate_all_loops(
             }
         }
 
-        // Filter heat recovery out of the component chain — it was already
-        // pre-processed above and its effect is baked into effective_t_outdoor.
+        // Heat recovery tempers the outdoor air before it mixes with return
+        // air, so it runs here, ahead of the coils, and folds its effect into
+        // the mixed air the chain starts from.
+        let hr_outputs = li.heat_recovery_name.clone().map(|hr_name| {
+            let outputs = apply_heat_recovery(graph, &hr_name, li, ctx, &mut signals, zone_temps);
+            (hr_name, outputs)
+        });
+
+        // Heat recovery already ran on the outdoor air; keep it out of the chain.
         let chain_components: Vec<String> = if let Some(ref hr_name) = li.heat_recovery_name {
             li.component_names
                 .iter()
@@ -5646,106 +5598,8 @@ fn simulate_all_loops(
             t_outdoor,
         );
 
-        // ── Post-process heat recovery: credit-based approach ─────────
-        //
-        // The simulation ran as if there's no HR (raw t_outdoor for all
-        // controls).  Now compute what the HR would recover and apply it
-        // as a gas/electric credit via virtual components.
-        if let Some(ref hr_name) = li.heat_recovery_name {
-            let oa_frac = signals.oa_fraction.unwrap_or(effective_min_oa);
-            let total_flow = supply_air.as_ref().map(|s| s.mass_flow).unwrap_or(0.0);
-            let oa_mass_flow = total_flow * oa_frac;
-
-            let mut hr_out = HashMap::new();
-            let mut hr_thermal = 0.0_f64;
-
-            if oa_mass_flow > 0.0 {
-                if let Some(node_idx) = graph.node_by_name(hr_name) {
-                    if let GraphComponent::Air(ref mut comp) = graph.component_mut(node_idx) {
-                        let oa_inlet = AirPort::new(ctx.outdoor_air, oa_mass_flow);
-                        let hr_outlet = comp.simulate_air(&oa_inlet, ctx);
-
-                        hr_thermal = comp.thermal_output();
-                        let hr_electric = comp.power_consumption();
-
-                        hr_out.insert("outlet_temp".to_string(), hr_outlet.state.t_db);
-                        hr_out.insert("outlet_w".to_string(), hr_outlet.state.w);
-                        hr_out.insert("mass_flow".to_string(), oa_mass_flow);
-                        hr_out.insert("outlet_enthalpy".to_string(), hr_outlet.state.h);
-                        hr_out.insert("electric_power".to_string(), hr_electric);
-                        hr_out.insert("fuel_power".to_string(), 0.0);
-                        hr_out.insert("thermal_output".to_string(), hr_thermal);
-                    }
-                }
-            } else {
-                hr_out.insert("outlet_temp".to_string(), t_outdoor);
-                hr_out.insert("outlet_w".to_string(), ctx.outdoor_air.w);
-                hr_out.insert("mass_flow".to_string(), 0.0);
-                hr_out.insert("outlet_enthalpy".to_string(), ctx.outdoor_air.h);
-                hr_out.insert("electric_power".to_string(), 0.0);
-                hr_out.insert("fuel_power".to_string(), 0.0);
-                hr_out.insert("thermal_output".to_string(), 0.0);
-            }
-
-            // ── Apply HR credit via virtual components ────────────────
-            //
-            // Cap credit at the AHU coil's heating/cooling load to prevent
-            // overcrediting.  The coil load = m_dot × cp × ΔT where ΔT
-            // is the difference between SAT and mixed air temp.
-            if hr_thermal > 0.0 {
-                // Winter heating credit: cap at what AHU coil actually provides
-                let avg_zt = if li.served_zones.is_empty() {
-                    22.0
-                } else {
-                    li.served_zones
-                        .iter()
-                        .map(|z| zone_temps.get(z).copied().unwrap_or(22.0))
-                        .sum::<f64>()
-                        / li.served_zones.len() as f64
-                };
-                let t_mixed = avg_zt * (1.0 - oa_frac) + t_outdoor * oa_frac;
-                // Use actual SAT setpoint from VAV signal builder (12.8-15.6°C)
-                // instead of heating_supply_temp (40°C) which is for terminal reheat.
-                // This prevents over-crediting HR by 6x.
-                let sat = if signals.sat_setpoint > 0.0 {
-                    signals.sat_setpoint
-                } else {
-                    li.heating_supply_temp
-                };
-                let coil_load = total_flow * 1005.0 * (sat - t_mixed).max(0.0);
-                let capped = hr_thermal.min(coil_load);
-                let gas_credit = capped / li.hhw_boiler_efficiency;
-                let credit_name = format!("{} HR Heat Savings", li.name);
-                let mut c = HashMap::new();
-                c.insert("fuel_power".to_string(), -gas_credit);
-                c.insert("electric_power".to_string(), 0.0);
-                c.insert("thermal_output".to_string(), 0.0);
-                loop_result.insert(credit_name, c);
-            } else if hr_thermal < 0.0 {
-                // Summer cooling credit
-                let avg_zt = if li.served_zones.is_empty() {
-                    22.0
-                } else {
-                    li.served_zones
-                        .iter()
-                        .map(|z| zone_temps.get(z).copied().unwrap_or(22.0))
-                        .sum::<f64>()
-                        / li.served_zones.len() as f64
-                };
-                let t_mixed = avg_zt * (1.0 - oa_frac) + t_outdoor * oa_frac;
-                let sat = li.cooling_supply_temp;
-                let coil_load = total_flow * 1005.0 * (t_mixed - sat).max(0.0);
-                let capped = hr_thermal.abs().min(coil_load);
-                let elec_credit = capped / 3.5; // chiller COP
-                let credit_name = format!("{} HR Cool Savings", li.name);
-                let mut c = HashMap::new();
-                c.insert("fuel_power".to_string(), 0.0);
-                c.insert("electric_power".to_string(), -elec_credit);
-                c.insert("thermal_output".to_string(), 0.0);
-                loop_result.insert(credit_name, c);
-            }
-
-            loop_result.insert(hr_name.clone(), hr_out);
+        if let Some((hr_name, outputs)) = hr_outputs {
+            loop_result.insert(hr_name, outputs);
         }
 
         // ── Pre-compute continuous fan heat for PLR correction ──
@@ -6190,7 +6044,8 @@ fn simulate_all_loops(
                         .unwrap_or(0.008);
                     let oa_frac = signals.oa_fraction.unwrap_or(0.0).clamp(0.0, 1.0);
                     let w_oa = signals.effective_oa_w.unwrap_or(ctx.outdoor_air.w);
-                    let t_mixed_off = (1.0 - oa_frac) * t_zone + oa_frac * t_outdoor;
+                    let t_oa = signals.effective_oa_temp.unwrap_or(t_outdoor);
+                    let t_mixed_off = (1.0 - oa_frac) * t_zone + oa_frac * t_oa;
                     let w_mixed_off = (1.0 - oa_frac) * w_zone + oa_frac * w_oa;
                     let t_off = t_mixed_off + continuous_fan_heat_rise;
                     let t_avg = loop_plr * supply_temp + (1.0 - loop_plr) * t_off;
@@ -6306,16 +6161,43 @@ fn simulate_all_loops(
                         }
                     } else {
                         match mode {
-                            HvacMode::Heating if zone_heat_load > 0.0 => {
-                                (zone_heat_load / reheat_cap).clamp(0.0, 1.0)
-                            }
                             HvacMode::Cooling if zone_cool_load > 0.0 => {
                                 let frac = ((desired_zone_flow - min_flow)
                                     / (vav_max_flow - min_flow).max(0.001))
                                 .clamp(0.0, 1.0);
                                 -frac
                             }
-                            _ => 0.0, // Deadband or no load
+                            // Heating and deadband (E+ SimVAV): reheat whenever the
+                            // load to the heating setpoint plus warming the primary
+                            // air to the zone is positive. In deadband that load is
+                            // negative (what the zone can lose before reaching the
+                            // setpoint), so the coil makes up only what the cold
+                            // minimum flow would take beyond it. Reheating the zone
+                            // load alone left every heating zone short by the
+                            // primary-air term, and deadband zones were overcooled
+                            // below setpoint by minimum flow every other timestep.
+                            _ => {
+                                let load = zone_loads_to_heating_sp
+                                    .get(zone_name)
+                                    .copied()
+                                    .unwrap_or(zone_heat_load);
+                                let reheat = graph
+                                    .node_by_name(term_name)
+                                    .and_then(|idx| match graph.component(idx) {
+                                        GraphComponent::Air(c) => c.reheat_for_zone_load(
+                                            load,
+                                            zone_temp_init,
+                                            supply.state.t_db,
+                                        ),
+                                        _ => None,
+                                    })
+                                    .unwrap_or(if mode == HvacMode::Heating {
+                                        zone_heat_load
+                                    } else {
+                                        0.0
+                                    });
+                                (reheat / reheat_cap).clamp(0.0, 1.0)
+                            }
                         }
                     };
 
@@ -6554,6 +6436,106 @@ fn simulate_loop_components(
     (outputs, last_outlet)
 }
 
+/// Run a loop's heat recovery on its outdoor air and fold the result into
+/// the mixed air `signals` hand to the coils; returns the unit's outputs.
+///
+/// The unit sits in the outdoor-air stream ahead of the mixing box, as an
+/// E+ `HeatExchanger:AirToAir:SensibleAndLatent` in the outdoor air system,
+/// with the return air as its exhaust stream. As in E+:
+/// - it is off while the economizer admits more than minimum outdoor air
+///   (`Economizer Lockout = Yes`), so it never fights free cooling;
+/// - with a supply air temperature setpoint (VAV), its outlet is held to the
+///   temperature that puts the mixed air on the setpoint less the supply fan
+///   rise (`SetpointManager:OutdoorAirPretreat`, supply air outlet
+///   temperature control), so it never warms the mixed air past what the
+///   cooling coil, and then the terminals' reheat, would have to undo.
+///
+/// It used to be left out of the air path and booked afterwards as a
+/// negative-fuel "HR Heat Savings" credit sized from an estimated coil load,
+/// which could exceed the gas the boiler actually burned.
+fn apply_heat_recovery(
+    graph: &mut SimulationGraph,
+    hr_name: &str,
+    li: &LoopInfo,
+    ctx: &SimulationContext,
+    signals: &mut ControlSignals,
+    zone_temps: &HashMap<String, f64>,
+) -> HashMap<String, f64> {
+    let oa = ctx.outdoor_air;
+    let oa_frac = signals.oa_fraction.unwrap_or(0.0).clamp(0.0, 1.0);
+    let total_flow = signals
+        .air_mass_flows
+        .get(hr_name)
+        .copied()
+        .or_else(|| signals.air_mass_flows.values().copied().reduce(f64::max))
+        .unwrap_or(0.0);
+    let oa_flow = total_flow * oa_frac;
+
+    let mut outputs: HashMap<String, f64> = [
+        ("outlet_temp", oa.t_db),
+        ("outlet_w", oa.w),
+        ("mass_flow", 0.0),
+        ("outlet_enthalpy", oa.h),
+        ("electric_power", 0.0),
+        ("fuel_power", 0.0),
+        ("thermal_output", 0.0),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v))
+    .collect();
+
+    let Some(mixed) = signals.mixed_air_temp else {
+        return outputs;
+    };
+    if oa_flow <= 0.0 || signals.economizer_active {
+        return outputs;
+    }
+    let Some(GraphComponent::Air(comp)) = graph
+        .node_by_name(hr_name)
+        .map(|idx| graph.component_mut(idx))
+    else {
+        return outputs;
+    };
+
+    // Exhaust stream: the return air from the served zones.
+    let n_zones = li.served_zones.len().max(1) as f64;
+    let t_return = li
+        .served_zones
+        .iter()
+        .map(|z| zone_temps.get(z).copied().unwrap_or(21.0))
+        .sum::<f64>()
+        / n_zones
+        + li.return_fan_dt;
+    let w_return = signals.return_air_w.unwrap_or(oa.w);
+    comp.set_exhaust_conditions(t_return, w_return);
+
+    // The mixed air moves `oa_frac` K per K of outdoor-air change, so the
+    // outlet that lands it on its setpoint is (E+ OutdoorAirPretreat):
+    let setpoint = if signals.sat_setpoint > 0.0 {
+        let mixed_setpoint = signals.sat_setpoint - li.supply_fan_dt;
+        (oa.t_db + (mixed_setpoint - mixed) / oa_frac).clamp(-99.0, 99.0)
+    } else {
+        f64::NAN // no setpoint: full recovery
+    };
+    comp.set_setpoint(setpoint);
+
+    let outlet = comp.simulate_air(&AirPort::new(oa, oa_flow), ctx);
+    signals.mixed_air_temp = Some(mixed + oa_frac * (outlet.state.t_db - oa.t_db));
+    signals.effective_oa_temp = Some(outlet.state.t_db);
+    signals.effective_oa_w = Some(outlet.state.w);
+
+    outputs.insert("outlet_temp".to_string(), outlet.state.t_db);
+    outputs.insert("outlet_w".to_string(), outlet.state.w);
+    outputs.insert("mass_flow".to_string(), oa_flow);
+    outputs.insert("outlet_enthalpy".to_string(), outlet.state.h);
+    outputs.insert("electric_power".to_string(), comp.power_consumption());
+    outputs.insert("thermal_output".to_string(), comp.thermal_output());
+    comp.report_outputs(&mut |k, v| {
+        outputs.insert(k.to_string(), v);
+    });
+    outputs
+}
+
 // ─── Legacy simulate_hvac (HVAC-only mode) ───────────────────────────────────
 //
 // Used when there's no envelope (pure HVAC simulation with user-defined controls).
@@ -6654,6 +6636,22 @@ fn simulate_hvac(
 
 // ─── Utility Functions ───────────────────────────────────────────────────────
 
+/// Design reheat capacity of a terminal unit [W], after EnergyPlus terminal
+/// unit sizing (`SingleDuct.cc`): the zone's design heating load plus warming
+/// the primary air the unit passes while reheating, from the air handler's
+/// supply temperature to the zone (a credit when the supply is warmer).
+/// Without the second term a zone with no design heating load, such as one
+/// with large internal gains, got 0 W and froze on cold primary air.
+fn terminal_reheat_capacity(
+    zone_heat_load: f64,
+    primary_flow: f64,
+    supply_temp: f64,
+    zone_temp: f64,
+) -> f64 {
+    let cp_air = 1006.0;
+    (zone_heat_load + cp_air * primary_flow * (zone_temp - supply_temp)).max(0.0)
+}
+
 /// Record severe errors found after validation in the `.err` file and return
 /// the error that stops the run.
 fn stop_on_severe(
@@ -6734,6 +6732,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn terminal_reheat_covers_warming_primary_air() {
+        // A zone with no design heating load (the Hospital labs) still needs
+        // reheat: 1 kg/s of 12.8 °C primary air warmed to a 21 °C zone.
+        let reheat = terminal_reheat_capacity(0.0, 1.0, 12.8, 21.0);
+        assert!((reheat - 1006.0 * 8.2).abs() < 1e-6, "{reheat}");
+        // The zone load adds on top.
+        let reheat = terminal_reheat_capacity(5000.0, 1.0, 12.8, 21.0);
+        assert!((reheat - (5000.0 + 1006.0 * 8.2)).abs() < 1e-6, "{reheat}");
+        // Primary air warmer than the zone offsets the load (E+ "plus or
+        // minus"), but never below zero.
+        assert_eq!(terminal_reheat_capacity(1000.0, 1.0, 30.0, 21.0), 0.0);
+    }
+
+    #[test]
     fn test_hot_aisle_return_conserves_it_heat() {
         // #62: the heat the unit sees above room temperature must be exactly the
         // heat removed from the room, and never more than the captured IT heat.
@@ -6785,7 +6797,6 @@ mod tests {
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
-            hhw_boiler_efficiency: 0.8,
             dcv: false,
             cooling_sat_reset: None,
             heating_sat_reset: None,
@@ -6827,7 +6838,6 @@ mod tests {
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
-            hhw_boiler_efficiency: 0.8,
             dcv: false,
             cooling_sat_reset: None,
             heating_sat_reset: None,
@@ -7779,7 +7789,6 @@ mod tests_datacenter {
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
-            hhw_boiler_efficiency: 0.8,
             dcv: false,
             cooling_sat_reset: None,
             heating_sat_reset: None,

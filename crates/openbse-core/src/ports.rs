@@ -200,6 +200,27 @@ pub trait AirComponent: std::fmt::Debug {
     /// Set the nominal capacity (called during autosizing).
     fn set_nominal_capacity(&mut self, _cap: f64) {}
 
+    /// Primary (air-handler) air mass flow a reheat terminal passes while
+    /// heating [kg/s]. Reheat sizing must warm this air from the AHU supply
+    /// temperature to the zone, on top of the zone's own heating load
+    /// (EnergyPlus terminal-unit sizing). `None` for anything else.
+    fn reheat_primary_air_flow(&self) -> Option<f64> {
+        None
+    }
+
+    /// Reheat [W] a terminal must add so a zone at `zone_temp` receives
+    /// `zone_load` [W] of heat from primary air entering at `inlet_temp`:
+    /// the load plus warming the primary air it passes to the zone
+    /// (EnergyPlus VAV reheat control). `None` for anything else.
+    fn reheat_for_zone_load(
+        &self,
+        _zone_load: f64,
+        _zone_temp: f64,
+        _inlet_temp: f64,
+    ) -> Option<f64> {
+        None
+    }
+
     /// Input fields (by YAML key, e.g. `"capacity"`) that still hold the
     /// [`AUTOSIZE`](crate::types::AUTOSIZE) sentinel.
     ///

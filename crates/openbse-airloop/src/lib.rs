@@ -77,11 +77,8 @@ pub struct LoopInfo {
     /// Prevents post-sizing auto-recalculation from overriding the user value.
     pub explicit_min_oa: bool,
     /// Name of the heat recovery component (if any) in this loop.
-    /// Used for pre-processing heat recovery before the signal builder.
+    /// Simulated on the outdoor air ahead of the component chain.
     pub heat_recovery_name: Option<String>,
-    /// Efficiency of the boiler serving this loop's HW coils.
-    /// Used to convert HR thermal credit to gas savings.
-    pub hhw_boiler_efficiency: f64,
     /// Demand-controlled ventilation enabled for this loop.
     pub dcv: bool,
     /// Cooling SAT reset configuration (cloned from AirLoopControls).
@@ -628,6 +625,7 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     // Inject mixed air temperature, OA fraction, and PLR
     signals.mixed_air_temp = Some(mixed_air_temp);
     signals.oa_fraction = Some(oa_frac);
+    signals.economizer_active = oa_frac > effective_min_oa + 1e-6;
     signals.loop_plr = Some(plr);
 
     signals
@@ -1623,8 +1621,9 @@ pub fn build_vav_signals(
     // Inject mixed air temp + OA fraction
     signals.mixed_air_temp = Some(mixed_air_temp);
     signals.oa_fraction = Some(oa_frac);
+    signals.economizer_active = oa_frac > vrp_min_oa + 1e-6;
 
-    // Store SAT setpoint for heat recovery credit cap calculation
+    // The mixed-air target heat recovery is throttled to.
     signals.sat_setpoint = sat_setpoint;
 
     signals
@@ -1854,7 +1853,6 @@ mod tests {
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
-            hhw_boiler_efficiency: 0.8,
             dcv: false,
             cooling_sat_reset: None,
             heating_sat_reset: None,
