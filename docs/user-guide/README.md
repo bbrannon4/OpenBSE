@@ -574,7 +574,7 @@ plant_loops:
 | `min_plr` | 0.25 | Minimum part-load ratio before cycling |
 | `capft` | (none) | Capacity-f(T) biquadratic curve (x=leaving CHW, y=entering CW) |
 | `eirft` | (none) | EIR-f(T) biquadratic curve |
-| `eirfplr` | (none) | EIR-f(PLR) quadratic curve |
+| `eirfplr` | EIRFPLR = PLR | EIR-f(PLR) quadratic curve. The default keeps the rated COP at every part load |
 
 #### Cooling Towers
 
