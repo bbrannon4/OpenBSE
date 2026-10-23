@@ -4908,6 +4908,75 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
         }
     }
 
+    // ── Validate air loop heating supply temperature ───────────────────────
+    //
+    // Single-zone, packaged terminal and dual-duct systems heat a zone only
+    // with their supply air, held at `heating_supply_temp` (or ramped up to
+    // it). At or below the zone's heating setpoint that air cannot heat the
+    // zone: it goes under-heated and is even cooled when it calls for heat.
+    // VAV and DOAS air is reheated or heated elsewhere, and fan coils set
+    // their own heating target, so a low value is normal there. A supply air
+    // reset moves the temperature at run time, so those loops are skipped.
+
+    let thermostats = resolve_thermostats(model);
+    let peak_heating_setpoint = |zone: &str| -> Option<f64> {
+        thermostats
+            .iter()
+            .filter(|t| t.zones.iter().any(|z| z == zone))
+            .flat_map(|t| {
+                std::iter::once(t.heating_setpoint)
+                    .chain(t.thermostat_schedule.iter().map(|e| e.heating_setpoint))
+            })
+            .reduce(f64::max)
+    };
+    for al in &model.air_loops {
+        let heats_with_supply_air = matches!(
+            al.detect_system_type(),
+            AirLoopSystemType::PszAc
+                | AirLoopSystemType::Ptac
+                | AirLoopSystemType::Pthp
+                | AirLoopSystemType::DualDuct
+        );
+        let has_heating = al.equipment.iter().any(|eq| {
+            matches!(
+                eq,
+                EquipmentInput::HeatingCoil(_) | EquipmentInput::Gshp(_) | EquipmentInput::Wshp(_)
+            )
+        });
+        let reset = al.controls.heating_sat_reset.is_some()
+            || matches!(
+                al.controls.cooling_sat_reset,
+                Some(SatResetConfig::SingleZone { .. })
+            );
+        if !heats_with_supply_air || !has_heating || reset {
+            continue;
+        }
+        let supply = al.controls.heating_supply_temp;
+        let unheatable: Vec<String> = al
+            .zone_terminals
+            .iter()
+            .filter_map(|zt| {
+                let setpoint = peak_heating_setpoint(&zt.zone)?;
+                (supply <= setpoint).then(|| format!("'{}' ({:.1} °C)", zt.zone, setpoint))
+            })
+            .collect();
+        if !unheatable.is_empty() {
+            let (zones, those) = if unheatable.len() == 1 {
+                ("zone", "that zone")
+            } else {
+                ("zones", "those zones")
+            };
+            result.warn(format!(
+                "AirLoop '{}' heating_supply_temp ({:.1} °C) is not above the heating setpoint \
+                 of {zones} {}, so its supply air cannot heat {those}. Raise \
+                 heating_supply_temp above the setpoint, or heat the zone another way",
+                al.name,
+                supply,
+                unheatable.join(", ")
+            ));
+        }
+    }
+
     // ── Validate plant loop connections ────────────────────────────────────
 
     crate::plant::validate_plant_connections(model, &mut result);
@@ -5102,6 +5171,77 @@ surfaces:
         assert!(
             report.contains("Construction 'NoMass' referenced by internal_mass of zone 'Room'"),
             "{report}"
+        );
+    }
+
+    /// An air loop serving one zone held at 21 °C in heating.
+    fn heating_supply_model(system: &str, heating_supply_temp: f64) -> ModelInput {
+        parse_model_yaml(&format!(
+            r#"
+simulation: {{}}
+weather_files: []
+zones:
+  - name: Kitchen
+thermostats:
+  - {{name: Stat, zones: [Kitchen], heating_setpoint: 21.0, cooling_setpoint: 24.0}}
+air_loops:
+  - name: CAV_KITCHEN
+    system_type: {system}
+    controls:
+      heating_supply_temp: {heating_supply_temp}
+    equipment:
+      - {{type: heating_coil, name: Coil, source: electric, capacity: 10000, setpoint: 35.0}}
+      - {{type: fan, name: Fan, source: constant_volume, design_flow_rate: 1.0, pressure_rise: 500.0}}
+    zone_terminals:
+      - zone: Kitchen
+"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn validation_warns_when_supply_air_cannot_heat_the_zone() {
+        let validation = validate_model(&heating_supply_model("psz_ac", 12.8));
+        let report = validation.to_err_file();
+        assert_eq!(validation.error_count(), 0, "{report}");
+        assert_eq!(validation.warning_count(), 1, "{report}");
+        assert!(
+            report.contains(
+                "** Warning ** AirLoop 'CAV_KITCHEN' heating_supply_temp (12.8 °C) is not above \
+                 the heating setpoint of zone 'Kitchen' (21.0 °C), so its supply air cannot \
+                 heat that zone"
+            ),
+            "{report}"
+        );
+
+        let validation = validate_model(&heating_supply_model("psz_ac", 35.0));
+        assert_eq!(
+            validation.warning_count(),
+            0,
+            "{}",
+            validation.to_err_file()
+        );
+        // A VAV air handler's low heating supply temperature is normal: its
+        // zones are heated by their terminals' reheat.
+        let validation = validate_model(&heating_supply_model("vav", 12.8));
+        assert_eq!(
+            validation.warning_count(),
+            0,
+            "{}",
+            validation.to_err_file()
+        );
+        // A single-zone reset sets the supply temperature at run time.
+        let mut reset = heating_supply_model("psz_ac", 12.8);
+        reset.air_loops[0].controls.cooling_sat_reset = Some(SatResetConfig::SingleZone {
+            sat_min: 12.8,
+            sat_max: 40.0,
+        });
+        let validation = validate_model(&reset);
+        assert_eq!(
+            validation.warning_count(),
+            0,
+            "{}",
+            validation.to_err_file()
         );
     }
 

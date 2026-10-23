@@ -403,6 +403,12 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     //   smooth modulation for systems with variable-capacity burners.
     let heating_dat = match li.cycling {
         openbse_io::input::CyclingMethod::OnOff => li.heating_supply_temp,
+        // A heating supply temperature at or below the setpoint leaves nothing
+        // to ramp (validation warns that the loop cannot heat the zone), and
+        // clamping between the two would panic; hold the supply temperature.
+        openbse_io::input::CyclingMethod::Proportional if li.heating_supply_temp <= heat_sp => {
+            li.heating_supply_temp
+        }
         openbse_io::input::CyclingMethod::Proportional => {
             let error = (heat_sp - control_temp).max(0.0);
             (heat_sp + (li.heating_supply_temp - heat_sp) * (error / 5.0).min(1.0))
@@ -1955,6 +1961,36 @@ mod tests {
         assert_eq!(
             signals.coil_setpoints.get("DX Cooling Coil").copied(),
             Some(99.0)
+        );
+    }
+
+    #[test]
+    fn psz_proportional_heating_below_setpoint_holds_supply_temp() {
+        // The Hospital kitchen loop: a 12.8 °C heating supply temperature
+        // under a 21 °C setpoint used to panic in the proportional ramp's
+        // clamp(heat_sp, heating_supply_temp).
+        let mut li = make_loop(
+            AirLoopSystemType::PszAc,
+            vec!["Gas Furnace".to_string(), "DX Cooling Coil".to_string()],
+        );
+        li.cycling = CyclingMethod::Proportional;
+        li.heating_supply_temp = 12.8;
+        let f = Fixture {
+            temps: one("Zone1", 15.0),
+            heat_sp: one("Zone1", 21.0),
+            cool_sp: one("Zone1", 24.0),
+            flows: one("Zone1", 0.5),
+            cool_loads: one("Zone1", 0.0),
+            heat_loads: one("Zone1", 2000.0),
+            modes: [("Zone1".to_string(), HvacMode::Heating)]
+                .into_iter()
+                .collect(),
+            empty: HashMap::new(),
+        };
+        let signals = build_psz_signals(&li, &f.ctx(-5.0));
+        assert_eq!(
+            signals.coil_setpoints.get("Gas Furnace").copied(),
+            Some(12.8)
         );
     }
 
