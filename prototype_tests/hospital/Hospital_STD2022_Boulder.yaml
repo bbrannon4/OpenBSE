@@ -3009,7 +3009,9 @@ air_loops:
   system_type: psz_ac
   controls:
     cooling_supply_temp: 12.8
-    heating_supply_temp: 12.8
+    # E+ SetpointManager:SingleZone:Heating/Cooling on Kitchen_Flr_5 range
+    # 12.8-40 C, so in heating the supply air reaches up to 40 C.
+    heating_supply_temp: 40.0
     design_zone_flow: autosize
     cycling: proportional
     minimum_damper_position: 0.3
