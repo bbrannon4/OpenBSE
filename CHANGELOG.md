@@ -57,6 +57,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Validation now warns, naming the loop and each zone with its setpoint. VAV, DOAS and fan-coil loops are not checked, because their zones are reheated or the unit sets its own target. Loops with a supply-air reset are not checked either.
   - When there is nothing to ramp, the loop now holds `heating_supply_temp` instead of panicking. The single-zone reset can also push the temperature below the setpoint during a run.
   - `prototype_tests/hospital/Hospital_STD2022_Boulder.yaml` crashed this way in warmup and runs again. Its `CAV_KITCHEN` loop had copied only the 12.8 °C minimum of its EnergyPlus single-zone setpoint managers (12.8–40 °C), so it now heats at up to 40 °C.
+- **Heat recovery runs in the air stream, as in EnergyPlus.** An energy recovery wheel or plate used to be left out of the air path. The air handler saw raw outdoor air, and the recovered heat was booked afterwards as a negative-fuel "HR Heat Savings" credit, sized from an estimated coil load. In the Hospital those credits (about −1,600 MWh) outweighed the 688 MWh the boiler burned. The summary clamped the negative total to zero, so it reported no heating gas at all.
+  - The unit now tempers the outdoor air ahead of the mixing box, with EnergyPlus's controls. It is off while the economizer admits more than minimum outdoor air (`Economizer Lockout`). It is throttled so the mixed air does not pass its setpoint, the supply temperature less the fan rise (`SetpointManager:OutdoorAirPretreat` with supply-air temperature control).
+  - New `cooling_sensible_effectiveness` input: EnergyPlus's separate cooling-season value. The Hospital wheels now use 0.70 in heating and 0.75 in cooling, as in its E+ model.
+  - The credits and the clamp at zero are gone, so a negative gas total would now show.
+- **VAV reheat is sized and controlled as in EnergyPlus.**
+  - **Sizing.** Autosized reheat is now the zone's design heating load plus warming the box's reheat airflow from the air handler's supply temperature to the zone. It was the zone load alone, so a zone with no design heating load (large internal gains) got 0 W. Nine Hospital boxes got 0 W (labs, operating rooms, ER and ICU rooms, corridors), and those zones dropped as low as 1.6 °C.
+  - **Control.** The box now reheats by the load to the heating setpoint plus the warming of its primary air, in heating and in deadband (E+ `SimVAV`). Before, it reheated by the zone load alone: heating zones fell short by the primary-air term, and deadband zones were dragged below setpoint by cold minimum flow.
+  - **Damper.** The damper opens past minimum only when the reheat would exceed `max_reheat_temp` (`ReverseWithLimits`). It used to open in proportion to the load over the coil capacity, so a bigger coil opened it less.
+  - Annual results that change (heating energy; unmet heating hours):
+    - `Hospital_STD2022_Boulder`: gas 70.7 MWh (reported as 0 before); 71,148 → 6.
+    - `LargeOffice_Boulder`: gas 574 → 688 MWh (+20%); −5%.
+    - `LargeOffice_Boulder_expanded`: gas +18%; −3%.
+    - `vav_chw_plant`, `vav_chw_plant_a205` and `cosim_chiller`: gas +5.5%; 147 → 0.
+    - `vav_a205_fan_and_chiller` and `vav_a205_motor_override`: gas +24%; 41 → 0.
+    - `chiller_table_curves`: electric −1%; 1,969 → 1,611.
+
+    ASHRAE 140 is unchanged: its terminal-reheat cases fix their reheat capacity and hold minimum flow while reheating.
+  - **Still off from EnergyPlus.** Hospital heating gas is about a tenth of the E+ value (666 MWh). Its VAV minimum flows are below E+'s: 0.5 against 1.0 for the labs and ICU rooms, 0.3 against 0.5 for the patient rooms. LargeOffice heating gas was already 42% above E+ (405 MWh) and is now 70% above. Both gaps need their own investigation.
 - **Water heaters exchange heat with the zone they sit in, and heat pump water heaters follow EnergyPlus** (#61).
   - **`ambient_zone` now works.** It was accepted but ignored, so every tank lost heat to a fixed 20 °C. The tank now loses heat at that zone's air temperature, and the losses warm the zone. This changes `ApartmentMidRise_Boulder` (tank in G Corridor, as in its E+ model): DHW gas −0.5%, heating gas −1.6%, cooling +0.9%.
   - **Heat pump capacity and COP vary.** They are now the rated values times curves of evaporator-inlet wet-bulb and tank water temperature, after EnergyPlus `Coil:WaterHeating:AirToWaterHeatPump`, instead of a fixed COP. COP falls as the tank heats up and rises with warmer air. `efficiency` is the COP at the rating point (19.7 °C dry-bulb / 13.5 °C wet-bulb air, 57.5 °C water). By default the curves are EnergyPlus's example HPWH curves rescaled to 1.0 at that point; `capacity_curve` and `cop_curve` override them.

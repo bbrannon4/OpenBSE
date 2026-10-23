@@ -82,8 +82,12 @@ pub struct ControlSignals {
     pub zone_supply_temps: HashMap<String, f64>,
     /// Zone air flows: zone_name -> mass_flow [kg/s]
     pub zone_air_flows: HashMap<String, f64>,
-    /// SAT setpoint from VAV signal builder [°C], used for HR credit cap.
+    /// SAT setpoint from the VAV signal builder [°C] (0 when unset); the
+    /// mixed-air target that heat recovery is throttled to.
     pub sat_setpoint: f64,
+    /// Whether the economizer is admitting more than minimum outdoor air;
+    /// heat recovery is locked out then (E+ `Economizer Lockout = Yes`).
+    pub economizer_active: bool,
 
     // ── Loop-level signals ──────────────────────────────────────────────
     // Previously smuggled through `coil_setpoints` as "__sentinel__" string
@@ -95,6 +99,8 @@ pub struct ControlSignals {
     pub oa_fraction: Option<f64>,
     /// Loop part-load ratio for systems that modulate internally [0-1].
     pub loop_plr: Option<f64>,
+    /// Post-heat-recovery outdoor air temperature [°C].
+    pub effective_oa_temp: Option<f64>,
     /// Post-heat-recovery outdoor air humidity ratio [kg/kg].
     pub effective_oa_w: Option<f64>,
     /// Served-zone average return-air humidity ratio [kg/kg].

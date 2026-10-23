@@ -1587,9 +1587,15 @@ pub struct HeatRecoveryInput {
     /// Heat recovery source: "wheel", "plate", "runaround_coil"
     #[serde(default = "default_hr_source")]
     pub source: String,
-    /// Sensible effectiveness at design conditions [0-1]
+    /// Sensible effectiveness at design conditions [0-1]; with
+    /// `cooling_sensible_effectiveness` set, the heating-season value
     #[serde(default = "default_sensible_effectiveness")]
     pub sensible_effectiveness: f64,
+    /// Sensible effectiveness when the unit cools the outdoor air [0-1]
+    /// (E+ "Sensible Effectiveness at 100% Cooling Air Flow"). Default: the
+    /// `sensible_effectiveness` value.
+    #[serde(default)]
+    pub cooling_sensible_effectiveness: Option<f64>,
     /// Latent effectiveness at design conditions [0-1] (0.0 for sensible-only)
     #[serde(default)]
     pub latent_effectiveness: f64,
@@ -3555,6 +3561,7 @@ fn build_graph_impl(
                     let mut erv = erv;
                     erv.submeter = hr.submeter.clone();
                     erv.exhaust_flow_ratio = hr.exhaust_flow_ratio;
+                    erv.cooling_sensible_effectiveness = hr.cooling_sensible_effectiveness;
                     graph.add_air_component(Box::new(erv))
                 }
                 EquipmentInput::Humidifier(h) => {

@@ -54,8 +54,20 @@ pub struct HeatRecovery {
     /// Q = ε · C_min · ΔT with C_min = min(C_supply, ratio·C_supply).
     #[serde(default = "default_exhaust_flow_ratio")]
     pub exhaust_flow_ratio: f64,
+    /// Sensible effectiveness when cooling the outdoor air (outdoor warmer
+    /// than exhaust) [0-1]. `None` uses `sensible_effectiveness`, which then
+    /// applies in both seasons (E+ has separate heating/cooling inputs).
+    #[serde(default)]
+    pub cooling_sensible_effectiveness: Option<f64>,
 
     // ─── Runtime state (not serialized) ─────────────────────────────────
+    /// Supply-outlet temperature setpoint [°C] for this timestep, as E+
+    /// `Supply Air Outlet Temperature Control = Yes` with an
+    /// `OutdoorAirPretreat` setpoint: recovery is throttled so the outlet
+    /// does not cross the setpoint, and stops when it would move the outlet
+    /// away from it. `None` runs at full effectiveness.
+    #[serde(skip)]
+    pub supply_outlet_setpoint: Option<f64>,
     /// Sensible heat recovery rate [W] (positive = heating supply air)
     #[serde(skip)]
     pub sensible_recovery: f64,
@@ -98,6 +110,8 @@ impl HeatRecovery {
             exhaust_air_w: 0.008,
             parasitic_power,
             exhaust_flow_ratio: 1.0,
+            cooling_sensible_effectiveness: None,
+            supply_outlet_setpoint: None,
             sensible_recovery: 0.0,
             latent_recovery: 0.0,
             electric_power: 0.0,
@@ -116,6 +130,8 @@ impl HeatRecovery {
             exhaust_air_w: 0.008,
             parasitic_power,
             exhaust_flow_ratio: 1.0,
+            cooling_sensible_effectiveness: None,
+            supply_outlet_setpoint: None,
             sensible_recovery: 0.0,
             latent_recovery: 0.0,
             electric_power: 0.0,
@@ -127,6 +143,30 @@ impl HeatRecovery {
     pub fn set_exhaust_conditions(&mut self, temp: f64, w: f64) {
         self.exhaust_air_temp = temp;
         self.exhaust_air_w = w;
+    }
+
+    /// Fraction of full recovery to run [0-1] against the supply-outlet
+    /// setpoint, as E+ `CalcAirToAirGenericHeatExch` does with
+    /// `ControlToTemperatureSetPoint`: throttle so the outlet lands on the
+    /// setpoint when full recovery would cross it, run fully when it only
+    /// moves the outlet toward it, and stop when it would move it away.
+    fn control_fraction(&self, t_in: f64, full_outlet_t: f64) -> f64 {
+        let Some(sp) = self.supply_outlet_setpoint else {
+            return 1.0;
+        };
+        if (t_in - full_outlet_t).abs() < 1e-12 {
+            return 0.0;
+        }
+        let crosses = (full_outlet_t > sp && t_in < sp) || (t_in > sp && full_outlet_t < sp);
+        let toward = (t_in < full_outlet_t && full_outlet_t < sp)
+            || (t_in > full_outlet_t && full_outlet_t > sp);
+        if crosses {
+            ((t_in - sp) / (t_in - full_outlet_t)).abs().clamp(0.0, 1.0)
+        } else if toward {
+            1.0
+        } else {
+            0.0
+        }
     }
 }
 
@@ -175,17 +215,27 @@ impl AirComponent for HeatRecovery {
 
         // Positive Q means heating the outdoor air (winter), negative means
         // cooling (summer).
-        let q_sensible = self.sensible_effectiveness * c_min * (t_exh - t_oa);
+        let sensible_eff = if t_oa > t_exh {
+            self.cooling_sensible_effectiveness
+                .unwrap_or(self.sensible_effectiveness)
+        } else {
+            self.sensible_effectiveness
+        };
+        let full_outlet_t = t_oa + sensible_eff * c_min * (t_exh - t_oa) / c_supply;
+        let control = self.control_fraction(t_oa, full_outlet_t);
 
+        let q_sensible = control * sensible_eff * c_min * (t_exh - t_oa);
         let outlet_t = t_oa + q_sensible / c_supply;
 
         // ── Latent recovery (enthalpy wheel only) ───────────────────────
+        // Throttling a rotary wheel slows it, which cuts latent transfer by
+        // the same fraction (E+ scales both effectivenesses).
         let latent_eff = match self.hr_type {
             HeatRecoveryType::EnthalpyWheel => self.latent_effectiveness,
             HeatRecoveryType::PlateHX => 0.0,
         };
 
-        let delta_w = latent_eff * flow_ratio * (w_exh - w_oa);
+        let delta_w = control * latent_eff * flow_ratio * (w_exh - w_oa);
         let outlet_w = (w_oa + delta_w).max(psych::w_fn_tdb_rh_pb(-100.0, 0.0, inlet.state.p_b));
         let q_latent = inlet.mass_flow * HFG * delta_w;
 
@@ -218,6 +268,16 @@ impl AirComponent for HeatRecovery {
         self.exhaust_air_w = w;
     }
 
+    /// Supply-outlet temperature setpoint; a non-finite value (NaN) clears
+    /// it, so the unit runs at full effectiveness.
+    fn set_setpoint(&mut self, setpoint: f64) {
+        self.supply_outlet_setpoint = setpoint.is_finite().then_some(setpoint);
+    }
+
+    fn setpoint(&self) -> Option<f64> {
+        self.supply_outlet_setpoint
+    }
+
     fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
         out("sensible_load", self.sensible_recovery);
         out("latent_load", self.latent_recovery);
@@ -247,6 +307,52 @@ mod tests {
             is_sizing: false,
             sizing_internal_gains: SizingInternalGains::Full,
         }
+    }
+
+    /// A wheel with 0.70 heating / 0.75 cooling sensible effectiveness and a
+    /// 22 °C exhaust, run on 1 kg/s of outdoor air at `t_oa`.
+    fn controlled_outlet(t_oa: f64, setpoint: f64) -> (f64, HeatRecovery) {
+        let mut hr = HeatRecovery::enthalpy_wheel("ERV", 0.70, 0.60, 100.0);
+        hr.cooling_sensible_effectiveness = Some(0.75);
+        hr.set_exhaust_conditions(22.0, 0.008);
+        hr.set_setpoint(setpoint);
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(t_oa, 0.5, 101325.0), 1.0);
+        let outlet = hr.simulate_air(&inlet, &make_ctx(t_oa));
+        (outlet.state.t_db, hr)
+    }
+
+    #[test]
+    fn supply_outlet_control_matches_energyplus() {
+        // No setpoint (NaN clears it): full recovery, 0.70 × 32 K = 22.4 K.
+        let (t, _) = controlled_outlet(-10.0, f64::NAN);
+        assert_relative_eq!(t, -10.0 + 0.70 * 32.0, max_relative = 1e-9);
+
+        // Full recovery would overshoot a 5 °C setpoint: throttle onto it,
+        // latent transfer scaled by the same fraction.
+        let (t, hr) = controlled_outlet(-10.0, 5.0);
+        assert_relative_eq!(t, 5.0, max_relative = 1e-9);
+        let (_, full) = controlled_outlet(-10.0, f64::NAN);
+        let fraction = 15.0 / 22.4;
+        assert_relative_eq!(
+            hr.latent_recovery,
+            fraction * full.latent_recovery,
+            max_relative = 1e-9
+        );
+
+        // Recovery only moves the outlet toward a 20 °C setpoint: run fully.
+        let (t, _) = controlled_outlet(-10.0, 20.0);
+        assert_relative_eq!(t, 12.4, max_relative = 1e-9);
+
+        // Outdoor air already above the setpoint: heating it would move it
+        // away, so the wheel stops (but stays on, drawing its power).
+        let (t, hr) = controlled_outlet(-10.0, -15.0);
+        assert_relative_eq!(t, -10.0, max_relative = 1e-9);
+        assert_eq!(hr.sensible_recovery, 0.0);
+        assert_relative_eq!(hr.electric_power, 100.0);
+
+        // Summer: cooling effectiveness, 0.75 × 10 K.
+        let (t, _) = controlled_outlet(32.0, f64::NAN);
+        assert_relative_eq!(t, 32.0 - 0.75 * 10.0, max_relative = 1e-9);
     }
 
     #[test]

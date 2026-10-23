@@ -2080,16 +2080,15 @@ impl SummaryReport {
                 }
             }
         }
-        // All fuel-burning HVAC components are gas heating (boilers, gas furnaces).
+        // All fuel-burning HVAC components are gas heating (boilers, gas
+        // furnaces). No clamp at zero: a negative total means a component
+        // reported negative fuel, and the report should show it rather than
+        // print 0 (heat recovery credits once zeroed a 688 MWh boiler).
         for &pw in snapshot.component_fuel_power.values() {
             let energy = pw * snapshot.dt;
             if energy.is_finite() {
                 me.heat_gas_j += energy;
             }
-        }
-        // Safety cap: gas can never be negative (sanity check)
-        if me.heat_gas_j < 0.0 {
-            me.heat_gas_j = 0.0;
         }
 
         // 3. Zone internal gains — interior lighting and equipment.
