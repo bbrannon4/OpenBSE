@@ -303,6 +303,15 @@ impl AirComponent for PFPBox {
         self.reheat_capacity = cap;
     }
 
+    fn reheat_primary_air_flow(&self) -> Option<f64> {
+        // In heating the primary damper sits at its minimum; the secondary
+        // air arrives at zone temperature and needs no reheat to reach it.
+        if openbse_core::types::is_autosize(self.max_primary_flow) {
+            return None;
+        }
+        Some(self.max_primary_flow * self.min_primary_fraction)
+    }
+
     fn unsized_fields(&self) -> Vec<&'static str> {
         openbse_core::types::autosize_fields([
             ("max_primary_flow", self.max_primary_flow),

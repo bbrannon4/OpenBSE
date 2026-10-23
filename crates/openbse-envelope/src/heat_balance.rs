@@ -5423,8 +5423,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                     0.0
                 };
 
-                zone.ideal_heating_load = if let Some(sp) = heat_sp {
-                    let q = crate::zone::compute_ideal_q_hvac(
+                zone.load_to_heating_setpoint = if let Some(sp) = heat_sp {
+                    crate::zone::compute_ideal_q_hvac(
                         sum_ha,
                         sum_hat,
                         mcpi,
@@ -5436,12 +5436,13 @@ impl EnvelopeSolver for BuildingEnvelope {
                         dt_eff,
                         zone.temp,
                         sp,
-                    );
-                    // Positive Q = heating needed
-                    q.max(0.0)
+                    )
                 } else {
-                    0.0
+                    // No heating setpoint: nothing ever needs reheat.
+                    f64::NEG_INFINITY
                 };
+                // Positive Q = heating needed
+                zone.ideal_heating_load = zone.load_to_heating_setpoint.max(0.0);
             }
         }
 

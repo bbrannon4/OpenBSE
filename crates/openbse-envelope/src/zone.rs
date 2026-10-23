@@ -1005,6 +1005,11 @@ pub struct ZoneState {
     pub ideal_cooling_load: f64,
     /// Ideal heating load at setpoint [W] — HVAC energy needed to hold zone at heating setpoint
     pub ideal_heating_load: f64,
+    /// Signed load to the heating setpoint [W]: `ideal_heating_load` before
+    /// clamping, negative when the zone can lose that much heat before it
+    /// reaches the setpoint (E+ `QToHeatSetPt`). VAV reheat uses it so cold
+    /// minimum-flow air in deadband never drives the zone below setpoint.
+    pub load_to_heating_setpoint: f64,
     /// Actual HVAC heating energy rate [W] (after capacity limits)
     pub hvac_heating_rate: f64,
     /// Actual HVAC cooling energy rate [W] (after capacity limits)
@@ -1227,6 +1232,7 @@ impl ZoneState {
             cooling_load: 0.0,
             ideal_cooling_load: 0.0,
             ideal_heating_load: 0.0,
+            load_to_heating_setpoint: 0.0,
             hvac_heating_rate: 0.0,
             hvac_cooling_rate: 0.0,
             q_internal_conv: 0.0,
