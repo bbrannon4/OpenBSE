@@ -4,6 +4,9 @@
 # - Run the same model against 10 years of actual weather data
 # - Vary equipment parameters across runs
 # - All results land in separate CSV files for post-processing
+#
+# The Denver AMY weather files are not shipped with the repo; put them in
+# examples/weather/ or run one year with `-w <path-to-epw>`.
 
 simulation:
   timesteps_per_hour: 1
@@ -76,3 +79,30 @@ parametrics:
     - name: reduced_pressure
       overrides:
         "Supply Fan.pressure_rise": 500.0
+
+# ─── Building ─────────────────────────────────────────────────────────────────
+# A single office zone, so the air loop has a zone to serve and design-day
+# sizing has loads to size the autosized coil and fan from.
+
+thermostats:
+  - name: Office Thermostat
+    zones: [Office Zone]
+    heating_setpoint: 21.0
+    cooling_setpoint: 24.0
+
+simple_constructions:
+  - name: Heavy Wall
+    u_factor: 0.5
+    thickness: 0.2
+    thermal_capacity: 200000.0
+
+zones:
+  - name: Office Zone
+    volume: 300.0
+    floor_area: 100.0
+
+surfaces:
+  - {name: South Wall, zone: Office Zone, type: wall, construction: Heavy Wall, area: 30.0, azimuth: 180.0, tilt: 90.0}
+  - {name: North Wall, zone: Office Zone, type: wall, construction: Heavy Wall, area: 30.0, azimuth: 0.0, tilt: 90.0}
+  - {name: Roof, zone: Office Zone, type: roof, construction: Heavy Wall, area: 100.0, azimuth: 0.0, tilt: 0.0}
+  - {name: Floor, zone: Office Zone, type: floor, construction: Heavy Wall, area: 100.0, azimuth: 0.0, tilt: 180.0, boundary: ground}

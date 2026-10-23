@@ -330,6 +330,13 @@ impl AirComponent for VAVBox {
         self.reheat_capacity = cap;
     }
 
+    fn unsized_fields(&self) -> Vec<&'static str> {
+        openbse_core::types::autosize_fields([
+            ("max_air_flow", self.max_air_flow),
+            ("reheat_capacity", self.reheat_capacity),
+        ])
+    }
+
     fn power_consumption(&self) -> f64 {
         self.reheat_power
     }

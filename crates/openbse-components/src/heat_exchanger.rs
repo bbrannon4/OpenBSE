@@ -192,6 +192,10 @@ impl PlantComponent for WaterToWaterHX {
         self.design_flow_rate = flow;
     }
 
+    fn unsized_fields(&self) -> Vec<&'static str> {
+        autosize_fields([("design_flow_rate", self.design_flow_rate)])
+    }
+
     fn thermal_output(&self) -> f64 {
         self.heat_transferred
     }

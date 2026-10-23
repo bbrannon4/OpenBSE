@@ -2,6 +2,8 @@
 //!
 //! Runs building energy simulations from YAML input files.
 
+mod autosize_check;
+
 use anyhow::{Context, Result};
 use clap::Parser;
 use log::{info, warn};
@@ -259,9 +261,15 @@ fn build_loop_infos(
                         }
                         openbse_io::input::TerminalInput::DualDuctBox(dd) => {
                             // Dual-duct boxes are simulated via the signal builder, not the graph.
-                            // Build DualDuctBox objects here; design_flow will be autosized later.
+                            // Build DualDuctBox objects here; `autosize` keeps the sentinel so
+                            // design-day sizing can replace it (a 0.5 kg/s placeholder here
+                            // used to make every autosized box run at 0.5 kg/s).
                             let design_flow = dd.design_flow.to_f64();
-                            let flow = if design_flow > 0.0 { design_flow } else { 0.5 };
+                            let flow = if dd.design_flow.is_autosize() || design_flow > 0.0 {
+                                design_flow
+                            } else {
+                                0.5
+                            };
                             let box_obj = openbse_components::dual_duct_box::DualDuctBox::new(
                                 &dd.name,
                                 flow,
@@ -2015,8 +2023,7 @@ fn main() -> Result<()> {
                         continue;
                     }
                     for (zone_name, dd_box) in &mut li.dd_boxes {
-                        // Only autosize when design_flow was set to the placeholder (≤ 0)
-                        if dd_box.design_flow <= 0.0 {
+                        if is_autosize(dd_box.design_flow) {
                             let zone_flow = sizing_result
                                 .zone_design_airflow
                                 .get(zone_name)
@@ -2384,6 +2391,22 @@ fn main() -> Result<()> {
                 comp_submeter.insert(iu.name.clone(), iu.submeter.clone());
                 comp_kind_map.insert(iu.name.clone(), ComponentKind::VrfIndoor);
             }
+        }
+
+        // ── 6c. Stop on autosize inputs that sizing never resolved ─────────────
+        let never_sized = autosize_check::unsized_autosize_errors(
+            &model,
+            &graph,
+            &loop_infos,
+            &autosize_check::SizedValues {
+                zone_design_flows: &zone_design_flows,
+                zone_peak_cooling: &vrf_zone_peak_cooling,
+                zone_peak_heating: &vrf_zone_peak_heating,
+            },
+            autosize_check::AirSizing::new(!model.design_days.is_empty(), envelope.is_some()),
+        );
+        if !never_sized.is_empty() {
+            return Err(stop_on_severe(&mut validation, &err_path, never_sized));
         }
 
         // ── 7. Run the simulation loop ──────────────────────────────────────────
@@ -6630,6 +6653,28 @@ fn simulate_hvac(
 }
 
 // ─── Utility Functions ───────────────────────────────────────────────────────
+
+/// Record severe errors found after validation in the `.err` file and return
+/// the error that stops the run.
+fn stop_on_severe(
+    validation: &mut openbse_io::ValidationResult,
+    err_path: &Path,
+    messages: Vec<String>,
+) -> anyhow::Error {
+    let count = messages.len();
+    for msg in messages {
+        log::error!("{}", msg);
+        validation.push_severe(msg);
+    }
+    if let Err(e) = std::fs::write(err_path, validation.to_err_file()) {
+        warn!("Could not write error file {}: {}", err_path.display(), e);
+    }
+    anyhow::anyhow!(
+        "{} severe error(s) found after validation. See {}",
+        count,
+        err_path.display()
+    )
+}
 
 fn resolve_path(input_file: &Path, relative_path: &str) -> PathBuf {
     if Path::new(relative_path).is_absolute() {

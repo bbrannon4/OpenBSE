@@ -303,6 +303,14 @@ impl AirComponent for PFPBox {
         self.reheat_capacity = cap;
     }
 
+    fn unsized_fields(&self) -> Vec<&'static str> {
+        openbse_core::types::autosize_fields([
+            ("max_primary_flow", self.max_primary_flow),
+            ("secondary_fan_flow", self.secondary_fan_flow),
+            ("reheat_capacity", self.reheat_capacity),
+        ])
+    }
+
     fn power_consumption(&self) -> f64 {
         self.fan_power + self.reheat_power
     }

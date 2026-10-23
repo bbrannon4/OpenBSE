@@ -261,6 +261,10 @@ impl AirComponent for CoolingCoilCHW {
         self.nominal_capacity = cap;
     }
 
+    fn unsized_fields(&self) -> Vec<&'static str> {
+        openbse_core::types::autosize_fields([("capacity", self.nominal_capacity)])
+    }
+
     fn power_consumption(&self) -> f64 {
         0.0 // CHW coils don't consume electricity (pumps and chillers do)
     }

@@ -304,6 +304,10 @@ impl PlantComponent for AirCooledChiller {
         self.rated_capacity = cap;
     }
 
+    fn unsized_fields(&self) -> Vec<&'static str> {
+        openbse_core::types::autosize_fields([("capacity", self.rated_capacity)])
+    }
+
     fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
         out("plr", self.plr);
         out("efficiency_operating", self.actual_cop);

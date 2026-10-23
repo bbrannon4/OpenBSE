@@ -320,6 +320,13 @@ impl PlantComponent for Boiler {
         self.nominal_capacity = cap;
     }
 
+    fn unsized_fields(&self) -> Vec<&'static str> {
+        autosize_fields([
+            ("capacity", self.nominal_capacity),
+            ("design_water_flow_rate", self.design_water_flow_rate),
+        ])
+    }
+
     fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
         out("plr", self.operating_plr);
         out("efficiency_operating", self.efficiency_operating);
@@ -507,5 +514,21 @@ mod tests {
         assert_relative_eq!(outlet.state.temp - 60.0, expected_dt, max_relative = 0.001);
         // Mass flow unchanged (not modulated)
         assert_relative_eq!(outlet.state.mass_flow, 2.0, max_relative = 0.001);
+    }
+
+    #[test]
+    fn unsized_fields_lists_fields_still_at_the_sentinel() {
+        let sized = Boiler::new("B", 100_000.0, 0.80, 82.0, 0.001);
+        assert!(sized.unsized_fields().is_empty());
+
+        let mut boiler = Boiler::new("B", AUTOSIZE, 0.80, 82.0, AUTOSIZE);
+        assert_eq!(
+            boiler.unsized_fields(),
+            vec!["capacity", "design_water_flow_rate"]
+        );
+        boiler.set_nominal_capacity(150_000.0);
+        assert_eq!(boiler.unsized_fields(), vec!["design_water_flow_rate"]);
+        boiler.set_design_water_flow_rate(0.003);
+        assert!(boiler.unsized_fields().is_empty());
     }
 }

@@ -200,6 +200,17 @@ pub trait AirComponent: std::fmt::Debug {
     /// Set the nominal capacity (called during autosizing).
     fn set_nominal_capacity(&mut self, _cap: f64) {}
 
+    /// Input fields (by YAML key, e.g. `"capacity"`) that still hold the
+    /// [`AUTOSIZE`](crate::types::AUTOSIZE) sentinel.
+    ///
+    /// The driver checks this after sizing and stops the run if any remain:
+    /// a component would otherwise simulate with the sentinel (−99,999) or
+    /// a silent fallback. Override in every component that accepts
+    /// `autosize`. Default: none.
+    fn unsized_fields(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
+
     /// Instantaneous electric power consumption [W].
     ///
     /// Always positive. Report ALL electric power here — fan motors, compressors,
@@ -381,6 +392,12 @@ pub trait PlantComponent: std::fmt::Debug {
 
     /// Set the nominal capacity (called during autosizing).
     fn set_nominal_capacity(&mut self, _cap: f64) {}
+
+    /// Input fields still holding the `AUTOSIZE` sentinel; see
+    /// [`AirComponent::unsized_fields`]. Default: none.
+    fn unsized_fields(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
 
     /// Set source-side conditions for inter-loop heat exchangers.
     /// Called by the simulation driver to inject source loop state before

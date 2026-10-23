@@ -70,6 +70,41 @@ fn shipped_models_connect_their_plant_loops() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// Cross-reference validation (e.g. undefined construction names) must find
+/// no severe error in a shipped model, or that model would not run.
+#[test]
+fn shipped_models_validate() {
+    let (root, files) = shipped_models();
+    let failures: Vec<String> = files
+        .iter()
+        .filter_map(|f| {
+            let text = std::fs::read_to_string(f).unwrap();
+            let model = openbse_io::input::parse_model_yaml(&text).ok()?;
+            let validation = openbse_io::validate_model(&model);
+            let severe: Vec<String> = validation
+                .diagnostics
+                .iter()
+                .filter(|d| d.severity == openbse_io::DiagSeverity::Severe)
+                .map(|d| format!("  {}", d.message))
+                .collect();
+            (!severe.is_empty()).then(|| {
+                format!(
+                    "{}:\n{}",
+                    f.strip_prefix(&root).unwrap_or(f).display(),
+                    severe.join("\n")
+                )
+            })
+        })
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "{} of {} shipped models have severe validation errors:\n{}",
+        failures.len(),
+        files.len(),
+        failures.join("\n")
+    );
+}
+
 fn parse_error(yaml: &str) -> String {
     match openbse_io::input::parse_model_yaml(yaml) {
         Ok(_) => panic!("expected a parse error"),

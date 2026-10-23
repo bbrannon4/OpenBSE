@@ -413,6 +413,10 @@ impl AirComponent for HeatPumpHeatingCoil {
         self.rated_capacity = cap;
     }
 
+    fn unsized_fields(&self) -> Vec<&'static str> {
+        openbse_core::types::autosize_fields([("capacity", self.rated_capacity)])
+    }
+
     fn power_consumption(&self) -> f64 {
         self.compressor_power + self.defrost_power + self.supplemental_power
     }

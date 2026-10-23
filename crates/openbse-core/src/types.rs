@@ -61,6 +61,16 @@ pub fn is_autosize(val: f64) -> bool {
     (val - AUTOSIZE).abs() < 1.0
 }
 
+/// The names in `fields` whose value is still the `AUTOSIZE` sentinel; the
+/// building block for `unsized_fields()` on air and plant components.
+pub fn autosize_fields<const N: usize>(fields: [(&'static str, f64); N]) -> Vec<&'static str> {
+    fields
+        .into_iter()
+        .filter(|&(_, value)| is_autosize(value))
+        .map(|(name, _)| name)
+        .collect()
+}
+
 /// A value that can be either a numeric f64 or the string "autosize".
 ///
 /// In YAML, users write either a number or the literal string `autosize`:
