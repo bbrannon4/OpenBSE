@@ -215,6 +215,24 @@ fn multizone_design_flow(
     }
 }
 
+/// Outdoor-air sensible load [W] (positive when it heats the zone) that a
+/// cycling compressor's off-cycle still brings in: a fan that keeps running
+/// keeps drawing outdoor air, a cycling fan draws none. Counted for a cycling
+/// fan, cold economizer air cancelled a data centre's whole IT load, so the
+/// unit sat at its PLR floor and the room ran away.
+fn off_cycle_outdoor_air_load(
+    fan_mode: openbse_io::input::FanOperatingMode,
+    oa_fraction: f64,
+    flow_capacity_rate: f64,
+    t_outdoor: f64,
+    t_zone: f64,
+) -> f64 {
+    if fan_mode == openbse_io::input::FanOperatingMode::Cycling {
+        return 0.0;
+    }
+    oa_fraction * flow_capacity_rate * (t_outdoor - t_zone)
+}
+
 fn build_loop_infos(
     model: &openbse_io::input::ModelInput,
     resolved_zones: &[openbse_envelope::ZoneInput],
@@ -1619,16 +1637,13 @@ fn main() -> Result<()> {
                         AirLoopSystemType::PszAc => {
                             // PSZ-AC: each unit serves its own zone(s) independently.
                             // Size from served zone peak loads (like FCU), not system-wide.
+                            // The flow is the one the controls use, which the
+                            // per-loop supply-temperature override above has
+                            // already resized for a loop with its own SAT.
                             let zone_airflow: f64 = li
                                 .served_zones
                                 .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_design_airflow
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.1)
-                                })
+                                .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
                                 .sum();
                             let zone_flow_m3 = zone_airflow / air_density;
                             // Capacity = raw_peak × zone_factor × system_capacity_factor
@@ -1886,13 +1901,7 @@ fn main() -> Result<()> {
                             let zone_airflow: f64 = li
                                 .served_zones
                                 .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_design_airflow
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.1)
-                                })
+                                .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
                                 .sum();
                             let zone_flow_m3 = zone_airflow / air_density;
                             let zone_cool: f64 = li
@@ -5892,8 +5901,13 @@ fn simulate_all_loops(
                             // the coil is scaled down to the zone load alone.
                             // Zero when the loop carries no OA (oa_frac == 0),
                             // so non-OA cases are unaffected.
-                            let oa_frac = signals.oa_fraction.unwrap_or(effective_min_oa);
-                            let q_oa = oa_frac * supply_flow * cp_air * (t_outdoor - control_temp);
+                            let q_oa = off_cycle_outdoor_air_load(
+                                li.fan_operating_mode,
+                                signals.oa_fraction.unwrap_or(effective_min_oa),
+                                supply_flow * cp_air,
+                                t_outdoor,
+                                control_temp,
+                            );
 
                             if corrected_load > 10.0 {
                                 let adj_load = corrected_load + q_fan + q_oa;
@@ -6824,6 +6838,16 @@ mod tests {
             1.25,
         );
         assert!((coincident - 12.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn off_cycle_outdoor_air_counts_only_while_the_fan_runs() {
+        use openbse_io::input::FanOperatingMode;
+        // 40% outdoor air at 0 °C into a 27 °C room, 1000 W/K of supply.
+        let q = |mode| off_cycle_outdoor_air_load(mode, 0.4, 1000.0, 0.0, 27.0);
+        assert_eq!(q(FanOperatingMode::Continuous), -10_800.0);
+        assert_eq!(q(FanOperatingMode::ContinuousNoLoadOff), -10_800.0);
+        assert_eq!(q(FanOperatingMode::Cycling), 0.0);
     }
 
     #[test]
