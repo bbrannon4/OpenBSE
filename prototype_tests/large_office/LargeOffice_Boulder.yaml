@@ -42,6 +42,8 @@ simulation:
     day: 23
   - month: 12
     day: 25
+  auto_cooling_design_days: false
+  sizing_averaging_window: 6
 weather_files:
 - /Users/benjaminbrannon/Documents/GitHub/OpenBSE/prototype_tests/Denver-Buckley.epw
 design_days:
@@ -13098,6 +13100,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_bot_ZN_1
     terminal:
       type: vav_box
@@ -13109,6 +13112,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_bot_ZN_2
     terminal:
       type: vav_box
@@ -13120,6 +13124,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_bot_ZN_3
     terminal:
       type: vav_box
@@ -13131,6 +13136,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_bot_ZN_4
     terminal:
       type: vav_box
@@ -13142,6 +13148,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
 - name: VAV_mid_f2
   system_type: vav
   min_vav_fraction: 0.3
@@ -13194,6 +13201,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_1_f2
     terminal:
       type: vav_box
@@ -13205,6 +13213,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_2_f2
     terminal:
       type: vav_box
@@ -13216,6 +13225,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_3_f2
     terminal:
       type: vav_box
@@ -13227,6 +13237,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_4_f2
     terminal:
       type: vav_box
@@ -13238,6 +13249,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
 - name: VAV_mid_f3
   system_type: vav
   min_vav_fraction: 0.3
@@ -13290,6 +13302,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_1_f3
     terminal:
       type: vav_box
@@ -13301,6 +13314,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_2_f3
     terminal:
       type: vav_box
@@ -13312,6 +13326,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_3_f3
     terminal:
       type: vav_box
@@ -13323,6 +13338,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_4_f3
     terminal:
       type: vav_box
@@ -13334,6 +13350,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
 - name: VAV_mid_f4
   system_type: vav
   min_vav_fraction: 0.3
@@ -13386,6 +13403,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_1_f4
     terminal:
       type: vav_box
@@ -13397,6 +13415,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_2_f4
     terminal:
       type: vav_box
@@ -13408,6 +13427,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_3_f4
     terminal:
       type: vav_box
@@ -13419,6 +13439,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_4_f4
     terminal:
       type: vav_box
@@ -13430,6 +13451,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
 - name: VAV_mid_f5
   system_type: vav
   min_vav_fraction: 0.3
@@ -13482,6 +13504,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_1_f5
     terminal:
       type: vav_box
@@ -13493,6 +13516,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_2_f5
     terminal:
       type: vav_box
@@ -13504,6 +13528,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_3_f5
     terminal:
       type: vav_box
@@ -13515,6 +13540,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_4_f5
     terminal:
       type: vav_box
@@ -13526,6 +13552,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
 - name: VAV_mid_f6
   system_type: vav
   min_vav_fraction: 0.3
@@ -13578,6 +13605,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_1_f6
     terminal:
       type: vav_box
@@ -13589,6 +13617,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_2_f6
     terminal:
       type: vav_box
@@ -13600,6 +13629,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_3_f6
     terminal:
       type: vav_box
@@ -13611,6 +13641,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_4_f6
     terminal:
       type: vav_box
@@ -13622,6 +13653,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
 - name: VAV_mid_f7
   system_type: vav
   min_vav_fraction: 0.3
@@ -13674,6 +13706,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_1_f7
     terminal:
       type: vav_box
@@ -13685,6 +13718,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_2_f7
     terminal:
       type: vav_box
@@ -13696,6 +13730,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_3_f7
     terminal:
       type: vav_box
@@ -13707,6 +13742,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_4_f7
     terminal:
       type: vav_box
@@ -13718,6 +13754,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
 - name: VAV_mid_f8
   system_type: vav
   min_vav_fraction: 0.3
@@ -13770,6 +13807,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_1_f8
     terminal:
       type: vav_box
@@ -13781,6 +13819,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_2_f8
     terminal:
       type: vav_box
@@ -13792,6 +13831,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_3_f8
     terminal:
       type: vav_box
@@ -13803,6 +13843,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_4_f8
     terminal:
       type: vav_box
@@ -13814,6 +13855,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
 - name: VAV_mid_f9
   system_type: vav
   min_vav_fraction: 0.3
@@ -13866,6 +13908,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_1_f9
     terminal:
       type: vav_box
@@ -13877,6 +13920,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_2_f9
     terminal:
       type: vav_box
@@ -13888,6 +13932,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_3_f9
     terminal:
       type: vav_box
@@ -13899,6 +13944,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_4_f9
     terminal:
       type: vav_box
@@ -13910,6 +13956,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
 - name: VAV_mid_f10
   system_type: vav
   min_vav_fraction: 0.3
@@ -13962,6 +14009,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_1_f10
     terminal:
       type: vav_box
@@ -13973,6 +14021,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_2_f10
     terminal:
       type: vav_box
@@ -13984,6 +14033,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_3_f10
     terminal:
       type: vav_box
@@ -13995,6 +14045,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_4_f10
     terminal:
       type: vav_box
@@ -14006,6 +14057,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
 - name: VAV_mid_f11
   system_type: vav
   min_vav_fraction: 0.3
@@ -14058,6 +14110,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_1_f11
     terminal:
       type: vav_box
@@ -14069,6 +14122,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_2_f11
     terminal:
       type: vav_box
@@ -14080,6 +14134,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_3_f11
     terminal:
       type: vav_box
@@ -14091,6 +14146,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_mid_ZN_4_f11
     terminal:
       type: vav_box
@@ -14102,6 +14158,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
 - name: VAV_top
   system_type: vav
   min_vav_fraction: 0.3
@@ -14154,6 +14211,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_top_ZN_1
     terminal:
       type: vav_box
@@ -14165,6 +14223,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_top_ZN_2
     terminal:
       type: vav_box
@@ -14176,6 +14235,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_top_ZN_3
     terminal:
       type: vav_box
@@ -14187,6 +14247,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
   - zone: Perimeter_top_ZN_4
     terminal:
       type: vav_box
@@ -14198,6 +14259,7 @@ air_loops:
       plant_loop: HHW Loop
       max_reheat_temp: 40.0
       max_reheat_fraction: 0.5
+    per_area_oa: 0.0004318
 - name: CAV_bas
   system_type: psz_ac
   availability_schedule: HVACOperationSchd
@@ -14906,6 +14968,8 @@ thermostats:
   cooling_setpoint: 24.0
   unoccupied_heating_setpoint: 15.6
   unoccupied_cooling_setpoint: 26.7
+  design_day_heating_setpoints: [15.6, 15.6, 15.6, 15.6, 15.6, 17.6, 19.6, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 15.6, 15.6]
+  design_day_cooling_setpoints: [26.7, 26.7, 26.7, 26.7, 26.7, 25.7, 25.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 26.7, 26.7]
 - name: DataCenter Thermostat
   zones:
   - DataCenter Zones

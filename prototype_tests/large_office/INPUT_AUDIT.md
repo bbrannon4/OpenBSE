@@ -46,8 +46,8 @@ named surface's inside face.
 | Infiltration | matched; the basement infiltration object (absent in E+) removed |
 | Exterior lights, elevators | matched |
 | Outdoor air | matched: 0.0004318 m³/s per m² for every zone, data centres included (was 62.1 office per-person + per-area, none for data centres) |
-| Thermostats | matched for operating hours; see gaps |
-| Design days | matched; ASHRAE tau (0.423 / 2.02) added to the cooling day |
+| Thermostats | matched for operating hours and design days (office WinterDesignDay 15.6-17.6-19.6-21.0 °C and SummerDesignDay 26.7-25.7-25.0-24.0 °C ramps; data centres constant); see gaps |
+| Design days | matched; ASHRAE tau (0.423 / 2.02) added to the cooling day; E+'s two design days only (generated monthly cooling days off); loads averaged over 6 timesteps as `Sizing:Parameters` |
 
 ## HVAC
 
@@ -56,6 +56,7 @@ named surface's inside face.
 | VAV box minimum 0.3, reheat limit 40 °C, 0.5 max flow during reheat | matched (loop minimum was 0.25, the fan's power minimum) |
 | VAV zone heating design supply 32.11 °C | matched |
 | VAV supply fans, economizers, Warmest SAT reset 12.8-15.6 °C | already matched |
+| VAV outdoor air by the 62.1 Ventilation Rate Procedure (E+ `Controller:MechanicalVentilation`) | matched: each VAV terminal carries the zone's 0.0004318 m³/s per m², which turns on OpenBSE's VRP (the loops held a fixed 9.2% of supply, so at box minimums they took about a third of E+'s outdoor air) |
 | Data centre units: gas heating 0.8 / 0.7925, DX capacity and flow (E+ hard-sized, per floor), SHR 0.80066, COP 3.0 / 3.5, SmDX curves, 15.89 / 29.11 °C design supply | matched (heating was electric, DX autosized with default curves) |
 | Basement single-zone VAV units: 100 kW HW coils, supply limits | matched |
 
@@ -115,13 +116,8 @@ because the core's design airflow is 24% smaller; see gap 2).
 
 1. Daylight saving time (shifts every schedule an hour, 12 Mar - 5 Nov).
 2. Thermostat setpoint schedules by day type (Saturday setback at 17:00 while
-   the fans run to 18:00; `Perimeter_mid_ZN_2`'s mid-day standby hours), and
-   their design-day values per zone. E+ sizes the office zones on the summer
-   design day's setup-then-pulldown schedule (26.7 °C overnight, 24 °C from
-   07:00, gains at full all night), which puts the core's design cooling peak
-   at 08:00 and 30% above OpenBSE's. OpenBSE's design-day
-   `cooling_setpoint_schedule` applies to every zone, so it cannot also keep
-   the data centres at 27 °C.
+   the fans run to 18:00; `Perimeter_mid_ZN_2`'s mid-day standby hours).
+   Design-day schedules are now matched per thermostat.
 3. People sensible fraction autocalculated from activity and zone temperature.
 4. Lights visible fraction (short-wave, part of it lost through windows).
 5. Two-speed DX coils (data centres) and single-zone VAV unitary control (basement).
