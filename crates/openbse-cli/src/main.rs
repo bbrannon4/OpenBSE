@@ -170,6 +170,51 @@ fn site_standard_air_density(model: &openbse_io::input::ModelInput) -> f64 {
     pressure / (287.042 * 293.15)
 }
 
+/// Design supply flow [kg/s] of a multi-zone (VAV, dual-duct) loop, as E+
+/// `Sizing:System`: the sum of its zones' final design flows (non-coincident),
+/// or the largest sum of their cooling flows at one hour of a cooling design
+/// day, scaled by the cooling sizing factor (coincident). A coincident flow
+/// never falls below the zones' summed heating flows.
+fn multizone_design_flow(
+    served_zones: &[String],
+    zone_sum: openbse_io::input::ZoneSum,
+    zone_design_flows: &HashMap<String, f64>,
+    zone_sizing: &openbse_io::sizing::ZoneSizingResult,
+    cooling_sizing_factor: f64,
+    heating_sizing_factor: f64,
+) -> f64 {
+    match zone_sum {
+        openbse_io::input::ZoneSum::NonCoincident => served_zones
+            .iter()
+            .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
+            .sum(),
+        openbse_io::input::ZoneSum::Coincident => {
+            let cooling = zone_sizing
+                .zone_cooling_flow_sequences
+                .iter()
+                .flatten()
+                .map(|hour| {
+                    served_zones
+                        .iter()
+                        .map(|z| hour.get(z).copied().unwrap_or(0.0))
+                        .sum::<f64>()
+                })
+                .fold(0.0, f64::max);
+            let heating: f64 = served_zones
+                .iter()
+                .map(|z| {
+                    zone_sizing
+                        .zone_heating_airflow
+                        .get(z)
+                        .copied()
+                        .unwrap_or(0.0)
+                })
+                .sum();
+            (cooling * cooling_sizing_factor).max(heating * heating_sizing_factor)
+        }
+    }
+}
+
 fn build_loop_infos(
     model: &openbse_io::input::ModelInput,
     resolved_zones: &[openbse_envelope::ZoneInput],
@@ -1617,18 +1662,22 @@ fn main() -> Result<()> {
                             (zone_flow_m3, zone_heat, zone_cool)
                         }
                         AirLoopSystemType::Vav | AirLoopSystemType::DualDuct => {
-                            // VAV / DualDuct: multi-zone system. Sum served zone flows.
-                            let zone_airflow: f64 = li
-                                .served_zones
+                            // VAV / DualDuct: multi-zone system, sized on the
+                            // same (sizing-factor) zone flows as its boxes.
+                            let zone_sum = model
+                                .air_loops
                                 .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_design_airflow
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.1)
-                                })
-                                .sum();
+                                .find(|al| al.name == li.name)
+                                .map(|al| al.controls.zone_sum)
+                                .unwrap_or_default();
+                            let zone_airflow = multizone_design_flow(
+                                &li.served_zones,
+                                zone_sum,
+                                &zone_design_flows,
+                                &sizing_result.zone_sizing,
+                                model.simulation.cooling_sizing_factor,
+                                model.simulation.heating_sizing_factor,
+                            );
                             let zone_flow_m3 = zone_airflow / air_density;
                             let zone_heat: f64 = li
                                 .served_zones
@@ -6738,6 +6787,44 @@ fn month_day_from_hour(hour_of_year: u32, dims: &[u32; 12]) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn multizone_design_flow_sums_zones_at_their_own_or_a_shared_peak() {
+        use openbse_io::input::ZoneSum;
+        let zones = vec!["Core".to_string(), "South".to_string()];
+        let flows = |core: f64, south: f64| -> HashMap<String, f64> {
+            [("Core".to_string(), core), ("South".to_string(), south)]
+                .into_iter()
+                .collect()
+        };
+        // The core peaks in the morning and the south zone in the afternoon.
+        let sizing = openbse_io::sizing::ZoneSizingResult {
+            zone_cooling_flow_sequences: vec![vec![flows(8.0, 1.0), flows(6.0, 2.0)]],
+            zone_heating_airflow: flows(1.0, 0.5),
+            ..Default::default()
+        };
+        let design = flows(9.2, 2.3); // each zone's peak × 1.15
+        let non_coincident =
+            multizone_design_flow(&zones, ZoneSum::NonCoincident, &design, &sizing, 1.15, 1.25);
+        assert!((non_coincident - 11.5).abs() < 1e-12);
+        let coincident =
+            multizone_design_flow(&zones, ZoneSum::Coincident, &design, &sizing, 1.15, 1.25);
+        assert!((coincident - 9.0 * 1.15).abs() < 1e-12);
+        // Heating flows set the floor when they are larger.
+        let heating_led = openbse_io::sizing::ZoneSizingResult {
+            zone_heating_airflow: flows(10.0, 0.0),
+            ..sizing
+        };
+        let coincident = multizone_design_flow(
+            &zones,
+            ZoneSum::Coincident,
+            &design,
+            &heating_led,
+            1.15,
+            1.25,
+        );
+        assert!((coincident - 12.5).abs() < 1e-12);
+    }
 
     #[test]
     fn terminal_reheat_covers_warming_primary_air() {

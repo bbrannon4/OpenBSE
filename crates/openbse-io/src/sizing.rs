@@ -33,7 +33,7 @@ use crate::input::DesignDayInput;
 use openbse_envelope::ThermostatInput;
 
 /// Zone-level sizing results from Stage 1.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ZoneSizingResult {
     /// Peak heating load per zone [W]
     pub zone_peak_heating: HashMap<String, f64>,
@@ -53,6 +53,9 @@ pub struct ZoneSizingResult {
     pub zone_cooling_airflow: HashMap<String, f64>,
     /// Design airflow per zone (max of heating and cooling) [kg/s]
     pub zone_design_airflow: HashMap<String, f64>,
+    /// Zone cooling airflow [kg/s] at each hour of each cooling design day
+    /// (E+ CoolFlowSeq), for coincident system sizing.
+    pub zone_cooling_flow_sequences: Vec<Vec<HashMap<String, f64>>>,
 }
 
 /// System-level sizing results from Stage 2.
@@ -606,6 +609,9 @@ fn run_zone_sizing(
     let mut zone_heating_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_cooling_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_design_airflow: HashMap<String, f64> = HashMap::new();
+    // Per zone: cooling ΔT, outdoor-air floor [kg/s] and multiplier, to turn
+    // its hourly design-day loads into flows.
+    let mut cool_flow_basis: HashMap<String, (f64, f64, f64)> = HashMap::new();
 
     for zone in &env.zones {
         let name = &zone.input.name;
@@ -620,6 +626,7 @@ fn run_zone_sizing(
         // of the zone load: the central coil meets it at the mixed-air state.
         let site_p = design_days.first().map(|d| d.pressure).unwrap_or(101325.0);
         let rho_site = site_p / (287.042 * 293.15);
+        let mult = zone.input.zone_multiplier as f64;
         let m_oa = if let Some(ref oa) = zone.input.outdoor_air {
             // Compute design people count from zone's internal gains
             let design_people: f64 = zone
@@ -633,7 +640,7 @@ fn run_zone_sizing(
                 .sum();
             let v_oa =
                 oa.per_person * design_people + oa.per_area * zone.input.floor_area + oa.absolute;
-            v_oa * rho_site
+            v_oa * rho_site * mult
         } else {
             0.0
         };
@@ -666,7 +673,28 @@ fn run_zone_sizing(
         zone_heating_airflow.insert(name.clone(), m_heat);
         zone_cooling_airflow.insert(name.clone(), m_cool);
         zone_design_airflow.insert(name.clone(), m_design);
+        cool_flow_basis.insert(name.clone(), (dt_cooling, m_oa, mult));
     }
+
+    // Each cooling design day's zone cooling flows, hour by hour, with the
+    // same outdoor-air floor (E+ CoolFlowSeq).
+    let zone_cooling_flow_sequences = cooling_results
+        .iter()
+        .map(|(_, hourly)| {
+            hourly
+                .iter()
+                .map(|(_, loads)| {
+                    loads
+                        .iter()
+                        .filter_map(|(name, &(_, cl))| {
+                            let &(dt, m_oa, mult) = cool_flow_basis.get(name)?;
+                            Some((name.clone(), (cl * mult / (cp_air * dt)).max(m_oa)))
+                        })
+                        .collect()
+                })
+                .collect()
+        })
+        .collect();
 
     ZoneSizingResult {
         zone_peak_heating,
@@ -678,6 +706,7 @@ fn run_zone_sizing(
         zone_heating_airflow,
         zone_cooling_airflow,
         zone_design_airflow,
+        zone_cooling_flow_sequences,
     }
 }
 

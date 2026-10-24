@@ -614,6 +614,22 @@ pub struct AirLoopControls {
     /// proportional minimum. Seasonal (`seasons:`) schedules are honored.
     #[serde(default)]
     pub minimum_oa_schedule: Option<String>,
+    /// How a multi-zone (VAV, dual-duct) loop's design supply flow sums its
+    /// zones' flows (E+ `Sizing:System` Type of Zone Sum to Use).
+    #[serde(default)]
+    pub zone_sum: ZoneSum,
+}
+
+/// How a multi-zone loop's design supply flow sums its zones' flows.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ZoneSum {
+    /// Each zone's design flow, at its own peak (E+ NonCoincident).
+    #[default]
+    NonCoincident,
+    /// The largest sum of the zones' cooling flows at one hour of a cooling
+    /// design day (E+ Coincident).
+    Coincident,
 }
 
 fn default_cooling_part_load_cd() -> f64 {
@@ -645,6 +661,7 @@ impl Default for AirLoopControls {
             preheat_setpoint: None,
             minimum_oa_flow: None,
             minimum_oa_schedule: None,
+            zone_sum: ZoneSum::default(),
         }
     }
 }

@@ -608,7 +608,8 @@
         "return_fan_total_efficiency": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1, "description": "Return-fan total efficiency [0-1]. Only used when return_fan_pressure_rise is set." },
         "fixed_cooling_sat": { "type": "boolean", "default": false, "description": "Hold the central cooling coil at a fixed leaving-air temperature (cooling_supply_temp) instead of the warmest-zone reset." },
         "preheat_setpoint": { "type": "number", "description": "Central preheat-coil leaving-air setpoint [C]. When set, the AHU heating coil holds this temperature to temper the mixed air (otherwise frost protection only)." },
-        "minimum_oa_flow": { "type": "number", "description": "Fixed minimum outdoor-air volume flow [m3/s], held regardless of supply flow (E+ Controller:OutdoorAir FixedMinimum). Overrides minimum_damper_position as the OA floor." }
+        "minimum_oa_flow": { "type": "number", "description": "Fixed minimum outdoor-air volume flow [m3/s], held regardless of supply flow (E+ Controller:OutdoorAir FixedMinimum). Overrides minimum_damper_position as the OA floor." },
+        "zone_sum": { "type": "string", "enum": ["non_coincident", "coincident"], "default": "non_coincident", "description": "How a VAV or dual-duct loop's autosized supply flow sums its zones' design flows (EnergyPlus Sizing:System Type of Zone Sum to Use): each zone at its own peak, or the largest sum at one hour of a cooling design day." }
       }
     },
 
