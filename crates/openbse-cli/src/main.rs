@@ -233,6 +233,23 @@ fn off_cycle_outdoor_air_load(
     oa_fraction * flow_capacity_rate * (t_outdoor - t_zone)
 }
 
+/// Supply flow [kg/s] of a single-zone VAV unit: the flow that meets the
+/// zone's cooling load [W] with the supply at its coldest, `cooling_dt` below
+/// the setpoint, bounded by the minimum fraction and the design flow. With no
+/// cooling load (heating or deadband) it runs at the minimum.
+fn single_zone_vav_flow_rate(
+    design_flow: f64,
+    min_fraction: f64,
+    cooling_load: f64,
+    cooling_dt: f64,
+) -> f64 {
+    let min_flow = design_flow * min_fraction.clamp(0.0, 1.0);
+    if cooling_load <= 0.0 {
+        return min_flow;
+    }
+    (cooling_load / (1006.0 * cooling_dt.max(1.0))).clamp(min_flow, design_flow)
+}
+
 fn build_loop_infos(
     model: &openbse_io::input::ModelInput,
     resolved_zones: &[openbse_envelope::ZoneInput],
@@ -5473,6 +5490,8 @@ fn simulate_all_loops(
             })
             .collect();
 
+        // Supply flow of a single-zone VAV loop, set by its SingleZone reset.
+        let mut single_zone_vav_flow: Option<f64> = None;
         // Apply SAT reset before signal builders so all paths see updated temps.
         {
             let zone_vav_plrs: HashMap<String, f64> = li
@@ -5523,14 +5542,34 @@ fn simulate_all_loops(
                         }) => (*sat_min, *sat_max),
                         _ => (4.0, 50.0),
                     };
-                    let denom = (m_dot * cp).max(1.0);
                     // The supply fan is downstream of the coils (draw-through),
                     // so it reheats the air by supply_fan_dt before it reaches
                     // the zone. Aim the coil leaving temperature that much below
                     // the supply temperature that holds the zone, so the air
                     // arrives at the zone at the intended temperature.
                     let fan_dt = li.supply_fan_dt;
-                    if q_heat >= q_cool && q_heat > 0.0 {
+                    let heating = q_heat >= q_cool && q_heat > 0.0;
+                    // Single-zone VAV (E+ PSZ-VAV: a VAV no-reheat terminal
+                    // under SetpointManager:SingleZone). A variable-speed fan
+                    // turns the flow down first, between its minimum fraction
+                    // and design, with cooling supply at its coldest; the
+                    // supply temperature resets only once the flow is at a
+                    // limit. Heating and deadband run at minimum flow.
+                    let m_dot = if li.variable_speed_fan {
+                        let cooling_load = if heating { 0.0 } else { q_cool };
+                        let m = single_zone_vav_flow_rate(
+                            m_dot,
+                            li.min_vav_fraction,
+                            cooling_load,
+                            cool_sp - smin - fan_dt,
+                        );
+                        single_zone_vav_flow = Some(m);
+                        m
+                    } else {
+                        m_dot
+                    };
+                    let denom = (m_dot * cp).max(1.0);
+                    if heating {
                         // Heating: raise supply above the setpoint; keep the
                         // downstream cooling coil off (setpoint above supply).
                         let sat = (heat_sp + q_heat / denom - fan_dt).clamp(smin, smax);
@@ -5618,6 +5657,11 @@ fn simulate_all_loops(
             // ──────────────────────────────────────────────────────────────
             AirLoopSystemType::Crah => build_crah_signals(li, &sig_ctx),
         };
+        if let Some(flow) = single_zone_vav_flow {
+            for f in signals.air_mass_flows.values_mut() {
+                *f = flow;
+            }
+        }
 
         // Return-air humidity for mixed-air construction: served-zone average
         // of the actual zone moisture balance. Previously synthesized as
@@ -6848,6 +6892,16 @@ mod tests {
         assert_eq!(q(FanOperatingMode::Continuous), -10_800.0);
         assert_eq!(q(FanOperatingMode::ContinuousNoLoadOff), -10_800.0);
         assert_eq!(q(FanOperatingMode::Cycling), 0.0);
+    }
+
+    #[test]
+    fn single_zone_vav_turns_flow_down_to_its_minimum() {
+        // 10 kg/s design, half minimum, supply 10 K below the setpoint.
+        let flow = |load| single_zone_vav_flow_rate(10.0, 0.5, load, 10.0);
+        assert!((flow(80_480.0) - 8.0).abs() < 1e-12);
+        assert_eq!(flow(20_000.0), 5.0); // below the minimum
+        assert_eq!(flow(200_000.0), 10.0); // above design
+        assert_eq!(flow(0.0), 5.0); // heating or deadband
     }
 
     #[test]
