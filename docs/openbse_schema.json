@@ -1712,7 +1712,7 @@
         "azimuth": { "type": "number", "default": 0.0, "description": "Outward normal azimuth [degrees from north, clockwise]." },
         "tilt": { "type": "number", "default": 90.0, "description": "Surface tilt [degrees]. 0=face-up, 90=vertical, 180=face-down." },
         "boundary": { "$ref": "#/$defs/BoundaryCondition" },
-        "parent_surface": { "type": "string", "description": "Parent wall name (for windows only)." },
+        "parent_surface": { "type": "string", "description": "Parent wall name, for windows and for opaque doors (a wall surface with a parent). The subsurface area is subtracted from the parent." },
         "vertices": {
           "type": "array",
           "items": { "$ref": "#/$defs/Point3D" },

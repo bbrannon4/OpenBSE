@@ -1456,10 +1456,10 @@ impl BuildingEnvelope {
             zone.centroid_height = if sum_a > 0.0 { sum_az / sum_a } else { 1.5 };
         }
 
-        // Subtract window areas from parent surfaces
+        // Subtract subsurface areas (windows, and opaque doors given a
+        // parent_surface) from their parent surfaces
         let window_parents: Vec<(String, f64)> = surface_states
             .iter()
-            .filter(|s| s.is_window)
             .filter_map(|s| {
                 s.input
                     .parent_surface
@@ -5831,6 +5831,11 @@ mod tests {
     }
 
     fn make_simple_model() -> BuildingEnvelope {
+        make_simple_model_with(vec![])
+    }
+
+    /// The simple test zone plus `extra` surfaces.
+    fn make_simple_model_with(extra: Vec<SurfaceInput>) -> BuildingEnvelope {
         use crate::material::ConstructionLayer;
         let materials = vec![
             Material {
@@ -6011,6 +6016,7 @@ mod tests {
                 width: None,
             },
         ];
+        let surfaces = surfaces.into_iter().chain(extra).collect();
 
         BuildingEnvelope::from_input(
             materials,
@@ -6848,6 +6854,39 @@ mod tests {
         let envelope = make_simple_model();
         // South Wall: gross 20m², window 4m² → net 16m²
         assert!((envelope.surfaces[0].net_area - 16.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_envelope_door_area_subtracted_from_parent() {
+        // An opaque door (E+ FenestrationSurface type Door) is a wall
+        // surface with a parent; it takes its area out of the parent wall.
+        let door = SurfaceInput {
+            name: "South Door".to_string(),
+            zone: "TestZone".to_string(),
+            surface_type: SurfaceType::Wall,
+            construction: "Wall".to_string(),
+            area: 2.0,
+            azimuth: 180.0,
+            tilt: 90.0,
+            boundary: BoundaryCondition::Outdoor,
+            parent_surface: Some("South Wall".to_string()),
+            vertices: None,
+            shading: None,
+            sun_exposure: true,
+            wind_exposure: true,
+            exposed_perimeter: None,
+            airflow: None,
+            height: None,
+            width: None,
+        };
+        let envelope = make_simple_model_with(vec![door]);
+        // South Wall: gross 20m², window 4m², door 2m² → net 14m²
+        assert!((envelope.surfaces[0].net_area - 14.0).abs() < 0.01);
+        let door = envelope
+            .surfaces
+            .iter()
+            .find(|s| s.input.name == "South Door");
+        assert!((door.unwrap().net_area - 2.0).abs() < 0.01);
     }
 
     #[test]

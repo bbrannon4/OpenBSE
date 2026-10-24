@@ -75,6 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
     ASHRAE 140 is unchanged: its terminal-reheat cases fix their reheat capacity and hold minimum flow while reheating.
   - **Still off from EnergyPlus.** Hospital heating gas is about a tenth of the E+ value (666 MWh). Its VAV minimum flows are below E+'s: 0.5 against 1.0 for the labs and ICU rooms, 0.3 against 0.5 for the patient rooms. LargeOffice heating gas was already 42% above E+ (405 MWh) and is now 70% above. Both gaps need their own investigation.
+- **Doors take their area out of their wall.** An opaque surface with a `parent_surface` (an EnergyPlus door) now subtracts its area from the parent, as windows do.
 - **Zone air-balance and surface convection outputs were always zero.** `zone:q_surf_conv_*`, `zone:q_infiltration_sensible`, `zone:q_thermal_mass` and `surface:conv_to_zone` were listed as outputs but the writer never read them. They now report the values the envelope computes.
 - **Water heaters exchange heat with the zone they sit in, and heat pump water heaters follow EnergyPlus** (#61).
   - **`ambient_zone` now works.** It was accepted but ignored, so every tank lost heat to a fixed 20 °C. The tank now loses heat at that zone's air temperature, and the losses warm the zone. This changes `ApartmentMidRise_Boulder` (tank in G Corridor, as in its E+ model): DHW gas −0.5%, heating gas −1.6%, cooling +0.9%.
