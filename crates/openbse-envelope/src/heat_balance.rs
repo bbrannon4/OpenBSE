@@ -3136,13 +3136,16 @@ impl EnvelopeSolver for BuildingEnvelope {
             // FullInteriorAndExterior requires vertex data for geometric projection.
             // FullExterior only needs floor surfaces by type (no vertices needed).
             if self.solar_distribution_method == SolarDistributionMethod::FullInteriorAndExterior {
+                // Internal mass (an adiabatic surface without vertices) has no
+                // geometry for beam to land on: as in E+, it takes only its
+                // share of the diffuse and reflected solar, so it does not
+                // stop the beam projection onto the zone's other surfaces.
                 let all_have_vertices = zone.surface_indices.iter().all(|&si| {
-                    self.surfaces[si].is_window
-                        || self.surfaces[si]
-                            .input
-                            .vertices
-                            .as_ref()
-                            .is_some_and(|v| v.len() >= 3)
+                    let s = &self.surfaces[si];
+                    s.is_window
+                        || (s.input.vertices.is_none()
+                            && s.input.boundary == BoundaryCondition::Adiabatic)
+                        || s.input.vertices.as_ref().is_some_and(|v| v.len() >= 3)
                 });
                 if !all_have_vertices {
                     continue; // Fall back to fixed-fraction for this zone
