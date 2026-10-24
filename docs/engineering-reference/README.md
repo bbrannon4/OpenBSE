@@ -631,16 +631,19 @@ Cap_factor = clamp(1.0 - 0.015 * (T_outdoor - 29.4), 0.5, 1.1)
 Available_capacity = Rated_capacity * Cap_factor
 ```
 
-**Step 2: Part-load ratio and cycling**
+**Step 2: Part-load ratio, cycling and false loading**
 
-Below `min_plr` the chiller cycles on at `min_plr` and off (E+ `ChillerCyclingRatio`):
+Below `min_plr` the chiller cycles on and off (E+ `ChillerCyclingRatio`). Below `min_unloading_ratio`, which defaults to `min_plr` and is at least `min_plr`, the compressor runs at that ratio and false-loads (hot-gas bypass, E+ `ChillerFalseLoadRate`):
 
 ```
 PLR = min(Load / Available_capacity, 1.0)
-PLR_op = max(PLR, min_plr)
+PLR_op = max(PLR, min_unloading_ratio)
 Cycling_ratio = min(PLR / min_plr, 1.0)
-Actual_capacity = PLR_op * Available_capacity * Cycling_ratio
+Actual_capacity = PLR * Available_capacity
+False_load = PLR_op * Available_capacity * Cycling_ratio - Actual_capacity
 ```
+
+The false load adds to the condenser heat.
 
 **Step 3: Electric power (E+ Chiller:Electric:EIR)**
 
@@ -682,6 +685,38 @@ T_cond_out = T_cond_in + (Electric_power(T_cond_out) + Actual_capacity(T_cond_ou
 The model reproduces EnergyPlus 25.2 timestep outputs of the DOE prototype hospital's chiller to within 0.01% in power and 0.001 K in leaving condenser temperature, over PLR 0.02 to 0.97 (unit test `test_reformulated_eir_matches_eplus_timesteps`). Replaying that chiller's annual E+ load profile through these equations gives E+'s annual electricity to within 0.1%.
 
 One difference from E+: CAPFT and EIRFT both use the CHW setpoint here. E+ uses the setpoint for CAPFT and the actual leaving CHW temperature for EIRFT.
+
+#### Condenser heat recovery (`heat_recovery`)
+
+**Reference:** EnergyPlus `Chiller:Electric:EIR` heat recovery with a leaving temperature setpoint (`calcHeatRecovery`). Model `eir`, water-cooled only.
+
+Part of the condenser heat goes to a heat-recovery water stream on a heating plant loop instead of the tower:
+
+```
+Q_rejected   = Electric_power + Actual_capacity + False_load
+Q_recoverable = min(m_hr * Cp_water * max(T_hr_setpoint - T_hr_in, 0),
+                    capacity_fraction * Rated_capacity * (1 + 1/Rated_COP),
+                    remaining demand of the receiving loop)
+Q_recovered  = min(Q_rejected, Q_recoverable)      (0 while T_hr_in > inlet_high_limit)
+Q_condenser  = Q_rejected - Q_recovered
+T_curve      = (Q_recovered * T_hr_in + Q_condenser * T_cond_in) / Q_rejected
+```
+
+- CAPFT and EIRFT are evaluated at `T_curve`, so recovering heat into warm water costs compressor power.
+- `T_curve` and the split depend on each other through the power, so they are solved together by fixed-point iteration. E+ blends with the split from its previous iteration, which converges to the same point.
+- `T_hr_in` is the receiving loop's return temperature: its supply setpoint (with any reset) minus its `design_delta_t`, as the loop solver assumes.
+- `m_hr` defaults to the design condenser flow × `capacity_fraction`, as E+ autosizes it.
+
+In the plant solver:
+- The chiller's loop runs before the receiving loop.
+- The recovered heat covers the receiving loop's load before its boilers; its pumps still carry the full loop flow.
+- A condenser loop receives only `Q_condenser`.
+
+Capping recovery at the receiving loop's demand stands in for E+'s plant: there, heat the loop cannot absorb warms the heat-recovery water toward its setpoint until recovery stops.
+
+Unit tests reproduce EnergyPlus 22.1 timesteps of the DOE prototype hospital's heat-recovery chiller (`test_heat_recovery_matches_eplus_timesteps`):
+- power and recovered heat within 0.001% when all heat is recovered and when the chiller false-loads below its 0.2 min unloading ratio;
+- within 0.16% when recovery is capped by the setpoint, where E+'s one-iteration lag in the blend shows.
 
 ---
 

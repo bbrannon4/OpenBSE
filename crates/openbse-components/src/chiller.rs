@@ -17,6 +17,12 @@
 //! on the chiller's own power through the condenser heat balance, so it is
 //! solved by fixed-point iteration (E+ uses regula falsi on the same residual).
 //!
+//! An EIR chiller can also recover condenser heat to another plant loop
+//! (`ChillerHeatRecovery`), following E+'s leaving-setpoint heat recovery: the
+//! recovered share heats the heat-recovery water up to its setpoint and the
+//! rest goes to the condenser. The curves then see a heat-weighted blend of
+//! the two sinks' entering temperatures.
+//!
 //! Reference: EnergyPlus Engineering Reference, "Chiller:Electric:EIR" and
 //! "Chiller:Electric:ReformulatedEIR"
 
@@ -42,6 +48,23 @@ pub enum ChillerModel {
     ReformulatedEir,
 }
 
+/// Condenser heat recovery on an EIR chiller (E+ Chiller:Electric:EIR with a
+/// heat recovery leaving temperature setpoint).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChillerHeatRecovery {
+    /// Heat-recovery water leaving temperature setpoint [°C].
+    pub leaving_setpoint: f64,
+    /// Heat-recovery water flow [m³/s]. 0 sizes it as E+ does: the design
+    /// condenser flow × `capacity_fraction`.
+    pub design_flow: f64,
+    /// Share of full-load condenser heat that can be recovered (E+
+    /// "Condenser Heat Recovery Relative Capacity Fraction").
+    pub capacity_fraction: f64,
+    /// Heat recovery stops while the entering heat-recovery water is above
+    /// this temperature [°C].
+    pub inlet_high_limit: Option<f64>,
+}
+
 /// Electric chiller (air-cooled or water-cooled).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AirCooledChiller {
@@ -54,6 +77,11 @@ pub struct AirCooledChiller {
     pub design_chw_flow: f64,
     #[serde(default = "default_min_plr")]
     pub min_plr: f64,
+    /// E+ Minimum Unloading Ratio. Between `min_plr` and this ratio the
+    /// chiller false-loads (hot-gas bypass): it runs at this ratio and
+    /// rejects the excess capacity to the condenser. `None` = `min_plr`.
+    #[serde(default)]
+    pub min_unloading_ratio: Option<f64>,
 
     /// Whether this is a water-cooled chiller. If true, condenser temperature
     /// is determined by condenser_entering_temp (if set) or wet-bulb + tower_approach.
@@ -82,6 +110,9 @@ pub struct AirCooledChiller {
     /// `design_condenser_flow`.
     #[serde(default = "default_condenser_design_delta_t")]
     pub condenser_design_delta_t: f64,
+    /// Condenser heat recovery (EIR model only).
+    #[serde(default)]
+    pub heat_recovery: Option<ChillerHeatRecovery>,
 
     /// CAPFT: Capacity modifier as f(T_chw_leaving, T_condenser), with the
     /// entering (EIR) or leaving (reformulated EIR) condenser temperature.
@@ -116,6 +147,18 @@ pub struct AirCooledChiller {
     pub condenser_inlet_temp: f64,
     #[serde(skip)]
     pub condenser_outlet_temp: f64,
+    /// Heat-recovery water entering temperature [°C], set by the plant
+    /// solver from the receiving loop.
+    #[serde(skip)]
+    pub heat_recovery_inlet_temp: f64,
+    /// Most heat [W] the receiving loop can take this timestep.
+    #[serde(skip)]
+    pub heat_recovery_max: f64,
+    /// Heat recovered this timestep [W].
+    #[serde(skip)]
+    pub heat_recovered: f64,
+    #[serde(skip)]
+    pub heat_recovery_outlet_temp: f64,
 }
 
 fn default_min_plr() -> f64 {
@@ -135,6 +178,17 @@ struct Operation {
     power: f64,
     /// Cooling delivered [W].
     capacity: f64,
+    /// Capacity run beyond the load below the min unloading ratio [W]; it
+    /// is rejected with the condenser heat.
+    false_load: f64,
+}
+
+impl Operation {
+    /// Heat leaving through the condenser and heat recovery [W], with all
+    /// compressor heat rejected there (E+ default).
+    fn heat_rejected(&self) -> f64 {
+        self.power + self.capacity + self.false_load
+    }
 }
 
 impl AirCooledChiller {
@@ -153,12 +207,14 @@ impl AirCooledChiller {
             chw_setpoint,
             design_chw_flow,
             min_plr: 0.25,
+            min_unloading_ratio: None,
             water_cooled: false,
             condenser_entering_temp: None,
             tower_approach: 5.56,
             model: ChillerModel::Eir,
             design_condenser_flow: 0.0,
             condenser_design_delta_t: default_condenser_design_delta_t(),
+            heat_recovery: None,
             capft_curve: None,
             eirft_curve: None,
             eirfplr_curve: None,
@@ -171,6 +227,10 @@ impl AirCooledChiller {
             water_mass_flow: 0.0,
             condenser_inlet_temp: 0.0,
             condenser_outlet_temp: 0.0,
+            heat_recovery_inlet_temp: 0.0,
+            heat_recovery_max: f64::INFINITY,
+            heat_recovered: 0.0,
+            heat_recovery_outlet_temp: 0.0,
         }
     }
 
@@ -285,11 +345,14 @@ impl AirCooledChiller {
         // When raw PLR < min_plr, the chiller cycles ON at min_plr and OFF,
         // with cycling_ratio = raw_plr / min_plr. Time-averaged power and
         // capacity are multiplied by cycling_ratio.
-        let (operating_plr, cycling_ratio) = if raw_plr < self.min_plr {
-            (self.min_plr, raw_plr / self.min_plr)
+        let cycling_ratio = if raw_plr < self.min_plr {
+            raw_plr / self.min_plr
         } else {
-            (raw_plr, 1.0)
+            1.0
         };
+        // Below the min unloading ratio the compressor runs at that ratio
+        // and false-loads (E+ ChillerFalseLoadRate).
+        let operating_plr = raw_plr.max(self.min_unloading_ratio());
 
         let eirft = self.eir_modifier_temp(t_curve);
         let eirfplr = self.eir_modifier_plr(operating_plr, t_curve);
@@ -298,15 +361,92 @@ impl AirCooledChiller {
         } else {
             1.0
         };
+        let capacity = raw_plr * available_cap;
         Operation {
             raw_plr,
             power: available_cap * ref_eir * eirft * eirfplr * cycling_ratio,
-            capacity: operating_plr * available_cap * cycling_ratio,
+            capacity,
+            false_load: (operating_plr * available_cap * cycling_ratio - capacity).max(0.0),
         }
     }
 
+    fn min_unloading_ratio(&self) -> f64 {
+        self.min_unloading_ratio
+            .unwrap_or(self.min_plr)
+            .max(self.min_plr)
+    }
+
+    /// Heat-recovery water mass flow [kg/s].
+    fn heat_recovery_mass_flow(&self, hr: &ChillerHeatRecovery) -> f64 {
+        if hr.design_flow > 0.0 {
+            hr.design_flow * RHO_WATER
+        } else {
+            self.condenser_mass_flow() * hr.capacity_fraction
+        }
+    }
+
+    /// EIR chiller with heat recovery: E+'s leaving-setpoint algorithm.
+    ///
+    /// Of the heat rejected (power + cooling + false load), the heat-recovery
+    /// water takes up to what heats it to its setpoint, capped at
+    /// capacity_fraction × full-load rejection and at what the receiving
+    /// loop can use this timestep; the condenser takes the rest. CAPFT and
+    /// EIRFT see the heat-weighted blend of the two entering temperatures.
+    ///
+    /// E+ blends with the split from its previous iteration. Here the blend
+    /// and the split are solved together, which E+'s iterations converge to.
+    /// Returns the operation, the heat recovered [W] and the blended
+    /// temperature.
+    fn operate_with_heat_recovery(
+        &self,
+        load: f64,
+        t_cond_in: f64,
+        hr: &ChillerHeatRecovery,
+    ) -> (Operation, f64) {
+        let t_hr_in = self.heat_recovery_inlet_temp;
+        let to_setpoint =
+            (self.heat_recovery_mass_flow(hr) * CP_WATER * (hr.leaving_setpoint - t_hr_in))
+                .max(0.0);
+        let full_load_rejection = if self.rated_cop > 0.0 {
+            self.rated_capacity * (1.0 + 1.0 / self.rated_cop)
+        } else {
+            self.rated_capacity
+        };
+        let blocked = hr.inlet_high_limit.is_some_and(|limit| t_hr_in > limit);
+        let recoverable = if blocked {
+            0.0
+        } else {
+            to_setpoint
+                .min(hr.capacity_fraction * full_load_rejection)
+                .min(self.heat_recovery_max.max(0.0))
+        };
+
+        let mut t_curve = if recoverable > 0.0 {
+            t_hr_in
+        } else {
+            t_cond_in
+        };
+        let mut op = self.operate(load, t_curve);
+        for _ in 0..50 {
+            let rejected = op.heat_rejected();
+            if rejected <= 0.0 {
+                break;
+            }
+            let recovered = rejected.min(recoverable);
+            let t_new = (recovered * t_hr_in + (rejected - recovered) * t_cond_in) / rejected;
+            let converged = (t_new - t_curve).abs() < 1e-9;
+            t_curve = t_new;
+            op = self.operate(load, t_curve);
+            if converged {
+                break;
+            }
+        }
+        let recovered = op.heat_rejected().min(recoverable);
+        (op, recovered)
+    }
+
     /// Reformulated EIR: solve the leaving condenser temperature from
-    ///   T_out = T_in + (Power(T_out) + Q_evap(T_out)) / (m_cond·cp)
+    ///   T_out = T_in + (Power + Q_evap + false load)(T_out) / (m_cond·cp)
     /// with all compressor heat rejected to the condenser (E+ default).
     /// The residual's slope is small (a few kW/K of power against a
     /// condenser m·cp of order 100 kW/K), so fixed-point iteration converges
@@ -319,7 +459,7 @@ impl AirCooledChiller {
             return (op, t_out);
         }
         for _ in 0..50 {
-            let t_new = t_cond_in + (op.power + op.capacity) / m_cp;
+            let t_new = t_cond_in + op.heat_rejected() / m_cp;
             let converged = (t_new - t_out).abs() < 1e-6;
             t_out = t_new;
             op = self.operate(load, t_out);
@@ -362,14 +502,31 @@ impl PlantComponent for AirCooledChiller {
             self.water_outlet_temp = inlet.state.temp;
             self.water_mass_flow = inlet.state.mass_flow;
             self.condenser_outlet_temp = t_cond_in;
+            self.heat_recovered = 0.0;
+            self.heat_recovery_outlet_temp = self.heat_recovery_inlet_temp;
             return *inlet;
         }
 
-        let (op, t_cond_out) = match self.model {
-            ChillerModel::Eir => (self.operate(load, t_cond_in), t_cond_in),
-            ChillerModel::ReformulatedEir => self.operate_reformulated(load, t_cond_in),
+        let (op, t_cond_out, recovered) = match (self.model, self.heat_recovery.as_ref()) {
+            (ChillerModel::Eir, Some(hr)) => {
+                let (op, recovered) = self.operate_with_heat_recovery(load, t_cond_in, hr);
+                (op, t_cond_in, recovered)
+            }
+            (ChillerModel::Eir, None) => (self.operate(load, t_cond_in), t_cond_in, 0.0),
+            (ChillerModel::ReformulatedEir, _) => {
+                let (op, t_out) = self.operate_reformulated(load, t_cond_in);
+                (op, t_out, 0.0)
+            }
         };
         self.condenser_outlet_temp = t_cond_out;
+        self.heat_recovered = recovered;
+        self.heat_recovery_outlet_temp = match self.heat_recovery.as_ref() {
+            Some(hr) if recovered > 0.0 => {
+                self.heat_recovery_inlet_temp
+                    + recovered / (self.heat_recovery_mass_flow(hr) * CP_WATER)
+            }
+            _ => self.heat_recovery_inlet_temp,
+        };
         self.plr = op.raw_plr;
         self.electric_power = op.power;
         self.actual_capacity = op.capacity;
@@ -431,6 +588,26 @@ impl PlantComponent for AirCooledChiller {
             out("condenser_inlet_temperature", self.condenser_inlet_temp);
             out("condenser_outlet_temperature", self.condenser_outlet_temp);
         }
+        if self.heat_recovery.is_some() {
+            out("heat_recovery_rate", self.heat_recovered);
+            out(
+                "heat_recovery_inlet_temperature",
+                self.heat_recovery_inlet_temp,
+            );
+            out(
+                "heat_recovery_outlet_temperature",
+                self.heat_recovery_outlet_temp,
+            );
+        }
+    }
+
+    fn set_heat_recovery_conditions(&mut self, inlet_temp: f64, max_heat: f64) {
+        self.heat_recovery_inlet_temp = inlet_temp;
+        self.heat_recovery_max = max_heat;
+    }
+
+    fn heat_recovered(&self) -> f64 {
+        self.heat_recovered
     }
 }
 
@@ -678,6 +855,161 @@ mod tests {
             expected,
             max_relative = 1e-12
         );
+    }
+
+    /// DOE prototype hospital heat-recovery chiller (E+ Chiller:Electric:EIR,
+    /// `ASHRAE901_Hospital_STD2022_Denver.idf`), holding 6.70 °C with tower
+    /// water entering at `t_cond_in` and heat-recovery water at `t_hr_in`.
+    fn make_heat_recovery_chiller(t_cond_in: f64, t_hr_in: f64) -> AirCooledChiller {
+        let mut chiller =
+            AirCooledChiller::new("Heat Recovery Chiller", 93_781.5151, 2.84025, 6.7, 0.0041);
+        chiller.water_cooled = true;
+        chiller.condenser_entering_temp = Some(t_cond_in);
+        chiller.tower_approach = 0.0;
+        chiller.min_plr = 0.1;
+        chiller.min_unloading_ratio = Some(0.2);
+        let biquadratic = |name: &str, c: [f64; 6]| PerformanceCurve::Polynomial {
+            name: name.to_string(),
+            curve_type: CurveType::Biquadratic,
+            coefficients: c.to_vec(),
+            min_x: 0.0,
+            max_x: 999.0,
+            min_y: 0.0,
+            max_y: 999.0,
+            min_output: None,
+            max_output: None,
+        };
+        chiller.capft_curve = Some(biquadratic(
+            "Lp2LpChlr_CAP_FT",
+            [
+                1.087789472,
+                0.0404749,
+                0.000308567,
+                -0.003035172,
+                -9.93726e-05,
+                -0.000313643,
+            ],
+        ));
+        chiller.eirft_curve = Some(biquadratic(
+            "Lp2LpChlr_EIR_FT",
+            [
+                0.457251364,
+                -0.007255161,
+                0.000255435,
+                0.00659246,
+                0.000238374,
+                -0.000294649,
+            ],
+        ));
+        chiller.eirfplr_curve = Some(PerformanceCurve::Polynomial {
+            name: "Lp2LpChlr_PLR".to_string(),
+            curve_type: CurveType::Quadratic,
+            coefficients: vec![0.02297712, 0.90150452, 0.07551826],
+            min_x: 0.0,
+            max_x: 1.0,
+            min_y: 0.0,
+            max_y: 0.0,
+            min_output: None,
+            max_output: None,
+        });
+        chiller.heat_recovery = Some(ChillerHeatRecovery {
+            leaving_setpoint: 48.89,
+            // E+ autosized heat-recovery flow, as reported in the run.
+            design_flow: 5.46102 / RHO_WATER,
+            capacity_fraction: 1.0,
+            inlet_high_limit: None,
+        });
+        chiller.set_heat_recovery_conditions(t_hr_in, f64::INFINITY);
+        chiller
+    }
+
+    #[test]
+    fn test_heat_recovery_matches_eplus_timesteps() {
+        // EnergyPlus 22.1, ASHRAE901_Hospital_STD2022_Denver.idf on Boulder
+        // weather, Heat Recovery Chiller timestep outputs. Columns:
+        // evaporator load [W], entering tower and heat-recovery water [°C],
+        // electric power [W], heat recovered [W], leaving heat-recovery
+        // water [°C], relative tolerance on power.
+        //  1. all condenser heat recovered (Jan 2 10:50);
+        //  2. recovery capped by the 48.89 °C setpoint, rest to the tower
+        //     (Jan 2 13:50). E+ blends the sink temperatures with the split
+        //     from its previous iteration; the converged blend here draws
+        //     0.16 % more power;
+        //  3. PLR 0.12, below the 0.2 min unloading ratio: 10.4 kW of false
+        //     load is recovered with the rest (Jan 2 09:30).
+        let cases = [
+            (
+                43_037.544848,
+                21.064519,
+                31.894178,
+                12_127.913869,
+                55_165.458717,
+                34.310848,
+                1e-5,
+            ),
+            (
+                84_306.834544,
+                20.668688,
+                44.162184,
+                31_015.329209,
+                107_922.143139,
+                48.89,
+                2e-3,
+            ),
+            (
+                11_623.907073,
+                21.048156,
+                25.613282,
+                5_565.920793,
+                27_624.566953,
+                26.823703,
+                1e-5,
+            ),
+        ];
+        let inlet = WaterPort::new(FluidState::water(12.0, 4.1));
+        for (load, t_cond_in, t_hr_in, power, recovered, t_hr_out, tol) in cases {
+            let mut chiller = make_heat_recovery_chiller(t_cond_in, t_hr_in);
+            chiller.simulate_plant(&inlet, load, &make_ctx(10.0));
+            assert_relative_eq!(chiller.actual_capacity, load, max_relative = 1e-9);
+            assert_relative_eq!(chiller.electric_power, power, max_relative = tol);
+            assert_relative_eq!(chiller.heat_recovered, recovered, max_relative = 1e-5);
+            assert_relative_eq!(chiller.heat_recovery_outlet_temp, t_hr_out, epsilon = 1e-3);
+        }
+    }
+
+    #[test]
+    fn test_heat_recovery_limited_by_receiving_loop() {
+        // A heating loop that can take only 20 kW: the rest goes to the tower,
+        // and the curves see a sink temperature between the two inlets.
+        let mut capped = make_heat_recovery_chiller(21.0, 38.0);
+        capped.set_heat_recovery_conditions(38.0, 20_000.0);
+        let mut free = make_heat_recovery_chiller(21.0, 38.0);
+        let mut none = make_heat_recovery_chiller(21.0, 38.0);
+        none.heat_recovery = None;
+        let inlet = WaterPort::new(FluidState::water(12.0, 4.1));
+        for c in [&mut capped, &mut free, &mut none] {
+            c.simulate_plant(&inlet, 60_000.0, &make_ctx(10.0));
+        }
+        assert_relative_eq!(capped.heat_recovered, 20_000.0, max_relative = 1e-12);
+        assert_relative_eq!(none.heat_recovered, 0.0);
+        // Recovering into 38 °C water costs more power than rejecting at 21 °C.
+        assert!(none.electric_power < capped.electric_power);
+        assert!(capped.electric_power < free.electric_power);
+    }
+
+    #[test]
+    fn test_min_unloading_ratio_false_loads_to_condenser() {
+        // PLR 0.12 between min PLR 0.1 and min unloading 0.2: E+ runs the
+        // compressor at 0.2 without cycling, so power matches PLR 0.2 and the
+        // condenser rejects the extra 0.08 of capacity.
+        let mut chiller = make_reformulated_chiller(6.7, 22.0);
+        chiller.min_unloading_ratio = Some(0.2);
+        let avail = chiller.rated_capacity * chiller.capacity_modifier(22.0);
+        let op_low = chiller.operate(0.12 * avail, 22.0);
+        let op_unload = chiller.operate(0.2 * avail, 22.0);
+        assert_relative_eq!(op_low.power, op_unload.power, max_relative = 1e-12);
+        assert_relative_eq!(op_low.false_load, 0.08 * avail, max_relative = 1e-9);
+        assert_relative_eq!(op_unload.false_load, 0.0);
     }
 
     #[test]
