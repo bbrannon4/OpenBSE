@@ -253,6 +253,8 @@
         "heating_sizing_factor": { "type": "number", "default": 1.25, "description": "Heating sizing factor applied to zone design loads and airflows (EnergyPlus Sizing:Parameters). 1.25 = 25% safety margin." },
         "cooling_sizing_factor": { "type": "number", "default": 1.15, "description": "Cooling sizing factor applied to zone design loads and airflows (EnergyPlus Sizing:Parameters). 1.15 = 15% safety margin." },
         "sizing_fan_delta_t": { "type": "number", "default": 0.0, "description": "Fan heat temperature rise added to the cooling design supply air temperature when sizing zone cooling airflows [C]. ~2.2 for typical VAV office systems." },
+        "auto_cooling_design_days": { "type": "boolean", "default": true, "description": "Also size on monthly cooling design days generated from the weather file. false sizes on the listed design days only, as EnergyPlus does." },
+        "sizing_averaging_window": { "type": "integer", "minimum": 1, "default": 1, "description": "Timesteps over which design-day zone loads are averaged before their peak is taken (EnergyPlus Sizing:Parameters Timesteps in Averaging Window). 1 sizes on the peak timestep." },
         "holidays": {
           "type": "array",
           "default": [],
@@ -1328,6 +1330,20 @@
           "items": { "$ref": "#/$defs/ThermostatScheduleEntry" },
           "default": [],
           "description": "Optional hourly setpoint schedule (e.g. night setback). Each entry's [start_hour, end_hour] window overrides the constant setpoints; hours outside every window use heating_setpoint / cooling_setpoint."
+        },
+        "design_day_heating_setpoints": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 24,
+          "maxItems": 24,
+          "description": "Hourly heating setpoints [C] for heating design days (EnergyPlus WinterDesignDay schedule), hour 1 first. Without it, sizing holds heating_setpoint all day."
+        },
+        "design_day_cooling_setpoints": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 24,
+          "maxItems": 24,
+          "description": "Hourly cooling setpoints [C] for cooling design days (EnergyPlus SummerDesignDay schedule), hour 1 first. Without it, sizing holds cooling_setpoint all day."
         }
       }
     },

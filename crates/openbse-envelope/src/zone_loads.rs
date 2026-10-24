@@ -536,6 +536,17 @@ pub struct ThermostatInput {
     /// ideal-load predictor and the HVAC control so they stay consistent.
     #[serde(default)]
     pub thermostat_schedule: Vec<crate::zone::ThermostatScheduleEntry>,
+    /// Hourly heating setpoints [°C] (hours 1–24) held during the heating
+    /// design days, as EnergyPlus's WinterDesignDay setpoint schedule: a night
+    /// setback that recovers in the morning sizes for the warm-up. Absent:
+    /// `heating_setpoint` all day.
+    #[serde(default)]
+    pub design_day_heating_setpoints: Option<Vec<f64>>,
+    /// Hourly cooling setpoints [°C] held during the cooling design days, as
+    /// EnergyPlus's SummerDesignDay setpoint schedule (setup overnight, pull
+    /// down in the morning). Absent: `cooling_setpoint` all day.
+    #[serde(default)]
+    pub design_day_cooling_setpoints: Option<Vec<f64>>,
 }
 
 fn default_tstat_heating() -> f64 {

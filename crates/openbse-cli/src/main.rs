@@ -1462,6 +1462,8 @@ fn main() -> Result<()> {
                     &sizing_oa_handled,
                     model.simulation.timesteps_per_hour,
                     model.simulation.sizing_fan_delta_t,
+                    model.simulation.auto_cooling_design_days,
+                    model.simulation.sizing_averaging_window as usize,
                 );
 
                 // Store coincident peak demands for plant loop pump autosizing
@@ -1941,13 +1943,13 @@ fn main() -> Result<()> {
                     for (zone_name, term_name) in &li.terminal_boxes {
                         if let Some(node_idx) = graph.node_by_name(term_name) {
                             if let GraphComponent::Air(comp) = graph.component_mut(node_idx) {
-                                // Size terminal max_air_flow from zone design airflow
+                                // Size terminal max_air_flow from the zone design
+                                // flow the VAV control works with (sizing factor
+                                // applied), so the box minimum is the same
+                                // fraction of it as in E+.
                                 if comp.design_air_flow_rate().is_none() {
-                                    let zone_flow = sizing_result
-                                        .zone_design_airflow
-                                        .get(zone_name)
-                                        .copied()
-                                        .unwrap_or(0.1);
+                                    let zone_flow =
+                                        zone_design_flows.get(zone_name).copied().unwrap_or(0.1);
                                     // Set in kg/s — terminal boxes use max_air_flow as mass flow
                                     // (compared against inlet.mass_flow in kg/s), unlike fans
                                     // which use design_flow_rate in m³/s.
