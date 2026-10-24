@@ -19,9 +19,9 @@ use openbse_components::chiller::ChillerModel;
 use openbse_core::types::is_autosize;
 
 use crate::input::{
-    ChillerInput, CoolingCoilInput, CurveInput, EquipmentInput, HeatingCoilInput, ModelInput,
-    PlantEquipmentInput, PlantLoopInput, RadiantPanelSourceInput, TerminalInput, ValidationResult,
-    VavBoxInput,
+    ChillerHeatRecoveryInput, ChillerInput, CoolingCoilInput, CurveInput, EquipmentInput,
+    HeatingCoilInput, ModelInput, PlantEquipmentInput, PlantLoopInput, RadiantPanelSourceInput,
+    TerminalInput, ValidationResult, VavBoxInput,
 };
 
 /// Water properties for design flows: the values the plant-loop solver uses,
@@ -240,58 +240,107 @@ pub fn validate_plant_connections(model: &ModelInput, result: &mut ValidationRes
     }
 }
 
-/// Check chillers that use `model: reformulated_eir`.
-///
-/// E+ Chiller:Electric:ReformulatedEIR is water-cooled only and requires all
-/// three curves, with EIR-f(PLR) a function of leaving condenser temperature
-/// and PLR. The fallbacks used by the EIR model are referenced to the
-/// entering condenser temperature, so there is nothing to fall back on.
+/// Check chiller inputs the parser cannot: the reformulated EIR model's
+/// requirements, the min unloading ratio and condenser heat recovery.
 pub fn validate_chiller_models(model: &ModelInput, result: &mut ValidationResult) {
     let chillers = model
         .plant_loops
         .iter()
         .flat_map(|pl| &pl.supply_equipment)
         .filter_map(|eq| match eq {
-            PlantEquipmentInput::Chiller(c)
-                if c.model == ChillerModel::ReformulatedEir && c.a205_file.is_none() =>
-            {
-                Some(c)
-            }
+            PlantEquipmentInput::Chiller(c) => Some(c),
             _ => None,
         });
     for c in chillers {
-        if c.condenser_type != "water_cooled" {
-            result.push_severe(format!(
-                "Chiller '{}' uses model reformulated_eir, which is water-cooled only; \
-                 set condenser_type: water_cooled or use model: eir",
-                c.name
-            ));
+        if c.model == ChillerModel::ReformulatedEir && c.a205_file.is_none() {
+            validate_reformulated_eir(model, c, result);
         }
-        let missing: Vec<&str> = [
-            ("capft", c.capft.is_some() || c.capft_curve.is_some()),
-            ("eirft", c.eirft.is_some() || c.eirft_curve.is_some()),
-            ("eirfplr", c.eirfplr.is_some() || c.eirfplr_curve.is_some()),
-        ]
-        .into_iter()
-        .filter(|(_, set)| !set)
-        .map(|(field, _)| field)
-        .collect();
-        if !missing.is_empty() {
-            result.push_severe(format!(
-                "Chiller '{}' uses model reformulated_eir but has no {} curve; this model \
-                 needs capft, eirft and eirfplr, all of leaving condenser water temperature",
-                c.name,
-                missing.join(", ")
-            ));
+        if let Some(r) = c.min_unloading_ratio {
+            if !(c.min_plr..=1.0).contains(&r) {
+                result.push_severe(format!(
+                    "Chiller '{}': min_unloading_ratio {r} must be between min_plr ({}) and 1, \
+                     as in E+",
+                    c.name, c.min_plr
+                ));
+            }
         }
-        if !eirfplr_is_two_variable(model, c) {
-            result.push_severe(format!(
-                "Chiller '{}' uses model reformulated_eir, so its eirfplr must be a function \
-                 of leaving condenser water temperature (x) and PLR (y): a bicubic (10 \
-                 coefficients), a biquadratic (6) or a two-axis table",
-                c.name
-            ));
+        if let Some(hr) = c.heat_recovery.as_ref() {
+            validate_heat_recovery(model, c, hr, result);
         }
+    }
+}
+
+/// E+ Chiller:Electric:ReformulatedEIR is water-cooled only and requires all
+/// three curves, with EIR-f(PLR) a function of leaving condenser temperature
+/// and PLR. The fallbacks used by the EIR model are referenced to the
+/// entering condenser temperature, so there is nothing to fall back on.
+fn validate_reformulated_eir(model: &ModelInput, c: &ChillerInput, result: &mut ValidationResult) {
+    if c.condenser_type != "water_cooled" {
+        result.push_severe(format!(
+            "Chiller '{}' uses model reformulated_eir, which is water-cooled only; \
+             set condenser_type: water_cooled or use model: eir",
+            c.name
+        ));
+    }
+    let missing: Vec<&str> = [
+        ("capft", c.capft.is_some() || c.capft_curve.is_some()),
+        ("eirft", c.eirft.is_some() || c.eirft_curve.is_some()),
+        ("eirfplr", c.eirfplr.is_some() || c.eirfplr_curve.is_some()),
+    ]
+    .into_iter()
+    .filter(|(_, set)| !set)
+    .map(|(field, _)| field)
+    .collect();
+    if !missing.is_empty() {
+        result.push_severe(format!(
+            "Chiller '{}' uses model reformulated_eir but has no {} curve; this model \
+             needs capft, eirft and eirfplr, all of leaving condenser water temperature",
+            c.name,
+            missing.join(", ")
+        ));
+    }
+    if !eirfplr_is_two_variable(model, c) {
+        result.push_severe(format!(
+            "Chiller '{}' uses model reformulated_eir, so its eirfplr must be a function \
+             of leaving condenser water temperature (x) and PLR (y): a bicubic (10 \
+             coefficients), a biquadratic (6) or a two-axis table",
+            c.name
+        ));
+    }
+}
+
+/// Heat recovery follows E+ Chiller:Electric:EIR, which offers it only with a
+/// water-cooled condenser.
+fn validate_heat_recovery(
+    model: &ModelInput,
+    c: &ChillerInput,
+    hr: &ChillerHeatRecoveryInput,
+    result: &mut ValidationResult,
+) {
+    let mut problem = |msg: String| result.push_severe(format!("Chiller '{}': {msg}", c.name));
+    if c.a205_file.is_some() {
+        problem("heat_recovery is not supported with a205_file".to_string());
+    }
+    if c.model != ChillerModel::Eir {
+        problem("heat_recovery needs model: eir (E+ Chiller:Electric:EIR)".to_string());
+    }
+    if c.condenser_type != "water_cooled" {
+        problem("heat_recovery needs condenser_type: water_cooled, as in E+".to_string());
+    }
+    if !model.plant_loops.iter().any(|pl| pl.name == hr.plant_loop) {
+        problem(format!(
+            "heat_recovery plant_loop '{}' not found in plant_loops",
+            hr.plant_loop
+        ));
+    }
+    if !(hr.capacity_fraction > 0.0 && hr.capacity_fraction <= 1.0) {
+        problem(format!(
+            "heat_recovery capacity_fraction {} must be in (0, 1]",
+            hr.capacity_fraction
+        ));
+    }
+    if hr.design_flow < 0.0 {
+        problem("heat_recovery design_flow must not be negative".to_string());
     }
 }
 
@@ -745,6 +794,47 @@ plant_loops:
         // The same chiller as model eir needs none of this.
         let r = validate_chillers(PLANT_MODEL);
         assert_eq!(r.error_count(), 0, "{}", r.to_err_file());
+    }
+
+    #[test]
+    fn chiller_heat_recovery_validates_against_eplus_rules() {
+        let with_hr = |extra: &str| {
+            PLANT_MODEL.replace(
+                CHILLER,
+                &format!(
+                    "{{type: chiller, name: Chiller, capacity: autosize, cop: 4.0, \
+                     condenser_type: water_cooled, condenser_plant_loop: CW, {extra}}}"
+                ),
+            )
+        };
+        let ok = with_hr(
+            "min_plr: 0.1, min_unloading_ratio: 0.2, \
+             heat_recovery: {plant_loop: HHW, leaving_setpoint: 48.89}",
+        );
+        let r = validate_chillers(&ok);
+        assert_eq!(r.error_count(), 0, "{}", r.to_err_file());
+
+        let bad = with_hr(
+            "model: reformulated_eir, min_plr: 0.3, min_unloading_ratio: 0.2, \
+             heat_recovery: {plant_loop: HWX, leaving_setpoint: 48.89, capacity_fraction: 1.5}",
+        );
+        let err = validate_chillers(&bad).to_err_file();
+        assert!(
+            err.contains("min_unloading_ratio 0.2 must be between min_plr (0.3)"),
+            "{err}"
+        );
+        assert!(err.contains("heat_recovery needs model: eir"), "{err}");
+        assert!(err.contains("plant_loop 'HWX' not found"), "{err}");
+        assert!(
+            err.contains("capacity_fraction 1.5 must be in (0, 1]"),
+            "{err}"
+        );
+        let air_cooled = ok.replace("condenser_type: water_cooled, ", "");
+        let err = validate_chillers(&air_cooled).to_err_file();
+        assert!(
+            err.contains("heat_recovery needs condenser_type: water_cooled"),
+            "{err}"
+        );
     }
 
     #[test]

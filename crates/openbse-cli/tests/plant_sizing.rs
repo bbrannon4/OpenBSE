@@ -140,3 +140,72 @@ fn unresolvable_plant_autosize_is_a_severe_error() {
     );
     assert!(err.contains("Simulation cancelled"), "{err}");
 }
+
+#[test]
+fn chiller_heat_recovery_offsets_the_boiler() {
+    // The example's chiller made water-cooled with condenser heat recovery
+    // into the hot-water loop (E+ Chiller:Electric:EIR heat recovery). The
+    // loop runs at 48.89 C, as in the DOE hospital: at the example's 82 C
+    // its water returns at 71 C, above the recovery setpoint, and nothing
+    // could be recovered.
+    let yaml = std::fs::read_to_string(workspace_root().join("examples/vav_chw_plant.yaml"))
+        .expect("example model");
+    let yaml = yaml
+        .replacen("start_month: 1", "start_month: 4", 1)
+        .replacen("end_month: 12", "end_month: 4", 1)
+        .replacen("end_day: 31", "end_day: 14", 1)
+        .replacen(
+            "  - name: HHW Loop\n    design_supply_temp: 82.0",
+            "  - name: HHW Loop\n    design_supply_temp: 48.89",
+            1,
+        )
+        .replacen(
+            "        name: Air-Cooled Chiller\n",
+            "        name: Air-Cooled Chiller\n        condenser_type: water_cooled\n        \
+             heat_recovery: {plant_loop: HHW Loop, leaving_setpoint: 48.89}\n",
+            1,
+        );
+    let (dir, output) = run_model("vav_chw_heat_recovery", &yaml);
+    let log = String::from_utf8_lossy(&output.stderr).to_string();
+    assert!(output.status.success(), "openbse failed:\n{log}");
+    let cols = read_results(&dir.join("vav_chw_heat_recovery_results.csv"));
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let col = |name: &str| -> &Vec<f64> {
+        cols.get(name)
+            .unwrap_or_else(|| panic!("no column '{name}'"))
+    };
+    let hot_water_load: Vec<f64> = (0..col("HHW Boiler:thermal_output").len())
+        .map(|i| {
+            [
+                "AHU Preheat Coil",
+                "VAV Box South",
+                "VAV Box North",
+                "VAV Box Core",
+            ]
+            .iter()
+            .map(|c| col(&format!("{c}:thermal_output"))[i])
+            .sum()
+        })
+        .collect();
+    let recovered = col("Air-Cooled Chiller:heat_recovery_rate");
+    let boiler = col("HHW Boiler:thermal_output");
+
+    let total_recovered: f64 = recovered.iter().sum();
+    let total_load: f64 = hot_water_load.iter().sum();
+    assert!(total_recovered > 0.0, "no heat recovered");
+    for i in 0..boiler.len() {
+        // Recovery never exceeds the loop's demand, and together with the
+        // boiler it meets that demand.
+        assert!(recovered[i] <= hot_water_load[i].max(0.0) + 1.0, "hour {i}");
+        assert!(
+            (boiler[i] + recovered[i] - hot_water_load[i].max(0.0)).abs()
+                <= 0.01 * hot_water_load[i].abs() + 1.0,
+            "hour {i}: boiler {} + recovered {} vs load {}",
+            boiler[i],
+            recovered[i],
+            hot_water_load[i]
+        );
+    }
+    assert!(total_recovered < total_load);
+}

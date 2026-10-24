@@ -425,6 +425,16 @@ pub trait PlantComponent: std::fmt::Debug {
     /// `simulate_plant()`. Default no-op — only `WaterToWaterHX` overrides.
     fn set_source_conditions(&mut self, _temp: f64, _mass_flow: f64) {}
 
+    /// Heat-recovery chillers: set the heat-recovery water entering
+    /// temperature [°C] and the most heat [W] the receiving plant loop can
+    /// take this timestep, before `simulate_plant()`. Default no-op.
+    fn set_heat_recovery_conditions(&mut self, _inlet_temp: f64, _max_heat: f64) {}
+
+    /// Condenser heat delivered to another plant loop this timestep [W].
+    fn heat_recovered(&self) -> f64 {
+        0.0
+    }
+
     /// Additional component-specific output variables beyond the standard set.
     ///
     /// Reports `snake_case_variable_name` → value pairs by calling `out(name,
