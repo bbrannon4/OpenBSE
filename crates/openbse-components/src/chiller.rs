@@ -5,21 +5,41 @@
 //!
 //! Supports both air-cooled and water-cooled chillers. When performance curves
 //! (CAPFT, EIRFT, EIRFPLR) are provided, they are used directly. Otherwise,
-//! simplified linear fallbacks are used for air-cooled units.
+//! simplified linear fallbacks are used for CAPFT and EIRFT (air-cooled), and
+//! EIRFPLR = PLR (constant COP across part load).
 //!
 //! For water-cooled chillers without a condenser water loop, the condenser
 //! entering water temperature is estimated from outdoor wet-bulb + tower_approach.
 //!
-//! Reference: EnergyPlus Engineering Reference, "Chiller:Electric:EIR"
+//! `ChillerModel::ReformulatedEir` follows E+ Chiller:Electric:ReformulatedEIR
+//! instead: CAPFT and EIRFT take the *leaving* condenser water temperature, and
+//! EIRFPLR is f(leaving condenser temperature, PLR). That temperature depends
+//! on the chiller's own power through the condenser heat balance, so it is
+//! solved by fixed-point iteration (E+ uses regula falsi on the same residual).
+//!
+//! Reference: EnergyPlus Engineering Reference, "Chiller:Electric:EIR" and
+//! "Chiller:Electric:ReformulatedEIR"
 
 use crate::performance_curve::PerformanceCurve;
 use openbse_core::ports::*;
 use openbse_core::types::is_autosize;
-use openbse_psychrometrics::FluidState;
+use openbse_psychrometrics::{FluidState, CP_WATER, RHO_WATER};
 use serde::{Deserialize, Serialize};
 
 fn default_submeter() -> String {
     "General".to_string()
+}
+
+/// Which E+ chiller formulation the curves follow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChillerModel {
+    /// Chiller:Electric:EIR — curves of the entering condenser temperature.
+    #[default]
+    Eir,
+    /// Chiller:Electric:ReformulatedEIR — curves of the leaving condenser
+    /// water temperature; EIRFPLR is f(T_cond_leaving, PLR). Water-cooled only.
+    ReformulatedEir,
 }
 
 /// Electric chiller (air-cooled or water-cooled).
@@ -50,16 +70,31 @@ pub struct AirCooledChiller {
     #[serde(default = "default_tower_approach")]
     pub tower_approach: f64,
 
-    /// CAPFT: Capacity modifier as f(T_chw_leaving, T_condenser_entering).
+    /// Curve formulation (E+ Chiller:Electric:EIR or ReformulatedEIR).
+    #[serde(default)]
+    pub model: ChillerModel,
+    /// Reformulated EIR: design condenser water flow [m³/s], held constant
+    /// while the chiller runs (E+ ConstantFlow). 0 sizes it as E+ does:
+    /// capacity × (1 + 1/COP) / (ρ·cp·condenser_design_delta_t).
+    #[serde(default)]
+    pub design_condenser_flow: f64,
+    /// Condenser loop design temperature difference [K] used to size
+    /// `design_condenser_flow`.
+    #[serde(default = "default_condenser_design_delta_t")]
+    pub condenser_design_delta_t: f64,
+
+    /// CAPFT: Capacity modifier as f(T_chw_leaving, T_condenser), with the
+    /// entering (EIR) or leaving (reformulated EIR) condenser temperature.
     /// Biquadratic: c1 + c2*x + c3*x² + c4*y + c5*y² + c6*x*y
     #[serde(skip)]
     pub capft_curve: Option<PerformanceCurve>,
-    /// EIRFT: EIR modifier as f(T_chw_leaving, T_condenser_entering).
+    /// EIRFT: EIR modifier as f(T_chw_leaving, T_condenser), with the
+    /// entering (EIR) or leaving (reformulated EIR) condenser temperature.
     /// Biquadratic: c1 + c2*x + c3*x² + c4*y + c5*y² + c6*x*y
     #[serde(skip)]
     pub eirft_curve: Option<PerformanceCurve>,
-    /// EIRFPLR: EIR modifier as f(PLR).
-    /// Quadratic: c1 + c2*x + c3*x²
+    /// EIRFPLR: EIR modifier as f(PLR) (quadratic), or as
+    /// f(T_condenser_leaving, PLR) (bicubic) on the reformulated EIR model.
     #[serde(skip)]
     pub eirfplr_curve: Option<PerformanceCurve>,
 
@@ -77,6 +112,10 @@ pub struct AirCooledChiller {
     pub water_outlet_temp: f64,
     #[serde(skip)]
     pub water_mass_flow: f64,
+    #[serde(skip)]
+    pub condenser_inlet_temp: f64,
+    #[serde(skip)]
+    pub condenser_outlet_temp: f64,
 }
 
 fn default_min_plr() -> f64 {
@@ -84,6 +123,18 @@ fn default_min_plr() -> f64 {
 }
 fn default_tower_approach() -> f64 {
     5.56
+}
+fn default_condenser_design_delta_t() -> f64 {
+    5.56
+}
+
+/// Time-averaged performance at one curve temperature.
+struct Operation {
+    raw_plr: f64,
+    /// Electric power [W].
+    power: f64,
+    /// Cooling delivered [W].
+    capacity: f64,
 }
 
 impl AirCooledChiller {
@@ -105,6 +156,9 @@ impl AirCooledChiller {
             water_cooled: false,
             condenser_entering_temp: None,
             tower_approach: 5.56,
+            model: ChillerModel::Eir,
+            design_condenser_flow: 0.0,
+            condenser_design_delta_t: default_condenser_design_delta_t(),
             capft_curve: None,
             eirft_curve: None,
             eirfplr_curve: None,
@@ -115,6 +169,8 @@ impl AirCooledChiller {
             water_inlet_temp: 0.0,
             water_outlet_temp: 0.0,
             water_mass_flow: 0.0,
+            condenser_inlet_temp: 0.0,
+            condenser_outlet_temp: 0.0,
         }
     }
 
@@ -179,18 +235,99 @@ impl AirCooledChiller {
 
     /// EIRFPLR: EIR modifier as function of part load ratio.
     ///
-    /// If an eirfplr_curve is set, evaluates the quadratic curve.
-    /// Otherwise uses a simplified linear curve (EIR increases with PLR).
-    fn eir_modifier_plr(&self, plr: f64) -> f64 {
+    /// If an eirfplr_curve is set, evaluates it: at PLR for the EIR model, and
+    /// at (leaving condenser temperature `t_condenser`, PLR) for a two-variable
+    /// curve on the reformulated model. Otherwise EIRFPLR = PLR.
+    ///
+    /// E+ Chiller:Electric:EIR requires this curve and has no default. The
+    /// fallback keeps the chiller at its rated COP (adjusted only by EIRFT) at
+    /// every part load, with no part-load advantage or penalty: power scales
+    /// with PLR because EIRFPLR multiplies the *available* capacity, not the
+    /// load. 99 of the 111 air-cooled chillers in E+'s AirCooledChiller.idf
+    /// dataset use exactly this curve. Below min_plr the chiller cycles at
+    /// min_plr, so its time-averaged COP stays at rated there too.
+    fn eir_modifier_plr(&self, plr: f64, t_condenser: f64) -> f64 {
         let p = plr.clamp(self.min_plr, 1.0);
-        if let Some(ref curve) = self.eirfplr_curve {
-            curve.evaluate_1d(p).max(0.01)
-        } else {
-            // Simplified quadratic fallback (constant EIR at all PLR)
-            // This is intentionally flat so that without curves, the chiller
-            // uses rated COP at all load levels (no part-load advantage).
-            1.0
+        match &self.eirfplr_curve {
+            Some(curve)
+                if self.model == ChillerModel::ReformulatedEir && curve.dimensions() == 2 =>
+            {
+                curve.evaluate(t_condenser, p).max(0.01)
+            }
+            Some(curve) => curve.evaluate_1d(p).max(0.01),
+            None => p,
         }
+    }
+
+    /// Condenser water mass flow [kg/s] for the reformulated model.
+    fn condenser_mass_flow(&self) -> f64 {
+        if self.design_condenser_flow > 0.0 {
+            self.design_condenser_flow * RHO_WATER
+        } else if self.rated_cop > 0.0 && self.condenser_design_delta_t > 0.0 {
+            self.rated_capacity * (1.0 + 1.0 / self.rated_cop)
+                / (CP_WATER * self.condenser_design_delta_t)
+        } else {
+            0.0
+        }
+    }
+
+    /// Performance with the curves evaluated at condenser temperature
+    /// `t_curve`: entering (EIR) or leaving (reformulated EIR).
+    ///
+    /// E+ formulation:
+    ///   Power = AvailCoolCap × (1/RefCOP) × EIRFT × EIRFPLR × CyclingRatio
+    fn operate(&self, load: f64, t_curve: f64) -> Operation {
+        // CAPFT: capacity at current temperatures
+        let available_cap = self.rated_capacity * self.capacity_modifier(t_curve);
+        let raw_plr = (load / available_cap).min(1.0);
+
+        // E+-style ON/OFF cycling below min_plr:
+        // When raw PLR < min_plr, the chiller cycles ON at min_plr and OFF,
+        // with cycling_ratio = raw_plr / min_plr. Time-averaged power and
+        // capacity are multiplied by cycling_ratio.
+        let (operating_plr, cycling_ratio) = if raw_plr < self.min_plr {
+            (self.min_plr, raw_plr / self.min_plr)
+        } else {
+            (raw_plr, 1.0)
+        };
+
+        let eirft = self.eir_modifier_temp(t_curve);
+        let eirfplr = self.eir_modifier_plr(operating_plr, t_curve);
+        let ref_eir = if self.rated_cop > 0.0 {
+            1.0 / self.rated_cop
+        } else {
+            1.0
+        };
+        Operation {
+            raw_plr,
+            power: available_cap * ref_eir * eirft * eirfplr * cycling_ratio,
+            capacity: operating_plr * available_cap * cycling_ratio,
+        }
+    }
+
+    /// Reformulated EIR: solve the leaving condenser temperature from
+    ///   T_out = T_in + (Power(T_out) + Q_evap(T_out)) / (m_cond·cp)
+    /// with all compressor heat rejected to the condenser (E+ default).
+    /// The residual's slope is small (a few kW/K of power against a
+    /// condenser m·cp of order 100 kW/K), so fixed-point iteration converges
+    /// in a few steps.
+    fn operate_reformulated(&self, load: f64, t_cond_in: f64) -> (Operation, f64) {
+        let m_cp = self.condenser_mass_flow() * CP_WATER;
+        let mut t_out = t_cond_in;
+        let mut op = self.operate(load, t_out);
+        if m_cp <= 0.0 {
+            return (op, t_out);
+        }
+        for _ in 0..50 {
+            let t_new = t_cond_in + (op.power + op.capacity) / m_cp;
+            let converged = (t_new - t_out).abs() < 1e-6;
+            t_out = t_new;
+            op = self.operate(load, t_out);
+            if converged {
+                break;
+            }
+        }
+        (op, t_out)
     }
 }
 
@@ -214,6 +351,8 @@ impl PlantComponent for AirCooledChiller {
         ctx: &SimulationContext,
     ) -> WaterPort {
         let cp_water = 4186.0;
+        let t_cond_in = self.condenser_temp(ctx);
+        self.condenser_inlet_temp = t_cond_in;
         if load <= 0.0 {
             self.actual_capacity = 0.0;
             self.actual_cop = 0.0;
@@ -222,44 +361,18 @@ impl PlantComponent for AirCooledChiller {
             self.water_inlet_temp = inlet.state.temp;
             self.water_outlet_temp = inlet.state.temp;
             self.water_mass_flow = inlet.state.mass_flow;
+            self.condenser_outlet_temp = t_cond_in;
             return *inlet;
         }
 
-        let t_condenser = self.condenser_temp(ctx);
-
-        // CAPFT: capacity at current temperatures
-        let capft = self.capacity_modifier(t_condenser);
-        let available_cap = self.rated_capacity * capft;
-        let raw_plr = (load / available_cap).min(1.0);
-
-        // E+-style ON/OFF cycling below min_plr:
-        // When raw PLR < min_plr, the chiller cycles ON at min_plr and OFF,
-        // with cycling_ratio = raw_plr / min_plr. Time-averaged power and
-        // capacity are multiplied by cycling_ratio.
-        let (operating_plr, cycling_ratio) = if raw_plr < self.min_plr {
-            (self.min_plr, raw_plr / self.min_plr)
-        } else {
-            (raw_plr, 1.0)
+        let (op, t_cond_out) = match self.model {
+            ChillerModel::Eir => (self.operate(load, t_cond_in), t_cond_in),
+            ChillerModel::ReformulatedEir => self.operate_reformulated(load, t_cond_in),
         };
-
-        self.plr = raw_plr;
-
-        // E+ formulation:
-        //   Power = AvailCoolCap × (1/RefCOP) × EIRFT × EIRFPLR × CyclingRatio
-        let eirft = self.eir_modifier_temp(t_condenser);
-        let eirfplr = self.eir_modifier_plr(operating_plr);
-
-        let ref_eir = if self.rated_cop > 0.0 {
-            1.0 / self.rated_cop
-        } else {
-            1.0
-        };
-        let instantaneous_power = available_cap * ref_eir * eirft * eirfplr;
-        self.electric_power = instantaneous_power * cycling_ratio;
-
-        // Capacity delivered
-        let instantaneous_cap = operating_plr * available_cap;
-        self.actual_capacity = instantaneous_cap * cycling_ratio;
+        self.condenser_outlet_temp = t_cond_out;
+        self.plr = op.raw_plr;
+        self.electric_power = op.power;
+        self.actual_capacity = op.capacity;
 
         // Effective COP for reporting
         self.actual_cop = if self.electric_power > 0.0 {
@@ -314,6 +427,10 @@ impl PlantComponent for AirCooledChiller {
         out("water_inlet_temperature", self.water_inlet_temp);
         out("water_outlet_temperature", self.water_outlet_temp);
         out("water_mass_flow", self.water_mass_flow);
+        if self.model == ChillerModel::ReformulatedEir {
+            out("condenser_inlet_temperature", self.condenser_inlet_temp);
+            out("condenser_outlet_temperature", self.condenser_outlet_temp);
+        }
     }
 }
 
@@ -400,6 +517,167 @@ mod tests {
             max_output: None,
         });
         chiller
+    }
+
+    /// DOE prototype hospital chiller as E+ Chiller:Electric:ReformulatedEIR
+    /// (`ASHRAE901_Hospital_STD2019_Denver.idf`, CoolSys1 Chiller1), held at
+    /// leaving CHW temperature `chw` with condenser water entering at `t_in`.
+    fn make_reformulated_chiller(chw: f64, t_in: f64) -> AirCooledChiller {
+        let mut chiller = AirCooledChiller::new("CoolSys1 Chiller1", 684_947.265, 5.33, chw, 0.02);
+        chiller.model = ChillerModel::ReformulatedEir;
+        chiller.water_cooled = true;
+        chiller.condenser_entering_temp = Some(t_in);
+        chiller.tower_approach = 0.0;
+        chiller.min_plr = 0.1;
+        // E+ autosized condenser flow, as reported in the run.
+        chiller.design_condenser_flow = 34.587555 / RHO_WATER;
+        let biquadratic = |name: &str, c: [f64; 6]| PerformanceCurve::Polynomial {
+            name: name.to_string(),
+            curve_type: CurveType::Biquadratic,
+            coefficients: c.to_vec(),
+            min_x: 5.0,
+            max_x: 10.0,
+            min_y: 17.78,
+            max_y: 46.11,
+            min_output: None,
+            max_output: None,
+        };
+        chiller.capft_curve = Some(biquadratic(
+            "WC_PD_GT150_2010_PA_CAPFT",
+            [
+                0.9061150, 0.0292277, -0.0003647, -0.0009709, -0.0000905, 0.0002527,
+            ],
+        ));
+        chiller.eirft_curve = Some(biquadratic(
+            "WC_PD_GT150_2010_PA_EIRFT",
+            [
+                0.3773115, -0.0229032, 0.0016504, 0.0118156, 0.0004345, -0.0010132,
+            ],
+        ));
+        chiller.eirfplr_curve = Some(PerformanceCurve::Polynomial {
+            name: "WC_PD_150to300_2010_PA_EIRFPLR".to_string(),
+            curve_type: CurveType::Bicubic,
+            coefficients: vec![
+                -1.360532e-01,
+                8.642703e-03,
+                3.855583e-06,
+                1.024034,
+                6.047444e-02,
+                -8.947860e-03,
+                0.0,
+                5.706602e-02,
+                0.0,
+                0.0,
+            ],
+            min_x: 31.13,
+            max_x: 36.52,
+            min_y: 0.19,
+            max_y: 1.03,
+            min_output: None,
+            max_output: None,
+        });
+        chiller
+    }
+
+    #[test]
+    fn test_reformulated_eir_matches_eplus_timesteps() {
+        // EnergyPlus 25.2, ASHRAE901_Hospital_STD2019_Denver.idf on Boulder
+        // weather, CoolSys1 Chiller1 timestep outputs. Columns: evaporator
+        // load [W], leaving CHW [°C], entering and leaving condenser water
+        // [°C], electric power [W], relative tolerance on power. Rows span
+        // on/off cycling (cycling ratio 0.02 and 0.50), the region where the
+        // EIRFPLR curve holds its 0.19 PLR limit, and part to full load.
+        //
+        // E+ evaluates CAPFT at the CHW setpoint and EIRFT at the actual
+        // leaving temperature, while OpenBSE uses the setpoint for both. They
+        // agree on every row but the third, where the water left 0.1 % of
+        // CAPFT away from its setpoint.
+        let cases = [
+            (
+                1_568.399634,
+                8.889294,
+                21.031263,
+                21.045287,
+                459.395768,
+                1e-4,
+            ),
+            (
+                38_466.547313,
+                8.87267,
+                20.985974,
+                21.330806,
+                11_395.112864,
+                1e-4,
+            ),
+            (
+                90_733.537957,
+                8.265474,
+                21.488994,
+                22.280009,
+                23_639.304269,
+                1.5e-3,
+            ),
+            (
+                358_781.225507,
+                6.7,
+                22.067144,
+                24.891405,
+                49_555.966728,
+                1e-4,
+            ),
+            (
+                473_980.721478,
+                6.7,
+                22.578186,
+                26.313823,
+                66_098.534927,
+                1e-4,
+            ),
+            (
+                684_947.265,
+                6.700157,
+                22.34162,
+                27.764882,
+                99_138.08006,
+                1e-4,
+            ),
+        ];
+        let inlet = WaterPort::new(FluidState::water(12.0, 30.0));
+        for (load, chw, t_in, t_out, power, tol) in cases {
+            let mut chiller = make_reformulated_chiller(chw, t_in);
+            chiller.simulate_plant(&inlet, load, &make_ctx(25.0));
+            assert_relative_eq!(chiller.actual_capacity, load, max_relative = 1e-9);
+            assert_relative_eq!(chiller.electric_power, power, max_relative = tol);
+            assert_relative_eq!(chiller.condenser_outlet_temp, t_out, epsilon = 1e-3);
+        }
+    }
+
+    #[test]
+    fn test_reformulated_eir_closes_condenser_heat_balance() {
+        let mut chiller = make_reformulated_chiller(6.7, 22.0);
+        let inlet = WaterPort::new(FluidState::water(12.0, 30.0));
+        chiller.simulate_plant(&inlet, 400_000.0, &make_ctx(25.0));
+        let m_cp = chiller.condenser_mass_flow() * CP_WATER;
+        let q_cond = chiller.electric_power + chiller.actual_capacity;
+        assert_relative_eq!(
+            chiller.condenser_outlet_temp,
+            22.0 + q_cond / m_cp,
+            epsilon = 1e-5
+        );
+    }
+
+    #[test]
+    fn test_reformulated_eir_sizes_condenser_flow_as_eplus() {
+        // E+: capacity × (1 + 1/COP) / (ΔT·cp·ρ) in m³/s, i.e. a mass flow of
+        // capacity × (1 + 1/COP) / (ΔT·cp).
+        let mut chiller = make_reformulated_chiller(6.7, 22.0);
+        chiller.design_condenser_flow = 0.0;
+        let expected = 684_947.265 * (1.0 + 1.0 / 5.33) / (CP_WATER * 5.56);
+        assert_relative_eq!(
+            chiller.condenser_mass_flow(),
+            expected,
+            max_relative = 1e-12
+        );
     }
 
     #[test]
@@ -496,6 +774,24 @@ mod tests {
     }
 
     #[test]
+    fn test_chiller_without_eirfplr_curve_keeps_rated_cop_at_part_load() {
+        // A flat EIRFPLR = 1.0 fallback used to draw full-load power at any
+        // load, so COP fell to max(PLR, min_plr) × rated COP (1.75 at PLR 0.5).
+        // At the 29.4 °C reference, CAPFT = EIRFT = 1 and COP is rated.
+        let mut chiller = AirCooledChiller::new("No Curves", 100_000.0, 3.5, 7.0, 0.005);
+        let inlet = WaterPort::new(FluidState::water(12.0, 5.0));
+        let ctx = make_ctx(29.4);
+        // 0.1 is below min_plr (0.25) and exercises on/off cycling.
+        for plr in [0.1, 0.2, 0.25, 0.5, 0.75, 1.0] {
+            let load = plr * 100_000.0;
+            chiller.simulate_plant(&inlet, load, &ctx);
+            assert_relative_eq!(chiller.actual_capacity, load, epsilon = 1e-6);
+            assert_relative_eq!(chiller.electric_power, load / 3.5, epsilon = 1e-6);
+            assert_relative_eq!(chiller.actual_cop, 3.5, epsilon = 1e-9);
+        }
+    }
+
+    #[test]
     fn test_water_cooled_chiller_with_curves() {
         // Water-cooled chiller with actual E+ IDF curves
         let mut chiller = make_water_cooled_chiller(1_570_096.0, 6.11);
@@ -533,7 +829,7 @@ mod tests {
     #[test]
     fn test_eirfplr_curve_at_full_load() {
         let chiller = make_water_cooled_chiller(1_000_000.0, 6.11);
-        let eirfplr = chiller.eir_modifier_plr(1.0);
+        let eirfplr = chiller.eir_modifier_plr(1.0, 29.44);
         // At PLR=1.0: 0.3098 + 0.1536 + 0.5365 ≈ 1.0
         assert!(
             (eirfplr - 1.0).abs() < 0.01,

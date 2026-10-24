@@ -15,11 +15,13 @@
 
 use std::collections::{HashMap, HashSet};
 
+use openbse_components::chiller::ChillerModel;
 use openbse_core::types::is_autosize;
 
 use crate::input::{
-    CoolingCoilInput, EquipmentInput, HeatingCoilInput, ModelInput, PlantEquipmentInput,
-    PlantLoopInput, RadiantPanelSourceInput, TerminalInput, ValidationResult, VavBoxInput,
+    ChillerInput, CoolingCoilInput, CurveInput, EquipmentInput, HeatingCoilInput, ModelInput,
+    PlantEquipmentInput, PlantLoopInput, RadiantPanelSourceInput, TerminalInput, ValidationResult,
+    VavBoxInput,
 };
 
 /// Water properties for design flows: the values the plant-loop solver uses,
@@ -236,6 +238,76 @@ pub fn validate_plant_connections(model: &ModelInput, result: &mut ValidationRes
             ));
         }
     }
+}
+
+/// Check chillers that use `model: reformulated_eir`.
+///
+/// E+ Chiller:Electric:ReformulatedEIR is water-cooled only and requires all
+/// three curves, with EIR-f(PLR) a function of leaving condenser temperature
+/// and PLR. The fallbacks used by the EIR model are referenced to the
+/// entering condenser temperature, so there is nothing to fall back on.
+pub fn validate_chiller_models(model: &ModelInput, result: &mut ValidationResult) {
+    let chillers = model
+        .plant_loops
+        .iter()
+        .flat_map(|pl| &pl.supply_equipment)
+        .filter_map(|eq| match eq {
+            PlantEquipmentInput::Chiller(c)
+                if c.model == ChillerModel::ReformulatedEir && c.a205_file.is_none() =>
+            {
+                Some(c)
+            }
+            _ => None,
+        });
+    for c in chillers {
+        if c.condenser_type != "water_cooled" {
+            result.push_severe(format!(
+                "Chiller '{}' uses model reformulated_eir, which is water-cooled only; \
+                 set condenser_type: water_cooled or use model: eir",
+                c.name
+            ));
+        }
+        let missing: Vec<&str> = [
+            ("capft", c.capft.is_some() || c.capft_curve.is_some()),
+            ("eirft", c.eirft.is_some() || c.eirft_curve.is_some()),
+            ("eirfplr", c.eirfplr.is_some() || c.eirfplr_curve.is_some()),
+        ]
+        .into_iter()
+        .filter(|(_, set)| !set)
+        .map(|(field, _)| field)
+        .collect();
+        if !missing.is_empty() {
+            result.push_severe(format!(
+                "Chiller '{}' uses model reformulated_eir but has no {} curve; this model \
+                 needs capft, eirft and eirfplr, all of leaving condenser water temperature",
+                c.name,
+                missing.join(", ")
+            ));
+        }
+        if !eirfplr_is_two_variable(model, c) {
+            result.push_severe(format!(
+                "Chiller '{}' uses model reformulated_eir, so its eirfplr must be a function \
+                 of leaving condenser water temperature (x) and PLR (y): a bicubic (10 \
+                 coefficients), a biquadratic (6) or a two-axis table",
+                c.name
+            ));
+        }
+    }
+}
+
+/// Whether a chiller's EIR-f(PLR) curve takes two variables (true when it
+/// has none: that is reported as missing).
+fn eirfplr_is_two_variable(model: &ModelInput, c: &ChillerInput) -> bool {
+    if let Some(name) = c.eirfplr_curve.as_deref() {
+        return model
+            .performance_curves
+            .iter()
+            .find(|pc| pc.name() == name)
+            .is_none_or(|pc| pc.dimensions() == 2);
+    }
+    c.eirfplr
+        .as_ref()
+        .is_none_or(|ci: &CurveInput| matches!(ci.coefficients.len(), 6 | 10))
 }
 
 /// Inputs to [`size_plant`] gathered from the built, air-side-sized model.
@@ -629,6 +701,50 @@ plant_loops:
         assert!(err.contains("heating coil 'Preheat' uses hot_water but names no plant_loop"));
         assert!(err.contains("VAV box 'Box A' uses hot_water"), "{err}");
         assert!(err.contains("Plant loop 'HHW' has no demand"), "{err}");
+    }
+
+    const CHILLER: &str = "{type: chiller, name: Chiller, capacity: autosize, cop: 4.0, \
+                           condenser_type: water_cooled, condenser_plant_loop: CW}";
+
+    fn validate_chillers(yaml: &str) -> ValidationResult {
+        let m = model(yaml);
+        let mut result = ValidationResult::new();
+        validate_chiller_models(&m, &mut result);
+        result
+    }
+
+    #[test]
+    fn reformulated_chiller_needs_water_cooling_and_two_variable_curves() {
+        let yaml = PLANT_MODEL.replace(
+            CHILLER,
+            "{type: chiller, name: Chiller, capacity: autosize, cop: 4.0, \
+             model: reformulated_eir, eirfplr: {coefficients: [0.1, 0.9, 0.0]}}",
+        );
+        let err = validate_chillers(&yaml).to_err_file();
+        assert!(err.contains("'Chiller' uses model reformulated_eir, which is water-cooled only"));
+        assert!(err.contains("has no capft, eirft curve"), "{err}");
+        assert!(
+            err.contains("eirfplr must be a function of leaving condenser"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn reformulated_chiller_with_its_curves_validates() {
+        let yaml = PLANT_MODEL.replace(
+            CHILLER,
+            "{type: chiller, name: Chiller, capacity: autosize, cop: 4.0, \
+             condenser_type: water_cooled, condenser_plant_loop: CW, model: reformulated_eir, \
+             capft: {coefficients: [1, 0, 0, 0, 0, 0]}, \
+             eirft: {coefficients: [1, 0, 0, 0, 0, 0]}, \
+             eirfplr_curve: EIRFPLR}",
+        ) + "performance_curves:\n  - {name: EIRFPLR, curve_type: bicubic, \
+              coefficients: [0, 0, 0, 1, 0, 0, 0, 0, 0, 0]}\n";
+        let r = validate_chillers(&yaml);
+        assert_eq!(r.error_count(), 0, "{}", r.to_err_file());
+        // The same chiller as model eir needs none of this.
+        let r = validate_chillers(PLANT_MODEL);
+        assert_eq!(r.error_count(), 0, "{}", r.to_err_file());
     }
 
     #[test]

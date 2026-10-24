@@ -5,7 +5,7 @@
 //!
 //! # Variants
 //!
-//! - **Polynomial** — biquadratic, quadratic, cubic, or linear expression
+//! - **Polynomial** — bicubic, biquadratic, quadratic, cubic, or linear expression
 //! - **TableLookup** — manufacturer tabular data with N-linear interpolation;
 //!   no polynomial fitting required
 //!
@@ -165,6 +165,9 @@ pub const SLOT_FAN_POWER_FFLOW: &[&[IndependentVariable]] =
 pub enum CurveType {
     /// f(x,y) = c1 + c2*x + c3*x² + c4*y + c5*y² + c6*x*y
     Biquadratic,
+    /// f(x,y) = c1 + c2*x + c3*x² + c4*y + c5*y² + c6*x*y
+    ///        + c7*x³ + c8*y³ + c9*x²*y + c10*x*y²  (E+ Curve:Bicubic)
+    Bicubic,
     /// f(x) = c1 + c2*x + c3*x²
     Quadratic,
     /// f(x) = c1 + c2*x + c3*x² + c4*x³
@@ -185,7 +188,7 @@ pub enum CurveType {
 pub enum PerformanceCurve {
     /// Manufacturer tabular data with N-linear interpolation.
     TableLookup { name: String, table: TableData },
-    /// Classic polynomial curve (biquadratic / quadratic / cubic / linear).
+    /// Classic polynomial curve (bicubic / biquadratic / quadratic / cubic / linear).
     Polynomial {
         name: String,
         curve_type: CurveType,
@@ -218,6 +221,18 @@ impl PerformanceCurve {
     pub fn name(&self) -> &str {
         match self {
             Self::Polynomial { name, .. } | Self::TableLookup { name, .. } => name,
+        }
+    }
+
+    /// Number of independent variables: 1 or 2 for polynomials, the axis
+    /// count for tables.
+    pub fn dimensions(&self) -> usize {
+        match self {
+            Self::Polynomial { curve_type, .. } => match curve_type {
+                CurveType::Biquadratic | CurveType::Bicubic => 2,
+                CurveType::Quadratic | CurveType::Cubic | CurveType::Linear => 1,
+            },
+            Self::TableLookup { table, .. } => table.axes.len(),
         }
     }
 
@@ -283,6 +298,18 @@ impl PerformanceCurve {
                     + c.get(3).copied().unwrap_or(0.0) * y
                     + c.get(4).copied().unwrap_or(0.0) * y * y
                     + c.get(5).copied().unwrap_or(0.0) * x * y
+            }
+            CurveType::Bicubic => {
+                let k = |i: usize| c.get(i).copied().unwrap_or(0.0);
+                k(0) + k(1) * x
+                    + k(2) * x * x
+                    + k(3) * y
+                    + k(4) * y * y
+                    + k(5) * x * y
+                    + k(6) * x * x * x
+                    + k(7) * y * y * y
+                    + k(8) * x * x * y
+                    + k(9) * x * y * y
             }
         };
 
@@ -798,6 +825,47 @@ mod tests {
         };
         // At rated: EWB=19.44, ODB=35.0 → modifier ≈ 1.0
         assert_relative_eq!(curve.evaluate(19.44, 35.0), 1.0, max_relative = 0.05);
+    }
+
+    #[test]
+    fn test_bicubic_matches_eplus_form() {
+        // E+ Curve:Bicubic WC_PD_150to300_2010_PA_EIRFPLR (x = leaving
+        // condenser water temp, y = PLR), from the DOE prototype hospital.
+        let curve = PerformanceCurve::Polynomial {
+            name: "EIRFPLR".to_string(),
+            curve_type: CurveType::Bicubic,
+            coefficients: vec![
+                -1.360532e-01,
+                8.642703e-03,
+                3.855583e-06,
+                1.024034,
+                6.047444e-02,
+                -8.947860e-03,
+                0.0,
+                5.706602e-02,
+                0.0,
+                0.0,
+            ],
+            min_x: 31.13,
+            max_x: 36.52,
+            min_y: 0.19,
+            max_y: 1.03,
+            min_output: None,
+            max_output: None,
+        };
+        // Hand-computed from the coefficients at (34.0, 0.5).
+        let (x, y) = (34.0_f64, 0.5_f64);
+        let expected = -1.360532e-01
+            + 8.642703e-03 * x
+            + 3.855583e-06 * x * x
+            + 1.024034 * y
+            + 6.047444e-02 * y * y
+            - 8.947860e-03 * x * y
+            + 5.706602e-02 * y * y * y;
+        assert_relative_eq!(curve.evaluate(x, y), expected, epsilon = 1e-12);
+        assert_relative_eq!(curve.evaluate(x, y), 0.5444, epsilon = 1e-4);
+        // Inputs below the curve limits are held at the limits, as in E+.
+        assert_relative_eq!(curve.evaluate(25.0, 0.1), curve.evaluate(31.13, 0.19));
     }
 
     #[test]

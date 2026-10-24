@@ -596,7 +596,7 @@ Parasitic = Parasitic_design · PLR
 
 **Module:** `chiller.rs`
 
-**Purpose:** Models an air-cooled electric chiller that produces chilled water for cooling coils on a plant loop. Performance degrades with increasing outdoor temperature and part-load operation.
+**Purpose:** Models an air-cooled electric chiller that produces chilled water for cooling coils on a plant loop. Performance degrades with increasing condenser temperature. Part-load efficiency follows the EIR-f(PLR) curve; without one, COP stays constant across part load.
 
 #### Inputs
 
@@ -607,7 +607,7 @@ Parasitic = Parasitic_design · PLR
 | `rated_cop` | — | required | Rated COP at ARI conditions (typically 2.5-4.0) |
 | `chw_setpoint` | C | required | Chilled water supply setpoint |
 | `design_chw_flow` | m3/s | required | Design chilled water flow rate |
-| `min_plr` | — | 0.1 | Minimum part-load ratio |
+| `min_plr` | — | 0.25 | Minimum part-load ratio; below it the chiller cycles |
 
 #### Outputs
 
@@ -631,30 +631,57 @@ Cap_factor = clamp(1.0 - 0.015 * (T_outdoor - 29.4), 0.5, 1.1)
 Available_capacity = Rated_capacity * Cap_factor
 ```
 
-**Step 2: Part-load ratio**
-```
-PLR = clamp(Load / Available_capacity, PLR_min, 1.0)
-Actual_capacity = PLR * Available_capacity
-```
+**Step 2: Part-load ratio and cycling**
 
-**Step 3: COP correction**
-
-COP degrades with both outdoor temperature and part-load operation:
+Below `min_plr` the chiller cycles on at `min_plr` and off (E+ `ChillerCyclingRatio`):
 
 ```
-COP_factor = clamp(1.0 - 0.02 * (T_outdoor - 29.4), 0.4, 1.1)
-PLR_factor = clamp(0.5 + 0.75 * PLR - 0.25 * PLR^2, 0.3, 1.0)
-Actual_COP = max(Rated_COP * COP_factor * PLR_factor, 0.5)
+PLR = min(Load / Available_capacity, 1.0)
+PLR_op = max(PLR, min_plr)
+Cycling_ratio = min(PLR / min_plr, 1.0)
+Actual_capacity = PLR_op * Available_capacity * Cycling_ratio
 ```
 
-The PLR efficiency curve `0.5 + 0.75*PLR - 0.25*PLR^2` models the characteristic efficiency degradation at low part-loads where compressor cycling losses dominate.
+**Step 3: Electric power (E+ Chiller:Electric:EIR)**
 
-**Step 4: Electric power and outlet temperature**
 ```
-Electric_power = Actual_capacity / Actual_COP
+Electric_power = Available_capacity * (1 / Rated_COP) * EIRFT * EIRFPLR(PLR_op) * Cycling_ratio
+```
+
+With an `eirft` curve, EIRFT is evaluated at (CHW setpoint, condenser temperature). Without one, it falls back to `1 / clamp(1.0 - 0.02 * (T_condenser - 29.4), 0.4, 1.1)`.
+
+With an `eirfplr` curve, EIRFPLR is evaluated at `PLR_op`. E+ requires this curve and has no default. Without one, OpenBSE uses `EIRFPLR = PLR_op`. Because EIRFPLR scales the *available* capacity, this keeps the COP at `Rated_COP / EIRFT` at every part load, with no part-load advantage or penalty. Below `min_plr` the cycling ratio keeps the time-averaged COP the same. 99 of the 111 air-cooled chillers in the E+ `AirCooledChiller.idf` dataset use exactly this curve.
+
+**Step 4: Outlet temperature**
+```
 dT = Actual_capacity / (m_water * Cp_water)
 T_outlet = max(T_inlet - dT, T_chw_setpoint - 2.0)
 ```
+
+#### Reformulated EIR (`model: reformulated_eir`)
+
+**Reference:** EnergyPlus Engineering Reference, "Chiller:Electric:ReformulatedEIR" (Hydeman et al. 2002), with the `LeavingCondenserWaterTemperature` part-load curve type. Water-cooled only.
+
+Steps 1–3 are the same, with two differences:
+- CAPFT and EIRFT are evaluated at (CHW setpoint, **leaving** condenser water temperature).
+- EIRFPLR is a two-variable curve, evaluated at (leaving condenser water temperature, `PLR_op`). E+ typically uses a bicubic.
+
+All three curves are required, because the EIR model's fallbacks refer to the entering condenser temperature.
+
+The leaving condenser temperature depends on the chiller's own power, so it is solved each timestep. All compressor heat goes to the condenser (the E+ default):
+
+```
+T_cond_out = T_cond_in + (Electric_power(T_cond_out) + Actual_capacity(T_cond_out)) / (m_cond * Cp_water)
+```
+
+- `T_cond_in` is the condenser entering temperature from the EIR model: `condenser_entering_temp`, held no lower than wet-bulb + `tower_approach`.
+- `m_cond` is constant while the chiller runs (E+ `ConstantFlow`). Unless `design_condenser_flow` is given, it is sized as in E+: `Rated_capacity * (1 + 1/Rated_COP) / (Cp_water * dT_cond)`, where `dT_cond` is the condenser plant loop's `design_delta_t` (5.56 K without one).
+- E+ solves this with regula falsi. OpenBSE uses fixed-point iteration, which converges in a few steps: power changes by a few kW per kelvin, against a condenser `m_cond * Cp_water` of order 100 kW/K.
+- Inputs outside a curve's limits are held at the limits, as in E+.
+
+The model reproduces EnergyPlus 25.2 timestep outputs of the DOE prototype hospital's chiller to within 0.01% in power and 0.001 K in leaving condenser temperature, over PLR 0.02 to 0.97 (unit test `test_reformulated_eir_matches_eplus_timesteps`). Replaying that chiller's annual E+ load profile through these equations gives E+'s annual electricity to within 0.1%.
+
+One difference from E+: CAPFT and EIRFT both use the CHW setpoint here. E+ uses the setpoint for CAPFT and the actual leaving CHW temperature for EIRFT.
 
 ---
 

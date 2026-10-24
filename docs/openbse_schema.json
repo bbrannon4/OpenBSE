@@ -405,8 +405,8 @@
 
     "CurveType": {
       "type": "string",
-      "enum": ["biquadratic", "quadratic", "cubic", "linear"],
-      "description": "Mathematical form of the performance curve."
+      "enum": ["bicubic", "biquadratic", "quadratic", "cubic", "linear"],
+      "description": "Mathematical form of the performance curve. bicubic is E+ Curve:Bicubic: f(x,y) = c1 + c2*x + c3*x^2 + c4*y + c5*y^2 + c6*x*y + c7*x^3 + c8*y^3 + c9*x^2*y + c10*x*y^2."
     },
 
     "PerformanceCurve": {
@@ -428,7 +428,7 @@
           "items": {
             "type": "number"
           },
-          "description": "Polynomial coefficients. Count depends on curve_type: linear=2, quadratic=3, cubic=4, biquadratic=6."
+          "description": "Polynomial coefficients. Count depends on curve_type: linear=2, quadratic=3, cubic=4, biquadratic=6, bicubic=10."
         },
         "min_x": {
           "type": "number",
@@ -443,12 +443,12 @@
         "min_y": {
           "type": "number",
           "default": -100.0,
-          "description": "Minimum independent variable y (biquadratic only)."
+          "description": "Minimum independent variable y (biquadratic and bicubic only)."
         },
         "max_y": {
           "type": "number",
           "default": 100.0,
-          "description": "Maximum independent variable y (biquadratic only)."
+          "description": "Maximum independent variable y (biquadratic and bicubic only)."
         },
         "min_output": {
           "type": "number",
@@ -1077,10 +1077,17 @@
         "condenser_plant_loop": { "type": "string", "description": "Name of the condenser water plant loop. Required for water_cooled chillers." },
         "condenser_entering_temp": { "type": "number", "description": "Water-cooled only: fixed condenser entering water temperature [C] (E+ scheduled condenser setpoint). If omitted, outdoor wet-bulb + tower_approach is used." },
         "tower_approach": { "type": "number", "default": 5.56, "description": "Water-cooled fallback: approach from outdoor wet-bulb to condenser entering water temperature [C]. Only used when condenser_entering_temp is not set." },
+        "model": {
+          "type": "string",
+          "enum": ["eir", "reformulated_eir"],
+          "default": "eir",
+          "description": "Curve formulation. eir = E+ Chiller:Electric:EIR: capft and eirft take the entering condenser temperature, eirfplr takes PLR. reformulated_eir = E+ Chiller:Electric:ReformulatedEIR (curve type LeavingCondenserWaterTemperature), water-cooled only: capft and eirft take the leaving condenser water temperature, and eirfplr is f(leaving condenser temperature, PLR). The leaving temperature is solved each timestep from entering temperature + (cooling + power) / (condenser flow x cp). All three curves are required."
+        },
+        "design_condenser_flow": { "type": "number", "default": 0.0, "description": "reformulated_eir only: design condenser water flow [m3/s], held constant while the chiller runs (E+ ConstantFlow). 0 sizes it as E+ does: capacity x (1 + 1/COP) / (rho x cp x the condenser_plant_loop's design_delta_t, or 5.56 K without one)." },
         "min_plr": { "type": "number", "default": 0.25, "minimum": 0, "maximum": 1, "description": "Minimum part-load ratio before cycling." },
-        "capft": { "$ref": "#/$defs/CurveInput", "description": "Capacity-f(T) biquadratic curve. x = leaving CHW temp, y = entering condenser temp." },
-        "eirft": { "$ref": "#/$defs/CurveInput", "description": "EIR-f(T) biquadratic curve." },
-        "eirfplr": { "$ref": "#/$defs/CurveInput", "description": "EIR-f(PLR) quadratic curve." },
+        "capft": { "$ref": "#/$defs/CurveInput", "description": "Capacity-f(T) biquadratic curve. x = leaving CHW temp, y = entering condenser temp (model eir) or leaving condenser water temp (model reformulated_eir)." },
+        "eirft": { "$ref": "#/$defs/CurveInput", "description": "EIR-f(T) biquadratic curve, with the same inputs as capft." },
+        "eirfplr": { "$ref": "#/$defs/CurveInput", "description": "EIR-f(PLR) curve. Model eir: quadratic, x = part-load ratio, clamped to min_plr..1; normalized to 1.0 at PLR = 1. E+ requires this curve. When neither eirfplr nor eirfplr_curve is set, EIRFPLR = PLR: the chiller keeps its rated COP (adjusted only by eirft) at every part load, as 99 of the 111 air-cooled chillers in the E+ AirCooledChiller.idf dataset do. Model reformulated_eir: required, x = leaving condenser water temp and y = part-load ratio; 10 coefficients = bicubic, 6 = biquadratic." },
         "capft_curve": { "type": "string", "description": "Name of a top-level performance curve used as CAPFT. Alternative to inline capft. Ignored when a205_file is set." },
         "eirft_curve": { "type": "string", "description": "Name of a top-level performance curve used as EIRFT. Alternative to inline eirft." },
         "eirfplr_curve": { "type": "string", "description": "Name of a top-level performance curve used as EIRFPLR. Alternative to inline eirfplr." },
@@ -1185,17 +1192,17 @@
     "CurveInput": {
       "type": "object",
       "required": ["coefficients"],
-      "description": "Inline performance curve coefficients (quadratic or biquadratic). The curve type is inferred from the number of coefficients.",
+      "description": "Inline performance curve coefficients (quadratic, biquadratic or bicubic). The curve type is inferred from the number of coefficients.",
       "properties": {
         "coefficients": {
           "type": "array",
           "items": { "type": "number" },
-          "description": "Curve coefficients. 3 = quadratic f(x) = c1 + c2*x + c3*x^2; 6 = biquadratic f(x,y) = c1 + c2*x + c3*x^2 + c4*y + c5*y^2 + c6*x*y."
+          "description": "Curve coefficients. 3 = quadratic f(x) = c1 + c2*x + c3*x^2; 6 = biquadratic f(x,y) = c1 + c2*x + c3*x^2 + c4*y + c5*y^2 + c6*x*y; 10 = bicubic (E+ Curve:Bicubic), accepted only for a reformulated_eir chiller's eirfplr: biquadratic + c7*x^3 + c8*y^3 + c9*x^2*y + c10*x*y^2."
         },
         "min_x": { "type": "number", "default": -100.0, "description": "Minimum x input value." },
         "max_x": { "type": "number", "default": 100.0, "description": "Maximum x input value." },
-        "min_y": { "type": "number", "default": -100.0, "description": "Minimum y input value (biquadratic only)." },
-        "max_y": { "type": "number", "default": 100.0, "description": "Maximum y input value (biquadratic only)." }
+        "min_y": { "type": "number", "default": -100.0, "description": "Minimum y input value (biquadratic and bicubic only)." },
+        "max_y": { "type": "number", "default": 100.0, "description": "Maximum y input value (biquadratic and bicubic only)." }
       }
     },
 

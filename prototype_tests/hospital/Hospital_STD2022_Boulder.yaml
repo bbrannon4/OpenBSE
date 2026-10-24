@@ -3051,6 +3051,40 @@ air_loops:
     per_person_oa: 0.0038
     per_area_oa: 0.0009
 
+# ─── Chiller Performance Curves ─────────────────────────────────────────────
+# The E+ prototype's chillers are Chiller:Electric:ReformulatedEIR (water-cooled
+# positive displacement, 150-300 tons), with min PLR and min unloading ratio
+# 0.15, as in ASHRAE901_Hospital_STD2022_Denver.idf (energycodes.gov). The
+# 2019 model uses the same curves with 0.1.
+# x = leaving CHW temp, y = leaving condenser water temp (CAPFT, EIRFT);
+# x = leaving condenser water temp, y = PLR (EIRFPLR).
+# The condenser loop holds 21.1 °C (E+ SetpointManager:Scheduled on the tower
+# loop), which the towers cannot beat by more than their 5.56 K approach.
+
+performance_curves:
+- name: WC_PD_GT150_2010_PA_CAPFT
+  curve_type: biquadratic
+  coefficients: [0.9061150, 0.0292277, -0.0003647, -0.0009709, -0.0000905, 0.0002527]
+  min_x: 5.0
+  max_x: 10.0
+  min_y: 17.78
+  max_y: 46.11
+- name: WC_PD_GT150_2010_PA_EIRFT
+  curve_type: biquadratic
+  coefficients: [0.3773115, -0.0229032, 0.0016504, 0.0118156, 0.0004345, -0.0010132]
+  min_x: 5.0
+  max_x: 10.0
+  min_y: 17.78
+  max_y: 46.11
+- name: WC_PD_150to300_2010_PA_EIRFPLR
+  curve_type: bicubic
+  coefficients: [-1.360532E-01, 8.642703E-03, 3.855583E-06, 1.024034E+00, 6.047444E-02,
+    -8.947860E-03, 0.0, 5.706602E-02, 0.0, 0.0]
+  min_x: 31.13
+  max_x: 36.52
+  min_y: 0.19
+  max_y: 1.03
+
 # ─── Plant Loops ─────────────────────────────────────────────────────────────
 
 plant_loops:
@@ -3089,7 +3123,13 @@ plant_loops:
     chw_setpoint: 6.67
     design_chw_flow: 0.0
     condenser_type: water_cooled
+    model: reformulated_eir
+    min_plr: 0.15
+    condenser_entering_temp: 21.1
     tower_approach: 5.56
+    capft_curve: WC_PD_GT150_2010_PA_CAPFT
+    eirft_curve: WC_PD_GT150_2010_PA_EIRFT
+    eirfplr_curve: WC_PD_150to300_2010_PA_EIRFPLR
   - type: chiller
     name: Chiller 2
     capacity: 669868.0
@@ -3097,7 +3137,13 @@ plant_loops:
     chw_setpoint: 6.67
     design_chw_flow: 0.0
     condenser_type: water_cooled
+    model: reformulated_eir
+    min_plr: 0.15
+    condenser_entering_temp: 21.1
     tower_approach: 5.56
+    capft_curve: WC_PD_GT150_2010_PA_CAPFT
+    eirft_curve: WC_PD_GT150_2010_PA_EIRFT
+    eirfplr_curve: WC_PD_150to300_2010_PA_EIRFPLR
 
 # ─── DHW Systems ─────────────────────────────────────────────────────────────
 
@@ -3189,7 +3235,8 @@ summary_report: true
 # 7. Elevators (34,668 W exterior equipment)
 # 8. Booster water heater (electric, 3 kW, for dishwashing — small, ~DHW:Electricity)
 # 9. C-factor underground walls for basement (modeled as minimal ext walls above grade)
-# 10. Cooling towers on condenser loop (approximated via tower_approach on chillers)
+# 10. Cooling towers on condenser loop (approximated via the chillers'
+#     condenser_entering_temp setpoint and tower_approach)
 # 11. Kitchen exhaust fans and makeup air
 # 12. Interzone heat transfer between adjacent zones (all interior walls adiabatic)
 # 13. Per-zone VAV flow modulation (flow currently divided equally among zones,
