@@ -59,6 +59,8 @@ named surface's inside face.
 | VAV outdoor air by the 62.1 Ventilation Rate Procedure (E+ `Controller:MechanicalVentilation`) | matched: each VAV terminal carries the zone's 0.0004318 m³/s per m², which turns on OpenBSE's VRP (the loops held a fixed 9.2% of supply, so at box minimums they took about a third of E+'s outdoor air) |
 | Data centre units: gas heating 0.8 / 0.7925, DX capacity and flow (E+ hard-sized, per floor), SHR 0.80066, COP 3.0 / 3.5, SmDX curves, 15.89 / 29.11 °C design supply | matched (heating was electric, DX autosized with default curves) |
 | Basement single-zone VAV units: 100 kW HW coils, supply limits | matched |
+| Basement single-zone VAV control (E+ PSZ-VAV: VAV no-reheat terminal, minimum 0.5 data centre / 0.3 basement, `SetpointManager:SingleZone` 15.89-29.11 / 12.89-32.11 °C, fan always on) | matched: continuous fan with a `single_zone` supply reset, which now turns the flow down before resetting the supply temperature (the units used to cycle with no reset) |
+| VAV system design flow on the coincident zone sum (`Sizing:System` Type of Zone Sum to Use) | matched: `zone_sum: coincident` (mid-floor fan 14.44 m³/s per floor against E+'s 14.14) |
 
 ## Plant and DHW
 
@@ -104,13 +106,50 @@ term through the zone air and surface heat balances:
    percent (window +4.81 vs +4.83 kW, furnishings -3.28 vs -3.33 kW), and the
    perimeter zones' January nights to 0.1-0.3 K.
 
-Annual results with all of the above, against E+ (MWh): heating gas 313 vs
-472.5 (−34%), cooling 578 vs 589.5 (−2%), fans 1,106 vs 1,043 (+6%), pumps
-88 vs 135 (−35%). Delivered heat is 248 vs 374 MWh: mid-floor reheat 225 vs
-293 (south zone −9%, east −31%, west −30%, north −19%), ground and top
-floors 23 vs 42, and the central VAV heating coils 0 vs 42 (their mixed air
-never falls below the Warmest setpoint here, which sits lower than E+'s
-because the core's design airflow is 24% smaller; see gap 2).
+With those four fixed, annual heating gas was 313 MWh against E+'s 472.5
+(−34%). Following delivered heat back to sizing and the systems found:
+
+5. **Zone sizing differed from E+'s (fixed).** OpenBSE sized on the peak
+   timestep (E+ averages the loads over 6), held constant setpoints on the
+   design days (E+ ramps them), added generated monthly cooling days, and
+   added an outdoor-air load to each zone's airflow (E+ only floors it at the
+   zone's outdoor-air flow). The VAV boxes were sized without the 1.15 sizing
+   factor the controls used, and the fans summed unscaled zone flows (E+
+   sums the scaled ones, coincidently here). A mid core's design heating load
+   was 39.7 kW per floor against E+'s 9.5 kW; it is now 14.0 kW, and its box
+   is within 1% of E+'s.
+6. **No ventilation rate procedure, and the wrong air density in it (fixed).**
+   E+ ventilates the VAV systems by the 62.1 VRP; the model held 9.2% outdoor
+   air, so at box minimums it took about a third of E+'s, and the central
+   heating coils never ran (E+ 42 MWh). The VRP also used sea-level density
+   (23% too much outdoor air in Denver) and ran while ventilation was off.
+7. **The basement data centre ran at 64-153 °C (fixed).** Its cycling-fan
+   unit counted cold economizer air as if it flowed during the compressor's
+   off-cycle, which cancelled the whole IT load, so the unit sat at its 1.3%
+   PLR floor. The room heated the basement (41-48 °C in July) and the floor
+   above, whose perimeter zones then needed almost no reheat. The fan was
+   also sized at the 12.8 °C VAV supply temperature instead of its own
+   15.89 °C. With E+'s single-zone VAV control it now holds 26.2 °C.
+
+Annual results with all of the above, against E+ (MWh):
+
+| End use | E+ | OpenBSE | |
+|---|---|---|---|
+| Heating gas | 472.5 | 419.3 | −11.3% |
+| Cooling electricity | 589.5 | 560.9 | −4.8% |
+| Fans | 1,042.6 | 1,037.2 | −0.5% |
+| Pumps | 135.0 | 92.1 | −31.8% |
+| DHW electricity | 125.1 | 112.5 | −10.1% |
+| Interior lighting, equipment, exterior | | | within 1.4% |
+
+Delivered heat is 332 vs 375 MWh: mid-floor reheat 242 vs 293 (−18%),
+ground and top floors 33 vs 42 (−22%), and the central VAV heating coils 58
+vs 42 (+40%). Reheat short while the central coils run long points at the
+VAV supply temperature (Warmest) or the mixed air sitting warmer than E+'s;
+that needs E+'s hourly supply-air node temperatures, which these runs did not
+output. Cooling coil loads are within 2.5% on the VAV systems and 10% on the
+data centres; fans are within 6% system by system except the basement units
+(data centre −17%, CAV_bas −17%).
 
 ## Gaps: E+ inputs OpenBSE cannot express yet
 
@@ -120,7 +159,7 @@ because the core's design airflow is 24% smaller; see gap 2).
    Design-day schedules are now matched per thermostat.
 3. People sensible fraction autocalculated from activity and zone temperature.
 4. Lights visible fraction (short-wave, part of it lost through windows).
-5. Two-speed DX coils (data centres) and single-zone VAV unitary control (basement).
+5. Two-speed DX coils (data centres).
 6. Chilled water supply reset on return temperature.
 7. Per-zone design supply temperatures in zone sizing. OpenBSE takes the
    building-wide minimum cooling supply temperature (12.8 °C from the VAV

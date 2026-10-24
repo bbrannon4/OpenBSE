@@ -13060,6 +13060,7 @@ air_loops:
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
+    zone_sum: coincident
   equipment:
   - type: cooling_coil
     name: VAV_bot CHW Cooling Coil
@@ -13161,6 +13162,7 @@ air_loops:
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
+    zone_sum: coincident
   equipment:
   - type: cooling_coil
     name: VAV_mid CHW Cooling Coil_f2
@@ -13262,6 +13264,7 @@ air_loops:
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
+    zone_sum: coincident
   equipment:
   - type: cooling_coil
     name: VAV_mid CHW Cooling Coil_f3
@@ -13363,6 +13366,7 @@ air_loops:
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
+    zone_sum: coincident
   equipment:
   - type: cooling_coil
     name: VAV_mid CHW Cooling Coil_f4
@@ -13464,6 +13468,7 @@ air_loops:
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
+    zone_sum: coincident
   equipment:
   - type: cooling_coil
     name: VAV_mid CHW Cooling Coil_f5
@@ -13565,6 +13570,7 @@ air_loops:
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
+    zone_sum: coincident
   equipment:
   - type: cooling_coil
     name: VAV_mid CHW Cooling Coil_f6
@@ -13666,6 +13672,7 @@ air_loops:
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
+    zone_sum: coincident
   equipment:
   - type: cooling_coil
     name: VAV_mid CHW Cooling Coil_f7
@@ -13767,6 +13774,7 @@ air_loops:
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
+    zone_sum: coincident
   equipment:
   - type: cooling_coil
     name: VAV_mid CHW Cooling Coil_f8
@@ -13868,6 +13876,7 @@ air_loops:
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
+    zone_sum: coincident
   equipment:
   - type: cooling_coil
     name: VAV_mid CHW Cooling Coil_f9
@@ -13969,6 +13978,7 @@ air_loops:
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
+    zone_sum: coincident
   equipment:
   - type: cooling_coil
     name: VAV_mid CHW Cooling Coil_f10
@@ -14070,6 +14080,7 @@ air_loops:
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
+    zone_sum: coincident
   equipment:
   - type: cooling_coil
     name: VAV_mid CHW Cooling Coil_f11
@@ -14171,6 +14182,7 @@ air_loops:
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
+    zone_sum: coincident
   equipment:
   - type: cooling_coil
     name: VAV_top CHW Cooling Coil
@@ -14271,6 +14283,11 @@ air_loops:
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
+    fan_operating_mode: continuous
+    cooling_sat_reset:
+      type: single_zone
+      sat_min: 12.89
+      sat_max: 32.11
   equipment:
   - type: fan
     name: CAV_bas Supply Fan
@@ -14791,6 +14808,11 @@ air_loops:
     cycling: proportional
     economizer:
       economizer_type: differential_dry_bulb
+    fan_operating_mode: continuous
+    cooling_sat_reset:
+      type: single_zone
+      sat_min: 15.89
+      sat_max: 29.11
   equipment:
   - type: fan
     name: DC_basement Supply Fan
