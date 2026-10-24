@@ -571,10 +571,12 @@ plant_loops:
 | `condenser_type` | `air_cooled` | `air_cooled` or `water_cooled` |
 | `condenser_plant_loop` | (none) | Name of condenser water loop (required for `water_cooled`) |
 | `design_chw_flow` | Auto-calculated | From capacity if 0 or not specified |
+| `model` | `eir` | `eir` (E+ Chiller:Electric:EIR) or `reformulated_eir` (E+ Chiller:Electric:ReformulatedEIR: curves of the leaving condenser water temperature, water-cooled only, all three curves required) |
+| `design_condenser_flow` | Sized as E+ | `reformulated_eir` only: condenser water flow [m³/s]; 0 sizes it from capacity × (1 + 1/COP) at the condenser loop's design ΔT (5.56 K without one) |
 | `min_plr` | 0.25 | Minimum part-load ratio before cycling |
-| `capft` | (none) | Capacity-f(T) biquadratic curve (x=leaving CHW, y=entering CW) |
+| `capft` | (none) | Capacity-f(T) biquadratic curve (x = leaving CHW, y = entering CW, or leaving CW for `reformulated_eir`) |
 | `eirft` | (none) | EIR-f(T) biquadratic curve |
-| `eirfplr` | EIRFPLR = PLR | EIR-f(PLR) quadratic curve. The default keeps the rated COP at every part load |
+| `eirfplr` | EIRFPLR = PLR | EIR-f(PLR) quadratic curve. The default keeps the rated COP at every part load. For `reformulated_eir`: required, f(leaving CW, PLR), bicubic (10 coefficients) or biquadratic (6) |
 
 #### Cooling Towers
 

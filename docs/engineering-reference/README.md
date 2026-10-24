@@ -658,6 +658,31 @@ dT = Actual_capacity / (m_water * Cp_water)
 T_outlet = max(T_inlet - dT, T_chw_setpoint - 2.0)
 ```
 
+#### Reformulated EIR (`model: reformulated_eir`)
+
+**Reference:** EnergyPlus Engineering Reference, "Chiller:Electric:ReformulatedEIR" (Hydeman et al. 2002), with the `LeavingCondenserWaterTemperature` part-load curve type. Water-cooled only.
+
+Steps 1–3 are the same, with two differences:
+- CAPFT and EIRFT are evaluated at (CHW setpoint, **leaving** condenser water temperature).
+- EIRFPLR is a two-variable curve, evaluated at (leaving condenser water temperature, `PLR_op`). E+ typically uses a bicubic.
+
+All three curves are required, because the EIR model's fallbacks refer to the entering condenser temperature.
+
+The leaving condenser temperature depends on the chiller's own power, so it is solved each timestep. All compressor heat goes to the condenser (the E+ default):
+
+```
+T_cond_out = T_cond_in + (Electric_power(T_cond_out) + Actual_capacity(T_cond_out)) / (m_cond * Cp_water)
+```
+
+- `T_cond_in` is the condenser entering temperature from the EIR model: `condenser_entering_temp`, held no lower than wet-bulb + `tower_approach`.
+- `m_cond` is constant while the chiller runs (E+ `ConstantFlow`). Unless `design_condenser_flow` is given, it is sized as in E+: `Rated_capacity * (1 + 1/Rated_COP) / (Cp_water * dT_cond)`, where `dT_cond` is the condenser plant loop's `design_delta_t` (5.56 K without one).
+- E+ solves this with regula falsi. OpenBSE uses fixed-point iteration, which converges in a few steps: power changes by a few kW per kelvin, against a condenser `m_cond * Cp_water` of order 100 kW/K.
+- Inputs outside a curve's limits are held at the limits, as in E+.
+
+The model reproduces EnergyPlus 25.2 timestep outputs of the DOE prototype hospital's chiller to within 0.01% in power and 0.001 K in leaving condenser temperature, over PLR 0.02 to 0.97 (unit test `test_reformulated_eir_matches_eplus_timesteps`). Replaying that chiller's annual E+ load profile through these equations gives E+'s annual electricity to within 0.1%.
+
+One difference from E+: CAPFT and EIRFT both use the CHW setpoint here. E+ uses the setpoint for CAPFT and the actual leaving CHW temperature for EIRFT.
+
 ---
 
 ### Cooling Tower

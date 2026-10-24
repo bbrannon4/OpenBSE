@@ -22,6 +22,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - a north-up 2D Plan view, and a north arrow that follows the 3D camera;
   - a zone picker to show any subset of zones or a whole floor (level) at once;
   - PNG export with title, legend and north arrow.
+- **Reformulated EIR chillers** (`model: reformulated_eir`), following EnergyPlus `Chiller:Electric:ReformulatedEIR` with its `LeavingCondenserWaterTemperature` part-load curve.
+  - CAPFT and EIRFT take the leaving condenser water temperature, and EIR-f(PLR) is a function of that temperature and PLR.
+  - The leaving temperature depends on the chiller's own power, so it is solved each timestep from the condenser heat balance.
+  - Condenser water flow is constant while the chiller runs. Unless `design_condenser_flow` is given, it is sized as in E+: capacity × (1 + 1/COP) at the condenser loop's design ΔT, or 5.56 K without a loop.
+  - Water-cooled only, and all three curves are required; a missing one is a severe error.
+  - New `bicubic` curve type (E+ `Curve:Bicubic`, 10 coefficients), for named and inline curves.
+  - Checked against EnergyPlus 25.2 timestep outputs of the DOE prototype hospital's chiller: power within 0.01% and leaving condenser temperature within 0.001 K, from cycling at PLR 0.02 to full load. Replaying that chiller's annual E+ loads through the model reproduces its annual electricity to 0.1%.
+  - Chillers using the default `model: eir` are unchanged.
+- **`prototype_tests/hospital/Hospital_STD2022_Boulder.yaml` uses its EnergyPlus chillers.** Both are now reformulated EIR chillers with the prototype's curves (`WC_PD_GT150_2010_PA` CAPFT and EIRFT, `WC_PD_150to300_2010_PA` EIRFPLR), min PLR 0.1, and the condenser loop's 21.1 °C setpoint. The curves come from E+'s `ASHRAE901_Hospital_STD2019_Denver.idf`, because the 2022 IDF was not available.
+  - Cooling electricity goes from 297 to 312 MWh, and chiller COP from 6.15 to 5.84.
+  - EnergyPlus reports 412 MWh (2022 model). The 2019 model on the same Boulder weather gives 434 MWh: 239 MWh from the two main chillers and 196 MWh from a 96 kW heat-recovery chiller that OpenBSE does not model.
+  - In E+, that chiller carries the year-round CHW base load (about 43 MWh a month in winter). Here, Chiller 1 carries the same base load at PLR 0.1–0.2 for 6,205 hours, where the curve's part-load penalty is steepest. Summer loads match: June is 269 MWh here against 268 MWh for E+'s main chillers.
+  - Two smaller differences, measured by replaying E+'s loads: the YAML's fixed 6.67 °C CHW setpoint (E+ resets 6.7–8.9 °C on outdoor temperature) adds 0.5% to the main chillers' electricity, and the condenser approximation removes 3%.
 
 ### Changed
 - **An `autosize` input that nothing sizes now stops the run.** Air-side sizing runs only from `design_days`, so without them every air-side `autosize` kept the internal sentinel (−99,999): fans fell back to 0.5 kg/s and coils to 0 W, with no warning. That is how `examples/datacenter_crah.yaml` ran its data hall at thousands of degrees. After air-side and plant sizing, every field still unsized is a severe error in the `.err` file, naming the component and field and saying what would size it: design days, or an explicit value where OpenBSE does not autosize that field. Covered: component capacities and design air and water flows, `controls.design_zone_flow`, dual-duct boxes, VRF indoor units (which fell back to 3 kW) and radiant panels. Fields resolved some other way are unaffected, such as the DHW pump's design flow, which comes from the draw rates.

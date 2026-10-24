@@ -6,7 +6,7 @@
 //! and what connects to what.
 
 use openbse_components::boiler::Boiler;
-use openbse_components::chiller::AirCooledChiller;
+use openbse_components::chiller::{AirCooledChiller, ChillerModel};
 use openbse_components::chiller_a205::ChillerA205;
 use openbse_components::chw_cooling_coil::CoolingCoilCHW;
 use openbse_components::cooling_coil::CoolingCoilDX;
@@ -2127,6 +2127,17 @@ pub struct ChillerInput {
     /// Only used when condenser_entering_temp is not set.
     #[serde(default = "default_tower_approach")]
     pub tower_approach: f64,
+    /// Curve formulation: `eir` (E+ Chiller:Electric:EIR, default) or
+    /// `reformulated_eir` (E+ Chiller:Electric:ReformulatedEIR, water-cooled
+    /// only): capft and eirft take the leaving condenser water temperature,
+    /// and eirfplr is f(leaving condenser temperature, PLR).
+    #[serde(default)]
+    pub model: ChillerModel,
+    /// `reformulated_eir` only: design condenser water flow [m3/s], constant
+    /// while the chiller runs. 0 (default) sizes it as E+ does, from capacity
+    /// and COP at the condenser loop's design_delta_t (5.56 K without one).
+    #[serde(default)]
+    pub design_condenser_flow: f64,
     /// Minimum part load ratio (default 0.25, matching E+ typical value)
     #[serde(default = "default_chiller_min_plr")]
     pub min_plr: f64,
@@ -3759,6 +3770,15 @@ fn build_graph_impl(
                         chiller.water_cooled = is_water_cooled;
                         chiller.condenser_entering_temp = ci.condenser_entering_temp;
                         chiller.tower_approach = ci.tower_approach;
+                        chiller.model = ci.model;
+                        chiller.design_condenser_flow = ci.design_condenser_flow;
+                        if let Some(condenser_loop) = ci
+                            .condenser_plant_loop
+                            .as_deref()
+                            .and_then(|n| model.plant_loops.iter().find(|pl| pl.name == n))
+                        {
+                            chiller.condenser_design_delta_t = condenser_loop.design_delta_t;
+                        }
 
                         use openbse_components::performance_curve::{CurveType, PerformanceCurve};
 
@@ -3837,14 +3857,25 @@ fn build_graph_impl(
                                 )));
                             }
                         } else if let Some(ref c) = ci.eirfplr {
+                            // Reformulated EIR: x = leaving condenser temp, y = PLR.
+                            let ct = match (ci.model, c.coefficients.len()) {
+                                (ChillerModel::ReformulatedEir, 10) => CurveType::Bicubic,
+                                (ChillerModel::ReformulatedEir, 6) => CurveType::Biquadratic,
+                                _ => CurveType::Quadratic,
+                            };
+                            let (min_y, max_y) = if ct == CurveType::Quadratic {
+                                (0.0, 0.0)
+                            } else {
+                                (c.min_y, c.max_y)
+                            };
                             chiller.eirfplr_curve = Some(PerformanceCurve::Polynomial {
                                 name: format!("{}_eirfplr", ci.name),
-                                curve_type: CurveType::Quadratic,
+                                curve_type: ct,
                                 coefficients: c.coefficients.clone(),
                                 min_x: c.min_x,
                                 max_x: c.max_x,
-                                min_y: 0.0,
-                                max_y: 0.0,
+                                min_y,
+                                max_y,
                                 min_output: None,
                                 max_output: None,
                             });
@@ -4987,6 +5018,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     // ── Validate plant loop connections ────────────────────────────────────
 
     crate::plant::validate_plant_connections(model, &mut result);
+    crate::plant::validate_chiller_models(model, &mut result);
 
     // ── Validate construction references ───────────────────────────────────
     //
