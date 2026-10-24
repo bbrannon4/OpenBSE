@@ -420,10 +420,9 @@ pub struct SurfaceState {
     /// horizon brightening, but vertical fins do.
     /// Matches EnergyPlus DifShdgRatioHoriz.
     pub diffuse_horizon_shading_ratio: f64,
-    /// Box face index for interior view factor model.
-    /// 0=floor, 1=ceiling, 2=south, 3=north, 4=east, 5=west.
-    /// `None` for surfaces in zones without view factor support.
-    pub box_face: Option<usize>,
+    /// Position of this surface in its zone's long-wave exchange
+    /// (`ZoneRadExchange::surfaces`).
+    pub rad_index: Option<usize>,
     /// Monthly ground temperatures [°C] for F-factor ground floors.
     /// When `Some`, these override the building-level ground temperature model
     /// for this surface. Matches EnergyPlus `Site:GroundTemperature:FCfactorMethod`.
