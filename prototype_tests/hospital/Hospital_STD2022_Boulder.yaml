@@ -3054,9 +3054,8 @@ air_loops:
 # ─── Chiller Performance Curves ─────────────────────────────────────────────
 # The E+ prototype's chillers are Chiller:Electric:ReformulatedEIR (water-cooled
 # positive displacement, 150-300 tons), with min PLR and min unloading ratio
-# 0.1. Curves are from ASHRAE901_Hospital_STD2019_Denver.idf in the E+ test
-# files (the 90.1-2010 Path A set the 2019 model uses); the 2022 IDF was not
-# available to check.
+# 0.15, as in ASHRAE901_Hospital_STD2022_Denver.idf (energycodes.gov). The
+# 2019 model uses the same curves with 0.1.
 # x = leaving CHW temp, y = leaving condenser water temp (CAPFT, EIRFT);
 # x = leaving condenser water temp, y = PLR (EIRFPLR).
 # The condenser loop holds 21.1 °C (E+ SetpointManager:Scheduled on the tower
@@ -3125,7 +3124,7 @@ plant_loops:
     design_chw_flow: 0.0
     condenser_type: water_cooled
     model: reformulated_eir
-    min_plr: 0.1
+    min_plr: 0.15
     condenser_entering_temp: 21.1
     tower_approach: 5.56
     capft_curve: WC_PD_GT150_2010_PA_CAPFT
@@ -3139,7 +3138,7 @@ plant_loops:
     design_chw_flow: 0.0
     condenser_type: water_cooled
     model: reformulated_eir
-    min_plr: 0.1
+    min_plr: 0.15
     condenser_entering_temp: 21.1
     tower_approach: 5.56
     capft_curve: WC_PD_GT150_2010_PA_CAPFT
