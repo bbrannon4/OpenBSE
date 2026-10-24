@@ -4805,33 +4805,20 @@ impl EnvelopeSolver for BuildingEnvelope {
                 // If HVAC handles OA mixing (VAV with economizer, PSZ-AC), suppress
                 // zone OA to avoid double-counting. If HVAC is recirculation-only
                 // (PTAC/FCU with separate ERV), allow zone OA through.
-                let hvac_handles_oa = hvac
-                    .oa_handled_by_hvac
-                    .get(&zone.input.name)
-                    .copied()
-                    .unwrap_or(true); // default: suppress OA when HVAC is running
-
-                let oa_to_zone = if ctx.is_sizing && hvac_handles_oa {
-                    // Sizing: exclude zone OA when HVAC handles it (VAV/PSZ-AC
-                    // mix OA into the supply stream, sized via coil ΔT)
-                    0.0
-                } else if ctx.is_sizing && !hvac_handles_oa {
-                    // Sizing with separate ventilation (ERV/DOAS handles OA
-                    // independently): include zone OA so equipment is sized
-                    // for the full ventilation load
-                    zone.outdoor_air_mass_flow
-                } else if zone.supply_air_mass_flow > 0.0 && hvac_handles_oa {
-                    // External HVAC loop handles OA: suppress zone OA
-                    0.0
-                } else {
-                    // No HVAC running, or HVAC doesn't handle OA (ERV/DOAS
-                    // provides it separately): OA enters zone at outdoor temp.
-                    //
-                    // For VAV/PSZ zones when HVAC is off, this approximates
-                    // the E+ plenum effect: some outdoor air leaks through
-                    // the return air plenum, providing natural cooling/heating
-                    // that prevents extreme free-float temperatures.
-                    zone.outdoor_air_mass_flow
+                let oa_to_zone = match hvac.oa_handled_by_hvac.get(&zone.input.name) {
+                    // The zone's air loop mixes its outdoor air into the supply
+                    // stream, so outdoor air reaches the zone only as supply air.
+                    // That holds while the loop is off too: as in E+, no outdoor
+                    // air enters through an idle OA system.
+                    Some(true) => 0.0,
+                    // Separate ventilation (ERV/DOAS) or a recirculating unit:
+                    // the outdoor air enters the zone at outdoor temperature,
+                    // and sizing carries the full ventilation load.
+                    Some(false) => zone.outdoor_air_mass_flow,
+                    // No air loop serves the zone: outdoor air enters directly,
+                    // except in sizing, where zone loads exclude ventilation.
+                    None if ctx.is_sizing => 0.0,
+                    None => zone.outdoor_air_mass_flow,
                 };
                 // Infiltration interaction with exhaust fans.
                 //
