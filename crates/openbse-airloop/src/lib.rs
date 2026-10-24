@@ -124,6 +124,9 @@ pub struct LoopInfo {
     /// fraction is this flow divided by the current total supply flow, so a VAV
     /// system throttling down draws a rising OA fraction (fixed OA volume).
     pub min_oa_flow_mass: Option<f64>,
+    /// Standard air density at the site [kg/m³] (E+ `StdRhoAir`): converts
+    /// supply mass flows to the volumes the zones' outdoor-air rates are in.
+    pub std_air_density: f64,
 }
 
 /// Control role of a component in a signal builder's coil dispatch.
@@ -1324,9 +1327,13 @@ pub fn build_vav_signals(
     // by increasing the system OA fraction based on the "critical zone"
     // — the zone with the highest required discharge OA fraction (Zd).
     //
-    // E+ implements this via Controller:MechanicalVentilation.
-    let vrp_min_oa = if !li.zone_oa_data.is_empty() {
-        let air_density = 1.204_f64; // kg/m³ at standard conditions
+    // E+ implements this via Controller:MechanicalVentilation. A minimum OA
+    // of zero (unoccupied, or its schedule at zero) means ventilation is off,
+    // as when E+'s controller is unavailable.
+    let vrp_min_oa = if !li.zone_oa_data.is_empty() && effective_min_oa > 0.0 {
+        // E+ converts flows at the site's standard density; sea-level air
+        // (1.204 kg/m³) overstated the OA fraction by ~23% in Denver.
+        let air_density = li.std_air_density;
         let mut vou = 0.0_f64; // uncorrected total OA [m³/s]
         let mut max_zd = 0.0_f64; // critical zone discharge OA fraction
 
@@ -1825,6 +1832,7 @@ mod tests {
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
             min_oa_flow_mass: None,
+            std_air_density: 1.204,
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
@@ -1885,6 +1893,48 @@ mod tests {
                 day_of_week: 0,
             }
         }
+    }
+
+    #[test]
+    fn vav_ventilation_rate_procedure_uses_site_density_and_stops_when_oa_is_off() {
+        let mut li = make_loop(AirLoopSystemType::Vav, vec!["CHW Coil".to_string()]);
+        li.zone_oa_data = vec![ZoneOaData {
+            zone_name: "Zone1".to_string(),
+            design_people: 0.0,
+            per_person_oa: 0.0,
+            per_area_oa: 0.001,
+            floor_area: 100.0,
+            people_schedule: None,
+        }];
+        let f = Fixture {
+            temps: one("Zone1", 20.0),
+            heat_sp: one("Zone1", 21.0),
+            cool_sp: one("Zone1", 24.0),
+            flows: one("Zone1", 1.0),
+            cool_loads: one("Zone1", 0.0),
+            heat_loads: one("Zone1", 1000.0),
+            modes: [("Zone1".to_string(), HvacMode::Heating)]
+                .into_iter()
+                .collect(),
+            empty: HashMap::new(),
+        };
+        let oa_at = |density: f64| {
+            let mut li = li.clone();
+            li.std_air_density = density;
+            build_vav_signals(&li, &f.ctx(-10.0), false)
+                .oa_fraction
+                .unwrap()
+        };
+        // One zone: the system needs exactly its 0.1 m³/s, so the fraction
+        // scales with the density that turns the supply mass into volume.
+        let (sea_level, denver) = (oa_at(1.204), oa_at(0.98));
+        assert!(denver > 0.15 && sea_level < 1.0, "{denver} {sea_level}");
+        assert!((sea_level / denver - 1.204 / 0.98).abs() < 1e-9);
+
+        // Ventilation off (unoccupied, or its schedule at zero): no outdoor air.
+        let mut ctx = f.ctx(-10.0);
+        ctx.effective_min_oa = 0.0;
+        assert_eq!(build_vav_signals(&li, &ctx, false).oa_fraction, Some(0.0));
     }
 
     #[test]

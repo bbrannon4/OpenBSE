@@ -159,10 +159,22 @@ fn hot_aisle_return(
     }
 }
 
+/// Standard air density at the site [kg/m³]: dry air at 20 °C and the
+/// design-day barometric pressure, as E+'s `StdRhoAir`.
+fn site_standard_air_density(model: &openbse_io::input::ModelInput) -> f64 {
+    let pressure = model
+        .design_days
+        .first()
+        .map(|dd| dd.pressure)
+        .unwrap_or(101325.0);
+    pressure / (287.042 * 293.15)
+}
+
 fn build_loop_infos(
     model: &openbse_io::input::ModelInput,
     resolved_zones: &[openbse_envelope::ZoneInput],
 ) -> Vec<LoopInfo> {
+    let std_air_density = site_standard_air_density(model);
     model
         .air_loops
         .iter()
@@ -411,6 +423,7 @@ fn build_loop_infos(
                 fixed_cooling_sat: al.controls.fixed_cooling_sat,
                 preheat_setpoint: al.controls.preheat_setpoint,
                 min_oa_flow_mass: al.controls.minimum_oa_flow.map(|v| v * 1.229),
+                std_air_density,
             }
         })
         .collect()
@@ -1553,14 +1566,7 @@ fn main() -> Result<()> {
                 use openbse_core::types::is_autosize;
 
                 // Build a map: component_name -> (loop_flow [m³/s], loop_heat [W], loop_cool [W])
-                // Compute standard air density at site altitude from design-day
-                // barometric pressure (matches E+ site standard density).
-                let site_pressure = model
-                    .design_days
-                    .first()
-                    .map(|dd| dd.pressure)
-                    .unwrap_or(101325.0);
-                let air_density = site_pressure / (287.042 * 293.15);
+                let air_density = site_standard_air_density(&model);
                 let mut loop_comp_sizing: HashMap<String, (f64, f64, f64)> = HashMap::new();
 
                 for li in &loop_infos {
@@ -6813,6 +6819,7 @@ mod tests {
             fixed_cooling_sat: false,
             preheat_setpoint: None,
             min_oa_flow_mass: None,
+            std_air_density: 1.204,
         }
     }
 
@@ -6854,6 +6861,7 @@ mod tests {
             fixed_cooling_sat: false,
             preheat_setpoint: None,
             min_oa_flow_mass: None,
+            std_air_density: 1.204,
         }
     }
 
@@ -7805,6 +7813,7 @@ mod tests_datacenter {
             fixed_cooling_sat: false,
             preheat_setpoint: None,
             min_oa_flow_mass: None,
+            std_air_density: 1.204,
         }
     }
 
