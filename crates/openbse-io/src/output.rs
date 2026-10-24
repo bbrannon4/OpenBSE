@@ -1114,6 +1114,19 @@ impl OutputSnapshot {
                 "solar_mrt_correction" => self.zone_solar_mrt_correction.clone(),
                 "unmet_heating" => self.zone_unmet_heating.clone(),
                 "unmet_cooling" => self.zone_unmet_cooling.clone(),
+                // The envelope reports its air heat balance terms among each
+                // zone's outputs, which reach the snapshot as component outputs.
+                "q_surf_conv_total"
+                | "q_surf_conv_walls"
+                | "q_surf_conv_floors"
+                | "q_surf_conv_roofs"
+                | "q_surf_conv_windows"
+                | "q_infiltration_sensible"
+                | "q_thermal_mass" => self
+                    .component_outputs
+                    .iter()
+                    .filter_map(|(zone, outputs)| outputs.get(variable).map(|&q| (zone.clone(), q)))
+                    .collect(),
                 other => {
                     // Dynamic species variables (#89): zone:species_<name>
                     if let Some(species) = other.strip_prefix("species_") {
@@ -1137,6 +1150,16 @@ impl OutputSnapshot {
                 "radiation_inside" => self.surface_radiation_inside.clone(),
                 "inside_radiation_coefficient" => self.surface_inside_radiation_coefficient.clone(),
                 "blind_deployed" => self.window_blind_deployed.clone(),
+                // Reported among the component outputs under "Surf:<name>",
+                // like the zone air balance terms above.
+                "conv_to_zone" => self
+                    .component_outputs
+                    .iter()
+                    .filter_map(|(key, outputs)| {
+                        let surface = key.strip_prefix("Surf:")?;
+                        outputs.get(variable).map(|&q| (surface.to_string(), q))
+                    })
+                    .collect(),
                 _ => HashMap::new(),
             },
             "building" => {
@@ -4273,6 +4296,34 @@ variables:
 
         let vals = snap.get_variable_values("zone:gain_hvac_sensible");
         assert_eq!(vals.get("Zone1"), Some(&-3000.0));
+    }
+
+    #[test]
+    fn test_zone_air_balance_variables_come_from_zone_outputs() {
+        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
+        snap.component_outputs.insert(
+            "Zone1".to_string(),
+            HashMap::from([
+                ("q_surf_conv_total".to_string(), -750.0),
+                ("q_thermal_mass".to_string(), 40.0),
+            ]),
+        );
+        snap.component_outputs.insert(
+            "Supply Fan".to_string(),
+            HashMap::from([("electric_power".to_string(), 900.0)]),
+        );
+
+        let vals = snap.get_variable_values("zone:q_surf_conv_total");
+        assert_eq!(vals, HashMap::from([("Zone1".to_string(), -750.0)]));
+        let vals = snap.get_variable_values("zone:q_thermal_mass");
+        assert_eq!(vals.get("Zone1"), Some(&40.0));
+
+        snap.component_outputs.insert(
+            "Surf:South Wall".to_string(),
+            HashMap::from([("conv_to_zone".to_string(), -120.0)]),
+        );
+        let vals = snap.get_variable_values("surface:conv_to_zone");
+        assert_eq!(vals, HashMap::from([("South Wall".to_string(), -120.0)]));
     }
 
     #[test]
