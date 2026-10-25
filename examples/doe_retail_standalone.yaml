@@ -65,7 +65,7 @@ simulation:
 # TMYx weather data for Boulder/Denver, CO (Climate Zone 5B)
 
 weather_files:
-  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+  - "../weather/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
 
 # ─── Design Days (ASHRAE 90.1-2019 Appendix B, Denver) ─────────────────────
 # Used for autosizing HVAC equipment capacity and airflow rates.

@@ -12,7 +12,7 @@ simulation:
   end_day: 31  # Just January for quick testing
 
 weather_files:
-  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+  - "../weather/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
 
 design_days:
   - name: Denver Heating Design Day

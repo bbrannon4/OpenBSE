@@ -12,7 +12,7 @@ simulation:
   heating_sizing_factor: 1.25
   cooling_sizing_factor: 1.15
 weather_files:
-- ../Denver-Buckley.epw
+- ../../weather/USA_CO_Denver-Aurora-Buckley.AFB.724695_TMY3.epw
 design_days:
 - name: Denver-Buckley Heating 99.6%
   design_temp: -17.9

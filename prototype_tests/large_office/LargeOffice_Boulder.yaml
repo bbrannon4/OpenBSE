@@ -45,7 +45,7 @@ simulation:
   auto_cooling_design_days: false
   sizing_averaging_window: 6
 weather_files:
-- /Users/benjaminbrannon/Documents/GitHub/OpenBSE/prototype_tests/Denver-Buckley.epw
+- ../../weather/USA_CO_Denver-Aurora-Buckley.AFB.724695_TMY3.epw
 design_days:
 - name: Denver Heating 99.6%
   design_temp: -17.9

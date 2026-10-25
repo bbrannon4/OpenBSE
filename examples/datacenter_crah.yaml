@@ -26,10 +26,8 @@ simulation:
   end_month: 12
   end_day: 31
 
-# Not shipped with the repo: download a Chicago O'Hare EPW (e.g. from
-# climate.onebuilding.org) or pass one with `-w`.
 weather_files:
-  - "USA_IL_Chicago-OHare.Intl.AP.725300_TMYx.epw"
+  - "../weather/USA_IL_Chicago-OHare.Intl.AP.725300_TMY3.epw"
 
 # ASHRAE climate zone — 90.4 MLC limit lookup (Table 6.2).
 climate_zone: "5A"
