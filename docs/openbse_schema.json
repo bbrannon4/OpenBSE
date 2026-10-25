@@ -1085,6 +1085,8 @@
         },
         "design_condenser_flow": { "type": "number", "default": 0.0, "description": "reformulated_eir only: design condenser water flow [m3/s], held constant while the chiller runs (E+ ConstantFlow). 0 sizes it as E+ does: capacity x (1 + 1/COP) / (rho x cp x the condenser_plant_loop's design_delta_t, or 5.56 K without one)." },
         "min_plr": { "type": "number", "default": 0.25, "minimum": 0, "maximum": 1, "description": "Minimum part-load ratio before cycling." },
+        "min_unloading_ratio": { "type": "number", "minimum": 0, "maximum": 1, "description": "E+ Minimum Unloading Ratio, at least min_plr (default: min_plr). Between min_plr and this ratio the chiller false-loads (hot-gas bypass): it runs at this ratio, EIR-f(PLR) is evaluated there, and the extra capacity is rejected with the condenser heat." },
+        "heat_recovery": { "$ref": "#/$defs/ChillerHeatRecovery" },
         "capft": { "$ref": "#/$defs/CurveInput", "description": "Capacity-f(T) biquadratic curve. x = leaving CHW temp, y = entering condenser temp (model eir) or leaving condenser water temp (model reformulated_eir)." },
         "eirft": { "$ref": "#/$defs/CurveInput", "description": "EIR-f(T) biquadratic curve, with the same inputs as capft." },
         "eirfplr": { "$ref": "#/$defs/CurveInput", "description": "EIR-f(PLR) curve. Model eir: quadratic, x = part-load ratio, clamped to min_plr..1; normalized to 1.0 at PLR = 1. E+ requires this curve. When neither eirfplr nor eirfplr_curve is set, EIRFPLR = PLR: the chiller keeps its rated COP (adjusted only by eirft) at every part load, as 99 of the 111 air-cooled chillers in the E+ AirCooledChiller.idf dataset do. Model reformulated_eir: required, x = leaving condenser water temp and y = part-load ratio; 10 coefficients = bicubic, 6 = biquadratic." },
@@ -1092,6 +1094,19 @@
         "eirft_curve": { "type": "string", "description": "Name of a top-level performance curve used as EIRFT. Alternative to inline eirft." },
         "eirfplr_curve": { "type": "string", "description": "Name of a top-level performance curve used as EIRFPLR. Alternative to inline eirfplr." },
         "a205_file": { "type": "string", "description": "Path to an ASHRAE Standard 205 RS0001 chiller performance file (.a205 CBOR or .a205.json), relative to the model YAML or absolute. When set, cop, capacity and curve fields are ignored." }
+      }
+    },
+
+    "ChillerHeatRecovery": {
+      "type": "object",
+      "required": ["plant_loop", "leaving_setpoint"],
+      "description": "Condenser heat recovery to a heating plant loop, following E+ Chiller:Electric:EIR heat recovery with a leaving temperature setpoint. Model eir and condenser_type water_cooled only. Of the heat rejected (power + cooling + false load), the heat-recovery water takes what heats it from the loop's return temperature (its supply setpoint minus design_delta_t) to leaving_setpoint, capped at capacity_fraction x full-load rejection and at the loop's remaining demand; the condenser takes the rest. CAPFT and EIRFT see the heat-weighted blend of the two entering temperatures, solved with the split each timestep (E+ blends with the split from its previous iteration). The recovered heat covers that loop's load before its boilers; the condenser loop receives only the rest.",
+      "properties": {
+        "plant_loop": { "type": "string", "description": "Heating plant loop that receives the recovered heat." },
+        "leaving_setpoint": { "type": "number", "description": "Leaving heat-recovery water temperature setpoint [C]." },
+        "design_flow": { "type": "number", "default": 0.0, "description": "Heat-recovery water flow [m3/s]. 0 sizes it as E+ does: the design condenser flow x capacity_fraction." },
+        "capacity_fraction": { "type": "number", "default": 1.0, "exclusiveMinimum": 0, "maximum": 1, "description": "Share of full-load condenser heat that can be recovered (E+ Condenser Heat Recovery Relative Capacity Fraction)." },
+        "inlet_high_limit": { "type": "number", "description": "Heat recovery stops while the entering heat-recovery water is above this temperature [C]." }
       }
     },
 

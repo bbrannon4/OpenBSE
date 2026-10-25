@@ -574,6 +574,8 @@ plant_loops:
 | `model` | `eir` | `eir` (E+ Chiller:Electric:EIR) or `reformulated_eir` (E+ Chiller:Electric:ReformulatedEIR: curves of the leaving condenser water temperature, water-cooled only, all three curves required) |
 | `design_condenser_flow` | Sized as E+ | `reformulated_eir` only: condenser water flow [m³/s]; 0 sizes it from capacity × (1 + 1/COP) at the condenser loop's design ΔT (5.56 K without one) |
 | `min_plr` | 0.25 | Minimum part-load ratio before cycling |
+| `min_unloading_ratio` | `min_plr` | E+ minimum unloading ratio: between `min_plr` and this ratio the chiller false-loads (runs at this ratio, extra capacity rejected to the condenser) |
+| `heat_recovery` | (none) | Condenser heat recovery to a heating plant loop (`eir`, water-cooled): `plant_loop`, `leaving_setpoint` [°C], optional `design_flow` [m³/s], `capacity_fraction` (1.0), `inlet_high_limit` [°C]. The recovered heat covers that loop's load before its boilers |
 | `capft` | (none) | Capacity-f(T) biquadratic curve (x = leaving CHW, y = entering CW, or leaving CW for `reformulated_eir`) |
 | `eirft` | (none) | EIR-f(T) biquadratic curve |
 | `eirfplr` | EIRFPLR = PLR | EIR-f(PLR) quadratic curve. The default keeps the rated COP at every part load. For `reformulated_eir`: required, f(leaving CW, PLR), bicubic (10 coefficients) or biquadratic (6) |
