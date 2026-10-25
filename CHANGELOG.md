@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Energy-conservation and sanity checks during the run** (#160). Every run now checks the hand-offs where a load can go missing while each component is correct on its own, and reports to the `.err` file. All checks are on by default, read the solution without changing it, and cost well under 1% of run time.
+
+  | Check | Severity |
+  |---|---|
+  | **Zone air heat balance**: surface convection + outdoor and interzone air + convective gains (incl. `other_sensible_gains`) + HVAC = air storage, per zone and timestep (1% of the terms' RSS, E+ uses 20%) and over the run (1% of the largest term) | severe |
+  | **Plant loops**: supply equipment never delivers more than the loop demand, and every coil, terminal and panel a loop draws on reports a load (the #151 failure) | severe |
+  | **Surface temperatures** beyond ±200 °C, which used to be held silently, are counted per surface; past 2.5× the limit the run stops, as in E+. NaN zone and surface states replaced in the history are counted too | severe |
+  | **Unphysical outputs**: NaN or inf anywhere, a negative PLR or capacity, a COP ≤ 0 while running | severe |
+  | **HVAC → zone delivery**: heat the air loops, VRF and radiant panels send equals heat the zone receives | warning (#166, #167) |
+  | **Air components**: ṁ·Δh across each component equals its `thermal_output` | warning (#168) |
+  | **Plant unmet demand** (E+ "Plant Supply Side Unmet Demand Rate") | warning |
+  | **HVAC non-convergence**: timesteps that hit the iteration limit, with the worst zones and hours | warning (#170) |
+
+  Each message names the zone, loop, component or surface, the size of the imbalance and the worst hour. Severe findings during the run don't cancel it, as in EnergyPlus. The `.err` footer now reads "Simulation completed: N warning(s), M severe error(s)". The closure checks that the shipped models still fail stay warnings until those issues are fixed. What they found:
+  - zones receive a blend of the last two HVAC iterations' supply air while coils book the last one, up to 14% of a zone's HVAC heat over a year (#166);
+  - radiant panels' convective share never reaches the zone (#167);
+  - the A205 DX coil books 16% more cooling than its air gets (#168);
+  - the cosim chiller example never runs its chiller (#169);
+  - office_vrf fails to converge in 89% of timesteps (#170).
+
 - **Interior shades as a layer** (#144). A `shade:` block on `shading_control` models a roller shade or similar with its own optical and thermal properties (solar transmittance and reflectance, openness, emissivity, distance to glass), instead of an SHGC swap. While deployed:
   - glass, shade and gap air are solved together, so the shade warms in the sun;
   - the room and the comfort grid see the shade's temperature;
@@ -75,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed examples that used ignored keys: `examples/datacenter_crah.yaml` (fan `source`, pump efficiency, unoccupied setpoint names) and `prototype_tests/large_office/LargeOffice_Boulder*.yaml` (data-center fans now actually run as VAV, which changes their results). `schema_sync` now fails on any unknown key in a repo YAML.
 
 ### Fixed
+- **Cooling towers report their heat rejection as `thermal_output`** (#160). It was left at the default 0, so a condenser loop's remaining load was never reduced by its tower. Annual results of the shipped models are unchanged; the tower's `thermal_output` column in the results CSV now shows the heat removed from the condenser water (negative).
 - **Plant equipment now receives its coil loads, and autosized boilers and chillers are sized.**
   - **`autosize` is resolved.** A boiler or chiller with `capacity: autosize` used to run with the −99,999 W sentinel as its capacity. A chiller then reported PLR −4 to −6 at about a quarter of its COP, and a boiler reported negative fuel, which the summary showed as zero gas. Autosized plant capacity is now the loop's design load, following EnergyPlus `Sizing:Plant` with its default non-coincident option: the sum of the design capacities of the coils, reheat terminals and radiant panels on the loop, after design-day sizing. A loop drawn on through a heat exchanger adds that loop's design load. A condenser loop's design load is its chillers' capacity × (1 + 1/COP). Autosized boiler water flow, cooling tower flow and heat exchanger flow carry that load at the loop's `design_delta_t`. Primary pumps keep their existing basis (the design-day coincident peak), and fall back to the loop design load when it is zero. Condenser pumps and towers are now sized from the sized chillers, where they used to read zero from an autosized one.
   - **An autosize that cannot be resolved stops the run.** Examples: a loop whose coils were never sized because there are no design days, or a loop with demand but zero design load. The failure is a severe error in the `.err` file. Equipment on a loop that nothing draws on never runs; as in EnergyPlus, its autosize resolves to zero.

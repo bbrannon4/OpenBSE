@@ -10,8 +10,9 @@ model in the selected tier this script:
   2. requires a zero exit code;
   3. applies sanity gates to the outputs: zone temperatures within limits, no
      NaN/inf in any column, no negative capacity / part-load ratio, no COP <= 0
-     while running, no negative sized capacity or airflow, and annual unmet
-     hours under the model's threshold;
+     while running, no negative sized capacity or airflow, annual unmet
+     hours under the model's threshold, and no severe error from the
+     engine's run-time checks in the .err file;
   4. compares annual end uses and unmet hours against tests/model_baselines.json
      (fails on a change larger than the tolerance in model_checks.json).
 
@@ -64,7 +65,7 @@ def load_config() -> dict:
         if entry.get("tier") == "skip" and not entry.get("reason"):
             problems.append(f"{name}: a skipped model needs a reason")
         for key in ("max_unmet_heating_hours", "max_unmet_cooling_hours", "zone_temp_limits_c", "weather",
-                    "baseline_platforms"):
+                    "baseline_platforms", "max_severe_errors"):
             if key in entry and not entry.get(f"{key}_reason"):
                 problems.append(f"{name}: {key} overrides the default, so it needs {key}_reason")
     if problems:
@@ -212,6 +213,21 @@ def scan_sizing(path: Path) -> list[str]:
     return failures
 
 
+def scan_err(path: Path, entry: dict) -> list[str]:
+    """Severe errors the engine's run-time checks (#160) wrote to the .err file.
+
+    Severe run-time findings don't stop a run (as in EnergyPlus), so the exit
+    code alone would let an energy imbalance through."""
+    if not path.exists():
+        return [f"no {path.name} written"]
+    severe = [l for l in path.read_text(errors="replace").splitlines() if l.startswith("** Severe  **")]
+    if len(severe) <= entry.get("max_severe_errors", 0):
+        return []
+    shown = "\n      ".join(l[:300] for l in severe[:5])
+    more = f"\n      ... and {len(severe) - 5} more" if len(severe) > 5 else ""
+    return [f"{path.name}: {len(severe)} severe error(s):\n      {shown}{more}"]
+
+
 def read_summary(path: Path) -> dict:
     """Annual end uses (Total column) and unmet hours from <stem>_summary.csv."""
     values = {}
@@ -289,6 +305,7 @@ def run_model(model: str, entry: dict, cfg: dict, binary: Path, out_root: Path, 
             result["failures"].append("no summary CSV written")
         if not main_csv.exists() and not parametric:
             result["failures"].append("no results CSV written")
+        result["failures"] += scan_err(out_dir / f"{stem}.err", entry)
 
     if not keep:
         shutil.rmtree(out_dir, ignore_errors=True)

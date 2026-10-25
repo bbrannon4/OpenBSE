@@ -266,6 +266,13 @@ impl PlantComponent for CoolingTower {
         }
     }
 
+    /// Heat removed from the condenser water [W], negative by the
+    /// `PlantComponent` convention. It was left at the default 0 until #160,
+    /// so the plant loop check saw every condenser loop as unmet.
+    fn thermal_output(&self) -> f64 {
+        -self.heat_rejected
+    }
+
     fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
         out("fan_power", self.fan_power);
         out("heat_rejected", self.heat_rejected);
@@ -361,6 +368,13 @@ mod tests {
         // Fan power should be positive
         assert!(tower.fan_power > 0.0, "Fan power should be > 0");
         assert!(tower.heat_rejected > 0.0, "Heat rejected should be > 0");
+        // Heat leaves the water: the PlantComponent sign convention (#160).
+        assert_relative_eq!(tower.thermal_output(), -tower.heat_rejected);
+        assert_relative_eq!(
+            tower.thermal_output(),
+            mass_flow * CP_WATER * (outlet.state.temp - inlet.state.temp),
+            max_relative = 0.01
+        );
     }
 
     #[test]

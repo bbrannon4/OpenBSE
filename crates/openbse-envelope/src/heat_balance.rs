@@ -39,6 +39,8 @@ pub struct BuildingEnvelope {
     /// Warnings raised during `initialize` (e.g. a CTF whose steady-state U is
     /// 1–5% off). The CLI copies them into the `.err` file so they are counted.
     pub init_warnings: Vec<String>,
+    /// Numerical-safety holds during the solve (#160); the CLI reports them.
+    pub diagnostics: crate::diagnostics::EnvelopeDiagnostics,
     pub zones: Vec<ZoneState>,
     pub surfaces: Vec<SurfaceState>,
     pub ctf_coefficients: Vec<Option<CtfCoefficients>>,
@@ -1645,6 +1647,7 @@ impl BuildingEnvelope {
 
         BuildingEnvelope {
             init_warnings: Vec::new(),
+            diagnostics: Default::default(),
             zones: zone_states,
             surfaces: surface_states,
             ctf_coefficients: vec![None; n_surfaces],
@@ -2238,6 +2241,7 @@ impl EnvelopeSolver for BuildingEnvelope {
         let dt = ctx.timestep.dt;
         let p_b = weather.pressure;
         let hour = ctx.timestep.hour;
+        self.diagnostics.now = crate::diagnostics::StepTime::from_ctx(ctx);
 
         // 1. Solar position
         let doy = ctx.timestep.day_of_year();
@@ -4494,8 +4498,12 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // Guard against NaN or extreme values from unstable CTF history.
                     // If the surface temp diverges, hold at the previous iteration
                     // value so the iteration can recover. Physical surface temps
-                    // should never exceed ±200°C; anything beyond that is numerical.
-                    self.surfaces[i].temp_inside = if t_new.is_nan() || t_new.abs() > 200.0 {
+                    // should never exceed ±200°C; anything beyond that is numerical,
+                    // and is reported as a severe error (fatal past 2.5×, as E+).
+                    let limit = crate::diagnostics::SURFACE_TEMP_LIMIT;
+                    self.surfaces[i].temp_inside = if t_new.is_nan() || t_new.abs() > limit {
+                        self.diagnostics
+                            .surface_temp_held(&self.surfaces[i].input.name, t_new);
                         t_old
                     } else {
                         t_new
@@ -5067,6 +5075,24 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // Thermal mass: ρVcp/dt_eff × (T_prev_eff − T_zone)
                     let cap_term = rho_air * zone.input.volume * cp_air / dt_eff;
                     zone.q_thermal_mass = cap_term * (t_prev_eff - t_z);
+
+                    // The terms the solve balanced, at the final temperature,
+                    // for the CLI's air heat balance check (#160). The HVAC
+                    // term follows the branch that set the temperature above.
+                    let hvac_term = if zone.input.ideal_loads.is_some() {
+                        zone.hvac_heating_rate - zone.hvac_cooling_rate
+                    } else if zone.supply_air_mass_flow > 0.0 {
+                        zone.supply_air_mass_flow * cp_air * (zone.supply_air_temp - t_z)
+                    } else {
+                        0.0
+                    };
+                    zone.air_balance = crate::zone::ZoneAirBalance {
+                        surface_convection: sum_hat - sum_ha * t_z,
+                        advection: mcpi * (t_outdoor - t_z),
+                        internal_gains: q_conv_total,
+                        hvac: hvac_term,
+                        storage: cap_term * (t_z - t_prev_eff),
+                    };
                 }
 
                 // ─── Zone Moisture Balance ────────────────────────────────
@@ -5492,6 +5518,8 @@ impl EnvelopeSolver for BuildingEnvelope {
             // Guard against NaN: if zone temp diverged this timestep, keep the
             // previous value so the BDF history stays finite.
             let t_safe = if zone.temp.is_nan() {
+                self.diagnostics
+                    .nan_held(|| format!("zone '{}' air temperature", zone.input.name));
                 zone.temp_prev
             } else {
                 zone.temp
@@ -5503,6 +5531,8 @@ impl EnvelopeSolver for BuildingEnvelope {
             zone.temp_order = (zone.temp_order + 1).min(3);
 
             let w_safe = if zone.humidity_ratio.is_nan() {
+                self.diagnostics
+                    .nan_held(|| format!("zone '{}' humidity ratio", zone.input.name));
                 zone.w_prev
             } else {
                 zone.humidity_ratio
@@ -5523,15 +5553,26 @@ impl EnvelopeSolver for BuildingEnvelope {
                 // timestep, use the most recent valid history value instead
                 // of writing NaN into the CTF state.  The surface will
                 // self-correct on subsequent timesteps once zone temps are finite.
-                let t_out = if self.surfaces[i].temp_outside.is_nan() {
+                let surface = &self.surfaces[i];
+                let states = [
+                    surface.temp_outside,
+                    surface.temp_inside,
+                    self.ctf_q_last_inside[i],
+                    self.ctf_q_last_outside[i],
+                ];
+                if states.iter().any(|v| v.is_nan()) {
+                    self.diagnostics
+                        .nan_held(|| format!("surface '{}' CTF history", surface.input.name));
+                }
+                let t_out = if surface.temp_outside.is_nan() {
                     *history.t_outside.first().unwrap_or(&21.0)
                 } else {
-                    self.surfaces[i].temp_outside
+                    surface.temp_outside
                 };
-                let t_in = if self.surfaces[i].temp_inside.is_nan() {
+                let t_in = if surface.temp_inside.is_nan() {
                     *history.t_inside.first().unwrap_or(&21.0)
                 } else {
-                    self.surfaces[i].temp_inside
+                    surface.temp_inside
                 };
                 let q_in = if self.ctf_q_last_inside[i].is_nan() {
                     0.0
@@ -6529,6 +6570,51 @@ mod tests {
         // With HVAC supply at 35°C, zone should stay well above freezing
         let t_zone = envelope.zones[0].temp;
         assert!(t_zone > 15.0, "HVAC should keep zone warm: got {}", t_zone);
+    }
+
+    #[test]
+    fn zone_air_balance_terms_close() {
+        // The terms stored for the CLI's zone air heat balance check (#160)
+        // must close at the solved temperature, gains and supply air included.
+        let mut envelope = make_simple_model();
+        envelope.initialize(3600.0).unwrap();
+        let ctx = make_ctx();
+        let weather = make_weather_hour(0.0);
+        let mut hvac = ZoneHvacConditions::default();
+        hvac.supply_temps.insert("TestZone".to_string(), 35.0);
+        hvac.supply_mass_flows.insert("TestZone".to_string(), 0.5);
+        hvac.other_sensible_gains
+            .insert("TestZone".to_string(), 800.0);
+        for _ in 0..5 {
+            envelope.solve_timestep(&ctx, &weather, &hvac);
+            envelope.update_bdf_history();
+        }
+        envelope.solve_timestep(&ctx, &weather, &hvac);
+        let z = &envelope.zones[0];
+        let b = z.air_balance;
+        assert!(b.hvac.abs() > 1.0 && b.internal_gains >= 800.0, "{b:?}");
+        let cp = psych::cp_air_fn_w(z.humidity_ratio);
+        let supply = 0.5 * cp * (35.0 - z.temp);
+        assert!((b.hvac - supply).abs() < 0.01 * b.hvac.abs(), "{b:?}");
+        assert!(
+            b.residual().abs() < 1e-6 * b.rss(),
+            "residual {} of {b:?}",
+            b.residual()
+        );
+        assert!(envelope.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn nan_zone_temperature_is_recorded_when_held() {
+        let mut envelope = make_simple_model();
+        envelope.initialize(3600.0).unwrap();
+        envelope.solve_timestep(&make_ctx(), &make_weather_hour(0.0), &Default::default());
+        envelope.zones[0].temp = f64::NAN;
+        envelope.update_bdf_history();
+        assert!(envelope.zones[0].temp.is_finite());
+        let held = &envelope.diagnostics.nan_holds;
+        assert_eq!(held.len(), 1, "{held:?}");
+        assert!(held.contains_key("zone 'TestZone' air temperature"));
     }
 
     #[test]

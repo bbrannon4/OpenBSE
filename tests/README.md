@@ -17,7 +17,11 @@ the week of 2026-10-21, when several shipped models were found broken by hand (#
    - no sized capacity, airflow or peak in the `*_sizing.csv` files is negative
      (this catches the −99,999 W autosize sentinel);
    - annual unmet heating and cooling hours are at most `max_unmet_hours`
-     (default 300, from the summary; summed over zones).
+     (default 300, from the summary; summed over zones);
+   - the `.err` file reports no severe error (`max_severe_errors`, default 0).
+     The engine's run-time energy-conservation and sanity checks (#160) write
+     their findings there; severe ones don't stop the run, so the exit code
+     alone would let them through.
 3. **Baselines.** Annual end uses and unmet hours from `<stem>_summary.csv`,
    and the mean of all zone temperatures over the run, match
    `model_baselines.json` within 0.1% (with a floor of 0.1 kWh, 1 h or 0.01 °C).
@@ -46,7 +50,7 @@ Every YAML under `examples/` and `prototype_tests/` must have an entry in
 - `skip`: never runs; listed in every report with its `reason`.
 
 Any override (`weather`, `max_unmet_heating_hours`, `max_unmet_cooling_hours`,
-`zone_temp_limits_c`, `baseline_platforms`) needs a matching `<key>_reason`, or
+`zone_temp_limits_c`, `baseline_platforms`, `max_severe_errors`) needs a matching `<key>_reason`, or
 the runner refuses to start. `baseline_platforms` (e.g. `["Linux"]`) marks a
 result known to differ by platform: elsewhere a baseline drift is a warning.
 

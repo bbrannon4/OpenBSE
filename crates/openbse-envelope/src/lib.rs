@@ -14,6 +14,7 @@ pub mod airflow_network;
 pub mod comfort_grid;
 pub mod convection;
 pub mod ctf;
+pub mod diagnostics;
 pub mod geometry;
 pub mod ground_temp;
 pub mod heat_balance;

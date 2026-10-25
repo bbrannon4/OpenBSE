@@ -946,6 +946,43 @@ impl ZoneInput {
     }
 }
 
+/// The zone air heat balance terms from the last solve [W], each positive
+/// into the air, evaluated at the final zone temperature (#160). They are the
+/// terms EnergyPlus sums for `DisplayZoneAirHeatBalanceOffBalance`
+/// (`ZoneTempPredictorCorrector.cc`).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ZoneAirBalance {
+    /// Σ h·A·(T_surface − T_zone) over the zone's surfaces.
+    pub surface_convection: f64,
+    /// Infiltration, ventilation, zone outdoor air and interzone inflow:
+    /// ṁ·cp·(T_source − T_zone).
+    pub advection: f64,
+    /// Convective internal gains, including HVAC losses deposited in the
+    /// zone (`other_sensible_gains`) and window solar/conduction to the air.
+    pub internal_gains: f64,
+    /// HVAC: supply air ṁ·cp·(T_supply − T_zone), or the ideal-loads rate.
+    pub hvac: f64,
+    /// Air heat storage ρ·V·cp·dT/dt (BDF).
+    pub storage: f64,
+}
+
+impl ZoneAirBalance {
+    /// Sources minus storage [W]; zero when the air balance closes.
+    pub fn residual(&self) -> f64 {
+        self.surface_convection + self.advection + self.internal_gains + self.hvac - self.storage
+    }
+
+    /// Root-sum-square of the terms [W], EnergyPlus's scale for the residual.
+    pub fn rss(&self) -> f64 {
+        (self.surface_convection.powi(2)
+            + self.advection.powi(2)
+            + self.internal_gains.powi(2)
+            + self.hvac.powi(2)
+            + self.storage.powi(2))
+        .sqrt()
+    }
+}
+
 /// Runtime zone state for heat balance.
 #[derive(Debug, Clone)]
 pub struct ZoneState {
@@ -1101,6 +1138,8 @@ pub struct ZoneState {
     /// ρ × V × cp / dt_eff × (T_prev_eff − T_zone)
     /// Positive when zone is cooling down (releasing stored heat).
     pub q_thermal_mass: f64,
+    /// Air heat balance terms from the last solve (#160).
+    pub air_balance: ZoneAirBalance,
 
     // ─── Diagnostic accumulators (annual kWh) ─────────────────────
     /// Last sim_time_s when accumulators were committed
@@ -1264,6 +1303,7 @@ impl ZoneState {
             q_surf_conv_windows: 0.0,
             q_infiltration_sensible: 0.0,
             q_thermal_mass: 0.0,
+            air_balance: ZoneAirBalance::default(),
             diag_last_sim_time: -1.0,
             diag_pending_surface: 0.0,
             diag_pending_infil: 0.0,
