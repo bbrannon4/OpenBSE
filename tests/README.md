@@ -37,8 +37,12 @@ Every YAML under `examples/` and `prototype_tests/` must have an entry in
 `model_checks.json`, so a new model can't be skipped by accident. Tiers:
 
 - `fast`: runs in CI on every push and PR (about 3 minutes in all).
-- `slow`: the large prototypes. CI runs them on `workflow_dispatch` and on every
-  push to `main`. Entries marked `heavy` always run one at a time.
+- `slow`: Apartment and Hospital (6–15 min each). CI runs them on
+  `workflow_dispatch` and on every push to `main`. Entries marked `heavy`
+  always run one at a time.
+- `local`: never runs in CI, because the model needs more memory than a GitHub
+  runner has (the three LargeOffice models: 19 GB peak against the runner's 16 GB).
+  Run `--tier local` on your machine, alone, before merging an engine change.
 - `skip`: never runs; listed in every report with its `reason`.
 
 Any override (`weather`, `max_unmet_heating_hours`, `max_unmet_cooling_hours`,
@@ -52,7 +56,8 @@ result known to differ by platform: elsewhere a baseline drift is a warning.
 cargo build --release
 python3 weather/fetch_weather.py
 python3 tests/run_shipped_models.py              # fast tier
-python3 tests/run_shipped_models.py --tier slow  # large prototypes, one at a time
+python3 tests/run_shipped_models.py --tier slow  # Apartment, Hospital, one at a time
+python3 tests/run_shipped_models.py --tier local # LargeOffice x3: ~19 GB each, nothing else running
 python3 tests/run_shipped_models.py --models examples/vav_reheat.yaml --keep-outputs --out /tmp/vav
 ```
 
@@ -63,8 +68,8 @@ python3 tests/run_shipped_models.py --models examples/vav_reheat.yaml --keep-out
   Use one target directory per checkout. Cargo silently links stale crates
   when two checkouts share one.
 - `--jobs N` (default 2) runs that many non-heavy models at once.
-- **Memory.** LargeOffice and LargeOffice_expanded use about 13 GB each, and
-  Hospital and Apartment about 4.6 GB. The slow tier runs them one at a time.
+- **Memory.** The LargeOffice models peak at about 13–19 GB each, and
+  Hospital and Apartment at about 5–9 GB. The slow tier runs them one at a time.
   On macOS the runner also waits before each launch while
   `kern.memorystatus_vm_pressure_level` reports warn or critical.
 

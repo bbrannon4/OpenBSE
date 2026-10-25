@@ -57,8 +57,10 @@ def load_config() -> dict:
     problems = [f"{m}: shipped model has no entry in {CONFIG.name}" for m in models if m not in cfg["models"]]
     problems += [f"{m}: in {CONFIG.name} but no such model" for m in cfg["models"] if m not in models]
     for name, entry in cfg["models"].items():
-        if entry.get("tier") not in ("fast", "slow", "skip"):
-            problems.append(f"{name}: tier must be fast, slow or skip")
+        if entry.get("tier") not in ("fast", "slow", "local", "skip"):
+            problems.append(f"{name}: tier must be fast, slow, local or skip")
+        if entry.get("tier") == "local" and not entry.get("tier_reason"):
+            problems.append(f"{name}: a local-only model needs a tier_reason")
         if entry.get("tier") == "skip" and not entry.get("reason"):
             problems.append(f"{name}: a skipped model needs a reason")
         for key in ("max_unmet_heating_hours", "max_unmet_cooling_hours", "zone_temp_limits_c", "weather",
@@ -330,7 +332,7 @@ def write_baselines(results: dict) -> None:
 def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--tier", choices=["fast", "slow", "all"], default="fast")
+    ap.add_argument("--tier", choices=["fast", "slow", "local", "all"], default="fast")
     ap.add_argument("--models", nargs="*", help="only these models (paths as in model_checks.json)")
     ap.add_argument("--binary", type=Path, help="openbse binary (default: $CARGO_TARGET_DIR or target/, release)")
     ap.add_argument("--jobs", type=int, default=2, help="parallel runs for non-heavy models (heavy ones always run alone)")
@@ -378,6 +380,10 @@ def main() -> None:
         r = run_model(m, cfg["models"][m], cfg, binary, out_root, args.keep_outputs)
         results[m] = r
         print(f"  {'ok  ' if not r['failures'] else 'FAIL'} {m} ({r['seconds']} s)", flush=True)
+        if args.report:
+            # Written after every model, so a run killed part-way (e.g. by the
+            # CI runner running out of memory) still leaves its results.
+            args.report.write_text(json.dumps(results, indent=2) + "\n")
 
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
         list(pool.map(one, light))

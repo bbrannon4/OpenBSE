@@ -111,7 +111,7 @@ jobs:
         run: |
           sha256sum -c - <<'SUMS'
           bca195330818239c4394b7e99cc6bcde488cc5fd8d4a52e1e60d863bb3361f50  tests/model_baselines.json
-          9a88b77380f1b8bebc55ab47f7ae07f6baa4aed4c22aa51cb408c2d623427470  tests/model_checks.json
+          f63da466917c66b414eb0bed079e171301f72a559b16e09ecae80608762e080c  tests/model_checks.json
           SUMS
 
       - uses: actions/cache@v4
@@ -135,8 +135,9 @@ jobs:
           name: shipped-models-report
           path: shipped-models-report.json
 
-  # The large DOE prototypes take minutes each and up to ~13 GB, so they run
-  # on demand and after every merge to main rather than on each PR.
+  # Apartment and Hospital take 6-15 min each, so they run on demand and
+  # after every merge to main rather than on each PR. The LargeOffice models
+  # are tier "local": they need more memory than this runner's 16 GB.
   shipped-models-slow:
     name: Shipped models (slow tier)
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
@@ -158,7 +159,7 @@ jobs:
         run: |
           sha256sum -c - <<'SUMS'
           bca195330818239c4394b7e99cc6bcde488cc5fd8d4a52e1e60d863bb3361f50  tests/model_baselines.json
-          9a88b77380f1b8bebc55ab47f7ae07f6baa4aed4c22aa51cb408c2d623427470  tests/model_checks.json
+          f63da466917c66b414eb0bed079e171301f72a559b16e09ecae80608762e080c  tests/model_checks.json
           SUMS
 
       - uses: actions/cache@v4
