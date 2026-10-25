@@ -3,11 +3,11 @@
 **Standard:** ASHRAE Standard 140-2023 — Section 7 (thermal fabric), Section 9 (cooling equipment), Section 10 (heating equipment) and Section 11 (air-side equipment)
 **Weather:** each section uses its own prescribed files (see `weather/`). Section 7 uses 725650TYCST.epw (Denver, CO — 39.833°N, 104.650°W, 1650m elevation)
 
-## Current Status: 549/550 gate checks pass
+## Current Status: 548/550 gate checks pass
 
 | Section | Cases | Checks passing |
 |---|---|---|
-| 7 — Thermal fabric (600 and 900 series) | 27 | 63/63 |
+| 7 — Thermal fabric (600 and 900 series) | 27 | 62/63 |
 | 9A — Cooling equipment, analytical (CE100–CE200) | 14 | 112/112 |
 | 9B — Cooling equipment, dynamic (CE300–CE545) | 20 | 230/231 |
 | 10 — Heating equipment (HE100–HE230) | 11 | 48/48 |
@@ -15,7 +15,7 @@
 
 Section 7 in detail:
 
-- **600 series (low-mass):** 22/22 pass
+- **600 series (low-mass):** 21/22 pass. Case 660 annual heating is about 20 kWh below range since windows' share of radiant gains was fixed (#148).
 - **900 series (high-mass):** 20/20 pass
 - **Free-float temperatures:** 18/18 pass (all 6 cases)
 - **960 Sun Zone temperatures:** 3/3 pass
@@ -28,7 +28,7 @@ The one miss is CE540 annual condenser-fan energy. It is listed, with the reason
 
 ### Software acceptance criteria (Normative Annex A3)
 
-The standard's acceptance criteria are a separate, narrower test than the gate above. They define five test groups. Each group is a set of range cases (a single result, or the difference between two cases) and passes when enough of them fall in range. Scored from the submission spreadsheets in `results/`:
+The standard's acceptance criteria are a separate, narrower test than the gate above. They define five test groups. Each group is a set of range cases (a single result, or the difference between two cases) and passes when enough of them fall in range. Scored from the v0.7.0 submission spreadsheets in `results/`:
 
 | Test group | Submission file | In range | Needed |
 |---|---|---|---|
