@@ -3191,6 +3191,27 @@ fn main() -> Result<()> {
                         let zone_cooling_setpoints = scheduled_cool_sp
                             .as_ref()
                             .unwrap_or(&zone_cooling_setpoints);
+                        // Radiant panels meet the zone's load to setpoint (#167):
+                        // the predictor's load to start, then the load still
+                        // unmet after each envelope solve. Controlled on the
+                        // in-iteration air temperature instead, they flipped on
+                        // and off between iterations.
+                        let zone_start_air_temps: HashMap<String, f64> = env
+                            .zones
+                            .iter()
+                            .map(|z| (z.input.name.clone(), z.temp))
+                            .collect();
+                        let mut panel_plrs = radiant_panel_plrs(
+                            &radiant_panels,
+                            &radiant_panel_zone_loads(
+                                &radiant_panels,
+                                &env.zones,
+                                &zone_start_air_temps,
+                                &zone_heating_setpoints,
+                                zone_cooling_setpoints,
+                                |rp| rp.convective_output,
+                            ),
+                        );
                         for hvac_iter in 0..MAX_HVAC_ITER {
                             // The hot-aisle return follows the supply the units are
                             // producing now, not last timestep's (CRAC-5 / #62).
@@ -3230,6 +3251,27 @@ fn main() -> Result<()> {
                                 &zone_min_rh,
                                 &zone_dc_return_temps,
                             );
+
+                            // Radiant panels run before the plant, so the plant
+                            // supplies what the zones receive this iteration.
+                            for (rp, plr) in radiant_panels.iter_mut().zip(&panel_plrs) {
+                                use openbse_components::radiant_panel::RadiantPanelSource;
+                                let t_water = rp.entering_water_temp;
+                                match (rp.source, plr) {
+                                    (RadiantPanelSource::Electric, _) => {
+                                        rp.simulate_electric(plr.unwrap_or(0.0))
+                                    }
+                                    (_, Some(plr)) => rp.simulate_water_plr(t_water, *plr),
+                                    // UA panels follow the water-to-air ΔT (#58).
+                                    (_, None) => {
+                                        let t_zone = current_zone_temps
+                                            .get(&rp.zone)
+                                            .copied()
+                                            .unwrap_or(21.0);
+                                        rp.simulate_water_ua(t_water, t_zone);
+                                    }
+                                }
+                            }
 
                             // Step 1b: Run plant loops in topological order.
                             //
@@ -3785,79 +3827,15 @@ fn main() -> Result<()> {
                             hvac_conds.heating_setpoints = zone_heating_setpoints.clone();
 
                             // ── Radiant Panel Gains ───────────────────────────────
-                            // Simulate radiant panels and accumulate their radiant and
-                            // convective outputs. Radiant fraction goes to zone surfaces
-                            // (via radiant_gains); convective fraction is added as a
-                            // supplemental supply to the zone air.
-                            //
-                            // Electric panels: PLR = 1 below heating setpoint, 0 in deadband.
-                            // Water-source panels: use plant loop supply temp (lagged) for UA
-                            // model, or PLR from zone predictor for PLR model.
-                            for rp in &mut radiant_panels {
-                                use openbse_components::radiant_panel::RadiantPanelSource;
-                                let t_zone =
-                                    current_zone_temps.get(&rp.zone).copied().unwrap_or(21.0);
-                                let heat_sp = zone_heating_setpoints
-                                    .get(&rp.zone)
-                                    .copied()
-                                    .unwrap_or(21.0);
-                                let cool_sp = zone_cooling_setpoints
-                                    .get(&rp.zone)
-                                    .copied()
-                                    .unwrap_or(24.0);
-
-                                match rp.source {
-                                    RadiantPanelSource::Electric => {
-                                        // Heating mode: PLR based on how far zone is below setpoint.
-                                        // Cooling is not applicable for electric radiant panels.
-                                        let plr = if t_zone < heat_sp - 0.5 {
-                                            1.0_f64
-                                        } else if t_zone < heat_sp {
-                                            (heat_sp - t_zone) / 0.5
-                                        } else {
-                                            0.0
-                                        };
-                                        rp.simulate_electric(plr);
-                                    }
-                                    RadiantPanelSource::HotWater => {
-                                        // Use entering water temp from plant loop (previous iteration).
-                                        // For PLR model, derive PLR from zone need.
-                                        if rp.ua.is_some() {
-                                            rp.simulate_water_ua(rp.entering_water_temp, t_zone);
-                                        } else {
-                                            let plr = if t_zone < heat_sp - 0.5 {
-                                                1.0_f64
-                                            } else if t_zone < heat_sp {
-                                                (heat_sp - t_zone) / 0.5
-                                            } else {
-                                                0.0
-                                            };
-                                            rp.simulate_water_plr(rp.entering_water_temp, plr);
-                                        }
-                                    }
-                                    RadiantPanelSource::ChilledWater => {
-                                        // Cooling mode: PLR from how far zone is above setpoint.
-                                        if rp.ua.is_some() {
-                                            rp.simulate_water_ua(rp.entering_water_temp, t_zone);
-                                        } else {
-                                            let plr = if t_zone > cool_sp + 0.5 {
-                                                1.0_f64
-                                            } else if t_zone > cool_sp {
-                                                (t_zone - cool_sp) / 0.5
-                                            } else {
-                                                0.0
-                                            };
-                                            rp.simulate_water_plr(rp.entering_water_temp, plr);
-                                        }
-                                    }
-                                }
-
-                                // Accumulate radiant gains by zone.
-                                // FIXME(#167): the convective share never reaches the
-                                // zone, though the plant supplies it; the HVAC → zone check
-                                // reports it.
+                            // The radiant share goes to the zone surfaces, the
+                            // convective share to the zone air.
+                            for rp in &radiant_panels {
                                 *hvac_conds.radiant_gains.entry(rp.zone.clone()).or_default() +=
                                     rp.radiant_output;
+                                *hvac_conds
+                                    .other_sensible_gains
+                                    .entry(rp.zone.clone())
+                                    .or_default() += rp.convective_output;
                             }
 
                             // ── Duct distribution losses → ambient zone (#70) ──────
@@ -3928,6 +3906,25 @@ fn main() -> Result<()> {
                             // Step 3: Solve envelope with HVAC supply
                             let env_result = env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
 
+                            // Next iteration's panel output: this one's plus the load
+                            // the zone still needs to reach setpoint. The zone air
+                            // sees less than a unit change of output (the radiant
+                            // share reaches it only through the surfaces), so the
+                            // correction approaches the load from one side.
+                            if !radiant_panels.is_empty() {
+                                panel_plrs = radiant_panel_plrs(
+                                    &radiant_panels,
+                                    &radiant_panel_zone_loads(
+                                        &radiant_panels,
+                                        &env.zones,
+                                        &zone_start_air_temps,
+                                        &zone_heating_setpoints,
+                                        zone_cooling_setpoints,
+                                        |rp| rp.thermal_output_to_zone,
+                                    ),
+                                );
+                            }
+
                             // HVAC → zone delivery for the run-time check (#160):
                             // the heat the loops (undamped), VRF and radiant panels
                             // sent, against the heat the zone solve used.
@@ -3946,8 +3943,13 @@ fn main() -> Result<()> {
                                 for rp in radiant_panels.iter().filter(|rp| rp.zone == *name) {
                                     sent += rp.thermal_output_to_zone;
                                 }
-                                let received = z.air_balance.hvac
+                                let mut received = z.air_balance.hvac
                                     + hvac_conds.radiant_gains.get(name).copied().unwrap_or(0.0);
+                                // The panels' convective share reaches the air as a
+                                // gain (other_sensible_gains), not through air_balance.hvac.
+                                for rp in radiant_panels.iter().filter(|rp| rp.zone == *name) {
+                                    received += rp.convective_output;
+                                }
                                 if sent != 0.0 || received != 0.0 {
                                     step_delivery.push((name.clone(), sent, received));
                                 }
@@ -7971,6 +7973,73 @@ fn apply_sat_reset_heating(
     }
 }
 
+/// Heating and cooling load [W, both ≥ 0] that each zone's radiant panels must
+/// meet this timestep (#167).
+///
+/// The zone's load line from the last envelope solve gives the load still
+/// needed to bring the air from its start-of-timestep temperature to setpoint;
+/// `own` adds back the panels' contribution counted in that solve. Before the
+/// HVAC iteration (the previous timestep's solve) that is the convective share
+/// alone: the radiant share warmed the surfaces, which genuinely lowers the
+/// load, as EnergyPlus's predictor `RemainingOutputReqToHeatSP` would see it.
+/// Within the iteration it is the whole output, so the panels track the load
+/// that EnergyPlus's water baseboards meet through `LoadMet`.
+fn radiant_panel_zone_loads(
+    panels: &[openbse_components::radiant_panel::RadiantPanel],
+    zones: &[openbse_envelope::zone::ZoneState],
+    start_air_temps: &HashMap<String, f64>,
+    heating_setpoints: &HashMap<String, f64>,
+    cooling_setpoints: &HashMap<String, f64>,
+    own: impl Fn(&openbse_components::radiant_panel::RadiantPanel) -> f64,
+) -> HashMap<String, (f64, f64)> {
+    let mut loads = HashMap::new();
+    for z in zones {
+        let name = &z.input.name;
+        if !panels.iter().any(|p| p.zone == *name) {
+            continue;
+        }
+        let own_output: f64 = panels.iter().filter(|p| p.zone == *name).map(&own).sum();
+        let t_start = start_air_temps.get(name).copied().unwrap_or(z.temp);
+        let load_at = |sp: f64| z.ideal_load_line.at(sp, t_start) + own_output;
+        let heat_sp = heating_setpoints.get(name).copied().unwrap_or(21.0);
+        let cool_sp = cooling_setpoints.get(name).copied().unwrap_or(24.0);
+        loads.insert(
+            name.clone(),
+            (load_at(heat_sp).max(0.0), (-load_at(cool_sp)).max(0.0)),
+        );
+    }
+    loads
+}
+
+/// Part-load ratio of each radiant panel that meets its zone's load, `None`
+/// for UA panels, whose output follows the water-to-zone ΔT instead (#58).
+/// Panels in one zone take the load in input order.
+fn radiant_panel_plrs(
+    panels: &[openbse_components::radiant_panel::RadiantPanel],
+    zone_loads: &HashMap<String, (f64, f64)>,
+) -> Vec<Option<f64>> {
+    use openbse_components::radiant_panel::RadiantPanelSource;
+    let mut remaining = zone_loads.clone();
+    panels
+        .iter()
+        .map(|rp| {
+            if rp.ua.is_some() && rp.source != RadiantPanelSource::Electric {
+                return None;
+            }
+            let Some((heat, cool)) = remaining.get_mut(&rp.zone) else {
+                return Some(0.0);
+            };
+            let load = match rp.source {
+                RadiantPanelSource::ChilledWater => cool,
+                _ => heat,
+            };
+            let plr = (*load / rp.rated_capacity.max(1.0)).clamp(0.0, 1.0);
+            *load -= plr * rp.rated_capacity;
+            Some(plr)
+        })
+        .collect()
+}
+
 /// Gather what plant sizing needs from the built model: the sized capacity of
 /// every water demand component (scaled by zone multiplier, as the plant load
 /// is) and the as-built capacity of every boiler and chiller.
@@ -8308,5 +8377,35 @@ mod tests_datacenter {
             cooling_sp
         );
         let _ = coil_sp; // may be absent if no matching name
+    }
+}
+
+#[cfg(test)]
+mod radiant_panel_control_tests {
+    use super::*;
+    use openbse_components::radiant_panel::RadiantPanel;
+
+    #[test]
+    fn panels_in_one_zone_take_the_load_in_order() {
+        let panels = vec![
+            RadiantPanel::new_hot_water("a", "Z", 1000.0, None),
+            RadiantPanel::new_hot_water("b", "Z", 1000.0, None),
+            RadiantPanel::new_chilled_water("c", "Z", 1000.0, None),
+            RadiantPanel::new_hot_water("ua", "Z", 1000.0, Some(50.0)),
+            RadiantPanel::new_electric("e", "Other", 500.0),
+        ];
+        let loads = HashMap::from([("Z".to_string(), (1500.0, 0.0))]);
+        let plrs = radiant_panel_plrs(&panels, &loads);
+        // The first panel runs flat out, the second takes the rest, the
+        // chilled panel has no cooling load, the UA panel isn't load-controlled,
+        // and a zone without a load leaves its panel off.
+        assert_eq!(plrs, vec![Some(1.0), Some(0.5), Some(0.0), None, Some(0.0)]);
+    }
+
+    #[test]
+    fn chilled_panel_meets_the_cooling_load() {
+        let panels = vec![RadiantPanel::new_chilled_water("c", "Z", 2000.0, None)];
+        let loads = HashMap::from([("Z".to_string(), (0.0, 500.0))]);
+        assert_eq!(radiant_panel_plrs(&panels, &loads), vec![Some(0.25)]);
     }
 }

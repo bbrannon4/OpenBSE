@@ -1047,6 +1047,11 @@ pub struct ZoneState {
     /// reaches the setpoint (E+ `QToHeatSetPt`). VAV reheat uses it so cold
     /// minimum-flow air in deadband never drives the zone below setpoint.
     pub load_to_heating_setpoint: f64,
+    /// The signed load to any target temperature, from the same solve as
+    /// `load_to_heating_setpoint`. Lets equipment controlled on a load
+    /// (radiant panels, #167) hold this timestep's setpoint, which may differ
+    /// from the one the solve used.
+    pub ideal_load_line: IdealLoadLine,
     /// Actual HVAC heating energy rate [W] (after capacity limits)
     pub hvac_heating_rate: f64,
     /// Actual HVAC cooling energy rate [W] (after capacity limits)
@@ -1272,6 +1277,7 @@ impl ZoneState {
             ideal_cooling_load: 0.0,
             ideal_heating_load: 0.0,
             load_to_heating_setpoint: 0.0,
+            ideal_load_line: IdealLoadLine::default(),
             hvac_heating_rate: 0.0,
             hvac_cooling_rate: 0.0,
             q_internal_conv: 0.0,
@@ -1525,6 +1531,28 @@ pub fn mix_advective_streams(m1: f64, x1: f64, m2: f64, x2: f64) -> (f64, f64) {
 ///   Q_hvac = (SumHA + MCPI + Cap) · t_target - SumHAT - MCPI·Tout - Qconv - Cap·Tprev
 ///
 /// Positive = heating needed, Negative = cooling needed.
+/// A zone's ideal HVAC load as a function of the target air temperature and
+/// the air temperature at the start of the timestep [W], positive = heating
+/// needed: `q = slope·T_target + offset − capacitance·T_start`. The load is
+/// linear in both (see [`compute_ideal_q_hvac`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct IdealLoadLine {
+    /// ∂q/∂T_target [W/K]: Σh·A + ṁcp_infiltration + ρVcp/Δt.
+    pub slope: f64,
+    /// q at a 0 °C target from a 0 °C start [W].
+    pub offset: f64,
+    /// Air heat capacity per timestep ρVcp/Δt [W/K].
+    pub capacitance: f64,
+}
+
+impl IdealLoadLine {
+    /// Load needed to bring the air from `t_start` to `t_target` this
+    /// timestep, with the surfaces and gains of the solve [W].
+    pub fn at(&self, t_target: f64, t_start: f64) -> f64 {
+        self.slope * t_target + self.offset - self.capacitance * t_start
+    }
+}
+
 pub fn compute_ideal_q_hvac(
     sum_ha: f64,
     sum_hat: f64,
@@ -1579,6 +1607,24 @@ pub fn calc_zone_loads(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ideal_load_line_matches_the_ideal_load() {
+        let q = |t_start: f64, t_target: f64| {
+            compute_ideal_q_hvac(
+                180.0, 3400.0, 40.0, -5.0, 300.0, 1.2, 75.0, 1005.0, 3600.0, t_start, t_target,
+            )
+        };
+        let offset = q(0.0, 0.0);
+        let line = IdealLoadLine {
+            slope: q(0.0, 1.0) - offset,
+            offset,
+            capacitance: offset - q(1.0, 0.0),
+        };
+        for (t_start, t_target) in [(19.0, 21.0), (24.5, 21.0), (21.0, 26.0)] {
+            assert!((line.at(t_target, t_start) - q(t_start, t_target)).abs() < 1e-9);
+        }
+    }
     use approx::assert_relative_eq;
 
     fn dc_config() -> DataCenterConfig {
