@@ -114,14 +114,6 @@ jobs:
           f63da466917c66b414eb0bed079e171301f72a559b16e09ecae80608762e080c  tests/model_checks.json
           SUMS
 
-      - uses: actions/cache@v4
-        with:
-          path: weather/*_TMYx*.epw
-          key: weather-${{ hashFiles('weather/fetch_weather.py') }}
-
-      - name: Fetch weather files
-        run: python3 weather/fetch_weather.py
-
       - name: Build release
         run: cargo build --release
 
@@ -161,14 +153,6 @@ jobs:
           174360535806a3ec7c4acb7ac38b82a8c422621b7929069cf0a962103b2d8041  tests/model_baselines.json
           f63da466917c66b414eb0bed079e171301f72a559b16e09ecae80608762e080c  tests/model_checks.json
           SUMS
-
-      - uses: actions/cache@v4
-        with:
-          path: weather/*_TMYx*.epw
-          key: weather-${{ hashFiles('weather/fetch_weather.py') }}
-
-      - name: Fetch weather files
-        run: python3 weather/fetch_weather.py
 
       - name: Build release
         run: cargo build --release

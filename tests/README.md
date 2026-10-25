@@ -58,7 +58,6 @@ result known to differ by platform: elsewhere a baseline drift is a warning.
 
 ```bash
 cargo build --release
-python3 weather/fetch_weather.py
 python3 tests/run_shipped_models.py              # fast tier
 python3 tests/run_shipped_models.py --tier slow  # Apartment, Hospital, one at a time
 python3 tests/run_shipped_models.py --tier local # LargeOffice x3: ~19 GB each, nothing else running
