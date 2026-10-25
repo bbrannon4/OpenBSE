@@ -5301,6 +5301,28 @@ impl EnvelopeSolver for BuildingEnvelope {
                 };
                 // Positive Q = heating needed
                 zone.ideal_heating_load = zone.load_to_heating_setpoint.max(0.0);
+
+                let q_at = |t_target: f64, t_start: f64| {
+                    crate::zone::compute_ideal_q_hvac(
+                        sum_ha,
+                        sum_hat,
+                        mcpi,
+                        t_outdoor,
+                        q_conv_total,
+                        rho_air,
+                        zone.input.volume,
+                        cp_air,
+                        dt_eff,
+                        t_start,
+                        t_target,
+                    )
+                };
+                let offset = q_at(0.0, 0.0);
+                zone.ideal_load_line = crate::zone::IdealLoadLine {
+                    slope: q_at(1.0, 0.0) - offset,
+                    offset,
+                    capacitance: offset - q_at(0.0, 1.0),
+                };
             }
         }
 

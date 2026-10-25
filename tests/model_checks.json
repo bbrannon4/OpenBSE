@@ -58,13 +58,7 @@
       "tier": "fast"
     },
     "examples/hotel_radiant_panels.yaml": {
-      "tier": "fast",
-      "baseline_platforms": [
-        "Linux"
-      ],
-      "baseline_platforms_reason": "Platform-dependent bug, found by this job (2026-10-25): the same commit gives 811.6 kWh gas / 228 unmet heating h on macOS (arm64) and 5,403.5 kWh / 1,360 h on Linux CI (x86_64); every other model agrees to 0.05 kWh. Tracked in #163. The baseline is CI's Linux result; elsewhere a drift is a warning.",
-      "max_unmet_heating_hours": 1500,
-      "max_unmet_heating_hours_reason": "Pre-existing on Linux CI: 1,360 h when this gate was added (macOS gives 228 h; #163). Tracked in #165. The limit is ~10% above the Linux value."
+      "tier": "fast"
     },
     "examples/multi_year_parametric.yaml": {
       "tier": "fast",
