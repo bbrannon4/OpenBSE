@@ -1,0 +1,200 @@
+{
+  "_doc": "Per-model settings for tests/run_shipped_models.py (see tests/README.md). tier: fast (every PR), slow (manual / push to main), local (never in CI; needs a tier_reason), skip (never run; needs a reason). heavy: run alone, never in parallel. Overrides: weather (passed as -w), max_unmet_heating_hours, max_unmet_cooling_hours, zone_temp_limits_c ({zone: [lo, hi]}); each override needs a matching <key>_reason.",
+  "timeout_s": 7200,
+  "zone_temp_limits_c": [
+    -40.0,
+    60.0
+  ],
+  "max_unmet_hours": 300,
+  "baseline_rel_tol": 0.001,
+  "baseline_abs_tol": {
+    "kWh": 0.1,
+    "hours": 1,
+    "C": 0.01
+  },
+  "models": {
+    "examples/1zone_uncontrolled.yaml": {
+      "tier": "fast"
+    },
+    "examples/chiller_table_curves.yaml": {
+      "tier": "fast",
+      "max_unmet_heating_hours": 1890,
+      "max_unmet_heating_hours_reason": "Pre-existing: 1713 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+    },
+    "examples/chw_plant_condenser.yaml": {
+      "tier": "fast",
+      "max_unmet_heating_hours": 12780,
+      "max_unmet_heating_hours_reason": "Pre-existing: 11616 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+    },
+    "examples/comfort_perimeter_office.yaml": {
+      "tier": "fast"
+    },
+    "examples/cosim_chiller/building.yaml": {
+      "tier": "fast"
+    },
+    "examples/datacenter_crah.yaml": {
+      "tier": "fast",
+      "max_unmet_heating_hours": 1120,
+      "max_unmet_heating_hours_reason": "Pre-existing: 1015 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+    },
+    "examples/doas_fancoil.yaml": {
+      "tier": "fast",
+      "max_unmet_heating_hours": 3100,
+      "max_unmet_heating_hours_reason": "Pre-existing: 2817 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+    },
+    "examples/doe_retail_standalone.yaml": {
+      "tier": "fast",
+      "max_unmet_heating_hours": 14330,
+      "max_unmet_heating_hours_reason": "Pre-existing: 13018 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change.",
+      "max_unmet_cooling_hours": 910,
+      "max_unmet_cooling_hours_reason": "Pre-existing: 826 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+    },
+    "examples/heat_pump_rtu.yaml": {
+      "tier": "fast",
+      "max_unmet_heating_hours": 380,
+      "max_unmet_heating_hours_reason": "Pre-existing: 342 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+    },
+    "examples/hotel_pthp.yaml": {
+      "tier": "fast"
+    },
+    "examples/hotel_radiant_panels.yaml": {
+      "tier": "fast",
+      "baseline_platforms": [
+        "Linux"
+      ],
+      "baseline_platforms_reason": "Platform-dependent bug, found by this job (2026-10-25): the same commit gives 811.6 kWh gas / 228 unmet heating h on macOS (arm64) and 5,403.5 kWh / 1,360 h on Linux CI (x86_64); every other model agrees to 0.05 kWh. Tracked in #163. The baseline is CI's Linux result; elsewhere a drift is a warning.",
+      "max_unmet_heating_hours": 1500,
+      "max_unmet_heating_hours_reason": "Pre-existing on Linux CI: 1,360 h when this gate was added (macOS gives 228 h; #163). Tracked in #165. The limit is ~10% above the Linux value."
+    },
+    "examples/multi_year_parametric.yaml": {
+      "tier": "fast",
+      "weather": "weather/USA_CO_Denver-Aurora-Buckley.AFB.724695_TMY3.epw",
+      "weather_reason": "Its 10 Denver AMY files (2015-2024) aren't available; one TMY3 year still exercises the parametric runs."
+    },
+    "examples/office_dual_duct.yaml": {
+      "tier": "fast"
+    },
+    "examples/office_vrf.yaml": {
+      "tier": "fast"
+    },
+    "examples/parametric_sweep.yaml": {
+      "tier": "fast"
+    },
+    "examples/residential_gshp.yaml": {
+      "tier": "fast",
+      "max_unmet_heating_hours": 5320,
+      "max_unmet_heating_hours_reason": "Pre-existing: 4835 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+    },
+    "examples/residential_unitary.yaml": {
+      "tier": "fast",
+      "max_unmet_heating_hours": 530,
+      "max_unmet_heating_hours_reason": "Pre-existing: 473 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+    },
+    "examples/residential_unitary_a205.yaml": {
+      "tier": "fast",
+      "max_unmet_heating_hours": 530,
+      "max_unmet_heating_hours_reason": "Pre-existing: 473 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+    },
+    "examples/residential_unitary_rs0002.yaml": {
+      "tier": "fast",
+      "max_unmet_heating_hours": 530,
+      "max_unmet_heating_hours_reason": "Pre-existing: 473 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+    },
+    "examples/retail_rtu.yaml": {
+      "tier": "fast",
+      "max_unmet_heating_hours": 4720,
+      "max_unmet_heating_hours_reason": "Pre-existing: 4285 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change.",
+      "max_unmet_cooling_hours": 1580,
+      "max_unmet_cooling_hours_reason": "Pre-existing: 1428 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+    },
+    "examples/roller_shade_office.yaml": {
+      "tier": "fast"
+    },
+    "examples/simple_heating.yaml": {
+      "tier": "fast",
+      "max_unmet_heating_hours": 1180,
+      "max_unmet_heating_hours_reason": "Pre-existing: 1066 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+    },
+    "examples/vav_a205_fan_and_chiller.yaml": {
+      "tier": "fast"
+    },
+    "examples/vav_a205_motor_override.yaml": {
+      "tier": "fast"
+    },
+    "examples/vav_chw_plant.yaml": {
+      "tier": "fast"
+    },
+    "examples/vav_chw_plant_a205.yaml": {
+      "tier": "fast"
+    },
+    "examples/vav_reheat.yaml": {
+      "tier": "fast",
+      "max_unmet_heating_hours": 20230,
+      "max_unmet_heating_hours_reason": "Pre-existing: 18389 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change. The AHU preheat never fires and reheat is electric (noted in #151's hand-over)."
+    },
+    "prototype_tests/apartment/ApartmentMidRise_Boulder.yaml": {
+      "tier": "slow",
+      "heavy": true
+    },
+    "prototype_tests/hospital/Hospital_STD2022_Boulder.yaml": {
+      "tier": "slow",
+      "heavy": true,
+      "max_unmet_cooling_hours": 360,
+      "max_unmet_cooling_hours_reason": "Pre-existing: 324 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+    },
+    "prototype_tests/large_office/LargeOffice_Boulder.yaml": {
+      "tier": "local",
+      "tier_reason": "Needs more memory than a GitHub runner has: the local macOS run peaked at 19 GB RSS, and the 16 GB ubuntu-latest runner killed the slow-tier job during LargeOffice_Boulder (exit 143, 2026-10-25, run 40170807753). Run locally, alone, with --tier local before merging engine changes.",
+      "heavy": true,
+      "max_unmet_heating_hours": 77980,
+      "max_unmet_heating_hours_reason": "Pre-existing: 70,882 zone-h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change. LargeOffice's EnergyPlus-match work is still open (sizing, VRP density, VAV fan sizing), and unmet hours are summed over 19 zones.",
+      "max_unmet_cooling_hours": 32830,
+      "max_unmet_cooling_hours_reason": "Pre-existing: 29,841 zone-h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change. LargeOffice's EnergyPlus-match work is still open (sizing, VRP density, VAV fan sizing), and unmet hours are summed over 19 zones."
+    },
+    "prototype_tests/large_office/LargeOffice_Boulder_expanded.yaml": {
+      "tier": "local",
+      "tier_reason": "Needs more memory than a GitHub runner has: the local macOS run peaked at 19 GB RSS, and the 16 GB ubuntu-latest runner killed the slow-tier job during LargeOffice_Boulder (exit 143, 2026-10-25, run 40170807753). Run locally, alone, with --tier local before merging engine changes.",
+      "heavy": true,
+      "max_unmet_heating_hours": 94010,
+      "max_unmet_heating_hours_reason": "Pre-existing: 85,461 zone-h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change. LargeOffice's EnergyPlus-match work is still open (sizing, VRP density, VAV fan sizing), and unmet hours are summed over 19 zones.",
+      "max_unmet_cooling_hours": 70420,
+      "max_unmet_cooling_hours_reason": "Pre-existing: 64,014 zone-h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change. LargeOffice's EnergyPlus-match work is still open (sizing, VRP density, VAV fan sizing), and unmet hours are summed over 19 zones.",
+      "zone_temp_limits_c": {
+        "Perimeter_top_ZN_1": [
+          -40.0,
+          85.0
+        ],
+        "Perimeter_top_ZN_4": [
+          -40.0,
+          85.0
+        ]
+      },
+      "zone_temp_limits_c_reason": "Defect found by this gate (2026-10-25): these conditioned top-floor perimeter offices reach 64.5 °C (ZN_1) and 77.4 °C (ZN_4), and fall to -10 °C. Tracked in #164. Lower the limits back to the default once fixed."
+    },
+    "prototype_tests/large_office/LargeOffice_Boulder_ideal.yaml": {
+      "tier": "local",
+      "tier_reason": "Needs more memory than a GitHub runner has: the local macOS run peaked at 19 GB RSS, and the 16 GB ubuntu-latest runner killed the slow-tier job during LargeOffice_Boulder (exit 143, 2026-10-25, run 40170807753). Run locally, alone, with --tier local before merging engine changes.",
+      "heavy": true
+    },
+    "prototype_tests/single_family/SingleFamily_CZ5B_Boulder.yaml": {
+      "tier": "fast",
+      "zone_temp_limits_c": {
+        "attic": [
+          -40.0,
+          80.0
+        ]
+      },
+      "zone_temp_limits_c_reason": "The unconditioned vented attic peaks at 68.4 °C in a Boulder summer, which is physical for an attic under a sunlit roof. Every other zone keeps the default limits."
+    },
+    "prototype_tests/single_family/SingleFamily_CZ5B_Boulder_ideal.yaml": {
+      "tier": "fast",
+      "zone_temp_limits_c": {
+        "attic": [
+          -40.0,
+          80.0
+        ]
+      },
+      "zone_temp_limits_c_reason": "The unconditioned vented attic peaks at 68.4 °C in a Boulder summer, which is physical for an attic under a sunlit roof. Every other zone keeps the default limits."
+    }
+  }
+}

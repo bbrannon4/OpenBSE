@@ -5,7 +5,7 @@
 #   - Sweep syntax with explicit values and range
 #   - Thermostat setpoint and equipment efficiency variations
 #
-# Run with:  openbse parametric_sweep.yaml -w <path-to-epw>
+# Run with:  openbse parametric_sweep.yaml
 #
 # Produces one CSV per run:
 #   parametric_sweep_baseline_results.csv
@@ -22,7 +22,7 @@ simulation:
   end_day: 7        # One week — fast enough for testing
 
 weather_files:
-  - "../140_tests/weather/CE100.epw"
+  - "../140_tests/weather/725650TYCST.epw"
 
 design_days:
   - name: Winter Design Day

@@ -29,7 +29,7 @@ simulation:
   end_day: 31
 
 weather_files:
-  - /Applications/EnergyPlus-25-2-0/WeatherData/USA_CO_Golden-NREL.724666_TMY3.epw
+  - ../weather/USA_CO_Golden-NREL.724666_TMY3.epw
 
 summary_report: true
 

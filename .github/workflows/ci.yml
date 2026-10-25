@@ -85,3 +85,100 @@ jobs:
         with:
           name: ashrae140-results
           path: 140_tests/scripts/FULL_140_RESULTS.csv
+
+  # Every model in examples/ and prototype_tests/ must run, pass the sanity
+  # gates and match its committed end-use baseline (tests/README.md).
+  shipped-models:
+    name: Shipped models (fast tier)
+    runs-on: ubuntu-latest
+    needs: check
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Tamper evidence, as for the ASHRAE 140 ranges: the baselines and the
+      # per-model thresholds are the pass/fail law for this job. Changing
+      # either requires updating its pinned hash here in the same commit.
+      - name: Verify model baselines are untampered
+        run: |
+          sha256sum -c - <<'SUMS'
+          174360535806a3ec7c4acb7ac38b82a8c422621b7929069cf0a962103b2d8041  tests/model_baselines.json
+          f63da466917c66b414eb0bed079e171301f72a559b16e09ecae80608762e080c  tests/model_checks.json
+          SUMS
+
+      - uses: actions/cache@v4
+        with:
+          path: weather/*_TMYx*.epw
+          key: weather-${{ hashFiles('weather/fetch_weather.py') }}
+
+      - name: Fetch weather files
+        run: python3 weather/fetch_weather.py
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Run shipped models
+        run: python3 tests/run_shipped_models.py --tier fast --jobs 4 --report shipped-models-report.json
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipped-models-report
+          path: shipped-models-report.json
+
+  # Apartment and Hospital take 6-15 min each, so they run on demand and
+  # after every merge to main rather than on each PR. The LargeOffice models
+  # are tier "local": they need more memory than this runner's 16 GB.
+  shipped-models-slow:
+    name: Shipped models (slow tier)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    needs: check
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify model baselines are untampered
+        run: |
+          sha256sum -c - <<'SUMS'
+          174360535806a3ec7c4acb7ac38b82a8c422621b7929069cf0a962103b2d8041  tests/model_baselines.json
+          f63da466917c66b414eb0bed079e171301f72a559b16e09ecae80608762e080c  tests/model_checks.json
+          SUMS
+
+      - uses: actions/cache@v4
+        with:
+          path: weather/*_TMYx*.epw
+          key: weather-${{ hashFiles('weather/fetch_weather.py') }}
+
+      - name: Fetch weather files
+        run: python3 weather/fetch_weather.py
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Run slow models
+        run: python3 tests/run_shipped_models.py --tier slow --jobs 1 --report shipped-models-slow-report.json
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipped-models-slow-report
+          path: shipped-models-slow-report.json

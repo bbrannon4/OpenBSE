@@ -100,6 +100,8 @@ apt_stderr.txt
 *.epw
 # Exception: ASHRAE 140 weather file and aggregated results must be committed
 !140_tests/weather/*.epw
+# Exception: the public-domain TMY3 files the shipped models use (weather/README.md)
+!/weather/*_TMY3.epw
 !140_tests/results/FULL_140_RESULTS.csv
 
 # ─── Environment / Secrets ───────────────────────────────────────────────────

@@ -209,11 +209,12 @@ If you're contributing (or pointing an AI tool at this repo), start here:
 
 ## Test Organization
 
-OpenBSE has three categories of tests:
+OpenBSE has four categories of tests:
 
 1. **Unit tests** — Inline `#[cfg(test)]` modules in Rust source files. Run with `cargo test --workspace`.
 2. **ASHRAE 140 validation** — Standard test cases in [`140_tests/`](140_tests/). Run individual cases with `./target/release/openbse 140_tests/cases/ashrae140_case600.yaml`.
 3. **E+ prototype comparison** — DOE prototype models in [`prototype_tests/`](prototype_tests/). Each model has a YAML input file and Python comparison scripts.
+4. **Shipped-model checks** — every model in `examples/` and `prototype_tests/` runs in CI with sanity gates (zone temperatures, NaN/inf, negative capacities or part-load ratios, unmet hours) and committed end-use baselines. Run locally with `python3 tests/run_shipped_models.py`; see [`tests/README.md`](tests/README.md), including how to update baselines when results change on purpose.
 
 ## Development
 

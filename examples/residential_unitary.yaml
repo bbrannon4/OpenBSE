@@ -24,7 +24,7 @@ simulation:
   end_day: 31
 
 weather_files:
-  - "/Users/benjaminbrannon/Documents/WeatherFiles/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
+  - "../weather/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw"
 
 # --- Design Days ---
 design_days:
