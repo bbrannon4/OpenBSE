@@ -6,7 +6,7 @@
 //! and what connects to what.
 
 use openbse_components::boiler::Boiler;
-use openbse_components::chiller::{AirCooledChiller, ChillerModel};
+use openbse_components::chiller::{AirCooledChiller, ChillerHeatRecovery, ChillerModel};
 use openbse_components::chiller_a205::ChillerA205;
 use openbse_components::chw_cooling_coil::CoolingCoilCHW;
 use openbse_components::cooling_coil::CoolingCoilDX;
@@ -2179,6 +2179,15 @@ pub struct ChillerInput {
     /// Minimum part load ratio (default 0.25, matching E+ typical value)
     #[serde(default = "default_chiller_min_plr")]
     pub min_plr: f64,
+    /// E+ Minimum Unloading Ratio, at least min_plr. Between min_plr and this
+    /// ratio the chiller false-loads: it runs at this ratio and rejects the
+    /// extra capacity to the condenser. Default: min_plr.
+    #[serde(default)]
+    pub min_unloading_ratio: Option<f64>,
+    /// Condenser heat recovery to a heating plant loop (model eir,
+    /// water-cooled), following E+ Chiller:Electric:EIR heat recovery.
+    #[serde(default)]
+    pub heat_recovery: Option<ChillerHeatRecoveryInput>,
     /// CAPFT: Capacity as function of temperature (biquadratic).
     /// x = leaving CHW temp [°C], y = entering condenser fluid temp [°C].
     #[serde(default)]
@@ -2215,6 +2224,33 @@ pub struct ChillerInput {
     /// Named reference for EIRFPLR (EIR vs. part-load ratio).  See `capft_curve`.
     #[serde(default)]
     pub eirfplr_curve: Option<String>,
+}
+
+/// Chiller condenser heat recovery: E+ Chiller:Electric:EIR with a heat
+/// recovery leaving temperature setpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChillerHeatRecoveryInput {
+    /// Heating plant loop that receives the recovered heat, which reduces
+    /// the load left for that loop's boilers.
+    pub plant_loop: String,
+    /// Leaving heat-recovery water temperature setpoint [C].
+    pub leaving_setpoint: f64,
+    /// Heat-recovery water flow [m3/s]. 0 (default) sizes it as E+ does: the
+    /// design condenser flow x capacity_fraction.
+    #[serde(default)]
+    pub design_flow: f64,
+    /// Share of full-load condenser heat that can be recovered (E+
+    /// Condenser Heat Recovery Relative Capacity Fraction). Default 1.
+    #[serde(default = "default_heat_recovery_capacity_fraction")]
+    pub capacity_fraction: f64,
+    /// Heat recovery stops while the entering water is above this [C].
+    #[serde(default)]
+    pub inlet_high_limit: Option<f64>,
+}
+
+fn default_heat_recovery_capacity_fraction() -> f64 {
+    1.0
 }
 
 fn default_chiller_cop() -> f64 {
@@ -3810,6 +3846,14 @@ fn build_graph_impl(
                         chiller.tower_approach = ci.tower_approach;
                         chiller.model = ci.model;
                         chiller.design_condenser_flow = ci.design_condenser_flow;
+                        chiller.min_unloading_ratio = ci.min_unloading_ratio;
+                        chiller.heat_recovery =
+                            ci.heat_recovery.as_ref().map(|hr| ChillerHeatRecovery {
+                                leaving_setpoint: hr.leaving_setpoint,
+                                design_flow: hr.design_flow,
+                                capacity_fraction: hr.capacity_fraction,
+                                inlet_high_limit: hr.inlet_high_limit,
+                            });
                         if let Some(condenser_loop) = ci
                             .condenser_plant_loop
                             .as_deref()

@@ -3084,6 +3084,27 @@ performance_curves:
   max_x: 36.52
   min_y: 0.19
   max_y: 1.03
+# Heat recovery chiller curves (2022 IDF; the 2019 model's CAP_FT and EIR_FT
+# coefficients differ).
+- name: Lp2LpChlr_CAP_FT
+  curve_type: biquadratic
+  coefficients: [1.087789472, 0.0404749, 0.000308567, -0.003035172, -9.93726E-05, -0.000313643]
+  min_x: 0.0
+  max_x: 999.0
+  min_y: 0.0
+  max_y: 999.0
+- name: Lp2LpChlr_EIR_FT
+  curve_type: biquadratic
+  coefficients: [0.457251364, -0.007255161, 0.000255435, 0.00659246, 0.000238374, -0.000294649]
+  min_x: 0.0
+  max_x: 999.0
+  min_y: 0.0
+  max_y: 999.0
+- name: Lp2LpChlr_PLR
+  curve_type: quadratic
+  coefficients: [0.02297712, 0.90150452, 0.07551826]
+  min_x: 0.0
+  max_x: 1.0
 
 # ─── Plant Loops ─────────────────────────────────────────────────────────────
 
@@ -3116,6 +3137,31 @@ plant_loops:
     design_flow_rate: autosize
     design_head: 105798.0
     motor_efficiency: 0.909
+  # Heat recovery chiller (E+ Chiller:Electric:EIR, 94 kW, COP 2.84). In E+
+  # it sits on its own loop and pre-cools the CHW return through an ideal,
+  # always-on heat exchanger, so it takes the base load ahead of the main
+  # chillers; here it leads the CHW loop. Its heat-recovery condenser heats
+  # water to 48.89 C, which preheats the HW return ahead of the boiler
+  # through a tank with no heater; here the recovered heat is credited to the
+  # HHW loop before its boiler, up to that loop's demand. The rest goes to
+  # the tower loop.
+  - type: chiller
+    name: Heat Recovery Chiller
+    capacity: 93781.5
+    cop: 2.84025
+    chw_setpoint: 6.67
+    design_chw_flow: 0.0
+    condenser_type: water_cooled
+    min_plr: 0.1
+    min_unloading_ratio: 0.2
+    condenser_entering_temp: 21.1
+    tower_approach: 5.56
+    capft_curve: Lp2LpChlr_CAP_FT
+    eirft_curve: Lp2LpChlr_EIR_FT
+    eirfplr_curve: Lp2LpChlr_PLR
+    heat_recovery:
+      plant_loop: HHW Loop
+      leaving_setpoint: 48.89
   - type: chiller
     name: Chiller 1
     capacity: 669868.0
@@ -3225,21 +3271,20 @@ summary_report: true
 # The following building features from the E+ prototype are not represented:
 #
 # 1. Zone multipliers (manually expanded into combined zones above)
-# 2. Heat recovery chiller (94 kW, COP 2.84)
-# 3. Primary/secondary CHW pumping (simplified to single variable-speed pump)
-# 4. DCV: Infrastructure exists (dcv flag, per_person_oa/per_area_oa on zone
+# 2. Primary/secondary CHW pumping (simplified to single variable-speed pump)
+# 3. DCV: Infrastructure exists (dcv flag, per_person_oa/per_area_oa on zone
 #    connections) but disabled because ASHRAE 62.1 rates don't match ASHRAE 170
 #    minimums for healthcare, causing cooling/humidification inflation.
-# 5. Rooftop PV system (84.5 kW)
-# 6. Refrigeration equipment (walk-in freezer, display cases)
-# 7. Elevators (34,668 W exterior equipment)
-# 8. Booster water heater (electric, 3 kW, for dishwashing — small, ~DHW:Electricity)
-# 9. C-factor underground walls for basement (modeled as minimal ext walls above grade)
-# 10. Cooling towers on condenser loop (approximated via the chillers'
-#     condenser_entering_temp setpoint and tower_approach)
-# 11. Kitchen exhaust fans and makeup air
-# 12. Interzone heat transfer between adjacent zones (all interior walls adiabatic)
-# 13. Per-zone VAV flow modulation (flow currently divided equally among zones,
+# 4. Rooftop PV system (84.5 kW)
+# 5. Refrigeration equipment (walk-in freezer, display cases)
+# 6. Elevators (34,668 W exterior equipment)
+# 7. Booster water heater (electric, 3 kW, for dishwashing — small, ~DHW:Electricity)
+# 8. C-factor underground walls for basement (modeled as minimal ext walls above grade)
+# 9. Cooling towers on condenser loop (approximated via the chillers'
+#    condenser_entering_temp setpoint and tower_approach)
+# 10. Kitchen exhaust fans and makeup air
+# 11. Interzone heat transfer between adjacent zones (all interior walls adiabatic)
+# 12. Per-zone VAV flow modulation (flow currently divided equally among zones,
 #     causing unrealistic temps for high-OA zones like ER/OR/ICU/Labs)
 #
 # MODELED via credit-based approach (not inline):

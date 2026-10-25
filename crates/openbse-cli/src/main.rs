@@ -2770,6 +2770,7 @@ fn main() -> Result<()> {
         // Build a dependency graph from inter-loop references:
         // - HeatExchanger source_loop: source loop must simulate first
         // - Chiller condenser_plant_loop: CHW loop must simulate first
+        // - Chiller heat_recovery plant_loop: CHW loop must simulate first
         //
         // Topological sort ensures correct ordering. If a cycle is detected
         // (e.g., waterside economizer creates CHW ↔ Condenser dependency),
@@ -2804,6 +2805,18 @@ fn main() -> Result<()> {
                             if let Some(&cond_idx) = loop_indices.get(cdl.as_str()) {
                                 adj[i].push(cond_idx);
                                 in_degree[cond_idx] += 1;
+                            }
+                        }
+                        // Heat recovery: the chiller runs before the loop
+                        // it heats, so that loop's boilers see the credit.
+                        if let Some(hr_idx) = c
+                            .heat_recovery
+                            .as_ref()
+                            .and_then(|hr| loop_indices.get(hr.plant_loop.as_str()))
+                        {
+                            if *hr_idx != i {
+                                adj[i].push(*hr_idx);
+                                in_degree[*hr_idx] += 1;
                             }
                         }
                     }
@@ -3206,6 +3219,38 @@ fn main() -> Result<()> {
                             // Each loop collects demand from air-side coils and/or
                             // condenser heat rejection, then simulates supply equipment.
                             // Supply conditions are stored for downstream dependencies.
+                            // Air-side demand on each loop, known before any loop
+                            // runs: heat-recovery chillers need their receiving
+                            // loop's demand.
+                            let air_side_loads: HashMap<&str, f64> = model
+                                .plant_loops
+                                .iter()
+                                .map(|pl| {
+                                    // 1. Air-side coil demand: thermal output of the water
+                                    //    coils and reheat terminals connected to this loop.
+                                    let mut load = openbse_io::plant::coil_plant_load(
+                                        &plant_coil_demands[&pl.name],
+                                        &hvac_result.component_outputs,
+                                        &comp_zone_multiplier,
+                                    );
+                                    // 2a. Radiant panel demand from water-source panels on
+                                    //     this loop. Panel thermal output is heat removed
+                                    //     from the water: positive for HW panels, negative
+                                    //     for CHW panels.
+                                    for (rp_input, rp) in
+                                        model.radiant_panels.iter().zip(radiant_panels.iter())
+                                    {
+                                        if rp_input.plant_loop.as_deref() == Some(pl.name.as_str())
+                                        {
+                                            load += rp.thermal_output_to_zone;
+                                        }
+                                    }
+                                    (pl.name.as_str(), load)
+                                })
+                                .collect();
+                            // Condenser heat recovered into each loop this iteration [W].
+                            let mut heat_recovered_to: HashMap<String, f64> = HashMap::new();
+
                             for &loop_idx in &plant_loop_order {
                                 let plant_loop = &model.plant_loops[loop_idx];
                                 let cp_water = 4186.0; // J/(kg·K)
@@ -3213,28 +3258,7 @@ fn main() -> Result<()> {
 
                                 // ── Determine loop load ──────────────────────────
 
-                                // 1. Air-side coil demand: thermal output of the water
-                                //    coils and reheat terminals connected to this loop.
-                                let mut total_load = openbse_io::plant::coil_plant_load(
-                                    &plant_coil_demands[&plant_loop.name],
-                                    &hvac_result.component_outputs,
-                                    &comp_zone_multiplier,
-                                );
-
-                                // 2a. Radiant panel demand: sum heat output from water-source
-                                //     radiant panels connected to this plant loop.
-                                for (rp_input, rp) in
-                                    model.radiant_panels.iter().zip(radiant_panels.iter())
-                                {
-                                    if rp_input.plant_loop.as_deref()
-                                        == Some(plant_loop.name.as_str())
-                                    {
-                                        // Panel thermal output represents heat removed from the
-                                        // water loop. For HW panels: positive = load on loop.
-                                        // For CHW panels: negative = load on loop.
-                                        total_load += rp.thermal_output_to_zone;
-                                    }
-                                }
+                                let mut total_load = air_side_loads[plant_loop.name.as_str()];
 
                                 // 2b. Condenser demand: sum heat rejection from chillers
                                 //    whose condenser_plant_loop references this loop.
@@ -3261,7 +3285,12 @@ fn main() -> Result<()> {
                                                         .get("electric_power")
                                                         .copied()
                                                         .unwrap_or(0.0);
-                                                    condenser_load += thermal + electric;
+                                                    let recovered = outputs
+                                                        .get("heat_recovery_rate")
+                                                        .copied()
+                                                        .unwrap_or(0.0);
+                                                    condenser_load +=
+                                                        thermal + electric - recovered;
                                                 }
                                             }
                                         }
@@ -3334,7 +3363,18 @@ fn main() -> Result<()> {
                                     };
 
                                     // Equipment loading — supports Sequential and EqualSplit modes.
-                                    let mut remaining_load = total_load;
+                                    // Heat recovered from chillers covers part of a heating
+                                    // load before the boilers; pumps still carry the full
+                                    // loop flow.
+                                    let recovered = heat_recovered_to
+                                        .get(&plant_loop.name)
+                                        .copied()
+                                        .unwrap_or(0.0);
+                                    let mut remaining_load = if total_load > 0.0 {
+                                        (total_load - recovered).max(0.0)
+                                    } else {
+                                        total_load
+                                    };
                                     let mut current_inlet =
                                         WaterPort::new(openbse_psychrometrics::FluidState::water(
                                             inlet_temp,
@@ -3463,12 +3503,56 @@ fn main() -> Result<()> {
                                                 } else {
                                                     remaining_load.abs()
                                                 };
+                                                // Heat-recovery chiller: water returns from the
+                                                // receiving loop at its supply setpoint minus its
+                                                // design ΔT (as that loop is solved), and the loop
+                                                // takes no more than its remaining demand.
+                                                let hr_loop = match equip {
+                                                    openbse_io::input::PlantEquipmentInput::Chiller(
+                                                        c,
+                                                    ) => c.heat_recovery.as_ref().and_then(|hr| {
+                                                        model
+                                                            .plant_loops
+                                                            .iter()
+                                                            .find(|pl| pl.name == hr.plant_loop)
+                                                    }),
+                                                    _ => None,
+                                                };
+                                                if let Some(hr_loop) = hr_loop {
+                                                    let supply_temp = hr_loop
+                                                        .setpoint_reset
+                                                        .as_ref()
+                                                        .map(|r| {
+                                                            apply_plant_reset(
+                                                                r,
+                                                                interp_weather.dry_bulb,
+                                                            )
+                                                        })
+                                                        .unwrap_or(hr_loop.design_supply_temp);
+                                                    let demand = air_side_loads
+                                                        [hr_loop.name.as_str()]
+                                                    .max(0.0);
+                                                    let taken = heat_recovered_to
+                                                        .get(&hr_loop.name)
+                                                        .copied()
+                                                        .unwrap_or(0.0);
+                                                    component.set_heat_recovery_conditions(
+                                                        supply_temp
+                                                            - hr_loop.design_delta_t.max(1.0),
+                                                        (demand - taken).max(0.0),
+                                                    );
+                                                }
                                                 let outlet = component.simulate_plant(
                                                     &current_inlet,
                                                     equip_load,
                                                     &ctx,
                                                 );
                                                 current_inlet = outlet;
+                                                if let Some(hr_loop) = hr_loop {
+                                                    *heat_recovered_to
+                                                        .entry(hr_loop.name.clone())
+                                                        .or_default() += component.heat_recovered();
+                                                }
 
                                                 let delivered = component.thermal_output().abs();
                                                 let mut plant_outputs: HashMap<String, f64> =
