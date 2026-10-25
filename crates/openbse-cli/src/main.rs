@@ -3,6 +3,7 @@
 //! Runs building energy simulations from YAML input files.
 
 mod autosize_check;
+mod run_checks;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -2871,6 +2872,13 @@ fn main() -> Result<()> {
         // Water coils and reheat terminals loading each plant loop.
         let plant_coil_demands = openbse_io::plant::air_side_demands_by_loop(&model);
 
+        // Run-time energy-conservation and sanity checks (#160), reported
+        // in the `.err` file once the run ends.
+        let mut checks = run_checks::RunChecks::new(&plant_coil_demands);
+        if let Some(ref mut env) = envelope {
+            checks.envelope("sizing and warmup", env.diagnostics.take());
+        }
+
         // Persistent supply conditions for lag-one-timestep cycle breaking.
         // Stores each loop's supply temperature and mass flow so downstream
         // loops (or cyclic dependencies) can read previous-timestep values.
@@ -2966,6 +2974,12 @@ fn main() -> Result<()> {
 
                     // Build HVAC conditions and solve envelope
                     let has_external_hvac = !resolved_thermostats.is_empty();
+                    // For the run-time checks (#160), from the last HVAC iteration:
+                    // each plant loop's (demand, delivered), each zone's HVAC heat
+                    // (sent, received), and (converged, worst zone and change).
+                    let mut step_plant: Vec<(String, f64, f64)> = Vec::new();
+                    let mut step_delivery: Vec<(String, f64, f64)> = Vec::new();
+                    let mut step_convergence: Option<(bool, Option<(String, f64)>)> = None;
                     let (env_result, hvac_result) = if uses_ideal_loads || !has_external_hvac {
                         // ═══════════════════════════════════════════════════════
                         // IDEAL LOADS or FREE-FLOAT MODE
@@ -3256,6 +3270,7 @@ fn main() -> Result<()> {
                                 .collect();
                             // Condenser heat recovered into each loop this iteration [W].
                             let mut heat_recovered_to: HashMap<String, f64> = HashMap::new();
+                            step_plant.clear();
 
                             for &loop_idx in &plant_loop_order {
                                 let plant_loop = &model.plant_loops[loop_idx];
@@ -3452,6 +3467,8 @@ fn main() -> Result<()> {
                                                                  // the next stage on this saturation flag so a derated unit
                                                                  // doesn't strand the load (PLANT-1 / #76).
                                     let mut prev_saturated = false;
+                                    // Heat the supply units delivered, for the loop check.
+                                    let mut delivered_total = 0.0_f64;
 
                                     for equip in &plant_loop.supply_equipment {
                                         let equip_name = match equip {
@@ -3583,6 +3600,7 @@ fn main() -> Result<()> {
                                                     .insert(equip_name.clone(), plant_outputs);
 
                                                 if !is_pump {
+                                                    delivered_total += delivered;
                                                     let cap = component.rated_capacity();
                                                     prev_plr = if cap > 0.0 && cap.is_finite() {
                                                         (delivered / cap).min(1.0)
@@ -3611,6 +3629,13 @@ fn main() -> Result<()> {
                                         plant_loop.name.clone(),
                                         (current_inlet.state.temp, current_inlet.state.mass_flow),
                                     );
+                                    let recovered_used =
+                                        if total_load > 0.0 { recovered } else { 0.0 };
+                                    step_plant.push((
+                                        plant_loop.name.clone(),
+                                        total_load,
+                                        delivered_total + recovered_used,
+                                    ));
                                 }
 
                                 // Update entering water temperature for water-source radiant panels
@@ -3828,6 +3853,9 @@ fn main() -> Result<()> {
                                 }
 
                                 // Accumulate radiant gains by zone.
+                                // FIXME(#167): the convective share never reaches the
+                                // zone, though the plant supplies it; the HVAC → zone check
+                                // reports it.
                                 *hvac_conds.radiant_gains.entry(rp.zone.clone()).or_default() +=
                                     rp.radiant_output;
                             }
@@ -3900,16 +3928,49 @@ fn main() -> Result<()> {
                             // Step 3: Solve envelope with HVAC supply
                             let env_result = env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
 
+                            // HVAC → zone delivery for the run-time check (#160):
+                            // the heat the loops (undamped), VRF and radiant panels
+                            // sent, against the heat the zone solve used.
+                            step_delivery.clear();
+                            for z in env.zones.iter().filter(|z| z.input.ideal_loads.is_none()) {
+                                let name = &z.input.name;
+                                let cp = openbse_psychrometrics::cp_air_fn_w(z.humidity_ratio);
+                                let mut sent = prev_supply_conditions
+                                    .get(name)
+                                    .map_or(0.0, |&(t, m, _)| m * cp * (t - z.temp));
+                                for iu in vrf_systems.iter().flat_map(|(_, idus)| idus) {
+                                    if iu.zone == *name && iu.mass_flow > 1e-9 {
+                                        sent += iu.mass_flow * cp * (iu.supply_temp - z.temp);
+                                    }
+                                }
+                                for rp in radiant_panels.iter().filter(|rp| rp.zone == *name) {
+                                    sent += rp.thermal_output_to_zone;
+                                }
+                                let received = z.air_balance.hvac
+                                    + hvac_conds.radiant_gains.get(name).copied().unwrap_or(0.0);
+                                if sent != 0.0 || received != 0.0 {
+                                    step_delivery.push((name.clone(), sent, received));
+                                }
+                            }
+
                             // Step 4: Check convergence — did zone temps change?
-                            let max_delta: f64 = env_result
+                            let (worst_zone, max_delta) = env_result
                                 .zone_temps
                                 .iter()
                                 .map(|(name, &new_temp)| {
                                     let old_temp =
                                         current_zone_temps.get(name).copied().unwrap_or(new_temp);
-                                    (new_temp - old_temp).abs()
+                                    (name, (new_temp - old_temp).abs())
                                 })
-                                .fold(0.0_f64, f64::max);
+                                .fold((None, 0.0_f64), |(wz, wd), (name, d)| {
+                                    if d > wd {
+                                        (Some(name), d)
+                                    } else {
+                                        (wz, wd)
+                                    }
+                                });
+                            step_convergence =
+                                Some((false, worst_zone.map(|z| (z.clone(), max_delta))));
 
                             // Update zone temps for next HVAC iteration.
                             // AHU-level controls (SAT reset, economizer) use
@@ -3968,6 +4029,7 @@ fn main() -> Result<()> {
                             // A refreshed predictor may call for a different mode,
                             // so the first iteration never counts as converged.
                             if max_delta <= HVAC_CONV_TOL && !refresh_predictor {
+                                step_convergence = Some((true, None));
                                 break;
                             }
                         }
@@ -3979,6 +4041,36 @@ fn main() -> Result<()> {
                     // Must not happen inside the HVAC iteration loop — that
                     // would corrupt the backward-difference extrapolation.
                     env.update_bdf_history();
+
+                    // ── Run-time checks (#160) ─────────────────────────────
+                    // Read the converged state; nothing here changes it.
+                    {
+                        let now = openbse_envelope::diagnostics::StepTime::from_ctx(&ctx);
+                        let dt_h = dt / 3600.0;
+                        for z in &env.zones {
+                            checks.zone_air(&z.input.name, &z.air_balance, dt_h, now);
+                        }
+                        for (zone, sent, received) in &step_delivery {
+                            checks.delivery(zone, *sent, *received, dt_h, now);
+                        }
+                        for (plant_loop, demand, delivered) in &step_plant {
+                            checks.plant_loop(plant_loop, *demand, *delivered, dt_h, now);
+                        }
+                        if let Some((converged, worst)) = &step_convergence {
+                            checks.hvac_iteration(
+                                *converged,
+                                worst.as_ref().map(|(z, d)| (z.as_str(), *d)),
+                                now,
+                            );
+                        }
+                        checks.components(&hvac_result.component_outputs, dt_h, now);
+                        checks.states(&hvac_result.component_outputs, now);
+                        if let Some(fatal) = env.diagnostics.fatal.take() {
+                            checks.envelope("run period", env.diagnostics.take());
+                            checks.report(&mut validation);
+                            return Err(stop_on_severe(&mut validation, &err_path, vec![fatal]));
+                        }
+                    }
 
                     // ── Assemble timestep result ──────────────────────────
                     let mut result = hvac_result;
@@ -5173,6 +5265,30 @@ fn main() -> Result<()> {
         }
 
         info!("Simulation complete: {} timesteps", results.len());
+
+        // Run-time check findings (#160) join the validation messages in
+        // the `.err` file; severe ones don't cancel a finished run.
+        if let Some(ref mut env) = envelope {
+            checks.envelope("run period", env.diagnostics.take());
+        }
+        let (errors_before, warnings_before) =
+            (validation.error_count(), validation.warning_count());
+        checks.report(&mut validation);
+        let (new_errors, new_warnings) = (
+            validation.error_count() - errors_before,
+            validation.warning_count() - warnings_before,
+        );
+        if new_errors + new_warnings > 0 {
+            warn!(
+                "Run-time checks: {} severe error(s), {} warning(s). See {}",
+                new_errors,
+                new_warnings,
+                err_path.display()
+            );
+        }
+        if let Err(e) = std::fs::write(&err_path, validation.to_err_file_completed()) {
+            warn!("Could not write error file {}: {}", err_path.display(), e);
+        }
 
         // ── 8. Write output ─────────────────────────────────────────────────────
 

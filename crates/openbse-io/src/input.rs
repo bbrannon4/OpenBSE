@@ -4820,6 +4820,34 @@ impl ValidationResult {
 
     /// Format the full error file content (E+-style).
     pub fn to_err_file(&self) -> String {
+        let mut lines = self.err_file_body();
+        if self.error_count() > 0 {
+            lines.push(format!(
+                "**  Fatal  ** Simulation cancelled: {} severe error(s) found",
+                self.error_count()
+            ));
+        } else {
+            lines.push("** Summary ** Simulation can proceed".to_string());
+        }
+        lines.push(String::new());
+        lines.join("\n")
+    }
+
+    /// The error file once the run has finished, with the run-time checks'
+    /// findings (#160): severe errors found during the run do not cancel it,
+    /// as in EnergyPlus, so the footer reports completion.
+    pub fn to_err_file_completed(&self) -> String {
+        let mut lines = self.err_file_body();
+        lines.push(format!(
+            "** Summary ** Simulation completed: {} warning(s), {} severe error(s)",
+            self.warning_count(),
+            self.error_count()
+        ));
+        lines.push(String::new());
+        lines.join("\n")
+    }
+
+    fn err_file_body(&self) -> Vec<String> {
         let mut lines = Vec::new();
         lines.push("OpenBSE Error File".to_string());
         lines.push(format!(
@@ -4831,16 +4859,7 @@ impl ValidationResult {
         for diag in &self.diagnostics {
             lines.push(diag.to_string());
         }
-        if self.error_count() > 0 {
-            lines.push(format!(
-                "**  Fatal  ** Simulation cancelled: {} severe error(s) found",
-                self.error_count()
-            ));
-        } else {
-            lines.push("** Summary ** Simulation can proceed".to_string());
-        }
-        lines.push(String::new());
-        lines.join("\n")
+        lines
     }
 }
 
