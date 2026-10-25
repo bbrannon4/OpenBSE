@@ -375,6 +375,7 @@ fn build_loop_infos(
                 }
             }
 
+            let cooling_sat_reset = default_single_zone_reset(al, &system_type);
             LoopInfo {
                 name: al.name.clone(),
                 system_type,
@@ -399,7 +400,7 @@ fn build_loop_infos(
                 dd_boxes,
                 heat_recovery_name,
                 dcv: al.dcv,
-                cooling_sat_reset: al.controls.cooling_sat_reset.clone(),
+                cooling_sat_reset,
                 heating_sat_reset: al.controls.heating_sat_reset.clone(),
                 // Always populate per-zone OA data from zone connections.
                 // Needed for ASHRAE 62.1 VRP multi-zone Ev correction (even without DCV)
@@ -5777,19 +5778,25 @@ fn simulate_all_loops(
                         m_dot
                     };
                     let denom = (m_dot * cp).max(1.0);
-                    if heating {
-                        // Heating: raise supply above the setpoint; keep the
-                        // downstream cooling coil off (setpoint above supply).
-                        let sat = (heat_sp + q_heat / denom - fan_dt).clamp(smin, smax);
-                        li.heating_supply_temp = sat;
-                        li.cooling_supply_temp = sat + 20.0;
-                    } else if q_cool > 0.0 {
-                        // Cooling: drop supply below the setpoint; keep the
-                        // upstream heating coil off (setpoint below supply).
-                        let sat = (cool_sp - q_cool / denom - fan_dt).clamp(smin, smax);
-                        li.cooling_supply_temp = sat;
-                        li.heating_supply_temp = sat - 20.0;
-                    }
+                    // EnergyPlus SetpointManager:SingleZone:Heating and
+                    // :Cooling set the two coils independently every timestep:
+                    // each supply temperature carries its own signed load to
+                    // setpoint, clamped to [min, max], and the coil aims that
+                    // less the fan rise (SetpointManager:MixedAir). With no
+                    // heating load the heating SAT falls to the minimum, so
+                    // the heating coil still tempers air colder than that;
+                    // with no cooling load the cooling coil idles (#176).
+                    // −∞ (no heating setpoint) clamps to the minimum.
+                    let to_heat = zone_loads_to_heating_sp
+                        .get(zname)
+                        .copied()
+                        .unwrap_or(q_heat);
+                    li.heating_supply_temp = (heat_sp + to_heat / denom).clamp(smin, smax) - fan_dt;
+                    li.cooling_supply_temp = if q_cool > 0.0 {
+                        (cool_sp - q_cool / denom).clamp(smin, smax) - fan_dt
+                    } else {
+                        smax - fan_dt
+                    };
                 }
             }
         }
@@ -8040,6 +8047,37 @@ fn radiant_panel_plrs(
         .collect()
 }
 
+/// The loop's cooling SAT reset. A single-zone unit whose coils are all water
+/// coils defaults to EnergyPlus's control for it (#176): a constant-volume
+/// air handler with `SetpointManager:SingleZone:Cooling`/`:Heating`, between
+/// the design cooling and heating supply temperatures, and coil controllers
+/// that modulate water flow to hold that leaving-air temperature. Water coils
+/// don't cycle, so the DX-style control (coil flat out, runtime fraction
+/// applied afterwards) left them delivering full capacity at any load.
+fn default_single_zone_reset(
+    al: &openbse_io::input::AirLoopInput,
+    system_type: &AirLoopSystemType,
+) -> Option<openbse_io::input::SatResetConfig> {
+    use openbse_io::input::EquipmentInput;
+    if al.controls.cooling_sat_reset.is_some()
+        || al.controls.heating_sat_reset.is_some()
+        || *system_type != AirLoopSystemType::PszAc
+    {
+        return al.controls.cooling_sat_reset.clone();
+    }
+    let mut coils = al.equipment.iter().filter_map(|eq| match eq {
+        EquipmentInput::HeatingCoil(c) => Some(c.source == "hot_water"),
+        EquipmentInput::CoolingCoil(c) => Some(c.source == "chilled_water"),
+        EquipmentInput::Gshp(_) | EquipmentInput::Wshp(_) => Some(false),
+        _ => None,
+    });
+    let first = coils.next()?;
+    (first && coils.all(|water| water)).then_some(openbse_io::input::SatResetConfig::SingleZone {
+        sat_min: al.controls.cooling_supply_temp,
+        sat_max: al.controls.heating_supply_temp,
+    })
+}
+
 /// Gather what plant sizing needs from the built model: the sized capacity of
 /// every water demand component (scaled by zone multiplier, as the plant load
 /// is) and the as-built capacity of every boiler and chiller.
@@ -8407,5 +8445,34 @@ mod radiant_panel_control_tests {
         let panels = vec![RadiantPanel::new_chilled_water("c", "Z", 2000.0, None)];
         let loads = HashMap::from([("Z".to_string(), (0.0, 500.0))]);
         assert_eq!(radiant_panel_plrs(&panels, &loads), vec![Some(0.25)]);
+    }
+}
+
+#[cfg(test)]
+mod single_zone_reset_tests {
+    use super::*;
+    use openbse_io::input::{AirLoopInput, SatResetConfig};
+
+    fn psz(coils: &str) -> AirLoopInput {
+        serde_yaml::from_str(&format!(
+            "name: L\nsystem_type: psz_ac\ncontrols:\n  cooling_supply_temp: 12.8\n  heating_supply_temp: 40.0\nequipment:\n{coils}"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn water_coil_psz_defaults_to_single_zone_reset() {
+        let al = psz("- {type: heating_coil, name: H, source: hot_water, capacity: 1000.0, setpoint: 12.8}\n- {type: cooling_coil, name: C, source: chilled_water, capacity: 1000.0, setpoint: 12.8}\n");
+        let reset = default_single_zone_reset(&al, &al.detect_system_type());
+        assert!(matches!(
+            reset,
+            Some(SatResetConfig::SingleZone { sat_min, sat_max }) if sat_min == 12.8 && sat_max == 40.0
+        ));
+    }
+
+    #[test]
+    fn dx_or_gas_psz_keeps_cycling_control() {
+        let al = psz("- {type: heating_coil, name: H, source: gas, capacity: 1000.0, setpoint: 12.8}\n- {type: cooling_coil, name: C, source: chilled_water, capacity: 1000.0, setpoint: 12.8}\n");
+        assert!(default_single_zone_reset(&al, &al.detect_system_type()).is_none());
     }
 }

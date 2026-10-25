@@ -3021,7 +3021,11 @@ air_loops:
     heating_supply_temp: 40.0
     design_zone_flow: autosize
     cycling: proportional
-    minimum_damper_position: 0.3
+    # E+ Controller:OutdoorAir CAV_KITCHEN_OA_Controller, FixedMinimum on
+    # Kitchen_Exhaust_SCH: 1.884 m³/s of a 20.61 m³/s constant-volume supply
+    # (ASHRAE901_Hospital_STD2019_Denver, E+ 25.2 sizing) = 0.0914.
+    minimum_damper_position: 0.0914
+    minimum_oa_schedule: Kitchen Exhaust SCH
     economizer:
       economizer_type: differential_dry_bulb
   equipment:

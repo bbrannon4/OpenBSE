@@ -393,6 +393,7 @@ dependencies = [
  "openbse-weather",
  "petgraph",
  "serde_json",
+ "serde_yaml",
 ]
 
 [[package]]
