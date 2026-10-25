@@ -42,7 +42,9 @@ Every YAML under `examples/` and `prototype_tests/` must have an entry in
 - `skip`: never runs; listed in every report with its `reason`.
 
 Any override (`weather`, `max_unmet_heating_hours`, `max_unmet_cooling_hours`,
-`zone_temp_limits_c`) needs a matching `<key>_reason`, or the runner refuses to start.
+`zone_temp_limits_c`, `baseline_platforms`) needs a matching `<key>_reason`, or
+the runner refuses to start. `baseline_platforms` (e.g. `["Linux"]`) marks a
+result known to differ by platform: elsewhere a baseline drift is a warning.
 
 ## Running locally
 

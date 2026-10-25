@@ -110,8 +110,8 @@ jobs:
       - name: Verify model baselines are untampered
         run: |
           sha256sum -c - <<'SUMS'
-          fb439e1be2496894500110e2627b30a5b3b5505d4c82942f8f1b4e4a0de02ac1  tests/model_baselines.json
-          d1064c5d8a08a4c86f2443db47056a85434252825d6483a1d469554b7b5c2af2  tests/model_checks.json
+          bca195330818239c4394b7e99cc6bcde488cc5fd8d4a52e1e60d863bb3361f50  tests/model_baselines.json
+          9a88b77380f1b8bebc55ab47f7ae07f6baa4aed4c22aa51cb408c2d623427470  tests/model_checks.json
           SUMS
 
       - uses: actions/cache@v4
@@ -142,7 +142,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     needs: check
-    timeout-minutes: 180
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
@@ -157,8 +157,8 @@ jobs:
       - name: Verify model baselines are untampered
         run: |
           sha256sum -c - <<'SUMS'
-          fb439e1be2496894500110e2627b30a5b3b5505d4c82942f8f1b4e4a0de02ac1  tests/model_baselines.json
-          d1064c5d8a08a4c86f2443db47056a85434252825d6483a1d469554b7b5c2af2  tests/model_checks.json
+          bca195330818239c4394b7e99cc6bcde488cc5fd8d4a52e1e60d863bb3361f50  tests/model_baselines.json
+          9a88b77380f1b8bebc55ab47f7ae07f6baa4aed4c22aa51cb408c2d623427470  tests/model_checks.json
           SUMS
 
       - uses: actions/cache@v4

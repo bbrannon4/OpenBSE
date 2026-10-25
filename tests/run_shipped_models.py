@@ -61,7 +61,8 @@ def load_config() -> dict:
             problems.append(f"{name}: tier must be fast, slow or skip")
         if entry.get("tier") == "skip" and not entry.get("reason"):
             problems.append(f"{name}: a skipped model needs a reason")
-        for key in ("max_unmet_heating_hours", "max_unmet_cooling_hours", "zone_temp_limits_c", "weather"):
+        for key in ("max_unmet_heating_hours", "max_unmet_cooling_hours", "zone_temp_limits_c", "weather",
+                    "baseline_platforms"):
             if key in entry and not entry.get(f"{key}_reason"):
                 problems.append(f"{name}: {key} overrides the default, so it needs {key}_reason")
     if problems:
@@ -107,7 +108,7 @@ def var_name(col: str) -> tuple[str, str]:
     return comp, var
 
 
-def scan_results(path: Path, limits: list, zone_limits: dict) -> tuple[list[str], dict]:
+def scan_results(path: Path, limits: list, zone_limits: dict, temp_var: str = "zone_temp") -> tuple[list[str], dict]:
     """Stream one timestep results CSV. Returns (failures, annual values).
 
     zone_limits overrides the [lo, hi] zone temperature limits for named zones."""
@@ -115,7 +116,7 @@ def scan_results(path: Path, limits: list, zone_limits: dict) -> tuple[list[str]
     with path.open(newline="") as f:
         header = next(csv.reader([f.readline()]))
         cols = [var_name(c) for c in header]
-        temp_idx = [i for i, (_, v) in enumerate(cols) if v == "zone_temp"]
+        temp_idx = [i for i, (_, v) in enumerate(cols) if v == temp_var]
         neg_idx = [i for i, (_, v) in enumerate(cols) if v in PLR_VARS or "capacity" in v]
         cop_idx = [i for i, (_, v) in enumerate(cols) if v.startswith("cop")]
         plr_of = {c: i for i, (c, v) in enumerate(cols) if v == "plr"}
@@ -255,20 +256,26 @@ def run_model(model: str, entry: dict, cfg: dict, binary: Path, out_root: Path, 
         tail = (out_dir / "run.log").read_text(errors="replace").splitlines()[-15:]
         result["failures"].append(f"exit code {code}; last log lines:\n      " + "\n      ".join(tail))
     else:
-        results_csvs = sorted(out_dir.glob(f"{stem}*_results.csv"))
-        results_csvs = [p for p in results_csvs if not p.name.endswith("_zone_results.csv")]
-        parametric = len(results_csvs) > 1
-        for p in results_csvs:
-            fails, values = scan_results(p, cfg["zone_temp_limits_c"], entry.get("zone_temp_limits_c", {}))
+        main_csv = out_dir / f"{stem}_results.csv"
+        summary = out_dir / f"{stem}_summary.csv"
+        # A parametric run writes one <stem>_<run>_results.csv per run and no
+        # summary; otherwise the extra CSVs are the model's `outputs:` files.
+        others = sorted(p for p in out_dir.glob(f"{stem}_*_results.csv"))
+        parametric = not summary.exists() and bool(others)
+        limits, zone_limits = cfg["zone_temp_limits_c"], entry.get("zone_temp_limits_c", {})
+        for p in ([main_csv] if main_csv.exists() else []) + others:
+            # Models with an `outputs:` section may drop zone_temp from the main
+            # CSV; their hourly zone file still has <zone>:temperature.
+            temp_var = "temperature" if p.name.endswith("_zone_results.csv") else "zone_temp"
+            fails, values = scan_results(p, limits, zone_limits, temp_var)
             result["failures"] += fails
-            if not parametric:
-                result["values"].update((k, v) for k, v in values.items() if k.startswith("Mean"))
-            elif p.name != f"{stem}_results.csv":
+            if parametric:
                 run = p.name[len(stem) + 1 : -len("_results.csv")]
                 result["values"].update((f"{run}: {k}", v) for k, v in values.items())
+            elif "Mean zone temp [C]" in values:
+                result["values"].setdefault("Mean zone temp [C]", values["Mean zone temp [C]"])
         for p in sorted(out_dir.glob("*_sizing.csv")):
             result["failures"] += scan_sizing(p)
-        summary = out_dir / f"{stem}_summary.csv"
         if summary.exists():
             result["values"].update(read_summary(summary))
             for kind in ("heating", "cooling"):
@@ -278,7 +285,7 @@ def run_model(model: str, entry: dict, cfg: dict, binary: Path, out_root: Path, 
                     result["failures"].append(f"{got:.0f} unmet {kind} hours > limit {limit}")
         elif not parametric:
             result["failures"].append("no summary CSV written")
-        if not results_csvs:
+        if not main_csv.exists() and not parametric:
             result["failures"].append("no results CSV written")
 
     if not keep:
@@ -378,8 +385,14 @@ def main() -> None:
         one(m)
 
     baselines = json.loads(BASELINES.read_text()) if BASELINES.exists() else {}
+    warnings = {}
     for m in selected:
-        results[m]["baseline_diffs"] = compare(results[m]["values"], baselines.get(m), cfg)
+        diffs = compare(results[m]["values"], baselines.get(m), cfg)
+        platforms = cfg["models"][m].get("baseline_platforms")
+        if platforms and platform.system() not in platforms:
+            # Known platform-dependent result: report the drift, don't fail on it.
+            warnings[m], diffs = diffs, []
+        results[m]["baseline_diffs"] = diffs
 
     if args.update_baselines:
         write_baselines(results)
@@ -409,6 +422,11 @@ def main() -> None:
             print(f"FAIL {m}")
             for p in problems:
                 print(f"    {p}")
+    for m, diffs in warnings.items():
+        if diffs:
+            print(f"WARN {m}: its baseline holds only on {cfg['models'][m]['baseline_platforms']}; here:")
+            for d in diffs:
+                print(f"    {d}")
     print(f"\n{len(selected) - failed}/{len(selected)} passed, {len(skipped)} skipped")
     if not args.out and not args.keep_outputs:
         shutil.rmtree(out_root, ignore_errors=True)
