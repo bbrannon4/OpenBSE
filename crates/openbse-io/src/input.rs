@@ -2639,8 +2639,16 @@ impl SweepRange {
 /// where `day_shift = 35 - latitude/2` and `ratio = 0.4127` (damping from
 /// soil thermal lag). The +6°C offset and 0.4127 ratio match E+'s
 /// `Site:WaterMainsTemperature` Correlation method.
+// Untagged enums buffer their input before trying each variant, so neither
+// `serde_ignored` nor the inner struct's `deny_unknown_fields` sees a stray key
+// beside `correlation:`. Denying unknown fields on the enum itself closes that gap.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(
+    untagged,
+    deny_unknown_fields,
+    expecting = "a fixed temperature in °C, or `correlation:` with annual_avg_temp, \
+                 max_monthly_delta and optional latitude (no other keys)"
+)]
 pub enum MainsTemperature {
     /// Fixed constant temperature [°C].
     Fixed(f64),
@@ -5959,5 +5967,26 @@ water_heater:
             }
             _ => panic!("Expected Correlation variant"),
         }
+    }
+
+    #[test]
+    fn test_mains_temperature_rejects_unknown_keys() {
+        let dhw_with = |mains: &str| {
+            serde_yaml::from_str::<DhwSystemInput>(&format!(
+                "name: Test DHW\nmains_temperature:\n{mains}\nwater_heater:\n  name: H\n  tank_volume: 100\n  capacity: 5000\n"
+            ))
+        };
+        // A stray key beside `correlation:` used to be dropped silently.
+        let err = dhw_with(
+            "  correlation:\n    annual_avg_temp: 9.95\n    max_monthly_delta: 23.7\n  latitude: 39.8",
+        )
+        .expect_err("sibling key must be rejected");
+        assert!(err.to_string().contains("correlation"), "{err}");
+        // A misspelt key inside the correlation is rejected too.
+        dhw_with("  correlation:\n    annual_avg_tmp: 9.95\n    max_monthly_delta: 23.7")
+            .expect_err("misspelt inner key must be rejected");
+        // The valid form still parses.
+        dhw_with("  correlation:\n    annual_avg_temp: 9.95\n    max_monthly_delta: 23.7")
+            .expect("valid correlation");
     }
 }
