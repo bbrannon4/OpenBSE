@@ -13,6 +13,7 @@ OpenBSE (**Open Building Simulation Engine**) is a modern, open-source building 
   - [Schedules](#schedules)
   - [Air Loops](#air-loops)
   - [Plant Loops](#plant-loops)
+  - [DHW Systems](#dhw-systems)
   - [Zone Groups](#zone-groups)
   - [Controls](#controls)
   - [Materials](#materials)
@@ -24,6 +25,7 @@ OpenBSE (**Open Building Simulation Engine**) is a modern, open-source building 
   - [Parametric Runs](#parametric-runs)
 - [Output](#output)
   - [Spatial Comfort Grid](#spatial-comfort-grid)
+- [Diagnostics (`.err` file)](#diagnostics-err-file)
 - [Autosizing](#autosizing)
 - [Units Reference](#units-reference)
 - [Example Models](#example-models)
@@ -678,6 +680,65 @@ supply_equipment:
 | `control_strategy` | `demand` | `demand` (follows load), `continuous` (constant speed), `staged` (plant-controlled) |
 | `num_pumps` | 1 | Number of pumps in headered configuration |
 | `power_curve` | [0,0,0,1] | Part-load curve [c1,c2,c3,c4]: power_frac = c1 + c2*PLR + c3*PLR^2 + c4*PLR^3 |
+
+### DHW Systems
+
+Domestic hot water systems are listed under `dhw_systems`. Each one has a water heater, one or more draw profiles, a cold-water mains temperature and an optional circulation pump.
+
+```yaml
+dhw_systems:
+  - name: Office DHW
+    mains_temperature: 10.0            # fixed °C, or a correlation (below)
+    water_heater:
+      name: Office Water Heater
+      fuel_type: heat_pump             # gas (default), electric or heat_pump
+      tank_volume: 200                 # L
+      capacity: 1200                   # W input
+      efficiency: 3.0                  # thermal efficiency, or rated COP for heat_pump
+      setpoint: 60.0                   # °C
+      ua_standby: 2.0                  # W/K tank loss coefficient
+      ambient_zone: Mechanical Room    # zone the tank sits in
+      backup_capacity: 4500            # W, heat pump only
+    loads:
+      - name: Sinks
+        peak_flow_rate: 0.05           # L/s at the fixture
+        schedule: DHW Draw Schedule
+        use_temperature: 43.3          # °C at the fixture (default)
+```
+
+**Water heater fields**
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `fuel_type` | `gas` | `gas`, `electric` or `heat_pump` |
+| `tank_volume` | required | Tank volume [L] |
+| `capacity` | required | Burner or element input [W]. For a heat pump, rated compressor input. |
+| `efficiency` | 0.80 | Thermal efficiency. For a heat pump, the COP at the rating point: 19.7 °C dry-bulb / 13.5 °C wet-bulb air and 57.5 °C water. |
+| `setpoint` | 60.0 | Tank setpoint [°C] |
+| `deadband` | 5.0 | Thermostat deadband [°C] |
+| `ua_standby` | 2.0 | Standby loss coefficient [W/K] |
+| `parasitic_power` | 0.0 | Constant parasitic draw that doesn't heat the tank [W] |
+| `control_type` | `on_off` | `on_off`, or `modulate` for tankless heaters |
+| `ambient_zone` | none | The zone the tank sits in. Standby losses use its air temperature and heat it; a heat pump also draws its evaporator air from it. Without it the tank loses heat to a constant 20 °C. |
+| `capacity_curve` | EnergyPlus example | Heat pump only: capacity modifier, a named performance curve of evaporator inlet wet-bulb and tank water temperature [°C], equal to 1.0 at the rating point |
+| `cop_curve` | EnergyPlus example | Heat pump only: COP modifier, with the same inputs |
+| `rated_shr` | 0.85 | Heat pump only: evaporator sensible heat ratio at the rating point |
+| `min_inlet_air_temp` | 10.0 | Heat pump only: the compressor is off below this evaporator inlet temperature [°C] |
+| `backup_capacity` | 0 | Heat pump only: backup resistance element [W], used while the compressor is off |
+
+A heat pump's evaporator takes heat out of `ambient_zone` equal to the tank heat less the compressor power. The split between cooling and drying the air follows EnergyPlus's bypass-factor method, so dry air gives a dry coil.
+
+**Mains temperature.** Give either a fixed value, or EnergyPlus's correlation from outdoor temperatures. Any other key is an error.
+
+```yaml
+mains_temperature:
+  correlation:
+    annual_avg_temp: 9.95       # annual average outdoor temperature [°C]
+    max_monthly_delta: 23.7     # largest difference between monthly averages [°C]
+    latitude: 39.83             # optional; defaults to the weather file's latitude
+```
+
+**Loads.** `peak_flow_rate` is the fixture flow [L/s] at a schedule fraction of 1. Hot and mains water mix at the fixture to reach `use_temperature`, so only part of the flow comes from the tank.
 
 ### Zone Groups
 
@@ -1535,9 +1596,40 @@ Colour scales are fixed per metric so colours mean the same thing at every hour.
 
 See `examples/comfort_perimeter_office.yaml`.
 
+## Diagnostics (`.err` file)
+
+Every run writes a `.err` file beside its results. With `--output path/to/results.csv`, every output goes to that folder: the summary, sizing reports, `.err` file and `.solar` cache. Without `--output`, they go beside the model. The `.err` file starts with counts of severe errors and warnings.
+
+**Input checks stop the run before it starts:**
+- an unknown or misspelt key;
+- a surface that names an undefined construction, or the wrong kind (a window naming an opaque construction);
+- an `autosize` field that nothing sizes, for example when the model has no `design_days`;
+- a malformed, non-consecutive or too-short weather file;
+- a construction whose conduction transfer function can't be computed;
+- an `ambient_zone` that names no zone.
+
+**Energy and sanity checks run every timestep and are summarised at the end:**
+
+| Check | Severity | What it means |
+|-------|----------|---------------|
+| Zone air heat balance | Severe | A zone's air heat flows don't add up |
+| Plant loop closure | Severe | A plant loop delivers more than its demand, or has demand no equipment sees |
+| Unphysical outputs | Severe | A component reports NaN, a negative capacity or part-load ratio, or a COP ≤ 0 |
+| Surface temperature held | Severe | A surface temperature passed ±200 °C and was held; the model is usually unstable |
+| HVAC to zone delivery | Warning | The heat the coils supply differs from what the zones receive |
+| Air-component enthalpy | Warning | An air-side component's energy doesn't match its air enthalpy change |
+| Unmet plant demand | Warning | Plant equipment couldn't meet its load |
+| HVAC non-convergence | Warning | The HVAC iteration hit its limit; the message counts how many timesteps it happened in |
+
+A severe error means the results shouldn't be trusted. Each message names the zone, loop, surface or component, gives the size of the problem, and says when it first happened.
+
+---
+
 ## Autosizing
 
-Fans and coils support automatic sizing with the `autosize` keyword. When a capacity or flow rate is set to `autosize`, the engine calculates the value from design day conditions.
+Fans, coils and plant equipment support automatic sizing with the `autosize` keyword. When a capacity or flow rate is set to `autosize`, the engine calculates the value from the model's `design_days`.
+
+Sizing runs only from design days. If a model uses `autosize` without them, or uses it on a field nothing sizes, the run stops with an error that names the component and field. The exception is a DHW circulation pump's `design_flow_rate`, which sizes from the draw rates without design days. Boilers, chillers, pumps, cooling towers and heat exchangers on a plant loop are sized from the loop's design-day coil peaks.
 
 Supported autosize fields:
 

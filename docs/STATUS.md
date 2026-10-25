@@ -1,14 +1,15 @@
 # OpenBSE Project Status
 
-Last updated: 2026-10-11 (v0.7.0)
+Last updated: 2026-10-25
 
 ## What Works (Functional)
 
 ### Simulation Engine
 - Single-zone and multi-zone heat balance with 3rd-order backward difference predictor-corrector
-- ASHRAE Standard 140-2023: Sections 7, 9A, 9B, 10 and 11 implemented (96 cases); 549 of 550 gate checks pass (as of v0.7.0)
+- ASHRAE Standard 140-2023: Sections 7, 9A, 9B, 10 and 11 implemented (96 cases); 548 of 550 gate checks pass; open misses are case 660 heating (#148) and CE540 condenser fan (#149)
 - Weather file processing (EPW/CSV format)
-- Design-day autosizing for fans, coils, boilers, chillers with configurable oversize factors
+- Design-day autosizing for fans, coils, boilers, chillers, pumps and towers with configurable oversize factors; an `autosize` field nothing sizes is an error
+- Built-in energy-conservation and sanity checks, reported in the `.err` file
 - Annual, multi-month, and custom period simulations
 
 ### Building Envelope
@@ -83,13 +84,13 @@ Last updated: 2026-10-11 (v0.7.0)
 - **View Report** — Results toolbar button opens `*_summary.html` in the default browser; shows inline message if no report is found.
 
 ### Performance
-- Solar precompute with disk persistence (`.solar` cache file next to YAML input, geometry-fingerprinted)
+- Solar precompute with disk persistence (`.solar` cache file beside the results CSV, geometry-fingerprinted)
 - Rayon-parallelized solar precompute (embarrassingly parallel across timesteps)
 
 ### Tests
-- 400+ unit tests across all crates (all component tests pass; 2 pre-existing envelope solar test failures)
-- 8 example YAML files covering all system types
-- 27 ASHRAE 140 validation cases in 140_tests/
+- About 670 tests across all crates, all passing
+- Every shipped example and prototype runs in CI with sanity gates and stored result baselines (`tests/run_shipped_models.py`; the three LargeOffice models run locally only)
+- 98 ASHRAE 140 validation cases in 140_tests/
 - DOE prototype comparisons in prototype_tests/
 
 ---

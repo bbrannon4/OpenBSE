@@ -121,7 +121,10 @@ The **desktop editor** (`openbse-editor`) is a Tauri + React app in `tools/edito
 - **Heat Pump Coil** — air-source heat pump heating with defrost and performance curves
 - **Duct** — NTU conduction model with leakage fraction and ambient zone coupling
 - **Boiler** — efficiency curves, part-load ratio limits
-- **Chiller** — electric chiller with COP and condenser modeling
+- **Chiller** — EnergyPlus EIR and reformulated EIR models with performance curves, rated COP at part load when no part-load curve is given, condenser heat recovery and minimum unloading
+- **Water Heater** — gas or electric storage tank with within-step burner cycling; tank losses go to the zone it sits in (`ambient_zone`). Heat-pump water heaters follow EnergyPlus: COP and capacity curves, evaporator cooling and drying of that zone, compressor cutout with a backup element
+- **Humidifier** — steam, including the steam's sensible heat, standby power and water use
+- **Evaporative Cooler** — direct, indirect (series, with its own secondary pad) and two-stage, with pump and fan power and water use
 - **Cooling Tower** — single/two/variable-speed with effectiveness-NTU model, polynomial fan power curve, approach temperature limits
 - **Heat Recovery** — sensible effectiveness heat exchanger (air-side enthalpy wheel / plate HX)
 - **Heat Exchanger** — water-to-water plate-and-frame HX for inter-loop connections (effectiveness-NTU, always-on or economizer mode)
@@ -132,7 +135,8 @@ The **desktop editor** (`openbse-editor`) is a Tauri + React app in `tools/edito
 - **DOAS** — 100% outdoor air, fixed supply setpoints, always-on pre-conditioning
 - **FCU** — per-zone recirculating fan coil, proportional fan speed modulation
 - **VAV** — ASHRAE Guideline 36 dual-maximum, SAT reset (13-18°C), modulating economizer, preheat frost protection
-- **Design Day Autosizing** — two-stage ASHRAE-compliant sizing (zone peak + system coincident), configurable oversize factors
+- **CRAC/CRAH** — data-center cooling with contained hot-aisle return air (IT heat counted once) and variable-speed airflow
+- **Design Day Autosizing** — two-stage ASHRAE-compliant sizing (zone peak + system coincident), including plant equipment, with configurable oversize factors
 
 ### Simulation
 - Graph-based execution order (topological sort)
@@ -145,42 +149,51 @@ The **desktop editor** (`openbse-editor`) is a Tauri + React app in `tools/edito
 - Multi-loop coupled envelope + HVAC simulation (DOAS + FCU additive mixing)
 - Plant loop topological ordering (inter-loop HX and condenser dependencies)
 - Primary/secondary/tertiary plant loop support via HX inter-connections
+- Built-in energy-conservation and sanity checks every run: zone air heat balance, plant- and air-loop closure, surface temperature limits, HVAC convergence and unphysical component outputs, reported in the `.err` file
+- Strict input checking: unknown keys, undefined constructions, `autosize` fields nothing sizes and malformed or short weather files stop the run with an error that names the problem
 
 ## Validation
 
 ### ASHRAE Standard 140-2023
 
-Test cases are in [`140_tests/`](140_tests/). The building-envelope and HVAC-equipment test suites are implemented — 96 cases across four sections. Current status: **549 of 550 gate checks pass**.
+Test cases are in [`140_tests/`](140_tests/). The building-envelope and HVAC-equipment test suites are implemented — 96 cases across four sections. Current status: **548 of 550 gate checks pass**.
 
 | Section | Cases | Gate checks passing |
 |---|---|---|
-| 7 — Building thermal envelope and fabric loads (600 and 900 series) | 27 | 63 / 63 |
+| 7 — Building thermal envelope and fabric loads (600 and 900 series) | 27 | 62 / 63 |
 | 9A — Cooling equipment, analytical verification (CE100–CE200) | 14 | 112 / 112 |
 | 9B — Cooling equipment, dynamic comparative (CE300–CE545) | 20 | 230 / 231 |
 | 10 — Heating equipment, fuel-fired furnace (HE100–HE230) | 11 | 48 / 48 |
 | 11 — Air-side HVAC equipment (AE101–AE445) | 24 | 96 / 96 |
 
-The gate runs in CI on every commit. Its ranges are taken from the standard's analytical solutions and example results; how each was derived is recorded in [`acceptance_ranges_140_2023.json`](140_tests/acceptance_ranges_140_2023.json). The one open miss is CE540 annual condenser-fan energy.
+The gate runs in CI on every commit. Its ranges are taken from the standard's analytical solutions and example results; how each was derived is recorded in [`acceptance_ranges_140_2023.json`](140_tests/acceptance_ranges_140_2023.json). The two open misses are case 660 annual heating, about 20 kWh below range since windows' share of radiant gains was fixed ([#148](https://github.com/bbrannon4/OpenBSE/issues/148)), and CE540 annual condenser-fan energy ([#149](https://github.com/bbrannon4/OpenBSE/issues/149)).
 
-Against the standard's software acceptance criteria (Normative Annex A3), OpenBSE's results are within range on all 114 range cases: thermal fabric low mass 21 of 21, thermal fabric high mass 19 of 19, cooling equipment 14 of 14, heating equipment 6 of 6, and air-side equipment 54 of 54. See [`140_tests/README.md`](140_tests/README.md) for the breakdown.
+Against the standard's software acceptance criteria (Normative Annex A3), the v0.7.0 submission's results are within range on all 114 range cases: thermal fabric low mass 21 of 21, thermal fabric high mass 19 of 19, cooling equipment 14 of 14, heating equipment 6 of 6, and air-side equipment 54 of 54. See [`140_tests/README.md`](140_tests/README.md) for the breakdown.
 
 Not yet implemented: weather drivers (Section 6), the Section 7 in-depth diagnostic cases (195–470, 800, 810), ground-coupled slab-on-grade (Section 8), and the Class II procedures (Section 12).
 
 ### DOE Prototype Comparison (EnergyPlus)
 
-DOE prototype building models are being validated against EnergyPlus using the simplified IDFs in [`prototype_tests/`](prototype_tests/). These are still in progress to confirm that solar and conduction are behaving appropriately.
+DOE prototype building models are being validated against EnergyPlus, end use by end use, using the IDFs in [`prototype_tests/`](prototype_tests/). The goal is every end use within 5%.
+
+- **Large Office** (Denver, EnergyPlus 25.2): fans −0.5%, cooling −4.8%, lighting and equipment within 1.4%. Still open: heating gas −11.3%, pumps −31.8% and hot water −10.1%.
+- **Hospital, Apartment and Single Family:** comparisons are in progress. Hospital heating is still well below EnergyPlus.
+
+Open gaps are tracked as [issues](https://github.com/bbrannon4/OpenBSE/issues).
 
 ## Roadmap
 
 Planned features, known bugs, and validation tasks are tracked as [GitHub Issues](https://github.com/bbrannon4/OpenBSE/issues). Key areas:
 
 - **Envelope**: multizone pressure network, geometry import, moisture transport
-- **HVAC**: multi-speed DX, DX dehumidification, PTHP, WSHP, VRF, radiant, GSHP, dual-duct
+- **HVAC**: multi-speed DX, DX dehumidification, absorption chillers, district energy, unit ventilators, chilled beams
 - **Controls**: humidity control, advanced economizers, EMS-style programmable logic
-- **Validation**: envelope accuracy investigation, apartment and hospital E+ comparisons
+- **Validation**: close the remaining prototype end-use gaps against EnergyPlus; the bugs the built-in energy checks have found
 - **Infrastructure**: expanded output variables, parametric engine, results viewer, Python bindings
 
-Issues labeled [`good first issue`](https://github.com/bbrannon4/OpenBSE/issues?q=label%3A%22good+first+issue%22) are good starting points for new contributors.
+Issues labeled [`good first issue`](https://github.com/bbrannon4/OpenBSE/issues?q=label%3A%22good+first+issue%22) are good starting points.
+
+**Contributing:** OpenBSE is dual-licensed (see below), so pull requests from outside contributors can't be merged until a contributor licence agreement is in place. Bug reports and ideas are very welcome as [issues](https://github.com/bbrannon4/OpenBSE/issues).
 
 ## Key Files for Contributors
 
