@@ -357,6 +357,19 @@ pub struct SimulationSettings {
     #[serde(default)]
     pub sizing_fan_delta_t: f64,
 
+    /// Generate a cooling design day for each other month from the warmest
+    /// given one, so a low-sun shoulder-season peak is caught (default true).
+    /// `false` sizes on the given design days only, as EnergyPlus does.
+    #[serde(default = "default_auto_cooling_design_days")]
+    pub auto_cooling_design_days: bool,
+
+    /// Timesteps over which design-day zone loads are averaged before their
+    /// peak is taken (E+ `Sizing:Parameters` Timesteps in Averaging Window).
+    /// Default 1: the peak timestep. A window of an hour keeps a setpoint step
+    /// (morning warm-up or pull-down) from sizing on a one-timestep spike.
+    #[serde(default = "default_sizing_averaging_window")]
+    pub sizing_averaging_window: u32,
+
     /// Holiday dates.  On these days every schedule uses its `holiday`
     /// profile (falling back to `sunday` → `weekend` → `weekday`).
     ///
@@ -390,6 +403,14 @@ pub struct SimulationSettings {
 
 fn default_run_parametrics() -> bool {
     true
+}
+
+fn default_auto_cooling_design_days() -> bool {
+    true
+}
+
+fn default_sizing_averaging_window() -> u32 {
+    1
 }
 
 /// A fixed-date holiday.
@@ -593,6 +614,22 @@ pub struct AirLoopControls {
     /// proportional minimum. Seasonal (`seasons:`) schedules are honored.
     #[serde(default)]
     pub minimum_oa_schedule: Option<String>,
+    /// How a multi-zone (VAV, dual-duct) loop's design supply flow sums its
+    /// zones' flows (E+ `Sizing:System` Type of Zone Sum to Use).
+    #[serde(default)]
+    pub zone_sum: ZoneSum,
+}
+
+/// How a multi-zone loop's design supply flow sums its zones' flows.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ZoneSum {
+    /// Each zone's design flow, at its own peak (E+ NonCoincident).
+    #[default]
+    NonCoincident,
+    /// The largest sum of the zones' cooling flows at one hour of a cooling
+    /// design day (E+ Coincident).
+    Coincident,
 }
 
 fn default_cooling_part_load_cd() -> f64 {
@@ -624,6 +661,7 @@ impl Default for AirLoopControls {
             preheat_setpoint: None,
             minimum_oa_flow: None,
             minimum_oa_schedule: None,
+            zone_sum: ZoneSum::default(),
         }
     }
 }
@@ -4975,6 +5013,28 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     for t in &model.thermostats {
         check_zone_refs(&t.zones, "Thermostat", &t.name, &mut result);
+        for (field, sched) in [
+            (
+                "design_day_heating_setpoints",
+                &t.design_day_heating_setpoints,
+            ),
+            (
+                "design_day_cooling_setpoints",
+                &t.design_day_cooling_setpoints,
+            ),
+        ] {
+            if let Some(values) = sched.as_ref().filter(|v| v.len() != 24) {
+                result.severe(format!(
+                    "Thermostat '{}' {} has {} values; it needs one per hour (24)",
+                    t.name,
+                    field,
+                    values.len()
+                ));
+            }
+        }
+    }
+    if model.simulation.sizing_averaging_window == 0 {
+        result.severe("simulation sizing_averaging_window must be at least 1 timestep".to_string());
     }
 
     // ── Validate air loop zone_terminals ────────────────────────────────────
@@ -5346,6 +5406,24 @@ air_loops:
             report.contains("Construction 'Glass' referenced by surface 'Wall' is the wrong kind"),
             "{report}"
         );
+    }
+
+    #[test]
+    fn validation_rejects_design_day_setpoints_not_24_hours() {
+        let model_with = |heating: &str| {
+            parse_model_yaml(&format!(
+                "simulation: {{}}\nweather_files: []\nzones:\n  - name: Hall\nthermostats:\n  - name: Stat\n    zones: [Hall]\n    design_day_heating_setpoints: {heating}\n"
+            ))
+            .unwrap()
+        };
+        let report = validate_model(&model_with("[15.6, 21.0]")).to_err_file();
+        assert!(
+            report.contains("Thermostat 'Stat' design_day_heating_setpoints has 2 values"),
+            "{report}"
+        );
+        let full_day = format!("[{}]", vec!["21.0"; 24].join(", "));
+        let validation = validate_model(&model_with(&full_day));
+        assert_eq!(validation.error_count(), 0, "{}", validation.to_err_file());
     }
 
     #[test]

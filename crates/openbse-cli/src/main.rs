@@ -159,10 +159,102 @@ fn hot_aisle_return(
     }
 }
 
+/// Standard air density at the site [kg/m³]: dry air at 20 °C and the
+/// design-day barometric pressure, as E+'s `StdRhoAir`.
+fn site_standard_air_density(model: &openbse_io::input::ModelInput) -> f64 {
+    let pressure = model
+        .design_days
+        .first()
+        .map(|dd| dd.pressure)
+        .unwrap_or(101325.0);
+    pressure / (287.042 * 293.15)
+}
+
+/// Design supply flow [kg/s] of a multi-zone (VAV, dual-duct) loop, as E+
+/// `Sizing:System`: the sum of its zones' final design flows (non-coincident),
+/// or the largest sum of their cooling flows at one hour of a cooling design
+/// day, scaled by the cooling sizing factor (coincident). A coincident flow
+/// never falls below the zones' summed heating flows.
+fn multizone_design_flow(
+    served_zones: &[String],
+    zone_sum: openbse_io::input::ZoneSum,
+    zone_design_flows: &HashMap<String, f64>,
+    zone_sizing: &openbse_io::sizing::ZoneSizingResult,
+    cooling_sizing_factor: f64,
+    heating_sizing_factor: f64,
+) -> f64 {
+    match zone_sum {
+        openbse_io::input::ZoneSum::NonCoincident => served_zones
+            .iter()
+            .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
+            .sum(),
+        openbse_io::input::ZoneSum::Coincident => {
+            let cooling = zone_sizing
+                .zone_cooling_flow_sequences
+                .iter()
+                .flatten()
+                .map(|hour| {
+                    served_zones
+                        .iter()
+                        .map(|z| hour.get(z).copied().unwrap_or(0.0))
+                        .sum::<f64>()
+                })
+                .fold(0.0, f64::max);
+            let heating: f64 = served_zones
+                .iter()
+                .map(|z| {
+                    zone_sizing
+                        .zone_heating_airflow
+                        .get(z)
+                        .copied()
+                        .unwrap_or(0.0)
+                })
+                .sum();
+            (cooling * cooling_sizing_factor).max(heating * heating_sizing_factor)
+        }
+    }
+}
+
+/// Outdoor-air sensible load [W] (positive when it heats the zone) that a
+/// cycling compressor's off-cycle still brings in: a fan that keeps running
+/// keeps drawing outdoor air, a cycling fan draws none. Counted for a cycling
+/// fan, cold economizer air cancelled a data centre's whole IT load, so the
+/// unit sat at its PLR floor and the room ran away.
+fn off_cycle_outdoor_air_load(
+    fan_mode: openbse_io::input::FanOperatingMode,
+    oa_fraction: f64,
+    flow_capacity_rate: f64,
+    t_outdoor: f64,
+    t_zone: f64,
+) -> f64 {
+    if fan_mode == openbse_io::input::FanOperatingMode::Cycling {
+        return 0.0;
+    }
+    oa_fraction * flow_capacity_rate * (t_outdoor - t_zone)
+}
+
+/// Supply flow [kg/s] of a single-zone VAV unit: the flow that meets the
+/// zone's cooling load [W] with the supply at its coldest, `cooling_dt` below
+/// the setpoint, bounded by the minimum fraction and the design flow. With no
+/// cooling load (heating or deadband) it runs at the minimum.
+fn single_zone_vav_flow_rate(
+    design_flow: f64,
+    min_fraction: f64,
+    cooling_load: f64,
+    cooling_dt: f64,
+) -> f64 {
+    let min_flow = design_flow * min_fraction.clamp(0.0, 1.0);
+    if cooling_load <= 0.0 {
+        return min_flow;
+    }
+    (cooling_load / (1006.0 * cooling_dt.max(1.0))).clamp(min_flow, design_flow)
+}
+
 fn build_loop_infos(
     model: &openbse_io::input::ModelInput,
     resolved_zones: &[openbse_envelope::ZoneInput],
 ) -> Vec<LoopInfo> {
+    let std_air_density = site_standard_air_density(model);
     model
         .air_loops
         .iter()
@@ -411,6 +503,7 @@ fn build_loop_infos(
                 fixed_cooling_sat: al.controls.fixed_cooling_sat,
                 preheat_setpoint: al.controls.preheat_setpoint,
                 min_oa_flow_mass: al.controls.minimum_oa_flow.map(|v| v * 1.229),
+                std_air_density,
             }
         })
         .collect()
@@ -1462,6 +1555,8 @@ fn main() -> Result<()> {
                     &sizing_oa_handled,
                     model.simulation.timesteps_per_hour,
                     model.simulation.sizing_fan_delta_t,
+                    model.simulation.auto_cooling_design_days,
+                    model.simulation.sizing_averaging_window as usize,
                 );
 
                 // Store coincident peak demands for plant loop pump autosizing
@@ -1551,14 +1646,7 @@ fn main() -> Result<()> {
                 use openbse_core::types::is_autosize;
 
                 // Build a map: component_name -> (loop_flow [m³/s], loop_heat [W], loop_cool [W])
-                // Compute standard air density at site altitude from design-day
-                // barometric pressure (matches E+ site standard density).
-                let site_pressure = model
-                    .design_days
-                    .first()
-                    .map(|dd| dd.pressure)
-                    .unwrap_or(101325.0);
-                let air_density = site_pressure / (287.042 * 293.15);
+                let air_density = site_standard_air_density(&model);
                 let mut loop_comp_sizing: HashMap<String, (f64, f64, f64)> = HashMap::new();
 
                 for li in &loop_infos {
@@ -1566,16 +1654,13 @@ fn main() -> Result<()> {
                         AirLoopSystemType::PszAc => {
                             // PSZ-AC: each unit serves its own zone(s) independently.
                             // Size from served zone peak loads (like FCU), not system-wide.
+                            // The flow is the one the controls use, which the
+                            // per-loop supply-temperature override above has
+                            // already resized for a loop with its own SAT.
                             let zone_airflow: f64 = li
                                 .served_zones
                                 .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_design_airflow
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.1)
-                                })
+                                .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
                                 .sum();
                             let zone_flow_m3 = zone_airflow / air_density;
                             // Capacity = raw_peak × zone_factor × system_capacity_factor
@@ -1609,18 +1694,22 @@ fn main() -> Result<()> {
                             (zone_flow_m3, zone_heat, zone_cool)
                         }
                         AirLoopSystemType::Vav | AirLoopSystemType::DualDuct => {
-                            // VAV / DualDuct: multi-zone system. Sum served zone flows.
-                            let zone_airflow: f64 = li
-                                .served_zones
+                            // VAV / DualDuct: multi-zone system, sized on the
+                            // same (sizing-factor) zone flows as its boxes.
+                            let zone_sum = model
+                                .air_loops
                                 .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_design_airflow
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.1)
-                                })
-                                .sum();
+                                .find(|al| al.name == li.name)
+                                .map(|al| al.controls.zone_sum)
+                                .unwrap_or_default();
+                            let zone_airflow = multizone_design_flow(
+                                &li.served_zones,
+                                zone_sum,
+                                &zone_design_flows,
+                                &sizing_result.zone_sizing,
+                                model.simulation.cooling_sizing_factor,
+                                model.simulation.heating_sizing_factor,
+                            );
                             let zone_flow_m3 = zone_airflow / air_density;
                             let zone_heat: f64 = li
                                 .served_zones
@@ -1829,13 +1918,7 @@ fn main() -> Result<()> {
                             let zone_airflow: f64 = li
                                 .served_zones
                                 .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_design_airflow
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.1)
-                                })
+                                .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
                                 .sum();
                             let zone_flow_m3 = zone_airflow / air_density;
                             let zone_cool: f64 = li
@@ -1941,13 +2024,13 @@ fn main() -> Result<()> {
                     for (zone_name, term_name) in &li.terminal_boxes {
                         if let Some(node_idx) = graph.node_by_name(term_name) {
                             if let GraphComponent::Air(comp) = graph.component_mut(node_idx) {
-                                // Size terminal max_air_flow from zone design airflow
+                                // Size terminal max_air_flow from the zone design
+                                // flow the VAV control works with (sizing factor
+                                // applied), so the box minimum is the same
+                                // fraction of it as in E+.
                                 if comp.design_air_flow_rate().is_none() {
-                                    let zone_flow = sizing_result
-                                        .zone_design_airflow
-                                        .get(zone_name)
-                                        .copied()
-                                        .unwrap_or(0.1);
+                                    let zone_flow =
+                                        zone_design_flows.get(zone_name).copied().unwrap_or(0.1);
                                     // Set in kg/s — terminal boxes use max_air_flow as mass flow
                                     // (compared against inlet.mass_flow in kg/s), unlike fans
                                     // which use design_flow_rate in m³/s.
@@ -5491,6 +5574,8 @@ fn simulate_all_loops(
             })
             .collect();
 
+        // Supply flow of a single-zone VAV loop, set by its SingleZone reset.
+        let mut single_zone_vav_flow: Option<f64> = None;
         // Apply SAT reset before signal builders so all paths see updated temps.
         {
             let zone_vav_plrs: HashMap<String, f64> = li
@@ -5541,14 +5626,34 @@ fn simulate_all_loops(
                         }) => (*sat_min, *sat_max),
                         _ => (4.0, 50.0),
                     };
-                    let denom = (m_dot * cp).max(1.0);
                     // The supply fan is downstream of the coils (draw-through),
                     // so it reheats the air by supply_fan_dt before it reaches
                     // the zone. Aim the coil leaving temperature that much below
                     // the supply temperature that holds the zone, so the air
                     // arrives at the zone at the intended temperature.
                     let fan_dt = li.supply_fan_dt;
-                    if q_heat >= q_cool && q_heat > 0.0 {
+                    let heating = q_heat >= q_cool && q_heat > 0.0;
+                    // Single-zone VAV (E+ PSZ-VAV: a VAV no-reheat terminal
+                    // under SetpointManager:SingleZone). A variable-speed fan
+                    // turns the flow down first, between its minimum fraction
+                    // and design, with cooling supply at its coldest; the
+                    // supply temperature resets only once the flow is at a
+                    // limit. Heating and deadband run at minimum flow.
+                    let m_dot = if li.variable_speed_fan {
+                        let cooling_load = if heating { 0.0 } else { q_cool };
+                        let m = single_zone_vav_flow_rate(
+                            m_dot,
+                            li.min_vav_fraction,
+                            cooling_load,
+                            cool_sp - smin - fan_dt,
+                        );
+                        single_zone_vav_flow = Some(m);
+                        m
+                    } else {
+                        m_dot
+                    };
+                    let denom = (m_dot * cp).max(1.0);
+                    if heating {
                         // Heating: raise supply above the setpoint; keep the
                         // downstream cooling coil off (setpoint above supply).
                         let sat = (heat_sp + q_heat / denom - fan_dt).clamp(smin, smax);
@@ -5636,6 +5741,11 @@ fn simulate_all_loops(
             // ──────────────────────────────────────────────────────────────
             AirLoopSystemType::Crah => build_crah_signals(li, &sig_ctx),
         };
+        if let Some(flow) = single_zone_vav_flow {
+            for f in signals.air_mass_flows.values_mut() {
+                *f = flow;
+            }
+        }
 
         // Return-air humidity for mixed-air construction: served-zone average
         // of the actual zone moisture balance. Previously synthesized as
@@ -5919,8 +6029,13 @@ fn simulate_all_loops(
                             // the coil is scaled down to the zone load alone.
                             // Zero when the loop carries no OA (oa_frac == 0),
                             // so non-OA cases are unaffected.
-                            let oa_frac = signals.oa_fraction.unwrap_or(effective_min_oa);
-                            let q_oa = oa_frac * supply_flow * cp_air * (t_outdoor - control_temp);
+                            let q_oa = off_cycle_outdoor_air_load(
+                                li.fan_operating_mode,
+                                signals.oa_fraction.unwrap_or(effective_min_oa),
+                                supply_flow * cp_air,
+                                t_outdoor,
+                                control_temp,
+                            );
 
                             if corrected_load > 10.0 {
                                 let adj_load = corrected_load + q_fan + q_oa;
@@ -6816,6 +6931,64 @@ mod tests {
     use super::*;
 
     #[test]
+    fn multizone_design_flow_sums_zones_at_their_own_or_a_shared_peak() {
+        use openbse_io::input::ZoneSum;
+        let zones = vec!["Core".to_string(), "South".to_string()];
+        let flows = |core: f64, south: f64| -> HashMap<String, f64> {
+            [("Core".to_string(), core), ("South".to_string(), south)]
+                .into_iter()
+                .collect()
+        };
+        // The core peaks in the morning and the south zone in the afternoon.
+        let sizing = openbse_io::sizing::ZoneSizingResult {
+            zone_cooling_flow_sequences: vec![vec![flows(8.0, 1.0), flows(6.0, 2.0)]],
+            zone_heating_airflow: flows(1.0, 0.5),
+            ..Default::default()
+        };
+        let design = flows(9.2, 2.3); // each zone's peak × 1.15
+        let non_coincident =
+            multizone_design_flow(&zones, ZoneSum::NonCoincident, &design, &sizing, 1.15, 1.25);
+        assert!((non_coincident - 11.5).abs() < 1e-12);
+        let coincident =
+            multizone_design_flow(&zones, ZoneSum::Coincident, &design, &sizing, 1.15, 1.25);
+        assert!((coincident - 9.0 * 1.15).abs() < 1e-12);
+        // Heating flows set the floor when they are larger.
+        let heating_led = openbse_io::sizing::ZoneSizingResult {
+            zone_heating_airflow: flows(10.0, 0.0),
+            ..sizing
+        };
+        let coincident = multizone_design_flow(
+            &zones,
+            ZoneSum::Coincident,
+            &design,
+            &heating_led,
+            1.15,
+            1.25,
+        );
+        assert!((coincident - 12.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn off_cycle_outdoor_air_counts_only_while_the_fan_runs() {
+        use openbse_io::input::FanOperatingMode;
+        // 40% outdoor air at 0 °C into a 27 °C room, 1000 W/K of supply.
+        let q = |mode| off_cycle_outdoor_air_load(mode, 0.4, 1000.0, 0.0, 27.0);
+        assert_eq!(q(FanOperatingMode::Continuous), -10_800.0);
+        assert_eq!(q(FanOperatingMode::ContinuousNoLoadOff), -10_800.0);
+        assert_eq!(q(FanOperatingMode::Cycling), 0.0);
+    }
+
+    #[test]
+    fn single_zone_vav_turns_flow_down_to_its_minimum() {
+        // 10 kg/s design, half minimum, supply 10 K below the setpoint.
+        let flow = |load| single_zone_vav_flow_rate(10.0, 0.5, load, 10.0);
+        assert!((flow(80_480.0) - 8.0).abs() < 1e-12);
+        assert_eq!(flow(20_000.0), 5.0); // below the minimum
+        assert_eq!(flow(200_000.0), 10.0); // above design
+        assert_eq!(flow(0.0), 5.0); // heating or deadband
+    }
+
+    #[test]
     fn terminal_reheat_covers_warming_primary_air() {
         // A zone with no design heating load (the Hospital labs) still needs
         // reheat: 1 kg/s of 12.8 °C primary air warmed to a 21 °C zone.
@@ -6895,6 +7068,7 @@ mod tests {
             fixed_cooling_sat: false,
             preheat_setpoint: None,
             min_oa_flow_mass: None,
+            std_air_density: 1.204,
         }
     }
 
@@ -6936,6 +7110,7 @@ mod tests {
             fixed_cooling_sat: false,
             preheat_setpoint: None,
             min_oa_flow_mass: None,
+            std_air_density: 1.204,
         }
     }
 
@@ -7887,6 +8062,7 @@ mod tests_datacenter {
             fixed_cooling_sat: false,
             preheat_setpoint: None,
             min_oa_flow_mass: None,
+            std_air_density: 1.204,
         }
     }
 

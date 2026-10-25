@@ -124,6 +124,9 @@ pub struct LoopInfo {
     /// fraction is this flow divided by the current total supply flow, so a VAV
     /// system throttling down draws a rising OA fraction (fixed OA volume).
     pub min_oa_flow_mass: Option<f64>,
+    /// Standard air density at the site [kg/m³] (E+ `StdRhoAir`): converts
+    /// supply mass flows to the volumes the zones' outdoor-air rates are in.
+    pub std_air_density: f64,
 }
 
 /// Control role of a component in a signal builder's coil dispatch.
@@ -1186,7 +1189,6 @@ pub fn build_vav_signals(
     let sat_max = 15.6_f64; // E+ SetpointManager:Warmest MaximumTemperature
 
     let mut sat_setpoint = sat_max; // start warm, only drop if a zone needs it
-    let mut any_cooling_zone = false;
 
     for zone_name in &li.served_zones {
         let zone_temp = zone_temps.get(zone_name).copied().unwrap_or(21.0);
@@ -1195,7 +1197,6 @@ pub fn build_vav_signals(
         let cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
 
         if zone_temp > cool_sp && cool_load > 100.0 {
-            any_cooling_zone = true;
             // What SAT would satisfy this zone at max VAV flow?
             // Q = m_max × Cp × (T_zone - SAT)
             // SAT = T_zone - Q / (m_max × Cp)
@@ -1237,7 +1238,6 @@ pub fn build_vav_signals(
             openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp, zone_w_vav, 101325.0) * 100.0;
         let mode = if let Some(&max_rh) = zone_max_rh.get(zone_name) {
             if zone_rh_vav > max_rh && base_mode == HvacMode::Deadband {
-                any_cooling_zone = true;
                 HvacMode::Cooling
             } else {
                 base_mode
@@ -1327,9 +1327,13 @@ pub fn build_vav_signals(
     // by increasing the system OA fraction based on the "critical zone"
     // — the zone with the highest required discharge OA fraction (Zd).
     //
-    // E+ implements this via Controller:MechanicalVentilation.
-    let vrp_min_oa = if !li.zone_oa_data.is_empty() {
-        let air_density = 1.204_f64; // kg/m³ at standard conditions
+    // E+ implements this via Controller:MechanicalVentilation. A minimum OA
+    // of zero (unoccupied, or its schedule at zero) means ventilation is off,
+    // as when E+'s controller is unavailable.
+    let vrp_min_oa = if !li.zone_oa_data.is_empty() && effective_min_oa > 0.0 {
+        // E+ converts flows at the site's standard density; sea-level air
+        // (1.204 kg/m³) overstated the OA fraction by ~23% in Denver.
+        let air_density = li.std_air_density;
         let mut vou = 0.0_f64; // uncorrected total OA [m³/s]
         let mut max_zd = 0.0_f64; // critical zone discharge OA fraction
 
@@ -1432,43 +1436,14 @@ pub fn build_vav_signals(
     //
     // The mixed air calculation then uses effective_t_outdoor (= t_outdoor param)
     // which already includes the HR preheating effect.
-    // Economizer activation: run when any served zone has cooling load.
-    // E+ uses LockoutWithHeating: economizer locks out when the AHU
-    // preheat coil would fire (mixed air < SAT). In practice, this
-    // means the economizer only runs when OA is warm enough that the
-    // mixed air doesn't need preheating.
     //
-    // Additionally, the economizer only activates when cooling-dominant
-    // (more zones need cooling than heating). This approximates E+'s
-    // behavior where the economizer provides free cooling only when
-    // beneficial to the system as a whole.
-    let any_served_cooling = any_cooling_zone
-        || li
-            .served_zones
-            .iter()
-            .any(|z| zone_cooling_loads.get(z).copied().unwrap_or(0.0) > 100.0);
-    // Economizer only activates when cooling is dominant (more zones
-    // need cooling than heating). This approximates E+'s LockoutWithHeating:
-    // when many perimeter zones need heating, bringing in cold OA would
-    // force excessive VAV reheat. Locking out the economizer keeps the
-    // mixed air warm, reducing both preheat and reheat energy.
-    // Economizer lockout: only activate when more zones need cooling
-    // than heating. This approximates E+'s LockoutWithHeating behavior
-    // and balances free-cooling against reheat penalty.
-    let cooling_dominant = {
-        let n_cool = li
-            .served_zones
-            .iter()
-            .filter(|z| zone_cooling_loads.get(*z).copied().unwrap_or(0.0) > 100.0)
-            .count();
-        let n_heat = li
-            .served_zones
-            .iter()
-            .filter(|z| zone_heating_loads.get(*z).copied().unwrap_or(0.0) > 100.0)
-            .count();
-        n_cool > n_heat
-    };
-    let any_cooling = any_served_cooling && cooling_dominant;
+    // E+ SetpointManager:MixedAir: the outdoor-air mixer aims at the supply
+    // setpoint less the supply fan's temperature rise (the fan comes after the
+    // mixer), whichever way the zones lean. LockoutWithHeating below holds it
+    // at minimum outdoor air when the mixed air would need the heating coil;
+    // the reheat boxes warm the zones that the Warmest setpoint overcools.
+    let t_return = avg_zone_temp + li.return_fan_dt;
+    let mixed_air_setpoint = sat_setpoint - effective_supply_fan_dt;
     let avg_zone_w = if li.served_zones.is_empty() {
         0.008
     } else {
@@ -1509,17 +1484,18 @@ pub fn build_vav_signals(
     let oa_frac = if economizer_lockout {
         // HR active → economizer locked to minimum OA
         vrp_min_oa
-    } else if any_cooling && econ_available {
+    } else if econ_available {
         // Economizer: modulate OA for free cooling. `econ_available` already
         // encodes that outdoor air is beneficial (cooler for dry-bulb, lower
         // enthalpy for enthalpy types), so the only question is how much OA:
-        //   • OA colder than the SAT → blend with return to land on the SAT;
-        //   • OA warmer than the SAT but still favorable → 100% OA (an enthalpy
-        //     economizer importing warm-but-dry air; ASHRAE 140 §11 AE345/AE445).
-        let econ_oa = if raw_t_outdoor <= sat_setpoint {
-            let delta = avg_zone_temp - raw_t_outdoor;
+        //   • OA colder than the mixed-air setpoint → blend with return to
+        //     land on it;
+        //   • OA warmer but still favorable → 100% OA (an enthalpy economizer
+        //     importing warm-but-dry air; ASHRAE 140 §11 AE345/AE445).
+        let econ_oa = if raw_t_outdoor <= mixed_air_setpoint {
+            let delta = t_return - raw_t_outdoor;
             if delta > 0.1 {
-                ((avg_zone_temp - sat_setpoint) / delta).clamp(vrp_min_oa, 1.0)
+                ((t_return - mixed_air_setpoint) / delta).clamp(vrp_min_oa, 1.0)
             } else {
                 vrp_min_oa
             }
@@ -1527,10 +1503,10 @@ pub fn build_vav_signals(
             1.0
         };
 
-        // LockoutWithHeating: if the resulting mixed air is below SAT,
-        // the preheat coil would fire. Lock economizer to minimum OA instead.
-        let trial_mixed = avg_zone_temp * (1.0 - econ_oa) + t_outdoor * econ_oa;
-        if trial_mixed < sat_setpoint {
+        // LockoutWithHeating: if the resulting mixed air is below the
+        // setpoint, the heating coil would fire. Lock to minimum OA instead.
+        let trial_mixed = t_return * (1.0 - econ_oa) + t_outdoor * econ_oa;
+        if trial_mixed < mixed_air_setpoint - 1e-6 {
             // Preheat would fire → lock to minimum OA
             vrp_min_oa
         } else {
@@ -1541,7 +1517,24 @@ pub fn build_vav_signals(
     };
     // Mixed air uses effective (post-HR) outdoor temperature. A return fan (when
     // present) heats the return air before it mixes with outdoor air.
-    let mixed_air_temp = (avg_zone_temp + li.return_fan_dt) * (1.0 - oa_frac) + t_outdoor * oa_frac;
+    let mixed_air_temp = t_return * (1.0 - oa_frac) + t_outdoor * oa_frac;
+
+    // E+ SetpointManager:MixedAir on each coil outlet: the supply setpoint
+    // less the fan heat still to come, i.e. the fan's rise when it sits
+    // downstream of the coil (draw-through) and nothing when it is upstream.
+    let coil_target = |coil: &str| {
+        let fan_downstream = li
+            .component_names
+            .iter()
+            .skip_while(|n| n.as_str() != coil)
+            .skip(1)
+            .any(|n| li.component_kinds.get(n) == Some(&ComponentKind::Fan));
+        if fan_downstream {
+            sat_setpoint - effective_supply_fan_dt
+        } else {
+            sat_setpoint
+        }
+    };
 
     // ── AHU coil control ──
     for name in &li.component_names {
@@ -1558,12 +1551,12 @@ pub fn build_vav_signals(
                 signals
                     .coil_setpoints
                     .insert(name.clone(), sat_setpoint - effective_supply_fan_dt);
-            } else if any_cooling {
-                // AHU cooling coil targets the SAT setpoint
-                signals.coil_setpoints.insert(name.clone(), sat_setpoint);
             } else {
-                // No cooling demand — coil off
-                signals.coil_setpoints.insert(name.clone(), 99.0);
+                // The Warmest setpoint is the supply temperature that holds the
+                // warmest zone; the coil self-limits when the air is cooler.
+                signals
+                    .coil_setpoints
+                    .insert(name.clone(), coil_target(name));
             }
         } else if role == CoilRole::Heating && li.preheat_setpoint.is_some() {
             // Central preheat coil holding a fixed leaving temperature: temper the
@@ -1573,23 +1566,12 @@ pub fn build_vav_signals(
                 .coil_setpoints
                 .insert(name.clone(), li.preheat_setpoint.unwrap());
         } else if role == CoilRole::Heating {
-            // AHU heating coil: frost protection only.
-            //
-            // E+ data shows the VAV_MID heating coil rarely fires — the
-            // economizer provides free cooling by mixing cold OA with warm
-            // return air. The mixed air goes directly to VAV boxes without
-            // being heated to SAT. This avoids wasting preheat energy.
-            //
-            // Only fire the preheat coil for frost protection (mixed air < 2°C)
-            // to prevent freezing in the AHU. Zone reheat handles the warming.
-            let frost_protection_temp = 2.0_f64;
-            if mixed_air_temp < frost_protection_temp {
-                signals
-                    .coil_setpoints
-                    .insert(name.clone(), frost_protection_temp);
-            } else {
-                signals.coil_setpoints.insert(name.clone(), -99.0);
-            }
+            // AHU heating coil: heats mixed air that minimum outdoor air leaves
+            // below the supply setpoint (E+ SetpointManager:MixedAir on the
+            // heating coil outlet). It self-limits when the air is warmer.
+            signals
+                .coil_setpoints
+                .insert(name.clone(), coil_target(name));
         }
         // Humidification control: if any served zone is below min_rh, activate humidifier
         if role == CoilRole::Humidifier {
@@ -1850,6 +1832,7 @@ mod tests {
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
             min_oa_flow_mass: None,
+            std_air_density: 1.204,
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
@@ -1910,6 +1893,48 @@ mod tests {
                 day_of_week: 0,
             }
         }
+    }
+
+    #[test]
+    fn vav_ventilation_rate_procedure_uses_site_density_and_stops_when_oa_is_off() {
+        let mut li = make_loop(AirLoopSystemType::Vav, vec!["CHW Coil".to_string()]);
+        li.zone_oa_data = vec![ZoneOaData {
+            zone_name: "Zone1".to_string(),
+            design_people: 0.0,
+            per_person_oa: 0.0,
+            per_area_oa: 0.001,
+            floor_area: 100.0,
+            people_schedule: None,
+        }];
+        let f = Fixture {
+            temps: one("Zone1", 20.0),
+            heat_sp: one("Zone1", 21.0),
+            cool_sp: one("Zone1", 24.0),
+            flows: one("Zone1", 1.0),
+            cool_loads: one("Zone1", 0.0),
+            heat_loads: one("Zone1", 1000.0),
+            modes: [("Zone1".to_string(), HvacMode::Heating)]
+                .into_iter()
+                .collect(),
+            empty: HashMap::new(),
+        };
+        let oa_at = |density: f64| {
+            let mut li = li.clone();
+            li.std_air_density = density;
+            build_vav_signals(&li, &f.ctx(-10.0), false)
+                .oa_fraction
+                .unwrap()
+        };
+        // One zone: the system needs exactly its 0.1 m³/s, so the fraction
+        // scales with the density that turns the supply mass into volume.
+        let (sea_level, denver) = (oa_at(1.204), oa_at(0.98));
+        assert!(denver > 0.15 && sea_level < 1.0, "{denver} {sea_level}");
+        assert!((sea_level / denver - 1.204 / 0.98).abs() < 1e-9);
+
+        // Ventilation off (unoccupied, or its schedule at zero): no outdoor air.
+        let mut ctx = f.ctx(-10.0);
+        ctx.effective_min_oa = 0.0;
+        assert_eq!(build_vav_signals(&li, &ctx, false).oa_fraction, Some(0.0));
     }
 
     #[test]

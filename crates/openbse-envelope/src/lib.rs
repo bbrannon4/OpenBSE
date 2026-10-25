@@ -25,6 +25,7 @@ pub mod shading;
 pub mod solar;
 pub mod species;
 pub mod surface;
+pub mod view_factors;
 pub mod zone;
 pub mod zone_loads;
 
