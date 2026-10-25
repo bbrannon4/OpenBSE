@@ -46,7 +46,8 @@ struct Args {
     #[arg(short, long, value_name = "WEATHER")]
     weather: Option<PathBuf>,
 
-    /// Output CSV file path (default: <input_dir>/results.csv)
+    /// Output CSV file path (default: <input_dir>/<stem>_results.csv). All other
+    /// outputs (summary, sizing, .err, .solar cache) are written beside it.
     #[arg(short, long, value_name = "OUTPUT")]
     output: Option<PathBuf>,
 
@@ -617,6 +618,12 @@ fn main() -> Result<()> {
         .output
         .clone()
         .unwrap_or_else(|| input_dir.join(format!("{}_results.csv", input_stem)));
+    // Every other output follows the results CSV, so `--output` keeps a run
+    // entirely out of the source tree (CI and the shipped-model checks rely on this).
+    let output_dir = output_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
 
     info!("OpenBSE v{}", env!("CARGO_PKG_VERSION"));
     info!("Reading input file: {}", args.input.display());
@@ -718,7 +725,7 @@ fn main() -> Result<()> {
         let mut validation = openbse_io::validate_model(&model);
 
         // Write .err file (always, even if no errors — matches E+ behavior)
-        let err_path = args.input.with_extension("err");
+        let err_path = output_dir.join(format!("{}.err", input_stem));
         if let Err(e) = std::fs::write(&err_path, validation.to_err_file()) {
             warn!("Could not write error file {}: {}", err_path.display(), e);
         }
@@ -1370,8 +1377,7 @@ fn main() -> Result<()> {
             init.map_err(|e| anyhow::anyhow!("Failed to initialize envelope: {}", e))?;
         }
 
-        // Output directory (needed by sizing and output writers)
-        let output_dir = output_path.parent().unwrap_or_else(|| Path::new("."));
+        let output_dir = output_dir.as_path();
 
         // Still needed for the has-external-HVAC check below.
         let resolved_thermostats = resolve_thermostats(&model);
@@ -2873,10 +2879,10 @@ fn main() -> Result<()> {
         // Precompute sunlit fractions for the entire simulation period (Suncast-style).
         // Uses Rayon to parallelize the expensive polygon-clipping shadow calculations
         // across all timesteps, then caches results for O(1) lookup during the annual loop.
-        // Results are saved to a .solar file next to the YAML input and reloaded on
+        // Results are saved to a .solar file next to the results CSV and reloaded on
         // subsequent runs if the geometry fingerprint matches (avoids recomputing when
         // only schedules/setpoints/HVAC parameters change).
-        let solar_cache_path = input_dir.join(format!("{}.solar", input_stem));
+        let solar_cache_path = output_dir.join(format!("{}.solar", input_stem));
         if let Some(ref mut env) = envelope {
             env.precompute_solar(
                 &weather_data.hours,
@@ -5297,7 +5303,7 @@ fn main() -> Result<()> {
         // ── Parametric result collection ────────────────────────────────────
         if !single_run_mode {
             // In parametric mode, also write per-run CSV with the run name embedded
-            let run_csv = input_dir.join(format!("{}_{}_results.csv", input_stem, run_name));
+            let run_csv = output_dir.join(format!("{}_{}_results.csv", input_stem, run_name));
             if !results.is_empty() {
                 write_csv(&results, &run_csv).with_context(|| {
                     format!("Failed to write run results to {}", run_csv.display())
@@ -5314,7 +5320,7 @@ fn main() -> Result<()> {
 
     // ── Write parametric summary ─────────────────────────────────────────
     if !all_parametric_results.is_empty() {
-        let param_dir = input_dir.to_path_buf();
+        let param_dir = output_dir.clone();
         match write_parametric_results(&all_parametric_results, &param_dir) {
             Ok(paths) => {
                 info!(
