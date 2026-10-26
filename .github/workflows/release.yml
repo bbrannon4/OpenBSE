@@ -257,6 +257,24 @@ jobs:
             tools/editor/src-tauri/target/release/bundle/appimage/*.AppImage
             tools/editor/src-tauri/target/release/bundle/deb/*.deb
 
+  # ── Engineering Reference PDF ───────────────────────────────────
+  reference-pdf:
+    name: Engineering Reference PDF
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y fonts-dejavu-core
+      - uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: 1.10.19
+          tinytex: true
+      - run: quarto render --to pdf
+        working-directory: docs/engineering-reference
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engineering-reference
+          path: docs/engineering-reference/_book/OpenBSE-Engineering-Reference.pdf
+
   # ── GitHub Release ──────────────────────────────────────────────
   release:
     name: Publish GitHub Release
@@ -269,6 +287,7 @@ jobs:
       - editor-macos-x86
       - editor-windows
       - editor-linux
+      - reference-pdf
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -338,5 +357,6 @@ jobs:
           files: |
             openbse-*.tar.gz
             openbse-*.zip
+            artifacts/engineering-reference/OpenBSE-Engineering-Reference.pdf
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

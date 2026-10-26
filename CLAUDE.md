@@ -12,6 +12,10 @@ cargo test --workspace     # run all tests
 
 All three must pass cleanly. `cargo fmt` is enforced by CI — commits with formatting drift will fail.
 
+If the change alters a model's equations or method, update that model's section of the
+Engineering Reference (`docs/engineering-reference/`) in the same PR, including its
+EnergyPlus comparison and known limitations.
+
 ## Editor Frontend (tools/editor/)
 
 ```bash
@@ -26,6 +30,7 @@ npm run build      # full build (tsc + vite)
 - Rust workspace with 11 crates in `crates/` — core, components, controls, envelope, weather, psychrometrics, io, airloop, cli, a205, cosim
 - Tauri + React desktop editor in `tools/editor/` (excluded from Rust workspace)
 - YAML input format — schema at `docs/openbse_schema.json`
+- Engineering Reference (physics and equations) in `docs/engineering-reference/`, built with Quarto (website + PDF, `.github/workflows/docs.yml`)
 - ASHRAE 140 test cases in `140_tests/cases/`
 - DOE prototype validation models in `prototype_tests/`
 - Example models in `examples/`

@@ -1,0 +1,66 @@
+# OpenBSE Engineering Reference: Quarto book project.
+# Build (from this directory):  quarto render            -> _book/ (HTML + PDF)
+#                               quarto render --to html  -> website only
+# Quarto and LaTeX are documentation build tools only, never an OpenBSE dependency.
+project:
+  type: book
+  output-dir: _book
+
+book:
+  title: "OpenBSE Engineering Reference"
+  subtitle: "Physics, equations and algorithms of the OpenBSE engine"
+  author: "OpenBSE contributors"
+  repo-url: https://github.com/bbrannon4/OpenBSE
+  repo-subdir: docs/engineering-reference
+  repo-actions: [edit, issue]
+  downloads: [pdf]
+  search: true
+  chapters:
+    - index.md
+    - 01-introduction.md
+    - 02-simulation-framework.md
+    - 03-site-weather-properties.md
+    - 04-envelope.md
+    - 05-comfort.md
+    - 06-loads-sizing.md
+    - 07-air-side-hvac.md
+    - 08-zone-equipment.md
+    - 09-plant.md
+    - 10-controls.md
+    - 11-service-water-heating.md
+    - 12-data-centers-electrical.md
+    - 13-cosimulation.md
+    - 14-diagnostics.md
+    - 15-curves-references.md
+
+bibliography: references.bib
+link-citations: true
+
+number-sections: true
+crossref:
+  eq-prefix: "Eq."
+
+format:
+  html:
+    theme: cosmo
+    html-math-method: mathjax
+    toc-depth: 3
+    code-overflow: wrap
+  pdf:
+    documentclass: scrreprt
+    papersize: a4
+    pdf-engine: lualatex
+    toc: true
+    toc-depth: 3
+    number-depth: 3
+    colorlinks: true
+    code-block-font-size: \footnotesize
+    # Unicode in prose and code blocks (ṁ, η, Σ, box drawing, …) needs glyphs
+    # Latin Modern lacks; fontspec applies the fallbacks only to named fonts.
+    mainfont: "Latin Modern Roman"
+    mainfontfallback:
+      - "DejaVu Serif:mode=harf"
+      - "DejaVu Sans:mode=harf"
+    monofont: "DejaVu Sans Mono"
+    monofontfallback:
+      - "DejaVu Sans:mode=harf"
