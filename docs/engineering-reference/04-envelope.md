@@ -10,7 +10,7 @@ This chapter covers the building shell, in seven parts:
 6. internal gains and ground heat transfer;
 7. the zone air heat and moisture balances.
 
-They are reviewed one part at a time. Parts 1 and 2 are reviewed below;
+They are reviewed one part at a time. Parts 1 to 3 are reviewed below;
 the rest is pre-review text (@sec-envelope-prereview).
 
 ## Materials and constructions {#sec-constructions}
@@ -356,7 +356,7 @@ sky–air split and the ground at air temperature match
 The inside face balances conduction from the wall, convection to the zone
 air, long-wave exchange with the zone's other surfaces, and the radiant flux
 $q''_\text{r}$ it absorbs. That flux is the transmitted solar landing on it
-plus its share of the radiant internal gains (@sec-envelope-prereview):
+plus its share of the radiant internal gains (@sec-radiant-gains; solar in @sec-envelope-prereview):
 
 $$
 q''_\text{ki} + h_{c,i}(T_z - T_\text{si}) + h_{r,i}(T_\text{mrt} - T_\text{si}) + q''_\text{r} = 0.
@@ -364,7 +364,7 @@ $$ {#eq-inside-balance}
 
 The long-wave term is linearized about the zone's other surfaces at their
 previous-iteration temperatures, giving $h_{r,i}$ and an effective
-$T_\text{mrt}$ (@sec-envelope-prereview). The equation is solved by
+$T_\text{mrt}$ (@sec-lw-linear). The equation is solved by
 Gauss–Seidel iteration with a damping term $D = 5$ W/(m²·K):
 
 $$
@@ -492,6 +492,143 @@ available.
   convection uses the glazing-cavity correlation.
 - [#209](https://github.com/bbrannon4/OpenBSE/issues/209): five fixed
   surface–air passes with no convergence test; no wet surfaces in rain.
+
+## Interior long-wave exchange {#sec-lw-exchange}
+
+**Source:** `openbse-envelope/src/view_factors.rs` (`direct_view_factors`,
+`polygon_af`, `approximate_view_factors`, `fix_view_factors`,
+`interchange_areas`, `linearised_exchange`); set up in
+`heat_balance.rs::from_input_full` and used by `lw_exchange` in the inside
+face iteration (@sec-inside-face).
+
+The inside faces of a zone, windows and internal mass included, form a grey,
+diffuse enclosure. The zone air does not take part.
+
+### View factors {#sec-view-factors}
+
+**From polygons.** When every surface of a zone has vertices (internal mass
+excepted), each pair's $A_aF_{ab}$ comes from the contour-integral form of
+the view factor [@siegel2002]:
+
+$$
+A_a F_{ab} = \frac{1}{2\pi}\oint_{C_a}\oint_{C_b} \ln r\ \,d\mathbf{r}_a\cdot d\mathbf{r}_b,
+$$ {#eq-contour-vf}
+
+which reduces to a sum over edge pairs (`edge_pair_integral`):
+
+- Collinear edges use a closed form.
+- Other pairs use 8-point Gauss–Legendre quadrature. The longer edge is
+  bisected while the edges are closer than their length, which isolates the
+  logarithmic singularity.
+
+Before integrating, each polygon is clipped to the part in front of the
+other. A pair that can only partly see each other (a non-convex zone)
+therefore gets the factor between the visible parts. Obstruction by third
+surfaces is ignored, so the factors are exact only for a convex zone.
+Windows and doors are cut out of their parent surfaces by additivity:
+
+$$
+A F(\text{net } i \to \text{net } j) = \sum_{a \in \{i, \text{children of } i\}}\ \sum_{b \in \{j, \text{children of } j\}} s_a s_b\, A_aF_{ab},
+$$ {#eq-vf-additivity}
+
+with $s = +1$ for the parent outline and $-1$ for each child.
+
+Internal mass has no geometry. It sees every other surface in proportion to
+area. Each other surface gives up a share of its view to it, equal to the
+mass's share of the area that surface sees under the approximate rule below.
+
+**Approximate.** When any surface lacks vertices, the zone uses EnergyPlus's
+approximate factors (`CalcApproximateViewFactors`):
+
+$$
+F_{ij} = \frac{A_j}{\sum_{k \in S_i} A_k},
+$$ {#eq-approx-vf}
+
+where $S_i$ is the set of surfaces $i$ sees. That excludes $i$ itself, other
+floors if $i$ is a floor, and surfaces whose azimuth and tilt are both within
+10° of $i$'s, unless one of the two is a floor or internal mass.
+
+**Reciprocity and completeness.** Either set of factors then goes through
+EnergyPlus's `FixViewFactors`: $A_iF_{ij}$ and $A_jF_{ji}$ are averaged, and
+each row is rescaled towards $\sum_j F_{ij} = 1$, alternating until the total
+error settles (0.001) or stops changing (10⁻⁵), within 400 iterations. A
+surface larger than all the others together gets a self-view factor of
+$\min(1.2A_k/\sum A, 0.9)$. Zones with three or fewer surfaces get
+reciprocity only.
+
+### Grey-body exchange (ScriptF) {#sec-scriptf}
+
+With room-facing emissivities $\varepsilon_i$, which are:
+
+- the inside thermal absorptance for opaque surfaces;
+- the glass emissivity for windows;
+- the shade's emissivity when an interior shade is deployed;
+
+the radiosity balance $J = \varepsilon E_b + (1-\varepsilon)FJ$ gives
+Hottel's interchange areas [@hottel1967]:
+
+$$
+G = \operatorname{diag}\!\left(\frac{A\varepsilon}{1-\varepsilon}\right)\left[I - \operatorname{diag}(1-\varepsilon)F\right]^{-1}\operatorname{diag}(\varepsilon),
+\qquad G_{ii} = 0,
+$$ {#eq-scriptf}
+
+symmetrized. The emissivity is capped at 0.99999. The net long-wave gain of
+surface $i$ is
+
+$$
+Q_i = \sum_j G_{ij}\,\sigma\left(T_j^4 - T_i^4\right),
+$$ {#eq-lw-net}
+
+which sums to zero over the zone. $G$ is rebuilt whenever a shade is deployed
+or retracted.
+
+### Linearization {#sec-lw-linear}
+
+In the inside face iteration, @eq-lw-net is written exactly as
+$h_{r,i}(T_\text{mrt} - T_{\text{si}})$, with the other surfaces at their
+previous-iteration temperatures (in kelvin inside the brackets):
+
+$$
+h_{r,i} = \frac{1}{A_i}\sum_{j\ne i} w_{ij}, \qquad
+T_\text{mrt} = \frac{\sum_j w_{ij}T_j}{\sum_j w_{ij}}, \qquad
+w_{ij} = G_{ij}\,\sigma\,(T_i^2 + T_j^2)(T_i + T_j).
+$$ {#eq-lw-linear}
+
+A surface with nothing to exchange with gets $h_{r,i} = 0$.
+
+### Radiant gains {#sec-radiant-gains}
+
+The radiant part of internal gains, plus the radiant output of HVAC panels
+(@sec-zone-equipment), is spread evenly over the zone's surfaces by area,
+windows included (`zone_radiant_gain_flux`):
+
+$$
+q''_{r,\text{int}} = \frac{\dot Q_\text{rad}}{\sum_k A_k}.
+$$ {#eq-radiant-gain-flux}
+
+Each surface absorbs that flux whatever its emissivity.
+
+**Comparison with EnergyPlus.** EnergyPlus uses the approximate factors of
+@eq-approx-vf by default; polygon factors require user input
+(`ZoneProperty:UserViewFactors`). OpenBSE computes them from the geometry,
+a deliberate improvement from PR #161. `FixViewFactors`, the ScriptF
+interchange (`CalcScriptF`) and the exchange (`CalcInteriorRadExchange`)
+match EnergyPlus [@eplus-engref-25-2, "Internal Long-Wave Radiation Exchange"]. OpenBSE's
+approximate rule also treats azimuths 350° and 10° as within 10°, which
+EnergyPlus does not.
+
+EnergyPlus distributes radiant gains in proportion to $A_i\varepsilon_i$
+(`ComputeIntThermalAbsorpFactors`). OpenBSE ignores the emissivity, while
+its own `ZoneHvacConditions` documentation claims the E+ weighting
+([#211](https://github.com/bbrannon4/OpenBSE/issues/211)).
+
+## Known limitations: long-wave exchange {#sec-lw-limitations}
+
+- [#52](https://github.com/bbrannon4/OpenBSE/issues/52): superseded by the
+  polygon view factors. The remaining limitation is that obstruction by third
+  surfaces is ignored in non-convex zones.
+- [#211](https://github.com/bbrannon4/OpenBSE/issues/211): radiant gains are
+  spread by area only, not area × emissivity.
 
 ## Remaining envelope models {#sec-envelope-prereview}
 
