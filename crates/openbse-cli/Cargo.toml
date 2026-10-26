@@ -27,3 +27,4 @@ anyhow = "1"
 
 [dev-dependencies]
 serde_json = "1"
+serde_yaml = { workspace = true }
