@@ -10,7 +10,7 @@ This chapter covers the building shell, in seven parts:
 6. internal gains and ground heat transfer;
 7. the zone air heat and moisture balances.
 
-They are reviewed one part at a time. The first part is reviewed below;
+They are reviewed one part at a time. Parts 1 and 2 are reviewed below;
 the rest is pre-review text (@sec-envelope-prereview).
 
 ## Materials and constructions {#sec-constructions}
@@ -258,6 +258,241 @@ will be written when the model is fixed and wired in.
 - [#205](https://github.com/bbrannon4/OpenBSE/issues/205): F-factor floors
   keep the air films and use synthetic mass.
 
+## Surface heat balances {#sec-surface-hb}
+
+**Source:** `heat_balance.rs::solve_timestep`, step 6 (6a outside faces,
+6b inside faces).
+
+Each opaque surface has an outside and an inside face temperature, linked by
+the conduction of @eq-ctf. Windows have their own balance (@sec-envelope-prereview).
+Each envelope solve makes five passes over the following steps. There is no
+convergence test between passes
+([#209](https://github.com/bbrannon4/OpenBSE/issues/209)):
+
+1. Solve the outside faces.
+2. Solve the windows.
+3. Iterate the inside faces.
+4. Solve the zone air (@sec-zone-time).
+
+The inside faces in each pass use the zone air temperature from the previous
+pass.
+
+### Outside face {#sec-outside-face}
+
+For a surface exposed to outdoor air, the outside face balances absorbed
+solar, convection, long-wave exchange with sky, air and ground, and
+conduction into the wall:
+
+$$
+q''_{\alpha} + h_{c,o}(T_\text{o} - T_\text{so})
++ h_\text{sky}(T_\text{sky} - T_\text{so}) + h_\text{air}(T_\text{o} - T_\text{so})
++ h_\text{gnd}(T_\text{gnd} - T_\text{so}) = q''_\text{ko}.
+$$ {#eq-outside-balance}
+
+Substituting @eq-ctf for $q''_\text{ko}$ gives
+
+$$
+T_\text{so} = \frac{q''_{\alpha} + (h_{c,o} + h_\text{air})T_\text{o} + h_\text{sky}T_\text{sky}
++ h_\text{gnd}T_\text{gnd} + Y_0 T_\text{si} - H_\text{o}}
+{X_0 + h_{c,o} + h_\text{air} + h_\text{sky} + h_\text{gnd}},
+$$ {#eq-outside-temp}
+
+where:
+
+- $q''_\alpha$ is the absorbed solar flux (@sec-incident-solar, times the
+  outside solar absorptance and the shading treatment of @sec-envelope-prereview);
+- $H_\text{o} = \sum_{j\ge1}(X_jT_\text{so}^{t-j} - Y_jT_\text{si}^{t-j} + \Phi_j q''^{\,t-j}_\text{ko})$
+  is the history part of @eq-ctf;
+- the denominator is floored at 1 W/(m²·K).
+
+The ground is taken at the outdoor air temperature,
+$T_\text{gnd} = T_\text{o}$, and the sky temperature comes from @eq-sky-temp.
+
+The long-wave coefficients use the outside thermal emissivity $\varepsilon$
+and view factors $F_\text{sky} = (1 + \cos\beta)/2$ and
+$F_\text{gnd} = 1 - F_\text{sky}$. The sky hemisphere is split between the
+sky and the air by $\beta_s = \sqrt{F_\text{sky}}$. Each coefficient is the
+exact linearization about the face temperature of the previous pass:
+
+$$
+h_\text{sky} = \sigma\varepsilon F_\text{sky}\beta_s\,\frac{T_\text{so}^4 - T_\text{sky}^4}{T_\text{so} - T_\text{sky}},\quad
+h_\text{air} = \sigma\varepsilon F_\text{sky}(1 - \beta_s)\,\frac{T_\text{so}^4 - T_\text{o}^4}{T_\text{so} - T_\text{o}},\quad
+h_\text{gnd} = \sigma\varepsilon F_\text{gnd}\,\frac{T_\text{so}^4 - T_\text{gnd}^4}{T_\text{so} - T_\text{gnd}},
+$$ {#eq-ext-hrad}
+
+with temperatures in kelvin. When the temperatures are within 0.1 K,
+$4\sigma\varepsilon F\bar T^3$ is used instead.
+
+**Other boundary conditions:**
+
+- **Ground:** the outside face is held at the ground temperature
+  (@sec-ground-temps), or at the F-factor table (@sec-ffactor).
+- **Adiabatic:** $T_\text{so} = T_\text{si}$. This also applies to internal
+  mass, which becomes one adiabatic surface per `internal_mass` entry, with
+  tilt 90°.
+- **Interzone:** $T_\text{so}$ is the inside face temperature of the paired
+  surface in the adjacent zone, updated as soon as that surface is solved.
+  Surfaces are paired by zone name only, so zones that share more than one
+  surface get mismatched pairs
+  ([#207](https://github.com/bbrannon4/OpenBSE/issues/207)). A surface that
+  names its own zone is adiabatic.
+
+**Comparison with EnergyPlus.** @eq-outside-temp, @eq-ext-hrad, the
+sky–air split and the ground at air temperature match
+`HeatBalanceSurfaceManager::CalcOutsideSurfTemp` and
+`ConvectionCoefficients::InitExtConvCoeff`
+[@eplus-engref-25-2, "Outside Surface Heat Balance"]. The differences:
+
+- **No wet surfaces.** EnergyPlus treats wind-exposed faces as wet during
+  rain ($h_{c,o} = 1000$ W/(m²·K), face at the outdoor wet-bulb); OpenBSE
+  does not ([#209](https://github.com/bbrannon4/OpenBSE/issues/209)).
+- **No surrounding-surface or ground-temperature inputs** for long-wave
+  exchange.
+- **Interzone pairing.** EnergyPlus pairs interzone surfaces one-to-one by
+  name.
+
+### Inside face {#sec-inside-face}
+
+The inside face balances conduction from the wall, convection to the zone
+air, long-wave exchange with the zone's other surfaces, and the radiant flux
+$q''_\text{r}$ it absorbs. That flux is the transmitted solar landing on it
+plus its share of the radiant internal gains (@sec-envelope-prereview):
+
+$$
+q''_\text{ki} + h_{c,i}(T_z - T_\text{si}) + h_{r,i}(T_\text{mrt} - T_\text{si}) + q''_\text{r} = 0.
+$$ {#eq-inside-balance}
+
+The long-wave term is linearized about the zone's other surfaces at their
+previous-iteration temperatures, giving $h_{r,i}$ and an effective
+$T_\text{mrt}$ (@sec-envelope-prereview). The equation is solved by
+Gauss–Seidel iteration with a damping term $D = 5$ W/(m²·K):
+
+$$
+T_\text{si}^{(n+1)} = \frac{Y_0 T_\text{so} + H_\text{i} + h_{c,i}T_z + h_{r,i}T_\text{mrt} + q''_\text{r} + D\,T_\text{si}^{(n)}}
+{Z_0 + h_{c,i} + h_{r,i} + D},
+$$ {#eq-inside-temp}
+
+where $H_\text{i} = \sum_{j\ge1}(Y_jT_\text{so}^{t-j} - Z_jT_\text{si}^{t-j} + \Phi_j q''^{\,t-j}_\text{ki})$.
+
+For an adiabatic surface, $T_\text{so} = T_\text{si}$, so the denominator
+becomes $Z_0 - Y_0 + h_{c,i} + h_{r,i} + D$ and the $Y_0T_\text{so}$ term
+drops. Iteration stops when no inside face changes by more than 0.002 K, or
+after 500 iterations. $h_{c,i}$ and $h_{r,i}$ are re-evaluated every
+iteration. A face temperature that is not finite, or beyond ±200 °C, is
+held at its previous value and reported (@sec-diagnostics).
+
+**Comparison with EnergyPlus.** @eq-inside-temp, the damping constant
+(`IterDampConst` = 5), the tolerance (`MaxAllowedDelTemp` = 0.002 K) and the
+iteration limit match `HeatBalanceSurfaceManager::CalcHeatBalanceInsideSurf2`
+[@eplus-engref-25-2, "Inside Heat Balance"]. Two differences:
+
+- **Long-wave exchange.** EnergyPlus adds the net long-wave exchange as a
+  flux computed from the previous iteration; OpenBSE linearizes it as
+  $h_{r,i}(T_\text{mrt} - T_\text{si})$.
+- **Zone air temperature.** EnergyPlus holds the zone air at the previous
+  timestep's value for the whole surface solution. OpenBSE iterates
+  surfaces and air together (@sec-surface-hb, @sec-hvac-iteration).
+
+## Convection coefficients {#sec-convection}
+
+**Source:** `openbse-envelope/src/convection.rs`.
+
+### Natural convection (TARP) {#sec-tarp}
+
+Natural convection from a surface follows the TARP correlations
+[@walton1983] (`calc_natural_convection`). With $\Delta T = T_s - T_a$ and
+$\cos\Sigma$ the cosine of the surface tilt, as seen from the side the air
+is on:
+
+$$
+h_n =
+\begin{cases}
+1.31\,|\Delta T|^{1/3} & |\cos\Sigma| < 0.01 \text{ (vertical)},\\[0.5ex]
+\dfrac{9.482\,|\Delta T|^{1/3}}{7.238 - |\cos\Sigma|} & \Delta T \text{ and } \cos\Sigma \text{ of the same sign (unstable)},\\[1.5ex]
+\dfrac{1.810\,|\Delta T|^{1/3}}{1.382 + |\cos\Sigma|} & \text{otherwise (stable)},
+\end{cases}
+$$ {#eq-tarp}
+
+with $h_n \ge 0.1$ W/(m²·K). Inside faces use $\cos\Sigma = -\cos\beta$,
+since the inside face of a roof faces down; outside faces use $\cos\beta$.
+
+**Inside faces** of opaque surfaces use @eq-tarp with the zone air (or, in a
+stratified zone, the local air at the surface's height; @sec-envelope-prereview). **Window inside faces** use a separate correlation
+(`window_interior_convection`):
+$Nu = (Nu_T^6 + Nu_s^6)^{1/6}$, with $Nu_T = 0.0673838\,Ra^{1/3}$ and
+$Nu_s = 0.242\,(Ra/A_r)^{0.272}$, where $Ra$ is based on the window height and
+$A_r$ is height over width. That is the ISO 15099 glazing-cavity correlation.
+EnergyPlus applies ISO 15099's indoor-surface correlation
+($Nu = 0.56(Ra\sin\gamma)^{1/4}$, with tilt and heat-flow cases), which gives
+about 20% more for a typical window
+([#208](https://github.com/bbrannon4/OpenBSE/issues/208)).
+
+### Outside faces (DOE-2) {#sec-doe2}
+
+Wind-exposed outside faces use the DOE-2 model (`exterior_convection_full`).
+It combines natural convection with the MoWiTT forced-convection correlation
+for smooth glass [@yazdanian1994], scaled by a roughness multiplier $R_f$:
+
+$$
+h_{f,\text{glass}} =
+\begin{cases}
+3.26\,V^{0.89} & \text{windward},\\
+3.55\,V^{0.617} & \text{leeward},
+\end{cases}
+\qquad
+h_{c,o} = h_n + R_f\left(\sqrt{h_n^2 + h_{f,\text{glass}}^2} - h_n\right),
+$$ {#eq-doe2}
+
+with $h_n$ from @eq-tarp, $V$ the wind speed at the surface, and $R_f$ from @tbl-roughness. A surface is windward when it is within 2° of horizontal
+($|\cos\beta| \ge 0.98$), or when the wind direction is within 100° of its
+azimuth. Surfaces with `wind_exposure: false` use $h_n$ alone.
+
+| Roughness | Very rough | Rough | Medium rough | Medium smooth | Smooth | Very smooth |
+|---|---|---|---|---|---|---|
+| $R_f$ | 2.17 | 1.67 | 1.52 | 1.13 | 1.11 | 1.00 |
+
+: Roughness multipliers. {#tbl-roughness}
+
+**Wind at the surface.** The weather-station wind (10 m, open country) is
+moved to the surface's centroid height $z$ with the ASHRAE power law
+[@ashrae2021fund, Ch. 24]:
+
+$$
+V(z) = V_\text{met}\left(\frac{270}{10}\right)^{0.14}\left(\frac{z}{\delta}\right)^{a},
+$$ {#eq-wind-profile}
+
+with the site's terrain exponent $a$ and boundary-layer height $\delta$:
+
+| Terrain | Country | Suburbs (default) | City | Ocean |
+|---|---|---|---|---|
+| $a$ | 0.14 | 0.22 | 0.33 | 0.10 |
+| $\delta$ [m] | 270 | 370 | 460 | 210 |
+
+: Wind-profile parameters. {#tbl-terrain}
+
+$z$ is the mean height of the surface's vertices. For surfaces given
+without vertices, it is estimated from the zone height: floors 0.1 m, walls
+mid-height, roofs at the top. That ignores the floor the zone is on.
+
+**Comparison with EnergyPlus.** These match EnergyPlus's default algorithms,
+TARP inside and DOE-2 outside (`ConvectionCoefficients::CalcASHRAETARPNatural`,
+`CalcDOE2Forced`, `Windward`, `SetSurfaceWindSpeedAt`), with the same
+roughness multipliers, windward test and wind profile
+[@eplus-engref-25-2, "Exterior Convection", "Interior Convection"]. Window
+inside faces are the exception
+([#208](https://github.com/bbrannon4/OpenBSE/issues/208)). EnergyPlus's other
+algorithms (adaptive convection, ASHRAE simple, MoWiTT alone) are not
+available.
+
+## Known limitations: surface heat balances {#sec-surface-hb-limitations}
+
+- [#207](https://github.com/bbrannon4/OpenBSE/issues/207): interzone
+  surfaces are paired by zone name only.
+- [#208](https://github.com/bbrannon4/OpenBSE/issues/208): window inside
+  convection uses the glazing-cavity correlation.
+- [#209](https://github.com/bbrannon4/OpenBSE/issues/209): five fixed
+  surface–air passes with no convergence test; no wet surfaces in rain.
+
 ## Remaining envelope models {#sec-envelope-prereview}
 
 ::: {.callout-warning}
@@ -276,105 +511,6 @@ Windows use a simplified performance-based model.
 | `u_factor` | W/(m²·K) | required | Overall U-factor (includes film coefficients) |
 | `shgc` | 0–1 | required | Solar Heat Gain Coefficient at normal incidence |
 | `visible_transmittance` | 0–1 | 0.6 | Visible light transmittance |
-
-### Interior Convection
-
-**Module:** `convection.rs`
-
-**Purpose:** Computes the convective heat transfer coefficient between interior surfaces and zone air.
-
-**Model:** ASHRAE simple algorithm (Walton, 1983)
-
-**Reference:** Walton (1983), EnergyPlus `ConvectionCoefficients.cc`
-
-#### Function
-
-```
-h_conv = interior_convection(T_surface, T_zone, tilt_deg)
-```
-
-**Inputs:**
-| Parameter | Unit | Description |
-|-----------|------|-------------|
-| `t_surface` | °C | Interior surface temperature |
-| `t_zone` | °C | Zone air temperature |
-| `tilt_deg` | degrees | Surface tilt from horizontal |
-
-**Output:** Interior convection coefficient [W/(m²·K)]
-
-#### Algorithm
-
-**Near-vertical surfaces** (tilt 60°–120°, i.e. |cos(tilt)| < 0.5):
-```
-h = 1.31 · |ΔT|^(1/3)
-```
-
-**Near-horizontal surfaces** (|cos(tilt)| ≥ 0.5):
-
-Stability is determined by the direction of buoyancy:
-- **Stable** (warm surface facing down, or cool surface facing up): stratification resists convection
-- **Unstable** (warm surface facing up, or cool surface facing down): buoyancy drives convection
-
-```
-Stable:    h = 1.810 · |ΔT|^(1/3) / (1.382 + |cos(tilt)|)
-Unstable:  h = 9.482 · |ΔT|^(1/3) / (7.238 − |cos(tilt)|)
-```
-
-**Minimum:** 0.1 W/(m²·K) to prevent numerical issues with very small temperature differences.
-
----
-
-### Exterior Convection
-
-**Module:** `convection.rs`
-
-**Purpose:** Computes the convective heat transfer coefficient between exterior surfaces and the outdoor environment.
-
-**Model:** TARP (Thermal Analysis Research Program) — combined natural + forced convection.
-
-**Reference:** Walton (1983), EnergyPlus Engineering Reference
-
-#### Function
-
-```
-h_conv = exterior_convection(T_surface, T_outdoor, wind_speed, tilt_deg, roughness)
-```
-
-#### Algorithm
-
-**Natural convection component** — uses the same Walton correlations as interior convection:
-```
-H_natural = interior_convection(T_surface, T_outdoor, tilt_deg)
-```
-
-**Forced convection component** — wind-driven, with a roughness multiplier:
-```
-H_forced = R_f · 2.537 · V_wind^0.5
-```
-
-where R_f is the roughness multiplier (see the Roughness table below).
-
-**Combined (TARP model):**
-```
-H = sqrt(H_natural² + H_forced²)
-```
-
-**Minimum:** 0.1 W/(m²·K)
-
-#### Roughness
-
-Affects exterior forced convection coefficient. Values and their forced-convection multipliers:
-
-| Roughness | Multiplier |
-|-----------|------------|
-| VeryRough | 2.17 |
-| Rough | 1.67 |
-| MediumRough | 1.52 |
-| MediumSmooth | 1.13 |
-| Smooth | 1.11 |
-| VerySmooth | 1.00 |
-
-**Reference:** EnergyPlus `ConvectionCoefficients.cc`
 
 ### Window Transmitted Solar (Angular SHGC)
 
