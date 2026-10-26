@@ -247,6 +247,33 @@ H = sqrt(H_natural² + H_forced²)
 
 **Minimum:** 0.1 W/(m²·K)
 
+### Window Transmitted Solar (Angular SHGC)
+
+**Function:** `window_transmitted_solar_angular(shgc, area, beam_incident, diffuse_incident, cos_aoi)`
+
+Uses separate angular modifiers for beam and diffuse solar, based on Fresnel optics for double-pane glass.
+
+**Beam modifier** (angular dependence):
+```
+beam_mod = fresnel_double_pane_modifier(cos_aoi, shgc)
+```
+
+Uses the Fresnel equations for unpolarized light at a glass-air interface (n = 1.526) to compute the transmittance ratio `T(θ)/T(0)` for a double-pane assembly, accounting for inter-pane reflections.
+
+**Diffuse modifier** (hemispherical integration):
+```
+diff_mod = diffuse_shgc_modifier(shgc)
+```
+
+Computed as the hemispherical average of the beam modifier over 0-90 degrees, weighted by `cos(θ)·sin(θ)`. For SHGC = 0.789 (ASHRAE 140 clear double-pane), diff_mod = 0.864.
+
+**Transmitted solar:**
+```
+Q_beam = SHGC · beam_mod · Area · I_beam
+Q_diffuse = SHGC · diff_mod · Area · I_diffuse
+Q_total = Q_beam + Q_diffuse
+```
+
 ### Interior Solar Distribution
 
 **Module:** `envelope.rs` (solar distribution logic within the zone heat balance)
@@ -577,59 +604,6 @@ Sum of polygon areas for all surfaces with tilt > 150 degrees (downward-pointing
 #### Auto-Calculation
 
 When a zone's volume or floor area is specified as 0.0 in the input, the engine automatically computes these values from the zone's surface vertices using the above algorithms. This avoids manual calculation for complex geometries.
-
----
-
-### Ground Temperature Model
-
-**Module:** `ground_temp.rs`
-
-**Purpose:** Computes ground temperature as a function of depth and time of year using the Kusuda-Achenbach sinusoidal model. Used for floor and below-grade wall boundary conditions.
-
-**Reference:** Kusuda & Achenbach (1965), ASHRAE Handbook of Fundamentals
-
-#### Equation
-
-```
-T(z,t) = T_mean - A * exp(-z * sqrt(pi / (365 * alpha)))
-         * cos(2*pi/365 * (t - t_shift - z/2 * sqrt(365 / (pi * alpha))))
-```
-
-| Symbol | Unit | Description |
-|--------|------|-------------|
-| `T_mean` | C | Annual mean ground surface temperature |
-| `A` | C | Annual surface temperature amplitude (half of peak-to-peak) |
-| `z` | m | Depth below surface |
-| `t` | days | Day of year |
-| `t_shift` | days | Day of minimum surface temperature (typically ~35 for northern hemisphere) |
-| `alpha` | m2/day | Soil thermal diffusivity (default 0.04 m2/day) |
-
-#### Inputs
-
-| Parameter | Unit | Default | Description |
-|-----------|------|---------|-------------|
-| `t_mean` | C | 10.0 | Annual mean ground temperature |
-| `amplitude` | C | 10.0 | Surface temperature amplitude |
-| `phase_day` | days | 35.0 | Day of minimum surface temperature |
-| `soil_diffusivity` | m2/day | 0.04 | Soil thermal diffusivity |
-| `depth` | m | 0.0 | Depth below surface |
-
-#### Auto-Calibration from Weather Data
-
-When weather data is available, the model parameters are automatically derived:
-
-1. Compute monthly average dry-bulb temperatures from hourly weather data.
-2. `T_mean` = annual average of monthly means.
-3. `Amplitude` = (max monthly average - min monthly average) / 2.
-4. `Phase_day` = mid-month day of year for the coldest month.
-5. `Soil_diffusivity` = 0.04 m2/day (typical soil, not derived from weather).
-
-#### Physical Behavior
-
-- At the surface (z = 0), temperature follows the full annual swing.
-- With increasing depth, the exponential damping factor `exp(-z * sqrt(pi/(365*alpha)))` reduces the amplitude.
-- At great depth (z >> 0), temperature converges to `T_mean` (the damping factor approaches zero).
-- There is also a phase lag: deeper temperatures peak later in the year due to the `z/2 * sqrt(365/(pi*alpha))` term.
 
 ---
 
