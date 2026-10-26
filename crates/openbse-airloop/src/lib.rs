@@ -169,6 +169,25 @@ impl LoopInfo {
             CoilRole::Other
         }
     }
+
+    /// Whether this loop's return air carries the served zones' lighting
+    /// return-air heat (#51), as in EnergyPlus `HVACManager` setting
+    /// `Zone::NoHeatToReturnAir`: zonal units (FCU, PTAC, PTHP) have no
+    /// return duct, and a cycling-fan unitary system's return flow is too
+    /// intermittent to carry it, so E+ adds the heat to the zone air for
+    /// both. Central loops and continuous-fan unitary systems carry it.
+    pub fn carries_return_air_heat(&self) -> bool {
+        use openbse_io::input::FanOperatingMode;
+        match self.system_type {
+            AirLoopSystemType::Fcu | AirLoopSystemType::Ptac | AirLoopSystemType::Pthp => false,
+            AirLoopSystemType::PszAc => self.fan_operating_mode != FanOperatingMode::Cycling,
+            AirLoopSystemType::Vav
+            | AirLoopSystemType::DualDuct
+            | AirLoopSystemType::Doas
+            | AirLoopSystemType::Crac
+            | AirLoopSystemType::Crah => true,
+        }
+    }
 }
 
 /// Per-zone data for ASHRAE 62.1 ventilation rate procedure.
@@ -263,8 +282,14 @@ pub struct SignalCtx<'a> {
     pub zone_min_rh: &'a HashMap<String, f64>,
     /// Zone thermal capacitances [J/K] (VAV demand reset).
     pub zone_thermal_caps: &'a HashMap<String, f64>,
-    /// Data-center return-air temperatures [°C] (CRAC/CRAH).
-    pub zone_dc_return_temps: &'a HashMap<String, f64>,
+    /// Return-air temperature leaving each zone [°C], where it differs from
+    /// the zone air: contained hot aisles (CRAC/CRAH), the return height of a
+    /// stratified zone (#91), and lighting return-air heat (#51). Zones not
+    /// listed return at their air temperature.
+    pub zone_return_temps: &'a HashMap<String, f64>,
+    /// Zone multipliers: a multiplied zone's return counts that many times
+    /// in a multi-zone return mix.
+    pub zone_multipliers: &'a HashMap<String, u32>,
     /// Frozen predictor HVAC mode per zone.
     pub predictor_modes: &'a HashMap<String, HvacMode>,
     /// Effective (post-heat-recovery) outdoor dry-bulb [°C].
@@ -285,6 +310,37 @@ pub struct SignalCtx<'a> {
 /// A zone's mode for this timestep: the predictor's, held across the HVAC
 /// iteration, else from the zone temperature. Taken from the in-iteration
 /// temperature, a zone at its setpoint flips mode between iterations (#170).
+/// Air leaving a zone for the return duct [°C]: its published return
+/// temperature, else the zone air.
+fn zone_return_temp(ctx: &SignalCtx, zone: &str) -> f64 {
+    ctx.zone_return_temps
+        .get(zone)
+        .or_else(|| ctx.zone_temps.get(zone))
+        .copied()
+        .unwrap_or(21.0)
+}
+
+/// Return air of a multi-zone loop [°C]: each zone's return weighted by the
+/// flow it returns (supply flow × zone multiplier), as E+'s return-air mixer
+/// mixes node mass flows. With no flow, the zones' simple mean.
+fn mixed_return_temp(ctx: &SignalCtx, zones: &[String], flow: impl Fn(&str) -> f64) -> f64 {
+    if zones.is_empty() {
+        return 21.0;
+    }
+    let (mut num, mut den) = (0.0, 0.0);
+    for z in zones {
+        let mult = ctx.zone_multipliers.get(z).copied().unwrap_or(1) as f64;
+        let m = flow(z).max(0.0) * mult;
+        num += m * zone_return_temp(ctx, z);
+        den += m;
+    }
+    if den > 1.0e-9 {
+        num / den
+    } else {
+        zones.iter().map(|z| zone_return_temp(ctx, z)).sum::<f64>() / zones.len() as f64
+    }
+}
+
 fn zone_mode(ctx: &SignalCtx, zone: &str, zone_temp: f64, heat_sp: f64, cool_sp: f64) -> HvacMode {
     ctx.predictor_modes
         .get(zone)
@@ -489,14 +545,11 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     // mis-trigger the lockout. The mixed-air calc below uses the effective
     // (post-HR) t_outdoor. Mirrors the VAV builder (AIRLOOP-1 / #76).
     let raw_t_outdoor = ctx.raw_t_outdoor;
-    // Return air temperature: stratified zones (#91) and data-center zones
-    // publish a return-height temperature; well-mixed zones return at the
-    // control (mean) temperature.
-    let return_air_temp = ctx
-        .zone_dc_return_temps
-        .get(control_zone)
-        .copied()
-        .unwrap_or(control_temp);
+    // Return air temperature: stratified zones (#91), data-center zones and
+    // zones whose lights heat the return air (#51) publish their return
+    // temperature; well-mixed zones return at their air temperature. The
+    // supply is split evenly between the served zones, so is the return.
+    let return_air_temp = mixed_return_temp(ctx, &li.served_zones, |_| 1.0);
     let return_w = zone_humidity_ratios
         .get(control_zone)
         .copied()
@@ -582,6 +635,7 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
             effective_min_oa
         };
     let mixed_air_temp = mixing_return_temp * (1.0 - oa_frac) + t_outdoor * oa_frac;
+    signals.return_air_temp = Some(return_air_temp);
 
     // SingleZone SAT reset: the supply-temp reset (main.rs) already set both
     // coils' leaving-air setpoints to hold the zone exactly — the active coil
@@ -711,7 +765,7 @@ pub fn build_crac_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     let predictor_modes = ctx.predictor_modes;
     let zone_humidity_ratios = ctx.zone_humidity_ratios;
     let zone_max_rh = ctx.zone_max_rh;
-    let zone_dc_return_temps = ctx.zone_dc_return_temps;
+    let zone_return_temps = ctx.zone_return_temps;
 
     let _ = t_outdoor; // CRAC uses outdoor temp for condenser, not OA mixing
     let mut signals = ControlSignals::default();
@@ -762,11 +816,12 @@ pub fn build_crac_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     // CRAC recirculates room air (no OA). For DC zones, return air temp
     // is warmer than zone average due to rack heat — use pre-computed value.
     let oa_frac = 0.0_f64;
-    let return_air_temp = zone_dc_return_temps
+    let return_air_temp = zone_return_temps
         .get(zone_name)
         .copied()
         .unwrap_or(zone_temp);
     let mixed_air_temp = return_air_temp;
+    signals.return_air_temp = Some(return_air_temp);
     let supply_flow =
         data_center_supply_flow(li, total_flow, mode, zone_cool_load, cool_sp, zone_w);
 
@@ -812,7 +867,7 @@ pub fn build_crah_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     let predictor_modes = ctx.predictor_modes;
     let zone_humidity_ratios = ctx.zone_humidity_ratios;
     let zone_max_rh = ctx.zone_max_rh;
-    let zone_dc_return_temps = ctx.zone_dc_return_temps;
+    let zone_return_temps = ctx.zone_return_temps;
 
     let mut signals = ControlSignals::default();
 
@@ -859,11 +914,12 @@ pub fn build_crah_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
 
     // CRAH recirculates room air (no OA). For DC zones, return air temp
     // is warmer than zone average due to rack heat — use pre-computed value.
-    let return_air_temp = zone_dc_return_temps
+    let return_air_temp = zone_return_temps
         .get(zone_name)
         .copied()
         .unwrap_or(zone_temp);
     let mixed_air_temp = return_air_temp;
+    signals.return_air_temp = Some(return_air_temp);
     let supply_flow =
         data_center_supply_flow(li, total_flow, mode, zone_cool_load, cool_sp, zone_w);
 
@@ -960,8 +1016,11 @@ pub fn build_doas_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         signals.air_mass_flows.insert(name.clone(), vent_flow);
     }
 
-    // DOAS inlet is always 100% outdoor air
+    // DOAS inlet is always 100% outdoor air. The return air it relieves
+    // (heat recovery's exhaust side) comes back from the zones in the shares
+    // the ventilation air is split into: evenly.
     signals.oa_fraction = Some(1.0);
+    signals.return_air_temp = Some(mixed_return_temp(ctx, &li.served_zones, |_| 1.0));
 
     signals
 }
@@ -1430,31 +1489,15 @@ pub fn build_vav_signals(
         vrp_min_oa
     };
 
-    // ── Return air temperature (flow-weighted average of zone temps) ──
-    // Weight each zone by its supply airflow: the return stream is the mix of the
-    // zones' outlets, so a higher-flow zone dominates the return (and thus the
-    // mixed-air) temperature. Falls back to a simple mean when flows are absent.
-    let avg_zone_temp = if li.served_zones.is_empty() {
-        21.0
-    } else {
-        let mut num = 0.0;
-        let mut den = 0.0;
-        for z in &li.served_zones {
-            let t = zone_temps.get(z).copied().unwrap_or(21.0);
-            let w = zone_design_flows.get(z).copied().unwrap_or(1.0).max(1.0e-6);
-            num += t * w;
-            den += w;
-        }
-        if den > 0.0 {
-            num / den
-        } else {
-            li.served_zones
-                .iter()
-                .map(|z| zone_temps.get(z).copied().unwrap_or(21.0))
-                .sum::<f64>()
-                / li.served_zones.len() as f64
-        }
-    };
+    // ── Return air temperature ──
+    // The return stream is the mix of the zones' outlets at the box flows
+    // just computed, so a higher-flow zone dominates the return (and thus the
+    // mixed-air) temperature. Each zone returns at its published return
+    // temperature (hot aisle, stratification, lighting heat; #51), which is
+    // what E+'s economizer compares outdoor air against.
+    let return_air_temp = mixed_return_temp(ctx, &li.served_zones, |z| {
+        signals.zone_air_flows.get(z).copied().unwrap_or(0.0)
+    });
 
     // ── Economizer: modulating differential dry-bulb ──
     // In cooling mode: modulate OA fraction to achieve SAT setpoint.
@@ -1473,7 +1516,7 @@ pub fn build_vav_signals(
     // mixer), whichever way the zones lean. LockoutWithHeating below holds it
     // at minimum outdoor air when the mixed air would need the heating coil;
     // the reheat boxes warm the zones that the Warmest setpoint overcools.
-    let t_return = avg_zone_temp + li.return_fan_dt;
+    let t_return = return_air_temp + li.return_fan_dt;
     let mixed_air_setpoint = sat_setpoint - effective_supply_fan_dt;
     let avg_zone_w = if li.served_zones.is_empty() {
         0.008
@@ -1484,7 +1527,7 @@ pub fn build_vav_signals(
             .sum::<f64>()
             / li.served_zones.len() as f64
     };
-    let return_enthalpy_vav = openbse_psychrometrics::h_fn_tdb_w(avg_zone_temp, avg_zone_w);
+    let return_enthalpy_vav = openbse_psychrometrics::h_fn_tdb_w(return_air_temp, avg_zone_w);
     let outdoor_enthalpy_vav = openbse_psychrometrics::h_fn_tdb_w(raw_t_outdoor, w_outdoor);
     use openbse_io::input::EconomizerType;
     let econ_available = match li.economizer_type {
@@ -1493,7 +1536,7 @@ pub fn build_vav_signals(
             let limit = li.economizer_high_limit.unwrap_or(23.889);
             raw_t_outdoor < limit
         }
-        EconomizerType::DifferentialDryBulb => raw_t_outdoor < avg_zone_temp,
+        EconomizerType::DifferentialDryBulb => raw_t_outdoor < return_air_temp,
         EconomizerType::DifferentialEnthalpy => outdoor_enthalpy_vav < return_enthalpy_vav,
         EconomizerType::FixedEnthalpy => {
             let limit = li.economizer_high_limit_enthalpy.unwrap_or(65_200.0);
@@ -1549,6 +1592,7 @@ pub fn build_vav_signals(
     // Mixed air uses effective (post-HR) outdoor temperature. A return fan (when
     // present) heats the return air before it mixes with outdoor air.
     let mixed_air_temp = t_return * (1.0 - oa_frac) + t_outdoor * oa_frac;
+    signals.return_air_temp = Some(return_air_temp);
 
     // E+ SetpointManager:MixedAir on each coil outlet: the supply setpoint
     // less the fan heat still to come, i.e. the fan's rise when it sits
@@ -1794,17 +1838,13 @@ pub fn build_dual_duct_signals(li: &mut LoopInfo, ctx: &SignalCtx) -> ControlSig
         signals.air_mass_flows.insert(name.clone(), total_flow);
     }
 
-    // Mixed air for AHU inlet: blend outdoor and return air at min_oa_fraction
-    let avg_zone_temp = if li.served_zones.is_empty() {
-        21.0
-    } else {
-        li.served_zones
-            .iter()
-            .map(|z| zone_temps.get(z).copied().unwrap_or(21.0))
-            .sum::<f64>()
-            / li.served_zones.len() as f64
-    };
-    let mixed_air_temp = avg_zone_temp * (1.0 - effective_min_oa) + t_outdoor * effective_min_oa;
+    // Mixed air for AHU inlet: blend outdoor and return air at min_oa_fraction.
+    // The return is the zones' outlets mixed at the box flows (#51).
+    let return_air_temp = mixed_return_temp(ctx, &li.served_zones, |z| {
+        signals.zone_air_flows.get(z).copied().unwrap_or(0.0)
+    });
+    let mixed_air_temp = return_air_temp * (1.0 - effective_min_oa) + t_outdoor * effective_min_oa;
+    signals.return_air_temp = Some(return_air_temp);
     signals.mixed_air_temp = Some(mixed_air_temp);
     signals.oa_fraction = Some(effective_min_oa);
 
@@ -1901,6 +1941,8 @@ mod tests {
         heat_loads: HashMap<String, f64>,
         modes: HashMap<String, HvacMode>,
         empty: HashMap<String, f64>,
+        returns: HashMap<String, f64>,
+        mults: HashMap<String, u32>,
     }
 
     impl Fixture {
@@ -1917,7 +1959,8 @@ mod tests {
                 zone_max_rh: &self.empty,
                 zone_min_rh: &self.empty,
                 zone_thermal_caps: &self.empty,
-                zone_dc_return_temps: &self.empty,
+                zone_return_temps: &self.returns,
+                zone_multipliers: &self.mults,
                 predictor_modes: &self.modes,
                 t_outdoor,
                 raw_t_outdoor: t_outdoor,
@@ -1952,6 +1995,8 @@ mod tests {
                 .into_iter()
                 .collect(),
             empty: HashMap::new(),
+            returns: HashMap::new(),
+            mults: HashMap::new(),
         };
         let oa_at = |density: f64| {
             let mut li = li.clone();
@@ -2009,6 +2054,8 @@ mod tests {
                 .into_iter()
                 .collect(),
             empty: HashMap::new(),
+            returns: HashMap::new(),
+            mults: HashMap::new(),
         };
         let signals = build_psz_signals(&li, &f.ctx(-5.0));
         // Heating coil targets the design heating supply temp; cooling coil is off.
@@ -2044,6 +2091,8 @@ mod tests {
                 .into_iter()
                 .collect(),
             empty: HashMap::new(),
+            returns: HashMap::new(),
+            mults: HashMap::new(),
         };
         let signals = build_psz_signals(&li, &f.ctx(-5.0));
         assert_eq!(
@@ -2072,6 +2121,8 @@ mod tests {
                 .into_iter()
                 .collect(),
             empty: HashMap::new(),
+            returns: HashMap::new(),
+            mults: HashMap::new(),
         };
         (li, f)
     }
@@ -2134,9 +2185,52 @@ mod tests {
             heat_loads: HashMap::new(),
             modes: HashMap::new(),
             empty: HashMap::new(),
+            returns: HashMap::new(),
+            mults: HashMap::new(),
         };
         let signals = build_doas_signals(&li, &f.ctx(30.0));
         assert_eq!(signals.oa_fraction, Some(1.0));
+    }
+
+    /// Two VAV zones at 24 °C in deadband (both boxes at minimum flow).
+    /// Zone1's lights heat its return air to 28 °C; Zone2 counts three times.
+    #[test]
+    fn vav_economizer_compares_outdoor_air_with_the_mixed_return() {
+        let mut li = make_loop(AirLoopSystemType::Vav, vec!["CHW Coil".to_string()]);
+        li.served_zones = vec!["Zone1".to_string(), "Zone2".to_string()];
+        li.economizer_type = EconomizerType::DifferentialDryBulb;
+        let both = |a: f64, b: f64| -> HashMap<String, f64> {
+            [("Zone1".to_string(), a), ("Zone2".to_string(), b)]
+                .into_iter()
+                .collect()
+        };
+        let mut f = Fixture {
+            temps: both(24.0, 24.0),
+            heat_sp: both(21.0, 21.0),
+            cool_sp: both(25.0, 25.0),
+            flows: both(1.0, 1.0),
+            cool_loads: HashMap::new(),
+            heat_loads: HashMap::new(),
+            modes: ["Zone1", "Zone2"]
+                .iter()
+                .map(|z| (z.to_string(), HvacMode::Deadband))
+                .collect(),
+            empty: HashMap::new(),
+            returns: HashMap::new(),
+            mults: [("Zone2".to_string(), 3)].into_iter().collect(),
+        };
+        // Outdoor air between the zone air (24 °C) and the mixed return.
+        let t_oa = 24.5;
+        let no_lights = build_vav_signals(&li, &f.ctx(t_oa), false);
+        assert_eq!(no_lights.return_air_temp, Some(24.0));
+        assert!(!no_lights.economizer_active);
+
+        f.returns = one("Zone1", 28.0);
+        let lights = build_vav_signals(&li, &f.ctx(t_oa), false);
+        // Equal box flows, Zone2 weighted ×3: (28 + 3·24) / 4.
+        assert!((lights.return_air_temp.unwrap() - 25.0).abs() < 1e-12);
+        assert!(lights.economizer_active);
+        assert_eq!(lights.oa_fraction, Some(1.0));
     }
 
     #[test]

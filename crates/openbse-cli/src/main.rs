@@ -161,6 +161,49 @@ fn hot_aisle_return(
     }
 }
 
+/// EnergyPlus's upper limit on a zone's return-air temperature [°C]
+/// (`HVAC::RetTempMax`); lights heat that would push the return past it
+/// stays in the zone air.
+const RETURN_AIR_TEMP_MAX: f64 = 60.0;
+
+/// Add each zone's lighting return-air heat (#51) to the return air the air
+/// loops draw, as EnergyPlus's `CalcZoneLeavingConditions` does:
+/// T_return += Q / (ṁ_return·cp), over the flow the zone last returned to
+/// loops that carry the heat (see `LoopInfo::carries_return_air_heat`).
+/// `return_temps` holds the returns that already differ from the zone air
+/// (hot aisle, stratification); other zones start from `zone_temps`.
+///
+/// Returns each raised zone's rise [K] and cp [J/(kg·K)]. The envelope has
+/// the heat in the zone air, so the caller takes back ṁ·cp·rise over the
+/// flow the loops actually carried this iteration: whatever the return
+/// does not carry (no flow, a cycling fan, the 60 °C limit) stays in the
+/// zone and none is lost or counted twice.
+fn add_lighting_return_heat(
+    return_temps: &mut HashMap<String, f64>,
+    lighting_return_air: &HashMap<String, f64>,
+    return_flows: &HashMap<String, f64>,
+    zone_temps: &HashMap<String, f64>,
+    zone_humidity_ratios: &HashMap<String, f64>,
+) -> HashMap<String, (f64, f64)> {
+    let mut rises = HashMap::new();
+    for (zone, &q) in lighting_return_air {
+        let m = return_flows.get(zone).copied().unwrap_or(0.0);
+        let Some(&t_zone) = zone_temps.get(zone) else {
+            continue;
+        };
+        if q <= 0.0 || m <= 1.0e-6 {
+            continue;
+        }
+        let t_base = return_temps.get(zone).copied().unwrap_or(t_zone);
+        let w = zone_humidity_ratios.get(zone).copied().unwrap_or(0.008);
+        let cp = openbse_psychrometrics::cp_air_fn_w(w);
+        let rise = (q / (m * cp)).min((RETURN_AIR_TEMP_MAX - t_base).max(0.0));
+        return_temps.insert(zone.clone(), t_base + rise);
+        rises.insert(zone.clone(), (rise, cp));
+    }
+    rises
+}
+
 /// Standard air density at the site [kg/m³]: dry air at 20 °C and the
 /// design-day barometric pressure, as E+'s `StdRhoAir`.
 fn site_standard_air_density(model: &openbse_io::input::ModelInput) -> f64 {
@@ -2494,6 +2537,9 @@ fn main() -> Result<()> {
         // turn off, let the zone crash, and repeat — wasting energy recharging
         // thermal mass each cycle.
         let mut nightcycle_timers: HashMap<String, f64> = HashMap::new();
+        // Air each zone last returned to loops that carry lighting
+        // return-air heat [kg/s] (#51), carried over between timesteps.
+        let mut return_air_flows: HashMap<String, f64> = HashMap::new();
 
         // ── Zone thermal capacities for PLR correction ──────────────────────
         //
@@ -2658,7 +2704,7 @@ fn main() -> Result<()> {
                         let zone_cooling_setpoints = scheduled_cool_sp
                             .as_ref()
                             .unwrap_or(&zone_cooling_setpoints);
-                        let (_, zone_supply_conditions) = simulate_all_loops(
+                        let (_, zone_supply_conditions, _) = simulate_all_loops(
                             &mut graph,
                             &ctx,
                             &mut loop_infos,
@@ -3136,9 +3182,10 @@ fn main() -> Result<()> {
                             .collect();
 
                         // Return-air temperatures seen by the coils: contained hot
-                        // aisles for data-center zones (recomputed each HVAC iteration
-                        // below) and, for stratified zones (#91), the return-height
-                        // temperature (frozen for the timestep).
+                        // aisles for data-center zones and lighting return-air heat
+                        // (#51), both recomputed each HVAC iteration below, and, for
+                        // stratified zones (#91), the return-height temperature
+                        // (frozen for the timestep).
                         let stratified_returns: Vec<(String, f64)> = env
                             .zones
                             .iter()
@@ -3155,7 +3202,7 @@ fn main() -> Result<()> {
                         };
                         let mut dc_returns =
                             data_center_return_temps(env, &current_zone_temps, hour, dow);
-                        let mut zone_dc_return_temps = with_stratified(&dc_returns);
+                        let lighting_return_air = env.lighting_return_air_gains(&ctx);
 
                         // ── Dynamic blind control (#104) ─────────────────────────
                         // Evaluate shading control triggers once per timestep, before
@@ -3236,39 +3283,47 @@ fn main() -> Result<()> {
                             if hvac_iter > 0 {
                                 dc_returns =
                                     data_center_return_temps(env, &current_zone_temps, hour, dow);
-                                zone_dc_return_temps = with_stratified(&dc_returns);
                             }
+                            let mut zone_return_temps = with_stratified(&dc_returns);
+                            let lighting_rises = add_lighting_return_heat(
+                                &mut zone_return_temps,
+                                &lighting_return_air,
+                                &return_air_flows,
+                                &current_zone_temps,
+                                &zone_humidity_ratios,
+                            );
 
                             // Step 1: Run HVAC with current zone temps and loads
-                            let (mut hvac_result, zone_supply_conditions) = simulate_all_loops(
-                                &mut graph,
-                                &ctx,
-                                &mut loop_infos,
-                                &current_zone_temps,
-                                &zone_heating_setpoints,
-                                zone_cooling_setpoints,
-                                &zone_unocc_heating_setpoints,
-                                &zone_unocc_cooling_setpoints,
-                                &zone_heat_sp_schedule,
-                                &zone_design_flows,
-                                t_outdoor,
-                                Some(&env.schedule_manager),
-                                hour,
-                                dow,
-                                &mut nightcycle_timers,
-                                dt,
-                                &current_cooling_loads,
-                                &current_heating_loads,
-                                &loads_to_heating_sp,
-                                &initial_zone_temps,
-                                &zone_thermal_caps,
-                                &predictor_no_hvac_temps,
-                                &zone_multipliers,
-                                &zone_humidity_ratios,
-                                &zone_max_rh,
-                                &zone_min_rh,
-                                &zone_dc_return_temps,
-                            );
+                            let (mut hvac_result, zone_supply_conditions, zone_return_flows) =
+                                simulate_all_loops(
+                                    &mut graph,
+                                    &ctx,
+                                    &mut loop_infos,
+                                    &current_zone_temps,
+                                    &zone_heating_setpoints,
+                                    zone_cooling_setpoints,
+                                    &zone_unocc_heating_setpoints,
+                                    &zone_unocc_cooling_setpoints,
+                                    &zone_heat_sp_schedule,
+                                    &zone_design_flows,
+                                    t_outdoor,
+                                    Some(&env.schedule_manager),
+                                    hour,
+                                    dow,
+                                    &mut nightcycle_timers,
+                                    dt,
+                                    &current_cooling_loads,
+                                    &current_heating_loads,
+                                    &loads_to_heating_sp,
+                                    &initial_zone_temps,
+                                    &zone_thermal_caps,
+                                    &predictor_no_hvac_temps,
+                                    &zone_multipliers,
+                                    &zone_humidity_ratios,
+                                    &zone_max_rh,
+                                    &zone_min_rh,
+                                    &zone_return_temps,
+                                );
 
                             // Radiant panels run before the plant, so the plant
                             // supplies what the zones receive this iteration.
@@ -3915,6 +3970,16 @@ fn main() -> Result<()> {
                                         .or_default() -= ret.bypass_heat;
                                 }
                             }
+                            // Likewise the lights heat the return air carried off
+                            // (#51): the loops' coils and relief air took it.
+                            for (zone_name, &(rise, cp)) in &lighting_rises {
+                                let m = zone_return_flows.get(zone_name).copied().unwrap_or(0.0);
+                                *hvac_conds
+                                    .other_sensible_gains
+                                    .entry(zone_name.clone())
+                                    .or_default() -= m * cp * rise;
+                            }
+                            return_air_flows = zone_return_flows;
 
                             undamped_conds = damping_changed_supply.then(|| {
                                 let mut conds = hvac_conds.clone();
@@ -5502,6 +5567,12 @@ fn main() -> Result<()> {
 // strategy for each loop type. Returns:
 //   - A combined TimestepResult with all component outputs
 //   - A per-zone map of (supply_temp, mass_flow) aggregated across all loops
+//   - A per-zone map of the air returned to loops that carry lighting
+//     return-air heat (#51)
+
+/// Supply air each zone receives this iteration: zone → (temperature [°C],
+/// mass flow [kg/s], humidity ratio [kg/kg]).
+type ZoneSupplies = HashMap<String, (f64, f64, f64)>;
 
 fn simulate_all_loops(
     graph: &mut SimulationGraph,
@@ -5530,12 +5601,15 @@ fn simulate_all_loops(
     zone_humidity_ratios: &HashMap<String, f64>,
     zone_max_rh: &HashMap<String, f64>,
     zone_min_rh: &HashMap<String, f64>,
-    zone_dc_return_temps: &HashMap<String, f64>,
-) -> (TimestepResult, HashMap<String, (f64, f64, f64)>) {
+    zone_return_temps: &HashMap<String, f64>,
+) -> (TimestepResult, ZoneSupplies, HashMap<String, f64>) {
     let w_outdoor = ctx.outdoor_air.w;
     let mut all_outputs: HashMap<String, HashMap<String, f64>> = HashMap::new();
     // zone_name -> Vec<(supply_temp, mass_flow, supply_w)> — accumulate from multiple loops
     let mut zone_supply: HashMap<String, Vec<(f64, f64, f64)>> = HashMap::new();
+    // zone_name -> air returned to loops that carry lighting return-air heat
+    // [kg/s] (#51): what the zone is supplied by them, the return balancing it.
+    let mut zone_return_flows: HashMap<String, f64> = HashMap::new();
 
     for li in loop_infos.iter_mut() {
         // ── HVAC Availability Schedule & Night-Cycle Check ─────────────────
@@ -5853,7 +5927,8 @@ fn simulate_all_loops(
             zone_max_rh,
             zone_min_rh,
             zone_thermal_caps,
-            zone_dc_return_temps,
+            zone_return_temps,
+            zone_multipliers,
             predictor_modes: &predictor_modes,
             t_outdoor,
             // Controls see outdoor air before heat recovery, which is applied
@@ -6396,7 +6471,10 @@ fn simulate_all_loops(
                     let oa_frac = signals.oa_fraction.unwrap_or(0.0).clamp(0.0, 1.0);
                     let w_oa = signals.effective_oa_w.unwrap_or(ctx.outdoor_air.w);
                     let t_oa = signals.effective_oa_temp.unwrap_or(t_outdoor);
-                    let t_mixed_off = (1.0 - oa_frac) * t_zone + oa_frac * t_oa;
+                    // The return air the fan keeps moving carries any lighting
+                    // heat back to the zone during the off-cycle (#51).
+                    let t_return = signals.return_air_temp.unwrap_or(t_zone);
+                    let t_mixed_off = (1.0 - oa_frac) * t_return + oa_frac * t_oa;
                     let w_mixed_off = (1.0 - oa_frac) * w_zone + oa_frac * w_oa;
                     let t_off = t_mixed_off + continuous_fan_heat_rise;
                     let t_avg = loop_plr * supply_temp + (1.0 - loop_plr) * t_off;
@@ -6594,6 +6672,10 @@ fn simulate_all_loops(
                                 term_flow,
                                 term_supply_w,
                             ));
+                            if li.carries_return_air_heat() {
+                                *zone_return_flows.entry(zone_name.clone()).or_default() +=
+                                    term_flow;
+                            }
                         }
                     }
                 } else {
@@ -6643,6 +6725,9 @@ fn simulate_all_loops(
                         zone_flow,
                         effective_supply_w,
                     ));
+                    if li.carries_return_air_heat() {
+                        *zone_return_flows.entry(zone_name.clone()).or_default() += zone_flow;
+                    }
                 }
             }
         }
@@ -6671,7 +6756,7 @@ fn simulate_all_loops(
         component_outputs: all_outputs,
     };
 
-    (result, zone_supply_conditions)
+    (result, zone_supply_conditions, zone_return_flows)
 }
 
 // ─── Loop Component Runner ───────────────────────────────────────────────────
@@ -6848,15 +6933,15 @@ fn apply_heat_recovery(
         return outputs;
     };
 
-    // Exhaust stream: the return air from the served zones.
-    let n_zones = li.served_zones.len().max(1) as f64;
-    let t_return = li
-        .served_zones
-        .iter()
-        .map(|z| zone_temps.get(z).copied().unwrap_or(21.0))
-        .sum::<f64>()
-        / n_zones
-        + li.return_fan_dt;
+    // Exhaust stream: the return air from the served zones, as the signal
+    // builder mixed it (hot aisles, stratification, lighting heat; #51).
+    let t_return = signals.return_air_temp.unwrap_or_else(|| {
+        li.served_zones
+            .iter()
+            .map(|z| zone_temps.get(z).copied().unwrap_or(21.0))
+            .sum::<f64>()
+            / li.served_zones.len().max(1) as f64
+    }) + li.return_fan_dt;
     let w_return = signals.return_air_w.unwrap_or(oa.w);
     comp.set_exhaust_conditions(t_return, w_return);
 
@@ -7182,6 +7267,55 @@ mod tests {
         assert_eq!((r.temp, r.bypass_heat), (t_zone, 0.0));
     }
 
+    /// Lights return-air heat (#51) raises the return by Q/(ṁ·cp), starting
+    /// from a return that already differs from the zone air; a zone with no
+    /// return flow keeps the heat, and the 60 °C limit leaves the excess in
+    /// the zone.
+    #[test]
+    fn test_lighting_return_heat_raises_the_return_and_conserves() {
+        let map = |pairs: &[(&str, f64)]| -> HashMap<String, f64> {
+            pairs.iter().map(|&(z, v)| (z.to_string(), v)).collect()
+        };
+        let zone_temps = map(&[("Office", 24.0), ("Closed", 24.0), ("Hot", 24.0)]);
+        let w = map(&[("Office", 0.008)]);
+        let lights = map(&[("Office", 2000.0), ("Closed", 500.0), ("Hot", 5000.0)]);
+        let flows = map(&[("Office", 1.0), ("Hot", 0.1)]);
+        // Office returns from a stratified ceiling layer at 25 °C.
+        let mut returns = map(&[("Office", 25.0)]);
+        let rises = add_lighting_return_heat(&mut returns, &lights, &flows, &zone_temps, &w);
+
+        let (rise, cp) = rises["Office"];
+        assert!((rise - 2000.0 / cp).abs() < 1e-9);
+        assert!((returns["Office"] - (25.0 + rise)).abs() < 1e-12);
+        // Carried at the flow it was computed for, the return takes it all.
+        assert!((flows["Office"] * cp * rise - 2000.0).abs() < 1e-9);
+
+        // No return flow: nothing raised, the zone keeps its 500 W.
+        assert!(!rises.contains_key("Closed") && !returns.contains_key("Closed"));
+
+        // 5 kW in 0.1 kg/s would reach ~74 °C: capped at 60 °C.
+        let (rise_hot, cp_hot) = rises["Hot"];
+        assert!((returns["Hot"] - RETURN_AIR_TEMP_MAX).abs() < 1e-12);
+        assert!(flows["Hot"] * cp_hot * rise_hot < 5000.0);
+    }
+
+    #[test]
+    fn test_which_loops_carry_lighting_return_heat() {
+        use openbse_io::input::FanOperatingMode;
+        let mut psz = make_pthp_loop(vec![]);
+        psz.system_type = AirLoopSystemType::PszAc;
+        psz.fan_operating_mode = FanOperatingMode::Cycling;
+        assert!(!psz.carries_return_air_heat());
+        psz.fan_operating_mode = FanOperatingMode::Continuous;
+        assert!(psz.carries_return_air_heat());
+        let mut pthp = make_pthp_loop(vec![]);
+        pthp.fan_operating_mode = FanOperatingMode::Continuous;
+        assert!(!pthp.carries_return_air_heat());
+        let mut vav = make_pthp_loop(vec![]);
+        vav.system_type = AirLoopSystemType::Vav;
+        assert!(vav.carries_return_air_heat());
+    }
+
     fn make_pthp_loop(component_names: Vec<String>) -> LoopInfo {
         LoopInfo {
             name: "test_pthp".to_string(),
@@ -7303,7 +7437,8 @@ mod tests {
             zone_max_rh: &empty_rh,
             zone_min_rh: &empty_rh,
             zone_thermal_caps: &empty_rh,
-            zone_dc_return_temps: &empty_rh,
+            zone_return_temps: &empty_rh,
+            zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
             t_outdoor: 5.0,
             raw_t_outdoor: 5.0,
@@ -7371,7 +7506,8 @@ mod tests {
             zone_max_rh: &empty_rh,
             zone_min_rh: &empty_rh,
             zone_thermal_caps: &empty_rh,
-            zone_dc_return_temps: &empty_rh,
+            zone_return_temps: &empty_rh,
+            zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
             t_outdoor: 30.0,
             raw_t_outdoor: 30.0,
@@ -7600,7 +7736,8 @@ mod tests {
             zone_max_rh: &empty_rh,
             zone_min_rh: &empty_rh,
             zone_thermal_caps: &empty_rh,
-            zone_dc_return_temps: &empty_rh,
+            zone_return_temps: &empty_rh,
+            zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
             t_outdoor: 20.0,
             raw_t_outdoor: 20.0,
@@ -7845,7 +7982,8 @@ mod tests {
             zone_max_rh: &zone_max_rh,
             zone_min_rh: &empty_rh,
             zone_thermal_caps: &empty_rh,
-            zone_dc_return_temps: &empty_rh,
+            zone_return_temps: &empty_rh,
+            zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
             t_outdoor: 20.0,
             raw_t_outdoor: 20.0,
@@ -7911,7 +8049,8 @@ mod tests {
             zone_max_rh: &zone_max_rh,
             zone_min_rh: &empty_rh,
             zone_thermal_caps: &empty_rh,
-            zone_dc_return_temps: &empty_rh,
+            zone_return_temps: &empty_rh,
+            zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
             t_outdoor: 20.0,
             raw_t_outdoor: 20.0,
@@ -8468,7 +8607,8 @@ mod tests_datacenter {
             zone_max_rh: &zone_rh,
             zone_min_rh: &zone_rh,
             zone_thermal_caps: &zone_rh,
-            zone_dc_return_temps: &dc_return,
+            zone_return_temps: &dc_return,
+            zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
             t_outdoor: 0.0,
             raw_t_outdoor: 0.0,
@@ -8528,7 +8668,8 @@ mod tests_datacenter {
             zone_max_rh: &zone_rh,
             zone_min_rh: &zone_rh,
             zone_thermal_caps: &zone_rh,
-            zone_dc_return_temps: &dc_return,
+            zone_return_temps: &dc_return,
+            zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
             t_outdoor: 0.0,
             raw_t_outdoor: 0.0,

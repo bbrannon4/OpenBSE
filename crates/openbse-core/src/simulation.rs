@@ -105,6 +105,9 @@ pub struct ControlSignals {
     pub effective_oa_w: Option<f64>,
     /// Served-zone average return-air humidity ratio [kg/kg].
     pub return_air_w: Option<f64>,
+    /// Return-air temperature from the served zones, before any return fan
+    /// [°C]: the economizer's reference and heat recovery's exhaust inlet.
+    pub return_air_temp: Option<f64>,
 }
 
 /// The simulation runner.
