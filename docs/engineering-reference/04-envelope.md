@@ -10,8 +10,7 @@ This chapter covers the building shell, in seven parts:
 6. internal gains and ground heat transfer;
 7. the zone air heat and moisture balances.
 
-They are reviewed one part at a time. Parts 1 to 3 and the windows of part 4
-are reviewed below;
+They are reviewed one part at a time. Parts 1 to 4 are reviewed below;
 the rest is pre-review text (@sec-envelope-prereview).
 
 ## Materials and constructions {#sec-constructions}
@@ -301,7 +300,7 @@ $$ {#eq-outside-temp}
 where:
 
 - $q''_\alpha$ is the absorbed solar flux (@sec-incident-solar, times the
-  outside solar absorptance and the shading treatment of @sec-envelope-prereview);
+  outside solar absorptance and the shading treatment of @sec-external-shading);
 - $H_\text{o} = \sum_{j\ge1}(X_jT_\text{so}^{t-j} - Y_jT_\text{si}^{t-j} + \Phi_j q''^{\,t-j}_\text{ko})$
   is the history part of @eq-ctf;
 - the denominator is floored at 1 W/(m²·K).
@@ -357,7 +356,7 @@ sky–air split and the ground at air temperature match
 The inside face balances conduction from the wall, convection to the zone
 air, long-wave exchange with the zone's other surfaces, and the radiant flux
 $q''_\text{r}$ it absorbs. That flux is the transmitted solar landing on it
-plus its share of the radiant internal gains (@sec-radiant-gains; solar in @sec-envelope-prereview):
+plus its share of the radiant internal gains (@sec-radiant-gains; solar in @sec-interior-solar):
 
 $$
 q''_\text{ki} + h_{c,i}(T_z - T_\text{si}) + h_{r,i}(T_\text{mrt} - T_\text{si}) + q''_\text{r} = 0.
@@ -658,7 +657,7 @@ from its parent surface.
 ### Solar optics {#sec-window-optics}
 
 The solar gain of a window is split into the transmitted part, which lands
-on the zone's surfaces (@sec-envelope-prereview), and the absorbed-inward
+on the zone's surfaces (@sec-interior-solar), and the absorbed-inward
 part, which heats the glass:
 
 $$
@@ -719,7 +718,7 @@ over 200 angles. Which angular model a window gets depends on its inputs
    it.
 
 The transmitted solar then splits into beam and diffuse parts
-(@sec-envelope-prereview). The absorbed-inward part is
+(@sec-interior-solar). The absorbed-inward part is
 $SHGC\cdot I - \tau\cdot I$, per unit window area.
 
 ### Window heat balance {#sec-window-hb}
@@ -848,6 +847,143 @@ A deployed device is modelled in one of two ways:
 - [#214](https://github.com/bbrannon4/OpenBSE/issues/214): lumped glass node,
   two-pane air-only gap model, ad hoc caps.
 
+## Interior solar distribution {#sec-interior-solar}
+
+**Source:** `heat_balance.rs::solve_timestep`, step 5c; precomputed per
+surface and applied as $q''_\text{r}$ in @eq-inside-temp.
+
+The beam and diffuse solar transmitted by a zone's windows (@sec-window-optics)
+is distributed in four steps.
+
+1. **Beam landing.** `simulation.solar_distribution` selects how the beam
+   lands:
+   - **FullExterior** (default): all beam lands on the zone's floors, in
+     proportion to their area.
+   - **FullInteriorAndExterior:** each window's polygon is projected along
+     the sun direction onto every inside surface that faces the sun (other
+     than its parent wall), and clipped to that surface (Sutherland–Hodgman
+     [@sutherland1974]). The beam landing on surface $j$ is
+     $I_{b,\text{win}}\,A_{\text{overlap},j}\cos\theta_j/\cos\theta_\text{win}$.
+     A zone in which any surface other than internal mass lacks vertices
+     falls back to the fixed `solar_distribution` fractions of the zone, or,
+     without them, to putting all transmitted solar into the zone air
+     ([#68](https://github.com/bbrannon4/OpenBSE/issues/68)).
+2. **Beam absorbed and reflected.** Surface $j$ absorbs
+   $\alpha_j S_{b,j}$, where $S_{b,j}$ is the beam landing on it and
+   $\alpha_j$ its inside solar absorptance. The rest of the beam joins the
+   diffuse pool.
+3. **Cavity back-out.** Part of the diffuse pool leaves the zone again
+   through the windows: their back transmittance $\tau_b$ plus the outward
+   share of their back absorptance $\alpha_b$. The pool kept is
+   $$
+   S_d = \left(S_\text{d,win} + S_b - \sum_j\alpha_jS_{b,j}\right)
+   \frac{\sum_k A_k\alpha_k}{\sum_k A_k\alpha_k + \sum_w A_w\left[\tau_b + \alpha_b(1 - N_i)\right]},
+   $$ {#eq-cavity-backout}
+   with $k$ over opaque surfaces and $w$ over windows.
+4. **Diffuse absorbed.** Every opaque surface absorbs in proportion to
+   $A_k\alpha_k$ (EnergyPlus's VMULT):
+   $$
+   Q_{\text{sol},k} = \alpha_k S_{b,k} + \frac{A_k\alpha_k}{\sum_m A_m\alpha_m}\,S_d.
+   $$ {#eq-vmult}
+
+**Comparison with EnergyPlus.** FullExterior, the absorbed and reflected
+beam, the VMULT distribution and the back-out follow
+`HeatBalanceSurfaceManager::ComputeIntSWAbsorpFactors` and
+`InitIntSolarDistribution` [@eplus-engref-25-2, "Solar Distribution"]. The
+differences ([#68](https://github.com/bbrannon4/OpenBSE/issues/68)):
+
+- **Windows absorb no diffuse.** EnergyPlus includes windows in the VMULT
+  sum, and the glass absorbs its share of the reflected diffuse. OpenBSE
+  gives that share to the opaque surfaces.
+- **Fallback.** Zones that lack vertices fall back to fixed fractions or
+  to the air, rather than to FullExterior.
+- **Beam projection.** The projection uses the whole window, not its
+  sunlit part, and has no first-hit test for non-convex zones.
+
+## External shading {#sec-external-shading}
+
+**Source:** `openbse-envelope/src/shading.rs` (`calculate_sunlit_fraction`,
+`compute_diffuse_sky_shading_ratio`, `compute_diffuse_horizon_shading_ratio`,
+`generate_overhang_vertices`, `generate_fin_vertices`);
+`heat_balance.rs::precompute_solar`, `compute_diffuse_shading_ratios`, step 5a.
+
+With `simulation.shading_calculation: basic` (the default), every outdoor
+surface is fully sunlit and no diffuse is shaded. The model's overhangs,
+fins, shading surfaces and the building's own surfaces are then ignored
+([#216](https://github.com/bbrannon4/OpenBSE/issues/216)). With `detailed`:
+
+**Casters** are:
+
+- every outdoor surface with vertices (self-shading);
+- each `shading_surfaces` polygon;
+- the overhangs and fins generated for windows from their depth,
+  extension and offset inputs.
+
+A surface does not shade itself, and casters coplanar with the receiver
+(e.g. a wall around its window) are excluded.
+
+**Beam.** The sunlit fraction $f_s$ of a receiving surface projects each
+caster along the sun direction onto the receiver's plane and clips it to the
+receiver polygon. A surface facing away from the sun has $f_s = 0$. With a
+single opaque caster, $f_s = 1 - A_\text{shadow}/A$ exactly. With more than
+one caster, $f_s$ is the share of an $8\times8$ grid of points on the
+receiver that no opaque caster covers. That handles overlapping shadows,
+quantized to the grid ([#68](https://github.com/bbrannon4/OpenBSE/issues/68)).
+Casters with a solar transmittance above zero cast no beam shadow
+([#217](https://github.com/bbrannon4/OpenBSE/issues/217)). The fractions are
+computed for every timestep of the run period, in parallel, and cached in a
+`.solar` file keyed by the geometry.
+
+**Diffuse.** Two time-independent ratios are computed at initialization:
+
+- **Sky** ($R_\text{sky}$). Rays are cast from up to $5\times5$ points on the
+  receiver to $6\times24$ sky patches (altitudes 7.5°–82.5°). Each patch is
+  weighted by $\cos\phi\cos\theta_i$ (projected solid angle) [@eplus-engref-25-2,
+  "Shading Module"], and a ray hit by any caster is blocked:
+  $$
+  R_\text{sky} = \frac{\sum_\text{patches} w\,\bar u}{\sum_\text{patches} w},
+  $$ {#eq-sky-ratio}
+  where $\bar u$ is the fraction of the receiver's points whose ray to the
+  patch is unblocked.
+- **Horizon** ($R_\text{hz}$). The same test over a near-horizon band
+  (0–10°) from $3\times3$ points.
+
+**Applied** to @eq-incident:
+
+$$
+I_\text{shaded} = f_s\left(I_\text{beam} + I_\text{cs}\right) + R_\text{sky}I_\text{iso} + R_\text{hz}I_\text{hz} + I_\text{gnd},
+$$ {#eq-shaded-incident}
+
+The ground-reflected part is not shaded. For windows, $R_\text{sky}$ is
+floored at 0.75 and $R_\text{hz} = 1$.
+
+**Comparison with EnergyPlus.** EnergyPlus projects shadows and combines
+overlapping shadows by exact polygon operations (`SolarShading::SHADOW`,
+`SHDGSS`), updated every 20 days by default. OpenBSE computes shadows every
+timestep, but with grid sampling when shadows overlap. The 144-patch sky
+ratio follows `SkyDifSolarShading`.
+
+The differences:
+
+- **Default.** Shading is off by default; EnergyPlus always computes it
+  ([#216](https://github.com/bbrannon4/OpenBSE/issues/216)).
+- **Transmittance.** Semi-transparent casters are ignored for beam and
+  opaque for diffuse ([#217](https://github.com/bbrannon4/OpenBSE/issues/217)).
+- **Windows.** The window floor and unshaded horizon
+  ([#68](https://github.com/bbrannon4/OpenBSE/issues/68)).
+- **Reflections.** There are no reflections from shading or building
+  surfaces (EnergyPlus's `...WithReflections` options).
+
+## Known limitations: solar distribution and shading {#sec-solar-limitations}
+
+- [#68](https://github.com/bbrannon4/OpenBSE/issues/68): multi-caster point
+  sampling; window diffuse ratio floor and unshaded horizon; interior
+  distribution fallbacks and projection limits.
+- [#216](https://github.com/bbrannon4/OpenBSE/issues/216): external shading
+  off by default; shading geometry silently ignored.
+- [#217](https://github.com/bbrannon4/OpenBSE/issues/217): semi-transparent
+  casters.
+
 ## Remaining envelope models {#sec-envelope-prereview}
 
 ::: {.callout-warning}
@@ -855,90 +991,6 @@ A deployed device is modelled in one of two ways:
 
 The sections below hold text moved unchanged, apart from format, from the former single-file reference (`README.md`, mostly written in March 2026). Parts of it are stale or incomplete. They will be rewritten from the code, and checked against EnergyPlus, in the later parts of this chapter's review ([#181](https://github.com/bbrannon4/OpenBSE/issues/181)); see @sec-status.
 :::
-
-### Interior Solar Distribution
-
-**Module:** `envelope.rs` (solar distribution logic within the zone heat balance)
-
-**Purpose:** Distributes transmitted window solar gains onto interior zone surfaces. Two methods are implemented, selected via the `solar_distribution` YAML field.
-
-#### FullExterior (Default)
-
-All transmitted beam solar is distributed to floor surfaces, weighted by floor area:
-
-```
-Q_beam_floor_i = Q_beam_total × (A_floor_i / A_floor_total)
-```
-
-Diffuse transmitted solar is distributed to all interior surfaces using a VMULT factor:
-
-```
-VMULT = 1 / Σ(A_i × α_i)    for all interior surfaces
-Q_diffuse_surface_i = Q_diffuse_total × A_i × α_i × VMULT
-```
-
-where `α_i` is the interior solar absorptance of surface `i`. This matches the EnergyPlus FullExterior algorithm.
-
-#### FullInteriorAndExterior
-
-Beam solar is geometrically projected through each window onto interior surfaces using the actual sun direction vector. The algorithm:
-
-1. For each window, project a beam rectangle onto the plane of each interior surface using the solar direction vector.
-2. Clip the projected rectangle against the receiving surface polygon using Sutherland-Hodgman polygon clipping.
-3. Assign beam solar proportional to the clipped area on each surface.
-4. Any beam solar that doesn't hit a surface (e.g., exits through another window) falls back to the FullExterior floor distribution.
-
-Diffuse distribution uses the same VMULT method as FullExterior.
-
-#### Reflected Beam Handling (Deliberate Deviation from EnergyPlus)
-
-After beam solar is absorbed by its target surface (absorptance `α`), the reflected fraction `(1 - α)` enters the diffuse pool for redistribution via VMULT. This differs from EnergyPlus, which keeps reflected beam localized to the surface that received it.
-
-**Rationale:** In reality, reflected beam bounces multiple times off interior surfaces. The infinite-bounce solution converges to a distribution governed by the radiosity equation `(I - ρF)⁻¹`, where `F` is the view factor matrix. Placing reflected beam into the diffuse pool (area-weighted) is a closer approximation to this converged state than E+'s single-bounce localization. The approximation omits view-factor weighting between surfaces, which is acceptable for typical rectangular rooms but could diverge for unusual geometries.
-
-OpenBSE also omits E+'s direct solar-to-zone-air fraction, which E+ uses to account for solar absorbed by unmodeled interior objects (furniture, carpets) that release heat convectively with minimal time lag. This is a known simplification — see STATUS.md for details.
-
----
-
-### External Shading
-
-**Module:** `shading.rs`
-
-**Purpose:** Computes the shading effect of overhangs, fins, and other external shading surfaces on building surfaces. Two types of shading are calculated: beam (directional) and diffuse (sky dome).
-
-#### Beam Shadow Calculation
-
-**Function:** `calculate_sunlit_fraction(surface_vertices, caster_polygons, sun_direction)`
-
-**Algorithm:** For each timestep, the sun direction is used to project shading surface (caster) polygons onto the receiving surface plane. The projected shadow polygon is clipped against the receiving surface using the Sutherland-Hodgman polygon clipping algorithm. The sunlit fraction is `1 - (shadow_area / surface_area)`.
-
-**Multi-caster handling:** When multiple casters shade the same surface (e.g., overhang + two fins), an 8x8 grid sampling method is used with UNION logic (a point is shaded if ANY caster shadows it). For single casters, exact polygon area is used for efficiency.
-
-#### Diffuse Sky Shading Ratios
-
-**Function:** `compute_diffuse_sky_shading_ratio(surface_vertices, caster_polygons)`
-
-**Algorithm:** Samples the sky hemisphere using 144 patches (6 altitude x 24 azimuth directions). For each patch, checks if any caster blocks the line of sight from 5x5 sample points on the receiving surface. The ratio of unblocked patches (weighted by `cos(altitude)`) to the total gives the diffuse sky shading ratio.
-
-Two ratios are computed:
-- **DifShdgRatioIsoSky:** Fraction of isotropic sky dome visible (patches above 10 deg altitude)
-- **DifShdgRatioHoriz:** Fraction of horizon band visible (patches below 10 deg altitude)
-
-These ratios are precomputed once at startup and stored per surface.
-
-#### Overhang and Fin Geometry Generation
-
-Overhangs and fins can be specified as either:
-1. **Explicit vertices** in the `shading_surfaces` section
-2. **Auto-generated** from `shading: overhang/left_fin/right_fin` parameters on surfaces
-
-Auto-generation creates overhang/fin polygons based on:
-- `depth` -- projection distance from wall surface
-- `offset_above` -- vertical offset above window (overhangs, default 0)
-- `left_extension/right_extension` -- lateral extensions (overhangs, default 0)
-- `extend_above/extend_below` -- vertical extensions (fins, default 0)
-
----
 
 ### Infiltration
 
