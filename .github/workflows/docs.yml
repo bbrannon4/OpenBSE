@@ -1,0 +1,71 @@
+name: Engineering Reference
+
+# Builds the Engineering Reference (docs/engineering-reference/) as a website
+# and a PDF from the same Quarto source. Pull requests build both to catch
+# broken math, cross-references and LaTeX errors; pushes to main also publish
+# the website to GitHub Pages. Release PDFs are built in release.yml.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/engineering-reference/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/engineering-reference/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build website and PDF
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The PDF's fallback fonts supply the Unicode glyphs (Greek, ṁ, box
+      # drawing) that Latin Modern lacks.
+      - name: Install fonts
+        run: sudo apt-get update && sudo apt-get install -y fonts-dejavu-core
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: 1.10.19
+          tinytex: true
+
+      - name: Render website and PDF
+        working-directory: docs/engineering-reference
+        run: quarto render
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/engineering-reference/_book
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engineering-reference-pdf
+          path: docs/engineering-reference/_book/OpenBSE-Engineering-Reference.pdf
+
+  deploy:
+    name: Publish to GitHub Pages
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

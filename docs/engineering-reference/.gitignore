@@ -1,0 +1,5 @@
+/_book/
+/.quarto/
+
+**/*.quarto_ipynb
+/*.tex
