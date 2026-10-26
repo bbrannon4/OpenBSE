@@ -1957,11 +1957,21 @@ Q_radiative = Q_zone · radiant_fraction
 Q_convective = Q_zone · (1 − radiant_fraction)
 ```
 
+`Q_return_air` goes to the air leaving the zone for the return duct, as in
+EnergyPlus (`ZoneEquipmentManager::CalcZoneLeavingConditions`). It raises the
+zone's return-air temperature by `Q_return_air / (ṁ_return · cp)`, up to
+EnergyPlus's 60 °C limit, so the coils, the economizer and heat recovery see it.
+`ṁ_return` is the air the zone returns to a central loop (VAV, dual-duct, DOAS,
+CRAC/CRAH) or to a PSZ unit with a continuous fan. With no such return (zonal
+units such as FCU, PTAC and PTHP, cycling-fan PSZ units, a loop that is off,
+ideal loads or sizing), the heat stays in the zone air as a convective gain,
+which is what EnergyPlus does through `Zone::NoHeatToReturnAir`.
+
 | Parameter | Unit | Default | Description |
 |-----------|------|---------|-------------|
 | `power` | W | required | Total installed lighting power |
-| `radiant_fraction` | 0–1 | 0.7 | Fraction of zone heat that is radiative |
-| `return_air_fraction` | 0–1 | 0.0 | Fraction of heat to return air plenum |
+| `radiant_fraction` | 0–1 | 0.7 | Fraction of zone heat (`Q_zone`) that is radiative |
+| `return_air_fraction` | 0–1 | 0.0 | Fraction of heat to the zone's return air |
 
 **Equipment:**
 ```

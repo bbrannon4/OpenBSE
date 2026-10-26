@@ -122,6 +122,12 @@ pub struct ResolvedGain {
     pub lighting_gain_to_zone: f64,
     /// Equipment sensible heat to zone [W] (conv + rad, excluding lost fraction)
     pub equipment_sensible_gain_to_zone: f64,
+    /// Lighting heat to the return air [W] (`return_air_fraction`). It is
+    /// part of `convective`: with no return air to carry it, the heat stays
+    /// in the zone air, as EnergyPlus does for a zone with no return path or
+    /// served only by cycling-fan systems (`Zone::NoHeatToReturnAir`). An air
+    /// loop whose return air carries it takes it back out (#51).
+    pub lighting_return_air: f64,
 }
 
 /// Resolve all gains for a zone at this timestep.
@@ -182,12 +188,14 @@ pub fn resolve_gains_scheduled(
                 let frac =
                     schedule_fraction(schedule, schedule_mgr, hour, day_of_week, day_of_year);
                 let total = power * frac;
-                let to_zone = total * (1.0 - return_air_fraction);
+                let to_return_air = total * return_air_fraction;
+                let to_zone = total - to_return_air;
                 result.radiative += to_zone * radiant_fraction;
-                result.convective += to_zone * (1.0 - radiant_fraction);
+                result.convective += to_zone * (1.0 - radiant_fraction) + to_return_air;
                 result.total += total;
                 result.lighting_power += total;
                 result.lighting_gain_to_zone += to_zone;
+                result.lighting_return_air += to_return_air;
             }
             InternalGainInput::Equipment {
                 power,
@@ -267,10 +275,18 @@ mod tests {
         }];
         let resolved = resolve_gains(&gains);
         // 1000 total, 200 to return air, 800 to zone
-        // Of 800: 560 radiant, 240 convective
+        // Of 800: 560 radiant, 240 convective. The 200 bound for the return
+        // air is zone convective until an air loop's return carries it.
         assert_relative_eq!(resolved.total, 1000.0);
         assert_relative_eq!(resolved.radiative, 560.0);
-        assert_relative_eq!(resolved.convective, 240.0);
+        assert_relative_eq!(resolved.convective, 440.0);
+        assert_relative_eq!(resolved.lighting_gain_to_zone, 800.0);
+        assert_relative_eq!(resolved.lighting_return_air, 200.0);
+        // Nothing is lost: zone conv + rad = electric power.
+        assert_relative_eq!(
+            resolved.convective + resolved.radiative,
+            resolved.lighting_power
+        );
     }
 
     #[test]

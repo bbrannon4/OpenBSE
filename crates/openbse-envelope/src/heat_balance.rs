@@ -2208,6 +2208,79 @@ impl BuildingEnvelope {
     pub fn has_ideal_loads(&self) -> bool {
         self.zones.iter().any(|z| z.input.ideal_loads.is_some())
     }
+
+    /// Day type for schedule lookups this timestep: 1–7, or 8 on a holiday.
+    fn schedule_day_of_week(&self, ctx: &SimulationContext) -> u32 {
+        let (month, day) = (ctx.timestep.month, ctx.timestep.day);
+        if self.holiday_set.contains(&(month, day)) {
+            8
+        } else {
+            day_of_week(month, day, self.jan1_dow)
+        }
+    }
+
+    /// Lights heat bound for each zone's return air this timestep [W, one
+    /// zone instance], resolved exactly as `solve_timestep` resolves it. The
+    /// envelope adds it to the zone air; the air loops take back the share
+    /// their return air carries (#51). Zones without any are omitted.
+    pub fn lighting_return_air_gains(&self, ctx: &SimulationContext) -> HashMap<String, f64> {
+        let (hour, dow, doy) = (
+            ctx.timestep.hour,
+            self.schedule_day_of_week(ctx),
+            ctx.timestep.day_of_year(),
+        );
+        self.zones
+            .iter()
+            .filter_map(|z| {
+                let gains = timestep_gains(
+                    &z.input.internal_gains,
+                    &self.schedule_manager,
+                    ctx,
+                    hour,
+                    dow,
+                    doy,
+                );
+                (gains.lighting_return_air > 0.0)
+                    .then(|| (z.input.name.clone(), gains.lighting_return_air))
+            })
+            .collect()
+    }
+}
+
+/// A zone's internal gains this timestep. Normal simulation follows the
+/// schedules; sizing follows the design day's `internal_gains` mode
+/// (Off / Full / Scheduled / FullWhenOccupied).
+fn timestep_gains(
+    gains: &[internal_gains::InternalGainInput],
+    schedule_manager: &ScheduleManager,
+    ctx: &SimulationContext,
+    hour: u32,
+    dow: u32,
+    doy: u32,
+) -> internal_gains::ResolvedGain {
+    use openbse_core::ports::SizingInternalGains;
+    let scheduled =
+        || internal_gains::resolve_gains_scheduled(gains, Some(schedule_manager), hour, dow, doy);
+    // No schedule manager: every gain at its design level.
+    let full = || internal_gains::resolve_gains_scheduled(gains, None, hour, dow, doy);
+    if !ctx.is_sizing {
+        return scheduled();
+    }
+    match ctx.sizing_internal_gains {
+        // Zero internal gains (heating design days: conservative).
+        SizingInternalGains::Off => internal_gains::ResolvedGain::default(),
+        // 100% design-level gains at all hours (cooling DDs: conservative).
+        SizingInternalGains::Full => full(),
+        SizingInternalGains::Scheduled => scheduled(),
+        // Design-level gains in any hour a gain's schedule is on, else none.
+        SizingInternalGains::FullWhenOccupied => {
+            if scheduled().total > 0.0 {
+                full()
+            } else {
+                internal_gains::ResolvedGain::default()
+            }
+        }
+    }
 }
 
 /// Describe a CTF failure with the construction and surface it belongs to and
@@ -2313,76 +2386,16 @@ impl EnvelopeSolver for BuildingEnvelope {
         // During normal simulation: use schedules (time-varying fractions).
         // During sizing: behavior is controlled by the design day's
         // `internal_gains` mode (Off / Full / Scheduled / FullWhenOccupied).
-        use openbse_core::ports::SizingInternalGains;
-        let mut dow = day_of_week(ctx.timestep.month, ctx.timestep.day, self.jan1_dow);
-        if self
-            .holiday_set
-            .contains(&(ctx.timestep.month, ctx.timestep.day))
-        {
-            dow = 8; // Holiday day-type
-        }
+        let dow = self.schedule_day_of_week(ctx);
         for zone in &mut self.zones {
-            let gains = if ctx.is_sizing {
-                match ctx.sizing_internal_gains {
-                    SizingInternalGains::Off => {
-                        // Zero internal gains (heating design days: conservative).
-                        internal_gains::ResolvedGain::default()
-                    }
-                    SizingInternalGains::Full => {
-                        // 100% design-level gains at all hours (cooling DDs: conservative).
-                        // Passing None for schedule_mgr → fraction = 1.0 for all gains.
-                        internal_gains::resolve_gains_scheduled(
-                            &zone.input.internal_gains,
-                            None,
-                            hour,
-                            dow,
-                            doy,
-                        )
-                    }
-                    SizingInternalGains::Scheduled => {
-                        // Follow normal schedules, same as annual simulation.
-                        internal_gains::resolve_gains_scheduled(
-                            &zone.input.internal_gains,
-                            Some(&self.schedule_manager),
-                            hour,
-                            dow,
-                            doy,
-                        )
-                    }
-                    SizingInternalGains::FullWhenOccupied => {
-                        // Check scheduled gains to determine if this hour is "occupied".
-                        // If any gain is active (schedule > 0), use full design gains.
-                        // If unoccupied (all schedules = 0), use zero gains.
-                        let scheduled = internal_gains::resolve_gains_scheduled(
-                            &zone.input.internal_gains,
-                            Some(&self.schedule_manager),
-                            hour,
-                            dow,
-                            doy,
-                        );
-                        if scheduled.total > 0.0 {
-                            internal_gains::resolve_gains_scheduled(
-                                &zone.input.internal_gains,
-                                None,
-                                hour,
-                                dow,
-                                doy,
-                            )
-                        } else {
-                            internal_gains::ResolvedGain::default()
-                        }
-                    }
-                }
-            } else {
-                // Normal simulation: always use schedules
-                internal_gains::resolve_gains_scheduled(
-                    &zone.input.internal_gains,
-                    Some(&self.schedule_manager),
-                    hour,
-                    dow,
-                    doy,
-                )
-            };
+            let gains = timestep_gains(
+                &zone.input.internal_gains,
+                &self.schedule_manager,
+                ctx,
+                hour,
+                dow,
+                doy,
+            );
             zone.q_internal_conv = gains.convective;
             zone.q_internal_rad = gains.radiative;
             zone.lighting_power = gains.lighting_power;

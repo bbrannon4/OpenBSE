@@ -2026,7 +2026,7 @@
         "type": { "type": "string", "const": "lights" },
         "power": { "type": "number", "description": "Lighting power [W]." },
         "radiant_fraction": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1 },
-        "return_air_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of heat to the return air plenum [0-1]." },
+        "return_air_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of heat to the zone's return air [0-1]. Raises the return-air temperature the air loop sees; stays in the zone air when no return air carries it (zonal or cycling-fan systems, system off). radiant_fraction applies to the rest." },
         "schedule": { "type": "string" },
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use reporting." }
       }
@@ -2124,7 +2124,7 @@
         "power": { "type": "number", "default": 0, "description": "Total lighting power [W]." },
         "watts_per_area": { "type": "number", "description": "Lighting power density [W/m2]." },
         "radiant_fraction": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1 },
-        "return_air_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of heat to return air plenum [0-1]." },
+        "return_air_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of heat to the zone's return air [0-1]. Raises the return-air temperature the air loop sees; stays in the zone air when no return air carries it (zonal or cycling-fan systems, system off). radiant_fraction applies to the rest." },
         "schedule": { "type": "string", "description": "Lighting schedule name." },
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting. Enables per-submeter output variables (e.g., submeter:Decorative:lighting)." }
       }

@@ -96,8 +96,8 @@
     },
     "examples/retail_rtu.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 4720,
-      "max_unmet_heating_hours_reason": "Pre-existing: 4285 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change.",
+      "max_unmet_heating_hours": 5740,
+      "max_unmet_heating_hours_reason": "Pre-existing: 4285 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. 5219 h since #51 (2026-10-25): the RTU's mixed air now uses both served zones' return air instead of the Sales Area temperature for both, and the Office, which the RTU does not control, runs ~0.6 K colder. The limit is ~10% above that, and the baseline flags any change.",
       "max_unmet_cooling_hours": 1580,
       "max_unmet_cooling_hours_reason": "Pre-existing: 1428 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
     },
