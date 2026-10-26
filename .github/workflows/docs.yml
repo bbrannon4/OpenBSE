@@ -32,6 +32,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pandoc reads a line that starts with "@label." or "@label)" as an
+      # example-list item, so the cross-reference silently becomes "1.".
+      - name: Check cross-references are not at line starts
+        run: |
+          if grep -nE '^[[:space:]]*@[a-z]+-[A-Za-z0-9-]+[.)]' docs/engineering-reference/*.md; then
+            echo "Move these cross-references off the start of the line."; exit 1
+          fi
+
       # The PDF's fallback fonts supply the Unicode glyphs (Greek, ṁ, box
       # drawing) that Latin Modern lacks.
       - name: Install fonts

@@ -55,6 +55,12 @@ format:
     number-depth: 3
     colorlinks: true
     code-block-font-size: \footnotesize
+    # Let long inline code names (Module::Function) hyphenate instead of
+    # running into the margin.
+    include-in-header:
+      text: |
+        \usepackage[htt]{hyphenat}
+        \setlength{\emergencystretch}{3em}
     # Unicode in prose and code blocks (ṁ, η, Σ, box drawing, …) needs glyphs
     # Latin Modern lacks; fontspec applies the fallbacks only to named fonts.
     mainfont: "Latin Modern Roman"
