@@ -61,6 +61,7 @@ format:
       text: |
         \usepackage[htt]{hyphenat}
         \setlength{\emergencystretch}{3em}
+        \sloppy
     # Unicode in prose and code blocks (ṁ, η, Σ, box drawing, …) needs glyphs
     # Latin Modern lacks; fontspec applies the fallbacks only to named fonts.
     mainfont: "Latin Modern Roman"
