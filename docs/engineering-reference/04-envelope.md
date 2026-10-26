@@ -1,70 +1,272 @@
 # Building envelope {#sec-envelope}
 
+This chapter covers the building shell, in seven parts:
+
+1. materials, constructions and conduction;
+2. surface heat balances and convection;
+3. long-wave exchange;
+4. windows, shades and solar distribution;
+5. infiltration, ventilation and the airflow network;
+6. internal gains and ground heat transfer;
+7. the zone air heat and moisture balances.
+
+They are reviewed one part at a time. The first part is reviewed below;
+the rest is pre-review text (@sec-envelope-prereview).
+
+## Materials and constructions {#sec-constructions}
+
+**Source:** `openbse-envelope/src/material.rs` (`Material`,
+`Construction`, `ResolvedLayer`, `SimpleConstruction`,
+`FFactorConstruction`); surface properties are assigned in
+`heat_balance.rs::BuildingEnvelope::from_input_full`.
+
+An opaque **material** has a conductivity $k$ [W/(m·K)], a density $\rho$
+[kg/m³], a specific heat $c_p$ [J/(kg·K)], solar, thermal (long-wave) and
+visible absorptances, and a roughness. Its thickness is given on each
+construction layer, not on the material. A material with
+`thermal_resistance` $R$ [m²·K/W] is massless, like EnergyPlus's
+`Material:NoMass`: only $R$ is used.
+
+A layered **construction** lists layers from outside to inside. Its
+conduction resistance is $\sum_\ell L_\ell/k_\ell$, plus $R$ for massless
+layers, with no air films. Each surface takes its properties from its
+construction's faces:
+
+- **Outside face.** The outside layer's solar absorptance, thermal
+  absorptance and roughness.
+- **Inside face.** The inside layer's solar and thermal absorptance.
+
+This matches EnergyPlus. Three other construction types exist: simple
+constructions (@sec-simple-constructions), F-factor floors (@sec-ffactor)
+and window constructions (@sec-envelope-prereview).
+
+A layer naming an undefined material is dropped silently, and missing
+conductivity, density or specific heat take defaults (1, 1 and 1000). Both
+are filed as [#203](https://github.com/bbrannon4/OpenBSE/issues/203),
+together with two unread inputs, `thermal_absorptance_inside` and the simple
+construction's `thickness`.
+
+## Conduction transfer functions {#sec-ctf}
+
+**Source:** `openbse-envelope/src/ctf.rs`: `try_calculate_ctf`,
+`build_state_space`, `matrix_exponential`, `compute_ctf_from_state_space`,
+`apply_ctf`, `CtfHistory`; coefficients built at initialization by
+`heat_balance.rs::compute_all_ctf`.
+
+Conduction through an opaque construction is one-dimensional, with constant
+properties. It is represented by conduction transfer functions (CTFs), which
+give the face heat fluxes at time $t$ from the current and past face
+temperatures and past fluxes [@seem1987]:
+
+$$
+\begin{aligned}
+q''_\text{ki}(t) ={}& Y_0 T_\text{so}^t + \sum_{j\ge1} Y_j T_\text{so}^{t-j}
+- Z_0 T_\text{si}^t - \sum_{j\ge1} Z_j T_\text{si}^{t-j}
++ \sum_{j\ge1} \Phi_j\, q''^{\,t-j}_\text{ki},\\
+q''_\text{ko}(t) ={}& X_0 T_\text{so}^t + \sum_{j\ge1} X_j T_\text{so}^{t-j}
+- Y_0 T_\text{si}^t - \sum_{j\ge1} Y_j T_\text{si}^{t-j}
++ \sum_{j\ge1} \Phi_j\, q''^{\,t-j}_\text{ko},
+\end{aligned}
+$$ {#eq-ctf}
+
+where:
+
+- $T_\text{so}$ and $T_\text{si}$ are the outside and inside face
+  temperatures;
+- $q''_\text{ki}$ is the conduction flux leaving the wall at the inside face
+  (positive into the zone);
+- $q''_\text{ko}$ is the conduction flux entering the wall at the outside
+  face (positive inward).
+
+The past terms $t-j$ are the values stored at the end of earlier timesteps
+(`CtfHistory`, shifted once per timestep; @sec-timestep-loop). The history
+starts at 21 °C with zero flux.
+
+### State-space formulation {#sec-ctf-state-space}
+
+The construction is divided into nodes. The massed layers in the middle are
+handled as follows:
+
+- **Massed layers.** A massed layer of thickness $L$ and diffusivity
+  $\alpha = k/(\rho c_p)$ gets
+  $N = \min(\max(\lceil L/\Delta x_n\rceil, 6), 18)$ divisions of width
+  $\Delta x = L/N$, with $\Delta x_n = \sqrt{2\alpha\,\Delta t}$.
+- **Massless layers at either end** ($\rho c_p L < 1$ J/(m²·K), or NoMass) add
+  their resistance in series with the conductance $k/\Delta x$ between the
+  face and the first or last node.
+- **Massless layers between massed ones** become one resistive division of
+  conductance $1/R$ with no capacitance; adjacent ones are combined.
+
+The interior nodes $\theta$ (one fewer than the total number of divisions)
+carry these capacitances:
+
+- $\rho c_p \Delta x$ for a node inside a layer;
+- $\tfrac12(\rho c_p\Delta x)_\ell + \tfrac12(\rho c_p\Delta x)_{\ell+1}$
+  for a node at a layer interface;
+- $1.5\,\rho c_p \Delta x$ for the first and last node, which also hold the
+  half-cell at each face.
+
+The total capacitance is therefore conserved. With the face temperatures
+$u = (T_\text{so}, T_\text{si})^\mathsf{T}$ as inputs and the face fluxes
+$y = (q''_\text{ko}, q''_\text{ki})^\mathsf{T}$ as outputs:
+
+$$
+\dot\theta = A\theta + Bu, \qquad y = C\theta + Du,
+$$ {#eq-state-space}
+
+where $A$ is tridiagonal (nodal conductances over capacitances), and $B$, $C$
+and $D$ couple the first and last node to the faces through the boundary
+conductances $h_\text{b} = 1/(R_\text{nomass} + \Delta x/k)$.
+
+Assuming the face temperatures vary linearly within a timestep, the exact
+discrete solution uses
+
+$$
+\Phi = e^{A\Delta t},\qquad
+\Gamma_1 = A^{-1}(\Phi - I)B,\qquad
+\Gamma_2 = A^{-1}\!\left(\tfrac{1}{\Delta t}\Gamma_1 - B\right).
+$$ {#eq-ctf-discrete}
+
+$e^{A\Delta t}$ is a Taylor series with scaling and squaring. The CTF
+coefficients follow from the recurrence of Seem [@seem1987], which builds
+the characteristic polynomial of $\Phi$:
+
+$$
+\begin{aligned}
+&R_0 = I, \qquad e_j = -\tfrac{1}{j}\operatorname{tr}(\Phi R_{j-1}), \qquad R_j = \Phi R_{j-1} + e_j I,\\
+&S_0 = C\Gamma_2 + D, \qquad S_j = C\left[R_{j-1}(\Gamma_1 - \Gamma_2) + R_j\Gamma_2\right] + e_j D,
+\end{aligned}
+$$ {#eq-ctf-recurrence}
+
+$$
+X_j = S_j^{(0,0)},\qquad Y_j = S_j^{(1,0)},\qquad Z_j = -S_j^{(1,1)},\qquad \Phi_j = -e_j.
+$$ {#eq-ctf-coefficients}
+
+The two cross terms of $S_0$ are set to the mean of their magnitudes, so the
+construction is reciprocal. The series stops when
+$|e_j|/|e_1| < 10^{-13}$. If it has not converged in 18 terms, the run stops
+with an error.
+
+**Checks.** The steady-state transmittance implied by the coefficients,
+$U_\text{CTF} = \sum Z_j / (1 - \sum\Phi_j)$, is compared with
+$1/\sum R_\ell$. A difference above 1% is reported as a warning, and above 5%
+as an error.
+
+**Special cases.**
+
+- With total capacitance below 1 J/(m²·K), the CTF is steady state:
+  $X_0 = Y_0 = Z_0 = U$, with no history.
+- When the construction reduces to a single node, it is a lumped RC element:
+  $X_0 = Y_0 = Z_0 = U(1 - e^{-\Delta t/\tau})$ and
+  $\Phi_1 = e^{-\Delta t/\tau}$, with $\tau = RC$.
+
+**Comparison with EnergyPlus.** The method, node rules, capacitances and
+recurrence follow `Construction::calculateTransferFunction`
+[@eplus-engref-25-2, "Conduction Transfer Function (CTF) Calculations"]. The
+differences are:
+
+- **Node count.** It is rounded up, where EnergyPlus truncates, and capped at
+  18 rather than 19.
+- **No CTF time-step escalation.** EnergyPlus lengthens the CTF time step
+  (to a multiple of the zone timestep) when a layer hits the node cap, or
+  when the series needs too many terms, and keeps multi-step histories.
+  OpenBSE always uses the zone timestep and stops instead
+  ([#204](https://github.com/bbrannon4/OpenBSE/issues/204)).
+- **Acceptance test.** EnergyPlus checks $\sum X = \sum Y = \sum Z$; OpenBSE
+  checks the steady-state U.
+
+## Simple constructions {#sec-simple-constructions}
+
+**Source:** `ctf.rs::try_calculate_ctf_simple`.
+
+A simple construction gives only a conduction U-factor $U$, a heat capacity
+$C$ [J/(m²·K)] per unit area, absorptances and a roughness. Its inside and
+outside faces share the same absorptances. OpenBSE turns these into a
+synthetic layered construction and applies @sec-ctf to it. Here
+$\tau = C/U$ and $R = 1/U$.
+
+| Condition (first that applies) | Synthetic construction |
+|---|---|
+| $U \le 0$ | Adiabatic (all coefficients zero) |
+| $C < 1$ J/(m²·K) | Steady state, $X_0 = Y_0 = Z_0 = U$ |
+| $\tau < 10\,\Delta t$ | Lumped RC (@sec-ctf) |
+| $C < 30$ kJ/(m²·K), mass inside, $R > 20$ | Insulation + timber |
+| $C < 30$ kJ/(m²·K), mass inside | Wood + insulation + plasterboard |
+| $R > 2R_\text{mass}$, mass outside | Mass + insulation + 12 mm plasterboard |
+| $R > 2R_\text{mass}$, $R - R_\text{mass} > 10$ | NoMass insulation + mass |
+| $R > 2R_\text{mass}$ | 9 mm wood + insulation + mass |
+| otherwise | One homogeneous layer, $\rho c_p = 1.6$ MJ/(m³·K) |
+
+: Simple-construction synthesis. $R_\text{mass}$ is the resistance of the mass
+layer holding $C$ ($k = 1$, $\rho = 2000$ by default). {#tbl-simple-construction}
+
+The layer properties were chosen to reproduce the ASHRAE 140 lightweight and
+heavyweight constructions. For other assemblies, the synthetic layers set the
+dynamic response, not the user's inputs. The synthesis also does not always
+conserve $C$ ([#53](https://github.com/bbrannon4/OpenBSE/issues/53)).
+EnergyPlus has no counterpart.
+
+## F-factor ground floors {#sec-ffactor}
+
+**Source:** `heat_balance.rs::from_input_full` (effective U) and
+`compute_all_ctf`.
+
+An F-factor floor of area $A$ and exposed perimeter $P$ [m] gets the
+conduction transmittance
+
+$$
+U_\text{eff} = \frac{F P}{A},
+$$ {#eq-ffactor}
+
+with $F$ the F-factor [W/(m·K)]. When $P$ is missing it defaults to
+$2\sqrt{A}$, with a warning. $U_\text{eff}$ and the construction's
+`thermal_capacity` go through @sec-simple-constructions. The outside face is
+held at the construction's monthly ground temperatures (constant within each
+month), or at the building ground temperatures (@sec-ground-temps).
+
+**Comparison with EnergyPlus.** `Construction:FfactorGroundFloor`
+(`HeatBalanceManager::CreateFCfactorConstructions`) builds a NoMass layer of
+resistance $A/(FP) - 0.135 - 0.03 - R_\text{con}$ plus a 0.15 m concrete layer.
+That removes the air films already included in $F$. OpenBSE does not remove
+the films, and it uses the synthetic layers instead of the concrete
+([#205](https://github.com/bbrannon4/OpenBSE/issues/205)).
+
+## Heat and moisture transfer (HAMT) {#sec-hamt}
+
+**Source:** `openbse-envelope/src/hamt.rs`.
+
+The module implements a one-dimensional coupled heat and moisture solver
+after Künzel [@kunzel1995]. It is **not connected to the simulation**:
+nothing calls it, and every surface uses CTF conduction. Its material inputs
+(`vapor_resistance_factor`, `sorption_isotherm`, `liquid_transport_coeff`)
+are accepted but have no effect. The module also has three known equation
+errors ([#64](https://github.com/bbrannon4/OpenBSE/issues/64)). This section
+will be written when the model is fixed and wired in.
+
+## Known limitations: materials and constructions {#sec-constructions-limitations}
+
+- [#53](https://github.com/bbrannon4/OpenBSE/issues/53): simple
+  constructions use synthetic layers tuned to ASHRAE 140, and do not always
+  conserve the specified heat capacity.
+- [#64](https://github.com/bbrannon4/OpenBSE/issues/64): HAMT is not wired
+  in and has known equation errors.
+- [#203](https://github.com/bbrannon4/OpenBSE/issues/203): unknown layer
+  materials are dropped silently; defaults for required properties; unread
+  inputs; debug logging.
+- [#204](https://github.com/bbrannon4/OpenBSE/issues/204): no CTF time-step
+  escalation for massive constructions.
+- [#205](https://github.com/bbrannon4/OpenBSE/issues/205): F-factor floors
+  keep the air films and use synthetic mass.
+
+## Remaining envelope models {#sec-envelope-prereview}
+
 ::: {.callout-warning}
 ## Pre-review content
 
-This chapter holds text moved unchanged, apart from format, from the former single-file reference (`README.md`, mostly written in March 2026). Parts of it are stale or incomplete. It will be rewritten from the code, and checked against EnergyPlus, in this chapter's review ([#181](https://github.com/bbrannon4/OpenBSE/issues/181)); see @sec-status.
+The sections below hold text moved unchanged, apart from format, from the former single-file reference (`README.md`, mostly written in March 2026). Parts of it are stale or incomplete. They will be rewritten from the code, and checked against EnergyPlus, in the later parts of this chapter's review ([#181](https://github.com/bbrannon4/OpenBSE/issues/181)); see @sec-status.
 :::
 
-## Building Envelope
-
-**Crate:** `openbse-envelope`
-
-The building envelope module solves the thermal physics of the building shell: heat conduction through opaque walls (via CTF), convection at interior and exterior surfaces, solar radiation processing, infiltration of outdoor air, and internal heat gains from occupants, lights, and equipment.
-
-### Materials and Constructions
-
-**Module:** `material.rs`
-
-#### Material
-
-An opaque material layer with thermal and surface properties.
-
-| Field | Unit | Default | Description |
-|-------|------|---------|-------------|
-| `name` | — | required | Material name |
-| `conductivity` | W/(m·K) | required | Thermal conductivity |
-| `density` | kg/m³ | required | Density |
-| `specific_heat` | J/(kg·K) | required | Specific heat capacity |
-| `thickness` | m | 0.1 | Layer thickness |
-| `solar_absorptance` | 0–1 | 0.7 | Solar radiation absorptance |
-| `thermal_absorptance` | 0–1 | 0.9 | Longwave/thermal radiation absorptance |
-| `visible_absorptance` | 0–1 | 0.7 | Visible light absorptance |
-| `roughness` | enum | MediumRough | Surface roughness classification |
-
-**Derived properties:**
-- Thermal resistance: `R = thickness / conductivity` [m²·K/W]
-- Thermal diffusivity: `α = conductivity / (density · specific_heat)` [m²/s]
-
-#### Roughness
-
-Affects exterior forced convection coefficient. Values and their forced-convection multipliers:
-
-| Roughness | Multiplier |
-|-----------|------------|
-| VeryRough | 2.17 |
-| Rough | 1.67 |
-| MediumRough | 1.52 |
-| MediumSmooth | 1.13 |
-| Smooth | 1.11 |
-| VerySmooth | 1.00 |
-
-**Reference:** EnergyPlus `ConvectionCoefficients.cc`
-
-#### Construction
-
-A multi-layer opaque construction. Layers are ordered outside to inside.
-
-| Field | Description |
-|-------|-------------|
-| `name` | Construction name |
-| `layers` | Layer names, outside → inside |
-
-**Derived properties:**
-- Total resistance: `R_total = Σ R_layer` [m²·K/W]
-- U-factor: `U = 1 / R_total` [W/(m²·K)] (no film coefficients included)
-
-#### Window Construction
+### Window Construction
 
 Windows use a simplified performance-based model.
 
@@ -74,94 +276,6 @@ Windows use a simplified performance-based model.
 | `u_factor` | W/(m²·K) | required | Overall U-factor (includes film coefficients) |
 | `shgc` | 0–1 | required | Solar Heat Gain Coefficient at normal incidence |
 | `visible_transmittance` | 0–1 | 0.6 | Visible light transmittance |
-
----
-
-### Simple Constructions
-
-**Module:** `material.rs`
-
-**Purpose:** Provides a simplified opaque construction model defined by overall thermal properties rather than individual material layers. Ideal for early design, ASHRAE 140 test cases, and quick parametric studies where full layer-by-layer definition is unnecessary.
-
-#### Inputs
-
-| Parameter | Unit | Default | Description |
-|-----------|------|---------|-------------|
-| `name` | — | required | Construction name |
-| `u_factor` | W/(m2-K) | required | Overall U-factor (conductance, no film coefficients) |
-| `thickness` | m | 0.2 | Total wall thickness |
-| `thermal_capacity` | J/(m2-K) | 50,000 | Thermal capacity per unit area (rho * cp * thickness sum) |
-| `solar_absorptance` | 0-1 | 0.7 | Outside solar absorptance |
-| `thermal_absorptance` | 0-1 | 0.9 | Thermal (longwave) absorptance |
-| `roughness` | enum | MediumRough | Surface roughness classification |
-
-The `thermal_capacity` default of 50,000 J/(m2-K) corresponds to a light construction. A heavyweight concrete wall might have 200,000-400,000 J/(m2-K).
-
-The simple construction is converted internally to an equivalent single-layer material for CTF calculation, preserving the same steady-state and first-order transient behavior as the specified U-factor and thermal capacity.
-
----
-
-### Conduction Transfer Functions (CTF)
-
-**Module:** `ctf.rs`
-
-**Purpose:** Computes heat conduction through multi-layer opaque wall constructions. CTFs encode the transient thermal response of a wall into a set of coefficients that relate surface temperatures and heat fluxes across timesteps.
-
-**Reference:** Seem (1987), EnergyPlus Engineering Reference Chapter on CTF.
-
-#### CTF Equations
-
-The per-timestep conduction equations are:
-
-```
-q_inside  = Σⱼ Y[j]·T_out(t-j) − Σⱼ Z[j]·T_in(t-j) + Σⱼ Φ[j]·q_in(t-j)
-q_outside = Σⱼ X[j]·T_out(t-j) − Σⱼ Y[j]·T_in(t-j) + Σⱼ Φ[j]·q_out(t-j)
-```
-
-where:
-- `X` — outside surface CTF coefficients
-- `Y` — cross CTF coefficients (linking outside and inside)
-- `Z` — inside surface CTF coefficients
-- `Φ` — flux history coefficients
-- `j=0` is the current timestep, `j≥1` are past timesteps
-
-Sign convention: `q_inside` positive = heat flowing into the zone.
-
-#### Coefficients
-
-| Symbol | Name | Description |
-|--------|------|-------------|
-| X[j] | Outside | Relate outside surface temperature to outside heat flux |
-| Y[j] | Cross | Relate outside temperature to inside flux (and vice versa) |
-| Z[j] | Inside | Relate inside surface temperature to inside heat flux |
-| Φ[j] | Flux history | Weight previous flux values for transient response |
-
-#### Implementation: Full State-Space Method (Seem 1987)
-
-OpenBSE implements the full Seem (1987) state-space CTF method, matching EnergyPlus. This is implemented in `ctf.rs`.
-
-**Key steps:**
-
-1. **Layer discretization**: Each material layer is divided into nodes with spacing `dx = sqrt(2·α·dt)`, minimum 6 nodes per layer.
-
-2. **State-space matrix construction**: The A (node coupling), B (boundary input), C (output), and D (feedthrough) matrices are assembled from layer thermal properties. NoMass layers are folded into boundary conductance terms.
-
-3. **Matrix exponential**: `exp(A·dt)` computed via Taylor series with scaling and squaring for numerical stability.
-
-4. **CTF coefficient extraction**: The R-matrix recurrence iteratively computes X, Y, Z, and Φ coefficient vectors (up to 18 terms) until convergence.
-
-5. **Reciprocity enforcement**: Cross-term symmetry `average(|s(0,1)|, |s(1,0)|)` ensures energy conservation.
-
-**Fallback modes:**
-- **Low thermal mass** (`C_total < 1 kJ/m²·K`): Pure steady-state CTF (`X=Y=Z=U`, no flux history)
-- **Degenerate cases**: First-order lumped RC as fallback if the state-space method produces NaN
-- **Synthetic constructions**: Heuristic layer synthesis for `SimpleConstruction` inputs that lack explicit material layers
-
-#### CTF History
-
-Each surface maintains a history of past surface temperatures and heat fluxes. At each timestep, the history is shifted: current values are pushed in, the oldest values fall off.
-
----
 
 ### Interior Convection
 
@@ -238,7 +352,7 @@ H_natural = interior_convection(T_surface, T_outdoor, tilt_deg)
 H_forced = R_f · 2.537 · V_wind^0.5
 ```
 
-where R_f is the roughness multiplier (see [Roughness](#roughness) table).
+where R_f is the roughness multiplier (see the Roughness table below).
 
 **Combined (TARP model):**
 ```
@@ -246,6 +360,21 @@ H = sqrt(H_natural² + H_forced²)
 ```
 
 **Minimum:** 0.1 W/(m²·K)
+
+#### Roughness
+
+Affects exterior forced convection coefficient. Values and their forced-convection multipliers:
+
+| Roughness | Multiplier |
+|-----------|------------|
+| VeryRough | 2.17 |
+| Rough | 1.67 |
+| MediumRough | 1.52 |
+| MediumSmooth | 1.13 |
+| Smooth | 1.11 |
+| VerySmooth | 1.00 |
+
+**Reference:** EnergyPlus `ConvectionCoefficients.cc`
 
 ### Window Transmitted Solar (Angular SHGC)
 
@@ -754,7 +883,7 @@ This inner loop iterates to converge the coupled surface temperatures and zone a
 
 **6a. Outside surface temperatures:**
 - Outdoor surfaces: `T_surface_outside = T_outdoor + Q_solar_absorbed / h_conv_outside`
-- Ground contact: `T_surface_outside = T_ground(depth, day_of_year)` via the [Kusuda-Achenbach model](#ground-temperature-model)
+- Ground contact: `T_surface_outside = T_ground(depth, day_of_year)` via the Kusuda-Achenbach model (@sec-ground-temps)
 - Adiabatic: `T_surface_outside = T_surface_inside`
 - Interzone: `T_surface_outside = T_adjacent_zone`
 

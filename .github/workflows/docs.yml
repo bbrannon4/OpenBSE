@@ -34,10 +34,15 @@ jobs:
 
       # Pandoc reads a line that starts with "@label." or "@label)" as an
       # example-list item, so the cross-reference silently becomes "1.".
-      - name: Check cross-references are not at line starts
+      - name: Check the Markdown for PDF pitfalls
         run: |
           if grep -nE '^[[:space:]]*@[a-z]+-[A-Za-z0-9-]+[.)]' docs/engineering-reference/*.md; then
             echo "Move these cross-references off the start of the line."; exit 1
+          fi
+          # Non-ASCII in a table caption makes LaTeX's labels never settle, so
+          # every PDF build runs LaTeX to its rerun limit. Use $\rho$ etc.
+          if LC_ALL=C grep -nE '^: .*[^ -~].*\{#tbl-' docs/engineering-reference/*.md; then
+            echo "Use LaTeX math instead of non-ASCII characters in table captions."; exit 1
           fi
 
       # The PDF's fallback fonts supply the Unicode glyphs (Greek, ṁ, box
