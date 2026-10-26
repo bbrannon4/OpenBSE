@@ -10,7 +10,7 @@ This chapter covers the building shell, in seven parts:
 6. internal gains and ground heat transfer;
 7. the zone air heat and moisture balances.
 
-They are reviewed one part at a time. Parts 1 to 4 are reviewed below;
+They are reviewed one part at a time. Parts 1 to 5 are reviewed below;
 the rest is pre-review text (@sec-envelope-prereview).
 
 ## Materials and constructions {#sec-constructions}
@@ -984,6 +984,209 @@ The differences:
 - [#217](https://github.com/bbrannon4/OpenBSE/issues/217): semi-transparent
   casters.
 
+## Infiltration and ventilation {#sec-infiltration}
+
+**Source:** `openbse-envelope/src/infiltration.rs`; `zone.rs`
+(`scheduled_ventilation_flow`, `NaturalVentilationInput`); `heat_balance.rs::solve_timestep`,
+steps 4 and 6c; top-level inputs resolved in `openbse-io/src/input.rs::resolve_zone_loads`.
+
+Every outdoor-air stream enters the zone air balance (@eq-zone-ode) at the
+outdoor temperature, as part of $\dot m_\text{inf}$. The streams are
+computed each solve from the start-of-solve zone temperature $T_z$, the
+outdoor temperature $T_o$ and the wind.
+
+**Infiltration (design flow rate).** Each infiltration object gives a
+design flow $\dot V_d$ (absolute, ACH, per floor area or per exterior wall
+area), resolved per zone:
+
+$$
+\dot V_\text{inf} = \dot V_d\, f_\text{sch}\,\max\!\left(0,\ A + B|T_z - T_o| + C\,V + D\,V^2\right),
+\qquad \dot m_\text{inf} = \rho\,\dot V_\text{inf},
+$$ {#eq-infiltration}
+
+where:
+
+- $f_\text{sch}$ is the schedule fraction;
+- $V$ is the local wind speed at the zone's centroid height (@eq-wind-profile);
+- $\rho$ is the outdoor-air density by default, or the zone-air density
+  with `density_basis: zone`.
+
+**Exhaust interaction.** By default (`basic`), exhaust removes zone air
+without drawing in outdoor air. With `ashrae_combined`, the outdoor flow is
+$\sqrt{\dot m_\text{inf}^2 + \dot m_\text{ex,unb}^2}$, where
+$\dot m_\text{ex,unb} = \max(0, \dot m_\text{ex} - \dot m_\text{oa,zone})$
+is the unbalanced exhaust [@ashrae2021fund, Ch. 16].
+
+**Scheduled ventilation.** A `ventilation` object adds a constant flow
+(absolute or ACH, plus per-person and per-area parts using the design
+occupancy) during an hour window. It can be gated by a minimum indoor
+temperature, and by requiring the outdoor air to be cooler than the zone.
+It enters at outdoor density.
+
+**Zone outdoor air.** A zone `outdoor_air` requirement gives the flow
+
+$$
+\dot V_\text{oa} = R_p P_z(t) + R_a A_z + \dot V_\text{abs} + \text{ACH}\cdot V_z/3600
+$$ {#eq-zone-oa}
+
+(or the largest of the four), with $P_z(t)$ the scheduled occupancy. Where
+the flow enters depends on what serves the zone (@sec-framework):
+
+- **Air loop with outdoor air.** If the zone's air loop carries outdoor air
+  (minimum outdoor-air fraction > 0), it arrives only through the supply.
+- **No outdoor air in the loop.** For a recirculating unit, the flow enters
+  the zone directly at $T_o$.
+- **No air loop.** It also enters directly at $T_o$, except in sizing.
+
+The exhaust requirement, if any, raises the zone exhaust flow.
+
+**Exhaust fans.** A zone exhaust fan removes
+$\dot m_\text{ex} = \rho_o \dot V f_\text{sch}$. Its power and heat are:
+
+- power $P = \dot m_\text{ex}\Delta p/(\eta\rho_o)$;
+- the heat that stays in the zone is the motor loss not in the airstream,
+  $P - [\eta_m P + (1-\eta_m)P f_\text{air}]$;
+- the rest leaves with the exhaust.
+
+**Natural ventilation (wind and stack).** An operable opening of area
+$A_o$, available by schedule, temperature limits, an optional
+indoor–outdoor ΔT and a wind limit (with on/off hysteresis), passes
+
+$$
+\dot V_\text{nv} = \sqrt{\left(C_w A_o f V_\text{met}\right)^2 + \left(C_d A_o f\sqrt{\frac{2g\,\Delta H\,|T_z - T_o|}{T_z + 273.15}}\right)^2},
+$$ {#eq-natvent}
+
+where:
+
+- $C_w = 0.55$ when the wind is within 90° of the opening's angle, and
+  0.30 otherwise;
+- $C_d$ is a constant (default 0.65);
+- $\Delta H$ is the stack height difference;
+- $V_\text{met}$ is the weather-station wind.
+
+Natural ventilation is off during sizing. When the AFN is active, its
+openings carry this flow instead.
+
+**Comparison with EnergyPlus.**
+
+- **Matches.** @eq-infiltration is `ZoneInfiltration:DesignFlowRate`,
+  including E+ 25.2's outdoor density default and the zone's local wind
+  (`ZoneEquipmentManager::CalcAirFlowSimple`). The exhaust treatment matches
+  E+ without zone air mass balance.
+- **Natural ventilation.** @eq-natvent differs from
+  `ZoneVentilation:WindandStackOpenArea` with autocalculated coefficients.
+  E+ uses $C_w = 0.55 - 0.25\theta/45°$, zero leeward, and
+  $C_d = 0.40 + 0.0045|\Delta T|$ with the local wind
+  ([#219](https://github.com/bbrannon4/OpenBSE/issues/219)).
+- **Scheduled ventilation.** It lacks the coefficients and schedule of
+  `ZoneVentilation:DesignFlowRate`.
+- **Outdoor temperature.** E+'s height-dependent outdoor temperature
+  (`Site:HeightVariation`) is not applied.
+- **Other infiltration models.** E+'s effective-leakage-area and
+  flow-coefficient models are not available.
+
+## Airflow network {#sec-afn}
+
+**Source:** `openbse-envelope/src/airflow_network.rs` (`build_network`,
+`solve_pressures`, `flow_and_derivative`, `two_way_opening_flows`,
+`horizontal_opening_flows`, `compute_path_dp`, `post_solve`),
+`species.rs`; solved in `heat_balance.rs::solve_timestep`, step 4.
+
+With `simulation.airflow_network` enabled, infiltration and interzone flows
+come from a pressure network that replaces @eq-infiltration. Each zone is
+one node, at a uniform pressure $P_i$ and the zone's temperature and
+density; the outdoors is the reference. The network is generated from the
+geometry:
+
+- each exterior wall, roof and window gets a power-law crack to the
+  outdoor node at its centroid height;
+- each door gets a crack scaled by its perimeter;
+- each interzone surface gets a crack between its two zones.
+
+Crack coefficients come from per-area defaults or from leakage classes A–D,
+derived from ASHRAE unit leakage areas [@ashrae2021fund, Ch. 16]. With a
+target ACH50 they are all rescaled so the envelope passes it at 50 Pa.
+Operable windows and doorways may be large openings, two-way openings or
+horizontal openings, with scheduled or natural-ventilation-controlled areas.
+Exhaust fans and the net HVAC supply–return imbalance (from the previous
+timestep) are fixed flows, and duct leaks are pressure-dependent cracks.
+
+**Flow elements.** With $\Delta p$ the pressure difference across a path
+and $\bar\rho$ the mean density of its two nodes:
+
+$$
+\dot m_\text{crack} = C\left(\frac{\bar\rho}{\rho_\text{ref}}\right)^{1-n}\operatorname{sgn}(\Delta p)|\Delta p|^n,
+\qquad
+\dot m_\text{open} = C_d A\operatorname{sgn}(\Delta p)\sqrt{2\bar\rho|\Delta p|},
+$$ {#eq-afn-elements}
+
+linearized through zero for $|\Delta p|$ below a small threshold.
+
+- **Two-way openings** integrate the orifice equation in closed form above
+  and below the neutral plane. Over the opening height, $\Delta p$ varies
+  with slope $g(\rho_b - \rho_a)$, so warm air leaves through the top while
+  cold air enters below.
+- **Horizontal openings** add the buoyancy-driven exchange of Cooper and
+  Epstein when the upper zone is denser [@cooper1989].
+
+**Pressure difference across a path** at height $h$ between nodes $a$ and
+$b$ (reference heights $h_a$, $h_b$):
+
+$$
+\Delta p = P_a - P_b - \rho_a g(h - h_a) + \rho_b g(h - h_b) \pm \tfrac12\rho_o C_p V(h)^2,
+$$ {#eq-afn-dp}
+
+with the wind term on paths to the outdoor node. $V(h)$ comes from @eq-wind-profile, times an optional facade shelter factor. The wind
+pressure coefficient $C_p$ comes from one of three models:
+
+- **Low-rise** (Swami and Chandra [@swami1988]), with incidence angle
+  $\theta$ and $G = \ln(\text{side ratio})$:
+  $$
+  \begin{aligned}
+  C_p = 0.6\ln\Big[&1.248 - 0.703\sin\tfrac\theta2 - 1.175\sin^2\theta + 0.131\sin^3(2\theta G)\\
+  &+ 0.769\cos\tfrac\theta2 + 0.07G^2\sin^2\tfrac\theta2 + 0.717\cos^2\tfrac\theta2\Big];
+  \end{aligned}
+  $$
+- **High-rise:** $0.6\cos\theta$ windward and $-0.3$ leeward;
+- **User table** by facade.
+
+**Solution.** The zone pressures solve mass conservation at every zone
+node, $R_i = \sum_\text{paths}\dot m_{\to i} = 0$, by Newton–Raphson with a
+dense Jacobian and adaptive under-relaxation. It starts from the stored pressures
+and stops when the largest residual is below the
+absolute tolerance or $10^{-4}$ of the total through-flow (at most 30
+iterations). After solving, each zone's outdoor inflow becomes
+$\dot m_\text{inf}$. Its inflows from other zones become a mass-weighted
+stream mixed with the outdoor air (`mix_advective_streams`), giving the
+combined advective term of @eq-zone-ode and its humidity. Passive species
+(e.g. CO₂) are then advanced by an implicit zone mass balance on the solved
+flows, with sources, decay, deposition and filtration.
+
+**Comparison with EnergyPlus.** The network, element equations, the
+two-way and horizontal openings, the Swami–Chandra $C_p$ and the
+Newton–Raphson solution follow EnergyPlus's AirflowNetwork (AIRNET)
+[@eplus-engref-25-2, "Airflow Network Model"]. They are generated
+automatically rather than from AirflowNetwork input objects. The
+differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
+
+- **Density.** Element flows use the mean of the two node densities, not
+  the upstream density, and cracks have no viscosity correction.
+- **High-rise $C_p$.** It is a simple cosine rather than the Akins
+  surface-average table.
+- **No duct network.** There is no AirflowNetwork:Distribution duct
+  network; duct leakage is a pair of leak paths per duct.
+- **Per-solve stepping.** Species and natural-ventilation state advance per
+  envelope solve ([#188](https://github.com/bbrannon4/OpenBSE/issues/188)).
+
+## Known limitations: infiltration, ventilation and AFN {#sec-infiltration-limitations}
+
+- [#90](https://github.com/bbrannon4/OpenBSE/issues/90): AFN cleanups;
+  tolerance units, density convention, high-rise $C_p$.
+- [#188](https://github.com/bbrannon4/OpenBSE/issues/188): species and
+  natural-ventilation hysteresis advance once per envelope solve.
+- [#219](https://github.com/bbrannon4/OpenBSE/issues/219): wind-and-stack
+  coefficients; scheduled ventilation lacks E+'s coefficients and schedule.
+
 ## Remaining envelope models {#sec-envelope-prereview}
 
 ::: {.callout-warning}
@@ -991,99 +1194,6 @@ The differences:
 
 The sections below hold text moved unchanged, apart from format, from the former single-file reference (`README.md`, mostly written in March 2026). Parts of it are stale or incomplete. They will be rewritten from the code, and checked against EnergyPlus, in the later parts of this chapter's review ([#181](https://github.com/bbrannon4/OpenBSE/issues/181)); see @sec-status.
 :::
-
-### Infiltration
-
-**Module:** `infiltration.rs`
-
-**Purpose:** Computes outdoor air infiltration into zones based on temperature difference and wind speed.
-
-**Model:** EnergyPlus Design Flow Rate model
-
-**Reference:** EnergyPlus `HeatBalanceAirManager.cc`
-
-#### Inputs
-
-| Parameter | Unit | Default | Description |
-|-----------|------|---------|-------------|
-| `design_flow_rate` | m³/s | 0.0 | Design infiltration volume flow |
-| `air_changes_per_hour` | 1/hr | 0.0 | Alternative: ACH-based specification |
-| `coeff_a` | — | 1.0 | Constant coefficient |
-| `coeff_b` | 1/°C | 0.0 | Temperature difference coefficient |
-| `coeff_c` | s/m | 0.0 | Wind speed coefficient |
-| `coeff_d` | s²/m² | 0.0 | Wind speed squared coefficient |
-
-If `air_changes_per_hour` is specified and `design_flow_rate` is zero, the flow rate is computed as:
-```
-Q_design = ACH · Volume / 3600
-```
-
-#### Algorithm
-
-**Volume flow rate:**
-```
-Q = Q_design · (A + B·|T_zone − T_outdoor| + C·V_wind + D·V_wind²)
-```
-
-**Mass flow rate:**
-```
-ṁ = Q · ρ_outdoor
-```
-
-where `ρ_outdoor` is the outdoor air density at current conditions.
-
----
-
-### Airflow Network (Multizone Pressure Solver)
-
-**Module:** `airflow_network.rs`
-
-**Purpose:** Solves for pressure-driven airflow through the building envelope and between zones using Newton-Raphson iteration on the mass conservation equations. Replaces the Design Flow Rate infiltration model when enabled.
-
-**Reference:** ASHRAE Fundamentals Ch. 16; Swami & Chandra, FSEC-CR-163-86 (1988); E+ AirflowNetwork model concepts.
-
-#### Flow Elements
-
-| Element | Equation | Use |
-|---------|----------|-----|
-| Power-law crack | Q = C \|ΔP\|^n sign(ΔP), n ≈ 0.65 | Envelope cracks, interzone gaps |
-| Large opening (orifice) | Q = Cd A sqrt(2ρ\|ΔP\|) sign(ΔP) | Operable windows, doors |
-| Fixed flow | Q = constant | Exhaust fans, HVAC imbalance |
-
-#### Pressure Difference
-
-Total ΔP across a flow path includes:
-- **Node pressures:** P_a - P_b (solved unknowns for zone nodes)
-- **Stack effect:** -ρ_a g (h - h_ref_a) + ρ_b g (h - h_ref_b) where h is the opening midpoint height
-- **Wind pressure:** 0.5 ρ Cp V_local² (exterior paths only, V_local height-corrected)
-
-#### Wind Pressure Coefficients (Cp)
-
-- **Swami & Chandra (1988):** For low-rise buildings. Cp is a function of the angle θ between wind direction and surface outward normal, and the building plan side ratio.
-- **High-rise simplified:** Cp = 0.6 cos(θ) for windward, Cp = -0.3 for leeward.
-
-#### Newton-Raphson Solver
-
-1. Assemble residual R_i = sum of mass flows into zone node i
-2. Build dense Jacobian J[i][j] = dR_i / dP_j (analytical derivatives)
-3. Solve J δP = -R via Gaussian elimination with partial pivoting
-4. Damped update: P_i += α δP_i (α = 0.75 default)
-5. Converge when max|δP| < tolerance (0.1 Pa default)
-
-#### Auto-Generation
-
-The network is built automatically from building geometry:
-- Every exterior wall/roof surface → power-law crack (leakage_per_area × net_area)
-- Every exterior window → power-law crack (window_leakage_per_area × area)
-- Every interzone surface → interzone crack (one path per pair)
-- Zone-level `natural_ventilation` config → large opening
-- Zone-level `exhaust_fan` → fixed-flow extraction
-
-#### Integration
-
-When active, the solved outdoor mass flow replaces `infiltration_mass_flow` in the zone heat balance MCPI term. Interzone flows enter at their source zone temperature.
-
----
 
 ### Internal Gains
 
@@ -1157,21 +1267,6 @@ Q_convective = Q_sensible · (1 − radiant_fraction)
 The resolved gain output provides `convective` [W], `radiative` [W], `total` [W] (sensible only), `people_latent` [W], and `equipment_latent` [W]. Latent gains feed the zone moisture balance.
 
 Internal gains support time-varying operation through the schedule system (see [Schedules](#schedules)). Each gain type can reference a named schedule; the schedule fraction multiplies the design power at each timestep.
-
-### Exhaust Fans
-
-**Module:** `zone.rs`
-
-**Purpose:** Models zone-level exhaust fans (restroom exhaust, kitchen hoods, etc.) that remove air from the zone. The exhausted air is replaced by infiltration or transfer air from adjacent spaces, creating an additional air exchange load on the zone.
-
-#### Inputs
-
-| Parameter | Unit | Description |
-|-----------|------|-------------|
-| `flow_rate` | m3/s | Exhaust volume flow rate |
-| `schedule` | — | Optional schedule name for time-varying operation (default: always on) |
-
-The exhaust fan is specified as part of a zone definition. When the schedule is active, the fan removes air at the specified flow rate, which is converted to mass flow using outdoor air density and added to the zone's air exchange calculation.
 
 ### Vertex Geometry
 
