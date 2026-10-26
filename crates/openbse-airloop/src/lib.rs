@@ -242,6 +242,9 @@ impl EconomizerOptions {
 pub struct SignalCtx<'a> {
     /// Current zone air temperatures [°C].
     pub zone_temps: &'a HashMap<String, f64>,
+    /// Zone control temperatures at the start of the timestep [°C], held
+    /// through the HVAC iteration.
+    pub zone_start_temps: &'a HashMap<String, f64>,
     /// Active heating setpoints [°C].
     pub zone_heat_sp: &'a HashMap<String, f64>,
     /// Active cooling setpoints [°C].
@@ -279,6 +282,16 @@ pub struct SignalCtx<'a> {
     /// Day of week [0-6] for schedule lookups.
     pub day_of_week: u32,
 }
+/// A zone's mode for this timestep: the predictor's, held across the HVAC
+/// iteration, else from the zone temperature. Taken from the in-iteration
+/// temperature, a zone at its setpoint flips mode between iterations (#170).
+fn zone_mode(ctx: &SignalCtx, zone: &str, zone_temp: f64, heat_sp: f64, cool_sp: f64) -> HvacMode {
+    ctx.predictor_modes
+        .get(zone)
+        .copied()
+        .unwrap_or_else(|| hvac_mode(zone_temp, heat_sp, cool_sp))
+}
+
 pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     let zone_temps = ctx.zone_temps;
     let zone_heat_sp = ctx.zone_heat_sp;
@@ -326,9 +339,15 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     // the predictor mode can be stale by one timestep, causing the system
     // to fire heating into an already-warm zone.  This guard prevents the
     // resulting temperature oscillation.
+    //
+    // The guard reads the zone's loads, which are taken from the start of the
+    // timestep and hold through the HVAC iteration. Read from the in-iteration
+    // temperature it flipped a cooling-dominated zone (the Hospital kitchen,
+    // hot surfaces, air just under the heating setpoint) between full cooling
+    // and heating on alternate iterations (#170).
     let mut mode = match predictor_mode {
-        HvacMode::Heating if control_temp > cool_sp => HvacMode::Cooling,
-        HvacMode::Cooling if control_temp < heat_sp => HvacMode::Heating,
+        HvacMode::Heating if zone_heat_load <= 0.0 && zone_cool_load > 0.0 => HvacMode::Cooling,
+        HvacMode::Cooling if zone_cool_load <= 0.0 && zone_heat_load > 0.0 => HvacMode::Heating,
         other => other,
     };
 
@@ -409,8 +428,18 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         openbse_io::input::CyclingMethod::Proportional if li.heating_supply_temp <= heat_sp => {
             li.heating_supply_temp
         }
+        // The ramp reads the zone temperature at the start of the timestep,
+        // held through the HVAC iteration: read in the iteration, it chased
+        // the zone it was heating and did not converge (#170). Being a
+        // proportional-only controller it holds the zone somewhat below the
+        // setpoint at steady state, by design.
         openbse_io::input::CyclingMethod::Proportional => {
-            let error = (heat_sp - control_temp).max(0.0);
+            let start_temp = ctx
+                .zone_start_temps
+                .get(control_zone)
+                .copied()
+                .unwrap_or(control_temp);
+            let error = (heat_sp - start_temp).max(0.0);
             (heat_sp + (li.heating_supply_temp - heat_sp) * (error / 5.0).min(1.0))
                 .clamp(heat_sp, li.heating_supply_temp)
         }
@@ -1195,8 +1224,10 @@ pub fn build_vav_signals(
         let cool_sp = zone_cool_sp.get(zone_name).copied().unwrap_or(23.9);
         let design_flow = zone_design_flows.get(zone_name).copied().unwrap_or(0.5);
         let cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
+        let heat_sp = zone_heat_sp.get(zone_name).copied().unwrap_or(21.1);
+        let cooling = zone_mode(ctx, zone_name, zone_temp, heat_sp, cool_sp) == HvacMode::Cooling;
 
-        if zone_temp > cool_sp && cool_load > 100.0 {
+        if cooling && cool_load > 100.0 {
             // What SAT would satisfy this zone at max VAV flow?
             // Q = m_max × Cp × (T_zone - SAT)
             // SAT = T_zone - Q / (m_max × Cp)
@@ -1227,7 +1258,7 @@ pub fn build_vav_signals(
         let cool_sp = zone_cool_sp.get(zone_name).copied().unwrap_or(23.9);
         let design_flow = zone_design_flows.get(zone_name).copied().unwrap_or(0.5);
 
-        let base_mode = hvac_mode(zone_temp, heat_sp, cool_sp);
+        let base_mode = zone_mode(ctx, zone_name, zone_temp, heat_sp, cool_sp);
         // RH override: if zone is over-humid and in deadband, force Cooling
         // to increase VAV airflow and drive the DX coil for dehumidification.
         let zone_w_vav = zone_humidity_ratios
@@ -1654,6 +1685,9 @@ pub fn build_dual_duct_signals(li: &mut LoopInfo, ctx: &SignalCtx) -> ControlSig
         let heat_load = zone_heating_loads.get(zone_name).copied().unwrap_or(0.0);
         let cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
 
+        // Still the in-iteration temperature: deadband mixes the two decks
+        // 50/50 at design flow, so the predictor's mode moves results far
+        // more than the few timesteps that don't converge (#170).
         let mode = hvac_mode(zone_temp, heat_sp, cool_sp);
 
         // RH override: if zone is over-humid and in deadband, force cooling
@@ -1873,6 +1907,7 @@ mod tests {
         fn ctx(&self, t_outdoor: f64) -> SignalCtx<'_> {
             SignalCtx {
                 zone_temps: &self.temps,
+                zone_start_temps: &self.temps,
                 zone_heat_sp: &self.heat_sp,
                 zone_cool_sp: &self.cool_sp,
                 zone_design_flows: &self.flows,

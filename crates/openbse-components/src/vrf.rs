@@ -188,47 +188,50 @@ impl VrfOutdoorUnit {
     ///
     /// Sets mode, PLR, supply conditions, and power for each indoor unit,
     /// and updates this unit's compressor_power, total_cooling, total_heating.
+    ///
+    /// `zone_loads` is the sensible load each zone asks of its indoor unit
+    /// [W]: positive = heating, negative = cooling, zero = off. Like
+    /// EnergyPlus's VRF terminal units, each unit meets its zone's load to
+    /// setpoint rather than reacting to the air temperature, which made the
+    /// HVAC iteration flip between modes (#170). A unit supplies air at its
+    /// coil's leaving temperature, at the flow that carries the load from the
+    /// zone's current temperature, up to its rated airflow.
     pub fn coordinate(
         &mut self,
         indoor_units: &mut [VrfIndoorUnit],
         t_outdoor: f64,
         zone_temps: &HashMap<String, f64>,
-        zone_heating_setpoints: &HashMap<String, f64>,
-        zone_cooling_setpoints: &HashMap<String, f64>,
+        zone_loads: &HashMap<String, f64>,
         outdoor_humidity_ratio: f64,
     ) {
-        // ── Step 1: Determine mode and raw PLR for each indoor unit ───────
+        let air_density = psych::rho_air_fn_pb_tdb_w(101325.0, t_outdoor, outdoor_humidity_ratio);
+        let cp_air = psych::cp_air_fn_w(outdoor_humidity_ratio);
+
+        // ── Step 1: Mode and PLR for each indoor unit from its zone's load ─
         for iu in indoor_units.iter_mut() {
             let t_zone = zone_temps.get(&iu.zone).copied().unwrap_or(21.0);
-            let heat_sp = zone_heating_setpoints
-                .get(&iu.zone)
-                .copied()
-                .unwrap_or(21.0);
-            let cool_sp = zone_cooling_setpoints
-                .get(&iu.zone)
-                .copied()
-                .unwrap_or(24.0);
-
-            let mode = if t_zone < heat_sp - 0.5 {
-                VrfMode::Heating
-            } else if t_zone > cool_sp + 0.5 {
-                VrfMode::Cooling
+            let load = zone_loads.get(&iu.zone).copied().unwrap_or(0.0);
+            // The most the unit's rated airflow can carry at its supply temperature.
+            let air_limit = |t_supply: f64| {
+                (iu.rated_airflow * air_density * cp_air * (t_supply - t_zone).abs()).max(0.0)
+            };
+            (iu.mode, iu.plr) = if load > 0.0 && iu.heating_supply_temp > t_zone {
+                let q = load
+                    .min(iu.heating_capacity)
+                    .min(air_limit(iu.heating_supply_temp));
+                (VrfMode::Heating, q / iu.heating_capacity.max(1.0))
+            } else if load < 0.0 && iu.cooling_supply_temp < t_zone {
+                let q = (-load)
+                    .min(iu.cooling_capacity)
+                    .min(air_limit(iu.cooling_supply_temp));
+                (VrfMode::Cooling, q / iu.cooling_capacity.max(1.0))
             } else {
-                VrfMode::Off
+                (VrfMode::Off, 0.0)
             };
-            iu.mode = mode;
-
-            iu.plr = match mode {
-                VrfMode::Heating => {
-                    let load = (heat_sp - t_zone) * iu.heating_capacity / 5.0_f64.max(1e-3);
-                    (load / iu.heating_capacity.max(1.0)).clamp(0.0, 1.0)
-                }
-                VrfMode::Cooling => {
-                    let load = (t_zone - cool_sp) * iu.cooling_capacity / 5.0_f64.max(1e-3);
-                    (load / iu.cooling_capacity.max(1.0)).clamp(0.0, 1.0)
-                }
-                VrfMode::Off => 0.0,
-            };
+            if iu.plr <= 0.0 {
+                iu.mode = VrfMode::Off;
+                iu.plr = 0.0;
+            }
         }
 
         // ── Step 2: Sum total cooling and heating demand ──────────────────
@@ -363,33 +366,25 @@ impl VrfOutdoorUnit {
         };
 
         // ── Step 9: Set per-unit supply conditions ─────────────────────────
-        let air_density = psych::rho_air_fn_pb_tdb_w(101325.0, t_outdoor, outdoor_humidity_ratio);
+        // The flow is set so that ṁ·cp·(T_supply − T_zone) is the heat booked.
         let total_plr: f64 = indoor_units.iter().map(|iu| iu.plr).sum::<f64>().max(1e-9);
 
         for iu in indoor_units.iter_mut() {
-            match iu.mode {
-                VrfMode::Off => {
-                    iu.supply_temp = zone_temps.get(&iu.zone).copied().unwrap_or(21.0);
-                    iu.mass_flow = 0.0;
-                    iu.power = 0.0;
-                    iu.thermal_output = 0.0;
-                    iu.supply_humidity_ratio = outdoor_humidity_ratio;
-                }
-                VrfMode::Cooling => {
-                    iu.supply_temp = iu.cooling_supply_temp;
-                    iu.mass_flow = iu.plr * iu.rated_airflow * air_density;
-                    iu.power = self.compressor_power * (iu.plr / total_plr);
-                    iu.thermal_output = -(iu.plr * iu.cooling_capacity);
-                    iu.supply_humidity_ratio = outdoor_humidity_ratio;
-                }
-                VrfMode::Heating => {
-                    iu.supply_temp = iu.heating_supply_temp;
-                    iu.mass_flow = iu.plr * iu.rated_airflow * air_density;
-                    iu.power = self.compressor_power * (iu.plr / total_plr);
-                    iu.thermal_output = iu.plr * iu.heating_capacity;
-                    iu.supply_humidity_ratio = outdoor_humidity_ratio;
-                }
-            }
+            let t_zone = zone_temps.get(&iu.zone).copied().unwrap_or(21.0);
+            let (t_supply, q) = match iu.mode {
+                VrfMode::Off => (t_zone, 0.0),
+                VrfMode::Cooling => (iu.cooling_supply_temp, -(iu.plr * iu.cooling_capacity)),
+                VrfMode::Heating => (iu.heating_supply_temp, iu.plr * iu.heating_capacity),
+            };
+            iu.supply_temp = t_supply;
+            iu.mass_flow = if q == 0.0 {
+                0.0
+            } else {
+                q / (cp_air * (t_supply - t_zone))
+            };
+            iu.power = self.compressor_power * (iu.plr / total_plr);
+            iu.thermal_output = q;
+            iu.supply_humidity_ratio = outdoor_humidity_ratio;
         }
     }
 }
@@ -407,19 +402,11 @@ mod tests {
         (outdoor, units)
     }
 
-    fn zone_maps(
-        temps: &[(&str, f64)],
-        heat_sps: &[(&str, f64)],
-        cool_sps: &[(&str, f64)],
-    ) -> (
-        HashMap<String, f64>,
-        HashMap<String, f64>,
-        HashMap<String, f64>,
-    ) {
+    /// Zone temperatures and the loads asked of the indoor units [W, + heating].
+    fn zone_maps(zones: &[(&str, f64, f64)]) -> (HashMap<String, f64>, HashMap<String, f64>) {
         (
-            temps.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
-            heat_sps.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
-            cool_sps.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+            zones.iter().map(|(k, t, _)| (k.to_string(), *t)).collect(),
+            zones.iter().map(|(k, _, q)| (k.to_string(), *q)).collect(),
         )
     }
 
@@ -427,12 +414,8 @@ mod tests {
     fn test_all_cooling_cop() {
         let (mut odu, mut units) = make_system();
         // Both zones too warm → cooling
-        let (zt, hsp, csp) = zone_maps(
-            &[("Zone A", 27.0), ("Zone B", 26.5)],
-            &[("Zone A", 21.0), ("Zone B", 21.0)],
-            &[("Zone A", 24.0), ("Zone B", 24.0)],
-        );
-        odu.coordinate(&mut units, 35.0, &zt, &hsp, &csp, 0.010);
+        let (zt, loads) = zone_maps(&[("Zone A", 27.0, -3000.0), ("Zone B", 26.5, -2500.0)]);
+        odu.coordinate(&mut units, 35.0, &zt, &loads, 0.010);
         assert!(odu.total_cooling > 0.0, "Should have cooling load");
         assert_eq!(odu.total_heating, 0.0);
         let expected_power = odu.total_cooling / odu.rated_cooling_cop;
@@ -453,14 +436,10 @@ mod tests {
         let (mut odu_no_hr, mut units_no_hr) = make_system();
 
         // Zone A cooling 5000 W, Zone B heating 3000 W
-        let (zt, hsp, csp) = zone_maps(
-            &[("Zone A", 27.0), ("Zone B", 19.0)],
-            &[("Zone A", 21.0), ("Zone B", 21.0)],
-            &[("Zone A", 24.0), ("Zone B", 24.0)],
-        );
+        let (zt, loads) = zone_maps(&[("Zone A", 27.0, -5000.0), ("Zone B", 19.0, 3000.0)]);
 
-        odu_hr.coordinate(&mut units_hr, 25.0, &zt, &hsp, &csp, 0.010);
-        odu_no_hr.coordinate(&mut units_no_hr, 25.0, &zt, &hsp, &csp, 0.010);
+        odu_hr.coordinate(&mut units_hr, 25.0, &zt, &loads, 0.010);
+        odu_no_hr.coordinate(&mut units_no_hr, 25.0, &zt, &loads, 0.010);
 
         // Heat recovery: minority heating mode would be suppressed in non-HR.
         // In HR mode the compressor satisfies both — but uses heat rejection.
@@ -479,12 +458,8 @@ mod tests {
         let (mut odu, mut units) = make_system();
         // Force very high PLR — request exceeds rated capacity
         // Both zones very hot → full cooling
-        let (zt, hsp, csp) = zone_maps(
-            &[("Zone A", 35.0), ("Zone B", 35.0)],
-            &[("Zone A", 21.0), ("Zone B", 21.0)],
-            &[("Zone A", 24.0), ("Zone B", 24.0)],
-        );
-        odu.coordinate(&mut units, 35.0, &zt, &hsp, &csp, 0.010);
+        let (zt, loads) = zone_maps(&[("Zone A", 35.0, -50_000.0), ("Zone B", 35.0, -50_000.0)]);
+        odu.coordinate(&mut units, 35.0, &zt, &loads, 0.010);
         assert!(
             odu.total_cooling <= odu.rated_cooling_capacity * 1.001,
             "Total cooling {} must not exceed rated capacity {}",
@@ -497,12 +472,8 @@ mod tests {
     fn test_dominant_mode_no_heat_recovery() {
         let (mut odu, mut units) = make_system();
         // Zone A needs cooling, Zone B needs heating — cooling dominant
-        let (zt, hsp, csp) = zone_maps(
-            &[("Zone A", 26.0), ("Zone B", 19.0)],
-            &[("Zone A", 21.0), ("Zone B", 21.0)],
-            &[("Zone A", 24.0), ("Zone B", 24.0)],
-        );
-        odu.coordinate(&mut units, 30.0, &zt, &hsp, &csp, 0.010);
+        let (zt, loads) = zone_maps(&[("Zone A", 26.0, -3000.0), ("Zone B", 19.0, 3000.0)]);
+        odu.coordinate(&mut units, 30.0, &zt, &loads, 0.010);
         // With cooling dominant (Zone A load likely larger due to larger capacity and bigger delta),
         // Zone B should be Off
         let zone_b_unit = units.iter().find(|u| u.zone == "Zone B").unwrap();
@@ -522,5 +493,39 @@ mod tests {
             "Non-HR mode must not have simultaneous cooling and heating"
         );
         let _ = zone_b_unit;
+    }
+
+    #[test]
+    fn supply_air_carries_the_heat_booked() {
+        let (mut odu, mut units) = make_system();
+        let (zt, loads) = zone_maps(&[("Zone A", 25.0, -2000.0), ("Zone B", 20.0, 1500.0)]);
+        odu.heat_recovery = true;
+        odu.coordinate(&mut units, 10.0, &zt, &loads, 0.008);
+        let cp = psych::cp_air_fn_w(0.008);
+        for (iu, expected) in units.iter().zip([-2000.0, 1500.0]) {
+            let t_zone = zt[&iu.zone];
+            let carried = iu.mass_flow * cp * (iu.supply_temp - t_zone);
+            assert!(
+                (iu.thermal_output - expected).abs() < 1e-6,
+                "{}",
+                iu.thermal_output
+            );
+            assert!((carried - expected).abs() < 1e-6, "{carried}");
+        }
+    }
+
+    #[test]
+    fn rated_airflow_limits_the_output() {
+        let (mut odu, mut units) = make_system();
+        // 0.25 m³/s at 40 °C supply into a 39 °C zone carries only ~300 W.
+        let (zt, loads) = zone_maps(&[("Zone A", 39.0, 5000.0), ("Zone B", 21.0, 0.0)]);
+        odu.coordinate(&mut units, 0.0, &zt, &loads, 0.003);
+        let a = &units[0];
+        assert!(
+            a.thermal_output > 0.0 && a.thermal_output < 400.0,
+            "{}",
+            a.thermal_output
+        );
+        assert_eq!(units[1].mode, VrfMode::Off);
     }
 }

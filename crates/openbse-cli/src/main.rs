@@ -3217,6 +3217,19 @@ fn main() -> Result<()> {
                                 |rp| rp.convective_output,
                             ),
                         );
+                        // VRF indoor units hold the mode the predictor calls for
+                        // (#170); their load follows each envelope solve.
+                        let vrf_modes: HashMap<String, openbse_components::vrf::VrfMode> =
+                            vrf_zone_loads(
+                                &vrf_systems,
+                                &env.zones,
+                                &zone_start_air_temps,
+                                &zone_heating_setpoints,
+                                zone_cooling_setpoints,
+                            )
+                            .into_iter()
+                            .map(|(zone, (mode, _))| (zone, mode))
+                            .collect();
                         for hvac_iter in 0..MAX_HVAC_ITER {
                             // The hot-aisle return follows the supply the units are
                             // producing now, not last timestep's (CRAC-5 / #62).
@@ -3749,13 +3762,37 @@ fn main() -> Result<()> {
                             // VRF operates independently of the air-loop graph.
                             // The outdoor unit dispatches indoor units based on
                             // current zone temperatures and setpoints.
+                            let vrf_loads: HashMap<String, f64> = if vrf_systems.is_empty() {
+                                HashMap::new()
+                            } else {
+                                vrf_zone_loads(
+                                    &vrf_systems,
+                                    &env.zones,
+                                    &zone_start_air_temps,
+                                    &zone_heating_setpoints,
+                                    zone_cooling_setpoints,
+                                )
+                                .into_iter()
+                                .map(|(zone, (_, load))| {
+                                    let held = match vrf_modes.get(&zone) {
+                                        Some(openbse_components::vrf::VrfMode::Heating) => {
+                                            load.max(0.0)
+                                        }
+                                        Some(openbse_components::vrf::VrfMode::Cooling) => {
+                                            load.min(0.0)
+                                        }
+                                        _ => 0.0,
+                                    };
+                                    (zone, held)
+                                })
+                                .collect()
+                            };
                             for (odu, idu_vec) in &mut vrf_systems {
                                 odu.coordinate(
                                     idu_vec,
                                     t_outdoor,
                                     &current_zone_temps,
-                                    &zone_heating_setpoints,
-                                    zone_cooling_setpoints,
+                                    &vrf_loads,
                                     ctx.outdoor_air.w,
                                 );
                                 // Record compressor energy in hvac_result outputs,
@@ -3956,14 +3993,33 @@ fn main() -> Result<()> {
                             // (e.g., morning solar gain reducing heating need).
                             // E+ recomputes loads every iteration — matching that
                             // approach eliminates the oscillation seen with frozen loads.
+                            //
+                            // The load is to bring the air from its temperature at
+                            // the START of the timestep to setpoint, as E+'s
+                            // predictor computes it (#170). The envelope's own
+                            // ideal loads start from this iteration's solved
+                            // temperature, which is right for the next timestep
+                            // but not within the iteration: a zone that ended an
+                            // iteration just past setpoint read no load, so on/off
+                            // units flipped every iteration.
                             for z in &env.zones {
                                 if z.input.conditioned {
-                                    current_heating_loads
-                                        .insert(z.input.name.clone(), z.ideal_heating_load);
-                                    loads_to_heating_sp
-                                        .insert(z.input.name.clone(), z.load_to_heating_setpoint);
-                                    current_cooling_loads
-                                        .insert(z.input.name.clone(), z.ideal_cooling_load);
+                                    let name = &z.input.name;
+                                    let t_start =
+                                        zone_start_air_temps.get(name).copied().unwrap_or(z.temp);
+                                    let to_heat = zone_heating_setpoints
+                                        .get(name)
+                                        .map_or(z.load_to_heating_setpoint, |&sp| {
+                                            z.ideal_load_line.at(sp, t_start)
+                                        });
+                                    let cooling = zone_cooling_setpoints
+                                        .get(name)
+                                        .map_or(z.ideal_cooling_load, |&sp| {
+                                            (-z.ideal_load_line.at(sp, t_start)).max(0.0)
+                                        });
+                                    current_heating_loads.insert(name.clone(), to_heat.max(0.0));
+                                    loads_to_heating_sp.insert(name.clone(), to_heat);
+                                    current_cooling_loads.insert(name.clone(), cooling);
                                 }
                             }
 
@@ -5787,6 +5843,7 @@ fn simulate_all_loops(
         // The builders read only the fields they need (see openbse_airloop).
         let sig_ctx = openbse_airloop::SignalCtx {
             zone_temps,
+            zone_start_temps: initial_zone_temps,
             zone_heat_sp: active_heat_sp,
             zone_cool_sp: active_cool_sp,
             zone_design_flows,
@@ -6042,30 +6099,17 @@ fn simulate_all_loops(
                 // coils need only make up the difference.
                 let q_fan = supply_flow * cp_air * continuous_fan_heat_rise_pre;
 
-                // Zone thermal capacity correction for HVAC iteration
-                // convergence.
-                //
-                // The frozen ideal loads (from the previous timestep) include
-                // a thermal-mass term:  Cap × (T_setpoint − T_prev).
-                // As the HVAC iteration updates zone temp, that term becomes
-                // stale.  The correction adjusts the load so PLR is smooth
-                // and the iteration converges instead of oscillating:
-                //
-                //   Heating: Q_corrected = Q_ideal + Cap × (T_initial − T_current)
-                //   Cooling: Q_corrected = Q_ideal + Cap × (T_current − T_initial)
-                //
-                // When zone temp rises above the heating setpoint during
-                // iteration, the correction REDUCES the heating load (smooth
-                // convergence).  The old binary guard (control_temp >= heat_sp
-                // → PLR = 0) created a discontinuity that caused the HVAC
-                // iteration to oscillate between full-load and zero-load,
-                // never converging, wasting ~14% of annual heating fuel.
+                // The loads are the predictor's: from the zone temperature at
+                // the start of the timestep to setpoint (#170), so they hold
+                // through the HVAC iteration and PLR = load / capacity lands
+                // the zone on setpoint, as EnergyPlus's unitary systems do. The
+                // guards below read that start temperature too: read from the
+                // in-iteration temperature they switched the unit on and off
+                // between iterations.
                 //
                 // A dead-band safety check prevents stale loads from causing
                 // heating when the zone is well above setpoint (e.g., after a
                 // setpoint transition from occupied to unoccupied mode).
-                let zone_cap =
-                    zone_thermal_caps.get(control_zone).copied().unwrap_or(0.0) * zmult_plr;
                 let init_temp = initial_zone_temps
                     .get(control_zone)
                     .copied()
@@ -6083,7 +6127,7 @@ fn simulate_all_loops(
                         // and the zone can never recover.
                         let heat_ref = heat_sp.min(control_temp);
                         let q_capacity = supply_flow * cp_air * (supply_temp - heat_ref);
-                        if control_temp > heat_sp + dead_band * 0.5 {
+                        if init_temp > heat_sp + dead_band * 0.5 {
                             // Zone well above heating setpoint (e.g., setpoint
                             // transition to unoccupied).  Stale ideal load is
                             // for the old setpoint — do not heat.
@@ -6091,10 +6135,7 @@ fn simulate_all_loops(
                         } else if q_capacity < 100.0 {
                             plr_floor
                         } else {
-                            // Correct frozen ideal load for zone temp changes
-                            // during HVAC iteration.
-                            let correction = zone_cap * (init_temp - control_temp);
-                            let corrected_load = (zone_heat_load + correction).max(0.0);
+                            let corrected_load = zone_heat_load.max(0.0);
 
                             if corrected_load > 10.0 {
                                 let adj_load = (corrected_load - q_fan).max(0.0);
@@ -6118,15 +6159,13 @@ fn simulate_all_loops(
                         // CE100: massless zone diverges during warmup).
                         let cool_ref = cool_sp.max(control_temp);
                         let q_capacity = supply_flow * cp_air * (cool_ref - supply_temp);
-                        if control_temp < cool_sp - dead_band * 0.5 {
+                        if init_temp < cool_sp - dead_band * 0.5 {
                             // Zone well below cooling setpoint — do not cool.
                             plr_floor
                         } else if q_capacity < 100.0 {
                             plr_floor
                         } else {
-                            // Correct frozen ideal load for zone temp changes
-                            let correction = zone_cap * (control_temp - init_temp);
-                            let corrected_load = (zone_cool_load + correction).max(0.0);
+                            let corrected_load = zone_cool_load.max(0.0);
 
                             // Outdoor-air sensible load. With a continuous fan
                             // and a cycling compressor, outdoor air is drawn in
@@ -7254,6 +7293,7 @@ mod tests {
         let empty_rh: HashMap<String, f64> = HashMap::new();
         let ctx = openbse_airloop::SignalCtx {
             zone_temps: &zone_temps,
+            zone_start_temps: &zone_temps,
             zone_heat_sp: &zone_heat_sp,
             zone_cool_sp: &zone_cool_sp,
             zone_design_flows: &zone_design_flows,
@@ -7321,6 +7361,7 @@ mod tests {
         let empty_rh: HashMap<String, f64> = HashMap::new();
         let ctx = openbse_airloop::SignalCtx {
             zone_temps: &zone_temps,
+            zone_start_temps: &zone_temps,
             zone_heat_sp: &zone_heat_sp,
             zone_cool_sp: &zone_cool_sp,
             zone_design_flows: &zone_design_flows,
@@ -7549,6 +7590,7 @@ mod tests {
         // OA: 20°C, w=0.015 (h ≈ 58 kJ/kg > return ≈ 44 kJ/kg)
         let ctx_humid = openbse_airloop::SignalCtx {
             zone_temps: &zone_temps,
+            zone_start_temps: &zone_temps,
             zone_heat_sp: &zone_heat_sp,
             zone_cool_sp: &zone_cool_sp,
             zone_design_flows: &zone_design_flows,
@@ -7793,6 +7835,7 @@ mod tests {
 
         let ctx = openbse_airloop::SignalCtx {
             zone_temps: &zone_temps,
+            zone_start_temps: &zone_temps,
             zone_heat_sp: &zone_heat_sp,
             zone_cool_sp: &zone_cool_sp,
             zone_design_flows: &zone_design_flows,
@@ -7858,6 +7901,7 @@ mod tests {
 
         let ctx = openbse_airloop::SignalCtx {
             zone_temps: &zone_temps,
+            zone_start_temps: &zone_temps,
             zone_heat_sp: &zone_heat_sp,
             zone_cool_sp: &zone_cool_sp,
             zone_design_flows: &zone_design_flows,
@@ -8041,6 +8085,44 @@ fn hvac_delivery(
         }
     }
     delivery
+}
+
+/// Mode and signed load [W, + heating] each VRF zone asks of its indoor unit:
+/// the load to bring the air from its start-of-timestep temperature to the
+/// heating or cooling setpoint, from the zone's load line in the last envelope
+/// solve (EnergyPlus's VRF terminal units meet `RemainingOutputReqToHeatSP` /
+/// `…CoolSP`). VRF supply is HVAC supply, not a gain, so the line excludes it.
+fn vrf_zone_loads(
+    vrf_systems: &[(
+        openbse_components::vrf::VrfOutdoorUnit,
+        Vec<openbse_components::vrf::VrfIndoorUnit>,
+    )],
+    zones: &[openbse_envelope::zone::ZoneState],
+    start_air_temps: &HashMap<String, f64>,
+    heating_setpoints: &HashMap<String, f64>,
+    cooling_setpoints: &HashMap<String, f64>,
+) -> HashMap<String, (openbse_components::vrf::VrfMode, f64)> {
+    use openbse_components::vrf::VrfMode;
+    let mut loads = HashMap::new();
+    for iu in vrf_systems.iter().flat_map(|(_, idus)| idus) {
+        let Some(z) = zones.iter().find(|z| z.input.name == iu.zone) else {
+            continue;
+        };
+        let t_start = start_air_temps.get(&iu.zone).copied().unwrap_or(z.temp);
+        let heat_sp = heating_setpoints.get(&iu.zone).copied().unwrap_or(21.0);
+        let cool_sp = cooling_setpoints.get(&iu.zone).copied().unwrap_or(24.0);
+        let to_heat = z.ideal_load_line.at(heat_sp, t_start);
+        let to_cool = z.ideal_load_line.at(cool_sp, t_start);
+        let request = if to_heat > 0.0 {
+            (VrfMode::Heating, to_heat)
+        } else if to_cool < 0.0 {
+            (VrfMode::Cooling, to_cool)
+        } else {
+            (VrfMode::Off, 0.0)
+        };
+        loads.insert(iu.zone.clone(), request);
+    }
+    loads
 }
 
 /// Heating and cooling load [W, both ≥ 0] that each zone's radiant panels must
@@ -8376,6 +8458,7 @@ mod tests_datacenter {
 
         let ctx = openbse_airloop::SignalCtx {
             zone_temps: &zone_temps,
+            zone_start_temps: &zone_temps,
             zone_heat_sp: &zone_rh,
             zone_cool_sp: &cool_sp,
             zone_design_flows: &design_flows,
@@ -8435,6 +8518,7 @@ mod tests_datacenter {
 
         let ctx = openbse_airloop::SignalCtx {
             zone_temps: &zone_temps,
+            zone_start_temps: &zone_temps,
             zone_heat_sp: &zone_rh,
             zone_cool_sp: &cool_sp,
             zone_design_flows: &design_flows,

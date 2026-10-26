@@ -34,8 +34,8 @@
     },
     "examples/datacenter_crah.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 1120,
-      "max_unmet_heating_hours_reason": "Pre-existing: 1015 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+      "max_unmet_heating_hours": 1300,
+      "max_unmet_heating_hours_reason": "Proportional-only PSZ heating control (`cycling: proportional`) holds the zone below setpoint at steady state, by design: the 5 K supply-temperature ramp needs a zone error to fire. Since #170 (2026-10-25) the ramp reads the start-of-timestep zone temperature (it read the in-iteration one, which did not converge), so it responds one step later: 1,186 h, was 1,015 h (gate added at main 6c9fe4f). Not a regression. The limit is ~10% above that, and the baseline flags any change. An E+-style modulating option is #178; unmet hours in general are #165."
     },
     "examples/doas_fancoil.yaml": {
       "tier": "fast",
@@ -51,8 +51,8 @@
     },
     "examples/heat_pump_rtu.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 380,
-      "max_unmet_heating_hours_reason": "Pre-existing: 342 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+      "max_unmet_heating_hours": 420,
+      "max_unmet_heating_hours_reason": "Proportional-only PSZ heating control (`cycling: proportional`) holds the zone below setpoint at steady state, by design: the 5 K supply-temperature ramp needs a zone error to fire. Since #170 (2026-10-25) the ramp reads the start-of-timestep zone temperature (it read the in-iteration one, which did not converge), so it responds one step later: 384 h, was 342 h (gate added at main 6c9fe4f). Not a regression. The limit is ~10% above that, and the baseline flags any change. An E+-style modulating option is #178; unmet hours in general are #165."
     },
     "examples/hotel_pthp.yaml": {
       "tier": "fast"
