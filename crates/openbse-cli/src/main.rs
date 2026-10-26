@@ -3085,6 +3085,10 @@ fn main() -> Result<()> {
 
                         let mut final_hvac_result = None;
                         let mut final_env_result = None;
+                        // The last iteration's conditions with the coils' own
+                        // (undamped) supply, when damping changed what the zones
+                        // received; the corrector solve below uses them (#166).
+                        let mut undamped_conds: Option<ZoneHvacConditions> = None;
 
                         // E+-style predictor temps: free-floating zone temps WITHOUT
                         // HVAC, computed by the envelope.  Frozen from the PREVIOUS
@@ -3706,7 +3710,9 @@ fn main() -> Result<()> {
                             // between overcooled/overheated states every iteration,
                             // never converging.  The 50/50 blend of current and
                             // previous supply conditions converges to the correct
-                            // equilibrium within 3-4 iterations.
+                            // equilibrium within 3-4 iterations.  The blend only
+                            // steers the iteration: the final zone solve gets the
+                            // supply the coils produced (corrector, below).
                             let damped_supply: HashMap<String, (f64, f64, f64)> = if hvac_iter > 0 {
                                 zone_supply_conditions
                                     .iter()
@@ -3735,6 +3741,7 @@ fn main() -> Result<()> {
                             } else {
                                 zone_supply_conditions.clone()
                             };
+                            let damping_changed_supply = damped_supply != zone_supply_conditions;
                             prev_supply_conditions = zone_supply_conditions;
 
                             // Step 1c: Coordinate VRF systems.
@@ -3772,44 +3779,12 @@ fn main() -> Result<()> {
                             }
 
                             let mut hvac_conds = ZoneHvacConditions::default();
-
-                            for (zone_name, (supply_temp, mass_flow, supply_w)) in &damped_supply {
-                                let zone_conditioned = env
-                                    .zones
-                                    .iter()
-                                    .find(|z| z.input.name == *zone_name)
-                                    .map(|z| z.input.conditioned)
-                                    .unwrap_or(true);
-
-                                if zone_conditioned {
-                                    hvac_conds
-                                        .supply_temps
-                                        .insert(zone_name.clone(), *supply_temp);
-                                    hvac_conds
-                                        .supply_mass_flows
-                                        .insert(zone_name.clone(), *mass_flow);
-                                    hvac_conds
-                                        .supply_humidity_ratios
-                                        .insert(zone_name.clone(), *supply_w);
-                                }
-                            }
-                            // Inject VRF indoor unit supply conditions into hvac_conds.
-                            // VRF is recirculating — it does not handle outdoor air.
-                            for (_odu, idu_vec) in &vrf_systems {
-                                for iu in idu_vec {
-                                    if iu.mass_flow > 1e-9 {
-                                        hvac_conds
-                                            .supply_temps
-                                            .insert(iu.zone.clone(), iu.supply_temp);
-                                        hvac_conds
-                                            .supply_mass_flows
-                                            .insert(iu.zone.clone(), iu.mass_flow);
-                                        hvac_conds
-                                            .supply_humidity_ratios
-                                            .insert(iu.zone.clone(), iu.supply_humidity_ratio);
-                                    }
-                                }
-                            }
+                            set_zone_supply(
+                                &mut hvac_conds,
+                                &damped_supply,
+                                &env.zones,
+                                &vrf_systems,
+                            );
 
                             // Tell the envelope which zones have HVAC-handled OA.
                             // If a zone's air loop has min_oa_fraction > 0, HVAC handles OA
@@ -3904,6 +3879,17 @@ fn main() -> Result<()> {
                                 }
                             }
 
+                            undamped_conds = damping_changed_supply.then(|| {
+                                let mut conds = hvac_conds.clone();
+                                set_zone_supply(
+                                    &mut conds,
+                                    &prev_supply_conditions,
+                                    &env.zones,
+                                    &vrf_systems,
+                                );
+                                conds
+                            });
+
                             // Step 3: Solve envelope with HVAC supply
                             let env_result = env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
 
@@ -3926,35 +3912,13 @@ fn main() -> Result<()> {
                                 );
                             }
 
-                            // HVAC → zone delivery for the run-time check (#160):
-                            // the heat the loops (undamped), VRF and radiant panels
-                            // sent, against the heat the zone solve used.
-                            step_delivery.clear();
-                            for z in env.zones.iter().filter(|z| z.input.ideal_loads.is_none()) {
-                                let name = &z.input.name;
-                                let cp = openbse_psychrometrics::cp_air_fn_w(z.humidity_ratio);
-                                let mut sent = prev_supply_conditions
-                                    .get(name)
-                                    .map_or(0.0, |&(t, m, _)| m * cp * (t - z.temp));
-                                for iu in vrf_systems.iter().flat_map(|(_, idus)| idus) {
-                                    if iu.zone == *name && iu.mass_flow > 1e-9 {
-                                        sent += iu.mass_flow * cp * (iu.supply_temp - z.temp);
-                                    }
-                                }
-                                for rp in radiant_panels.iter().filter(|rp| rp.zone == *name) {
-                                    sent += rp.thermal_output_to_zone;
-                                }
-                                let mut received = z.air_balance.hvac
-                                    + hvac_conds.radiant_gains.get(name).copied().unwrap_or(0.0);
-                                // The panels' convective share reaches the air as a
-                                // gain (other_sensible_gains), not through air_balance.hvac.
-                                for rp in radiant_panels.iter().filter(|rp| rp.zone == *name) {
-                                    received += rp.convective_output;
-                                }
-                                if sent != 0.0 || received != 0.0 {
-                                    step_delivery.push((name.clone(), sent, received));
-                                }
-                            }
+                            step_delivery = hvac_delivery(
+                                &env.zones,
+                                &prev_supply_conditions,
+                                &vrf_systems,
+                                &radiant_panels,
+                                &hvac_conds,
+                            );
 
                             // Step 4: Check convergence — did zone temps change?
                             let (worst_zone, max_delta) = env_result
@@ -4035,6 +3999,24 @@ fn main() -> Result<()> {
                                 step_convergence = Some((true, None));
                                 break;
                             }
+                        }
+
+                        // Corrector (#166): the coils, plant and fuel are booked
+                        // from the last iteration, so the zones must receive that
+                        // iteration's supply, not its blend with the one before.
+                        // As in EnergyPlus (HVACManager: predict, SimHVAC, then
+                        // correct the zone air once with the final supply), the
+                        // zone solve after the iteration uses the undamped supply.
+                        if let Some(conds) = undamped_conds {
+                            final_env_result =
+                                Some(env.solve_timestep(&ctx, &interp_weather, &conds));
+                            step_delivery = hvac_delivery(
+                                &env.zones,
+                                &prev_supply_conditions,
+                                &vrf_systems,
+                                &radiant_panels,
+                                &conds,
+                            );
                         }
 
                         (final_env_result.unwrap(), final_hvac_result.unwrap())
@@ -7978,6 +7960,87 @@ fn apply_sat_reset_heating(
         }
         SatResetConfig::SingleZone { .. } => current_sat,
     }
+}
+
+/// Put the air-loop supply and the VRF indoor units' supply into the envelope's
+/// conditions. Unconditioned zones get no air-loop supply; a running VRF unit
+/// replaces its zone's air-loop entry.
+fn set_zone_supply(
+    conds: &mut ZoneHvacConditions,
+    supply: &HashMap<String, (f64, f64, f64)>,
+    zones: &[openbse_envelope::zone::ZoneState],
+    vrf_systems: &[(
+        openbse_components::vrf::VrfOutdoorUnit,
+        Vec<openbse_components::vrf::VrfIndoorUnit>,
+    )],
+) {
+    for (zone_name, &(supply_temp, mass_flow, supply_w)) in supply {
+        let zone_conditioned = zones
+            .iter()
+            .find(|z| z.input.name == *zone_name)
+            .map(|z| z.input.conditioned)
+            .unwrap_or(true);
+        if zone_conditioned {
+            conds.supply_temps.insert(zone_name.clone(), supply_temp);
+            conds.supply_mass_flows.insert(zone_name.clone(), mass_flow);
+            conds
+                .supply_humidity_ratios
+                .insert(zone_name.clone(), supply_w);
+        }
+    }
+    // VRF is recirculating — it does not handle outdoor air.
+    for iu in vrf_systems.iter().flat_map(|(_, idus)| idus) {
+        if iu.mass_flow > 1e-9 {
+            conds.supply_temps.insert(iu.zone.clone(), iu.supply_temp);
+            conds
+                .supply_mass_flows
+                .insert(iu.zone.clone(), iu.mass_flow);
+            conds
+                .supply_humidity_ratios
+                .insert(iu.zone.clone(), iu.supply_humidity_ratio);
+        }
+    }
+}
+
+/// HVAC → zone delivery per zone for the run-time check (#160), as
+/// (zone, sent, received) [W]: the heat the air loops (`supply`, as the coils
+/// produced it), VRF and radiant panels sent, against the heat the zone solve
+/// used.
+fn hvac_delivery(
+    zones: &[openbse_envelope::zone::ZoneState],
+    supply: &HashMap<String, (f64, f64, f64)>,
+    vrf_systems: &[(
+        openbse_components::vrf::VrfOutdoorUnit,
+        Vec<openbse_components::vrf::VrfIndoorUnit>,
+    )],
+    radiant_panels: &[openbse_components::radiant_panel::RadiantPanel],
+    conds: &ZoneHvacConditions,
+) -> Vec<(String, f64, f64)> {
+    let mut delivery = Vec::new();
+    for z in zones.iter().filter(|z| z.input.ideal_loads.is_none()) {
+        let name = &z.input.name;
+        let cp = openbse_psychrometrics::cp_air_fn_w(z.humidity_ratio);
+        let mut sent = supply
+            .get(name)
+            .map_or(0.0, |&(t, m, _)| m * cp * (t - z.temp));
+        for iu in vrf_systems.iter().flat_map(|(_, idus)| idus) {
+            if iu.zone == *name && iu.mass_flow > 1e-9 {
+                sent += iu.mass_flow * cp * (iu.supply_temp - z.temp);
+            }
+        }
+        let mut received =
+            z.air_balance.hvac + conds.radiant_gains.get(name).copied().unwrap_or(0.0);
+        // The panels' convective share reaches the air as a gain
+        // (other_sensible_gains), not through air_balance.hvac.
+        for rp in radiant_panels.iter().filter(|rp| rp.zone == *name) {
+            sent += rp.thermal_output_to_zone;
+            received += rp.convective_output;
+        }
+        if sent != 0.0 || received != 0.0 {
+            delivery.push((name.clone(), sent, received));
+        }
+    }
+    delivery
 }
 
 /// Heating and cooling load [W, both ≥ 0] that each zone's radiant panels must
