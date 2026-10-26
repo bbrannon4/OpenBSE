@@ -15,18 +15,15 @@
 //! | Plant loop | supply equipment delivers no more than the loop demand; demand components report | severe |
 //! | Unphysical states | NaN/inf output, negative PLR or capacity, COP ≤ 0 while running | severe |
 //! | Envelope holds | surface temperatures beyond ±200 °C, NaN states replaced | severe |
-//! | HVAC → zone | heat the air loops, VRF and radiant panels send = heat the zone receives | warning |
+//! | HVAC → zone | heat the air loops, VRF and radiant panels send = heat the zone receives | severe |
 //! | Air component | ṁ·Δh across each air-side component = its `thermal_output` | warning |
 //! | Plant unmet demand | capacity-limited loops (E+ "Plant Supply Side Unmet Demand Rate") | warning |
 //! | HVAC convergence | timesteps whose HVAC iteration hit its limit | warning |
 //!
 //! The closure checks that every shipped model passes are severe. The
-//! HVAC → zone and air-component checks are warnings until the imbalances
-//! they found are fixed: supply-air damping makes zones receive a blend of
-//! the last two HVAC iterations while coils book the last one (#166), and the
-//! A205 DX coil's `thermal_output` differs from its air-side enthalpy change
-//! (#168). Radiant panels' convective share also shows up in the HVAC → zone
-//! check (#167). Make them severe once the shipped models pass them.
+//! air-component check is a warning until the imbalance it found is fixed:
+//! the A205 DX coil's `thermal_output` differs from its air-side enthalpy
+//! change (#168). Make it severe once the shipped models pass it.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -383,9 +380,11 @@ impl RunChecks {
             "Zone '{}' air heat balance does not close (surface convection + outdoor/interzone \
              air + convective gains + HVAC − storage)",
         );
+        // The zones receive the supply the coils produced (corrector solve,
+        // #166) and the panels' whole output (#167), so a gap is a wiring bug.
         balances(
             &mut push,
-            Severity::Warning,
+            Severity::Severe,
             &self.delivery,
             "Zone '{}' receives different heat than its HVAC sends (air loop supply, VRF and \
              radiant panels, as sent − as received)",
@@ -618,12 +617,12 @@ mod tests {
     }
 
     #[test]
-    fn heat_sent_but_not_received_is_reported() {
+    fn heat_sent_but_not_received_is_severe() {
         // A radiant panel delivers its convective share nowhere.
         let mut c = RunChecks::default();
         c.delivery("Room", 1000.0, 700.0, 0.25, now());
         let v = report(&c);
-        assert_eq!(v.warning_count(), 1, "{}", v.to_err_file());
+        assert_eq!(v.error_count(), 1, "{}", v.to_err_file());
         let err = v.to_err_file();
         assert!(err.contains("Zone 'Room' receives different heat"), "{err}");
         assert!(err.contains("worst 300 W"), "{err}");
