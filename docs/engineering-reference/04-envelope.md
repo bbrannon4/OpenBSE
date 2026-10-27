@@ -10,7 +10,7 @@ This chapter covers the building shell, in seven parts:
 6. internal gains and ground heat transfer;
 7. the zone air heat and moisture balances.
 
-They are reviewed one part at a time. Parts 1 to 5 are reviewed below;
+They are reviewed one part at a time. Parts 1 to 6 are reviewed below;
 the rest is pre-review text (@sec-envelope-prereview).
 
 ## Materials and constructions {#sec-constructions}
@@ -1187,6 +1187,113 @@ differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
 - [#219](https://github.com/bbrannon4/OpenBSE/issues/219): wind-and-stack
   coefficients; scheduled ventilation lacks E+'s coefficients and schedule.
 
+## Internal gains {#sec-internal-gains}
+
+**Source:** `openbse-envelope/src/internal_gains.rs::resolve_gains_scheduled`;
+`heat_balance.rs::timestep_gains`; top-level `people`, `lights` and
+`equipment` objects resolved per zone in `openbse-io/src/input.rs`.
+
+Each gain has a design level, scaled each timestep by its schedule fraction
+$f$. With $f$ applied:
+
+- **People.** $N$ occupants, either a count or per floor area, release
+  sensible $Q_s = N f\,q_s$ and latent $Q_l = N f\,q_l$. Here
+  $q_s = M\,\phi_s$ and $q_l = M(1-\phi_s)$ for an activity level $M$
+  (default 120 W) and sensible fraction $\phi_s$ (default 0.6), unless
+  explicit W/person values are given. Of $Q_s$, the fraction $r$
+  (default 0.3) is radiant.
+- **Lights.** Power $P f$. The return-air fraction $\phi_\text{ret}$ goes
+  to the return air when an air loop carries it, and otherwise stays in the
+  zone air (#51, @sec-controls). Of the rest, $r$ (default 0.7) is radiant
+  and the remainder convective.
+- **Equipment.** Power $P f$. The lost fraction $\phi_\text{lost}$ leaves
+  the zone. Of what remains, the latent fraction $\phi_l$ is moisture and
+  the rest sensible, of which $r$ (default 0.3) is radiant:
+  $$
+  Q_l = Pf(1-\phi_\text{lost})\phi_l,\qquad
+  Q_s = Pf(1-\phi_\text{lost})(1-\phi_l).
+  $$ {#eq-equipment-gain}
+
+The convective parts enter the zone air as $\dot Q_\text{conv}$
+(@eq-zone-ode). The radiant parts are spread over the zone's surfaces
+(@eq-radiant-gain-flux). The latent parts become a moisture source
+$\dot m_w = Q_l/h_{fg}$ in the zone moisture balance (@sec-envelope-prereview).
+Electric power is booked whole, whatever leaves the zone.
+
+**Sizing.** On design days, a design day's `internal_gains` mode chooses
+among no gains (`off`, the heating default), design levels at every hour
+(`full`, the cooling default), the normal schedules (`scheduled`), and
+design levels whenever the zone's scheduled gain is non-zero
+(`full_when_occupied`) (@sec-sizing).
+
+**Comparison with EnergyPlus.**
+
+- **Model structure.** `People`, `Lights` and `ElectricEquipment` have the
+  same structure (`InternalHeatGains`).
+- **Fraction conventions.** EnergyPlus's radiant, latent, lost and
+  return-air fractions are each a fraction of the *total*. OpenBSE applies
+  lights' and equipment's fractions to what remains after the others; the
+  two agree only when the return-air, lost and latent fractions are zero
+  ([#186](https://github.com/bbrannon4/OpenBSE/issues/186)).
+- **People sensible heat.** EnergyPlus's default sensible heat follows a
+  correlation in activity level and zone air temperature; OpenBSE's fixed
+  fraction does not.
+- **Missing gain types.** Gas, hot-water, steam and other equipment do not
+  exist ([#223](https://github.com/bbrannon4/OpenBSE/issues/223)).
+
+## Ground heat transfer {#sec-ground-ht}
+
+Ground contact has three forms, all described above:
+
+- surfaces with a `ground` boundary, whose outside face is held at the
+  monthly building-surface ground temperature (@sec-ground-temps, @sec-outside-face);
+- F-factor floors (@sec-ffactor);
+- interzone floors over unconditioned basements, modelled as zones.
+
+There is no two- or three-dimensional ground model; EnergyPlus offers
+Kiva (`Foundation:Kiva`), the Slab and Basement preprocessors, and
+`Site:GroundDomain`.
+
+## Zone geometry {#sec-zone-geometry}
+
+**Source:** `openbse-envelope/src/geometry.rs` (`newell_normal`,
+`polygon_area`, `zone_volume_from_surfaces`, `zone_floor_area`);
+`heat_balance.rs::from_input_full`.
+
+**Surfaces.** A surface given by vertices $\mathbf p_1 \dots \mathbf p_m$
+(@sec-geometry) has the Newell normal
+
+$$
+\mathbf N = \sum_{k=1}^{m} (\mathbf p_k \times \mathbf p_{k+1}),\qquad
+A = \tfrac12|\mathbf N|,\qquad \mathbf n = \mathbf N/|\mathbf N|,
+$$ {#eq-newell}
+
+with $\mathbf p_{m+1} = \mathbf p_1$, exact for any planar polygon. Azimuth
+and tilt follow from @eq-azimuth-tilt. A surface given without vertices
+uses its stated area, azimuth and tilt. The net area of a parent surface is
+its area less its windows and doors.
+
+**Zones.** The floor area, when not given, is the sum of the zone's floor
+polygon areas. The volume, when not given, is the floor area times
+$z_\text{max} - z_\text{min}$ over the zone's vertices. Only without a
+floor does it fall back to the divergence theorem,
+$V = \tfrac13\sum_k A_k\,\mathbf n_k\cdot\mathbf c_k$, with
+$\mathbf c_k$ the centroid of surface $k$. EnergyPlus uses the polyhedron
+volume whenever the zone is enclosed (`SurfaceGeometry::CalculateZoneVolume`).
+OpenBSE's floor-times-height overstates the volume of sloped-roof and other
+non-prismatic zones ([#222](https://github.com/bbrannon4/OpenBSE/issues/222)).
+
+## Known limitations: gains, ground and geometry {#sec-gains-limitations}
+
+- [#186](https://github.com/bbrannon4/OpenBSE/issues/186): lights' and
+  equipment's fractions apply to remainders, not totals.
+- [#222](https://github.com/bbrannon4/OpenBSE/issues/222): auto-calculated
+  zone volume is floor area × height.
+- [#223](https://github.com/bbrannon4/OpenBSE/issues/223): fixed people
+  sensible fraction; only electric equipment; `full_when_occupied`
+  granularity.
+- No multidimensional ground heat transfer model.
+
 ## Remaining envelope models {#sec-envelope-prereview}
 
 ::: {.callout-warning}
@@ -1194,147 +1301,6 @@ differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
 
 The sections below hold text moved unchanged, apart from format, from the former single-file reference (`README.md`, mostly written in March 2026). Parts of it are stale or incomplete. They will be rewritten from the code, and checked against EnergyPlus, in the later parts of this chapter's review ([#181](https://github.com/bbrannon4/OpenBSE/issues/181)); see @sec-status.
 :::
-
-### Internal Gains
-
-**Module:** `internal_gains.rs`
-
-**Purpose:** Computes convective and radiative heat gains from occupants, lighting, and equipment.
-
-#### Gain Types
-
-**People:**
-```
-Q_sensible = count · activity_level · sensible_fraction   [W]
-Q_latent   = count · activity_level · (1 − sensible_fraction) [W]
-Q_radiative = Q_sensible · radiant_fraction
-Q_convective = Q_sensible · (1 − radiant_fraction)
-```
-
-Alternatively, `sensible_gain_per_person` and `latent_gain_per_person` can be specified directly to override the activity_level × fraction calculation.
-
-| Parameter | Unit | Default | Description |
-|-----------|------|---------|-------------|
-| `count` | — | required | Number of occupants |
-| `activity_level` | W/person | 120.0 | Total metabolic heat output per person |
-| `sensible_fraction` | 0–1 | 0.6 | Fraction of metabolic heat that is sensible |
-| `radiant_fraction` | 0–1 | 0.3 | Fraction of sensible heat that is radiative |
-| `sensible_gain_per_person` | W/person | — | Override: explicit sensible gain |
-| `latent_gain_per_person` | W/person | — | Override: explicit latent gain |
-
-**Lights:**
-```
-Q_input = power                                            [W]
-Q_return_air = power · return_air_fraction
-Q_zone = power · (1 − return_air_fraction)
-Q_radiative = Q_zone · radiant_fraction
-Q_convective = Q_zone · (1 − radiant_fraction)
-```
-
-`Q_return_air` goes to the air leaving the zone for the return duct, as in
-EnergyPlus (`ZoneEquipmentManager::CalcZoneLeavingConditions`). It raises the
-zone's return-air temperature by `Q_return_air / (ṁ_return · cp)`, up to
-EnergyPlus's 60 °C limit, so the coils, the economizer and heat recovery see it.
-`ṁ_return` is the air the zone returns to a central loop (VAV, dual-duct, DOAS,
-CRAC/CRAH) or to a PSZ unit with a continuous fan. With no such return (zonal
-units such as FCU, PTAC and PTHP, cycling-fan PSZ units, a loop that is off,
-ideal loads or sizing), the heat stays in the zone air as a convective gain,
-which is what EnergyPlus does through `Zone::NoHeatToReturnAir`.
-
-| Parameter | Unit | Default | Description |
-|-----------|------|---------|-------------|
-| `power` | W | required | Total installed lighting power |
-| `radiant_fraction` | 0–1 | 0.7 | Fraction of zone heat (`Q_zone`) that is radiative |
-| `return_air_fraction` | 0–1 | 0.0 | Fraction of heat to the zone's return air |
-
-**Equipment:**
-```
-Q_total     = power                                        [W]
-Q_to_zone   = Q_total · (1 − lost_fraction)                [W]
-Q_latent    = Q_to_zone · latent_fraction                   [W]
-Q_sensible  = Q_to_zone − Q_latent                          [W]
-Q_radiative = Q_sensible · radiant_fraction
-Q_convective = Q_sensible · (1 − radiant_fraction)
-```
-
-| Parameter | Unit | Default | Description |
-|-----------|------|---------|-------------|
-| `power` | W | required | Total equipment power |
-| `radiant_fraction` | 0–1 | 0.3 | Fraction of sensible heat that is radiative |
-| `lost_fraction` | 0–1 | 0.0 | Fraction of heat that does not enter the zone (e.g., elevator shaft) |
-| `latent_fraction` | 0–1 | 0.0 | Fraction of non-lost heat that generates moisture (e.g., kitchen, laundry) |
-
-The resolved gain output provides `convective` [W], `radiative` [W], `total` [W] (sensible only), `people_latent` [W], and `equipment_latent` [W]. Latent gains feed the zone moisture balance.
-
-Internal gains support time-varying operation through the schedule system (see [Schedules](#schedules)). Each gain type can reference a named schedule; the schedule fraction multiplies the design power at each timestep.
-
-### Vertex Geometry
-
-**Module:** `geometry.rs`
-
-**Purpose:** Provides 3D polygon-based geometry for building surfaces, enabling automatic calculation of surface areas, orientations, and zone volumes from vertex coordinates.
-
-**Reference:** Newell (1972), EnergyPlus `SurfaceGeometry.cc`
-
-#### Coordinate System
-
-Right-hand coordinate system: X = East, Y = North, Z = Up. Vertices are ordered counter-clockwise when viewed from outside the building (Newell convention).
-
-#### Point3D
-
-A vertex in building coordinates:
-
-| Field | Unit | Description |
-|-------|------|-------------|
-| `x` | m | East coordinate |
-| `y` | m | North coordinate |
-| `z` | m | Up coordinate |
-
-#### Newell's Method
-
-Computes the outward normal vector and area of a polygon from its vertices:
-
-```
-For each vertex pair (i, j = i+1 mod n):
-    Nx += (Yi - Yj) * (Zi + Zj)
-    Ny += (Zi - Zj) * (Xi + Xj)
-    Nz += (Xi - Xj) * (Yi + Yj)
-
-Area = |N| / 2
-```
-
-The magnitude of the Newell normal vector equals twice the polygon area.
-
-#### Derived Properties
-
-**Azimuth** (from surface normal):
-```
-azimuth = atan2(Nx, Ny)    [mapped to 0-360 degrees]
-```
-0 = North, 90 = East, 180 = South, 270 = West.
-
-**Tilt** (from surface normal):
-```
-tilt = acos(Nz / |N|)      [degrees]
-```
-0 = face-up (horizontal roof), 90 = vertical wall, 180 = face-down (floor).
-
-**Zone volume** (divergence theorem):
-```
-V = (1/3) * |Sum over faces of (N_hat . P_centroid) * A_face|
-```
-
-Requires surfaces to form a closed volume with outward-pointing normals.
-
-**Zone floor area:**
-
-Sum of polygon areas for all surfaces with tilt > 150 degrees (downward-pointing normals, identifying floor surfaces).
-
-#### Auto-Calculation
-
-When a zone's volume or floor area is specified as 0.0 in the input, the engine automatically computes these values from the zone's surface vertices using the above algorithms. This avoids manual calculation for complex geometries.
-
----
 
 ### Zone Air Heat Balance
 
