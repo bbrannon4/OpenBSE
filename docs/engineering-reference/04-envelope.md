@@ -10,7 +10,8 @@ This chapter covers the building shell, in seven parts:
 6. internal gains and ground heat transfer;
 7. the zone air heat and moisture balances.
 
-They are reviewed one part at a time. Parts 1 to 3 are reviewed below;
+They are reviewed one part at a time. Parts 1 to 3 and the windows of part 4
+are reviewed below;
 the rest is pre-review text (@sec-envelope-prereview).
 
 ## Materials and constructions {#sec-constructions}
@@ -38,7 +39,7 @@ construction's faces:
 
 This matches EnergyPlus. Three other construction types exist: simple
 constructions (@sec-simple-constructions), F-factor floors (@sec-ffactor)
-and window constructions (@sec-envelope-prereview).
+and window constructions (@sec-windows).
 
 A layer naming an undefined material is dropped silently, and missing
 conductivity, density or specific heat take defaults (1, 1 and 1000). Both
@@ -264,7 +265,7 @@ will be written when the model is fixed and wired in.
 6b inside faces).
 
 Each opaque surface has an outside and an inside face temperature, linked by
-the conduction of @eq-ctf. Windows have their own balance (@sec-envelope-prereview).
+the conduction of @eq-ctf. Windows have their own balance (@sec-window-hb).
 Each envelope solve makes five passes over the following steps. There is no
 convergence test between passes
 ([#209](https://github.com/bbrannon4/OpenBSE/issues/209)):
@@ -630,6 +631,223 @@ its own `ZoneHvacConditions` documentation claims the E+ weighting
 - [#211](https://github.com/bbrannon4/OpenBSE/issues/211): radiant gains are
   spread by area only, not area × emissivity.
 
+## Windows {#sec-windows}
+
+**Source:** `material.rs::WindowConstruction`; `solar.rs` (glazing optics:
+`SgsAngularModel`, `compute_glass_angular_params`, `angular_shgc_modifier_u`,
+the Fresnel functions); `heat_balance.rs::solve_timestep` (steps 5b and 6,
+window branch), `sealed_air_gap_conductance`, `solve_window_with_shade`,
+`shade_solar`; `openbse-cli/src/main.rs::evaluate_blind_control`.
+
+A window construction is described by its NFRC U-factor $U$ (films
+included) and its normal-incidence $SHGC$. Optional data refine it:
+
+- per-pane solar transmittance and reflectance;
+- the number of panes;
+- the gap width;
+- the pane conductivity and thickness;
+- the glass emissivity (default 0.84);
+- a shading control.
+
+`visible_transmittance`, `solar_absorptance` and `inside_absorbed_fraction`
+are accepted but not used
+([#213](https://github.com/bbrannon4/OpenBSE/issues/213)). A window is one
+surface whose temperature is the inside glass face. Its area is subtracted
+from its parent surface.
+
+### Solar optics {#sec-window-optics}
+
+The solar gain of a window is split into the transmitted part, which lands
+on the zone's surfaces (@sec-envelope-prereview), and the absorbed-inward
+part, which heats the glass:
+
+$$
+SHGC(\theta) = \tau(\theta) + N_i\,\alpha(\theta), \qquad \alpha = 1 - \tau - \rho,
+$$ {#eq-shgc-split}
+
+where $N_i$ is the inward-flowing fraction of the absorbed solar. Beam
+irradiance uses the values at its incidence angle $\theta$. Diffuse (sky,
+circumsolar, horizon and ground) uses hemispherical averages, computed as
+$\int_0^{\pi/2} X(\theta)\cos\theta\sin\theta\,d\theta \big/ \int_0^{\pi/2}\cos\theta\sin\theta\,d\theta$
+over 200 angles. Which angular model a window gets depends on its inputs
+([#213](https://github.com/bbrannon4/OpenBSE/issues/213), comment):
+
+1. **Simple glazing** (no pane data, $SHGC < 0.55$). This is EnergyPlus's
+   SimpleGlazingSystem model [@arasteh2009]. The normal-incidence
+   transmittance comes from the U-dependent correlations, for example for
+   low U:
+
+   $$
+   \tau_\text{sol} =
+   \begin{cases}
+   0.41040\,SHGC & SHGC \le 0.15,\\
+   0.085775\,SHGC^2 + 0.963954\,SHGC - 0.084958 & \text{otherwise},
+   \end{cases}
+   $$ {#eq-sgs-tsol}
+
+   with the high-U form for $U > 4.5424$ and linear interpolation between
+   3.4068 and 4.5424 W/(m²·K). The glass resistance and inward fraction use
+   fixed films ($h_i = 8.29$, $h_o = 26.0$):
+
+   $$
+   R_l = \frac1U - \frac1{h_o} - \frac1{h_i},\qquad
+   N = \frac{R_l/2 + 1/h_o}{R_l + 1/h_o + 1/h_i},\qquad
+   \rho_\text{sol} = 1 - \tau_\text{sol} - \frac{SHGC - \tau_\text{sol}}{N}.
+   $$ {#eq-sgs-films}
+
+   The angular dependence uses EnergyPlus's curve set A–J for the window's
+   U/SHGC bin:
+   $\tau(\theta) = \tau_\text{sol}\,P_T(\cos\theta)$ and
+   $\rho(\theta) = \rho_\text{sol}(1 - P_R + P_T) + (P_R - P_T)$, where
+   $P_T$ and $P_R$ are fourth-order polynomials in $\cos\theta$.
+2. **Fresnel** (per-pane $\tau_p$ and $\rho_p$ given, or no pane data and
+   $SHGC \ge 0.55$). Two identical panes of refractive index $n$ and
+   extinction thickness $kd$. With per-pane data, $n$ is fitted to $\rho_p$
+   and $kd$ to $\tau_p$; otherwise $n = 1.526$ and $kd$ is fitted to an
+   estimated transmittance. Each pane's transmittance and reflectance follow
+   from the Fresnel reflectance $r = (r_s + r_p)/2$ and internal absorption
+   $e^{-kd/\cos\theta'}$, and the two panes are combined with their
+   inter-reflections:
+
+   $$
+   \tau_2 = \frac{\tau_1^2}{1 - \rho_1^2},\qquad \rho_2 = \rho_1 + \frac{\tau_1^2\rho_1}{1 - \rho_1^2}.
+   $$ {#eq-fresnel-double}
+
+   $N_i$ is fitted so @eq-shgc-split reproduces the SHGC at normal
+   incidence. For $0.25 < SHGC < 0.55$ the angular modifier is blended with a
+   U-dependent polynomial, and for $SHGC \le 0.25$ the polynomial replaces
+   it.
+
+The transmitted solar then splits into beam and diffuse parts
+(@sec-envelope-prereview). The absorbed-inward part is
+$SHGC\cdot I - \tau\cdot I$, per unit window area.
+
+### Window heat balance {#sec-window-hb}
+
+The glass is one node, at the inside face temperature $T_g$:
+
+$$
+\begin{gathered}
+u_{e,g}\left(T_\text{ext} - T_g\right) + h_{c,i}(T_z - T_g) + h_{r,i}(T_\text{mrt} - T_g)
++ q''_\text{abs,in} + q''_{r,\text{int}} = 0,\\
+u_{e,g} = \left(\frac{1}{h_e} + \frac{1}{u_g}\right)^{-1}.
+\end{gathered}
+$$ {#eq-window-node}
+
+The terms are:
+
+- **Outside film.** $h_e = h_{c,o} + h_\text{sky} + h_\text{air} + h_\text{gnd}$
+  is the outside film, with @eq-doe2 and @eq-ext-hrad at the glass
+  emissivity. $T_\text{ext}$ is the $h$-weighted mean of outdoor air, sky
+  and ground temperature.
+- **Inside film.** $h_{c,i}$ is the window inside convection
+  (@sec-tarp), and $h_{r,i}$ and $T_\text{mrt}$ come from @eq-lw-linear at
+  the glass emissivity.
+- **Glass conductance** $u_g$:
+  - **Film-stripped** (default): $u_g = (1/U - 1/26 - 1/8.29)^{-1}$.
+  - **Single pane** (`num_panes: 1` with pane data): $u_g = k/L$.
+  - **Gap model** (gap width and pane data):
+    $u_g = (2L/k + 1/h_\text{gap})^{-1}$, with an air gap whose
+    $h_\text{gap} = Nu\,k_\text{air}/s + h_{r,\text{gap}}$ follows ISO 15099
+    [@iso15099]. $Nu$ comes from the vertical-cavity correlations for tilt
+    ≥ 60° and from Hollands et al. [@hollands1976] for inclined gaps. The
+    result is capped at 1.05 times the film-stripped value. The model assumes
+    two panes, whatever `num_panes` is
+    ([#214](https://github.com/bbrannon4/OpenBSE/issues/214)).
+
+@eq-window-node is solved in five fixed iterations, updating $h_{c,i}$,
+$h_{r,i}$, $T_\text{mrt}$ and the gap conductance. When
+$h_{c,i} + h_{r,i} < 2$ W/(m²·K), they are floored at 0.5 and 1.5. The outside
+glass face temperature is back-calculated from the conduction through $u_g$.
+
+Any part of $q''_\text{abs,in}$ that the node conducts outdoors is added
+directly to the zone air. The whole absorbed-inward gain therefore reaches
+the zone, as the SHGC definition implies. The glass's convection enters the
+zone air balance through $h_{c,i}A(T_g - T_z)$.
+
+### Interior shades and blinds {#sec-shades}
+
+A window construction may carry a shading control that deploys a shade or
+blind. It deploys when its signal exceeds the trigger and retracts when the
+signal falls below the trigger minus the hysteresis. The signal is either:
+
+- the window's incident irradiance per unit area from the previous
+  timestep; or
+- the zone air temperature at the start of the timestep.
+
+A deployed device is modelled in one of two ways:
+
+- **Assembly rating** (`blind_shgc`, `blind_u_factor`). All solar gains are
+  scaled by $SHGC_\text{blind}/SHGC$ (clamped to [0, 1]), and $u_g$ is the
+  film-stripped blind U-factor.
+- **Shade layer** (`shade`). The fabric's solar transmittance $\tau_{sh}$
+  (with openness $o$), reflectance $\rho_{sh}$ and emissivity are given.
+  Solar transmitted by the glass ($I_g$, beam $I_{g,b}$) bounces between
+  glass and shade:
+
+  $$
+  \begin{gathered}
+  I_{sh} = \frac{I_g}{1 - \rho_{sh}\rho_g},\qquad
+  \text{beam} = o\,I_{g,b},\qquad \text{diffuse} = \tau_{sh}I_{sh} - o\,I_{g,b},\\
+  \text{shade} = \alpha_{sh}I_{sh},\qquad \text{glass} = \rho_{sh}I_{sh}\alpha_g,
+  \end{gathered}
+  $$ {#eq-shade-solar}
+
+  where $\rho_g$ and $\alpha_g$ are the glazing's room-side hemispherical
+  properties; the rest, $\rho_{sh}I_{sh}\tau_g$, leaves through the glass.
+  Glass, shade and gap air are then three nodes solved together, ten times
+  with updated coefficients:
+
+  $$
+  \begin{aligned}
+  u_{e,g}(T_\text{ext} - T_g) + q''_g &= h_{r,gs}(T_g - T_{sh}) + h_{cv}(T_g - T_a),\\
+  q''_{sh} &= h_{r,gs}(T_{sh} - T_g) + h_{cv}(T_{sh} - T_a)\\
+  &\quad + h_{cs}(T_{sh} - T_z) + h_{r,i}(T_{sh} - T_\text{mrt}),\\
+  h_{cv}(T_g - T_a) + h_{cv}(T_{sh} - T_a) &= h_\text{vent}(T_a - T_z),
+  \end{aligned}
+  $$ {#eq-shade-nodes}
+
+  with:
+  - $h_{r,gs} = 4\sigma\bar T^3/(1/\varepsilon_g + 1/\varepsilon_{sh} - 1)$;
+  - gap convection $h_{cv} = 2h_c + 4v$ and ventilation
+    $h_\text{vent} = \rho c_p v d/H$;
+  - the buoyant gap velocity $v = 0.7\sqrt{gH|T_a - T_z|/T_z}$ [@iso15099].
+
+  The discharge coefficient 0.7 was calibrated against EnergyPlus interior
+  shade runs (#144). The room sees the shade as the window's inside face.
+
+**Comparison with EnergyPlus.**
+
+- **Simple-glazing correlations and curves.** The transmittance
+  correlations and angular curves follow
+  `MaterialGlass::SetupSimpleWindowGlazingSystem`
+  [@eplus-engref-25-2, "Simple Window Model"]. EnergyPlus uses U-dependent
+  winter films for $R_l$, SHGC-dependent solar films for $N$, and U bounds of
+  3.4 and 4.5 ([#213](https://github.com/bbrannon4/OpenBSE/issues/213)).
+- **Thermal model.** EnergyPlus solves two face temperatures per glass
+  layer, with each layer's absorbed solar, per-gap gas properties and the
+  full ISO 15099 gap correlations (`WindowManager::SolveForWindowTemperatures`).
+  The lumped node of @eq-window-node, the two-pane gap model and the caps are
+  deviations ([#214](https://github.com/bbrannon4/OpenBSE/issues/214)).
+- **Inside convection.** It differs (@sec-tarp,
+  [#208](https://github.com/bbrannon4/OpenBSE/issues/208)).
+- **Shades.** The shade layer follows `WindowMaterial:Shade` with an
+  ISO 15099 vented gap, simplified to fixed air properties and one gap
+  velocity.
+- **Shading control.** It corresponds to `WindowShadingControl` with the
+  `OnIfHighSolarOnWindow` and `OnIfHighZoneAirTemperature` triggers. The
+  hysteresis is an addition.
+
+## Known limitations: windows {#sec-windows-limitations}
+
+- [#208](https://github.com/bbrannon4/OpenBSE/issues/208): window inside
+  convection uses the glazing-cavity correlation.
+- [#213](https://github.com/bbrannon4/OpenBSE/issues/213): simple-glazing
+  films and bounds differ from EnergyPlus; three unread inputs; angular-model
+  selection by input.
+- [#214](https://github.com/bbrannon4/OpenBSE/issues/214): lumped glass node,
+  two-pane air-only gap model, ad hoc caps.
+
 ## Remaining envelope models {#sec-envelope-prereview}
 
 ::: {.callout-warning}
@@ -637,44 +855,6 @@ its own `ZoneHvacConditions` documentation claims the E+ weighting
 
 The sections below hold text moved unchanged, apart from format, from the former single-file reference (`README.md`, mostly written in March 2026). Parts of it are stale or incomplete. They will be rewritten from the code, and checked against EnergyPlus, in the later parts of this chapter's review ([#181](https://github.com/bbrannon4/OpenBSE/issues/181)); see @sec-status.
 :::
-
-### Window Construction
-
-Windows use a simplified performance-based model.
-
-| Field | Unit | Default | Description |
-|-------|------|---------|-------------|
-| `name` | — | required | Name |
-| `u_factor` | W/(m²·K) | required | Overall U-factor (includes film coefficients) |
-| `shgc` | 0–1 | required | Solar Heat Gain Coefficient at normal incidence |
-| `visible_transmittance` | 0–1 | 0.6 | Visible light transmittance |
-
-### Window Transmitted Solar (Angular SHGC)
-
-**Function:** `window_transmitted_solar_angular(shgc, area, beam_incident, diffuse_incident, cos_aoi)`
-
-Uses separate angular modifiers for beam and diffuse solar, based on Fresnel optics for double-pane glass.
-
-**Beam modifier** (angular dependence):
-```
-beam_mod = fresnel_double_pane_modifier(cos_aoi, shgc)
-```
-
-Uses the Fresnel equations for unpolarized light at a glass-air interface (n = 1.526) to compute the transmittance ratio `T(θ)/T(0)` for a double-pane assembly, accounting for inter-pane reflections.
-
-**Diffuse modifier** (hemispherical integration):
-```
-diff_mod = diffuse_shgc_modifier(shgc)
-```
-
-Computed as the hemispherical average of the beam modifier over 0-90 degrees, weighted by `cos(θ)·sin(θ)`. For SHGC = 0.789 (ASHRAE 140 clear double-pane), diff_mod = 0.864.
-
-**Transmitted solar:**
-```
-Q_beam = SHGC · beam_mod · Area · I_beam
-Q_diffuse = SHGC · diff_mod · Area · I_diffuse
-Q_total = Q_beam + Q_diffuse
-```
 
 ### Interior Solar Distribution
 
