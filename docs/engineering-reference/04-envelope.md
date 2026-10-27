@@ -10,9 +10,7 @@ This chapter covers the building shell, in seven parts:
 6. internal gains and ground heat transfer;
 7. the zone air heat and moisture balances.
 
-They are reviewed one part at a time. Parts 1 to 3 and the windows of part 4
-are reviewed below;
-the rest is pre-review text (@sec-envelope-prereview).
+Each part was written from the code and compared with EnergyPlus.
 
 ## Materials and constructions {#sec-constructions}
 
@@ -301,7 +299,7 @@ $$ {#eq-outside-temp}
 where:
 
 - $q''_\alpha$ is the absorbed solar flux (@sec-incident-solar, times the
-  outside solar absorptance and the shading treatment of @sec-envelope-prereview);
+  outside solar absorptance and the shading treatment of @sec-external-shading);
 - $H_\text{o} = \sum_{j\ge1}(X_jT_\text{so}^{t-j} - Y_jT_\text{si}^{t-j} + \Phi_j q''^{\,t-j}_\text{ko})$
   is the history part of @eq-ctf;
 - the denominator is floored at 1 W/(m²·K).
@@ -357,7 +355,7 @@ sky–air split and the ground at air temperature match
 The inside face balances conduction from the wall, convection to the zone
 air, long-wave exchange with the zone's other surfaces, and the radiant flux
 $q''_\text{r}$ it absorbs. That flux is the transmitted solar landing on it
-plus its share of the radiant internal gains (@sec-radiant-gains; solar in @sec-envelope-prereview):
+plus its share of the radiant internal gains (@sec-radiant-gains; solar in @sec-interior-solar):
 
 $$
 q''_\text{ki} + h_{c,i}(T_z - T_\text{si}) + h_{r,i}(T_\text{mrt} - T_\text{si}) + q''_\text{r} = 0.
@@ -418,7 +416,7 @@ with $h_n \ge 0.1$ W/(m²·K). Inside faces use $\cos\Sigma = -\cos\beta$,
 since the inside face of a roof faces down; outside faces use $\cos\beta$.
 
 **Inside faces** of opaque surfaces use @eq-tarp with the zone air (or, in a
-stratified zone, the local air at the surface's height; @sec-envelope-prereview). **Window inside faces** use a separate correlation
+stratified zone, the local air at the surface's height; @sec-stratification). **Window inside faces** use a separate correlation
 (`window_interior_convection`):
 $Nu = (Nu_T^6 + Nu_s^6)^{1/6}$, with $Nu_T = 0.0673838\,Ra^{1/3}$ and
 $Nu_s = 0.242\,(Ra/A_r)^{0.272}$, where $Ra$ is based on the window height and
@@ -658,7 +656,7 @@ from its parent surface.
 ### Solar optics {#sec-window-optics}
 
 The solar gain of a window is split into the transmitted part, which lands
-on the zone's surfaces (@sec-envelope-prereview), and the absorbed-inward
+on the zone's surfaces (@sec-interior-solar), and the absorbed-inward
 part, which heats the glass:
 
 $$
@@ -719,7 +717,7 @@ over 200 angles. Which angular model a window gets depends on its inputs
    it.
 
 The transmitted solar then splits into beam and diffuse parts
-(@sec-envelope-prereview). The absorbed-inward part is
+(@sec-interior-solar). The absorbed-inward part is
 $SHGC\cdot I - \tau\cdot I$, per unit window area.
 
 ### Window heat balance {#sec-window-hb}
@@ -848,535 +846,596 @@ A deployed device is modelled in one of two ways:
 - [#214](https://github.com/bbrannon4/OpenBSE/issues/214): lumped glass node,
   two-pane air-only gap model, ad hoc caps.
 
-## Remaining envelope models {#sec-envelope-prereview}
-
-::: {.callout-warning}
-## Pre-review content
-
-The sections below hold text moved unchanged, apart from format, from the former single-file reference (`README.md`, mostly written in March 2026). Parts of it are stale or incomplete. They will be rewritten from the code, and checked against EnergyPlus, in the later parts of this chapter's review ([#181](https://github.com/bbrannon4/OpenBSE/issues/181)); see @sec-status.
-:::
-
-### Interior Solar Distribution
-
-**Module:** `envelope.rs` (solar distribution logic within the zone heat balance)
-
-**Purpose:** Distributes transmitted window solar gains onto interior zone surfaces. Two methods are implemented, selected via the `solar_distribution` YAML field.
-
-#### FullExterior (Default)
-
-All transmitted beam solar is distributed to floor surfaces, weighted by floor area:
-
-```
-Q_beam_floor_i = Q_beam_total × (A_floor_i / A_floor_total)
-```
-
-Diffuse transmitted solar is distributed to all interior surfaces using a VMULT factor:
-
-```
-VMULT = 1 / Σ(A_i × α_i)    for all interior surfaces
-Q_diffuse_surface_i = Q_diffuse_total × A_i × α_i × VMULT
-```
-
-where `α_i` is the interior solar absorptance of surface `i`. This matches the EnergyPlus FullExterior algorithm.
-
-#### FullInteriorAndExterior
-
-Beam solar is geometrically projected through each window onto interior surfaces using the actual sun direction vector. The algorithm:
-
-1. For each window, project a beam rectangle onto the plane of each interior surface using the solar direction vector.
-2. Clip the projected rectangle against the receiving surface polygon using Sutherland-Hodgman polygon clipping.
-3. Assign beam solar proportional to the clipped area on each surface.
-4. Any beam solar that doesn't hit a surface (e.g., exits through another window) falls back to the FullExterior floor distribution.
-
-Diffuse distribution uses the same VMULT method as FullExterior.
-
-#### Reflected Beam Handling (Deliberate Deviation from EnergyPlus)
-
-After beam solar is absorbed by its target surface (absorptance `α`), the reflected fraction `(1 - α)` enters the diffuse pool for redistribution via VMULT. This differs from EnergyPlus, which keeps reflected beam localized to the surface that received it.
-
-**Rationale:** In reality, reflected beam bounces multiple times off interior surfaces. The infinite-bounce solution converges to a distribution governed by the radiosity equation `(I - ρF)⁻¹`, where `F` is the view factor matrix. Placing reflected beam into the diffuse pool (area-weighted) is a closer approximation to this converged state than E+'s single-bounce localization. The approximation omits view-factor weighting between surfaces, which is acceptable for typical rectangular rooms but could diverge for unusual geometries.
-
-OpenBSE also omits E+'s direct solar-to-zone-air fraction, which E+ uses to account for solar absorbed by unmodeled interior objects (furniture, carpets) that release heat convectively with minimal time lag. This is a known simplification — see STATUS.md for details.
-
----
-
-### External Shading
-
-**Module:** `shading.rs`
-
-**Purpose:** Computes the shading effect of overhangs, fins, and other external shading surfaces on building surfaces. Two types of shading are calculated: beam (directional) and diffuse (sky dome).
-
-#### Beam Shadow Calculation
-
-**Function:** `calculate_sunlit_fraction(surface_vertices, caster_polygons, sun_direction)`
-
-**Algorithm:** For each timestep, the sun direction is used to project shading surface (caster) polygons onto the receiving surface plane. The projected shadow polygon is clipped against the receiving surface using the Sutherland-Hodgman polygon clipping algorithm. The sunlit fraction is `1 - (shadow_area / surface_area)`.
-
-**Multi-caster handling:** When multiple casters shade the same surface (e.g., overhang + two fins), an 8x8 grid sampling method is used with UNION logic (a point is shaded if ANY caster shadows it). For single casters, exact polygon area is used for efficiency.
-
-#### Diffuse Sky Shading Ratios
-
-**Function:** `compute_diffuse_sky_shading_ratio(surface_vertices, caster_polygons)`
-
-**Algorithm:** Samples the sky hemisphere using 144 patches (6 altitude x 24 azimuth directions). For each patch, checks if any caster blocks the line of sight from 5x5 sample points on the receiving surface. The ratio of unblocked patches (weighted by `cos(altitude)`) to the total gives the diffuse sky shading ratio.
-
-Two ratios are computed:
-- **DifShdgRatioIsoSky:** Fraction of isotropic sky dome visible (patches above 10 deg altitude)
-- **DifShdgRatioHoriz:** Fraction of horizon band visible (patches below 10 deg altitude)
-
-These ratios are precomputed once at startup and stored per surface.
-
-#### Overhang and Fin Geometry Generation
-
-Overhangs and fins can be specified as either:
-1. **Explicit vertices** in the `shading_surfaces` section
-2. **Auto-generated** from `shading: overhang/left_fin/right_fin` parameters on surfaces
-
-Auto-generation creates overhang/fin polygons based on:
-- `depth` -- projection distance from wall surface
-- `offset_above` -- vertical offset above window (overhangs, default 0)
-- `left_extension/right_extension` -- lateral extensions (overhangs, default 0)
-- `extend_above/extend_below` -- vertical extensions (fins, default 0)
-
----
-
-### Infiltration
-
-**Module:** `infiltration.rs`
-
-**Purpose:** Computes outdoor air infiltration into zones based on temperature difference and wind speed.
-
-**Model:** EnergyPlus Design Flow Rate model
-
-**Reference:** EnergyPlus `HeatBalanceAirManager.cc`
-
-#### Inputs
-
-| Parameter | Unit | Default | Description |
-|-----------|------|---------|-------------|
-| `design_flow_rate` | m³/s | 0.0 | Design infiltration volume flow |
-| `air_changes_per_hour` | 1/hr | 0.0 | Alternative: ACH-based specification |
-| `coeff_a` | — | 1.0 | Constant coefficient |
-| `coeff_b` | 1/°C | 0.0 | Temperature difference coefficient |
-| `coeff_c` | s/m | 0.0 | Wind speed coefficient |
-| `coeff_d` | s²/m² | 0.0 | Wind speed squared coefficient |
-
-If `air_changes_per_hour` is specified and `design_flow_rate` is zero, the flow rate is computed as:
-```
-Q_design = ACH · Volume / 3600
-```
-
-#### Algorithm
-
-**Volume flow rate:**
-```
-Q = Q_design · (A + B·|T_zone − T_outdoor| + C·V_wind + D·V_wind²)
-```
-
-**Mass flow rate:**
-```
-ṁ = Q · ρ_outdoor
-```
-
-where `ρ_outdoor` is the outdoor air density at current conditions.
-
----
-
-### Airflow Network (Multizone Pressure Solver)
-
-**Module:** `airflow_network.rs`
-
-**Purpose:** Solves for pressure-driven airflow through the building envelope and between zones using Newton-Raphson iteration on the mass conservation equations. Replaces the Design Flow Rate infiltration model when enabled.
-
-**Reference:** ASHRAE Fundamentals Ch. 16; Swami & Chandra, FSEC-CR-163-86 (1988); E+ AirflowNetwork model concepts.
-
-#### Flow Elements
-
-| Element | Equation | Use |
-|---------|----------|-----|
-| Power-law crack | Q = C \|ΔP\|^n sign(ΔP), n ≈ 0.65 | Envelope cracks, interzone gaps |
-| Large opening (orifice) | Q = Cd A sqrt(2ρ\|ΔP\|) sign(ΔP) | Operable windows, doors |
-| Fixed flow | Q = constant | Exhaust fans, HVAC imbalance |
-
-#### Pressure Difference
-
-Total ΔP across a flow path includes:
-- **Node pressures:** P_a - P_b (solved unknowns for zone nodes)
-- **Stack effect:** -ρ_a g (h - h_ref_a) + ρ_b g (h - h_ref_b) where h is the opening midpoint height
-- **Wind pressure:** 0.5 ρ Cp V_local² (exterior paths only, V_local height-corrected)
-
-#### Wind Pressure Coefficients (Cp)
-
-- **Swami & Chandra (1988):** For low-rise buildings. Cp is a function of the angle θ between wind direction and surface outward normal, and the building plan side ratio.
-- **High-rise simplified:** Cp = 0.6 cos(θ) for windward, Cp = -0.3 for leeward.
-
-#### Newton-Raphson Solver
-
-1. Assemble residual R_i = sum of mass flows into zone node i
-2. Build dense Jacobian J[i][j] = dR_i / dP_j (analytical derivatives)
-3. Solve J δP = -R via Gaussian elimination with partial pivoting
-4. Damped update: P_i += α δP_i (α = 0.75 default)
-5. Converge when max|δP| < tolerance (0.1 Pa default)
-
-#### Auto-Generation
-
-The network is built automatically from building geometry:
-- Every exterior wall/roof surface → power-law crack (leakage_per_area × net_area)
-- Every exterior window → power-law crack (window_leakage_per_area × area)
-- Every interzone surface → interzone crack (one path per pair)
-- Zone-level `natural_ventilation` config → large opening
-- Zone-level `exhaust_fan` → fixed-flow extraction
-
-#### Integration
-
-When active, the solved outdoor mass flow replaces `infiltration_mass_flow` in the zone heat balance MCPI term. Interzone flows enter at their source zone temperature.
-
----
-
-### Internal Gains
-
-**Module:** `internal_gains.rs`
-
-**Purpose:** Computes convective and radiative heat gains from occupants, lighting, and equipment.
-
-#### Gain Types
-
-**People:**
-```
-Q_sensible = count · activity_level · sensible_fraction   [W]
-Q_latent   = count · activity_level · (1 − sensible_fraction) [W]
-Q_radiative = Q_sensible · radiant_fraction
-Q_convective = Q_sensible · (1 − radiant_fraction)
-```
-
-Alternatively, `sensible_gain_per_person` and `latent_gain_per_person` can be specified directly to override the activity_level × fraction calculation.
-
-| Parameter | Unit | Default | Description |
-|-----------|------|---------|-------------|
-| `count` | — | required | Number of occupants |
-| `activity_level` | W/person | 120.0 | Total metabolic heat output per person |
-| `sensible_fraction` | 0–1 | 0.6 | Fraction of metabolic heat that is sensible |
-| `radiant_fraction` | 0–1 | 0.3 | Fraction of sensible heat that is radiative |
-| `sensible_gain_per_person` | W/person | — | Override: explicit sensible gain |
-| `latent_gain_per_person` | W/person | — | Override: explicit latent gain |
-
-**Lights:**
-```
-Q_input = power                                            [W]
-Q_return_air = power · return_air_fraction
-Q_zone = power · (1 − return_air_fraction)
-Q_radiative = Q_zone · radiant_fraction
-Q_convective = Q_zone · (1 − radiant_fraction)
-```
-
-`Q_return_air` goes to the air leaving the zone for the return duct, as in
-EnergyPlus (`ZoneEquipmentManager::CalcZoneLeavingConditions`). It raises the
-zone's return-air temperature by `Q_return_air / (ṁ_return · cp)`, up to
-EnergyPlus's 60 °C limit, so the coils, the economizer and heat recovery see it.
-`ṁ_return` is the air the zone returns to a central loop (VAV, dual-duct, DOAS,
-CRAC/CRAH) or to a PSZ unit with a continuous fan. With no such return (zonal
-units such as FCU, PTAC and PTHP, cycling-fan PSZ units, a loop that is off,
-ideal loads or sizing), the heat stays in the zone air as a convective gain,
-which is what EnergyPlus does through `Zone::NoHeatToReturnAir`.
-
-| Parameter | Unit | Default | Description |
-|-----------|------|---------|-------------|
-| `power` | W | required | Total installed lighting power |
-| `radiant_fraction` | 0–1 | 0.7 | Fraction of zone heat (`Q_zone`) that is radiative |
-| `return_air_fraction` | 0–1 | 0.0 | Fraction of heat to the zone's return air |
-
-**Equipment:**
-```
-Q_total     = power                                        [W]
-Q_to_zone   = Q_total · (1 − lost_fraction)                [W]
-Q_latent    = Q_to_zone · latent_fraction                   [W]
-Q_sensible  = Q_to_zone − Q_latent                          [W]
-Q_radiative = Q_sensible · radiant_fraction
-Q_convective = Q_sensible · (1 − radiant_fraction)
-```
-
-| Parameter | Unit | Default | Description |
-|-----------|------|---------|-------------|
-| `power` | W | required | Total equipment power |
-| `radiant_fraction` | 0–1 | 0.3 | Fraction of sensible heat that is radiative |
-| `lost_fraction` | 0–1 | 0.0 | Fraction of heat that does not enter the zone (e.g., elevator shaft) |
-| `latent_fraction` | 0–1 | 0.0 | Fraction of non-lost heat that generates moisture (e.g., kitchen, laundry) |
-
-The resolved gain output provides `convective` [W], `radiative` [W], `total` [W] (sensible only), `people_latent` [W], and `equipment_latent` [W]. Latent gains feed the zone moisture balance.
-
-Internal gains support time-varying operation through the schedule system (see [Schedules](#schedules)). Each gain type can reference a named schedule; the schedule fraction multiplies the design power at each timestep.
-
-### Exhaust Fans
-
-**Module:** `zone.rs`
-
-**Purpose:** Models zone-level exhaust fans (restroom exhaust, kitchen hoods, etc.) that remove air from the zone. The exhausted air is replaced by infiltration or transfer air from adjacent spaces, creating an additional air exchange load on the zone.
-
-#### Inputs
-
-| Parameter | Unit | Description |
-|-----------|------|-------------|
-| `flow_rate` | m3/s | Exhaust volume flow rate |
-| `schedule` | — | Optional schedule name for time-varying operation (default: always on) |
-
-The exhaust fan is specified as part of a zone definition. When the schedule is active, the fan removes air at the specified flow rate, which is converted to mass flow using outdoor air density and added to the zone's air exchange calculation.
-
-### Vertex Geometry
-
-**Module:** `geometry.rs`
-
-**Purpose:** Provides 3D polygon-based geometry for building surfaces, enabling automatic calculation of surface areas, orientations, and zone volumes from vertex coordinates.
-
-**Reference:** Newell (1972), EnergyPlus `SurfaceGeometry.cc`
-
-#### Coordinate System
-
-Right-hand coordinate system: X = East, Y = North, Z = Up. Vertices are ordered counter-clockwise when viewed from outside the building (Newell convention).
-
-#### Point3D
-
-A vertex in building coordinates:
-
-| Field | Unit | Description |
-|-------|------|-------------|
-| `x` | m | East coordinate |
-| `y` | m | North coordinate |
-| `z` | m | Up coordinate |
-
-#### Newell's Method
-
-Computes the outward normal vector and area of a polygon from its vertices:
-
-```
-For each vertex pair (i, j = i+1 mod n):
-    Nx += (Yi - Yj) * (Zi + Zj)
-    Ny += (Zi - Zj) * (Xi + Xj)
-    Nz += (Xi - Xj) * (Yi + Yj)
-
-Area = |N| / 2
-```
-
-The magnitude of the Newell normal vector equals twice the polygon area.
-
-#### Derived Properties
-
-**Azimuth** (from surface normal):
-```
-azimuth = atan2(Nx, Ny)    [mapped to 0-360 degrees]
-```
-0 = North, 90 = East, 180 = South, 270 = West.
-
-**Tilt** (from surface normal):
-```
-tilt = acos(Nz / |N|)      [degrees]
-```
-0 = face-up (horizontal roof), 90 = vertical wall, 180 = face-down (floor).
-
-**Zone volume** (divergence theorem):
-```
-V = (1/3) * |Sum over faces of (N_hat . P_centroid) * A_face|
-```
-
-Requires surfaces to form a closed volume with outward-pointing normals.
-
-**Zone floor area:**
-
-Sum of polygon areas for all surfaces with tilt > 150 degrees (downward-pointing normals, identifying floor surfaces).
-
-#### Auto-Calculation
-
-When a zone's volume or floor area is specified as 0.0 in the input, the engine automatically computes these values from the zone's surface vertices using the above algorithms. This avoids manual calculation for complex geometries.
-
----
-
-### Zone Air Heat Balance
-
-**Module:** `zone.rs`
-
-**Purpose:** Solves for the zone air temperature using an energy balance that accounts for surface convection, infiltration, HVAC supply, internal gains, and zone air thermal capacitance.
-
-**Reference:** EnergyPlus predictor-corrector method (HeatBalanceAirManager)
-
-#### Equation
-
-```
-         SumHAT + MCPI·T_outdoor + MCPSYS·T_supply + Q_conv + Cap·T_prev
-T_zone = ─────────────────────────────────────────────────────────────────
-                    SumHA + MCPI + MCPSYS + Cap
-```
-
-| Term | Definition | Unit |
-|------|-----------|------|
-| SumHA | Σ(h_conv,i · A_i) for all zone surfaces | W/K |
-| SumHAT | Σ(h_conv,i · A_i · T_surface,i) for all zone surfaces | W |
-| MCPI | ṁ_infiltration · Cp_air | W/K |
-| MCPSYS | ṁ_HVAC_supply · Cp_air | W/K |
-| Q_conv | Total convective gains (internal + solar transmitted + window conduction) | W |
-| Cap | ρ_air · V_zone · Cp_air / dt | W/K |
-| T_prev | Zone temperature from previous timestep | °C |
-
-The `Cap · T_prev` term in the numerator and `Cap` in the denominator provide the thermal capacitance of the zone air mass — this is what gives the solution its transient behavior. Without it (dt → ∞), the equation reduces to a pure steady-state balance.
-
-#### Zone Loads
-
-Heating and cooling loads are the residual of the energy balance without the HVAC term:
-
-```
-Load = SumHAT − SumHA·T_zone + MCPI·(T_outdoor − T_zone) + Q_conv + Cap·(T_prev − T_zone)/dt
-```
-
-- If Load > 0: heating load (zone losing more heat than it gains)
-- If Load < 0: cooling load (zone gaining more heat than it loses)
-
----
-
-### Zone Air Moisture Balance
-
-**Module:** `zone.rs`
-
-**Purpose:** Solves for the zone air humidity ratio using a mass balance that accounts for infiltration, HVAC supply, and latent gains from people and equipment. Uses the same 3rd-order Backward Differentiation Formula (BDF) integration as the temperature solver.
-
-**Reference:** EnergyPlus ZoneAirMoisturePredictorCorrector
-
-#### Equation
-
-```
-         Cap_w · W_prev + ṁ_infil · W_outdoor + ṁ_supply · W_supply + Q_latent / h_fg
-W_zone = ──────────────────────────────────────────────────────────────────────────────
-                          Cap_w + ṁ_infil + ṁ_supply
-```
-
-| Term | Definition | Unit |
-|------|-----------|------|
-| Cap_w | ρ_air · V_zone / dt_eff | kg/s |
-| W_prev | BDF-effective previous humidity ratio | kg/kg |
-| ṁ_infil | Infiltration mass flow rate | kg/s |
-| W_outdoor | Outdoor air humidity ratio | kg/kg |
-| ṁ_supply | HVAC supply air mass flow rate | kg/s |
-| W_supply | HVAC supply air humidity ratio | kg/kg |
-| Q_latent | Total latent gains (people + equipment) | W |
-| h_fg | Latent heat of vaporization (2,501,000) | J/kg |
-
-The BDF integration uses `backward_diff_effective()` to compute `dt_eff` and `W_prev` from up to 3 previous timesteps, matching the temperature solver's approach. The result is clamped to [0, 0.10] kg/kg.
-
-#### Moisture Sources
-
-- **Infiltration**: Outdoor air at ambient humidity
-- **HVAC supply**: Mass-flow-weighted humidity from air loops serving the zone
-- **People latent**: Metabolic moisture from occupants (activity_level × (1 - sensible_fraction))
-- **Equipment latent**: Moisture-generating equipment (power × (1 - lost_fraction) × latent_fraction)
-
-#### Output Variables
-
-| Variable | Unit | Description |
-|----------|------|-------------|
-| `zone_humidity_ratio` | kg/kg | Zone air humidity ratio |
-
----
-
-### Heat Balance Solver
-
-**Module:** `heat_balance.rs`
-
-**Purpose:** Orchestrates the full envelope heat balance: links solar, conduction (CTF), convection, infiltration, internal gains, and zone air balance into a coupled solution.
-
-This is the central solver of the envelope module. It implements the `EnvelopeSolver` trait defined in `openbse-core`.
-
-#### BuildingEnvelope
-
-| Field | Description |
-|-------|-------------|
-| `zones` | Runtime zone states (temperature, humidity, loads, surface links) |
-| `surfaces` | Runtime surface states (temps, fluxes, convection coefficients) |
-| `ctf_coefficients` | CTF coefficients for each opaque surface |
-| `ctf_histories` | Past surface temps and fluxes for each surface |
-| `materials` | Material property lookup table |
-| `constructions` | Construction layer lookup table |
-| `window_constructions` | Window property lookup table |
-| `latitude`, `longitude`, `time_zone` | Site location for solar calculations |
-| `ground_reflectance` | Ground albedo (default 0.2) |
-
-#### Initialization
-
-When `initialize(dt)` is called:
-1. Resolve material properties onto each surface (absorptances, roughness, U-factor, SHGC).
-2. Identify windows vs. opaque surfaces.
-3. Subtract window areas from their parent walls' net areas.
-4. Assign surfaces to their zones.
-5. Compute CTF coefficients for all opaque surfaces.
-6. Initialize CTF histories at 21°C.
-
-#### Per-Timestep Algorithm
-
-```
-solve_timestep(ctx, weather, hvac) → EnvelopeResults
-```
-
-**Step 1: Solar position**
-- Compute day of year, equation of time, solar hour.
-- Calculate solar altitude and azimuth.
-
-**Step 2: Incident solar on each surface**
-- For outdoor-facing surfaces, compute beam + diffuse + ground-reflected solar.
-- For opaque surfaces: absorbed solar = solar_absorptance × incident.
-- For windows: transmitted solar = SHGC × area × incident.
-
-**Step 3: Internal gains**
-- For each zone, resolve all internal gain types (people, lights, equipment) into convective and radiative components.
-
-**Step 4: Infiltration**
-- For each zone, compute infiltration mass flow from design flow rate, temperature difference, and wind speed.
-
-**Step 5: Apply HVAC conditions**
-- Read supply air temperatures and mass flows from the HVAC control signals.
-
-**Step 6: Surface ↔ Zone coupling iteration (5 iterations)**
-
-This inner loop iterates to converge the coupled surface temperatures and zone air temperatures:
-
-**6a. Outside surface temperatures:**
-- Outdoor surfaces: `T_surface_outside = T_outdoor + Q_solar_absorbed / h_conv_outside`
-- Ground contact: `T_surface_outside = T_ground(depth, day_of_year)` via the Kusuda-Achenbach model (@sec-ground-temps)
-- Adiabatic: `T_surface_outside = T_surface_inside`
-- Interzone: `T_surface_outside = T_adjacent_zone`
-
-**6b. CTF conduction (opaque surfaces):**
-Apply CTF equations to compute inside heat flux from outside/inside temperatures and history.
-
-**6c. Inside surface temperature:**
-```
-T_surface_inside = T_zone + (q_ctf_in + q_radiative_flux) / h_conv_inside
-```
-
-where `q_radiative_flux` is the zone's radiative internal gains distributed proportionally to surface area.
-
-**6d. Window heat transfer:**
-```
-Q_window_conduction = U_window · (T_outdoor − T_zone)    [W/m²]
-Q_window_solar = SHGC · Area · I_incident                [W]
-```
-
-**6e. Zone air heat balance:**
-Solve the predictor-corrector equation (see [Zone Air Heat Balance](#zone-air-heat-balance)) using:
-- Surface convective fluxes (SumHA, SumHAT)
-- Infiltration (MCPI)
-- HVAC supply (MCPSYS)
-- Convective gains (internal + solar transmitted through windows + window conduction)
-- Zone air capacitance
-
-**Step 7: Update histories**
-- Shift CTF histories with current surface temperatures and fluxes.
-- Update zone previous temperatures for next timestep.
-
-**Step 8: Build results**
-- Return zone temperatures, humidity ratios, heating/cooling loads, and detailed output variables for each zone.
-
-#### Envelope Results
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `zone_temps` | HashMap | Zone → air temperature [°C] |
-| `zone_humidity` | HashMap | Zone → humidity ratio [kg/kg] |
-| `zone_heating_loads` | HashMap | Zone → heating load [W] (positive = needs heating) |
-| `zone_cooling_loads` | HashMap | Zone → cooling load [W] (positive = needs cooling) |
-| `zone_outputs` | HashMap | Zone → detailed output variables map |
+## Interior solar distribution {#sec-interior-solar}
+
+**Source:** `heat_balance.rs::solve_timestep`, step 5c; precomputed per
+surface and applied as $q''_\text{r}$ in @eq-inside-temp.
+
+The beam and diffuse solar transmitted by a zone's windows (@sec-window-optics)
+is distributed in four steps.
+
+1. **Beam landing.** `simulation.solar_distribution` selects how the beam
+   lands:
+   - **FullExterior** (default): all beam lands on the zone's floors, in
+     proportion to their area.
+   - **FullInteriorAndExterior:** each window's polygon is projected along
+     the sun direction onto every inside surface that faces the sun (other
+     than its parent wall), and clipped to that surface (Sutherland–Hodgman
+     [@sutherland1974]). The beam landing on surface $j$ is
+     $I_{b,\text{win}}\,A_{\text{overlap},j}\cos\theta_j/\cos\theta_\text{win}$.
+     A zone in which any surface other than internal mass lacks vertices
+     falls back to the fixed `solar_distribution` fractions of the zone, or,
+     without them, to putting all transmitted solar into the zone air
+     ([#68](https://github.com/bbrannon4/OpenBSE/issues/68)).
+2. **Beam absorbed and reflected.** Surface $j$ absorbs
+   $\alpha_j S_{b,j}$, where $S_{b,j}$ is the beam landing on it and
+   $\alpha_j$ its inside solar absorptance. The rest of the beam joins the
+   diffuse pool.
+3. **Cavity back-out.** Part of the diffuse pool leaves the zone again
+   through the windows: their back transmittance $\tau_b$ plus the outward
+   share of their back absorptance $\alpha_b$. The pool kept is
+   $$
+   S_d = \left(S_\text{d,win} + S_b - \sum_j\alpha_jS_{b,j}\right)
+   \frac{\sum_k A_k\alpha_k}{\sum_k A_k\alpha_k + \sum_w A_w\left[\tau_b + \alpha_b(1 - N_i)\right]},
+   $$ {#eq-cavity-backout}
+   with $k$ over opaque surfaces and $w$ over windows.
+4. **Diffuse absorbed.** Every opaque surface absorbs in proportion to
+   $A_k\alpha_k$ (EnergyPlus's VMULT):
+   $$
+   Q_{\text{sol},k} = \alpha_k S_{b,k} + \frac{A_k\alpha_k}{\sum_m A_m\alpha_m}\,S_d.
+   $$ {#eq-vmult}
+
+**Comparison with EnergyPlus.** FullExterior, the absorbed and reflected
+beam, the VMULT distribution and the back-out follow
+`HeatBalanceSurfaceManager::ComputeIntSWAbsorpFactors` and
+`InitIntSolarDistribution` [@eplus-engref-25-2, "Solar Distribution"]. The
+differences ([#68](https://github.com/bbrannon4/OpenBSE/issues/68)):
+
+- **Windows absorb no diffuse.** EnergyPlus includes windows in the VMULT
+  sum, and the glass absorbs its share of the reflected diffuse. OpenBSE
+  gives that share to the opaque surfaces.
+- **Fallback.** Zones that lack vertices fall back to fixed fractions or
+  to the air, rather than to FullExterior.
+- **Beam projection.** The projection uses the whole window, not its
+  sunlit part, and has no first-hit test for non-convex zones.
+
+## External shading {#sec-external-shading}
+
+**Source:** `openbse-envelope/src/shading.rs` (`calculate_sunlit_fraction`,
+`compute_diffuse_sky_shading_ratio`, `compute_diffuse_horizon_shading_ratio`,
+`generate_overhang_vertices`, `generate_fin_vertices`);
+`heat_balance.rs::precompute_solar`, `compute_diffuse_shading_ratios`, step 5a.
+
+With `simulation.shading_calculation: basic` (the default), every outdoor
+surface is fully sunlit and no diffuse is shaded. The model's overhangs,
+fins, shading surfaces and the building's own surfaces are then ignored
+([#216](https://github.com/bbrannon4/OpenBSE/issues/216)). With `detailed`:
+
+**Casters** are:
+
+- every outdoor surface with vertices (self-shading);
+- each `shading_surfaces` polygon;
+- the overhangs and fins generated for windows from their depth,
+  extension and offset inputs.
+
+A surface does not shade itself, and casters coplanar with the receiver
+(e.g. a wall around its window) are excluded.
+
+**Beam.** The sunlit fraction $f_s$ of a receiving surface projects each
+caster along the sun direction onto the receiver's plane and clips it to the
+receiver polygon. A surface facing away from the sun has $f_s = 0$. With a
+single opaque caster, $f_s = 1 - A_\text{shadow}/A$ exactly. With more than
+one caster, $f_s$ is the share of an $8\times8$ grid of points on the
+receiver that no opaque caster covers. That handles overlapping shadows,
+quantized to the grid ([#68](https://github.com/bbrannon4/OpenBSE/issues/68)).
+Casters with a solar transmittance above zero cast no beam shadow
+([#217](https://github.com/bbrannon4/OpenBSE/issues/217)). The fractions are
+computed for every timestep of the run period, in parallel, and cached in a
+`.solar` file keyed by the geometry.
+
+**Diffuse.** Two time-independent ratios are computed at initialization:
+
+- **Sky** ($R_\text{sky}$). Rays are cast from up to $5\times5$ points on the
+  receiver to $6\times24$ sky patches (altitudes 7.5°–82.5°). Each patch is
+  weighted by $\cos\phi\cos\theta_i$ (projected solid angle) [@eplus-engref-25-2,
+  "Shading Module"], and a ray hit by any caster is blocked:
+  $$
+  R_\text{sky} = \frac{\sum_\text{patches} w\,\bar u}{\sum_\text{patches} w},
+  $$ {#eq-sky-ratio}
+  where $\bar u$ is the fraction of the receiver's points whose ray to the
+  patch is unblocked.
+- **Horizon** ($R_\text{hz}$). The same test over a near-horizon band
+  (0–10°) from $3\times3$ points.
+
+**Applied** to @eq-incident:
+
+$$
+I_\text{shaded} = f_s\left(I_\text{beam} + I_\text{cs}\right) + R_\text{sky}I_\text{iso} + R_\text{hz}I_\text{hz} + I_\text{gnd},
+$$ {#eq-shaded-incident}
+
+The ground-reflected part is not shaded. For windows, $R_\text{sky}$ is
+floored at 0.75 and $R_\text{hz} = 1$.
+
+**Comparison with EnergyPlus.** EnergyPlus projects shadows and combines
+overlapping shadows by exact polygon operations (`SolarShading::SHADOW`,
+`SHDGSS`), updated every 20 days by default. OpenBSE computes shadows every
+timestep, but with grid sampling when shadows overlap. The 144-patch sky
+ratio follows `SkyDifSolarShading`.
+
+The differences:
+
+- **Default.** Shading is off by default; EnergyPlus always computes it
+  ([#216](https://github.com/bbrannon4/OpenBSE/issues/216)).
+- **Transmittance.** Semi-transparent casters are ignored for beam and
+  opaque for diffuse ([#217](https://github.com/bbrannon4/OpenBSE/issues/217)).
+- **Windows.** The window floor and unshaded horizon
+  ([#68](https://github.com/bbrannon4/OpenBSE/issues/68)).
+- **Reflections.** There are no reflections from shading or building
+  surfaces (EnergyPlus's `...WithReflections` options).
+
+## Known limitations: solar distribution and shading {#sec-solar-limitations}
+
+- [#68](https://github.com/bbrannon4/OpenBSE/issues/68): multi-caster point
+  sampling; window diffuse ratio floor and unshaded horizon; interior
+  distribution fallbacks and projection limits.
+- [#216](https://github.com/bbrannon4/OpenBSE/issues/216): external shading
+  off by default; shading geometry silently ignored.
+- [#217](https://github.com/bbrannon4/OpenBSE/issues/217): semi-transparent
+  casters.
+
+## Infiltration and ventilation {#sec-infiltration}
+
+**Source:** `openbse-envelope/src/infiltration.rs`; `zone.rs`
+(`scheduled_ventilation_flow`, `NaturalVentilationInput`); `heat_balance.rs::solve_timestep`
+steps 4 and 6c; top-level inputs resolved in `openbse-io/src/input.rs::resolve_zone_loads`.
+
+Every outdoor-air stream enters the zone air balance (@eq-zone-ode) at the
+outdoor temperature, as part of $\dot m_\text{inf}$. The streams are
+computed each solve from the start-of-solve zone temperature $T_z$, the
+outdoor temperature $T_o$ and the wind.
+
+**Infiltration (design flow rate).** Each infiltration object gives a
+design flow $\dot V_d$ (absolute, ACH, per floor area or per exterior wall
+area), resolved per zone:
+
+$$
+\dot V_\text{inf} = \dot V_d\, f_\text{sch}\,\max\!\left(0,\ A + B|T_z - T_o| + C\,V + D\,V^2\right),
+\qquad \dot m_\text{inf} = \rho\,\dot V_\text{inf},
+$$ {#eq-infiltration}
+
+where:
+
+- $f_\text{sch}$ is the schedule fraction;
+- $V$ is the local wind speed at the zone's centroid height (@eq-wind-profile);
+- $\rho$ is the outdoor-air density by default, or the zone-air density
+  with `density_basis: zone`.
+
+**Exhaust interaction.** By default (`basic`), exhaust removes zone air
+without drawing in outdoor air. With `ashrae_combined`, the outdoor flow is
+$\sqrt{\dot m_\text{inf}^2 + \dot m_\text{ex,unb}^2}$, where
+$\dot m_\text{ex,unb} = \max(0, \dot m_\text{ex} - \dot m_\text{oa,zone})$
+is the unbalanced exhaust [@ashrae2021fund, Ch. 16].
+
+**Scheduled ventilation.** A `ventilation` object adds a constant flow
+(absolute or ACH, plus per-person and per-area parts using the design
+occupancy) during an hour window. It can be gated by a minimum indoor
+temperature, and by requiring the outdoor air to be cooler than the zone.
+It enters at outdoor density.
+
+**Zone outdoor air.** A zone `outdoor_air` requirement gives the flow
+
+$$
+\dot V_\text{oa} = R_p P_z(t) + R_a A_z + \dot V_\text{abs} + \text{ACH}\cdot V_z/3600
+$$ {#eq-zone-oa}
+
+(or the largest of the four), with $P_z(t)$ the scheduled occupancy. Where
+the flow enters depends on what serves the zone (@sec-framework):
+
+- **Air loop with outdoor air.** If the zone's air loop carries outdoor air
+  (minimum outdoor-air fraction > 0), it arrives only through the supply.
+- **No outdoor air in the loop.** For a recirculating unit, the flow enters
+  the zone directly at $T_o$.
+- **No air loop.** It also enters directly at $T_o$, except in sizing.
+
+The exhaust requirement, if any, raises the zone exhaust flow.
+
+**Exhaust fans.** A zone exhaust fan removes
+$\dot m_\text{ex} = \rho_o \dot V f_\text{sch}$. Its power and heat are:
+
+- power $P = \dot m_\text{ex}\Delta p/(\eta\rho_o)$;
+- the heat that stays in the zone is the motor loss not in the airstream,
+  $P - [\eta_m P + (1-\eta_m)P f_\text{air}]$;
+- the rest leaves with the exhaust.
+
+**Natural ventilation (wind and stack).** An operable opening of area
+$A_o$, available by schedule, temperature limits, an optional
+indoor–outdoor ΔT and a wind limit (with on/off hysteresis), passes
+
+$$
+\dot V_\text{nv} = \sqrt{\left(C_w A_o f V_\text{met}\right)^2 + \left(C_d A_o f\sqrt{\frac{2g\,\Delta H\,|T_z - T_o|}{T_z + 273.15}}\right)^2},
+$$ {#eq-natvent}
+
+where:
+
+- $C_w = 0.55$ when the wind is within 90° of the opening's angle, and
+  0.30 otherwise;
+- $C_d$ is a constant (default 0.65);
+- $\Delta H$ is the stack height difference;
+- $V_\text{met}$ is the weather-station wind.
+
+Natural ventilation is off during sizing. When the AFN is active, its
+openings carry this flow instead.
+
+**Comparison with EnergyPlus.**
+
+- **Matches.** @eq-infiltration is `ZoneInfiltration:DesignFlowRate`,
+  including E+ 25.2's outdoor density default and the zone's local wind
+  (`ZoneEquipmentManager::CalcAirFlowSimple`). The exhaust treatment matches
+  E+ without zone air mass balance.
+- **Natural ventilation.** @eq-natvent differs from
+  `ZoneVentilation:WindandStackOpenArea` with autocalculated coefficients.
+  E+ uses $C_w = 0.55 - 0.25\theta/45°$, zero leeward, and
+  $C_d = 0.40 + 0.0045|\Delta T|$ with the local wind
+  ([#219](https://github.com/bbrannon4/OpenBSE/issues/219)).
+- **Scheduled ventilation.** It lacks the coefficients and schedule of
+  `ZoneVentilation:DesignFlowRate`.
+- **Outdoor temperature.** E+'s height-dependent outdoor temperature
+  (`Site:HeightVariation`) is not applied.
+- **Other infiltration models.** E+'s effective-leakage-area and
+  flow-coefficient models are not available.
+
+## Airflow network {#sec-afn}
+
+**Source:** `openbse-envelope/src/airflow_network.rs` (`build_network`,
+`solve_pressures`, `flow_and_derivative`, `two_way_opening_flows`,
+`horizontal_opening_flows`, `compute_path_dp`, `post_solve`),
+`species.rs`; solved in `heat_balance.rs::solve_timestep`, step 4.
+
+With `simulation.airflow_network` enabled, infiltration and interzone flows
+come from a pressure network that replaces @eq-infiltration. Each zone is
+one node, at a uniform pressure $P_i$ and the zone's temperature and
+density; the outdoors is the reference. The network is generated from the
+geometry:
+
+- each exterior wall, roof and window gets a power-law crack to the
+  outdoor node at its centroid height;
+- each door gets a crack scaled by its perimeter;
+- each interzone surface gets a crack between its two zones.
+
+Crack coefficients come from per-area defaults or from leakage classes A–D,
+derived from ASHRAE unit leakage areas [@ashrae2021fund, Ch. 16]. With a
+target ACH50 they are all rescaled so the envelope passes it at 50 Pa.
+Operable windows and doorways may be large openings, two-way openings or
+horizontal openings, with scheduled or natural-ventilation-controlled areas.
+Exhaust fans and the net HVAC supply–return imbalance (from the previous
+timestep) are fixed flows, and duct leaks are pressure-dependent cracks.
+
+**Flow elements.** With $\Delta p$ the pressure difference across a path
+and $\bar\rho$ the mean density of its two nodes:
+
+$$
+\dot m_\text{crack} = C\left(\frac{\bar\rho}{\rho_\text{ref}}\right)^{1-n}\operatorname{sgn}(\Delta p)|\Delta p|^n,
+\qquad
+\dot m_\text{open} = C_d A\operatorname{sgn}(\Delta p)\sqrt{2\bar\rho|\Delta p|},
+$$ {#eq-afn-elements}
+
+linearized through zero for $|\Delta p|$ below a small threshold.
+
+- **Two-way openings** integrate the orifice equation in closed form above
+  and below the neutral plane. Over the opening height, $\Delta p$ varies
+  with slope $g(\rho_b - \rho_a)$, so warm air leaves through the top while
+  cold air enters below.
+- **Horizontal openings** add the buoyancy-driven exchange of Cooper and
+  Epstein when the upper zone is denser [@cooper1989].
+
+**Pressure difference across a path** at height $h$ between nodes $a$ and
+$b$ (reference heights $h_a$, $h_b$):
+
+$$
+\Delta p = P_a - P_b - \rho_a g(h - h_a) + \rho_b g(h - h_b) \pm \tfrac12\rho_o C_p V(h)^2,
+$$ {#eq-afn-dp}
+
+with the wind term on paths to the outdoor node. $V(h)$ comes from @eq-wind-profile, times an optional facade shelter factor. The wind
+pressure coefficient $C_p$ comes from one of three models:
+
+- **Low-rise** (Swami and Chandra [@swami1988]), with incidence angle
+  $\theta$ and $G = \ln(\text{side ratio})$:
+  $$
+  \begin{aligned}
+  C_p = 0.6\ln\Big[&1.248 - 0.703\sin\tfrac\theta2 - 1.175\sin^2\theta + 0.131\sin^3(2\theta G)\\
+  &+ 0.769\cos\tfrac\theta2 + 0.07G^2\sin^2\tfrac\theta2 + 0.717\cos^2\tfrac\theta2\Big];
+  \end{aligned}
+  $$
+- **High-rise:** $0.6\cos\theta$ windward and $-0.3$ leeward;
+- **User table** by facade.
+
+**Solution.** The zone pressures solve mass conservation at every zone
+node, $R_i = \sum_\text{paths}\dot m_{\to i} = 0$, by Newton–Raphson with a
+dense Jacobian and adaptive under-relaxation. It starts from the stored pressures
+and stops when the largest residual is below the
+absolute tolerance or $10^{-4}$ of the total through-flow (at most 30
+iterations). After solving, each zone's outdoor inflow becomes
+$\dot m_\text{inf}$. Its inflows from other zones become a mass-weighted
+stream mixed with the outdoor air (`mix_advective_streams`), giving the
+combined advective term of @eq-zone-ode and its humidity. Passive species
+(e.g. CO₂) are then advanced by an implicit zone mass balance on the solved
+flows, with sources, decay, deposition and filtration.
+
+**Comparison with EnergyPlus.** The network, element equations, the
+two-way and horizontal openings, the Swami–Chandra $C_p$ and the
+Newton–Raphson solution follow EnergyPlus's AirflowNetwork (AIRNET)
+[@eplus-engref-25-2, "Airflow Network Model"]. They are generated
+automatically rather than from AirflowNetwork input objects. The
+differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
+
+- **Density.** Element flows use the mean of the two node densities, not
+  the upstream density, and cracks have no viscosity correction.
+- **High-rise $C_p$.** It is a simple cosine rather than the Akins
+  surface-average table.
+- **No duct network.** There is no AirflowNetwork:Distribution duct
+  network; duct leakage is a pair of leak paths per duct.
+- **Per-solve stepping.** Species and natural-ventilation state advance per
+  envelope solve ([#188](https://github.com/bbrannon4/OpenBSE/issues/188)).
+
+## Known limitations: infiltration, ventilation and AFN {#sec-infiltration-limitations}
+
+- [#90](https://github.com/bbrannon4/OpenBSE/issues/90): AFN cleanups;
+  tolerance units, density convention, high-rise $C_p$.
+- [#188](https://github.com/bbrannon4/OpenBSE/issues/188): species and
+  natural-ventilation hysteresis advance once per envelope solve.
+- [#219](https://github.com/bbrannon4/OpenBSE/issues/219): wind-and-stack
+  coefficients; scheduled ventilation lacks E+'s coefficients and schedule.
+
+## Internal gains {#sec-internal-gains}
+
+**Source:** `openbse-envelope/src/internal_gains.rs::resolve_gains_scheduled`;
+`heat_balance.rs::timestep_gains`; top-level `people`, `lights` and
+`equipment` objects resolved per zone in `openbse-io/src/input.rs`.
+
+Each gain has a design level, scaled each timestep by its schedule fraction
+$f$. With $f$ applied:
+
+- **People.** $N$ occupants, either a count or per floor area, release
+  sensible $Q_s = N f\,q_s$ and latent $Q_l = N f\,q_l$. Here
+  $q_s = M\,\phi_s$ and $q_l = M(1-\phi_s)$ for an activity level $M$
+  (default 120 W) and sensible fraction $\phi_s$ (default 0.6), unless
+  explicit W/person values are given. Of $Q_s$, the fraction $r$
+  (default 0.3) is radiant.
+- **Lights.** Power $P f$. The return-air fraction $\phi_\text{ret}$ goes
+  to the return air when an air loop carries it, and otherwise stays in the
+  zone air (#51, @sec-controls). Of the rest, $r$ (default 0.7) is radiant
+  and the remainder convective.
+- **Equipment.** Power $P f$. The lost fraction $\phi_\text{lost}$ leaves
+  the zone. Of what remains, the latent fraction $\phi_l$ is moisture and
+  the rest sensible, of which $r$ (default 0.3) is radiant:
+  $$
+  Q_l = Pf(1-\phi_\text{lost})\phi_l,\qquad
+  Q_s = Pf(1-\phi_\text{lost})(1-\phi_l).
+  $$ {#eq-equipment-gain}
+
+The convective parts enter the zone air as $\dot Q_\text{conv}$
+(@eq-zone-ode). The radiant parts are spread over the zone's surfaces
+(@eq-radiant-gain-flux). The latent parts become a moisture source
+$\dot m_w = Q_l/h_{fg}$ in the zone moisture balance (@sec-zone-moisture).
+Electric power is booked whole, whatever leaves the zone.
+
+**Sizing.** On design days, a design day's `internal_gains` mode chooses
+among no gains (`off`, the heating default), design levels at every hour
+(`full`, the cooling default), the normal schedules (`scheduled`), and
+design levels whenever the zone's scheduled gain is non-zero
+(`full_when_occupied`) (@sec-sizing).
+
+**Comparison with EnergyPlus.**
+
+- **Model structure.** `People`, `Lights` and `ElectricEquipment` have the
+  same structure (`InternalHeatGains`).
+- **Fraction conventions.** EnergyPlus's radiant, latent, lost and
+  return-air fractions are each a fraction of the *total*. OpenBSE applies
+  lights' and equipment's fractions to what remains after the others; the
+  two agree only when the return-air, lost and latent fractions are zero
+  ([#186](https://github.com/bbrannon4/OpenBSE/issues/186)).
+- **People sensible heat.** EnergyPlus's default sensible heat follows a
+  correlation in activity level and zone air temperature; OpenBSE's fixed
+  fraction does not.
+- **Missing gain types.** Gas, hot-water, steam and other equipment do not
+  exist ([#223](https://github.com/bbrannon4/OpenBSE/issues/223)).
+
+## Ground heat transfer {#sec-ground-ht}
+
+Ground contact has three forms, all described above:
+
+- surfaces with a `ground` boundary, whose outside face is held at the
+  monthly building-surface ground temperature (@sec-ground-temps, @sec-outside-face);
+- F-factor floors (@sec-ffactor);
+- interzone floors over unconditioned basements, modelled as zones.
+
+There is no two- or three-dimensional ground model; EnergyPlus offers
+Kiva (`Foundation:Kiva`), the Slab and Basement preprocessors, and
+`Site:GroundDomain`.
+
+## Zone geometry {#sec-zone-geometry}
+
+**Source:** `openbse-envelope/src/geometry.rs` (`newell_normal`,
+`polygon_area`, `zone_volume_from_surfaces`, `zone_floor_area`);
+`heat_balance.rs::from_input_full`.
+
+**Surfaces.** A surface given by vertices $\mathbf p_1 \dots \mathbf p_m$
+(@sec-geometry) has the Newell normal
+
+$$
+\mathbf N = \sum_{k=1}^{m} (\mathbf p_k \times \mathbf p_{k+1}),\qquad
+A = \tfrac12|\mathbf N|,\qquad \mathbf n = \mathbf N/|\mathbf N|,
+$$ {#eq-newell}
+
+with $\mathbf p_{m+1} = \mathbf p_1$, exact for any planar polygon. Azimuth
+and tilt follow from @eq-azimuth-tilt. A surface given without vertices
+uses its stated area, azimuth and tilt. The net area of a parent surface is
+its area less its windows and doors.
+
+**Zones.** The floor area, when not given, is the sum of the zone's floor
+polygon areas. The volume, when not given, is the floor area times
+$z_\text{max} - z_\text{min}$ over the zone's vertices. Only without a
+floor does it fall back to the divergence theorem,
+$V = \tfrac13\sum_k A_k\,\mathbf n_k\cdot\mathbf c_k$, with
+$\mathbf c_k$ the centroid of surface $k$. EnergyPlus uses the polyhedron
+volume whenever the zone is enclosed (`SurfaceGeometry::CalculateZoneVolume`).
+OpenBSE's floor-times-height overstates the volume of sloped-roof and other
+non-prismatic zones ([#222](https://github.com/bbrannon4/OpenBSE/issues/222)).
+
+## Known limitations: gains, ground and geometry {#sec-gains-limitations}
+
+- [#186](https://github.com/bbrannon4/OpenBSE/issues/186): lights' and
+  equipment's fractions apply to remainders, not totals.
+- [#222](https://github.com/bbrannon4/OpenBSE/issues/222): auto-calculated
+  zone volume is floor area × height.
+- [#223](https://github.com/bbrannon4/OpenBSE/issues/223): fixed people
+  sensible fraction; only electric equipment; `full_when_occupied`
+  granularity.
+- No multidimensional ground heat transfer model.
+
+## Zone air heat balance {#sec-zone-air-hb}
+
+**Source:** `heat_balance.rs::solve_timestep`, step 6c; `zone.rs`
+(`solve_zone_air_temp`, `solve_zone_air_temp_with_q`, `calc_zone_loads`,
+`mix_advective_streams`, `ZoneAirBalance`).
+
+@sec-zone-time gives the zone air balance and its time discretization. Its
+terms are assembled from the parts of this chapter:
+
+- **Surface convection.** $\sum_i h_{c,i}A_i(T_{s,i} - T_{z,i})$ over the
+  zone's opaque surfaces, windows (at their glass or shade temperature) and
+  internal mass. In a stratified zone, $T_{z,i}$ is the local air at the
+  surface's height (@sec-stratification).
+- **Advection.** The outdoor streams of @sec-infiltration, plus the AFN
+  interzone inflows, combined into one stream:
+  $$
+  \dot m_\text{adv} = \dot m_o + \dot m_\text{iz},\qquad
+  T_\text{adv} = \frac{\dot m_o T_o + \dot m_\text{iz}T_\text{iz}}{\dot m_\text{adv}},
+  $$ {#eq-advective-mix}
+  where $T_\text{iz}$ is the flow-weighted temperature of the other zones'
+  air. Humidity is mixed the same way.
+- **Convective gains** $\dot Q_\text{conv}$:
+  - internal gains (@sec-internal-gains), including lights' return-air
+    share;
+  - the HVAC-related gains of @sec-zone-time;
+  - exhaust-fan motor heat;
+  - the gap air returned by a window shade (@sec-shades);
+  - the residual absorbed-inward window solar (@sec-window-hb);
+  - transmitted solar sent to the air when a zone has no surface
+    distribution (@sec-interior-solar).
+- **HVAC**, in one of three forms:
+  - supply air $\dot m_\text{sup}c_p(T_\text{sup} - T_z)$, from the air loops,
+    VRF and zone equipment (@sec-hvac-iteration);
+  - an ideal-loads heat rate $\dot Q_\text{HVAC}$;
+  - nothing (free float).
+
+**Ideal loads.** A zone with an ideal-loads system (@sec-sizing) runs
+these steps in each solve:
+
+1. **Mode.** The mode is chosen once per timestep from a free-float
+   prediction with the previous surface state, and held. It is deadband
+   when the system has no capacity in the needed direction.
+2. **Heat rate.** The rate is the load to the active setpoint with the
+   full backward-difference history:
+   $\dot Q_\text{HVAC} = (\sum hA + \dot m_\text{adv}c_p + a_kC_z/\Delta t)\,T_\text{sp} - \sum hAT_s - \dot m_\text{adv}c_pT_\text{adv} - \dot Q_\text{conv} - a_k (C_z/\Delta t)\tilde T_k$,
+   clamped to the heating or cooling capacity.
+3. **Deadband override.** In deadband, if the free-float temperature lies
+   outside the setpoints, the corresponding load is applied.
+
+**Reported loads.** For HVAC-served and free-floating zones, the heating
+and cooling loads reported are the residual of the balance without HVAC at
+the solved temperature (`calc_zone_loads`):
+$\dot Q = \sum hA(T_s - T_z) + \dot m_\text{adv}c_p(T_\text{adv} - T_z) + \dot Q_\text{conv} + a_k(C_z/\Delta t)(\tilde T_k - T_z)$.
+A negative $\dot Q$ is a heating load and a positive one a cooling load.
+
+**Balance check.** Each solve also records the five terms of
+@eq-zone-ode at the final temperature: surface convection, advection,
+convective gains, HVAC and storage (`ZoneAirBalance`). The run-time check
+requires them to close (@sec-diagnostics).
+
+**Comparison with EnergyPlus.** The terms match EnergyPlus's
+`calcZoneOrSpaceSums` (SumIntGain, SumHA, SumHATsurf, SumMCp, SumSysMCp).
+The ideal-loads heat rate matches `ZoneHVAC:IdealLoadsAirSystem` with
+`NoLimit` sensible control, except that the system is a direct heat rate
+rather than supply air [@eplus-engref-25-2, "Ideal Loads Air System"]. The
+balance terms correspond to E+'s `DisplayZoneAirHeatBalanceOffBalance`
+report.
+
+## Zone moisture balance {#sec-zone-moisture}
+
+**Source:** `heat_balance.rs::solve_timestep`, step 6c;
+`zone.rs::solve_zone_humidity`.
+
+The zone humidity ratio $W_z$ follows a mass balance like @eq-zone-ode,
+discretized with the same backward difference over its own history
+$\tilde W_k$:
+
+$$
+W_z = \frac{a_k\frac{\rho V}{\Delta t}\tilde W_k + \dot m_\text{adv}W_\text{adv} + \dot m_\text{sup}W_\text{sup} + \dot Q_l/h_{fg}}
+{a_k\frac{\rho V}{\Delta t} + \dot m_\text{adv} + \dot m_\text{sup}},
+$$ {#eq-zone-moisture}
+
+where:
+
+- $\dot Q_l$ is the latent gain of people and equipment, plus the moisture
+  carried by duct leakage;
+- $h_{fg} = 2.501\times10^6$ J/kg is constant
+  ([#200](https://github.com/bbrannon4/OpenBSE/issues/200)).
+
+The result is clamped to $[0, 0.1]$. It is capped at saturation at $T_z$
+only when `limit_humidity_to_saturation` is set
+([#226](https://github.com/bbrannon4/OpenBSE/issues/226)). Surfaces
+neither absorb nor release moisture (HAMT, @sec-hamt, is not connected).
+
+**Comparison with EnergyPlus.** @eq-zone-moisture is
+`ZoneSpaceHeatBalanceData::correctHumRat` with the third-order scheme.
+EnergyPlus converts latent gains with $h_g(T_z)$, always caps at
+saturation, and optionally includes surface moisture (EMPD, HAMT).
+
+## Room-air stratification {#sec-stratification}
+
+**Source:** `zone.rs::RoomAirGradient`, `air_temp_at_height`,
+`return_air_temp`, `occupied_air_temp`; `heat_balance.rs::solve_timestep`
+(gradient update before step 4); `openbse-cli/src/main.rs::control_temp_for`.
+
+A zone with a `room_air` block keeps one mean air temperature $T_z$, from @eq-zone-solve, but has a linear vertical profile over its height $H$:
+
+$$
+T(z) = T_z + g\left(z - \tfrac{H}{2}\right),
+$$ {#eq-stratification}
+
+where $g$ [K/m] is one of:
+
+- **constant:** the input gradient, times an optional schedule;
+- **Mundt-style:** $g = \dot Q_\text{conv}/(\dot m_\text{sup}c_pH)$,
+  clamped to [0, the input gradient], and zero when there is no supply.
+
+The profile is used in four places:
+
+- each inside face convects to the air at its centroid height, in both the
+  surface balance and the zone balance (@eq-inside-temp, @eq-zone-solve);
+- the air loops draw return air at the return height (default: the
+  ceiling);
+- the thermostat may sense the air at its own height (default 1.1 m);
+- reports give the occupied-height temperature.
+
+The zone balance still debits the supply's outflow at $T_z$ while the loop
+receives the return at $T(z_\text{ret})$. This leaves
+$\dot m c_p\,(T(z_\text{ret}) - T_z)$ unaccounted for
+([#225](https://github.com/bbrannon4/OpenBSE/issues/225)).
+
+**Comparison with EnergyPlus.** The constant gradient corresponds to
+`RoomAir:TemperaturePattern:ConstantGradient` in the user-defined room-air
+model. EnergyPlus also corrects the next step's predicted load with
+$(T_\text{sup} - T_\text{ret})/(T_\text{sup} - T_z)$. The Mundt-style
+gradient is a simplification of EnergyPlus's nodal Mundt model
+(`RoomAirModel:Mundt`).
+
+## Known limitations: zone air balances {#sec-zone-hb-limitations}
+
+- [#200](https://github.com/bbrannon4/OpenBSE/issues/200): constant $h_{fg}$
+  for latent gains.
+- [#225](https://github.com/bbrannon4/OpenBSE/issues/225): stratified return
+  air is not debited from the zone balance.
+- [#226](https://github.com/bbrannon4/OpenBSE/issues/226): humidity may
+  exceed saturation by default.
