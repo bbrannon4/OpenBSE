@@ -104,7 +104,7 @@ query, the previous timestep's power is reported again
 ## Heating coils {#sec-heating-coils}
 
 **Source:** `openbse-components/src/heating_coil.rs` (`HeatingCoil`);
-construction in `openbse-io/src/input.rs`. Heat-pump heating coils are in @sec-air-side-remaining.
+construction in `openbse-io/src/input.rs`. Heat-pump heating coils are in @sec-hp-heating.
 
 All three types heat the air toward the outlet setpoint $T_\text{sp}$ and
 never cool it. The load is
@@ -216,6 +216,237 @@ this as a component. It has no inward (return-side) leakage
 - [#235](https://github.com/bbrannon4/OpenBSE/issues/235): duct ground
   ambient fixed at 18 °C, unknown ambient zones, no inward leakage.
 
+## DX cooling coils {#sec-dx-cooling}
+
+**Source:** `openbse-components/src/cooling_coil.rs` (`CoolingCoilDX`:
+`available_capacity`, `available_cop`, `initialize_bypass_factor`,
+`simulate_air`); cycling energy in `main.rs` (system part-load scaling).
+
+**Inputs.** A single-speed DX coil has:
+
+- a rated total capacity $\dot Q_r$, a COP (default 3.5) and an SHR (default
+  0.8), all at the AHRI point: 26.67 °C dry-bulb and 19.44 °C wet-bulb
+  entering, 35 °C outdoor;
+- a rated airflow $\dot V_r$;
+- optional curves: $\text{CAP}_{fT}(T_{wb,i}, T_o)$ and
+  $\text{EIR}_{fT}(T_{wb,i}, T_o)$, $\text{CAP}_{ff}(x)$ and
+  $\text{EIR}_{ff}(x)$ of the flow fraction $x = \dot m/(\rho\dot V_r)$, and a
+  part-load curve $\text{PLF}(\text{PLR})$;
+- an optional condenser-fan power $P_\text{cf}$.
+
+**Capacity and efficiency.** At the entering wet-bulb $T_{wb,i}$ and the
+outdoor dry-bulb $T_o$,
+
+$$
+\dot Q_\text{av} = \dot Q_r\,\text{CAP}_{fT}\,\text{CAP}_{ff}, \qquad
+\text{COP} = \frac{\text{COP}_r}{n\,\text{EIR}_{fT}\,\text{EIR}_{ff}}, \qquad
+n = \frac{1}{\text{EIR}_{fT}(19.44, 35)}.
+$$ {#eq-dx-cap}
+
+The factor $n$ rescales the EIR curve to 1 at the rated point. The capacity
+curve is not rescaled. Without curves, two linear modifiers stand in for
+them: $1 - 0.008(T_o - 35)$ for capacity, clamped to $[0.5, 1.05]$, and
+$1 + 0.012(T_o - 35)$ for EIR, clamped to $[0.4, 1.10]$.
+
+**Bypass factor.** With `autocalculate_shr` (the default), the coil follows
+the apparatus-dew-point method. At the rated point, the condition line from
+the entering state has slope $\mathrm dh/\mathrm dT = c_p/\text{SHR}_r$.
+Its intersection with the saturation curve, found by bisection, is the
+rated ADP. The bypass factor is
+
+$$
+\text{BF} = \frac{h_{\text{out},r} - h_{\text{ADP},r}}{h_{\text{in},r} - h_{\text{ADP},r}},
+\qquad h_{\text{out},r} = h_{\text{in},r} - \frac{\dot Q_r}{\rho\dot V_r},
+$$ {#eq-dx-bf}
+
+clamped to $[0, 0.9]$. Each timestep, the full-load ADP and SHR follow from
+the current state:
+
+$$
+h_\text{ADP} = h_\text{in} - \frac{\dot Q_\text{av}/\dot m}{1 - \text{BF}}, \qquad
+T_\text{ADP} = T_\text{sat}(h_\text{ADP}), \qquad
+\text{SHR} = \min\left(\frac{h(T_\text{in}, W_\text{ADP}) - h_\text{ADP}}{h_\text{in} - h_\text{ADP}},\ 1\right).
+$$ {#eq-dx-adp}
+
+**Dry coil.** If $W_\text{ADP} \ge W_\text{in}$, the coil is dry. By
+default its capacity is scaled to the sensible part of the path to the ADP,
+$\dot Q_\text{eff} = \dot Q_\text{av}\,c_p(T_\text{in} - T_\text{ADP})/(h_\text{in} - h_\text{ADP})$
+(the factor clamped to $[0.1, 1]$), with $\text{SHR} = 1$. With
+`dry_coil_wet_bulb_iteration`, it instead raises the entering humidity
+ratio at constant dry-bulb toward $W_\text{ADP}$ (relaxation 0.4, 1%
+tolerance) and re-evaluates the curves at that wet-bulb.
+
+**Part load and outlet.** The coil meets the sensible load to its outlet
+setpoint:
+
+$$
+\begin{gathered}
+\text{PLR} = \min\left(\frac{\dot m c_p(T_\text{in} - T_\text{sp})}{\text{SHR}\,\dot Q_\text{eff}},\ 1\right), \qquad
+T_\text{out} = T_\text{in} - \frac{\text{PLR}\,\text{SHR}\,\dot Q_\text{eff}}{\dot m c_p},\\
+W_\text{out} = W_\text{in} - \text{PLR}\left(W_\text{in} - W_{\text{out},f}\right), \qquad
+W_{\text{out},f} = W\!\left(T_\text{in},\ h_\text{in} - (1 - \text{SHR})\dot Q_\text{eff}/\dot m\right).
+\end{gathered}
+$$ {#eq-dx-plr}
+
+The delivered total is $\text{PLR}\,\dot Q_\text{eff}$. With
+`autocalculate_shr: false`, the SHR is the rated one, and the latent part
+$\dot Q(1/\text{SHR} - 1)$ is removed as $\Delta W = \dot Q_\text{lat}/(\dot m h_{fg})$,
+whatever the entering humidity.
+
+**Power and cycling.** The coil's power is
+
+$$
+P = \frac{\dot Q_\text{av}\,\text{PLR}_t}{\text{COP}} + P_\text{cf}, \qquad
+\text{PLR}_t = \frac{\dot Q_\text{tot}}{\dot Q_\text{av}},
+$$ {#eq-dx-power}
+
+with the condenser fan at full power whenever the compressor runs. The
+coil reports $\text{RTF} = \text{PLR}/\text{PLF}(\text{PLR})$, but that
+value does not reach the energy. When the system cycles the coil, the loop
+scales compressor and condenser-fan power by
+$\text{RTF}_\text{loop} = x/(1 - C_d(1 - x))$, with $x$ the loop part-load
+ratio and $C_d$ the loop's `cooling_part_load_cd` (default 0.15)
+(@sec-controls).
+
+**Comparison with EnergyPlus.** @eq-dx-cap–@eq-dx-plr follow
+`Coil:Cooling:DX:SingleSpeed` (`DXCoils.cc`, `CalcCBF`, `CalcDoe2DXCoil`)
+[@eplus-engref-25-2, "Single-Speed Electric DX Air Cooling Coil"]. The
+differences are ([#237](https://github.com/bbrannon4/OpenBSE/issues/237)):
+
+- **Power.** EnergyPlus computes $P = \dot Q\,\text{EIR}\,\text{RTF}$ inside
+  the coil, from the coil's own PLF curve, whatever drives the part load.
+  OpenBSE's coil PLF curve never affects energy, and part load reached
+  through the outlet setpoint carries no cycling penalty.
+- **Dry coil.** EnergyPlus always uses the wet-bulb iteration, which
+  OpenBSE offers only as an option.
+- **Curves.** EnergyPlus normalizes neither curve and requires both.
+  OpenBSE rescales the EIR curve and has linear defaults.
+- **Constant SHR.** EnergyPlus has no constant-SHR mode.
+- **Condenser fan.** In EnergyPlus the single-speed coil's EIR includes the
+  outdoor fan. $P_\text{cf}$ is OpenBSE's own addition.
+
+## Heat-pump heating coils {#sec-hp-heating}
+
+**Source:** `openbse-components/src/heat_pump_coil.rs`
+(`HeatPumpHeatingCoil`: `available_capacity`, `available_cop`,
+`defrost_adjustments`, `simulate_air`).
+
+**Inputs.** A heat-pump heating coil has:
+
+- a rated capacity $\dot Q_r$ and COP at the AHRI 8.33 °C outdoor point;
+- optional curves $\text{CAP}_{fT}(T_o, T_i)$ and $\text{EIR}_{fT}(T_o, T_i)$
+  of the outdoor and entering dry-bulbs, in that order;
+- defrost inputs;
+- supplemental electric capacity $\dot Q_\text{sup}$ and a compressor lockout
+  temperature (default −17.78 °C).
+
+Without curves, capacity falls 2% and COP 2.4% per kelvin below 8.33 °C,
+clamped to $[0.2, 1.15]$ and $[0.3, 1.10]$. Neither rises above the rating
+point.
+
+**Defrost.** Below `defrost_onset_temp` (default 5 °C), the timed-defrost
+model applies, with defrost time fraction $f_d$ (default 0.08). The outdoor
+coil temperature and frost humidity depression are
+
+$$
+T_\text{coil} = 0.82T_o - 8.589, \qquad
+\Delta W = \max\left(10^{-6},\ W_o - W_\text{sat}(T_\text{coil})\right),
+$$ {#eq-hp-frost}
+
+and they give the multipliers and loads
+
+$$
+\begin{gathered}
+m_Q = 0.909 - 107.33\Delta W, \qquad m_P = 0.90 - 36.45\Delta W,\\
+\dot Q_\text{def} = 0.01f_d(7.222 - T_o)\frac{\dot Q_r}{1.01667}, \qquad
+P_\text{def} = \begin{cases}f_d\,\dot Q_r/1.01667 & \text{reverse cycle},\\ f_dP_\text{heater} & \text{resistive.}\end{cases}
+\end{gathered}
+$$ {#eq-hp-defrost}
+
+**Operation.** Above the lockout temperature,
+
+$$
+\begin{gathered}
+\dot Q_\text{net} = \dot Q_r\text{CAP}_{fT}\,m_Q - \dot Q_\text{def}, \qquad
+\text{PLR} = \min\left(\frac{\dot m c_p(T_\text{sp} - T_\text{in})}{\dot Q_\text{net}},\ 1\right),\\
+\text{RTF} = \frac{\text{PLR}}{1 - 0.15(1 - \text{PLR})}, \qquad
+P = \frac{\dot Q_r\text{CAP}_{fT}\,m_Q}{\text{COP}}m_P\,\text{RTF} + P_\text{def}\,\text{RTF}.
+\end{gathered}
+$$ {#eq-hp-heating}
+
+The heat pump delivers $\text{PLR}\,\dot Q_\text{net}$. The supplemental
+heater covers any shortfall up to $\dot Q_\text{sup}$, at a COP of 1.
+
+**Comparison with EnergyPlus.** The defrost model, @eq-hp-frost and
+@eq-hp-defrost, matches EnergyPlus's timed defrost (`CalcDXHeatingCoil`)
+with a defrost EIR modifier of 1 [@eplus-engref-25-2, "Single-Speed
+Electric Heat Pump DX Air Heating Coil"]. The differences are
+([#237](https://github.com/bbrannon4/OpenBSE/issues/237)):
+
+- **Curve arguments.** EnergyPlus's biquadratic curves take the indoor
+  dry-bulb first. A biquadratic copied from an EnergyPlus file is therefore
+  evaluated with its axes swapped.
+- **Part load.** The PLF is fixed at $C_d = 0.15$, with no curve input.
+- **Defrost load.** EnergyPlus raises the runtime instead of subtracting
+  the defrost load from capacity.
+- **Defaults and missing inputs.** EnergyPlus's default defrost time
+  fraction is 0.058333. OpenBSE has no crankcase heater, defrost EIR curve
+  or flow-fraction curves.
+- **Supplemental heat.** EnergyPlus models the supplemental heater as a
+  separate coil.
+
+## ASHRAE 205 DX cooling coils {#sec-dx-a205}
+
+**Source:** `openbse-components/src/cooling_coil_a205.rs`
+(`CoolingCoilDXA205`); `openbse-a205/src/rs0004.rs`.
+
+A DX coil with an `a205_file` uses a Standard 205 RS0004 map [@ashrae205].
+The map gives the gross total and sensible capacity and the power as
+functions of six variables: the outdoor dry-bulb, the entering dry-bulb and
+relative humidity, the air mass flow, the compressor sequence number and
+the pressure. Its nominal capacity is the full-sequence value at 35 °C
+outdoor and 26.7 °C, 50% RH entering, at the middle mass flow of the grid.
+
+Each timestep, the coil goes through these steps:
+
+1. **Load.** It finds the PLR from the sensible load and the full-sequence
+   sensible capacity.
+2. **Sequence.** It maps the PLR linearly onto the sequence range. A
+   discrete map rounds to the nearest sequence.
+3. **Output.** It re-queries the map at that sequence and delivers at most
+   the sensible load. Total capacity and power are pro-rated by the
+   delivered fraction.
+4. **Latent.** It removes the latent part as
+   $\Delta W = \dot Q_\text{lat}/(\dot m h_{fg})$.
+
+The file's cycling degradation coefficient is meant to apply below the
+minimum sequence. With the linear mapping, that branch is never reached
+([#72](https://github.com/bbrannon4/OpenBSE/issues/72)).
+
+**Comparison with EnergyPlus.** EnergyPlus reads RS0004 through
+`Coil:DX:ASHRAE205:Performance` (`CoilCoolingDX205Performance`). It cycles
+the first sequence below its capacity and interpolates between adjacent
+sequences above it. OpenBSE snaps and pro-rates instead, which can under-
+or over-deliver
+([#72](https://github.com/bbrannon4/OpenBSE/issues/72)). It also books more
+cooling than its air stream receives when the outlet is clamped
+([#168](https://github.com/bbrannon4/OpenBSE/issues/168)).
+
+## Known limitations: DX and heat-pump coils {#sec-air-side-limitations-b}
+
+- [#237](https://github.com/bbrannon4/OpenBSE/issues/237): DX cycling
+  penalty applied at loop level with a linear $C_d$ (coil PLF curves
+  unused, none for setpoint part load); heat-pump curve axes swapped; dry
+  coil, default curves, EIR normalization and constant-SHR mode differ from
+  EnergyPlus.
+- [#72](https://github.com/bbrannon4/OpenBSE/issues/72): Standard 205 DX
+  coil never cycles below its minimum sequence; staging snaps.
+- [#168](https://github.com/bbrannon4/OpenBSE/issues/168): Standard 205 DX
+  coil books more cooling than its outlet shows.
+- [#56](https://github.com/bbrannon4/OpenBSE/issues/56),
+  [#57](https://github.com/bbrannon4/OpenBSE/issues/57): the same curve
+  conventions in the water-source heat pumps and VRF (@sec-zone-equipment).
+
 ## Remaining air-side components {#sec-air-side-remaining}
 
 ::: {.callout-warning}
@@ -223,105 +454,6 @@ this as a component. It has no inward (return-side) leakage
 
 The rest of this chapter holds text moved unchanged, apart from format, from the former single-file reference (`README.md`, mostly written in March 2026). Parts of it are stale or incomplete. It will be rewritten from the code, and checked against EnergyPlus, in this chapter's review ([#181](https://github.com/bbrannon4/OpenBSE/issues/181)); see @sec-status.
 :::
-
-### Cooling Coil (DX)
-
-**Module:** `cooling_coil.rs`
-
-**Purpose:** Models a single-speed direct expansion (DX) cooling coil as found in packaged rooftop units and split systems. Uses a simplified steady-state model with capacity and COP derating based on outdoor temperature.
-
-**Reference:** EnergyPlus Engineering Reference, "Coil:Cooling:DX:SingleSpeed"
-
-#### Inputs
-
-| Parameter | Unit | Default | Description |
-|-----------|------|---------|-------------|
-| `name` | — | required | Component name |
-| `rated_capacity` | W | required | Total cooling capacity at ARI conditions (35 C outdoor, 26.7 C DB / 19.4 C WB indoor) |
-| `rated_cop` | — | required | Coefficient of performance at ARI conditions (typically 3.0-5.0) |
-| `rated_shr` | 0-1 | required | Sensible heat ratio at ARI conditions (typically 0.7-0.85) |
-| `rated_airflow` | m3/s | required | Rated air volume flow rate |
-| `outlet_temp_setpoint` | C | required | Desired outlet air temperature setpoint |
-
-#### Outputs
-
-| Variable | Unit | Description |
-|----------|------|-------------|
-| `outlet_temp` | C | Outlet air temperature (at or above setpoint if capacity-limited) |
-| `outlet_w` | kg/kg | Humidity ratio (unchanged in current model) |
-| `mass_flow` | kg/s | Air mass flow rate (unchanged) |
-| `outlet_enthalpy` | J/kg | Outlet enthalpy |
-
-Internal state: `cooling_rate` [W] (total), `sensible_cooling_rate` [W], `power_consumption` [W].
-
-#### Calculations
-
-**Step 1: Required sensible cooling**
-```
-Q_sensible_required = m_air * Cp_air * (T_inlet - T_setpoint)
-```
-
-The coil only cools -- if the inlet is already below the setpoint, the coil is off.
-
-**Step 2: Capacity and COP at current conditions**
-
-When performance curves are attached (`cap_ft_curve`, `eir_ft_curve`), the engine evaluates biquadratic functions of entering wet-bulb temperature and outdoor dry-bulb temperature:
-
-```
-Cap_modifier = cap_ft_curve(T_wb_entering, T_db_outdoor)
-Available_capacity = Rated_capacity * Cap_modifier
-
-EIR_modifier = eir_ft_curve(T_wb_entering, T_db_outdoor)
-Available_COP = Rated_COP / EIR_modifier
-```
-
-When curves are absent, capacity and COP are derated linearly from ARI rated conditions (T_rated = 35 C outdoor):
-
-```
-Capacity_correction = clamp(1.0 - 0.008 * (T_outdoor - 35.0), 0.5, 1.05)
-COP_correction      = clamp(1.0 - 0.012 * (T_outdoor - 35.0), 0.4, 1.10)
-```
-
-```
-Available_capacity = Rated_capacity * Capacity_correction
-Available_COP      = Rated_COP * COP_correction
-```
-
-**Step 3: Sensible/latent split and part-load ratio**
-
-The sensible heat ratio determines what fraction of total cooling capacity is available as sensible cooling:
-
-```
-Available_sensible = Available_capacity * SHR
-PLR = clamp(Q_sensible_required / Available_sensible, 0.0, 1.0)
-```
-
-Actual cooling delivered:
-```
-Q_sensible = Available_sensible * PLR
-Q_total    = Available_capacity * PLR
-```
-
-**Step 4: Outlet temperature**
-```
-dT = Q_sensible / (m_air * Cp_air)
-T_outlet = T_inlet - dT
-```
-
-**Step 5: Electric power consumption**
-
-At part load, the compressor cycles on and off. A part-load fraction (PLF) curve accounts for cycling losses:
-
-```
-PLF = 1.0 - C_d * (1.0 - PLR)
-```
-
-where C_d = 0.15 is a typical cycling degradation coefficient. The runtime fraction is:
-
-```
-RTF = PLR / PLF
-Power = Available_capacity * RTF / Available_COP
-```
 
 ### Heat Recovery
 
