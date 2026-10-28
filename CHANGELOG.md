@@ -95,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed examples that used ignored keys: `examples/datacenter_crah.yaml` (fan `source`, pump efficiency, unoccupied setpoint names) and `prototype_tests/large_office/LargeOffice_Boulder*.yaml` (data-center fans now actually run as VAV, which changes their results). `schema_sync` now fails on any unknown key in a repo YAML.
 
 ### Fixed
+- **Workbench no longer corrupts air-loop zone lists when saving.** It wrote every `{zone: ...}` entry as a `!zone` tag, which is valid only for a surface `boundary`. So `air_loops[].zones` entries such as `- zone: Room 101` became `- !zone Room 101`, and the engine then refused to load the model. The tag is now written only under `boundary:` keys.
 - **An unknown key beside `correlation:` in `mains_temperature` is now an error.** Before, a key such as `latitude:` placed at the wrong level was dropped silently, and its default used, because #127's unknown-key check couldn't see inside the untagged `mains_temperature` block. Reported by Christoph Deil.
 - **Cooling towers report their heat rejection as `thermal_output`** (#160). It was left at the default 0, so a condenser loop's remaining load was never reduced by its tower. Annual results of the shipped models are unchanged; the tower's `thermal_output` column in the results CSV now shows the heat removed from the condenser water (negative).
 - **Plant equipment now receives its coil loads, and autosized boilers and chillers are sized.**
