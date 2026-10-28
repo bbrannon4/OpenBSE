@@ -26,28 +26,54 @@ type Model = Record<string, any>;
 
 type ViewMode = "edit" | "network" | "charts" | "parametric" | "energy" | "comfort";
 
+// `!zone <name>` is only valid as a surface `boundary`. Elsewhere `{ zone: ... }`
+// is an ordinary map (e.g. an air loop's zone connection), so the tag must not
+// be inferred from shape alone; mark boundary values explicitly before dumping.
+class ZoneBoundary {
+  zone: string;
+  constructor(zone: string) {
+    this.zone = zone;
+  }
+}
+
 const ZoneTag = new yaml.Type("!zone", {
   kind: "scalar",
+  instanceOf: ZoneBoundary,
   construct(data: string) {
     return { zone: data };
   },
-  predicate(obj: unknown) {
-    return (
-      typeof obj === "object" &&
-      obj !== null &&
-      "zone" in obj &&
-      Object.keys(obj as object).length === 1
-    );
-  },
   represent(obj: unknown) {
-    return (obj as { zone: string }).zone;
+    return (obj as ZoneBoundary).zone;
   },
 });
 
 const OPENBSE_SCHEMA = yaml.DEFAULT_SCHEMA.extend([ZoneTag]);
 
+function isZoneOnly(value: unknown): value is { zone: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 1 &&
+    typeof (value as { zone?: unknown }).zone === "string"
+  );
+}
+
+function tagZoneBoundaries(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(tagZoneBoundaries);
+  if (typeof node !== "object" || node === null) return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node)) {
+    out[key] =
+      key === "boundary" && isZoneOnly(value)
+        ? new ZoneBoundary(value.zone)
+        : tagZoneBoundaries(value);
+  }
+  return out;
+}
+
 function serializeYaml(model: Model): string {
-  const clean = JSON.parse(JSON.stringify(model));
+  const clean = tagZoneBoundaries(JSON.parse(JSON.stringify(model)));
   return yaml.dump(clean, {
     indent: 2,
     lineWidth: 120,
