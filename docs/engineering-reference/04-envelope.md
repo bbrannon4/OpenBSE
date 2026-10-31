@@ -161,7 +161,7 @@ as an error.
 
 **Comparison with EnergyPlus.** The method, node rules, capacitances and
 recurrence follow `Construction::calculateTransferFunction`
-[@eplus-engref-25-2, "Conduction Transfer Function (CTF) Calculations"]. The
+[@eplus-engref-25-2, "Conduction Transfer Function (CTF) Calculations in EnergyPlus"]. The
 differences are:
 
 - **Node count.** It is rounded up, where EnergyPlus truncates, and capped at
@@ -477,7 +477,7 @@ mid-height, roofs at the top. That ignores the floor the zone is on.
 TARP inside and DOE-2 outside (`ConvectionCoefficients::CalcASHRAETARPNatural`,
 `CalcDOE2Forced`, `Windward`, `SetSurfaceWindSpeedAt`), with the same
 roughness multipliers, windward test and wind profile
-[@eplus-engref-25-2, "Exterior Convection", "Interior Convection"]. Window
+[@eplus-engref-25-2, "Outdoor/Exterior Convection", "Interior Convection"]. Window
 inside faces are the exception
 ([#208](https://github.com/bbrannon4/OpenBSE/issues/208)). EnergyPlus's other
 algorithms (adaptive convection, ASHRAE simple, MoWiTT alone) are not
@@ -1164,7 +1164,7 @@ flows, with sources, decay, deposition and filtration.
 **Comparison with EnergyPlus.** The network, element equations, the
 two-way and horizontal openings, the Swami–Chandra $C_p$ and the
 Newton–Raphson solution follow EnergyPlus's AirflowNetwork (AIRNET)
-[@eplus-engref-25-2, "Airflow Network Model"]. They are generated
+[@eplus-engref-25-2, "AirflowNetwork Model"]. They are generated
 automatically rather than from AirflowNetwork input objects. The
 differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
 

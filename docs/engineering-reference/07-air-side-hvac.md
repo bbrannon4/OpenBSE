@@ -53,7 +53,7 @@ $$ {#eq-fan-heat}
 
 **Comparison with EnergyPlus.** @eq-fan-cv–@eq-fan-heat match
 `Fan:ConstantVolume` and `Fan:VariableVolume` (`Fans.cc`, `simulateConstant`,
-`simulateVAV`) [@eplus-engref-25-2, "Fans"], with these differences
+`simulateVAV`) [@eplus-engref-25-2, "Air System Fans"], with these differences
 ([#71](https://github.com/bbrannon4/OpenBSE/issues/71)):
 
 - **Density.** EnergyPlus always uses the standard density; OpenBSE uses
@@ -154,7 +154,7 @@ $$
 $$ {#eq-crossflow-unmixed}
 
 the water inlet temperature and both flows. Its UA is solved so that the
-model meets the rated capacity [@eplus-engref-25-2, "Heating Coils"]. In
+model meets the rated capacity [@eplus-engref-25-2, "Hot-Water-Based Air Heating Coil"]. In
 EnergyPlus, the loop temperature and flow therefore limit the coil
 ([#234](https://github.com/bbrannon4/OpenBSE/issues/234)).
 
@@ -199,7 +199,7 @@ The duct reads that zone's temperature within the HVAC iteration
 
 **Comparison with EnergyPlus.** EnergyPlus's `Duct` object is lossless. Duct
 losses need AirflowNetwork distribution, whose duct conduction has the form
-of @eq-duct [@eplus-engref-25-2, "Airflow Network Model"]. OpenBSE adds
+of @eq-duct [@eplus-engref-25-2, "AirflowNetwork Model"]. OpenBSE adds
 this as a component. It has no inward (return-side) leakage
 ([#235](https://github.com/bbrannon4/OpenBSE/issues/235)).
 
@@ -447,74 +447,162 @@ cooling than its air stream receives when the outlet is clamped
   [#57](https://github.com/bbrannon4/OpenBSE/issues/57): the same curve
   conventions in the water-source heat pumps and VRF (@sec-zone-equipment).
 
-## Remaining air-side components {#sec-air-side-remaining}
+## Chilled-water cooling coils {#sec-chw-coil}
 
-::: {.callout-warning}
-## Pre-review content
+**Source:** `openbse-components/src/chw_cooling_coil.rs` (`CoolingCoilCHW`).
 
-The rest of this chapter holds text moved unchanged, apart from format, from the former single-file reference (`README.md`, mostly written in March 2026). Parts of it are stale or incomplete. It will be rewritten from the code, and checked against EnergyPlus, in this chapter's review ([#181](https://github.com/bbrannon4/OpenBSE/issues/181)); see @sec-status.
-:::
+The coil cools the air to its outlet setpoint $T_\text{sp}$. If the
+entering air is wetter than saturation at $T_\text{sp}$, it leaves
+saturated:
 
-### Heat Recovery
+$$
+W_{\text{out},f} = \min\left(W_\text{in},\ W_\text{sat}(T_\text{sp})\right), \qquad
+\dot Q_{\text{tot},f} = \dot m\left[h_\text{in} - h(T_\text{sp}, W_{\text{out},f})\right], \qquad
+\dot Q_{s,f} = \dot m c_p(T_\text{in} - T_\text{sp}).
+$$ {#eq-chw-coil}
 
-**Module:** `heat_recovery.rs`
+The capacity limit is the nominal capacity $\dot Q_\text{cap}$, a total
+(sensible plus latent) value. With
+$\text{PLR} = \min(\dot Q_\text{cap}/\dot Q_{\text{tot},f},\ 1)$, the coil
+delivers $\text{PLR}\,\dot Q_{\text{tot},f}$ and $\text{PLR}\,\dot Q_{s,f}$,
+with $W_\text{out}$ interpolated by PLR as in @eq-dx-plr. Its total output
+is a load on its chilled-water loop (@sec-plant).
 
-**Purpose:** Models air-to-air heat recovery devices (rotary enthalpy wheels and plate heat exchangers) that transfer energy between exhaust air and incoming outdoor air in DOAS systems.
+The code also has a water-side limit,
+$\dot m_wc_{p,w}(T_{w,\text{out},d} - T_{w,\text{in}})$. As with hot-water
+coils, the coil is never given its water inlet, so this limit never applies,
+and coil output does not depend on the chilled-water temperature or flow
+([#239](https://github.com/bbrannon4/OpenBSE/issues/239)). The `shr` input
+is not read.
 
-**Reference:** ASHRAE Handbook of Fundamentals, Chapter 26
+**Comparison with EnergyPlus.** EnergyPlus `Coil:Cooling:Water`
+(`WaterCoils.cc`) computes the outlet from the coil UA, the water inlet
+temperature and flow, and the wet and dry parts of the coil, so the leaving
+air is generally short of saturation [@eplus-engref-25-2, "Chilled-Water-Based Air Cooling Coil"].
+Forcing saturation reproduces the ASHRAE 140 analytical cases, but
+overstates latent removal for typical coils
+([#239](https://github.com/bbrannon4/OpenBSE/issues/239)).
 
-#### Types
+## Air-to-air heat recovery {#sec-heat-recovery}
 
-- **Wheel** — rotary enthalpy wheel that recovers both sensible heat and moisture (latent)
-- **Plate** — plate heat exchanger that recovers sensible heat only (no moisture transfer)
+**Source:** `openbse-components/src/heat_recovery.rs` (`HeatRecovery`).
 
-#### Inputs
+An enthalpy wheel or a plate exchanger transfers heat, and for the wheel
+moisture, from the exhaust air at $(T_x, W_x)$ to the outdoor air entering
+it. The driver sets the exhaust state from the return air each timestep.
+Let:
 
-| Parameter | Unit | Default | Description |
-|-----------|------|---------|-------------|
-| `name` | — | required | Component name |
-| `source` | — | required | `wheel` or `plate` |
-| `sensible_effectiveness` | 0-1 | required | Sensible effectiveness at 100% airflow (typical 0.70-0.85) |
-| `latent_effectiveness` | 0-1 | required | Latent effectiveness (typical 0.60-0.75; always 0 for PlateHX) |
-| `exhaust_air_temp` | C | 22.0 | Exhaust air dry-bulb temperature |
-| `exhaust_air_w` | kg/kg | 0.008 | Exhaust air humidity ratio |
-| `parasitic_power` | W | required | Parasitic electric power (wheel motor, etc.) |
+- $C_s = \dot m c_p$ be the supply capacity rate;
+- $r$ be the exhaust-to-supply flow ratio (default 1, capped at 1), so that
+  $C_\text{min} = rC_s$;
+- $\varepsilon_s$ be the sensible effectiveness, or the separate cooling
+  effectiveness when $T_\text{in} > T_x$;
+- $\varepsilon_l$ be the latent effectiveness (zero for a plate exchanger).
 
-#### Outputs
+Then
 
-| Variable | Unit | Description |
-|----------|------|-------------|
-| `outlet_temp` | C | Supply air temperature after recovery |
-| `outlet_w` | kg/kg | Supply air humidity ratio after recovery |
-| `mass_flow` | kg/s | Air mass flow rate (unchanged) |
+$$
+T_\text{out} = T_\text{in} + f\,\varepsilon_s\frac{C_\text{min}}{C_s}(T_x - T_\text{in}), \qquad
+W_\text{out} = W_\text{in} + f\,\varepsilon_l\,r\,(W_x - W_\text{in}),
+$$ {#eq-heat-recovery}
 
-Internal state: `sensible_recovery` [W], `latent_recovery` [W], `electric_power` [W].
+where $f$ is the control fraction. With no supply-outlet setpoint, $f = 1$.
+With one, as for E+'s `ControlToTemperatureSetPoint`, $f$ throttles the
+unit so that the outlet lands on the setpoint when full recovery would cross
+it. It is 1 when full recovery only moves the outlet toward the setpoint,
+and 0 when recovery would move it away. The unit is bypassed when
+$|T_\text{in} - T_x| < 1$ K. Its parasitic power is drawn whenever it is
+not bypassed.
 
-#### Calculations
+**Comparison with EnergyPlus.** @eq-heat-recovery is
+`HeatExchanger:AirToAir:SensibleAndLatent` (`HeatRecovery.cc`,
+`CalcAirToAirGenericHeatExch`) at 100% flow [@eplus-engref-25-2, "Air System
+Air-To-Air Sensible and Latent Effectiveness Heat Exchanger"]. The
+differences are ([#239](https://github.com/bbrannon4/OpenBSE/issues/239)):
 
-**Bypass check:**
+- **Effectiveness.** EnergyPlus varies it with flow; OpenBSE does not.
+- **Control.** EnergyPlus has frost control and economizer lockout, where
+  OpenBSE has a fixed ±1 K bypass.
+- **Latent heat.** The reported latent rate uses $h_{fg} = 2.454\times10^6$
+  J/kg ([#200](https://github.com/bbrannon4/OpenBSE/issues/200)).
 
-When the outdoor air temperature is within 1 C of the exhaust air temperature, the device bypasses -- no energy transfer occurs and parasitic power is zero. This prevents marginal or wrong-direction energy transfer.
+## Humidifiers {#sec-humidifier}
 
-**Sensible recovery (effectiveness-NTU approach):**
-```
-C_supply = m_air * Cp_air
-Q_sensible = epsilon_s * C_supply * (T_exhaust - T_outdoor)
-T_outlet = T_outdoor + Q_sensible / C_supply
-```
+**Source:** `openbse-components/src/humidifier.rs` (`Humidifier`).
 
-Positive `Q_sensible` means heating the supply air (winter preheating); negative means cooling (summer precooling).
+An electric steam humidifier has rated power $P_r$ and steam capacity
+$\dot m_{s,r} = P_r/\Delta h_s$, with $\Delta h_s = 2.6157\times10^6$ J/kg
+(water at 14.4 °C to steam at 100 °C). Its target humidity ratio is either
+a fixed `w_setpoint`, or the humidity ratio at `min_rh_setpoint` and the
+served zone's live air temperature. Below the target,
 
-**Latent recovery (enthalpy wheel only):**
-```
-delta_W = epsilon_l * (W_exhaust - W_outdoor)
-W_outlet = W_outdoor + delta_W
-Q_latent = m_air * h_fg * delta_W
-```
+$$
+\begin{gathered}
+\dot m_s = \min\left(\dot m(W_\text{target} - W_\text{in}),\ \dot m_{s,r}\right), \qquad
+P = P_r\frac{\dot m_s}{\dot m_{s,r}} + P_\text{standby},\\
+W_\text{out} = W_\text{in} + \frac{\dot m_s}{\dot m}, \qquad
+h_\text{out} = h_\text{in} + \frac{\dot m_s}{\dot m}h_g(100\,°\text{C}),
+\end{gathered}
+$$ {#eq-humidifier}
 
-where `h_fg = 2.454 x 10^6 J/kg` (heat of vaporization at ~20 C). Plate heat exchangers have zero latent recovery.
+with $h_g(100\,°\text{C}) = 2.50094\times10^6 + 1858.95\times100$ J/kg, the
+vapour enthalpy on the basis of @eq-enthalpy. The make-up water is
+$\dot m_s$.
 
-**Total recovery:**
-```
-Q_total = Q_sensible + Q_latent
-```
+**Comparison with EnergyPlus.** @eq-humidifier matches
+`Humidifier:Steam:Electric` (`Humidifiers.cc`) [@eplus-engref-25-2,
+"Air System Humidifiers"]. EnergyPlus heats the water from 20 °C, which takes about 1%
+less energy per kilogram than the 14.4 °C here; the code comment says the
+two are the same ([#239](https://github.com/bbrannon4/OpenBSE/issues/239)).
+
+## Evaporative coolers {#sec-evap-cooler}
+
+**Source:** `openbse-components/src/evap_cooler.rs` (`EvapCooler`).
+
+**Direct stage.** With saturation effectiveness $\varepsilon$ (default 0.8),
+the air is cooled toward its wet-bulb at constant enthalpy:
+
+$$
+T_\text{out} = T_\text{in} - \varepsilon(T_\text{in} - T_{wb,\text{in}}), \qquad
+W_\text{out} = \max\left(W(T_\text{out}, h_\text{in}),\ W_\text{in}\right).
+$$ {#eq-evap-direct}
+
+**Indirect stage.** The secondary air is outdoor air. It is first cooled by
+its own pad, as in @eq-evap-direct with the same $\varepsilon$, to
+$T_{2,\text{out}}$. It then cools the supply sensibly through an exchanger
+of effectiveness $\varepsilon_\text{hx}$ (default 0.7):
+
+$$
+T_\text{out} = T_\text{in} - \varepsilon_\text{hx}(T_\text{in} - T_{2,\text{out}}), \qquad W_\text{out} = W_\text{in},
+$$ {#eq-evap-indirect}
+
+and does nothing if $T_{2,\text{out}} \ge T_\text{in}$. A two-stage cooler
+runs the indirect stage, then the direct stage.
+
+**Energy and water.** The cooler always runs at full effectiveness, with no
+outlet setpoint. While it cools, it draws its pump power (default 100 W),
+plus the secondary fan power while an indirect stage runs. Its water use is
+the moisture added to the supply plus that added to the secondary air, at
+the secondary flow ratio.
+
+**Comparison with EnergyPlus.** @eq-evap-direct is
+`EvaporativeCooler:Direct:ResearchSpecial` at a fixed effectiveness.
+@eq-evap-indirect is the two-step form of
+`EvaporativeCooler:Indirect:CelDekPad` (`EvaporativeCoolers.cc`)
+[@eplus-engref-25-2, "Evaporative Coolers"]. The differences are
+([#239](https://github.com/bbrannon4/OpenBSE/issues/239)):
+
+- **Effectiveness.** EnergyPlus's CelDek pads derive it from the pad depth
+  and air velocity.
+- **Control.** The research-special coolers can be controlled to a
+  setpoint; OpenBSE's cannot.
+- **Water.** Drift and blowdown are not modelled.
+
+## Known limitations: other air-side components {#sec-air-side-limitations-c}
+
+- [#239](https://github.com/bbrannon4/OpenBSE/issues/239): chilled-water
+  coil's water side never connected, leaving air forced to saturation,
+  `shr` unread; humidifier reference temperature; heat-recovery effectiveness
+  fixed with flow and no frost control; evaporative cooler has no setpoint.
+- [#200](https://github.com/bbrannon4/OpenBSE/issues/200): constant $h_{fg}$
+  values that differ between components.

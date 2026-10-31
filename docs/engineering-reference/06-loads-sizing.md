@@ -372,7 +372,7 @@ nothing to size from is a severe error.
 
 **Comparison with EnergyPlus.** @eq-plant-load is the E+ `Sizing:Plant`
 non-coincident load, with condenser loads at $Q(1 + 1/\text{COP})$
-[@eplus-engref-25-2, "Plant Loop Sizing"]. EnergyPlus sizes pumps from the
+[@eplus-engref-25-2, "Plant and Condenser Loop Sizing"]. EnergyPlus sizes pumps from the
 loop's design flow. OpenBSE's coincident zone peak excludes the outdoor-air
 and reheat loads and the sizing factors, so on a heating-only or
 cooling-only loop the pump flow is below its coils' design flows
