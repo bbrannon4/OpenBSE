@@ -101,8 +101,13 @@ pub struct SpeciesTransport {
     pub filter_efficiency: Vec<f64>,
     /// Occupant-linked generation per species [kg/s per met W] (#94).
     pub generation_per_met_watt: Vec<f64>,
-    /// concentrations[species][zone] [kg/kg].
+    /// concentrations[species][zone] [kg/kg]: the latest solve's result.
     pub concentrations: Vec<Vec<f64>>,
+    /// Start-of-timestep concentrations, which every solve of a timestep
+    /// integrates from. The HVAC iteration re-solves the envelope up to 11
+    /// times per timestep; integrating from `concentrations` would advance
+    /// the species by that many timesteps (#188).
+    committed: Vec<Vec<f64>>,
 }
 
 /// Per-zone airflow/geometry inputs for a species transport step (#94).
@@ -126,10 +131,11 @@ impl SpeciesTransport {
     pub fn new(species: &[SpeciesConfig], n_zones: usize) -> Self {
         let names = species.iter().map(|s| s.name.clone()).collect();
         let outdoor: Vec<f64> = species.iter().map(|s| s.outdoor_concentration).collect();
-        let concentrations = species
+        let concentrations: Vec<Vec<f64>> = species
             .iter()
             .map(|s| vec![s.initial_concentration.unwrap_or(s.outdoor_concentration); n_zones])
             .collect();
+        let committed = concentrations.clone();
         Self {
             names,
             outdoor,
@@ -147,6 +153,7 @@ impl SpeciesTransport {
                 .map(|s| s.generation_per_met_watt.unwrap_or(0.0).max(0.0))
                 .collect(),
             concentrations,
+            committed,
         }
     }
 
@@ -232,6 +239,7 @@ impl SpeciesTransport {
             .collect();
 
         for (si, conc) in self.concentrations.iter_mut().enumerate() {
+            let start = &self.committed[si];
             let c_out = self.outdoor[si];
             let lambda = self.decay_rate[si];
             let v_dep = self.deposition_velocity[si];
@@ -261,7 +269,7 @@ impl SpeciesTransport {
                     .and_then(|s| s.get(zi))
                     .copied()
                     .unwrap_or(0.0);
-                b[zi] = m_over_dt * conc[zi] + outdoor_in[zi] * c_out + source;
+                b[zi] = m_over_dt * start[zi] + outdoor_in[zi] * c_out + source;
             }
 
             if let Some(solution) = solve_linear_system(&a, &b) {
@@ -270,6 +278,12 @@ impl SpeciesTransport {
                 }
             }
         }
+    }
+
+    /// Accept the latest solve as the start of the next timestep. Call exactly
+    /// once per physical timestep, after the HVAC iteration converges.
+    pub fn commit_timestep(&mut self) {
+        self.committed.clone_from(&self.concentrations);
     }
 }
 
@@ -345,6 +359,50 @@ mod tests {
 
     /// Single zone with constant source and infiltration: concentration
     /// converges to the analytic steady state C = C_out + S/ṁ.
+    /// The HVAC iteration re-solves within a timestep. Repeating a solve must
+    /// not advance the species, and committing must advance it exactly once (#188).
+    #[test]
+    fn test_repeat_solves_advance_one_timestep() {
+        let mut net = scaffold(1);
+        net.zone_outdoor_mass_flow[0] = 0.05;
+        let species = [SpeciesConfig {
+            name: "CO2".to_string(),
+            outdoor_concentration: 1.0,
+            initial_concentration: Some(0.0),
+            decay_rate: 0.0,
+            deposition_velocity: 0.0,
+            hvac_filter_efficiency: 0.0,
+            generation_per_met_watt: None,
+        }];
+        let inputs = SpeciesZoneInputs {
+            air_mass: &[100.0],
+            air_density: &[1.2],
+            surface_area: &[0.0],
+            oa_flow: &[0.0],
+            vent_flow: &[0.0],
+            recirc_flow: &[0.0],
+        };
+        let mut once = SpeciesTransport::new(&species, 1);
+        once.step(&net, &inputs, &[vec![0.0]], 600.0);
+        let mut repeated = SpeciesTransport::new(&species, 1);
+        for _ in 0..11 {
+            repeated.step(&net, &inputs, &[vec![0.0]], 600.0);
+        }
+        assert_relative_eq!(
+            repeated.concentrations[0][0],
+            once.concentrations[0][0],
+            epsilon = 1e-12
+        );
+
+        // Two committed timesteps match the implicit-Euler recurrence.
+        let c1 = once.concentrations[0][0];
+        assert_relative_eq!(c1, (0.05 * 600.0) / (100.0 + 0.05 * 600.0), epsilon = 1e-12);
+        once.commit_timestep();
+        once.step(&net, &inputs, &[vec![0.0]], 600.0);
+        let c2 = (100.0 * c1 + 0.05 * 600.0) / (100.0 + 0.05 * 600.0);
+        assert_relative_eq!(once.concentrations[0][0], c2, epsilon = 1e-12);
+    }
+
     #[test]
     fn test_single_zone_steady_state_dilution() {
         let mut network = scaffold(1);
@@ -372,6 +430,7 @@ mod tests {
                 &sources,
                 60.0,
             );
+            transport.commit_timestep();
         }
 
         let expected = 0.00063 + source / m_inf;
@@ -408,6 +467,7 @@ mod tests {
                 &sources,
                 60.0,
             );
+            transport.commit_timestep();
         }
 
         // Zone 0: C_out + S/ṁ; zone 1 receives zone-0 air with no extra source
@@ -460,6 +520,7 @@ mod tests {
                 &sources,
                 60.0,
             );
+            transport.commit_timestep();
             let c = transport.concentration(0, 0);
             assert!(c >= 0.0 && c <= prev + 1e-15, "monotone decay violated");
             prev = c;
@@ -506,6 +567,7 @@ mod tests {
                 &sources,
                 dt,
             );
+            transport.commit_timestep();
         }
         // Backward Euler: C_n = C0 / (1 + λ·dt)^n
         let expected = 1e-6 / (1.0 + lambda * dt).powi(steps);
@@ -554,6 +616,7 @@ mod tests {
                 &sources,
                 60.0,
             );
+            transport.commit_timestep();
         }
         let expected = source / (m_inf + eta * m_recirc);
         assert_relative_eq!(transport.concentration(0, 0), expected, max_relative = 1e-6);
@@ -600,6 +663,7 @@ mod tests {
                 &sources,
                 60.0,
             );
+            transport.commit_timestep();
         }
         let expected = source / (m_inf + v_d * a_surf * RHO);
         assert_relative_eq!(transport.concentration(0, 0), expected, max_relative = 1e-6);
@@ -656,6 +720,7 @@ mod tests {
                 &sources,
                 60.0,
             );
+            transport.commit_timestep();
         }
 
         // Attic steady state: S/ṁ; the zone receives attic air through the
