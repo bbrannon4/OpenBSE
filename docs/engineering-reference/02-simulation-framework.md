@@ -250,13 +250,7 @@ gains and surface temperatures
 iteration matches EnergyPlus. E+ evaluates the predictor before any HVAC
 runs, where OpenBSE needs one iteration to get it. The refresh comes from a
 solve that includes that iteration's HVAC, so its surface temperatures differ
-slightly from E+'s, which use the previous zone air temperature. One other
-difference is filed as an issue:
-
-- **Unscheduled heating setpoint.** The heating load targets the constant
-  occupied setpoint, even when a setpoint schedule or the unoccupied
-  setpoint is in force
-  ([#117](https://github.com/bbrannon4/OpenBSE/issues/117)).
+slightly from E+'s, which use the previous zone air temperature.
 
 ## HVAC–zone iteration {#sec-hvac-iteration}
 
@@ -414,9 +408,6 @@ timestep (`loop_supply_conditions`).
 
 ## Known limitations {#sec-framework-limitations}
 
-- [#117](https://github.com/bbrannon4/OpenBSE/issues/117): heating loads for
-  control target the constant occupied setpoint, not the scheduled or
-  unoccupied one.
 - [#193](https://github.com/bbrannon4/OpenBSE/issues/193): unused
   `SimulationRunner` and configuration fields, and stale comments in the
   loop.

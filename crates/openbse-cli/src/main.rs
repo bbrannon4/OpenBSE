@@ -1510,10 +1510,9 @@ fn main() -> Result<()> {
             }
         }
 
-        // Per-zone hourly heating-setpoint schedules (e.g. night setback), so
-        // the HVAC control uses the same scheduled setpoint as the ideal-load
-        // predictor. Empty for zones without a schedule.
-        let mut zone_heat_sp_schedule: HashMap<
+        // Per-zone setpoint schedules (e.g. night setback). Empty for zones
+        // without a schedule.
+        let mut zone_sp_schedule: HashMap<
             String,
             Vec<openbse_envelope::zone::ThermostatScheduleEntry>,
         > = HashMap::new();
@@ -1522,7 +1521,7 @@ fn main() -> Result<()> {
                 continue;
             }
             for zone_name in &tstat.zones {
-                zone_heat_sp_schedule.insert(zone_name.clone(), tstat.thermostat_schedule.clone());
+                zone_sp_schedule.insert(zone_name.clone(), tstat.thermostat_schedule.clone());
             }
         }
 
@@ -3075,17 +3074,21 @@ fn main() -> Result<()> {
                             );
                         }
 
-                        // Cooling setpoints in force this timestep: a `thermostat_schedule`
-                        // entry (e.g. a summer-only night setup) overrides the constant.
-                        let scheduled_cool_sp = scheduled_cooling_setpoints(
+                        // Setpoints in force this timestep: a `thermostat_schedule`
+                        // entry (e.g. a night setback) overrides the constants. Mode,
+                        // loads and coil control all use these (#117).
+                        let scheduled_sp = scheduled_setpoints(
+                            &zone_heating_setpoints,
                             &zone_cooling_setpoints,
-                            &zone_heat_sp_schedule,
+                            &zone_sp_schedule,
                             hour,
                             ctx.timestep.day_of_year(),
                         );
-                        let zone_cooling_setpoints = scheduled_cool_sp
-                            .as_ref()
-                            .unwrap_or(&zone_cooling_setpoints);
+                        let (zone_heating_setpoints, zone_cooling_setpoints) =
+                            scheduled_sp.as_ref().map_or(
+                                (&zone_heating_setpoints, &zone_cooling_setpoints),
+                                |(heat, cool)| (heat, cool),
+                            );
                         // Radiant panels meet the zone's load to setpoint (#167):
                         // the predictor's load to start, then the load still
                         // unmet after each envelope solve. Controlled on the
@@ -3140,7 +3143,6 @@ fn main() -> Result<()> {
                                     zone_cooling_setpoints,
                                     &zone_unocc_heating_setpoints,
                                     &zone_unocc_cooling_setpoints,
-                                    &zone_heat_sp_schedule,
                                     &zone_design_flows,
                                     t_outdoor,
                                     Some(&env.schedule_manager),
@@ -5431,7 +5433,6 @@ fn simulate_all_loops(
     zone_cool_sp: &HashMap<String, f64>,
     zone_unocc_heat_sp: &HashMap<String, f64>,
     zone_unocc_cool_sp: &HashMap<String, f64>,
-    zone_heat_sp_schedule: &HashMap<String, Vec<openbse_envelope::zone::ThermostatScheduleEntry>>,
     zone_design_flows: &HashMap<String, f64>,
     t_outdoor: f64,
     schedule_mgr: Option<&ScheduleManager>,
@@ -5964,18 +5965,7 @@ fn simulate_all_loops(
             let zone_heat_load =
                 zone_heating_loads.get(control_zone).copied().unwrap_or(0.0) * zmult_plr;
             let control_temp = zone_temps.get(control_zone).copied().unwrap_or(21.0);
-            // A per-zone hourly setpoint schedule (night setback) overrides the
-            // constant setpoint, matching the ideal-load predictor.
-            let doy = ctx.timestep.day_of_year();
-            let scheduled_heat_sp = zone_heat_sp_schedule.get(control_zone).and_then(|entries| {
-                entries
-                    .iter()
-                    .find(|e| e.applies(hour, doy))
-                    .map(|e| e.heating_setpoint)
-            });
-            let heat_sp = scheduled_heat_sp
-                .or_else(|| active_heat_sp.get(control_zone).copied())
-                .unwrap_or(21.1);
+            let heat_sp = active_heat_sp.get(control_zone).copied().unwrap_or(21.1);
             let cool_sp = active_cool_sp.get(control_zone).copied().unwrap_or(23.9);
             // Use predictor mode (from frozen ideal loads) — stable across
             // HVAC iterations, preventing mode flip-flop at setpoint boundary.
@@ -6968,26 +6958,29 @@ fn resolve_path(input_file: &Path, relative_path: &str) -> PathBuf {
     }
 }
 
-/// Cooling setpoints in force at one timestep: the constant thermostat value
-/// for each zone, overridden by whichever `thermostat_schedule` entry applies
-/// at this hour and date. Returns `None` when no zone has a schedule, so the
-/// caller keeps using the constant map untouched.
-fn scheduled_cooling_setpoints(
-    base: &HashMap<String, f64>,
+/// (Heating, cooling) setpoints in force at one timestep: the constant
+/// thermostat values for each zone, overridden by whichever `thermostat_schedule`
+/// entry applies at this hour and date. Returns `None` when no zone has a
+/// schedule, so the caller keeps using the constant maps untouched.
+fn scheduled_setpoints(
+    heat_base: &HashMap<String, f64>,
+    cool_base: &HashMap<String, f64>,
     schedules: &HashMap<String, Vec<openbse_envelope::zone::ThermostatScheduleEntry>>,
     hour: u32,
     day_of_year: u32,
-) -> Option<HashMap<String, f64>> {
+) -> Option<(HashMap<String, f64>, HashMap<String, f64>)> {
     if schedules.is_empty() {
         return None;
     }
-    let mut out = base.clone();
+    let mut heat = heat_base.clone();
+    let mut cool = cool_base.clone();
     for (zone, entries) in schedules {
         if let Some(entry) = entries.iter().find(|e| e.applies(hour, day_of_year)) {
-            out.insert(zone.clone(), entry.cooling_setpoint);
+            heat.insert(zone.clone(), entry.heating_setpoint);
+            cool.insert(zone.clone(), entry.cooling_setpoint);
         }
     }
-    Some(out)
+    Some((heat, cool))
 }
 
 fn day_of_year(month: u32, day: u32, dims: &[u32; 12]) -> u32 {
@@ -7013,6 +7006,33 @@ fn month_day_from_hour(hour_of_year: u32, dims: &[u32; 12]) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A thermostat schedule overrides both setpoints for the zone it names, so
+    /// the heating load and mode follow a night setback (#117).
+    #[test]
+    fn scheduled_setpoints_override_heating_and_cooling() {
+        let heat = HashMap::from([("A".to_string(), 20.0), ("B".to_string(), 21.0)]);
+        let cool = HashMap::from([("A".to_string(), 26.0), ("B".to_string(), 25.0)]);
+        let schedules = HashMap::from([(
+            "A".to_string(),
+            vec![openbse_envelope::zone::ThermostatScheduleEntry {
+                start_hour: 1,
+                end_hour: 6,
+                heating_setpoint: 15.0,
+                cooling_setpoint: 30.0,
+                start_month: None,
+                start_day: None,
+                end_month: None,
+                end_day: None,
+            }],
+        )]);
+        let (h, c) = scheduled_setpoints(&heat, &cool, &schedules, 3, 10).unwrap();
+        assert_eq!((h["A"], c["A"]), (15.0, 30.0));
+        assert_eq!((h["B"], c["B"]), (21.0, 25.0));
+        let (h, c) = scheduled_setpoints(&heat, &cool, &schedules, 12, 10).unwrap();
+        assert_eq!((h["A"], c["A"]), (20.0, 26.0));
+        assert!(scheduled_setpoints(&heat, &cool, &HashMap::new(), 3, 10).is_none());
+    }
 
     #[test]
     fn multizone_design_flow_sums_zones_at_their_own_or_a_shared_peak() {
