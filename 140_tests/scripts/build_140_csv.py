@@ -98,6 +98,13 @@ def read_load_results(case):
     return h_val, c_val
 
 
+def is_zone_temp_column(header):
+    """True for a zone air temperature column ('<zone>:temperature [°C]', or
+    the older '<zone>:zone_temp')."""
+    h = header.lower()
+    return ('zone_temp' in h or ':temperature' in h) and 'supply' not in h
+
+
 def read_ff_temps(case):
     """Read free-float zone temperatures from results CSV."""
     # Try custom zone_results.csv first, fall back to default results CSV
@@ -111,7 +118,7 @@ def read_ff_temps(case):
         header = next(reader)
         col = None
         for i, h in enumerate(header):
-            if 'zone_temp' in h.lower() and 'supply' not in h.lower():
+            if is_zone_temp_column(h):
                 col = i
                 break
         if col is None:
@@ -135,7 +142,7 @@ def read_960_sz_temps():
         # Find Sun Zone temperature column
         col = None
         for i, h in enumerate(header):
-            if 'sun zone' in h.lower() and 'zone_temp' in h.lower():
+            if 'sun zone' in h.lower() and is_zone_temp_column(h):
                 col = i
                 break
         if col is None:
@@ -644,6 +651,12 @@ def main():
 
     # --- CI mode: detect regressions and newly-passing cases ---
     if ci_mode:
+        # A case whose results can't be read was not checked, so it must not
+        # read as a pass.
+        if missing:
+            print(f"\nCASES NOT CHECKED: {', '.join(missing)}")
+            sys.exit(1)
+
         regressions = failed_keys - KNOWN_FAILURES
         newly_passing = KNOWN_FAILURES & passed_keys
 
