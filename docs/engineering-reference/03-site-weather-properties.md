@@ -352,8 +352,9 @@ where:
 **Source:** `openbse-psychrometrics/src/lib.rs`.
 
 Moist air is treated as an ideal mixture of dry air and water vapour. The
-functions follow EnergyPlus's `Psychrometrics` module [@eplus-engref-25-2,
-"Psychrometric Services"] with the constants of @tbl-psych-constants.
+functions follow EnergyPlus's `Psychrometrics` module (described under
+"Psychrometric services" in its Module Developer guide), with the constants
+of @tbl-psych-constants.
 
 | Symbol | Value | Meaning |
 |---|---|---|
