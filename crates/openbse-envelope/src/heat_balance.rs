@@ -5254,12 +5254,16 @@ impl EnvelopeSolver for BuildingEnvelope {
                 // would zero out envelope conduction, drastically underestimating
                 // heating loads in winter and cooling loads in summer.
                 //
-                // Uses t_prev = zone.temp (the actual zone temperature) so
-                // the thermal mass term provides natural damping:
-                //   - Zone warm (T > sp): Cap*(sp-T) < 0 → reduces heating load
-                //   - Zone cold (T < sp): Cap*(sp-T) > 0 → increases heating load
-                // This prevents the PLR from being the same regardless of
-                // zone state, which caused undamped oscillation.
+                // Between timesteps these seed the next timestep's first HVAC
+                // iteration, so they use the history that timestep will have,
+                // with this solve's zone temperature as its newest value.
+                let (dt_next, t_prev_next) = crate::zone::backward_diff_effective(
+                    (zone.temp_order + 1).min(3),
+                    dt,
+                    zone.temp,
+                    zone.temp_prev,
+                    zone.temp_prev2,
+                );
                 let cool_sp = hvac.cooling_setpoints.get(&zone.input.name).copied();
                 let heat_sp = hvac.heating_setpoints.get(&zone.input.name).copied();
 
@@ -5273,8 +5277,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                         rho_air,
                         zone.input.volume,
                         cp_air,
-                        dt_eff,
-                        zone.temp,
+                        dt_next,
+                        t_prev_next,
                         sp,
                     );
                     // Negative Q = cooling needed; convert to positive cooling load
@@ -5293,8 +5297,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                         rho_air,
                         zone.input.volume,
                         cp_air,
-                        dt_eff,
-                        zone.temp,
+                        dt_next,
+                        t_prev_next,
                         sp,
                     )
                 } else {
@@ -5304,26 +5308,12 @@ impl EnvelopeSolver for BuildingEnvelope {
                 // Positive Q = heating needed
                 zone.ideal_heating_load = zone.load_to_heating_setpoint.max(0.0);
 
-                let q_at = |t_target: f64, t_start: f64| {
-                    crate::zone::compute_ideal_q_hvac(
-                        sum_ha,
-                        sum_hat,
-                        mcpi,
-                        t_outdoor,
-                        q_conv_total,
-                        rho_air,
-                        zone.input.volume,
-                        cp_air,
-                        dt_eff,
-                        t_start,
-                        t_target,
-                    )
-                };
-                let offset = q_at(0.0, 0.0);
                 zone.ideal_load_line = crate::zone::IdealLoadLine {
-                    slope: q_at(1.0, 0.0) - offset,
-                    offset,
-                    capacitance: offset - q_at(0.0, 1.0),
+                    conductance: sum_ha + mcpi,
+                    driving: sum_hat + mcpi * t_outdoor + q_conv_total,
+                    air_capacity: rho_air * zone.input.volume * cp_air / dt,
+                    bdf_multiplier: dt / dt_eff,
+                    t_history: t_prev_eff,
                 };
             }
         }
@@ -5581,6 +5571,7 @@ impl EnvelopeSolver for BuildingEnvelope {
             zone.w_prev = w_safe;
             zone.humidity_ratio = w_safe;
             zone.w_order = (zone.w_order + 1).min(3);
+            zone.refresh_load_line_history();
 
             // Reset predictor mode lock so it will be recomputed on next physical timestep
             zone.ideal_pred_mode_locked = false;
@@ -5652,6 +5643,7 @@ impl BuildingEnvelope {
         for zone in &mut self.zones {
             zone.temp_order = zone.temp_order.min(max_order);
             zone.w_order = zone.w_order.min(max_order);
+            zone.refresh_load_line_history();
         }
     }
 
@@ -5675,6 +5667,7 @@ impl BuildingEnvelope {
             zone.w_prev2 = zone.humidity_ratio;
             zone.w_prev3 = zone.humidity_ratio;
             zone.w_order = 1;
+            zone.refresh_load_line_history();
         }
     }
 
@@ -6140,6 +6133,34 @@ mod tests {
             ..Default::default()
         });
         envelope
+    }
+
+    /// The load to setpoint uses the zone solve's backward-difference history
+    /// (#192): the load line is zero at the free-floating temperature the same
+    /// solve computes, also in a transient at third order, and it stays right
+    /// across the timestep boundary.
+    #[test]
+    fn test_load_line_agrees_with_the_zone_solve() {
+        let mut envelope = make_simple_model();
+        envelope.initialize(3600.0).unwrap();
+        let ctx = make_ctx();
+        let weather = make_weather_hour(-10.0);
+        let hvac = ZoneHvacConditions::default();
+        for _ in 0..4 {
+            envelope.solve_timestep(&ctx, &weather, &hvac);
+            let z = &envelope.zones[0];
+            assert!(z.ideal_load_line.at(z.temp_no_hvac).abs() < 1e-6);
+            envelope.update_bdf_history();
+        }
+        let z = &envelope.zones[0];
+        assert_eq!(z.temp_order, 3);
+        assert!(
+            (z.temp_prev - z.temp_prev2).abs() > 0.01,
+            "needs a transient to tell the history from the start temperature"
+        );
+        assert_relative_eq!(z.ideal_load_line.bdf_multiplier, 11.0 / 6.0);
+        let expected = (18.0 * z.temp_prev - 9.0 * z.temp_prev2 + 2.0 * z.temp_prev3) / 11.0;
+        assert_relative_eq!(z.ideal_load_line.t_history, expected);
     }
 
     /// Wiring test for #188: through `solve_timestep`, repeat solves within a

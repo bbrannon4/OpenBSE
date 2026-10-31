@@ -1253,6 +1253,20 @@ impl ZoneState {
         }
     }
 
+    /// Point the load line at the current backward-difference history, so it
+    /// is right for the coming timestep before that timestep's first solve.
+    pub fn refresh_load_line_history(&mut self) {
+        let (dt_ratio, t_history) = backward_diff_effective(
+            self.temp_order,
+            1.0,
+            self.temp_prev,
+            self.temp_prev2,
+            self.temp_prev3,
+        );
+        self.ideal_load_line.bdf_multiplier = 1.0 / dt_ratio;
+        self.ideal_load_line.t_history = t_history;
+    }
+
     /// Natural-ventilation opening fraction for this physical timestep: the
     /// hysteresis is applied on the timestep's first solve and held after that.
     pub fn nat_vent_fraction_for_step(
@@ -1552,6 +1566,34 @@ pub fn mix_advective_streams(m1: f64, x1: f64, m2: f64, x2: f64) -> (f64, f64) {
     (m, (m1 * x1 + m2 * x2) / m)
 }
 
+/// A zone's load to setpoint from the latest envelope solve, as a function of
+/// the target temperature: the zone air balance solved for the HVAC load, with
+/// the same backward-difference storage term as the zone solve. Delivering
+/// `at(T)` lands the zone on `T`, in a transient as well as at steady state
+/// (#192). E+: `calcPredictedSystemLoad`, `TempDepZnLd·T − TempIndZnLd`.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct IdealLoadLine {
+    /// Σh·A + ṁcp_infiltration [W/K].
+    pub conductance: f64,
+    /// Σh·A·T_surface + ṁcp·T_outdoor + Q_conv [W].
+    pub driving: f64,
+    /// Air heat capacity rate ρVcp/Δt [W/K].
+    pub air_capacity: f64,
+    /// Backward-difference storage multiplier a_k (1, 3/2 or 11/6).
+    pub bdf_multiplier: f64,
+    /// Backward-difference history temperature [°C].
+    pub t_history: f64,
+}
+
+impl IdealLoadLine {
+    /// Load needed to bring the zone to `t_target` this timestep, with the
+    /// surfaces and gains of the solve [W]. Positive = heating.
+    pub fn at(&self, t_target: f64) -> f64 {
+        let capacitance = self.bdf_multiplier * self.air_capacity;
+        (self.conductance + capacitance) * t_target - self.driving - capacitance * self.t_history
+    }
+}
+
 /// Compute the Q_hvac needed to hold the zone at a target temperature.
 ///
 /// Given the zone energy balance terms, returns the convective energy
@@ -1560,28 +1602,6 @@ pub fn mix_advective_streams(m1: f64, x1: f64, m2: f64, x2: f64) -> (f64, f64) {
 ///   Q_hvac = (SumHA + MCPI + Cap) · t_target - SumHAT - MCPI·Tout - Qconv - Cap·Tprev
 ///
 /// Positive = heating needed, Negative = cooling needed.
-/// A zone's ideal HVAC load as a function of the target air temperature and
-/// the air temperature at the start of the timestep [W], positive = heating
-/// needed: `q = slope·T_target + offset − capacitance·T_start`. The load is
-/// linear in both (see [`compute_ideal_q_hvac`]).
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct IdealLoadLine {
-    /// ∂q/∂T_target [W/K]: Σh·A + ṁcp_infiltration + ρVcp/Δt.
-    pub slope: f64,
-    /// q at a 0 °C target from a 0 °C start [W].
-    pub offset: f64,
-    /// Air heat capacity per timestep ρVcp/Δt [W/K].
-    pub capacitance: f64,
-}
-
-impl IdealLoadLine {
-    /// Load needed to bring the air from `t_start` to `t_target` this
-    /// timestep, with the surfaces and gains of the solve [W].
-    pub fn at(&self, t_target: f64, t_start: f64) -> f64 {
-        self.slope * t_target + self.offset - self.capacitance * t_start
-    }
-}
-
 pub fn compute_ideal_q_hvac(
     sum_ha: f64,
     sum_hat: f64,
@@ -1639,19 +1659,20 @@ mod tests {
 
     #[test]
     fn ideal_load_line_matches_the_ideal_load() {
-        let q = |t_start: f64, t_target: f64| {
-            compute_ideal_q_hvac(
-                180.0, 3400.0, 40.0, -5.0, 300.0, 1.2, 75.0, 1005.0, 3600.0, t_start, t_target,
-            )
-        };
-        let offset = q(0.0, 0.0);
+        // (Σh·A, Σh·A·T, ṁcp) = (180, 3400, 40), T_out -5, Q_conv 300.
+        let cap = 1.2 * 75.0 * 1005.0 / 3600.0;
         let line = IdealLoadLine {
-            slope: q(0.0, 1.0) - offset,
-            offset,
-            capacitance: offset - q(1.0, 0.0),
+            conductance: 180.0 + 40.0,
+            driving: 3400.0 + 40.0 * -5.0 + 300.0,
+            air_capacity: cap,
+            bdf_multiplier: 1.0,
+            t_history: 19.0,
         };
-        for (t_start, t_target) in [(19.0, 21.0), (24.5, 21.0), (21.0, 26.0)] {
-            assert!((line.at(t_target, t_start) - q(t_start, t_target)).abs() < 1e-9);
+        for t_target in [19.0, 21.0, 26.0] {
+            let q = compute_ideal_q_hvac(
+                180.0, 3400.0, 40.0, -5.0, 300.0, 1.2, 75.0, 1005.0, 3600.0, 19.0, t_target,
+            );
+            assert!((line.at(t_target) - q).abs() < 1e-9);
         }
     }
     use approx::assert_relative_eq;

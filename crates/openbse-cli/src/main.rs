@@ -3247,17 +3247,11 @@ fn main() -> Result<()> {
                         // unmet after each envelope solve. Controlled on the
                         // in-iteration air temperature instead, they flipped on
                         // and off between iterations.
-                        let zone_start_air_temps: HashMap<String, f64> = env
-                            .zones
-                            .iter()
-                            .map(|z| (z.input.name.clone(), z.temp))
-                            .collect();
                         let mut panel_plrs = radiant_panel_plrs(
                             &radiant_panels,
                             &radiant_panel_zone_loads(
                                 &radiant_panels,
                                 &env.zones,
-                                &zone_start_air_temps,
                                 &zone_heating_setpoints,
                                 zone_cooling_setpoints,
                                 |rp| rp.convective_output,
@@ -3269,7 +3263,6 @@ fn main() -> Result<()> {
                             vrf_zone_loads(
                                 &vrf_systems,
                                 &env.zones,
-                                &zone_start_air_temps,
                                 &zone_heating_setpoints,
                                 zone_cooling_setpoints,
                             )
@@ -3822,7 +3815,6 @@ fn main() -> Result<()> {
                                 vrf_zone_loads(
                                     &vrf_systems,
                                     &env.zones,
-                                    &zone_start_air_temps,
                                     &zone_heating_setpoints,
                                     zone_cooling_setpoints,
                                 )
@@ -4005,7 +3997,6 @@ fn main() -> Result<()> {
                                     &radiant_panel_zone_loads(
                                         &radiant_panels,
                                         &env.zones,
-                                        &zone_start_air_temps,
                                         &zone_heating_setpoints,
                                         zone_cooling_setpoints,
                                         |rp| rp.thermal_output_to_zone,
@@ -4058,28 +4049,25 @@ fn main() -> Result<()> {
                             // E+ recomputes loads every iteration — matching that
                             // approach eliminates the oscillation seen with frozen loads.
                             //
-                            // The load is to bring the air from its temperature at
-                            // the START of the timestep to setpoint, as E+'s
-                            // predictor computes it (#170). The envelope's own
-                            // ideal loads start from this iteration's solved
-                            // temperature, which is right for the next timestep
-                            // but not within the iteration: a zone that ended an
-                            // iteration just past setpoint read no load, so on/off
+                            // The load is from the air's start-of-step history, as
+                            // E+'s predictor computes it (#170, #192). The envelope's
+                            // own ideal loads use this iteration's solved temperature
+                            // as the newest history value, which is right for the next
+                            // timestep but not within the iteration: a zone that ended
+                            // an iteration just past setpoint read no load, so on/off
                             // units flipped every iteration.
                             for z in &env.zones {
                                 if z.input.conditioned {
                                     let name = &z.input.name;
-                                    let t_start =
-                                        zone_start_air_temps.get(name).copied().unwrap_or(z.temp);
                                     let to_heat = zone_heating_setpoints
                                         .get(name)
                                         .map_or(z.load_to_heating_setpoint, |&sp| {
-                                            z.ideal_load_line.at(sp, t_start)
+                                            z.ideal_load_line.at(sp)
                                         });
                                     let cooling = zone_cooling_setpoints
                                         .get(name)
                                         .map_or(z.ideal_cooling_load, |&sp| {
-                                            (-z.ideal_load_line.at(sp, t_start)).max(0.0)
+                                            (-z.ideal_load_line.at(sp)).max(0.0)
                                         });
                                     current_heating_loads.insert(name.clone(), to_heat.max(0.0));
                                     loads_to_heating_sp.insert(name.clone(), to_heat);
@@ -4104,7 +4092,6 @@ fn main() -> Result<()> {
                                 vrf_modes = vrf_zone_loads(
                                     &vrf_systems,
                                     &env.zones,
-                                    &zone_start_air_temps,
                                     &zone_heating_setpoints,
                                     zone_cooling_setpoints,
                                 )
@@ -8238,7 +8225,6 @@ fn vrf_zone_loads(
         Vec<openbse_components::vrf::VrfIndoorUnit>,
     )],
     zones: &[openbse_envelope::zone::ZoneState],
-    start_air_temps: &HashMap<String, f64>,
     heating_setpoints: &HashMap<String, f64>,
     cooling_setpoints: &HashMap<String, f64>,
 ) -> HashMap<String, (openbse_components::vrf::VrfMode, f64)> {
@@ -8248,11 +8234,10 @@ fn vrf_zone_loads(
         let Some(z) = zones.iter().find(|z| z.input.name == iu.zone) else {
             continue;
         };
-        let t_start = start_air_temps.get(&iu.zone).copied().unwrap_or(z.temp);
         let heat_sp = heating_setpoints.get(&iu.zone).copied().unwrap_or(21.0);
         let cool_sp = cooling_setpoints.get(&iu.zone).copied().unwrap_or(24.0);
-        let to_heat = z.ideal_load_line.at(heat_sp, t_start);
-        let to_cool = z.ideal_load_line.at(cool_sp, t_start);
+        let to_heat = z.ideal_load_line.at(heat_sp);
+        let to_cool = z.ideal_load_line.at(cool_sp);
         let request = if to_heat > 0.0 {
             (VrfMode::Heating, to_heat)
         } else if to_cool < 0.0 {
@@ -8279,7 +8264,6 @@ fn vrf_zone_loads(
 fn radiant_panel_zone_loads(
     panels: &[openbse_components::radiant_panel::RadiantPanel],
     zones: &[openbse_envelope::zone::ZoneState],
-    start_air_temps: &HashMap<String, f64>,
     heating_setpoints: &HashMap<String, f64>,
     cooling_setpoints: &HashMap<String, f64>,
     own: impl Fn(&openbse_components::radiant_panel::RadiantPanel) -> f64,
@@ -8291,8 +8275,7 @@ fn radiant_panel_zone_loads(
             continue;
         }
         let own_output: f64 = panels.iter().filter(|p| p.zone == *name).map(&own).sum();
-        let t_start = start_air_temps.get(name).copied().unwrap_or(z.temp);
-        let load_at = |sp: f64| z.ideal_load_line.at(sp, t_start) + own_output;
+        let load_at = |sp: f64| z.ideal_load_line.at(sp) + own_output;
         let heat_sp = heating_setpoints.get(name).copied().unwrap_or(21.0);
         let cool_sp = cooling_setpoints.get(name).copied().unwrap_or(24.0);
         loads.insert(

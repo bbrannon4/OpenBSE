@@ -221,21 +221,22 @@ timestep's mode. VRF indoor-unit modes refresh at the same point.
 value throughout, which delays the response to a new load by one timestep.
 
 **Load to setpoint.** Each solve also stores a zone's load as a linear
-function of the target temperature $T^*$ and the start temperature
-$T^\text{start}$ (`IdealLoadLine`):
+function of the target temperature $T^*$ (`IdealLoadLine`), with the same
+storage term and history $\tilde T_k$ as @eq-zone-solve:
 
 $$
 \begin{aligned}
-\dot Q(T^*, T^\text{start}) ={}&
+\dot Q(T^*) ={}&
 \left(\sum_i h_{c,i} A_i + \dot m_\text{inf} c_p + a_k \tfrac{C_z}{\Delta t}\right) T^* \\
 &- \sum_i h_{c,i} A_i T_{s,i} - \dot m_\text{inf} c_p T_\text{o} - \dot Q_\text{conv}
-- a_k \tfrac{C_z}{\Delta t}\, T^\text{start},
+- a_k \tfrac{C_z}{\Delta t}\, \tilde T_k,
 \end{aligned}
 $$ {#eq-load-line}
 
 positive when heat is needed. Within the HVAC iteration the controls use
-$\dot Q(T_\text{sp}, T_z^\text{start})$, the load to bring the air from its
-start-of-step temperature to setpoint. The heating load is
+$\dot Q(T_\text{sp})$, so delivering that load lands the zone on setpoint in a
+transient as well as at steady state. The history is fixed through the HVAC
+iteration and advances in `update_bdf_history`. The heating load is
 $\max(\dot Q, 0)$ at the heating setpoint and the cooling load
 $\max(-\dot Q, 0)$ at the cooling setpoint. On the first iteration the
 previous solve's loads are used.
@@ -249,13 +250,9 @@ gains and surface temperatures
 iteration matches EnergyPlus. E+ evaluates the predictor before any HVAC
 runs, where OpenBSE needs one iteration to get it. The refresh comes from a
 solve that includes that iteration's HVAC, so its surface temperatures differ
-slightly from E+'s, which use the previous zone air temperature. Two other
-differences are filed as issues:
+slightly from E+'s, which use the previous zone air temperature. One other
+difference is filed as an issue:
 
-- **Load history.** @eq-load-line uses $T^\text{start}$ where @eq-zone-solve
-  and EnergyPlus use the history $\tilde T_k$. The two agree only when the
-  zone temperature is steady
-  ([#192](https://github.com/bbrannon4/OpenBSE/issues/192)).
 - **Unscheduled heating setpoint.** The heating load targets the constant
   occupied setpoint, even when a setpoint schedule or the unoccupied
   setpoint is in force
@@ -417,8 +414,6 @@ timestep (`loop_supply_conditions`).
   convergence test and HVAC coverage differ from EnergyPlus.
 - [#191](https://github.com/bbrannon4/OpenBSE/issues/191): ideal loads on
   any zone disables every air loop, plant loop, VRF and radiant panel.
-- [#192](https://github.com/bbrannon4/OpenBSE/issues/192): the load to
-  setpoint ignores the backward-difference history.
 - [#193](https://github.com/bbrannon4/OpenBSE/issues/193): unused
   `SimulationRunner` and configuration fields, and stale comments in the
   loop.
