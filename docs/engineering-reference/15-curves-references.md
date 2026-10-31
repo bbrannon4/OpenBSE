@@ -1,37 +1,61 @@
 # Performance curves and references {#sec-curves}
 
-::: {.callout-warning}
-## Pre-review content
+## Performance curves {#sec-performance-curves}
 
-This chapter holds text moved unchanged, apart from format, from the former single-file reference (`README.md`, mostly written in March 2026). Parts of it are stale or incomplete. It will be rewritten from the code, and checked against EnergyPlus, in this chapter's review ([#181](https://github.com/bbrannon4/OpenBSE/issues/181)); see @sec-status.
-:::
+**Source:** `openbse-components/src/performance_curve.rs` (`PerformanceCurve`).
 
-## Performance Curves
+Curves modify rated performance as a function of operating conditions. A curve is named
+under `performance_curves` and referenced by components, which supply its arguments by
+position.
 
-**Crate:** `openbse-components` — `performance_curve.rs`
+**Polynomials.**
 
-**Purpose:** Reusable polynomial curves that modify rated equipment performance as a function of operating conditions (temperatures, flow ratios, etc.). Curves are defined at the top level of the model and referenced by name from equipment.
-
-### Curve Types
+: Polynomial curve types. {#tbl-curves}
 
 | Type | Form | Coefficients |
-|------|------|-------------|
-| Biquadratic | f(x,y) = c1 + c2·x + c3·x² + c4·y + c5·y² + c6·x·y | 6 |
-| Quadratic | f(x) = c1 + c2·x + c3·x² | 3 |
-| Cubic | f(x) = c1 + c2·x + c3·x² + c4·x³ | 4 |
-| Linear | f(x) = c1 + c2·x | 2 |
+|---|---|---|
+| `linear` | $c_1 + c_2x$ | 2 |
+| `quadratic` | $c_1 + c_2x + c_3x^2$ | 3 |
+| `cubic` | $c_1 + c_2x + c_3x^2 + c_4x^3$ | 4 |
+| `biquadratic` | $c_1 + c_2x + c_3x^2 + c_4y + c_5y^2 + c_6xy$ | 6 |
+| `bicubic` | biquadratic $+\ c_7x^3 + c_8y^3 + c_9x^2y + c_{10}xy^2$ | 10 |
 
-### Input/Output Clamping
+Inputs are clamped to $[x_\text{min}, x_\text{max}]$ and $[y_\text{min}, y_\text{max}]$
+(default $\pm100$), and the output to the optional limits. Missing coefficients count as 0
+([#264](https://github.com/bbrannon4/OpenBSE/issues/264)).
 
-Input values are clamped to `[min_x, max_x]` and `[min_y, max_y]` before evaluation. Output is clamped to `[min_output, max_output]` if those limits are set. This prevents extrapolation beyond the curve's valid range.
+**Tables.** A `table` curve holds values on any number of named axes, stored row-major, with
+N-linear interpolation. Beyond an axis's ends, it holds the edge value or extrapolates
+linearly, by axis. A component that calls it by position maps $x$ and $y$ to the first two
+axes. A missing variable reads as 0. Table axes can be validated against a component's slot
+(`validate_table_axes`).
 
-### Usage
+**Where curves are used.**
 
-**DX Cooling Coils:** Two biquadratic curves as functions of entering wet-bulb temperature (x) and outdoor dry-bulb temperature (y):
-- `cap_ft_curve` — capacity modifier: `available_capacity = rated_capacity × cap_ft(T_wb, T_odb)`
-- `eir_ft_curve` — EIR modifier: `available_COP = rated_COP / eir_ft(T_wb, T_odb)`
+: Curve arguments by component. {#tbl-curve-args}
 
-When curves are absent, the engine falls back to simplified linear derating with outdoor temperature.
+| Component | Curves | Arguments |
+|---|---|---|
+| DX cooling coil | `cap_ft_curve`, `eir_ft_curve` | $T_{wb,i}$, $T_o$ |
+| DX cooling coil | `cap_fflow_curve`, `eir_fflow_curve`, `plf_curve` | flow fraction; PLR |
+| Heat-pump heating coil | `cap_ft_curve`, `eir_ft_curve` | $T_o$, $T_i$ |
+| VRF | capacity and EIR f(T) | $T_o$, $\bar T_z$ |
+| GSHP | capacity and EIR f(T) | $T_e$, $T_\text{in}$ |
+| Chiller | CAPFT, EIRFT | $T_e$, $T_c$ |
+| Chiller | EIRFPLR | PLR, or $T_{c,\text{out}}$ and PLR |
+| Boiler | efficiency | PLR |
+| HPWH | capacity, COP | $T_{wb}$, $T_\text{tank}$ |
+
+**Comparison with EnergyPlus.** The polynomial forms and coefficient orders match
+`Curve:Linear`, `Curve:Quadratic`, `Curve:Cubic`, `Curve:Biquadratic` and `Curve:Bicubic`, and
+tables play the part of `Table:Lookup` [@eplus-engref-25-2, "Performance Curves"]. EnergyPlus's
+limits are required inputs, and it has more forms (quad-linear, triquadratic, exponents and so
+on) ([#71](https://github.com/bbrannon4/OpenBSE/issues/71)). The arguments are *not* always in
+EnergyPlus's order. The heat-pump coil and VRF evaluate $(T_o, T_i)$ where EnergyPlus evaluates
+indoor first, and the GSHP's EIR acts in reverse, so curves copied from EnergyPlus need checking
+([#237](https://github.com/bbrannon4/OpenBSE/issues/237),
+[#57](https://github.com/bbrannon4/OpenBSE/issues/57),
+[#56](https://github.com/bbrannon4/OpenBSE/issues/56)).
 
 ## References {.unnumbered}
 
