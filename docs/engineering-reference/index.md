@@ -17,6 +17,5 @@ distribution installed (`quarto install tinytex`), run `quarto render` in
 Quarto and LaTeX are needed only to build the documentation. They are not
 dependencies of OpenBSE.
 
-**Status.** The reference is being rewritten chapter by chapter from the
-current code under issue [#181](https://github.com/bbrannon4/OpenBSE/issues/181).
-Chapters that still hold earlier text carry a warning box; see @sec-status.
+**Status.** The reference was written chapter by chapter from the code under
+issue [#181](https://github.com/bbrannon4/OpenBSE/issues/181). See @sec-status.

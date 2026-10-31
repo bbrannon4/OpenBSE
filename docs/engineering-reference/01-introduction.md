@@ -237,14 +237,12 @@ earlier.
 
 ## Status of this reference {#sec-status}
 
-Chapters are written in chapter order, one review at a time, under issue
-[#181](https://github.com/bbrannon4/OpenBSE/issues/181). A chapter is in one
-of three states:
-
-- **Reviewed:** written from the current code to the standards in @sec-how-to-read.
-- **Pre-review:** text carried over from the former single-file reference
-  (mostly written in March 2026), marked with a warning box. It may be stale.
-- **Not yet written:** a placeholder naming what the chapter will cover.
+Every chapter has been written from the code to the standards in @sec-how-to-read,
+in the review under issue
+[#181](https://github.com/bbrannon4/OpenBSE/issues/181). Each section gives the
+model as the code implements it, including where that is wrong or missing, and
+links the issue that tracks each problem. A linked issue may since have been
+fixed: that section then describes the fix (@sec-review).
 
 ## Review process {#sec-review}
 
