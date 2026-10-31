@@ -417,8 +417,6 @@ timestep (`loop_supply_conditions`).
 - [#117](https://github.com/bbrannon4/OpenBSE/issues/117): heating loads for
   control target the constant occupied setpoint, not the scheduled or
   unoccupied one.
-- [#191](https://github.com/bbrannon4/OpenBSE/issues/191): ideal loads on
-  any zone disables every air loop, plant loop, VRF and radiant panel.
 - [#193](https://github.com/bbrannon4/OpenBSE/issues/193): unused
   `SimulationRunner` and configuration fields, and stale comments in the
   loop.

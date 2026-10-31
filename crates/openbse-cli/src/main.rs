@@ -2256,8 +2256,15 @@ fn main() -> Result<()> {
             .map(|env| env.has_ideal_loads())
             .unwrap_or(false);
 
+        // Ideal loads are per-zone: the envelope solve handles those zones on either
+        // path. The coupled path runs when anything else serves a zone (#191).
+        let has_other_hvac = !model.air_loops.is_empty()
+            || !model.vrf_systems.is_empty()
+            || !model.radiant_panels.is_empty();
+        let ideal_loads_only = uses_ideal_loads && !has_other_hvac;
+
         if uses_ideal_loads {
-            info!("Ideal loads air system detected — envelope handles HVAC directly");
+            info!("Ideal loads air system detected — envelope handles those zones directly");
 
             // For summary report, use ideal loads setpoints if zone_groups don't specify
             if let Some(ref env) = envelope {
@@ -2864,7 +2871,7 @@ fn main() -> Result<()> {
                     let mut step_plant: Vec<(String, f64, f64)> = Vec::new();
                     let mut step_delivery: Vec<(String, f64, f64)> = Vec::new();
                     let mut step_convergence: Option<(bool, Option<(String, f64)>)> = None;
-                    let (env_result, hvac_result) = if uses_ideal_loads || !has_external_hvac {
+                    let (env_result, hvac_result) = if ideal_loads_only || !has_external_hvac {
                         // ═══════════════════════════════════════════════════════
                         // IDEAL LOADS or FREE-FLOAT MODE
                         // ═══════════════════════════════════════════════════════

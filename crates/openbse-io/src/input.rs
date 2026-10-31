@@ -5039,6 +5039,52 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
         check_zone_refs(&il.zones, "IdealLoads", &il.name, &mut result);
     }
 
+    // A zone takes one kind of HVAC: ideal loads would meet the whole load and
+    // leave the other system idle, with its energy missing from the results.
+    let mut ideal_zones: std::collections::HashSet<&str> = model
+        .zones
+        .iter()
+        .filter(|z| z.ideal_loads.is_some())
+        .map(|z| z.name.as_str())
+        .collect();
+    for il in &model.ideal_loads {
+        for name in &il.zones {
+            match zone_group_map.get(name.as_str()) {
+                Some(group_zones) => ideal_zones.extend(group_zones.iter().map(String::as_str)),
+                None => {
+                    ideal_zones.insert(name.as_str());
+                }
+            }
+        }
+    }
+    let other_hvac = model
+        .air_loops
+        .iter()
+        .flat_map(|al| {
+            al.zone_terminals
+                .iter()
+                .map(move |zc| (zc.zone.as_str(), "air loop", al.name.as_str()))
+        })
+        .chain(model.vrf_systems.iter().flat_map(|vrf| {
+            vrf.indoor_units
+                .iter()
+                .map(move |iu| (iu.zone.as_str(), "VRF system", vrf.name.as_str()))
+        }))
+        .chain(
+            model
+                .radiant_panels
+                .iter()
+                .map(|rp| (rp.zone.as_str(), "radiant panel", rp.name.as_str())),
+        );
+    for (zone, kind, name) in other_hvac {
+        if ideal_zones.contains(zone) {
+            result.severe(format!(
+                "Zone '{zone}' has ideal loads and is also served by {kind} '{name}'; \
+                 a zone takes one or the other"
+            ));
+        }
+    }
+
     // ── Validate thermostats ───────────────────────────────────────────────
 
     for t in &model.thermostats {
