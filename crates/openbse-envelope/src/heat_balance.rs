@@ -4750,8 +4750,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                 //
                 // E+-style predictor: what temperature would the zone reach
                 // at the end of this timestep if HVAC were turned off?
-                // Uses CURRENT surface temps, solar gains, and outdoor
-                // conditions — not stale values from the previous timestep.
+                // Uses this solve's surface temps, solar gains, and outdoor
+                // conditions. The driver reads it after the timestep's first
+                // solve (simulation.current_timestep_predictor, on by default).
                 //
                 // This is used by the HVAC control layer to determine
                 // whether the zone actually needs heating/cooling or can

@@ -3137,9 +3137,8 @@ fn main() -> Result<()> {
                         let mut undamped_conds: Option<ZoneHvacConditions> = None;
 
                         // E+-style predictor temps: free-floating zone temps WITHOUT
-                        // HVAC, computed by the envelope.  Frozen from the PREVIOUS
-                        // timestep and used for mode determination from the FIRST
-                        // HVAC iteration (no need to wait for envelope to run).
+                        // HVAC, computed by the envelope. The previous timestep's seed
+                        // the first HVAC iteration, whose envelope solve refreshes them.
                         let mut predictor_no_hvac_temps: HashMap<String, f64> = env
                             .zones
                             .iter()
@@ -3266,7 +3265,7 @@ fn main() -> Result<()> {
                         );
                         // VRF indoor units hold the mode the predictor calls for
                         // (#170); their load follows each envelope solve.
-                        let vrf_modes: HashMap<String, openbse_components::vrf::VrfMode> =
+                        let mut vrf_modes: HashMap<String, openbse_components::vrf::VrfMode> =
                             vrf_zone_loads(
                                 &vrf_systems,
                                 &env.zones,
@@ -4088,11 +4087,13 @@ fn main() -> Result<()> {
                                 }
                             }
 
-                            // Opt-in: refresh the mode predictor ONCE, from this
-                            // first envelope solve, so it reflects the current
-                            // timestep's gains and weather rather than the previous
-                            // timestep's. It is then held for the remaining
-                            // iterations exactly as the default is (see below).
+                            // Refresh the mode predictor ONCE, from this first
+                            // envelope solve, so it reflects the current timestep's
+                            // gains and weather (#190), as E+'s calcPredictedSystemLoad
+                            // does. It is then held: temp_no_hvac depends on surface
+                            // temps, which change with zone temp, so updating it
+                            // inside the iteration flips the mode between heating and
+                            // deadband (non-convergence).
                             let refresh_predictor =
                                 model.simulation.current_timestep_predictor && hvac_iter == 0;
                             if refresh_predictor {
@@ -4100,16 +4101,17 @@ fn main() -> Result<()> {
                                     predictor_no_hvac_temps
                                         .insert(z.input.name.clone(), z.temp_no_hvac);
                                 }
+                                vrf_modes = vrf_zone_loads(
+                                    &vrf_systems,
+                                    &env.zones,
+                                    &zone_start_air_temps,
+                                    &zone_heating_setpoints,
+                                    zone_cooling_setpoints,
+                                )
+                                .into_iter()
+                                .map(|(zone, (mode, _))| (zone, mode))
+                                .collect();
                             }
-
-                            // Do NOT update predictor_no_hvac_temps during HVAC
-                            // iterations. temp_no_hvac depends on surface temps
-                            // which change with zone temp (HVAC-dependent), causing
-                            // the predictor mode to flip between Heating and Deadband
-                            // each iteration (non-convergence). Using the frozen
-                            // previous-timestep predictor gives stable mode across
-                            // all iterations, matching E+'s approach where the
-                            // predictor is evaluated once before HVAC iteration.
 
                             final_hvac_result = Some(hvac_result);
                             final_env_result = Some(env_result);
@@ -5759,18 +5761,18 @@ fn simulate_all_loops(
         // E+-style predictor for HVAC mode determination.
         //
         // PRIMARY: Use the free-floating zone temperature (temp_no_hvac)
-        // computed by the envelope with CURRENT timestep conditions
-        // (solar, outdoor temp, surface temps) and HVAC = 0.  This tells
-        // us: "would the zone stay within the deadband if we turned off
-        // HVAC?"  If yes → Deadband (coast on thermal mass).
+        // computed by the envelope with HVAC = 0. It holds current-timestep
+        // conditions from the second HVAC iteration on; the first iteration
+        // uses the previous timestep's value as a seed. This tells us: "would
+        // the zone stay within the deadband if we turned off HVAC?"  If yes →
+        // Deadband (coast on thermal mass).
         //
         // This prevents the self-reinforcing heating cycle where stale
         // ideal loads always indicate "heating needed" because the zone
         // was held at setpoint, preventing deadband coasting.
         //
-        // FALLBACK (first iteration of each timestep, before envelope
-        // has run with current conditions): use frozen ideal loads from
-        // the previous timestep.
+        // FALLBACK (warmup, which has no predictor temperatures): use the
+        // ideal loads.
         //
         // For each served zone, compute a predictor mode and store it.
         // PTAC/FCU (single-zone) use the single zone's mode.
@@ -5786,7 +5788,6 @@ fn simulate_all_loops(
                 let csp = active_cool_sp.get(z).copied().unwrap_or(23.9);
 
                 // Primary: use predictor temps (E+-style free-floating prediction)
-                // This uses CURRENT timestep conditions, not stale loads.
                 let mode = if let Some(&t_predicted) = predictor_no_hvac_temps.get(z.as_str()) {
                     if t_predicted < hsp {
                         HvacMode::Heating
@@ -5796,7 +5797,7 @@ fn simulate_all_loops(
                         HvacMode::Deadband
                     }
                 }
-                // Fallback: ideal loads (first iteration before envelope runs)
+                // Fallback: ideal loads (warmup)
                 else if hload > 10.0 && hload > cload {
                     HvacMode::Heating
                 } else if cload > 10.0 && cload > hload {
