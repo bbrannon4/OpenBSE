@@ -4,6 +4,7 @@
 
 mod autosize_check;
 mod run_checks;
+mod warmup;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -2582,243 +2583,6 @@ fn main() -> Result<()> {
             })
             .unwrap_or_default();
 
-        // ── 7a. Warmup: repeat first week of weather until surfaces stabilize ──
-        //
-        // E+ runs 25+ warmup days, repeating the first simulation day until
-        // zone temps converge.  Without warmup, zones start at 21°C but
-        // surfaces (especially ground slabs) haven't equilibrated — they
-        // cool rapidly, creating enormous heat losses that persist for
-        // weeks and cause massive HVAC overconsumption.
-        //
-        // We repeat the first 7 days of weather (one full week for correct
-        // schedule cycling) for up to 4 repetitions (28 warmup days).
-        // Convergence is checked at the end of each 7-day cycle.
-        let warmup_period = 7_u32 * 24; // 7 days of weather to cycle through
-        let max_warmup_reps = 4_u32; // Up to 28 warmup days
-
-        if envelope.is_some() {
-            info!("Running warmup (up to {} days)...", max_warmup_reps * 7);
-            let env = envelope.as_mut().unwrap();
-
-            for rep in 0..max_warmup_reps {
-                // Save zone temps at start of this warmup week
-                let temps_before: Vec<f64> = env.zones.iter().map(|z| z.temp).collect();
-
-                for warmup_hour_idx in 0..warmup_period {
-                    let w_hour_idx = warmup_hour_idx as usize;
-                    let weather_hour = &weather_data.hours[w_hour_idx];
-                    let prev_w_hour_idx = if w_hour_idx > 0 {
-                        w_hour_idx - 1
-                    } else {
-                        warmup_period as usize - 1
-                    };
-                    let prev_weather = &weather_data.hours[prev_w_hour_idx];
-                    let (month, day) = month_day_from_hour(warmup_hour_idx, &days_in_months);
-                    let hour = (warmup_hour_idx % 24) + 1;
-
-                    for sub in 1..=config.timesteps_per_hour {
-                        let interp_frac = sub as f64 / config.timesteps_per_hour as f64;
-                        let interp_weather = prev_weather.interpolate(weather_hour, interp_frac);
-                        let outdoor_air = interp_weather.to_air_state();
-                        let t_outdoor = interp_weather.dry_bulb;
-
-                        let ctx = SimulationContext {
-                            timestep: TimeStep {
-                                month,
-                                day,
-                                hour,
-                                sub_hour: sub,
-                                timesteps_per_hour: config.timesteps_per_hour,
-                                sim_time_s: sim_time,
-                                dt,
-                            },
-                            outdoor_air,
-                            day_type: DayType::WeatherDay,
-                            is_sizing: false,
-                            sizing_internal_gains: SizingInternalGains::Full,
-                        };
-
-                        let mut dow =
-                            openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
-                        if env.holiday_set.contains(&(month, day)) {
-                            dow = 8;
-                        }
-
-                        // Build zone state maps for HVAC
-                        let current_zone_temps: HashMap<String, f64> = env
-                            .zones
-                            .iter()
-                            .map(|z| (z.input.name.clone(), control_temp_for(z)))
-                            .collect();
-                        let initial_zone_temps: HashMap<String, f64> = current_zone_temps.clone();
-                        let current_cooling_loads: HashMap<String, f64> = env
-                            .zones
-                            .iter()
-                            .map(|z| (z.input.name.clone(), z.ideal_cooling_load))
-                            .collect();
-                        let current_heating_loads: HashMap<String, f64> = env
-                            .zones
-                            .iter()
-                            .map(|z| (z.input.name.clone(), z.ideal_heating_load))
-                            .collect();
-                        let loads_to_heating_sp: HashMap<String, f64> = env
-                            .zones
-                            .iter()
-                            .map(|z| (z.input.name.clone(), z.load_to_heating_setpoint))
-                            .collect();
-
-                        // Single HVAC pass (no iterating during warmup — faster)
-                        let empty_predictor: HashMap<String, f64> = HashMap::new();
-                        let warmup_zone_w: HashMap<String, f64> = env
-                            .zones
-                            .iter()
-                            .map(|z| (z.input.name.clone(), z.humidity_ratio))
-                            .collect();
-                        let warmup_max_rh: HashMap<String, f64> = env
-                            .zones
-                            .iter()
-                            .filter_map(|z| {
-                                z.input
-                                    .max_relative_humidity
-                                    .map(|v| (z.input.name.clone(), v))
-                            })
-                            .collect();
-                        let warmup_min_rh: HashMap<String, f64> = env
-                            .zones
-                            .iter()
-                            .filter_map(|z| {
-                                z.input
-                                    .min_relative_humidity
-                                    .map(|v| (z.input.name.clone(), v))
-                            })
-                            .collect();
-                        let warmup_dc_return: HashMap<String, f64> = HashMap::new();
-                        // Cooling setpoints in force this timestep: a `thermostat_schedule`
-                        // entry (e.g. a summer-only night setup) overrides the constant.
-                        let scheduled_cool_sp = scheduled_cooling_setpoints(
-                            &zone_cooling_setpoints,
-                            &zone_heat_sp_schedule,
-                            hour,
-                            ctx.timestep.day_of_year(),
-                        );
-                        let zone_cooling_setpoints = scheduled_cool_sp
-                            .as_ref()
-                            .unwrap_or(&zone_cooling_setpoints);
-                        let (_, zone_supply_conditions, _) = simulate_all_loops(
-                            &mut graph,
-                            &ctx,
-                            &mut loop_infos,
-                            &current_zone_temps,
-                            &zone_heating_setpoints,
-                            zone_cooling_setpoints,
-                            &zone_unocc_heating_setpoints,
-                            &zone_unocc_cooling_setpoints,
-                            &zone_heat_sp_schedule,
-                            &zone_design_flows,
-                            t_outdoor,
-                            Some(&env.schedule_manager),
-                            hour,
-                            dow,
-                            &mut nightcycle_timers,
-                            dt,
-                            &current_cooling_loads,
-                            &current_heating_loads,
-                            &loads_to_heating_sp,
-                            &initial_zone_temps,
-                            &zone_thermal_caps,
-                            &empty_predictor,
-                            &zone_multipliers,
-                            &warmup_zone_w,
-                            &warmup_max_rh,
-                            &warmup_min_rh,
-                            &warmup_dc_return,
-                        );
-
-                        // Skip plant loop during warmup — it only affects energy
-                        // accounting, not zone temperature equilibration.
-
-                        // Build HVAC conditions for envelope
-                        let mut hvac_conds = ZoneHvacConditions::default();
-
-                        for (zone_name, (supply_temp, mass_flow, supply_w)) in
-                            &zone_supply_conditions
-                        {
-                            hvac_conds
-                                .supply_temps
-                                .insert(zone_name.clone(), *supply_temp);
-                            hvac_conds
-                                .supply_mass_flows
-                                .insert(zone_name.clone(), *mass_flow);
-                            hvac_conds
-                                .supply_humidity_ratios
-                                .insert(zone_name.clone(), *supply_w);
-                        }
-                        // Populate OA handling flags for warmup too
-                        for li in &loop_infos {
-                            let handles_oa = li.min_oa_fraction > 0.001;
-                            for zone_name in &li.served_zones {
-                                hvac_conds
-                                    .oa_handled_by_hvac
-                                    .insert(zone_name.clone(), handles_oa);
-                            }
-                        }
-                        hvac_conds.cooling_setpoints = zone_cooling_setpoints.clone();
-                        hvac_conds.heating_setpoints = zone_heating_setpoints.clone();
-
-                        // Solve envelope (updates zone temps, surface temps, CTF history)
-                        env.solve_timestep(&ctx, &interp_weather, &hvac_conds);
-                        env.update_bdf_history();
-                        // Cap BDF order to 1 during warmup. BDF3 extrapolation can
-                        // amplify oscillations in zones with slow-responding surfaces
-                        // (e.g. heavily insulated floors with time constants > 5 days).
-                        // BDF1 (backward Euler) is sufficient for warmup convergence.
-                        env.cap_bdf_order(1);
-
-                        sim_time += dt;
-                    }
-                }
-
-                // Check warmup convergence: max zone temp change from start to end of this week
-                let max_delta: f64 = env
-                    .zones
-                    .iter()
-                    .zip(temps_before.iter())
-                    .map(|(z, &t_before)| (z.temp - t_before).abs())
-                    .fold(0.0_f64, f64::max);
-
-                info!(
-                    "Warmup rep {}/{}: max zone temp delta = {:.3}°C",
-                    rep + 1,
-                    max_warmup_reps,
-                    max_delta
-                );
-
-                if max_delta < 0.5 {
-                    info!("Warmup converged after {} days", (rep + 1) * 7);
-                    break;
-                }
-            }
-
-            // Reset BDF history to the final warmup state.
-            //
-            // After warmup, temp_prev2/3 may hold values from early warmup
-            // iterations that are far from the converged zone temperatures.
-            // When BDF3 uses these during the main simulation (order is already
-            // 3 after many warmup updates), the extrapolated t_eff can diverge
-            // catastrophically → NaN within 1-2 timesteps.
-            //
-            // Resetting temp_prev2/3 = temp and order = 1 lets BDF ramp cleanly
-            // from a consistent baseline, matching the intent of the function.
-            if let Some(ref mut env) = envelope {
-                env.reset_bdf_history_to_current();
-            }
-
-            // Reset sim_time for actual simulation
-            sim_time = start_hour as f64 * 3600.0;
-            // Reset nightcycle timers (start fresh for actual simulation)
-            nightcycle_timers.clear();
-        }
-
         // ── Pre-compute plant loop simulation order (topological sort) ──────────
         //
         // Build a dependency graph from inter-loop references:
@@ -2923,13 +2687,34 @@ fn main() -> Result<()> {
         // in the `.err` file once the run ends.
         let mut checks = run_checks::RunChecks::new(&plant_coil_demands);
         if let Some(ref mut env) = envelope {
-            checks.envelope("sizing and warmup", env.diagnostics.take());
+            checks.envelope("sizing", env.diagnostics.take());
         }
 
         // Persistent supply conditions for lag-one-timestep cycle breaking.
         // Stores each loop's supply temperature and mass flow so downstream
         // loops (or cyclic dependencies) can read previous-timestep values.
         let mut loop_supply_conditions: HashMap<String, (f64, f64)> = HashMap::new();
+
+        // ── Warmup: repeat the run period's first week until the zones settle ──
+        //
+        // Without warmup, zones start at 21°C but surfaces (especially ground
+        // slabs) haven't equilibrated: they cool rapidly, creating enormous heat
+        // losses that persist for weeks. The repeat runs the whole timestep below,
+        // so every system that sets zone conditions acts as it will in the run;
+        // only the results are held back. A run starting in the year's last week
+        // warms up on that last week.
+        let weather_len = weather_data.hours.len() as u32;
+        let warmup_hours = (warmup::WARMUP_DAYS as u32 * 24).min(weather_len);
+        let warmup_start_hour = start_hour.min(weather_len - warmup_hours);
+        let mut warmup_tracker = envelope.as_ref().map(|env| {
+            info!(
+                "Running warmup (up to {} days)...",
+                warmup::MAX_WARMUP_CYCLES as usize * warmup::WARMUP_DAYS
+            );
+            warmup::WarmupTracker::new(env.zones.iter().map(|z| z.input.name.clone()).collect())
+        });
+        let mut warmup_hour = 0_u32;
+        let mut next_run_hour = start_hour;
 
         // Precompute sunlit fractions for the entire simulation period (Suncast-style).
         // Uses Rayon to parallelize the expensive polygon-clipping shadow calculations
@@ -2942,13 +2727,11 @@ fn main() -> Result<()> {
             env.precompute_solar(
                 &weather_data.hours,
                 config.timesteps_per_hour,
-                start_hour as usize,
-                end_hour as usize,
+                warmup_start_hour.min(start_hour) as usize,
+                end_hour.max(warmup_start_hour + warmup_hours) as usize,
                 Some(&solar_cache_path),
             );
         }
-
-        info!("Starting main simulation...");
 
         let month_names = [
             "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -2960,7 +2743,59 @@ fn main() -> Result<()> {
         // the DHW systems are simulated after the zone heat balance.
         let mut dhw_zone_gains: HashMap<String, (f64, f64)> = HashMap::new();
 
-        for hour_idx in start_hour..end_hour {
+        loop {
+            // End of a warmup repeat: go round again, or start the run period.
+            if warmup_hour == warmup_hours {
+                if let (Some(tracker), Some(env)) = (&mut warmup_tracker, &mut envelope) {
+                    let misses = tracker.end_cycle();
+                    let cycles = tracker.cycles();
+                    info!(
+                        "Warmup repeat {cycles}/{}: {} day(s) not settled",
+                        warmup::MAX_WARMUP_CYCLES,
+                        misses.len()
+                    );
+                    let finished = misses.is_empty() || cycles == warmup::MAX_WARMUP_CYCLES;
+                    if !finished {
+                        warmup_hour = 0;
+                    } else {
+                        if let Some(miss) = misses.first() {
+                            validation.push_warning(format!(
+                                "Warmup did not converge in {} days: {} zone-day(s) still                                  changing, e.g. zone '{}' day {}: {}. The run starts from an                                  unsettled state.",
+                                cycles as usize * warmup::WARMUP_DAYS,
+                                misses.len(),
+                                miss.zone,
+                                miss.day,
+                                miss.detail,
+                            ));
+                        } else {
+                            info!(
+                                "Warmup converged after {} days",
+                                cycles as usize * warmup::WARMUP_DAYS
+                            );
+                        }
+                        // BDF3 with temp_prev2/3 left over from warmup can diverge
+                        // in the first steps of the run; restart from this state.
+                        env.reset_bdf_history_to_current();
+                        env.reset_diagnostic_accumulators();
+                        checks.envelope("warmup", env.diagnostics.take());
+                        sim_time = start_hour as f64 * 3600.0;
+                        nightcycle_timers.clear();
+                        warmup_tracker = None;
+                        info!("Starting main simulation...");
+                    }
+                }
+            }
+            let in_warmup = warmup_tracker.is_some();
+            let hour_idx = if in_warmup {
+                warmup_hour += 1;
+                warmup_start_hour + warmup_hour - 1
+            } else {
+                if next_run_hour == end_hour {
+                    break;
+                }
+                next_run_hour += 1;
+                next_run_hour - 1
+            };
             let weather_hour = &weather_data.hours[hour_idx as usize];
             // Previous hour for sub-hourly interpolation (wraps to last hour of year)
             let prev_hour_idx = if hour_idx > 0 {
@@ -2974,7 +2809,9 @@ fn main() -> Result<()> {
 
             // Log progress every 7 simulated days
             let abs_day = hour_idx / 24;
-            if abs_day >= last_progress_day + 7 || (abs_day == start_hour / 24 && hour == 1) {
+            if !in_warmup
+                && (abs_day >= last_progress_day + 7 || (abs_day == start_hour / 24 && hour == 1))
+            {
                 let completed = hour_idx - start_hour;
                 let total = end_hour - start_hour;
                 let pct = if total > 0 {
@@ -4136,10 +3973,23 @@ fn main() -> Result<()> {
                     // Must not happen inside the HVAC iteration loop — that
                     // would corrupt the backward-difference extrapolation.
                     env.update_bdf_history();
+                    if let Some(tracker) = &mut warmup_tracker {
+                        tracker.record_zones(((warmup_hour - 1) / 24) as usize, &env.zones);
+                        // BDF3 can amplify oscillations in zones with slow surfaces
+                        // (time constants > 5 days); warmup doesn't need its accuracy.
+                        env.cap_bdf_order(1);
+                    }
 
                     // ── Run-time checks (#160) ─────────────────────────────
-                    // Read the converged state; nothing here changes it.
-                    {
+                    // Read the converged state; nothing here changes it. Warmup
+                    // repeats aren't part of the run, so only its fatal holds count.
+                    if in_warmup {
+                        if let Some(fatal) = env.diagnostics.fatal.take() {
+                            checks.envelope("warmup", env.diagnostics.take());
+                            checks.report(&mut validation);
+                            return Err(stop_on_severe(&mut validation, &err_path, vec![fatal]));
+                        }
+                    } else {
                         let now = openbse_envelope::diagnostics::StepTime::from_ctx(&ctx);
                         let dt_h = dt / 3600.0;
                         for z in &env.zones {
@@ -5176,17 +5026,19 @@ fn main() -> Result<()> {
                         }
                     }
 
-                    for writer in &mut output_writers {
-                        writer.add_snapshot(&snapshot);
-                    }
-                    if let Some(ref mut report) = summary_report {
-                        report.add_snapshot(&snapshot);
-                    }
-                    if let Some(ref mut recorder) = comfort_recorder {
-                        recorder.record_timestep(env, &ctx.timestep);
-                    }
+                    if !in_warmup {
+                        for writer in &mut output_writers {
+                            writer.add_snapshot(&snapshot);
+                        }
+                        if let Some(ref mut report) = summary_report {
+                            report.add_snapshot(&snapshot);
+                        }
+                        if let Some(ref mut recorder) = comfort_recorder {
+                            recorder.record_timestep(env, &ctx.timestep);
+                        }
 
-                    results.push(result);
+                        results.push(result);
+                    }
                 } else {
                     // ═══════════════════════════════════════════════════════════
                     // HVAC-ONLY SIMULATION (no envelope)
