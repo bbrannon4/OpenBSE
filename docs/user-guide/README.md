@@ -73,7 +73,6 @@ openbse-envelope = { path = "crates/openbse-envelope" }
 
 ```rust
 use openbse_io::input::{parse_model_yaml, build_graph, build_controllers, build_envelope};
-use openbse_core::simulation::SimulationRunner;
 use openbse_weather::read_epw_file;
 use std::path::Path;
 
@@ -96,9 +95,8 @@ fn main() {
                                        weather.location.longitude,
                                        weather.location.time_zone);
 
-    // 5. Run simulation
-    let mut runner = SimulationRunner::new(config);
-    // ... run with envelope, controls, and graph
+    // 5. Run the timestep loop with these objects. The engine's own loop is
+    //    `main` in crates/openbse-cli/src/main.rs; it isn't a library call yet.
 }
 ```
 
