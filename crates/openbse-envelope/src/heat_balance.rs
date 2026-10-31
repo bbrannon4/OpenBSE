@@ -5163,8 +5163,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                         q_latent,
                     );
 
-                    // Opt-in: zone air cannot hold more moisture than saturation
-                    // at its own temperature — the excess condenses out.
+                    // Zone air cannot hold more moisture than saturation at its
+                    // own temperature: the excess condenses out (E+ CorrectZoneHumRat).
                     if zone.input.limit_humidity_to_saturation {
                         let w_sat = psych::w_fn_tdb_rh_pb(zone.temp, 1.0, p_b);
                         if zone.humidity_ratio > w_sat {
@@ -6176,6 +6176,29 @@ mod tests {
         assert_relative_eq!(z.ideal_load_line.bdf_multiplier, 11.0 / 6.0);
         let expected = (18.0 * z.temp_prev - 9.0 * z.temp_prev2 + 2.0 * z.temp_prev3) / 11.0;
         assert_relative_eq!(z.ideal_load_line.t_history, expected);
+    }
+
+    /// A sealed, humid zone that cools is capped at saturation by default (#226).
+    #[test]
+    fn test_zone_humidity_capped_at_saturation_by_default() {
+        let input: crate::zone::ZoneInput = serde_yaml::from_str("name: Z").unwrap();
+        assert!(input.limit_humidity_to_saturation);
+
+        let mut envelope = make_simple_model();
+        envelope.zones[0].input.limit_humidity_to_saturation = true;
+        envelope.initialize(3600.0).unwrap();
+        envelope.zones[0].humidity_ratio = 0.03;
+        envelope.zones[0].w_prev = 0.03;
+        let ctx = make_ctx();
+        let weather = make_weather_hour(-10.0);
+        let hvac = ZoneHvacConditions::default();
+        for _ in 0..4 {
+            envelope.solve_timestep(&ctx, &weather, &hvac);
+            envelope.update_bdf_history();
+            let z = &envelope.zones[0];
+            let w_sat = psych::w_fn_tdb_rh_pb(z.temp, 1.0, 101325.0);
+            assert!(z.humidity_ratio <= w_sat + 1e-6, "{}", z.humidity_ratio);
+        }
     }
 
     /// Wiring test for #188: through `solve_timestep`, repeat solves within a

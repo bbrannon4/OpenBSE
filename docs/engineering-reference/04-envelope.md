@@ -1383,9 +1383,9 @@ where:
 - $h_{fg} = 2.501\times10^6$ J/kg is constant
   ([#200](https://github.com/bbrannon4/OpenBSE/issues/200)).
 
-The result is clamped to $[0, 0.1]$. It is capped at saturation at $T_z$
-only when `limit_humidity_to_saturation` is set
-([#226](https://github.com/bbrannon4/OpenBSE/issues/226)). Surfaces
+The result is clamped to $[0, 0.1]$. It is then capped at saturation at $T_z$,
+as EnergyPlus's `CorrectZoneHumRat` does; the excess condenses out of the air.
+`limit_humidity_to_saturation: false` turns the cap off. Surfaces
 neither absorb nor release moisture (HAMT, @sec-hamt, is not connected).
 
 **Comparison with EnergyPlus.** @eq-zone-moisture is
@@ -1438,5 +1438,3 @@ gradient is a simplification of EnergyPlus's nodal Mundt model
   for latent gains.
 - [#225](https://github.com/bbrannon4/OpenBSE/issues/225): stratified return
   air is not debited from the zone balance.
-- [#226](https://github.com/bbrannon4/OpenBSE/issues/226): humidity may
-  exceed saturation by default.
