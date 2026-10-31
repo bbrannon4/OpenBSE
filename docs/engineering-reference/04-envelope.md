@@ -1174,15 +1174,16 @@ differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
   surface-average table.
 - **No duct network.** There is no AirflowNetwork:Distribution duct
   network; duct leakage is a pair of leak paths per duct.
-- **Per-solve stepping.** Species and natural-ventilation state advance per
-  envelope solve ([#188](https://github.com/bbrannon4/OpenBSE/issues/188)).
+- **Timing.** E+ solves contaminants once per system timestep after the HVAC
+  solution (`ZoneContaminantPredictorCorrector`). OpenBSE re-solves them from
+  the start-of-step state on each envelope solve and keeps the last, which
+  gives the same one-step integration on the final flows. Natural-ventilation
+  open/close state likewise advances once per timestep.
 
 ## Known limitations: infiltration, ventilation and AFN {#sec-infiltration-limitations}
 
 - [#90](https://github.com/bbrannon4/OpenBSE/issues/90): AFN cleanups;
   tolerance units, density convention, high-rise $C_p$.
-- [#188](https://github.com/bbrannon4/OpenBSE/issues/188): species and
-  natural-ventilation hysteresis advance once per envelope solve.
 - [#219](https://github.com/bbrannon4/OpenBSE/issues/219): wind-and-stack
   coefficients; scheduled ventilation lacks E+'s coefficients and schedule.
 

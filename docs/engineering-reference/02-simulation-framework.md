@@ -330,10 +330,12 @@ step matches it. The differences are deliberate:
   timestep $\Delta t$.
 
 **Assumptions.** Within a timestep, the zone's own response is the only
-state that changes. Models that advance time-dependent state inside the
-envelope solve break this assumption: species transport and
-natural-ventilation hysteresis currently advance once per solve rather than
-once per timestep ([#188](https://github.com/bbrannon4/OpenBSE/issues/188)).
+state that changes. Time-dependent state in the envelope solve therefore
+advances once per timestep, in `update_bdf_history`, whatever the number of
+solves. Species transport integrates from the start-of-step concentrations on
+every solve, so the last solve's flows set the result. The natural-ventilation
+open/close decision is made on the first solve from the start-of-step zone
+temperature, and held for the rest of the timestep.
 
 ## Warmup {#sec-warmup}
 
@@ -407,9 +409,6 @@ timestep (`loop_supply_conditions`).
 - [#117](https://github.com/bbrannon4/OpenBSE/issues/117): heating loads for
   control target the constant occupied setpoint, not the scheduled or
   unoccupied one.
-- [#188](https://github.com/bbrannon4/OpenBSE/issues/188): species
-  transport and natural-ventilation hysteresis advance once per envelope
-  solve.
 - [#189](https://github.com/bbrannon4/OpenBSE/issues/189): warmup days,
   convergence test and HVAC coverage differ from EnergyPlus.
 - [#190](https://github.com/bbrannon4/OpenBSE/issues/190): the default mode

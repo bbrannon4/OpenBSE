@@ -101,6 +101,8 @@ pub struct BuildingEnvelope {
     pub species_transport: Option<crate::species::SpeciesTransport>,
     /// Count of AFN pressure solves that failed to converge (#89).
     pub afn_nonconverged_count: u64,
+    /// Iterations used by this timestep's latest AFN solve, if it failed to converge.
+    afn_step_unconverged_iters: Option<usize>,
     /// Solar distribution method for interior beam solar radiation.
     /// FullExterior: all beam to floor.  FullInteriorAndExterior: geometric projection.
     pub solar_distribution_method: SolarDistributionMethod,
@@ -1678,6 +1680,7 @@ impl BuildingEnvelope {
             airflow_network: None, // built later via build_airflow_network()
             species_transport: None,
             afn_nonconverged_count: 0,
+            afn_step_unconverged_iters: None,
             solar_distribution_method,
             ctf_q_last_inside: vec![0.0; n_surfaces],
             ctf_q_last_outside: vec![0.0; n_surfaces],
@@ -2508,8 +2511,7 @@ impl EnvelopeSolver for BuildingEnvelope {
             // area from the availability logic (schedule, temperature
             // windows, ΔT gate, wind limit) with anti-cycling hysteresis.
             // The zone-level wind-&-stack model is disabled while the AFN is
-            // active so the flow is not double-counted; the hysteresis state
-            // is updated HERE (once per timestep) in AFN mode.
+            // active so the flow is not double-counted.
             for zi in 0..self.zones.len() {
                 let Some(nv) = self.zones[zi].input.natural_ventilation.clone() else {
                     continue;
@@ -2522,12 +2524,11 @@ impl EnvelopeSolver for BuildingEnvelope {
                         None => 1.0,
                     }
                 };
-                let cond = nv.conditions_ok(self.zones[zi].temp, t_outdoor, wind_speed_met);
-                let frac = self.zones[zi].apply_nat_vent_hysteresis(
+                let frac = self.zones[zi].nat_vent_fraction_for_step(
                     sched_frac,
-                    cond,
-                    nv.min_on_timesteps,
-                    nv.min_off_timesteps,
+                    t_outdoor,
+                    wind_speed_met,
+                    &nv,
                 );
                 afn.update_nat_vent_opening(zi, nv.opening_area * frac);
             }
@@ -2539,18 +2540,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                 rho_outdoor,
                 self.terrain,
             );
-            // Surface non-convergence instead of failing silently (#89):
-            // warn on the first occurrence and every 1000th thereafter.
-            if !afn_converged {
-                self.afn_nonconverged_count += 1;
-                if self.afn_nonconverged_count == 1 || self.afn_nonconverged_count % 1000 == 0 {
-                    log::warn!(
-                        "AFN pressure solver did not converge in {afn_iters} iterations \
-                         ({} occurrences so far); results use the last iterate",
-                        self.afn_nonconverged_count,
-                    );
-                }
-            }
+            // Counted in update_bdf_history() from the timestep's last solve, so
+            // the HVAC iteration's repeat solves don't inflate the count (#188).
+            self.afn_step_unconverged_iters = (!afn_converged).then_some(afn_iters);
             // Write AFN outdoor mass flow and zone pressure results to zone state
             for (zi, zone) in self.zones.iter_mut().enumerate() {
                 zone.infiltration_mass_flow = afn.zone_outdoor_mass_flow[zi];
@@ -2591,9 +2583,11 @@ impl EnvelopeSolver for BuildingEnvelope {
                 zone.afn_interzone_w = w;
             }
 
-            // Passive species transport (#84): advance concentrations on the
-            // solved flow field. OA/ventilation flows are the previous
-            // timestep's values, consistent with the HVAC net injection.
+            // Passive species transport (#84): integrate concentrations from
+            // the start of the timestep on the solved flow field, so the
+            // timestep's last solve sets the result and history advances once,
+            // in update_bdf_history() (#188). OA/ventilation flows are the
+            // previous solve's values, consistent with the HVAC net injection.
             if let Some(ref mut transport) = self.species_transport {
                 let n = self.zones.len();
                 let mut masses = vec![0.0; n];
@@ -2765,13 +2759,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                 let avail = if afn_active {
                     0.0
                 } else {
-                    let cond = nv.conditions_ok(t_zone, t_outdoor, wind_speed_met);
-                    zone.apply_nat_vent_hysteresis(
-                        sched_frac,
-                        cond,
-                        nv.min_on_timesteps,
-                        nv.min_off_timesteps,
-                    )
+                    zone.nat_vent_fraction_for_step(sched_frac, t_outdoor, wind_speed_met, nv)
                 };
 
                 if avail > 0.0 {
@@ -5548,6 +5536,21 @@ impl EnvelopeSolver for BuildingEnvelope {
     /// iterations have converged. Calling it inside the HVAC iteration
     /// loop would corrupt the backward-difference extrapolation.
     fn update_bdf_history(&mut self) {
+        // Surface non-convergence instead of failing silently (#89): warn on
+        // the first occurrence and every 1000th thereafter.
+        if let Some(afn_iters) = self.afn_step_unconverged_iters.take() {
+            self.afn_nonconverged_count += 1;
+            if self.afn_nonconverged_count == 1 || self.afn_nonconverged_count % 1000 == 0 {
+                log::warn!(
+                    "AFN pressure solver did not converge in {afn_iters} iterations \
+                     ({} timesteps so far); results use the last iterate",
+                    self.afn_nonconverged_count,
+                );
+            }
+        }
+        if let Some(transport) = &mut self.species_transport {
+            transport.commit_timestep();
+        }
         // Zone air temperature and humidity BDF history
         for zone in &mut self.zones {
             // Guard against NaN: if zone temp diverged this timestep, keep the
@@ -5580,6 +5583,7 @@ impl EnvelopeSolver for BuildingEnvelope {
 
             // Reset predictor mode lock so it will be recomputed on next physical timestep
             zone.ideal_pred_mode_locked = false;
+            zone.nat_vent_step_fraction = None;
         }
         // CTF conduction history (surface temps + heat fluxes)
         for i in 0..self.surfaces.len() {
@@ -5696,7 +5700,8 @@ impl BuildingEnvelope {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::zone::IdealLoadsAirSystem;
+    use crate::zone::{IdealLoadsAirSystem, NaturalVentilationInput};
+    use approx::assert_relative_eq;
     use openbse_core::ports::{SimulationContext, SizingInternalGains};
     use openbse_core::types::{DayType, TimeStep};
     use openbse_psychrometrics::MoistAirState;
@@ -6134,6 +6139,97 @@ mod tests {
             ..Default::default()
         });
         envelope
+    }
+
+    /// Wiring test for #188: through `solve_timestep`, repeat solves within a
+    /// timestep (the HVAC iteration) leave the AFN species result and the
+    /// natural-ventilation counters as one timestep's worth, and
+    /// `update_bdf_history` advances them once.
+    #[test]
+    fn test_time_state_advances_once_per_timestep_not_per_solve() {
+        let mut envelope = make_two_zone_model(true);
+        envelope.species_transport = Some(crate::species::SpeciesTransport::new(
+            &[crate::species::SpeciesConfig {
+                name: "CO2".to_string(),
+                outdoor_concentration: 1.0,
+                initial_concentration: Some(0.0),
+                decay_rate: 0.0,
+                deposition_velocity: 0.0,
+                hvac_filter_efficiency: 0.0,
+                generation_per_met_watt: None,
+            }],
+            envelope.zones.len(),
+        ));
+        envelope.zones[0].input.natural_ventilation = Some(NaturalVentilationInput {
+            opening_area: 1.0,
+            effective_angle: 0.0,
+            height_difference: 1.0,
+            discharge_coefficient: 0.65,
+            min_indoor_temp: -100.0,
+            max_indoor_temp: 100.0,
+            min_outdoor_temp: -100.0,
+            max_outdoor_temp: 100.0,
+            max_wind_speed: 100.0,
+            schedule: None,
+            min_indoor_outdoor_delta_t: None,
+            min_on_timesteps: 0,
+            min_off_timesteps: 0,
+            setpoint_reset: None,
+        });
+        envelope.initialize(3600.0).unwrap();
+        let ctx = make_ctx();
+        let weather = make_weather_hour(0.0);
+        let hvac = ZoneHvacConditions::default();
+        let conc =
+            |env: &BuildingEnvelope| env.species_transport.as_ref().unwrap().concentrations[0][0];
+
+        envelope.solve_timestep(&ctx, &weather, &hvac);
+        let after_one_solve = conc(&envelope);
+        assert!(after_one_solve > 0.0, "outdoor air should bring species in");
+        for _ in 0..10 {
+            envelope.solve_timestep(&ctx, &weather, &hvac);
+        }
+        assert_relative_eq!(
+            conc(&envelope),
+            after_one_solve,
+            max_relative = 0.05 // flows settle a little as the zone solve iterates
+        );
+        assert_eq!(envelope.zones[0].nat_vent_on_timesteps, 1);
+
+        envelope.update_bdf_history();
+        envelope.solve_timestep(&ctx, &weather, &hvac);
+        assert!(conc(&envelope) > after_one_solve * 1.05);
+        assert_eq!(envelope.zones[0].nat_vent_on_timesteps, 2);
+    }
+
+    /// The opening decision is taken from the start-of-step temperature and
+    /// held: a zone temperature solved inside the iteration can't flip it (#188).
+    #[test]
+    fn test_nat_vent_decision_held_within_timestep() {
+        let mut zone = {
+            let env = make_simple_model();
+            ZoneState::new(env.zones[0].input.clone(), 25.0)
+        };
+        let nv = NaturalVentilationInput {
+            opening_area: 1.0,
+            effective_angle: 0.0,
+            height_difference: 1.0,
+            discharge_coefficient: 0.65,
+            min_indoor_temp: 22.0,
+            max_indoor_temp: 100.0,
+            min_outdoor_temp: -100.0,
+            max_outdoor_temp: 100.0,
+            max_wind_speed: 100.0,
+            schedule: None,
+            min_indoor_outdoor_delta_t: None,
+            min_on_timesteps: 0,
+            min_off_timesteps: 0,
+            setpoint_reset: None,
+        };
+        assert_relative_eq!(zone.nat_vent_fraction_for_step(1.0, 10.0, 1.0, &nv), 1.0);
+        zone.temp = 15.0; // iteration's solved temperature, below min_indoor_temp
+        assert_relative_eq!(zone.nat_vent_fraction_for_step(1.0, 10.0, 1.0, &nv), 1.0);
+        assert_eq!(zone.nat_vent_on_timesteps, 1);
     }
 
     /// Room-air stratification (#91): with a positive gradient the roof

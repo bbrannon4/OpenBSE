@@ -1093,6 +1093,11 @@ pub struct ZoneState {
     pub nat_vent_off_timesteps: u32,
     /// Consecutive timesteps natural ventilation has been active (#95).
     pub nat_vent_on_timesteps: u32,
+    /// Opening fraction decided for this physical timestep. The decision is
+    /// made once, from the start-of-step temperature, and held across the HVAC
+    /// iteration's repeat solves so the on/off counters count timesteps (#188).
+    /// Reset in update_bdf_history().
+    pub nat_vent_step_fraction: Option<f64>,
     /// Zone centroid height above ground [m].
     /// Used for wind speed correction in infiltration calculation.
     /// Computed as area-weighted average of zone surface centroid heights.
@@ -1248,6 +1253,29 @@ impl ZoneState {
         }
     }
 
+    /// Natural-ventilation opening fraction for this physical timestep: the
+    /// hysteresis is applied on the timestep's first solve and held after that.
+    pub fn nat_vent_fraction_for_step(
+        &mut self,
+        sched_frac: f64,
+        t_outdoor: f64,
+        wind_speed: f64,
+        nv: &NaturalVentilationInput,
+    ) -> f64 {
+        if let Some(frac) = self.nat_vent_step_fraction {
+            return frac;
+        }
+        let cond = nv.conditions_ok(self.temp_prev, t_outdoor, wind_speed);
+        let frac = self.apply_nat_vent_hysteresis(
+            sched_frac,
+            cond,
+            nv.min_on_timesteps,
+            nv.min_off_timesteps,
+        );
+        self.nat_vent_step_fraction = Some(frac);
+        frac
+    }
+
     pub fn new(input: ZoneInput, initial_temp: f64) -> Self {
         Self {
             input,
@@ -1297,6 +1325,7 @@ impl ZoneState {
             nat_vent_mass_flow: 0.0,
             nat_vent_active: false,
             nat_vent_off_timesteps: u32::MAX, // large value = long since stopped
+            nat_vent_step_fraction: None,
             nat_vent_on_timesteps: 0,
             centroid_height: 0.0, // set after surface assignment
             temp_no_hvac: initial_temp,
