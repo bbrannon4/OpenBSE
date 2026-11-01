@@ -5656,6 +5656,21 @@ impl BuildingEnvelope {
     ///
     /// This method sets all history terms to the current converged value
     /// and resets order to 1 so BDF ramps cleanly from a consistent state.
+    /// Zero the annual heat-balance accumulators, so warmup stays out of them.
+    pub fn reset_diagnostic_accumulators(&mut self) {
+        for zone in &mut self.zones {
+            zone.diag_surface_loss_kwh = 0.0;
+            zone.diag_infil_loss_kwh = 0.0;
+            zone.diag_q_conv_kwh = 0.0;
+            zone.diag_solar_trans_kwh = 0.0;
+            zone.diag_internal_conv_kwh = 0.0;
+            zone.diag_window_cond_kwh = 0.0;
+            zone.diag_window_conv_kwh = 0.0;
+            zone.diag_hvac_net_kwh = 0.0;
+            zone.diag_last_sim_time = -1.0;
+        }
+    }
+
     pub fn reset_bdf_history_to_current(&mut self) {
         for zone in &mut self.zones {
             zone.temp_prev = zone.temp;

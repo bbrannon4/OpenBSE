@@ -206,8 +206,8 @@ $$
 \end{cases}
 $$ {#eq-predictor-mode}
 
-When no free-float temperature is available (during warmup), the mode comes
-from the loads instead: heating if the heating load exceeds 10 W and the
+When no free-float temperature is available (a model with no envelope), the mode
+comes from the loads instead: heating if the heating load exceeds 10 W and the
 cooling load, cooling in the converse case, and otherwise from the zone
 temperature against the setpoints.
 
@@ -340,36 +340,43 @@ temperature, and held for the rest of the timestep.
 
 ## Warmup {#sec-warmup}
 
-**Source:** `main.rs::main`, section 7a.
+**Source:** `main.rs::main` (the timestep loop); `warmup.rs`.
 
-Before the run period, the envelope is driven with the first 7 days of the
-weather file for up to 4 cycles (28 days). Each timestep makes a single HVAC
-pass (no iteration and no predictor), with no plant loops, and solves the
-envelope once. The BDF order is capped at 1. Warmup ends at the first cycle
-for which
+Before the run period, the run's first 7 days are repeated, up to 4 times
+(28 days), through the same timestep as the run itself: the HVAC iteration,
+predictor, plant loops, VRF, radiant panels, duct losses, DHW and lighting
+return-air heat all act. Only the results are held back. The BDF order is capped
+at 1. A run starting in the year's last week warms up on that last week.
+
+Each repeat is compared with the previous one, day by day and zone by zone. A
+repeat converges when, for every zone and day,
 
 $$
-\max_z \left| T_z^\text{end} - T_z^\text{begin} \right| < 0.5\ \text{K},
+\left| T_{z,d}^\text{max} - T_{z,d}^\text{max,prev} \right| \le 0.4\ \text{K},
+\quad
+\left| T_{z,d}^\text{min} - T_{z,d}^\text{min,prev} \right| \le 0.4\ \text{K},
+\quad
+\frac{\left| Q_{z,d} - Q_{z,d}^\text{prev} \right|}{Q_{z,d}} \le 0.04,
 $$ {#eq-warmup}
 
-where $T_z^\text{begin}$ and $T_z^\text{end}$ are the zone air temperatures
-at the start and end of the 7-day cycle. Afterwards the zone history is reset
-(@sec-bdf), and the night-cycle timers and the simulation clock restart.
+for both the peak heating and the peak cooling load $Q$, floored at 100 W. So at
+least two repeats run. If the fourth repeat hasn't converged, the `.err` file
+gets a warning naming a zone that is still changing, and the run goes ahead.
+Afterwards the zone history is reset (@sec-bdf), and the night-cycle timers,
+heat-balance accumulators and simulation clock restart.
 
-**Comparison with EnergyPlus.** EnergyPlus repeats the first day of the run
-period with the full HVAC simulation. Each day it compares every zone's
-maximum and minimum temperature (tolerance 0.4 K) and peak heating and
-cooling loads (4%) with the previous day's, for between 1 and 25 days
-(`HeatBalanceManager::CheckWarmupConvergence`). It reports a severe error if
-these do not converge. OpenBSE's warmup differs in four ways:
+**Comparison with EnergyPlus.** The test and its tolerances are
+`HeatBalanceManager::CheckWarmupConvergence`'s defaults. Two differences are
+deliberate:
 
-- it always uses 1–7 January, whatever the run period;
-- it tests one temperature per zone and no loads;
-- it accepts non-convergence silently;
-- it leaves VRF, radiant panels and the plant out.
-
-These differences are filed as
-[#189](https://github.com/bbrannon4/OpenBSE/issues/189).
+- **A week, not a day.** EnergyPlus repeats the first day for between 1 and 25
+  days. OpenBSE repeats the first week, which settles the weekly schedules too,
+  and compares each day with the same day of the previous repeat. It runs at
+  least 14 days and at most 28.
+- **Warning, not severe.** EnergyPlus logs a severe error on non-convergence
+  and also carries on. OpenBSE reports a warning, since severe errors in
+  OpenBSE mean results shouldn't be trusted, and a slow-settling building is
+  usually only slightly off.
 
 ## Component graph {#sec-graph}
 
@@ -410,8 +417,6 @@ timestep (`loop_supply_conditions`).
 - [#117](https://github.com/bbrannon4/OpenBSE/issues/117): heating loads for
   control target the constant occupied setpoint, not the scheduled or
   unoccupied one.
-- [#189](https://github.com/bbrannon4/OpenBSE/issues/189): warmup days,
-  convergence test and HVAC coverage differ from EnergyPlus.
 - [#191](https://github.com/bbrannon4/OpenBSE/issues/191): ideal loads on
   any zone disables every air loop, plant loop, VRF and radiant panel.
 - [#193](https://github.com/bbrannon4/OpenBSE/issues/193): unused
