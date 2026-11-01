@@ -29,9 +29,10 @@ with the frozen mode and the backward-difference load, is described in @sec-zone
 ASHRAE 140 cases do. Sizing also installs one temporarily in every
 conditioned zone (@sec-dd-runs).
 
-An ideal-loads system on any zone currently disables every air loop,
-plant loop, VRF system and radiant panel in the model
-([#191](https://github.com/bbrannon4/OpenBSE/issues/191)).
+Ideal loads are zone equipment, as in EnergyPlus: a model can serve some zones
+with them and others with air loops, VRF or radiant panels, and all of them run.
+A zone can't take ideal loads and another system together; that is a severe
+validation error.
 
 ## Design-day runs {#sec-dd-runs}
 
@@ -409,8 +410,6 @@ applies the multiplier to it consistently.
   1.25/1.15 rather than 1.0.
 - [#185](https://github.com/bbrannon4/OpenBSE/issues/185): return-air
   lighting heat should size the coil, not the zone flow.
-- [#191](https://github.com/bbrannon4/OpenBSE/issues/191): ideal loads on
-  any zone disable all other HVAC.
 - [#198](https://github.com/bbrannon4/OpenBSE/issues/198),
   [#50](https://github.com/bbrannon4/OpenBSE/issues/50): design-day
   humidity, temperature profile and sky model.
