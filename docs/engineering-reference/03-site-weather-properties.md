@@ -276,30 +276,30 @@ sets the ground reflectance by month; here that would be a new input
 
 **Source:** `heat_balance.rs::solve_timestep`, step 1b.
 
-The sky temperature for long-wave exchange (@sec-envelope) comes from the
-Clark–Allen sky emissivity [@clark1978] with an opaque-cloud correction
-[@walton1983], using the dew point $T_\text{dp}$ and opaque sky cover $N$
-[tenths]:
+The sky temperature for long-wave exchange (@sec-envelope) comes from the weather
+file's horizontal infrared irradiance $I_\text{IR}$ when it is valid:
 
 $$
-\varepsilon_\text{sky} = \left(0.787 + 0.764\ln\frac{T_\text{dp} + 273.15}{273}\right)
+T_\text{sky} = \left(\frac{I_\text{IR}}{\sigma}\right)^{1/4} - 273.15.
+$$ {#eq-sky-temp-ir}
+
+Otherwise (zero, or missing as on design days) it comes from the Clark–Allen sky
+emissivity [@clark1978] with an opaque-cloud correction [@walton1983], using the
+outdoor and dew-point temperatures and opaque sky cover $N$ [tenths]:
+
+$$
+\varepsilon_\text{sky} = \left(0.787 + 0.764\ln\frac{\min(T_\text{o}, T_\text{dp}) + 273.15}{273.15}\right)
 \left(1 + 0.0224N - 0.0035N^2 + 0.00028N^3\right),
 $$ {#eq-sky-emissivity}
 
 $$
-T_\text{sky} = \varepsilon_\text{sky}^{1/4}\,(T_\text{o} + 273.15) - 273.15,
+T_\text{sky} = \varepsilon_\text{sky}^{1/4}\,(T_\text{o} + 273.15) - 273.15.
 $$ {#eq-sky-temp}
 
-with $\varepsilon_\text{sky}$ clamped to $[0.3, 1]$. The weather file's
-horizontal infrared irradiance is not used.
-
-**Comparison with EnergyPlus.** EnergyPlus uses the file's horizontal
-infrared irradiance $I_\text{IR}$ whenever it is valid,
-$T_\text{sky} = (I_\text{IR}/\sigma)^{1/4}$, and falls back to an emissivity
-model only when it is missing (`Weather::calcSky`). Its Clark–Allen form uses
-$\min(T_\text{o}, T_\text{dp})$ and divides by 273.15. OpenBSE's sky
-temperature is therefore a deviation, not the E+ default that its comment
-claims ([#197](https://github.com/bbrannon4/OpenBSE/issues/197)).
+**Comparison with EnergyPlus.** This is `Weather::calcSky` and `CalcSkyEmissivity` with
+EnergyPlus's default `WeatherProperty:SkyTemperature`. EnergyPlus also has a Brunt,
+an Idso and a Berdahl–Martin emissivity model and can ignore the file's infrared; here
+those would be new inputs.
 
 ### Ground temperatures {#sec-ground-temps}
 
@@ -443,9 +443,11 @@ glycol properties at the fluid temperature (`FluidProperties`); between 0 and
 
 - [#50](https://github.com/bbrannon4/OpenBSE/issues/50): cooling design-day
   solar is a fixed clear-sky formula; `taub` and `taud` are ignored.
-- [#287](https://github.com/bbrannon4/OpenBSE/issues/287): no ground-reflectance input.
-- [#197](https://github.com/bbrannon4/OpenBSE/issues/197): the sky
-  temperature ignores the weather file's horizontal infrared.
+- [#195](https://github.com/bbrannon4/OpenBSE/issues/195): irradiance is held
+  constant through the hour; wind direction is not interpolated; sun-position
+  timing and the sun-up test differ from EnergyPlus.
+- [#196](https://github.com/bbrannon4/OpenBSE/issues/196): Perez model
+  details (zenith cap, horizon floor); no ground-reflectance input.
 - Design days have fixed sky cover and wind direction, and no temperature or
   humidity schedules.
 - [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no daylight saving

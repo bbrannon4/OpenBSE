@@ -557,6 +557,20 @@ struct ShadedWindowConditions {
     has_gap_model: bool,
 }
 
+/// Sky temperature for long-wave exchange [°C], E+ `calcSky`: from the horizontal
+/// infrared irradiance [W/m²] when it is valid, else from Clark & Allen's clear-sky
+/// emissivity with Walton's cloud correction (E+ `CalcSkyEmissivity`). A value of
+/// zero or below, or E+'s 9999 sentinel, counts as missing.
+fn sky_temperature(t_db: f64, t_dp: f64, opaque_sky_cover: f64, horiz_ir: f64) -> f64 {
+    if horiz_ir > 0.0 && horiz_ir < 9999.0 {
+        return (horiz_ir / STEFAN_BOLTZMANN).powf(0.25) - 273.15;
+    }
+    let eps_clear = 0.787 + 0.764 * ((t_db.min(t_dp) + 273.15) / 273.15).ln();
+    let n = opaque_sky_cover;
+    let eps_sky = eps_clear * (1.0 + 0.0224 * n - 0.0035 * n * n + 0.00028 * n * n * n);
+    eps_sky.powf(0.25) * (t_db + 273.15) - 273.15
+}
+
 impl BuildingEnvelope {
     /// Rebuilds a zone's interchange areas when a window's room-facing
     /// emissivity has changed (an interior shade deployed or retracted).
@@ -2329,36 +2343,13 @@ impl EnvelopeSolver for BuildingEnvelope {
         let sun_dir = solar::sun_direction_vector(&sol_pos);
 
         // 1b. Sky temperature for longwave radiation exchange
-        // σ = 5.6704e-8 W/(m²·K⁴) (Stefan-Boltzmann constant)
         const SIGMA: f64 = 5.6704e-8;
-        //
-        // Use Clark & Allen (1978) clear-sky emissivity model with opaque sky
-        // cover correction. This matches EnergyPlus's default Sky Temperature
-        // Model (eplusout.eio: "Site:WeatherStation, ..., Clark and Allen") and
-        // is more robust than direct EPW horizontal IR, which can produce
-        // unreasonably cold sky temperatures in some TMYx files.
-        //
-        // Clear-sky emissivity: ε_clear = 0.787 + 0.764 * ln(T_dp_K / 273)
-        // Cloud correction: ε_sky = ε_clear * (1 + 0.0224*N - 0.0035*N² + 0.00028*N³)
-        //   where N = opaque sky cover in tenths [0-10]
-        //
-        // T_sky = (ε_sky)^0.25 * T_air_K - 273.15
-        //
-        // Reference: Clark & Allen (1978), Walton (1983), EnergyPlus Engineering Ref.
-        let t_sky = {
-            let t_dp_k = (weather.dew_point + 273.15).max(200.0);
-            let t_db_k = (t_outdoor + 273.15).max(200.0);
-            let ln_ratio = (t_dp_k / 273.0).ln();
-            let eps_clear = (0.787 + 0.764 * ln_ratio).clamp(0.3, 1.0);
-
-            // Cloud cover correction (N in tenths, 0=clear, 10=overcast)
-            let n = weather.opaque_sky_cover.clamp(0.0, 10.0);
-            let cloud_factor = 1.0 + 0.0224 * n - 0.0035 * n * n + 0.00028 * n * n * n;
-            let eps_sky = (eps_clear * cloud_factor).clamp(0.3, 1.0);
-
-            // T_sky = eps_sky^0.25 * T_air (in Kelvin)
-            eps_sky.powf(0.25) * t_db_k - 273.15
-        };
+        let t_sky = sky_temperature(
+            t_outdoor,
+            weather.dew_point,
+            weather.opaque_sky_cover,
+            weather.horiz_ir_rad,
+        );
 
         // 2. Apply HVAC conditions from external controls (non-ideal-loads mode)
         for zone in &mut self.zones {
@@ -7614,60 +7605,66 @@ mod tests {
     }
 
     #[test]
-    fn test_sky_temp_berdahl_martin() {
-        // Verify Berdahl-Martin sky temperature model with cloud correction.
-        // ε_clear = 0.787 + 0.764 * ln(T_dp_K / 273)
-        // ε_sky = ε_clear * (1 + 0.0224*N - 0.0035*N² + 0.00028*N³)
-        // T_sky = ε_sky^0.25 * T_air_K - 273.15
+    fn test_sky_temperature_from_emissivity_when_ir_is_missing() {
+        // Case 1: Winter clear sky at 0 °C with a -10 °C dew point: E+ values.
+        let t_sky = sky_temperature(0.0, -10.0, 0.0, 0.0);
+        let eps = 0.787 + 0.764 * (263.15_f64 / 273.15).ln();
+        assert_relative_eq!(t_sky, eps.powf(0.25) * 273.15 - 273.15, epsilon = 1e-12);
+        assert!(t_sky < -5.0 && t_sky > -25.0, "{t_sky}");
 
-        // Case 1: Clear sky (N=0), T_air=0°C, T_dp=-10°C
-        let t_dp_k = (-10.0 + 273.15_f64).max(200.0);
-        let t_db_k = (0.0 + 273.15_f64).max(200.0);
-        let eps_clear = 0.787 + 0.764 * (t_dp_k / 273.0).ln();
-        let t_sky = eps_clear.powf(0.25) * t_db_k - 273.15;
-        // Sky should be well below outdoor
-        assert!(
-            t_sky < -5.0,
-            "Clear sky should be well below outdoor, got {:.1}°C",
-            t_sky
+        // Case 2: Cloud raises it: at 10/10 the factor is 1.154.
+        let overcast = sky_temperature(0.0, -10.0, 10.0, 0.0);
+        let factor: f64 = 1.0 + 0.224 - 0.35 + 0.28;
+        assert_relative_eq!(
+            overcast,
+            (eps * factor).powf(0.25) * 273.15 - 273.15,
+            epsilon = 1e-12
         );
-        assert!(
-            t_sky > -25.0,
-            "Sky shouldn't be excessively cold, got {:.1}°C",
-            t_sky
-        );
+        assert!(overcast > t_sky && overcast.abs() < 12.0);
 
-        // Case 2: Overcast sky (N=10) should be warmer than clear sky
-        let n = 10.0_f64;
-        let cloud_factor = 1.0 + 0.0224 * n - 0.0035 * n * n + 0.00028 * n * n * n;
-        let eps_overcast = (eps_clear * cloud_factor).min(1.0);
-        let t_sky_overcast = eps_overcast.powf(0.25) * t_db_k - 273.15;
-        assert!(
-            t_sky_overcast > t_sky,
-            "Overcast sky ({:.1}°C) should be warmer than clear ({:.1}°C)",
-            t_sky_overcast,
-            t_sky
-        );
-        // Overcast sky should be within ~10°C of outdoor temp
-        assert!(
-            (t_sky_overcast - 0.0).abs() < 12.0,
-            "Overcast sky should be within 12°C of outdoor, got {:.1}°C",
-            t_sky_overcast
-        );
+        // Case 3: Summer clear sky: 12–18 K below the air.
+        let summer = sky_temperature(30.0, 10.0, 0.0, 0.0);
+        assert!((12.0..=18.0).contains(&(30.0 - summer)), "{summer}");
 
-        // Case 3: Summer clear sky at 30°C, Tdp=10°C
-        let t_dp_k_s = 283.15_f64;
-        let t_db_k_s = 303.15_f64;
-        let eps_clear_s = 0.787 + 0.764 * (t_dp_k_s / 273.0).ln();
-        let t_sky_s = eps_clear_s.powf(0.25) * t_db_k_s - 273.15;
-        // Summer clear sky depression should be ~12-18°C
-        let depression = 30.0 - t_sky_s;
-        assert!(
-            depression > 8.0 && depression < 22.0,
-            "Summer sky depression should be 8-22°C, got {:.1}°C (T_sky={:.1}°C)",
-            depression,
-            t_sky_s
+        // A dew point above the dry-bulb counts as the dry-bulb, as in E+.
+        assert_eq!(
+            sky_temperature(20.0, 25.0, 0.0, 0.0),
+            sky_temperature(20.0, 20.0, 0.0, 0.0)
         );
+        // The 9999 sentinel counts as missing.
+        assert_eq!(
+            sky_temperature(20.0, 10.0, 3.0, 9999.0),
+            sky_temperature(20.0, 10.0, 3.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn test_sky_temperature_uses_horizontal_ir_when_valid() {
+        // It gives back the black-body temperature of the irradiance, whatever
+        // the air, dew point and cloud.
+        let t = sky_temperature(30.0, 10.0, 5.0, 350.0);
+        assert_relative_eq!(5.6704e-8 * (t + 273.15).powi(4), 350.0, epsilon = 1e-9);
+        assert_eq!(t, sky_temperature(-10.0, -20.0, 0.0, 350.0));
+    }
+
+    /// A colder sky from the horizontal IR must reach the surface balance.
+    #[test]
+    fn test_horizontal_ir_reaches_the_surface_balance() {
+        let roof_temp = |ir: f64| {
+            let mut envelope = make_simple_model();
+            envelope.initialize(3600.0).unwrap();
+            let ctx = make_ctx();
+            let mut weather = make_weather_hour(0.0);
+            weather.horiz_ir_rad = ir;
+            let hvac = ZoneHvacConditions::default();
+            for _ in 0..20 {
+                envelope.solve_timestep(&ctx, &weather, &hvac);
+                envelope.update_bdf_history();
+            }
+            let roof = envelope.surfaces.iter().find(|s| s.input.name == "Roof");
+            roof.unwrap().temp_outside
+        };
+        assert!(roof_temp(200.0) < roof_temp(320.0) - 0.5);
     }
 
     #[test]
