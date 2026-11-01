@@ -1211,6 +1211,15 @@ fn main() -> Result<()> {
         }
 
         // ── 4b. Build DHW systems ────────────────────────────────────────────
+        // For mains correlations that take their statistics from the weather file.
+        let mains_dry_bulb_stats = weather_data.dry_bulb_statistics();
+        // With no envelope, nothing else holds the model's schedules.
+        let hvac_only_schedules =
+            openbse_envelope::ScheduleManager::from_inputs(if envelope.is_none() {
+                model.schedules.clone()
+            } else {
+                Vec::new()
+            });
         let mut dhw_systems: Vec<openbse_components::water_heater::WaterHeater> = model
             .dhw_systems
             .iter()
@@ -4703,38 +4712,19 @@ fn main() -> Result<()> {
                     {
                         // Compute mains water temperature.
                         let dhw_doy = (hour_idx / 24) + 1;
-                        let t_mains = dhw_input
-                            .mains_temperature
-                            .temperature(dhw_doy, weather_data.location.latitude);
+                        let t_mains = dhw_input.mains_temperature.temperature(
+                            dhw_doy,
+                            weather_data.location.latitude,
+                            mains_dry_bulb_stats,
+                        );
 
-                        // Compute current draw rate from schedule.
-                        // E+ WaterUse:Equipment mixes hot water from the tank with cold
-                        // mains water at the fixture to reach the target use_temperature.
-                        // The HOT water drawn from the tank is only a fraction of the
-                        // total fixture flow: hot_frac = (T_use - T_mains) / (T_hot - T_mains).
-                        let t_hot = dhw_sys.setpoint_temp; // tank setpoint
-                        let total_draw: f64 = dhw_input
-                            .loads
-                            .iter()
-                            .map(|load| {
-                                let frac = load
-                                    .schedule
-                                    .as_ref()
-                                    .map(|sched_name| {
-                                        env.schedule_manager.fraction(sched_name, hour, dhw_dow)
-                                    })
-                                    .unwrap_or(1.0);
-                                let fixture_flow = load.peak_flow_rate * frac;
-                                // Compute hot water fraction drawn from tank
-                                let hot_frac = if t_hot > t_mains {
-                                    ((load.use_temperature - t_mains) / (t_hot - t_mains))
-                                        .clamp(0.0, 1.0)
-                                } else {
-                                    1.0
-                                };
-                                fixture_flow * hot_frac
-                            })
-                            .sum();
+                        // Compute current draw rate from schedule, mixed at the
+                        // fixture with the tank's temperature from the last step.
+                        let total_draw = dhw_input.tank_draw(
+                            dhw_sys.tank_temperature(),
+                            t_mains,
+                            |sched_name| env.schedule_manager.fraction(sched_name, hour, dhw_dow),
+                        );
 
                         // The tank exchanges heat with its ambient zone's air (WH-3),
                         // which is also a heat pump's evaporator inlet (WH-2).
@@ -5144,10 +5134,34 @@ fn main() -> Result<()> {
                     // ── DHW simulation (HVAC-only mode) ────────────────────
                     // Note: ambient_zone not available in HVAC-only mode (no envelope).
                     // Water heater uses the default 20°C ambient.
+                    let hvac_only_day_type = if model
+                        .simulation
+                        .holidays
+                        .iter()
+                        .any(|h| (h.month, h.day) == (month, day))
+                    {
+                        8
+                    } else {
+                        openbse_envelope::day_of_week(
+                            month,
+                            day,
+                            weather_data.start_day_of_week,
+                            weather_data.leap_year,
+                        )
+                    };
                     for (dhw_sys, dhw_input) in dhw_systems.iter_mut().zip(&model.dhw_systems) {
-                        let total_draw: f64 =
-                            dhw_input.loads.iter().map(|load| load.peak_flow_rate).sum(); // No schedule manager in HVAC-only mode
-                        let t_mains = dhw_input.mains_temperature.temperature(1, 40.0);
+                        let t_mains = dhw_input.mains_temperature.temperature(
+                            (hour_idx / 24) + 1,
+                            weather_data.location.latitude,
+                            mains_dry_bulb_stats,
+                        );
+                        let total_draw = dhw_input.tank_draw(
+                            dhw_sys.tank_temperature(),
+                            t_mains,
+                            |sched_name| {
+                                hvac_only_schedules.fraction(sched_name, hour, hvac_only_day_type)
+                            },
+                        );
                         dhw_sys.simulate(total_draw, t_mains, dt);
                         let ep = dhw_sys.electric_power();
                         let fp = dhw_sys.fuel_power();
@@ -5160,10 +5174,12 @@ fn main() -> Result<()> {
                     }
 
                     // ── Exterior equipment (HVAC-only mode) ──────────────────
-                    // No schedule manager in HVAC-only mode — run at full power.
                     // Route to typed ext_equipment_power (same as full simulation mode).
                     for ext in &model.exterior_equipment {
-                        let power = ext.power;
+                        let power = ext.power
+                            * ext.schedule.as_deref().map_or(1.0, |s| {
+                                hvac_only_schedules.fraction(s, hour, hvac_only_day_type)
+                            });
                         let is_hvac_ext_light = ext
                             .subcategory
                             .as_deref()

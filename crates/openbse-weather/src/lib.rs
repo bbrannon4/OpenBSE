@@ -180,6 +180,26 @@ pub struct WeatherData {
 }
 
 impl WeatherData {
+    /// Annual mean dry-bulb and the largest difference between monthly mean
+    /// dry-bulbs [°C], as E+ `CalcAnnualAndMonthlyDryBulbTemp`.
+    pub fn dry_bulb_statistics(&self) -> (f64, f64) {
+        let mut months = [(0.0, 0u32); 12];
+        for h in &self.hours {
+            if let Some(m) = months.get_mut(h.month.wrapping_sub(1) as usize) {
+                m.0 += h.dry_bulb;
+                m.1 += 1;
+            }
+        }
+        let count: u32 = months.iter().map(|m| m.1).sum();
+        if count == 0 {
+            return (0.0, 0.0);
+        }
+        let annual = months.iter().map(|m| m.0).sum::<f64>() / count as f64;
+        let means = months.iter().filter(|m| m.1 > 0).map(|m| m.0 / m.1 as f64);
+        let (lo, hi) = means.fold((f64::MAX, f64::MIN), |(l, h), m| (l.min(m), h.max(m)));
+        (annual, hi - lo)
+    }
+
     /// Convert hourly data to the format expected by the simulation runner.
     pub fn to_simulation_hours(&self) -> Vec<(MoistAirState, f64)> {
         self.hours

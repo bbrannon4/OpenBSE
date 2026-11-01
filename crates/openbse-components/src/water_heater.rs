@@ -5,16 +5,18 @@
 //! standalone component (does not implement AirComponent or PlantComponent)
 //! with its own `simulate` method called directly from the simulation loop.
 //!
-//! Physics match EnergyPlus WaterHeaters.cc (mixed-tank energy balance):
+//! Physics match EnergyPlus `CalcWaterThermalTankMixed` (WaterThermalTanks.cc).
+//! The tank balance
 //!
-//!   Q_delivered = m_draw * Cp * (T_set - T_mains)     energy to heat draw water
-//!   Q_loss     = UA_tank * (T_tank - T_ambient)        standby shell losses
-//!   Q_needed   = Q_delivered + Q_loss
-//!   Q_input    = min(Q_needed / efficiency, capacity)  limited by burner/element
-//!   Tank temp:   dT = (Q_input * eff - Q_delivered - Q_loss) * dt / (m_tank * Cp)
+//!   m_tank * Cp * dT/dt = Q_heat - m_draw * Cp * (T - T_mains) - UA * (T - T_ambient)
 //!
-//! Deadband control: burner fires when T_tank < setpoint - deadband,
-//!                   turns off when T_tank >= setpoint.
+//! is linear in T, so it is integrated in closed form between control events
+//! (heater reaches setpoint, tank falls to the cut-in temperature). It stays
+//! stable and conserves energy at any draw and timestep.
+//!
+//! On/off control: the heater fires at full output below setpoint - deadband
+//! and stops at setpoint, within the step. Modulating control has no deadband:
+//! full output below setpoint, then just enough to hold it.
 //!
 //! Heat pump water heaters follow EnergyPlus
 //! Coil:WaterHeating:AirToWaterHeatPump:Pumped (WH-2 / #61): capacity and COP
@@ -152,6 +154,9 @@ pub struct WaterHeater {
     /// Tank shell loss to the surrounding air this step [W].
     #[serde(skip)]
     pub standby_loss: f64,
+    /// Heat leaving in the draw, relative to mains, this step [W].
+    #[serde(skip)]
+    pub delivery_rate: f64,
     /// Sensible heat the heat pump's evaporator drew from the surrounding air [W].
     #[serde(skip)]
     pub evaporator_sensible: f64,
@@ -161,6 +166,103 @@ pub struct WaterHeater {
     /// Evaporator bypass factor, derived once from the rated SHR.
     #[serde(skip)]
     hp_bypass_factor: Option<f64>,
+}
+
+/// Most heating and floating intervals resolved in one step; generous, since
+/// each pair needs a full swing across the deadband.
+const MAX_TANK_INTERVALS: usize = 1000;
+
+/// The mixed tank's linear heat balance over one step, solved in closed form:
+/// `T(t) = T_eq(Q) + (T_0 - T_eq(Q)) exp(-k t)`, as E+ `CalcTankTemp`,
+/// `CalcTimeNeeded` and `CalcTempIntegral`.
+struct TankBalance {
+    /// Tank water mass [kg].
+    mass: f64,
+    /// Draw mass flow [kg/s].
+    m_draw: f64,
+    t_mains: f64,
+    /// Shell loss coefficient [W/K].
+    ua: f64,
+    t_ambient: f64,
+}
+
+impl TankBalance {
+    /// Total conductance to the mains and ambient [W/K].
+    fn conductance(&self) -> f64 {
+        self.m_draw * CP_WATER + self.ua
+    }
+
+    /// Time-constant inverse [1/s].
+    fn k(&self) -> f64 {
+        self.conductance() / (self.mass * CP_WATER)
+    }
+
+    /// Draw and shell loss at tank temperature `t` [W].
+    fn load_at(&self, t: f64) -> f64 {
+        self.m_draw * CP_WATER * (t - self.t_mains) + self.ua * (t - self.t_ambient)
+    }
+
+    /// Temperature the tank tends to with heat input `q` [degC].
+    fn equilibrium(&self, q: f64) -> f64 {
+        (q + self.m_draw * CP_WATER * self.t_mains + self.ua * self.t_ambient) / self.conductance()
+    }
+
+    fn rate(&self, t: f64, q: f64) -> f64 {
+        (q - self.load_at(t)) / (self.mass * CP_WATER)
+    }
+
+    fn temperature_after(&self, t0: f64, q: f64, time: f64) -> f64 {
+        if self.mass <= 0.0 {
+            return if self.conductance() > 0.0 {
+                self.equilibrium(q)
+            } else {
+                t0
+            };
+        }
+        if self.conductance() <= 0.0 {
+            return t0 + q * time / (self.mass * CP_WATER);
+        }
+        let t_eq = self.equilibrium(q);
+        t_eq + (t0 - t_eq) * (-self.k() * time).exp()
+    }
+
+    /// Time to go from `t0` to `target`, or infinity if the tank never gets there.
+    fn time_to(&self, t0: f64, target: f64, q: f64) -> f64 {
+        if self.mass <= 0.0 {
+            return if self.conductance() > 0.0 {
+                0.0
+            } else {
+                f64::INFINITY
+            };
+        }
+        let rate = self.rate(t0, q);
+        if (target - t0) * rate <= 0.0 {
+            return f64::INFINITY;
+        }
+        if self.conductance() <= 0.0 {
+            return (target - t0) / rate;
+        }
+        let t_eq = self.equilibrium(q);
+        let ratio = (target - t_eq) / (t0 - t_eq);
+        if ratio <= 0.0 {
+            f64::INFINITY
+        } else {
+            -ratio.ln() / self.k()
+        }
+    }
+
+    /// Integral of T over `time`, from `t0` to `t1` [K s].
+    fn temperature_integral(&self, t0: f64, t1: f64, q: f64, time: f64) -> f64 {
+        if t0 == t1 {
+            return t0 * time;
+        }
+        if self.conductance() <= 0.0 || self.mass <= 0.0 {
+            return 0.5 * (t0 + t1) * time;
+        }
+        // From the balance itself: m Cp (t1 - t0) = q time - G (integral - T_eq(0) time).
+        let t_eq0 = self.equilibrium(0.0);
+        t_eq0 * time + (q * time - self.mass * CP_WATER * (t1 - t0)) / self.conductance()
+    }
 }
 
 /// Heat available to the tank this step.
@@ -305,6 +407,7 @@ impl WaterHeater {
             energy_input: 0.0,
             is_heating: false,
             standby_loss: 0.0,
+            delivery_rate: 0.0,
             evaporator_sensible: 0.0,
             evaporator_latent: 0.0,
             hp_bypass_factor: None,
@@ -374,86 +477,104 @@ impl WaterHeater {
 
     /// Per-timestep simulation of the mixed-tank water heater.
     ///
+    /// Walks the step from control event to control event as E+
+    /// `CalcWaterThermalTankMixed` does. The heat pump's output is held at its
+    /// start-of-step value: its curves vary little over one step.
+    ///
     /// # Arguments
     /// * `draw_flow_liters_per_s` - Hot water draw rate [L/s]
     /// * `mains_temp`             - Cold (mains) water inlet temperature [degC]
     /// * `dt`                     - Timestep duration [s]
     pub fn simulate(&mut self, draw_flow_liters_per_s: f64, mains_temp: f64, dt: f64) {
-        let m_tank = self.tank_volume * RHO_WATER; // tank water mass [kg]
-
-        // --- Energy delivered to draw water ---------------------------------
-        let m_draw = draw_flow_liters_per_s * RHO_WATER; // draw mass flow [kg/s]
-        let q_delivered = m_draw * CP_WATER * (self.tank_temp - mains_temp).max(0.0);
-
-        // --- Standby shell losses -------------------------------------------
-        let q_loss = self.ua_standby * (self.tank_temp - self.ambient_temp);
-
-        // --- Burner / element input -----------------------------------------
         let source = self.heat_source();
-        let (q_input, energy_input) = match self.control_type {
-            WaterHeaterControl::OnOff => {
-                // Deadband thermostat: fires at full capacity when tank
-                // drops below setpoint - deadband, off at setpoint.
-                if self.tank_temp < self.setpoint_temp - self.deadband {
-                    self.is_heating = true;
-                } else if self.tank_temp >= self.setpoint_temp {
-                    self.is_heating = false;
-                }
-                // else: remain in current state (hysteresis)
-                if self.is_heating {
-                    let input = source.input_max;
-                    let q_to_tank_full = source.q_max;
-                    // Within-step cycling (WH-1 / #61): if firing at full capacity
-                    // would drive the tank past the setpoint before the step ends,
-                    // the burner only runs for the fraction of the step needed to
-                    // reach the setpoint (E+ shuts the element off mid-step). Without
-                    // this, coarse timesteps overshoot the setpoint and overstate the
-                    // firing energy.
-                    let net = q_to_tank_full - q_delivered - q_loss;
-                    let mut on_frac = 1.0_f64;
-                    if net > 0.0 && self.tank_temp < self.setpoint_temp && m_tank > 0.0 {
-                        let time_to_setpoint =
-                            (self.setpoint_temp - self.tank_temp) * m_tank * CP_WATER / net;
-                        if time_to_setpoint < dt {
-                            on_frac = (time_to_setpoint / dt).clamp(0.0, 1.0);
-                            // Reached the setpoint mid-step → element cycles off.
-                            self.is_heating = false;
-                        }
-                    }
-                    (q_to_tank_full * on_frac, input * on_frac)
-                } else {
-                    (0.0, 0.0)
-                }
+        let tank = TankBalance {
+            mass: self.tank_volume * RHO_WATER,
+            m_draw: draw_flow_liters_per_s * RHO_WATER,
+            t_mains: mains_temp,
+            ua: self.ua_standby,
+            t_ambient: self.ambient_temp,
+        };
+        let (min_output, cut_in) = match self.control_type {
+            // E+ sets a cycling heater's minimum capacity to its maximum: it
+            // cannot hold the setpoint at part output, so it stops there. With
+            // no deadband, cycling averages out to holding the setpoint.
+            WaterHeaterControl::OnOff if self.deadband > 0.0 => {
+                (source.q_max, self.setpoint_temp - self.deadband)
             }
-            WaterHeaterControl::Modulate => {
-                // Modulating control: burner output matches the instantaneous
-                // load exactly, capped at rated capacity.  Matches E+
-                // "Modulate" heater control type used for tankless heaters.
-                let q_needed = (q_delivered + q_loss).max(0.0);
-                let frac = if source.q_max > 0.0 {
-                    (q_needed / source.q_max).min(1.0)
-                } else {
-                    0.0
-                };
-                self.is_heating = frac > 0.0;
-                (source.q_max * frac, source.input_max * frac)
-            }
+            _ => (0.0, self.setpoint_temp),
         };
 
-        // --- Tank temperature update ----------------------------------------
-        // Energy balance on the mixed tank over the timestep:
-        //   m_tank * Cp * dT = (Q_input_to_tank - Q_delivered - Q_loss) * dt
-        if m_tank > 0.0 {
-            let delta_t = (q_input - q_delivered - q_loss) * dt / (m_tank * CP_WATER);
-            self.tank_temp += delta_t;
-        }
+        let t_start = self.tank_temp;
+        let mut t = t_start;
+        let mut remaining = dt;
+        let mut integral_t = 0.0; // integral of T over the step [K s]
+        let mut heater_energy = 0.0; // heat added to the tank [J]
+        let mut intervals = 0;
 
-        // Store runtime outputs
+        while remaining > 0.0 {
+            let mut holding = false;
+            let (q, target) = if self.is_heating {
+                if t > self.setpoint_temp {
+                    self.is_heating = false;
+                    continue;
+                } else if t < self.setpoint_temp {
+                    (source.q_max, Some(self.setpoint_temp))
+                } else {
+                    let q_hold = tank.load_at(t);
+                    if q_hold <= 0.0 || q_hold < min_output {
+                        self.is_heating = false;
+                        continue;
+                    }
+                    holding = q_hold <= source.q_max;
+                    (q_hold.min(source.q_max), None)
+                }
+            } else if t < cut_in || (t == cut_in && tank.load_at(t) > 0.0) {
+                self.is_heating = true;
+                continue;
+            } else {
+                (0.0, Some(cut_in))
+            };
+
+            // Past the budget the deadband is too narrow to resolve: finish the
+            // step in the current state, which still closes energy.
+            intervals += 1;
+            let time_to_target = target
+                .filter(|_| intervals < MAX_TANK_INTERVALS)
+                .map_or(f64::INFINITY, |target| tank.time_to(t, target, q));
+            let reached = time_to_target <= remaining;
+            let step = time_to_target.min(remaining);
+            let t_new = match target {
+                Some(target) if reached => target,
+                _ if holding => t,
+                _ => tank.temperature_after(t, q, step),
+            };
+            integral_t += tank.temperature_integral(t, t_new, q, step);
+            heater_energy += q * step;
+            if reached && !self.is_heating {
+                self.is_heating = true;
+            }
+            t = t_new;
+            remaining -= step;
+        }
+        self.tank_temp = t;
+
+        // Step means: E+ reports Quse and Qloss from the same temperature
+        // integral, so the tank's energy closes exactly.
+        let t_mean = if dt > 0.0 { integral_t / dt } else { t_start };
+        let q_input = if dt > 0.0 { heater_energy / dt } else { 0.0 };
+        let input_per_heat = if source.q_max > 0.0 {
+            source.input_max / source.q_max
+        } else {
+            0.0
+        };
+        let energy_input = q_input * input_per_heat;
+
         self.heating_rate = q_input;
+        self.delivery_rate = tank.m_draw * CP_WATER * (t_mean - mains_temp);
         // Include constant parasitic draw (pilot light, controls, etc.)
         // Parasitic does NOT heat the tank — it is pure fuel waste.
         self.energy_input = energy_input + self.parasitic_power;
-        self.standby_loss = q_loss;
+        self.standby_loss = self.ua_standby * (t_mean - self.ambient_temp);
 
         // The evaporator supplies the condenser heat the compressor does not.
         let q_evap = (q_input - energy_input).max(0.0);
@@ -861,13 +982,98 @@ mod tests {
 
         // Q_to_tank = capacity * efficiency = 11720 * 0.80 = 9376 W
         let q_to_tank = input * 0.80;
-        // dT = (9376 - 0 - 60) * 60 / (200 * 4186)
-        let expected_delta = (q_to_tank - 0.0 - q_loss) * dt / (200.0 * CP_WATER);
-        let actual_delta = wh.tank_temperature() - 50.0;
+        // Closed form: the shell loss rises as the tank warms, so the increase is
+        // a little below the start-of-step estimate.
+        let k = 2.0 / (200.0 * CP_WATER);
+        let t_eq = 20.0 + q_to_tank / 2.0;
+        let expected = t_eq + (50.0 - t_eq) * (-k * dt).exp();
         assert!(
-            (actual_delta - expected_delta).abs() < 1e-6,
-            "dT mismatch: actual={actual_delta}, expected={expected_delta}"
+            (wh.tank_temperature() - expected).abs() < 1e-9,
+            "T mismatch: actual={}, expected={expected}",
+            wh.tank_temperature()
         );
+        let euler_delta = (q_to_tank - q_loss) * dt / (200.0 * CP_WATER);
+        assert!((wh.tank_temperature() - 50.0 - euler_delta).abs() < 1e-3);
+    }
+
+    /// Energy stored in the tank equals heat in less draw and shell loss.
+    fn assert_energy_closes(wh: &WaterHeater, t0: f64, dt: f64) {
+        let stored = wh.tank_volume * RHO_WATER * CP_WATER * (wh.tank_temp - t0);
+        let net = (wh.heating_rate - wh.delivery_rate - wh.standby_loss) * dt;
+        assert!(
+            (stored - net).abs() < 1e-5 * stored.abs().max(1e4),
+            "stored {stored} J vs net {net} J"
+        );
+    }
+
+    #[test]
+    fn test_large_draw_stays_stable_and_closes_energy() {
+        // E+ `CalcTankTemp` is stable where the explicit form was not: 1 L/s
+        // from a 200 L tank for an hour is 18 tank volumes (#258).
+        for control in [WaterHeaterControl::OnOff, WaterHeaterControl::Modulate] {
+            let mut wh = WaterHeater::new("T", WaterHeaterFuel::Gas, 200.0, 5000.0, 0.8, 60.0, 2.0);
+            wh.control_type = control;
+            for _ in 0..24 {
+                let t0 = wh.tank_temp;
+                wh.simulate(1.0, 10.0, 3600.0);
+                assert!(
+                    (10.0..=60.0).contains(&wh.tank_temp),
+                    "{control:?}: tank {}",
+                    wh.tank_temp
+                );
+                assert_energy_closes(&wh, t0, 3600.0);
+            }
+            // Settles where the heater's output balances the draw.
+            let t_eq = (5000.0 * 0.8 + 1.0 * CP_WATER * 10.0 + 2.0 * 20.0) / (CP_WATER + 2.0);
+            assert!((wh.tank_temp - t_eq).abs() < 0.01, "{}", wh.tank_temp);
+        }
+    }
+
+    #[test]
+    fn test_one_step_matches_many_small_steps() {
+        // The closed form is independent of the timestep, control events included.
+        let run = |steps: usize| {
+            let mut wh =
+                WaterHeater::new("T", WaterHeaterFuel::Gas, 200.0, 10_000.0, 0.8, 60.0, 2.0);
+            let mut heat = 0.0;
+            let dt = 3600.0 / steps as f64;
+            for _ in 0..steps {
+                wh.simulate(0.05, 10.0, dt);
+                heat += wh.energy_input * dt;
+            }
+            (wh.tank_temp, heat, wh.is_heating)
+        };
+        let (t1, e1, on1) = run(1);
+        let (t2, e2, on2) = run(3600);
+        assert!((t1 - t2).abs() < 1e-6, "{t1} vs {t2}");
+        assert!((e1 - e2).abs() < 1e-3 * e2.max(1.0), "{e1} vs {e2}");
+        assert_eq!(on1, on2);
+    }
+
+    #[test]
+    fn test_modulating_heater_recovers_and_holds_setpoint() {
+        // Modulate used to match the load at the current temperature, so a tank
+        // left below setpoint never recovered.
+        let mut wh = WaterHeater::new("T", WaterHeaterFuel::Gas, 100.0, 20_000.0, 0.8, 60.0, 2.0);
+        wh.control_type = WaterHeaterControl::Modulate;
+        wh.tank_temp = 40.0;
+        wh.simulate(0.0, 10.0, 3600.0);
+        assert_eq!(wh.tank_temp, 60.0);
+        // Then it holds the setpoint at part output, with no deadband droop.
+        wh.simulate(0.02, 10.0, 600.0);
+        assert_eq!(wh.tank_temp, 60.0);
+        let load = 0.02 * CP_WATER * 50.0 + 2.0 * 40.0;
+        assert!((wh.heating_rate - load).abs() < 1e-9);
+        assert!((wh.energy_input - load / 0.8).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tank_below_mains_warms_from_the_draw() {
+        let mut wh = WaterHeater::new("T", WaterHeaterFuel::Gas, 100.0, 0.0, 0.8, 60.0, 0.0);
+        wh.tank_temp = 5.0;
+        wh.simulate(0.1, 10.0, 600.0);
+        assert!(wh.tank_temp > 5.0 && wh.tank_temp < 10.0);
+        assert!(wh.delivery_rate < 0.0);
     }
 
     fn hpwh() -> WaterHeater {
@@ -971,6 +1177,7 @@ mod tests {
         );
         wh.ambient_temp = 15.0;
         wh.simulate(0.0, 10.0, 60.0);
-        assert!((wh.standby_loss - 2.0 * (60.0 - 15.0)).abs() < 1e-9);
+        // The step mean: the tank barely cools in a minute.
+        assert!((wh.standby_loss - 2.0 * (60.0 - 15.0)).abs() < 0.01);
     }
 }
