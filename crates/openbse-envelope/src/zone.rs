@@ -482,6 +482,10 @@ pub struct NatVentSetpointReset {
     pub ramp_timesteps: u32,
 }
 
+fn default_limit_humidity_to_saturation() -> bool {
+    true
+}
+
 fn default_nat_vent_height_diff() -> f64 {
     0.0
 }
@@ -620,12 +624,13 @@ pub struct ZoneInput {
     #[serde(default)]
     pub min_relative_humidity: Option<f64>,
     /// Cap the zone air humidity ratio at saturation for the zone temperature,
-    /// condensing out the excess (default: false). Matters for a sealed zone
-    /// that sits idle and cools: with no HVAC and no infiltration nothing
-    /// removes moisture, so without the cap the zone holds its warm-season
-    /// humidity ratio and reports RH above 100%. EnergyPlus applies this bound
-    /// unconditionally (CorrectZoneHumRat).
-    #[serde(default)]
+    /// condensing out the excess (default: true, as EnergyPlus's
+    /// CorrectZoneHumRat does unconditionally). Matters for a sealed zone that
+    /// sits idle and cools: with no HVAC and no infiltration nothing removes
+    /// moisture, so without the cap the zone holds its warm-season humidity
+    /// ratio and reports RH above 100%. Set false only to study the uncapped
+    /// moisture balance.
+    #[serde(default = "default_limit_humidity_to_saturation")]
     pub limit_humidity_to_saturation: bool,
     /// Data center zone configuration. When present, enables implicit aisle physics
     /// and IT load generation. Replaces or supplements the `equipment_it` block.
