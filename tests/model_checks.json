@@ -18,41 +18,49 @@
     },
     "examples/chiller_table_curves.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 1890,
-      "max_unmet_heating_hours_reason": "Pre-existing: 1713 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+      "max_unmet_heating_hours": 2450,
+      "max_unmet_heating_hours_reason": "2225 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting.",
+      "max_unmet_cooling_hours": 470,
+      "max_unmet_cooling_hours_reason": "426 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/chw_plant_condenser.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 12780,
-      "max_unmet_heating_hours_reason": "Pre-existing: 11616 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+      "max_unmet_heating_hours": 13700,
+      "max_unmet_heating_hours_reason": "12448 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting.",
+      "max_unmet_cooling_hours": 1790,
+      "max_unmet_cooling_hours_reason": "1622 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/comfort_perimeter_office.yaml": {
       "tier": "fast"
     },
     "examples/cosim_chiller/building.yaml": {
-      "tier": "fast"
+      "tier": "fast",
+      "max_unmet_cooling_hours": 970,
+      "max_unmet_cooling_hours_reason": "877 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/datacenter_crah.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 1300,
-      "max_unmet_heating_hours_reason": "Proportional-only PSZ heating control (`cycling: proportional`) holds the zone below setpoint at steady state, by design: the 5 K supply-temperature ramp needs a zone error to fire. Since #170 (2026-10-25) the ramp reads the start-of-timestep zone temperature (it read the in-iteration one, which did not converge), so it responds one step later: 1,186 h, was 1,015 h (gate added at main 6c9fe4f). Not a regression. The limit is ~10% above that, and the baseline flags any change. An E+-style modulating option is #178; unmet hours in general are #165."
+      "max_unmet_heating_hours": 4010,
+      "max_unmet_heating_hours_reason": "3639 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/doas_fancoil.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 3100,
-      "max_unmet_heating_hours_reason": "Pre-existing: 2817 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+      "max_unmet_heating_hours": 8990,
+      "max_unmet_heating_hours_reason": "8168 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting.",
+      "max_unmet_cooling_hours": 5020,
+      "max_unmet_cooling_hours_reason": "4558 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/doe_retail_standalone.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 14330,
-      "max_unmet_heating_hours_reason": "Pre-existing: 13018 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change.",
-      "max_unmet_cooling_hours": 910,
-      "max_unmet_cooling_hours_reason": "Pre-existing: 826 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+      "max_unmet_heating_hours": 15110,
+      "max_unmet_heating_hours_reason": "13728 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting.",
+      "max_unmet_cooling_hours": 3100,
+      "max_unmet_cooling_hours_reason": "2812 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/heat_pump_rtu.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 420,
-      "max_unmet_heating_hours_reason": "Proportional-only PSZ heating control (`cycling: proportional`) holds the zone below setpoint at steady state, by design: the 5 K supply-temperature ramp needs a zone error to fire. Since #170 (2026-10-25) the ramp reads the start-of-timestep zone temperature (it read the in-iteration one, which did not converge), so it responds one step later: 384 h, was 342 h (gate added at main 6c9fe4f). Not a regression. The limit is ~10% above that, and the baseline flags any change. An E+-style modulating option is #178; unmet hours in general are #165."
+      "max_unmet_heating_hours": 3590,
+      "max_unmet_heating_hours_reason": "3258 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/hotel_pthp.yaml": {
       "tier": "fast"
@@ -66,7 +74,11 @@
       "weather_reason": "Its 10 Denver AMY files (2015-2024) aren't available; one TMY3 year still exercises the parametric runs."
     },
     "examples/office_dual_duct.yaml": {
-      "tier": "fast"
+      "tier": "fast",
+      "max_unmet_heating_hours": 12210,
+      "max_unmet_heating_hours_reason": "11091 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting.",
+      "max_unmet_cooling_hours": 12740,
+      "max_unmet_cooling_hours_reason": "11579 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/office_vrf.yaml": {
       "tier": "fast"
@@ -76,65 +88,75 @@
     },
     "examples/residential_gshp.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 5320,
-      "max_unmet_heating_hours_reason": "Pre-existing: 4835 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+      "max_unmet_heating_hours": 5960,
+      "max_unmet_heating_hours_reason": "5417 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/residential_unitary.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 530,
-      "max_unmet_heating_hours_reason": "Pre-existing: 473 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+      "max_unmet_heating_hours": 3530,
+      "max_unmet_heating_hours_reason": "3203 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/residential_unitary_a205.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 530,
-      "max_unmet_heating_hours_reason": "Pre-existing: 473 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+      "max_unmet_heating_hours": 3560,
+      "max_unmet_heating_hours_reason": "3235 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/residential_unitary_rs0002.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 530,
-      "max_unmet_heating_hours_reason": "Pre-existing: 473 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+      "max_unmet_heating_hours": 3580,
+      "max_unmet_heating_hours_reason": "3252 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/retail_rtu.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 5740,
-      "max_unmet_heating_hours_reason": "Pre-existing: 4285 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. 5219 h since #51 (2026-10-25): the RTU's mixed air now uses both served zones' return air instead of the Sales Area temperature for both, and the Office, which the RTU does not control, runs ~0.6 K colder. The limit is ~10% above that, and the baseline flags any change.",
-      "max_unmet_cooling_hours": 1580,
-      "max_unmet_cooling_hours_reason": "Pre-existing: 1428 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+      "max_unmet_heating_hours": 8910,
+      "max_unmet_heating_hours_reason": "8093 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting.",
+      "max_unmet_cooling_hours": 3820,
+      "max_unmet_cooling_hours_reason": "3466 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/roller_shade_office.yaml": {
       "tier": "fast"
     },
     "examples/simple_heating.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 1180,
-      "max_unmet_heating_hours_reason": "Pre-existing: 1066 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+      "max_unmet_heating_hours": 1570,
+      "max_unmet_heating_hours_reason": "1422 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/vav_a205_fan_and_chiller.yaml": {
-      "tier": "fast"
+      "tier": "fast",
+      "max_unmet_cooling_hours": 1230,
+      "max_unmet_cooling_hours_reason": "1112 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/vav_a205_motor_override.yaml": {
-      "tier": "fast"
+      "tier": "fast",
+      "max_unmet_cooling_hours": 1230,
+      "max_unmet_cooling_hours_reason": "1112 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/vav_chw_plant.yaml": {
-      "tier": "fast"
+      "tier": "fast",
+      "max_unmet_cooling_hours": 970,
+      "max_unmet_cooling_hours_reason": "877 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/vav_chw_plant_a205.yaml": {
-      "tier": "fast"
+      "tier": "fast",
+      "max_unmet_cooling_hours": 970,
+      "max_unmet_cooling_hours_reason": "877 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/vav_reheat.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 20230,
-      "max_unmet_heating_hours_reason": "Pre-existing: 18389 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change. The AHU preheat never fires and reheat is electric (noted in #151's hand-over)."
+      "max_unmet_heating_hours": 26950,
+      "max_unmet_heating_hours_reason": "24492 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "prototype_tests/apartment/ApartmentMidRise_Boulder.yaml": {
       "tier": "slow",
-      "heavy": true
+      "heavy": true,
+      "max_unmet_cooling_hours": 1600,
+      "max_unmet_cooling_hours_reason": "1446 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "prototype_tests/hospital/Hospital_STD2022_Boulder.yaml": {
       "tier": "slow",
       "heavy": true,
-      "max_unmet_cooling_hours": 360,
-      "max_unmet_cooling_hours_reason": "Pre-existing: 324 h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change."
+      "max_unmet_cooling_hours": 1940,
+      "max_unmet_cooling_hours_reason": "1759 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "prototype_tests/large_office/LargeOffice_Boulder.yaml": {
       "tier": "local",
