@@ -383,7 +383,7 @@
         "name": { "type": "string" },
         "design_temp": { "type": "number", "description": "Design dry-bulb temperature [C]." },
         "daily_range": { "type": "number", "description": "Daily temperature range [C]." },
-        "humidity_type": { "type": "string", "enum": ["wetbulb", "dewpoint", "humidity_ratio", "relative_humidity"], "description": "How humidity_value is specified." },
+        "humidity_type": { "type": "string", "enum": ["wetbulb", "dewpoint", "humidity_ratio", "enthalpy", "relative_humidity"], "description": "How humidity_value is specified: wet-bulb or dew point [C], humidity ratio [kg/kg], enthalpy [J/kg] or constant relative humidity [%]." },
         "humidity_value": { "type": "number", "description": "Humidity value (units depend on humidity_type)." },
         "pressure": { "type": "number", "description": "Barometric pressure [Pa]." },
         "wind_speed": { "type": "number", "description": "Wind speed [m/s]." },

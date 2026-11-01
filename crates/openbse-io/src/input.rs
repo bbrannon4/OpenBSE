@@ -2399,7 +2399,9 @@ pub struct DesignDayInput {
     pub name: String,
     pub design_temp: f64,
     pub daily_range: f64,
-    pub humidity_type: String,
+    /// What `humidity_value` means.
+    pub humidity_type: DesignDayHumidityType,
+    /// Coincident humidity, in the units of `humidity_type`.
     pub humidity_value: f64,
     pub pressure: f64,
     pub wind_speed: f64,
@@ -2439,6 +2441,25 @@ pub struct DesignDayInput {
     /// ```
     #[serde(default)]
     pub cooling_setpoint_schedule: Option<Vec<f64>>,
+}
+
+/// How a design day's `humidity_value` is expressed (E+ `SizingPeriod:DesignDay`
+/// "Humidity Condition Type"). An unknown name fails at parse time.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DesignDayHumidityType {
+    /// Coincident wet-bulb at the maximum dry-bulb [°C].
+    #[serde(alias = "wet_bulb")]
+    Wetbulb,
+    /// Dew point [°C].
+    #[serde(alias = "dew_point")]
+    Dewpoint,
+    /// Humidity ratio [kg/kg].
+    HumidityRatio,
+    /// Enthalpy at the maximum dry-bulb [J/kg].
+    Enthalpy,
+    /// Relative humidity, constant through the day [%].
+    RelativeHumidity,
 }
 
 // ─── Zone Group Input ─────────────────────────────────────────────────────────
