@@ -100,14 +100,8 @@ pub fn local_solar_hour(
 //   2. Circumsolar brightening — directional, reduced by sunlit fraction
 //   3. Horizon brightening — near-horizon band, reduced by DifShdgRatioHoriz
 //
-// For the TOTAL incident radiation, Hay-Davies (1980) is used (proven accurate
-// for building energy simulation). The Perez decomposition is used ONLY to
-// determine what fraction of the Hay-Davies isotropic term is truly isotropic
-// vs. horizon-like, so that diffuse shading can be applied correctly.
-//
 // References:
 //   Perez et al. (1990) Solar Energy 44(5):271-289
-//   Hay & Davies (1980), Proc. 1st Canadian Solar Radiation Data Workshop
 //   EnergyPlus SolarShading.cc, AnisoSkyViewFactors()
 
 /// Perez 1990 sky clearness bin boundaries.
@@ -143,7 +137,8 @@ const PEREZ_F23: [f64; 8] = [
 /// vs. circumsolar vs. horizon brightening. This decomposition is needed for
 /// proper application of diffuse sky shading ratios.
 ///
-/// Returns (F1, F2) where F1 ≥ 0. F2 can be slightly negative for overcast.
+/// Returns (F1, F2) where F1 ≥ 0. F2 is negative under many overcast skies. As in
+/// E+, the zenith angle is the true one, which must be below 90° (sun up).
 pub fn perez_brightness_coefficients(
     beam_normal: f64,
     diffuse_horiz: f64,
@@ -151,7 +146,7 @@ pub fn perez_brightness_coefficients(
     _day_of_year: u32,
     elevation_m: f64,
 ) -> (f64, f64) {
-    if diffuse_horiz < 1.0 {
+    if diffuse_horiz <= 0.0 {
         return (0.0, 0.0);
     }
 
@@ -165,22 +160,13 @@ pub fn perez_brightness_coefficients(
     //   AirMassH = (1 - 0.1 * Elevation/1000)
     //   AirMass = AirMassH / cos(z)                        for z <= 75°
     //   AirMass = AirMassH / (cos(z) + 0.15*(93.9-z)^-1.253)  for z > 75°
-    let air_mass_h = (1.0 - 0.1 * elevation_m / 1000.0).max(0.5);
-    let cz = zenith_angle_rad.cos().clamp(0.0, 1.0);
+    let air_mass_h = 1.0 - 0.1 * elevation_m / 1000.0;
+    let cz = zenith_angle_rad.cos();
     let zenith_deg = zenith_angle_rad.to_degrees();
     let air_mass = if zenith_deg <= 75.0 {
-        if cz > 1e-6 {
-            (air_mass_h / cz).min(40.0)
-        } else {
-            40.0
-        }
+        air_mass_h / cz
     } else {
-        let denom = cz + 0.15 * (93.9 - zenith_deg).max(0.01).powf(-1.253);
-        if denom > 0.0 {
-            (air_mass_h / denom).min(40.0)
-        } else {
-            40.0
-        }
+        air_mass_h / (cz + 0.15 * (93.9 - zenith_deg).powf(-1.253))
     };
     let delta = diffuse_horiz * air_mass / 1353.0;
 
@@ -265,10 +251,12 @@ pub struct IncidentSolarComponents {
     /// Directional (from sun direction), shaded like beam by overhangs.
     pub circumsolar: f64,
     /// Isotropic sky diffuse component [W/m²] (Perez (1-F1) term).
-    /// Uniform sky dome contribution, reduced by DifShdgRatioIsoSky.
+    /// Uniform sky dome contribution, reduced by DifShdgRatioIsoSky. May be
+    /// slightly negative when F1 exceeds 1.
     pub sky_diffuse: f64,
     /// Horizon brightening diffuse component [W/m²] (Perez F2 term).
-    /// Near-horizon band contribution, reduced by DifShdgRatioHoriz.
+    /// Near-horizon band contribution, reduced by DifShdgRatioHoriz. Negative
+    /// when F2 is, as under many overcast skies.
     pub horizon: f64,
     /// Ground-reflected diffuse component [W/m²].
     /// Not affected by sky shading (overhangs don't block ground reflection).
@@ -328,20 +316,14 @@ pub fn incident_solar_components(
     //   3. Horizon:     DHI × F2 × sin(tilt)
     //
     // where F1, F2 are the Perez brightness coefficients from 8 sky clearness
-    // bins, a = max(0, cos_aoi), b = max(cos(85°), cos_zenith).
+    // bins, a = max(0, cos_aoi), b = max(cos(85°), cos_zenith). The 85° limit
+    // applies only to this denominator; the coefficients use the true zenith.
     //
-    // This replaces the simpler Hay-Davies (1980) model which lacks horizon
-    // brightening. The Perez model matches EnergyPlus and is required by
-    // ASHRAE 140-2023 Section 7.2.1.3.1.
-    //
-    // Shading treatment in heat_balance.rs:
-    //   - Circumsolar: multiplied by sunlit fraction (directional like beam)
-    //   - Isotropic: passes through unshaded (CS-only mode)
-    //   - Horizon: passes through unshaded (near-horizon, not directional)
-    //
-    // Reference: Perez et al. (1990) Solar Energy 44(5):271-289.
+    // F2 is often negative under overcast skies, so the horizon term may darken
+    // the surface. E+ limits only the sum of the three, after shading, at zero
+    // (`SurfAnisoSkyMult`): see `sky_diffuse_after_shading`.
 
-    let cos_z = solar_pos.cos_zenith.max(0.087);
+    let cos_z = solar_pos.cos_zenith;
     let zenith_rad = cos_z.acos();
     let vf_sky = (1.0 + tilt.cos()) / 2.0;
     let sin_tilt = tilt.sin();
@@ -355,33 +337,49 @@ pub fn incident_solar_components(
         elevation_m,
     );
 
-    // Circumsolar: directional component (shaded by sunlit fraction)
-    // a/b ratio amplifies when surface normal points sunward better than horizontal
-    let a = cos_aoi.max(0.0);
-    let b = cos_z.max(0.0872); // cos(85°) ≈ 0.0872
-    let i_circumsolar = (diffuse_horiz * f1 * a / b).max(0.0);
+    // Circumsolar: directional component (shaded by sunlit fraction).
+    // With the sun within 5° of the horizon, an almost flat surface takes a
+    // factor of 1, E+'s guard against the capped denominator.
+    const COS_85_DEG: f64 = 0.0871557;
+    let mut circumsolar_factor = cos_aoi / cos_z.max(COS_85_DEG);
+    if circumsolar_factor > 0.0 && cos_z < COS_85_DEG && surface_tilt_deg < 2.0 {
+        circumsolar_factor = 1.0;
+    }
+    let i_circumsolar = diffuse_horiz * f1 * circumsolar_factor;
 
-    // Isotropic: uniform sky dome component (passes through unshaded)
-    let i_iso_sky = (diffuse_horiz * (1.0 - f1) * vf_sky).max(0.0);
+    // Isotropic: uniform sky dome component
+    let i_iso_sky = diffuse_horiz * (1.0 - f1) * vf_sky;
 
-    // Horizon: near-horizon brightening band (passes through unshaded)
-    // Significant for vertical surfaces where sin(tilt) = 1.0
-    let i_horizon = (diffuse_horiz * f2 * sin_tilt).max(0.0);
+    // Horizon: near-horizon brightening band, significant for vertical surfaces
+    let i_horizon = diffuse_horiz * f2 * sin_tilt;
 
-    let sky_total = i_iso_sky + i_circumsolar + i_horizon;
+    let sky_total = sky_diffuse_after_shading(i_iso_sky, i_circumsolar, i_horizon, 1.0, 1.0, 1.0);
 
     // ── Ground-reflected component ──────────────────────────────────────
     let i_ground = global_horiz * ground_reflectance * (1.0 - tilt.cos()) / 2.0;
 
     IncidentSolarComponents {
         beam: i_beam.max(0.0),
-        circumsolar: i_circumsolar.max(0.0),
-        sky_diffuse: i_iso_sky.max(0.0),
-        horizon: i_horizon.max(0.0),
+        circumsolar: i_circumsolar,
+        sky_diffuse: i_iso_sky,
+        horizon: i_horizon,
         ground_diffuse: i_ground.max(0.0),
         total: (i_beam + sky_total + i_ground).max(0.0),
         cos_aoi,
     }
+}
+
+/// Sky diffuse on a surface after shading each Perez component, limited only as
+/// a whole at zero, E+ `SurfAnisoSkyMult`. The horizon component can be negative.
+pub fn sky_diffuse_after_shading(
+    isotropic: f64,
+    circumsolar: f64,
+    horizon: f64,
+    isotropic_ratio: f64,
+    sunlit_fraction: f64,
+    horizon_ratio: f64,
+) -> f64 {
+    (isotropic * isotropic_ratio + circumsolar * sunlit_fraction + horizon * horizon_ratio).max(0.0)
 }
 
 /// Calculate the angle of incidence between sunlight and a surface [radians].
@@ -1523,6 +1521,98 @@ mod tests {
         // Midnight at equator
         let pos = solar_position(80, 0.0, 0.0);
         assert!(!pos.is_sunup);
+    }
+
+    /// E+ `AnisoSkyViewFactors` in closed form for checking the code.
+    fn eplus_f1_f2(dni: f64, dhi: f64, z: f64, elevation: f64) -> (f64, f64) {
+        let deg = z.to_degrees();
+        let m_h = 1.0 - 0.1 * elevation / 1000.0;
+        let m = if deg <= 75.0 {
+            m_h / z.cos()
+        } else {
+            m_h / (z.cos() + 0.15 * (93.9 - deg).powf(-1.253))
+        };
+        let k = 1.041 * z.powi(3);
+        let eps = ((dni + dhi) / dhi + k) / (1.0 + k);
+        let delta = dhi * m / 1353.0;
+        let limits = [1.065, 1.23, 1.5, 1.95, 2.8, 4.5, 6.2];
+        let b = limits.iter().position(|&l| eps < l).unwrap_or(7);
+        (
+            (PEREZ_F11[b] + PEREZ_F12[b] * delta + PEREZ_F13[b] * z).max(0.0),
+            PEREZ_F21[b] + PEREZ_F22[b] * delta + PEREZ_F23[b] * z,
+        )
+    }
+
+    fn sun_at_zenith(deg: f64) -> SolarPosition {
+        let z = deg.to_radians();
+        SolarPosition {
+            altitude: PI / 2.0 - z,
+            azimuth: 0.0,
+            cos_zenith: z.cos(),
+            is_sunup: true,
+        }
+    }
+
+    #[test]
+    fn perez_uses_the_true_zenith_at_low_sun() {
+        // At 88° the old cap would have evaluated everything at 85°.
+        let sun = sun_at_zenith(88.0);
+        let (f1, f2) = eplus_f1_f2(100.0, 50.0, 88f64.to_radians(), 1600.0);
+        let (dhi, dni) = (50.0, 100.0);
+        let c = incident_solar_components(dni, dhi, 0.0, &sun, 180.0, 90.0, 0.2, 200, 1600.0);
+        let cos_aoi = c.cos_aoi;
+        assert!((c.sky_diffuse - dhi * (1.0 - f1) * 0.5).abs() < 1e-9);
+        assert!((c.horizon - dhi * f2).abs() < 1e-9);
+        assert!((c.circumsolar - dhi * f1 * cos_aoi / 0.0871557).abs() < 1e-9);
+    }
+
+    #[test]
+    fn negative_horizon_term_lowers_the_sum_and_the_sum_stops_at_zero() {
+        // Overcast and low sun: F2 is negative. E+ keeps it in the sum.
+        let (dni, dhi) = (0.0, 200.0);
+        let sun = sun_at_zenith(40.0);
+        let (f1, f2) = eplus_f1_f2(dni, dhi, 40f64.to_radians(), 0.0);
+        assert!(f2 < 0.0, "test needs an overcast bin: F2 = {f2}");
+        let c = incident_solar_components(dni, dhi, 0.0, &sun, 180.0, 90.0, 0.2, 200, 0.0);
+        assert!(c.horizon < 0.0);
+        let cs = dhi * f1 * c.cos_aoi / 40f64.to_radians().cos();
+        let expected = dhi * (1.0 - f1) * 0.5 + cs + dhi * f2;
+        assert!((c.total - expected).abs() < 1e-9, "{} {expected}", c.total);
+        // An isotropic part shaded away leaves only the negative term: zero.
+        assert_eq!(
+            sky_diffuse_after_shading(10.0, 0.0, -5.0, 0.0, 1.0, 1.0),
+            0.0
+        );
+        assert_eq!(
+            sky_diffuse_after_shading(10.0, 2.0, -5.0, 1.0, 1.0, 1.0),
+            7.0
+        );
+    }
+
+    #[test]
+    fn flat_surface_circumsolar_factor_is_one_with_a_very_low_sun() {
+        let sun = sun_at_zenith(87.0);
+        let (f1, _) = eplus_f1_f2(50.0, 40.0, 87f64.to_radians(), 0.0);
+        assert!(f1 > 0.0);
+        let flat = incident_solar_components(50.0, 40.0, 0.0, &sun, 180.0, 1.0, 0.2, 200, 0.0);
+        assert!((flat.circumsolar - 40.0 * f1).abs() < 1e-9);
+        let tilted = incident_solar_components(50.0, 40.0, 0.0, &sun, 180.0, 3.0, 0.2, 200, 0.0);
+        let factor = tilted.circumsolar / (40.0 * f1);
+        assert!((factor - tilted.cos_aoi / 0.0871557).abs() < 1e-9);
+    }
+
+    #[test]
+    fn sun_up_follows_cos_zenith_not_a_refraction_band() {
+        // Solstice noon is up; half a degree below the horizon is not.
+        assert!(solar_position(172, 12.0, 40.0).is_sunup);
+        let t = (0..2400)
+            .map(|h| h as f64 / 100.0)
+            .find(|&h| {
+                let p = solar_position(172, h, 40.0);
+                p.altitude < -0.5_f64.to_radians() && p.altitude > -0.8_f64.to_radians()
+            })
+            .expect("a time in the band");
+        assert!(!solar_position(172, t, 40.0).is_sunup);
     }
 
     #[test]
