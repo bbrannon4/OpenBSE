@@ -108,17 +108,21 @@ envelope reaches a periodic state (@sec-sizing). Its inputs are:
 - the pressure and wind speed;
 - the month and day.
 
-**Heating design days** hold $T_\text{dd}$ all day, with no solar
-irradiance, 10/10 opaque sky cover and the given wind speed.
-
-**Cooling design days** follow a cosine profile, peaking at 15:00 and
-reaching its minimum at 03:00:
+**Temperature.** Both kinds of design day follow ASHRAE's tabulated profile, with a
+peak in hours 14 and 15 and a minimum in hour 5:
 
 $$
-T_\text{o}(h) = T_\text{dd} - \Delta T_\text{dr}\cdot\tfrac12\left[1 - \cos\frac{\pi(h - 15)}{12}\right],
+T_\text{o}(h) = T_\text{dd} - f_h\,\Delta T_\text{dr}
 $$ {#eq-dd-temp}
 
-and a clear-sky irradiance:
+with $f_h$ for hours 1–24 of 0.88, 0.92, 0.95, 0.98, 1.00, 0.98, 0.91, 0.74, 0.55,
+0.38, 0.23, 0.13, 0.05, 0, 0, 0.06, 0.14, 0.24, 0.39, 0.50, 0.59, 0.68, 0.75, 0.82
+[@ashrae2021fund, Ch. 14], and each timestep interpolated linearly within its hour.
+
+**Heating design days** have no solar irradiance, 10/10 opaque sky cover and the given
+wind speed.
+
+**Cooling design days** have 1/10 sky cover and a clear-sky irradiance:
 
 $$
 I_\text{DN} = 1080\,e^{-0.174/\sin\alpha}\ \text{W/m}^2, \qquad
@@ -128,27 +132,23 @@ $$ {#eq-dd-solar}
 with $1/\sin\alpha$ capped at 20. Here $\alpha$ is the solar altitude, from
 Cooper's declination $\delta = 23.45° \sin[2\pi(284+n)/365]$ and an hour
 angle taken at the half hour of clock time, with no longitude or
-equation-of-time correction. The sky cover is 1/10.
+equation-of-time correction.
 
-**Humidity.** During sizing the outdoor air is built from a fixed relative
-humidity: 50% on heating days and 30% on cooling days. `humidity_type` is
-not read, and `humidity_value` is used only as the dew point for the sky
-temperature ([#198](https://github.com/bbrannon4/OpenBSE/issues/198)).
+**Humidity.** `humidity_type` says what `humidity_value` is: `wetbulb` or `dewpoint`
+[°C], `humidity_ratio` [kg/kg], `enthalpy` [J/kg] or `relative_humidity` [%]. Any other
+name fails when the model is read. All but the last give one humidity ratio for the
+day, the wet-bulb and enthalpy at the maximum dry-bulb, capped at saturation at each
+hour's dry-bulb. Relative humidity is held constant through the day. The outdoor air
+and the dew point for the sky temperature both come from this.
 
-**Comparison with EnergyPlus.** EnergyPlus `SizingPeriod:DesignDay`
-(`WeatherManager::SetUpDesignDay`) builds the profile and the sky as follows:
-
-- **Temperature.** ASHRAE's tabulated daily-range multipliers, whose minimum
-  falls at 05:00–06:00 [@ashrae2021fund, Ch. 14].
-- **Humidity.** From the humidity condition type (wet-bulb, dew point,
-  humidity ratio or enthalpy).
-- **Sky.** The ASHRAE clear sky, or the ASHRAE tau model when `taub` and
-  `taud` are given.
-
-OpenBSE accepts `taub` and `taud` but does not use them
-([#50](https://github.com/bbrannon4/OpenBSE/issues/50)). The profile, the
-humidity and the irradiance all deviate from EnergyPlus
-([#198](https://github.com/bbrannon4/OpenBSE/issues/198)).
+**Comparison with EnergyPlus.** `SizingPeriod:DesignDay`
+(`WeatherManager::SetUpDesignDay`) uses the same temperature multipliers
+(`DefaultTempRangeMult`) and the same constant-humidity-ratio rule, and also accepts
+schedules for each. EnergyPlus's relative-humidity type is an hourly schedule, where
+the constant value here is a simplification. Its sky is the ASHRAE clear sky, or the
+ASHRAE tau model when `taub` and `taud` are given; OpenBSE accepts `taub` and `taud`
+but does not use them ([#50](https://github.com/bbrannon4/OpenBSE/issues/50)), and sky
+cover and wind direction are fixed.
 
 ## Solar position {#sec-solar-position}
 
@@ -446,9 +446,8 @@ glycol properties at the fluid temperature (`FluidProperties`); between 0 and
 - [#287](https://github.com/bbrannon4/OpenBSE/issues/287): no ground-reflectance input.
 - [#197](https://github.com/bbrannon4/OpenBSE/issues/197): the sky
   temperature ignores the weather file's horizontal infrared.
-- [#198](https://github.com/bbrannon4/OpenBSE/issues/198): design-day
-  humidity is a fixed relative humidity; the temperature profile is not
-  ASHRAE's.
+- Design days have fixed sky cover and wind direction, and no temperature or
+  humidity schedules.
 - [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no daylight saving
   time or start-day-of-week input.
 - [#200](https://github.com/bbrannon4/OpenBSE/issues/200): constant and
@@ -456,4 +455,3 @@ glycol properties at the fluid temperature (`FluidProperties`); between 0 and
   latent gains.
 - [#201](https://github.com/bbrannon4/OpenBSE/issues/201): ground-surface
   temperatures are interpolated rather than held per month; unused
-  design-day types.

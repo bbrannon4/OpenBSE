@@ -22,9 +22,11 @@
 //! Reference: ASHRAE Handbook — Fundamentals, Chapter 18 (Nonresidential
 //! Cooling and Heating Load Calculations).
 
+use crate::input::DesignDayHumidityType;
 use openbse_core::ports::{EnvelopeSolver, SimulationContext, ZoneHvacConditions};
 use openbse_core::types::{DayType, TimeStep};
 use openbse_envelope::BuildingEnvelope;
+use openbse_psychrometrics as psych;
 use openbse_weather::WeatherHour;
 use std::collections::HashMap;
 use std::path::Path;
@@ -103,21 +105,72 @@ pub struct SizingResult {
     pub system_volume_flow: f64,
 }
 
+/// ASHRAE fraction of the daily range below the maximum for hours 1–24
+/// (*Fundamentals* 2009 Ch. 14 Table 6), E+ `DefaultTempRangeMult`.
+const DAILY_RANGE_FRACTION: [f64; 24] = [
+    0.88, 0.92, 0.95, 0.98, 1.00, 0.98, 0.91, 0.74, 0.55, 0.38, 0.23, 0.13, 0.05, 0.00, 0.00, 0.06,
+    0.14, 0.24, 0.39, 0.50, 0.59, 0.68, 0.75, 0.82,
+];
+
+/// The design day's dry-bulb at the end of hour `h` (1–24).
+fn design_dry_bulb(dd: &DesignDayInput, h: u32) -> f64 {
+    dd.design_temp - dd.daily_range * DAILY_RANGE_FRACTION[(h as usize - 1) % 24]
+}
+
+/// Set the moisture fields of a design-day record from its dry-bulb, following
+/// E+ `SetUpDesignDay`: every humidity type but relative humidity fixes one
+/// humidity ratio for the day from the maximum dry-bulb, and the air saturates
+/// if it cools below that ratio's dew point.
+fn set_design_humidity(wh: &mut WeatherHour, dd: &DesignDayInput) {
+    let p = dd.pressure;
+    let w = match dd.humidity_type {
+        DesignDayHumidityType::Wetbulb => {
+            psych::w_fn_tdb_twb_pb(dd.design_temp, dd.humidity_value.min(dd.design_temp), p)
+        }
+        DesignDayHumidityType::Dewpoint => psych::w_fn_tdp_pb(dd.humidity_value, p),
+        DesignDayHumidityType::HumidityRatio => dd.humidity_value,
+        DesignDayHumidityType::Enthalpy => psych::w_fn_tdb_h(dd.design_temp, dd.humidity_value),
+        DesignDayHumidityType::RelativeHumidity => {
+            psych::w_fn_tdb_rh_pb(wh.dry_bulb, dd.humidity_value / 100.0, p)
+        }
+    };
+    let w = w.min(psych::w_fn_tdb_rh_pb(wh.dry_bulb, 1.0, p));
+    wh.rel_humidity = 100.0 * psych::rh_fn_tdb_w_pb(wh.dry_bulb, w, p);
+    wh.dew_point = psych::tdp_fn_w_pb(w, p).min(wh.dry_bulb);
+}
+
+/// The weather for one sizing timestep: E+ interpolates a design day's hourly
+/// dry-bulb profile within the hour, and recomputes humidity from the result.
+/// The day repeats, so hour 1 follows hour 24.
+fn design_step_weather(
+    dd: &DesignDayInput,
+    weather_hours: &[WeatherHour],
+    hour_index: usize,
+    sub: u32,
+    steps: u32,
+) -> WeatherHour {
+    let n = weather_hours.len();
+    let prev = &weather_hours[(hour_index + n - 1) % n];
+    let next = &weather_hours[(hour_index + 1) % n];
+    let mut wh = weather_hours[hour_index].at_timestep(prev, next, sub, steps);
+    set_design_humidity(&mut wh, dd);
+    wh
+}
+
 /// Generate 24 synthetic WeatherHour entries for a heating design day.
 ///
-/// Heating design days use constant temperature (no daily range),
-/// no solar radiation, and the specified wind speed.
+/// Heating design days have no solar radiation and the specified wind speed.
 fn generate_heating_design_weather(dd: &DesignDayInput) -> Vec<WeatherHour> {
     let mut hours = Vec::with_capacity(24);
     for h in 1..=24u32 {
-        hours.push(WeatherHour {
+        let mut wh = WeatherHour {
             year: 2024,
             month: dd.month,
             day: dd.day,
             hour: h,
-            dry_bulb: dd.design_temp,
-            dew_point: dd.humidity_value.min(dd.design_temp),
-            rel_humidity: 50.0,
+            dry_bulb: design_dry_bulb(dd, h),
+            dew_point: 0.0,
+            rel_humidity: 0.0,
             pressure: dd.pressure,
             global_horiz_rad: 0.0, // no solar for heating design
             direct_normal_rad: 0.0,
@@ -126,27 +179,21 @@ fn generate_heating_design_weather(dd: &DesignDayInput) -> Vec<WeatherHour> {
             wind_direction: 0.0,
             opaque_sky_cover: 10.0,
             horiz_ir_rad: 300.0,
-        });
+        };
+        set_design_humidity(&mut wh, dd);
+        hours.push(wh);
     }
     hours
 }
 
 /// Generate 24 synthetic WeatherHour entries for a cooling design day.
 ///
-/// Cooling design days use a sinusoidal temperature profile based on
-/// the design temp and daily range. Solar is estimated from a clear-sky model.
+/// Cooling design days use the ASHRAE daily-range profile below the design
+/// temperature. Solar is estimated from a clear-sky model.
 fn generate_cooling_design_weather(dd: &DesignDayInput, latitude: f64) -> Vec<WeatherHour> {
     let mut hours = Vec::with_capacity(24);
 
     for h in 1..=24u32 {
-        // ASHRAE sinusoidal temperature profile
-        // Peak at hour 15 (3 PM), minimum at hour 3-5 (pre-dawn)
-        // T(h) = T_max - DR × f(h), where f(h) = 0.5 × (1 - cos(angle))
-        //   f = 0 at h=15 → T = T_max (design temperature)
-        //   f = 1 at h=3  → T = T_max - DR (minimum)
-        let hour_angle = std::f64::consts::PI * (h as f64 - 15.0) / 12.0;
-        let t_db = dd.design_temp - dd.daily_range * 0.5 * (1.0 - hour_angle.cos());
-
         // Simple clear-sky solar estimate
         let doy = {
             let days_in_months = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
@@ -171,14 +218,14 @@ fn generate_cooling_design_weather(dd: &DesignDayInput, latitude: f64) -> Vec<We
             (0.0, 0.0)
         };
 
-        hours.push(WeatherHour {
+        let mut wh = WeatherHour {
             year: 2024,
             month: dd.month,
             day: dd.day,
             hour: h,
-            dry_bulb: t_db,
-            dew_point: dd.humidity_value.min(t_db),
-            rel_humidity: 30.0,
+            dry_bulb: design_dry_bulb(dd, h),
+            dew_point: 0.0,
+            rel_humidity: 0.0,
             pressure: dd.pressure,
             global_horiz_rad: (direct * sin_altitude + diffuse).max(0.0),
             direct_normal_rad: direct.max(0.0),
@@ -187,7 +234,9 @@ fn generate_cooling_design_weather(dd: &DesignDayInput, latitude: f64) -> Vec<We
             wind_direction: 0.0,
             opaque_sky_cover: 1.0, // clear sky for cooling design
             horiz_ir_rad: 350.0,
-        });
+        };
+        set_design_humidity(&mut wh, dd);
+        hours.push(wh);
     }
     hours
 }
@@ -238,7 +287,6 @@ fn run_single_design_day(
     steps: SizingSteps,
 ) -> StepLoads {
     let is_heating_dd = is_heating_design_day(dd);
-    let rh = if is_heating_dd { 0.5 } else { 0.3 };
 
     // Internal gains mode: use the design day's explicit setting, or default
     // based on day_type (heating → Off, cooling → Full).
@@ -320,7 +368,7 @@ fn run_single_design_day(
     for day_num in 0..steps.warmup_days {
         let is_last_day = day_num == steps.warmup_days - 1;
 
-        for (i, wh) in weather_hours.iter().enumerate() {
+        for i in 0..weather_hours.len() {
             let hour = (i + 1) as u32;
 
             // ── Update zone setpoints from design-day hourly schedule ─────
@@ -367,6 +415,7 @@ fn run_single_design_day(
             // Run sub-hourly timesteps within each hour
             // (matches the simulation timestep so CTF coefficients are correct)
             for sub in 0..tph {
+                let wh = &design_step_weather(dd, weather_hours, i, sub + 1, tph);
                 let ctx = SimulationContext {
                     timestep: TimeStep {
                         month: dd.month,
@@ -377,11 +426,7 @@ fn run_single_design_day(
                         sim_time_s: (day_num * 86400 + i * 3600) as f64 + sub as f64 * dt,
                         dt,
                     },
-                    outdoor_air: openbse_psychrometrics::MoistAirState::from_tdb_rh(
-                        wh.dry_bulb,
-                        rh,
-                        wh.pressure,
-                    ),
+                    outdoor_air: wh.to_air_state(),
                     day_type: DayType::SizingDay,
                     is_sizing: true,
                     sizing_internal_gains: gains_mode,
@@ -905,8 +950,14 @@ fn generate_monthly_cooling_dds(
             name: format!("{} (auto-{})", anchor.name, month_name),
             design_temp: scaled_temp,
             daily_range: anchor.daily_range,
-            humidity_type: anchor.humidity_type.clone(),
-            humidity_value: anchor.humidity_value + delta * 0.5, // partial humid scaling
+            humidity_type: anchor.humidity_type,
+            humidity_value: match anchor.humidity_type {
+                // Partial humid scaling; the other types carry no temperature.
+                DesignDayHumidityType::Wetbulb | DesignDayHumidityType::Dewpoint => {
+                    anchor.humidity_value + delta * 0.5
+                }
+                _ => anchor.humidity_value,
+            },
             pressure: anchor.pressure,
             wind_speed: anchor.wind_speed,
             month,
@@ -1360,6 +1411,102 @@ fn write_system_sizing_csv(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn design_day(humidity_type: DesignDayHumidityType, humidity_value: f64) -> DesignDayInput {
+        DesignDayInput {
+            name: "DD".to_string(),
+            design_temp: 35.0,
+            daily_range: 10.0,
+            humidity_type,
+            humidity_value,
+            pressure: 101_325.0,
+            wind_speed: 3.0,
+            month: 7,
+            day: 21,
+            day_type: "summer".to_string(),
+            internal_gains: None,
+            taub: None,
+            taud: None,
+            cooling_setpoint_schedule: None,
+        }
+    }
+
+    #[test]
+    fn dry_bulb_follows_the_ashrae_profile() {
+        let dd = design_day(DesignDayHumidityType::Wetbulb, 24.0);
+        let hours = generate_cooling_design_weather(&dd, 40.0);
+        // Peak in hours 14–15, minimum in hour 5, E+ DefaultTempRangeMult.
+        assert_eq!(hours[13].dry_bulb, 35.0);
+        assert_eq!(hours[14].dry_bulb, 35.0);
+        assert_eq!(hours[4].dry_bulb, 25.0);
+        assert!((hours[0].dry_bulb - (35.0 - 8.8)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn step_weather_interpolates_within_the_hour() {
+        let dd = design_day(DesignDayHumidityType::Wetbulb, 15.0);
+        let hours = generate_cooling_design_weather(&dd, 40.0);
+        // The first hour starts from the last: fractions 0.82 then 0.88.
+        let t = design_step_weather(&dd, &hours, 0, 2, 4).dry_bulb;
+        assert!((t - (35.0 - 8.5)).abs() < 1e-12);
+        assert_eq!(
+            design_step_weather(&dd, &hours, 7, 4, 4).dry_bulb,
+            hours[7].dry_bulb
+        );
+    }
+
+    #[test]
+    fn humidity_type_sets_the_outdoor_humidity_ratio() {
+        use DesignDayHumidityType::*;
+        let p = 101_325.0;
+        let w_of = |dd: &DesignDayInput| {
+            generate_cooling_design_weather(dd, 40.0)[14]
+                .to_air_state()
+                .w
+        };
+        // The issue's case: 35 °C / 24 °C wet-bulb is about 0.0144 kg/kg, not
+        // the 0.0107 kg/kg of the old fixed 30% RH.
+        let w_wb = w_of(&design_day(Wetbulb, 24.0));
+        assert!((w_wb - psych::w_fn_tdb_twb_pb(35.0, 24.0, p)).abs() < 1e-6);
+        assert!((w_wb - 0.0144).abs() < 0.0005, "{w_wb}");
+
+        let w_dp = w_of(&design_day(Dewpoint, 18.0));
+        assert!((w_dp - psych::w_fn_tdp_pb(18.0, p)).abs() < 1e-6);
+
+        assert!((w_of(&design_day(HumidityRatio, 0.012)) - 0.012).abs() < 1e-6);
+
+        let h = psych::h_fn_tdb_w(35.0, 0.012);
+        assert!((w_of(&design_day(Enthalpy, h)) - 0.012).abs() < 1e-5);
+
+        let w_rh = w_of(&design_day(RelativeHumidity, 40.0));
+        assert!((w_rh - psych::w_fn_tdb_rh_pb(35.0, 0.4, p)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn humidity_ratio_stays_constant_until_the_air_saturates() {
+        let dd = design_day(DesignDayHumidityType::Wetbulb, 24.0);
+        let hours = generate_cooling_design_weather(&dd, 40.0);
+        let (peak, night) = (hours[14].to_air_state().w, hours[4].to_air_state().w);
+        let w_sat_night = psych::w_fn_tdb_rh_pb(25.0, 1.0, dd.pressure);
+        assert!(peak < w_sat_night);
+        assert!((peak - night).abs() < 1e-6);
+        // Humid enough to saturate at night: capped at saturation, as E+ caps RH.
+        let dd = DesignDayInput {
+            daily_range: 20.0,
+            ..design_day(DesignDayHumidityType::Wetbulb, 28.0)
+        };
+        let hours = generate_cooling_design_weather(&dd, 40.0);
+        assert!((hours[4].rel_humidity - 100.0).abs() < 1e-6);
+        assert!((hours[4].dew_point - hours[4].dry_bulb).abs() < 1e-3);
+    }
+
+    #[test]
+    fn unknown_humidity_type_is_rejected() {
+        assert!(serde_yaml::from_str::<DesignDayHumidityType>("wetbulb").is_ok());
+        assert!(serde_yaml::from_str::<DesignDayHumidityType>("wet_bulb").is_ok());
+        assert!(serde_yaml::from_str::<DesignDayHumidityType>("enthalpy").is_ok());
+        assert!(serde_yaml::from_str::<DesignDayHumidityType>("wetbulbb").is_err());
+    }
 
     fn steps(loads: &[(u32, f64)]) -> StepLoads {
         loads
