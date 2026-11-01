@@ -170,8 +170,10 @@ with $V_{oz} = R_pP_z(t) + R_aA_z$, no less than the minimum fraction. A fixed
 `VentilationRateProcedure` [@eplus-engref-25-2, "Outdoor Air System"]. OpenBSE's
 maximum temperature and maximum heating fraction are hard-coded, and a higher
 minimum makes the clamp panic
-([#256](https://github.com/bbrannon4/OpenBSE/issues/256)). @eq-vrp omits the
-absolute and ACH terms ([#231](https://github.com/bbrannon4/OpenBSE/issues/231)).
+([#256](https://github.com/bbrannon4/OpenBSE/issues/256)). @eq-vrp takes its rates
+from the zone connection's `per_person_oa` and `per_area_oa`, not the zone's
+`outdoor_air`, so it omits the absolute and ACH terms
+([#283](https://github.com/bbrannon4/OpenBSE/issues/283)).
 
 ## Economizers {#sec-economizer}
 
