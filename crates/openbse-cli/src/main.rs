@@ -2804,6 +2804,8 @@ fn main() -> Result<()> {
                 weather_data.hours.len() as u32 - 1
             };
             let prev_weather = &weather_data.hours[prev_hour_idx as usize];
+            let next_hour_idx = (hour_idx as usize + 1) % weather_data.hours.len();
+            let next_weather = &weather_data.hours[next_hour_idx];
             let (month, day) = month_day_from_hour(hour_idx, &days_in_months);
             let hour = (hour_idx % 24) + 1;
 
@@ -2829,12 +2831,12 @@ fn main() -> Result<()> {
             }
 
             for sub in 1..=config.timesteps_per_hour {
-                // Sub-hourly weather interpolation (matches E+ WeatherManager.cc):
-                // EPW data for hour h covers period h-1 to h.
-                // For sub-step s of N: frac = s/N, interpolating prev→current.
-                // At s=N (end of hour), we get the current hour's value exactly.
-                let interp_frac = sub as f64 / config.timesteps_per_hour as f64;
-                let interp_weather = prev_weather.interpolate(weather_hour, interp_frac);
+                let interp_weather = weather_hour.at_timestep(
+                    prev_weather,
+                    next_weather,
+                    sub,
+                    config.timesteps_per_hour,
+                );
                 let outdoor_air = interp_weather.to_air_state();
 
                 let ctx = SimulationContext {
@@ -2872,7 +2874,7 @@ fn main() -> Result<()> {
                         {
                             let doy_b = ctx.timestep.day_of_year();
                             let sh_b = openbse_envelope::solar::local_solar_hour(
-                                ctx.timestep.fractional_hour(),
+                                ctx.timestep.sun_hour(),
                                 env.time_zone,
                                 env.longitude,
                                 doy_b,
@@ -3044,7 +3046,7 @@ fn main() -> Result<()> {
                         {
                             let doy = ctx.timestep.day_of_year();
                             let solar_hour = openbse_envelope::solar::local_solar_hour(
-                                ctx.timestep.fractional_hour(),
+                                ctx.timestep.sun_hour(),
                                 env.time_zone,
                                 env.longitude,
                                 doy,
@@ -4352,7 +4354,7 @@ fn main() -> Result<()> {
                         // beam solar gains, indicating occupants may be in direct sun.
                         let doy_c = ctx.timestep.day_of_year();
                         let solar_hour_c = openbse_envelope::solar::local_solar_hour(
-                            ctx.timestep.fractional_hour(),
+                            ctx.timestep.sun_hour(),
                             env.time_zone,
                             env.longitude,
                             doy_c,

@@ -38,9 +38,21 @@ impl TimeStep {
         doy + self.day
     }
 
-    /// Fractional hour (e.g. 14.5 for 2:30 PM).
-    pub fn fractional_hour(&self) -> f64 {
-        self.hour as f64 - 1.0 + (self.sub_hour as f64 - 0.5) / self.timesteps_per_hour as f64
+    /// Clock hour at which this timestep samples the sun (e.g. 14.5 for 2:30 PM).
+    /// See [`sun_sample_hour`].
+    pub fn sun_hour(&self) -> f64 {
+        sun_sample_hour(self.hour, self.sub_hour, self.timesteps_per_hour)
+    }
+}
+
+/// Clock hour of the sun for a timestep, E+ `FigureSunCosines`: the end of the
+/// step, where sub-hourly irradiance is also sampled, or the middle of the hour
+/// with one step per hour, whose irradiance is that hour's mean.
+pub fn sun_sample_hour(hour: u32, sub_hour: u32, timesteps_per_hour: u32) -> f64 {
+    if timesteps_per_hour <= 1 {
+        hour as f64 - 0.5
+    } else {
+        hour as f64 - 1.0 + sub_hour as f64 / timesteps_per_hour as f64
     }
 }
 

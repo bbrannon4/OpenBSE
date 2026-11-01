@@ -166,14 +166,14 @@ clock time $H{:}00$, as in EPW files.
 **Timestep.** Each hour is split into $N$ timesteps of length
 $\Delta t = 3600/N$ s, indexed $k = 1,\dots,N$. A timestep's state values
 (temperatures, humidity ratios) are those at the end of the timestep, and its
-rates (powers, loads) are averages over it. Where a model needs a single time
-within the step, such as the solar position, the engine uses the midpoint,
+rates (powers, loads) are averages over it. The sun is sampled at the end of the
+step, or at the middle of the hour with one step per hour:
 
 $$
-t_\text{h} = (H - 1) + \frac{k - 1/2}{N},
+t_\text{h} = \begin{cases}H - 1/2 & N = 1\\ (H - 1) + k/N & N > 1\end{cases}
 $$ {#eq-fractional-hour}
 
-in hours of local standard time (`openbse-core/src/types.rs::TimeStep::fractional_hour`).
+in hours of local standard time (`openbse-core/src/types.rs::sun_sample_hour`).
 
 **Weather.** Within an hour, weather values are interpolated linearly between
 the previous and current hourly records; solar irradiance is not

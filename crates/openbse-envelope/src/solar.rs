@@ -9,6 +9,9 @@
 
 use std::f64::consts::PI;
 
+/// The sun counts as up from this cos(zenith), E+ `SunIsUpValue`.
+const SUN_IS_UP_COS_ZENITH: f64 = 1e-5;
+
 /// Solar position result.
 #[derive(Debug, Clone, Copy)]
 pub struct SolarPosition {
@@ -56,10 +59,8 @@ pub fn solar_position(day_of_year: u32, solar_hour: f64, latitude_deg: f64) -> S
         altitude,
         azimuth,
         cos_zenith,
-        // E+ considers the sun "up" when its center is above -0.8333°,
-        // accounting for atmospheric refraction (~34') and solar semi-
-        // diameter (~16').  This extends sunrise by ~5 minutes each day.
-        is_sunup: altitude > -0.8333_f64.to_radians(),
+        // E+ `DataEnvironment::SunIsUpValue`: no solar below this cos(zenith).
+        is_sunup: cos_zenith >= SUN_IS_UP_COS_ZENITH,
     }
 }
 

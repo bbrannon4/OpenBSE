@@ -156,7 +156,7 @@ impl SolarCache {
     const MAGIC: &[u8; 8] = b"OBSE_SOL";
     /// File format version. v2: solar-time longitude correction sign fixed,
     /// so v1 sunlit fractions are stale.
-    const VERSION: u32 = 2;
+    const VERSION: u32 = 3;
 
     /// Compute a geometry fingerprint from all inputs that affect shadow calcs.
     ///
@@ -1987,11 +1987,10 @@ impl BuildingEnvelope {
                 let hour_idx = start_hour + step / timesteps_per_hour as usize;
                 let sub = (step % timesteps_per_hour as usize) as u32 + 1;
 
-                // Compute timestep's fractional hour (matching TimeStep::fractional_hour)
                 let wh = &weather_hours[hour_idx];
                 let hour_1based = (hour_idx % 24) as u32 + 1;
-                let fractional_hour =
-                    hour_1based as f64 - 1.0 + (sub as f64 - 0.5) / timesteps_per_hour as f64;
+                let sun_hour =
+                    openbse_core::types::sun_sample_hour(hour_1based, sub, timesteps_per_hour);
 
                 // Day of year from weather data
                 let doy = {
@@ -2003,8 +2002,7 @@ impl BuildingEnvelope {
                     d + wh.day
                 };
 
-                let solar_hour =
-                    solar::local_solar_hour(fractional_hour, time_zone, longitude, doy);
+                let solar_hour = solar::local_solar_hour(sun_hour, time_zone, longitude, doy);
                 let sol_pos = solar::solar_position(doy, solar_hour, latitude);
 
                 if !sol_pos.is_sunup || sol_pos.altitude <= 0.0 {
@@ -2325,12 +2323,8 @@ impl EnvelopeSolver for BuildingEnvelope {
 
         // 1. Solar position
         let doy = ctx.timestep.day_of_year();
-        let solar_hour = solar::local_solar_hour(
-            ctx.timestep.fractional_hour(),
-            self.time_zone,
-            self.longitude,
-            doy,
-        );
+        let solar_hour =
+            solar::local_solar_hour(ctx.timestep.sun_hour(), self.time_zone, self.longitude, doy);
         let sol_pos = solar::solar_position(doy, solar_hour, self.latitude);
         let sun_dir = solar::sun_direction_vector(&sol_pos);
 
