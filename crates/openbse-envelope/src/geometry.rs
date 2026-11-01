@@ -181,7 +181,8 @@ pub fn polygon_centroid(vertices: &[Point3D]) -> Point3D {
 /// where N_hat is the outward unit normal, P is any vertex of the face,
 /// and A is the face area.
 ///
-/// Requires surfaces to form a closed volume with outward-pointing normals.
+/// Requires surfaces to form a closed volume with outward-pointing normals
+/// ([`is_closed_shell`] checks this).
 pub fn zone_volume_from_surfaces(surface_verts: &[&[Point3D]]) -> f64 {
     let mut volume = 0.0;
     for verts in surface_verts {
@@ -198,6 +199,132 @@ pub fn zone_volume_from_surfaces(surface_verts: &[&[Point3D]]) -> f64 {
         volume += n_hat.dot(&p) * area;
     }
     (volume / 3.0).abs()
+}
+
+/// Vertices closer than this are the same point [m]. E+ `isAlmostEqual3dPt` uses
+/// the same half inch in its enclosure test.
+const VERTEX_TOLERANCE: f64 = 0.0127;
+
+/// True if the polygons bound a closed, consistently wound volume: every edge is
+/// crossed as often in one direction as in the other.
+///
+/// An edge is first split at any vertex lying along it, so one long ceiling edge
+/// can meet two shorter wall edges (E+ does this with
+/// `updateZonePolygonsForMissingColinearPoints`). Requiring opposite directions,
+/// which E+ doesn't, also rejects a shell the divergence theorem can't use.
+pub fn is_closed_shell(surface_verts: &[&[Point3D]]) -> bool {
+    let mut points: Vec<Point3D> = Vec::new();
+    let mut point_index = |p: &Point3D| -> usize {
+        match points
+            .iter()
+            .position(|q| distance(p, q) < VERTEX_TOLERANCE)
+        {
+            Some(i) => i,
+            None => {
+                points.push(*p);
+                points.len() - 1
+            }
+        }
+    };
+    let polygons: Vec<Vec<usize>> = surface_verts
+        .iter()
+        .filter(|verts| verts.len() >= 3)
+        .map(|verts| verts.iter().map(&mut point_index).collect())
+        .collect();
+    if polygons.is_empty() {
+        return false;
+    }
+
+    // Net crossings of each undirected edge: +1 one way, −1 the other.
+    let mut net: std::collections::HashMap<(usize, usize), i32> = std::collections::HashMap::new();
+    for polygon in &polygons {
+        for (k, &from) in polygon.iter().enumerate() {
+            let to = polygon[(k + 1) % polygon.len()];
+            if from == to {
+                continue;
+            }
+            let (a, b) = (points[from], points[to]);
+            let mut chain: Vec<(f64, usize)> = (0..points.len())
+                .filter(|&i| i != from && i != to)
+                .filter_map(|i| position_along_edge(&points[i], &a, &b).map(|t| (t, i)))
+                .collect();
+            chain.sort_by(|x, y| x.0.total_cmp(&y.0));
+            let mut previous = from;
+            for next in chain.iter().map(|&(_, i)| i).chain(std::iter::once(to)) {
+                let key = (previous.min(next), previous.max(next));
+                *net.entry(key).or_insert(0) += if previous < next { 1 } else { -1 };
+                previous = next;
+            }
+        }
+    }
+    net.values().all(|&crossings| crossings == 0)
+}
+
+fn distance(a: &Point3D, b: &Point3D) -> f64 {
+    ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt()
+}
+
+/// Fraction along the edge a→b at which `p` lies on it, if it does.
+fn position_along_edge(p: &Point3D, a: &Point3D, b: &Point3D) -> Option<f64> {
+    let length = distance(a, b);
+    let t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y) + (p.z - a.z) * (b.z - a.z))
+        / (length * length);
+    let foot = Point3D::new(
+        a.x + t * (b.x - a.x),
+        a.y + t * (b.y - a.y),
+        a.z + t * (b.z - a.z),
+    );
+    (t > 0.0 && t < 1.0 && distance(p, &foot) < VERTEX_TOLERANCE).then_some(t)
+}
+
+/// The height of a vertical prism with these faces, or `None` if the faces don't
+/// describe one. `walls` and `ceilings` may be incomplete, as long as the walls
+/// that exist are vertical and share one height (E+ `FloorAreaTimesHeight2`), or
+/// there are no walls and the ceiling matches the floor (`FloorAreaTimesHeight1`).
+pub fn prism_height(
+    floors: &[&[Point3D]],
+    ceilings: &[&[Point3D]],
+    walls: &[&[Point3D]],
+) -> Option<f64> {
+    let z_range = |faces: &[&[Point3D]]| -> Option<(f64, f64)> {
+        let zs = faces.iter().flat_map(|verts| verts.iter().map(|v| v.z));
+        let (lo, hi) = zs.fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), z| {
+            (lo.min(z), hi.max(z))
+        });
+        (lo <= hi).then_some((lo, hi))
+    };
+    let flat = |(lo, hi): (f64, f64)| hi - lo < VERTEX_TOLERANCE;
+
+    let floor_z = z_range(floors).filter(|r| flat(*r))?.0;
+    let ceiling_z = match z_range(ceilings) {
+        Some(range) if flat(range) => range.1,
+        Some(_) => return None,
+        None => f64::NAN,
+    };
+
+    if !walls.is_empty() {
+        for wall in walls {
+            let (lo, hi) = z_range(&[*wall])?;
+            let vertical = newell_normal(wall).normalize().z.abs() < 0.01;
+            let spans_floor = (lo - floor_z).abs() < VERTEX_TOLERANCE;
+            let (_, top) = z_range(walls)?;
+            if !vertical || !spans_floor || (hi - top).abs() >= VERTEX_TOLERANCE {
+                return None;
+            }
+        }
+        let (_, top) = z_range(walls)?;
+        if !ceiling_z.is_nan() && (ceiling_z - top).abs() >= VERTEX_TOLERANCE {
+            return None;
+        }
+        return Some(top - floor_z);
+    }
+
+    // No walls: the ceiling must be the floor raised, judged by area.
+    if ceiling_z.is_nan() || ceiling_z <= floor_z {
+        return None;
+    }
+    let (floor_area, ceiling_area) = (zone_floor_area(floors), zone_floor_area(ceilings));
+    ((floor_area - ceiling_area).abs() <= 0.01 * floor_area).then_some(ceiling_z - floor_z)
 }
 
 /// Sum the areas of floor surface polygons.
@@ -510,6 +637,80 @@ pub fn compute_box_view_factors(length: f64, width: f64, height: f64) -> [[f64; 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn box_faces(x: f64, y: f64, z: f64) -> Vec<Vec<Point3D>> {
+        let p = Point3D::new;
+        vec![
+            vec![p(0., 0., 0.), p(0., y, 0.), p(x, y, 0.), p(x, 0., 0.)],
+            vec![p(0., 0., z), p(x, 0., z), p(x, y, z), p(0., y, z)],
+            vec![p(0., 0., 0.), p(x, 0., 0.), p(x, 0., z), p(0., 0., z)],
+            vec![p(x, y, 0.), p(0., y, 0.), p(0., y, z), p(x, y, z)],
+            vec![p(x, 0., 0.), p(x, y, 0.), p(x, y, z), p(x, 0., z)],
+            vec![p(0., y, 0.), p(0., 0., 0.), p(0., 0., z), p(0., y, z)],
+        ]
+    }
+
+    fn refs(faces: &[Vec<Point3D>]) -> Vec<&[Point3D]> {
+        faces.iter().map(Vec::as_slice).collect()
+    }
+
+    #[test]
+    fn closed_box_is_a_closed_shell() {
+        let faces = box_faces(10.0, 6.0, 3.0);
+        assert!(is_closed_shell(&refs(&faces)));
+        assert!((zone_volume_from_surfaces(&refs(&faces)) - 180.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn missing_face_is_not_a_closed_shell() {
+        let mut faces = box_faces(10.0, 6.0, 3.0);
+        faces.pop();
+        assert!(!is_closed_shell(&refs(&faces)));
+    }
+
+    #[test]
+    fn wrongly_wound_face_is_not_a_closed_shell() {
+        let mut faces = box_faces(10.0, 6.0, 3.0);
+        faces[2].reverse();
+        assert!(!is_closed_shell(&refs(&faces)));
+    }
+
+    #[test]
+    fn wall_split_along_a_long_ceiling_edge_still_closes() {
+        // Replace the south wall with two walls meeting at x = 4. The floor and
+        // ceiling edges along y = 0 have no vertex there.
+        let mut faces = box_faces(10.0, 6.0, 3.0);
+        let p = Point3D::new;
+        faces[2] = vec![p(0., 0., 0.), p(4., 0., 0.), p(4., 0., 3.), p(0., 0., 3.)];
+        faces.push(vec![
+            p(4., 0., 0.),
+            p(10., 0., 0.),
+            p(10., 0., 3.),
+            p(4., 0., 3.),
+        ]);
+        assert!(is_closed_shell(&refs(&faces)));
+        assert!((zone_volume_from_surfaces(&refs(&faces)) - 180.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn prism_height_requires_vertical_walls_of_one_height() {
+        let faces = box_faces(10.0, 6.0, 3.0);
+        let f = &refs(&faces);
+        // Floor, ceiling, and only two of the walls.
+        assert_eq!(prism_height(&f[..1], &f[1..2], &f[2..4]), Some(3.0));
+        // Floor and matching ceiling, no walls.
+        assert_eq!(prism_height(&f[..1], &f[1..2], &[]), Some(3.0));
+        // Floor alone says nothing about height.
+        assert_eq!(prism_height(&f[..1], &[], &[]), None);
+        // A wall shorter than the others is not a prism.
+        let p = Point3D::new;
+        let short = vec![p(0., 0., 0.), p(1., 0., 0.), p(1., 0., 2.), p(0., 0., 2.)];
+        let walls = [f[2], short.as_slice()];
+        assert_eq!(prism_height(&f[..1], &[], &walls), None);
+        // A sloped ceiling is not a prism.
+        let sloped = vec![p(0., 0., 3.), p(10., 0., 3.), p(10., 6., 5.), p(0., 6., 5.)];
+        assert_eq!(prism_height(&f[..1], &[sloped.as_slice()], &[]), None);
+    }
     use approx::assert_relative_eq;
 
     // Helper: 8×6 rectangle in XY plane at z=0, CCW from above → normal = (0,0,-1) = floor
