@@ -52,12 +52,9 @@ The interpolation of @eq-weather-interp applies, with weight $k/N$, to:
 - dry-bulb and dew-point temperature;
 - relative humidity;
 - pressure;
-- wind speed;
+- wind speed and direction, the direction the short way round across 0/360°;
 - horizontal infrared radiation;
 - opaque sky cover.
-
-Beam and diffuse irradiance and wind direction take the current hour's value
-for the whole hour.
 
 The outdoor air state is built from the interpolated dry-bulb, relative
 humidity and pressure:
@@ -68,17 +65,26 @@ $$ {#eq-outdoor-w}
 
 with @eq-w-rh (`to_air_state`).
 
-**Comparison with EnergyPlus.** EnergyPlus interpolates the same quantities
-with the same weight (`WeatherManager::SetupInterpolationValues`). It also
-builds the outdoor humidity ratio from dry-bulb and relative humidity
-(`PsyWFnTdbRhPb`). It differs in two respects:
+**Irradiance.** An hourly record is the mean over the hour, so it is read as being at
+the half hour, and timestep $k$ takes a weight $w_k$ of its own hour and $1 - w_k$ of
+the previous hour before the half hour, or the next hour after it. For even $N$,
 
-- **Irradiance.** For $N > 1$ it treats each hourly irradiance record as
-  centred on the half hour and interpolates between the adjacent hours.
-- **Wind direction.** It interpolates wind direction across the 0/360° wrap.
+$$
+w_k = 1 - \frac{|k - N/2|}{N},
+$$ {#eq-solar-weights}
 
-Both differences are filed in
-[#195](https://github.com/bbrannon4/OpenBSE/issues/195).
+which is 1 for the step ending on the half hour. For odd $N > 3$, the half hour falls
+inside a step: $w_k = 1 - 1/(2N) - j/N$, with $j$ the number of steps from the two
+middle ones. For $N = 3$, the weights are 5/6, 5/6 and 1/2. With $N = 1$ the step takes
+its own hour's value. A step's irradiance then goes with the sun at the end of the
+step (@eq-fractional-hour). The weights add up so that a run of hours keeps its total
+energy, though each hour's own energy shifts slightly into its neighbours.
+
+**Comparison with EnergyPlus.** All of this is `WeatherManager::SetupInterpolationValues`
+and its use in `ReadWeatherForDay`, including `interpolateWindDirection` and the
+outdoor humidity ratio from `PsyWFnTdbRhPb`. An annual EnergyPlus 25.2 run on the Boulder
+weather file at $N$ = 1, 4, 5 and 6 reproduces @eq-solar-weights, apart from the steps
+EnergyPlus (and OpenBSE, @sec-solar-position) set to zero with the sun down.
 
 ### Calendar {#sec-calendar}
 
@@ -148,7 +154,7 @@ humidity and the irradiance all deviate from EnergyPlus
 
 **Source:** `openbse-envelope/src/solar.rs::solar_position`,
 `equation_of_time`, `local_solar_hour`; called once per envelope solve at the
-timestep midpoint (@eq-fractional-hour).
+time of @eq-fractional-hour.
 
 The declination $\delta$ [rad] follows Spencer's Fourier series
 [@spencer1971], with day angle $\Gamma = 2\pi(n-1)/365$ for day of year $n$:
@@ -191,22 +197,13 @@ $$ {#eq-azimuth}
 
 with $\psi = \operatorname{atan2}(\sin\psi, \cos\psi)$, and $\cos\alpha$ and
 $\cos\phi$ floored at 0.001. The sun is taken as up when
-$\alpha > -0.8333°$. In that band below the horizon the cosine of the zenith
-angle is floored at zero.
+$\cos\theta_z \ge 10^{-5}$.
 
 **Comparison with EnergyPlus.** EnergyPlus computes the declination and the
 equation of time from its own Fourier fits (`SolarShading::SUN4`, from
 BLAST's `SUN3`) [@eplus-engref-25-2, "Solar Position"]. Both fits are
-accurate to well under 0.1° and about 30 s, so the difference is negligible.
-Two timing differences matter more (filed in
-[#195](https://github.com/bbrannon4/OpenBSE/issues/195)):
-
-- **Time within the step.** For $N > 1$, EnergyPlus evaluates the sun at the
-  *end* of each timestep (`FigureSunCosines`), and at the hour's midpoint
-  only when $N = 1$. OpenBSE always uses the midpoint.
-- **Sun-up test.** EnergyPlus treats the sun as up when
-  $\cos\theta_z \ge 10^{-5}$ (`DataEnvironment::SunIsUpValue`), not at
-  −0.8333° as the OpenBSE comment states.
+accurate to well under 0.1° and about 30 s, so the difference is negligible. The time
+within the step (`FigureSunCosines`) and the sun-up test (`SunIsUpValue`) are the same.
 
 ## Irradiance on surfaces {#sec-incident-solar}
 
@@ -456,9 +453,6 @@ glycol properties at the fluid temperature (`FluidProperties`); between 0 and
 
 - [#50](https://github.com/bbrannon4/OpenBSE/issues/50): cooling design-day
   solar is a fixed clear-sky formula; `taub` and `taud` are ignored.
-- [#195](https://github.com/bbrannon4/OpenBSE/issues/195): irradiance is held
-  constant through the hour; wind direction is not interpolated; sun-position
-  timing and the sun-up test differ from EnergyPlus.
 - [#196](https://github.com/bbrannon4/OpenBSE/issues/196): Perez model
   details (zenith cap, horizon floor); no ground-reflectance input.
 - [#197](https://github.com/bbrannon4/OpenBSE/issues/197): the sky

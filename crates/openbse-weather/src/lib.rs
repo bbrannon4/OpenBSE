@@ -101,48 +101,104 @@ impl WeatherHour {
         MoistAirState::new(self.dry_bulb, w, self.pressure)
     }
 
-    /// Linearly interpolate between two hourly weather records.
+    /// The weather for timestep `sub` (1-based) of `steps` in this hour, as E+
+    /// `SetupInterpolationValues` and its use in `ReadWeatherForDay`.
     ///
-    /// EPW data represents the period **ending** at the recorded hour.
-    /// For sub-hourly timesteps, E+ linearly interpolates between the
-    /// previous hour (`self`) and the current hour (`next`) using:
-    ///
-    ///   value = (1 - frac) × prev + frac × next
-    ///
-    /// where `frac` is the fractional position within the hour (0.0 to 1.0).
-    ///
-    /// **Solar radiation is NOT interpolated** — it's an integrated energy
-    /// value (Wh/m²) for the entire hour, so it's held constant.
-    ///
-    /// Reference: EnergyPlus WeatherManager.cc `InterpretWeatherDataLine`.
-    pub fn interpolate(&self, next: &WeatherHour, frac: f64) -> WeatherHour {
-        let f = frac.clamp(0.0, 1.0);
-        let inv = 1.0 - f;
+    /// An EPW record covers the hour ending at its time stamp, and its state
+    /// values are read as being at that time, so they interpolate linearly from
+    /// the previous record with weight `sub / steps`. Its irradiance is the
+    /// hour's mean, read as being at the half hour, so it interpolates through
+    /// the previous, current and next records with `solar_hour_weights`. Those
+    /// weights keep the total irradiance of a run of hours.
+    pub fn at_timestep(
+        &self,
+        prev: &WeatherHour,
+        next: &WeatherHour,
+        sub: u32,
+        steps: u32,
+    ) -> WeatherHour {
+        let f = (sub as f64 / steps as f64).clamp(0.0, 1.0);
+        let lerp = |a: f64, b: f64| (1.0 - f) * a + f * b;
+        let (w_prev, w_now, w_next) = solar_hour_weights(sub, steps);
+        let solar = |p: f64, n: f64, x: f64| w_prev * p + w_now * n + w_next * x;
         WeatherHour {
-            // Use the target hour's date/time metadata
-            year: next.year,
-            month: next.month,
-            day: next.day,
-            hour: next.hour,
-            // Interpolate thermodynamic state variables
-            dry_bulb: inv * self.dry_bulb + f * next.dry_bulb,
-            dew_point: inv * self.dew_point + f * next.dew_point,
-            rel_humidity: inv * self.rel_humidity + f * next.rel_humidity,
-            pressure: inv * self.pressure + f * next.pressure,
-            // Solar radiation: NOT interpolated (integrated hourly Wh/m²)
-            // Use the current hour's values for the entire period
-            global_horiz_rad: next.global_horiz_rad,
-            direct_normal_rad: next.direct_normal_rad,
-            diffuse_horiz_rad: next.diffuse_horiz_rad,
-            // Wind: interpolate speed, use current hour's direction
-            // (direction interpolation is problematic near 0/360 boundary)
-            wind_speed: inv * self.wind_speed + f * next.wind_speed,
-            wind_direction: next.wind_direction,
-            // Longwave radiation and sky cover: interpolate
-            horiz_ir_rad: inv * self.horiz_ir_rad + f * next.horiz_ir_rad,
-            opaque_sky_cover: inv * self.opaque_sky_cover + f * next.opaque_sky_cover,
+            year: self.year,
+            month: self.month,
+            day: self.day,
+            hour: self.hour,
+            dry_bulb: lerp(prev.dry_bulb, self.dry_bulb),
+            dew_point: lerp(prev.dew_point, self.dew_point),
+            rel_humidity: lerp(prev.rel_humidity, self.rel_humidity),
+            pressure: lerp(prev.pressure, self.pressure),
+            global_horiz_rad: solar(
+                prev.global_horiz_rad,
+                self.global_horiz_rad,
+                next.global_horiz_rad,
+            ),
+            direct_normal_rad: solar(
+                prev.direct_normal_rad,
+                self.direct_normal_rad,
+                next.direct_normal_rad,
+            ),
+            diffuse_horiz_rad: solar(
+                prev.diffuse_horiz_rad,
+                self.diffuse_horiz_rad,
+                next.diffuse_horiz_rad,
+            ),
+            wind_speed: lerp(prev.wind_speed, self.wind_speed),
+            wind_direction: interpolate_wind_direction(prev.wind_direction, self.wind_direction, f),
+            // A missing infrared record (zero) stays missing rather than reading
+            // as a very cold sky.
+            horiz_ir_rad: if prev.horiz_ir_rad > 0.0 && self.horiz_ir_rad > 0.0 {
+                lerp(prev.horiz_ir_rad, self.horiz_ir_rad)
+            } else {
+                0.0
+            },
+            opaque_sky_cover: lerp(prev.opaque_sky_cover, self.opaque_sky_cover),
         }
     }
+}
+
+/// Weights of the previous, current and next hour's irradiance for timestep
+/// `sub` (1-based) of `steps`, E+ `SolarInterpolation` with its previous- and
+/// next-hour shares. One timestep per hour takes the hour's value.
+pub fn solar_hour_weights(sub: u32, steps: u32) -> (f64, f64, f64) {
+    if steps <= 1 {
+        return (0.0, 1.0, 0.0);
+    }
+    let n = steps as f64;
+    let k = sub as i64;
+    let half = (steps / 2) as i64;
+    let now = if steps % 2 == 0 {
+        1.0 - (k - half).abs() as f64 / n
+    } else if steps == 3 {
+        [5.0 / 6.0, 5.0 / 6.0, 0.5][(sub as usize - 1).min(2)]
+    } else {
+        // Odd: the half hour falls between steps `half` and `half + 1`.
+        let from_centre = if k <= half { half - k } else { k - half - 1 };
+        1.0 - 0.5 / n - from_centre as f64 / n
+    };
+    if now == 1.0 {
+        (0.0, 1.0, 0.0)
+    } else if (sub as f64 / n) < 0.5 {
+        (1.0 - now, now, 0.0)
+    } else {
+        (0.0, now, 1.0 - now)
+    }
+}
+
+/// Interpolate a wind direction [degrees] the short way round, E+
+/// `interpolateWindDirection`.
+fn interpolate_wind_direction(prev: f64, current: f64, weight: f64) -> f64 {
+    let (mut a, mut b) = (prev, current);
+    if (b - a).abs() > 180.0 {
+        if b > a {
+            a += 360.0;
+        } else {
+            b += 360.0;
+        }
+    }
+    (a + (b - a) * weight) % 360.0
 }
 
 /// Ground temperatures at a specific depth, parsed from EPW header.
@@ -849,6 +905,101 @@ pub enum WeatherError {
 
 #[cfg(test)]
 mod tests {
+    fn hour(t: f64, solar: f64) -> WeatherHour {
+        WeatherHour {
+            year: 2024,
+            month: 1,
+            day: 1,
+            hour: 1,
+            dry_bulb: t,
+            dew_point: t - 5.0,
+            rel_humidity: 50.0,
+            pressure: 101_325.0,
+            global_horiz_rad: solar,
+            direct_normal_rad: solar,
+            diffuse_horiz_rad: solar,
+            wind_speed: 3.0,
+            wind_direction: 90.0,
+            horiz_ir_rad: 300.0,
+            opaque_sky_cover: 5.0,
+        }
+    }
+
+    #[test]
+    fn solar_weights_match_eplus_and_sum_to_one() {
+        // Four steps: 0.75, 1, 0.75, 0.5 of the current hour.
+        let w4: Vec<_> = (1..=4).map(|k| solar_hour_weights(k, 4)).collect();
+        assert_eq!(
+            w4,
+            [
+                (0.25, 0.75, 0.0),
+                (0.0, 1.0, 0.0),
+                (0.0, 0.75, 0.25),
+                (0.0, 0.5, 0.5)
+            ]
+        );
+        // Three steps, E+'s fixed table.
+        assert!((solar_hour_weights(1, 3).0 - 1.0 / 6.0).abs() < 1e-12);
+        assert!((solar_hour_weights(2, 3).2 - 1.0 / 6.0).abs() < 1e-12);
+        assert_eq!(solar_hour_weights(3, 3), (0.0, 0.5, 0.5));
+        // Five steps: tweight1 = 0.9 on the two middle steps.
+        let now5: Vec<_> = (1..=5).map(|k| solar_hour_weights(k, 5).1).collect();
+        for (a, b) in now5.iter().zip([0.7, 0.9, 0.9, 0.7, 0.5]) {
+            assert!((a - b).abs() < 1e-12, "{now5:?}");
+        }
+        assert_eq!(solar_hour_weights(1, 1), (0.0, 1.0, 0.0));
+        for n in 1..=60 {
+            for k in 1..=n {
+                let (p, c, x) = solar_hour_weights(k, n);
+                assert!((p + c + x - 1.0).abs() < 1e-12, "{n} {k}");
+                assert!(p >= 0.0 && c > 0.0 && x >= 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn solar_interpolation_keeps_the_hourly_total() {
+        // Over a run of hours, the steps add back each record's hourly energy.
+        let records = [0.0, 100.0, 400.0, 500.0, 300.0, 0.0];
+        for n in [1u32, 2, 3, 4, 5, 6, 10, 12, 60] {
+            let mut total = 0.0;
+            for h in 0..records.len() {
+                let at = |i: usize| hour(10.0, records[i % records.len()]);
+                let prev = at(h + records.len() - 1);
+                let next = at(h + 1);
+                for k in 1..=n {
+                    total += at(h).at_timestep(&prev, &next, k, n).direct_normal_rad / n as f64;
+                }
+            }
+            let expected: f64 = records.iter().sum();
+            assert!((total - expected).abs() < 1e-9, "N={n}: {total}");
+        }
+    }
+
+    #[test]
+    fn state_values_reach_the_record_at_the_end_of_the_hour() {
+        let (prev, now) = (hour(10.0, 0.0), hour(14.0, 0.0));
+        let half = now.at_timestep(&prev, &now, 2, 4);
+        assert_eq!(half.dry_bulb, 12.0);
+        assert_eq!(now.at_timestep(&prev, &now, 4, 4).dry_bulb, 14.0);
+        assert_eq!(now.at_timestep(&prev, &now, 1, 1).dry_bulb, 14.0);
+    }
+
+    #[test]
+    fn wind_direction_goes_the_short_way_round() {
+        assert_eq!(interpolate_wind_direction(350.0, 10.0, 0.5), 0.0);
+        assert_eq!(interpolate_wind_direction(10.0, 350.0, 0.25), 5.0);
+        assert_eq!(interpolate_wind_direction(90.0, 180.0, 0.5), 135.0);
+        assert_eq!(interpolate_wind_direction(350.0, 10.0, 1.0), 10.0);
+    }
+
+    #[test]
+    fn missing_infrared_stays_missing() {
+        let (prev, mut now) = (hour(10.0, 0.0), hour(14.0, 0.0));
+        now.horiz_ir_rad = 0.0;
+        assert_eq!(now.at_timestep(&prev, &now, 1, 4).horiz_ir_rad, 0.0);
+    }
+
     use super::*;
 
     #[test]
