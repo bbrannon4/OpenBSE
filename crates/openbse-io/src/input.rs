@@ -286,17 +286,16 @@ pub struct SimulationSettings {
     pub ground_surface_temperatures: Vec<f64>,
 
     /// Evaluate the HVAC mode predictor with the CURRENT timestep's gains and
-    /// weather (default false).
+    /// weather (default true, as E+'s `calcPredictedSystemLoad` does).
     ///
-    /// By default the air-loop control decides heating / cooling / deadband
-    /// from the free-floating zone temperature computed at the end of the
-    /// previous timestep. When a load switches on in a lightweight zone that
-    /// was idle, that prediction is one timestep stale: the system sits out
-    /// the first timestep and the zone overshoots its setpoint before being
-    /// pulled back. With this on, the prediction is refreshed once per
-    /// timestep, after the first HVAC iteration has re-solved the envelope
-    /// with current conditions, and then held for the remaining iterations.
-    #[serde(default)]
+    /// The air-loop control decides heating / cooling / deadband from the
+    /// free-floating zone temperature. It is refreshed once per timestep, after
+    /// the first HVAC iteration has re-solved the envelope with current
+    /// conditions, and then held for the remaining iterations. Set false to use
+    /// the previous timestep's prediction throughout: when a load switches on
+    /// in an idle lightweight zone, the system then sits out one timestep and
+    /// the zone overshoots before being pulled back.
+    #[serde(default = "default_current_timestep_predictor")]
     pub current_timestep_predictor: bool,
 
     /// Heating sizing factor applied to zone design loads and airflows.
@@ -424,6 +423,10 @@ pub struct HolidayDate {
 fn default_ground_surface_temps() -> Vec<f64> {
     vec![18.0; 12]
 }
+fn default_current_timestep_predictor() -> bool {
+    true
+}
+
 fn default_heating_sizing_factor() -> f64 {
     1.25
 }
@@ -5563,6 +5566,16 @@ air_loops:
             err.contains("variable_volume") && err.contains("'F'"),
             "{err}"
         );
+    }
+
+    /// The mode predictor defaults to the current timestep, as in E+ (#190).
+    #[test]
+    fn test_current_timestep_predictor_defaults_on() {
+        let sim: SimulationSettings = serde_yaml::from_str("{}").unwrap();
+        assert!(sim.current_timestep_predictor);
+        let sim: SimulationSettings =
+            serde_yaml::from_str("current_timestep_predictor: false").unwrap();
+        assert!(!sim.current_timestep_predictor);
     }
 
     #[test]

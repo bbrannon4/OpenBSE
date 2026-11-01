@@ -211,11 +211,14 @@ from the loads instead: heating if the heating load exceeds 10 W and the
 cooling load, cooling in the converse case, and otherwise from the zone
 temperature against the setpoints.
 
-**Timing.** By default the free-float temperature used is the one stored by
-the *previous* timestep's solve, and the mode is held for the whole HVAC
-iteration. With `simulation.current_timestep_predictor: true` it is
-refreshed once, from the first iteration's envelope solve, and then held.
-In that case the first iteration never counts as converged.
+**Timing.** The first HVAC iteration starts from the free-float temperature
+stored by the previous timestep's solve. Its envelope solve then refreshes
+the free-float temperature with the current timestep's gains, weather and
+surface temperatures, and the mode is held from there on. The first iteration
+never counts as converged, so the converged solution always uses the current
+timestep's mode. VRF indoor-unit modes refresh at the same point.
+`simulation.current_timestep_predictor: false` keeps the previous timestep's
+value throughout, which delays the response to a new load by one timestep.
 
 **Load to setpoint.** Each solve also stores a zone's load as a linear
 function of the target temperature $T^*$ and the start temperature
@@ -243,11 +246,12 @@ gains and surface temperatures
 (`ZoneSpaceHeatBalanceData::calcPredictedSystemLoad`)
 [@eplus-engref-25-2, "Summary of Predictor-Corrector Procedure"]
 [@taylor1990]. Holding the mode and the load fixed through the system
-iteration matches EnergyPlus. Three differences remain, each filed as an
-issue:
+iteration matches EnergyPlus. E+ evaluates the predictor before any HVAC
+runs, where OpenBSE needs one iteration to get it. The refresh comes from a
+solve that includes that iteration's HVAC, so its surface temperatures differ
+slightly from E+'s, which use the previous zone air temperature. Two other
+differences are filed as issues:
 
-- **Lagged predictor.** The default free-float temperature is one timestep
-  old ([#190](https://github.com/bbrannon4/OpenBSE/issues/190)).
 - **Load history.** @eq-load-line uses $T^\text{start}$ where @eq-zone-solve
   and EnergyPlus use the history $\tilde T_k$. The two agree only when the
   zone temperature is steady
@@ -411,8 +415,6 @@ timestep (`loop_supply_conditions`).
   unoccupied one.
 - [#189](https://github.com/bbrannon4/OpenBSE/issues/189): warmup days,
   convergence test and HVAC coverage differ from EnergyPlus.
-- [#190](https://github.com/bbrannon4/OpenBSE/issues/190): the default mode
-  predictor is one timestep old.
 - [#191](https://github.com/bbrannon4/OpenBSE/issues/191): ideal loads on
   any zone disables every air loop, plant loop, VRF and radiant panel.
 - [#192](https://github.com/bbrannon4/OpenBSE/issues/192): the load to
