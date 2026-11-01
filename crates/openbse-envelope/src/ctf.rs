@@ -1325,7 +1325,8 @@ fn compute_ctf_from_state_space(
 ///
 /// Returns (q_inside, q_outside) in [W/m²].
 /// q_inside positive = heat flowing INTO the zone.
-/// q_outside positive = heat flowing OUT of the building.
+/// q_outside positive = conduction from the outside face into the wall, i.e.
+/// heat flowing INTO the building (the E+ q''_ko form: X₀·T_o − Y₀·T_i + …).
 pub fn apply_ctf(
     ctf: &CtfCoefficients,
     history: &CtfHistory,

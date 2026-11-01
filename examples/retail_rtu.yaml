@@ -188,7 +188,6 @@ constructions:
 simple_constructions:
   - name: Adiabatic Assembly
     u_factor: 0.001             # nearly zero heat flow
-    thickness: 0.2
     thermal_capacity: 20000.0   # some thermal mass for stability
     solar_absorptance: 0.5
     thermal_absorptance: 0.9

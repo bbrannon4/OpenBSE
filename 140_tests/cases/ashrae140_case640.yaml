@@ -39,7 +39,6 @@ weather_files:
 simple_constructions:
   - name: Case600 Wall
     u_factor: 0.559
-    thickness: 0.087
     thermal_capacity: 14534.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -47,7 +46,6 @@ simple_constructions:
 
   - name: Case600 Roof
     u_factor: 0.334
-    thickness: 0.141
     thermal_capacity: 18170.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -55,7 +53,6 @@ simple_constructions:
 
   - name: Case600 Floor
     u_factor: 0.040
-    thickness: 1.028
     thermal_capacity: 19500.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9

@@ -52,7 +52,6 @@ simple_constructions:
   # Thermal capacity: 9.0*530*900 + 12.0*950*840 = 4293 + 9576 = ~14 kJ/m2K
   - name: Case670 Wall
     u_factor: 0.559
-    thickness: 0.087
     thermal_capacity: 14534.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -64,7 +63,6 @@ simple_constructions:
   # Thermal capacity: ~15 kJ/m2K (low mass)
   - name: Case670 Roof
     u_factor: 0.334
-    thickness: 0.141
     thermal_capacity: 18170.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -76,7 +74,6 @@ simple_constructions:
   # U = 1/25.254 = 0.040 W/(m2K)
   - name: Case670 Floor
     u_factor: 0.040
-    thickness: 1.028
     thermal_capacity: 19500.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9

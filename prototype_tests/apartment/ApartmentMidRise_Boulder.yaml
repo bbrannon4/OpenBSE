@@ -745,13 +745,11 @@ constructions:
 simple_constructions:
 - name: Interior Partition
   u_factor: 2.508
-  thickness: 0.0254
   thermal_capacity: 22000.0
   solar_absorptance: 0.4
   thermal_absorptance: 0.9
 - name: Interzone Floor
   u_factor: 1.998
-  thickness: 0.12
   thermal_capacity: 200000.0
   solar_absorptance: 0.7
   thermal_absorptance: 0.9

@@ -48,7 +48,6 @@ simple_constructions:
   # OpenBSE adds inside/outside film coefficients dynamically.
   - name: R13WALL
     u_factor: 0.4365          # 1/2.291 W/(m²K) - material only
-    thickness: 0.001          # Negligible (no-mass)
     thermal_capacity: 0.0     # No thermal mass
     solar_absorptance: 0.75
     thermal_absorptance: 0.9
@@ -58,7 +57,6 @@ simple_constructions:
   # U = 1/R = 1/5.456 = 0.1833 W/(m²K)
   - name: ROOF31
     u_factor: 0.1833          # 1/5.456 W/(m²K) - material only
-    thickness: 0.001          # Negligible (no-mass)
     thermal_capacity: 0.0     # No thermal mass
     solar_absorptance: 0.75
     thermal_absorptance: 0.9
@@ -71,7 +69,6 @@ simple_constructions:
   # solar_abs=0.65, thermal_abs=0.9
   - name: FLOOR
     u_factor: 17.04           # k/t (very high - concrete slab)
-    thickness: 0.1015         # 4 inches = 0.1015 m
     thermal_capacity: 190422  # ρ*cp*t [J/(m²K)]
     solar_absorptance: 0.65
     thermal_absorptance: 0.9

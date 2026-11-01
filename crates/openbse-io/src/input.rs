@@ -4882,6 +4882,80 @@ impl ValidationResult {
 /// names a defined construction of the right kind.
 ///
 /// Returns a `ValidationResult` containing all warnings and errors found.
+/// Check material properties and construction layers. E+ requires conductivity,
+/// density and specific heat on every massed material and rejects an unknown
+/// layer name; a default or a dropped layer would change U and thermal mass with
+/// no message.
+fn validate_materials(model: &ModelInput, result: &mut ValidationResult) {
+    let materials: std::collections::HashSet<&str> =
+        model.materials.iter().map(|m| m.name.as_str()).collect();
+
+    for m in &model.materials {
+        match m.thermal_resistance {
+            Some(r) if r <= 0.0 => result.severe(format!(
+                "Material '{}': thermal_resistance must be positive (got {})",
+                m.name, r
+            )),
+            Some(_) => {}
+            None => {
+                for (field, value) in [
+                    ("conductivity", m.conductivity),
+                    ("density", m.density),
+                    ("specific_heat", m.specific_heat),
+                ] {
+                    if value <= 0.0 {
+                        result.severe(format!(
+                            "Material '{}': {} is required and must be positive \
+                             (or give thermal_resistance for a no-mass material)",
+                            m.name, field
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    for c in &model.constructions {
+        if c.layers.is_empty() {
+            result.severe(format!("Construction '{}' has no layers", c.name));
+        }
+        for layer in &c.layers {
+            if !materials.contains(layer.material.as_str()) {
+                result.severe(format!(
+                    "Material '{}' referenced by construction '{}' not found in materials",
+                    layer.material, c.name
+                ));
+            }
+            // A zero thickness would also zero a no-mass layer's R, which is
+            // derived from thickness / (thickness / R) with a fallback at 0.
+            if layer.thickness <= 0.0 {
+                result.severe(format!(
+                    "Construction '{}': layer '{}' needs a positive thickness (got {})",
+                    c.name, layer.material, layer.thickness
+                ));
+            }
+        }
+    }
+
+    let with_hamt_data: Vec<&str> = model
+        .materials
+        .iter()
+        .filter(|m| {
+            m.vapor_resistance_factor.is_some()
+                || m.sorption_isotherm.is_some()
+                || m.liquid_transport_coeff.is_some()
+        })
+        .map(|m| m.name.as_str())
+        .collect();
+    if !with_hamt_data.is_empty() {
+        result.warn(format!(
+            "Moisture (HAMT) inputs have no effect: the HAMT solver is not part of the \
+             simulation and every surface uses CTF conduction (#64). Materials: {}",
+            with_hamt_data.join(", ")
+        ));
+    }
+}
+
 pub fn validate_model(model: &ModelInput) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -5264,6 +5338,8 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
         }
     }
 
+    validate_materials(model, &mut result);
+
     // ── Validate window shading controls ───────────────────────────────────
 
     for wc in &model.window_constructions {
@@ -5415,6 +5491,81 @@ air_loops:
 "#
         ))
         .unwrap()
+    }
+
+    fn material_diagnostics(materials_and_constructions: &str) -> ValidationResult {
+        let model = parse_model_yaml(&format!(
+            "simulation: {{}}\nweather_files: []\n{materials_and_constructions}"
+        ))
+        .unwrap();
+        let mut result = ValidationResult::new();
+        validate_materials(&model, &mut result);
+        result
+    }
+
+    #[test]
+    fn material_requires_all_three_thermal_properties() {
+        let result = material_diagnostics(
+            "materials:\n- {name: m, conductivity: 1.0, specific_heat: 900}\n",
+        );
+        assert_eq!(result.error_count(), 1);
+        assert!(result.diagnostics[0].message.contains("density"));
+        // A no-mass material needs only its resistance.
+        let result = material_diagnostics("materials:\n- {name: m, thermal_resistance: 2.0}\n");
+        assert_eq!(result.error_count(), 0);
+        let result = material_diagnostics("materials:\n- {name: m, thermal_resistance: 0.0}\n");
+        assert_eq!(result.error_count(), 1);
+    }
+
+    #[test]
+    fn inside_absorptance_comes_from_the_inside_layer() {
+        let model = parse_model_yaml(
+            r#"
+simulation: {}
+weather_files: []
+materials:
+  - {name: Out, conductivity: 1, density: 2000, specific_heat: 900, thermal_absorptance: 0.8}
+  - {name: In, conductivity: 1, density: 2000, specific_heat: 900, thermal_absorptance: 0.9, thermal_absorptance_inside: 0.1}
+constructions:
+  - {name: C, layers: [{material: Out, thickness: 0.1}, {material: In, thickness: 0.1}]}
+zones:
+  - name: Room
+surfaces:
+  - {name: Floor, zone: Room, type: floor, construction: C, vertices: [{x: 0, y: 0, z: 0}, {x: 0, y: 5, z: 0}, {x: 6, y: 5, z: 0}, {x: 6, y: 0, z: 0}]}
+"#,
+        )
+        .unwrap();
+        let env = build_envelope(&model, 40.0, -105.0, -7.0, 1600.0).unwrap();
+        assert_eq!(env.surfaces[0].thermal_absorptance_inside, 0.1);
+        assert_eq!(env.surfaces[0].thermal_absorptance_outside, 0.8);
+    }
+
+    #[test]
+    fn construction_with_unknown_material_or_no_layers_is_severe() {
+        let good = "materials:\n- {name: m, conductivity: 1, density: 1000, specific_heat: 900}\n";
+        let result = material_diagnostics(&format!(
+            "{good}constructions:\n- name: c\n  layers:\n  - {{material: typo, thickness: 0.1}}\n"
+        ));
+        assert_eq!(result.error_count(), 1);
+        assert!(result.diagnostics[0].message.contains("typo"));
+        let result = material_diagnostics(&format!(
+            "{good}constructions:\n- name: c\n  layers:\n  - {{material: m, thickness: 0}}\n"
+        ));
+        assert_eq!(result.error_count(), 1);
+        let result = material_diagnostics(&format!(
+            "{good}constructions:\n- {{name: c, layers: []}}\n"
+        ));
+        assert_eq!(result.error_count(), 1);
+    }
+
+    #[test]
+    fn hamt_inputs_warn_that_they_have_no_effect() {
+        let result = material_diagnostics(
+            "materials:\n- {name: m, conductivity: 1, density: 1000, specific_heat: 900, \
+             vapor_resistance_factor: 10}\n",
+        );
+        assert_eq!(result.error_count(), 0);
+        assert_eq!(result.warning_count(), 1);
     }
 
     #[test]
@@ -5661,19 +5812,16 @@ weather_files:
 simple_constructions:
   - name: Case600 Wall
     u_factor: 0.559
-    thickness: 0.087
     thermal_capacity: 14000.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
   - name: Case600 Roof
     u_factor: 0.334
-    thickness: 0.141
     thermal_capacity: 15000.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
   - name: Case600 Floor
     u_factor: 0.040
-    thickness: 1.028
     thermal_capacity: 5000.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9

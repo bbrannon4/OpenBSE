@@ -45,7 +45,6 @@ simple_constructions:
   # Thermal capacity: 0.100*1400*1000 + 0.2452*10*1400 + 0.009*530*900 = 147726 J/(m2K)
   - name: Case980FF Wall
     u_factor: 0.156
-    thickness: 0.1
     thermal_capacity: 147726.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -59,7 +58,6 @@ simple_constructions:
   # Thermal capacity: 0.010*950*840 + 0.400*12*840 + 0.019*530*900 = 21075 J/(m2K)
   - name: Case980FF Roof
     u_factor: 0.098
-    thickness: 0.429
     thermal_capacity: 21075.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -69,7 +67,6 @@ simple_constructions:
   # U = 0.0396 W/(m2K), thermal capacity = 112000 J/(m2K)
   - name: Case900 Floor
     u_factor: 0.0396
-    thickness: 0.08
     thermal_capacity: 112000.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9

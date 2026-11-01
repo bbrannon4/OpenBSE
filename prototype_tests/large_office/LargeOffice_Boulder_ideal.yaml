@@ -845,13 +845,11 @@ constructions:
 simple_constructions:
 - name: Interior Partition
   u_factor: 6.30
-  thickness: 0.0254
   thermal_capacity: 22149.0
   solar_absorptance: 0.4
   thermal_absorptance: 0.9
 - name: Adiabatic Assembly
   u_factor: 4.49
-  thickness: 0.0127
   thermal_capacity: 4900.0
   solar_absorptance: 0.5
   thermal_absorptance: 0.9

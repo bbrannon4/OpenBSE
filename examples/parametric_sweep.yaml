@@ -41,7 +41,6 @@ design_days:
 simple_constructions:
   - name: Heavy Wall
     u_factor: 0.5
-    thickness: 0.2
     thermal_capacity: 200000.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9

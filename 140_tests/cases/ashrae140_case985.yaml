@@ -47,7 +47,6 @@ simple_constructions:
   # Thermal capacity: 145154 J/(m2K) - high mass from concrete block
   - name: Case900 Wall
     u_factor: 0.556
-    thickness: 0.1
     thermal_capacity: 145154.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -59,7 +58,6 @@ simple_constructions:
   # U = 0.334 W/(m2K)
   - name: Case900 Roof
     u_factor: 0.334
-    thickness: 0.141
     thermal_capacity: 18170.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -69,7 +67,6 @@ simple_constructions:
   # U = 0.0396 W/(m2K), thermal capacity = 112000 J/(m2K)
   - name: Case900 Floor
     u_factor: 0.0396
-    thickness: 0.08
     thermal_capacity: 112000.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9

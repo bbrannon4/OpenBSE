@@ -411,13 +411,11 @@ constructions:
 simple_constructions:
 - name: Int Slab Floor
   u_factor: 3.0
-  thickness: 0.12
   thermal_capacity: 200000.0
   solar_absorptance: 0.7
   thermal_absorptance: 0.9
 - name: Int Wall
   u_factor: 4.0
-  thickness: 0.0254
   thermal_capacity: 22000.0
   solar_absorptance: 0.4
   thermal_absorptance: 0.9

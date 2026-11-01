@@ -301,7 +301,6 @@ simple_constructions:
   # Back Space floor: F-factor = 1.264 W/(m-K), effective U = 0.162 W/(m²K)
   - name: Ground Floor Back Space
     u_factor: 0.162
-    thickness: 0.1016
     thermal_capacity: 196275.0
     solar_absorptance: 0.7
     thermal_absorptance: 0.9
@@ -310,7 +309,6 @@ simple_constructions:
   # Very low because large core zone has high area-to-perimeter ratio
   - name: Ground Floor Core Retail
     u_factor: 0.033
-    thickness: 0.1016
     thermal_capacity: 196275.0
     solar_absorptance: 0.7
     thermal_absorptance: 0.9
@@ -318,7 +316,6 @@ simple_constructions:
   # POS / Front Retail floor: F-factor = 1.264, effective U = 0.186 W/(m²K)
   - name: Ground Floor Perimeter
     u_factor: 0.186
-    thickness: 0.1016
     thermal_capacity: 196275.0
     solar_absorptance: 0.7
     thermal_absorptance: 0.9
@@ -326,7 +323,6 @@ simple_constructions:
   # Front Entry floor: effective U = 0.300 W/(m²K)
   - name: Ground Floor Entry
     u_factor: 0.300
-    thickness: 0.1016
     thermal_capacity: 196275.0
     solar_absorptance: 0.7
     thermal_absorptance: 0.9
