@@ -4882,6 +4882,51 @@ impl ValidationResult {
 /// names a defined construction of the right kind.
 ///
 /// Returns a `ValidationResult` containing all warnings and errors found.
+/// One air loop must serve zones of one multiplier. The run simulates one
+/// instance of a multiplied zone with one instance of its loop, then multiplies
+/// the energy, which can't represent a loop shared unevenly.
+fn validate_zone_multipliers(model: &ModelInput, result: &mut ValidationResult) {
+    let multiplier = |name: &str| {
+        model
+            .zones
+            .iter()
+            .find(|z| z.name == name)
+            .map_or(1, |z| z.zone_multiplier)
+    };
+    for air_loop in &model.air_loops {
+        let mut multipliers: Vec<u32> = air_loop
+            .zone_terminals
+            .iter()
+            .map(|t| multiplier(&t.zone))
+            .collect();
+        multipliers.sort_unstable();
+        multipliers.dedup();
+        if multipliers.len() > 1 {
+            result.severe(format!(
+                "Air loop '{}' serves zones with different zone_multiplier values {:?}: \
+                 give each multiplier its own loop",
+                air_loop.name, multipliers
+            ));
+        }
+    }
+    for system in &model.vrf_systems {
+        let mut multipliers: Vec<u32> = system
+            .indoor_units
+            .iter()
+            .map(|iu| multiplier(&iu.zone))
+            .collect();
+        multipliers.sort_unstable();
+        multipliers.dedup();
+        if multipliers.len() > 1 {
+            result.severe(format!(
+                "VRF system '{}' serves zones with different zone_multiplier values {:?}: \
+                 give each multiplier its own system",
+                system.outdoor_unit.name, multipliers
+            ));
+        }
+    }
+}
+
 /// Every string under a key ending in `schedule`, with its path in the model.
 /// Walking the serialized model covers every reference, including objects added
 /// later: a hand-kept list had drifted to only five object types.
@@ -5402,6 +5447,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     }
 
     validate_materials(model, &mut result);
+    validate_zone_multipliers(model, &mut result);
 
     // ── Validate window shading controls ───────────────────────────────────
 

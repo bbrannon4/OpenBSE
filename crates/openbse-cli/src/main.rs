@@ -1000,7 +1000,9 @@ fn main() -> Result<()> {
 
         // ── 4a2. Build zone multiplier maps ──────────────────────────────────
         // Maps zone name → zone_multiplier and component name → multiplier.
-        // Used to scale HVAC energy and internal gains for multiplied zones.
+        // The run simulates and sizes one instance of a multiplied zone with its
+        // own instance of the loop. These maps scale the resulting energy and
+        // plant demand once. Validation requires one multiplier per air loop.
         let zone_multipliers: HashMap<String, u32> = envelope
             .as_ref()
             .map(|env| {
@@ -1011,6 +1013,22 @@ fn main() -> Result<()> {
             })
             .unwrap_or_default();
         let mut comp_zone_multiplier: HashMap<String, f64> = HashMap::new();
+        // Zone-level equipment follows its zone: VRF units, one multiplier per
+        // system (validated), and radiant panels.
+        let zone_mult = |zone: &str| zone_multipliers.get(zone).copied().unwrap_or(1) as f64;
+        for sys in &model.vrf_systems {
+            let mult = sys
+                .indoor_units
+                .first()
+                .map_or(1.0, |iu| zone_mult(&iu.zone));
+            comp_zone_multiplier.insert(sys.outdoor_unit.name.clone(), mult);
+            for iu in &sys.indoor_units {
+                comp_zone_multiplier.insert(iu.name.clone(), mult);
+            }
+        }
+        for rp in &model.radiant_panels {
+            comp_zone_multiplier.insert(rp.name.clone(), zone_mult(&rp.zone));
+        }
         for li in &loop_infos {
             let mult: f64 = li
                 .served_zones
@@ -2340,6 +2358,7 @@ fn main() -> Result<()> {
                     .map(|z| (z.input.name.clone(), z.input.floor_area))
                     .collect();
                 report.set_zone_areas(zone_areas);
+                report.set_zone_multipliers(zone_multipliers.clone());
             }
             if let Some(ref cz) = model.climate_zone {
                 report.set_climate_zone(cz.clone());
@@ -3142,7 +3161,6 @@ fn main() -> Result<()> {
                                     &initial_zone_temps,
                                     &zone_thermal_caps,
                                     &predictor_no_hvac_temps,
-                                    &zone_multipliers,
                                     &zone_humidity_ratios,
                                     &zone_max_rh,
                                     &zone_min_rh,
@@ -3201,7 +3219,11 @@ fn main() -> Result<()> {
                                     {
                                         if rp_input.plant_loop.as_deref() == Some(pl.name.as_str())
                                         {
-                                            load += rp.thermal_output_to_zone;
+                                            load += rp.thermal_output_to_zone
+                                                * comp_zone_multiplier
+                                                    .get(&rp.name)
+                                                    .copied()
+                                                    .unwrap_or(1.0);
                                         }
                                     }
                                     (pl.name.as_str(), load)
@@ -3749,8 +3771,13 @@ fn main() -> Result<()> {
                                     outputs.get("inlet_temperature").copied().unwrap_or(0.0);
                                 let w_inlet =
                                     outputs.get("inlet_humidity_ratio").copied().unwrap_or(0.0);
-                                let zmult =
+                                // One duct instance per loop instance; its ambient zone may
+                                // have a different number of instances to share the heat.
+                                let duct_mult =
                                     comp_zone_multiplier.get(duct_name).copied().unwrap_or(1.0);
+                                let ambient_mult =
+                                    zone_multipliers.get(ambient_zone).copied().unwrap_or(1) as f64;
+                                let zmult = duct_mult / ambient_mult;
                                 let t_zone = current_zone_temps
                                     .get(ambient_zone)
                                     .copied()
@@ -4862,9 +4889,10 @@ fn main() -> Result<()> {
 
                         // Route electric panel power to component energy end-uses
                         if rp.power > 0.0 {
+                            let zmult = comp_zone_multiplier.get(&rp.name).copied().unwrap_or(1.0);
                             snapshot
                                 .component_electric_power
-                                .insert(rp.name.clone(), rp.power);
+                                .insert(rp.name.clone(), rp.power * zmult);
                         }
                     }
 
@@ -5426,7 +5454,6 @@ fn simulate_all_loops(
     initial_zone_temps: &HashMap<String, f64>,
     zone_thermal_caps: &HashMap<String, f64>,
     predictor_no_hvac_temps: &HashMap<String, f64>,
-    zone_multipliers: &HashMap<String, u32>,
     zone_humidity_ratios: &HashMap<String, f64>,
     zone_max_rh: &HashMap<String, f64>,
     zone_min_rh: &HashMap<String, f64>,
@@ -5755,7 +5782,6 @@ fn simulate_all_loops(
             zone_max_rh,
             zone_min_rh,
             zone_return_temps,
-            zone_multipliers,
             predictor_modes: &predictor_modes,
             t_outdoor,
             // Controls see outdoor air before heat recovery, which is applied
@@ -5935,14 +5961,8 @@ fn simulate_all_loops(
             || li.system_type == AirLoopSystemType::Pthp
         {
             let control_zone = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
-            // Zone multiplier: equipment is sized for multiplied load, so the
-            // PLR numerator (zone demand) must also be multiplied to get the
-            // correct fraction of coil/fan capacity used.
-            let zmult_plr = zone_multipliers.get(control_zone).copied().unwrap_or(1) as f64;
-            let zone_cool_load =
-                zone_cooling_loads.get(control_zone).copied().unwrap_or(0.0) * zmult_plr;
-            let zone_heat_load =
-                zone_heating_loads.get(control_zone).copied().unwrap_or(0.0) * zmult_plr;
+            let zone_cool_load = zone_cooling_loads.get(control_zone).copied().unwrap_or(0.0);
+            let zone_heat_load = zone_heating_loads.get(control_zone).copied().unwrap_or(0.0);
             let control_temp = zone_temps.get(control_zone).copied().unwrap_or(21.0);
             let heat_sp = active_heat_sp.get(control_zone).copied().unwrap_or(21.1);
             let cool_sp = active_cool_sp.get(control_zone).copied().unwrap_or(23.9);
@@ -6336,9 +6356,8 @@ fn simulate_all_loops(
                         10000.0
                     };
 
-                    // Zone cooling load from the heat balance (multiplied for zone_multiplier)
-                    let zone_cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0)
-                        * zone_multipliers.get(zone_name).copied().unwrap_or(1) as f64;
+                    // Zone cooling load from the heat balance
+                    let zone_cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
 
                     // Get VAV box max flow for load-based signal
                     let vav_max_flow = zone_design_flows
@@ -7283,7 +7302,6 @@ mod tests {
             zone_max_rh: &empty_rh,
             zone_min_rh: &empty_rh,
             zone_return_temps: &empty_rh,
-            zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
             t_outdoor: 5.0,
             raw_t_outdoor: 5.0,
@@ -7351,7 +7369,6 @@ mod tests {
             zone_max_rh: &empty_rh,
             zone_min_rh: &empty_rh,
             zone_return_temps: &empty_rh,
-            zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
             t_outdoor: 30.0,
             raw_t_outdoor: 30.0,
@@ -7580,7 +7597,6 @@ mod tests {
             zone_max_rh: &empty_rh,
             zone_min_rh: &empty_rh,
             zone_return_temps: &empty_rh,
-            zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
             t_outdoor: 20.0,
             raw_t_outdoor: 20.0,
@@ -7825,7 +7841,6 @@ mod tests {
             zone_max_rh: &zone_max_rh,
             zone_min_rh: &empty_rh,
             zone_return_temps: &empty_rh,
-            zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
             t_outdoor: 20.0,
             raw_t_outdoor: 20.0,
@@ -7891,7 +7906,6 @@ mod tests {
             zone_max_rh: &zone_max_rh,
             zone_min_rh: &empty_rh,
             zone_return_temps: &empty_rh,
-            zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
             t_outdoor: 20.0,
             raw_t_outdoor: 20.0,
@@ -8222,13 +8236,13 @@ fn plant_sizing_inputs(
         if !d.water || d.plant_loop.is_none() {
             continue;
         }
-        // Radiant panel output reaches its loop unscaled (Step 1b).
         let cap = if d.radiant_panel {
             radiant_panels
                 .iter()
                 .find(|rp| rp.name == d.name)
                 .map(|rp| rp.rated_capacity)
                 .filter(|c| !is_autosize(*c))
+                .map(|c| c * comp_zone_multiplier.get(d.name).copied().unwrap_or(1.0))
         } else {
             graph
                 .node_by_name(d.name)
@@ -8444,7 +8458,6 @@ mod tests_datacenter {
             zone_max_rh: &zone_rh,
             zone_min_rh: &zone_rh,
             zone_return_temps: &dc_return,
-            zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
             t_outdoor: 0.0,
             raw_t_outdoor: 0.0,
@@ -8504,7 +8517,6 @@ mod tests_datacenter {
             zone_max_rh: &zone_rh,
             zone_min_rh: &zone_rh,
             zone_return_temps: &dc_return,
-            zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
             t_outdoor: 0.0,
             raw_t_outdoor: 0.0,

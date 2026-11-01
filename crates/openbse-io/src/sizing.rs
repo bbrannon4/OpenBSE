@@ -583,35 +583,16 @@ fn run_zone_sizing(
         }
     }
 
-    // ── Apply zone multiplier to peak loads ──────────────────────────────
-    // E+ Zone List Multiplier / Zone Multiplier: the zone's peak loads are
-    // multiplied so that HVAC equipment is sized for the multiplied zone.
-    // Equipment energy is also multiplied by zone_multiplier in main.rs.
-    for zone in &env.zones {
-        let mult = zone.input.zone_multiplier as f64;
-        if mult > 1.0 {
-            let name = &zone.input.name;
-            if let Some(v) = zone_peak_heating.get_mut(name) {
-                *v *= mult;
-            }
-            if let Some(v) = zone_peak_cooling.get_mut(name) {
-                *v *= mult;
-            }
-            log::info!(
-                "  Zone '{}': applied zone_multiplier={} to peak loads",
-                name,
-                zone.input.zone_multiplier
-            );
-        }
-    }
+    // Everything here is for one instance of a multiplied zone, because that is
+    // what the run simulates; main.rs multiplies the energy once.
 
     // ── Calculate zone airflows from peak loads ─────────────────────────
     let mut zone_heating_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_cooling_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_design_airflow: HashMap<String, f64> = HashMap::new();
-    // Per zone: cooling ΔT, outdoor-air floor [kg/s] and multiplier, to turn
+    // Per zone: cooling ΔT and outdoor-air floor [kg/s], to turn
     // its hourly design-day loads into flows.
-    let mut cool_flow_basis: HashMap<String, (f64, f64, f64)> = HashMap::new();
+    let mut cool_flow_basis: HashMap<String, (f64, f64)> = HashMap::new();
 
     for zone in &env.zones {
         let name = &zone.input.name;
@@ -626,7 +607,6 @@ fn run_zone_sizing(
         // of the zone load: the central coil meets it at the mixed-air state.
         let site_p = design_days.first().map(|d| d.pressure).unwrap_or(101325.0);
         let rho_site = site_p / (287.042 * 293.15);
-        let mult = zone.input.zone_multiplier as f64;
         let m_oa = if let Some(ref oa) = zone.input.outdoor_air {
             // Compute design people count from zone's internal gains
             let design_people: f64 = zone
@@ -640,7 +620,7 @@ fn run_zone_sizing(
                 .sum();
             let v_oa =
                 oa.per_person * design_people + oa.per_area * zone.input.floor_area + oa.absolute;
-            v_oa * rho_site * mult
+            v_oa * rho_site
         } else {
             0.0
         };
@@ -673,7 +653,7 @@ fn run_zone_sizing(
         zone_heating_airflow.insert(name.clone(), m_heat);
         zone_cooling_airflow.insert(name.clone(), m_cool);
         zone_design_airflow.insert(name.clone(), m_design);
-        cool_flow_basis.insert(name.clone(), (dt_cooling, m_oa, mult));
+        cool_flow_basis.insert(name.clone(), (dt_cooling, m_oa));
     }
 
     // Each cooling design day's zone cooling flows, hour by hour, with the
@@ -687,8 +667,8 @@ fn run_zone_sizing(
                     loads
                         .iter()
                         .filter_map(|(name, &(_, cl))| {
-                            let &(dt, m_oa, mult) = cool_flow_basis.get(name)?;
-                            Some((name.clone(), (cl * mult / (cp_air * dt)).max(m_oa)))
+                            let &(dt, m_oa) = cool_flow_basis.get(name)?;
+                            Some((name.clone(), (cl / (cp_air * dt)).max(m_oa)))
                         })
                         .collect()
                 })
@@ -762,7 +742,15 @@ fn run_system_sizing(
 
     for (dd_name, hourly_loads) in &heating_results {
         for (hour, zone_loads) in hourly_loads {
-            let total_heating: f64 = zone_loads.values().map(|&(hl, _)| hl).sum();
+            // Plant pumps size from this, so it counts every zone instance.
+            let total_heating: f64 = env
+                .zones
+                .iter()
+                .filter_map(|z| {
+                    let &(hl, _) = zone_loads.get(&z.input.name)?;
+                    Some(hl * z.input.zone_multiplier as f64)
+                })
+                .sum();
             if total_heating > coincident_peak_heating {
                 coincident_peak_heating = total_heating;
                 heating_peak_dd = dd_name.clone();
@@ -801,7 +789,14 @@ fn run_system_sizing(
 
     for (dd_name, hourly_loads) in &cooling_results {
         for (hour, zone_loads) in hourly_loads {
-            let total_cooling: f64 = zone_loads.values().map(|&(_, cl)| cl).sum();
+            let total_cooling: f64 = env
+                .zones
+                .iter()
+                .filter_map(|z| {
+                    let &(_, cl) = zone_loads.get(&z.input.name)?;
+                    Some(cl * z.input.zone_multiplier as f64)
+                })
+                .sum();
             if total_cooling > coincident_peak_cooling {
                 coincident_peak_cooling = total_cooling;
                 cooling_peak_dd = dd_name.clone();

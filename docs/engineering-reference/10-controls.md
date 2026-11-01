@@ -79,8 +79,7 @@ $$ {#eq-plr}
 
 clamped to $[x_\text{min}, 1]$. The terms are:
 
-- $\dot Q_h$ and $\dot Q_c$, the zone's loads to setpoint, multiplied by its zone
-  multiplier;
+- $\dot Q_h$ and $\dot Q_c$, the zone's loads to setpoint;
 - $\dot Q_f$, the heat of a continuous fan, which arrives in the off-cycle too;
 - $\dot Q_\text{oa} = x_\text{oa}\dot mc_p(T_o - T_z)$, the outdoor-air load in
   the off-cycle of a continuous fan, zero for a cycling fan;

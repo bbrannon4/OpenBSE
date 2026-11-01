@@ -1884,6 +1884,7 @@ pub struct SummaryReport {
     zone_peak_cooling: HashMap<String, (f64, u32, u32, u32, f64)>,
     /// Zone floor areas for W/m² calculations
     zone_floor_areas: HashMap<String, f64>,
+    zone_multipliers: HashMap<String, u32>,
     /// Per-submeter monthly energy [J]: (submeter, end_use) -> [12 months]
     submeter_monthly_j: HashMap<(String, String), [f64; 12]>,
     /// ASHRAE climate zone string (e.g., "5A") for 90.4 limit table lookup.
@@ -1920,6 +1921,7 @@ impl SummaryReport {
             zone_peak_heating: HashMap::new(),
             zone_peak_cooling: HashMap::new(),
             zone_floor_areas: HashMap::new(),
+            zone_multipliers: HashMap::new(),
             submeter_monthly_j: HashMap::new(),
             climate_zone: None,
         }
@@ -1933,6 +1935,11 @@ impl SummaryReport {
     /// Set zone floor areas for W/m² calculations in zone loads summary.
     pub fn set_zone_areas(&mut self, areas: HashMap<String, f64>) {
         self.zone_floor_areas = areas;
+    }
+
+    /// Set zone multipliers: building totals count every instance of a zone.
+    pub fn set_zone_multipliers(&mut self, multipliers: HashMap<String, u32>) {
+        self.zone_multipliers = multipliers;
     }
 
     /// Set envelope area data for WWR reporting.
@@ -1952,11 +1959,19 @@ impl SummaryReport {
         self.dt = snapshot.dt;
 
         let month_idx = (snapshot.month.saturating_sub(1) as usize).min(11);
-        let me = &mut self.monthly[month_idx];
 
         // Accumulate energy
-        let total_heating: f64 = snapshot.zone_heating_rate.values().sum();
-        let total_cooling: f64 = snapshot.zone_cooling_rate.values().sum();
+        let all_instances = |rates: &HashMap<String, f64>| -> f64 {
+            rates
+                .iter()
+                .map(|(zone, rate)| {
+                    rate * self.zone_multipliers.get(zone).copied().unwrap_or(1) as f64
+                })
+                .sum()
+        };
+        let total_heating = all_instances(&snapshot.zone_heating_rate);
+        let total_cooling = all_instances(&snapshot.zone_cooling_rate);
+        let me = &mut self.monthly[month_idx];
 
         me.heating_j += total_heating * snapshot.dt;
         me.cooling_j += total_cooling * snapshot.dt;

@@ -152,7 +152,18 @@ today, because the humidity value is not read
 **Peak loads.** A zone's design heating load $Q_h$ is the largest hourly
 heating load over all heating design days, and $Q_c$ the largest cooling
 load over all cooling design days. The design day and hour of each are
-recorded. Both are multiplied by the zone multiplier $N_z$.
+recorded.
+
+**Zone multipliers.** A zone with multiplier $N_z$ stands for $N_z$ identical
+zones. OpenBSE simulates one instance with one instance of its air loop. All
+sizing is therefore per instance, including the loads, flows and capacities in
+the sizing report, and capacities given as inputs. The multiplier enters once:
+HVAC energy, plant demand and building totals are multiplied by $N_z$, so a model
+with every multiplier at 2 uses exactly twice the energy. EnergyPlus instead sizes
+and runs the system for all instances and divides what reaches each zone by
+$N_z$. Both give the same energy for a loop whose zones share a multiplier. A loop
+or VRF system serving zones with different multipliers can't be represented here
+and is a severe error ([#280](https://github.com/bbrannon4/OpenBSE/issues/280)).
 
 **Design flows.** The design flows [kg/s] are
 
@@ -339,7 +350,8 @@ differences:
 
 Plant sizing runs after the air side, from the sized capacities of the
 demand components. These are water coils, hot-water reheat terminals and
-radiant panels, each multiplied by its zone multiplier. A loop's design
+radiant panels, each multiplied by its zone multiplier, as the demand it
+places on the shared loop. A loop's design
 load is
 
 $$
@@ -396,12 +408,11 @@ $$
 x_\text{oa} = \min\left(1,\ \frac{\sum_z (R_pP_\text{des} + R_aA_z)}{\dot V_\text{fan}}\right).
 $$ {#eq-oa-fraction-sized}
 
-This formula leaves out the absolute-flow and ACH terms, ignores the
-maximum method and the zone multiplier. The sized fan flow includes the
-zone multiplier, so a loop serving multiplied zones gets too low a fraction
-([#231](https://github.com/bbrannon4/OpenBSE/issues/231)). EnergyPlus
-computes the zone outdoor air once (`DesignSpecification:OutdoorAir`) and
-applies the multiplier to it consistently.
+This formula leaves out the absolute-flow and ACH terms and ignores the
+maximum method ([#231](https://github.com/bbrannon4/OpenBSE/issues/231)).
+EnergyPlus computes the zone outdoor air once
+(`DesignSpecification:OutdoorAir`). The fan flow and the outdoor-air flows are
+both per zone instance, so no multiplier is needed in the ratio.
 
 ## Known limitations {#sec-sizing-limitations}
 
@@ -419,7 +430,9 @@ applies the multiplier to it consistently.
 - [#230](https://github.com/bbrannon4/OpenBSE/issues/230): pumps sized from
   the coincident zone peak, not the loop design flow.
 - [#231](https://github.com/bbrannon4/OpenBSE/issues/231): three
-  outdoor-air formulas; post-sizing fraction ignores multipliers.
+  outdoor-air formulas.
+- [#280](https://github.com/bbrannon4/OpenBSE/issues/280): a loop can't serve
+  zones with different multipliers.
 - [#232](https://github.com/bbrannon4/OpenBSE/issues/232): duplicate system
   run, fixed warmup, hourly weather, averaging default, generated design
   days, gains-mode comment, day-type matching, VRF airflow.
