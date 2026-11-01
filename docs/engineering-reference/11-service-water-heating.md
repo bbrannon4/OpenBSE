@@ -9,29 +9,24 @@ an optional pump. It runs once per timestep, separately from the HVAC iteration.
 
 ## Mains temperature {#sec-mains}
 
-The mains temperature is a constant or a correlation in the annual mean outdoor
-temperature $\bar T_o$, the largest difference between monthly means $\Delta T$, the
-latitude $\phi$ and the day of year $d$:
+The mains temperature is a constant (default 10 °C) or a correlation in the annual
+mean outdoor temperature $\bar T_o$ and the largest difference between monthly means
+$\Delta T$, both in °F, and the day of year $d$:
 
 $$
-T_\text{mains} = \bar T_o + 6 + 0.4127\frac{\Delta T}{2}\sin\left[\frac{2\pi}{365}\left(d - \left(35 - \frac{\phi}{2}\right) - 15\right)\right].
+T_\text{mains} = \bar T_o + 6 \pm R\frac{\Delta T}{2}\sin\left[0.986\,(d - 15 - L) - 90°\right], \quad
+R = 0.4 + 0.01(\bar T_o - 44), \quad L = 35 - (\bar T_o - 44),
 $$ {#eq-mains}
 
-The default constant is 10 °C.
+at least 32 °F, with the sign negative in the southern hemisphere. Without
+`annual_avg_temp` and `max_monthly_delta`, the statistics come from the weather file.
+For Boulder ($\bar T_o$ = 9.95 °C, $\Delta T$ = 23.7 K) it gives a mean of 13.28 °C, a
+peak of 18.7 °C in mid-August and a minimum of 7.8 °C in mid-February.
 
-**Comparison with EnergyPlus.** EnergyPlus's correlation (`CalcWaterMainsTemp`),
-after Hendron et al. [@eplus-engref-25-2, "Water Mains Temperatures"], is in °F:
-
-$$
-T_\text{mains} = \bar T_o + 6 + R\frac{\Delta T}{2}\sin\left[0.986\,(d - 15 - L) - 90°\right], \quad
-R = 0.4 + 0.01(\bar T_o - 44), \quad L = 35 - (\bar T_o - 44).
-$$ {#eq-mains-eplus}
-
-@eq-mains is a mistranscription. Its offset is 6 K rather than 6 °F, its ratio and
-lag are different, and it has no 90° phase shift. For Boulder, @eq-mains has a mean
-of 15.95 °C peaking on 1 May, where @eq-mains-eplus has a mean of 13.28 °C peaking in
-mid-August. Heating water to 60 °C then takes 5.7% less energy over the year
-([#258](https://github.com/bbrannon4/OpenBSE/issues/258)).
+**Comparison with EnergyPlus.** This is `WaterMainsTempFromCorrelation`
+[@eplus-engref-25-2, "Water Mains Temperatures"], after Hendron et al., without the
+optional multiplier and offset. Omitting the statistics matches
+`CorrelationFromWeatherFile`. EnergyPlus also accepts a schedule.
 
 ## Draws {#sec-dhw-draws}
 
@@ -40,50 +35,56 @@ $T_\text{use}$. The load mixes tank and mains water at the fixture, so the tank
 supplies
 
 $$
-\dot V = \sum_\text{loads}\dot V_\text{peak}f(t)\operatorname{clamp}\left(\frac{T_\text{use} - T_\text{mains}}{T_\text{sp} - T_\text{mains}},\ 0,\ 1\right).
+\dot V = \sum_\text{loads}\dot V_\text{peak}f(t)\operatorname{clamp}\left(\frac{T_\text{use} - T_\text{mains}}{T - T_\text{mains}},\ 0,\ 1\right),
 $$ {#eq-dhw-draw}
 
-A pump, if present, runs in proportion to the draw with the model of @sec-pumps, and
-is off otherwise.
+with $T$ the tank temperature at the end of the last step. A depleted tank supplies
+more water for the same heat, up to the whole fixture flow. A pump, if present, runs
+in proportion to the draw with the model of @sec-pumps, and is off otherwise.
 
-**Comparison with EnergyPlus.** `WaterUse:Equipment` mixes at the actual hot-water
-temperature, and adds sensible and latent gains to its zone. @eq-dhw-draw uses the
-setpoint, and has no fixture gains or recirculation
-([#258](https://github.com/bbrannon4/OpenBSE/issues/258)).
+**Comparison with EnergyPlus.** @eq-dhw-draw is `CalcEquipmentFlowRates` of
+`WaterUse:Equipment`. EnergyPlus can also add sensible and latent gains to the
+fixture's zone and has recirculation; OpenBSE has neither (@sec-swh-limitations).
 
 ## Storage tank {#sec-water-heater}
 
 The tank is fully mixed at temperature $T$, with mass $m$ (1 kg per litre), a standby
-loss coefficient $UA$ and ambient $T_a$, the air of its `ambient_zone` or 20 °C. Each
-timestep,
+loss coefficient $UA$ and ambient $T_a$, the air of its `ambient_zone` or 20 °C:
 
 $$
-\begin{gathered}
-\dot Q_\text{draw} = \dot m\,c_{p,w}\max(T - T_\text{mains},\ 0), \qquad
-\dot Q_\text{loss} = UA(T - T_a),\\
-T^{t+\Delta t} = T + \frac{(\dot Q_\text{in} - \dot Q_\text{draw} - \dot Q_\text{loss})\Delta t}{m\,c_{p,w}},
-\end{gathered}
+m\,c_{p,w}\frac{dT}{dt} = \dot Q - \dot m\,c_{p,w}(T - T_\text{mains}) - UA(T - T_a),
 $$ {#eq-tank}
 
-with $c_{p,w} = 4186$ J/(kg·K). The tank's standby loss is a gain to its ambient zone.
+with $c_{p,w} = 4186$ J/(kg·K). For constant heat input $\dot Q$ this is solved in
+closed form, with $G = \dot m c_{p,w} + UA$:
+
+$$
+T(t) = T_\infty + (T_0 - T_\infty)e^{-Gt/(mc_{p,w})}, \qquad
+T_\infty = \frac{\dot Q + \dot m c_{p,w}T_\text{mains} + UA\,T_a}{G}.
+$$ {#eq-tank-solution}
+
+The step is split at each control event, the time @eq-tank-solution reaches a
+control temperature, so the result doesn't depend on the timestep and is stable at
+any draw. The draw heat and standby loss come from the integral of $T$ over the step,
+so the tank's energy closes exactly. The standby loss is a gain to the ambient zone.
 
 **Heater.** A gas or electric heater delivers $\dot Q_\text{max} = \eta\dot Q_\text{cap}$
 for an input of $\dot Q_\text{cap}$. Its control is one of:
 
-- **On/off** (default): it fires below $T_\text{sp} - \Delta T_d$ (default 5 K) and
-  stops at $T_\text{sp}$. If it would reach the setpoint within the step, it runs
-  only for the fraction of the step needed,
-  $(T_\text{sp} - T)mc_{p,w}/[(\dot Q_\text{max} - \dot Q_\text{draw} - \dot Q_\text{loss})\Delta t]$.
-- **Modulate:** it matches $\dot Q_\text{draw} + \dot Q_\text{loss}$, up to its maximum.
+- **On/off** (default): it fires at full output below $T_\text{sp} - \Delta T_d$
+  (default 5 K) and stops at $T_\text{sp}$, within the step. With no deadband it holds
+  the setpoint, the average of infinitely fast cycling.
+- **Modulate:** full output below $T_\text{sp}$, then just enough to hold it.
 
 A constant parasitic power adds to the input and does not heat the tank.
 
-**Comparison with EnergyPlus.** @eq-tank is the energy balance of
-`WaterHeater:Mixed` (`WaterThermalTanks.cc`) [@eplus-engref-25-2, "Mixed Water Thermal
-Tank"], which integrates it analytically. The explicit form here becomes unstable
-when $\dot m\Delta t/m > 1$. EnergyPlus also has on- and off-cycle loss coefficients, a
-part-load curve and a parasitic heat fraction
-([#258](https://github.com/bbrannon4/OpenBSE/issues/258)).
+**Comparison with EnergyPlus.** This is `CalcWaterThermalTankMixed` with `CalcTankTemp`,
+`CalcTimeNeeded` and `CalcTempIntegral` (`WaterThermalTanks.cc`) [@eplus-engref-25-2,
+"Mixed Water Thermal Tank"]. EnergyPlus also has separate on- and off-cycle loss
+coefficients, a part-load curve, a parasitic heat fraction, a minimum capacity for
+modulating heaters and venting at a maximum temperature. Venting can't occur here: the
+only heat source above the setpoint would be a mains or ambient hotter than the tank's
+limit.
 
 ## Heat-pump water heaters {#sec-hpwh}
 
@@ -116,7 +117,8 @@ is mixed, where EnergyPlus also offers a stratified tank.
 
 ## Known limitations {#sec-swh-limitations}
 
-- [#258](https://github.com/bbrannon4/OpenBSE/issues/258): mains correlation
-  mistranscribed; explicit tank integration; hot fraction at the setpoint; no fixture
-  gains or recirculation.
+- No fixture gains to zones, no recirculation, no schedule of mains temperatures, and
+  no on- and off-cycle loss split, part-load curve or parasitic heat fraction.
+- A heat pump's output is held at its start-of-step value within a step, where the
+  tank's temperature otherwise follows @eq-tank-solution.
 - [#200](https://github.com/bbrannon4/OpenBSE/issues/200): fixed water properties.

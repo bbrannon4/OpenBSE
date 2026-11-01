@@ -2630,17 +2630,9 @@ impl SweepRange {
 
 /// Mains water temperature specification.
 ///
-/// Can be a fixed constant or a seasonal correlation based on the
-/// ASHRAE / E+ `Site:WaterMainsTemperature` correlation method
-/// (Hendron 2004, Burch & Craig 2004):
-///
-/// ```text
-/// T_mains(day) = (T_annual_avg + 6) + ratio * (ΔT_max/2) * sin(2π/365 * (day - day_shift - 15))
-/// ```
-///
-/// where `day_shift = 35 - latitude/2` and `ratio = 0.4127` (damping from
-/// soil thermal lag). The +6°C offset and 0.4127 ratio match E+'s
-/// `Site:WaterMainsTemperature` Correlation method.
+/// Can be a fixed constant or the correlation of E+
+/// `Site:WaterMainsTemperature` (Hendron et al. 2004, developed by Burch and
+/// Christensen), see [`mains_water_temperature`].
 // Untagged enums buffer their input before trying each variant, so neither
 // `serde_ignored` nor the inner struct's `deny_unknown_fields` sees a stray key
 // beside `correlation:`. Denying unknown fields on the enum itself closes that gap.
@@ -2648,8 +2640,8 @@ impl SweepRange {
 #[serde(
     untagged,
     deny_unknown_fields,
-    expecting = "a fixed temperature in °C, or `correlation:` with annual_avg_temp, \
-                 max_monthly_delta and optional latitude (no other keys)"
+    expecting = "a fixed temperature in °C, or `correlation:` with optional annual_avg_temp, \
+                 max_monthly_delta and latitude (no other keys)"
 )]
 pub enum MainsTemperature {
     /// Fixed constant temperature [°C].
@@ -2668,52 +2660,72 @@ impl MainsTemperature {
     /// Compute the mains water temperature for a given day of year.
     ///
     /// * `day_of_year` — 1-based day of year (1 = Jan 1, 365 = Dec 31)
-    /// * `weather_latitude` — fallback latitude from weather file [degrees],
-    ///   used only when the correlation does not specify its own latitude.
-    pub fn temperature(&self, day_of_year: u32, weather_latitude: f64) -> f64 {
+    /// * `weather_latitude` — latitude from the weather file [degrees], used
+    ///   when the correlation does not specify its own.
+    /// * `weather_dry_bulb_stats` — the weather file's (annual mean, largest
+    ///   difference between monthly means) [°C], used when the correlation does
+    ///   not specify its own.
+    pub fn temperature(
+        &self,
+        day_of_year: u32,
+        weather_latitude: f64,
+        weather_dry_bulb_stats: (f64, f64),
+    ) -> f64 {
         match self {
             MainsTemperature::Fixed(t) => *t,
             MainsTemperature::Correlation { correlation } => {
-                correlation.temperature(day_of_year, weather_latitude)
+                correlation.temperature(day_of_year, weather_latitude, weather_dry_bulb_stats)
             }
         }
     }
 }
 
-/// Parameters for the ASHRAE mains water temperature correlation.
+/// Parameters for the mains water temperature correlation. With no statistics,
+/// they come from the weather file, as E+'s `CorrelationFromWeatherFile`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MainsCorrelation {
-    /// Annual average outdoor air dry-bulb temperature [°C].
-    pub annual_avg_temp: f64,
+    /// Annual average outdoor air dry-bulb temperature [°C]. Give it together
+    /// with `max_monthly_delta`, or omit both to use the weather file.
+    #[serde(default)]
+    pub annual_avg_temp: Option<f64>,
     /// Maximum difference in monthly average outdoor temperatures [°C].
-    pub max_monthly_delta: f64,
-    /// Site latitude [degrees]. If omitted, falls back to weather file latitude.
+    #[serde(default)]
+    pub max_monthly_delta: Option<f64>,
+    /// Site latitude [degrees]; only its hemisphere matters. If omitted, falls
+    /// back to the weather file latitude.
     #[serde(default)]
     pub latitude: Option<f64>,
 }
 
 impl MainsCorrelation {
     /// Compute mains water temperature for a given day of year.
-    ///
-    /// Formula (E+ Engineering Reference / ASHRAE):
-    /// ```text
-    /// day_shift = 35 - latitude / 2
-    /// T_mains = annual_avg_temp + (max_monthly_delta / 2)
-    ///           * sin(2π/365 * (day - day_shift - 15))
-    /// ```
-    pub fn temperature(&self, day_of_year: u32, weather_latitude: f64) -> f64 {
-        let lat = self.latitude.unwrap_or(weather_latitude);
+    pub fn temperature(
+        &self,
+        day_of_year: u32,
+        weather_latitude: f64,
+        weather_dry_bulb_stats: (f64, f64),
+    ) -> f64 {
         mains_water_temperature(
             day_of_year,
-            self.annual_avg_temp,
-            self.max_monthly_delta,
-            lat,
+            self.annual_avg_temp.unwrap_or(weather_dry_bulb_stats.0),
+            self.max_monthly_delta.unwrap_or(weather_dry_bulb_stats.1),
+            self.latitude.unwrap_or(weather_latitude),
         )
     }
 }
 
-/// Compute mains water temperature using the ASHRAE sinusoidal correlation.
+/// Compute mains water temperature, E+ `WaterMainsTempFromCorrelation`.
+///
+/// The correlation is fitted in °F (Hendron et al. 2004):
+///
+/// ```text
+/// ratio = 0.4 + 0.01 (T_avg - 44)
+/// lag   = 35 - (T_avg - 44)
+/// T     = T_avg + 6 ± ratio (T_diff / 2) sin(0.986° (day - 15 - lag) - 90°),  at least 32 °F
+/// ```
+///
+/// with the sign negative in the southern hemisphere.
 ///
 /// # Arguments
 /// * `day_of_year` — 1-based day of year (1 = Jan 1)
@@ -2729,15 +2741,14 @@ pub fn mains_water_temperature(
     max_monthly_delta: f64,
     latitude: f64,
 ) -> f64 {
-    let day_shift = 35.0 - latitude / 2.0;
-    let day = day_of_year as f64;
-    // E+ Burch & Craig / Hendron correlation:
-    // +6°C offset and 0.4127 damping ratio account for soil thermal lag.
-    let ratio = 0.4127;
-    (annual_avg_temp + 6.0)
-        + ratio
-            * (max_monthly_delta / 2.0)
-            * (2.0 * std::f64::consts::PI / 365.0 * (day - day_shift - 15.0)).sin()
+    let t_avg_f = annual_avg_temp * 9.0 / 5.0 + 32.0;
+    let t_diff_f = max_monthly_delta * 9.0 / 5.0;
+    let ratio = 0.4 + 0.01 * (t_avg_f - 44.0);
+    let lag = 35.0 - (t_avg_f - 44.0);
+    let hemisphere = if latitude >= 0.0 { 1.0 } else { -1.0 };
+    let angle = (0.986 * (day_of_year as f64 - 15.0 - lag) - 90.0).to_radians();
+    let t_f = t_avg_f + 6.0 + ratio * (t_diff_f / 2.0) * hemisphere * angle.sin();
+    (t_f.max(32.0) - 32.0) * 5.0 / 9.0
 }
 
 /// Domestic hot water system definition.
@@ -2779,7 +2790,7 @@ pub struct DhwSystemInput {
     pub loads: Vec<DhwLoadInput>,
     /// Cold water mains temperature [°C].
     ///
-    /// Accepts either a fixed value or an ASHRAE correlation:
+    /// Accepts either a fixed value or the E+ correlation:
     /// ```yaml
     /// mains_temperature: 10.0          # fixed constant
     /// # OR
@@ -2788,6 +2799,9 @@ pub struct DhwSystemInput {
     ///     annual_avg_temp: 9.95         # annual average outdoor temp [°C]
     ///     max_monthly_delta: 23.7       # max difference in monthly avg temps [°C]
     ///     latitude: 39.83              # site latitude [degrees] (optional)
+    /// # OR, with the statistics taken from the weather file
+    /// mains_temperature:
+    ///   correlation: {}
     /// ```
     #[serde(default = "default_mains_temp")]
     pub mains_temperature: MainsTemperature,
@@ -2795,6 +2809,38 @@ pub struct DhwSystemInput {
     /// Runs whenever there is a DHW draw (flow > 0).
     #[serde(default)]
     pub pump: Option<PumpInput>,
+}
+
+impl DhwSystemInput {
+    /// Hot water drawn from the tank this step [L/s].
+    ///
+    /// Each fixture mixes tank and mains water to its use temperature, as E+
+    /// `CalcEquipmentFlowRates`: the hot share is
+    /// `(T_use - T_mains) / (T_tank - T_mains)` at the tank's actual temperature,
+    /// so a depleted tank supplies more water, up to the whole fixture flow.
+    pub fn tank_draw(
+        &self,
+        tank_temp: f64,
+        t_mains: f64,
+        schedule_fraction: impl Fn(&str) -> f64,
+    ) -> f64 {
+        self.loads
+            .iter()
+            .map(|load| {
+                let frac = load
+                    .schedule
+                    .as_deref()
+                    .map(&schedule_fraction)
+                    .unwrap_or(1.0);
+                let hot_frac = if tank_temp > t_mains {
+                    ((load.use_temperature - t_mains) / (tank_temp - t_mains)).clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+                load.peak_flow_rate * frac * hot_frac
+            })
+            .sum()
+    }
 }
 
 /// Water heater equipment input.
@@ -5108,6 +5154,15 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
                 ));
             }
         }
+        if let MainsTemperature::Correlation { correlation } = &dhw.mains_temperature {
+            if correlation.annual_avg_temp.is_some() != correlation.max_monthly_delta.is_some() {
+                result.severe(format!(
+                    "DHW system '{}': mains correlation needs both annual_avg_temp and \
+                     max_monthly_delta, or neither to use the weather file",
+                    dhw.name
+                ));
+            }
+        }
     }
 
     // ── Validate data-center server airflow ────────────────────────────────
@@ -6193,66 +6248,91 @@ surfaces:
 
     #[test]
     fn test_mains_water_temperature_correlation() {
-        // Boulder, CO: annual_avg = 9.95°C, max_delta = 23.7°C, lat = 39.83°
-        // E+ Burch & Craig formula: T = (9.95 + 6) + 0.4127 * (23.7/2) * sin(...)
-        // Base = 15.95°C, amplitude = 0.4127 * 11.85 = 4.89°C
-        // Range: 11.06 - 20.84°C
-        let t = mains_water_temperature(1, 9.95, 23.7, 39.83);
-        // Day 1 (Jan 1): day_shift = 35 - 39.83/2 = 15.085
-        // arg = 2π/365 * (1 - 15.085 - 15) = 2π/365 * (-29.085) ≈ -0.5004
-        // sin(-0.5004) ≈ -0.4797
-        // T = 15.95 + 4.89 * (-0.4797) ≈ 13.60
-        assert!(
-            (t - 13.6).abs() < 0.3,
-            "Jan 1 mains temp should be ~13.6°C, got {:.2}",
-            t
-        );
+        // Boulder: E+ WaterMainsTempFromCorrelation, worked in °F.
+        // T_avg = 49.91 °F, T_diff = 42.66 °F, ratio 0.4591, lag 29.09 d,
+        // amplitude 9.79 °F (5.44 K) about 55.91 °F (13.28 °C).
+        let t = |d| mains_water_temperature(d, 9.95, 23.7, 39.83);
+        let avg: f64 = (1..=365).map(t).sum::<f64>() / 365.0;
+        assert!((avg - 13.28).abs() < 0.02, "annual mean {avg:.2}");
 
-        // Near peak (day ~121, ~May 1): peak ≈ 15.95 + 4.89 = 20.84°C
-        let t_peak = mains_water_temperature(121, 9.95, 23.7, 39.83);
-        assert!(
-            t_peak > 19.0,
-            "Peak mains should be >19°C, got {:.2}",
-            t_peak
-        );
+        let (peak_day, peak) =
+            (1..=365)
+                .map(|d| (d, t(d)))
+                .fold((0, f64::MIN), |a, b| if b.1 > a.1 { b } else { a });
+        assert!((peak_day as i32 - 227).abs() <= 1, "peak day {peak_day}");
+        assert!((peak - 18.72).abs() < 0.02, "peak {peak:.2}");
 
-        // Winter minimum (day ~304): min ≈ 15.95 - 4.89 = 11.06°C
-        let t_min = mains_water_temperature(304, 9.95, 23.7, 39.83);
-        assert!(
-            t_min < 13.0 && t_min > 10.0,
-            "Winter mains should be 10-13°C, got {:.2}",
-            t_min
-        );
+        let (min_day, min) =
+            (1..=365)
+                .map(|d| (d, t(d)))
+                .fold((0, f64::MAX), |a, b| if b.1 < a.1 { b } else { a });
+        assert!((min_day as i32 - 44).abs() <= 1, "minimum day {min_day}");
+        assert!((min - 7.84).abs() < 0.02, "minimum {min:.2}");
+    }
 
-        // Annual average should be close to annual_avg_temp + 6
-        let avg: f64 = (1..=365)
-            .map(|d| mains_water_temperature(d, 9.95, 23.7, 39.83))
-            .sum::<f64>()
-            / 365.0;
-        assert!(
-            (avg - 15.95).abs() < 0.1,
-            "Annual average should be ~15.95°C, got {:.2}",
-            avg
-        );
+    #[test]
+    fn test_mains_correlation_floor_and_hemisphere() {
+        // Never below 0 °C (E+ floors at 32 °F).
+        for d in 1..=365 {
+            assert!(mains_water_temperature(d, -25.0, 40.0, 65.0) >= 0.0);
+        }
+        // The southern hemisphere has the opposite season.
+        let north = mains_water_temperature(227, 9.95, 23.7, 39.83);
+        let south = mains_water_temperature(227, 9.95, 23.7, -39.83);
+        assert!((north - 13.28 - (13.28 - south)).abs() < 0.02);
+        assert!(south < 13.28);
+    }
+
+    #[test]
+    fn test_mains_correlation_uses_weather_statistics_when_omitted() {
+        let mt: MainsTemperature = serde_yaml::from_str("correlation: {}").unwrap();
+        let t = mt.temperature(100, 39.83, (9.95, 23.7));
+        assert!((t - mains_water_temperature(100, 9.95, 23.7, 39.83)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_tank_draw_uses_actual_tank_temperature() {
+        let yaml = r#"
+name: Test DHW
+water_heater:
+  name: Test Heater
+  tank_volume: 100
+  capacity: 5000
+loads:
+  - name: Sinks
+    peak_flow_rate: 1.0
+    schedule: half
+    use_temperature: 40.0
+"#;
+        let dhw: DhwSystemInput = serde_yaml::from_str(yaml).unwrap();
+        let half = |_: &str| 0.5;
+        // At setpoint 60 °C: (40 - 10) / (60 - 10) of the scheduled flow.
+        assert!((dhw.tank_draw(60.0, 10.0, half) - 0.5 * 0.6).abs() < 1e-12);
+        // A depleted tank supplies more water, and the same heat.
+        assert!((dhw.tank_draw(50.0, 10.0, half) - 0.5 * 0.75).abs() < 1e-12);
+        // Below the use temperature it supplies the whole fixture flow.
+        assert!((dhw.tank_draw(35.0, 10.0, half) - 0.5).abs() < 1e-12);
+        // Colder than the mains: no division across zero.
+        assert!((dhw.tank_draw(5.0, 10.0, half) - 0.5).abs() < 1e-12);
     }
 
     #[test]
     fn test_mains_temperature_fixed_variant() {
         let mt = MainsTemperature::Fixed(13.3);
-        assert!((mt.temperature(1, 40.0) - 13.3).abs() < 1e-10);
-        assert!((mt.temperature(182, 40.0) - 13.3).abs() < 1e-10);
+        assert!((mt.temperature(1, 40.0, (0.0, 0.0)) - 13.3).abs() < 1e-10);
+        assert!((mt.temperature(182, 40.0, (0.0, 0.0)) - 13.3).abs() < 1e-10);
     }
 
     #[test]
     fn test_mains_temperature_correlation_variant() {
         let mt = MainsTemperature::Correlation {
             correlation: MainsCorrelation {
-                annual_avg_temp: 9.95,
-                max_monthly_delta: 23.7,
+                annual_avg_temp: Some(9.95),
+                max_monthly_delta: Some(23.7),
                 latitude: Some(39.83),
             },
         };
-        let t1 = mt.temperature(1, 0.0); // weather_latitude ignored
+        let t1 = mt.temperature(1, 0.0, (0.0, 0.0)); // weather values ignored
         let t2 = mains_water_temperature(1, 9.95, 23.7, 39.83);
         assert!((t1 - t2).abs() < 1e-10);
     }
@@ -6261,12 +6341,12 @@ surfaces:
     fn test_mains_temperature_correlation_uses_weather_latitude() {
         let mt = MainsTemperature::Correlation {
             correlation: MainsCorrelation {
-                annual_avg_temp: 9.95,
-                max_monthly_delta: 23.7,
+                annual_avg_temp: Some(9.95),
+                max_monthly_delta: Some(23.7),
                 latitude: None, // should fall back to weather latitude
             },
         };
-        let t1 = mt.temperature(100, 39.83);
+        let t1 = mt.temperature(100, 39.83, (0.0, 0.0));
         let t2 = mains_water_temperature(100, 9.95, 23.7, 39.83);
         assert!((t1 - t2).abs() < 1e-10);
     }
@@ -6305,8 +6385,8 @@ water_heater:
         let dhw: DhwSystemInput = serde_yaml::from_str(yaml).expect("parse correlation");
         match &dhw.mains_temperature {
             MainsTemperature::Correlation { correlation } => {
-                assert!((correlation.annual_avg_temp - 9.95).abs() < 1e-10);
-                assert!((correlation.max_monthly_delta - 23.7).abs() < 1e-10);
+                assert_eq!(correlation.annual_avg_temp, Some(9.95));
+                assert_eq!(correlation.max_monthly_delta, Some(23.7));
                 assert!((correlation.latitude.unwrap() - 39.83).abs() < 1e-10);
             }
             _ => panic!("Expected Correlation variant"),

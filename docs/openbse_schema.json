@@ -2265,11 +2265,10 @@
           "properties": {
             "correlation": {
               "type": "object",
-              "required": ["annual_avg_temp", "max_monthly_delta"],
               "properties": {
-                "annual_avg_temp": { "type": "number", "description": "Annual average outdoor dry-bulb temperature [C]." },
+                "annual_avg_temp": { "type": "number", "description": "Annual average outdoor dry-bulb temperature [C]. Give with max_monthly_delta, or omit both to take the statistics from the weather file." },
                 "max_monthly_delta": { "type": "number", "description": "Maximum difference between monthly average outdoor temperatures [C]." },
-                "latitude": { "type": "number", "description": "Site latitude [degrees]. Defaults to the weather file latitude." }
+                "latitude": { "type": "number", "description": "Site latitude [degrees]; only its hemisphere matters. Defaults to the weather file latitude." }
               }
             }
           }
