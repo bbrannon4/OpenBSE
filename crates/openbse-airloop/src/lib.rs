@@ -287,7 +287,6 @@ pub struct SignalCtx<'a> {
     pub zone_return_temps: &'a HashMap<String, f64>,
     /// Zone multipliers: a multiplied zone's return counts that many times
     /// in a multi-zone return mix.
-    pub zone_multipliers: &'a HashMap<String, u32>,
     /// Frozen predictor HVAC mode per zone.
     pub predictor_modes: &'a HashMap<String, HvacMode>,
     /// Effective (post-heat-recovery) outdoor dry-bulb [°C].
@@ -319,7 +318,7 @@ fn zone_return_temp(ctx: &SignalCtx, zone: &str) -> f64 {
 }
 
 /// Return air of a multi-zone loop [°C]: each zone's return weighted by the
-/// flow it returns (supply flow × zone multiplier), as E+'s return-air mixer
+/// flow it returns, as E+'s return-air mixer
 /// mixes node mass flows. With no flow, the zones' simple mean.
 fn mixed_return_temp(ctx: &SignalCtx, zones: &[String], flow: impl Fn(&str) -> f64) -> f64 {
     if zones.is_empty() {
@@ -327,8 +326,7 @@ fn mixed_return_temp(ctx: &SignalCtx, zones: &[String], flow: impl Fn(&str) -> f
     }
     let (mut num, mut den) = (0.0, 0.0);
     for z in zones {
-        let mult = ctx.zone_multipliers.get(z).copied().unwrap_or(1) as f64;
-        let m = flow(z).max(0.0) * mult;
+        let m = flow(z).max(0.0);
         num += m * zone_return_temp(ctx, z);
         den += m;
     }
@@ -1940,7 +1938,6 @@ mod tests {
         modes: HashMap<String, HvacMode>,
         empty: HashMap<String, f64>,
         returns: HashMap<String, f64>,
-        mults: HashMap<String, u32>,
     }
 
     impl Fixture {
@@ -1957,7 +1954,6 @@ mod tests {
                 zone_max_rh: &self.empty,
                 zone_min_rh: &self.empty,
                 zone_return_temps: &self.returns,
-                zone_multipliers: &self.mults,
                 predictor_modes: &self.modes,
                 t_outdoor,
                 raw_t_outdoor: t_outdoor,
@@ -1993,7 +1989,6 @@ mod tests {
                 .collect(),
             empty: HashMap::new(),
             returns: HashMap::new(),
-            mults: HashMap::new(),
         };
         let oa_at = |density: f64| {
             let mut li = li.clone();
@@ -2052,7 +2047,6 @@ mod tests {
                 .collect(),
             empty: HashMap::new(),
             returns: HashMap::new(),
-            mults: HashMap::new(),
         };
         let signals = build_psz_signals(&li, &f.ctx(-5.0));
         // Heating coil targets the design heating supply temp; cooling coil is off.
@@ -2089,7 +2083,6 @@ mod tests {
                 .collect(),
             empty: HashMap::new(),
             returns: HashMap::new(),
-            mults: HashMap::new(),
         };
         let signals = build_psz_signals(&li, &f.ctx(-5.0));
         assert_eq!(
@@ -2119,7 +2112,6 @@ mod tests {
                 .collect(),
             empty: HashMap::new(),
             returns: HashMap::new(),
-            mults: HashMap::new(),
         };
         (li, f)
     }
@@ -2183,7 +2175,6 @@ mod tests {
             modes: HashMap::new(),
             empty: HashMap::new(),
             returns: HashMap::new(),
-            mults: HashMap::new(),
         };
         let signals = build_doas_signals(&li, &f.ctx(30.0));
         assert_eq!(signals.oa_fraction, Some(1.0));
@@ -2214,7 +2205,6 @@ mod tests {
                 .collect(),
             empty: HashMap::new(),
             returns: HashMap::new(),
-            mults: [("Zone2".to_string(), 3)].into_iter().collect(),
         };
         // Outdoor air between the zone air (24 °C) and the mixed return.
         let t_oa = 24.5;
@@ -2224,8 +2214,8 @@ mod tests {
 
         f.returns = one("Zone1", 28.0);
         let lights = build_vav_signals(&li, &f.ctx(t_oa), false);
-        // Equal box flows, Zone2 weighted ×3: (28 + 3·24) / 4.
-        assert!((lights.return_air_temp.unwrap() - 25.0).abs() < 1e-12);
+        // Equal box flows: (28 + 24) / 2.
+        assert!((lights.return_air_temp.unwrap() - 26.0).abs() < 1e-12);
         assert!(lights.economizer_active);
         assert_eq!(lights.oa_fraction, Some(1.0));
     }

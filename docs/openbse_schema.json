@@ -1871,7 +1871,7 @@
             }
           }
         },
-        "zone_multiplier": { "type": "integer", "default": 1, "minimum": 1, "description": "Number of identical copies of this zone (E+ Zone Multiplier). Loads, airflows and HVAC energy are multiplied; zone temperature is computed once." },
+        "zone_multiplier": { "type": "integer", "default": 1, "minimum": 1, "description": "Number of identical copies of this zone. One instance is simulated and sized, so autosized and hard-sized values are per instance; energy and plant demand are multiplied once. All zones on an air loop or VRF system must share a multiplier." },
         "infiltration": {
           "oneOf": [
             { "$ref": "#/$defs/ZoneInfiltration" },
