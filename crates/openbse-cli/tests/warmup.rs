@@ -62,3 +62,31 @@ fn a_july_run_starts_from_july_and_warmup_is_not_reported() {
     );
     std::fs::remove_dir_all(dir).ok();
 }
+
+/// A zone too slow to settle in 28 days gets a warning in the .err file, not a
+/// silent start from an unsettled state.
+#[test]
+fn unconverged_warmup_is_reported_in_the_err_file() {
+    let yaml = std::fs::read_to_string(workspace_root().join("examples/1zone_uncontrolled.yaml"))
+        .expect("example model")
+        .replacen("end_month: 12", "end_month: 1", 1);
+    let volume_line = yaml
+        .lines()
+        .find(|l| l.trim_start().starts_with("volume:"))
+        .expect("zone volume")
+        .to_string();
+    // About 1000 times the air, so the zone's time constant is months.
+    let yaml = yaml.replacen(&volume_line, "    volume: 1000000.0", 1);
+    let (dir, output) = run("slow", &yaml);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let err = std::fs::read_to_string(dir.join("slow.err")).unwrap();
+    assert!(
+        err.contains("Warmup did not converge in 28 days") && err.contains("ZONE ONE"),
+        "{err}"
+    );
+    std::fs::remove_dir_all(dir).ok();
+}
