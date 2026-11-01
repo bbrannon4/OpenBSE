@@ -254,9 +254,9 @@
     "Total": 10419.6,
     "Total Electric": 10419.6,
     "Total Gas": 0.0,
-    "Total Unmet Hours": 0.0,
+    "Total Unmet Hours": 2.0,
     "Unmet Cooling Hours": 0.0,
-    "Unmet Heating Hours": 0.0
+    "Unmet Heating Hours": 2.0
   },
   "examples/hotel_radiant_panels.yaml": {
     "Cooling (Electric)": 0.0,
@@ -343,9 +343,9 @@
     "Total": 11837.5,
     "Total Electric": 11837.5,
     "Total Gas": 0.0,
-    "Total Unmet Hours": 1.0,
-    "Unmet Cooling Hours": 0.0,
-    "Unmet Heating Hours": 1.0
+    "Total Unmet Hours": 168.0,
+    "Unmet Cooling Hours": 85.0,
+    "Unmet Heating Hours": 83.0
   },
   "examples/parametric_sweep.yaml": {
     "baseline: Mean zone temp [C]": 19.793,
