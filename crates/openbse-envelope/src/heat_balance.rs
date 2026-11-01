@@ -2920,16 +2920,15 @@ impl EnvelopeSolver for BuildingEnvelope {
                     self.elevation,
                 );
                 surface.cos_incidence = components.cos_aoi.max(0.0);
-                // Anisotropic diffuse shading (HD total with Perez F1 decomposition):
+                // Anisotropic diffuse shading (Perez components):
                 //   beam × SunlitFrac (directional beam, blocked by overhangs/fins)
                 //   circumsolar × SunlitFrac (directional diffuse, same shading as beam)
                 //   isotropic × DifShdgRatioIsoSky (sky dome view factor reduction)
                 //   horizon × DifShdgRatioHoriz (horizon band obstruction)
                 //
-                // IMPORTANT: Circumsolar stays in the diffuse transmittance path for windows.
-                // This preserves validated base-case results: for unshaded surfaces (skyR=1,
-                // sunlit=1), the total diffuse = iso + cs + hz = HD_total regardless of the
-                // F1 decomposition, giving identical hemispherical-modifier transmission.
+                // IMPORTANT: Circumsolar stays in the diffuse transmittance path for windows,
+                // so an unshaded surface's total diffuse goes through one hemispherical
+                // modifier whatever the split between the components.
                 // Beam: only DNI × SunlitFrac (directional, blocked by overhangs/fins)
                 let shaded_beam = components.beam * sunlit;
                 // Diffuse shading configuration:
@@ -2958,9 +2957,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                         surface.diffuse_horizon_shading_ratio,
                     )
                 };
-                let shaded_sky_diffuse = components.sky_diffuse * sky_ratio
-                    + components.circumsolar * sunlit
-                    + components.horizon * horiz_ratio;
+                let shaded_sky_diffuse = solar::sky_diffuse_after_shading(
+                    components.sky_diffuse,
+                    components.circumsolar,
+                    components.horizon,
+                    sky_ratio,
+                    sunlit,
+                    horiz_ratio,
+                );
                 let diffuse_total = shaded_sky_diffuse + components.ground_diffuse;
                 let effective_incident = (shaded_beam + diffuse_total).max(0.0);
 

@@ -225,17 +225,20 @@ differently in @sec-envelope:
 $$
 I = \underbrace{I_\text{DN}\cos\theta}_\text{beam}
 + \underbrace{I_\text{dH}(1-F_1)\tfrac{1+\cos\beta}{2}}_\text{isotropic}
-+ \underbrace{I_\text{dH}F_1\tfrac{\cos\theta}{\max(\cos\theta_z,\ 0.0872)}}_\text{circumsolar}
++ \underbrace{I_\text{dH}F_1\tfrac{\cos\theta}{\max(\cos\theta_z,\ \cos 85°)}}_\text{circumsolar}
 + \underbrace{I_\text{dH}F_2\sin\beta}_\text{horizon}
 + \underbrace{I_\text{GH}\rho_g\tfrac{1-\cos\beta}{2}}_\text{ground},
 $$ {#eq-incident}
 
 where $I_\text{DN}$, $I_\text{dH}$ and $I_\text{GH}$ are the direct normal,
 diffuse horizontal and global horizontal irradiance. The ground reflectance
-$\rho_g$ is fixed at 0.2. Each component is floored at zero.
+$\rho_g$ is fixed at 0.2. The horizon term is negative when $F_2$ is, as under many
+overcast skies, and lowers the sum: only the sum of the three sky terms, after shading,
+is floored at zero. The circumsolar factor is 1 when $\beta < 2°$ and $\cos\theta_z$
+is below $\cos 85°$ and the sun is in front of the surface.
 
 The brightness coefficients come from the Perez model [@perez1990]. With the
-zenith angle $Z$ [rad] (its cosine floored at 0.087, i.e. $Z \le 85°$):
+zenith angle $Z$ [rad]:
 
 $$
 \varepsilon = \frac{(I_\text{dH} + I_\text{DN})/I_\text{dH} + 1.041Z^3}{1 + 1.041Z^3},
@@ -254,8 +257,7 @@ m_h/\left[\cos Z + 0.15(93.9 - Z_\text{deg})^{-1.253}\right] & Z > 75°,
 \qquad m_h = 1 - 0.1\,\frac{z_\text{site}}{1000},
 $$ {#eq-airmass}
 
-where $z_\text{site}$ is the site elevation [m]. $m$ is capped at 40 and
-$m_h$ floored at 0.5. $\varepsilon$ selects one of eight bins, whose
+where $z_\text{site}$ is the site elevation [m]. $\varepsilon$ selects one of eight bins, whose
 coefficients give
 
 $$
@@ -263,24 +265,12 @@ F_1 = \max\left(0,\ F_{11} + F_{12}\Delta + F_{13}Z\right), \qquad
 F_2 = F_{21} + F_{22}\Delta + F_{23}Z.
 $$ {#eq-perez-f}
 
-The coefficient table is EnergyPlus's (`PEREZ_F11` … `PEREZ_F23`). When
-$I_\text{dH} < 1$ W/m², $F_1 = F_2 = 0$.
+The coefficient table is EnergyPlus's (`PEREZ_F11` … `PEREZ_F23`).
 
-**Comparison with EnergyPlus.** The bins, coefficients and formulas for
-$\varepsilon$, $\Delta$ and $m$ match `SolarShading::AnisoSkyViewFactors`
-[@eplus-engref-25-2, "Sky Radiance Model"]. The deviations are filed in
-[#196](https://github.com/bbrannon4/OpenBSE/issues/196):
-
-- **Zenith cap.** The 85° zenith cap applies to $\varepsilon$, $\Delta$,
-  $F_1$ and $F_2$. EnergyPlus caps the zenith only in the circumsolar
-  denominator.
-- **Horizon floor.** The horizon term is floored at zero on its own.
-  EnergyPlus floors only the sum of the three sky components, so a negative
-  $F_2$ (overcast skies) lowers the total there.
-- **Air-mass limits.** The air-mass cap and floor have no EnergyPlus
-  counterpart.
-- **Ground reflectance.** It cannot be set (EnergyPlus:
-  `Site:GroundReflectance`, monthly).
+**Comparison with EnergyPlus.** All of this matches `SolarShading::AnisoSkyViewFactors`
+[@eplus-engref-25-2, "Sky Radiance Model"]. EnergyPlus's `Site:GroundReflectance` also
+sets the ground reflectance by month; here that would be a new input
+([#287](https://github.com/bbrannon4/OpenBSE/issues/287)).
 
 ## Sky and ground temperatures {#sec-sky}
 
@@ -453,8 +443,7 @@ glycol properties at the fluid temperature (`FluidProperties`); between 0 and
 
 - [#50](https://github.com/bbrannon4/OpenBSE/issues/50): cooling design-day
   solar is a fixed clear-sky formula; `taub` and `taud` are ignored.
-- [#196](https://github.com/bbrannon4/OpenBSE/issues/196): Perez model
-  details (zenith cap, horizon floor); no ground-reflectance input.
+- [#287](https://github.com/bbrannon4/OpenBSE/issues/287): no ground-reflectance input.
 - [#197](https://github.com/bbrannon4/OpenBSE/issues/197): the sky
   temperature ignores the weather file's horizontal infrared.
 - [#198](https://github.com/bbrannon4/OpenBSE/issues/198): design-day
