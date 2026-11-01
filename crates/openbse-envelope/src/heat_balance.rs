@@ -66,6 +66,8 @@ pub struct BuildingEnvelope {
     pub ground_reflectance: f64,
     /// Day of week for January 1 (1=Mon .. 7=Sun). From weather file.
     pub jan1_dow: u32,
+    /// The weather file's year has a 29 February (see `schedule::day_of_week`).
+    pub leap_year: bool,
     /// Timestep duration [s]
     pub dt: f64,
     pub initialized: bool,
@@ -1675,6 +1677,7 @@ impl BuildingEnvelope {
             time_zone,
             ground_reflectance: 0.2,
             jan1_dow: 1, // Default: Monday; overridden by weather file
+            leap_year: false,
             dt: 3600.0,
             initialized: false,
             shading_calculation: shading::ShadingCalculation::Basic,
@@ -2197,13 +2200,12 @@ impl BuildingEnvelope {
         self.zones.iter().any(|z| z.input.ideal_loads.is_some())
     }
 
-    /// Day type for schedule lookups this timestep: 1–7, or 8 on a holiday.
-    fn schedule_day_of_week(&self, ctx: &SimulationContext) -> u32 {
-        let (month, day) = (ctx.timestep.month, ctx.timestep.day);
+    /// Day type for schedule lookups on a date: 1–7, or 8 on a holiday.
+    pub fn schedule_day_type(&self, month: u32, day: u32) -> u32 {
         if self.holiday_set.contains(&(month, day)) {
             8
         } else {
-            day_of_week(month, day, self.jan1_dow)
+            day_of_week(month, day, self.jan1_dow, self.leap_year)
         }
     }
 
@@ -2214,7 +2216,7 @@ impl BuildingEnvelope {
     pub fn lighting_return_air_gains(&self, ctx: &SimulationContext) -> HashMap<String, f64> {
         let (hour, dow, doy) = (
             ctx.timestep.hour,
-            self.schedule_day_of_week(ctx),
+            self.schedule_day_type(ctx.timestep.month, ctx.timestep.day),
             ctx.timestep.day_of_year(),
         );
         self.zones
@@ -2374,7 +2376,7 @@ impl EnvelopeSolver for BuildingEnvelope {
         // During normal simulation: use schedules (time-varying fractions).
         // During sizing: behavior is controlled by the design day's
         // `internal_gains` mode (Off / Full / Scheduled / FullWhenOccupied).
-        let dow = self.schedule_day_of_week(ctx);
+        let dow = self.schedule_day_type(ctx.timestep.month, ctx.timestep.day);
         for zone in &mut self.zones {
             let gains = timestep_gains(
                 &zone.input.internal_gains,

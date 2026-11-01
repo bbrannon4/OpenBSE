@@ -4882,6 +4882,86 @@ impl ValidationResult {
 /// names a defined construction of the right kind.
 ///
 /// Returns a `ValidationResult` containing all warnings and errors found.
+/// Every string under a key ending in `schedule`, with its path in the model.
+/// Walking the serialized model covers every reference, including objects added
+/// later: a hand-kept list had drifted to only five object types.
+fn collect_schedule_refs(value: &serde_yaml::Value, path: &str, out: &mut Vec<(String, String)>) {
+    match value {
+        serde_yaml::Value::Mapping(map) => {
+            let owner = map.get("name").and_then(|n| n.as_str());
+            for (key, child) in map {
+                let key = key.as_str().unwrap_or("");
+                let child_path = match owner {
+                    Some(name) => format!("{path} '{name}'.{key}"),
+                    None => format!("{path}.{key}"),
+                };
+                match child.as_str() {
+                    Some(name) if key.ends_with("schedule") => {
+                        out.push((name.to_string(), child_path));
+                    }
+                    _ => collect_schedule_refs(child, &child_path, out),
+                }
+            }
+        }
+        serde_yaml::Value::Sequence(items) => {
+            for item in items {
+                collect_schedule_refs(item, path, out);
+            }
+        }
+        serde_yaml::Value::Tagged(tagged) => collect_schedule_refs(&tagged.value, path, out),
+        _ => {}
+    }
+}
+
+/// Reject references to undefined schedules and compact strings that don't
+/// parse, and warn about values the [0, 1] clamp in `ScheduleInput::fraction`
+/// would change. Schedules here are fractional multipliers by design (#66), so
+/// out-of-range values aren't an error, but the clamp shouldn't be silent.
+fn validate_schedules(
+    model: &ModelInput,
+    schedule_names: &std::collections::HashSet<&str>,
+    builtin_schedules: &std::collections::HashSet<&str>,
+    result: &mut ValidationResult,
+) {
+    match serde_yaml::to_value(model) {
+        Ok(value) => {
+            let mut refs = Vec::new();
+            collect_schedule_refs(&value, "", &mut refs);
+            for (name, referrer) in refs {
+                if !schedule_names.contains(name.as_str())
+                    && !builtin_schedules.contains(name.as_str())
+                {
+                    result.severe(format!(
+                        "Schedule '{name}' referenced by {referrer} not found in schedules"
+                    ));
+                }
+            }
+        }
+        Err(e) => result.severe(format!("Could not check schedule references: {e}")),
+    }
+
+    for input in &model.schedules {
+        let mut schedule = input.clone();
+        if let Err(e) = schedule.resolve_compact() {
+            result.severe(e);
+            continue;
+        }
+        let (min, max) = schedule
+            .day_profiles()
+            .flatten()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
+                (lo.min(v), hi.max(v))
+            });
+        if min < 0.0 || max > 1.0 {
+            result.warn(format!(
+                "Schedule '{}' has values from {} to {}: schedules are fractions, so values \
+                 are clamped to the range 0 to 1",
+                schedule.name, min, max
+            ));
+        }
+    }
+}
+
 /// Check material properties and construction layers. E+ requires conductivity,
 /// density and specific heat on every massed material and rejects an unknown
 /// layer name; a default or a dropped layer would change U and thermal mass with
@@ -5006,39 +5086,24 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
         }
     };
 
-    let check_schedule =
-        |sched: &Option<String>, obj_type: &str, obj_name: &str, result: &mut ValidationResult| {
-            if let Some(name) = sched {
-                if !schedule_names.contains(name.as_str())
-                    && !builtin_schedules.contains(name.as_str())
-                {
-                    result.warn(format!(
-                        "Schedule '{}' referenced by {} '{}' not found (will default to always-on)",
-                        name, obj_type, obj_name
-                    ));
-                }
-            }
-        };
+    validate_schedules(model, &schedule_names, &builtin_schedules, &mut result);
 
     // ── Validate people ────────────────────────────────────────────────────
 
     for p in &model.people {
         check_zone_refs(&p.zones, "People", &p.name, &mut result);
-        check_schedule(&p.schedule, "People", &p.name, &mut result);
     }
 
     // ── Validate lights ────────────────────────────────────────────────────
 
     for l in &model.lights {
         check_zone_refs(&l.zones, "Lights", &l.name, &mut result);
-        check_schedule(&l.schedule, "Lights", &l.name, &mut result);
     }
 
     // ── Validate equipment ─────────────────────────────────────────────────
 
     for e in &model.equipment {
         check_zone_refs(&e.zones, "Equipment", &e.name, &mut result);
-        check_schedule(&e.schedule, "Equipment", &e.name, &mut result);
     }
 
     // ── Validate water heater ambient zones ────────────────────────────────
@@ -5084,7 +5149,6 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     for inf in &model.infiltration {
         check_zone_refs(&inf.zones, "Infiltration", &inf.name, &mut result);
-        check_schedule(&inf.schedule, "Infiltration", &inf.name, &mut result);
     }
 
     // ── Validate ventilation ───────────────────────────────────────────────
@@ -5097,7 +5161,6 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     for ef in &model.exhaust_fans {
         check_zone_refs(&ef.zones, "ExhaustFan", &ef.name, &mut result);
-        check_schedule(&ef.schedule, "ExhaustFan", &ef.name, &mut result);
     }
 
     // ── Validate outdoor air ───────────────────────────────────────────────
@@ -5515,6 +5578,62 @@ air_loops:
         assert_eq!(result.error_count(), 0);
         let result = material_diagnostics("materials:\n- {name: m, thermal_resistance: 0.0}\n");
         assert_eq!(result.error_count(), 1);
+    }
+
+    fn schedule_diagnostics(extra: &str) -> ValidationResult {
+        validate_model(
+            &parse_model_yaml(&format!("simulation: {{}}\nweather_files: []\n{extra}")).unwrap(),
+        )
+    }
+
+    #[test]
+    fn unknown_schedule_reference_is_severe_wherever_it_appears() {
+        let result = schedule_diagnostics(
+            "people:\n- {name: P, zones: [Z], count: 1, schedule: typo_people}\n",
+        );
+        assert!(result.to_err_file().contains("typo_people"));
+        assert!(result.error_count() >= 1, "{}", result.to_err_file());
+
+        // A hand-kept list of object types missed air loops; this one must not.
+        let result = schedule_diagnostics(
+            "air_loops:\n- {name: L, equipment: [], availability_schedule: typo_avail}\n",
+        );
+        assert!(
+            result.to_err_file().contains("typo_avail"),
+            "{}",
+            result.to_err_file()
+        );
+    }
+
+    #[test]
+    fn builtin_and_defined_schedules_are_accepted() {
+        let result = schedule_diagnostics(
+            "schedules:\n- {name: S, compact: {weekday: '1'}}\n\
+             people:\n- {name: P, zones: [Z], count: 1, schedule: S}\n\
+             - {name: Q, zones: [Z], count: 1, schedule: always_on}\n",
+        );
+        assert!(!result.to_err_file().contains("not found in schedules"));
+    }
+
+    #[test]
+    fn bad_compact_schedule_is_severe_not_always_on() {
+        // The manager used to log the failure and drop the schedule, leaving
+        // every reference to it at 1.0.
+        let result =
+            schedule_diagnostics("schedules:\n- {name: S, compact: {weekday: '1 until 8:00'}}\n");
+        assert_eq!(result.error_count(), 1, "{}", result.to_err_file());
+    }
+
+    #[test]
+    fn out_of_range_schedule_values_warn() {
+        let result = schedule_diagnostics(&format!(
+            "schedules:\n- {{name: S, weekday: {:?}}}\n",
+            [[0.5; 23].as_slice(), &[1.5]].concat()
+        ));
+        assert_eq!(result.error_count(), 0, "{}", result.to_err_file());
+        assert!(result.to_err_file().contains("clamped"));
+        let result = schedule_diagnostics("schedules:\n- {name: S, compact: {weekday: '0.5'}}\n");
+        assert!(!result.to_err_file().contains("clamped"));
     }
 
     #[test]

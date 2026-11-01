@@ -171,6 +171,9 @@ pub struct WeatherData {
     /// 1=Monday, 2=Tuesday, ..., 6=Saturday, 7=Sunday.
     /// Parsed from the EPW DATA PERIODS header line. Defaults to 1 (Monday).
     pub start_day_of_week: u32,
+    /// The file contains 29 February. Those records are dropped, but dates after
+    /// them keep their true day of week.
+    pub leap_year: bool,
     /// Ground temperatures at various depths, parsed from EPW header.
     /// Typically contains 3 depth profiles (0.5 m, 2.0 m, 4.0 m).
     pub ground_temperatures: Vec<EpwGroundTemps>,
@@ -287,6 +290,7 @@ pub fn read_epw<R: Read>(reader: R) -> Result<WeatherData, WeatherError> {
         let hour = parse_data_line(&line).map_err(|e| at_line(line_no, e))?;
         records.push((line_no, hour));
     }
+    let leap_year = records.iter().any(|(_, h)| h.month == 2 && h.day == 29);
     let hours = finish_hourly_records(records)?;
 
     Ok(WeatherData {
@@ -294,6 +298,7 @@ pub fn read_epw<R: Read>(reader: R) -> Result<WeatherData, WeatherError> {
         hours,
         design_days: Vec::new(), // Design days come from YAML input, not EPW
         start_day_of_week,
+        leap_year,
         ground_temperatures,
     })
 }
@@ -495,13 +500,15 @@ pub fn read_tmy3<R: Read>(reader: R) -> Result<WeatherData, WeatherError> {
         let hour = parse_tmy3_data_line(&line).map_err(|e| at_line(line_no, e))?;
         records.push((line_no, hour));
     }
+    let leap_year = records.iter().any(|(_, h)| h.month == 2 && h.day == 29);
     let hours = finish_hourly_records(records)?;
 
     Ok(WeatherData {
         location,
         hours,
         design_days: Vec::new(),
-        start_day_of_week: 1,            // TMY3 doesn't specify; default Monday
+        start_day_of_week: 1, // TMY3 doesn't specify; default Monday
+        leap_year,
         ground_temperatures: Vec::new(), // TMY3 doesn't include ground temps
     })
 }

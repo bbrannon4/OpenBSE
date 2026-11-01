@@ -161,14 +161,23 @@ fn default_always_on() -> Vec<f64> {
 
 /// Parse a compact schedule string into a 24-element hourly array.
 ///
-/// Format: comma-separated segments of `value [until HH:MM]`
+/// Format: comma-separated segments of `value [until HH:MM]`. The segments must
+/// reach 24:00, as in E+ `Schedule:Compact`; a final bare value does so.
+///
+/// A boundary inside an hour gives that hour the time-weighted average of the
+/// segments it spans, because the internal representation is hourly. That keeps
+/// the schedule's integral over the hour, like E+ `Interpolate: Average` at an
+/// hourly time step.
 ///
 /// Examples:
 /// - `"0"` → all zeros
 /// - `"1.0"` → all ones
 /// - `"0 until 8:00, 1.0 until 18:00, 0"` → 0 for hours 1-8, 1.0 for 9-18, 0 for 19-24
 /// - `"0 until 8:00, 1.0 until 18:00, 0.5 until 22:00, 0"` → four segments
+/// - `"0 until 8:30, 1.0"` → hour 9 is 0.5
 pub fn parse_compact_day(s: &str) -> Result<Vec<f64>, String> {
+    const MINUTES_PER_DAY: u32 = 24 * 60;
+
     let s = s.trim();
     if s.is_empty() {
         return Err("Empty compact schedule string".to_string());
@@ -176,89 +185,121 @@ pub fn parse_compact_day(s: &str) -> Result<Vec<f64>, String> {
 
     let mut values = vec![0.0_f64; 24];
     let segments: Vec<&str> = s.split(',').map(|seg| seg.trim()).collect();
-    let mut current_hour = 0usize; // 0 = start of day (00:00)
+    let mut current_minute = 0u32; // minutes since 00:00
 
     for (i, seg) in segments.iter().enumerate() {
-        let seg = seg.trim();
         if seg.is_empty() {
             continue;
         }
 
         // Check if segment has "until HH:MM"
         let lower = seg.to_lowercase();
-        if let Some(until_pos) = lower.find("until") {
-            // Parse value before "until"
-            let value_str = seg[..until_pos].trim();
-            let value: f64 = value_str
-                .parse()
-                .map_err(|_| format!("Invalid value '{}' in compact schedule", value_str))?;
-
-            // Parse time after "until"
+        let (value_str, end_minute) = if let Some(until_pos) = lower.find("until") {
             let time_str = seg[until_pos + 5..].trim().trim_matches(':');
-            let time_parts: Vec<&str> = time_str.split(':').collect();
-            let end_hour: usize = match time_parts.len() {
-                1 => time_parts[0]
-                    .parse()
-                    .map_err(|_| format!("Invalid hour '{}' in compact schedule", time_parts[0]))?,
-                2 => time_parts[0]
-                    .parse()
-                    .map_err(|_| format!("Invalid hour '{}' in compact schedule", time_parts[0]))?,
-                _ => {
-                    return Err(format!(
-                        "Invalid time format '{}' in compact schedule",
-                        time_str
-                    ))
-                }
-            };
-
-            if end_hour > 24 {
-                return Err(format!("Hour {} exceeds 24 in compact schedule", end_hour));
-            }
-            if end_hour <= current_hour {
+            let end_minute = parse_until_minutes(time_str)?;
+            if end_minute <= current_minute {
                 return Err(format!(
-                    "Time {}:00 is not after previous boundary {}:00 in compact schedule",
-                    end_hour, current_hour
+                    "Time {} is not after previous boundary {} in compact schedule",
+                    format_minutes(end_minute),
+                    format_minutes(current_minute)
                 ));
             }
-
-            // Fill hours from current_hour to end_hour
-            for h in current_hour..end_hour.min(24) {
-                values[h] = value;
-            }
-            current_hour = end_hour;
+            (seg[..until_pos].trim(), end_minute)
         } else {
-            // Bare value — fills remaining hours (must be last segment or only segment)
-            let value: f64 = seg
-                .parse()
-                .map_err(|_| format!("Invalid value '{}' in compact schedule", seg))?;
-
-            if i < segments.len() - 1 {
-                // Not the last segment — check if remaining segments are empty
-                let remaining_non_empty = segments[i + 1..].iter().any(|s| !s.trim().is_empty());
-                if remaining_non_empty {
-                    return Err(format!(
-                        "Bare value '{}' must be the last segment in compact schedule",
-                        seg
-                    ));
-                }
+            // Bare value — fills the rest of the day, so nothing may follow it
+            if segments[i + 1..].iter().any(|s| !s.trim().is_empty()) {
+                return Err(format!(
+                    "Bare value '{}' must be the last segment in compact schedule",
+                    seg
+                ));
             }
+            (*seg, MINUTES_PER_DAY)
+        };
 
-            // Fill remaining hours
-            for h in current_hour..24 {
-                values[h] = value;
-            }
-            current_hour = 24;
+        let value: f64 = value_str
+            .parse()
+            .map_err(|_| format!("Invalid value '{}' in compact schedule", value_str))?;
+
+        for (hour, slot) in values.iter_mut().enumerate() {
+            let hour_start = hour as u32 * 60;
+            let overlap = end_minute
+                .min(hour_start + 60)
+                .saturating_sub(current_minute.max(hour_start));
+            *slot += value * f64::from(overlap) / 60.0;
         }
+        current_minute = end_minute;
     }
 
-    // If we didn't reach hour 24, fill remaining with 0
-    // (This happens if the string ends with an "until" segment that doesn't reach 24:00)
-    // Actually, this is already handled — values start at 0.0
+    if current_minute < MINUTES_PER_DAY {
+        return Err(format!(
+            "Compact schedule ends at {}; it must reach 24:00",
+            format_minutes(current_minute)
+        ));
+    }
 
     Ok(values)
 }
 
+/// Parse the time after `until` (`H`, `HH` or `HH:MM`) into minutes since 00:00.
+fn parse_until_minutes(time_str: &str) -> Result<u32, String> {
+    let parts: Vec<&str> = time_str.split(':').collect();
+    let (hour_str, minute_str) = match parts[..] {
+        [hour] => (hour, "0"),
+        [hour, minute] => (hour, minute),
+        _ => {
+            return Err(format!(
+                "Invalid time format '{}' in compact schedule",
+                time_str
+            ))
+        }
+    };
+    let hour: u32 = hour_str
+        .trim()
+        .parse()
+        .map_err(|_| format!("Invalid hour '{}' in compact schedule", hour_str))?;
+    let minute: u32 = minute_str
+        .trim()
+        .parse()
+        .map_err(|_| format!("Invalid minute '{}' in compact schedule", minute_str))?;
+    if minute > 59 {
+        return Err(format!("Minute {} exceeds 59 in compact schedule", minute));
+    }
+    let total = hour * 60 + minute;
+    if total > 24 * 60 {
+        return Err(format!(
+            "Time {} exceeds 24:00 in compact schedule",
+            time_str
+        ));
+    }
+    Ok(total)
+}
+
+fn format_minutes(minutes: u32) -> String {
+    format!("{}:{:02}", minutes / 60, minutes % 60)
+}
+
 impl ScheduleInput {
+    /// Every hourly array this schedule holds, including seasonal ones.
+    pub fn day_profiles(&self) -> impl Iterator<Item = &[f64]> {
+        let days = [
+            &self.weekend,
+            &self.saturday,
+            &self.sunday,
+            &self.holiday,
+            &self.monday,
+            &self.tuesday,
+            &self.wednesday,
+            &self.thursday,
+            &self.friday,
+        ];
+        let seasons = self.seasons.iter().flatten();
+        std::iter::once(self.weekday.as_slice())
+            .chain(days.into_iter().flatten().map(Vec::as_slice))
+            .chain(seasons.flat_map(|season| {
+                std::iter::once(season.weekday.as_slice()).chain(season.weekend.as_deref())
+            }))
+    }
+
     /// Resolve compact schedule strings into explicit arrays.
     ///
     /// Called during `ScheduleManager::from_inputs()`. If `compact` is provided,
@@ -502,17 +543,19 @@ impl ScheduleManager {
         mgr
     }
 
-    /// Look up a schedule fraction. Returns 1.0 if schedule not found (fail-safe: always on).
+    /// Look up a schedule fraction. `validate_model` rejects a reference to an
+    /// undefined schedule, so the 1.0 here is reached only by callers that skip it.
     pub fn fraction(&self, name: &str, hour: u32, day_of_week: u32) -> f64 {
         match self.schedules.get(name) {
             Some(sched) => sched.fraction(hour, day_of_week),
-            None => 1.0, // Unknown schedule defaults to always on
+            None => 1.0,
         }
     }
 
     /// Look up a schedule fraction with day-of-year awareness, so seasonal
     /// (date-range) schedules resolve correctly. Equivalent to [`Self::fraction`]
-    /// for non-seasonal schedules. Returns 1.0 if the schedule is not found.
+    /// for non-seasonal schedules. Returns 1.0 if the schedule is not found (see
+    /// [`Self::fraction`]).
     pub fn fraction_doy(&self, name: &str, hour: u32, day_of_week: u32, day_of_year: u32) -> f64 {
         match self.schedules.get(name) {
             Some(sched) => sched.fraction_doy(hour, day_of_week, day_of_year),
@@ -524,17 +567,19 @@ impl ScheduleManager {
 /// Calculate day of week from month/day, given the day of week for January 1.
 ///
 /// `jan1_dow`: day of week for January 1 (1=Monday, ..., 7=Sunday).
+/// `leap_year`: the year has a 29 February. The simulation calendar never runs
+/// that day, but dates after it still fall one weekday later.
 /// Returns: 1=Monday, 2=Tuesday, ..., 6=Saturday, 7=Sunday.
-///
-/// Non-leap year assumed (365 days). For energy simulation purposes,
-/// a consistent day-of-week pattern is sufficient.
-pub fn day_of_week(month: u32, day: u32, jan1_dow: u32) -> u32 {
+pub fn day_of_week(month: u32, day: u32, jan1_dow: u32, leap_year: bool) -> u32 {
     let days_in_months: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     let mut day_of_year = 0u32;
     for m in 0..((month - 1) as usize).min(11) {
         day_of_year += days_in_months[m];
     }
     day_of_year += day;
+    if leap_year && month > 2 {
+        day_of_year += 1;
+    }
     // jan1_dow=1 means Jan 1 is Monday, jan1_dow=7 means Jan 1 is Sunday
     ((day_of_year - 1 + jan1_dow - 1) % 7) + 1
 }
@@ -753,6 +798,42 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_compact_minutes_are_time_weighted() {
+        // The issue's example: hour 9 is half 1.0 and half 0.5.
+        let v = parse_compact_day("1.0 until 8:30, 0.5 until 9:00, 0").unwrap();
+        assert_eq!(v[7], 1.0);
+        assert!((v[8] - 0.75).abs() < 1e-12);
+        assert_eq!(v[9], 0.0);
+        // Three segments inside one hour.
+        let v = parse_compact_day("0 until 8:15, 1 until 8:45, 0").unwrap();
+        assert!((v[8] - 0.5).abs() < 1e-12);
+        // The day's integral equals the segments' value × duration.
+        let v = parse_compact_day("0.2 until 6:20, 0.9 until 17:40, 0.4").unwrap();
+        let integral: f64 = v.iter().sum();
+        let expected = (0.2 * 380.0 + 0.9 * 680.0 + 0.4 * 380.0) / 60.0;
+        assert!((integral - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_parse_compact_rejects_bad_times_and_short_days() {
+        assert!(parse_compact_day("1 until 8:60, 0").is_err());
+        assert!(parse_compact_day("1 until 24:30").is_err());
+        assert!(parse_compact_day("1 until 8:30, 0 until 8:30, 0").is_err());
+        // E+ requires every day to reach 24:00; it used to fill with zeros.
+        assert!(parse_compact_day("1 until 8:00").is_err());
+    }
+
+    #[test]
+    fn test_day_of_week_in_a_leap_year() {
+        // 2024: 1 January is a Monday; 28 February a Wednesday; 1 March a Friday.
+        assert_eq!(day_of_week(2, 28, 1, true), 3);
+        assert_eq!(day_of_week(3, 1, 1, true), 5);
+        assert_eq!(day_of_week(12, 31, 1, true), 2);
+        // 2023 starts on a Sunday and has no leap day: 1 March is a Wednesday.
+        assert_eq!(day_of_week(3, 1, 7, false), 3);
+    }
+
+    #[test]
     fn test_compact_schedule_resolve() {
         let mut s = ScheduleInput {
             name: "test".to_string(),
@@ -837,17 +918,17 @@ mod tests {
 
     #[test]
     fn test_day_of_week_monday_start() {
-        assert_eq!(day_of_week(1, 1, 1), 1); // Monday
-        assert_eq!(day_of_week(1, 6, 1), 6); // Saturday
-        assert_eq!(day_of_week(1, 7, 1), 7); // Sunday
-        assert_eq!(day_of_week(1, 8, 1), 1); // Monday again
+        assert_eq!(day_of_week(1, 1, 1, false), 1); // Monday
+        assert_eq!(day_of_week(1, 6, 1, false), 6); // Saturday
+        assert_eq!(day_of_week(1, 7, 1, false), 7); // Sunday
+        assert_eq!(day_of_week(1, 8, 1, false), 1); // Monday again
     }
 
     #[test]
     fn test_day_of_week_sunday_start() {
-        assert_eq!(day_of_week(1, 1, 7), 7); // Sunday
-        assert_eq!(day_of_week(1, 2, 7), 1); // Monday
-        assert_eq!(day_of_week(1, 7, 7), 6); // Saturday
-        assert_eq!(day_of_week(1, 8, 7), 7); // Sunday again
+        assert_eq!(day_of_week(1, 1, 7, false), 7); // Sunday
+        assert_eq!(day_of_week(1, 2, 7, false), 1); // Monday
+        assert_eq!(day_of_week(1, 7, 7, false), 6); // Saturday
+        assert_eq!(day_of_week(1, 8, 7, false), 7); // Sunday again
     }
 }
