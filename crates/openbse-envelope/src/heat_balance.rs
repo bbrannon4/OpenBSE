@@ -4143,7 +4143,9 @@ impl EnvelopeSolver for BuildingEnvelope {
             // LOCKED for the corrector to prevent oscillation / NaN.
             //
             // IMPORTANT: t_zone_vec is NOT overwritten here.  It stays at
-            // zone.temp (the previous timestep value, set at line 2194).
+            // zone.temp, as this solve began with it: the previous timestep's
+            // value on the first HVAC iteration, and the previous iteration's
+            // solved value after that.
             // In E+, CalcHeatBalanceInsideSurf runs BEFORE PredictSystemLoads
             // — surfaces always iterate with the previous timestep's zone
             // temp, not the predicted setpoint.  Overwriting t_zone_vec with
@@ -5626,13 +5628,6 @@ impl EnvelopeSolver for BuildingEnvelope {
 }
 
 impl BuildingEnvelope {
-    /// Reset all CTF histories and surface temperatures for design day warmup.
-    ///
-    /// Before each design day, the envelope state must be re-initialized to
-    /// ensure the warmup starts from a consistent state. Without this, heavy
-    /// interzone surfaces (e.g. concrete floor/ceiling slabs) carry residual
-    /// heat flux from a previous design day, requiring many more warmup days
-    /// to reach cyclic steady-state (or never converging for short warmup).
     /// Cap the BDF order for zone temperature and humidity.
     ///
     /// During warmup, BDF3 can amplify oscillations in zones with slow-
@@ -5686,6 +5681,13 @@ impl BuildingEnvelope {
         }
     }
 
+    /// Reset all CTF histories and surface temperatures for design day warmup.
+    ///
+    /// Before each design day, the envelope state must be re-initialized to
+    /// ensure the warmup starts from a consistent state. Without this, heavy
+    /// interzone surfaces (e.g. concrete floor/ceiling slabs) carry residual
+    /// heat flux from a previous design day, requiring many more warmup days
+    /// to reach cyclic steady-state (or never converging for short warmup).
     pub fn reset_for_sizing(&mut self, temp: f64) {
         // Reset CTF conduction histories
         for h in self.ctf_histories.iter_mut().flatten() {

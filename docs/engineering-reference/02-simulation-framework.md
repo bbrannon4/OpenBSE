@@ -408,7 +408,4 @@ timestep (`loop_supply_conditions`).
 
 ## Known limitations {#sec-framework-limitations}
 
-- [#193](https://github.com/bbrannon4/OpenBSE/issues/193): unused
-  `SimulationRunner` and configuration fields, and stale comments in the
-  loop.
 - No adaptive system timestep (see @sec-hvac-iteration).

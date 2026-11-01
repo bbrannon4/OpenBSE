@@ -280,8 +280,6 @@ pub struct SignalCtx<'a> {
     pub zone_max_rh: &'a HashMap<String, f64>,
     /// Zone minimum relative humidity setpoints [%].
     pub zone_min_rh: &'a HashMap<String, f64>,
-    /// Zone thermal capacitances [J/K] (VAV demand reset).
-    pub zone_thermal_caps: &'a HashMap<String, f64>,
     /// Return-air temperature leaving each zone [°C], where it differs from
     /// the zone air: contained hot aisles (CRAC/CRAH), the return height of a
     /// stratified zone (#91), and lighting return-air heat (#51). Zones not
@@ -1958,7 +1956,6 @@ mod tests {
                 zone_humidity_ratios: &self.empty,
                 zone_max_rh: &self.empty,
                 zone_min_rh: &self.empty,
-                zone_thermal_caps: &self.empty,
                 zone_return_temps: &self.returns,
                 zone_multipliers: &self.mults,
                 predictor_modes: &self.modes,

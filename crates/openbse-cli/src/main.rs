@@ -1352,7 +1352,6 @@ fn main() -> Result<()> {
             start_day: model.simulation.start_day,
             end_month: model.simulation.end_month,
             end_day: model.simulation.end_day,
-            ..Default::default()
         };
 
         let days_in_months: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -2548,20 +2547,10 @@ fn main() -> Result<()> {
         // return-air heat [kg/s] (#51), carried over between timesteps.
         let mut return_air_flows: HashMap<String, f64> = HashMap::new();
 
-        // ── Zone thermal capacities for PLR correction ──────────────────────
+        // ── Zone thermal capacities ─────────────────────────────────────────
         //
-        // The PLR calculation uses frozen ideal loads from the previous timestep.
-        // As the HVAC iteration updates zone temps, the frozen loads become stale.
-        // The correction term adjusts the load based on zone temp changes:
-        //
-        //   Q_corrected = Q_ideal + C_zone × (T_initial - T_current)
-        //
-        // where C_zone = ρ_air × V_zone × c_p / Δt  (same as the cap_term in
-        // compute_ideal_q_hvac in the envelope code).
-        //
-        // This makes PLR continuous near the setpoint, preventing the HVAC
-        // iteration from oscillating between "full load" and "zero load" states
-        // that never converge (the binary guard caused 14% energy waste).
+        // C_zone = ρ_air × V_zone × c_p / Δt, the supply-air reset's stand-in for
+        // a zone's capacity when it estimates how hard the zone is loaded.
         let zone_thermal_caps: HashMap<String, f64> = envelope
             .as_ref()
             .map(|env| {
@@ -2937,7 +2926,7 @@ fn main() -> Result<()> {
                         // at the wrong temperature.
                         //
                         // We iterate: HVAC → Envelope → (check convergence) → repeat.
-                        // Typically converges in 2-3 iterations.
+                        // The run-time checks report timesteps that don't converge.
                         const MAX_HVAC_ITER: usize = 10;
                         const HVAC_CONV_TOL: f64 = 0.05; // °C
 
@@ -5774,7 +5763,6 @@ fn simulate_all_loops(
             zone_humidity_ratios,
             zone_max_rh,
             zone_min_rh,
-            zone_thermal_caps,
             zone_return_temps,
             zone_multipliers,
             predictor_modes: &predictor_modes,
@@ -7303,7 +7291,6 @@ mod tests {
             zone_humidity_ratios: &zone_humidity_ratios,
             zone_max_rh: &empty_rh,
             zone_min_rh: &empty_rh,
-            zone_thermal_caps: &empty_rh,
             zone_return_temps: &empty_rh,
             zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
@@ -7372,7 +7359,6 @@ mod tests {
             zone_humidity_ratios: &zone_humidity_ratios,
             zone_max_rh: &empty_rh,
             zone_min_rh: &empty_rh,
-            zone_thermal_caps: &empty_rh,
             zone_return_temps: &empty_rh,
             zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
@@ -7602,7 +7588,6 @@ mod tests {
             zone_humidity_ratios: &zone_humidity_ratios,
             zone_max_rh: &empty_rh,
             zone_min_rh: &empty_rh,
-            zone_thermal_caps: &empty_rh,
             zone_return_temps: &empty_rh,
             zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
@@ -7848,7 +7833,6 @@ mod tests {
             zone_humidity_ratios: &zone_humidity_ratios,
             zone_max_rh: &zone_max_rh,
             zone_min_rh: &empty_rh,
-            zone_thermal_caps: &empty_rh,
             zone_return_temps: &empty_rh,
             zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
@@ -7915,7 +7899,6 @@ mod tests {
             zone_humidity_ratios: &zone_humidity_ratios,
             zone_max_rh: &zone_max_rh,
             zone_min_rh: &empty_rh,
-            zone_thermal_caps: &empty_rh,
             zone_return_temps: &empty_rh,
             zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
@@ -8469,7 +8452,6 @@ mod tests_datacenter {
             zone_humidity_ratios: &zone_w,
             zone_max_rh: &zone_rh,
             zone_min_rh: &zone_rh,
-            zone_thermal_caps: &zone_rh,
             zone_return_temps: &dc_return,
             zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,
@@ -8530,7 +8512,6 @@ mod tests_datacenter {
             zone_humidity_ratios: &zone_w,
             zone_max_rh: &zone_rh,
             zone_min_rh: &zone_rh,
-            zone_thermal_caps: &zone_rh,
             zone_return_temps: &dc_return,
             zone_multipliers: &HashMap::new(),
             predictor_modes: &predictor_modes,

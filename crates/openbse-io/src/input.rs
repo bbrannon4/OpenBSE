@@ -457,7 +457,6 @@ impl SimulationSettings {
             start_day: self.start_day,
             end_month: self.end_month,
             end_day: self.end_day,
-            ..SimulationConfig::default()
         }
     }
 }
