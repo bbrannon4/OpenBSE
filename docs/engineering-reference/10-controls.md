@@ -34,7 +34,15 @@ zone to dehumidify.
 **Schedules.** A named schedule gives a fraction for each hour, by day type (a
 weekday, or each day individually, Saturday, Sunday, weekend or holiday, each
 falling back to the next), from arrays or `"value until HH:MM"` strings. Optional
-seasons override them by date range. Hour $h$ covers the hour ending at $h$.
+seasons override them by date range. Hour $h$ covers the hour ending at $h$. An
+`until` boundary inside an hour gives that hour the time-weighted average of the
+values it spans, which keeps the schedule's integral. A string must reach 24:00.
+Values are fractions: anything outside 0 to 1 is clamped, with a validation warning.
+A reference to an undefined schedule is a severe error.
+
+The day of week starts from the weather file's January 1. A file containing
+29 February has that day dropped, because the simulation calendar has 365 days,
+but later dates keep their true day of week.
 
 **Comparison with EnergyPlus.** EnergyPlus's `ZoneControl:Thermostat` takes
 setpoint schedules, which are its only mechanism; OpenBSE's thermostat schedules

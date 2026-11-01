@@ -259,7 +259,7 @@ impl ComfortGridRecorder {
                     window_beam_irradiance(s.transmitted_solar_beam, s.net_area, s.cos_incidence);
             }
         }
-        let dow = openbse_envelope::schedule::day_of_week(ts.month, ts.day, env.jan1_dow);
+        let dow = env.schedule_day_type(ts.month, ts.day);
         for z in &mut self.zones {
             let state = &env.zones[z.env_index];
             z.acc_air += state.temp;

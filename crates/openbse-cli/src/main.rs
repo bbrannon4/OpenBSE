@@ -878,6 +878,7 @@ fn main() -> Result<()> {
 
             env.ground_temp_model = Some(ground_temp);
             env.jan1_dow = weather_data.start_day_of_week;
+            env.leap_year = weather_data.leap_year;
             // Populate holiday dates from simulation settings
             env.holiday_set = model
                 .simulation
@@ -2910,11 +2911,7 @@ fn main() -> Result<()> {
                         // ═══════════════════════════════════════════════════════
 
                         // Compute day-of-week for schedule lookups (8 = holiday)
-                        let mut dow =
-                            openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
-                        if env.holiday_set.contains(&(month, day)) {
-                            dow = 8;
-                        }
+                        let dow = env.schedule_day_type(month, day);
 
                         // ── Predictor-Corrector HVAC-Envelope Iteration ──
                         //
@@ -4560,8 +4557,7 @@ fn main() -> Result<()> {
                     // Zone internal gains — separate lighting and equipment energy.
                     // Apply zone_multiplier: gains are simulated once per zone but
                     // represent zone_multiplier identical zones for energy accounting.
-                    let gains_dow =
-                        openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
+                    let gains_dow = env.schedule_day_type(month, day);
                     for zone in &env.zones {
                         let zmult = zone.input.zone_multiplier as f64;
                         snapshot
@@ -4697,11 +4693,7 @@ fn main() -> Result<()> {
 
                     // ── DHW simulation ─────────────────────────────────────
                     // Simulate domestic hot water systems and add energy to snapshot.
-                    let mut dhw_dow =
-                        openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
-                    if env.holiday_set.contains(&(month, day)) {
-                        dhw_dow = 8;
-                    }
+                    let dhw_dow = env.schedule_day_type(month, day);
                     dhw_zone_gains.clear();
                     for (dhw_idx, (dhw_sys, dhw_input)) in
                         dhw_systems.iter_mut().zip(&model.dhw_systems).enumerate()
@@ -4959,8 +4951,7 @@ fn main() -> Result<()> {
                         // Zone lighting/equipment — per-submeter
                         for zone in &env.zones {
                             let zmult = zone.input.zone_multiplier as f64;
-                            let dow =
-                                openbse_envelope::schedule::day_of_week(month, day, env.jan1_dow);
+                            let dow = env.schedule_day_type(month, day);
                             for gain in &zone.input.internal_gains {
                                 match gain {
                                     openbse_envelope::internal_gains::InternalGainInput::Lights {
