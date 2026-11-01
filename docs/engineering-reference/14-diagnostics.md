@@ -91,5 +91,7 @@ against its ranges. A change that shifts results has to change a baseline on pur
 - [#264](https://github.com/bbrannon4/OpenBSE/issues/264): no building energy or moisture
   balance; some hand-offs unchecked; missing schedules are warnings; curve coefficient counts
   unchecked.
-- [#165](https://github.com/bbrannon4/OpenBSE/issues/165): unmet-hour counts and limits.
+- [#165](https://github.com/bbrannon4/OpenBSE/issues/165): unmet-hour counts and limits. Many shipped
+  models show thousands of unmet hours, mostly proportional heating holding the zone below
+  setpoint ([#178](https://github.com/bbrannon4/OpenBSE/issues/178)).
 - [#168](https://github.com/bbrannon4/OpenBSE/issues/168): Standard 205 DX coil imbalance.

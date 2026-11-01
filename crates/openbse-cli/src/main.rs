@@ -4234,15 +4234,19 @@ fn main() -> Result<()> {
                             .zone_supply_air_mass_flow
                             .insert(name.clone(), zone.supply_air_mass_flow);
 
-                        // Active setpoints for this timestep (all zones tracked for unmet hours)
-                        let has_setpoints = zone_heating_setpoints.contains_key(&name)
-                            || zone_cooling_setpoints.contains_key(&name);
+                        // Setpoints the HVAC controlled to this timestep, for unmet hours
+                        // (all zones with a thermostat or ideal loads are tracked).
+                        let setpoints = controlled_setpoints(
+                            &name,
+                            &zone_heating_setpoints,
+                            &zone_cooling_setpoints,
+                            &zone_sp_schedule,
+                            hour,
+                            ctx.timestep.day_of_year(),
+                        );
                         let is_conditioned = zone.input.conditioned;
 
-                        if has_setpoints && is_conditioned {
-                            let (heat_sp, cool_sp) = zone
-                                .input
-                                .active_setpoints(hour, ctx.timestep.day_of_year());
+                        if let (Some((heat_sp, cool_sp)), true) = (setpoints, is_conditioned) {
                             snapshot.zone_heating_setpoint.insert(name.clone(), heat_sp);
                             snapshot.zone_cooling_setpoint.insert(name.clone(), cool_sp);
 
@@ -6975,6 +6979,34 @@ fn scheduled_setpoints(
     Some((heat, cool))
 }
 
+/// The heating and cooling setpoints a zone's HVAC controls to at this hour: its
+/// `thermostat_schedule` entry, else its thermostat's or ideal loads' constants.
+/// `None` when the zone has neither heating nor cooling control. A missing side
+/// is never compared: it reads as an infinitely wide deadband.
+fn controlled_setpoints(
+    zone: &str,
+    heat_base: &HashMap<String, f64>,
+    cool_base: &HashMap<String, f64>,
+    schedules: &HashMap<String, Vec<openbse_envelope::zone::ThermostatScheduleEntry>>,
+    hour: u32,
+    day_of_year: u32,
+) -> Option<(f64, f64)> {
+    if let Some(entry) = schedules
+        .get(zone)
+        .and_then(|entries| entries.iter().find(|e| e.applies(hour, day_of_year)))
+    {
+        return Some((entry.heating_setpoint, entry.cooling_setpoint));
+    }
+    let (heat, cool) = (heat_base.get(zone), cool_base.get(zone));
+    if heat.is_none() && cool.is_none() {
+        return None;
+    }
+    Some((
+        heat.copied().unwrap_or(f64::NEG_INFINITY),
+        cool.copied().unwrap_or(f64::INFINITY),
+    ))
+}
+
 fn day_of_year(month: u32, day: u32, dims: &[u32; 12]) -> u32 {
     let mut doy = 0u32;
     for m in 0..(month - 1) as usize {
@@ -6998,6 +7030,42 @@ fn month_day_from_hour(hour_of_year: u32, dims: &[u32; 12]) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unmet_hours_read_the_thermostat_not_a_default() {
+        let heat = HashMap::from([("Z".to_string(), 21.0)]);
+        let cool = HashMap::from([("Z".to_string(), 25.0)]);
+        let none = HashMap::new();
+        // #291: a thermostat at 21/25 was compared with the 20/27 fallback.
+        assert_eq!(
+            controlled_setpoints("Z", &heat, &cool, &none, 12, 100),
+            Some((21.0, 25.0))
+        );
+        // A zone with no control isn't compared at all.
+        assert_eq!(
+            controlled_setpoints("Y", &heat, &cool, &none, 12, 100),
+            None
+        );
+    }
+
+    #[test]
+    fn unmet_hours_follow_a_thermostat_schedule() {
+        let heat = HashMap::from([("Z".to_string(), 21.0)]);
+        let cool = HashMap::from([("Z".to_string(), 25.0)]);
+        let entry: openbse_envelope::zone::ThermostatScheduleEntry = serde_yaml::from_str(
+            "{start_hour: 1, end_hour: 6, heating_setpoint: 15.0, cooling_setpoint: 30.0}",
+        )
+        .unwrap();
+        let sched = HashMap::from([("Z".to_string(), vec![entry])]);
+        assert_eq!(
+            controlled_setpoints("Z", &heat, &cool, &sched, 3, 100),
+            Some((15.0, 30.0))
+        );
+        assert_eq!(
+            controlled_setpoints("Z", &heat, &cool, &sched, 12, 100),
+            Some((21.0, 25.0))
+        );
+    }
 
     /// A thermostat schedule overrides both setpoints for the zone it names, so
     /// the heating load and mode follow a night setback (#117).
