@@ -1273,21 +1273,31 @@ uses its stated area, azimuth and tilt. The net area of a parent surface is
 its area less its windows and doors.
 
 **Zones.** The floor area, when not given, is the sum of the zone's floor
-polygon areas. The volume, when not given, is the floor area times
-$z_\text{max} - z_\text{min}$ over the zone's vertices. Only without a
-floor does it fall back to the divergence theorem,
-$V = \tfrac13\sum_k A_k\,\mathbf n_k\cdot\mathbf c_k$, with
-$\mathbf c_k$ the centroid of surface $k$. EnergyPlus uses the polyhedron
-volume whenever the zone is enclosed (`SurfaceGeometry::CalculateZoneVolume`).
-OpenBSE's floor-times-height overstates the volume of sloped-roof and other
-non-prismatic zones ([#222](https://github.com/bbrannon4/OpenBSE/issues/222)).
+polygon areas. The volume, when not given, follows EnergyPlus
+(`SurfaceGeometry::CalculateZoneVolume`):
+
+1. **Enclosed zone.** When the walls, floors, roofs and ceilings form a closed,
+   consistently wound shell, the volume comes from the divergence theorem,
+   $V = \tfrac13\sum_k A_k\,\mathbf n_k\cdot\mathbf c_k$, with
+   $\mathbf c_k$ the centroid of surface $k$. The shell is closed when every
+   edge is crossed equally often in each direction, after splitting edges at
+   any vertex lying along them; vertices within 12.7 mm are the same point.
+2. **Vertical prism.** Otherwise, when the floor is flat and the walls present
+   are vertical and of one height, or there are no walls and a flat ceiling
+   matches the floor area, the volume is floor area × height. Zones with
+   missing interior walls usually land here.
+3. **Neither.** The floor area × overall height is used with a warning, because
+   it is only an upper bound; a zone with no floor gets no volume, also with a
+   warning. EnergyPlus treats this case as a severe error, after also trying
+   ceiling area × height and opposite-wall area × distance.
 
 ## Known limitations: gains, ground and geometry {#sec-gains-limitations}
 
 - [#186](https://github.com/bbrannon4/OpenBSE/issues/186): lights' and
   equipment's fractions apply to remainders, not totals.
-- [#222](https://github.com/bbrannon4/OpenBSE/issues/222): auto-calculated
-  zone volume is floor area × height.
+- [#222](https://github.com/bbrannon4/OpenBSE/issues/222): a zone that is
+  neither enclosed nor a vertical prism gets an upper-bound volume with a
+  warning, rather than the error EnergyPlus gives. Give it a `volume`.
 - [#223](https://github.com/bbrannon4/OpenBSE/issues/223): fixed people
   sensible fraction; only electric equipment; `full_when_occupied`
   granularity.

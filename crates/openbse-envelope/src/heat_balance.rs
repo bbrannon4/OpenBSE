@@ -941,11 +941,10 @@ impl BuildingEnvelope {
         // Floor area: sum of floor-type surface areas (Newell's method — correct
         // for arbitrary planar polygons including non-convex shapes).
         //
-        // Volume: floor_area × height, where height = max(z) - min(z) across all
-        // zone surface vertices.  This is far more robust than the divergence
-        // theorem, which requires a fully closed polyhedron (all 6 faces present
-        // with consistent outward normals).  Most zone geometries have missing
-        // interior walls, so the divergence theorem produces wrong results.
+        // Volume, following E+ `CalculateZoneVolume`: the polyhedron volume when
+        // the surfaces enclose the zone, otherwise floor_area × height when they
+        // describe a vertical prism. Zones with missing interior walls usually
+        // land in the second case.
         for zone in &mut zone_states {
             let zone_surfaces: Vec<&SurfaceInput> = surfaces
                 .iter()
@@ -956,7 +955,7 @@ impl BuildingEnvelope {
                 continue;
             }
 
-            // ── Collect all vertex z-coordinates to determine zone height ──
+            // ── Overall height, used only when no volume method applies ──
             let all_verts: Vec<&Vec<geometry::Point3D>> = zone_surfaces
                 .iter()
                 .filter(|s| s.surface_type != SurfaceType::Window)
@@ -998,37 +997,55 @@ impl BuildingEnvelope {
 
             // ── Auto-calculate volume ──
             if zone.input.volume <= 0.0 {
-                // Primary method: floor_area × height (works for any zone with
-                // a floor surface and identifiable height, even with missing walls)
-                if zone.input.floor_area > 0.0 && zone_height > 0.0 {
-                    zone.input.volume = zone.input.floor_area * zone_height;
-                    log::info!("Auto-calculated zone '{}' volume: {:.1} m³ (floor_area {:.1} × height {:.2})",
-                        zone.input.name, zone.input.volume, zone.input.floor_area, zone_height);
-                } else if !all_verts.is_empty() {
-                    // Fallback: divergence theorem (only reliable for closed polyhedra)
-                    let vert_sets: Vec<Vec<geometry::Point3D>> = zone_surfaces
+                let faces_of = |wanted: &[SurfaceType]| -> Vec<&[geometry::Point3D]> {
+                    zone_surfaces
                         .iter()
-                        .filter(|s| s.surface_type != SurfaceType::Window)
-                        .filter_map(|s| s.vertices.clone())
-                        .collect();
-                    let refs: Vec<&[geometry::Point3D]> =
-                        vert_sets.iter().map(|v| v.as_slice()).collect();
-                    let vol = geometry::zone_volume_from_surfaces(&refs);
-                    if vol > 0.0 {
-                        zone.input.volume = vol;
-                        log::warn!(
-                            "Zone '{}': using divergence-theorem volume ({:.1} m³) — \
-                            no floor surfaces found for floor_area × height method. \
-                            Result may be inaccurate if zone is not a closed polyhedron.",
-                            zone.input.name,
-                            vol
-                        );
-                    }
-                }
+                        .filter(|s| wanted.contains(&s.surface_type))
+                        .filter_map(|s| s.vertices.as_deref())
+                        .filter(|v| v.len() >= 3)
+                        .collect()
+                };
+                let shell = faces_of(&[
+                    SurfaceType::Wall,
+                    SurfaceType::Floor,
+                    SurfaceType::Roof,
+                    SurfaceType::Ceiling,
+                ]);
+                let floors = faces_of(&[SurfaceType::Floor]);
+                let ceilings = faces_of(&[SurfaceType::Roof, SurfaceType::Ceiling]);
+                let walls = faces_of(&[SurfaceType::Wall]);
 
-                if zone.input.volume <= 0.0 {
+                if geometry::is_closed_shell(&shell) {
+                    zone.input.volume = geometry::zone_volume_from_surfaces(&shell);
+                    log::info!(
+                        "Auto-calculated zone '{}' volume: {:.1} m³ (enclosed polyhedron)",
+                        zone.input.name,
+                        zone.input.volume
+                    );
+                } else if let Some(height) = geometry::prism_height(&floors, &ceilings, &walls)
+                    .filter(|_| zone.input.floor_area > 0.0)
+                {
+                    zone.input.volume = zone.input.floor_area * height;
+                    log::info!(
+                        "Auto-calculated zone '{}' volume: {:.1} m³ (floor_area {:.1} × height {:.2})",
+                        zone.input.name,
+                        zone.input.volume,
+                        zone.input.floor_area,
+                        height
+                    );
+                } else if zone.input.floor_area > 0.0 && zone_height > 0.0 {
+                    zone.input.volume = zone.input.floor_area * zone_height;
                     log::warn!(
-                        "Zone '{}': could not auto-calculate volume (no surfaces with vertices)",
+                        "Zone '{}': surfaces are neither closed nor a vertical prism, so the \
+                         volume can't be calculated. Using floor area × overall height \
+                         ({:.1} m³), an upper bound. Give the zone a `volume`.",
+                        zone.input.name,
+                        zone.input.volume
+                    );
+                } else {
+                    log::warn!(
+                        "Zone '{}': could not auto-calculate volume. Give the zone a `volume` \
+                         or define surfaces that enclose it.",
                         zone.input.name
                     );
                 }
@@ -5743,6 +5760,124 @@ mod tests {
 
     fn make_simple_model() -> BuildingEnvelope {
         make_simple_model_with(vec![])
+    }
+
+    /// A surface of type `surface_type` with exactly these vertices, for geometry tests.
+    fn geometry_surface(
+        name: &str,
+        surface_type: SurfaceType,
+        corners: &[(f64, f64, f64)],
+    ) -> SurfaceInput {
+        let mut surface = make_simple_model().surfaces[0].input.clone();
+        surface.name = name.to_string();
+        surface.zone = "TestZone".to_string();
+        surface.surface_type = surface_type;
+        surface.vertices = Some(
+            corners
+                .iter()
+                .map(|&(x, y, z)| geometry::Point3D::new(x, y, z))
+                .collect(),
+        );
+        surface
+    }
+
+    /// Faces of a 10 m × 6 m gable zone, eaves at 3 m and ridge at 5 m along y = 3.
+    fn gable_zone_faces() -> Vec<SurfaceInput> {
+        use SurfaceType::*;
+        vec![
+            geometry_surface(
+                "floor",
+                Floor,
+                &[(0., 0., 0.), (0., 6., 0.), (10., 6., 0.), (10., 0., 0.)],
+            ),
+            geometry_surface(
+                "south",
+                Wall,
+                &[(0., 0., 0.), (10., 0., 0.), (10., 0., 3.), (0., 0., 3.)],
+            ),
+            geometry_surface(
+                "north",
+                Wall,
+                &[(10., 6., 0.), (0., 6., 0.), (0., 6., 3.), (10., 6., 3.)],
+            ),
+            geometry_surface(
+                "east",
+                Wall,
+                &[
+                    (10., 0., 0.),
+                    (10., 6., 0.),
+                    (10., 6., 3.),
+                    (10., 3., 5.),
+                    (10., 0., 3.),
+                ],
+            ),
+            geometry_surface(
+                "west",
+                Wall,
+                &[
+                    (0., 6., 0.),
+                    (0., 0., 0.),
+                    (0., 0., 3.),
+                    (0., 3., 5.),
+                    (0., 6., 3.),
+                ],
+            ),
+            geometry_surface(
+                "roof south",
+                Roof,
+                &[(0., 0., 3.), (10., 0., 3.), (10., 3., 5.), (0., 3., 5.)],
+            ),
+            geometry_surface(
+                "roof north",
+                Roof,
+                &[(10., 6., 3.), (0., 6., 3.), (0., 3., 5.), (10., 3., 5.)],
+            ),
+        ]
+    }
+
+    fn auto_volume(surfaces: Vec<SurfaceInput>) -> f64 {
+        let model = make_simple_model();
+        let mut zone = model.zones[0].input.clone();
+        zone.volume = 0.0;
+        zone.floor_area = 0.0;
+        let env = BuildingEnvelope::from_input_full(
+            model.materials.values().cloned().collect(),
+            model.constructions.values().cloned().collect(),
+            vec![],
+            vec![],
+            vec![],
+            vec![zone],
+            surfaces,
+            40.0,
+            -105.0,
+            -7.0,
+            0.0,
+            SolarDistributionMethod::default(),
+        );
+        env.zones[0].input.volume
+    }
+
+    #[test]
+    fn gable_zone_volume_is_the_polyhedron_not_floor_times_height() {
+        // 60 m² × 3 m plus the triangular prism 6 × 2 / 2 × 10 = 240 m³.
+        // Floor area × overall height would give 300 m³.
+        let volume = auto_volume(gable_zone_faces());
+        assert!((volume - 240.0).abs() < 1e-6, "volume {volume}");
+    }
+
+    #[test]
+    fn prismatic_zone_with_missing_walls_uses_floor_times_height() {
+        let mut faces = vec![geometry_surface(
+            "floor",
+            SurfaceType::Floor,
+            &[(0., 0., 0.), (0., 6., 0.), (10., 6., 0.), (10., 0., 0.)],
+        )];
+        faces.push(geometry_surface(
+            "south",
+            SurfaceType::Wall,
+            &[(0., 0., 0.), (10., 0., 0.), (10., 0., 3.), (0., 0., 3.)],
+        ));
+        assert!((auto_volume(faces) - 180.0).abs() < 1e-6);
     }
 
     /// The simple test zone plus `extra` surfaces.
