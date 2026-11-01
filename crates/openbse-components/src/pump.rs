@@ -82,6 +82,14 @@ pub struct Pump {
 }
 
 impl Pump {
+    /// Volume flow as a fraction of design, E+ `CalcPumps`: the design rating is a
+    /// volume, so the mass flow converts at the water's actual density.
+    fn flow_fraction(&self, inlet: &WaterPort) -> f64 {
+        let volume_flow =
+            inlet.state.mass_flow / openbse_psychrometrics::water_rho(inlet.state.temp);
+        (volume_flow / self.design_flow_rate).clamp(0.0, 1.0)
+    }
+
     /// Create a new pump with typical defaults.
     pub fn new(
         name: &str,
@@ -184,9 +192,7 @@ impl PlantComponent for Pump {
                 if self.num_pumps > 1 {
                     // Headered constant speed: stage pumps on/off.
                     // Each pump has design_flow / num_pumps capacity.
-                    let design_mass_flow =
-                        self.design_flow_rate * openbse_psychrometrics::RHO_WATER;
-                    let flow_fraction = (inlet.state.mass_flow / design_mass_flow).clamp(0.0, 1.0);
+                    let flow_fraction = self.flow_fraction(inlet);
                     let n = self.num_pumps as f64;
                     let pumps_on = (flow_fraction * n).ceil().max(1.0) as u32;
                     // Each running pump uses full per-pump power
@@ -197,8 +203,7 @@ impl PlantComponent for Pump {
                 }
             }
             PumpType::VariableSpeed => {
-                let design_mass_flow = self.design_flow_rate * openbse_psychrometrics::RHO_WATER;
-                let system_flow_frac = (inlet.state.mass_flow / design_mass_flow).clamp(0.0, 1.0);
+                let system_flow_frac = self.flow_fraction(inlet);
 
                 if self.num_pumps > 1 {
                     // Headered variable speed: stage pumps on/off, then
@@ -264,7 +269,7 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
     use openbse_core::types::{DayType, TimeStep};
-    use openbse_psychrometrics::{MoistAirState, CP_WATER, RHO_WATER};
+    use openbse_psychrometrics::{water_cp, water_rho, MoistAirState};
 
     fn make_ctx() -> SimulationContext {
         SimulationContext {
@@ -304,7 +309,7 @@ mod tests {
         let design_power = design_flow * design_head / (motor_eff * impeller_eff);
 
         // 50% of design mass flow
-        let half_mass_flow = design_flow * RHO_WATER * 0.5;
+        let half_mass_flow = design_flow * water_rho(20.0) * 0.5;
         let inlet = WaterPort::new(FluidState::water(20.0, half_mass_flow));
         let ctx = make_ctx();
 
@@ -333,7 +338,7 @@ mod tests {
         let design_power = design_flow * design_head / (motor_eff * impeller_eff);
 
         // Even at 30% flow, constant speed pump runs at full power
-        let partial_mass_flow = design_flow * RHO_WATER * 0.3;
+        let partial_mass_flow = design_flow * water_rho(20.0) * 0.3;
         let inlet = WaterPort::new(FluidState::water(20.0, partial_mass_flow));
         let ctx = make_ctx();
 
@@ -374,14 +379,14 @@ mod tests {
         pump.motor_heat_to_fluid_fraction = 1.0;
 
         let design_power = design_flow * design_head / (motor_eff * impeller_eff);
-        let mass_flow = design_flow * RHO_WATER;
+        let mass_flow = design_flow * water_rho(20.0);
         let inlet = WaterPort::new(FluidState::water(20.0, mass_flow));
         let ctx = make_ctx();
 
         let outlet = pump.simulate_plant(&inlet, 1.0, &ctx);
 
         // Expected temperature rise
-        let expected_dt = design_power * 1.0 / (mass_flow * CP_WATER);
+        let expected_dt = design_power * 1.0 / (mass_flow * water_cp(20.0));
         assert_relative_eq!(
             outlet.state.temp - inlet.state.temp,
             expected_dt,

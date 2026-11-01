@@ -113,7 +113,10 @@ pub fn w_fn_tdp_pb(t_dp: f64, p_b: f64) -> f64 {
 
 /// Humidity ratio from dry-bulb temperature, wet-bulb temperature, and barometric pressure.
 ///
-/// Matches EnergyPlus `PsyWFnTdbTwbPb`.
+/// ASHRAE *Fundamentals* Ch. 1 Eq. 33 and 35, with an ice branch. A deliberate
+/// difference from E+ `PsyWFnTdbTwbPb`, which uses other constants and no ice
+/// branch: this is the exact inverse of ASHRAE's wet-bulb, which E+ also uses in
+/// `PsyTwbFnTdbWPb`.
 pub fn w_fn_tdb_twb_pb(t_db: f64, t_wb: f64, p_b: f64) -> f64 {
     let w_star = w_fn_tdb_rh_pb(t_wb, 1.0, p_b);
 
@@ -147,6 +150,12 @@ pub fn w_fn_tdb_h(t_db: f64, h: f64) -> f64 {
 /// Enthalpy [J/kg]
 pub fn h_fn_tdb_w(t_db: f64, w: f64) -> f64 {
     CP_AIR * t_db + w.max(W_MIN) * (HFG_WATER + CP_VAPOR * t_db)
+}
+
+/// Enthalpy of water vapour at `t_db` [°C], in J/kg, E+ `PsyHgAirFnWTdb`: the heat
+/// that one kilogram of moisture adds to or removes from the air.
+pub fn hg_air_fn_tdb(t_db: f64) -> f64 {
+    HFG_WATER + CP_VAPOR * t_db
 }
 
 /// Moist air enthalpy from dry-bulb, relative humidity, and barometric pressure.
@@ -324,13 +333,13 @@ pub fn twb_fn_tdb_w_pb(t_db: f64, w: f64, p_b: f64) -> f64 {
 /// Air density [kg/m³]
 pub fn rho_air_fn_pb_tdb_w(p_b: f64, t_db: f64, w: f64) -> f64 {
     let w = w.max(W_MIN);
-    // E+ PsyRhoAirFnPbTdbW: rho = pb / (287 · T_K · (1 + 1.6078·W)).
+    // E+ PsyRhoAirFnPbTdbW: rho = pb / (287 · T_K · (1 + 1.6077687·W)).
     // Note this is the dry-air partial density (kg dry air per m³ of moist
     // air), not total moist-air density (which would carry an extra (1+W)
     // factor, ~+1% at W=0.01). E+ uses this form consistently for
     // volumetric-to-mass flow conversions, and E+ math is the reference
     // standard — flows and capacities calibrate against it.
-    p_b / (287.055 * (t_db + KELVIN) * (1.0 + 1.6078 * w))
+    p_b / (287.0 * (t_db + KELVIN) * (1.0 + 1.6077687 * w))
 }
 
 /// Specific volume from dry-bulb, humidity ratio, and barometric pressure.
@@ -441,11 +450,43 @@ impl MoistAirState {
 
 // ─── Water/Fluid Properties ──────────────────────────────────────────────────
 
-/// Specific heat of liquid water [J/(kg·K)]
-pub const CP_WATER: f64 = 4180.0;
+/// E+ converts a design chilled- or condenser-water volume flow to mass at this
+/// temperature [°C] (`CWInitConvTemp`, `InitConvTemp`).
+pub const COLD_WATER_CONVERSION_TEMP: f64 = 5.05;
 
-/// Density of water at ~20°C [kg/m³]
-pub const RHO_WATER: f64 = 998.2;
+/// E+ converts a design hot-water volume flow to mass at this temperature [°C]
+/// (`HWInitConvTemp`).
+pub const HOT_WATER_CONVERSION_TEMP: f64 = 60.0;
+
+/// Water specific heat [J/(kg·K)] every 5 °C from 0 °C, E+ `DefaultWaterCpData`.
+const WATER_CP: [f64; 26] = [
+    4217.0, 4198.0, 4191.0, 4185.0, 4181.0, 4179.0, 4180.0, 4180.0, 4180.0, 4180.0, 4181.0, 4183.0,
+    4185.0, 4188.0, 4192.0, 4196.0, 4200.0, 4203.0, 4208.0, 4213.0, 4218.0, 4223.0, 4228.0, 4233.0,
+    4238.0, 4243.0,
+];
+
+/// Water density [kg/m³] every 5 °C from 0 °C, E+ `DefaultWaterRhoData`.
+const WATER_RHO: [f64; 21] = [
+    999.8, 999.9, 999.7, 999.1, 998.2, 997.0, 995.6, 994.0, 992.2, 990.2, 988.0, 985.7, 983.2,
+    980.5, 977.7, 974.8, 971.8, 968.6, 965.3, 961.9, 958.3,
+];
+
+/// Linear interpolation in a table every 5 °C from 0 °C, holding the end values.
+fn water_table(table: &[f64], t: f64) -> f64 {
+    let x = (t / 5.0).clamp(0.0, (table.len() - 1) as f64);
+    let i = (x as usize).min(table.len() - 2);
+    table[i] + (x - i as f64) * (table[i + 1] - table[i])
+}
+
+/// Specific heat of liquid water at `t` [°C], in J/(kg·K).
+pub fn water_cp(t: f64) -> f64 {
+    water_table(&WATER_CP, t)
+}
+
+/// Density of liquid water at `t` [°C], in kg/m³.
+pub fn water_rho(t: f64) -> f64 {
+    water_table(&WATER_RHO, t)
+}
 
 /// Water/fluid state for plant-side calculations.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -464,7 +505,7 @@ impl FluidState {
         Self {
             temp,
             mass_flow,
-            cp: CP_WATER,
+            cp: water_cp(temp),
         }
     }
 
@@ -476,6 +517,33 @@ impl FluidState {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn water_properties_match_the_eplus_table() {
+        assert_eq!(water_cp(0.0), 4217.0);
+        assert_eq!(water_cp(35.0), 4180.0);
+        assert_eq!(water_cp(80.0), 4200.0);
+        assert_eq!(water_rho(0.0), 999.8);
+        assert_eq!(water_rho(80.0), 971.8);
+        // Linear in between, flat beyond the ends.
+        assert_relative_eq!(water_rho(82.5), 0.5 * (971.8 + 968.6), max_relative = 1e-12);
+        assert_relative_eq!(water_rho(5.05), 999.9 - 0.2 * 0.01, max_relative = 1e-12);
+        assert_eq!(water_rho(150.0), 958.3);
+        assert_eq!(water_cp(-5.0), 4217.0);
+        assert_eq!(FluidState::water(82.0, 1.0).cp, water_cp(82.0));
+    }
+
+    #[test]
+    fn air_density_and_vapour_enthalpy_match_eplus() {
+        // E+ PsyRhoAirFnPbTdbW and PsyHgAirFnWTdb, by hand.
+        let rho = 101_325.0 / (287.0 * 293.15 * (1.0 + 1.6077687 * 0.01));
+        assert_relative_eq!(
+            rho_air_fn_pb_tdb_w(101_325.0, 20.0, 0.01),
+            rho,
+            max_relative = 1e-12
+        );
+        assert_eq!(hg_air_fn_tdb(22.0), 2_500_940.0 + 1858.95 * 22.0);
+    }
     use super::*;
     use approx::assert_relative_eq;
 

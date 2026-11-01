@@ -1860,6 +1860,26 @@ pub struct PlantLoopInput {
     pub setpoint_reset: Option<PlantResetConfig>,
 }
 
+impl PlantLoopInput {
+    /// Temperature at which E+ converts this loop's design volume flows to mass
+    /// and sizes its flows from loads [°C]: `HWInitConvTemp` for a hot-water loop,
+    /// `CWInitConvTemp` for a chilled- or condenser-water loop. A condenser loop's
+    /// default `design_supply_temp` says nothing, so its equipment decides.
+    pub fn water_conversion_temp(&self) -> f64 {
+        let cold_equipment = self.supply_equipment.iter().any(|eq| {
+            matches!(
+                eq,
+                PlantEquipmentInput::Chiller(_) | PlantEquipmentInput::CoolingTower(_)
+            )
+        });
+        if !cold_equipment && self.design_supply_temp > 40.0 {
+            openbse_psychrometrics::HOT_WATER_CONVERSION_TEMP
+        } else {
+            openbse_psychrometrics::COLD_WATER_CONVERSION_TEMP
+        }
+    }
+}
+
 fn default_supply_temp() -> f64 {
     82.0
 }
@@ -3902,7 +3922,11 @@ fn build_graph_impl(
                         let capacity = ci.capacity.to_f64();
                         let chw_flow = if ci.design_chw_flow <= 0.0 {
                             if capacity > 0.0 {
-                                capacity / (4186.0 * 5.0 * 1000.0)
+                                let t = openbse_psychrometrics::COLD_WATER_CONVERSION_TEMP;
+                                capacity
+                                    / (openbse_psychrometrics::water_cp(t)
+                                        * 5.0
+                                        * openbse_psychrometrics::water_rho(t))
                             } else {
                                 0.005
                             }

@@ -395,7 +395,7 @@ $$ {#eq-enthalpy}
 **Density and specific volume** (dry-air basis):
 
 $$
-\rho = \frac{p_b}{287.055\,(T + 273.15)(1 + 1.6078W)}, \qquad
+\rho = \frac{p_b}{287\,(T + 273.15)(1 + 1.6077687W)}, \qquad
 v = 159.473\,\frac{(1 + 1.6078W)(1.8T + 492)}{p_b}.
 $$ {#eq-density}
 
@@ -415,29 +415,37 @@ $$ {#eq-density}
 volume and the inverse functions match EnergyPlus (`PsyPsatFnTemp`,
 `PsyWFnTdbRhPb`, `PsyWFnTdpPb`, `PsyHFnTdbW`, `PsyTdbFnHW`, `PsyCpAirFnW`,
 `PsyVFnTdbWPb`, `PsyTsatFnPb`, `PsyTwbFnTdbWPb`, `PsyRhFnTdbWPb`), up to
-iteration tolerances. Two functions deviate from EnergyPlus, though the code
-labels both as matches
-([#200](https://github.com/bbrannon4/OpenBSE/issues/200)):
+iteration tolerances, and so do the density (`PsyRhoAirFnPbTdbW`) and the vapour
+enthalpy $h_g = 2.50094\times10^6 + 1858.95\,T$ J/kg (`PsyHgAirFnWTdb`), which converts
+latent heat to moisture.
 
-- **Density.** It uses $R = 287.055$ and 1.6078, where `PsyRhoAirFnPbTdbW`
-  uses 287.0 and 1.6077687 (0.02% lower density).
-- **Humidity ratio from wet bulb.** @eq-w-twb is the ASHRAE form, which
-  EnergyPlus uses only inside `PsyTwbFnTdbWPb`. EnergyPlus's
-  `PsyWFnTdbTwbPb` uses
-  $((2501 - 2.381T_\text{wb})W^*_s - (T - T_\text{wb}))/(2501 + 1.805T - 4.186T_\text{wb})$,
-  with no ice branch. OpenBSE's form is consistent with its own wet-bulb
-  inverse.
+One function deviates on purpose. @eq-w-twb is the ASHRAE form, which EnergyPlus uses
+only inside `PsyTwbFnTdbWPb`. EnergyPlus's `PsyWFnTdbTwbPb` uses
+$((2501 - 2.381T_\text{wb})W^*_s - (T - T_\text{wb}))/(2501 + 1.805T - 4.186T_\text{wb})$,
+with no ice branch. OpenBSE's form is the exact inverse of its own wet bulb.
 
 ## Water properties {#sec-water-properties}
 
-**Source:** `openbse-psychrometrics/src/lib.rs::FluidState`.
+**Source:** `openbse-psychrometrics/src/lib.rs` (`water_cp`, `water_rho`, `FluidState`).
 
-Water has constant properties: $c_{p,w} = 4180$ J/(kg·K) in `FluidState`,
-and $\rho_w = 998.2$ kg/m³. Some components and plant sizing use
-4186 J/(kg·K) instead. There is no glycol. EnergyPlus evaluates water and
-glycol properties at the fluid temperature (`FluidProperties`); between 0 and
-80 °C, cp varies by about 1% and density by about 3%
-([#200](https://github.com/bbrannon4/OpenBSE/issues/200)).
+Water's specific heat and density are interpolated linearly in EnergyPlus's tables at
+5 °C intervals: $c_{p,w}$ is 4217 J/(kg·K) at 0 °C, 4180 at 35 °C and 4200 at 80 °C;
+$\rho_w$ is 999.8 kg/m³ at 0 °C and 971.8 at 80 °C. Each use takes the temperature
+EnergyPlus takes:
+
+| Use | Temperature |
+|---|---|
+| Heat through a coil, boiler, chiller or tower | its entering water |
+| Design volume flow to mass, and sizing a flow from a load | 60 °C on a hot-water loop (`HWInitConvTemp`), 5.05 °C on a chilled- or condenser-water loop (`CWInitConvTemp`) |
+| A pump's flow as a fraction of design | density at its entering water |
+| Tank mass and heat capacity | the tank's temperature |
+| Fixture draw, litres to kilograms | 5.05 °C |
+
+A loop with a chiller or tower counts as cold whatever its `design_supply_temp`, whose
+default is a hot-water value.
+
+**Comparison with EnergyPlus.** The tables are `DefaultWaterCpData` and
+`DefaultWaterRhoData`. EnergyPlus also has glycols; OpenBSE doesn't.
 
 ## Known limitations {#sec-site-limitations}
 
@@ -452,8 +460,6 @@ glycol properties at the fluid temperature (`FluidProperties`); between 0 and
   humidity schedules.
 - [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no daylight saving
   time or start-day-of-week input.
-- [#200](https://github.com/bbrannon4/OpenBSE/issues/200): constant and
-  inconsistent water properties; air density and wet-bulb labels; $h_{fg}$ for
-  latent gains.
+- No glycol properties.
 - [#201](https://github.com/bbrannon4/OpenBSE/issues/201): ground-surface
   temperatures are interpolated rather than held per month; unused

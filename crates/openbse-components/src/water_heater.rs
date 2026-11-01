@@ -32,12 +32,6 @@ use crate::performance_curve::{CurveType, PerformanceCurve};
 use openbse_psychrometrics as psych;
 use serde::{Deserialize, Serialize};
 
-/// Specific heat capacity of water [J/(kg*K)].
-const CP_WATER: f64 = 4186.0;
-
-/// Density of water [kg/L] (approximation at typical DHW temperatures).
-const RHO_WATER: f64 = 1.0;
-
 /// Barometric pressure for the evaporator-air psychrometrics [Pa].
 const P_ATM: f64 = 101_325.0;
 
@@ -178,6 +172,8 @@ const MAX_TANK_INTERVALS: usize = 1000;
 struct TankBalance {
     /// Tank water mass [kg].
     mass: f64,
+    /// Water specific heat [J/(kg K)].
+    cp: f64,
     /// Draw mass flow [kg/s].
     m_draw: f64,
     t_mains: f64,
@@ -189,26 +185,26 @@ struct TankBalance {
 impl TankBalance {
     /// Total conductance to the mains and ambient [W/K].
     fn conductance(&self) -> f64 {
-        self.m_draw * CP_WATER + self.ua
+        self.m_draw * self.cp + self.ua
     }
 
     /// Time-constant inverse [1/s].
     fn k(&self) -> f64 {
-        self.conductance() / (self.mass * CP_WATER)
+        self.conductance() / (self.mass * self.cp)
     }
 
     /// Draw and shell loss at tank temperature `t` [W].
     fn load_at(&self, t: f64) -> f64 {
-        self.m_draw * CP_WATER * (t - self.t_mains) + self.ua * (t - self.t_ambient)
+        self.m_draw * self.cp * (t - self.t_mains) + self.ua * (t - self.t_ambient)
     }
 
     /// Temperature the tank tends to with heat input `q` [degC].
     fn equilibrium(&self, q: f64) -> f64 {
-        (q + self.m_draw * CP_WATER * self.t_mains + self.ua * self.t_ambient) / self.conductance()
+        (q + self.m_draw * self.cp * self.t_mains + self.ua * self.t_ambient) / self.conductance()
     }
 
     fn rate(&self, t: f64, q: f64) -> f64 {
-        (q - self.load_at(t)) / (self.mass * CP_WATER)
+        (q - self.load_at(t)) / (self.mass * self.cp)
     }
 
     fn temperature_after(&self, t0: f64, q: f64, time: f64) -> f64 {
@@ -220,7 +216,7 @@ impl TankBalance {
             };
         }
         if self.conductance() <= 0.0 {
-            return t0 + q * time / (self.mass * CP_WATER);
+            return t0 + q * time / (self.mass * self.cp);
         }
         let t_eq = self.equilibrium(q);
         t_eq + (t0 - t_eq) * (-self.k() * time).exp()
@@ -261,7 +257,7 @@ impl TankBalance {
         }
         // From the balance itself: m Cp (t1 - t0) = q time - G (integral - T_eq(0) time).
         let t_eq0 = self.equilibrium(0.0);
-        t_eq0 * time + (q * time - self.mass * CP_WATER * (t1 - t0)) / self.conductance()
+        t_eq0 * time + (q * time - self.mass * self.cp * (t1 - t0)) / self.conductance()
     }
 }
 
@@ -488,8 +484,12 @@ impl WaterHeater {
     pub fn simulate(&mut self, draw_flow_liters_per_s: f64, mains_temp: f64, dt: f64) {
         let source = self.heat_source();
         let tank = TankBalance {
-            mass: self.tank_volume * RHO_WATER,
-            m_draw: draw_flow_liters_per_s * RHO_WATER,
+            // E+ evaluates these at the tank temperature, and the draw's mass at
+            // its fixed conversion temperature (`calcH2ODensity`).
+            mass: self.tank_volume / 1000.0 * psych::water_rho(self.tank_temp),
+            cp: psych::water_cp(self.tank_temp),
+            m_draw: draw_flow_liters_per_s / 1000.0
+                * psych::water_rho(psych::COLD_WATER_CONVERSION_TEMP),
             t_mains: mains_temp,
             ua: self.ua_standby,
             t_ambient: self.ambient_temp,
@@ -570,7 +570,7 @@ impl WaterHeater {
         let energy_input = q_input * input_per_heat;
 
         self.heating_rate = q_input;
-        self.delivery_rate = tank.m_draw * CP_WATER * (t_mean - mains_temp);
+        self.delivery_rate = tank.m_draw * tank.cp * (t_mean - mains_temp);
         // Include constant parasitic draw (pilot light, controls, etc.)
         // Parasitic does NOT heat the tank — it is pure fuel waste.
         self.energy_input = energy_input + self.parasitic_power;
@@ -614,6 +614,18 @@ impl WaterHeater {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Heat capacity of a tank at temperature `t` [J/K].
+    fn tank_capacity(litres: f64, t: f64) -> f64 {
+        litres / 1000.0 * psych::water_rho(t) * psych::water_cp(t)
+    }
+
+    /// Heat capacity rate of a draw from a tank at temperature `t` [W/K].
+    fn draw_capacity(litres_per_s: f64, t: f64) -> f64 {
+        litres_per_s / 1000.0
+            * psych::water_rho(psych::COLD_WATER_CONVERSION_TEMP)
+            * psych::water_cp(t)
+    }
 
     /// Tolerance for floating-point comparisons.
     const TOL: f64 = 0.1;
@@ -756,7 +768,7 @@ mod tests {
 
         // Expected drop: dT = -Q_loss * dt / (m * Cp)
         //   = -(3.0 * 40.0) * 60.0 / (200.0 * 4186.0) = -0.00861 degC
-        let expected_drop = (3.0 * 40.0) * 60.0 / (200.0 * CP_WATER);
+        let expected_drop = (3.0 * 40.0) * 60.0 / tank_capacity(200.0, 60.0);
         let actual_drop = initial_temp - wh.tank_temperature();
         assert!(
             (actual_drop - expected_drop).abs() < 0.001,
@@ -984,7 +996,7 @@ mod tests {
         let q_to_tank = input * 0.80;
         // Closed form: the shell loss rises as the tank warms, so the increase is
         // a little below the start-of-step estimate.
-        let k = 2.0 / (200.0 * CP_WATER);
+        let k = 2.0 / tank_capacity(200.0, 50.0);
         let t_eq = 20.0 + q_to_tank / 2.0;
         let expected = t_eq + (50.0 - t_eq) * (-k * dt).exp();
         assert!(
@@ -992,13 +1004,13 @@ mod tests {
             "T mismatch: actual={}, expected={expected}",
             wh.tank_temperature()
         );
-        let euler_delta = (q_to_tank - q_loss) * dt / (200.0 * CP_WATER);
+        let euler_delta = (q_to_tank - q_loss) * dt / tank_capacity(200.0, 50.0);
         assert!((wh.tank_temperature() - 50.0 - euler_delta).abs() < 1e-3);
     }
 
     /// Energy stored in the tank equals heat in less draw and shell loss.
     fn assert_energy_closes(wh: &WaterHeater, t0: f64, dt: f64) {
-        let stored = wh.tank_volume * RHO_WATER * CP_WATER * (wh.tank_temp - t0);
+        let stored = tank_capacity(wh.tank_volume, t0) * (wh.tank_temp - t0);
         let net = (wh.heating_rate - wh.delivery_rate - wh.standby_loss) * dt;
         assert!(
             (stored - net).abs() < 1e-5 * stored.abs().max(1e4),
@@ -1024,14 +1036,16 @@ mod tests {
                 assert_energy_closes(&wh, t0, 3600.0);
             }
             // Settles where the heater's output balances the draw.
-            let t_eq = (5000.0 * 0.8 + 1.0 * CP_WATER * 10.0 + 2.0 * 20.0) / (CP_WATER + 2.0);
+            let c = draw_capacity(1.0, wh.tank_temp);
+            let t_eq = (5000.0 * 0.8 + c * 10.0 + 2.0 * 20.0) / (c + 2.0);
             assert!((wh.tank_temp - t_eq).abs() < 0.01, "{}", wh.tank_temp);
         }
     }
 
     #[test]
     fn test_one_step_matches_many_small_steps() {
-        // The closed form is independent of the timestep, control events included.
+        // The closed form doesn't depend on the timestep, control events included,
+        // apart from water properties being held at each step's start temperature.
         let run = |steps: usize| {
             let mut wh =
                 WaterHeater::new("T", WaterHeaterFuel::Gas, 200.0, 10_000.0, 0.8, 60.0, 2.0);
@@ -1045,8 +1059,8 @@ mod tests {
         };
         let (t1, e1, on1) = run(1);
         let (t2, e2, on2) = run(3600);
-        assert!((t1 - t2).abs() < 1e-6, "{t1} vs {t2}");
-        assert!((e1 - e2).abs() < 1e-3 * e2.max(1.0), "{e1} vs {e2}");
+        assert!((t1 - t2).abs() < 0.05, "{t1} vs {t2}");
+        assert!((e1 - e2).abs() < 2e-3 * e2.max(1.0), "{e1} vs {e2}");
         assert_eq!(on1, on2);
     }
 
@@ -1062,7 +1076,7 @@ mod tests {
         // Then it holds the setpoint at part output, with no deadband droop.
         wh.simulate(0.02, 10.0, 600.0);
         assert_eq!(wh.tank_temp, 60.0);
-        let load = 0.02 * CP_WATER * 50.0 + 2.0 * 40.0;
+        let load = draw_capacity(0.02, 60.0) * 50.0 + 2.0 * 40.0;
         assert!((wh.heating_rate - load).abs() < 1e-9);
         assert!((wh.energy_input - load / 0.8).abs() < 1e-9);
     }

@@ -1549,7 +1549,7 @@ pub fn solve_zone_air_temp_with_q(
 /// Where:
 ///   Cap = ρ·V / dt [kg/s] (zone air moisture capacitance)
 ///   m_latent = Q_latent / h_fg [kg/s] (latent gains converted to moisture rate)
-///   h_fg ≈ 2,501,000 J/kg (latent heat of vaporization at ~20°C)
+///   h_fg = enthalpy of water vapour at the zone temperature (E+ `PsyHgAirFnWTdb`)
 ///
 /// Reference: EnergyPlus Engineering Reference, "Zone Air Moisture Predictor-Corrector"
 pub fn solve_zone_humidity(
@@ -1562,14 +1562,12 @@ pub fn solve_zone_humidity(
     m_supply: f64,
     w_supply: f64,
     q_latent: f64,
+    t_zone: f64,
 ) -> f64 {
-    /// Latent heat of vaporization [J/kg] at ~20°C
-    const H_FG: f64 = 2_501_000.0;
-
     let cap = rho_air * volume / dt;
 
     // Convert latent heat [W] to moisture generation rate [kg/s]
-    let m_latent = q_latent / H_FG;
+    let m_latent = q_latent / openbse_psychrometrics::hg_air_fn_tdb(t_zone);
 
     let numerator = cap * w_prev + m_infil * w_outdoor + m_supply * w_supply + m_latent;
 
@@ -2299,7 +2297,7 @@ mod tests {
         let mut w = 0.008;
         for _ in 0..1000 {
             w = solve_zone_humidity(
-                rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent,
+                rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent, 22.0,
             );
         }
         // Should converge to outdoor humidity
@@ -2322,7 +2320,7 @@ mod tests {
         let mut w = 0.010;
         for _ in 0..500 {
             w = solve_zone_humidity(
-                rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent,
+                rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent, 22.0,
             );
         }
         // Supply dominates, so zone W should be close to supply W
@@ -2345,7 +2343,7 @@ mod tests {
         let mut w = 0.008;
         for _ in 0..500 {
             w = solve_zone_humidity(
-                rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent,
+                rho, vol, dt, w, m_infil, w_outdoor, m_supply, w_supply, q_latent, 22.0,
             );
         }
         // Latent gains should push zone W above outdoor

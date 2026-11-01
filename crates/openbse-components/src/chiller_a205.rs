@@ -235,7 +235,7 @@ impl PlantComponent for ChillerA205 {
         load: f64,
         ctx: &SimulationContext,
     ) -> WaterPort {
-        let cp_water = 4186.0;
+        let cp_water = inlet.state.cp;
         if load <= 0.0 || inlet.state.mass_flow <= 0.0 {
             self.actual_capacity = 0.0;
             self.electric_power = 0.0;

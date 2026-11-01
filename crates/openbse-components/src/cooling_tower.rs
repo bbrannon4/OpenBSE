@@ -19,7 +19,7 @@
 
 use openbse_core::ports::*;
 use openbse_core::types::*;
-use openbse_psychrometrics::{FluidState, CP_WATER, RHO_WATER};
+use openbse_psychrometrics::{water_cp, water_rho, FluidState, COLD_WATER_CONVERSION_TEMP};
 use serde::{Deserialize, Serialize};
 
 fn default_submeter() -> String {
@@ -130,8 +130,8 @@ impl CoolingTower {
     ///
     /// capacity = m_water_design * cp * design_range
     pub fn design_capacity(&self) -> f64 {
-        let mass_flow_design = self.design_water_flow * RHO_WATER;
-        mass_flow_design * CP_WATER * self.design_range
+        let t = COLD_WATER_CONVERSION_TEMP;
+        self.design_water_flow * water_rho(t) * water_cp(t) * self.design_range
     }
 
     /// Evaluate fan power part-load fraction from the polynomial curve.
@@ -358,7 +358,7 @@ mod tests {
         );
 
         // Heat rejected should match load (within capacity)
-        let expected_dt = load / (mass_flow * CP_WATER);
+        let expected_dt = load / (mass_flow * water_cp(30.0));
         assert_relative_eq!(
             inlet.state.temp - outlet.state.temp,
             expected_dt,
@@ -372,7 +372,7 @@ mod tests {
         assert_relative_eq!(tower.thermal_output(), -tower.heat_rejected);
         assert_relative_eq!(
             tower.thermal_output(),
-            mass_flow * CP_WATER * (outlet.state.temp - inlet.state.temp),
+            mass_flow * water_cp(30.0) * (outlet.state.temp - inlet.state.temp),
             max_relative = 0.01
         );
     }
