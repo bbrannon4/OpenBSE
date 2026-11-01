@@ -21,9 +21,8 @@ block take effect only in HVAC-only mode, and a warning says so.
 
 **Thermostats.** A thermostat gives a set of zones a heating and a cooling
 setpoint. A `thermostat_schedule` overrides these by hour (1–24), optionally
-within a date range. The first entry that applies wins. Night setback through the
-air-loop heating path is limited
-([#117](https://github.com/bbrannon4/OpenBSE/issues/117)).
+within a date range. The first entry that applies wins. The scheduled setpoints
+drive the mode, the load to setpoint and the coil control alike.
 
 **Mode.** A zone's mode comes from the predictor (@sec-predictor) and is held for
 the timestep. It is heating below the heating setpoint, cooling above the cooling
@@ -263,8 +262,6 @@ air's capacitance rate
 - [#256](https://github.com/bbrannon4/OpenBSE/issues/256): DOAS flow and
   temperatures; VAV hard-coded limits and clamp panic; demand reset per iteration;
   cycling runtime floor; multi-zone PSZ.
-- [#117](https://github.com/bbrannon4/OpenBSE/issues/117): setback through the
-  air-loop path.
 - [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no daylight saving or
   start day of week.
 - [#184](https://github.com/bbrannon4/OpenBSE/issues/184): return humidity mean.
