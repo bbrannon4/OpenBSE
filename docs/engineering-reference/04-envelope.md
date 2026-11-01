@@ -33,17 +33,19 @@ construction's faces:
 
 - **Outside face.** The outside layer's solar absorptance, thermal
   absorptance and roughness.
-- **Inside face.** The inside layer's solar and thermal absorptance.
+- **Inside face.** The inside layer's solar absorptance, and its
+  `thermal_absorptance_inside` if given, otherwise its thermal absorptance.
 
-This matches EnergyPlus. Three other construction types exist: simple
+This matches EnergyPlus, except that `thermal_absorptance_inside` lets one
+material list a different emissivity for use as an inside face; EnergyPlus
+would need a second material. Three other construction types exist: simple
 constructions (@sec-simple-constructions), F-factor floors (@sec-ffactor)
 and window constructions (@sec-windows).
 
-A layer naming an undefined material is dropped silently, and missing
-conductivity, density or specific heat take defaults (1, 1 and 1000). Both
-are filed as [#203](https://github.com/bbrannon4/OpenBSE/issues/203),
-together with two unread inputs, `thermal_absorptance_inside` and the simple
-construction's `thickness`.
+Conductivity, density and specific heat are required on every material
+without `thermal_resistance`, and must be positive, as in EnergyPlus. A
+construction with no layers, or with a layer naming an undefined material,
+is a severe error.
 
 ## Conduction transfer functions {#sec-ctf}
 
@@ -238,7 +240,7 @@ The module implements a one-dimensional coupled heat and moisture solver
 after Künzel [@kunzel1995]. It is **not connected to the simulation**:
 nothing calls it, and every surface uses CTF conduction. Its material inputs
 (`vapor_resistance_factor`, `sorption_isotherm`, `liquid_transport_coeff`)
-are accepted but have no effect. The module also has three known equation
+are accepted but have no effect, and validation warns when they are given. The module also has three known equation
 errors ([#64](https://github.com/bbrannon4/OpenBSE/issues/64)). This section
 will be written when the model is fixed and wired in.
 
@@ -249,9 +251,6 @@ will be written when the model is fixed and wired in.
   conserve the specified heat capacity.
 - [#64](https://github.com/bbrannon4/OpenBSE/issues/64): HAMT is not wired
   in and has known equation errors.
-- [#203](https://github.com/bbrannon4/OpenBSE/issues/203): unknown layer
-  materials are dropped silently; defaults for required properties; unread
-  inputs; debug logging.
 - [#204](https://github.com/bbrannon4/OpenBSE/issues/204): no CTF time-step
   escalation for massive constructions.
 - [#205](https://github.com/bbrannon4/OpenBSE/issues/205): F-factor floors

@@ -383,7 +383,6 @@ constructions:
 simple_constructions:
 - name: Gable End
   u_factor: 1.8
-  thickness: 0.05
   thermal_capacity: 5000.0
   solar_absorptance: 0.7
   thermal_absorptance: 0.9

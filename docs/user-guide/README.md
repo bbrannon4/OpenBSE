@@ -847,7 +847,6 @@ Simple constructions define opaque assemblies using overall thermal properties i
 simple_constructions:
   - name: Adiabatic Assembly
     u_factor: 0.001              # Overall U-factor [W/(m²·K)]
-    thickness: 0.2               # Total wall thickness [m]
     thermal_capacity: 20000.0    # Per unit area [J/(m²·K)]
     solar_absorptance: 0.5       # Outside solar absorptance [0-1]
     thermal_absorptance: 0.9     # Thermal (LW) absorptance [0-1]

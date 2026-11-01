@@ -1221,10 +1221,18 @@ impl BuildingEnvelope {
                     .map(|m| (m.solar_absorptance, m.thermal_absorptance, m.roughness))
                     .unwrap_or((0.7, 0.9, Roughness::MediumRough));
                 let (sa_in, ta_in) = inside_mat
-                    .map(|m| (m.solar_absorptance, m.thermal_absorptance))
+                    .map(|m| {
+                        (
+                            m.solar_absorptance,
+                            m.thermal_absorptance_inside
+                                .unwrap_or(m.thermal_absorptance),
+                        )
+                    })
                     .unwrap_or((0.7, 0.9));
 
-                let u = c.u_factor(&material_map);
+                // A bad construction fails in compute_all_ctf before any timestep
+                // runs (this constructor can't report errors), so 5.0 is never used.
+                let u = c.u_factor(&material_map).unwrap_or(5.0);
 
                 (sa_out, ta_out, ta_in, sa_in, rough, u, 0.0)
             } else if let Some(sc) = simple_map.get(&surf_input.construction) {
@@ -2116,36 +2124,13 @@ impl BuildingEnvelope {
 
             // Try layered construction first
             if let Some(construction) = self.constructions.get(&construction_name).cloned() {
-                let resolved_layers = construction.resolve_layers(&self.materials);
-                if !resolved_layers.is_empty() {
-                    let ctf = try_calculate_ctf(&resolved_layers, self.dt).map_err(fail)?;
-                    self.note_ctf_error(&ctf, &construction_name, &mut warned);
-                    // Temporary: log CTF coefficients for comparison with E+
-                    log::info!(
-                        "CTF for '{}' (construction '{}'): terms={}, Z[0]={:.6}, Y[0]={:.6e}, X[0]={:.6}",
-                        self.surfaces[i].input.name, construction_name,
-                        ctf.num_terms, ctf.z[0], ctf.y[0], ctf.x[0]
-                    );
-                    if self.surfaces[i].input.name.contains("Wall South 1F")
-                        || self.surfaces[i].input.name.contains("Attic Floor")
-                    {
-                        for j in 0..ctf.num_terms {
-                            let phi_j = if j < ctf.phi.len() { ctf.phi[j] } else { 0.0 };
-                            log::info!(
-                                "  CTF[{}]: X={:.6e}, Y={:.6e}, Z={:.6e}, Phi={:.6e}",
-                                j,
-                                ctf.x[j],
-                                ctf.y[j],
-                                ctf.z[j],
-                                phi_j
-                            );
-                        }
-                    }
-                    let history = CtfHistory::new(ctf.num_terms.max(1), 21.0);
-                    self.ctf_coefficients[i] = Some(ctf);
-                    self.ctf_histories[i] = Some(history);
-                    continue;
-                }
+                let resolved_layers = construction.resolve_layers(&self.materials)?;
+                let ctf = try_calculate_ctf(&resolved_layers, self.dt).map_err(fail)?;
+                self.note_ctf_error(&ctf, &construction_name, &mut warned);
+                let history = CtfHistory::new(ctf.num_terms.max(1), 21.0);
+                self.ctf_coefficients[i] = Some(ctf);
+                self.ctf_histories[i] = Some(history);
+                continue;
             }
 
             // Try simple construction

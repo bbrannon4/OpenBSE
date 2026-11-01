@@ -330,7 +330,6 @@ fn set_simple_construction_field(
 ) {
     match field {
         "u_factor" => sc.u_factor = value,
-        "thickness" => sc.thickness = value,
         "thermal_capacity" => sc.thermal_capacity = value,
         "solar_absorptance" => sc.solar_absorptance = value,
         "thermal_absorptance" => sc.thermal_absorptance = value,

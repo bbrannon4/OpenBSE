@@ -121,7 +121,6 @@ constructions:
 simple_constructions:
   - name: Interior Partition
     u_factor: 2.0
-    thickness: 0.13
     thermal_capacity: 15000.0
     solar_absorptance: 0.5
     thermal_absorptance: 0.9

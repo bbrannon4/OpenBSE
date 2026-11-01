@@ -42,7 +42,6 @@ simple_constructions:
   # Significantly higher thermal capacity than Case 600 lightweight wall
   - name: Case900 Wall
     u_factor: 0.556
-    thickness: 0.1
     thermal_capacity: 145154.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -57,7 +56,6 @@ simple_constructions:
   # Thermal capacity: ~15 kJ/m2K (low mass)
   - name: Case900 Roof
     u_factor: 0.334
-    thickness: 0.141
     thermal_capacity: 18170.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -67,7 +65,6 @@ simple_constructions:
   # Heavily insulated (nearly adiabatic) with high thermal mass
   - name: Case900 Floor
     u_factor: 0.0396
-    thickness: 0.08
     thermal_capacity: 112000.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9

@@ -27,21 +27,24 @@ pub enum Roughness {
 /// `thermal_resistance` to the material's R-value [m²·K/W]. The material
 /// will have zero thermal mass — only its resistance matters. The
 /// `conductivity`, `density`, and `specific_heat` fields are ignored.
+///
+/// For every other material those three fields are required, as in E+'s
+/// `Material`. An omitted one parses as 0 and `validate_model` rejects it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Material {
     pub name: String,
     /// Thermal conductivity [W/(m·K)].
     /// Ignored for NoMass materials (when `thermal_resistance` is set).
-    #[serde(default = "default_conductivity")]
+    #[serde(default)]
     pub conductivity: f64,
     /// Density [kg/m³].
     /// Ignored for NoMass materials (when `thermal_resistance` is set).
-    #[serde(default = "default_density")]
+    #[serde(default)]
     pub density: f64,
     /// Specific heat [J/(kg·K)].
     /// Ignored for NoMass materials (when `thermal_resistance` is set).
-    #[serde(default = "default_specific_heat")]
+    #[serde(default)]
     pub specific_heat: f64,
     /// Solar absorptance [0-1]
     #[serde(default = "default_solar_absorptance")]
@@ -73,42 +76,32 @@ pub struct Material {
     /// Relates material vapor diffusion resistance to still air.
     /// μ = 1 for air (no extra resistance), typical values:
     ///   concrete ~130, brick ~10, wood ~40, mineral wool ~1.
-    /// Required for HAMT moisture transport; ignored for CTF.
+    /// For the HAMT solver, which is not wired into the run (#64): no effect today.
     #[serde(default)]
     pub vapor_resistance_factor: Option<f64>,
 
     /// Sorption isotherm: pairs of [relative_humidity [0-1], moisture_content [kg/kg]].
     ///
     /// Defines equilibrium moisture content at each RH level.
-    /// Required for HAMT; ignored for CTF.
+    /// For the HAMT solver, which is not wired into the run (#64): no effect today.
     #[serde(default)]
     pub sorption_isotherm: Option<Vec<[f64; 2]>>,
 
     /// Liquid transport coefficient [m²/s] as f(moisture_content [kg/kg]).
     ///
     /// Pairs of [w_c [kg/kg], D_w [m²/s]]. Used for capillary conduction term.
-    /// If None, the capillary term is omitted (vapor diffusion only).
+    /// For the HAMT solver, which is not wired into the run (#64): no effect today.
     #[serde(default)]
     pub liquid_transport_coeff: Option<Vec<[f64; 2]>>,
 
     /// Inside thermal absorptance (emissivity) [0-1].
     ///
-    /// Emissivity of the inside surface face. When absent, falls back to
-    /// `thermal_absorptance` (outside face). Separate from outside emissivity
-    /// because inside and outside faces of a construction often differ.
+    /// Emissivity of this material's face when it is a construction's inside
+    /// layer. When absent, `thermal_absorptance` applies to both faces.
     #[serde(default)]
     pub thermal_absorptance_inside: Option<f64>,
 }
 
-fn default_conductivity() -> f64 {
-    1.0
-}
-fn default_density() -> f64 {
-    1.0
-}
-fn default_specific_heat() -> f64 {
-    1000.0
-}
 fn default_solar_absorptance() -> f64 {
     0.7
 }
@@ -231,32 +224,48 @@ pub struct Construction {
 
 impl Construction {
     /// Resolve all layers against a material map, returning ResolvedLayers.
-    pub fn resolve_layers(&self, materials: &HashMap<String, Material>) -> Vec<ResolvedLayer> {
+    ///
+    /// An undefined material or an empty layer list is an error: skipping the
+    /// layer would run the construction with a higher U and no warning.
+    pub fn resolve_layers(
+        &self,
+        materials: &HashMap<String, Material>,
+    ) -> Result<Vec<ResolvedLayer>, String> {
+        if self.layers.is_empty() {
+            return Err(format!("Construction '{}' has no layers", self.name));
+        }
         self.layers
             .iter()
-            .filter_map(|cl| {
+            .map(|cl| {
                 materials
                     .get(&cl.material)
                     .map(|mat| ResolvedLayer::from_material(mat, cl.thickness))
+                    .ok_or_else(|| {
+                        format!(
+                            "Construction '{}' uses undefined material '{}'",
+                            self.name, cl.material
+                        )
+                    })
             })
             .collect()
     }
 
     /// Total R-value given a material map [m²·K/W].
-    pub fn total_resistance(&self, materials: &HashMap<String, Material>) -> f64 {
-        self.resolve_layers(materials)
+    pub fn total_resistance(&self, materials: &HashMap<String, Material>) -> Result<f64, String> {
+        Ok(self
+            .resolve_layers(materials)?
             .iter()
             .map(|l| l.resistance())
-            .sum()
+            .sum())
     }
 
     /// Total U-factor [W/(m²·K)] (no film coefficients).
-    pub fn u_factor(&self, materials: &HashMap<String, Material>) -> f64 {
-        let r = self.total_resistance(materials);
+    pub fn u_factor(&self, materials: &HashMap<String, Material>) -> Result<f64, String> {
+        let r = self.total_resistance(materials)?;
         if r > 0.0 {
-            1.0 / r
+            Ok(1.0 / r)
         } else {
-            5.0
+            Err(format!("Construction '{}' has no resistance", self.name))
         }
     }
 
@@ -645,7 +654,7 @@ pub fn sgs_tsol_from_shgc(shgc: f64, u_factor: f64) -> f64 {
 /// Simplified opaque construction defined by overall properties.
 ///
 /// Use when you don't want to specify individual material layers —
-/// just give the overall U-factor, thickness, and thermal capacity.
+/// just give the overall U-factor and thermal capacity.
 /// Ideal for early design, ASHRAE 140 tests, and quick parametric studies.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -653,9 +662,6 @@ pub struct SimpleConstruction {
     pub name: String,
     /// Overall U-factor [W/(m²·K)] (conductance, no film coefficients)
     pub u_factor: f64,
-    /// Total wall thickness [m] (default 0.2)
-    #[serde(default = "default_simple_thickness")]
-    pub thickness: f64,
     /// Thermal capacity per unit area [J/(m²·K)] = Σ(ρ·cp·thickness)
     #[serde(default = "default_thermal_capacity")]
     pub thermal_capacity: f64,
@@ -685,9 +691,6 @@ pub struct SimpleConstruction {
     pub mass_density: Option<f64>,
 }
 
-fn default_simple_thickness() -> f64 {
-    0.2
-}
 fn default_thermal_capacity() -> f64 {
     50000.0
 } // light construction ~50 kJ/(m²·K)
@@ -743,6 +746,19 @@ fn default_ffactor_thermal_capacity() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unknown_material_is_an_error_not_a_dropped_layer() {
+        let c = Construction {
+            name: "c".to_string(),
+            layers: vec![ConstructionLayer {
+                material: "typo".to_string(),
+                thickness: 0.1,
+            }],
+        };
+        let err = c.resolve_layers(&HashMap::new()).unwrap_err();
+        assert!(err.contains("typo"), "{err}");
+    }
 
     #[test]
     fn test_layer_resistance() {
@@ -820,8 +836,8 @@ mod tests {
             ],
         };
 
-        let r = construction.total_resistance(&materials);
-        let u = construction.u_factor(&materials);
+        let r = construction.total_resistance(&materials).unwrap();
+        let u = construction.u_factor(&materials).unwrap();
         // R = 0.2/1.311 + 0.1/0.04 = 0.1526 + 2.5 = 2.6526
         assert!((r - 2.6526).abs() < 0.01);
         assert!((u - 1.0 / 2.6526).abs() < 0.01);

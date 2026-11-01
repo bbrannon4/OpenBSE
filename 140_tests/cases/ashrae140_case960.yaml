@@ -62,7 +62,6 @@ simple_constructions:
   # Used for Back Zone N/E/W walls (per E+ IDF: LTWALL)
   - name: Case600 Wall
     u_factor: 0.559
-    thickness: 0.087
     thermal_capacity: 14534.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -73,7 +72,6 @@ simple_constructions:
   # Used for Back Zone floor (per E+ IDF: LTFLOOR)
   - name: Case600 Floor
     u_factor: 0.040
-    thickness: 1.028
     thermal_capacity: 19500.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -83,7 +81,6 @@ simple_constructions:
   # Used for both zones
   - name: Case900 Roof
     u_factor: 0.334
-    thickness: 0.141
     thermal_capacity: 18170.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -95,7 +92,6 @@ simple_constructions:
   # Used for Sun Zone S/E/W exterior walls
   - name: SunZone Wall
     u_factor: 0.556
-    thickness: 0.1
     thermal_capacity: 145154.0
     solar_absorptance: 0.75
     thermal_absorptance: 0.9
@@ -108,7 +104,6 @@ simple_constructions:
   # Interior surface is concrete slab with solar_absorptance = 0.75
   - name: SunZone Floor
     u_factor: 0.0396
-    thickness: 0.08
     thermal_capacity: 112000.0
     solar_absorptance: 0.75
     thermal_absorptance: 0.9
@@ -122,7 +117,6 @@ simple_constructions:
   # Solar absorptance = 0.6 (matches E+ reference)
   - name: Common Wall
     u_factor: 2.55
-    thickness: 0.200
     thermal_capacity: 280000.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9

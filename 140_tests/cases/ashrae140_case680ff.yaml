@@ -48,7 +48,6 @@ simple_constructions:
   # C = 530*900*0.009 + 10*1400*0.250 + 950*840*0.012 = 4293 + 3500 + 9576 = 17369 J/(m2K)
   - name: Case680FF Wall
     u_factor: 0.157
-    thickness: 0.271
     thermal_capacity: 17369.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -60,7 +59,6 @@ simple_constructions:
   # C = 9063 + 4032 + 7980 = 21075 J/(m2K)
   - name: Case680FF Roof
     u_factor: 0.098
-    thickness: 0.429
     thermal_capacity: 21075.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
@@ -69,7 +67,6 @@ simple_constructions:
   # Case 680 Floor: Same as Case 600 (already heavily insulated)
   - name: Case600 Floor
     u_factor: 0.040
-    thickness: 1.028
     thermal_capacity: 19500.0
     solar_absorptance: 0.6
     thermal_absorptance: 0.9

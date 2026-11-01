@@ -315,7 +315,6 @@ schedules:
 simple_constructions:
   - name: Adiabatic Wall
     u_factor: 0.0030769
-    thickness: 0.01
     thermal_capacity: 0.0
     solar_absorptance: 0.1
     thermal_absorptance: 0.9

@@ -1601,18 +1601,18 @@
       "description": "Thermophysical material properties. Thickness is given on the construction layer. For a no-mass (resistance-only) material, set thermal_resistance; conductivity/density/specific_heat are then ignored.",
       "properties": {
         "name": { "type": "string" },
-        "conductivity": { "type": "number", "default": 1.0, "description": "Thermal conductivity [W/(m*K)]. Ignored when thermal_resistance is set." },
-        "density": { "type": "number", "default": 1.0, "description": "Density [kg/m3]. Ignored when thermal_resistance is set." },
-        "specific_heat": { "type": "number", "default": 1000.0, "description": "Specific heat [J/(kg*K)]. Ignored when thermal_resistance is set." },
+        "conductivity": { "type": "number", "exclusiveMinimum": 0, "description": "Thermal conductivity [W/(m*K)]. Required unless thermal_resistance is set." },
+        "density": { "type": "number", "exclusiveMinimum": 0, "description": "Density [kg/m3]. Required unless thermal_resistance is set." },
+        "specific_heat": { "type": "number", "exclusiveMinimum": 0, "description": "Specific heat [J/(kg*K)]. Required unless thermal_resistance is set." },
         "solar_absorptance": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1 },
         "thermal_absorptance": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Hemispherical emissivity for longwave radiation exchange. For layered constructions, the outside material value is used for exterior LW radiation and the inside material value for interior LW radiation." },
         "visible_absorptance": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1 },
         "roughness": { "$ref": "#/$defs/Roughness" },
         "thermal_resistance": { "type": "number", "exclusiveMinimum": 0, "description": "Thermal resistance [m2*K/W] for a no-mass material (EnergyPlus Material:NoMass). Zero thermal mass; only resistance matters." },
-        "vapor_resistance_factor": { "type": "number", "description": "Vapor resistance factor mu [-] relative to still air (HAMT moisture transport only)." },
+        "vapor_resistance_factor": { "type": "number", "description": "Vapor resistance factor mu [-] relative to still air (HAMT moisture transport only). HAMT is not wired into the run: no effect today (#64)." },
         "sorption_isotherm": { "type": "array", "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }, "description": "Sorption isotherm as [relative_humidity [0-1], moisture_content [kg/kg]] pairs (HAMT only)." },
         "liquid_transport_coeff": { "type": "array", "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }, "description": "Liquid transport coefficient as [moisture_content [kg/kg], D_w [m2/s]] pairs (HAMT capillary term; omitted if absent)." },
-        "thermal_absorptance_inside": { "type": "number", "minimum": 0, "maximum": 1, "description": "Inside-face thermal absorptance (emissivity) [0-1]. Falls back to thermal_absorptance when absent." }
+        "thermal_absorptance_inside": { "type": "number", "minimum": 0, "maximum": 1, "description": "Thermal absorptance (emissivity) of this material's face when it is a construction's inside layer [0-1]. Falls back to thermal_absorptance when absent." }
       }
     },
 
@@ -1688,8 +1688,7 @@
       "properties": {
         "name": { "type": "string" },
         "u_factor": { "type": "number", "description": "Overall U-factor [W/(m2*K)]." },
-        "thickness": { "type": "number", "default": 0.2, "description": "Total thickness [m]." },
-        "thermal_capacity": { "type": "number", "default": 50000.0, "description": "Areal thermal capacity [J/(m2*K)]." },
+                "thermal_capacity": { "type": "number", "default": 50000.0, "description": "Areal thermal capacity [J/(m2*K)]." },
         "solar_absorptance": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1 },
         "thermal_absorptance": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1 },
         "roughness": { "$ref": "#/$defs/Roughness" },
