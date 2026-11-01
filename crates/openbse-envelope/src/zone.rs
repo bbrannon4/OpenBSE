@@ -883,7 +883,42 @@ fn default_zone_multiplier() -> u32 {
     1
 }
 
+impl OutdoorAirInput {
+    /// Supply outdoor-air flow for one zone instance [m³/s], summed or maximized
+    /// by `oa_method` (E+ `DesignSpecification:OutdoorAir`). The one formula used
+    /// for sizing, loop outdoor-air fractions and ideal loads.
+    pub fn supply_flow(&self, people: f64, floor_area: f64, volume: f64) -> f64 {
+        let person_flow = self.per_person * people;
+        let area_flow = self.per_area * floor_area;
+        let ach_flow = self.ach * volume / 3600.0;
+        match self.oa_method {
+            crate::zone_loads::OaMethod::Sum => person_flow + area_flow + self.absolute + ach_flow,
+            crate::zone_loads::OaMethod::Maximum => {
+                person_flow.max(area_flow).max(self.absolute).max(ach_flow)
+            }
+        }
+    }
+}
+
 impl ZoneInput {
+    /// Design occupancy of one zone instance: every People object at full count.
+    pub fn design_people(&self) -> f64 {
+        self.internal_gains
+            .iter()
+            .map(|g| match g {
+                crate::internal_gains::InternalGainInput::People { count, .. } => *count,
+                _ => 0.0,
+            })
+            .sum()
+    }
+
+    /// Design supply outdoor-air flow of one zone instance [m³/s], if it has an
+    /// outdoor-air requirement.
+    pub fn design_outdoor_air_flow(&self) -> Option<f64> {
+        let oa = self.outdoor_air.as_ref()?;
+        Some(oa.supply_flow(self.design_people(), self.floor_area, self.volume))
+    }
+
     /// Get the active thermostat setpoints for a given hour (1-24) and
     /// day-of-year (1-365).
     ///

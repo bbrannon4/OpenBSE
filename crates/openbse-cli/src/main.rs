@@ -460,22 +460,13 @@ fn build_loop_infos(
                         }
 
                         let zone = resolved_zones.iter().find(|z| z.name == zc.zone)?;
-                        let (design_people, people_sched) = zone
-                            .internal_gains
-                            .iter()
-                            .find_map(|g| {
-                                if let openbse_envelope::InternalGainInput::People {
-                                    count,
-                                    schedule,
-                                    ..
-                                } = g
-                                {
-                                    Some((*count, schedule.clone()))
-                                } else {
-                                    None
-                                }
-                            })
-                            .unwrap_or((0.0, None));
+                        let people_sched = zone.internal_gains.iter().find_map(|g| match g {
+                            openbse_envelope::InternalGainInput::People { schedule, .. } => {
+                                schedule.clone()
+                            }
+                            _ => None,
+                        });
+                        let design_people = zone.design_people();
                         Some(ZoneOaData {
                             zone_name: zc.zone.clone(),
                             design_people,
@@ -2225,31 +2216,16 @@ fn main() -> Result<()> {
                 if let Some(flow_m3s) = fan_flow {
                     if flow_m3s > 0.0 {
                         // Sum outdoor air requirements for served zones
-                        let mut total_oa_flow = 0.0_f64;
-                        let mut has_oa = false;
-                        for zone_name in &li.served_zones {
-                            if let Some(zone) =
-                                envelope.zones.iter().find(|z| z.input.name == *zone_name)
-                            {
-                                if let Some(ref oa) = zone.input.outdoor_air {
-                                    has_oa = true;
-                                    let people_count: f64 = zone
-                                        .input
-                                        .internal_gains
-                                        .iter()
-                                        .filter_map(|g| match g {
-                                            openbse_envelope::InternalGainInput::People {
-                                                count,
-                                                ..
-                                            } => Some(*count),
-                                            _ => None,
-                                        })
-                                        .sum();
-                                    total_oa_flow += oa.per_person * people_count
-                                        + oa.per_area * zone.input.floor_area;
-                                }
-                            }
-                        }
+                        let zone_flows: Vec<f64> = li
+                            .served_zones
+                            .iter()
+                            .filter_map(|name| {
+                                envelope.zones.iter().find(|z| z.input.name == *name)
+                            })
+                            .filter_map(|z| z.input.design_outdoor_air_flow())
+                            .collect();
+                        let has_oa = !zone_flows.is_empty();
+                        let total_oa_flow: f64 = zone_flows.iter().sum();
                         if has_oa && !li.explicit_min_oa {
                             let new_frac = (total_oa_flow / flow_m3s).clamp(0.0, 1.0);
                             if (new_frac - li.min_oa_fraction).abs() > 0.001 {

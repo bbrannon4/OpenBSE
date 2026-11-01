@@ -4571,9 +4571,10 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
 
 /// Compute minimum outdoor air fraction for an air loop from zone ventilation requirements.
 ///
-/// Uses ASHRAE 62.1 methodology:
-///   total_oa = Σ (oa.per_person × people_count + oa.per_area × floor_area)
+///   total_oa = Σ ZoneInput::design_outdoor_air_flow
 ///   min_oa_fraction = total_oa / design_supply_flow
+///
+/// Both flows are for one instance of a multiplied zone, so no multiplier enters.
 ///
 /// Returns the computed fraction clamped to [0, 1], or `default_fraction` if
 /// no outdoor air data is available for the served zones.
@@ -4593,75 +4594,19 @@ pub fn compute_oa_fraction(
         return default_fraction;
     }
 
-    // Compute total outdoor air requirement [m³/s] from zone OA definitions
-    let mut total_oa_flow = 0.0_f64;
-    let mut has_oa_data = false;
-
-    for zone_name in &served_zone_names {
-        // Find the resolved zone data
-        let zone = resolved_zones.iter().find(|z| z.name == *zone_name);
-        let zone_input = model.zones.iter().find(|z| z.name == *zone_name);
-
-        if let Some(zone) = zone {
-            if let Some(oa) = &zone.outdoor_air {
-                has_oa_data = true;
-                let floor_area = zone.floor_area;
-                let volume = zone.volume;
-
-                // Count people from resolved internal gains
-                let people_count: f64 = zone
-                    .internal_gains
-                    .iter()
-                    .map(|g| match g {
-                        openbse_envelope::InternalGainInput::People { count, .. } => *count,
-                        _ => 0.0,
-                    })
-                    .sum();
-
-                let person_flow = oa.per_person * people_count;
-                let area_flow = oa.per_area * floor_area;
-                let abs_flow = oa.absolute;
-                let ach_flow = oa.ach * volume / 3600.0;
-                total_oa_flow += match oa.oa_method {
-                    openbse_envelope::zone_loads::OaMethod::Sum => {
-                        person_flow + area_flow + abs_flow + ach_flow
-                    }
-                    openbse_envelope::zone_loads::OaMethod::Maximum => {
-                        person_flow.max(area_flow).max(abs_flow).max(ach_flow)
-                    }
-                };
-            }
-        } else if let Some(zi) = zone_input {
-            // Zone not in envelope — use raw model input
-            if let Some(oa) = &zi.outdoor_air {
-                has_oa_data = true;
-                let floor_area = zi.floor_area;
-                let volume = zi.volume;
-
-                let people_count: f64 = zi
-                    .internal_gains
-                    .iter()
-                    .map(|g| match g {
-                        openbse_envelope::InternalGainInput::People { count, .. } => *count,
-                        _ => 0.0,
-                    })
-                    .sum();
-
-                let person_flow = oa.per_person * people_count;
-                let area_flow = oa.per_area * floor_area;
-                let abs_flow = oa.absolute;
-                let ach_flow = oa.ach * volume / 3600.0;
-                total_oa_flow += match oa.oa_method {
-                    openbse_envelope::zone_loads::OaMethod::Sum => {
-                        person_flow + area_flow + abs_flow + ach_flow
-                    }
-                    openbse_envelope::zone_loads::OaMethod::Maximum => {
-                        person_flow.max(area_flow).max(abs_flow).max(ach_flow)
-                    }
-                };
-            }
-        }
-    }
+    // Total outdoor air requirement [m³/s], preferring the resolved zone data
+    let zone_flows: Vec<f64> = served_zone_names
+        .iter()
+        .filter_map(|name| {
+            resolved_zones
+                .iter()
+                .chain(model.zones.iter())
+                .find(|z| z.name == *name)
+        })
+        .filter_map(|z| z.design_outdoor_air_flow())
+        .collect();
+    let has_oa_data = !zone_flows.is_empty();
+    let total_oa_flow: f64 = zone_flows.iter().sum();
 
     if !has_oa_data || total_oa_flow <= 0.0 {
         return default_fraction;
@@ -5680,6 +5625,34 @@ air_loops:
         assert!(result.to_err_file().contains("clamped"));
         let result = schedule_diagnostics("schedules:\n- {name: S, compact: {weekday: '0.5'}}\n");
         assert!(!result.to_err_file().contains("clamped"));
+    }
+
+    #[test]
+    fn oa_fraction_honours_every_term_and_the_maximum_method() {
+        let model = |oa_method: &str| {
+            parse_model_yaml(&format!(
+                r#"
+simulation: {{}}
+weather_files: []
+zones:
+  - {{name: Z, floor_area: 100, volume: 300}}
+outdoor_air:
+  - {{name: OA, zones: [Z], per_area: 0.001, absolute: 0.05, ach: 1.2, oa_method: {oa_method}}}
+air_loops:
+  - name: L
+    equipment:
+      - {{type: fan, name: F, design_flow_rate: 1.0, pressure_rise: 500}}
+    zones:
+      - {{zone: Z}}
+"#
+            ))
+            .unwrap()
+        };
+        let fraction =
+            |m: &ModelInput| compute_oa_fraction(m, &m.air_loops[0], &resolve_zone_loads(m), 0.2);
+        // Area 0.1 + absolute 0.05 + ACH 1.2 × 300 / 3600 = 0.1 m³/s
+        assert!((fraction(&model("sum")) - 0.25).abs() < 1e-12);
+        assert!((fraction(&model("maximum")) - 0.1).abs() < 1e-12);
     }
 
     #[test]

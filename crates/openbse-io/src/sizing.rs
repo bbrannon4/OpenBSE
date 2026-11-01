@@ -607,23 +607,10 @@ fn run_zone_sizing(
         // of the zone load: the central coil meets it at the mixed-air state.
         let site_p = design_days.first().map(|d| d.pressure).unwrap_or(101325.0);
         let rho_site = site_p / (287.042 * 293.15);
-        let m_oa = if let Some(ref oa) = zone.input.outdoor_air {
-            // Compute design people count from zone's internal gains
-            let design_people: f64 = zone
-                .input
-                .internal_gains
-                .iter()
-                .map(|g| match g {
-                    openbse_envelope::InternalGainInput::People { count, .. } => *count,
-                    _ => 0.0,
-                })
-                .sum();
-            let v_oa =
-                oa.per_person * design_people + oa.per_area * zone.input.floor_area + oa.absolute;
-            v_oa * rho_site
-        } else {
-            0.0
-        };
+        let m_oa = zone
+            .input
+            .design_outdoor_air_flow()
+            .map_or(0.0, |v_oa| v_oa * rho_site);
 
         // Heating airflow: Q = m_dot * Cp * (T_supply - T_zone)
         let dt_heating = (heating_supply_temp - heat_sp).max(5.0);

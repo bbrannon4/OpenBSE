@@ -2830,19 +2830,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                     })
                     .sum();
 
-                // Supply OA from all four specification methods
-                let person_flow = oa.per_person * people_count;
-                let area_flow = oa.per_area * zone.input.floor_area;
-                let abs_flow = oa.absolute;
-                let ach_flow = oa.ach * zone.input.volume / 3600.0;
-                let oa_flow = match oa.oa_method {
-                    crate::zone_loads::OaMethod::Sum => {
-                        person_flow + area_flow + abs_flow + ach_flow
-                    }
-                    crate::zone_loads::OaMethod::Maximum => {
-                        person_flow.max(area_flow).max(abs_flow).max(ach_flow)
-                    }
-                };
+                let oa_flow =
+                    oa.supply_flow(people_count, zone.input.floor_area, zone.input.volume);
                 zone.outdoor_air_mass_flow = oa_flow * rho_outdoor;
 
                 // Exhaust flow from ventilation requirements

@@ -189,13 +189,13 @@ where:
   flows:
 
 $$
-\dot m_\text{oa} = \rho_\text{std}\,(R_pP_\text{des} + R_aA_z + \dot V_\text{abs})\,N_z,
+\dot m_\text{oa} = \rho_\text{std}\,\dot V_{\text{oa},z},
 \qquad
 \rho_\text{std} = \frac{p_\text{dd}}{287.042 \times 293.15},
 $$ {#eq-zone-oa-floor}
 
-with $P_\text{des}$ the design occupancy and $p_\text{dd}$ the first design
-day's pressure. The outdoor-air load itself is not part of $Q_h$ or $Q_c$;
+with $\dot V_{\text{oa},z}$ from @eq-zone-oa at design occupancy, per zone
+instance, and $p_\text{dd}$ the first design day's pressure. The outdoor-air load itself is not part of $Q_h$ or $Q_c$;
 it belongs to the central coil.
 
 **Cooling flow sequence.** For each cooling design day and hour, the zone's
@@ -223,8 +223,6 @@ differences are:
   OpenBSE uses the extremes over all loops. The per-loop correction has a
   different $\Delta T$ floor and no fan rise or outdoor-air floor
   ([#229](https://github.com/bbrannon4/OpenBSE/issues/229)).
-- **Outdoor air.** The floor omits ACH requirements and always sums the
-  terms ([#231](https://github.com/bbrannon4/OpenBSE/issues/231)).
 - **Density.** EnergyPlus uses the standard density at the site's elevation
   pressure; OpenBSE uses the first design day's pressure. These agree when
   the design day gives the site pressure.
@@ -405,14 +403,14 @@ After sizing, unless `minimum_damper_position` is given, the fraction
 becomes
 
 $$
-x_\text{oa} = \min\left(1,\ \frac{\sum_z (R_pP_\text{des} + R_aA_z)}{\dot V_\text{fan}}\right).
+x_\text{oa} = \min\left(1,\ \frac{\sum_z \dot V_{\text{oa},z}}{\dot V_\text{fan}}\right),
 $$ {#eq-oa-fraction-sized}
 
-This formula leaves out the absolute-flow and ACH terms and ignores the
-maximum method ([#231](https://github.com/bbrannon4/OpenBSE/issues/231)).
-EnergyPlus computes the zone outdoor air once
-(`DesignSpecification:OutdoorAir`). The fan flow and the outdoor-air flows are
-both per zone instance, so no multiplier is needed in the ratio.
+with $\dot V_{\text{oa},z}$ from @eq-zone-oa at design occupancy, summing all of the
+zone's People objects. This is the same function the zone's outdoor-air floor
+and the ideal-loads outdoor air use, like EnergyPlus's single
+`DesignSpecification:OutdoorAir` calculation. The fan flow and the outdoor-air
+flows are both per zone instance, so no multiplier is needed in the ratio.
 
 ## Known limitations {#sec-sizing-limitations}
 
@@ -429,8 +427,6 @@ both per zone instance, so no multiplier is needed in the ratio.
   loads; hard-coded temperatures in FCU and DOAS sizing.
 - [#230](https://github.com/bbrannon4/OpenBSE/issues/230): pumps sized from
   the coincident zone peak, not the loop design flow.
-- [#231](https://github.com/bbrannon4/OpenBSE/issues/231): three
-  outdoor-air formulas.
 - [#280](https://github.com/bbrannon4/OpenBSE/issues/280): a loop can't serve
   zones with different multipliers.
 - [#232](https://github.com/bbrannon4/OpenBSE/issues/232): duplicate system
