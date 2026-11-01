@@ -178,7 +178,7 @@ fn generate_heating_design_weather(dd: &DesignDayInput) -> Vec<WeatherHour> {
             wind_speed: dd.wind_speed,
             wind_direction: 0.0,
             opaque_sky_cover: 10.0,
-            horiz_ir_rad: 300.0,
+            horiz_ir_rad: 0.0, // missing: the sky comes from the emissivity model
         };
         set_design_humidity(&mut wh, dd);
         hours.push(wh);
@@ -233,7 +233,7 @@ fn generate_cooling_design_weather(dd: &DesignDayInput, latitude: f64) -> Vec<We
             wind_speed: dd.wind_speed,
             wind_direction: 0.0,
             opaque_sky_cover: 1.0, // clear sky for cooling design
-            horiz_ir_rad: 350.0,
+            horiz_ir_rad: 0.0,     // missing: the sky comes from the emissivity model
         };
         set_design_humidity(&mut wh, dd);
         hours.push(wh);
