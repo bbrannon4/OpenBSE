@@ -5187,6 +5187,15 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
         check_zone_refs(&e.zones, "Equipment", &e.name, &mut result);
     }
 
+    // ── Validate ground surface temperatures ───────────────────────────────
+
+    let ground_temps = model.simulation.ground_surface_temperatures.len();
+    if ground_temps != 12 {
+        result.severe(format!(
+            "simulation.ground_surface_temperatures needs 12 monthly values, got {ground_temps}"
+        ));
+    }
+
     // ── Validate water heater ambient zones ────────────────────────────────
 
     for dhw in &model.dhw_systems {

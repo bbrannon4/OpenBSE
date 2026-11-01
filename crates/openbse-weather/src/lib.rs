@@ -25,44 +25,6 @@ pub struct WeatherLocation {
     pub elevation: f64,
 }
 
-/// Design day specification for autosizing.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DesignDay {
-    pub name: String,
-    /// Maximum (cooling) or minimum (heating) dry-bulb temperature [°C]
-    pub design_temp: f64,
-    /// Daily temperature range [°C] (for cooling design days)
-    pub daily_range: f64,
-    /// Humidity condition type and value
-    pub humidity_type: HumidityType,
-    /// Barometric pressure [Pa]
-    pub pressure: f64,
-    /// Wind speed [m/s]
-    pub wind_speed: f64,
-    /// Wind direction [degrees from north]
-    pub wind_direction: f64,
-    /// Month of design day [1-12]
-    pub month: u32,
-    /// Day of month
-    pub day: u32,
-    /// Day type
-    pub day_type: DesignDayType,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum HumidityType {
-    WetBulb(f64),
-    DewPoint(f64),
-    HumidityRatio(f64),
-    Enthalpy(f64),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum DesignDayType {
-    SummerDesign,
-    WinterDesign,
-}
-
 /// One hour of weather data from an EPW file.
 #[derive(Debug, Clone, Copy)]
 pub struct WeatherHour {
@@ -222,7 +184,6 @@ pub struct EpwGroundTemps {
 pub struct WeatherData {
     pub location: WeatherLocation,
     pub hours: Vec<WeatherHour>,
-    pub design_days: Vec<DesignDay>,
     /// Day of week for January 1 in the weather data.
     /// 1=Monday, 2=Tuesday, ..., 6=Saturday, 7=Sunday.
     /// Parsed from the EPW DATA PERIODS header line. Defaults to 1 (Monday).
@@ -254,14 +215,6 @@ impl WeatherData {
         let means = months.iter().filter(|m| m.1 > 0).map(|m| m.0 / m.1 as f64);
         let (lo, hi) = means.fold((f64::MAX, f64::MIN), |(l, h), m| (l.min(m), h.max(m)));
         (annual, hi - lo)
-    }
-
-    /// Convert hourly data to the format expected by the simulation runner.
-    pub fn to_simulation_hours(&self) -> Vec<(MoistAirState, f64)> {
-        self.hours
-            .iter()
-            .map(|h| (h.to_air_state(), h.wind_speed))
-            .collect()
     }
 }
 
@@ -372,7 +325,6 @@ pub fn read_epw<R: Read>(reader: R) -> Result<WeatherData, WeatherError> {
     Ok(WeatherData {
         location,
         hours,
-        design_days: Vec::new(), // Design days come from YAML input, not EPW
         start_day_of_week,
         leap_year,
         ground_temperatures,
@@ -582,7 +534,6 @@ pub fn read_tmy3<R: Read>(reader: R) -> Result<WeatherData, WeatherError> {
     Ok(WeatherData {
         location,
         hours,
-        design_days: Vec::new(),
         start_day_of_week: 1, // TMY3 doesn't specify; default Monday
         leap_year,
         ground_temperatures: Vec::new(), // TMY3 doesn't include ground temps
