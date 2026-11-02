@@ -168,7 +168,7 @@ Y_s = \frac{V_{ou}/E_v}{V_{ps}},
 \end{gathered}
 $$ {#eq-vrp}
 
-with $V_{oz} = R_pP_z(t) + R_aA_z$, no less than the minimum fraction. A fixed
+with $V_{oz}$ the zone requirement at the occupants $P_z(t)$ of this hour, no less than the minimum fraction. A fixed
 `min_oa_flow` overrides it with a constant flow.
 
 **Comparison with EnergyPlus.** @eq-warmest and @eq-vrp follow
@@ -176,10 +176,12 @@ with $V_{oz} = R_pP_z(t) + R_aA_z$, no less than the minimum fraction. A fixed
 `VentilationRateProcedure` [@eplus-engref-25-2, "Outdoor Air System"]. OpenBSE's
 maximum temperature and maximum heating fraction are hard-coded, and a higher
 minimum makes the clamp panic
-([#256](https://github.com/bbrannon4/OpenBSE/issues/256)). @eq-vrp takes its rates
-from the zone connection's `per_person_oa` and `per_area_oa`, not the zone's
-`outdoor_air`, so it omits the absolute and ACH terms
-([#283](https://github.com/bbrannon4/OpenBSE/issues/283)).
+([#256](https://github.com/bbrannon4/OpenBSE/issues/256)). @eq-vrp reads the zone's
+`outdoor_air`, the same requirement sizing uses, with its absolute and ACH terms and
+combining method and every People object's schedule, as E+ reads
+`DesignSpecification:OutdoorAir`. A zone without `outdoor_air` uses the `per_person_oa`
+and `per_area_oa` of its connection. OpenBSE applies @eq-vrp to every multi-zone VAV
+loop with an outdoor-air requirement; E+ only with a `Controller:MechanicalVentilation`.
 
 ## Economizers {#sec-economizer}
 

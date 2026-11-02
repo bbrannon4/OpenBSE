@@ -1008,8 +1008,8 @@
       "properties": {
         "zone": { "type": "string", "description": "Zone name." },
         "terminal": { "$ref": "#/$defs/Terminal", "description": "Optional terminal box (VAV, PFP, or dual-duct). Omit for a direct connection." },
-        "per_person_oa": { "type": "number", "description": "DCV outdoor air per person [m3/s-person] (ASHRAE 62.1 Rp). Only used when dcv is true on the air loop." },
-        "per_area_oa": { "type": "number", "description": "DCV outdoor air per floor area [m3/s-m2] (ASHRAE 62.1 Ra). Only used when dcv is true on the air loop." }
+        "per_person_oa": { "type": "number", "description": "Outdoor air per person [m3/s-person] (ASHRAE 62.1 Rp) for VRP and DCV, used only when the zone has no outdoor_air." },
+        "per_area_oa": { "type": "number", "description": "Outdoor air per floor area [m3/s-m2] (ASHRAE 62.1 Ra) for VRP and DCV, used only when the zone has no outdoor_air." }
       }
     },
 

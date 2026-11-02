@@ -86,7 +86,7 @@ pub struct LoopInfo {
     /// Heating SAT reset configuration (cloned from AirLoopControls).
     pub heating_sat_reset: Option<openbse_io::input::SatResetConfig>,
     /// Per-zone OA data for ASHRAE 62.1 VRP and DCV calculations.
-    /// Always populated from zone connections (per_person_oa, per_area_oa).
+    /// From each zone's `outdoor_air`, or else its connection's rates.
     pub zone_oa_data: Vec<ZoneOaData>,
     /// Design supply air flow rate [m³/s] for this loop (used to compute dynamic OA fraction)
     pub design_supply_flow: f64,
@@ -197,11 +197,29 @@ impl LoopInfo {
 #[derive(Debug, Clone)]
 pub struct ZoneOaData {
     pub zone_name: String,
-    pub design_people: f64,
-    pub per_person_oa: f64, // [m³/s per person]
-    pub per_area_oa: f64,   // [m³/s per m²]
-    pub floor_area: f64,    // [m²]
-    pub people_schedule: Option<String>,
+    /// The zone's outdoor-air requirement (E+ `DesignSpecification:OutdoorAir`)
+    pub requirement: openbse_envelope::zone::OutdoorAirInput,
+    /// Every People object of the zone: design count and schedule
+    pub people: Vec<(f64, Option<String>)>,
+    pub floor_area: f64, // [m²]
+    pub volume: f64,     // [m³]
+}
+
+impl ZoneOaData {
+    /// Occupants this hour: each People object's count at its schedule's fraction.
+    pub fn occupants(&self, fraction: impl Fn(&str) -> f64) -> f64 {
+        self.people
+            .iter()
+            .map(|(count, schedule)| count * schedule.as_deref().map_or(1.0, &fraction))
+            .sum()
+    }
+
+    /// Required outdoor air [m³/s] for this many occupants, with every term of
+    /// the requirement and its combining method.
+    pub fn required_flow(&self, occupants: f64) -> f64 {
+        self.requirement
+            .supply_flow(occupants, self.floor_area, self.volume)
+    }
 }
 
 // ─── HVAC Mode ───────────────────────────────────────────────────────────────
@@ -1462,18 +1480,12 @@ pub fn build_vav_signals(
         let mut max_zd = 0.0_f64; // critical zone discharge OA fraction
 
         for oa in &li.zone_oa_data {
-            // Occupancy fraction from people schedule (design occupancy if no schedule)
-            let occ_frac = if let Some(ref sched_name) = oa.people_schedule {
-                schedule_mgr
-                    .map(|sm| sm.fraction(sched_name, hour, day_of_week))
-                    .unwrap_or(1.0)
-            } else {
-                1.0
-            };
+            let occupants = oa.occupants(|sched| {
+                schedule_mgr.map_or(1.0, |sm| sm.fraction(sched, hour, day_of_week))
+            });
 
             // Breathing zone OA [m³/s]: ASHRAE 62.1 Eq 6-1
-            let vbz =
-                oa.per_person_oa * oa.design_people * occ_frac + oa.per_area_oa * oa.floor_area;
+            let vbz = oa.required_flow(occupants);
             // Zone OA with distribution effectiveness: Voz = Vbz / Ez
             // Ez = 1.0 for well-mixed ceiling supply (ASHRAE 62.1 Table 6-2)
             let voz = vbz;
@@ -2013,16 +2025,44 @@ mod tests {
         }
     }
 
+    /// Absolute and ACH terms, the combining method and every People object all
+    /// reach the requirement.
+    #[test]
+    fn zone_outdoor_air_requirement_counts_every_term_and_people_object() {
+        use openbse_envelope::zone::OutdoorAirInput;
+        let mut oa = ZoneOaData {
+            zone_name: "Z".to_string(),
+            requirement: OutdoorAirInput {
+                per_person: 0.01,
+                per_area: 0.001,
+                absolute: 0.05,
+                ach: 1.0,
+                ..Default::default()
+            },
+            people: vec![(10.0, Some("a".to_string())), (20.0, Some("b".to_string()))],
+            floor_area: 100.0,
+            volume: 360.0,
+        };
+        let occupants = oa.occupants(|s| if s == "a" { 1.0 } else { 0.5 });
+        assert_eq!(occupants, 20.0);
+        // 0.2 people + 0.1 area + 0.05 absolute + 0.1 ACH
+        assert!((oa.required_flow(occupants) - 0.45).abs() < 1e-12);
+        oa.requirement.oa_method = openbse_envelope::zone_loads::OaMethod::Maximum;
+        assert!((oa.required_flow(occupants) - 0.2).abs() < 1e-12);
+    }
+
     #[test]
     fn vav_ventilation_rate_procedure_uses_site_density_and_stops_when_oa_is_off() {
         let mut li = make_loop(AirLoopSystemType::Vav, vec!["CHW Coil".to_string()]);
         li.zone_oa_data = vec![ZoneOaData {
             zone_name: "Zone1".to_string(),
-            design_people: 0.0,
-            per_person_oa: 0.0,
-            per_area_oa: 0.001,
+            requirement: openbse_envelope::zone::OutdoorAirInput {
+                per_area: 0.001,
+                ..Default::default()
+            },
+            people: vec![],
             floor_area: 100.0,
-            people_schedule: None,
+            volume: 300.0,
         }];
         let f = Fixture {
             temps: one("Zone1", 20.0),
