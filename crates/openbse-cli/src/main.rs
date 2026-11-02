@@ -251,15 +251,13 @@ fn site_standard_air_density(model: &openbse_io::input::ModelInput) -> f64 {
 /// Design supply flow [kg/s] of a multi-zone (VAV, dual-duct) loop, as E+
 /// `Sizing:System`: the sum of its zones' final design flows (non-coincident),
 /// or the largest sum of their cooling flows at one hour of a cooling design
-/// day, scaled by the cooling sizing factor (coincident). A coincident flow
-/// never falls below the zones' summed heating flows.
+/// day (coincident). A coincident flow never falls below the zones' summed
+/// heating flows. All of these flows already carry the sizing factors.
 fn multizone_design_flow(
     served_zones: &[String],
     zone_sum: openbse_io::input::ZoneSum,
     zone_design_flows: &HashMap<String, f64>,
     zone_sizing: &openbse_io::sizing::ZoneSizingResult,
-    cooling_sizing_factor: f64,
-    heating_sizing_factor: f64,
 ) -> f64 {
     match zone_sum {
         openbse_io::input::ZoneSum::NonCoincident => served_zones
@@ -288,7 +286,7 @@ fn multizone_design_flow(
                         .unwrap_or(0.0)
                 })
                 .sum();
-            (cooling * cooling_sizing_factor).max(heating * heating_sizing_factor)
+            cooling.max(heating)
         }
     }
 }
@@ -1679,26 +1677,8 @@ fn main() -> Result<()> {
                 vrf_zone_peak_cooling = sizing_result.zone_peak_cooling.clone();
 
                 // Apply sized zone airflows (override design_zone_flow).
-                // For VAV zones, apply the cooling sizing factor to compensate
-                // for the design-day load gap: OpenBSE's ideal-loads sizing
-                // reaches steady state (58.9 kW) while E+'s CTF model produces
-                // a transient peak (85.3 kW) from thermal mass oscillation.
-                // The sizing factor approximates this missing peak.
-                let vav_zones: std::collections::HashSet<String> = loop_infos
-                    .iter()
-                    .filter(|li| {
-                        li.system_type == AirLoopSystemType::Vav
-                            || li.system_type == AirLoopSystemType::DualDuct
-                    })
-                    .flat_map(|li| li.served_zones.iter().cloned())
-                    .collect();
                 for (zone_name, &flow) in &sizing_result.zone_design_airflow {
-                    let sized_flow = if vav_zones.contains(zone_name) {
-                        flow * model.simulation.cooling_sizing_factor
-                    } else {
-                        flow
-                    };
-                    zone_design_flows.insert(zone_name.clone(), sized_flow);
+                    zone_design_flows.insert(zone_name.clone(), flow);
                 }
 
                 // ── Per-loop cooling SAT override ──
@@ -1720,8 +1700,7 @@ fn main() -> Result<()> {
                                 .zone_peak_cooling
                                 .get(zone_name)
                                 .copied()
-                                .unwrap_or(0.0)
-                                * model.simulation.cooling_sizing_factor;
+                                .unwrap_or(0.0);
                             let dt = (cool_sp - li.cooling_supply_temp).max(5.0);
                             let new_flow = if cool_load > 0.0 {
                                 cool_load / (cp_air_sz * dt)
@@ -1775,10 +1754,6 @@ fn main() -> Result<()> {
                                 .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
                                 .sum();
                             let zone_flow_m3 = zone_airflow / air_density;
-                            // Capacity = raw_peak × zone_factor × system_capacity_factor
-                            // zone_factor (Sizing:Parameters) inflates zone loads
-                            // system_capacity_factor (Sizing:System FractionOfAutosized) adds
-                            // additional system-level oversizing on top.
                             let zone_heat: f64 = li
                                 .served_zones
                                 .iter()
@@ -1789,8 +1764,7 @@ fn main() -> Result<()> {
                                         .copied()
                                         .unwrap_or(0.0)
                                 })
-                                .sum::<f64>()
-                                * model.simulation.heating_sizing_factor;
+                                .sum::<f64>();
                             let zone_cool: f64 = li
                                 .served_zones
                                 .iter()
@@ -1801,13 +1775,12 @@ fn main() -> Result<()> {
                                         .copied()
                                         .unwrap_or(0.0)
                                 })
-                                .sum::<f64>()
-                                * model.simulation.cooling_sizing_factor;
+                                .sum::<f64>();
                             (zone_flow_m3, zone_heat, zone_cool)
                         }
                         AirLoopSystemType::Vav | AirLoopSystemType::DualDuct => {
                             // VAV / DualDuct: multi-zone system, sized on the
-                            // same (sizing-factor) zone flows as its boxes.
+                            // same zone flows as its boxes.
                             let zone_sum = model
                                 .air_loops
                                 .iter()
@@ -1819,8 +1792,6 @@ fn main() -> Result<()> {
                                 zone_sum,
                                 &zone_design_flows,
                                 &sizing_result.zone_sizing,
-                                model.simulation.cooling_sizing_factor,
-                                model.simulation.heating_sizing_factor,
                             );
                             let zone_flow_m3 = zone_airflow / air_density;
                             let zone_heat: f64 = li
@@ -1833,8 +1804,7 @@ fn main() -> Result<()> {
                                         .copied()
                                         .unwrap_or(0.0)
                                 })
-                                .sum::<f64>()
-                                * model.simulation.heating_sizing_factor;
+                                .sum::<f64>();
                             let zone_cool: f64 = li
                                 .served_zones
                                 .iter()
@@ -1845,8 +1815,7 @@ fn main() -> Result<()> {
                                         .copied()
                                         .unwrap_or(0.0)
                                 })
-                                .sum::<f64>()
-                                * model.simulation.cooling_sizing_factor;
+                                .sum::<f64>();
                             (zone_flow_m3, zone_heat, zone_cool)
                         }
                         AirLoopSystemType::Doas => {
@@ -1908,11 +1877,9 @@ fn main() -> Result<()> {
 
                             let cp_air = 1005.0_f64;
                             let doas_heat_cap =
-                                (oa_flow_kg * cp_air * (t_supply_heat - t_outdoor_heat).max(0.0))
-                                    * model.simulation.heating_sizing_factor;
+                                oa_flow_kg * cp_air * (t_supply_heat - t_outdoor_heat).max(0.0);
                             let doas_cool_cap =
-                                (oa_flow_kg * cp_air * (t_outdoor_cool - t_supply_cool).max(0.0))
-                                    * model.simulation.cooling_sizing_factor;
+                                oa_flow_kg * cp_air * (t_outdoor_cool - t_supply_cool).max(0.0);
 
                             (oa_flow_m3, doas_heat_cap, doas_cool_cap)
                         }
@@ -2011,15 +1978,10 @@ fn main() -> Result<()> {
                                 * cp_air
                                 * (t_mixed_cool - li.cooling_supply_temp).max(0.0);
 
-                            // Use the larger of (zone peak load × sizing factor) and
-                            // coil capacity (which already includes sizing factor via
-                            // sized airflow from zone sizing).
-                            let zone_heat = (zone_peak_heat
-                                * model.simulation.heating_sizing_factor)
-                                .max(coil_heat_cap);
-                            let zone_cool = (zone_peak_cool
-                                * model.simulation.cooling_sizing_factor)
-                                .max(coil_cool_cap);
+                            // The zone design loads and the sized airflow both
+                            // already carry the sizing factors.
+                            let zone_heat = zone_peak_heat.max(coil_heat_cap);
+                            let zone_cool = zone_peak_cool.max(coil_cool_cap);
 
                             (zone_flow_m3, zone_heat, zone_cool)
                         }
@@ -2043,8 +2005,7 @@ fn main() -> Result<()> {
                                         .copied()
                                         .unwrap_or(0.0)
                                 })
-                                .sum::<f64>()
-                                * model.simulation.cooling_sizing_factor;
+                                .sum::<f64>();
                             (zone_flow_m3, 0.0, zone_cool)
                         }
                     };
@@ -2137,9 +2098,8 @@ fn main() -> Result<()> {
                         if let Some(node_idx) = graph.node_by_name(term_name) {
                             if let GraphComponent::Air(comp) = graph.component_mut(node_idx) {
                                 // Size terminal max_air_flow from the zone design
-                                // flow the VAV control works with (sizing factor
-                                // applied), so the box minimum is the same
-                                // fraction of it as in E+.
+                                // flow the VAV control works with, so the box
+                                // minimum is the same fraction of it as in E+.
                                 if comp.design_air_flow_rate().is_none() {
                                     let zone_flow =
                                         zone_design_flows.get(zone_name).copied().unwrap_or(0.1);
@@ -2159,8 +2119,7 @@ fn main() -> Result<()> {
                                             .zone_peak_heating
                                             .get(zone_name)
                                             .copied()
-                                            .unwrap_or(0.0)
-                                            * model.simulation.heating_sizing_factor;
+                                            .unwrap_or(0.0);
                                         let zone_temp = resolved_thermostats
                                             .iter()
                                             .find(|t| t.zones.contains(zone_name))
@@ -2203,8 +2162,7 @@ fn main() -> Result<()> {
                                 .zone_design_airflow
                                 .get(zone_name)
                                 .copied()
-                                .unwrap_or(0.1)
-                                * model.simulation.cooling_sizing_factor;
+                                .unwrap_or(0.1);
                             dd_box.design_flow = zone_flow.max(0.01);
                             info!(
                                 "Autosized dual-duct box '{}' design_flow: {:.4} kg/s",
@@ -2436,7 +2394,6 @@ fn main() -> Result<()> {
                                 .get(&iu.zone)
                                 .copied()
                                 .unwrap_or(3000.0)
-                                * model.simulation.cooling_sizing_factor
                         } else {
                             iu.cooling_capacity.to_f64()
                         }
@@ -2451,7 +2408,6 @@ fn main() -> Result<()> {
                                 .get(&iu.zone)
                                 .copied()
                                 .unwrap_or(3000.0)
-                                * model.simulation.heating_sizing_factor
                         } else {
                             iu.heating_capacity.to_f64()
                         }
@@ -2505,8 +2461,7 @@ fn main() -> Result<()> {
                             (vrf_zone_peak_cooling
                                 .get(&iu_in.zone)
                                 .copied()
-                                .unwrap_or(3000.0)
-                                * model.simulation.cooling_sizing_factor)
+                                .unwrap_or(3000.0))
                                 .max(500.0)
                         } else {
                             iu_in.cooling_capacity.to_f64()
@@ -2515,8 +2470,7 @@ fn main() -> Result<()> {
                             (vrf_zone_peak_heating
                                 .get(&iu_in.zone)
                                 .copied()
-                                .unwrap_or(3000.0)
-                                * model.simulation.heating_sizing_factor)
+                                .unwrap_or(3000.0))
                                 .max(500.0)
                         } else {
                             iu_in.heating_capacity.to_f64()
@@ -7202,27 +7156,19 @@ mod tests {
             zone_heating_airflow: flows(1.0, 0.5),
             ..Default::default()
         };
-        let design = flows(9.2, 2.3); // each zone's peak × 1.15
+        let design = flows(8.0, 2.0);
         let non_coincident =
-            multizone_design_flow(&zones, ZoneSum::NonCoincident, &design, &sizing, 1.15, 1.25);
-        assert!((non_coincident - 11.5).abs() < 1e-12);
-        let coincident =
-            multizone_design_flow(&zones, ZoneSum::Coincident, &design, &sizing, 1.15, 1.25);
-        assert!((coincident - 9.0 * 1.15).abs() < 1e-12);
+            multizone_design_flow(&zones, ZoneSum::NonCoincident, &design, &sizing);
+        assert!((non_coincident - 10.0).abs() < 1e-12);
+        let coincident = multizone_design_flow(&zones, ZoneSum::Coincident, &design, &sizing);
+        assert!((coincident - 9.0).abs() < 1e-12);
         // Heating flows set the floor when they are larger.
         let heating_led = openbse_io::sizing::ZoneSizingResult {
             zone_heating_airflow: flows(10.0, 0.0),
             ..sizing
         };
-        let coincident = multizone_design_flow(
-            &zones,
-            ZoneSum::Coincident,
-            &design,
-            &heating_led,
-            1.15,
-            1.25,
-        );
-        assert!((coincident - 12.5).abs() < 1e-12);
+        let coincident = multizone_design_flow(&zones, ZoneSum::Coincident, &design, &heating_led);
+        assert!((coincident - 10.0).abs() < 1e-12);
     }
 
     #[test]

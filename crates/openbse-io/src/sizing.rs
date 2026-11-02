@@ -37,9 +37,9 @@ use openbse_envelope::ThermostatInput;
 /// Zone-level sizing results from Stage 1.
 #[derive(Debug, Clone, Default)]
 pub struct ZoneSizingResult {
-    /// Peak heating load per zone [W]
+    /// Design heating load per zone [W]: peak load × heating sizing factor
     pub zone_peak_heating: HashMap<String, f64>,
-    /// Peak cooling load per zone [W]
+    /// Design cooling load per zone [W]: peak load × cooling sizing factor
     pub zone_peak_cooling: HashMap<String, f64>,
     /// Design day name where heating peak occurred per zone
     pub zone_heating_dd: HashMap<String, String>,
@@ -85,9 +85,9 @@ pub struct SizingResult {
     /// System-level sizing (Stage 2)
     pub system_sizing: SystemSizingResult,
 
-    /// Peak heating load per zone [W] (convenience alias)
+    /// Design heating load per zone [W], sizing factor included (convenience alias)
     pub zone_peak_heating: HashMap<String, f64>,
-    /// Peak cooling load per zone [W] (convenience alias)
+    /// Design cooling load per zone [W], sizing factor included (convenience alias)
     pub zone_peak_cooling: HashMap<String, f64>,
     /// Design heating airflow per zone [kg/s]
     pub zone_heating_airflow: HashMap<String, f64>,
@@ -516,8 +516,8 @@ fn run_zone_sizing(
     heating_supply_temp: f64,
     cooling_supply_temp: f64,
     latitude: f64,
-    _heating_sizing_factor: f64,
-    _cooling_sizing_factor: f64,
+    heating_sizing_factor: f64,
+    cooling_sizing_factor: f64,
     oa_handled_by_hvac: &HashMap<String, bool>,
     steps: SizingSteps,
     sizing_fan_delta_t: f64,
@@ -631,6 +631,17 @@ fn run_zone_sizing(
     // Everything here is for one instance of a multiplied zone, because that is
     // what the run simulates; main.rs multiplies the energy once.
 
+    // The sizing factors make these the zones' design loads, as E+ scales the
+    // zone's final design load, flow and flow sequence
+    // (updateZoneSizingEndZoneSizingCalc7). Everything sized from them inherits
+    // the margin once, so nothing downstream applies a factor again.
+    zone_peak_heating
+        .values_mut()
+        .for_each(|q| *q *= heating_sizing_factor);
+    zone_peak_cooling
+        .values_mut()
+        .for_each(|q| *q *= cooling_sizing_factor);
+
     // ── Calculate zone airflows from peak loads ─────────────────────────
     let mut zone_heating_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_cooling_airflow: HashMap<String, f64> = HashMap::new();
@@ -700,7 +711,10 @@ fn run_zone_sizing(
                         .iter()
                         .filter_map(|(name, &(_, cl))| {
                             let &(dt, m_oa) = cool_flow_basis.get(name)?;
-                            Some((name.clone(), (cl / (cp_air * dt)).max(m_oa)))
+                            Some((
+                                name.clone(),
+                                (cooling_sizing_factor * cl / (cp_air * dt)).max(m_oa),
+                            ))
                         })
                         .collect()
                 })
@@ -1267,8 +1281,8 @@ fn write_zone_sizing_csv(
     let mut lines = Vec::new();
 
     lines.push(
-        "Zone,Peak Heating [W],Heating DD,Heating Peak Hour,\
-         Peak Cooling [W],Cooling DD,Cooling Peak Hour,\
+        "Zone,Design Heating Load [W],Heating DD,Heating Peak Hour,\
+         Design Cooling Load [W],Cooling DD,Cooling Peak Hour,\
          Heating Airflow [kg/s],Cooling Airflow [kg/s],Design Airflow [kg/s],Design Airflow [m3/s],Design Airflow [CFM]"
             .to_string()
     );

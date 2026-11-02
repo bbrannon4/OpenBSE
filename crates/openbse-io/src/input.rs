@@ -300,15 +300,17 @@ pub struct SimulationSettings {
 
     /// Heating sizing factor applied to zone design loads and airflows.
     ///
-    /// Matches EnergyPlus `Sizing:Parameters` → `Heating Sizing Factor`.
-    /// A value of 1.25 means 25% safety margin.  Default: 1.25.
+    /// Applied as EnergyPlus `Sizing:Parameters` → `Heating Sizing Factor`.
+    /// A value of 1.25 means 25% safety margin.  Default: 1.25, the ASHRAE
+    /// 90.1 Appendix G ratio; the EnergyPlus default is 1.0.
     #[serde(default = "default_heating_sizing_factor")]
     pub heating_sizing_factor: f64,
 
     /// Cooling sizing factor applied to zone design loads and airflows.
     ///
-    /// Matches EnergyPlus `Sizing:Parameters` → `Cooling Sizing Factor`.
-    /// A value of 1.15 means 15% safety margin.  Default: 1.15.
+    /// Applied as EnergyPlus `Sizing:Parameters` → `Cooling Sizing Factor`.
+    /// A value of 1.15 means 15% safety margin.  Default: 1.15, the ASHRAE
+    /// 90.1 Appendix G ratio; the EnergyPlus default is 1.0.
     #[serde(default = "default_cooling_sizing_factor")]
     pub cooling_sizing_factor: f64,
 
