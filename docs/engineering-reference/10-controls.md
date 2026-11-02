@@ -217,7 +217,8 @@ With a supply setpoint, its outlet aims to land the mixed air on the target (E+
 
 **Comparison with EnergyPlus.** The limits and @eq-economizer follow
 `Controller:OutdoorAir` [@eplus-engref-25-2, "Outdoor Air System"]. The return
-humidity is a plain mean ([#184](https://github.com/bbrannon4/OpenBSE/issues/184)).
+humidity uses the same flow weights as the return temperature, as E+'s return-air
+mixer does.
 
 ## DOAS {#sec-doas}
 
@@ -273,6 +274,5 @@ air's capacitance rate
   cycling runtime floor; multi-zone PSZ.
 - [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no daylight saving or
   start day of week.
-- [#184](https://github.com/bbrannon4/OpenBSE/issues/184): return humidity mean.
 - [#245](https://github.com/bbrannon4/OpenBSE/issues/245),
   [#246](https://github.com/bbrannon4/OpenBSE/issues/246): terminal control.
