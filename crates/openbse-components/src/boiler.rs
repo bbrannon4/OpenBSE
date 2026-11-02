@@ -203,9 +203,12 @@ impl PlantComponent for Boiler {
                 let mut t_out = inlet.state.temp + dt;
                 let mut q = boiler_load;
 
-                // Limit outlet temperature
+                // Limit outlet temperature. Water already above the limit (pump
+                // heat at a tiny flow can do this) passes through: a boiler
+                // can't take heat out, and a negative load would burn negative
+                // fuel.
                 if t_out > self.max_outlet_temp {
-                    t_out = self.max_outlet_temp;
+                    t_out = self.max_outlet_temp.max(inlet.state.temp);
                     q = m * cp * (t_out - inlet.state.temp);
                 }
 
@@ -499,6 +502,18 @@ mod tests {
         assert_relative_eq!(boiler2.boiler_load, q_max, max_relative = 0.01);
         // Fuel = Q / eff
         assert_relative_eq!(boiler2.fuel_used, q_max / 0.80, max_relative = 0.01);
+    }
+
+    /// Water above the outlet limit must not make a negative load and negative
+    /// fuel (found on hotel_radiant_panels while fixing #213).
+    #[test]
+    fn test_boiler_inlet_above_outlet_limit_passes_through() {
+        let mut boiler = Boiler::new("Test Boiler", 100_000.0, 0.80, 82.0, 0.001);
+        let inlet = WaterPort::new(FluidState::water(126.7, 1.0e-4));
+        let outlet = boiler.simulate_plant(&inlet, 2.0, &make_ctx());
+        assert_relative_eq!(outlet.state.temp, 126.7);
+        assert_relative_eq!(boiler.thermal_output(), 0.0);
+        assert_relative_eq!(boiler.fuel_consumption(), 0.0);
     }
 
     #[test]
