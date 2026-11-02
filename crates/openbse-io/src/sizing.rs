@@ -22,7 +22,7 @@
 //! Reference: ASHRAE Handbook — Fundamentals, Chapter 18 (Nonresidential
 //! Cooling and Heating Load Calculations).
 
-use crate::input::DesignDayHumidityType;
+use crate::input::{DesignDayHumidityType, DesignDayKind};
 use openbse_core::ports::{EnvelopeSolver, SimulationContext, ZoneHvacConditions};
 use openbse_core::types::{DayType, TimeStep};
 use openbse_envelope::BuildingEnvelope;
@@ -246,15 +246,15 @@ fn generate_cooling_design_weather(dd: &DesignDayInput, latitude: f64) -> Vec<We
     hours
 }
 
-/// Classify a design day as heating or cooling from its day_type string.
-fn is_heating_design_day(dd: &DesignDayInput) -> bool {
-    let dt = dd.day_type.to_lowercase();
-    dt.contains("winter") || dt.contains("heat")
+/// Whether a design day sizes heating. Validation refuses a `day_type` that is
+/// neither heating nor cooling, or both.
+pub fn is_heating_design_day(dd: &DesignDayInput) -> bool {
+    dd.kind() == Some(DesignDayKind::Heating)
 }
 
-fn is_cooling_design_day(dd: &DesignDayInput) -> bool {
-    let dt = dd.day_type.to_lowercase();
-    dt.contains("summer") || dt.contains("cool")
+/// Whether a design day sizes cooling.
+pub fn is_cooling_design_day(dd: &DesignDayInput) -> bool {
+    dd.kind() == Some(DesignDayKind::Cooling)
 }
 
 /// Heating and cooling supply temperatures of a zone with no air loop [°C].
@@ -975,11 +975,10 @@ fn run_system_sizing(
     }
 }
 
-/// Compute monthly 99.6th percentile (peak design) dry-bulb from weather data.
+/// Each month's 99.6th percentile dry-bulb from weather data, 12 values.
 ///
-/// The cooling design temperature is roughly the 0.4% exceedance temperature
-/// (i.e. 99.6th percentile). We estimate this per month by taking the 99.6th
-/// percentile of the monthly dry-bulb samples. Returns an array of 12 values.
+/// These are percentiles of each month's own samples, used only as differences
+/// between months. They are not the annual 0.4% design condition.
 fn monthly_peak_dry_bulb(weather_hours: &[WeatherHour]) -> [f64; 12] {
     let mut by_month: [Vec<f64>; 12] = Default::default();
     for wh in weather_hours {
@@ -1538,6 +1537,24 @@ fn write_system_sizing_csv(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_design_day_is_heating_or_cooling_never_both_or_neither() {
+        let kind = |day_type: &str| {
+            let mut dd = design_day(DesignDayHumidityType::Wetbulb, 20.0);
+            dd.day_type = day_type.to_string();
+            dd.kind()
+        };
+        for t in ["winter", "winter_design", "heating", "WinterDesignDay"] {
+            assert_eq!(kind(t), Some(DesignDayKind::Heating), "{t}");
+        }
+        for t in ["summer", "summer_design", "cooling", "SummerDesignDay"] {
+            assert_eq!(kind(t), Some(DesignDayKind::Cooling), "{t}");
+        }
+        for t in ["shoulder", "heating_and_cooling", ""] {
+            assert_eq!(kind(t), None, "{t}");
+        }
+    }
 
     fn design_day(humidity_type: DesignDayHumidityType, humidity_value: f64) -> DesignDayInput {
         DesignDayInput {

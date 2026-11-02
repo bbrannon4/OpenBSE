@@ -46,8 +46,7 @@ but later dates keep their true day of week.
 
 **Comparison with EnergyPlus.** EnergyPlus's `ZoneControl:Thermostat` takes
 setpoint schedules, which are its only mechanism; OpenBSE's thermostat schedules
-are separate from its named schedules. Schedules have no design-day types
-([#232](https://github.com/bbrannon4/OpenBSE/issues/232)), daylight saving or
+are separate from its named schedules. Schedules have no design-day types, daylight saving or
 start day of week ([#199](https://github.com/bbrannon4/OpenBSE/issues/199)).
 
 ## Availability {#sec-availability}

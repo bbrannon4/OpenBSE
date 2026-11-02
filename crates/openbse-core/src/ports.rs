@@ -32,7 +32,8 @@ pub enum SizingInternalGains {
 
     /// Full design-level gains (100%) at all hours, ignoring schedules.
     /// Use for cooling design days to maximize cooling load (most conservative).
-    /// This is the EnergyPlus default for SummerDesignDay.
+    /// EnergyPlus has no such mode: it evaluates each schedule's SummerDesignDay
+    /// day schedule. OpenBSE schedules have no design-day types, so this stands in.
     Full,
 
     /// Follow the normal occupancy/lighting/equipment schedules.
