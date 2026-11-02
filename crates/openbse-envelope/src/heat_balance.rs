@@ -52,6 +52,8 @@ pub struct BuildingEnvelope {
     /// F-factor ground floor constructions.
     pub f_factor_constructions: HashMap<String, crate::material::FFactorConstruction>,
     pub zone_index: HashMap<String, usize>,
+    /// Problems with the zone geometry, reported when the envelope is initialized.
+    geometry_errors: Vec<String>,
     /// Ground temperature model (Kusuda-Achenbach)
     pub ground_temp_model: Option<GroundTempModel>,
     /// Schedule manager for time-varying internal gains, exhaust fans, etc.
@@ -959,6 +961,7 @@ impl BuildingEnvelope {
         // the surfaces enclose the zone, otherwise floor_area × height when they
         // describe a vertical prism. Zones with missing interior walls usually
         // land in the second case.
+        let mut geometry_errors = Vec::new();
         for zone in &mut zone_states {
             let zone_surfaces: Vec<&SurfaceInput> = surfaces
                 .iter()
@@ -968,24 +971,6 @@ impl BuildingEnvelope {
             if zone_surfaces.is_empty() {
                 continue;
             }
-
-            // ── Overall height, used only when no volume method applies ──
-            let all_verts: Vec<&Vec<geometry::Point3D>> = zone_surfaces
-                .iter()
-                .filter(|s| s.surface_type != SurfaceType::Window)
-                .filter_map(|s| s.vertices.as_ref())
-                .filter(|v| v.len() >= 3)
-                .collect();
-
-            let z_min = all_verts
-                .iter()
-                .flat_map(|vs| vs.iter().map(|v| v.z))
-                .fold(f64::INFINITY, f64::min);
-            let z_max = all_verts
-                .iter()
-                .flat_map(|vs| vs.iter().map(|v| v.z))
-                .fold(f64::NEG_INFINITY, f64::max);
-            let zone_height = if z_max > z_min { z_max - z_min } else { 0.0 };
 
             // ── Auto-calculate floor area (from floor-type surfaces) ──
             if zone.input.floor_area <= 0.0 {
@@ -1047,21 +1032,15 @@ impl BuildingEnvelope {
                         zone.input.floor_area,
                         height
                     );
-                } else if zone.input.floor_area > 0.0 && zone_height > 0.0 {
-                    zone.input.volume = zone.input.floor_area * zone_height;
-                    log::warn!(
-                        "Zone '{}': surfaces are neither closed nor a vertical prism, so the \
-                         volume can't be calculated. Using floor area × overall height \
-                         ({:.1} m³), an upper bound. Give the zone a `volume`.",
-                        zone.input.name,
-                        zone.input.volume
-                    );
                 } else {
-                    log::warn!(
-                        "Zone '{}': could not auto-calculate volume. Give the zone a `volume` \
-                         or define surfaces that enclose it.",
+                    // As E+, this is an error. A zone that isn't simple needs
+                    // detailed coordinates or an explicit volume.
+                    geometry_errors.push(format!(
+                        "Zone '{}': surfaces are neither closed nor a vertical prism, so the \
+                         volume can't be calculated. Give the zone a `volume`, or surfaces \
+                         that enclose it.",
                         zone.input.name
-                    );
+                    ));
                 }
             }
         }
@@ -1701,6 +1680,7 @@ impl BuildingEnvelope {
             simple_constructions: simple_map,
             f_factor_constructions: f_factor_map,
             zone_index,
+            geometry_errors,
             ground_temp_model: None,
             schedule_manager: ScheduleManager::new(),
             latitude,
@@ -2315,6 +2295,9 @@ fn ctf_failure(construction: &str, surface: &str, dt: f64, err: &str) -> String 
 
 impl EnvelopeSolver for BuildingEnvelope {
     fn initialize(&mut self, dt: f64) -> Result<(), String> {
+        if !self.geometry_errors.is_empty() {
+            return Err(self.geometry_errors.join("\n"));
+        }
         self.dt = dt;
         self.compute_all_ctf()?;
         self.initialized = true;
@@ -5857,6 +5840,52 @@ mod tests {
             &[(0., 0., 0.), (10., 0., 0.), (10., 0., 3.), (0., 0., 3.)],
         ));
         assert!((auto_volume(faces) - 180.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn zone_neither_enclosed_nor_a_prism_is_an_error() {
+        // A wall sloping outward over a flat floor is no vertical prism, and the
+        // shell isn't closed.
+        let faces = vec![
+            geometry_surface(
+                "floor",
+                SurfaceType::Floor,
+                &[(0., 0., 0.), (0., 6., 0.), (10., 6., 0.), (10., 0., 0.)],
+            ),
+            geometry_surface(
+                "sloped",
+                SurfaceType::Wall,
+                &[(0., 0., 0.), (10., 0., 0.), (10., -2., 3.), (0., -2., 3.)],
+            ),
+        ];
+        let model = make_simple_model();
+        let mut zone = model.zones[0].input.clone();
+        zone.volume = 0.0;
+        zone.floor_area = 0.0;
+        let name = zone.name.clone();
+        let faces: Vec<SurfaceInput> = faces
+            .into_iter()
+            .map(|mut f| {
+                f.zone = name.clone();
+                f
+            })
+            .collect();
+        let mut env = BuildingEnvelope::from_input_full(
+            model.materials.values().cloned().collect(),
+            model.constructions.values().cloned().collect(),
+            vec![],
+            vec![],
+            vec![],
+            vec![zone],
+            faces,
+            40.0,
+            -105.0,
+            -7.0,
+            1600.0,
+            SolarDistributionMethod::default(),
+        );
+        let err = env.initialize(3600.0).unwrap_err();
+        assert!(err.contains("neither closed nor a vertical prism"), "{err}");
     }
 
     /// The simple test zone plus `extra` surfaces.

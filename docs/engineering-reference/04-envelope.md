@@ -1286,18 +1286,14 @@ polygon areas. The volume, when not given, follows EnergyPlus
    are vertical and of one height, or there are no walls and a flat ceiling
    matches the floor area, the volume is floor area × height. Zones with
    missing interior walls usually land here.
-3. **Neither.** The floor area × overall height is used with a warning, because
-   it is only an upper bound; a zone with no floor gets no volume, also with a
-   warning. EnergyPlus treats this case as a severe error, after also trying
-   ceiling area × height and opposite-wall area × distance.
+3. **Neither.** A severe error: the zone needs a `volume`, or surfaces that enclose it.
+   EnergyPlus also treats this as a severe error, after trying ceiling area × height and
+   opposite-wall area × distance, which OpenBSE doesn't try.
 
 ## Known limitations: gains, ground and geometry {#sec-gains-limitations}
 
 - [#186](https://github.com/bbrannon4/OpenBSE/issues/186): lights' and
   equipment's fractions apply to remainders, not totals.
-- [#222](https://github.com/bbrannon4/OpenBSE/issues/222): a zone that is
-  neither enclosed nor a vertical prism gets an upper-bound volume with a
-  warning, rather than the error EnergyPlus gives. Give it a `volume`.
 - [#223](https://github.com/bbrannon4/OpenBSE/issues/223): fixed people
   sensible fraction; only electric equipment; `full_when_occupied`
   granularity.
