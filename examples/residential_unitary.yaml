@@ -162,7 +162,6 @@ window_constructions:
   - name: Double Pane Window
     u_factor: 2.05
     shgc: 0.35
-    visible_transmittance: 0.50
 
 # --- Zones ---
 zones:

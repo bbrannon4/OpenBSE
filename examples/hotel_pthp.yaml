@@ -146,7 +146,6 @@ window_constructions:
   - name: Double Pane Window
     u_factor: 2.56
     shgc: 0.40
-    visible_transmittance: 0.60
 
 # Four guest rooms — each 6 m x 5 m x 2.7 m = 81 m³
 zones:

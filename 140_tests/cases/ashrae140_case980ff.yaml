@@ -86,7 +86,6 @@ window_constructions:
     pane_conductivity: 1.0
     pane_thickness: 0.003175
     glass_emissivity: 0.84
-    visible_transmittance: 0.74
 
 # --- Outputs ---------------------------------------------------------------------
 

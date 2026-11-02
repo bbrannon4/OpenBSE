@@ -49,7 +49,6 @@ window_constructions:
   - name: Double Pane
     u_factor: 2.7
     shgc: 0.39
-    visible_transmittance: 0.42
 
 zones:
   - name: Office

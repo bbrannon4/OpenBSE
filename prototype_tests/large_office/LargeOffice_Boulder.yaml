@@ -1029,19 +1029,15 @@ window_constructions:
 - name: Window_U_0.57_SHGC_East_0.39
   u_factor: 3.2366082
   shgc: 0.39
-  visible_transmittance: 0.429
 - name: Window_U_0.57_SHGC_North_0.39
   u_factor: 3.2366082
   shgc: 0.39
-  visible_transmittance: 0.429
 - name: Window_U_0.57_SHGC_South_0.39
   u_factor: 3.2366082
   shgc: 0.39
-  visible_transmittance: 0.429
 - name: Window_U_0.57_SHGC_West_0.39
   u_factor: 3.2366082
   shgc: 0.39
-  visible_transmittance: 0.429
 zones:
 - name: Core_bottom
   volume: 6849.4

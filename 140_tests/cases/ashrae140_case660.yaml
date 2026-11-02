@@ -72,7 +72,6 @@ window_constructions:
   - name: Case660 Window
     u_factor: 1.19
     shgc: 0.44
-    visible_transmittance: 0.65
 
 # ─── No air loops needed ─────────────────────────────────────────────────────
 # Ideal loads air system handles HVAC internally in the envelope solver.

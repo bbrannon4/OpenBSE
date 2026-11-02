@@ -647,9 +647,7 @@ included) and its normal-incidence $SHGC$. Optional data refine it:
 - the glass emissivity (default 0.84);
 - a shading control.
 
-`visible_transmittance`, `solar_absorptance` and `inside_absorbed_fraction`
-are accepted but not used
-([#213](https://github.com/bbrannon4/OpenBSE/issues/213)). A window is one
+A window is one
 surface whose temperature is the inside glass face. Its area is subtracted
 from its parent surface.
 
@@ -849,8 +847,8 @@ A deployed device is modelled in one of two ways:
 
 ## Known limitations: windows {#sec-windows-limitations}
 
-- [#213](https://github.com/bbrannon4/OpenBSE/issues/213): three unread inputs;
-  angular-model selection by input.
+- [#213](https://github.com/bbrannon4/OpenBSE/issues/213): angular-model
+  selection by input.
 - [#214](https://github.com/bbrannon4/OpenBSE/issues/214): lumped glass node,
   two-pane air-only gap model, ad hoc caps.
 

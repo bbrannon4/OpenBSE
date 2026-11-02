@@ -1153,17 +1153,6 @@ impl BuildingEnvelope {
                 1.0
             };
 
-            // Window-specific absorptance properties (used below)
-            let (win_solar_absorptance, win_inside_fraction) = if is_window {
-                let wc = window_map.get(&surf_input.construction);
-                let (abs, frac) = wc
-                    .map(|w| (w.effective_solar_absorptance(), w.inside_absorbed_fraction))
-                    .unwrap_or((0.06, 0.5));
-                (abs, frac)
-            } else {
-                (0.0, 0.0)
-            };
-
             // Pre-compute glass angular parameters (kd, N_i, n_eff) for Fresnel SHGC model
             let (glass_kd, glass_ni, glass_n) = if is_window {
                 let wc = window_map.get(&surf_input.construction);
@@ -1442,8 +1431,6 @@ impl BuildingEnvelope {
                 cos_incidence: 0.0,
                 transmitted_solar_diffuse: 0.0,
                 absorbed_solar_inside_window: 0.0,
-                window_solar_absorptance: win_solar_absorptance,
-                window_inside_absorbed_fraction: win_inside_fraction,
                 solar_absorptance_outside: solar_abs_out,
                 thermal_absorptance_outside: thermal_abs_out,
                 thermal_absorptance_inside: thermal_abs_in,
@@ -5911,9 +5898,6 @@ mod tests {
             name: "Window".to_string(),
             u_factor: 3.0,
             shgc: 0.7,
-            visible_transmittance: 0.6,
-            solar_absorptance: None,
-            inside_absorbed_fraction: 0.5,
             pane_solar_transmittance: None,
             pane_solar_reflectance: None,
             num_panes: None,
@@ -6630,9 +6614,6 @@ mod tests {
             name: "SinglePane".to_string(),
             u_factor: 5.16,
             shgc: 0.864,
-            visible_transmittance: 0.90,
-            solar_absorptance: None,
-            inside_absorbed_fraction: 0.5,
             pane_solar_transmittance: Some(0.834),
             pane_solar_reflectance: Some(0.075),
             num_panes: Some(1),

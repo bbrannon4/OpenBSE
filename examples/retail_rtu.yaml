@@ -196,7 +196,6 @@ window_constructions:
   - name: Storefront Glazing
     u_factor: 2.56              # typical storefront double-pane
     shgc: 0.40
-    visible_transmittance: 0.50
 
 # ─── Zones ──────────────────────────────────────────────────────────────────
 zones:

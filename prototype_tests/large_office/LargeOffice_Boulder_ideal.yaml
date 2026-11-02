@@ -857,7 +857,6 @@ window_constructions:
 - name: Office Glazing
   u_factor: 3.2366
   shgc: 0.39
-  visible_transmittance: 0.429
 zones:
 - name: Core_bottom
   volume: 6849.4

@@ -71,7 +71,6 @@ window_constructions:
   - name: Case900 Window
     u_factor: 3.0
     shgc: 0.769
-    visible_transmittance: 0.74
     pane_solar_transmittance: 0.834
     pane_solar_reflectance: 0.075
     # ISO 15099 first-principles gap thermal model properties

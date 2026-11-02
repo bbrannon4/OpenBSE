@@ -335,13 +335,11 @@ window_constructions:
   - name: Standard Window
     u_factor: 2.0442             # W/(m²K)
     shgc: 0.38
-    visible_transmittance: 0.418
 
   # Skylight per 90.1-2019 Table 5.5-3 (CZ 5B)
   - name: Skylight
     u_factor: 2.8391
     shgc: 0.40
-    visible_transmittance: 0.40
 
 # ─── Zones ──────────────────────────────────────────────────────────────────
 # 5 thermal zones per DOE prototype.

@@ -167,7 +167,6 @@ window_constructions:
   - name: Storefront Glazing
     u_factor: 2.56
     shgc: 0.40
-    visible_transmittance: 0.50
 
 # --- Zones ---
 # Retail space: 20m (E-W) x 10m (N-S) x 3.66m ceiling (12 ft)

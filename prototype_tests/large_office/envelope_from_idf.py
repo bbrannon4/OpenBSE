@@ -254,7 +254,6 @@ def main(idf_path, model_path):
             w["name"] = cname
             w["u_factor"] = float(g[1])
             w["shgc"] = float(g[2])
-            w["visible_transmittance"] = num(g, 3, 0.6)
             windows.append(w)
             continue
         c = CommentedMap()
