@@ -5117,6 +5117,16 @@ fn validate_materials(model: &ModelInput, result: &mut ValidationResult) {
     }
 }
 
+/// A gain's fractions are of its total (#186), so they can't add up to more.
+fn check_gain_fractions(kind: &str, name: &str, sum: f64, result: &mut ValidationResult) {
+    if sum > 1.0 + 1e-6 {
+        result.severe(format!(
+            "{kind} '{name}': radiant, lost, latent and return-air fractions are fractions of \
+             the total and add up to {sum:.3}, more than 1"
+        ));
+    }
+}
+
 /// An explicit `shading_calculation: basic` makes the model's shading geometry
 /// do nothing, which must not pass silently (#216).
 fn warn_shading_geometry_ignored(model: &ModelInput, result: &mut ValidationResult) {
@@ -5239,12 +5249,24 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     for l in &model.lights {
         check_zone_refs(&l.zones, "Lights", &l.name, &mut result);
+        check_gain_fractions(
+            "Lights",
+            &l.name,
+            l.radiant_fraction + l.return_air_fraction,
+            &mut result,
+        );
     }
 
     // ── Validate equipment ─────────────────────────────────────────────────
 
     for e in &model.equipment {
         check_zone_refs(&e.zones, "Equipment", &e.name, &mut result);
+        check_gain_fractions(
+            "Equipment",
+            &e.name,
+            e.radiant_fraction + e.lost_fraction + e.latent_fraction,
+            &mut result,
+        );
     }
 
     // ── Validate ground surface temperatures ───────────────────────────────
@@ -5744,6 +5766,15 @@ air_loops:
         validate_model(
             &parse_model_yaml(&format!("simulation: {{}}\nweather_files: []\n{extra}")).unwrap(),
         )
+    }
+
+    #[test]
+    fn gain_fractions_over_one_are_severe() {
+        let mut result = ValidationResult::new();
+        check_gain_fractions("Equipment", "ok", 1.0, &mut result);
+        assert_eq!(result.error_count(), 0);
+        check_gain_fractions("Equipment", "bad", 1.2, &mut result);
+        assert_eq!(result.error_count(), 1);
     }
 
     #[test]

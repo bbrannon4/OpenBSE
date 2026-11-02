@@ -1197,14 +1197,15 @@ $f$. With $f$ applied:
   (default 0.3) is radiant.
 - **Lights.** Power $P f$. The return-air fraction $\phi_\text{ret}$ goes
   to the return air when an air loop carries it, and otherwise stays in the
-  zone air (#51, @sec-controls). Of the rest, $r$ (default 0.7) is radiant
-  and the remainder convective.
+  zone air (#51, @sec-controls). The fraction $r$ (default 0.7) of the total
+  is radiant and the remainder convective.
 - **Equipment.** Power $P f$. The lost fraction $\phi_\text{lost}$ leaves
-  the zone. Of what remains, the latent fraction $\phi_l$ is moisture and
-  the rest sensible, of which $r$ (default 0.3) is radiant:
+  the zone, the latent fraction $\phi_l$ is moisture and the fraction $r$
+  (default 0.3) is radiant, all of the total. The rest is convective:
   $$
-  Q_l = Pf(1-\phi_\text{lost})\phi_l,\qquad
-  Q_s = Pf(1-\phi_\text{lost})(1-\phi_l).
+  Q_l = Pf\phi_l,\qquad
+  Q_r = Pfr,\qquad
+  Q_c = Pf(1-\phi_\text{lost}-\phi_l-r).
   $$ {#eq-equipment-gain}
 
 The convective parts enter the zone air as $\dot Q_\text{conv}$
@@ -1223,11 +1224,10 @@ design levels whenever the zone's scheduled gain is non-zero
 
 - **Model structure.** `People`, `Lights` and `ElectricEquipment` have the
   same structure (`InternalHeatGains`).
-- **Fraction conventions.** EnergyPlus's radiant, latent, lost and
-  return-air fractions are each a fraction of the *total*. OpenBSE applies
-  lights' and equipment's fractions to what remains after the others; the
-  two agree only when the return-air, lost and latent fractions are zero
-  ([#186](https://github.com/bbrannon4/OpenBSE/issues/186)).
+- **Fraction conventions.** Lights' and equipment's radiant, latent, lost
+  and return-air fractions are each a fraction of the *total*, as in
+  EnergyPlus; fractions that add up to more than 1 are a severe error. A
+  lights `radiant_fraction` is EnergyPlus's Fraction Radiant + Fraction Visible.
 - **People sensible heat.** EnergyPlus's default sensible heat follows a
   correlation in activity level and zone air temperature; OpenBSE's fixed
   fraction does not.
@@ -1286,8 +1286,6 @@ polygon areas. The volume, when not given, follows EnergyPlus
 
 ## Known limitations: gains, ground and geometry {#sec-gains-limitations}
 
-- [#186](https://github.com/bbrannon4/OpenBSE/issues/186): lights' and
-  equipment's fractions apply to remainders, not totals.
 - [#223](https://github.com/bbrannon4/OpenBSE/issues/223): fixed people
   sensible fraction; only electric equipment; `full_when_occupied`
   granularity.

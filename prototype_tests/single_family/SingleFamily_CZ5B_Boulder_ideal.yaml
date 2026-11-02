@@ -418,14 +418,14 @@ lights:
 # ── Equipment ─────────────────────────────────────────────────────
 equipment:
 # ── Electric Equipment (all 6 non-zero objects from IDF) ────────
-# Note: OpenBSE radiant_fraction is relative to zone gain (1-lost).
+# Note: radiant_fraction and lost_fraction are fractions of the total, as in E+.
 # Conversion: lost_fraction = E+_frac_lost + E+_frac_latent (latent not tracked)
-#             radiant_fraction = E+_frac_radiant / (1 - lost_fraction)
+#             radiant_fraction = E+_frac_radiant
 
 - name: Dishwasher
   zones: [Living]
   power: 37.141034          # E+ dishwasher1
-  radiant_fraction: 1.0     # E+ Rad=0.6/(1-0.40)=1.0, Conv=0
+  radiant_fraction: 0.6     # E+ Rad=0.6, Conv=0
   lost_fraction: 0.40       # E+ Lost=0.25 + Lat=0.15
   schedule: DishWasher
 
@@ -439,7 +439,7 @@ equipment:
 - name: Clothes Washer
   zones: [Living]
   power: 12.693247          # E+ clotheswasher1
-  radiant_fraction: 1.0     # E+ 0.8/(1-0.2)
+  radiant_fraction: 0.8     # E+ 0.8
   lost_fraction: 0.2
   schedule: ClothesWasher
 
@@ -453,14 +453,14 @@ equipment:
 - name: Misc Plug Loads
   zones: [Living]
   power: 507.149798         # E+ gas_mels1 (electric)
-  radiant_fraction: 1.0     # E+ Rad=0.69/(1-0.31)=1.0, Conv=0
+  radiant_fraction: 0.69     # E+ Rad=0.69
   lost_fraction: 0.31       # E+ Lost=0.25 + Lat=0.06
   schedule: Misc Plug Load
 
 - name: IECC Adjustment
   zones: [Living]
   power: 505.399625         # E+ IECC_Adj1
-  radiant_fraction: 0.5999  # E+ Rad=0.4119/(1-0.3135)=0.5999
+  radiant_fraction: 0.411831  # E+ Rad=0.4119
   lost_fraction: 0.3135     # E+ Lost=0.2510 + Lat=0.0624
   schedule: Misc Plug Load
 
@@ -472,21 +472,21 @@ equipment:
 - name: Gas Range
   zones: [Living]
   power: 540.941345         # E+ gas_range1 (full gas input)
-  radiant_fraction: 1.0     # E+ Rad=0.69/(1-0.31)=1.0, Conv=0
+  radiant_fraction: 0.69     # E+ Rad=0.69
   lost_fraction: 0.31       # E+ Lost=0.25 + Lat=0.06
   schedule: Cooking Range
 
 - name: Gas Dryer
   zones: [Living]
   power: 395.595892         # E+ gas_dryer1 (gas component)
-  radiant_fraction: 1.0     # E+ Rad=0.1/(1-0.90)=1.0, Conv=0
+  radiant_fraction: 0.1     # E+ Rad=0.1
   lost_fraction: 0.90       # E+ Lost=0.85 + Lat=0.05
   schedule: ClothesDryer
 
 - name: Gas Misc
   zones: [Living]
   power: 61.125464          # E+ gas_mels1 (gas component)
-  radiant_fraction: 1.0     # E+ Rad=0.69/(1-0.31)=1.0, Conv=0
+  radiant_fraction: 0.69     # E+ Rad=0.69
   lost_fraction: 0.31       # E+ Lost=0.25 + Lat=0.06
   schedule: Misc Plug Load
 
