@@ -1078,57 +1078,45 @@ pub fn build_crah_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     signals
 }
 
-/// DOAS ventilation airflow [kg/s]: 30% of the zone design flows. Coil sizing
-/// calls this too, so that the coils are sized for the flow the loop runs at.
-pub fn doas_vent_flow(li: &LoopInfo, zone_design_flows: &HashMap<String, f64>) -> f64 {
-    let total: f64 = li
-        .served_zones
-        .iter()
-        .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
-        .sum::<f64>()
-        * 0.30;
-    total.max(0.05)
+/// DOAS autosized airflow [kg/s]: the served zones' summed outdoor-air
+/// requirement (E+ `Sizing:System` with a `VentilationRequirement` load).
+/// Coil sizing autosizes the fan to it, and the controls run the fan's flow.
+pub fn doas_design_flow(li: &LoopInfo) -> f64 {
+    li.zone_outdoor_air.values().sum()
 }
 
-/// DOAS heating and cooling supply setpoints [°C]: 2 °C above the highest zone
-/// heating setpoint, and 2 °C below the lowest cooling setpoint but at least
-/// 14 °C for dehumidification. Coil sizing uses them too.
-pub fn doas_supply_temps(
-    li: &LoopInfo,
-    zone_heat_sp: &HashMap<String, f64>,
-    zone_cool_sp: &HashMap<String, f64>,
-) -> (f64, f64) {
-    let max_heat_sp = li
-        .served_zones
-        .iter()
-        .map(|z| zone_heat_sp.get(z).copied().unwrap_or(21.0))
-        .fold(f64::NEG_INFINITY, f64::max);
-    let min_cool_sp = li
-        .served_zones
-        .iter()
-        .map(|z| zone_cool_sp.get(z).copied().unwrap_or(24.0))
-        .fold(f64::INFINITY, f64::min);
-    (max_heat_sp + 2.0, (min_cool_sp - 2.0).max(14.0))
+/// DOAS heating and cooling coil leaving-air targets [°C]: the loop's supply
+/// temperatures (after any reset), less the rise of a supply fan downstream of
+/// the coils. Coil sizing uses the same targets.
+pub fn doas_supply_temps(li: &LoopInfo) -> (f64, f64) {
+    let fan_rise = if fan_after_coils(li) {
+        li.supply_fan_dt
+    } else {
+        0.0
+    };
+    (
+        li.heating_supply_temp - fan_rise,
+        li.cooling_supply_temp - fan_rise,
+    )
 }
 
-/// DOAS: 100% outdoor air, fixed supply setpoints, always on.
+/// DOAS: 100% outdoor air at the loop's design flow, always on, with the
+/// loop's own supply temperatures.
 ///
-/// Supply temperature setpoints:
-///   Heating:  max zone heating setpoint + 2°C (ensures OA is delivered above zone setpoint)
-///   Cooling:  min zone cooling setpoint - 2°C (dehumidified neutral air)
-///
-/// This prevents the DOAS from delivering supply air that is colder than the zone
-/// heating setpoint in winter (which would add heating load to the zones).
+/// The flow is the fan's, which autosizes to the zones' outdoor-air requirement
+/// (E+ `Sizing:System` with a `VentilationRequirement` load), split between the
+/// zones in the shares of that requirement.
 pub fn build_doas_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
-    let zone_design_flows = ctx.zone_design_flows;
-    let zone_heat_sp = ctx.zone_heat_sp;
-    let zone_cool_sp = ctx.zone_cool_sp;
     let t_outdoor = ctx.t_outdoor;
 
     let mut signals = ControlSignals::default();
 
-    let vent_flow = doas_vent_flow(li, zone_design_flows);
-    let (t_supply_heat, t_supply_cool) = doas_supply_temps(li, zone_heat_sp, zone_cool_sp);
+    let vent_flow = li.design_supply_flow * li.std_air_density;
+    let share = doas_zone_shares(li);
+    for (zone, f) in &share {
+        signals.zone_air_flows.insert(zone.clone(), f * vent_flow);
+    }
+    let (t_supply_heat, t_supply_cool) = doas_supply_temps(li);
 
     for name in &li.component_names {
         let role = li.coil_role(name);
@@ -1152,11 +1140,32 @@ pub fn build_doas_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
 
     // DOAS inlet is always 100% outdoor air. The return air it relieves
     // (heat recovery's exhaust side) comes back from the zones in the shares
-    // the ventilation air is split into: evenly.
+    // the ventilation air is split into.
     signals.oa_fraction = Some(1.0);
-    signals.return_air_temp = Some(mixed_return_temp(ctx, &li.served_zones, |_| 1.0));
+    signals.return_air_temp = Some(mixed_return_temp(ctx, &li.served_zones, |z| {
+        share.get(z).copied().unwrap_or(0.0)
+    }));
 
     signals
+}
+
+/// Each zone's share of a DOAS loop's air: its share of the loop's outdoor-air
+/// requirement, or an even split when a hard-sized fan serves zones that state none.
+fn doas_zone_shares(li: &LoopInfo) -> HashMap<String, f64> {
+    let required = |z: &String| li.zone_outdoor_air.get(z).copied().unwrap_or(0.0);
+    let total: f64 = li.served_zones.iter().map(required).sum();
+    let even = 1.0 / li.served_zones.len().max(1) as f64;
+    li.served_zones
+        .iter()
+        .map(|z| {
+            let share = if total > 0.0 {
+                required(z) / total
+            } else {
+                even
+            };
+            (z.clone(), share)
+        })
+        .collect()
 }
 
 /// E+ `ZoneHVAC:FourPipeFanCoil` low-speed supply flow ratio (default).
@@ -2479,6 +2488,63 @@ mod tests {
         };
         let signals = build_doas_signals(&li, &f.ctx(30.0));
         assert_eq!(signals.oa_fraction, Some(1.0));
+    }
+
+    /// The flow and temperatures are the loop's, not fractions of the zones'
+    /// design flows and setpoints, and the zones share the air as they require it.
+    #[test]
+    fn doas_uses_the_loops_flow_and_temperatures() {
+        let mut li = make_loop(AirLoopSystemType::Doas, vec!["OA Coil".to_string()]);
+        li.component_kinds
+            .insert("OA Coil".to_string(), ComponentKind::CoolingCoil);
+        li.served_zones = vec!["Zone1".to_string(), "Zone2".to_string()];
+        li.cooling_supply_temp = 18.0;
+        li.design_supply_flow = 1.0;
+        li.std_air_density = 1.2;
+        li.zone_outdoor_air =
+            HashMap::from([("Zone1".to_string(), 0.3), ("Zone2".to_string(), 0.9)]);
+        let f = Fixture {
+            temps: one("Zone1", 21.0),
+            heat_sp: one("Zone1", 21.0),
+            cool_sp: one("Zone1", 24.0),
+            flows: one("Zone1", 40.0),
+            cool_loads: HashMap::new(),
+            heat_loads: HashMap::new(),
+            modes: HashMap::new(),
+            empty: HashMap::new(),
+            returns: HashMap::new(),
+        };
+        let signals = build_doas_signals(&li, &f.ctx(30.0));
+        assert_eq!(signals.coil_setpoints["OA Coil"], 18.0);
+        assert_eq!(signals.air_mass_flows["OA Coil"], 1.2);
+        assert!((signals.zone_air_flows["Zone1"] - 0.3).abs() < 1e-12);
+        assert!((signals.zone_air_flows["Zone2"] - 0.9).abs() < 1e-12);
+        // Mass: the zones receive exactly the air the loop moves.
+        let delivered: f64 = signals.zone_air_flows.values().sum();
+        assert!((delivered - signals.air_mass_flows["OA Coil"]).abs() < 1e-12);
+        // Sizing autosizes the fan to the zones' requirement.
+        assert!((doas_design_flow(&li) - 1.2).abs() < 1e-12);
+    }
+
+    /// A draw-through fan warms the air after the coils, so the coils aim
+    /// below the loop's supply temperatures by its rise.
+    #[test]
+    fn doas_coils_allow_for_a_draw_through_fan() {
+        let mut li = make_loop(
+            AirLoopSystemType::Doas,
+            vec!["OA Coil".to_string(), "Fan".to_string()],
+        );
+        li.component_kinds
+            .insert("OA Coil".to_string(), ComponentKind::CoolingCoil);
+        li.fan_names = HashSet::from(["Fan".to_string()]);
+        li.heating_supply_temp = 20.0;
+        li.cooling_supply_temp = 18.0;
+        li.supply_fan_dt = 0.7;
+        let (heat, cool) = doas_supply_temps(&li);
+        assert!((heat - 19.3).abs() < 1e-12);
+        assert!((cool - 17.3).abs() < 1e-12);
+        li.component_names.reverse();
+        assert_eq!(doas_supply_temps(&li), (20.0, 18.0));
     }
 
     /// Two VAV zones at 24 °C in deadband (both boxes at minimum flow).

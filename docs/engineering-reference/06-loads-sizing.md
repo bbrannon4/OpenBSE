@@ -258,8 +258,8 @@ with non-coincident or coincident zone sums
 loop's flow, converted to volume with $\rho_\text{std}$; a hard-sized fan's flow
 is used for its coils. The flow is @eq-multizone-flow for VAV and dual-duct
 loops, $\sum\dot m_\text{des}$ for PSZ-AC, FCU, PTAC, PTHP, CRAC and CRAH, and
-the flow the controls run at for a DOAS, $\max(0.3\sum\dot m_\text{des},\ 0.05)$
-([#256](https://github.com/bbrannon4/OpenBSE/issues/256)).
+the served zones' summed outdoor-air requirement $\sum\dot m_{oa}$ for a DOAS
+(E+ `Sizing:System` with a `VentilationRequirement` load).
 
 **Outdoor air.** The coil's outdoor-air fraction $x$ is the loop's stated damper
 position, or else the zones' outdoor-air requirement over the system flow, or else
@@ -322,7 +322,8 @@ else the Warmest reset's 15.6 °C maximum (no zone cools), less the rise of a su
 fan downstream of the coil. E+ sizes it to the Central Heating Design Supply Air
 Temperature of `Sizing:System`, an input; here the controls set it. A dual-duct hot deck carries the summed heating flow to the
 heating supply temperature, at the system's outdoor-air fraction. CRAC and CRAH have
-none. A DOAS uses the temperatures its controls run at.
+none. A DOAS heats and cools its outdoor air to the loop's supply temperatures, less
+the rise of a supply fan downstream of the coils, the targets its controls run at.
 
 **Terminals.** A VAV or fan-powered box's maximum flow is its zone's design
 flow. Its reheat capacity covers the zone heating load plus reheating its
@@ -360,8 +361,6 @@ with `SimAirServingZones` peak states. Differences:
   OpenBSE the loop's minimum fraction of each zone's design flow.
 - **Dual duct.** OpenBSE's hot deck mixes at the system's fraction, because one fan
   draws both decks.
-- **DOAS.** Flow and temperatures follow the controls, not the zones' outdoor air
-  ([#256](https://github.com/bbrannon4/OpenBSE/issues/256)).
 - **VRF airflow.** EnergyPlus sizes VRF terminal airflow from the zone
   design flow ([#327](https://github.com/bbrannon4/OpenBSE/issues/327)).
 - **Reheat.** EnergyPlus sizes a reheat coil from the zone's design heating
