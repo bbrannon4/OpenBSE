@@ -614,7 +614,7 @@ impl BuildingEnvelope {
         let base_absorbed = self.surfaces[i].absorbed_solar_inside_window;
         let q_glass = (base_absorbed + self.surfaces[i].glass_reflected_absorbed) / area;
         let q_shade =
-            self.surfaces[i].shade_absorbed_solar / area + self.zone_radiant_gain_flux(zi);
+            self.surfaces[i].shade_absorbed_solar / area + self.zone_radiant_gain_flux(zi, i);
         let gross = self.surfaces[i].input.area.max(0.01);
         let win_h = self.surfaces[i]
             .input
@@ -701,20 +701,21 @@ impl BuildingEnvelope {
         (1.0 / (2.0 * r_pane + 1.0 / h_gap)).min(s.u_glass_rated * 1.05)
     }
 
-    /// Radiant internal gain absorbed per unit area by each surface of a zone
-    /// [W/m²]: the zone's radiant gains spread evenly over all its surfaces,
-    /// windows included, so the shares add back up to the zone total.
-    fn zone_radiant_gain_flux(&self, zi: usize) -> f64 {
+    /// Radiant internal gain absorbed per unit area by surface `si` of a zone
+    /// [W/m²]: the zone's radiant gains in proportion to each surface's area ×
+    /// room-facing emissivity, windows included, so the shares add back up to
+    /// the zone total (E+ `ComputeIntThermalAbsorpFactors`, ITABSF).
+    fn zone_radiant_gain_flux(&self, zi: usize, si: usize) -> f64 {
         let Some(zone) = self.zones.get(zi) else {
             return 0.0;
         };
-        let area: f64 = zone
+        let weight: f64 = zone
             .surface_indices
             .iter()
-            .map(|&si| self.surfaces[si].net_area)
+            .map(|&k| self.surfaces[k].net_area * room_facing_emissivity(&self.surfaces[k]))
             .sum();
-        if area > 0.0 {
-            zone.q_internal_rad / area
+        if weight > 0.0 {
+            zone.q_internal_rad * room_facing_emissivity(&self.surfaces[si]) / weight
         } else {
             0.0
         }
@@ -3775,10 +3776,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                     } else {
                         0.0
                     };
-                    // The window's area share of the zone's radiant internal gains,
+                    // The window's share of the zone's radiant internal gains,
                     // absorbed by the inner pane as in E+ (QRadThermInAbs). Without it
                     // that share reached no surface and left the heat balance (#142).
-                    let q_int_rad_per_area = self.zone_radiant_gain_flux(zi);
+                    let q_int_rad_per_area = self.zone_radiant_gain_flux(zi, i);
 
                     // A deployed shade layer puts a second node between the glass
                     // and the room, so the pair is solved together (#144).
@@ -4056,10 +4057,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                         0.0
                     };
 
-                    // Radiative internal gains, spread over all zone surfaces
+                    // Radiative internal gains, shared among all zone surfaces
                     // (windows take their share in the glass balance).
                     let q_rad_to_surface =
-                        self.zone_radiant_gain_flux(zi) * self.surfaces[i].net_area;
+                        self.zone_radiant_gain_flux(zi, i) * self.surfaces[i].net_area;
 
                     let q_total_rad = q_rad_to_surface + q_solar_to_surface;
                     let q_rad_flux = q_total_rad / self.surfaces[i].net_area.max(0.01);
@@ -6969,15 +6970,26 @@ mod tests {
         // #142: the windows' share used to be computed but never applied.
         let mut envelope = make_simple_model();
         envelope.zones[0].q_internal_rad = 1200.0;
-        let flux = envelope.zone_radiant_gain_flux(0);
+        let window = envelope.surfaces.iter().position(|s| s.is_window).unwrap();
+        // A low-e inside finish takes proportionally less than the others (#211).
+        let opaque: Vec<usize> = envelope.zones[0]
+            .surface_indices
+            .iter()
+            .copied()
+            .filter(|&si| si != window)
+            .collect();
+        let (low_e, other) = (opaque[0], opaque[1]);
+        envelope.surfaces[low_e].thermal_absorptance_inside = 0.1;
+        envelope.surfaces[other].thermal_absorptance_inside = 0.9;
+        let flux = |si: usize| envelope.zone_radiant_gain_flux(0, si);
+        assert!((flux(low_e) / flux(other) - 0.1 / 0.9).abs() < 1e-12);
         let delivered: f64 = envelope.zones[0]
             .surface_indices
             .iter()
-            .map(|&si| flux * envelope.surfaces[si].net_area)
+            .map(|&si| flux(si) * envelope.surfaces[si].net_area)
             .sum();
         assert!((delivered - 1200.0).abs() < 1e-9, "delivered {delivered}");
-        let window = envelope.surfaces.iter().find(|s| s.is_window).unwrap();
-        assert!(flux * window.net_area > 0.0);
+        assert!(flux(window) * envelope.surfaces[window].net_area > 0.0);
     }
 
     #[test]

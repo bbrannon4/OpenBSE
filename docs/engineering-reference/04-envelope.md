@@ -599,14 +599,16 @@ A surface with nothing to exchange with gets $h_{r,i} = 0$.
 ### Radiant gains {#sec-radiant-gains}
 
 The radiant part of internal gains, plus the radiant output of HVAC panels
-(@sec-zone-equipment), is spread evenly over the zone's surfaces by area,
-windows included (`zone_radiant_gain_flux`):
+(@sec-zone-equipment), is shared among the zone's surfaces in proportion to
+area times room-facing emissivity, windows included
+(`zone_radiant_gain_flux`):
 
 $$
-q''_{r,\text{int}} = \frac{\dot Q_\text{rad}}{\sum_k A_k}.
+q''_{r,i} = \frac{\dot Q_\text{rad}\,\varepsilon_i}{\sum_k A_k\varepsilon_k},
 $$ {#eq-radiant-gain-flux}
 
-Each surface absorbs that flux whatever its emissivity.
+matching EnergyPlus's `ComputeIntThermalAbsorpFactors` (ITABSF). A deployed
+shade counts with its own emissivity, and it absorbs the window's share.
 
 **Comparison with EnergyPlus.** EnergyPlus uses the approximate factors of
 @eq-approx-vf by default; polygon factors require user input
@@ -617,18 +619,11 @@ match EnergyPlus [@eplus-engref-25-2, "Internal Long-Wave Radiation Exchange"]. 
 approximate rule also treats azimuths 350° and 10° as within 10°, which
 EnergyPlus does not.
 
-EnergyPlus distributes radiant gains in proportion to $A_i\varepsilon_i$
-(`ComputeIntThermalAbsorpFactors`). OpenBSE ignores the emissivity, while
-its own `ZoneHvacConditions` documentation claims the E+ weighting
-([#211](https://github.com/bbrannon4/OpenBSE/issues/211)).
-
 ## Known limitations: long-wave exchange {#sec-lw-limitations}
 
 - [#52](https://github.com/bbrannon4/OpenBSE/issues/52): superseded by the
   polygon view factors. The remaining limitation is that obstruction by third
   surfaces is ignored in non-convex zones.
-- [#211](https://github.com/bbrannon4/OpenBSE/issues/211): radiant gains are
-  spread by area only, not area × emissivity.
 
 ## Windows {#sec-windows}
 
