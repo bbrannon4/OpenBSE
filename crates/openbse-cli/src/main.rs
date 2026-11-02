@@ -293,6 +293,24 @@ fn multizone_design_flow(
     }
 }
 
+/// Whether a unit cycles its coils under a fan that keeps running with no load.
+fn runs_fan_through_deadband(li: &LoopInfo) -> bool {
+    matches!(
+        li.system_type,
+        AirLoopSystemType::PszAc | AirLoopSystemType::Ptac | AirLoopSystemType::Pthp
+    ) && li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous
+}
+
+/// Whether the heat of a fan that runs with the coils off [W] takes a zone in
+/// its dead band over the cooling setpoint, given the load to that setpoint [W]
+/// (positive: heat it can still take). E+ `UnitarySystem`: "constant fan pushes
+/// zone above cooling set point" turns on cooling for the difference.
+fn fan_pushes_above_cooling_setpoint(fan_heat: f64, load_to_cooling_sp: f64) -> bool {
+    /// E+ `HVAC::SmallLoad` [W]
+    const SMALL_LOAD: f64 = 1.0;
+    fan_heat > 0.0 && load_to_cooling_sp >= 0.0 && fan_heat - load_to_cooling_sp > SMALL_LOAD
+}
+
 /// Outdoor-air sensible load [W] (positive when it heats the zone) that a
 /// cycling compressor's off-cycle still brings in: a fan that keeps running
 /// keeps drawing outdoor air, a cycling fan draws none. Counted for a cycling
@@ -2999,6 +3017,16 @@ fn main() -> Result<()> {
                         // E+-style predictor temps: free-floating zone temps WITHOUT
                         // HVAC, computed by the envelope. The previous timestep's seed
                         // the first HVAC iteration, whose envelope solve refreshes them.
+                        let mut loads_to_cooling_sp: HashMap<String, f64> = env
+                            .zones
+                            .iter()
+                            .map(|z| {
+                                let sp = zone_cooling_setpoints.get(&z.input.name).copied();
+                                let load =
+                                    sp.map_or(-z.ideal_cooling_load, |sp| z.ideal_load_line.at(sp));
+                                (z.input.name.clone(), load)
+                            })
+                            .collect();
                         let mut predictor_no_hvac_temps: HashMap<String, f64> = env
                             .zones
                             .iter()
@@ -3164,6 +3192,7 @@ fn main() -> Result<()> {
                                     &current_cooling_loads,
                                     &current_heating_loads,
                                     &loads_to_heating_sp,
+                                    &loads_to_cooling_sp,
                                     &initial_zone_temps,
                                     &zone_thermal_caps,
                                     &predictor_no_hvac_temps,
@@ -3951,6 +3980,12 @@ fn main() -> Result<()> {
                                         });
                                     current_heating_loads.insert(name.clone(), to_heat.max(0.0));
                                     loads_to_heating_sp.insert(name.clone(), to_heat);
+                                    let to_cool = zone_cooling_setpoints
+                                        .get(name)
+                                        .map_or(-z.ideal_cooling_load, |&sp| {
+                                            z.ideal_load_line.at(sp)
+                                        });
+                                    loads_to_cooling_sp.insert(name.clone(), to_cool);
                                     current_cooling_loads.insert(name.clone(), cooling);
                                 }
                             }
@@ -5483,6 +5518,7 @@ fn simulate_all_loops(
     zone_cooling_loads: &HashMap<String, f64>,
     zone_heating_loads: &HashMap<String, f64>,
     zone_loads_to_heating_sp: &HashMap<String, f64>,
+    zone_loads_to_cooling_sp: &HashMap<String, f64>,
     initial_zone_temps: &HashMap<String, f64>,
     zone_thermal_caps: &HashMap<String, f64>,
     predictor_no_hvac_temps: &HashMap<String, f64>,
@@ -5692,6 +5728,18 @@ fn simulate_all_loops(
                     // Fallback to zone-temp method for initial timesteps
                     // or when loads are truly zero (deadband)
                     hvac_mode(zt, hsp, csp)
+                };
+
+                let fan_heat =
+                    zone_design_flows.get(z).copied().unwrap_or(0.0) * 1006.0 * li.supply_fan_dt;
+                let to_cool = zone_loads_to_cooling_sp.get(z).copied().unwrap_or(0.0);
+                let mode = if mode == HvacMode::Deadband
+                    && runs_fan_through_deadband(li)
+                    && fan_pushes_above_cooling_setpoint(fan_heat, to_cool)
+                {
+                    HvacMode::Cooling
+                } else {
+                    mode
                 };
 
                 (z.clone(), mode)
@@ -6106,6 +6154,15 @@ fn simulate_all_loops(
                         } else if q_capacity < 100.0 {
                             plr_floor
                         } else {
+                            // Room left before the cooling setpoint, when the fan
+                            // alone is what pushes the zone over it.
+                            let headroom = zone_loads_to_cooling_sp
+                                .get(control_zone)
+                                .copied()
+                                .unwrap_or(0.0)
+                                .max(0.0);
+                            let fan_pushed = runs_fan_through_deadband(li)
+                                && fan_pushes_above_cooling_setpoint(q_fan, headroom);
                             let corrected_load = zone_cool_load.max(0.0);
 
                             // Outdoor-air sensible load. With a continuous fan
@@ -6130,8 +6187,8 @@ fn simulate_all_loops(
                                 control_temp,
                             );
 
-                            if corrected_load > 10.0 {
-                                let adj_load = corrected_load + q_fan + q_oa;
+                            if corrected_load > 10.0 || fan_pushed {
+                                let adj_load = corrected_load + q_fan + q_oa - headroom;
                                 let adj_cap = (q_capacity + q_fan + q_oa).max(1.0);
                                 (adj_load / adj_cap).clamp(plr_floor, 1.0)
                             } else {
@@ -7166,6 +7223,15 @@ mod tests {
             1.25,
         );
         assert!((coincident - 12.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn continuous_fan_heat_calls_for_cooling_only_past_the_setpoint() {
+        assert!(fan_pushes_above_cooling_setpoint(450.0, 200.0));
+        assert!(!fan_pushes_above_cooling_setpoint(450.0, 600.0));
+        // A zone already needing cooling takes the ordinary path.
+        assert!(!fan_pushes_above_cooling_setpoint(450.0, -300.0));
+        assert!(!fan_pushes_above_cooling_setpoint(0.0, 0.0));
     }
 
     #[test]

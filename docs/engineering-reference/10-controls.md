@@ -96,6 +96,13 @@ condenser fans, and the fan of a loop with DX, scale by
 $\text{RTF} = x/\max(1 - C_d(1 - x),\ 0.5)$ (@sec-dx-cooling). Continuous fans stay
 at full power. `ContinuousNoLoadOff` fans stop in deadband.
 
+A zone in its dead band calls for cooling when the heat of a continuous fan,
+$\dot Q_f$, exceeds the load the zone can still take before its cooling setpoint,
+$Q_{\text{to},c} \ge 0$. Its load is then $\dot Q_f - Q_{\text{to},c}$, as in E+
+`UnitarySystem` ("constant fan pushes zone above cooling set point"). The heating
+side of that E+ test is not implemented: it applies when cold outdoor air makes the
+fan-only output negative.
+
 **Comparison with EnergyPlus.** EnergyPlus's `AirLoopHVAC:UnitarySystem` solves
 its part-load ratio iteratively against the unit's output; @eq-plr is its closed
 form. EnergyPlus has zero flow with a cycling fan and no load, where
