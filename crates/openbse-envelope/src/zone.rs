@@ -277,7 +277,7 @@ fn default_exhaust_fan_motor_in_air() -> f64 {
 /// **Exhaust** method (from `exhaust_method`):
 ///   - Sum:     total = exhaust_per_person × people + exhaust_per_area × floor_area + exhaust_absolute + exhaust_ach × V/3600
 ///   - Maximum: total = max(...)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OutdoorAirInput {
     // ── Supply outdoor air ────────────────────────────────────────

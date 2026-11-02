@@ -1691,12 +1691,12 @@ pub struct ZoneConnection {
     /// Terminal box for this zone (VAV box, PFP box, or omitted for direct connection)
     #[serde(default)]
     pub terminal: Option<TerminalInput>,
-    /// DCV: outdoor air per person [m³/s-person] (ASHRAE 62.1 Rp component).
-    /// Only used when `dcv: true` on the air loop.
+    /// Outdoor air per person [m³/s-person] (ASHRAE 62.1 Rp component) for VRP and
+    /// DCV, used only when the zone has no `outdoor_air`.
     #[serde(default)]
     pub per_person_oa: Option<f64>,
-    /// DCV: outdoor air per floor area [m³/s-m²] (ASHRAE 62.1 Ra component).
-    /// Only used when `dcv: true` on the air loop.
+    /// Outdoor air per floor area [m³/s-m²] (ASHRAE 62.1 Ra component) for VRP and
+    /// DCV, used only when the zone has no `outdoor_air`.
     #[serde(default)]
     pub per_area_oa: Option<f64>,
 }

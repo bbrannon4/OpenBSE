@@ -690,36 +690,12 @@ fn build_loop_infos(
                 dcv: al.dcv,
                 cooling_sat_reset,
                 heating_sat_reset: al.controls.heating_sat_reset.clone(),
-                // Always populate per-zone OA data from zone connections.
-                // Needed for ASHRAE 62.1 VRP multi-zone Ev correction (even without DCV)
-                // and for DCV occupancy-based OA modulation when dcv: true.
+                // Needed for the ASHRAE 62.1 VRP multi-zone Ev correction (even
+                // without DCV) and for DCV occupancy-based OA modulation.
                 zone_oa_data: al
                     .zone_terminals
                     .iter()
-                    .filter_map(|zc| {
-                        let pp_oa = zc.per_person_oa.unwrap_or(0.0);
-                        let pa_oa = zc.per_area_oa.unwrap_or(0.0);
-                        if pp_oa == 0.0 && pa_oa == 0.0 {
-                            return None;
-                        }
-
-                        let zone = resolved_zones.iter().find(|z| z.name == zc.zone)?;
-                        let people_sched = zone.internal_gains.iter().find_map(|g| match g {
-                            openbse_envelope::InternalGainInput::People { schedule, .. } => {
-                                schedule.clone()
-                            }
-                            _ => None,
-                        });
-                        let design_people = zone.design_people();
-                        Some(ZoneOaData {
-                            zone_name: zc.zone.clone(),
-                            design_people,
-                            per_person_oa: pp_oa,
-                            per_area_oa: pa_oa,
-                            floor_area: zone.floor_area,
-                            people_schedule: people_sched,
-                        })
-                    })
+                    .filter_map(|zc| zone_oa_data(zc, resolved_zones))
                     .collect(),
                 economizer_type: al
                     .controls
@@ -798,6 +774,42 @@ fn build_loop_infos(
             }
         })
         .collect()
+}
+
+/// A zone's outdoor-air data for VRP and DCV: its `outdoor_air` requirement, the
+/// same one sizing and the loop fractions read, or else the rates on its loop
+/// connection. `None` if it has neither.
+fn zone_oa_data(
+    zc: &openbse_io::input::ZoneConnection,
+    resolved_zones: &[openbse_envelope::ZoneInput],
+) -> Option<ZoneOaData> {
+    use openbse_envelope::zone::OutdoorAirInput;
+    let zone = resolved_zones.iter().find(|z| z.name == zc.zone)?;
+    let connection_rates = OutdoorAirInput {
+        per_person: zc.per_person_oa.unwrap_or(0.0),
+        per_area: zc.per_area_oa.unwrap_or(0.0),
+        ..Default::default()
+    };
+    let requirement = zone.outdoor_air.clone().unwrap_or(connection_rates);
+    let people: Vec<_> = zone
+        .internal_gains
+        .iter()
+        .filter_map(|g| match g {
+            openbse_envelope::InternalGainInput::People {
+                count, schedule, ..
+            } => Some((*count, schedule.clone())),
+            _ => None,
+        })
+        .collect();
+    let data = ZoneOaData {
+        zone_name: zc.zone.clone(),
+        requirement,
+        people,
+        floor_area: zone.floor_area,
+        volume: zone.volume,
+    };
+    let design_people = data.people.iter().map(|(count, _)| count).sum();
+    (data.required_flow(design_people) > 0.0).then_some(data)
 }
 
 /// Temperature the HVAC control senses for a zone (#98): the
@@ -2118,6 +2130,8 @@ fn main() -> Result<()> {
 
                 if let Some(flow_m3s) = fan_flow {
                     if flow_m3s > 0.0 {
+                        // Known only now for an autosized fan; DCV divides by it.
+                        li.design_supply_flow = flow_m3s;
                         // Sum outdoor air requirements for served zones
                         let zone_flows: Vec<f64> = li
                             .served_zones
@@ -5448,46 +5462,38 @@ fn simulate_all_loops(
             // ── Demand-Controlled Ventilation ──────────────────────────
             //
             // ASHRAE 62.1 Ventilation Rate Procedure with real-time occupancy:
-            //   OA = Σ (per_person × design_people × schedule_frac + per_area × area)
+            //   OA = Σ requirement(design_people × schedule_frac)
             //
-            // The per_area component is always required (dilution ventilation for
-            // building materials), but the per_person component scales with actual
-            // occupancy.
+            // The terms that do not depend on people are always required (dilution
+            // ventilation for building materials), but the per-person term scales
+            // with actual occupancy.
             //
             // IMPORTANT: The minimum_damper_position (min_oa_fraction) represents
             // the DESIGN outdoor air fraction at full occupancy.  It already
             // accounts for ASHRAE 62.1/170 requirements.  DCV can only REDUCE
             // OA during partial occupancy — never INCREASE it above the design
-            // level.  Without this cap, the per_person_oa/per_area_oa rates
-            // may compute higher fractions than the original design, inflating
-            // heating, cooling, and humidification loads.
+            // level.  Without this cap, the zone rates may compute higher
+            // fractions than the original design, inflating heating, cooling, and
+            // humidification loads.
             //
             // At full occupancy:  effective_min_oa = min_oa_fraction (design level)
             // At zero occupancy:  effective_min_oa = area_floor (building dilution)
-            let mut dynamic_oa_flow = 0.0_f64;
-            for dcv in &li.zone_oa_data {
-                let occ_frac = if let Some(ref sched_name) = dcv.people_schedule {
-                    schedule_mgr
-                        .map(|sm| sm.fraction(sched_name, hour, day_of_week))
-                        .unwrap_or(1.0)
-                } else {
-                    1.0 // No schedule → always full occupancy
-                };
-                let person_flow = dcv.per_person_oa * dcv.design_people * occ_frac;
-                let area_flow = dcv.per_area_oa * dcv.floor_area;
-                dynamic_oa_flow += person_flow + area_flow;
-            }
+            let dynamic_oa_flow: f64 = li
+                .zone_oa_data
+                .iter()
+                .map(|dcv| {
+                    dcv.required_flow(dcv.occupants(|sched| {
+                        schedule_mgr.map_or(1.0, |sm| sm.fraction(sched, hour, day_of_week))
+                    }))
+                })
+                .sum();
             let dcv_frac = if li.design_supply_flow > 0.0 {
                 (dynamic_oa_flow / li.design_supply_flow).clamp(0.0, 1.0)
             } else {
                 li.min_oa_fraction
             };
             // Area-based floor: absolute minimum per ASHRAE 62.1
-            let area_only_flow: f64 = li
-                .zone_oa_data
-                .iter()
-                .map(|d| d.per_area_oa * d.floor_area)
-                .sum();
+            let area_only_flow: f64 = li.zone_oa_data.iter().map(|d| d.required_flow(0.0)).sum();
             let area_floor = if li.design_supply_flow > 0.0 {
                 (area_only_flow / li.design_supply_flow).clamp(0.0, 1.0)
             } else {
