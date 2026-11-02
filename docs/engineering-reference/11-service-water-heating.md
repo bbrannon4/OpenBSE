@@ -48,14 +48,14 @@ fixture's zone and has recirculation; OpenBSE has neither (@sec-swh-limitations)
 
 ## Storage tank {#sec-water-heater}
 
-The tank is fully mixed at temperature $T$, with mass $m$ (1 kg per litre), a standby
+The tank is fully mixed at temperature $T$, with mass $m$ at its density, a standby
 loss coefficient $UA$ and ambient $T_a$, the air of its `ambient_zone` or 20 °C:
 
 $$
 m\,c_{p,w}\frac{dT}{dt} = \dot Q - \dot m\,c_{p,w}(T - T_\text{mains}) - UA(T - T_a),
 $$ {#eq-tank}
 
-with $c_{p,w} = 4186$ J/(kg·K). For constant heat input $\dot Q$ this is solved in
+with $c_{p,w}$ at the tank temperature (@sec-water-properties). For constant heat input $\dot Q$ this is solved in
 closed form, with $G = \dot m c_{p,w} + UA$:
 
 $$
@@ -117,8 +117,8 @@ is mixed, where EnergyPlus also offers a stratified tank.
 
 ## Known limitations {#sec-swh-limitations}
 
-- No fixture gains to zones, no recirculation, no schedule of mains temperatures, and
-  no on- and off-cycle loss split, part-load curve or parasitic heat fraction.
+- [#288](https://github.com/bbrannon4/OpenBSE/issues/288): no fixture gains to zones,
+  no recirculation, no schedule of mains temperatures, and no on- and off-cycle loss
+  split, part-load curve or parasitic heat fraction.
 - A heat pump's output is held at its start-of-step value within a step, where the
   tank's temperature otherwise follows @eq-tank-solution.
-- [#200](https://github.com/bbrannon4/OpenBSE/issues/200): fixed water properties.

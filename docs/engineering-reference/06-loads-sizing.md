@@ -364,9 +364,10 @@ $Q_\text{loop}$. Water flows come from
 
 $$
 \dot V = \frac{Q}{\rho_w c_{p,w}\,\max(\Delta T_\text{loop}, 1)},
-\qquad \rho_w = 998\ \text{kg/m}^3,\ c_{p,w} = 4186\ \text{J/(kg·K)},
+
 $$ {#eq-plant-flow}
 
+with $\rho_w$ and $c_{p,w}$ at the loop's conversion temperature (@sec-water-properties),
 where $Q$ is the following basis:
 
 - a boiler's flow, a cooling tower's flow and a heat exchanger's flow use
@@ -387,9 +388,7 @@ non-coincident load, with condenser loads at $Q(1 + 1/\text{COP})$
 loop's design flow. OpenBSE's coincident zone peak excludes the outdoor-air
 and reheat loads and the sizing factors, so on a heating-only or
 cooling-only loop the pump flow is below its coils' design flows
-([#230](https://github.com/bbrannon4/OpenBSE/issues/230)). The water $c_p$
-of 4186 differs from the 4180 used elsewhere
-([#200](https://github.com/bbrannon4/OpenBSE/issues/200)).
+([#230](https://github.com/bbrannon4/OpenBSE/issues/230)).
 
 ## Outdoor-air fraction after sizing {#sec-oa-after-sizing}
 

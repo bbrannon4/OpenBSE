@@ -39,11 +39,6 @@ fn c_to_k(c: f64) -> f64 {
     c + 273.15
 }
 
-/// Approximate latent heat of vaporization of water at typical coil
-/// operating temperatures [J/kg].  Same constant used elsewhere in the
-/// codebase (zone moisture balance) so that mass/energy balances close.
-const H_FG: f64 = 2_501_000.0;
-
 fn default_submeter() -> String {
     "General".to_string()
 }
@@ -289,7 +284,7 @@ impl AirComponent for CoolingCoilDXA205 {
         let dt = delivered_sensible / (inlet.mass_flow * cp_air);
         let out_t = (inlet.state.t_db - dt).max(self.outlet_temp_setpoint - 0.1);
         let q_latent = (delivered_total - delivered_sensible).max(0.0);
-        let dw = q_latent / (inlet.mass_flow * H_FG);
+        let dw = q_latent / (inlet.mass_flow * psych::hg_air_fn_tdb(out_t));
         let out_w = (inlet.state.w - dw).max(1.0e-5);
 
         AirPort::new(

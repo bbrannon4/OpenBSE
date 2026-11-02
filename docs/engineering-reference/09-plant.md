@@ -18,11 +18,12 @@ setpoint $T_\text{sp}$ (from the loop's outdoor reset if it has one), the loop's
 flow and return temperature are
 
 $$
-\dot m = \frac{|\dot Q|}{4186\,\max(\Delta T_d, 1)}, \qquad
+\dot m = \frac{|\dot Q|}{c_{p,w}\,\max(\Delta T_d, 1)}, \qquad
 T_\text{ret} = T_\text{sp} \mp \Delta T_d,
 $$ {#eq-plant-state}
 
-with the minus sign for a heating loop. A loop with no load is not simulated.
+with the minus sign for a heating loop and $c_{p,w}$ at the loop's conversion
+temperature (@sec-water-properties). A loop with no load is not simulated.
 
 **Dispatch.** The supply equipment is simulated in series, in input order. Each
 takes the outlet of the one before:
@@ -56,7 +57,7 @@ P_d = \frac{\dot V_dH}{\eta_m\eta_i},
 $$ {#eq-pump-design}
 
 with motor efficiency $\eta_m$ and impeller efficiency $\eta_i$ (default 0.667).
-With the flow fraction $x = \min(\dot m/(998\dot V_d), 1)$:
+With the flow fraction $x = \min(\dot m/(\rho_w\dot V_d), 1)$, $\rho_w$ at the entering water:
 
 - **Constant speed:** $P = P_d$ whenever the loop has a load.
 - **Variable speed:** $P = P_df(\max(x, x_\text{min}))$, with $x_\text{min}$

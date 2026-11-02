@@ -235,8 +235,10 @@ impl PlantComponent for Boiler {
 
                 // Design mass flow limit [kg/s] (design_water_flow_rate is
                 // stored in m³/s; convert via density ≈ 998 kg/m³).
-                let design_mass_flow =
-                    self.design_water_flow_rate * openbse_psychrometrics::RHO_WATER;
+                let design_mass_flow = self.design_water_flow_rate
+                    * openbse_psychrometrics::water_rho(
+                        openbse_psychrometrics::HOT_WATER_CONVERSION_TEMP,
+                    );
 
                 let m_actual = m_required.clamp(0.0, design_mass_flow);
 
@@ -341,7 +343,7 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
     use openbse_core::types::{DayType, TimeStep};
-    use openbse_psychrometrics::{MoistAirState, CP_WATER};
+    use openbse_psychrometrics::{water_cp, MoistAirState};
 
     fn make_ctx() -> SimulationContext {
         SimulationContext {
@@ -375,7 +377,7 @@ mod tests {
         assert!(outlet.state.temp > inlet.state.temp);
 
         // Delta-T = Q / (m * cp) = 50000 / (2 * 4180) = 5.98°C
-        let expected_dt = 50_000.0 / (2.0 * CP_WATER);
+        let expected_dt = 50_000.0 / (2.0 * water_cp(60.0));
         assert_relative_eq!(
             outlet.state.temp - inlet.state.temp,
             expected_dt,
@@ -444,7 +446,8 @@ mod tests {
 
     #[test]
     fn test_boiler_leaving_setpoint_modulated() {
-        use openbse_psychrometrics::RHO_WATER;
+        use openbse_psychrometrics::{water_rho, HOT_WATER_CONVERSION_TEMP};
+        let design_rho = water_rho(HOT_WATER_CONVERSION_TEMP);
 
         // 100 kW boiler, design flow 0.002 m³/s, setpoint 82 °C
         let design_flow_m3s = 0.002;
@@ -462,7 +465,7 @@ mod tests {
         let outlet = boiler.simulate_plant(&inlet, load, &ctx);
 
         // Expected mass flow = Q / (cp * dT)
-        let m_expected = load / (CP_WATER * dt_set);
+        let m_expected = load / (water_cp(60.0) * dt_set);
         assert_relative_eq!(outlet.state.mass_flow, m_expected, max_relative = 0.01);
         // Outlet temp should equal setpoint
         assert_relative_eq!(outlet.state.temp, setpoint, max_relative = 0.001);
@@ -484,9 +487,9 @@ mod tests {
         let inlet2 = WaterPort::new(FluidState::water(t_inlet, 0.0));
         let outlet2 = boiler2.simulate_plant(&inlet2, 80_000.0, &ctx);
 
-        let design_mass_flow2 = 0.0005 * RHO_WATER; // ~0.499 kg/s
-                                                    // At design flow, max Q = 0.499 * 4180 * 22 = 45,892 W
-        let q_max = design_mass_flow2 * CP_WATER * dt_set;
+        let design_mass_flow2 = 0.0005 * design_rho; // ~0.499 kg/s
+                                                     // At design flow, max Q = 0.499 * 4180 * 22 = 45,892 W
+        let q_max = design_mass_flow2 * water_cp(60.0) * dt_set;
         assert_relative_eq!(
             outlet2.state.mass_flow,
             design_mass_flow2,
@@ -510,7 +513,7 @@ mod tests {
         let ctx = make_ctx();
         let outlet = boiler.simulate_plant(&inlet, load, &ctx);
 
-        let expected_dt = load / (2.0 * CP_WATER);
+        let expected_dt = load / (2.0 * water_cp(60.0));
         assert_relative_eq!(outlet.state.temp - 60.0, expected_dt, max_relative = 0.001);
         // Mass flow unchanged (not modulated)
         assert_relative_eq!(outlet.state.mass_flow, 2.0, max_relative = 0.001);

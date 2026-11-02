@@ -191,8 +191,8 @@ The ambient is set by `ambient_zone`:
 return to it as gains, multiplied by the duct's zone multiplier:
 
 - sensible: $\dot Q_\text{cond} + \dot m_\text{leak}c_p(T_\text{in} - T_z)$;
-- latent: $\dot m_\text{leak}(W_\text{in} - W_z)h_{fg}$, with
-  $h_{fg} = 2.501\times10^6$ J/kg.
+- latent: $\dot m_\text{leak}(W_\text{in} - W_z)h_g(T_z)$, with $h_g$ the vapour
+  enthalpy of @sec-psychrometrics.
 
 The duct reads that zone's temperature within the HVAC iteration
 (@sec-hvac-iteration), so the coupling converges with it.
@@ -290,8 +290,8 @@ $$ {#eq-dx-plr}
 
 The delivered total is $\text{PLR}\,\dot Q_\text{eff}$. With
 `autocalculate_shr: false`, the SHR is the rated one, and the latent part
-$\dot Q(1/\text{SHR} - 1)$ is removed as $\Delta W = \dot Q_\text{lat}/(\dot m h_{fg})$,
-whatever the entering humidity.
+$\dot Q(1/\text{SHR} - 1)$ is removed as $\Delta W = \dot Q_\text{lat}/(\dot m h_g)$,
+with $h_g$ at the outlet temperature, whatever the entering humidity.
 
 **Power and cycling.** The coil's power is
 
@@ -417,7 +417,7 @@ Each timestep, the coil goes through these steps:
    the sensible load. Total capacity and power are pro-rated by the
    delivered fraction.
 4. **Latent.** It removes the latent part as
-   $\Delta W = \dot Q_\text{lat}/(\dot m h_{fg})$.
+   $\Delta W = \dot Q_\text{lat}/(\dot m h_g)$, with $h_g$ at the outlet temperature.
 
 The file's cycling degradation coefficient is meant to apply below the
 minimum sequence. With the linear mapping, that branch is never reached
@@ -523,8 +523,6 @@ differences are ([#239](https://github.com/bbrannon4/OpenBSE/issues/239)):
 - **Effectiveness.** EnergyPlus varies it with flow; OpenBSE does not.
 - **Control.** EnergyPlus has frost control and economizer lockout, where
   OpenBSE has a fixed ±1 K bypass.
-- **Latent heat.** The reported latent rate uses $h_{fg} = 2.454\times10^6$
-  J/kg ([#200](https://github.com/bbrannon4/OpenBSE/issues/200)).
 
 ## Humidifiers {#sec-humidifier}
 
@@ -604,5 +602,3 @@ the secondary flow ratio.
   coil's water side never connected, leaving air forced to saturation,
   `shr` unread; humidifier reference temperature; heat-recovery effectiveness
   fixed with flow and no frost control; evaporative cooler has no setpoint.
-- [#200](https://github.com/bbrannon4/OpenBSE/issues/200): constant $h_{fg}$
-  values that differ between components.

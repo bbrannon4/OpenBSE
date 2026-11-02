@@ -24,7 +24,7 @@
 
 use openbse_core::ports::*;
 use openbse_core::types::*;
-use openbse_psychrometrics::{FluidState, CP_WATER};
+use openbse_psychrometrics::{water_cp, FluidState};
 use serde::{Deserialize, Serialize};
 
 /// Heat exchanger control mode.
@@ -142,7 +142,7 @@ impl PlantComponent for WaterToWaterHX {
 
         // Effectiveness-NTU calculation
         let c_demand = m_demand * cp;
-        let c_source = self.source_mass_flow * CP_WATER;
+        let c_source = self.source_mass_flow * water_cp(self.source_inlet_temp);
         let c_min = c_demand.min(c_source);
 
         // Maximum possible heat transfer
@@ -265,8 +265,8 @@ mod tests {
         );
 
         // Check effectiveness limiting
-        let c_demand = 5.0 * CP_WATER;
-        let c_source = 10.0 * CP_WATER;
+        let c_demand = 5.0 * demand_inlet.state.cp;
+        let c_source = 10.0 * water_cp(hx.source_inlet_temp);
         let c_min = c_demand.min(c_source);
         let q_max = 0.80 * c_min * (12.0 - 5.0); // effectiveness * C_min * dT
         let q_actual = 50_000.0_f64.min(q_max);
@@ -332,8 +332,8 @@ mod tests {
         let outlet = hx.simulate_plant(&demand_inlet, huge_load, &ctx);
 
         // Q_actual should be capped at effectiveness * C_min * dT
-        let c_source = 2.0 * CP_WATER;
-        let c_demand = 10.0 * CP_WATER;
+        let c_source = 2.0 * water_cp(hx.source_inlet_temp);
+        let c_demand = 10.0 * demand_inlet.state.cp;
         let c_min = c_source.min(c_demand); // source is limiting
         let q_max = 0.50 * c_min * (15.0 - 5.0);
 

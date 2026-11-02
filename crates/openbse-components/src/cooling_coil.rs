@@ -542,9 +542,10 @@ impl AirComponent for CoolingCoilDX {
             let qs = sens_cap * plr;
             let qt = qs / shr;
             let dt = qs / (inlet.mass_flow * cp_air);
-            const H_FG: f64 = 2_501_000.0;
-            let out_w = (inlet.state.w - (qt - qs) / (inlet.mass_flow * H_FG)).max(1.0e-5);
-            (qs, qt, inlet.state.t_db - dt, out_w)
+            let out_t = inlet.state.t_db - dt;
+            let hg = psych::hg_air_fn_tdb(out_t);
+            let out_w = (inlet.state.w - (qt - qs) / (inlet.mass_flow * hg)).max(1.0e-5);
+            (qs, qt, out_t, out_w)
         };
 
         // Electric power consumption.
@@ -964,8 +965,8 @@ impl CoolingCoilDXMultiSpeed {
         let total = capacity * plr;
         let latent = total - sensible;
         let t_out = inlet.state.t_db - sensible / (inlet.mass_flow * cp).max(1e-6);
-        const H_FG: f64 = 2_501_000.0;
-        let w_out = (inlet.state.w - latent / (inlet.mass_flow * H_FG)).max(1.0e-5);
+        let hg = psych::hg_air_fn_tdb(t_out);
+        let w_out = (inlet.state.w - latent / (inlet.mass_flow * hg)).max(1.0e-5);
         let eir_factor = (1.0 + 0.012 * (t_outdoor - 35.0)).clamp(0.5, 1.10);
         let power = (capacity / stage.rated_cop) * eir_factor * plr;
         let outlet = AirPort::new(

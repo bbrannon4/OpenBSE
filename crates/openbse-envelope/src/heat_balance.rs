@@ -5145,6 +5145,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         m_supply,
                         w_supply,
                         q_latent,
+                        zone.temp,
                     );
 
                     // Zone air cannot hold more moisture than saturation at its

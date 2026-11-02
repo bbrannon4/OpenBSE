@@ -3222,7 +3222,9 @@ fn main() -> Result<()> {
 
                             for &loop_idx in &plant_loop_order {
                                 let plant_loop = &model.plant_loops[loop_idx];
-                                let cp_water = 4186.0; // J/(kg·K)
+                                let cp_water = openbse_psychrometrics::water_cp(
+                                    plant_loop.water_conversion_temp(),
+                                );
                                 let loop_delta_t = plant_loop.design_delta_t.max(1.0);
 
                                 // ── Determine loop load ──────────────────────────
@@ -3774,7 +3776,7 @@ fn main() -> Result<()> {
                                     .copied()
                                     .unwrap_or(w_inlet);
                                 let cp = openbse_psychrometrics::cp_air_fn_w(w_inlet);
-                                let h_fg = 2_501_000.0_f64;
+                                let h_fg = openbse_psychrometrics::hg_air_fn_tdb(t_zone);
                                 // Conduction heat lost from the air enters the zone, plus
                                 // the sensible heat carried by leaked air relative to zone.
                                 let sensible =
@@ -4268,7 +4270,7 @@ fn main() -> Result<()> {
 
                         // ── Zone gain breakdown ──────────────────────────
                         let cp_air = openbse_psychrometrics::cp_air_fn_w(zone.humidity_ratio);
-                        let h_fg = 2_501_000.0_f64; // latent heat of vaporization [J/kg]
+                        let h_fg = openbse_psychrometrics::hg_air_fn_tdb(zone.temp);
                         let w_outdoor = ctx.outdoor_air.w;
 
                         snapshot
@@ -4770,7 +4772,7 @@ fn main() -> Result<()> {
                                 let flow_frac =
                                     (total_draw / total_peak.max(1e-10)).clamp(0.0, 1.0);
                                 let mass_flow = pump.design_flow_rate
-                                    * openbse_psychrometrics::RHO_WATER
+                                    * openbse_psychrometrics::water_rho(dhw_sys.tank_temperature())
                                     * flow_frac;
                                 let inlet =
                                     WaterPort::new(openbse_psychrometrics::FluidState::water(

@@ -29,7 +29,9 @@
 use crate::performance_curve::PerformanceCurve;
 use openbse_core::ports::*;
 use openbse_core::types::is_autosize;
-use openbse_psychrometrics::{FluidState, CP_WATER, RHO_WATER};
+use openbse_psychrometrics::{
+    water_cp, water_rho, FluidState, COLD_WATER_CONVERSION_TEMP, HOT_WATER_CONVERSION_TEMP,
+};
 use serde::{Deserialize, Serialize};
 
 fn default_submeter() -> String {
@@ -322,10 +324,10 @@ impl AirCooledChiller {
     /// Condenser water mass flow [kg/s] for the reformulated model.
     fn condenser_mass_flow(&self) -> f64 {
         if self.design_condenser_flow > 0.0 {
-            self.design_condenser_flow * RHO_WATER
+            self.design_condenser_flow * water_rho(COLD_WATER_CONVERSION_TEMP)
         } else if self.rated_cop > 0.0 && self.condenser_design_delta_t > 0.0 {
             self.rated_capacity * (1.0 + 1.0 / self.rated_cop)
-                / (CP_WATER * self.condenser_design_delta_t)
+                / (water_cp(COLD_WATER_CONVERSION_TEMP) * self.condenser_design_delta_t)
         } else {
             0.0
         }
@@ -379,7 +381,7 @@ impl AirCooledChiller {
     /// Heat-recovery water mass flow [kg/s].
     fn heat_recovery_mass_flow(&self, hr: &ChillerHeatRecovery) -> f64 {
         if hr.design_flow > 0.0 {
-            hr.design_flow * RHO_WATER
+            hr.design_flow * water_rho(HOT_WATER_CONVERSION_TEMP)
         } else {
             self.condenser_mass_flow() * hr.capacity_fraction
         }
@@ -404,9 +406,10 @@ impl AirCooledChiller {
         hr: &ChillerHeatRecovery,
     ) -> (Operation, f64) {
         let t_hr_in = self.heat_recovery_inlet_temp;
-        let to_setpoint =
-            (self.heat_recovery_mass_flow(hr) * CP_WATER * (hr.leaving_setpoint - t_hr_in))
-                .max(0.0);
+        let to_setpoint = (self.heat_recovery_mass_flow(hr)
+            * water_cp(t_hr_in)
+            * (hr.leaving_setpoint - t_hr_in))
+            .max(0.0);
         let full_load_rejection = if self.rated_cop > 0.0 {
             self.rated_capacity * (1.0 + 1.0 / self.rated_cop)
         } else {
@@ -452,7 +455,7 @@ impl AirCooledChiller {
     /// condenser m·cp of order 100 kW/K), so fixed-point iteration converges
     /// in a few steps.
     fn operate_reformulated(&self, load: f64, t_cond_in: f64) -> (Operation, f64) {
-        let m_cp = self.condenser_mass_flow() * CP_WATER;
+        let m_cp = self.condenser_mass_flow() * water_cp(t_cond_in);
         let mut t_out = t_cond_in;
         let mut op = self.operate(load, t_out);
         if m_cp <= 0.0 {
@@ -490,7 +493,7 @@ impl PlantComponent for AirCooledChiller {
         load: f64,
         ctx: &SimulationContext,
     ) -> WaterPort {
-        let cp_water = 4186.0;
+        let cp_water = inlet.state.cp;
         let t_cond_in = self.condenser_temp(ctx);
         self.condenser_inlet_temp = t_cond_in;
         if load <= 0.0 {
@@ -523,7 +526,9 @@ impl PlantComponent for AirCooledChiller {
         self.heat_recovery_outlet_temp = match self.heat_recovery.as_ref() {
             Some(hr) if recovered > 0.0 => {
                 self.heat_recovery_inlet_temp
-                    + recovered / (self.heat_recovery_mass_flow(hr) * CP_WATER)
+                    + recovered
+                        / (self.heat_recovery_mass_flow(hr)
+                            * water_cp(self.heat_recovery_inlet_temp))
             }
             _ => self.heat_recovery_inlet_temp,
         };
@@ -707,7 +712,7 @@ mod tests {
         chiller.tower_approach = 0.0;
         chiller.min_plr = 0.1;
         // E+ autosized condenser flow, as reported in the run.
-        chiller.design_condenser_flow = 34.587555 / RHO_WATER;
+        chiller.design_condenser_flow = 34.587555 / water_rho(COLD_WATER_CONVERSION_TEMP);
         let biquadratic = |name: &str, c: [f64; 6]| PerformanceCurve::Polynomial {
             name: name.to_string(),
             curve_type: CurveType::Biquadratic,
@@ -834,7 +839,7 @@ mod tests {
         let mut chiller = make_reformulated_chiller(6.7, 22.0);
         let inlet = WaterPort::new(FluidState::water(12.0, 30.0));
         chiller.simulate_plant(&inlet, 400_000.0, &make_ctx(25.0));
-        let m_cp = chiller.condenser_mass_flow() * CP_WATER;
+        let m_cp = chiller.condenser_mass_flow() * water_cp(chiller.condenser_inlet_temp);
         let q_cond = chiller.electric_power + chiller.actual_capacity;
         assert_relative_eq!(
             chiller.condenser_outlet_temp,
@@ -849,7 +854,8 @@ mod tests {
         // capacity × (1 + 1/COP) / (ΔT·cp).
         let mut chiller = make_reformulated_chiller(6.7, 22.0);
         chiller.design_condenser_flow = 0.0;
-        let expected = 684_947.265 * (1.0 + 1.0 / 5.33) / (CP_WATER * 5.56);
+        let expected =
+            684_947.265 * (1.0 + 1.0 / 5.33) / (water_cp(COLD_WATER_CONVERSION_TEMP) * 5.56);
         assert_relative_eq!(
             chiller.condenser_mass_flow(),
             expected,
@@ -915,7 +921,7 @@ mod tests {
         chiller.heat_recovery = Some(ChillerHeatRecovery {
             leaving_setpoint: 48.89,
             // E+ autosized heat-recovery flow, as reported in the run.
-            design_flow: 5.46102 / RHO_WATER,
+            design_flow: 5.46102 / water_rho(HOT_WATER_CONVERSION_TEMP),
             capacity_fraction: 1.0,
             inlet_high_limit: None,
         });

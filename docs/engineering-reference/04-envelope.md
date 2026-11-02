@@ -1216,7 +1216,7 @@ $f$. With $f$ applied:
 The convective parts enter the zone air as $\dot Q_\text{conv}$
 (@eq-zone-ode). The radiant parts are spread over the zone's surfaces
 (@eq-radiant-gain-flux). The latent parts become a moisture source
-$\dot m_w = Q_l/h_{fg}$ in the zone moisture balance (@sec-zone-moisture).
+$\dot m_w = Q_l/h_g(T_z)$ in the zone moisture balance (@sec-zone-moisture).
 Electric power is booked whole, whatever leaves the zone.
 
 **Sizing.** On design days, a design day's `internal_gains` mode chooses
@@ -1381,7 +1381,7 @@ discretized with the same backward difference over its own history
 $\tilde W_k$:
 
 $$
-W_z = \frac{a_k\frac{\rho V}{\Delta t}\tilde W_k + \dot m_\text{adv}W_\text{adv} + \dot m_\text{sup}W_\text{sup} + \dot Q_l/h_{fg}}
+W_z = \frac{a_k\frac{\rho V}{\Delta t}\tilde W_k + \dot m_\text{adv}W_\text{adv} + \dot m_\text{sup}W_\text{sup} + \dot Q_l/h_g}
 {a_k\frac{\rho V}{\Delta t} + \dot m_\text{adv} + \dot m_\text{sup}},
 $$ {#eq-zone-moisture}
 
@@ -1389,8 +1389,7 @@ where:
 
 - $\dot Q_l$ is the latent gain of people and equipment, plus the moisture
   carried by duct leakage;
-- $h_{fg} = 2.501\times10^6$ J/kg is constant
-  ([#200](https://github.com/bbrannon4/OpenBSE/issues/200)).
+- $h_g(T_z) = 2.50094\times10^6 + 1858.95\,T_z$ J/kg (E+ `PsyHgAirFnWTdb`).
 
 The result is clamped to $[0, 0.1]$. It is then capped at saturation at $T_z$,
 as EnergyPlus's `CorrectZoneHumRat` does; the excess condenses out of the air.
@@ -1443,7 +1442,5 @@ gradient is a simplification of EnergyPlus's nodal Mundt model
 
 ## Known limitations: zone air balances {#sec-zone-hb-limitations}
 
-- [#200](https://github.com/bbrannon4/OpenBSE/issues/200): constant $h_{fg}$
-  for latent gains.
 - [#225](https://github.com/bbrannon4/OpenBSE/issues/225): stratified return
   air is not debited from the zone balance.

@@ -85,9 +85,6 @@ pub struct HeatRecovery {
 /// transferring energy in the wrong direction at the margins).
 const BYPASS_DEADBAND: f64 = 1.0;
 
-/// Heat of vaporization of water at ~20 C [J/kg].
-const HFG: f64 = 2.454e6;
-
 fn default_exhaust_flow_ratio() -> f64 {
     1.0
 }
@@ -237,7 +234,8 @@ impl AirComponent for HeatRecovery {
 
         let delta_w = control * latent_eff * flow_ratio * (w_exh - w_oa);
         let outlet_w = (w_oa + delta_w).max(psych::w_fn_tdb_rh_pb(-100.0, 0.0, inlet.state.p_b));
-        let q_latent = inlet.mass_flow * HFG * delta_w;
+        let q_latent =
+            inlet.mass_flow * openbse_psychrometrics::hg_air_fn_tdb(inlet.state.t_db) * delta_w;
 
         // ── Store runtime state ─────────────────────────────────────────
         self.sensible_recovery = q_sensible;

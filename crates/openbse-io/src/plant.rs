@@ -24,11 +24,6 @@ use crate::input::{
     TerminalInput, ValidationResult, VavBoxInput,
 };
 
-/// Water properties for design flows: the values the plant-loop solver uses,
-/// so a design flow and the flow the loop later carries agree.
-const RHO_WATER: f64 = 998.0;
-const CP_WATER: f64 = 4186.0;
-
 impl HeatingCoilInput {
     /// Whether this coil is heated by a hot-water plant loop.
     pub fn is_hot_water(&self) -> bool {
@@ -443,7 +438,11 @@ pub fn size_plant(
         // A loop nothing draws on never runs (validation warns). As in E+,
         // its autosized equipment sizes to zero instead of failing the run.
         let idle = !drawn_on.contains(pl.name.as_str());
-        let to_flow = |watts: f64| watts / (RHO_WATER * CP_WATER * pl.design_delta_t.max(1.0));
+        // E+ sizes a coil's or boiler's water flow at its conversion temperature.
+        let conversion_temp = pl.water_conversion_temp();
+        let rho_cp = openbse_psychrometrics::water_rho(conversion_temp)
+            * openbse_psychrometrics::water_cp(conversion_temp);
+        let to_flow = |watts: f64| watts / (rho_cp * pl.design_delta_t.max(1.0));
         for eq in &pl.supply_equipment {
             let autosized_capacity = matches!(
                 eq,
@@ -650,6 +649,9 @@ mod tests {
     use super::*;
     use crate::input::parse_model_yaml;
     use openbse_core::types::AUTOSIZE;
+    use openbse_psychrometrics::{
+        water_cp, water_rho, COLD_WATER_CONVERSION_TEMP, HOT_WATER_CONVERSION_TEMP,
+    };
 
     /// HHW loop: preheat coil + hot-water VAV reheat. CHW loop: a CHW coil
     /// with a water-cooled chiller rejecting to a condenser loop. A DX coil
@@ -884,12 +886,13 @@ air_loops:
         // Condenser loop rejects the chiller's capacity plus compressor heat.
         assert_eq!(sizes.loop_design_load["CW"], 100_000.0);
 
-        let flow = |w: f64, dt: f64| w / (RHO_WATER * CP_WATER * dt);
-        assert_eq!(sizes.design_flow["Boiler"], flow(40_000.0, 10.0));
+        let flow = |w: f64, dt: f64, t: f64| w / (water_rho(t) * water_cp(t) * dt);
+        let (hot, cold) = (HOT_WATER_CONVERSION_TEMP, COLD_WATER_CONVERSION_TEMP);
+        assert_eq!(sizes.design_flow["Boiler"], flow(40_000.0, 10.0, hot));
         // Heating-only loop pump keeps the coincident building peak.
-        assert_eq!(sizes.design_flow["HHW Pump"], flow(25_000.0, 10.0));
-        assert_eq!(sizes.design_flow["Tower"], flow(100_000.0, 5.0));
-        assert_eq!(sizes.design_flow["CW Pump"], flow(100_000.0, 5.0));
+        assert_eq!(sizes.design_flow["HHW Pump"], flow(25_000.0, 10.0, hot));
+        assert_eq!(sizes.design_flow["Tower"], flow(100_000.0, 5.0, cold));
+        assert_eq!(sizes.design_flow["CW Pump"], flow(100_000.0, 5.0, cold));
     }
 
     #[test]
@@ -908,7 +911,8 @@ air_loops:
         assert_eq!(sizes.loop_design_load["CW"], 150_000.0);
         // No design days: the heating pump falls back to the loop design load.
         let hhw_pump = sizes.design_flow["HHW Pump"];
-        assert_eq!(hhw_pump, 40_000.0 / (RHO_WATER * CP_WATER * 10.0));
+        let hot = HOT_WATER_CONVERSION_TEMP;
+        assert_eq!(hhw_pump, 40_000.0 / (water_rho(hot) * water_cp(hot) * 10.0));
     }
 
     #[test]
@@ -926,7 +930,8 @@ air_loops:
         let sizes = size_plant(&m, &inputs).expect("sizes");
         assert!(!sizes.capacity.contains_key("Boiler"));
         let flow = sizes.design_flow["Boiler"];
-        assert_eq!(flow, 40_000.0 / (RHO_WATER * CP_WATER * 10.0));
+        let hot = HOT_WATER_CONVERSION_TEMP;
+        assert_eq!(flow, 40_000.0 / (water_rho(hot) * water_cp(hot) * 10.0));
     }
 
     #[test]
