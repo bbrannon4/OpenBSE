@@ -149,10 +149,13 @@ today, because the humidity value is not read
 
 **Source:** `sizing.rs` (`run_zone_sizing`, `run_sizing`).
 
-**Peak loads.** A zone's design heating load $Q_h$ is the largest hourly
-heating load over all heating design days, and $Q_c$ the largest cooling
-load over all cooling design days. The design day and hour of each are
-recorded.
+**Design loads.** A zone's design heating load $Q_h$ is the largest hourly
+heating load over all heating design days times the heating sizing factor
+$f_h$ (`heating_sizing_factor`). Its design cooling load $Q_c$ is the largest
+cooling load over all cooling design days times the cooling sizing factor $f_c$
+(`cooling_sizing_factor`). The design day and hour of each are recorded. The
+factors enter here and only here: flows and capacities sized from these loads
+inherit the margin once.
 
 **Zone multipliers.** A zone with multiplier $N_z$ stands for $N_z$ identical
 zones. OpenBSE simulates one instance with one instance of its air loop. All
@@ -199,16 +202,15 @@ instance, and $p_\text{dd}$ the first design day's pressure. The outdoor-air loa
 it belongs to the central coil.
 
 **Cooling flow sequence.** For each cooling design day and hour, the zone's
-cooling flow is computed in the same way from that hour's load. This
+cooling flow is computed in the same way from that hour's load times $f_c$. This
 sequence (E+ `CoolFlowSeq`) gives the coincident flow of multizone systems
 (@sec-system-sizing).
 
 **Per-loop supply temperature.** @eq-zone-design-flow uses the coldest
 cooling supply temperature of all loops. For a loop whose own cooling
 supply temperature differs by more than 0.5 K, each zone's flow is
-recomputed as $f_cQ_c/(c_p\max(T_{z,c} - T_{s,c,\text{loop}}, 5))$, with $f_c$
-the cooling sizing factor. The recomputed flow replaces the old one only if
-it is larger.
+recomputed as $Q_c/(c_p\max(T_{z,c} - T_{s,c,\text{loop}}, 5))$. The
+recomputed flow replaces the old one only if it is larger.
 
 **Comparison with EnergyPlus.** The method follows E+ `Sizing:Zone` with the
 `DesignDay` flow method: flow from the peak load and the supply-to-zone
@@ -216,9 +218,13 @@ temperature difference, with the minimum outdoor air as a floor
 [@eplus-engref-25-2, "Zone Design Loads and Air Flow Rates"]. The
 differences are:
 
-- **Sizing factors.** EnergyPlus multiplies the zone's design load and flow
-  by the zone sizing factor; OpenBSE does not (see @sec-air-sizing,
-  [#49](https://github.com/bbrannon4/OpenBSE/issues/49)).
+- **Sizing factors.** Applied as in EnergyPlus, to the zone's design load,
+  flow and flow sequence before the outdoor-air floor
+  (`updateZoneSizingEndZoneSizingCalc7`). The defaults differ on purpose:
+  OpenBSE uses $f_h = 1.25$ and $f_c = 1.15$, the ASHRAE 90.1 Appendix G
+  oversizing ratios, because an autosized model without stated margins should
+  have the margin designers normally select. EnergyPlus's `Sizing:Parameters`
+  defaults are 1.0; set both factors to 1 to match them.
 - **Supply temperatures.** EnergyPlus takes them per zone from `Sizing:Zone`;
   OpenBSE uses the extremes over all loops. The per-loop correction has a
   different $\Delta T$ floor and no fan rise or outdoor-air floor
@@ -234,7 +240,7 @@ differences are:
 
 **Coincident peaks.** Every design day is run again (@sec-dd-runs). The
 coincident peak heating and cooling loads are the largest sums over all
-zones at one hour. They size primary pumps (@sec-plant-sizing) and are
+zones at one hour, before any sizing factor. They size primary pumps (@sec-plant-sizing) and are
 written to `_system_sizing.csv`. The second run uses the same inputs as the
 first, so it repeats it exactly
 ([#232](https://github.com/bbrannon4/OpenBSE/issues/232)).
@@ -246,12 +252,12 @@ $$
 \dot m_\text{sys} =
 \begin{cases}
 \sum_z \dot m_{\text{des},z} & \text{non-coincident},\\
-\max\left(f_c\max_{d,h}\sum_z \dot m_{c,z}(d,h),\ f_h\sum_z \dot m_{h,z}\right) & \text{coincident},
+\max\left(\max_{d,h}\sum_z \dot m_{c,z}(d,h),\ \sum_z \dot m_{h,z}\right) & \text{coincident},
 \end{cases}
 $$ {#eq-multizone-flow}
 
-where $\dot m_{c,z}(d,h)$ is the cooling flow sequence, and $f_h$ and $f_c$
-are the heating and cooling sizing factors.
+where $\dot m_{c,z}(d,h)$ is the cooling flow sequence. All of these flows
+carry the sizing factors already.
 
 **Comparison with EnergyPlus.** @eq-multizone-flow matches E+ `Sizing:System`
 with non-coincident or coincident zone sums
@@ -264,25 +270,19 @@ state. OpenBSE has no system-level coil load (@sec-air-sizing).
 **Source:** `main.rs` ("Design Day Sizing Run": `loop_comp_sizing`,
 `terminal_reheat_capacity`, the dual-duct and VRF blocks).
 
-**Sizing factors.** The heating and cooling sizing factors $f_h$ and $f_c$
-default to 1.25 and 1.15 (`heating_sizing_factor`,
-`cooling_sizing_factor`). They multiply capacities and some flows, as the
-table shows. The zone design flows of VAV and dual-duct zones are
-multiplied by $f_c$ before anything else uses them.
-
 **Fans and coils.** Each autosized fan, coil and GSHP in an air loop's
 equipment list is sized from its loop. Below, $\Sigma Q$ is the sum of the
 served zones' peak loads.
 
-: Air-loop sizing by system type. $\dot m_\text{des}$ is the zone design flow (with $f_c$ for VAV and dual-duct zones). {#tbl-air-sizing}
+: Air-loop sizing by system type. $\dot m_\text{des}$ is the zone design flow and $Q$ the design load, both with the sizing factor. {#tbl-air-sizing}
 
 | System | Fan flow | Heating capacity | Cooling capacity |
 |---|---|---|---|
-| PSZ-AC | $\sum\dot m_\text{des}$ | $f_h\Sigma Q_h$ | $f_c\Sigma Q_c$ |
-| VAV, dual-duct | @eq-multizone-flow | $f_h\Sigma Q_h$ | $f_c\Sigma Q_c$ |
-| CRAC, CRAH | $\sum\dot m_\text{des}$ | none | $f_c\Sigma Q_c$ |
-| FCU, PTAC, PTHP | $\sum\dot m_\text{des}$ | $\max(f_h\Sigma Q_h,\ Q_{m,h})$ | $\max(f_c\Sigma Q_c,\ Q_{m,c})$ |
-| DOAS | $0.3\sum\dot m_\text{des}$ | $f_h\dot m c_p(20 - T_{o,h})$ | $f_c\dot m c_p(T_{o,c} - 18)$ |
+| PSZ-AC | $\sum\dot m_\text{des}$ | $\Sigma Q_h$ | $\Sigma Q_c$ |
+| VAV, dual-duct | @eq-multizone-flow | $\Sigma Q_h$ | $\Sigma Q_c$ |
+| CRAC, CRAH | $\sum\dot m_\text{des}$ | none | $\Sigma Q_c$ |
+| FCU, PTAC, PTHP | $\sum\dot m_\text{des}$ | $\max(\Sigma Q_h,\ Q_{m,h})$ | $\max(\Sigma Q_c,\ Q_{m,c})$ |
+| DOAS | $0.3\sum\dot m_\text{des}$ | $\dot m c_p(20 - T_{o,h})$ | $\dot m c_p(T_{o,c} - 18)$ |
 
 Here:
 
@@ -304,15 +304,15 @@ primary air at the reheat flow $\dot m_r$ from the cooling supply
 temperature to the zone:
 
 $$
-Q_\text{reheat} = f_hQ_h + c_p\,\dot m_r\,(T_{z,h} - T_{s,c}),
+Q_\text{reheat} = Q_h + c_p\,\dot m_r\,(T_{z,h} - T_{s,c}),
 $$ {#eq-reheat-size}
 
 with $c_p = 1006$ J/(kg·K). The reheat flow $\dot m_r$ is
 $\max(f_\text{reheat}, f_\text{min})$ times the maximum flow for a VAV box,
 and the minimum primary flow for a fan-powered box. A dual-duct box's
-design flow is $f_c\dot m_\text{des}$.
+design flow is $\dot m_\text{des}$.
 
-**VRF.** An autosized indoor unit's capacities are $f_cQ_c$ and $f_hQ_h$ of
+**VRF.** An autosized indoor unit's capacities are $Q_c$ and $Q_h$ of
 its zone, at least 500 W, or 3000 W if the zone has no sizing result. Its
 airflow is $5\times10^{-5}$ m³/s per watt of the larger capacity. An
 autosized outdoor unit takes the sum of its indoor units' capacities.
@@ -330,9 +330,6 @@ differences:
 - **FCU and DOAS.** The hard-coded zone and supply temperatures and the DOAS
   outdoor-air fraction of 0.3 are not in EnergyPlus
   ([#229](https://github.com/bbrannon4/OpenBSE/issues/229)).
-- **Sizing factors.** Where the factors are applied differs from
-  EnergyPlus, whose defaults are 1.0
-  ([#49](https://github.com/bbrannon4/OpenBSE/issues/49)).
 - **VRF airflow.** EnergyPlus sizes VRF terminal airflow from the zone
   design flow ([#232](https://github.com/bbrannon4/OpenBSE/issues/232)).
 - **Reheat.** EnergyPlus sizes a reheat coil from the zone's design heating
@@ -412,9 +409,6 @@ flows are both per zone instance, so no multiplier is needed in the ratio.
 
 ## Known limitations {#sec-sizing-limitations}
 
-- [#49](https://github.com/bbrannon4/OpenBSE/issues/49): sizing factors
-  applied to capacities and some flows, not to zone loads; defaults
-  1.25/1.15 rather than 1.0.
 - [#185](https://github.com/bbrannon4/OpenBSE/issues/185): return-air
   lighting heat should size the coil, not the zone flow.
 - [#198](https://github.com/bbrannon4/OpenBSE/issues/198),
