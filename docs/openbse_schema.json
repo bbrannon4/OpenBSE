@@ -1646,7 +1646,7 @@
         "glass_emissivity": { "type": "number", "default": 0.84, "minimum": 0, "maximum": 1, "description": "Glass hemispherical emissivity for interior and exterior longwave radiation exchange. Defaults to 0.84 (uncoated soda-lime glass). Use lower values for low-e coatings." },
         "pane_solar_transmittance": { "type": "number", "minimum": 0, "maximum": 1, "description": "Per-pane solar transmittance at normal incidence [0-1]. With pane_solar_reflectance, enables Fresnel-based angular SHGC modifiers (e.g. 0.834 per 3 mm clear pane)." },
         "pane_solar_reflectance": { "type": "number", "minimum": 0, "maximum": 1, "description": "Per-pane front solar reflectance at normal incidence [0-1] (e.g. 0.075 per 3 mm clear pane). Used with pane_solar_transmittance." },
-        "num_panes": { "type": "integer", "minimum": 1, "maximum": 3, "description": "Number of glass panes (1 = single, 2 = double, 3 = triple). With gap_width / pane_conductivity / pane_thickness, enables the first-principles ISO 15099 gas-gap thermal model instead of NFRC film stripping." },
+        "num_panes": { "type": "integer", "minimum": 1, "maximum": 2, "description": "Number of glass panes with pane data (1 = single, 2 = double, the default). Anything else is a severe error; give a triple-glazed unit as U-factor and SHGC, without pane data." },
         "gap_width": { "type": "number", "description": "Gas gap width between panes [m] (e.g. 0.012)." },
         "pane_conductivity": { "type": "number", "description": "Pane thermal conductivity [W/(m*K)] (standard glass 1.0)." },
         "pane_thickness": { "type": "number", "description": "Pane thickness [m] (e.g. 0.003175)." },

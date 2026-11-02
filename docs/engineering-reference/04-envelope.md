@@ -645,7 +645,7 @@ A window construction is described by its NFRC U-factor $U$ (films
 included) and its normal-incidence $SHGC$. Optional data refine it:
 
 - per-pane solar transmittance and reflectance;
-- the number of panes;
+- the number of panes (one or two; anything else is a severe error);
 - the gap width;
 - the pane conductivity and thickness;
 - the glass emissivity (default 0.84);
