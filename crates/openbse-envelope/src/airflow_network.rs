@@ -1332,7 +1332,7 @@ pub fn build_network(
                 cp: 0.0,
                 azimuth: nv.effective_angle,
                 element: FlowElement::LargeOpening {
-                    discharge_coefficient: nv.discharge_coefficient,
+                    discharge_coefficient: nv.discharge_coefficient.unwrap_or(0.65),
                     area: nv.opening_area,
                 },
                 source_surface: None,

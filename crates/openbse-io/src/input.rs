@@ -5117,6 +5117,24 @@ fn validate_materials(model: &ModelInput, result: &mut ValidationResult) {
     }
 }
 
+/// A scheduled ventilation entry takes one flow, not two (#219). The ACH used to
+/// be silently dropped when both were given.
+fn validate_scheduled_ventilation(model: &ModelInput, result: &mut ValidationResult) {
+    for z in &model.zones {
+        for v in z
+            .ventilation_schedule
+            .iter()
+            .filter(|v| v.flow_rate > 0.0 && v.ach_rate > 0.0)
+        {
+            result.severe(format!(
+                "Zone '{}': a ventilation entry sets both flow_rate and ach_rate ({} to {} h); \
+                 give one",
+                z.name, v.start_hour, v.end_hour
+            ));
+        }
+    }
+}
+
 /// A gain's fractions are of its total (#186), so they can't add up to more.
 fn check_gain_fractions(kind: &str, name: &str, sum: f64, result: &mut ValidationResult) {
     if sum > 1.0 + 1e-6 {
@@ -5238,6 +5256,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     validate_schedules(model, &schedule_names, &builtin_schedules, &mut result);
     validate_interzone_surfaces(model, &mut result);
     warn_shading_geometry_ignored(model, &mut result);
+    validate_scheduled_ventilation(model, &mut result);
 
     // ── Validate people ────────────────────────────────────────────────────
 

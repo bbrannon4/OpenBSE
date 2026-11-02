@@ -55,12 +55,12 @@ pub struct InfiltrationInput {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 pub enum InfiltrationDensityBasis {
-    /// Outdoor-air density (default): physically the mass of outdoor air
-    /// entering; temperature-dependent.
+    /// Outdoor-air density (default, and E+ 25.2's `Density Basis` default):
+    /// physically the mass of outdoor air entering; temperature-dependent.
     #[default]
     Outdoor,
-    /// Zone-air density: constant mass flow at a fixed design flow rate,
-    /// matching EnergyPlus.
+    /// Zone-air density: E+'s older convention, still available there as
+    /// `Density Basis = Indoor`.
     Zone,
 }
 
