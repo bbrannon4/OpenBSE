@@ -826,7 +826,7 @@ def build_model():
 
     # Window constructions
     model['window_constructions'] = [
-        {'name': 'Res Window', 'u_factor': 3.237, 'shgc': 0.39, 'visible_transmittance': 0.429},
+        {'name': 'Res Window', 'u_factor': 3.237, 'shgc': 0.39},
     ]
 
     model['zones'] = zones

@@ -443,11 +443,9 @@ window_constructions:
 - name: Nonres Window
   u_factor: 1.408
   shgc: 0.21
-  visible_transmittance: 0.29
 - name: Nonres Window East
   u_factor: 2.067
   shgc: 0.378
-  visible_transmittance: 0.416
 
 # ─── Zones ───────────────────────────────────────────────────────────────────
 # Building footprint: ~104m (N-S after -90 rotation) x ~36m (E-W)

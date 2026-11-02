@@ -6190,7 +6190,6 @@ window_constructions:
   - name: Case600 Window
     u_factor: 3.0
     shgc: 0.789
-    visible_transmittance: 0.74
 outputs:
   - file: "zone_results.csv"
     frequency: hourly

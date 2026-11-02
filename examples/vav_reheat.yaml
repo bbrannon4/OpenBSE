@@ -171,7 +171,6 @@ window_constructions:
   - name: Commercial Glazing
     u_factor: 1.70
     shgc: 0.35
-    visible_transmittance: 0.45
 
 # --- Zones ---
 # Building: 30m E-W x 30m N-S

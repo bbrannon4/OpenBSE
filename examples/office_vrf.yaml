@@ -129,7 +129,6 @@ window_constructions:
   - name: Office Glazing
     u_factor: 1.99
     shgc: 0.38
-    visible_transmittance: 0.47
 
 # --- Zones ---
 # Building footprint: 20m (E-W) × 15m (N-S)

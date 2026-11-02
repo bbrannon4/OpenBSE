@@ -775,7 +775,6 @@ window_constructions:
 - name: Res Window
   u_factor: 3.237
   shgc: 0.39
-  visible_transmittance: 0.429
 zones:
 - name: G SW Apt
   volume: 269.0

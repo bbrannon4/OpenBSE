@@ -392,7 +392,6 @@ window_constructions:
 - name: Exterior Window
   u_factor: 1.41965
   shgc: 0.3344
-  visible_transmittance: 0.88
 
 # ── Zone Groups ───────────────────────────────────────────────────
 zone_groups:

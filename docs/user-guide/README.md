@@ -871,13 +871,11 @@ window_constructions:
   - name: Double Pane
     u_factor: 2.7               # [W/(m²·K)] including film coefficients
     shgc: 0.39                  # Solar Heat Gain Coefficient [0–1]
-    visible_transmittance: 0.42 # [0–1]
     glass_emissivity: 0.84      # LW emissivity [0–1], default 0.84 (clear glass)
 ```
 
 | Field | Default |
 |-------|---------|
-| `visible_transmittance` | 0.6 |
 | `glass_emissivity` | 0.84 |
 
 The `glass_emissivity` field controls longwave radiation exchange between the glass surface and the room interior (and exterior). The default of 0.84 is correct for uncoated soda-lime glass. Use a lower value for low-e coated windows.
@@ -1148,7 +1146,7 @@ Any named component with a numeric field can be overridden. Common examples:
 | Zone | `volume`, `floor_area` |
 | Thermostat | `heating_setpoint`, `cooling_setpoint`, `unoccupied_heating_setpoint` |
 | Material | `conductivity`, `density`, `specific_heat` |
-| Window Construction | `u_factor`, `shgc`, `visible_transmittance` |
+| Window Construction | `u_factor`, `shgc` |
 | Simple Construction | `u_factor`, `thickness`, `thermal_capacity` |
 | Fan | `pressure_rise`, `motor_efficiency`, `impeller_efficiency`, `design_flow_rate` |
 | Heating Coil | `capacity`, `efficiency`, `cop`, `setpoint` |

@@ -121,7 +121,6 @@ window_constructions:
   - name: Office Glazing
     u_factor: 1.8
     shgc: 0.25
-    visible_transmittance: 0.40
 
 # ── Zones ─────────────────────────────────────────────────────────────────────
 

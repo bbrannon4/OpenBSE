@@ -314,7 +314,6 @@ fn set_window_construction_field(
     match field {
         "u_factor" => wc.u_factor = value,
         "shgc" => wc.shgc = value,
-        "visible_transmittance" => wc.visible_transmittance = value,
         _ => log::warn!(
             "Unknown field '{}' on window construction '{}' — skipping",
             field,

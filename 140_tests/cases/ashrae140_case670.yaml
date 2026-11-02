@@ -87,7 +87,6 @@ window_constructions:
   - name: Case670 Window
     u_factor: 5.16
     shgc: 0.864
-    visible_transmittance: 0.90
     pane_solar_transmittance: 0.834
     pane_solar_reflectance: 0.075
     num_panes: 1

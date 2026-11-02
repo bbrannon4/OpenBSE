@@ -60,7 +60,6 @@ window_constructions:
   - name: Low-e Double
     u_factor: 1.8
     shgc: 0.40
-    visible_transmittance: 0.60
 
 schedules:
   - name: Office Occupancy

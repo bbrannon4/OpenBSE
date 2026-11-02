@@ -438,24 +438,6 @@ pub struct WindowConstruction {
     pub u_factor: f64,
     /// Solar Heat Gain Coefficient at normal incidence [0-1]
     pub shgc: f64,
-    /// Visible transmittance [0-1]
-    #[serde(default = "default_vt")]
-    pub visible_transmittance: f64,
-    /// Solar absorptance of the glazing assembly [0-1].
-    ///
-    /// The fraction of incident solar absorbed by the glass itself (as heat).
-    /// This energy is split between inside and outside surfaces.
-    /// Typical values: ~0.06 for clear double-pane, ~0.15-0.25 for tinted or
-    /// low-e glass (which absorbs more but transmits less).
-    ///
-    /// If not specified, estimated from SHGC: absorptance ≈ (1 - SHGC) × 0.15
-    /// (rough rule: high-SHGC clear glass absorbs ~6%, low-SHGC tinted absorbs more).
-    #[serde(default)]
-    pub solar_absorptance: Option<f64>,
-    /// Fraction of absorbed solar that enters the zone (inside face).
-    /// Remainder exits to outdoors. Default 0.5 (split equally).
-    #[serde(default = "default_inside_absorbed_fraction")]
-    pub inside_absorbed_fraction: f64,
     /// Per-pane solar transmittance at normal incidence [0-1].
     ///
     /// When provided along with `pane_solar_reflectance`, enables accurate
@@ -515,28 +497,7 @@ pub struct WindowConstruction {
     pub shading_control: Option<ShadingControl>,
 }
 
-fn default_vt() -> f64 {
-    0.6
-}
-fn default_inside_absorbed_fraction() -> f64 {
-    0.5
-}
-
 impl WindowConstruction {
-    /// Effective solar absorptance of the glazing.
-    ///
-    /// Uses explicitly set value if provided, otherwise estimates from SHGC.
-    /// The estimate follows: clear glass absorbs ~6%, tinted absorbs more.
-    /// SHGC ≈ τ_sol + α_in·N_in, where N_in is inward-flowing absorbed fraction.
-    /// For a simple estimate: α ≈ (1 − SHGC) × 0.15 (captures ~5-8% range).
-    pub fn effective_solar_absorptance(&self) -> f64 {
-        self.solar_absorptance.unwrap_or_else(|| {
-            // Rough model: clear glass (SHGC≈0.8) → ~0.06, low-e (SHGC≈0.25) → ~0.11
-            // Clamp to physically reasonable range
-            ((1.0 - self.shgc) * 0.15).clamp(0.02, 0.30)
-        })
-    }
-
     /// Compute the fraction of SHGC that is direct solar transmittance (τ_sol/SHGC).
     ///
     /// For a glazing system, SHGC = τ_sol + N_in × α_sol, where:

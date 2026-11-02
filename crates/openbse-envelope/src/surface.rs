@@ -576,10 +576,6 @@ pub struct SurfaceState {
     /// Solar absorbed by window glazing that flows into the zone [W]
     /// (fraction of glass absorptance × incident; adds to zone heat balance)
     pub absorbed_solar_inside_window: f64,
-    /// Solar absorptance of window glazing (total, both sides combined)
-    pub window_solar_absorptance: f64,
-    /// Fraction of absorbed window solar that goes inward (into zone)
-    pub window_inside_absorbed_fraction: f64,
     /// Outside solar absorptance
     pub solar_absorptance_outside: f64,
     /// Outside thermal absorptance (emissivity) for exterior LW radiation

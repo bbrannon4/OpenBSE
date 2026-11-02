@@ -175,7 +175,6 @@ window_constructions:
   - name: Commercial Glazing
     u_factor: 2.05
     shgc: 0.40
-    visible_transmittance: 0.50
 
 # --- Zones ---
 # Building layout: 30m wide (E-W) x 18m deep (N-S), 3-story equiv

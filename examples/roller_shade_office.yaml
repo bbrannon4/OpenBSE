@@ -59,12 +59,10 @@ window_constructions:
   - name: Low-e Double
     u_factor: 1.8
     shgc: 0.40
-    visible_transmittance: 0.60
 
   - name: Low-e Double + Roller Shade
     u_factor: 1.8
     shgc: 0.40
-    visible_transmittance: 0.60
     shading_control:
       type: solar_threshold
       threshold: 200
