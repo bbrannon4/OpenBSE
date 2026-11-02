@@ -141,7 +141,7 @@ pub fn unsized_autosize_errors(
         errors.push(message(&owner, "design_flow", air_sizing));
     }
 
-    // An unsized VRF indoor unit falls back to a 3 kW capacity rather than
+    // An unsized VRF indoor unit falls back to its 500 W floor rather than
     // keeping the sentinel; its zone missing from the sizing peaks shows it.
     for sys in &model.vrf_systems {
         for iu in &sys.indoor_units {

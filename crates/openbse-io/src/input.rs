@@ -2474,6 +2474,29 @@ pub struct DesignDayInput {
     pub cooling_setpoint_schedule: Option<Vec<f64>>,
 }
 
+/// What a design day sizes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DesignDayKind {
+    Heating,
+    Cooling,
+}
+
+impl DesignDayInput {
+    /// What this design day sizes, from its `day_type`: "heat" or "winter" for
+    /// heating, "cool" or "summer" for cooling. `None` if it says neither or both,
+    /// which validation refuses so that no design day is skipped or run twice.
+    pub fn kind(&self) -> Option<DesignDayKind> {
+        let dt = self.day_type.to_lowercase();
+        let heating = dt.contains("winter") || dt.contains("heat");
+        let cooling = dt.contains("summer") || dt.contains("cool");
+        match (heating, cooling) {
+            (true, false) => Some(DesignDayKind::Heating),
+            (false, true) => Some(DesignDayKind::Cooling),
+            _ => None,
+        }
+    }
+}
+
 /// How a design day's `humidity_value` is expressed (E+ `SizingPeriod:DesignDay`
 /// "Humidity Condition Type"). An unknown name fails at parse time.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -5308,6 +5331,18 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     for p in &model.people {
         check_zone_refs(&p.zones, "People", &p.name, &mut result);
+    }
+
+    // ── Validate design days ───────────────────────────────────────────────
+
+    for dd in &model.design_days {
+        if dd.kind().is_none() {
+            result.severe(format!(
+                "Design day '{}': day_type '{}' must say either heating ('heat', 'winter') or \
+                 cooling ('cool', 'summer')",
+                dd.name, dd.day_type
+            ));
+        }
     }
 
     // ── Validate lights ────────────────────────────────────────────────────

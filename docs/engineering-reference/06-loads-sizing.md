@@ -96,23 +96,17 @@ differences are:
 - **Warmup.** EnergyPlus repeats a design day until temperatures and loads
   converge (up to 25 days by default), not a fixed 5
   ([#232](https://github.com/bbrannon4/OpenBSE/issues/232)).
-- **Weather.** EnergyPlus evaluates the design-day weather at each
-  timestep. OpenBSE reuses the hour's values for every sub-hourly step
-  ([#232](https://github.com/bbrannon4/OpenBSE/issues/232)).
 - **Averaging window.** EnergyPlus defaults to one hour of timesteps;
   OpenBSE defaults to one timestep
-  ([#232](https://github.com/bbrannon4/OpenBSE/issues/232)).
+  ([#327](https://github.com/bbrannon4/OpenBSE/issues/327)).
 - **Gains.** EnergyPlus has no gains mode. It evaluates each schedule's
   SummerDesignDay or WinterDesignDay day schedule. OpenBSE schedules have
-  no design-day day types, so the modes stand in for them. The
-  `SizingInternalGains::Full` comment wrongly calls `full` the EnergyPlus
-  default ([#232](https://github.com/bbrannon4/OpenBSE/issues/232)).
+  no design-day day types, so the modes stand in for them.
 - **Humidity.** The outdoor humidity is a fixed relative humidity
   ([#198](https://github.com/bbrannon4/OpenBSE/issues/198)).
 - **Day type.** A design day is classed as heating or cooling by a
   substring of its `day_type` ("heat" or "winter", "cool" or "summer"). A
-  day type that matches neither is skipped without warning
-  ([#232](https://github.com/bbrannon4/OpenBSE/issues/232)).
+  day type that says neither or both is a severe error.
 
 ## Generated monthly cooling design days {#sec-dd-monthly}
 
@@ -134,16 +128,14 @@ $$ {#eq-dd-monthly}
 and the day is skipped if $T_{\text{dd},m} < T_{\text{dd},a} - 20$ K. The
 generated day keeps the anchor's daily range, pressure, wind, gains mode,
 optical depths and setpoint schedule. It uses a representative day of
-month $m$ for the sun position, and $h_a + 0.5(P_m - P_a)$ for the humidity
-value.
+month $m$ for the sun position. A wet-bulb or dew-point humidity value becomes
+$h_a + 0.5(P_m - P_a)$, and any other type of humidity value is kept.
 
 **Comparison with EnergyPlus.** EnergyPlus sizes on the given design days
 only. This feature follows other tools' practice (the code cites IES-VE).
-Setting `auto_cooling_design_days: false` gives EnergyPlus's behaviour. The
-humidity shift adds kelvins whatever `humidity_type` is. It has no effect
-today, because the humidity value is not read
-([#198](https://github.com/bbrannon4/OpenBSE/issues/198),
-[#232](https://github.com/bbrannon4/OpenBSE/issues/232)).
+Setting `auto_cooling_design_days: false` gives EnergyPlus's behaviour. $P_m$ is
+a percentile of the month's own hours, used only for the difference between months,
+not an annual design condition.
 
 ## Zone sizing {#sec-zone-sizing}
 
@@ -233,7 +225,7 @@ coincident peak heating and cooling loads are the largest sums over all
 zones at one hour, before any sizing factor. They are written to
 `_system_sizing.csv` as a report. The second run uses the same inputs as the
 first, so it repeats it exactly
-([#232](https://github.com/bbrannon4/OpenBSE/issues/232)).
+([#327](https://github.com/bbrannon4/OpenBSE/issues/327)).
 
 **Multizone flow.** A VAV or dual-duct loop's design supply flow follows the
 loop's `zone_sum`:
@@ -327,7 +319,8 @@ and the minimum primary flow for a fan-powered box. A dual-duct box's
 design flow is $\dot m_\text{des}$.
 
 **VRF.** An autosized indoor unit's capacities are $Q_c$ and $Q_h$ of
-its zone, at least 500 W, or 3000 W if the zone has no sizing result. Its
+its zone, at least 500 W. A unit with no sizing result, such as one in a
+model without design days, is a severe error. Its
 airflow is $5\times10^{-5}$ m³/s per watt of the larger capacity. An
 autosized outdoor unit takes the sum of its indoor units' capacities.
 
@@ -346,7 +339,7 @@ with `SimAirServingZones` peak states. Differences:
 - **DOAS.** Flow and temperatures follow the controls, not the zones' outdoor air
   ([#256](https://github.com/bbrannon4/OpenBSE/issues/256)).
 - **VRF airflow.** EnergyPlus sizes VRF terminal airflow from the zone
-  design flow ([#232](https://github.com/bbrannon4/OpenBSE/issues/232)).
+  design flow ([#327](https://github.com/bbrannon4/OpenBSE/issues/327)).
 - **Reheat.** EnergyPlus sizes a reheat coil from the zone's design heating
   flow, between the coil inlet temperature and the zone's design heating
   supply temperature. @eq-reheat-size is the same balance written with the
@@ -426,6 +419,5 @@ flows are both per zone instance, so no multiplier is needed in the ratio.
   humidity, temperature profile and sky model.
 - [#280](https://github.com/bbrannon4/OpenBSE/issues/280): a loop can't serve
   zones with different multipliers.
-- [#232](https://github.com/bbrannon4/OpenBSE/issues/232): duplicate system
-  run, fixed warmup, hourly weather, averaging default, generated design
-  days, gains-mode comment, day-type matching, VRF airflow.
+- [#327](https://github.com/bbrannon4/OpenBSE/issues/327): duplicate system
+  run, averaging default, VRF airflow.

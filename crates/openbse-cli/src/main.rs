@@ -2283,10 +2283,8 @@ fn main() -> Result<()> {
                     .iter()
                     .map(|iu| {
                         if iu.cooling_capacity.is_autosize() {
-                            vrf_zone_peak_cooling
-                                .get(&iu.zone)
-                                .copied()
-                                .unwrap_or(3000.0)
+                            // A unit with no sizing result is a severe error below.
+                            vrf_zone_peak_cooling.get(&iu.zone).copied().unwrap_or(0.0)
                         } else {
                             iu.cooling_capacity.to_f64()
                         }
@@ -2297,10 +2295,8 @@ fn main() -> Result<()> {
                     .iter()
                     .map(|iu| {
                         if iu.heating_capacity.is_autosize() {
-                            vrf_zone_peak_heating
-                                .get(&iu.zone)
-                                .copied()
-                                .unwrap_or(3000.0)
+                            // A unit with no sizing result is a severe error below.
+                            vrf_zone_peak_heating.get(&iu.zone).copied().unwrap_or(0.0)
                         } else {
                             iu.heating_capacity.to_f64()
                         }
@@ -2351,19 +2347,19 @@ fn main() -> Result<()> {
                     .iter()
                     .map(|iu_in| {
                         let cool_cap = if iu_in.cooling_capacity.is_autosize() {
-                            (vrf_zone_peak_cooling
+                            vrf_zone_peak_cooling
                                 .get(&iu_in.zone)
                                 .copied()
-                                .unwrap_or(3000.0))
+                                .unwrap_or(0.0)
                                 .max(500.0)
                         } else {
                             iu_in.cooling_capacity.to_f64()
                         };
                         let heat_cap = if iu_in.heating_capacity.is_autosize() {
-                            (vrf_zone_peak_heating
+                            vrf_zone_peak_heating
                                 .get(&iu_in.zone)
                                 .copied()
-                                .unwrap_or(3000.0))
+                                .unwrap_or(0.0)
                                 .max(500.0)
                         } else {
                             iu_in.heating_capacity.to_f64()
