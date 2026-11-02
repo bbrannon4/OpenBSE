@@ -137,39 +137,18 @@ impl GroundTempModel {
         }
     }
 
-    /// Ground temperature at a specific depth [°C], ignoring `self.depth`.
-    ///
-    /// Useful when the caller wants to query at a depth different from the
-    /// model's stored depth (e.g., GSHP loop depth vs floor slab depth).
-    pub fn temperature_at_depth(&self, day_of_year: f64, depth: f64) -> f64 {
-        if let Some(ref temps) = self.monthly_temps {
-            // Monthly table doesn't vary with depth; return the 0.5 m table value
-            return Self::interpolate_monthly(temps, day_of_year);
+    /// Ground temperature for a surface [°C]: the monthly table when there is
+    /// one, held for the whole month as E+ does for
+    /// `Site:GroundTemperature:BuildingSurface`, else the Kusuda-Achenbach equation.
+    pub fn surface_temperature(&self, month: u32, day_of_year: f64) -> f64 {
+        match self.monthly_temps {
+            Some(ref temps) => Self::monthly_step_static(temps, month),
+            None => self.temperature(day_of_year),
         }
-        let alpha = self.soil_diffusivity;
-        if alpha <= 0.0 {
-            return self.t_mean;
-        }
-        let damping_arg = depth * (std::f64::consts::PI / (365.0 * alpha)).sqrt();
-        let damping = (-damping_arg).exp();
-        let phase_shift = depth / 2.0 * (365.0 / (std::f64::consts::PI * alpha)).sqrt();
-        let cos_arg =
-            2.0 * std::f64::consts::PI / 365.0 * (day_of_year - self.phase_day - phase_shift);
-        self.t_mean - self.amplitude * damping * cos_arg.cos()
     }
 
-    /// Ground temperature at a given day of year [°C].
-    ///
-    /// If monthly temperatures are available (from EPW header), uses linear
-    /// interpolation between mid-month values (matching E+ FCfactorMethod).
-    /// Otherwise falls back to Kusuda-Achenbach equation.
+    /// Ground temperature at a given day of year [°C], Kusuda-Achenbach equation.
     pub fn temperature(&self, day_of_year: f64) -> f64 {
-        // Prefer monthly table from EPW (matches E+ FCfactorMethod behavior)
-        if let Some(ref temps) = self.monthly_temps {
-            return Self::interpolate_monthly(temps, day_of_year);
-        }
-
-        // Fallback: Kusuda-Achenbach equation
         let z = self.depth;
         let alpha = self.soil_diffusivity;
 
@@ -191,66 +170,14 @@ impl GroundTempModel {
         self.t_mean - self.amplitude * damping * cos_arg.cos()
     }
 
-    /// Static version of monthly interpolation for use without a GroundTempModel instance.
+    /// Return the constant monthly ground temperature for the given month.
     ///
-    /// Used by F-factor ground floors that store their own FCfactorMethod temperatures.
-    pub fn interpolate_monthly_static(temps: &[f64; 12], day_of_year: f64) -> f64 {
-        Self::interpolate_monthly(temps, day_of_year)
-    }
-
-    /// Return the constant monthly ground temperature for the given day of year.
-    ///
-    /// Matches EnergyPlus behavior for `Site:GroundTemperature:FCfactorMethod`:
-    /// the monthly value is held constant for the entire month (step function,
+    /// Matches EnergyPlus behavior for its `Site:GroundTemperature` objects
+    /// (`getGroundTempAtTimeInMonths`): the monthly value is held constant for the entire month (step function,
     /// no interpolation between months).
     pub fn monthly_step_static(temps: &[f64; 12], month: u32) -> f64 {
         let idx = (month.saturating_sub(1) as usize).min(11);
         temps[idx]
-    }
-
-    /// Linear interpolation of monthly ground temperatures.
-    ///
-    /// Each month's value is anchored at mid-month. Between mid-month points,
-    /// linearly interpolate. Wraps around Dec→Jan for continuity.
-    fn interpolate_monthly(temps: &[f64; 12], day_of_year: f64) -> f64 {
-        // Mid-month day of year for each month (0-indexed from Jan 1 = day 0)
-        let days_in_month: [f64; 12] = [
-            31.0, 28.0, 31.0, 30.0, 31.0, 30.0, 31.0, 31.0, 30.0, 31.0, 30.0, 31.0,
-        ];
-        let mut mid_days = [0.0f64; 12];
-        let mut cum = 0.0;
-        for m in 0..12 {
-            mid_days[m] = cum + days_in_month[m] / 2.0;
-            cum += days_in_month[m];
-        }
-
-        // Wrap day_of_year to [0, 365)
-        let doy = ((day_of_year % 365.0) + 365.0) % 365.0;
-
-        // Find surrounding months
-        if doy <= mid_days[0] {
-            // Before Jan mid-month: interpolate between Dec and Jan
-            let dec_mid = mid_days[11] - 365.0; // negative (wrap)
-            let span = mid_days[0] - dec_mid;
-            let frac = (doy - dec_mid) / span;
-            temps[11] + frac * (temps[0] - temps[11])
-        } else if doy >= mid_days[11] {
-            // After Dec mid-month: interpolate between Dec and Jan
-            let jan_mid = mid_days[0] + 365.0; // wrap forward
-            let span = jan_mid - mid_days[11];
-            let frac = (doy - mid_days[11]) / span;
-            temps[11] + frac * (temps[0] - temps[11])
-        } else {
-            // Between two mid-month points
-            for m in 0..11 {
-                if doy >= mid_days[m] && doy < mid_days[m + 1] {
-                    let span = mid_days[m + 1] - mid_days[m];
-                    let frac = (doy - mid_days[m]) / span;
-                    return temps[m] + frac * (temps[m + 1] - temps[m]);
-                }
-            }
-            temps[11] // Fallback (shouldn't reach here)
-        }
     }
 }
 
@@ -394,50 +321,30 @@ mod tests {
     }
 
     #[test]
-    fn test_monthly_interpolation() {
-        // Test that monthly table interpolation returns mid-month values exactly
-        // and interpolates between them correctly.
+    fn test_monthly_table_is_held_for_the_month() {
+        // E+ `getGroundTempAtTimeInMonths`: one value for the whole month.
         let monthly = [
             -0.09, -1.03, 0.64, 3.26, 10.11, 15.39, 18.96, 20.04, 18.19, 14.09, 8.61, 3.52,
-        ]; // Denver EPW 0.5 m ground temps
-
+        ];
         let model = GroundTempModel {
             monthly_temps: Some(monthly),
             ..Default::default()
         };
-
-        // Mid-January (day ~15.5): should be close to Jan value (-0.09)
-        let t_jan = model.temperature(15.5);
-        assert_relative_eq!(t_jan, -0.09, epsilon = 0.2);
-
-        // Mid-July (day ~196.5): should be close to Jul value (18.96)
-        let t_jul = model.temperature(196.5);
-        assert_relative_eq!(t_jul, 18.96, epsilon = 0.2);
-
-        // Annual mean of monthly temps should equal average of 12 values
-        let mean: f64 = monthly.iter().sum::<f64>() / 12.0;
-        let mut sum = 0.0f64;
-        for d in 0..365 {
-            sum += model.temperature(d as f64);
+        for (m, t) in monthly.iter().enumerate() {
+            assert_eq!(model.surface_temperature(m as u32 + 1, 200.0), *t);
         }
-        let model_mean = sum / 365.0;
-        assert_relative_eq!(model_mean, mean, epsilon = 0.5);
     }
 
     #[test]
     fn test_monthly_temps_override_kusuda() {
         // When monthly_temps is set, Kusuda parameters should be ignored
-        let monthly = [18.0; 12]; // Constant 18°C year-round
-
         let model = GroundTempModel {
             t_mean: 0.0, // Would give very different result if Kusuda used
             amplitude: 20.0,
-            monthly_temps: Some(monthly),
+            monthly_temps: Some([18.0; 12]),
             ..Default::default()
         };
-
-        // Should always return 18°C regardless of Kusuda params
-        assert_relative_eq!(model.temperature(0.0), 18.0, epsilon = 0.01);
-        assert_relative_eq!(model.temperature(180.0), 18.0, epsilon = 0.01);
+        assert_eq!(model.surface_temperature(1, 1.0), 18.0);
+        assert_eq!(model.surface_temperature(7, 180.0), 18.0);
     }
 }

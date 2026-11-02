@@ -309,16 +309,13 @@ in `main.rs` (step 3).
 Surfaces with a ground boundary use a monthly table,
 `simulation.ground_surface_temperatures`, which defaults to 18 °C every
 month, as EnergyPlus does when `Site:GroundTemperature:BuildingSurface` is
-absent. Each month's value is placed at mid-month, and the temperature on
-day $n$ is interpolated linearly between those points, wrapping from
-December to January. EnergyPlus instead holds each month's value constant
-for the whole month
-([#201](https://github.com/bbrannon4/OpenBSE/issues/201)). F-factor floors
-use their own monthly table, held for the month (@sec-envelope). Ground-source
+absent. Each month's value is held for the whole month, as in EnergyPlus
+(`getGroundTempAtTimeInMonths`); any other number of values is a severe error. F-factor
+floors use their own monthly table, also held for the month (@sec-envelope). Ground-source
 heat pumps use the EPW's shallowest ground temperatures or the model below
 (@sec-zone-equipment).
 
-When no table is given, the Kusuda–Achenbach model applies
+That model is Kusuda–Achenbach
 [@kusuda1965]. At depth $z$ [m] on day $n$:
 
 $$

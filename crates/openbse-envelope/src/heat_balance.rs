@@ -3581,7 +3581,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                                 // the entire month (step function, no interpolation).
                                 GroundTempModel::monthly_step_static(temps, ctx.timestep.month)
                             } else if let Some(ref gt) = self.ground_temp_model {
-                                gt.temperature(doy as f64)
+                                gt.surface_temperature(ctx.timestep.month, doy as f64)
                             } else {
                                 10.0
                             };

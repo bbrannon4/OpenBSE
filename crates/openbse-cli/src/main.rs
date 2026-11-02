@@ -847,25 +847,18 @@ fn main() -> Result<()> {
             let mut ground_temp =
                 openbse_envelope::GroundTempModel::from_weather_hours(&weather_data.hours);
 
-            // Use YAML-specified ground surface temperatures (or E+ default of 18°C)
+            // YAML-specified ground surface temperatures (or E+ default of 18°C);
+            // validation has checked there are twelve.
             let gt_monthly = &model.simulation.ground_surface_temperatures;
-            if gt_monthly.len() == 12 {
-                let mut temps = [0.0_f64; 12];
-                temps.copy_from_slice(gt_monthly);
-                ground_temp.monthly_temps = Some(temps);
-                info!(
+            let mut temps = [0.0_f64; 12];
+            temps.copy_from_slice(gt_monthly);
+            ground_temp.monthly_temps = Some(temps);
+            info!(
                 "Ground temp: using YAML monthly temps (Jan={:.1}°C, Jul={:.1}°C, mean={:.1}°C)",
                 temps[0],
                 temps[6],
                 temps.iter().sum::<f64>() / 12.0,
             );
-            } else {
-                // Fallback to Kusuda-Achenbach model
-                info!(
-                "Ground temp: Kusuda model at {:.1}m depth (mean={:.1}°C, amplitude={:.1}°C, phase=day {:.0})",
-                ground_temp.depth, ground_temp.t_mean, ground_temp.amplitude, ground_temp.phase_day
-            );
-            }
 
             env.ground_temp_model = Some(ground_temp);
             env.jan1_dow = weather_data.start_day_of_week;
