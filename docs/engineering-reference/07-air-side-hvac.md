@@ -181,11 +181,8 @@ unchanged by the leak.
 The ambient is set by `ambient_zone`:
 
 - `outdoor`: the outdoor dry-bulb;
-- `ground`: a fixed 18 °C, not the site ground temperature
-  ([#235](https://github.com/bbrannon4/OpenBSE/issues/235));
-- a zone name: that zone's air temperature. An unknown name silently uses
-  the outdoor temperature
-  ([#235](https://github.com/bbrannon4/OpenBSE/issues/235)).
+- `ground`: the month's value of `simulation.ground_surface_temperatures`;
+- a zone name: that zone's air temperature. Any other name is a severe error.
 
 **Losses to the ambient zone.** When the ambient is a zone, the losses
 return to it as gains, multiplied by the duct's zone multiplier:
@@ -200,8 +197,8 @@ The duct reads that zone's temperature within the HVAC iteration
 **Comparison with EnergyPlus.** EnergyPlus's `Duct` object is lossless. Duct
 losses need AirflowNetwork distribution, whose duct conduction has the form
 of @eq-duct [@eplus-engref-25-2, "AirflowNetwork Model"]. OpenBSE adds
-this as a component. It has no inward (return-side) leakage
-([#235](https://github.com/bbrannon4/OpenBSE/issues/235)).
+this as a component. Leakage only removes air, so a return duct in an attic or
+crawlspace can't draw ambient air in.
 
 ## Known limitations: fans, heating coils and ducts {#sec-air-side-limitations-a}
 
@@ -213,8 +210,7 @@ this as a component. It has no inward (return-side) leakage
 - [#234](https://github.com/bbrannon4/OpenBSE/issues/234): hot-water coils
   never see their water inlet; the UA model is inert and has swapped
   exponents; electric-coil efficiency is not read.
-- [#235](https://github.com/bbrannon4/OpenBSE/issues/235): duct ground
-  ambient fixed at 18 °C, unknown ambient zones, no inward leakage.
+- Ducts have no inward (return-side) leakage; filed for later.
 
 ## DX cooling coils {#sec-dx-cooling}
 

@@ -6687,13 +6687,17 @@ fn simulate_loop_components(
                 }
 
                 // Resolve duct ambient temperature before simulation
+                // (a ground ambient comes from the duct's own monthly table; validation
+                // rejects a name that is neither these nor a zone, and HVAC-only runs
+                // have no zone temperatures).
                 if let Some(amb_zone) = component.ambient_zone().map(|s| s.to_string()) {
-                    let amb_temp = match amb_zone.as_str() {
-                        "outdoor" => t_outdoor,
-                        "ground" => 18.0, // default ground temp
-                        zone_name => zone_temps.get(zone_name).copied().unwrap_or(t_outdoor),
-                    };
-                    component.set_ambient_temp(amb_temp);
+                    match amb_zone.as_str() {
+                        "outdoor" => component.set_ambient_temp(t_outdoor),
+                        "ground" => {}
+                        zone_name => component.set_ambient_temp(
+                            zone_temps.get(zone_name).copied().unwrap_or(t_outdoor),
+                        ),
+                    }
                 }
 
                 // Use previous component's outlet as inlet; first component uses loop inlet
