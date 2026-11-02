@@ -131,7 +131,7 @@ pub fn solar_hour_weights(sub: u32, steps: u32) -> (f64, f64, f64) {
     let n = steps as f64;
     let k = sub as i64;
     let half = (steps / 2) as i64;
-    let now = if steps % 2 == 0 {
+    let now = if steps.is_multiple_of(2) {
         1.0 - (k - half).abs() as f64 / n
     } else if steps == 3 {
         [5.0 / 6.0, 5.0 / 6.0, 0.5][(sub as usize - 1).min(2)]

@@ -364,7 +364,6 @@ $Q_\text{loop}$. Water flows come from
 
 $$
 \dot V = \frac{Q}{\rho_w c_{p,w}\,\max(\Delta T_\text{loop}, 1)},
-
 $$ {#eq-plant-flow}
 
 with $\rho_w$ and $c_{p,w}$ at the loop's conversion temperature (@sec-water-properties),
