@@ -5118,6 +5118,20 @@ fn validate_materials(model: &ModelInput, result: &mut ValidationResult) {
     }
 }
 
+/// The window models have one or two panes (#214). `num_panes: 3` used to be
+/// accepted and modelled as two, with one gap.
+fn validate_window_panes(model: &ModelInput, result: &mut ValidationResult) {
+    for w in &model.window_constructions {
+        if let Some(n) = w.num_panes.filter(|n| !(1..=2).contains(n)) {
+            result.severe(format!(
+                "Window construction '{}': num_panes {n} isn't supported. Pane data models one \
+                 or two panes; give a triple-glazed unit as U-factor and SHGC, without pane data",
+                w.name
+            ));
+        }
+    }
+}
+
 /// A duct's ambient is "outdoor", "ground" or a zone (#235). A misspelt zone used
 /// to run as an outdoor duct, with the heat lost to it dropped.
 fn validate_duct_ambients(model: &ModelInput, result: &mut ValidationResult) {
@@ -5277,6 +5291,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     warn_shading_geometry_ignored(model, &mut result);
     validate_scheduled_ventilation(model, &mut result);
     validate_duct_ambients(model, &mut result);
+    validate_window_panes(model, &mut result);
 
     // ── Validate people ────────────────────────────────────────────────────
 
@@ -5805,6 +5820,23 @@ air_loops:
         validate_model(
             &parse_model_yaml(&format!("simulation: {{}}\nweather_files: []\n{extra}")).unwrap(),
         )
+    }
+
+    #[test]
+    fn three_panes_are_severe() {
+        let model = |panes: u32| -> ModelInput {
+            serde_yaml::from_str(&format!(
+                "simulation: {{}}\nweather_files: []\nwindow_constructions:\n  - {{name: W, \
+                 u_factor: 1.0, shgc: 0.4, num_panes: {panes}}}\n"
+            ))
+            .unwrap()
+        };
+        let errors = |panes| {
+            let mut r = ValidationResult::new();
+            validate_window_panes(&model(panes), &mut r);
+            r.error_count()
+        };
+        assert_eq!((errors(1), errors(2), errors(3)), (0, 0, 1));
     }
 
     #[test]
