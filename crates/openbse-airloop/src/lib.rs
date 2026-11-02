@@ -337,6 +337,37 @@ fn mixed_return_temp(ctx: &SignalCtx, zones: &[String], flow: impl Fn(&str) -> f
     }
 }
 
+/// Return-air humidity ratio of a multi-zone loop [kg/kg]: each zone's weighted
+/// by the flow it returns, with the same weights as [`mixed_return_temp`] and as
+/// E+'s return-air mixer (#184). With no flow, the zones' simple mean. `None`
+/// when no served zone has a humidity ratio.
+pub fn mixed_return_w(
+    zone_humidity_ratios: &HashMap<String, f64>,
+    zones: &[String],
+    flow: impl Fn(&str) -> f64,
+) -> Option<f64> {
+    let known = || {
+        zones
+            .iter()
+            .filter_map(|z| zone_humidity_ratios.get(z).map(|&w| (z.as_str(), w)))
+    };
+    let (mut num, mut den, mut sum, mut n) = (0.0, 0.0, 0.0, 0usize);
+    for (z, w) in known() {
+        let m = flow(z).max(0.0);
+        num += m * w;
+        den += m;
+        sum += w;
+        n += 1;
+    }
+    if den > 1.0e-9 {
+        Some(num / den)
+    } else if n > 0 {
+        Some(sum / n as f64)
+    } else {
+        None
+    }
+}
+
 fn zone_mode(ctx: &SignalCtx, zone: &str, zone_temp: f64, heat_sp: f64, cool_sp: f64) -> HvacMode {
     ctx.predictor_modes
         .get(zone)
@@ -546,10 +577,7 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     // temperature; well-mixed zones return at their air temperature. The
     // supply is split evenly between the served zones, so is the return.
     let return_air_temp = mixed_return_temp(ctx, &li.served_zones, |_| 1.0);
-    let return_w = zone_humidity_ratios
-        .get(control_zone)
-        .copied()
-        .unwrap_or(0.008);
+    let return_w = mixed_return_w(zone_humidity_ratios, &li.served_zones, |_| 1.0).unwrap_or(0.008);
     // A return fan (when present) heats the return air before it mixes with
     // outdoor air. The economizer availability test still uses the pre-fan
     // return condition (the standard control-sensor location); only the
@@ -1514,16 +1542,11 @@ pub fn build_vav_signals(
     // the reheat boxes warm the zones that the Warmest setpoint overcools.
     let t_return = return_air_temp + li.return_fan_dt;
     let mixed_air_setpoint = sat_setpoint - effective_supply_fan_dt;
-    let avg_zone_w = if li.served_zones.is_empty() {
-        0.008
-    } else {
-        li.served_zones
-            .iter()
-            .map(|z| zone_humidity_ratios.get(z).copied().unwrap_or(0.008))
-            .sum::<f64>()
-            / li.served_zones.len() as f64
-    };
-    let return_enthalpy_vav = openbse_psychrometrics::h_fn_tdb_w(return_air_temp, avg_zone_w);
+    let return_w = mixed_return_w(zone_humidity_ratios, &li.served_zones, |z| {
+        signals.zone_air_flows.get(z).copied().unwrap_or(0.0)
+    })
+    .unwrap_or(0.008);
+    let return_enthalpy_vav = openbse_psychrometrics::h_fn_tdb_w(return_air_temp, return_w);
     let outdoor_enthalpy_vav = openbse_psychrometrics::h_fn_tdb_w(raw_t_outdoor, w_outdoor);
     use openbse_io::input::EconomizerType;
     let econ_available = match li.economizer_type {
@@ -1877,6 +1900,19 @@ pub fn build_dual_duct_signals(li: &mut LoopInfo, ctx: &SignalCtx) -> ControlSig
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn return_humidity_is_weighted_by_the_flows_the_zones_return() {
+        let w: HashMap<String, f64> =
+            [("dry".to_string(), 0.006), ("humid".to_string(), 0.012)].into();
+        let zones = vec!["dry".to_string(), "humid".to_string()];
+        let mixed = mixed_return_w(&w, &zones, |z| if z == "dry" { 3.0 } else { 1.0 }).unwrap();
+        assert!((mixed - 0.0075).abs() < 1e-12, "{mixed}");
+        // No flow: the simple mean. A zone with no humidity doesn't count.
+        let mean = mixed_return_w(&w, &zones, |_| 0.0).unwrap();
+        assert!((mean - 0.009).abs() < 1e-12, "{mean}");
+        assert_eq!(mixed_return_w(&w, &["none".to_string()], |_| 1.0), None);
+    }
+
     use super::*;
     use openbse_io::input::{AirLoopSystemType, CyclingMethod, EconomizerType, FanOperatingMode};
 
