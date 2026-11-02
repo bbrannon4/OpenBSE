@@ -102,14 +102,10 @@ pub struct SurfaceInput {
     /// Matches EnergyPlus `Construction:FfactorGroundFloor` PerimeterExposed.
     #[serde(default)]
     pub exposed_perimeter: Option<f64>,
-    /// Window height [m] for ISO 15099 interior convection model.
-    /// If not provided, estimated as sqrt(area) for windows.
+    /// Window height [m] for the ISO 15099 interior convection model. If not
+    /// provided, taken from the vertices, or sqrt(area) without them.
     #[serde(default)]
     pub height: Option<f64>,
-    /// Window width [m] for ISO 15099 interior convection model.
-    /// If not provided, estimated as sqrt(area) for windows.
-    #[serde(default)]
-    pub width: Option<f64>,
     /// Airflow network overrides for this surface (crack coefficient, Cp, etc.).
     /// Only used when the airflow network is enabled in simulation settings.
     #[serde(default)]
@@ -125,6 +121,26 @@ fn default_tilt() -> f64 {
 }
 
 impl SurfaceInput {
+    /// Height of a window along its slope [m]: the input value, else the
+    /// vertices' vertical extent over the sine of the tilt. A flat window has no
+    /// up, so it and a window without vertices take sqrt(area).
+    pub fn window_height(&self) -> f64 {
+        let square = || self.area.max(0.0).sqrt();
+        if let Some(h) = self.height {
+            return h;
+        }
+        let sin_tilt = self.tilt.to_radians().sin();
+        match &self.vertices {
+            Some(v) if v.len() >= 3 && sin_tilt > 0.05 => {
+                let (lo, hi) = v
+                    .iter()
+                    .fold((f64::MAX, f64::MIN), |(l, h), p| (l.min(p.z), h.max(p.z)));
+                (hi - lo) / sin_tilt
+            }
+            _ => square(),
+        }
+    }
+
     /// Resolve geometry from vertices if present.
     ///
     /// If `vertices` contains ≥3 points, computes area, azimuth, and tilt
@@ -698,6 +714,39 @@ pub struct SurfaceState {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn window_height_comes_from_input_then_vertices_then_area() {
+        let mut w = iz("w", "a", "b", 6.0, 180.0, "g");
+        assert!((w.window_height() - 6.0f64.sqrt()).abs() < 1e-12);
+        w.vertices = Some(vec![
+            Point3D {
+                x: 0.0,
+                y: 0.0,
+                z: 0.2,
+            },
+            Point3D {
+                x: 3.0,
+                y: 0.0,
+                z: 0.2,
+            },
+            Point3D {
+                x: 3.0,
+                y: 0.0,
+                z: 2.2,
+            },
+            Point3D {
+                x: 0.0,
+                y: 0.0,
+                z: 2.2,
+            },
+        ]);
+        assert!((w.window_height() - 2.0).abs() < 1e-12);
+        w.tilt = 0.0;
+        assert!((w.window_height() - 6.0f64.sqrt()).abs() < 1e-12);
+        w.height = Some(1.5);
+        assert_eq!(w.window_height(), 1.5);
+    }
+
     fn iz(
         name: &str,
         zone: &str,
@@ -723,7 +772,6 @@ mod tests {
             wind_exposure: false,
             exposed_perimeter: None,
             height: None,
-            width: None,
             airflow: None,
         }
     }

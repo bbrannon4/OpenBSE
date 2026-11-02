@@ -651,7 +651,6 @@ surfaces:
   construction: Exterior Window
   area: 4.126
   height: 1.524
-  width: 2.707
   azimuth: 180.0
   tilt: 90.0
   boundary: outdoor
@@ -663,7 +662,6 @@ surfaces:
   construction: Exterior Window
   area: 4.126
   height: 1.524
-  width: 2.707
   azimuth: 90.0
   tilt: 90.0
   boundary: outdoor
@@ -675,7 +673,6 @@ surfaces:
   construction: Exterior Window
   area: 4.126
   height: 1.524
-  width: 2.707
   azimuth: 0.0
   tilt: 90.0
   boundary: outdoor
@@ -687,7 +684,6 @@ surfaces:
   construction: Exterior Window
   area: 4.126
   height: 1.524
-  width: 2.707
   azimuth: 270.0
   tilt: 90.0
   boundary: outdoor
@@ -745,7 +741,6 @@ surfaces:
   construction: Exterior Window
   area: 4.126
   height: 1.524
-  width: 2.707
   azimuth: 180.0
   tilt: 90.0
   boundary: outdoor
@@ -757,7 +752,6 @@ surfaces:
   construction: Exterior Window
   area: 4.126
   height: 1.524
-  width: 2.707
   azimuth: 90.0
   tilt: 90.0
   boundary: outdoor
@@ -769,7 +763,6 @@ surfaces:
   construction: Exterior Window
   area: 4.126
   height: 1.524
-  width: 2.707
   azimuth: 0.0
   tilt: 90.0
   boundary: outdoor
@@ -781,7 +774,6 @@ surfaces:
   construction: Exterior Window
   area: 4.126
   height: 1.524
-  width: 2.707
   azimuth: 270.0
   tilt: 90.0
   boundary: outdoor

@@ -545,6 +545,8 @@ fn solve3(m: [[f64; 3]; 3], b: [f64; 3]) -> [f64; 3] {
 /// Inputs to the glass + shade solve that the window loop has already worked out.
 struct ShadedWindowConditions {
     t_zone: f64,
+    /// Barometric pressure [Pa].
+    p_b: f64,
     /// Radiant temperature of the room surfaces the shade sees [°C], and the
     /// shade's long-wave coefficient to them [W/(m²·K)], from the zone's
     /// interchange areas.
@@ -615,12 +617,7 @@ impl BuildingEnvelope {
         let q_glass = (base_absorbed + self.surfaces[i].glass_reflected_absorbed) / area;
         let q_shade =
             self.surfaces[i].shade_absorbed_solar / area + self.zone_radiant_gain_flux(zi, i);
-        let gross = self.surfaces[i].input.area.max(0.01);
-        let win_h = self.surfaces[i]
-            .input
-            .height
-            .unwrap_or_else(|| gross.sqrt());
-        let win_w = self.surfaces[i].input.width.unwrap_or_else(|| gross.sqrt());
+        let win_h = self.surfaces[i].input.window_height();
         let tilt = self.surfaces[i].input.tilt;
 
         let mut u_glass = c.u_glass;
@@ -657,7 +654,15 @@ impl BuildingEnvelope {
                 / (1.0 / eps_glass + 1.0 / shade.emissivity - 1.0);
             (h_cv, h_vent) =
                 shade_gap_coefficients(shade.distance_to_glass, win_h, t_g, t_sh, t_gap, c.t_zone);
-            h_cs = convection::window_interior_convection(t_sh, c.t_zone, win_h, win_w).max(0.5);
+            h_cs = convection::window_interior_convection(
+                t_sh,
+                c.t_zone,
+                self.zones[zi].humidity_ratio,
+                c.p_b,
+                win_h,
+                tilt,
+            )
+            .max(0.5);
         }
 
         let s = &mut self.surfaces[i];
@@ -1085,7 +1090,6 @@ impl BuildingEnvelope {
                     adjacent_surface: None,
                     airflow: None,
                     height: None,
-                    width: None,
                 };
                 surfaces.push(surf);
             }
@@ -3782,6 +3786,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             zi,
                             ShadedWindowConditions {
                                 t_zone: t_z,
+                                p_b,
                                 t_mrt,
                                 h_rad_room: h_rad_start,
                                 t_ext_eff,
@@ -3844,17 +3849,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                         }
 
                         // Interior natural convection — ISO 15099 for windows
-                        let win_area = self.surfaces[i].input.area.max(0.01);
-                        let win_h = self.surfaces[i]
-                            .input
-                            .height
-                            .unwrap_or_else(|| win_area.sqrt());
-                        let win_w = self.surfaces[i]
-                            .input
-                            .width
-                            .unwrap_or_else(|| win_area.sqrt());
-                        h_conv_in =
-                            convection::window_interior_convection(t_glass, t_z, win_h, win_w);
+                        h_conv_in = convection::window_interior_convection(
+                            t_glass,
+                            t_z,
+                            self.zones[zi].humidity_ratio,
+                            p_b,
+                            self.surfaces[i].input.window_height(),
+                            self.surfaces[i].input.tilt,
+                        );
 
                         // Interior radiation: the glass's exchange with the
                         // room's surfaces, linearised at the new glass temperature.
@@ -5988,7 +5990,6 @@ mod tests {
                 adjacent_surface: None,
                 airflow: None,
                 height: None,
-                width: None,
             },
             SurfaceInput {
                 name: "South Window".to_string(),
@@ -6008,7 +6009,6 @@ mod tests {
                 adjacent_surface: None,
                 airflow: None,
                 height: None,
-                width: None,
             },
             SurfaceInput {
                 name: "Floor".to_string(),
@@ -6028,7 +6028,6 @@ mod tests {
                 adjacent_surface: None,
                 airflow: None,
                 height: None,
-                width: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(),
@@ -6048,7 +6047,6 @@ mod tests {
                 adjacent_surface: None,
                 airflow: None,
                 height: None,
-                width: None,
             },
         ];
         let surfaces = surfaces.into_iter().chain(extra).collect();
@@ -6175,7 +6173,6 @@ mod tests {
             adjacent_surface: None,
             airflow: None,
             height: None,
-            width: None,
         };
         let doorway_override = doorway.then(|| crate::airflow_network::SurfaceAirflowOverride {
             large_opening: Some(true),
@@ -6204,7 +6201,6 @@ mod tests {
                 adjacent_surface: None,
                 airflow: doorway_override.clone(),
                 height: None,
-                width: None,
             },
             SurfaceInput {
                 name: "Partition B".to_string(),
@@ -6224,7 +6220,6 @@ mod tests {
                 adjacent_surface: None,
                 airflow: doorway_override,
                 height: None,
-                width: None,
             },
         ];
         for (zone, floor_name) in [("ColdZone", "Cold Floor"), ("WarmZone", "Warm Floor")] {
@@ -6246,7 +6241,6 @@ mod tests {
                 adjacent_surface: None,
                 airflow: None,
                 height: None,
-                width: None,
             });
         }
 
@@ -6794,7 +6788,6 @@ mod tests {
                 adjacent_surface: None,
                 airflow: None,
                 height: None,
-                width: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(),
@@ -6814,7 +6807,6 @@ mod tests {
                 adjacent_surface: None,
                 airflow: None,
                 height: None,
-                width: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
@@ -7117,7 +7109,6 @@ mod tests {
             adjacent_surface: None,
             airflow: None,
             height: None,
-            width: None,
         };
         let envelope = make_simple_model_with(vec![door]);
         // South Wall: gross 20m², window 4m², door 2m² → net 14m²
@@ -7208,7 +7199,6 @@ mod tests {
                 adjacent_surface: None,
                 airflow: None,
                 height: None,
-                width: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(),
@@ -7228,7 +7218,6 @@ mod tests {
                 adjacent_surface: None,
                 airflow: None,
                 height: None,
-                width: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
@@ -7373,7 +7362,6 @@ mod tests {
                 adjacent_surface: None,
                 airflow: None,
                 height: None,
-                width: None,
             },
             SurfaceInput {
                 name: "Roof".to_string(),
@@ -7393,7 +7381,6 @@ mod tests {
                 adjacent_surface: None,
                 airflow: None,
                 height: None,
-                width: None,
             },
         ];
         let mut envelope = BuildingEnvelope::from_input(
@@ -7519,7 +7506,6 @@ mod tests {
             adjacent_surface: None,
             airflow: None,
             height: None,
-            width: None,
         }];
         let mut envelope = BuildingEnvelope::from_input(
             materials,
