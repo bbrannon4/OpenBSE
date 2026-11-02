@@ -165,7 +165,7 @@ fn hot_aisle_return(
 /// EnergyPlus's upper limit on a zone's return-air temperature [°C]
 /// (`HVAC::RetTempMax`); lights heat that would push the return past it
 /// stays in the zone air.
-const RETURN_AIR_TEMP_MAX: f64 = 60.0;
+const RETURN_AIR_TEMP_MAX: f64 = openbse_io::system_sizing::RETURN_AIR_TEMP_MAX;
 
 /// Draw stratified zones' return air at the return height (#91), above or below
 /// the mean air temperature in `zone_temps`. A return already set (hot aisle) is
@@ -1838,6 +1838,13 @@ fn main() -> Result<()> {
             if let Some(ref mut env) = envelope {
                 let latitude = weather_data.location.latitude;
                 let zone_supply_temps = zone_design_supply_temps(&loop_infos);
+                // Zones whose lighting return-air heat goes to the return, not
+                // into the zone load (E+ `CalcZoneLeavingConditions`).
+                let return_air_zones: HashSet<String> = loop_infos
+                    .iter()
+                    .filter(|li| li.carries_return_air_heat())
+                    .flat_map(|li| li.served_zones.iter().cloned())
+                    .collect();
 
                 let sizing_result = openbse_io::sizing::run_sizing(
                     env,
@@ -1848,6 +1855,7 @@ fn main() -> Result<()> {
                     output_dir,
                     &input_stem,
                     &zone_supply_temps,
+                    &return_air_zones,
                     model.simulation.heating_sizing_factor,
                     model.simulation.cooling_sizing_factor,
                     &sizing_oa_handled,
