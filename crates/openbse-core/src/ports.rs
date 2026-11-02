@@ -515,7 +515,7 @@ pub struct ZoneHvacConditions {
     /// receives outdoor air directly at outdoor temperature.
     pub oa_handled_by_hvac: HashMap<String, bool>,
     /// Radiant heat injected to zone surfaces from radiant HVAC panels [W].
-    /// Distributed across surfaces by area × absorptance, same as internal gains radiative split.
+    /// Distributed across surfaces by area × inside emissivity, same as internal gains radiative split.
     /// Positive = heat gain to zone surfaces.
     pub radiant_gains: HashMap<String, f64>,
     /// Convective sensible heat deposited into a zone by HVAC distribution losses
