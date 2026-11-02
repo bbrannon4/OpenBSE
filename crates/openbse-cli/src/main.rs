@@ -167,6 +167,38 @@ fn hot_aisle_return(
 /// stays in the zone air.
 const RETURN_AIR_TEMP_MAX: f64 = 60.0;
 
+/// Draw stratified zones' return air at the return height (#91), above or below
+/// the mean air temperature in `zone_temps`. A return already set (hot aisle) is
+/// left alone.
+///
+/// Returns each stratified zone's rise [K] and cp [J/(kg·K)]. The zone balance
+/// debits outflow at the mean, so the caller takes back ṁ·cp·rise (#225). This
+/// is E+'s balance with the outflow at T_ret, and the energy the coils receive
+/// from the return then left the zone. The caller's iteration puts it in the zone
+/// load the controls see, which is what E+'s `LoadCorrectionFactor` approximates.
+fn add_stratified_returns(
+    return_temps: &mut HashMap<String, f64>,
+    zones: &[openbse_envelope::zone::ZoneState],
+    zone_temps: &HashMap<String, f64>,
+    zone_humidity_ratios: &HashMap<String, f64>,
+) -> HashMap<String, (f64, f64)> {
+    let mut rises = HashMap::new();
+    for z in zones.iter().filter(|z| z.input.room_air.is_some()) {
+        let name = &z.input.name;
+        let Some(&t_zone) = zone_temps.get(name) else {
+            continue;
+        };
+        if return_temps.contains_key(name) {
+            continue;
+        }
+        let rise = z.return_air_temp() - z.temp;
+        let w = zone_humidity_ratios.get(name).copied().unwrap_or(0.008);
+        return_temps.insert(name.clone(), t_zone + rise);
+        rises.insert(name.clone(), (rise, openbse_psychrometrics::cp_air_fn_w(w)));
+    }
+    rises
+}
+
 /// Add each zone's lighting return-air heat (#51) to the return air the air
 /// loops draw, as EnergyPlus's `CalcZoneLeavingConditions` does:
 /// T_return += Q / (ṁ_return·cp), over the flow the zone last returned to
@@ -3009,24 +3041,9 @@ fn main() -> Result<()> {
                             .collect();
 
                         // Return-air temperatures seen by the coils: contained hot
-                        // aisles for data-center zones and lighting return-air heat
-                        // (#51), both recomputed each HVAC iteration below, and, for
-                        // stratified zones (#91), the return-height temperature
-                        // (frozen for the timestep).
-                        let stratified_returns: Vec<(String, f64)> = env
-                            .zones
-                            .iter()
-                            .filter(|z| z.input.room_air.is_some())
-                            .map(|z| (z.input.name.clone(), z.return_air_temp()))
-                            .collect();
-                        let with_stratified = |dc: &HashMap<String, HotAisleReturn>| {
-                            let mut temps: HashMap<String, f64> =
-                                dc.iter().map(|(n, r)| (n.clone(), r.temp)).collect();
-                            for (name, t) in &stratified_returns {
-                                temps.entry(name.clone()).or_insert(*t);
-                            }
-                            temps
-                        };
+                        // aisles for data-center zones, stratified returns (#91,
+                        // #225) and lighting return-air heat (#51), all recomputed
+                        // each HVAC iteration below.
                         let mut dc_returns =
                             data_center_return_temps(env, &current_zone_temps, hour, dow);
                         let lighting_return_air = env.lighting_return_air_gains(&ctx);
@@ -3108,7 +3125,16 @@ fn main() -> Result<()> {
                                 dc_returns =
                                     data_center_return_temps(env, &current_zone_temps, hour, dow);
                             }
-                            let mut zone_return_temps = with_stratified(&dc_returns);
+                            let mut zone_return_temps: HashMap<String, f64> = dc_returns
+                                .iter()
+                                .map(|(n, r)| (n.clone(), r.temp))
+                                .collect();
+                            let stratified_rises = add_stratified_returns(
+                                &mut zone_return_temps,
+                                &env.zones,
+                                &current_zone_temps,
+                                &zone_humidity_ratios,
+                            );
                             let lighting_rises = add_lighting_return_heat(
                                 &mut zone_return_temps,
                                 &lighting_return_air,
@@ -3806,6 +3832,19 @@ fn main() -> Result<()> {
                             // (#51): the loops' coils and relief air took it.
                             for (zone_name, &(rise, cp)) in &lighting_rises {
                                 let m = zone_return_flows.get(zone_name).copied().unwrap_or(0.0);
+                                *hvac_conds
+                                    .other_sensible_gains
+                                    .entry(zone_name.clone())
+                                    .or_default() -= m * cp * rise;
+                            }
+                            // And what the air leaving a stratified zone carries
+                            // above the mean (#225), whichever system it leaves by:
+                            // unlike lighting heat this isn't limited to return ducts,
+                            // since every air-side unit draws at the return height.
+                            for (zone_name, &(rise, cp)) in &stratified_rises {
+                                let m = prev_supply_conditions
+                                    .get(zone_name)
+                                    .map_or(0.0, |&(_, m, _)| m);
                                 *hvac_conds
                                     .other_sensible_gains
                                     .entry(zone_name.clone())
@@ -7219,6 +7258,43 @@ mod tests {
         let (rise_hot, cp_hot) = rises["Hot"];
         assert!((returns["Hot"] - RETURN_AIR_TEMP_MAX).abs() < 1e-12);
         assert!(flows["Hot"] * cp_hot * rise_hot < 5000.0);
+    }
+
+    #[test]
+    fn test_stratified_return_debit_equals_the_heat_the_return_carries() {
+        // 3 m zone, 1.5 K/m, ceiling return: the coils see T_mean + 2.25 K.
+        let yaml = r#"
+name: z
+floor_area: 10.0
+volume: 30.0
+room_air:
+  gradient: 1.5
+"#;
+        let input: openbse_envelope::zone::ZoneInput = serde_yaml::from_str(yaml).unwrap();
+        let mut zone = openbse_envelope::zone::ZoneState::new(input, 21.0);
+        zone.temp = 21.0;
+        zone.current_gradient = 1.5;
+        let zones = vec![zone];
+        // The iteration's mean differs from the state still in the zone.
+        let zone_temps: HashMap<String, f64> = [("z".to_string(), 22.0)].into();
+        let w: HashMap<String, f64> = [("z".to_string(), 0.008)].into();
+
+        let mut returns = HashMap::new();
+        let rises = add_stratified_returns(&mut returns, &zones, &zone_temps, &w);
+        let (rise, cp) = rises["z"];
+        assert!((returns["z"] - 24.25).abs() < 1e-9, "{}", returns["z"]);
+
+        // Conservation: what the coils get above the iteration's mean is what
+        // the caller takes from the zone.
+        let m = 0.5;
+        let carried = m * cp * (returns["z"] - zone_temps["z"]);
+        assert!((m * cp * rise - carried).abs() < 1e-9);
+
+        // A hot-aisle return wins, and no debit is taken for it.
+        let mut returns: HashMap<String, f64> = [("z".to_string(), 35.0)].into();
+        let rises = add_stratified_returns(&mut returns, &zones, &zone_temps, &w);
+        assert_eq!(returns["z"], 35.0);
+        assert!(rises.is_empty());
     }
 
     #[test]
