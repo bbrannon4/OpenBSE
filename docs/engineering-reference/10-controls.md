@@ -224,15 +224,16 @@ mixer does.
 
 **Source:** `build_doas_signals`.
 
-A DOAS loop supplies 100% outdoor air at 30% of the served zones' design flow, with
-a 0.05 kg/s floor. Its heating coil aims at the highest heating setpoint plus 2 K,
-and its cooling coil at the lowest cooling setpoint minus 2 K (at least 14 °C), each
-only if the outdoor air needs it.
+A DOAS loop always runs, supplying 100% outdoor air at its fan's design flow. An
+autosized fan takes the sum of the served zones' `outdoor_air` requirements, and a
+DOAS loop with neither is a severe error. The zones share the air in proportion to
+their requirements. The heating coil aims at the loop's `heating_supply_temp`, and
+the cooling coil at its `cooling_supply_temp`, each only if the outdoor air needs it.
 
 **Comparison with EnergyPlus.** An EnergyPlus DOAS takes its flow from the zones'
-`DesignSpecification:OutdoorAir` and its temperatures from setpoint managers. In
-OpenBSE, neither the zones' outdoor air nor the loop's supply temperatures are read
-([#256](https://github.com/bbrannon4/OpenBSE/issues/256)).
+`DesignSpecification:OutdoorAir` and its temperatures from setpoint managers, as
+here. The loop's supply-temperature controls have no DOAS-specific defaults, so a
+DOAS should state both; otherwise it heats to the general 35 °C default.
 
 ## Other systems {#sec-other-systems}
 
@@ -269,8 +270,7 @@ air's capacitance rate
 
 - [#255](https://github.com/bbrannon4/OpenBSE/issues/255): no night cycle;
   unoccupied setpoints unused.
-- [#256](https://github.com/bbrannon4/OpenBSE/issues/256): DOAS flow and
-  temperatures; VAV hard-coded limits and clamp panic; demand reset per iteration;
+- [#256](https://github.com/bbrannon4/OpenBSE/issues/256): VAV hard-coded limits and clamp panic; demand reset per iteration;
   cycling runtime floor; multi-zone PSZ.
 - [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no daylight saving or
   start day of week.

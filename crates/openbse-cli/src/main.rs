@@ -450,6 +450,16 @@ fn build_loop_infos(
             }
 
             let cooling_sat_reset = default_single_zone_reset(al, &system_type);
+            let system_type_is_doas = system_type == AirLoopSystemType::Doas;
+            let zone_outdoor_air: HashMap<String, f64> = al
+                .zone_terminals
+                .iter()
+                .filter_map(|zc| {
+                    let zone = resolved_zones.iter().find(|z| z.name == zc.zone)?;
+                    let v_oa = zone.design_outdoor_air_flow()?;
+                    Some((zc.zone.clone(), v_oa * std_air_density))
+                })
+                .collect();
             LoopInfo {
                 name: al.name.clone(),
                 system_type,
@@ -538,7 +548,13 @@ fn build_loop_infos(
                             None
                         }
                     })
-                    .unwrap_or(1.0),
+                    // A DOAS autosizes to its zones' outdoor air, known before sizing.
+                    .unwrap_or(if system_type_is_doas {
+                        zone_outdoor_air.values().sum::<f64>() / std_air_density
+                    } else {
+                        1.0
+                    }),
+                zone_outdoor_air,
                 supply_fan_dt: al
                     .equipment
                     .iter()
@@ -976,6 +992,20 @@ fn main() -> Result<()> {
             .map(|env| env.zones.iter().map(|z| z.input.clone()).collect())
             .unwrap_or_else(|| model.zones.clone());
         let mut loop_infos = build_loop_infos(&model, &resolved_zones_for_oa);
+        let unsized_doas: Vec<String> = loop_infos
+            .iter()
+            .filter(|li| li.system_type == AirLoopSystemType::Doas && li.design_supply_flow <= 0.0)
+            .map(|li| {
+                format!(
+                    "DOAS loop '{}' has no flow: give its fan a design_flow_rate, or its zones \
+                     outdoor_air requirements",
+                    li.name
+                )
+            })
+            .collect();
+        if !unsized_doas.is_empty() {
+            return Err(stop_on_severe(&mut validation, &err_path, unsized_doas));
+        }
 
         // For CRAC/CRAH loops serving a DC zone: override cooling_supply_temp
         // from the zone's rack_inlet_temp_max (ASHRAE A-class inlet limit).
@@ -1711,7 +1741,7 @@ fn main() -> Result<()> {
                 //
                 // Sizing is loop-aware:
                 //   - PSZ-AC / VAV loops: use system-wide capacities and total airflow
-                //   - DOAS loops: use a fraction of total OA flow (30% of zone design flows)
+                //   - DOAS loops: use the zones' total outdoor-air flow
                 //   - FCU loops: use the served zone's design airflow and peak zone load
                 //
                 // This ensures each loop's components are sized for their actual duty,
@@ -1802,25 +1832,14 @@ fn main() -> Result<()> {
                         }
                         AirLoopSystemType::Doas => {
                             // DOAS sizing: coils are sized to pre-condition 100% OA from
-                            // design outdoor conditions to fixed supply setpoints.
+                            // design outdoor conditions to the loop's supply temperatures.
                             //
                             // Heating: Q = m_oa * cp * (T_supply_heat - T_outdoor_heat_design)
                             // Cooling: Q = m_oa * cp * (T_outdoor_cool_design - T_supply_cool)
                             //
                             // Design outdoor temps from the coldest/hottest design days.
-                            let zone_airflow: f64 = li
-                                .served_zones
-                                .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_design_airflow
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.1)
-                                })
-                                .sum();
-                            let oa_flow_kg = zone_airflow * 0.30;
-                            let oa_flow_m3 = oa_flow_kg / air_density;
+                            let oa_flow_m3 = li.design_supply_flow;
+                            let oa_flow_kg = oa_flow_m3 * air_density;
 
                             // Find design outdoor temps from design days
                             let t_outdoor_heat_design = model
@@ -1853,9 +1872,8 @@ fn main() -> Result<()> {
                                 35.0
                             };
 
-                            // DOAS supply setpoints (default: heat to 20°C, cool to 18°C)
-                            let t_supply_heat = 20.0_f64;
-                            let t_supply_cool = 18.0_f64;
+                            let t_supply_heat = li.heating_supply_temp;
+                            let t_supply_cool = li.cooling_supply_temp;
 
                             let cp_air = 1005.0_f64;
                             let doas_heat_cap =
@@ -6505,8 +6523,11 @@ fn simulate_all_loops(
                             (effective_flow / n, effective_supply_temp)
                         }
                         AirLoopSystemType::Doas => {
-                            let n = li.served_zones.len().max(1) as f64;
-                            (effective_flow / n, effective_supply_temp)
+                            let flow =
+                                signals.zone_air_flows.get(zone_name).copied().unwrap_or(
+                                    effective_flow / li.served_zones.len().max(1) as f64,
+                                );
+                            (flow, effective_supply_temp)
                         }
                         AirLoopSystemType::Fcu
                         | AirLoopSystemType::Ptac
@@ -7291,6 +7312,7 @@ room_air:
             heating_sat_reset: None,
             zone_oa_data: vec![],
             design_supply_flow: 0.3,
+            zone_outdoor_air: HashMap::new(),
             economizer_type: openbse_io::input::EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
@@ -7333,6 +7355,7 @@ room_air:
             heating_sat_reset: None,
             zone_oa_data: vec![],
             design_supply_flow: 0.5,
+            zone_outdoor_air: HashMap::new(),
             economizer_type: econ_type,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,

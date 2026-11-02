@@ -282,7 +282,7 @@ served zones' peak loads.
 | VAV, dual-duct | @eq-multizone-flow | $\Sigma Q_h$ | $\Sigma Q_c$ |
 | CRAC, CRAH | $\sum\dot m_\text{des}$ | none | $\Sigma Q_c$ |
 | FCU, PTAC, PTHP | $\sum\dot m_\text{des}$ | $\max(\Sigma Q_h,\ Q_{m,h})$ | $\max(\Sigma Q_c,\ Q_{m,c})$ |
-| DOAS | $0.3\sum\dot m_\text{des}$ | $\dot m c_p(20 - T_{o,h})$ | $\dot m c_p(T_{o,c} - 18)$ |
+| DOAS | $\sum\dot m_{oa}$ | $\dot m c_p(T_{s,h} - T_{o,h})$ | $\dot m c_p(T_{o,c} - T_{s,c})$ |
 
 Here:
 
@@ -293,7 +293,7 @@ Here:
   $Q_{m,c} = \dot m c_p(T_{m,c} - T_{s,c})$, with the mixed-air temperature
   $T_m = (1 - x_\text{oa})T_z + x_\text{oa}T_o$ and $T_z$ fixed at 21 °C for
   heating and 24 °C for cooling;
-- for DOAS, $\dot m$ is the outdoor-air flow, $0.3\sum\dot m_\text{des}$;
+- for DOAS, $\dot m$ is the zones' total outdoor-air flow, or the fan's if hard-sized;
 - $T_{o,h}$ is the coldest heating design temperature (−20 °C if there is
   none), and $T_{o,c}$ the hottest cooling design temperature (35 °C if
   there is none).
@@ -327,8 +327,7 @@ are total capacities
 ([#229](https://github.com/bbrannon4/OpenBSE/issues/229)). Other
 differences:
 
-- **FCU and DOAS.** The hard-coded zone and supply temperatures and the DOAS
-  outdoor-air fraction of 0.3 are not in EnergyPlus
+- **FCU.** The hard-coded zone temperatures are not in EnergyPlus
   ([#229](https://github.com/bbrannon4/OpenBSE/issues/229)).
 - **VRF airflow.** EnergyPlus sizes VRF terminal airflow from the zone
   design flow ([#232](https://github.com/bbrannon4/OpenBSE/issues/232)).
@@ -416,7 +415,7 @@ flows are both per zone instance, so no multiplier is needed in the ratio.
   humidity, temperature profile and sky model.
 - [#229](https://github.com/bbrannon4/OpenBSE/issues/229): central coils
   sized from summed zone sensible peaks, without outdoor-air, latent or fan
-  loads; hard-coded temperatures in FCU and DOAS sizing.
+  loads; hard-coded zone temperatures in FCU sizing.
 - [#230](https://github.com/bbrannon4/OpenBSE/issues/230): pumps sized from
   the coincident zone peak, not the loop design flow.
 - [#280](https://github.com/bbrannon4/OpenBSE/issues/280): a loop can't serve
