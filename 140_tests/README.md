@@ -15,12 +15,12 @@
 
 Section 7 in detail:
 
-- **600 series (low-mass):** 21/22 pass. Case 660 annual heating is about 20 kWh below range since windows' share of radiant gains was fixed (#148).
+- **600 series (low-mass):** 21/22 pass. Case 660 annual heating is about 12 kWh below range since windows' share of radiant gains was fixed (#148).
 - **900 series (high-mass):** 20/20 pass
 - **Free-float temperatures:** 18/18 pass (all 6 cases)
 - **960 Sun Zone temperatures:** 3/3 pass
 
-The one miss is CE540 annual condenser-fan energy. It is listed, with the reason, under `KNOWN_FAILURES` in `scripts/build_140_csv.py`.
+Two more misses: CE540 annual condenser-fan energy, and CE195 February sensible coil load, 0.03 kWh below range (#295). They are listed, with the reasons, under `KNOWN_FAILURES` in `scripts/build_140_csv.py`.
 
 `scripts/build_140_csv.py` writes the complete pass/fail matrix to `scripts/FULL_140_RESULTS.csv`. CI runs every case and this gate on each commit. The copy committed at `results/FULL_140_RESULTS.csv` is a snapshot taken with the v0.7.0 portal submission.
 

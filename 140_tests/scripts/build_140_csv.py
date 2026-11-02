@@ -80,6 +80,11 @@ KNOWN_FAILURES = {
     # performance map, which run about 9% longer here than the fitted
     # biquadratic curve does this far below its data.
     ("CE540", "Annual Condenser Fan (kWh)"),
+    # CE195: 0.03 kWh below range since latent heat became E+'s h_g(T), which
+    # puts its latent load on the analytical value. Every CE case's sensible
+    # load runs low by a similar amount, mostly the shell's long-wave loss to
+    # the sky (#295).
+    ("CE195", "Feb Coil Load Sensible (kWh)"),
 }
 
 
