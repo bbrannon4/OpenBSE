@@ -3639,7 +3639,7 @@ surfaces:
   zone: Core_top
   type: wall
   construction: int_wall
-  boundary: !zone 'Perimeter_bot_ZN_1'
+  boundary: !zone 'Perimeter_top_ZN_1'
   sun_exposure: false
   wind_exposure: false
   vertices:
@@ -3659,7 +3659,7 @@ surfaces:
   zone: Core_top
   type: wall
   construction: int_wall
-  boundary: !zone 'Perimeter_top_ZN_4'
+  boundary: !zone 'DataCenter_top_ZN_6'
   sun_exposure: false
   wind_exposure: false
   vertices:

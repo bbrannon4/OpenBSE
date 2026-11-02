@@ -330,10 +330,11 @@ $4\sigma\varepsilon F\bar T^3$ is used instead.
   tilt 90°.
 - **Interzone:** $T_\text{so}$ is the inside face temperature of the paired
   surface in the adjacent zone, updated as soon as that surface is solved.
-  Surfaces are paired by zone name only, so zones that share more than one
-  surface get mismatched pairs
-  ([#207](https://github.com/bbrannon4/OpenBSE/issues/207)). A surface that
-  names its own zone is adiabatic.
+  Surfaces pair one-to-one: by an explicit `adjacent_surface`, else by
+  coincident vertices, else by equal area (within 2%) and opposite orientation.
+  A surface with no partner, two surfaces claiming one partner, a tie between
+  different constructions, or paired faces whose areas differ by more than 2%
+  is a severe error. A surface that names its own zone is adiabatic.
 
 **Comparison with EnergyPlus.** @eq-outside-temp, @eq-ext-hrad, the
 sky–air split and the ground at air temperature match
@@ -346,8 +347,11 @@ sky–air split and the ground at air temperature match
   does not ([#209](https://github.com/bbrannon4/OpenBSE/issues/209)).
 - **No surrounding-surface or ground-temperature inputs** for long-wave
   exchange.
-- **Interzone pairing.** EnergyPlus pairs interzone surfaces one-to-one by
-  name.
+- **Interzone pairing.** EnergyPlus pairs interzone surfaces by name or by
+  generating the reverse surface. OpenBSE also pairs them by geometry, so the
+  name is optional. EnergyPlus only warns about areas that differ by more than
+  2%; OpenBSE rejects them, since that heat can't be conserved. Both warn when
+  the two constructions aren't mirror images.
 
 ### Inside face {#sec-inside-face}
 
@@ -484,8 +488,6 @@ available.
 
 ## Known limitations: surface heat balances {#sec-surface-hb-limitations}
 
-- [#207](https://github.com/bbrannon4/OpenBSE/issues/207): interzone
-  surfaces are paired by zone name only.
 - [#208](https://github.com/bbrannon4/OpenBSE/issues/208): window inside
   convection uses the glazing-cavity correlation.
 - [#209](https://github.com/bbrannon4/OpenBSE/issues/209): five fixed

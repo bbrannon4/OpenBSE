@@ -66,6 +66,12 @@ pub struct SurfaceInput {
     /// Boundary condition
     #[serde(default)]
     pub boundary: BoundaryCondition,
+    /// Name of the opposite face of an interzone surface (E+ `Outside Boundary
+    /// Condition Object`). Optional: surfaces are otherwise paired by coincident
+    /// vertices, then by matching area and orientation. Needed only when that
+    /// can't tell two surfaces apart (see [`pair_interzone_surfaces`]).
+    #[serde(default)]
+    pub adjacent_surface: Option<String>,
     /// Parent surface name (for windows)
     #[serde(default)]
     pub parent_surface: Option<String>,
@@ -134,6 +140,233 @@ impl SurfaceInput {
             }
         }
     }
+}
+
+/// Two faces of an interzone pair may differ in area by this fraction. Above
+/// it the heat one zone loses can't equal what the other gains. Same limit as
+/// E+'s "InterZone Surface Areas do not match" (`SurfaceGeometry.cc`).
+const INTERZONE_AREA_TOL: f64 = 0.02;
+/// Vertices of the two faces coincide within this distance [m].
+const INTERZONE_VERTEX_TOL: f64 = 0.01;
+/// Faces of a pair point opposite ways within this angle [degrees] when
+/// their geometry has to be matched by area and orientation.
+const INTERZONE_ANGLE_TOL: f64 = 5.0;
+
+/// One-to-one pairing of interzone surfaces, with what stopped any surface
+/// from pairing.
+#[derive(Debug, Clone, Default)]
+pub struct InterzonePairing {
+    /// `pairs[i] = Some(j)`: surfaces i and j are the two faces of one element.
+    /// `None` for non-interzone and self-referencing surfaces.
+    pub pairs: Vec<Option<usize>>,
+    /// Surfaces that can't be paired, and pairs that can't conserve energy.
+    pub errors: Vec<String>,
+}
+
+/// Gross area [m²]: from the vertices when given (the input `area` is then
+/// overwritten by [`SurfaceInput::resolve_geometry`]), else the input value.
+fn surface_gross_area(s: &SurfaceInput) -> f64 {
+    match &s.vertices {
+        Some(v) if v.len() >= 3 => geometry::newell_normal(v).magnitude() / 2.0,
+        _ => s.area,
+    }
+}
+
+/// Azimuth and tilt [degrees], from the vertices when given.
+fn surface_orientation(s: &SurfaceInput) -> (f64, f64) {
+    match &s.vertices {
+        Some(v) if v.len() >= 3 => {
+            let n = geometry::newell_normal(v);
+            (
+                geometry::azimuth_from_normal(&n),
+                geometry::tilt_from_normal(&n),
+            )
+        }
+        _ => (s.azimuth, s.tilt),
+    }
+}
+
+/// Angle [degrees] by which two surfaces fail to face opposite ways. Azimuth
+/// counts only for non-horizontal surfaces, where it means something.
+fn opposite_facing_error(a: &SurfaceInput, b: &SurfaceInput) -> f64 {
+    let (az_a, tilt_a) = surface_orientation(a);
+    let (az_b, tilt_b) = surface_orientation(b);
+    let tilt_err = ((tilt_a + tilt_b) - 180.0).abs();
+    let flat = |t: f64| t < INTERZONE_ANGLE_TOL || t > 180.0 - INTERZONE_ANGLE_TOL;
+    if flat(tilt_a) || flat(tilt_b) {
+        return tilt_err;
+    }
+    let d = (az_a - az_b).rem_euclid(360.0);
+    tilt_err.max((d - 180.0).abs())
+}
+
+/// True when both surfaces have the same vertices, in any order.
+fn vertices_coincide(a: &SurfaceInput, b: &SurfaceInput) -> bool {
+    let (Some(va), Some(vb)) = (&a.vertices, &b.vertices) else {
+        return false;
+    };
+    va.len() == vb.len()
+        && va.iter().all(|p| {
+            vb.iter().any(|q| {
+                let (dx, dy, dz) = (p.x - q.x, p.y - q.y, p.z - q.z);
+                (dx * dx + dy * dy + dz * dz).sqrt() < INTERZONE_VERTEX_TOL
+            })
+        })
+}
+
+/// Pairs interzone surfaces one-to-one, so each face's outside temperature is
+/// the inside temperature of the same physical element.
+///
+/// E+ names the partner in every `BuildingSurface:Detailed` (`Outside Boundary
+/// Condition Object`), or generates the reversed surface itself; it rejects a
+/// surface whose partner doesn't point back (`SurfaceGeometry.cc`). Here the
+/// partner comes, in order, from:
+/// 1. an explicit `adjacent_surface`;
+/// 2. coincident vertices;
+/// 3. equal area and opposite orientation, for surfaces without vertices.
+///
+/// Whatever can't be paired is an error, never a nearest guess: a surface with
+/// no partner would exchange heat with a zone that doesn't receive it. A
+/// surface facing its own zone stays unpaired, and its two faces see each other
+/// (E+ self-referencing surface), unless it names a partner.
+pub fn pair_interzone_surfaces(surfaces: &[SurfaceInput]) -> InterzonePairing {
+    let n = surfaces.len();
+    let mut pairs: Vec<Option<usize>> = vec![None; n];
+    let mut errors = Vec::new();
+    let facing = |s: &SurfaceInput| match &s.boundary {
+        BoundaryCondition::Zone(z) => Some(z.clone()),
+        _ => None,
+    };
+
+    for i in 0..n {
+        let Some(name) = &surfaces[i].adjacent_surface else {
+            continue;
+        };
+        let Some(other_zone) = facing(&surfaces[i]) else {
+            errors.push(format!(
+                "Surface '{}' names adjacent_surface '{name}' but its boundary is not a zone",
+                surfaces[i].name
+            ));
+            continue;
+        };
+        let Some(j) = surfaces.iter().position(|s| s.name == *name) else {
+            errors.push(format!(
+                "Surface '{}': adjacent_surface '{name}' does not exist",
+                surfaces[i].name
+            ));
+            continue;
+        };
+        let back_ok = surfaces[j]
+            .adjacent_surface
+            .as_ref()
+            .is_none_or(|back| *back == surfaces[i].name);
+        if j == i
+            || surfaces[j].zone != other_zone
+            || facing(&surfaces[j]).as_ref() != Some(&surfaces[i].zone)
+            || !back_ok
+        {
+            errors.push(format!(
+                "Surface '{}' (zone '{}', facing '{other_zone}'): adjacent_surface '{name}' \
+                 is in zone '{}' and doesn't point back",
+                surfaces[i].name, surfaces[i].zone, surfaces[j].zone
+            ));
+            continue;
+        }
+        if pairs[j].is_some_and(|k| k != i) {
+            errors.push(format!(
+                "Surface '{}' is named as adjacent_surface by more than one surface",
+                surfaces[j].name
+            ));
+            continue;
+        }
+        pairs[i] = Some(j);
+        pairs[j] = Some(i);
+    }
+
+    let unmatched = |pairs: &[Option<usize>], i: usize, j: usize| {
+        i != j
+            && pairs[j].is_none()
+            && surfaces[j].adjacent_surface.is_none()
+            && surfaces[j].zone == facing(&surfaces[i]).unwrap_or_default()
+            && facing(&surfaces[j]).as_ref() == Some(&surfaces[i].zone)
+    };
+    let needs_partner = |pairs: &[Option<usize>], i: usize| {
+        pairs[i].is_none()
+            && surfaces[i].adjacent_surface.is_none()
+            && facing(&surfaces[i]).is_some_and(|z| z != surfaces[i].zone)
+    };
+
+    for i in 0..n {
+        if !needs_partner(&pairs, i) {
+            continue;
+        }
+        if let Some(j) = (0..n)
+            .find(|&j| unmatched(&pairs, i, j) && vertices_coincide(&surfaces[i], &surfaces[j]))
+        {
+            pairs[i] = Some(j);
+            pairs[j] = Some(i);
+        }
+    }
+
+    // Area and orientation can leave a tie only between surfaces alike in both,
+    // so it needs naming only if they differ in construction.
+    for i in 0..n {
+        if !needs_partner(&pairs, i) {
+            continue;
+        }
+        let area_i = surface_gross_area(&surfaces[i]);
+        let candidates: Vec<usize> = (0..n)
+            .filter(|&j| {
+                unmatched(&pairs, i, j)
+                    && (surface_gross_area(&surfaces[j]) - area_i).abs()
+                        <= INTERZONE_AREA_TOL * area_i
+                    && opposite_facing_error(&surfaces[i], &surfaces[j]) <= INTERZONE_ANGLE_TOL
+            })
+            .collect();
+        let Some(&j) = candidates.first() else {
+            errors.push(format!(
+                "Interzone surface '{}' (zone '{}', {area_i:.2} m²) has no matching surface in \
+                 zone '{}' that points back with the same area and opposite orientation; check \
+                 the boundary zones and geometry, or name the partner with adjacent_surface",
+                surfaces[i].name,
+                surfaces[i].zone,
+                facing(&surfaces[i]).unwrap_or_default(),
+            ));
+            continue;
+        };
+        if candidates
+            .iter()
+            .any(|&k| surfaces[k].construction != surfaces[j].construction)
+        {
+            errors.push(format!(
+                "Interzone surface '{}' (zone '{}') has more than one possible partner with \
+                 different constructions; name it with adjacent_surface",
+                surfaces[i].name, surfaces[i].zone
+            ));
+            continue;
+        }
+        pairs[i] = Some(j);
+        pairs[j] = Some(i);
+    }
+
+    for i in 0..n {
+        let Some(j) = pairs[i] else { continue };
+        if i < j {
+            let (a, b) = (
+                surface_gross_area(&surfaces[i]),
+                surface_gross_area(&surfaces[j]),
+            );
+            if (a - b).abs() > INTERZONE_AREA_TOL * a.max(b) {
+                errors.push(format!(
+                    "Interzone surfaces '{}' ({a:.2} m²) and '{}' ({b:.2} m²) are paired but \
+                     their areas differ, so the heat one zone loses can't equal what the other \
+                     gains",
+                    surfaces[i].name, surfaces[j].name
+                ));
+            }
+        }
+    }
+    InterzonePairing { pairs, errors }
 }
 
 /// Why [`orient_surfaces`] reversed a surface's vertex order.
@@ -465,6 +698,122 @@ pub struct SurfaceState {
 
 #[cfg(test)]
 mod tests {
+    fn iz(
+        name: &str,
+        zone: &str,
+        other: &str,
+        area: f64,
+        azimuth: f64,
+        cons: &str,
+    ) -> SurfaceInput {
+        SurfaceInput {
+            name: name.into(),
+            zone: zone.into(),
+            surface_type: SurfaceType::Wall,
+            construction: cons.into(),
+            area,
+            azimuth,
+            tilt: 90.0,
+            boundary: BoundaryCondition::Zone(other.into()),
+            adjacent_surface: None,
+            parent_surface: None,
+            vertices: None,
+            shading: None,
+            sun_exposure: false,
+            wind_exposure: false,
+            exposed_perimeter: None,
+            height: None,
+            width: None,
+            airflow: None,
+        }
+    }
+
+    #[test]
+    fn wall_and_door_between_two_zones_pair_with_their_own_partners() {
+        // SingleFamily's garage: every surface used to pair with the first
+        // match, so each door's outside face saw the other zone's wall.
+        let surfaces = vec![
+            iz("wall a", "a", "b", 13.84, 180.0, "w"),
+            iz("door a", "a", "b", 1.95, 180.0, "d"),
+            iz("door b", "b", "a", 1.95, 0.0, "d"),
+            iz("wall b", "b", "a", 13.84, 0.0, "w"),
+        ];
+        let p = pair_interzone_surfaces(&surfaces);
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+        assert_eq!(p.pairs, vec![Some(3), Some(2), Some(1), Some(0)]);
+    }
+
+    #[test]
+    fn coincident_vertices_decide_between_equal_areas() {
+        let pts = |v: &[(f64, f64)]| {
+            v.iter()
+                .flat_map(|&(x, y)| [(x, y, 0.0), (x, y, 3.0)])
+                .map(|(x, y, z)| Point3D { x, y, z })
+                .collect::<Vec<_>>()
+        };
+        let mut a1 = iz("a1", "a", "b", 0.0, 0.0, "w");
+        let mut a2 = iz("a2", "a", "b", 0.0, 0.0, "w");
+        let mut b1 = iz("b1", "b", "a", 0.0, 0.0, "w");
+        let mut b2 = iz("b2", "b", "a", 0.0, 0.0, "w");
+        a1.vertices = Some(pts(&[(0.0, 0.0), (4.0, 0.0)]));
+        a2.vertices = Some(pts(&[(8.0, 0.0), (12.0, 0.0)]));
+        b1.vertices = Some(pts(&[(12.0, 0.0), (8.0, 0.0)]));
+        b2.vertices = Some(pts(&[(4.0, 0.0), (0.0, 0.0)]));
+        let p = pair_interzone_surfaces(&[a1, a2, b1, b2]);
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+        assert_eq!(p.pairs, vec![Some(3), Some(2), Some(1), Some(0)]);
+    }
+
+    #[test]
+    fn surface_without_a_partner_is_an_error() {
+        // A wall pointing at the wrong zone (found in LargeOffice) and two
+        // walls claiming one partner (found in doe_retail_standalone).
+        let p = pair_interzone_surfaces(&[iz("x", "a", "b", 10.0, 0.0, "w")]);
+        assert_eq!(p.errors.len(), 1);
+        let p = pair_interzone_surfaces(&[
+            iz("x1", "a", "b", 10.0, 180.0, "w"),
+            iz("x2", "a", "b", 10.0, 180.0, "w"),
+            iz("y", "b", "a", 10.0, 0.0, "w"),
+        ]);
+        assert_eq!(p.errors.len(), 1, "{:?}", p.errors);
+        assert_eq!(p.pairs[2], Some(0));
+    }
+
+    #[test]
+    fn paired_faces_of_different_areas_are_an_error() {
+        let mut a = iz("a", "a", "b", 10.0, 0.0, "w");
+        a.adjacent_surface = Some("b".into());
+        let p = pair_interzone_surfaces(&[a, iz("b", "b", "a", 20.0, 180.0, "w")]);
+        assert_eq!(p.errors.len(), 1, "{:?}", p.errors);
+    }
+
+    #[test]
+    fn explicit_partner_settles_a_tie_between_different_constructions() {
+        let surfaces = vec![
+            iz("a1", "a", "b", 10.0, 180.0, "w1"),
+            iz("a2", "a", "b", 10.0, 180.0, "w2"),
+            iz("b1", "b", "a", 10.0, 0.0, "w1"),
+            iz("b2", "b", "a", 10.0, 0.0, "w2"),
+        ];
+        assert!(!pair_interzone_surfaces(&surfaces).errors.is_empty());
+        let mut named = surfaces;
+        named[0].adjacent_surface = Some("b1".into());
+        named[1].adjacent_surface = Some("b2".into());
+        let p = pair_interzone_surfaces(&named);
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+        assert_eq!(p.pairs, vec![Some(2), Some(3), Some(0), Some(1)]);
+    }
+
+    #[test]
+    fn self_referencing_surfaces_stay_unpaired() {
+        let p = pair_interzone_surfaces(&[
+            iz("f", "a", "a", 10.0, 0.0, "w"),
+            iz("c", "a", "a", 10.0, 180.0, "w"),
+        ]);
+        assert!(p.errors.is_empty());
+        assert_eq!(p.pairs, vec![None, None]);
+    }
+
     use super::*;
 
     type V = (f64, f64, f64);

@@ -5117,6 +5117,46 @@ fn validate_materials(model: &ModelInput, result: &mut ValidationResult) {
     }
 }
 
+/// Interzone surfaces must pair one-to-one (#207). Also warns, as E+ does
+/// (`SurfaceGeometry.cc`), when the two faces' layers aren't mirror images:
+/// the wall is then a different element seen from each side.
+fn validate_interzone_surfaces(model: &ModelInput, result: &mut ValidationResult) {
+    let pairing = openbse_envelope::surface::pair_interzone_surfaces(&model.surfaces);
+    for msg in pairing.errors {
+        result.severe(msg);
+    }
+    let layers = |name: &str| {
+        model
+            .constructions
+            .iter()
+            .find(|c| c.name == name)
+            .map(|c| c.layers.as_slice())
+    };
+    for (i, pair) in pairing.pairs.iter().enumerate() {
+        let Some(j) = *pair else { continue };
+        if i > j {
+            continue;
+        }
+        let (a, b) = (&model.surfaces[i], &model.surfaces[j]);
+        let mirrored = match (layers(&a.construction), layers(&b.construction)) {
+            (Some(x), Some(y)) => {
+                x.len() == y.len()
+                    && x.iter()
+                        .zip(y.iter().rev())
+                        .all(|(p, q)| p.material == q.material)
+            }
+            _ => a.construction == b.construction,
+        };
+        if !mirrored {
+            result.warn(format!(
+                "Interzone surfaces '{}' and '{}': constructions '{}' and '{}' are not mirror \
+                 images, so the two faces describe different walls",
+                a.name, b.name, a.construction, b.construction
+            ));
+        }
+    }
+}
+
 pub fn validate_model(model: &ModelInput) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -5168,6 +5208,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     };
 
     validate_schedules(model, &schedule_names, &builtin_schedules, &mut result);
+    validate_interzone_surfaces(model, &mut result);
 
     // ── Validate people ────────────────────────────────────────────────────
 
