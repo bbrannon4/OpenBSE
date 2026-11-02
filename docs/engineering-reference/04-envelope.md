@@ -907,10 +907,11 @@ differences ([#68](https://github.com/bbrannon4/OpenBSE/issues/68)):
 `generate_overhang_vertices`, `generate_fin_vertices`);
 `heat_balance.rs::precompute_solar`, `compute_diffuse_shading_ratios`, step 5a.
 
-With `simulation.shading_calculation: basic` (the default), every outdoor
-surface is fully sunlit and no diffuse is shaded. The model's overhangs,
-fins, shading surfaces and the building's own surfaces are then ignored
-([#216](https://github.com/bbrannon4/OpenBSE/issues/216)). With `detailed`:
+`simulation.shading_calculation` defaults to `detailed`, as EnergyPlus always
+computes shadows (below). The explicit opt-out, `basic`, makes every outdoor
+surface fully sunlit with no diffuse shaded, and warns if the model has
+overhangs, fins or shading surfaces. A surface without vertices has no shape
+to shade, so it stays fully sunlit and casts nothing. In `detailed`:
 
 **Casters** are:
 
@@ -965,8 +966,6 @@ ratio follows `SkyDifSolarShading`.
 
 The differences:
 
-- **Default.** Shading is off by default; EnergyPlus always computes it
-  ([#216](https://github.com/bbrannon4/OpenBSE/issues/216)).
 - **Transmittance.** Semi-transparent casters are ignored for beam and
   opaque for diffuse ([#217](https://github.com/bbrannon4/OpenBSE/issues/217)).
 - **Windows.** The window floor and unshaded horizon
@@ -979,8 +978,6 @@ The differences:
 - [#68](https://github.com/bbrannon4/OpenBSE/issues/68): multi-caster point
   sampling; window diffuse ratio floor and unshaded horizon; interior
   distribution fallbacks and projection limits.
-- [#216](https://github.com/bbrannon4/OpenBSE/issues/216): external shading
-  off by default; shading geometry silently ignored.
 - [#217](https://github.com/bbrannon4/OpenBSE/issues/217): semi-transparent
   casters.
 

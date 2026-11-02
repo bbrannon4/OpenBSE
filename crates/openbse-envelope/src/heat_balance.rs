@@ -1673,7 +1673,7 @@ impl BuildingEnvelope {
             leap_year: false,
             dt: 3600.0,
             initialized: false,
-            shading_calculation: shading::ShadingCalculation::Basic,
+            shading_calculation: shading::ShadingCalculation::default(),
             shading_polygons: Vec::new(),
             terrain: convection::Terrain::default(),
             elevation,
@@ -2812,9 +2812,9 @@ impl EnvelopeSolver for BuildingEnvelope {
         //
         // When shading_calculation == Detailed, compute sunlit fractions for all
         // outdoor surfaces using the Sutherland-Hodgman polygon clipping algorithm.
-        // The sunlit fraction reduces the beam (direct) component only; diffuse
-        // radiation is unaffected. When shading_calculation == Basic (default),
-        // all surfaces are treated as fully sunlit (sunlit_fraction = 1.0).
+        // The sunlit fraction reduces the beam (direct) component; diffuse has
+        // its own shading ratios. When shading_calculation == Basic, all surfaces
+        // are treated as fully sunlit (sunlit_fraction = 1.0).
 
         // 5a. Sunlit fractions: use precomputed cache if available, else compute inline
         let sunlit_fractions: Vec<f64> = if let Some(ref cache) = self.solar_cache {
