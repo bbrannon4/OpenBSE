@@ -198,8 +198,10 @@ pub enum FinSide {
 /// direction, clips the shadows against the receiving polygon using
 /// Sutherland-Hodgman, and computes the fraction that remains sunlit.
 ///
-/// Only the beam (direct) solar component should be multiplied by this fraction.
-/// Diffuse radiation is unaffected.
+/// Only the beam (direct) solar component should be multiplied by this fraction;
+/// diffuse has its own ratios below. A semi-transparent caster passes its
+/// transmittance, so a point behind several passes their product, as E+'s
+/// shadow overlaps (`SHDGSS`).
 ///
 /// # Arguments
 /// * `recv_verts` — Vertices of the receiving surface (3D, ≥3 points)
@@ -301,13 +303,14 @@ pub fn calculate_sunlit_fraction(
         return 1.0;
     }
 
-    // For single opaque caster, use exact polygon area (no overlap possible)
-    if projected_casters_2d.len() == 1 && projected_casters_2d[0].1 == 0.0 {
-        let shadow_area = polygon_area_2d(&projected_casters_2d[0].0);
-        return (1.0 - shadow_area / recv_area).clamp(0.0, 1.0);
+    // For a single caster, use exact polygon area (no overlap possible)
+    if projected_casters_2d.len() == 1 {
+        let (shadow, transmittance) = &projected_casters_2d[0];
+        let shadow_area = polygon_area_2d(shadow);
+        return (1.0 - (1.0 - transmittance) * shadow_area / recv_area).clamp(0.0, 1.0);
     }
 
-    // Multiple casters or semi-transparent: use point sampling
+    // Multiple casters: use point sampling
     // 8×8 grid is accurate (verified: 32×32 gives same results within 7 kWh)
     const N_SAMPLES: usize = 8;
     let mut u_min = f64::MAX;
@@ -322,7 +325,7 @@ pub fn calculate_sunlit_fraction(
     }
 
     let mut n_total = 0u32;
-    let mut n_sunlit = 0u32;
+    let mut sunlit = 0.0_f64;
     for iu in 0..N_SAMPLES {
         let u_frac = (iu as f64 + 0.5) / N_SAMPLES as f64;
         let u_val = u_min + u_frac * (u_max - u_min);
@@ -334,13 +337,12 @@ pub fn calculate_sunlit_fraction(
                 continue;
             }
             n_total += 1;
-            // Check if ANY caster's projected shadow covers this point
-            let in_shadow = projected_casters_2d.iter().any(|(shadow, transmittance)| {
-                *transmittance == 0.0 && point_in_polygon_2d(&pt, shadow)
-            });
-            if !in_shadow {
-                n_sunlit += 1;
-            }
+            // Each caster whose shadow covers this point passes its transmittance
+            sunlit += projected_casters_2d
+                .iter()
+                .filter(|(shadow, _)| point_in_polygon_2d(&pt, shadow))
+                .map(|(_, transmittance)| *transmittance)
+                .product::<f64>();
         }
     }
 
@@ -348,7 +350,7 @@ pub fn calculate_sunlit_fraction(
         return 1.0;
     }
 
-    n_sunlit as f64 / n_total as f64
+    sunlit / n_total as f64
 }
 
 // ─── Diffuse Sky Shading (Hemisphere Sampling) ──────────────────────────────────
@@ -465,18 +467,13 @@ pub fn compute_diffuse_sky_shading_ratio(
             let weight = cos_phi * d_phi * d_theta * cos_aoi;
             without_shading += weight;
 
-            // For each sample point, check if ANY caster blocks the ray
-            // toward this sky patch. This naturally handles overlapping shadows.
-            let mut n_sunlit = 0.0_f64;
-            for pt in &sample_points_3d {
-                let blocked = casters.iter().any(|caster| {
-                    ray_intersects_polygon(pt, &toward_sky, &caster.vertices, &caster.normal)
-                });
-                if !blocked {
-                    n_sunlit += 1.0;
-                }
-            }
-            let sunlit_frac = n_sunlit / n_samples;
+            // Average over the sample points what the casters let through toward
+            // this sky patch. This naturally handles overlapping shadows.
+            let sunlit_frac = sample_points_3d
+                .iter()
+                .map(|pt| ray_passes(pt, &toward_sky, casters))
+                .sum::<f64>()
+                / n_samples;
             with_shading += weight * sunlit_frac;
         }
     }
@@ -486,6 +483,16 @@ pub fn compute_diffuse_sky_shading_ratio(
     } else {
         1.0
     }
+}
+
+/// Fraction of a ray that gets past the casters: the product of the
+/// transmittances of those it hits, so 0 behind any opaque one.
+fn ray_passes(origin: &Point3D, dir: &Vec3, casters: &[&ShadingPolygon]) -> f64 {
+    casters
+        .iter()
+        .filter(|c| ray_intersects_polygon(origin, dir, &c.vertices, &c.normal))
+        .map(|c| c.solar_transmittance)
+        .product()
 }
 
 /// Test if a ray from `origin` in direction `dir` intersects a convex polygon.
@@ -674,16 +681,11 @@ pub fn compute_diffuse_horizon_shading_ratio(
             let weight = cos_phi * d_phi * d_theta * cos_aoi;
             without_shading += weight;
 
-            let mut n_sunlit = 0.0_f64;
-            for pt in &sample_points_3d {
-                let blocked = casters.iter().any(|caster| {
-                    ray_intersects_polygon(pt, &toward_sky, &caster.vertices, &caster.normal)
-                });
-                if !blocked {
-                    n_sunlit += 1.0;
-                }
-            }
-            let sunlit_frac = n_sunlit / n_samples;
+            let sunlit_frac = sample_points_3d
+                .iter()
+                .map(|pt| ray_passes(pt, &toward_sky, casters))
+                .sum::<f64>()
+                / n_samples;
             with_shading += weight * sunlit_frac;
         }
     }
@@ -1060,6 +1062,65 @@ pub fn surface_to_shading_polygon(name: &str, vertices: &[Point3D]) -> Option<Sh
 
 #[cfg(test)]
 mod tests {
+    /// A wall 4 m wide and 2 m tall, in the plane y = 0, facing south (−y).
+    fn south_wall() -> (Vec<Point3D>, Vec3) {
+        (
+            vec![
+                Point3D::new(0.0, 0.0, 0.0),
+                Point3D::new(4.0, 0.0, 0.0),
+                Point3D::new(4.0, 0.0, 2.0),
+                Point3D::new(0.0, 0.0, 2.0),
+            ],
+            Vec3::new(0.0, -1.0, 0.0),
+        )
+    }
+
+    fn overhang(transmittance: f64, name: &str) -> ShadingPolygon {
+        ShadingPolygon {
+            name: name.into(),
+            vertices: vec![
+                Point3D::new(-4.0, -1.0, 2.0),
+                Point3D::new(8.0, -1.0, 2.0),
+                Point3D::new(8.0, 0.0, 2.0),
+                Point3D::new(-4.0, 0.0, 2.0),
+            ],
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            solar_transmittance: transmittance,
+        }
+    }
+
+    /// #217: a caster passes its transmittance in beam and diffuse, and a point
+    /// behind two passes the product.
+    #[test]
+    fn semi_transparent_casters_scale_their_shadows() {
+        let (wall, normal) = south_wall();
+        let sun = Vec3::new(0.0, 1.0, -1.0).normalize();
+        let sunlit =
+            |casters: &[&ShadingPolygon]| calculate_sunlit_fraction(&wall, &normal, casters, &sun);
+
+        // The 1 m overhang at 45° shades half the wall.
+        let opaque = overhang(0.0, "opaque");
+        let half = overhang(0.5, "half");
+        assert!((sunlit(&[&opaque]) - 0.5).abs() < 1e-9);
+        assert!((sunlit(&[&half]) - 0.75).abs() < 1e-9);
+
+        // Two 50% casters overlapping pass 25% in the shadow.
+        let half2 = overhang(0.5, "half2");
+        assert!((sunlit(&[&half, &half2]) - (0.5 + 0.5 * 0.25)).abs() < 1e-9);
+
+        // Fully transparent casts no shadow; opaque in front of one is opaque.
+        let clear = overhang(1.0, "clear");
+        assert!((sunlit(&[&clear]) - 1.0).abs() < 1e-9);
+        assert!((sunlit(&[&clear, &opaque]) - 0.5).abs() < 1e-9);
+
+        // Sky diffuse: what the overhang blocks scales with 1 − τ.
+        let sky = |c: &ShadingPolygon| compute_diffuse_sky_shading_ratio(&wall, &normal, &[c]);
+        let (blocked, part, none) = (1.0 - sky(&opaque), 1.0 - sky(&half), 1.0 - sky(&clear));
+        assert!(blocked > 0.05, "{blocked}");
+        assert!((part - 0.5 * blocked).abs() < 1e-9, "{part} vs {blocked}");
+        assert!(none.abs() < 1e-9);
+    }
+
     use super::*;
     use approx::assert_relative_eq;
 

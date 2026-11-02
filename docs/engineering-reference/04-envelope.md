@@ -924,12 +924,11 @@ A surface does not shade itself, and casters coplanar with the receiver
 **Beam.** The sunlit fraction $f_s$ of a receiving surface projects each
 caster along the sun direction onto the receiver's plane and clips it to the
 receiver polygon. A surface facing away from the sun has $f_s = 0$. With a
-single opaque caster, $f_s = 1 - A_\text{shadow}/A$ exactly. With more than
-one caster, $f_s$ is the share of an $8\times8$ grid of points on the
-receiver that no opaque caster covers. That handles overlapping shadows,
-quantized to the grid ([#68](https://github.com/bbrannon4/OpenBSE/issues/68)).
-Casters with a solar transmittance above zero cast no beam shadow
-([#217](https://github.com/bbrannon4/OpenBSE/issues/217)). The fractions are
+single caster of transmittance $\tau$, $f_s = 1 - (1-\tau)A_\text{shadow}/A$
+exactly. With more than one caster, $f_s$ is the mean over an $8\times8$ grid of
+points on the receiver of the product of the transmittances of the casters
+whose shadows cover each point. That handles overlapping shadows, quantized to
+the grid ([#68](https://github.com/bbrannon4/OpenBSE/issues/68)). The fractions are
 computed for every timestep of the run period, in parallel, and cached in a
 `.solar` file keyed by the geometry.
 
@@ -938,12 +937,12 @@ computed for every timestep of the run period, in parallel, and cached in a
 - **Sky** ($R_\text{sky}$). Rays are cast from up to $5\times5$ points on the
   receiver to $6\times24$ sky patches (altitudes 7.5°–82.5°). Each patch is
   weighted by $\cos\phi\cos\theta_i$ (projected solid angle) [@eplus-engref-25-2,
-  "Shading Module"], and a ray hit by any caster is blocked:
+  "Shading Module"], and a ray passes the product of the transmittances of the casters it hits:
   $$
   R_\text{sky} = \frac{\sum_\text{patches} w\,\bar u}{\sum_\text{patches} w},
   $$ {#eq-sky-ratio}
   where $\bar u$ is the fraction of the receiver's points whose ray to the
-  patch is unblocked.
+  patch passes.
 - **Horizon** ($R_\text{hz}$). The same test over a near-horizon band
   (0–10°) from $3\times3$ points.
 
@@ -964,8 +963,8 @@ ratio follows `SkyDifSolarShading`.
 
 The differences:
 
-- **Transmittance.** Semi-transparent casters are ignored for beam and
-  opaque for diffuse ([#217](https://github.com/bbrannon4/OpenBSE/issues/217)).
+- **Transmittance.** A caster's transmittance is one fixed value. EnergyPlus
+  can schedule it.
 - **Windows.** The window floor and unshaded horizon
   ([#68](https://github.com/bbrannon4/OpenBSE/issues/68)).
 - **Reflections.** There are no reflections from shading or building
@@ -976,8 +975,6 @@ The differences:
 - [#68](https://github.com/bbrannon4/OpenBSE/issues/68): multi-caster point
   sampling; window diffuse ratio floor and unshaded horizon; interior
   distribution fallbacks and projection limits.
-- [#217](https://github.com/bbrannon4/OpenBSE/issues/217): semi-transparent
-  casters.
 
 ## Infiltration and ventilation {#sec-infiltration}
 
