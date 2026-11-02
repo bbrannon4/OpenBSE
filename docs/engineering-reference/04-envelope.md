@@ -1045,16 +1045,16 @@ $A_o$, available by schedule, temperature limits, an optional
 indoor–outdoor ΔT and a wind limit (with on/off hysteresis), passes
 
 $$
-\dot V_\text{nv} = \sqrt{\left(C_w A_o f V_\text{met}\right)^2 + \left(C_d A_o f\sqrt{\frac{2g\,\Delta H\,|T_z - T_o|}{T_z + 273.15}}\right)^2},
+\dot V_\text{nv} = \sqrt{\left(C_w A_o f V\right)^2 + \left(C_d A_o f\sqrt{\frac{2g\,\Delta H\,|T_z - T_o|}{T_z + 273.15}}\right)^2},
 $$ {#eq-natvent}
 
 where:
 
-- $C_w = 0.55$ when the wind is within 90° of the opening's angle, and
-  0.30 otherwise;
-- $C_d$ is a constant (default 0.65);
+- $C_w = 0.55 - 0.25\,\theta/45°$ with $\theta$ the angle between the wind and
+  the opening's normal, and zero beyond 90°;
+- $C_d = 0.40 + 0.0045\,|T_o - T_z|$, or the input `discharge_coefficient`;
 - $\Delta H$ is the stack height difference;
-- $V_\text{met}$ is the weather-station wind.
+- $V$ is the local wind at the zone's centroid height.
 
 Natural ventilation is off during sizing. When the AFN is active, its
 openings carry this flow instead.
@@ -1065,11 +1065,8 @@ openings carry this flow instead.
   including E+ 25.2's outdoor density default and the zone's local wind
   (`ZoneEquipmentManager::CalcAirFlowSimple`). The exhaust treatment matches
   E+ without zone air mass balance.
-- **Natural ventilation.** @eq-natvent differs from
+- **Natural ventilation.** @eq-natvent is
   `ZoneVentilation:WindandStackOpenArea` with autocalculated coefficients.
-  E+ uses $C_w = 0.55 - 0.25\theta/45°$, zero leeward, and
-  $C_d = 0.40 + 0.0045|\Delta T|$ with the local wind
-  ([#219](https://github.com/bbrannon4/OpenBSE/issues/219)).
 - **Scheduled ventilation.** It lacks the coefficients and schedule of
   `ZoneVentilation:DesignFlowRate`.
 - **Outdoor temperature.** E+'s height-dependent outdoor temperature
@@ -1177,8 +1174,8 @@ differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
 
 - [#90](https://github.com/bbrannon4/OpenBSE/issues/90): AFN cleanups;
   tolerance units, density convention, high-rise $C_p$.
-- [#219](https://github.com/bbrannon4/OpenBSE/issues/219): wind-and-stack
-  coefficients; scheduled ventilation lacks E+'s coefficients and schedule.
+- Scheduled ventilation lacks E+'s `ZoneVentilation:DesignFlowRate`
+  coefficients and schedule (filed for later).
 
 ## Internal gains {#sec-internal-gains}
 

@@ -167,7 +167,7 @@ pub struct VentilationScheduleEntry {
     pub start_hour: u32,
     /// End hour (0-23, inclusive). If end < start, wraps past midnight.
     pub end_hour: u32,
-    /// Additional ventilation flow rate [m³/s] (or use ach_rate)
+    /// Additional ventilation flow rate [m³/s]. Give this or ach_rate, not both.
     #[serde(default)]
     pub flow_rate: f64,
     /// Additional ventilation air changes per hour
@@ -384,10 +384,11 @@ pub struct NaturalVentilationInput {
     /// Height difference for stack effect [m]
     #[serde(default = "default_nat_vent_height_diff")]
     pub height_difference: f64,
-    /// Discharge coefficient for stack-driven flow (default: 0.65).
-    /// EnergyPlus autocalculate uses 0.65 for vertical openings (tilt > 75°).
-    #[serde(default = "default_nat_vent_cd")]
-    pub discharge_coefficient: f64,
+    /// Discharge coefficient for stack-driven flow. Default: E+'s autocalculated
+    /// 0.40 + 0.0045·|T_out − T_zone| (`CalcAirFlowSimple`). With an airflow
+    /// network, the opening's coefficient, 0.65 if not given.
+    #[serde(default)]
+    pub discharge_coefficient: Option<f64>,
     /// Minimum indoor temperature to allow ventilation [°C]
     #[serde(default = "default_nat_vent_min_indoor")]
     pub min_indoor_temp: f64,
@@ -427,6 +428,23 @@ pub struct NaturalVentilationInput {
 }
 
 impl NaturalVentilationInput {
+    /// Opening effectiveness Cw for the wind term, as E+ autocalculates it
+    /// (`CalcAirFlowSimple`, ASHRAE HoF 2009 ch. 16): linear from 0.55 for wind
+    /// straight at the opening through 0.30 at 45°, and 0 once the wind is
+    /// behind it. `angle` is between the wind and the opening's normal, 0–180°.
+    pub fn opening_effectiveness(angle: f64) -> f64 {
+        if angle > 90.0 {
+            0.0
+        } else {
+            0.55 + angle * (0.3 - 0.55) / 45.0
+        }
+    }
+
+    /// Discharge coefficient for the stack term at this temperature difference [K].
+    pub fn stack_discharge_coefficient(&self, dt_abs: f64) -> f64 {
+        self.discharge_coefficient.unwrap_or(0.40 + 0.0045 * dt_abs)
+    }
+
     /// Availability fraction [0-1] for natural ventilation (#88).
     ///
     /// Returns `sched_frac` when the temperature windows and wind limit
@@ -488,9 +506,6 @@ fn default_limit_humidity_to_saturation() -> bool {
 
 fn default_nat_vent_height_diff() -> f64 {
     0.0
-}
-fn default_nat_vent_cd() -> f64 {
-    0.65
 }
 fn default_nat_vent_min_indoor() -> f64 {
     -100.0
@@ -1693,6 +1708,21 @@ pub fn calc_zone_loads(
 
 #[cfg(test)]
 mod tests {
+    /// #219: E+'s autocalculated coefficients.
+    #[test]
+    fn natural_ventilation_coefficients_match_e_plus() {
+        let cw = NaturalVentilationInput::opening_effectiveness;
+        assert!((cw(0.0) - 0.55).abs() < 1e-12);
+        assert!((cw(45.0) - 0.30).abs() < 1e-12);
+        assert!((cw(90.0) - 0.05).abs() < 1e-12);
+        assert_eq!(cw(91.0), 0.0);
+        let mut nv: NaturalVentilationInput =
+            serde_yaml::from_str("opening_area: 1.0").expect("minimal input");
+        assert!((nv.stack_discharge_coefficient(10.0) - 0.445).abs() < 1e-12);
+        nv.discharge_coefficient = Some(0.65);
+        assert_eq!(nv.stack_discharge_coefficient(10.0), 0.65);
+    }
+
     use super::*;
 
     #[test]
@@ -1838,7 +1868,7 @@ mod tests {
             opening_area: 1.0,
             effective_angle: 0.0,
             height_difference: 1.0,
-            discharge_coefficient: 0.65,
+            discharge_coefficient: Some(0.65),
             min_indoor_temp: -100.0,
             max_indoor_temp: 100.0,
             min_outdoor_temp: -100.0,
@@ -1927,7 +1957,7 @@ mod tests {
             opening_area: 2.0,
             effective_angle: 0.0,
             height_difference: 1.0,
-            discharge_coefficient: 0.65,
+            discharge_coefficient: Some(0.65),
             min_indoor_temp: 22.0,
             max_indoor_temp: 100.0,
             min_outdoor_temp: 10.0,

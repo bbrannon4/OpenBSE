@@ -2050,7 +2050,7 @@
         "opening_area": { "type": "number", "description": "Opening area [m2]." },
         "effective_angle": { "type": "number", "default": 0.0, "description": "Opening orientation [degrees from north, clockwise] for windward/leeward determination." },
         "height_difference": { "type": "number", "default": 0.0, "description": "Height difference for the stack effect [m]." },
-        "discharge_coefficient": { "type": "number", "default": 0.65, "description": "Discharge coefficient for stack-driven flow." },
+        "discharge_coefficient": { "type": "number", "description": "Discharge coefficient for stack-driven flow. Default: E+'s autocalculated 0.40 + 0.0045*|dT|; 0.65 for an airflow-network opening." },
         "min_indoor_temp": { "type": "number", "default": -100.0, "description": "Minimum indoor temperature to allow ventilation [C]." },
         "max_indoor_temp": { "type": "number", "default": 100.0, "description": "Maximum indoor temperature to allow ventilation [C]." },
         "min_outdoor_temp": { "type": "number", "default": -100.0, "description": "Minimum outdoor temperature [C]." },

@@ -31,6 +31,7 @@ use crate::shading;
 use crate::solar;
 use crate::surface::{BoundaryCondition, SurfaceInput, SurfaceState, SurfaceType};
 use crate::view_factors;
+use crate::zone::NaturalVentilationInput;
 use crate::zone::{InteriorSolarDistribution, ZoneInput, ZoneState};
 
 /// The building envelope heat balance solver.
@@ -2454,10 +2455,17 @@ impl EnvelopeSolver for BuildingEnvelope {
                         None => 1.0,
                     }
                 };
+                let wind_speed_local = convection::wind_speed_at_height(
+                    wind_speed_met,
+                    self.zones[zi].centroid_height,
+                    convection::DEFAULT_WEATHER_WIND_MOD_COEFF,
+                    self.terrain.wind_exp(),
+                    self.terrain.wind_bl_height(),
+                );
                 let frac = self.zones[zi].nat_vent_fraction_for_step(
                     sched_frac,
                     t_outdoor,
-                    wind_speed_met,
+                    wind_speed_local,
                     &nv,
                 );
                 afn.update_nat_vent_opening(zi, nv.opening_area * frac);
@@ -2662,9 +2670,10 @@ impl EnvelopeSolver for BuildingEnvelope {
             //   V_wind  = Cw × A_opening × v_wind
             //   V_stack = Cd × A_opening × sqrt(2·g·ΔH·|Tz-To|/(Tz+273.15))
             //
-            // Opening effectiveness Cw depends on windward/leeward orientation:
-            //   Cw = 0.55 if windward (wind hits the opening face)
-            //   Cw = 0.30 if leeward  (wind is behind the opening)
+            // With E+'s autocalculated coefficients:
+            //   Cw = 0.55 − 0.25·θ/45° up to θ = 90° between wind and opening; else 0
+            //   Cd = 0.40 + 0.0045·|ΔT| unless given
+            //   V  = the zone's local wind at its centroid height
             //
             // Natural ventilation is disabled during sizing (design day) runs.
             if let Some(ref nv) = zone.input.natural_ventilation.clone() {
@@ -2679,6 +2688,13 @@ impl EnvelopeSolver for BuildingEnvelope {
                 };
 
                 let t_zone = zone.temp;
+                let wind_speed_local = convection::wind_speed_at_height(
+                    wind_speed_met,
+                    zone.centroid_height,
+                    convection::DEFAULT_WEATHER_WIND_MOD_COEFF,
+                    self.terrain.wind_exp(),
+                    self.terrain.wind_bl_height(),
+                );
 
                 // #88: with the AFN active, the network opening carries the
                 // flow (it arrives via infiltration_mass_flow) and the
@@ -2689,14 +2705,12 @@ impl EnvelopeSolver for BuildingEnvelope {
                 let avail = if afn_active {
                     0.0
                 } else {
-                    zone.nat_vent_fraction_for_step(sched_frac, t_outdoor, wind_speed_met, nv)
+                    zone.nat_vent_fraction_for_step(sched_frac, t_outdoor, wind_speed_local, nv)
                 };
 
                 if avail > 0.0 {
-                    // Wind-driven component
-                    // Determine windward/leeward: the opening is windward if the
-                    // angle between wind direction and the outward normal of the
-                    // opening is < 90°.
+                    // Wind-driven component: the angle between the wind direction
+                    // and the outward normal of the opening sets the effectiveness.
                     let angle_diff = {
                         let mut d = (wind_direction - nv.effective_angle).abs() % 360.0;
                         if d > 180.0 {
@@ -2704,14 +2718,14 @@ impl EnvelopeSolver for BuildingEnvelope {
                         }
                         d
                     };
-                    let cw = if angle_diff <= 90.0 { 0.55 } else { 0.30 };
-                    let v_wind = cw * nv.opening_area * avail * wind_speed_met;
+                    let cw = NaturalVentilationInput::opening_effectiveness(angle_diff);
+                    let v_wind = cw * nv.opening_area * avail * wind_speed_local;
 
                     // Stack-driven component
                     let dt_abs = (t_zone - t_outdoor).abs();
                     let t_zone_k = t_zone + 273.15;
                     let v_stack = if nv.height_difference > 0.0 && dt_abs > 0.01 {
-                        let cd = nv.discharge_coefficient;
+                        let cd = nv.stack_discharge_coefficient(dt_abs);
                         cd * nv.opening_area
                             * avail
                             * (2.0 * 9.81 * nv.height_difference * dt_abs / t_zone_k).sqrt()
@@ -6309,7 +6323,7 @@ mod tests {
             opening_area: 1.0,
             effective_angle: 0.0,
             height_difference: 1.0,
-            discharge_coefficient: 0.65,
+            discharge_coefficient: Some(0.65),
             min_indoor_temp: -100.0,
             max_indoor_temp: 100.0,
             min_outdoor_temp: -100.0,
@@ -6359,7 +6373,7 @@ mod tests {
             opening_area: 1.0,
             effective_angle: 0.0,
             height_difference: 1.0,
-            discharge_coefficient: 0.65,
+            discharge_coefficient: Some(0.65),
             min_indoor_temp: 22.0,
             max_indoor_temp: 100.0,
             min_outdoor_temp: -100.0,
