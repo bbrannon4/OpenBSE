@@ -65,55 +65,56 @@ pub fn interior_convection(t_surface: f64, t_zone: f64, tilt_deg: f64) -> f64 {
 
 /// Interior convection coefficient [W/(m²·K)] for **windows**.
 ///
-/// Uses the ISO 15099 natural convection model, matching E+'s
-/// `CalcISO15099WindowIntConvCoeff` in ConvectionCoefficients.cc.
-/// E+ always uses this model for window surfaces, even when the zone
-/// convection algorithm is set to TARP.
+/// ISO 15099:2003 §8.3.2.2 for an indoor glazing surface, as E+'s
+/// `CalcISO15099WindowIntConvCoeff`, which E+ uses for window surfaces even
+/// when the zone algorithm is TARP. Properties are at the film temperature
+/// T_air + ¼(T_surface − T_air), with ISO Tables B.1 and B.2 for conductivity
+/// and viscosity. The tilt is complemented when the glass is warmer than the
+/// air, so the flow direction selects the case:
 ///
-/// The ISO 15099 model accounts for:
-///   - Air properties evaluated at the film temperature
-///     T_film = T_air + 0.25·(T_surface − T_air)  (E+ convention)
-///   - Window height via Rayleigh number
-///   - Aspect ratio (height/width) effects on stratified flow
-///
-/// For vertical windows:
-///   Nu = (Nu_T⁶ + Nu_s⁶)^(1/6)
-///   Nu_T = 0.0673838 · Ra^(1/3)           (turbulent boundary layer)
-///   Nu_s = 0.242 · (Ra / A_r)^0.272       (stratified core)
-///   h = Nu · k / H
-///
-/// Reference: ISO 15099:2003, Section 8.3.2.2.
-pub fn window_interior_convection(t_surface: f64, t_zone: f64, height: f64, width: f64) -> f64 {
-    let dt = (t_surface - t_zone).abs().max(0.001);
+/// | γ | Nu |
+/// |---|---|
+/// | 0–15° | 0.13 Ra^⅓ |
+/// | 15–90° | 0.56 (Ra sinγ)^¼, above Ra_cv: 0.13 (Ra^⅓ − Ra_cv^⅓) + 0.56 (Ra_cv sinγ)^¼ |
+/// | 90–179° | 0.56 (Ra sinγ)^¼, with Ra sinγ bounded to 10⁵–10¹¹ |
+/// | 179–180° | 0.58 Ra^⅕, with Ra bounded above by 10¹¹ |
+pub fn window_interior_convection(
+    t_surface: f64,
+    t_air: f64,
+    w_air: f64,
+    p_b: f64,
+    height: f64,
+    tilt_deg: f64,
+) -> f64 {
+    const LOW_LIMIT: f64 = 0.1; // E+ LowHConvLimit
+    const G: f64 = 9.81;
+    let dt = t_surface - t_air;
+    let t_film_k = t_air + 273.15 + 0.25 * dt;
+    let t_film = t_film_k - 273.15;
+    let rho = openbse_psychrometrics::rho_air_fn_pb_tdb_w(p_b, t_film, w_air);
+    let lambda = 2.873e-3 + 7.76e-5 * t_film_k;
+    let mu = 3.723e-6 + 4.94e-8 * t_film_k;
+    let cp = openbse_psychrometrics::cp_air_fn_w(w_air);
+    let h = height.max(0.01);
+    let ra = rho.powi(2) * h.powi(3) * G * cp * dt.abs() / (t_film_k * mu * lambda);
 
-    // Film temperature: E+ uses T_air + 0.25*(T_surf - T_air)
-    let t_film = t_zone + 0.25 * (t_surface - t_zone);
-    let t_film_k = t_film + 273.15;
-
-    // Dry air properties at film temperature (linear fits valid 0–50 °C)
-    let k_air = 0.0241 + 7.6e-5 * t_film; // thermal conductivity [W/(m·K)]
-    let nu = 1.326e-5 + 8.78e-8 * t_film; // kinematic viscosity [m²/s]
-    let pr = 0.71; // Prandtl number (nearly constant for air)
-    let alpha = nu / pr; // thermal diffusivity [m²/s]
-    let beta = 1.0 / t_film_k.max(200.0); // volumetric expansion [1/K]
-
-    let h = height.max(0.1);
-    let w = width.max(0.1);
-    let a_r = h / w; // aspect ratio
-
-    // Rayleigh number
-    let ra = (9.81 * beta * dt * h.powi(3)) / (nu * alpha);
-
-    // ISO 15099 Nusselt correlations for vertical plate
-    let nu_t = 0.0673838 * ra.powf(1.0 / 3.0); // turbulent
-    let nu_s = 0.242 * (ra / a_r).powf(0.272); // stratified
-
-    // Combined: (Nu_T^6 + Nu_s^6)^(1/6)
-    let nu_combined = (nu_t.powi(6) + nu_s.powi(6)).powf(1.0 / 6.0);
-
-    let h_conv = nu_combined * k_air / h;
-
-    h_conv.max(0.1)
+    let sin_tilt = tilt_deg.to_radians().sin();
+    let gamma = if dt > 0.0 { 180.0 - tilt_deg } else { tilt_deg };
+    let nu = if gamma < 15.0 {
+        0.13 * ra.cbrt()
+    } else if gamma <= 90.0 {
+        let ra_cv = 2.5e5 * ((0.72 * gamma).exp() / sin_tilt).powf(0.2);
+        if ra <= ra_cv {
+            0.56 * (ra * sin_tilt).powf(0.25)
+        } else {
+            0.13 * (ra.cbrt() - ra_cv.cbrt()) + 0.56 * (ra_cv * sin_tilt).powf(0.25)
+        }
+    } else if gamma <= 179.0 {
+        0.56 * (ra * sin_tilt).clamp(1.0e5, 1.0e11).powf(0.25)
+    } else {
+        0.58 * ra.min(1.0e11).powf(0.2)
+    };
+    (nu * lambda / h).max(LOW_LIMIT)
 }
 
 /// Exterior natural convection coefficient [W/(m²·K)].
@@ -330,6 +331,47 @@ fn roughness_multiplier(roughness: Roughness) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    /// E+ `CalcISO15099WindowIntConvCoeff` evaluated by hand (#208).
+    #[test]
+    fn window_inside_convection_follows_iso_15099() {
+        let p = 101_325.0;
+        let w = 0.008;
+        let vertical_cold = window_interior_convection(11.0, 21.0, w, p, 1.5, 90.0);
+        // Ra ≈ 5.3e9 is below Ra_cv ≈ 1.1e11, so 0.56 (Ra sinγ)^¼.
+        let (t_k, dt): (f64, f64) = (294.15 - 2.5, 10.0);
+        let rho = openbse_psychrometrics::rho_air_fn_pb_tdb_w(p, t_k - 273.15, w);
+        let lambda = 2.873e-3 + 7.76e-5 * t_k;
+        let mu = 3.723e-6 + 4.94e-8 * t_k;
+        let cp = openbse_psychrometrics::cp_air_fn_w(w);
+        let ra = rho * rho * 1.5f64.powi(3) * 9.81 * cp * dt / (t_k * mu * lambda);
+        let expected = 0.56 * ra.powf(0.25) * lambda / 1.5;
+        assert!(
+            (vertical_cold - expected).abs() < 1e-9,
+            "{vertical_cold} vs {expected}"
+        );
+        assert!((2.1..2.6).contains(&vertical_cold), "{vertical_cold}");
+
+        // Vertical is the same whichever way heat flows at this Ra.
+        let vertical_warm = window_interior_convection(31.0, 21.0, w, p, 1.5, 90.0);
+        assert!((vertical_warm - vertical_cold).abs() / vertical_cold < 0.05);
+
+        // Skylight, outward tilt 0: cold glass above the room is unstable
+        // (0.13 Ra^⅓, γ = 0), and warm glass is stable (0.58 Ra^⅕, γ = 180).
+        let skylight_cold = window_interior_convection(11.0, 21.0, w, p, 1.5, 0.0);
+        let skylight_warm = window_interior_convection(31.0, 21.0, w, p, 1.5, 0.0);
+        assert!(
+            skylight_cold > 2.0 * skylight_warm,
+            "{skylight_cold} {skylight_warm}"
+        );
+
+        // Lower pressure lowers Ra through ρ².
+        let denver = window_interior_convection(11.0, 21.0, w, 83_000.0, 1.5, 90.0);
+        assert!(denver < vertical_cold);
+
+        // No temperature difference: E+'s lower limit.
+        assert_eq!(window_interior_convection(21.0, 21.0, w, p, 1.5, 90.0), 0.1);
+    }
+
     use super::*;
     use approx::assert_relative_eq;
 

@@ -418,15 +418,23 @@ with $h_n \ge 0.1$ W/(m²·K). Inside faces use $\cos\Sigma = -\cos\beta$,
 since the inside face of a roof faces down; outside faces use $\cos\beta$.
 
 **Inside faces** of opaque surfaces use @eq-tarp with the zone air (or, in a
-stratified zone, the local air at the surface's height; @sec-stratification). **Window inside faces** use a separate correlation
-(`window_interior_convection`):
-$Nu = (Nu_T^6 + Nu_s^6)^{1/6}$, with $Nu_T = 0.0673838\,Ra^{1/3}$ and
-$Nu_s = 0.242\,(Ra/A_r)^{0.272}$, where $Ra$ is based on the window height and
-$A_r$ is height over width. That is the ISO 15099 glazing-cavity correlation.
-EnergyPlus applies ISO 15099's indoor-surface correlation
-($Nu = 0.56(Ra\sin\gamma)^{1/4}$, with tilt and heat-flow cases), which gives
-about 20% more for a typical window
-([#208](https://github.com/bbrannon4/OpenBSE/issues/208)).
+stratified zone, the local air at the surface's height; @sec-stratification). **Window inside faces** use the ISO 15099 §8.3.2.2 indoor-surface correlation,
+as EnergyPlus does whatever the zone algorithm
+(`window_interior_convection`, E+ `CalcISO15099WindowIntConvCoeff`). With
+$\gamma$ the tilt, complemented when the glass is warmer than the air:
+
+- $0 \le \gamma < 15°$: $Nu = 0.13\,Ra^{1/3}$;
+- $15° \le \gamma \le 90°$: $Nu = 0.56(Ra\sin\gamma)^{1/4}$ up to
+  $Ra_{cv} = 2.5\times10^5(e^{0.72\gamma}/\sin\gamma)^{1/5}$, then
+  $0.13(Ra^{1/3} - Ra_{cv}^{1/3}) + 0.56(Ra_{cv}\sin\gamma)^{1/4}$;
+- $90° < \gamma \le 179°$: $Nu = 0.56(Ra\sin\gamma)^{1/4}$, with
+  $Ra\sin\gamma$ bounded to $10^5$–$10^{11}$;
+- $179° < \gamma \le 180°$: $Nu = 0.58\,Ra^{1/5}$, with $Ra \le 10^{11}$.
+
+Then $h = Nu\,\lambda/H$, with $H$ the window height, and $Ra$ uses moist-air
+density at the site pressure and ISO Table B.1 and B.2 properties at the film
+temperature $T_z + (T_s - T_z)/4$. The height is the input value, else from the
+vertices, else $\sqrt{A}$.
 
 ### Outside faces (DOE-2) {#sec-doe2}
 
@@ -479,16 +487,13 @@ mid-height, roofs at the top. That ignores the floor the zone is on.
 TARP inside and DOE-2 outside (`ConvectionCoefficients::CalcASHRAETARPNatural`,
 `CalcDOE2Forced`, `Windward`, `SetSurfaceWindSpeedAt`), with the same
 roughness multipliers, windward test and wind profile
-[@eplus-engref-25-2, "Outdoor/Exterior Convection", "Interior Convection"]. Window
-inside faces are the exception
-([#208](https://github.com/bbrannon4/OpenBSE/issues/208)). EnergyPlus's other
+[@eplus-engref-25-2, "Outdoor/Exterior Convection", "Interior Convection"].
+EnergyPlus's other
 algorithms (adaptive convection, ASHRAE simple, MoWiTT alone) are not
 available.
 
 ## Known limitations: surface heat balances {#sec-surface-hb-limitations}
 
-- [#208](https://github.com/bbrannon4/OpenBSE/issues/208): window inside
-  convection uses the glazing-cavity correlation.
 - [#209](https://github.com/bbrannon4/OpenBSE/issues/209): five fixed
   surface–air passes with no convergence test; no wet surfaces in rain.
 
@@ -822,8 +827,6 @@ A deployed device is modelled in one of two ways:
   full ISO 15099 gap correlations (`WindowManager::SolveForWindowTemperatures`).
   The lumped node of @eq-window-node, the two-pane gap model and the caps are
   deviations ([#214](https://github.com/bbrannon4/OpenBSE/issues/214)).
-- **Inside convection.** It differs (@sec-tarp,
-  [#208](https://github.com/bbrannon4/OpenBSE/issues/208)).
 - **Shades.** The shade layer follows `WindowMaterial:Shade` with an
   ISO 15099 vented gap, simplified to fixed air properties and one gap
   velocity.
@@ -833,8 +836,6 @@ A deployed device is modelled in one of two ways:
 
 ## Known limitations: windows {#sec-windows-limitations}
 
-- [#208](https://github.com/bbrannon4/OpenBSE/issues/208): window inside
-  convection uses the glazing-cavity correlation.
 - [#213](https://github.com/bbrannon4/OpenBSE/issues/213): simple-glazing
   films and bounds differ from EnergyPlus; three unread inputs; angular-model
   selection by input.
