@@ -2381,7 +2381,7 @@ impl EnvelopeSolver for BuildingEnvelope {
         // Room-air stratification (#91, #98): effective vertical gradient
         // this timestep. Constant mode: input gradient × schedule fraction.
         // Mundt mode (#98): load-derived g = Q_conv/(ṁ_supply·cp·H) using
-        // the previous timestep's supply flow, clamped to [0, gradient]
+        // the supply flow this solve received, clamped to [0, gradient]
         // (the input gradient acts as the cap); zero when the system is
         // off — the space is treated as well mixed without forced supply.
         for zone in &mut self.zones {

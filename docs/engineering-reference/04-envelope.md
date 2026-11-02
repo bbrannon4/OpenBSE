@@ -1426,19 +1426,21 @@ The profile is used in four places:
 - the thermostat may sense the air at its own height (default 1.1 m);
 - reports give the occupied-height temperature.
 
-The zone balance still debits the supply's outflow at $T_z$ while the loop
-receives the return at $T(z_\text{ret})$. This leaves
-$\dot m c_p\,(T(z_\text{ret}) - T_z)$ unaccounted for
-([#225](https://github.com/bbrannon4/OpenBSE/issues/225)).
+The zone balance debits the supply's outflow at $T_z$ while the loop receives
+the return at $T(z_\text{ret})$, so the HVAC iteration takes the difference,
+$\dot m c_p\,(T(z_\text{ret}) - T_z)$, back out of the zone as a sensible gain.
+The heat in the return is therefore the heat the zone gave up. A loop that
+returns no air (a 100% outdoor-air system) draws no such debit: its outflow
+still leaves at $T_z$.
 
 **Comparison with EnergyPlus.** The constant gradient corresponds to
 `RoomAir:TemperaturePattern:ConstantGradient` in the user-defined room-air
-model. EnergyPlus also corrects the next step's predicted load with
-$(T_\text{sup} - T_\text{ret})/(T_\text{sup} - T_z)$. The Mundt-style
+model. EnergyPlus corrects the next step's predicted load with
+$(T_\text{sup} - T_\text{ret})/(T_\text{sup} - T_z)$. OpenBSE doesn't need
+the factor: the debit is in the zone balance within the HVAC iteration, so the
+controls see it directly. The Mundt-style
 gradient is a simplification of EnergyPlus's nodal Mundt model
 (`RoomAirModel:Mundt`).
 
 ## Known limitations: zone air balances {#sec-zone-hb-limitations}
 
-- [#225](https://github.com/bbrannon4/OpenBSE/issues/225): stratified return
-  air is not debited from the zone balance.
