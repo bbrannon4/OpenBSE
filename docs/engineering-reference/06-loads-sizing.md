@@ -183,9 +183,9 @@ where:
 
 - $c_p = 1005$ J/(kg·K);
 - $T_{z,h}$ and $T_{z,c}$ are the zone's heating and cooling setpoints;
-- $T_{s,h}$ is the highest heating supply temperature of all air loops, and
-  $T_{s,c}$ the lowest cooling supply temperature (35 °C and 13 °C with no
-  air loops);
+- $T_{s,h}$ and $T_{s,c}$ are the heating and cooling supply temperatures of
+  the zone's first loop that is not a DOAS, or of its DOAS if it has no other
+  (35 °C and 13 °C with no air loop);
 - $\Delta T_\text{fan}$ is `sizing_fan_delta_t` (default 0), the supply fan's
   temperature rise;
 - $\dot m_\text{oa}$ is the zone's minimum outdoor-air flow, a floor on both
@@ -206,12 +206,6 @@ cooling flow is computed in the same way from that hour's load times $f_c$. This
 sequence (E+ `CoolFlowSeq`) gives the coincident flow of multizone systems
 (@sec-system-sizing).
 
-**Per-loop supply temperature.** @eq-zone-design-flow uses the coldest
-cooling supply temperature of all loops. For a loop whose own cooling
-supply temperature differs by more than 0.5 K, each zone's flow is
-recomputed as $Q_c/(c_p\max(T_{z,c} - T_{s,c,\text{loop}}, 5))$. The
-recomputed flow replaces the old one only if it is larger.
-
 **Comparison with EnergyPlus.** The method follows E+ `Sizing:Zone` with the
 `DesignDay` flow method: flow from the peak load and the supply-to-zone
 temperature difference, with the minimum outdoor air as a floor
@@ -225,10 +219,6 @@ differences are:
   oversizing ratios, because an autosized model without stated margins should
   have the margin designers normally select. EnergyPlus's `Sizing:Parameters`
   defaults are 1.0; set both factors to 1 to match them.
-- **Supply temperatures.** EnergyPlus takes them per zone from `Sizing:Zone`;
-  OpenBSE uses the extremes over all loops. The per-loop correction has a
-  different $\Delta T$ floor and no fan rise or outdoor-air floor
-  ([#229](https://github.com/bbrannon4/OpenBSE/issues/229)).
 - **Density.** EnergyPlus uses the standard density at the site's elevation
   pressure; OpenBSE uses the first design day's pressure. These agree when
   the design day gives the site pressure.
@@ -261,42 +251,66 @@ carry the sizing factors already.
 
 **Comparison with EnergyPlus.** @eq-multizone-flow matches E+ `Sizing:System`
 with non-coincident or coincident zone sums
-[@eplus-engref-25-2, "System Design Loads and Air Flow Rates"]. EnergyPlus
-also computes the system's coil loads at its own peak, from the mixed-air
-state. OpenBSE has no system-level coil load (@sec-air-sizing).
+[@eplus-engref-25-2, "System Design Loads and Air Flow Rates"]. The coil loads at the system's peak are in @sec-air-sizing.
 
 ## Air-side equipment {#sec-air-sizing}
 
-**Source:** `main.rs` ("Design Day Sizing Run": `loop_comp_sizing`,
-`terminal_reheat_capacity`, the dual-duct and VRF blocks).
+**Source:** `main.rs` (`size_air_loop`, `sizing_outdoor_air`,
+`terminal_reheat_capacity`, the dual-duct and VRF blocks);
+`openbse-io/src/system_sizing.rs`.
 
-**Fans and coils.** Each autosized fan, coil and GSHP in an air loop's
-equipment list is sized from its loop. Below, $\Sigma Q$ is the sum of the
-served zones' peak loads.
+**Fan flow.** Each autosized fan in an air loop's equipment list takes the
+loop's flow, converted to volume with $\rho_\text{std}$; a hard-sized fan's flow
+is used for its coils. The flow is @eq-multizone-flow for VAV and dual-duct
+loops, $\sum\dot m_\text{des}$ for PSZ-AC, FCU, PTAC, PTHP, CRAC and CRAH, and
+the flow the controls run at for a DOAS, $\max(0.3\sum\dot m_\text{des},\ 0.05)$
+([#256](https://github.com/bbrannon4/OpenBSE/issues/256)).
 
-: Air-loop sizing by system type. $\dot m_\text{des}$ is the zone design flow and $Q$ the design load, both with the sizing factor. {#tbl-air-sizing}
+**Outdoor air.** The coil's outdoor-air fraction $x$ is the loop's stated damper
+position, or else the zones' outdoor-air requirement over the system flow, or else
+the 20% the controls fall back on. FCU, CRAC and CRAH recirculate ($x = 0$), a DOAS
+takes only outdoor air ($x = 1$), and a loop whose zones take their outdoor air
+directly has $x = 0$. Economizers and heat recovery get no credit.
 
-| System | Fan flow | Heating capacity | Cooling capacity |
-|---|---|---|---|
-| PSZ-AC | $\sum\dot m_\text{des}$ | $\Sigma Q_h$ | $\Sigma Q_c$ |
-| VAV, dual-duct | @eq-multizone-flow | $\Sigma Q_h$ | $\Sigma Q_c$ |
-| CRAC, CRAH | $\sum\dot m_\text{des}$ | none | $\Sigma Q_c$ |
-| FCU, PTAC, PTHP | $\sum\dot m_\text{des}$ | $\max(\Sigma Q_h,\ Q_{m,h})$ | $\max(\Sigma Q_c,\ Q_{m,c})$ |
-| DOAS | $0.3\sum\dot m_\text{des}$ | $\dot m c_p(20 - T_{o,h})$ | $\dot m c_p(T_{o,c} - 18)$ |
+**Mixed air.** The inlet state mixes return air, at the flow-weighted zone
+temperature and humidity, with outdoor air: $T_m = (1 - x)T_r + xT_o$, and the same
+for $w$. Zone humidity comes from a quasi-steady balance with supply air at $w_s$:
 
-Here:
+$$
+w_z = \frac{\dot m\,w_s + \dot m_i\,w_o + q_l/h_{fg}}{\dot m + \dot m_i},
+$$ {#eq-sizing-zone-w}
 
-- the fan flow is converted to volume with $\rho_\text{std}$;
-- for FCU, PTAC and PTHP, $\dot m$ is the fan flow and $T_{s,h}$, $T_{s,c}$
-  the loop's supply temperatures. The mixed-air coil loads are
-  $Q_{m,h} = \dot m c_p(T_{s,h} - T_{m,h})$ and
-  $Q_{m,c} = \dot m c_p(T_{m,c} - T_{s,c})$, with the mixed-air temperature
-  $T_m = (1 - x_\text{oa})T_z + x_\text{oa}T_o$ and $T_z$ fixed at 21 °C for
-  heating and 24 °C for cooling;
-- for DOAS, $\dot m$ is the outdoor-air flow, $0.3\sum\dot m_\text{des}$;
-- $T_{o,h}$ is the coldest heating design temperature (−20 °C if there is
-  none), and $T_{o,c}$ the hottest cooling design temperature (35 °C if
-  there is none).
+where $\dot m_i$ is the outdoor air entering the zone directly and $q_l$ the latent
+gains, because the ideal loads of the sizing run remove no moisture.
+
+**Cooling coils.** With `zone_sum: coincident` on a multizone loop, the state is
+that of the hour with the largest $\dot m_h c_p(T_m - T_{s,c})$ at that hour's flow
+$\dot m_h$. Otherwise it is the design-day hour with the largest total coil load at the
+design flow. The total load is
+
+$$
+Q_{cc} = \dot m\left[h(T_m, w_m) - h(\min(T_m, T_{s,c}),\ \min(w_m, w_s))\right]
++ \dot m c_p\left[\Delta T_\text{sf} + (1 - x)\Delta T_\text{rf}\right],
+$$ {#eq-cooling-coil-load}
+
+where $w_s$ is `cooling_supply_humidity_ratio` (default 0.008) and the last term is
+the heat of the supply and return fans. A DX coil's rated capacity is
+$Q_{cc}$ over its capacity-temperature modifier at the inlet wet-bulb (with the rise
+of a blow-through fan) and the outdoor temperature, then held between $\dot V/6.041\times10^{-5}$
+and $\dot V/4.027\times10^{-5}$ W.
+
+**Heating coils.** The load is the largest over the heating design-day hours of
+
+$$
+Q_{hc} = \dot m_c c_p (T_\text{out} - T_m),
+$$ {#eq-heating-coil-load}
+
+with no fan heat. For most loops $\dot m_c$ is the fan flow and $T_\text{out}$ the
+heating supply temperature. A VAV loop's central coil tempers the zones' summed
+heating flow to `preheat_setpoint` or else the cooling supply temperature, its boxes
+reheating from there. A dual-duct hot deck carries the summed heating flow to the
+heating supply temperature, at the system's outdoor-air fraction. CRAC and CRAH have
+none. A DOAS uses the temperatures its controls run at.
 
 **Terminals.** A VAV or fan-powered box's maximum flow is its zone's design
 flow. Its reheat capacity covers the zone heating load plus reheating its
@@ -317,19 +331,20 @@ its zone, at least 500 W, or 3000 W if the zone has no sizing result. Its
 airflow is $5\times10^{-5}$ m³/s per watt of the larger capacity. An
 autosized outdoor unit takes the sum of its indoor units' capacities.
 
-**Comparison with EnergyPlus.** EnergyPlus sizes a central coil from the
-system design flow and the enthalpy difference between the mixed air and
-the supply air at the system peak, plus the fan heat (`CoolingCapacitySizer`,
-`HeatingCapacitySizer`). The result is a total capacity. OpenBSE sums the
-zone sensible peaks. Its central coils therefore leave out the outdoor-air,
-latent and fan loads, although the DX and chilled-water capacities they set
-are total capacities
-([#229](https://github.com/bbrannon4/OpenBSE/issues/229)). Other
-differences:
+**Comparison with EnergyPlus.** @eq-cooling-coil-load, the DX modifier and range,
+and @eq-heating-coil-load follow `CoolingCapacitySizer` and `HeatingCapacitySizer`,
+with `SimAirServingZones` peak states. Differences:
 
-- **FCU and DOAS.** The hard-coded zone and supply temperatures and the DOAS
-  outdoor-air fraction of 0.3 are not in EnergyPlus
-  ([#229](https://github.com/bbrannon4/OpenBSE/issues/229)).
+- **States are hourly.** E+ reads the state at the peak timestep.
+- **Non-coincident peak.** E+ blends each zone's return and outdoor state at that
+  zone's own peak time. With a flat zone load that peak can fall at night, and a coil
+  taking mostly outdoor air is then sized on mild night air: a Hospital ER coil came
+  to 7.9 kW against an 18 kW zone load. OpenBSE takes the coil's own worst hour, at
+  or above the E+ size.
+- **Dual duct.** OpenBSE's hot deck mixes at the system's fraction, because one fan
+  draws both decks.
+- **DOAS.** Flow and temperatures follow the controls, not the zones' outdoor air
+  ([#256](https://github.com/bbrannon4/OpenBSE/issues/256)).
 - **VRF airflow.** EnergyPlus sizes VRF terminal airflow from the zone
   design flow ([#232](https://github.com/bbrannon4/OpenBSE/issues/232)).
 - **Reheat.** EnergyPlus sizes a reheat coil from the zone's design heating
@@ -414,9 +429,6 @@ flows are both per zone instance, so no multiplier is needed in the ratio.
 - [#198](https://github.com/bbrannon4/OpenBSE/issues/198),
   [#50](https://github.com/bbrannon4/OpenBSE/issues/50): design-day
   humidity, temperature profile and sky model.
-- [#229](https://github.com/bbrannon4/OpenBSE/issues/229): central coils
-  sized from summed zone sensible peaks, without outdoor-air, latent or fan
-  loads; hard-coded temperatures in FCU and DOAS sizing.
 - [#230](https://github.com/bbrannon4/OpenBSE/issues/230): pumps sized from
   the coincident zone peak, not the loop design flow.
 - [#280](https://github.com/bbrannon4/OpenBSE/issues/280): a loop can't serve

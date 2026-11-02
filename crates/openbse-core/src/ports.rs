@@ -200,6 +200,18 @@ pub trait AirComponent: std::fmt::Debug {
     /// Set the nominal capacity (called during autosizing).
     fn set_nominal_capacity(&mut self, _cap: f64) {}
 
+    /// Available over rated total capacity at the design coil-inlet wet-bulb and
+    /// outdoor temperature, and the coil's flow-per-capacity range [m³/s/W], for
+    /// a coil whose rated capacity is not its capacity at the design state
+    /// (E+ `TotCapTempModFac`). `None` for anything else.
+    fn design_capacity_modifier(
+        &self,
+        _t_wb_in: f64,
+        _t_outdoor: f64,
+    ) -> Option<(f64, (f64, f64))> {
+        None
+    }
+
     /// Primary (air-handler) air mass flow a reheat terminal passes while
     /// heating [kg/s]. Reheat sizing must warm this air from the AHU supply
     /// temperature to the zone, on top of the zone's own heating load

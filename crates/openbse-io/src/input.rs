@@ -543,6 +543,11 @@ pub struct AirLoopControls {
     /// Target supply air temperature for cooling [°C] (default 13.0)
     #[serde(default = "default_controls_cooling_supply")]
     pub cooling_supply_temp: f64,
+    /// Humidity ratio of the air leaving the cooling coil at the design peak
+    /// [kg/kg], for sizing its total capacity (E+ `Sizing:System` Central Cooling
+    /// Design Supply Air Humidity Ratio; default 0.008).
+    #[serde(default = "default_controls_cooling_supply_w")]
+    pub cooling_supply_humidity_ratio: f64,
     /// Capacity control method: on_off or proportional (default: proportional)
     #[serde(default)]
     pub cycling: CyclingMethod,
@@ -649,6 +654,7 @@ impl Default for AirLoopControls {
         Self {
             heating_supply_temp: 35.0,
             cooling_supply_temp: 13.0,
+            cooling_supply_humidity_ratio: default_controls_cooling_supply_w(),
             cycling: CyclingMethod::default(),
             deadband: 1.0,
             design_zone_flow: AutosizeValue::Value(0.5),
@@ -672,6 +678,9 @@ impl Default for AirLoopControls {
 
 fn default_controls_heating_supply() -> f64 {
     35.0
+}
+fn default_controls_cooling_supply_w() -> f64 {
+    0.008
 }
 fn default_controls_cooling_supply() -> f64 {
     13.0

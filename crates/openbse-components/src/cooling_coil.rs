@@ -224,15 +224,20 @@ impl CoolingCoilDX {
 
     /// Calculate available cooling capacity at current conditions.
     ///
-    /// Applies cap_ft (biquadratic f(Twb, Todb)) and cap_fflow (f(FF)) modifiers.
-    /// At rated conditions (35°C ODB, 19.44°C WB, FF=1), correction is 1.0.
-    fn available_capacity(&self, t_outdoor: f64, t_wb_inlet: f64, flow_fraction: f64) -> f64 {
-        let ft_mod = if let Some(ref curve) = self.cap_ft_curve {
+    /// Capacity modifier for temperature: 1.0 at rated conditions.
+    fn capacity_temperature_modifier(&self, t_outdoor: f64, t_wb_inlet: f64) -> f64 {
+        if let Some(ref curve) = self.cap_ft_curve {
             curve.evaluate(t_wb_inlet, t_outdoor)
         } else {
             let t_rated = 35.0;
             (1.0 - 0.008 * (t_outdoor - t_rated)).clamp(0.5, 1.05)
-        };
+        }
+    }
+
+    /// Applies cap_ft (biquadratic f(Twb, Todb)) and cap_fflow (f(FF)) modifiers.
+    /// At rated conditions (35°C ODB, 19.44°C WB, FF=1), correction is 1.0.
+    fn available_capacity(&self, t_outdoor: f64, t_wb_inlet: f64, flow_fraction: f64) -> f64 {
+        let ft_mod = self.capacity_temperature_modifier(t_outdoor, t_wb_inlet);
         let ff_mod = if let Some(ref curve) = self.cap_fflow_curve {
             curve.evaluate_1d(flow_fraction)
         } else {
@@ -625,6 +630,15 @@ impl AirComponent for CoolingCoilDX {
 
     fn set_nominal_capacity(&mut self, cap: f64) {
         self.rated_capacity = cap;
+    }
+
+    fn design_capacity_modifier(&self, t_wb_in: f64, t_outdoor: f64) -> Option<(f64, (f64, f64))> {
+        // E+ MinRatedVolFlowPerRatedTotCap / MaxRatedVolFlowPerRatedTotCap for a
+        // single-speed coil (450 and 300 cfm per ton)
+        Some((
+            self.capacity_temperature_modifier(t_outdoor, t_wb_in),
+            (4.027e-5, 6.041e-5),
+        ))
     }
 
     fn unsized_fields(&self) -> Vec<&'static str> {
