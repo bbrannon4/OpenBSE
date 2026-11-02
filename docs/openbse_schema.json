@@ -1760,6 +1760,7 @@
         "shading": { "$ref": "#/$defs/WindowShading" },
         "sun_exposure": { "type": "boolean", "default": true, "description": "Whether the exterior face receives solar radiation. Set false for slab-on-grade floors (E+ NoSun)." },
         "wind_exposure": { "type": "boolean", "default": true, "description": "Whether the exterior face sees wind-driven convection (false = natural convection only, E+ NoWind)." },
+        "adjacent_surface": { "type": "string", "description": "Name of the opposite face of an interzone surface (E+ Outside Boundary Condition Object). Optional: surfaces are otherwise paired by coincident vertices, then by matching area and orientation. Anything that can't be paired one-to-one is a severe error." },
         "exposed_perimeter": { "type": "number", "description": "Exposed perimeter [m] for F-factor ground floors. Required when the construction is an f_factor_constructions entry; U_eff = F x P / A." },
         "height": { "type": "number", "description": "Window height [m] for the ISO 15099 interior convection model (default sqrt(area))." },
         "width": { "type": "number", "description": "Window width [m] for the ISO 15099 interior convection model (default sqrt(area))." }

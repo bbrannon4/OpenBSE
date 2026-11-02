@@ -1081,6 +1081,7 @@ impl BuildingEnvelope {
                     sun_exposure: false,
                     wind_exposure: false,
                     exposed_perimeter: None,
+                    adjacent_surface: None,
                     airflow: None,
                     height: None,
                     width: None,
@@ -1612,40 +1613,21 @@ impl BuildingEnvelope {
 
         // ── Build interzone surface pairs ─────────────────────────────
         //
-        // For each surface with BoundaryCondition::Zone("other"), find the
-        // matching surface in "other" zone that points back to this surface's
-        // zone.  Matches EnergyPlus behaviour: the outside temperature of
-        // each interzone surface is set to the paired surface's inside
-        // temperature, so the CTF cross-coupling term Y[0] correctly
-        // connects the two zones through a single wall thickness.
-        let mut interzone_pairs: Vec<Option<usize>> = vec![None; n_surfaces];
-        for i in 0..n_surfaces {
-            if let BoundaryCondition::Zone(ref other_zone) = surface_states[i].input.boundary {
-                let my_zone = &surface_states[i].input.zone;
-                for j in 0..n_surfaces {
-                    if j == i {
-                        continue;
-                    }
-                    if surface_states[j].input.zone == *other_zone {
-                        if let BoundaryCondition::Zone(ref back_zone) =
-                            surface_states[j].input.boundary
-                        {
-                            if back_zone == my_zone {
-                                interzone_pairs[i] = Some(j);
-                                log::info!(
-                                    "Interzone pair: '{}' (zone {}) <-> '{}' (zone {})",
-                                    surface_states[i].input.name,
-                                    my_zone,
-                                    surface_states[j].input.name,
-                                    other_zone,
-                                );
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
+        // Matches EnergyPlus behaviour: the outside temperature of each
+        // interzone surface is set to the paired surface's inside temperature,
+        // so the CTF cross-coupling term Y[0] correctly connects the two zones
+        // through a single wall thickness. A pairing error is severe in
+        // `validate_model`, so it can't reach here from a model file.
+        let interzone_pairing = crate::surface::pair_interzone_surfaces(
+            &surface_states
+                .iter()
+                .map(|ss| ss.input.clone())
+                .collect::<Vec<_>>(),
+        );
+        for msg in &interzone_pairing.errors {
+            log::error!("{msg}");
         }
+        let interzone_pairs = interzone_pairing.pairs;
 
         // ── Compute envelope areas by cardinal direction ──────────────
         let mut envelope_areas = crate::geometry::EnvelopeAreas::default();
@@ -3586,7 +3568,8 @@ impl EnvelopeSolver for BuildingEnvelope {
                             // zone air temperature.
                             self.surfaces[si].temp_outside = self.surfaces[si].temp_inside;
                         } else {
-                            // Fallback: use zone air temp (no matched pair)
+                            // No partner: only reachable by building an envelope
+                            // directly, since validation rejects it (#207).
                             if let Some(&zi) = self.zone_index.get(other_zone) {
                                 self.surfaces[si].temp_outside = self.zones[zi].temp;
                             }
@@ -6008,6 +5991,7 @@ mod tests {
                 sun_exposure: true,
                 wind_exposure: true,
                 exposed_perimeter: None,
+                adjacent_surface: None,
                 airflow: None,
                 height: None,
                 width: None,
@@ -6027,6 +6011,7 @@ mod tests {
                 sun_exposure: true,
                 wind_exposure: true,
                 exposed_perimeter: None,
+                adjacent_surface: None,
                 airflow: None,
                 height: None,
                 width: None,
@@ -6046,6 +6031,7 @@ mod tests {
                 sun_exposure: false,
                 wind_exposure: false,
                 exposed_perimeter: None,
+                adjacent_surface: None,
                 airflow: None,
                 height: None,
                 width: None,
@@ -6065,6 +6051,7 @@ mod tests {
                 sun_exposure: true,
                 wind_exposure: true,
                 exposed_perimeter: None,
+                adjacent_surface: None,
                 airflow: None,
                 height: None,
                 width: None,
@@ -6191,6 +6178,7 @@ mod tests {
             sun_exposure: false,
             wind_exposure: true,
             exposed_perimeter: None,
+            adjacent_surface: None,
             airflow: None,
             height: None,
             width: None,
@@ -6219,6 +6207,7 @@ mod tests {
                 sun_exposure: false,
                 wind_exposure: false,
                 exposed_perimeter: None,
+                adjacent_surface: None,
                 airflow: doorway_override.clone(),
                 height: None,
                 width: None,
@@ -6238,6 +6227,7 @@ mod tests {
                 sun_exposure: false,
                 wind_exposure: false,
                 exposed_perimeter: None,
+                adjacent_surface: None,
                 airflow: doorway_override,
                 height: None,
                 width: None,
@@ -6259,6 +6249,7 @@ mod tests {
                 sun_exposure: false,
                 wind_exposure: false,
                 exposed_perimeter: None,
+                adjacent_surface: None,
                 airflow: None,
                 height: None,
                 width: None,
@@ -6806,6 +6797,7 @@ mod tests {
                 sun_exposure: true,
                 wind_exposure: true,
                 exposed_perimeter: None,
+                adjacent_surface: None,
                 airflow: None,
                 height: None,
                 width: None,
@@ -6825,6 +6817,7 @@ mod tests {
                 sun_exposure: true,
                 wind_exposure: true,
                 exposed_perimeter: None,
+                adjacent_surface: None,
                 airflow: None,
                 height: None,
                 width: None,
@@ -7116,6 +7109,7 @@ mod tests {
             sun_exposure: true,
             wind_exposure: true,
             exposed_perimeter: None,
+            adjacent_surface: None,
             airflow: None,
             height: None,
             width: None,
@@ -7206,6 +7200,7 @@ mod tests {
                 sun_exposure: true,
                 wind_exposure: true,
                 exposed_perimeter: None,
+                adjacent_surface: None,
                 airflow: None,
                 height: None,
                 width: None,
@@ -7225,6 +7220,7 @@ mod tests {
                 sun_exposure: true,
                 wind_exposure: true,
                 exposed_perimeter: None,
+                adjacent_surface: None,
                 airflow: None,
                 height: None,
                 width: None,
@@ -7369,6 +7365,7 @@ mod tests {
                 sun_exposure: true,
                 wind_exposure: true,
                 exposed_perimeter: None,
+                adjacent_surface: None,
                 airflow: None,
                 height: None,
                 width: None,
@@ -7388,6 +7385,7 @@ mod tests {
                 sun_exposure: true,
                 wind_exposure: true,
                 exposed_perimeter: None,
+                adjacent_surface: None,
                 airflow: None,
                 height: None,
                 width: None,
@@ -7513,6 +7511,7 @@ mod tests {
             sun_exposure: true,
             wind_exposure: true,
             exposed_perimeter: None,
+            adjacent_surface: None,
             airflow: None,
             height: None,
             width: None,

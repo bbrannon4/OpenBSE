@@ -729,23 +729,40 @@ surfaces:
       - {x: 25.135, y: 6.0, z: 6.096}
       - {x: 0.0,    y: 6.0, z: 6.096}
 
-  # Core Retail - South Wall Segment 2 (interior, adjacent to Front Entry)
-  # The Front Entry is only 3m deep (Y=0 to Y=3), but Core Retail extends
-  # down to Y=6.0. This wall at Y=6.0 spans X=[25.135, 29.135].
-  # The Front Entry has a wall at Y=3.0 facing Core Retail, and another
-  # portion at Y=6.0 is handled by this wall with the entry extending
-  # only to Y=3.0. We model the wall above the entry (Y=3 to Y=6) as
-  # part of Core Retail's boundary.
+  # Core Retail - notch behind the Front Entry. The entry is only 3 m deep
+  # (Y=0 to Y=3), so Core Retail extends down to Y=3 over X=[25.135, 29.135].
   - name: Core Retail South Wall Entry
     zone: Core Retail
     type: wall
     construction: Interior Partition
     boundary: !zone "Front Entry"
     vertices:
+      - {x: 25.135, y: 3.0, z: 0.0}
+      - {x: 29.135, y: 3.0, z: 0.0}
+      - {x: 29.135, y: 3.0, z: 6.096}
+      - {x: 25.135, y: 3.0, z: 6.096}
+
+  - name: Core Retail Notch West Wall
+    zone: Core Retail
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Point of Sale"
+    vertices:
       - {x: 25.135, y: 6.0, z: 0.0}
+      - {x: 25.135, y: 3.0, z: 0.0}
+      - {x: 25.135, y: 3.0, z: 6.096}
+      - {x: 25.135, y: 6.0, z: 6.096}
+
+  - name: Core Retail Notch East Wall
+    zone: Core Retail
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Front Retail"
+    vertices:
+      - {x: 29.135, y: 3.0, z: 0.0}
       - {x: 29.135, y: 6.0, z: 0.0}
       - {x: 29.135, y: 6.0, z: 6.096}
-      - {x: 25.135, y: 6.0, z: 6.096}
+      - {x: 29.135, y: 3.0, z: 6.096}
 
   # Core Retail - South Wall Segment 3 (interior, adjacent to Front Retail)
   # X=[29.135, 54.27], Y=6.0
@@ -925,6 +942,28 @@ surfaces:
       - {x: 43.085, y: 29.615, z: 6.096}
 
   # Core Retail - Floor (ground contact, F-factor slab - very low U due to large area)
+  - name: Core Retail Notch Floor
+    zone: Core Retail
+    type: floor
+    construction: Ground Floor
+    boundary: ground
+    vertices:
+      - {x: 25.135, y: 6.0, z: 0.0}
+      - {x: 29.135, y: 6.0, z: 0.0}
+      - {x: 29.135, y: 3.0, z: 0.0}
+      - {x: 25.135, y: 3.0, z: 0.0}
+
+  - name: Core Retail Notch Roof
+    zone: Core Retail
+    type: roof
+    construction: Roof Assembly
+    boundary: outdoor
+    vertices:
+      - {x: 25.135, y: 3.0, z: 6.096}
+      - {x: 29.135, y: 3.0, z: 6.096}
+      - {x: 29.135, y: 6.0, z: 6.096}
+      - {x: 25.135, y: 6.0, z: 6.096}
+
   - name: Core Retail Floor
     zone: Core Retail
     type: floor
@@ -1016,9 +1055,20 @@ surfaces:
     boundary: !zone "Front Entry"
     vertices:
       - {x: 25.135, y: 0.0, z: 0.0}
+      - {x: 25.135, y: 3.0, z: 0.0}
+      - {x: 25.135, y: 3.0, z: 6.096}
+      - {x: 25.135, y: 0.0, z: 6.096}
+
+  - name: POS East Wall Core
+    zone: Point of Sale
+    type: wall
+    construction: Interior Partition
+    boundary: !zone "Core Retail"
+    vertices:
+      - {x: 25.135, y: 3.0, z: 0.0}
       - {x: 25.135, y: 6.0, z: 0.0}
       - {x: 25.135, y: 6.0, z: 6.096}
-      - {x: 25.135, y: 0.0, z: 6.096}
+      - {x: 25.135, y: 3.0, z: 6.096}
 
   # Point of Sale - Roof (exterior)
   - name: POS Roof
