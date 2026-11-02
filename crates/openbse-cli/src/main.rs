@@ -5877,20 +5877,18 @@ fn simulate_all_loops(
             }
         }
 
-        // Return-air humidity for mixed-air construction: served-zone average
-        // of the actual zone moisture balance. Previously synthesized as
+        // Return-air humidity for mixed-air construction: the served zones'
+        // actual moisture balance, weighted by the box flows where the loop has
+        // them and an even split otherwise (#184). Previously synthesized as
         // "50% RH at the mixed-air temperature", which decoupled coil latent
         // loads from the zone moisture balance and diverged numerically for
         // return temps above 100°C (saturation pressure exceeds atmospheric).
+        if let Some(w) =
+            openbse_airloop::mixed_return_w(zone_humidity_ratios, &li.served_zones, |z| {
+                signals.zone_air_flows.get(z).copied().unwrap_or(0.0)
+            })
         {
-            let (sum_w, n_w) = li
-                .served_zones
-                .iter()
-                .filter_map(|z| zone_humidity_ratios.get(z))
-                .fold((0.0_f64, 0usize), |(s, n), w| (s + w, n + 1));
-            if n_w > 0 {
-                signals.return_air_w = Some(sum_w / n_w as f64);
-            }
+            signals.return_air_w = Some(w);
         }
 
         // Heat recovery tempers the outdoor air before it mixes with return

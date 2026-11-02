@@ -212,25 +212,26 @@ EnergyPlus has no counterpart.
 **Source:** `heat_balance.rs::from_input_full` (effective U) and
 `compute_all_ctf`.
 
-An F-factor floor of area $A$ and exposed perimeter $P$ [m] gets the
-conduction transmittance
+An F-factor floor of area $A$ and exposed perimeter $P$ [m], with $F$ the
+F-factor [W/(m·K)], is two layers. The F-factor includes the air films, so they
+are removed to leave the floor's resistance
 
 $$
-U_\text{eff} = \frac{F P}{A},
+R_\text{eff} = \frac{A}{F P} - R_\text{film,in} - R_\text{film,out},
+\qquad R_\text{film,in} = 0.135,\quad R_\text{film,out} = 0.03\ \text{m²·K/W},
 $$ {#eq-ffactor}
 
-with $F$ the F-factor [W/(m·K)]. When $P$ is missing it defaults to
-$2\sqrt{A}$, with a warning. $U_\text{eff}$ and the construction's
-`thermal_capacity` go through @sec-simple-constructions. The outside face is
-held at the construction's monthly ground temperatures (constant within each
-month), or at the building ground temperatures (@sec-ground-temps).
+or 177 m²·K/W when $P = 0$. Inside, a fixed 15 cm of concrete ($k = 1.95$
+W/(m·K), $\rho = 2240$ kg/m³, $c_p = 900$ J/(kg·K)) gives the floor its mass. Outside it, a no-mass layer of resistance
+$R_\text{eff} - 0.15/k$ makes up the rest. A floor too conductive to hold the concrete is
+a severe error. When $P$ is missing it defaults to $2\sqrt{A}$, with a warning. The
+outside face is held at the construction's monthly ground temperatures
+(constant within each month), or at the building ground temperatures
+(@sec-ground-temps).
 
-**Comparison with EnergyPlus.** `Construction:FfactorGroundFloor`
-(`HeatBalanceManager::CreateFCfactorConstructions`) builds a NoMass layer of
-resistance $A/(FP) - 0.135 - 0.03 - R_\text{con}$ plus a 0.15 m concrete layer.
-That removes the air films already included in $F$. OpenBSE does not remove
-the films, and it uses the synthetic layers instead of the concrete
-([#205](https://github.com/bbrannon4/OpenBSE/issues/205)).
+**Comparison with EnergyPlus.** This is `Construction:FfactorGroundFloor`
+as built by `HeatBalanceManager::CreateFCfactorConstructions`. C-factor walls
+(`Construction:CfactorUndergroundWall`) don't exist.
 
 ## Heat and moisture transfer (HAMT) {#sec-hamt}
 
@@ -253,8 +254,6 @@ will be written when the model is fixed and wired in.
   in and has known equation errors.
 - [#204](https://github.com/bbrannon4/OpenBSE/issues/204): no CTF time-step
   escalation for massive constructions.
-- [#205](https://github.com/bbrannon4/OpenBSE/issues/205): F-factor floors
-  keep the air films and use synthetic mass.
 
 ## Surface heat balances {#sec-surface-hb}
 
