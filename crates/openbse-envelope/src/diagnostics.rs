@@ -115,6 +115,20 @@ pub struct EnvelopeDiagnostics {
     /// Set when a surface passes [`SURFACE_TEMP_FATAL_FACTOR`] × the limit;
     /// the CLI stops the run.
     pub fatal: Option<String>,
+    /// Surface–air coupling passes (#209).
+    pub surface_air: SurfaceAirPasses,
+}
+
+/// Outer surface–air passes of the envelope solves since the last take.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SurfaceAirPasses {
+    pub solves: u64,
+    pub passes: u64,
+    /// Solves that used every pass without settling.
+    pub unconverged: u64,
+    /// Largest change left in the last pass of an unconverged solve [K].
+    pub worst_delta: f64,
+    pub worst_time: StepTime,
 }
 
 impl EnvelopeDiagnostics {
@@ -135,6 +149,21 @@ impl EnvelopeDiagnostics {
         }
     }
 
+    /// Record one solve's surface–air passes, and what changed in its last one.
+    pub fn surface_air_passes(&mut self, passes: u32, converged: bool, last_delta: f64) {
+        let now = self.now;
+        let c = &mut self.surface_air;
+        c.solves += 1;
+        c.passes += passes as u64;
+        if !converged {
+            c.unconverged += 1;
+            if last_delta > c.worst_delta {
+                c.worst_delta = last_delta;
+                c.worst_time = now;
+            }
+        }
+    }
+
     /// Record a NaN `state` replaced by its previous value.
     pub fn nan_held(&mut self, state: impl FnOnce() -> String) {
         let now = self.now;
@@ -146,7 +175,10 @@ impl EnvelopeDiagnostics {
 
     /// Whether anything was recorded.
     pub fn is_empty(&self) -> bool {
-        self.surface_temp_holds.is_empty() && self.nan_holds.is_empty() && self.fatal.is_none()
+        self.surface_temp_holds.is_empty()
+            && self.nan_holds.is_empty()
+            && self.fatal.is_none()
+            && self.surface_air.unconverged == 0
     }
 
     /// Hand over the events recorded so far and start afresh.

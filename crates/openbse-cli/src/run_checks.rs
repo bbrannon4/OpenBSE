@@ -19,6 +19,7 @@
 //! | Air component | ṁ·Δh across each air-side component = its `thermal_output` | warning |
 //! | Plant unmet demand | capacity-limited loops (E+ "Plant Supply Side Unmet Demand Rate") | warning |
 //! | HVAC convergence | timesteps whose HVAC iteration hit its limit | warning |
+//! | Surface–air convergence | envelope solves whose outer passes hit their limit | warning |
 //!
 //! The closure checks that every shipped model passes are severe. The
 //! air-component check is a warning until the imbalance it found is fixed:
@@ -490,6 +491,21 @@ impl RunChecks {
             holds(&mut push, phase, &d.nan_holds, |s, e| {
                 format!("NaN {s} replaced by its previous value") + &hold_detail(e)
             });
+            let c = &d.surface_air;
+            if c.unconverged > 0 {
+                push(
+                    Severity::Warning,
+                    format!(
+                        "[{phase}] Surface–air passes didn't settle in {} of {} envelope solves \
+                         ({:.1} passes per solve); worst change left {:.3} K at {}",
+                        c.unconverged,
+                        c.solves,
+                        c.passes as f64 / c.solves.max(1) as f64,
+                        c.worst_delta,
+                        c.worst_time
+                    ),
+                );
+            }
         }
     }
 }

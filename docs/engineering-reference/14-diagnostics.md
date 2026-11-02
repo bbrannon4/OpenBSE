@@ -57,6 +57,7 @@ $$ {#eq-check-run}
 | Envelope holds | inside surface temperature beyond 200 °C, NaN states replaced | severe |
 | Air component | $\dot m\Delta h$ across a component = its `thermal_output` | warning |
 | Plant unmet | capacity-limited loops | warning |
+| Surface–air convergence | envelope solves whose outer passes reached their limit (@sec-surface-hb) | warning |
 | HVAC convergence | timesteps whose iteration reached its limit (@sec-hvac-iteration) | warning |
 
 The air-component check stays a warning because of a known imbalance
