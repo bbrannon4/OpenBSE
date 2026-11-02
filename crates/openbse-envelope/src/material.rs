@@ -599,9 +599,9 @@ impl WindowConstruction {
 /// (distributed to zone surfaces) and absorbed-inward solar (heats glass).
 ///
 /// Three U-factor regimes match E+ exactly:
-/// - U > 4.5424: high-U (single-pane) correlations
-/// - U < 3.4068: low-U (double/triple-pane) correlations
-/// - 3.4068 ≤ U ≤ 4.5424: linear interpolation of both
+/// - U > 4.5: high-U (single-pane) correlations
+/// - U < 3.4: low-U (double/triple-pane) correlations
+/// - 3.4 ≤ U ≤ 4.5: linear interpolation of both
 ///
 /// Reference: Arasteh, Kohler, & Griffith (2009), "Modeling Windows in
 /// Energy-Plus with Simple Performance Indices", LBNL-2804E.
@@ -623,14 +623,14 @@ pub fn sgs_tsol_from_shgc(shgc: f64, u_factor: f64) -> f64 {
         return 0.0;
     }
 
-    // High-U correlations (U > 4.5424, single-pane regime)
+    // High-U correlations (U > 4.5, single-pane regime)
     let tsol_high = if shgc < 0.7206 {
         0.939998 * shgc.powi(2) + 0.20332 * shgc
     } else {
         (1.30415 * shgc - 0.30515).max(0.0)
     };
 
-    // Low-U correlations (U < 3.4068, double/triple-pane regime)
+    // Low-U correlations (U < 3.4, double/triple-pane regime)
     let tsol_low = if shgc <= 0.15 {
         0.41040 * shgc
     } else {
@@ -638,17 +638,57 @@ pub fn sgs_tsol_from_shgc(shgc: f64, u_factor: f64) -> f64 {
     };
 
     // Select or interpolate based on U-factor (E+ boundary values)
-    let tsol = if u_factor > 4.5424 {
+    let tsol = if u_factor > 4.5 {
         tsol_high
-    } else if u_factor < 3.4068 {
+    } else if u_factor < 3.4 {
         tsol_low
     } else {
-        // Linear interpolation between low-U and high-U regimes
-        let frac = (u_factor - 3.4068) / (4.5424 - 3.4068);
-        tsol_low + frac * (tsol_high - tsol_low)
+        tsol_low + (u_factor - 3.4) / (4.5 - 3.4) * (tsol_high - tsol_low)
     };
 
-    tsol.clamp(0.0, shgc)
+    tsol.max(0.0)
+}
+
+/// Resistance of the equivalent glazing layer of a simple glazing system
+/// [m²·K/W]: the U-factor less E+'s winter film correlations
+/// (`SetupSimpleWindowGlazingSystem`, step 1; Arasteh et al. 2009).
+pub fn sgs_layer_resistance(u_factor: f64) -> f64 {
+    let r_in = if u_factor < 5.85 {
+        1.0 / (0.359073 * u_factor.ln() + 6.949915)
+    } else {
+        1.0 / (1.788041 * u_factor - 2.886625)
+    };
+    let r_out = 1.0 / (0.025342 * u_factor + 29.163853);
+    (1.0 / u_factor - r_in - r_out).max(0.001)
+}
+
+/// Fraction of a simple glazing system's absorbed solar that flows inward,
+/// from E+'s film correlations for solar conditions, which depend on SHGC − τ
+/// (`SetupSimpleWindowGlazingSystem`, step 5). The interpolation between the U
+/// regimes is transcribed as E+ writes it, with the same sign.
+pub fn sgs_inflow_fraction(u_factor: f64, shgc: f64, tsol: f64) -> f64 {
+    let d = shgc - tsol;
+    let low = (
+        1.0 / (199.8208128 * d.powi(3) - 90.639733 * d.powi(2) + 19.737055 * d + 6.766575),
+        1.0 / (5.763355 * d + 20.541528),
+    );
+    let high = (
+        1.0 / (29.436546 * d.powi(3) - 21.943415 * d.powi(2) + 9.945872 * d + 7.426151),
+        1.0 / (2.225824 * d + 20.577080),
+    );
+    let (r_is, r_os) = if u_factor > 4.5 {
+        high
+    } else if u_factor < 3.4 {
+        low
+    } else {
+        let frac = (u_factor - 3.4) / (4.5 - 3.4);
+        (
+            frac * (low.0 - high.0) + low.0,
+            frac * (low.1 - high.1) + low.1,
+        )
+    };
+    let r_l = sgs_layer_resistance(u_factor);
+    (r_os + 0.5 * r_l) / (r_os + r_l + r_is)
 }
 
 /// Simplified opaque construction defined by overall properties.
@@ -781,6 +821,31 @@ impl FFactorConstruction {
 
 #[cfg(test)]
 mod tests {
+    /// Hand evaluation of E+ `SetupSimpleWindowGlazingSystem` for U = 2, SHGC = 0.4 (#213).
+    #[test]
+    fn simple_glazing_follows_the_e_plus_correlations() {
+        let (u, shgc) = (2.0f64, 0.4f64);
+        let tsol = 0.085775 * shgc * shgc + 0.963954 * shgc - 0.084958;
+        assert!((sgs_tsol_from_shgc(shgc, u) - tsol).abs() < 1e-12);
+        let r_i = 1.0 / (0.359073 * u.ln() + 6.949915);
+        let r_o = 1.0 / (0.025342 * u + 29.163853);
+        let r_l = 1.0 / u - r_i - r_o;
+        assert!((sgs_layer_resistance(u) - r_l).abs() < 1e-12);
+        let d = shgc - tsol;
+        let r_is = 1.0 / (199.8208128 * d.powi(3) - 90.639733 * d * d + 19.737055 * d + 6.766575);
+        let r_os = 1.0 / (5.763355 * d + 20.541528);
+        let n = (r_os + 0.5 * r_l) / (r_os + r_l + r_is);
+        assert!((sgs_inflow_fraction(u, shgc, tsol) - n).abs() < 1e-12);
+        // The regimes switch at 3.4 and 4.5, not 3.4068 and 4.5424.
+        assert_eq!(sgs_tsol_from_shgc(0.5, 3.401), {
+            let lo = 0.085775 * 0.25 + 0.963954 * 0.5 - 0.084958;
+            let hi = 0.939998 * 0.25 + 0.20332 * 0.5;
+            lo + 0.001 / 1.1 * (hi - lo)
+        });
+        let hi = 0.939998 * 0.25 + 0.20332 * 0.5;
+        assert_eq!(sgs_tsol_from_shgc(0.5, 4.51), hi);
+    }
+
     #[test]
     fn f_factor_floor_removes_films_and_uses_fixed_concrete() {
         let fc = FFactorConstruction {

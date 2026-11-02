@@ -683,13 +683,28 @@ over 200 angles. Which angular model a window gets depends on its inputs
    \end{cases}
    $$ {#eq-sgs-tsol}
 
-   with the high-U form for $U > 4.5424$ and linear interpolation between
-   3.4068 and 4.5424 W/(m²·K). The glass resistance and inward fraction use
-   fixed films ($h_i = 8.29$, $h_o = 26.0$):
+   with the high-U form for $U > 4.5$ and linear interpolation between
+   3.4 and 4.5 W/(m²·K). The layer resistance uses EnergyPlus's winter films, which depend on $U$:
 
    $$
-   R_l = \frac1U - \frac1{h_o} - \frac1{h_i},\qquad
-   N = \frac{R_l/2 + 1/h_o}{R_l + 1/h_o + 1/h_i},\qquad
+   R_l = \frac1U - R_{i,w} - R_{o,w},\qquad
+   R_{i,w} = \frac{1}{0.359073\ln U + 6.949915},\qquad
+   R_{o,w} = \frac{1}{0.025342\,U + 29.163853},
+   $$ {#eq-sgs-winter-films}
+
+   with $R_{i,w} = 1/(1.788041\,U - 2.886625)$ for $U \ge 5.85$. The inward
+   fraction uses its solar-condition films, cubic and linear in
+   $\Delta = SHGC - \tau_\text{sol}$. For $U < 3.4$, for example:
+
+   $$
+   R_{i,s} = \frac{1}{199.8208\Delta^3 - 90.6397\Delta^2 + 19.7371\Delta + 6.7666},\qquad
+   R_{o,s} = \frac{1}{5.7634\Delta + 20.5415},
+   $$ {#eq-sgs-solar-films}
+
+   with a second set for $U > 4.5$ and interpolation between, as in EnergyPlus. Then
+
+   $$
+   N = \frac{R_l/2 + R_{o,s}}{R_l + R_{o,s} + R_{i,s}},\qquad
    \rho_\text{sol} = 1 - \tau_\text{sol} - \frac{SHGC - \tau_\text{sol}}{N}.
    $$ {#eq-sgs-films}
 
@@ -742,7 +757,7 @@ The terms are:
   (@sec-tarp), and $h_{r,i}$ and $T_\text{mrt}$ come from @eq-lw-linear at
   the glass emissivity.
 - **Glass conductance** $u_g$:
-  - **Film-stripped** (default): $u_g = (1/U - 1/26 - 1/8.29)^{-1}$.
+  - **Simple glazing** (default): $u_g = 1/R_l$ from @eq-sgs-winter-films.
   - **Single pane** (`num_panes: 1` with pane data): $u_g = k/L$.
   - **Gap model** (gap width and pane data):
     $u_g = (2L/k + 1/h_\text{gap})^{-1}$, with an air gap whose
@@ -819,9 +834,7 @@ A deployed device is modelled in one of two ways:
 - **Simple-glazing correlations and curves.** The transmittance
   correlations and angular curves follow
   `MaterialGlass::SetupSimpleWindowGlazingSystem`
-  [@eplus-engref-25-2, "Simple Window Model"]. EnergyPlus uses U-dependent
-  winter films for $R_l$, SHGC-dependent solar films for $N$, and U bounds of
-  3.4 and 4.5 ([#213](https://github.com/bbrannon4/OpenBSE/issues/213)).
+  [@eplus-engref-25-2, "Simple Window Model"].
 - **Thermal model.** EnergyPlus solves two face temperatures per glass
   layer, with each layer's absorbed solar, per-gap gas properties and the
   full ISO 15099 gap correlations (`WindowManager::SolveForWindowTemperatures`).
@@ -836,9 +849,8 @@ A deployed device is modelled in one of two ways:
 
 ## Known limitations: windows {#sec-windows-limitations}
 
-- [#213](https://github.com/bbrannon4/OpenBSE/issues/213): simple-glazing
-  films and bounds differ from EnergyPlus; three unread inputs; angular-model
-  selection by input.
+- [#213](https://github.com/bbrannon4/OpenBSE/issues/213): three unread inputs;
+  angular-model selection by input.
 - [#214](https://github.com/bbrannon4/OpenBSE/issues/214): lumped glass node,
   two-pane air-only gap model, ad hoc caps.
 

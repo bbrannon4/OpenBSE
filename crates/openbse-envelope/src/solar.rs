@@ -1043,6 +1043,8 @@ pub struct SgsAngularModel {
     pub diff_tsol_frac: f64,
     /// Hemispherical diffuse SHGC fraction (SHGC_diff / SHGC_normal)
     pub diff_shgc_frac: f64,
+    /// Hemispherical diffuse solar absorptance of the equivalent layer
+    pub diff_absorptance: f64,
 }
 
 impl SgsAngularModel {
@@ -1055,18 +1057,9 @@ impl SgsAngularModel {
 
         let tsol = sgs_tsol_from_shgc(shgc, u_factor);
 
-        // Compute Rsol and N_i using E+'s thermal resistance model.
-        // Frac_inward = (R_out + 0.5*R_glass) / (R_out + R_glass + R_in)
-        // with summer film coefficients for solar gain conditions.
-        let h_in: f64 = 8.29; // NFRC/E+ interior film (summer) [W/(m²·K)]
-        let h_out: f64 = 26.0; // NFRC/E+ exterior film (summer) [W/(m²·K)]
-        let r_glass = (1.0 / u_factor - 1.0 / h_in - 1.0 / h_out).max(0.001);
-        let r_inner = r_glass / 2.0 + 1.0 / h_in;
-        let r_outer = r_glass / 2.0 + 1.0 / h_out;
-        let frac_inward = r_outer / (r_inner + r_outer);
-
-        // Rsol = 1 - Tsol - (SHGC - Tsol) / Frac_inward
-        // This ensures SHGC = Tsol + Frac_inward × α_sol at normal incidence.
+        // Rsol from E+'s inward-flowing fraction, so that SHGC = Tsol + N·α_sol
+        // at normal incidence. The films are E+'s, functions of U and SHGC − Tsol.
+        let frac_inward = crate::material::sgs_inflow_fraction(u_factor, shgc, tsol);
         let rsol = if frac_inward > 0.01 {
             (1.0 - tsol - (shgc - tsol) / frac_inward).clamp(0.0, 1.0 - tsol)
         } else {
@@ -1087,26 +1080,29 @@ impl SgsAngularModel {
             sgs_diffuse_shgc_modifier(shgc, tsol, rsol, ni, &trans_curve, &refl_curve);
 
         // Hemispherical diffuse Tsol and SHGC fractions via numerical integration.
-        let (diff_tsol_frac, diff_shgc_frac) = {
+        let (diff_tsol_frac, diff_shgc_frac, diff_absorptance) = {
             const N: usize = 200;
-            let (mut st, mut ss, mut sw) = (0.0_f64, 0.0_f64, 0.0_f64);
+            let (mut st, mut ss, mut sa, mut sw) = (0.0_f64, 0.0_f64, 0.0_f64, 0.0_f64);
             for i in 0..N {
                 let theta = (i as f64 + 0.5) / N as f64 * PI / 2.0;
                 let ct = theta.cos();
                 let w = ct * theta.sin();
-                let (ta, sa) =
+                let (ta, gain) =
                     sgs_angular_properties(ct, tsol, rsol, ni, &trans_curve, &refl_curve);
                 st += ta * w;
-                ss += sa * w;
+                ss += gain * w;
+                // Absorbed from the same balance as `gain = τ + N·α`.
+                sa += if ni > 1e-9 { (gain - ta) / ni * w } else { 0.0 };
                 sw += w;
             }
             if sw > 0.0 && tsol > 0.0 && shgc > 0.0 {
                 (
                     (st / sw / tsol).clamp(0.0, 1.0),
                     (ss / sw / shgc).clamp(0.0, 1.0),
+                    (sa / sw).clamp(0.0, 1.0),
                 )
             } else {
-                (0.88, 0.88)
+                (0.88, 0.88, 0.0)
             }
         };
 
@@ -1119,6 +1115,7 @@ impl SgsAngularModel {
             diff_modifier,
             diff_tsol_frac,
             diff_shgc_frac,
+            diff_absorptance,
         }
     }
 }

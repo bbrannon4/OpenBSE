@@ -737,12 +737,10 @@ fn effective_window_u_glass(surface: &SurfaceState) -> f64 {
 
 /// Film-stripped glass-node conductance for a film-to-film blind+window U-factor.
 ///
-/// Strips the NFRC standard interior/exterior films (matching `u_glass_rated`) so
-/// the result is comparable to the bare-glass `u_glass` used in the heat balance.
+/// Strips E+'s simple-glazing films so the result is comparable to the
+/// bare-glass `u_glass` used in the heat balance.
 fn blind_glass_conductance(blind_u_factor: f64) -> f64 {
-    let r_films = 1.0 / 26.0 + 1.0 / 8.29;
-    let r_glass = (1.0 / blind_u_factor - r_films).max(0.01);
-    1.0 / r_glass
+    1.0 / crate::material::sgs_layer_resistance(blind_u_factor)
 }
 
 /// Solar-gain multiplier for a deployed interior blind: the ratio of blind SHGC to
@@ -1191,29 +1189,21 @@ impl BuildingEnvelope {
                 None
             };
 
-            // Hemispherical diffuse back-transmittance for window cavity back-out
+            // Hemispherical diffuse back-transmittance and back-absorptance for
+            // window cavity back-out: from the Fresnel model's integral, or the
+            // simple glazing model's own, as E+'s hemispherical averages.
             let win_diffuse_back_tau = if is_window && glass_kd > 1e-12 {
-                // First-principles Fresnel model: integrate τ_system(θ) over hemisphere
                 crate::solar::diffuse_hemispherical_transmittance(glass_n, glass_kd)
-            } else if is_window {
-                // SGS or fallback: approximate from SHGC × ratio × diffuse modifier
-                let wc = window_map.get(&surf_input.construction);
-                let (s, r) = wc
-                    .map(|w| (w.shgc, w.solar_transmittance_ratio()))
-                    .unwrap_or((0.5, 0.85));
-                s * r * 0.87 // τ_sys_normal × hemispherical modifier ≈ 0.87
+            } else if let Some(ref m) = sgs_model {
+                m.tsol * m.diff_tsol_frac
             } else {
                 0.0
             };
-
-            // Hemispherical diffuse back-absorptance: α = 1 - τ - ρ
             let win_diffuse_back_abs = if is_window && glass_kd > 1e-12 {
                 let rho = crate::solar::diffuse_hemispherical_reflectance(glass_n, glass_kd);
                 (1.0 - win_diffuse_back_tau - rho).max(0.0)
-            } else if is_window {
-                // Approximate: total hemispherical absorptance from energy balance
-                // For SGS windows, use a typical clear double-pane value
-                0.18
+            } else if let Some(ref m) = sgs_model {
+                m.diff_absorptance
             } else {
                 0.0
             };
@@ -1340,13 +1330,11 @@ impl BuildingEnvelope {
             //    initial estimate of gap temperatures, then updates dynamically
             //    during simulation. Matches EnergyPlus layer-by-layer approach.
             //
-            // 2. **NFRC film stripping** (fallback) — decomposes the NFRC rated
-            //    U-factor by removing standard film coefficients:
-            //      h_i_std = 8.29 W/(m²·K), h_e_std = 26.0 W/(m²·K)
-            //      u_glass = 1 / (1/U - 1/h_e_std - 1/h_i_std)
-            //    This is less accurate because the NFRC gap conductance (at NFRC
-            //    test conditions) doesn't match runtime conditions — the gap
-            //    Rayleigh number and radiation coefficient change with temperature.
+            // 2. **Simple glazing** — decomposes the rated U-factor by removing
+            //    E+'s winter film correlations (`sgs_layer_resistance`). This is
+            //    less accurate because the gap conductance at rating conditions
+            //    doesn't match runtime conditions — the gap Rayleigh number and
+            //    radiation coefficient change with temperature.
 
             // Extract gap properties and glass emissivity from window construction
             let (
@@ -1432,6 +1420,8 @@ impl BuildingEnvelope {
                                                     // dependent increases at moderate summer conditions while
                                                     // still preventing runaway at free-float extremes (60°C+).
                 (1.0 / r_glass).min(u_glass_rated * 1.05)
+            } else if is_window && u_factor > 0.0 {
+                1.0 / crate::material::sgs_layer_resistance(u_factor)
             } else {
                 u_glass_rated
             };
