@@ -188,10 +188,12 @@ pub fn resolve_gains_scheduled(
                 let frac =
                     schedule_fraction(schedule, schedule_mgr, hour, day_of_week, day_of_year);
                 let total = power * frac;
+                // All fractions are of the total, as in E+ `Lights` (#186).
                 let to_return_air = total * return_air_fraction;
                 let to_zone = total - to_return_air;
-                result.radiative += to_zone * radiant_fraction;
-                result.convective += to_zone * (1.0 - radiant_fraction) + to_return_air;
+                let radiant = total * radiant_fraction;
+                result.radiative += radiant;
+                result.convective += to_zone - radiant + to_return_air;
                 result.total += total;
                 result.lighting_power += total;
                 result.lighting_gain_to_zone += to_zone;
@@ -208,13 +210,14 @@ pub fn resolve_gains_scheduled(
                 let frac =
                     schedule_fraction(schedule, schedule_mgr, hour, day_of_week, day_of_year);
                 let total = power * frac;
-                // Only the non-lost portion enters the zone as heat
-                let to_zone = total * (1.0 - lost_fraction);
-                // Latent portion generates moisture, not sensible heat
-                let latent = to_zone * latent_fraction;
-                let sensible = to_zone - latent;
-                result.radiative += sensible * radiant_fraction;
-                result.convective += sensible * (1.0 - radiant_fraction);
+                // All fractions are of the total, as in E+ `ElectricEquipment` (#186).
+                // Only the non-lost portion enters the zone; latent generates
+                // moisture, not sensible heat.
+                let latent = total * latent_fraction;
+                let sensible = total * (1.0 - lost_fraction - latent_fraction);
+                let radiant = total * radiant_fraction;
+                result.radiative += radiant;
+                result.convective += sensible - radiant;
                 result.total += sensible;
                 result.equipment_latent += latent;
                 // Report full electric power for energy accounting
@@ -274,12 +277,12 @@ mod tests {
             submeter: "General".to_string(),
         }];
         let resolved = resolve_gains(&gains);
-        // 1000 total, 200 to return air, 800 to zone
-        // Of 800: 560 radiant, 240 convective. The 200 bound for the return
-        // air is zone convective until an air loop's return carries it.
+        // 1000 total: 700 radiant, 200 to return air, 100 convective. The 200
+        // bound for the return air is zone convective until an air loop's
+        // return carries it.
         assert_relative_eq!(resolved.total, 1000.0);
-        assert_relative_eq!(resolved.radiative, 560.0);
-        assert_relative_eq!(resolved.convective, 440.0);
+        assert_relative_eq!(resolved.radiative, 700.0);
+        assert_relative_eq!(resolved.convective, 300.0);
         assert_relative_eq!(resolved.lighting_gain_to_zone, 800.0);
         assert_relative_eq!(resolved.lighting_return_air, 200.0);
         // Nothing is lost: zone conv + rad = electric power.
@@ -357,19 +360,53 @@ mod tests {
         // Elevator with 95% heat lost (only 5% enters zone)
         let gains = vec![InternalGainInput::Equipment {
             power: 1000.0,
-            radiant_fraction: 0.3,
+            radiant_fraction: 0.015,
             lost_fraction: 0.95,
             latent_fraction: 0.0,
             schedule: None,
             submeter: "General".to_string(),
         }];
         let resolved = resolve_gains(&gains);
-        // 1000W total, 950W lost, 50W to zone
-        // Of 50W: 15W radiant, 35W convective
+        // 1000W total, 950W lost, 50W to zone: 15W radiant, 35W convective
         assert_relative_eq!(resolved.total, 50.0, epsilon = 1e-10);
         assert_relative_eq!(resolved.radiative, 15.0, epsilon = 1e-10);
         assert_relative_eq!(resolved.convective, 35.0, epsilon = 1e-10);
         // Full 1000W reported for electricity accounting
         assert_relative_eq!(resolved.equipment_power, 1000.0);
+    }
+
+    /// #186: E+'s worked example, 0.4 return, 0.4 radiant + 0.2 visible.
+    #[test]
+    fn lights_fractions_are_of_the_total() {
+        let gains = vec![InternalGainInput::Lights {
+            power: 1000.0,
+            radiant_fraction: 0.6,
+            return_air_fraction: 0.4,
+            schedule: None,
+            submeter: Default::default(),
+        }];
+        let r = resolve_gains(&gains);
+        assert!((r.radiative - 600.0).abs() < 1e-9);
+        assert!((r.lighting_return_air - 400.0).abs() < 1e-9);
+        assert!((r.radiative + r.convective - 1000.0).abs() < 1e-9);
+    }
+
+    /// #186: latent 0.2, radiant 0.3, lost 0.1 of 1000 W, the rest convective.
+    #[test]
+    fn equipment_fractions_are_of_the_total_and_close() {
+        let gains = vec![InternalGainInput::Equipment {
+            power: 1000.0,
+            radiant_fraction: 0.3,
+            lost_fraction: 0.1,
+            latent_fraction: 0.2,
+            schedule: None,
+            submeter: Default::default(),
+        }];
+        let r = resolve_gains(&gains);
+        assert!((r.radiative - 300.0).abs() < 1e-9);
+        assert!((r.equipment_latent - 200.0).abs() < 1e-9);
+        assert!((r.convective - 400.0).abs() < 1e-9);
+        let lost = 100.0;
+        assert!((r.radiative + r.convective + r.equipment_latent + lost - 1000.0).abs() < 1e-9);
     }
 }

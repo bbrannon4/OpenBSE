@@ -2041,7 +2041,7 @@
         "power": { "type": "number", "description": "Equipment power [W]." },
         "radiant_fraction": { "type": "number", "default": 0.3, "minimum": 0, "maximum": 1 },
         "lost_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of heat that does not enter the zone [0-1]." },
-        "latent_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Latent fraction of the non-lost heat [0-1]." },
+        "latent_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of the total power that is latent [0-1]. Radiant + lost + latent must not exceed 1; the rest is convective." },
         "schedule": { "type": "string" },
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use reporting." }
       }
@@ -2140,8 +2140,8 @@
         "power": { "type": "number", "default": 0, "description": "Total equipment power [W]." },
         "watts_per_area": { "type": "number", "description": "Equipment power density [W/m2]." },
         "radiant_fraction": { "type": "number", "default": 0.3, "minimum": 0, "maximum": 1 },
-        "lost_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of heat that does not enter the zone [0-1]. Example: elevator with lost_fraction=0.95 means only 5% of heat enters the zone." },
-        "latent_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of equipment heat that is latent (moisture-generating) [0-1]. Applied to non-lost portion: latent = power × (1 - lost_fraction) × latent_fraction. Examples: kitchen equipment, laundry." },
+        "lost_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of heat that does not enter the zone [0-1]. Fraction of the total: radiant + lost + latent must not exceed 1, so a lost_fraction above 0.7 needs a radiant_fraction below its default. Example: elevator with lost_fraction=0.95 means only 5% of heat enters the zone." },
+        "latent_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of equipment heat that is latent (moisture-generating) [0-1]. Fraction of the total: radiant + lost + latent must not exceed 1; the rest is convective. Examples: kitchen equipment, laundry." },
         "schedule": { "type": "string", "description": "Equipment schedule name." },
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." }
       }

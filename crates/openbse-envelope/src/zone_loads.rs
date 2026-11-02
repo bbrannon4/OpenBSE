@@ -97,7 +97,8 @@ pub struct LightsInput {
     /// Fraction radiant [0-1] (default 0.7)
     #[serde(default = "default_lights_radiant")]
     pub radiant_fraction: f64,
-    /// Fraction to return air [0-1] (default 0.0)
+    /// Fraction to return air [0-1] (default 0.0). All fractions are of the
+    /// total power, as in E+: radiant + return air ≤ 1, and the rest is convective.
     #[serde(default)]
     pub return_air_fraction: f64,
     /// Schedule name for time-varying lighting
@@ -130,11 +131,13 @@ pub struct EquipmentGainInput {
     pub radiant_fraction: f64,
     /// Fraction of heat that is "lost" (does not enter the zone) [0-1] (default 0.0).
     /// Matches E+ ElectricEquipment "Fraction Lost" field.
-    /// Example: elevator with Lost=0.95 means only 5% of heat enters the zone.
+    /// Example: elevator with Lost=0.95 means only 5% of heat enters the zone
+    /// (its radiant_fraction must be at most 0.05).
     #[serde(default)]
     pub lost_fraction: f64,
     /// Fraction of equipment heat that is latent (moisture-generating) [0-1] (default 0.0).
-    /// Applied to the non-lost portion: latent = power × (1 - lost_fraction) × latent_fraction.
+    /// All fractions are of the total power, as in E+: radiant + lost + latent ≤ 1,
+    /// and the rest is convective.
     #[serde(default)]
     pub latent_fraction: f64,
     /// Schedule name for time-varying equipment
