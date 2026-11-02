@@ -1,29 +1,15 @@
 //! Heat And Moisture Transfer (HAMT) solver for building envelope surfaces.
 //!
 //! Implements a 1D finite-difference solver for coupled heat and moisture
-//! transport through multi-layer walls, matching the EnergyPlus HAMT model
+//! transport through multi-layer walls, after the EnergyPlus HAMT model
 //! (Künzel 1995).
 //!
-//! # ⚠️ EXPERIMENTAL — NOT PRODUCTION-READY (GitHub #64)
+//! # Not wired in
 //!
-//! This module is **not wired into the simulation** (`HamtState::from_construction`
-//! has no caller) and is **quantitatively non-functional** as written. A physics
-//! review (2026-06) found three coupled bugs; do not enable HAMT for any result
-//! that matters until they are fixed and validated against E+:
-//!
-//! - **HAMT-1:** the latent heat/moisture coupling source term is identically
-//!   zero — `w_prev` and `w_curr` both read `layer.moisture[ni]`, so the heat
-//!   equation's `L_v·∂(ρ₀·w_c)/∂t` term is dead and the heat solve degenerates
-//!   to plain conduction.
-//! - **HAMT-2:** the vapor conductance drops the sorption-isotherm slope
-//!   `∂RH/∂w_c` (uses `perm·p_sat` directly), mis-scaling vapor transport by
-//!   roughly 5–50×.
-//! - **HAMT-3:** surface vapor resistance is applied as `DELTA_AIR/Z_M` instead
-//!   of `1/Z_M`, a spurious ~2e-10 factor that makes the surfaces effectively
-//!   vapor-tight.
-//!
-//! The existing unit tests only check flux *sign* / TDMA mechanics, so they pass
-//! despite these errors. Treat any HAMT output as diagnostic only.
+//! `HamtState::from_construction` has no caller, so every surface uses CTF
+//! conduction. Not validated against E+. It simplifies E+'s model: dry-material
+//! conductivity, vapor driven by the moisture-content gradient only (not the
+//! temperature part of p_v), uniform node spacing and fixed surface films.
 //!
 //! Governing equations (discretized implicitly, backward Euler):
 //!
@@ -52,13 +38,10 @@ const L_V: f64 = 2_501_000.0;
 /// Matches E+ default "low" surface resistance.
 const Z_M_SURFACE: f64 = 3.0e8;
 
-/// Saturation pressure of water vapor [Pa] via Antoine equation approximation.
-///
-/// Valid range: -20°C to +70°C. Matches E+ psychrometrics accuracy.
+/// Saturation pressure of water vapor [Pa], from the same Hyland–Wexler
+/// correlations as the rest of the engine, with the ice branch below 0 °C.
 pub fn p_sat(t_celsius: f64) -> f64 {
-    // Magnus formula (approximation matching E+ accuracy)
-    let t = t_celsius.clamp(-40.0, 80.0);
-    610.78 * (17.27 * t / (t + 237.3)).exp()
+    openbse_psychrometrics::psat_fn_temp(t_celsius)
 }
 
 /// Linear interpolation in a sorted lookup table of (x, y) pairs.
@@ -93,6 +76,20 @@ pub fn interp_table(table: &[[f64; 2]], x: f64) -> f64 {
 /// Moisture content [kg/kg] from relative humidity via sorption isotherm.
 pub fn moisture_from_rh(isotherm: &[[f64; 2]], rh: f64) -> f64 {
     interp_table(isotherm, rh.clamp(0.0, 1.0))
+}
+
+/// Slope ∂RH/∂w_c [per kg/kg] of the isotherm at a moisture content, from the
+/// table segment it falls in. Converts a vapor pressure difference to moisture
+/// content: ∂p_v/∂w_c = p_sat(T)·∂RH/∂w_c. At the ends, the nearest segment's.
+pub fn rh_slope(isotherm: &[[f64; 2]], w_c: f64) -> f64 {
+    let segment = isotherm
+        .windows(2)
+        .find(|s| w_c <= s[1][1])
+        .or_else(|| isotherm.windows(2).last());
+    match segment {
+        Some(s) if s[1][1] > s[0][1] => (s[1][0] - s[0][0]) / (s[1][1] - s[0][1]),
+        _ => 0.0,
+    }
 }
 
 /// Relative humidity [0-1] from moisture content [kg/kg] via inverted isotherm.
@@ -148,8 +145,16 @@ pub fn tdma(a: &[f64], b: &[f64], c: &[f64], d: &[f64]) -> Vec<f64> {
 
     // Forward sweep
     let denom = b[0];
-    c_prime[0] = if denom.abs() > 1e-30 { c[0] / denom } else { 0.0 };
-    d_prime[0] = if denom.abs() > 1e-30 { d[0] / denom } else { 0.0 };
+    c_prime[0] = if denom.abs() > 1e-30 {
+        c[0] / denom
+    } else {
+        0.0
+    };
+    d_prime[0] = if denom.abs() > 1e-30 {
+        d[0] / denom
+    } else {
+        0.0
+    };
 
     for i in 1..n {
         let denom = b[i] - a[i] * c_prime[i - 1];
@@ -194,16 +199,15 @@ pub struct HamtLayer {
     pub sorption_iso: Vec<[f64; 2]>,
     /// Liquid transport coefficient table: pairs of [w_c [kg/kg], D_w [m²/s]].
     pub liquid_trans: Vec<[f64; 2]>,
+    /// Node temperatures [°C] at the start of the timestep.
+    temps_start: Vec<f64>,
+    /// Node moisture contents [kg/kg] at the start of the timestep.
+    moisture_start: Vec<f64>,
 }
 
 impl HamtLayer {
     /// Create a new HAMT layer from a material, thickness, and initial conditions.
-    pub fn new(
-        material: &Material,
-        thickness: f64,
-        initial_temp: f64,
-        initial_rh: f64,
-    ) -> Self {
+    pub fn new(material: &Material, thickness: f64, initial_temp: f64, initial_rh: f64) -> Self {
         // Number of nodes: minimum 3, scale with thickness (1 node per 2 cm)
         let n_nodes = ((thickness / 0.02).ceil() as usize).max(3);
         let node_dx = thickness / n_nodes as f64;
@@ -214,15 +218,14 @@ impl HamtLayer {
             .unwrap_or_else(|| vec![[0.0, 0.0], [1.0, 0.01]]);
 
         let initial_moisture = moisture_from_rh(&sorption_iso, initial_rh);
-        let liquid_trans = material
-            .liquid_transport_coeff
-            .clone()
-            .unwrap_or_default();
+        let liquid_trans = material.liquid_transport_coeff.clone().unwrap_or_default();
 
         Self {
             n_nodes,
             temps: vec![initial_temp; n_nodes],
+            temps_start: vec![initial_temp; n_nodes],
             moisture: vec![initial_moisture; n_nodes],
+            moisture_start: vec![initial_moisture; n_nodes],
             conductivity: material.conductivity,
             density: material.density,
             specific_heat: material.specific_heat,
@@ -326,12 +329,18 @@ impl HamtState {
 
     /// Flatten all temperature values to a single vector (outside to inside).
     pub fn flat_temps(&self) -> Vec<f64> {
-        self.layers.iter().flat_map(|l| l.temps.iter().copied()).collect()
+        self.layers
+            .iter()
+            .flat_map(|l| l.temps.iter().copied())
+            .collect()
     }
 
     /// Flatten all moisture values to a single vector.
     pub fn flat_moisture(&self) -> Vec<f64> {
-        self.layers.iter().flat_map(|l| l.moisture.iter().copied()).collect()
+        self.layers
+            .iter()
+            .flat_map(|l| l.moisture.iter().copied())
+            .collect()
     }
 
     /// Advance the HAMT state by one timestep.
@@ -353,6 +362,13 @@ impl HamtState {
         rh_inside_bc: f64,
         dt: f64,
     ) {
+        // The start-of-step state stays fixed through the coupling iterations:
+        // each is a better estimate of the same step, not a further step.
+        for layer in &mut self.layers {
+            layer.temps_start.clone_from(&layer.temps);
+            layer.moisture_start.clone_from(&layer.moisture);
+        }
+
         // Iterate T and w_c equations 3× per timestep for weak coupling
         for _ in 0..3 {
             self.solve_heat(t_outside, t_inside, dt);
@@ -395,15 +411,12 @@ impl HamtState {
             // Thermal capacitance term: ρ·c_p·dx / dt
             let cap = rho * cp * dx / dt;
 
-            // Latent heat coupling term (moisture change rate × L_v).
-            // Simplified: use previous moisture values to estimate.
-            let w_prev = layer.moisture[ni];
-            let w_curr = layer.moisture[ni]; // updated after moisture solve
-            let latent = L_V * rho * dx * (w_curr - w_prev) / dt;
+            // Latent heat of the step's moisture change: moisture gained
+            // (condensing, adsorbing) releases heat into the node.
+            let latent = L_V * rho * dx * (layer.moisture[ni] - layer.moisture_start[ni]) / dt;
 
-            // Right-hand side: cap × T_prev + latent
-            let t_prev = layer.temps[ni];
-            d[gi] = cap * t_prev - latent;
+            // Right-hand side: cap × T_start + latent
+            d[gi] = cap * layer.temps_start[ni] + latent;
 
             // Diagonal: cap + conductances from neighbors
             b[gi] = cap;
@@ -413,7 +426,7 @@ impl HamtState {
                 // Outside boundary: use film coefficient
                 h_out
             } else {
-                let (li_prev, ni_prev) = node_map[gi - 1];
+                let (li_prev, _) = node_map[gi - 1];
                 let layer_prev = &self.layers[li_prev];
                 let dx_prev = layer_prev.node_dx;
                 let k_prev = layer_prev.conductivity.max(1e-6);
@@ -426,7 +439,7 @@ impl HamtState {
                 // Inside boundary: use film coefficient
                 h_in
             } else {
-                let (li_next, ni_next) = node_map[gi + 1];
+                let (li_next, _) = node_map[gi + 1];
                 let layer_next = &self.layers[li_next];
                 let dx_next = layer_next.node_dx;
                 let k_next = layer_next.conductivity.max(1e-6);
@@ -461,12 +474,7 @@ impl HamtState {
     /// Moisture transport combines:
     ///   1. Vapor diffusion: δ_p · ∂p_v/∂x
     ///   2. Capillary liquid flow: D_w · ρ₀ · ∂w_c/∂x
-    fn solve_moisture(
-        &mut self,
-        rh_outside: f64,
-        rh_inside_bc: f64,
-        dt: f64,
-    ) {
+    fn solve_moisture(&mut self, rh_outside: f64, rh_inside_bc: f64, dt: f64) {
         let n = self.total_nodes();
         if n == 0 {
             return;
@@ -476,20 +484,6 @@ impl HamtState {
 
         // Surface moisture resistance [m²·s·Pa/kg]
         let z_m = Z_M_SURFACE;
-
-        // Outside boundary partial pressure [Pa]
-        let p_sat_out = {
-            let (li, _) = node_map[0];
-            p_sat(self.layers[li].temps[0])
-        };
-        let p_v_out = rh_outside.clamp(0.0, 1.0) * p_sat_out;
-
-        // Inside boundary partial pressure [Pa]
-        let p_sat_in = {
-            let (li, ni) = node_map[n - 1];
-            p_sat(self.layers[li].temps[ni])
-        };
-        let p_v_in = rh_inside_bc.clamp(0.0, 1.0) * p_sat_in;
 
         // Build tridiagonal for moisture (in terms of moisture content w_c [kg/kg])
         let mut a = vec![0.0_f64; n];
@@ -508,19 +502,17 @@ impl HamtState {
             // Storage term: ρ₀·dx / dt
             let storage = rho * dx / dt;
             b[gi] = storage;
-            d[gi] = storage * w_prev;
+            d[gi] = storage * layer.moisture_start[ni];
 
-            // Compute moisture transport coefficients to adjacent nodes
-            let p_sat_node = p_sat(t_node);
+            // Compute moisture transport coefficients to adjacent nodes.
+            // ∂p_v/∂w_c = p_sat(T)·∂RH/∂w_c turns a Pa-based vapor permeance into
+            // a w_c-based conductance.
+            let dpv_dw = p_sat(t_node) * rh_slope(&layer.sorption_iso, w_prev);
 
             // Transport to left neighbor
             let conduct_left = if gi == 0 {
-                // Outside boundary: use surface moisture resistance z_m
-                // Moisture flux = (p_v_out - p_v_node) / z_m
-                let dp_p = DELTA_AIR / z_m;
-                // Convert from Pa-based to w_c-based via ∂p_v/∂w_c ≈ p_sat(T)·(∂RH/∂w_c)
-                // Simplified: use effective permeance in kg/(m²·s·Pa)
-                dp_p * p_sat_node
+                // Outside boundary: flux = (p_v_out - p_v_node) / z_m
+                dpv_dw / z_m
             } else {
                 let (li_prev, ni_prev) = node_map[gi - 1];
                 let layer_prev = &self.layers[li_prev];
@@ -536,15 +528,13 @@ impl HamtState {
                 let d_liq = 0.5 * (layer.d_liquid(w_avg) + layer_prev.d_liquid(w_avg));
                 let cap_cond = d_liq * rho / (0.5 * (dx + dx_prev));
 
-                // Total conductance in w_c units:
-                // Vapor: perm × p_sat converts Pa gradient → w_c gradient
-                perm * p_sat_node + cap_cond
+                // Total conductance in w_c units
+                perm * dpv_dw + cap_cond
             };
 
             let conduct_right = if gi == n - 1 {
                 // Inside boundary: surface resistance z_m
-                let dp_p = DELTA_AIR / z_m;
-                dp_p * p_sat_node
+                dpv_dw / z_m
             } else {
                 let (li_next, ni_next) = node_map[gi + 1];
                 let layer_next = &self.layers[li_next];
@@ -558,7 +548,7 @@ impl HamtState {
                 let d_liq = 0.5 * (layer.d_liquid(w_avg) + layer_next.d_liquid(w_avg));
                 let cap_cond = d_liq * rho / (0.5 * (dx + dx_next));
 
-                perm * p_sat_node + cap_cond
+                perm * dpv_dw + cap_cond
             };
 
             b[gi] += conduct_left + conduct_right;
@@ -622,16 +612,16 @@ impl HamtState {
         // Moisture flux at inside surface [kg/(m²·s)]
         // Using surface moisture resistance: J = (p_v_surface - p_v_bc) / z_m
         let p_sat_in_node = p_sat(t_last_node);
-        let rh_in_node = rh_from_moisture(&self.layers[li_last].sorption_iso,
-                                           self.layers[li_last].moisture[ni_last]);
+        let rh_in_node = rh_from_moisture(
+            &self.layers[li_last].sorption_iso,
+            self.layers[li_last].moisture[ni_last],
+        );
         let p_v_surface = rh_in_node * p_sat_in_node;
         let p_v_bc = rh_inside_bc * p_sat(t_inside);
-        self.moisture_flux_inside = (p_v_surface - p_v_bc) / Z_M_SURFACE * DELTA_AIR;
+        self.moisture_flux_inside = (p_v_surface - p_v_bc) / Z_M_SURFACE;
 
         // Average moisture content across all nodes [kg/kg]
-        let total_wc: f64 = self.layers.iter()
-            .flat_map(|l| l.moisture.iter())
-            .sum();
+        let total_wc: f64 = self.layers.iter().flat_map(|l| l.moisture.iter()).sum();
         self.avg_moisture_content = total_wc / n as f64;
 
         // Relative humidity at the inside surface node [0-1]
@@ -672,8 +662,8 @@ pub fn construction_has_hamt_data(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::assert_relative_eq;
     use crate::material::{Construction, ConstructionLayer, Material};
+    use approx::assert_relative_eq;
 
     fn concrete_material() -> Material {
         Material {
@@ -711,11 +701,7 @@ mod tests {
             roughness: crate::material::Roughness::MediumRough,
             thermal_resistance: None,
             vapor_resistance_factor: Some(1.0),
-            sorption_isotherm: Some(vec![
-                [0.0, 0.0],
-                [0.5, 0.005],
-                [1.0, 0.02],
-            ]),
+            sorption_isotherm: Some(vec![[0.0, 0.0], [0.5, 0.005], [1.0, 0.02]]),
             liquid_transport_coeff: None,
             thermal_absorptance_inside: None,
         }
@@ -843,7 +829,8 @@ mod tests {
         };
 
         // Should return None → CTF path
-        let result = HamtState::from_construction(&construction, &materials_no_moisture, 20.0, 0.50);
+        let result =
+            HamtState::from_construction(&construction, &materials_no_moisture, 20.0, 0.50);
         assert!(
             result.is_none(),
             "HAMT should not activate when moisture data is absent"
@@ -873,7 +860,10 @@ mod tests {
         );
 
         let hamt = HamtState::from_construction(&construction, &materials, 20.0, 0.50);
-        assert!(hamt.is_some(), "HAMT should activate when moisture data is complete");
+        assert!(
+            hamt.is_some(),
+            "HAMT should activate when moisture data is complete"
+        );
     }
 
     #[test]
@@ -923,5 +913,73 @@ mod tests {
         assert_relative_eq!(interp_table(&table, -0.5), 0.0, epsilon = 1e-10);
         // Extrapolation above
         assert_relative_eq!(interp_table(&table, 1.5), 20.0, epsilon = 1e-10);
+    }
+
+    fn concrete_state() -> HamtState {
+        let construction = Construction {
+            name: "Test".to_string(),
+            layers: vec![ConstructionLayer {
+                material: "Concrete".to_string(),
+                thickness: 0.20,
+            }],
+        };
+        HamtState::from_construction(&construction, &make_materials(), 20.0, 0.50).unwrap()
+    }
+
+    /// #64: the surface permeance is 1/Z_M. A 40% RH step at 20 °C gives
+    /// J = ΔRH·p_sat/Z_M at the first instant, about 3×10⁻⁶ kg/(m²·s), not 10⁻¹⁵.
+    #[test]
+    fn surface_moisture_flux_has_the_right_magnitude() {
+        let mut hamt = concrete_state();
+        hamt.solve_timestep(20.0, 20.0, 0.50, 0.90, 60.0);
+        let upper = 0.4 * p_sat(20.0) / Z_M_SURFACE;
+        assert!(hamt.moisture_flux_inside < 0.0, "moisture should enter");
+        let j = hamt.moisture_flux_inside.abs();
+        assert!(
+            j > 0.5 * upper && j <= upper * 1.001,
+            "J = {j}, limit {upper}"
+        );
+    }
+
+    /// #64: vapor transport scales with the isotherm's slope, so a material with
+    /// a flat isotherm (large ∂RH/∂w_c) responds faster than one with a steep one.
+    #[test]
+    fn vapor_conductance_uses_the_isotherm_slope() {
+        let iso = [[0.0, 0.0], [0.5, 0.02], [1.0, 0.2]];
+        assert!((rh_slope(&iso, 0.01) - 0.5 / 0.02).abs() < 1e-9);
+        assert!((rh_slope(&iso, 0.1) - 0.5 / 0.18).abs() < 1e-9);
+        assert!(
+            (rh_slope(&iso, 0.5) - 0.5 / 0.18).abs() < 1e-9,
+            "beyond the table"
+        );
+    }
+
+    /// #64: gaining moisture releases latent heat, warming the node above what
+    /// conduction alone gives, and doing it again must not advance the step.
+    #[test]
+    fn moisture_gain_releases_latent_heat() {
+        let mut wet = concrete_state();
+        let mut dry = concrete_state();
+        // A big RH step at equal air temperatures, so only latent heat warms it.
+        wet.solve_timestep(20.0, 20.0, 0.50, 0.95, 3600.0);
+        dry.solve_timestep(20.0, 20.0, 0.50, 0.50, 3600.0);
+        let t_wet = *wet.layers[0].temps.last().unwrap();
+        let t_dry = *dry.layers[0].temps.last().unwrap();
+        assert!((t_dry - 20.0).abs() < 1e-6, "{t_dry}");
+        assert!(t_wet > t_dry + 1e-4, "{t_wet} vs {t_dry}");
+    }
+
+    /// The coupling iterations refine one step: with no moisture change to couple,
+    /// the result is one implicit heat solve, not three, whatever the iteration count.
+    #[test]
+    fn coupling_iterations_do_not_advance_time() {
+        let mut timestep = concrete_state();
+        timestep.solve_timestep(0.0, 20.0, 0.50, 0.50, 3600.0);
+
+        let mut once = concrete_state();
+        once.solve_heat(0.0, 20.0, 3600.0);
+        for (a, b) in timestep.layers[0].temps.iter().zip(&once.layers[0].temps) {
+            assert!((a - b).abs() < 1e-3, "{a} vs {b}");
+        }
     }
 }

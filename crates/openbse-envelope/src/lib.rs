@@ -17,6 +17,7 @@ pub mod ctf;
 pub mod diagnostics;
 pub mod geometry;
 pub mod ground_temp;
+pub mod hamt;
 pub mod heat_balance;
 pub mod infiltration;
 pub mod internal_gains;
