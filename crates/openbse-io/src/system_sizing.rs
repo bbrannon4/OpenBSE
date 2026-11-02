@@ -14,6 +14,8 @@ use std::collections::HashMap;
 
 /// Latent heat for the zone moisture balance [J/kg], as in `zone.rs`.
 const H_FG: f64 = 2_501_000.0;
+/// Hottest return air the run-time return-heat model allows [°C].
+pub const RETURN_AIR_TEMP_MAX: f64 = 60.0;
 
 /// One zone's state in one design-day hour.
 #[derive(Debug, Clone, Copy, Default)]
@@ -26,6 +28,19 @@ pub struct ZoneHour {
     pub outdoor_inflow: f64,
     /// Latent gains [W]
     pub latent: f64,
+    /// Lighting heat this zone's return air carries [W] (E+ `ZoneRetTempAtCoolPeak`)
+    pub return_heat: f64,
+}
+
+impl ZoneHour {
+    /// Return-air temperature for this flow [kg/s], capped as the run-time return is.
+    fn return_temp(&self, flow: f64) -> f64 {
+        if flow <= 1.0e-6 || self.return_heat <= 0.0 {
+            return self.temp;
+        }
+        let rise = self.return_heat / (flow * psych::cp_air_fn_w(0.008));
+        (self.temp + rise).min(RETURN_AIR_TEMP_MAX.max(self.temp))
+    }
 }
 
 /// One hour of a design day.
@@ -126,7 +141,11 @@ pub fn cooling_coil_inlet(
             .iter()
             .map(|zone| {
                 let z = hour.zones.get(zone).copied().unwrap_or_default();
-                (z.flow, z.temp, zone_humidity(&z, hour.w_out, w_supply))
+                (
+                    z.flow,
+                    z.return_temp(z.flow),
+                    zone_humidity(&z, hour.w_out, w_supply),
+                )
             })
             .collect();
         let hour_flow: f64 = returns.iter().map(|r| r.0).sum();
@@ -177,8 +196,9 @@ pub fn heating_coil_load(
         let returns: Vec<_> = zones
             .iter()
             .map(|z| {
-                let temp = hour.zones.get(z).map_or(21.0, |s| s.temp);
-                (zone_weights.get(z).copied().unwrap_or(0.0), temp, 0.0)
+                let weight = zone_weights.get(z).copied().unwrap_or(0.0);
+                let temp = hour.zones.get(z).map_or(21.0, |s| s.return_temp(weight));
+                (weight, temp, 0.0)
             })
             .collect();
         let (t_mix, _) = mix(&returns, (hour.t_out, 0.0), x);
@@ -328,12 +348,40 @@ mod tests {
             temp: 24.0,
             outdoor_inflow: 0.1,
             latent: H_FG * 0.001,
+            ..Default::default()
         };
         let w = zone_humidity(&z, 0.012, 0.008);
         // Moisture in = moisture out at the zone state.
         let inflow = 1.0 * 0.008 + 0.1 * 0.012 + 0.001;
         assert!((1.1 * w - inflow).abs() < 1e-12);
         assert!(w > 0.008);
+    }
+
+    /// Lighting heat in the return raises the coil inlet by Q/(ṁ cp), not the zone.
+    #[test]
+    fn return_air_heat_reaches_the_coil_inlet() {
+        let z = ZoneHour {
+            flow: 1.0,
+            temp: 24.0,
+            return_heat: 2000.0,
+            ..Default::default()
+        };
+        let day = SizingDay {
+            name: "c".into(),
+            hours: vec![hour(15, 24.0, &[("A", z)])],
+        };
+        let inlet = cooling_coil_inlet(
+            &[day],
+            &names(&["A"]),
+            CoolingPeakBasis::Coincident,
+            OutdoorAir::Fraction(0.0),
+            1.0,
+            13.0,
+            0.008,
+        )
+        .unwrap();
+        let rise = 2000.0 / psych::cp_air_fn_w(0.008);
+        assert!((inlet.t_db - (24.0 + rise)).abs() < 1e-9);
     }
 
     /// Hand calculation: 10% OA at −20 °C with returns at 21 °C, heated to 35 °C.

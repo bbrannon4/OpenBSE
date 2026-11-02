@@ -28,7 +28,7 @@ use openbse_core::types::{DayType, TimeStep};
 use openbse_envelope::BuildingEnvelope;
 use openbse_psychrometrics as psych;
 use openbse_weather::WeatherHour;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::input::DesignDayInput;
@@ -292,6 +292,7 @@ fn run_single_design_day(
     zone_setpoints: &HashMap<String, f64>, // setpoint to hold zone at
     zone_hourly_setpoints: &HashMap<String, Vec<f64>>, // per-zone hourly override
     oa_handled_by_hvac: &HashMap<String, bool>,
+    return_air_zones: &HashSet<String>,
     steps: SizingSteps,
 ) -> DesignDayRun {
     let is_heating_dd = is_heating_design_day(dd);
@@ -441,9 +442,20 @@ fn run_single_design_day(
                     sizing_internal_gains: gains_mode,
                 };
 
-                // No supply air — ideal loads handles HVAC directly.
+                // No supply air — ideal loads handles HVAC directly. The envelope
+                // puts lighting return-air heat in the zone air when no return
+                // carries it; on loops whose return would, take it back out.
+                let return_heat: HashMap<String, f64> = env
+                    .lighting_return_air_gains(&ctx)
+                    .into_iter()
+                    .filter(|(zone, _)| return_air_zones.contains(zone))
+                    .collect();
                 let hvac = ZoneHvacConditions {
                     oa_handled_by_hvac: oa_handled_by_hvac.clone(),
+                    other_sensible_gains: return_heat
+                        .iter()
+                        .map(|(zone, q)| (zone.clone(), -q))
+                        .collect(),
                     ..Default::default()
                 };
 
@@ -463,7 +475,13 @@ fn run_single_design_day(
                         .collect();
                     last_day_steps.push((hour, step_loads));
                     if sub + 1 == tph {
-                        last_day_hours.push(sizing_hour(env, hour, wh, oa_handled_by_hvac));
+                        last_day_hours.push(sizing_hour(
+                            env,
+                            hour,
+                            wh,
+                            oa_handled_by_hvac,
+                            &return_heat,
+                        ));
                     }
                 }
             }
@@ -488,6 +506,7 @@ fn sizing_hour(
     hour: u32,
     wh: &WeatherHour,
     oa_handled_by_hvac: &HashMap<String, bool>,
+    return_heat: &HashMap<String, f64>,
 ) -> SizingHour {
     let zones = env
         .zones
@@ -508,6 +527,7 @@ fn sizing_hour(
                         0.0
                     },
                 latent: z.people_latent + z.equipment_latent,
+                return_heat: return_heat.get(&z.input.name).copied().unwrap_or(0.0),
             };
             (z.input.name.clone(), state)
         })
@@ -578,6 +598,7 @@ fn run_zone_sizing(
     heating_sizing_factor: f64,
     cooling_sizing_factor: f64,
     oa_handled_by_hvac: &HashMap<String, bool>,
+    return_air_zones: &HashSet<String>,
     steps: SizingSteps,
     sizing_fan_delta_t: f64,
 ) -> ZoneSizingResult {
@@ -625,6 +646,7 @@ fn run_zone_sizing(
                 &setpoints.heating,
                 &setpoints.dd_heating,
                 oa_handled_by_hvac,
+                return_air_zones,
                 steps,
             );
             (dd.name.clone(), loads)
@@ -667,6 +689,7 @@ fn run_zone_sizing(
                 &setpoints.cooling,
                 &setpoints.dd_cooling,
                 oa_handled_by_hvac,
+                return_air_zones,
                 steps,
             );
             (dd.name.clone(), loads)
@@ -835,6 +858,7 @@ fn run_system_sizing(
     setpoints: &SizingSetpoints,
     latitude: f64,
     oa_handled_by_hvac: &HashMap<String, bool>,
+    return_air_zones: &HashSet<String>,
     steps: SizingSteps,
 ) -> SystemSizingResult {
     let mut coincident_peak_heating = 0.0_f64;
@@ -868,6 +892,7 @@ fn run_system_sizing(
                 &setpoints.heating,
                 &setpoints.dd_heating,
                 oa_handled_by_hvac,
+                return_air_zones,
                 steps,
             );
             (dd.name.clone(), loads)
@@ -915,6 +940,7 @@ fn run_system_sizing(
                 &setpoints.cooling,
                 &setpoints.dd_cooling,
                 oa_handled_by_hvac,
+                return_air_zones,
                 steps,
             );
             (dd.name.clone(), loads)
@@ -1101,6 +1127,7 @@ pub fn run_sizing(
     output_dir: &Path,
     input_stem: &str,
     zone_supply_temps: &HashMap<String, (f64, f64)>,
+    return_air_zones: &HashSet<String>,
     heating_sizing_factor: f64,
     cooling_sizing_factor: f64,
     oa_handled_by_hvac: &HashMap<String, bool>,
@@ -1219,6 +1246,7 @@ pub fn run_sizing(
         heating_sizing_factor,
         cooling_sizing_factor,
         oa_handled_by_hvac,
+        return_air_zones,
         steps,
         sizing_fan_delta_t,
     );
@@ -1266,6 +1294,7 @@ pub fn run_sizing(
         &setpoints,
         latitude,
         oa_handled_by_hvac,
+        return_air_zones,
         steps,
     );
 

@@ -350,8 +350,11 @@ with `SimAirServingZones` peak states. Differences:
 - **Reheat.** EnergyPlus sizes a reheat coil from the zone's design heating
   flow, between the coil inlet temperature and the zone's design heating
   supply temperature. @eq-reheat-size is the same balance written with the
-  zone load. Return-air lighting heat is not yet part of coil sizing
-  ([#185](https://github.com/bbrannon4/OpenBSE/issues/185)).
+  zone load.
+- **Return-air lighting heat.** As in E+ `CalcZoneLeavingConditions` and
+  `ZoneRetTempAtCoolPeak`, on a loop whose return carries the heat, the
+  `return_air_fraction` share of lights is no zone load during sizing. It raises the
+  coil's return temperature by $q/(\dot m c_p)$, up to 60 °C.
 
 ## Plant sizing {#sec-plant-sizing}
 
@@ -424,8 +427,6 @@ flows are both per zone instance, so no multiplier is needed in the ratio.
 
 ## Known limitations {#sec-sizing-limitations}
 
-- [#185](https://github.com/bbrannon4/OpenBSE/issues/185): return-air
-  lighting heat should size the coil, not the zone flow.
 - [#198](https://github.com/bbrannon4/OpenBSE/issues/198),
   [#50](https://github.com/bbrannon4/OpenBSE/issues/50): design-day
   humidity, temperature profile and sky model.

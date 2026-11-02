@@ -81,3 +81,42 @@ fn sizing_factors_scale_zone_loads_and_flows_once() {
         assert!((b[flow] / a[flow] - 2.0).abs() < 1e-2, "{zone} {flow}");
     }
 }
+
+/// Lighting heat that goes to the return is no zone load, on a loop whose return
+/// carries it, but the central coil still meets it (#185).
+#[test]
+fn return_air_lighting_heat_sizes_the_coil_not_the_zone() {
+    let model = |fraction: f64| {
+        example("vav_reheat.yaml").replace(
+            "radiant_fraction: 0.7\n    return_air_fraction: 0.0",
+            &format!("radiant_fraction: 0.3\n    return_air_fraction: {fraction}"),
+        )
+    };
+    let (log_none, none) = size_model("return_none", &model(0.0));
+    let (log_half, half) = size_model("return_half", &model(0.5));
+    let cooling = |zones: &HashMap<String, HashMap<String, f64>>| -> f64 {
+        zones.values().map(|z| z["Design Cooling Load [W]"]).sum()
+    };
+    assert!(
+        cooling(&half) < 0.99 * cooling(&none),
+        "zone load {} vs {}",
+        cooling(&half),
+        cooling(&none)
+    );
+    let coil_load = |log: &str| -> f64 {
+        log.lines()
+            .find_map(|l| {
+                let (_, rest) = l.split_once("design load ")?;
+                rest.split(' ').next()?.parse().ok()
+            })
+            .expect("cooling coil sizing line")
+    };
+    // Airflow fell with the zone load, so the coil sees a smaller flow at a hotter
+    // return; the heat itself stays on the coil, unlike a heat that simply vanished.
+    let vanished = coil_load(&log_none) * cooling(&half) / cooling(&none);
+    assert!(
+        coil_load(&log_half) > vanished,
+        "coil {} vs {vanished}",
+        coil_load(&log_half)
+    );
+}
