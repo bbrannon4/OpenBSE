@@ -612,6 +612,8 @@ pub struct SurfaceState {
     /// at normal incidence. Falls back to 1.526 (soda-lime glass) when per-pane
     /// properties are not provided.
     pub glass_n: f64,
+    /// Panes of the Fresnel model (1 or 2)
+    pub glass_panes: u32,
     /// E+ SimpleGlazingSystem angular model (LBNL-2804E curves + layer properties).
     /// Present for SGS windows (no per-pane optical data); None for detailed windows.
     pub sgs_model: Option<crate::solar::SgsAngularModel>,
