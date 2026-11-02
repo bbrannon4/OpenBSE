@@ -90,6 +90,8 @@ pub struct LoopInfo {
     pub zone_oa_data: Vec<ZoneOaData>,
     /// Design supply air flow rate [m³/s] for this loop (used to compute dynamic OA fraction)
     pub design_supply_flow: f64,
+    /// Design outdoor-air requirement of each served zone that states one [kg/s]
+    pub zone_outdoor_air: HashMap<String, f64>,
     /// Economizer type for this loop.
     pub economizer_type: openbse_io::input::EconomizerType,
     /// Economizer high-limit shutoff temperature [°C] (for FixedDryBulb / EnthalpyWithHighLimit).
@@ -976,6 +978,39 @@ pub fn build_crah_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     signals
 }
 
+/// DOAS ventilation airflow [kg/s]: 30% of the zone design flows. Coil sizing
+/// calls this too, so that the coils are sized for the flow the loop runs at.
+pub fn doas_vent_flow(li: &LoopInfo, zone_design_flows: &HashMap<String, f64>) -> f64 {
+    let total: f64 = li
+        .served_zones
+        .iter()
+        .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
+        .sum::<f64>()
+        * 0.30;
+    total.max(0.05)
+}
+
+/// DOAS heating and cooling supply setpoints [°C]: 2 °C above the highest zone
+/// heating setpoint, and 2 °C below the lowest cooling setpoint but at least
+/// 14 °C for dehumidification. Coil sizing uses them too.
+pub fn doas_supply_temps(
+    li: &LoopInfo,
+    zone_heat_sp: &HashMap<String, f64>,
+    zone_cool_sp: &HashMap<String, f64>,
+) -> (f64, f64) {
+    let max_heat_sp = li
+        .served_zones
+        .iter()
+        .map(|z| zone_heat_sp.get(z).copied().unwrap_or(21.0))
+        .fold(f64::NEG_INFINITY, f64::max);
+    let min_cool_sp = li
+        .served_zones
+        .iter()
+        .map(|z| zone_cool_sp.get(z).copied().unwrap_or(24.0))
+        .fold(f64::INFINITY, f64::min);
+    (max_heat_sp + 2.0, (min_cool_sp - 2.0).max(14.0))
+}
+
 /// DOAS: 100% outdoor air, fixed supply setpoints, always on.
 ///
 /// Supply temperature setpoints:
@@ -992,33 +1027,8 @@ pub fn build_doas_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
 
     let mut signals = ControlSignals::default();
 
-    // Total ventilation airflow = 30% of zone design flows
-    let vent_flow_total: f64 = li
-        .served_zones
-        .iter()
-        .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
-        .sum::<f64>()
-        * 0.30;
-    let vent_flow = vent_flow_total.max(0.05);
-
-    // Supply setpoints: heat to 2°C above zone heating setpoint,
-    // cool to 2°C below zone cooling setpoint.
-    // Clamp: never heat if OA is already above heating setpoint; never cool if below.
-    let max_heat_sp = li
-        .served_zones
-        .iter()
-        .map(|z| zone_heat_sp.get(z).copied().unwrap_or(21.0))
-        .fold(f64::NEG_INFINITY, f64::max);
-    let min_cool_sp = li
-        .served_zones
-        .iter()
-        .map(|z| zone_cool_sp.get(z).copied().unwrap_or(24.0))
-        .fold(f64::INFINITY, f64::min);
-
-    // DOAS heating setpoint: 2°C above zone heating setpoint (deliver warm neutral air)
-    let t_supply_heat = max_heat_sp + 2.0;
-    // DOAS cooling setpoint: 2°C below zone cooling setpoint (deliver cool dehumidified air)
-    let t_supply_cool = (min_cool_sp - 2.0).max(14.0); // 14°C minimum for dehumidification
+    let vent_flow = doas_vent_flow(li, zone_design_flows);
+    let (t_supply_heat, t_supply_cool) = doas_supply_temps(li, zone_heat_sp, zone_cool_sp);
 
     for name in &li.component_names {
         let role = li.coil_role(name);
@@ -1947,6 +1957,7 @@ mod tests {
             heating_sat_reset: None,
             zone_oa_data: vec![],
             design_supply_flow: 0.5,
+            zone_outdoor_air: HashMap::new(),
             economizer_type: EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,

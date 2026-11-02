@@ -309,6 +309,202 @@ fn fan_pushes_above_cooling_setpoint(fan_heat: f64, load_to_cooling_sp: f64) -> 
     fan_heat > 0.0 && load_to_cooling_sp >= 0.0 && fan_heat - load_to_cooling_sp > SMALL_LOAD
 }
 
+/// Each zone's heating and cooling supply temperatures for its design flows
+/// [°C]: those of its first loop that is not a DOAS, because that loop meets the
+/// zone's load, or else its DOAS.
+fn zone_design_supply_temps(loop_infos: &[LoopInfo]) -> HashMap<String, (f64, f64)> {
+    let mut temps = HashMap::new();
+    let (doas, others): (Vec<_>, Vec<_>) = loop_infos
+        .iter()
+        .partition(|li| li.system_type == AirLoopSystemType::Doas);
+    for li in others.into_iter().chain(doas) {
+        for zone in &li.served_zones {
+            temps
+                .entry(zone.clone())
+                .or_insert((li.heating_supply_temp, li.cooling_supply_temp));
+        }
+    }
+    temps
+}
+
+/// A loop's design flow and coil loads, and the cooling coil's design inlet
+/// conditions for its capacity curve.
+#[derive(Debug, Clone, Copy, Default)]
+struct LoopCoilSizing {
+    /// Fan flow [m³/s]
+    volume_flow: f64,
+    /// Heating coil load [W]
+    heating: f64,
+    /// Total cooling coil load [W], with fan heat
+    cooling: f64,
+    /// Cooling coil inlet wet-bulb [°C]
+    t_wb_in: f64,
+    /// Outdoor dry-bulb at the cooling peak [°C]
+    t_outdoor: f64,
+}
+
+/// A loop's minimum outdoor air for coil sizing, as its controls draw it: FCU,
+/// CRAC and CRAH recirculate, a DOAS takes only outdoor air, a stated damper
+/// position is a fraction, and otherwise the zones' requirement is a flow.
+fn sizing_outdoor_air(li: &LoopInfo) -> openbse_io::system_sizing::OutdoorAir {
+    use openbse_io::system_sizing::OutdoorAir;
+    match li.system_type {
+        AirLoopSystemType::Fcu | AirLoopSystemType::Crac | AirLoopSystemType::Crah => {
+            OutdoorAir::Fraction(0.0)
+        }
+        AirLoopSystemType::Doas => OutdoorAir::Fraction(1.0),
+        _ if li.explicit_min_oa || li.min_oa_fraction <= 0.001 => {
+            OutdoorAir::Fraction(li.min_oa_fraction)
+        }
+        _ => {
+            let required: f64 = li.zone_outdoor_air.values().sum();
+            if required > 0.0 {
+                OutdoorAir::Flow(required)
+            } else {
+                OutdoorAir::Fraction(li.min_oa_fraction)
+            }
+        }
+    }
+}
+
+/// Size one air loop's flow and coils at its design inlet states (E+
+/// `Sizing:System` with `CoolingCapacitySizer` and `HeatingCapacitySizer`).
+#[allow(clippy::too_many_arguments)]
+fn size_air_loop(
+    li: &LoopInfo,
+    controls: Option<&openbse_io::input::AirLoopInput>,
+    hard_fan_flow: Option<f64>,
+    air_density: f64,
+    zone_design_flows: &HashMap<String, f64>,
+    zone_sizing: &openbse_io::sizing::ZoneSizingResult,
+    zone_heat_sp: &HashMap<String, f64>,
+    zone_cool_sp: &HashMap<String, f64>,
+) -> LoopCoilSizing {
+    use openbse_io::input::ZoneSum;
+    use openbse_io::system_sizing::{
+        cooling_coil_inlet, cooling_coil_load, heating_coil_load, CoolingPeakBasis,
+    };
+
+    let zones = &li.served_zones;
+    let multizone = matches!(
+        li.system_type,
+        AirLoopSystemType::Vav | AirLoopSystemType::DualDuct
+    );
+    let is_doas = li.system_type == AirLoopSystemType::Doas;
+    let zone_sum = controls.map(|al| al.controls.zone_sum).unwrap_or_default();
+
+    let autosized_flow = if is_doas {
+        openbse_airloop::doas_vent_flow(li, zone_design_flows)
+    } else if multizone {
+        multizone_design_flow(zones, zone_sum, zone_design_flows, zone_sizing)
+    } else {
+        zones
+            .iter()
+            .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
+            .sum()
+    };
+    let mass_flow = hard_fan_flow.map_or(autosized_flow, |v| v * air_density);
+
+    let (t_doas_heat, t_doas_cool) =
+        openbse_airloop::doas_supply_temps(li, zone_heat_sp, zone_cool_sp);
+    let t_cool = if is_doas {
+        t_doas_cool
+    } else {
+        li.cooling_supply_temp
+    };
+    let w_cool = controls.map_or(0.008, |al| al.controls.cooling_supply_humidity_ratio);
+    let outdoor_air = sizing_outdoor_air(li);
+
+    let basis = if multizone && zone_sum == ZoneSum::Coincident {
+        CoolingPeakBasis::Coincident
+    } else {
+        CoolingPeakBasis::NonCoincident
+    };
+    let inlet = cooling_coil_inlet(
+        &zone_sizing.cooling_days,
+        zones,
+        basis,
+        outdoor_air,
+        mass_flow,
+        t_cool,
+        w_cool,
+    );
+
+    let (cooling, t_wb_in, t_outdoor) = match inlet {
+        None => (0.0, 19.44, 35.0),
+        Some(inlet) => {
+            let x = outdoor_air.fraction_of(mass_flow);
+            let fan_dt = li.supply_fan_dt + (1.0 - x) * li.return_fan_dt;
+            let cp = openbse_psychrometrics::cp_air_fn_w(inlet.w);
+            let fan_load = mass_flow * cp * fan_dt;
+            // A blow-through fan warms the air before the coil (E+ dataFanPlacement).
+            let blow_through = li
+                .component_names
+                .iter()
+                .take_while(|n| li.component_kinds.get(*n) != Some(&ComponentKind::CoolingCoil))
+                .any(|n| li.fan_names.contains(n));
+            let t_coil_in = inlet.t_db + if blow_through { li.supply_fan_dt } else { 0.0 };
+            let p = 101_325.0 * air_density / 1.2041;
+            (
+                cooling_coil_load(&inlet, mass_flow, t_cool, w_cool) + fan_load,
+                openbse_psychrometrics::twb_fn_tdb_w_pb(t_coil_in, inlet.w, p),
+                inlet.t_outdoor,
+            )
+        }
+    };
+
+    // The heating coil's air: constant-volume loops heat all their flow to the
+    // supply temperature. A VAV's central coil only tempers the zones' heating
+    // flow to the cooling supply temperature, its boxes reheating from there
+    // (E+ autosizes SysAirMinFlowRat to DesHeatVolFlow/DesMainVolFlow). A dual
+    // duct's hot deck carries the heating flow, but mixes at the system's
+    // outdoor-air fraction because one fan draws both decks.
+    let zone_heating_flow: f64 = zones
+        .iter()
+        .map(|z| {
+            zone_sizing
+                .zone_heating_airflow
+                .get(z)
+                .copied()
+                .unwrap_or(0.0)
+        })
+        .sum();
+    let (heat_flow, t_heat, heat_oa) = match li.system_type {
+        AirLoopSystemType::Vav => (
+            zone_heating_flow,
+            li.preheat_setpoint.unwrap_or(li.cooling_supply_temp),
+            outdoor_air,
+        ),
+        AirLoopSystemType::DualDuct => (
+            zone_heating_flow,
+            li.heating_supply_temp,
+            openbse_io::system_sizing::OutdoorAir::Fraction(outdoor_air.fraction_of(mass_flow)),
+        ),
+        AirLoopSystemType::Doas => (mass_flow, t_doas_heat, outdoor_air),
+        _ => (mass_flow, li.heating_supply_temp, outdoor_air),
+    };
+    let heating = match li.system_type {
+        // CRAC / CRAH: cooling only.
+        AirLoopSystemType::Crac | AirLoopSystemType::Crah => 0.0,
+        _ => heating_coil_load(
+            &zone_sizing.heating_days,
+            zones,
+            zone_design_flows,
+            heat_oa,
+            heat_flow,
+            t_heat,
+        ),
+    };
+
+    LoopCoilSizing {
+        volume_flow: mass_flow / air_density,
+        heating,
+        cooling,
+        t_wb_in,
+        t_outdoor,
+    }
+}
+
 /// Outdoor-air sensible load [W] (positive when it heats the zone) that a
 /// cycling compressor's off-cycle still brings in: a fan that keeps running
 /// keeps drawing outdoor air, a cycling fan draws none. Counted for a cycling
@@ -540,6 +736,15 @@ fn build_loop_infos(
                 economizer_options: openbse_airloop::EconomizerOptions::from_controls(
                     al.controls.economizer.as_ref(),
                 ),
+                zone_outdoor_air: al
+                    .zone_terminals
+                    .iter()
+                    .filter_map(|zc| {
+                        let zone = resolved_zones.iter().find(|z| z.name == zc.zone)?;
+                        let v_oa = zone.design_outdoor_air_flow()?;
+                        Some((zc.zone.clone(), v_oa * std_air_density))
+                    })
+                    .collect(),
                 design_supply_flow: al
                     .equipment
                     .iter()
@@ -1632,24 +1837,7 @@ fn main() -> Result<()> {
         if !model.design_days.is_empty() {
             if let Some(ref mut env) = envelope {
                 let latitude = weather_data.location.latitude;
-                // Extract supply temps from air loop controls.
-                // Use the max heating supply temp and min cooling supply temp
-                // across all air loops to ensure sizing covers worst case.
-                let supply_temps = if !model.air_loops.is_empty() {
-                    let max_heat = model
-                        .air_loops
-                        .iter()
-                        .map(|al| al.controls.heating_supply_temp)
-                        .fold(f64::NEG_INFINITY, f64::max);
-                    let min_cool = model
-                        .air_loops
-                        .iter()
-                        .map(|al| al.controls.cooling_supply_temp)
-                        .fold(f64::INFINITY, f64::min);
-                    Some((max_heat, min_cool))
-                } else {
-                    None
-                };
+                let zone_supply_temps = zone_design_supply_temps(&loop_infos);
 
                 let sizing_result = openbse_io::sizing::run_sizing(
                     env,
@@ -1659,7 +1847,7 @@ fn main() -> Result<()> {
                     &weather_data.hours,
                     output_dir,
                     &input_stem,
-                    supply_temps,
+                    &zone_supply_temps,
                     model.simulation.heating_sizing_factor,
                     model.simulation.cooling_sizing_factor,
                     &sizing_oa_handled,
@@ -1681,338 +1869,36 @@ fn main() -> Result<()> {
                     zone_design_flows.insert(zone_name.clone(), flow);
                 }
 
-                // ── Per-loop cooling SAT override ──
-                // Zone sizing uses the global min cooling_supply_temp.  Loops
-                // with a higher cooling SAT (e.g., data center at 15.89°C vs
-                // 12.8°C for offices) need proportionally more airflow.
-                // Recalculate zone design airflows for those loops.
-                let global_cool_sat = supply_temps.map(|t| t.1).unwrap_or(13.0);
-                let cp_air_sz = 1005.0_f64;
-                for li in &loop_infos {
-                    if (li.cooling_supply_temp - global_cool_sat).abs() > 0.5 {
-                        for zone_name in &li.served_zones {
-                            let cool_sp = resolved_thermostats
-                                .iter()
-                                .find(|t| t.zones.contains(zone_name))
-                                .map(|t| t.cooling_setpoint)
-                                .unwrap_or(24.0);
-                            let cool_load = sizing_result
-                                .zone_peak_cooling
-                                .get(zone_name)
-                                .copied()
-                                .unwrap_or(0.0);
-                            let dt = (cool_sp - li.cooling_supply_temp).max(5.0);
-                            let new_flow = if cool_load > 0.0 {
-                                cool_load / (cp_air_sz * dt)
-                            } else {
-                                zone_design_flows.get(zone_name).copied().unwrap_or(0.01)
-                            };
-                            let old_flow =
-                                zone_design_flows.get(zone_name).copied().unwrap_or(0.01);
-                            if new_flow > old_flow {
-                                log::info!(
-                                    "Per-loop SAT override: {} airflow {:.2} → {:.2} kg/s \
-                                (loop {} SAT={:.1}°C)",
-                                    zone_name,
-                                    old_flow,
-                                    new_flow,
-                                    li.name,
-                                    li.cooling_supply_temp
-                                );
-                                zone_design_flows.insert(zone_name.clone(), new_flow);
-                            }
-                        }
-                    }
-                }
-
                 // Apply sized capacities to HVAC components.
                 //
-                // Sizing is loop-aware:
-                //   - PSZ-AC / VAV loops: use system-wide capacities and total airflow
-                //   - DOAS loops: use a fraction of total OA flow (30% of zone design flows)
-                //   - FCU loops: use the served zone's design airflow and peak zone load
-                //
-                // This ensures each loop's components are sized for their actual duty,
-                // not the system-wide peak.
+                // Every loop type goes through the same routine (#229), differing
+                // only in its flow, outdoor air and coil outlet temperatures.
                 use openbse_core::types::is_autosize;
 
-                // Build a map: component_name -> (loop_flow [m³/s], loop_heat [W], loop_cool [W])
                 let air_density = site_standard_air_density(&model);
-                let mut loop_comp_sizing: HashMap<String, (f64, f64, f64)> = HashMap::new();
+                let mut loop_comp_sizing: HashMap<String, LoopCoilSizing> = HashMap::new();
 
                 for li in &loop_infos {
-                    let (loop_flow, loop_heat, loop_cool) = match li.system_type {
-                        AirLoopSystemType::PszAc => {
-                            // PSZ-AC: each unit serves its own zone(s) independently.
-                            // Size from served zone peak loads (like FCU), not system-wide.
-                            // The flow is the one the controls use, which the
-                            // per-loop supply-temperature override above has
-                            // already resized for a loop with its own SAT.
-                            let zone_airflow: f64 = li
-                                .served_zones
-                                .iter()
-                                .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
-                                .sum();
-                            let zone_flow_m3 = zone_airflow / air_density;
-                            let zone_heat: f64 = li
-                                .served_zones
-                                .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_peak_heating
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.0)
-                                })
-                                .sum::<f64>();
-                            let zone_cool: f64 = li
-                                .served_zones
-                                .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_peak_cooling
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.0)
-                                })
-                                .sum::<f64>();
-                            (zone_flow_m3, zone_heat, zone_cool)
+                    let fan_flow = li.fan_names.iter().find_map(|f| {
+                        let idx = graph.node_by_name(f)?;
+                        match graph.component(idx) {
+                            GraphComponent::Air(comp) => comp.design_air_flow_rate(),
+                            _ => None,
                         }
-                        AirLoopSystemType::Vav | AirLoopSystemType::DualDuct => {
-                            // VAV / DualDuct: multi-zone system, sized on the
-                            // same zone flows as its boxes.
-                            let zone_sum = model
-                                .air_loops
-                                .iter()
-                                .find(|al| al.name == li.name)
-                                .map(|al| al.controls.zone_sum)
-                                .unwrap_or_default();
-                            let zone_airflow = multizone_design_flow(
-                                &li.served_zones,
-                                zone_sum,
-                                &zone_design_flows,
-                                &sizing_result.zone_sizing,
-                            );
-                            let zone_flow_m3 = zone_airflow / air_density;
-                            let zone_heat: f64 = li
-                                .served_zones
-                                .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_peak_heating
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.0)
-                                })
-                                .sum::<f64>();
-                            let zone_cool: f64 = li
-                                .served_zones
-                                .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_peak_cooling
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.0)
-                                })
-                                .sum::<f64>();
-                            (zone_flow_m3, zone_heat, zone_cool)
-                        }
-                        AirLoopSystemType::Doas => {
-                            // DOAS sizing: coils are sized to pre-condition 100% OA from
-                            // design outdoor conditions to fixed supply setpoints.
-                            //
-                            // Heating: Q = m_oa * cp * (T_supply_heat - T_outdoor_heat_design)
-                            // Cooling: Q = m_oa * cp * (T_outdoor_cool_design - T_supply_cool)
-                            //
-                            // Design outdoor temps from the coldest/hottest design days.
-                            let zone_airflow: f64 = li
-                                .served_zones
-                                .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_design_airflow
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.1)
-                                })
-                                .sum();
-                            let oa_flow_kg = zone_airflow * 0.30;
-                            let oa_flow_m3 = oa_flow_kg / air_density;
-
-                            // Find design outdoor temps from design days
-                            let t_outdoor_heat_design = model
-                                .design_days
-                                .iter()
-                                .filter(|dd| {
-                                    dd.day_type.to_lowercase().contains("heat")
-                                        || dd.day_type.to_lowercase().contains("winter")
-                                })
-                                .map(|dd| dd.design_temp)
-                                .fold(f64::INFINITY, f64::min);
-                            let t_outdoor_heat = if t_outdoor_heat_design.is_finite() {
-                                t_outdoor_heat_design
-                            } else {
-                                -20.0
-                            };
-
-                            let t_outdoor_cool_design = model
-                                .design_days
-                                .iter()
-                                .filter(|dd| {
-                                    dd.day_type.to_lowercase().contains("cool")
-                                        || dd.day_type.to_lowercase().contains("summer")
-                                })
-                                .map(|dd| dd.design_temp)
-                                .fold(f64::NEG_INFINITY, f64::max);
-                            let t_outdoor_cool = if t_outdoor_cool_design.is_finite() {
-                                t_outdoor_cool_design
-                            } else {
-                                35.0
-                            };
-
-                            // DOAS supply setpoints (default: heat to 20°C, cool to 18°C)
-                            let t_supply_heat = 20.0_f64;
-                            let t_supply_cool = 18.0_f64;
-
-                            let cp_air = 1005.0_f64;
-                            let doas_heat_cap =
-                                oa_flow_kg * cp_air * (t_supply_heat - t_outdoor_heat).max(0.0);
-                            let doas_cool_cap =
-                                oa_flow_kg * cp_air * (t_outdoor_cool - t_supply_cool).max(0.0);
-
-                            (oa_flow_m3, doas_heat_cap, doas_cool_cap)
-                        }
-                        AirLoopSystemType::Fcu
-                        | AirLoopSystemType::Ptac
-                        | AirLoopSystemType::Pthp => {
-                            // FCU/PTAC/PTHP: sized to its served zone(s)
-                            // Coil capacity must include ventilation heating/cooling load
-                            // (outdoor air mixed with return air before entering the coil).
-                            let zone_airflow: f64 = li
-                                .served_zones
-                                .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_design_airflow
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.1)
-                                })
-                                .sum();
-                            let zone_flow_m3 = zone_airflow / air_density;
-
-                            // Zone peak loads (envelope + internal gains only)
-                            let zone_peak_heat: f64 = li
-                                .served_zones
-                                .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_peak_heating
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.0)
-                                })
-                                .sum::<f64>();
-                            let zone_peak_cool: f64 = li
-                                .served_zones
-                                .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_peak_cooling
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.0)
-                                })
-                                .sum::<f64>();
-
-                            // Design outdoor temps from design days
-                            let t_outdoor_heat_design = model
-                                .design_days
-                                .iter()
-                                .filter(|dd| {
-                                    dd.day_type.to_lowercase().contains("heat")
-                                        || dd.day_type.to_lowercase().contains("winter")
-                                })
-                                .map(|dd| dd.design_temp)
-                                .fold(f64::INFINITY, f64::min);
-                            let t_outdoor_heat = if t_outdoor_heat_design.is_finite() {
-                                t_outdoor_heat_design
-                            } else {
-                                -20.0
-                            };
-
-                            let t_outdoor_cool_design = model
-                                .design_days
-                                .iter()
-                                .filter(|dd| {
-                                    dd.day_type.to_lowercase().contains("cool")
-                                        || dd.day_type.to_lowercase().contains("summer")
-                                })
-                                .map(|dd| dd.design_temp)
-                                .fold(f64::NEG_INFINITY, f64::max);
-                            let t_outdoor_cool = if t_outdoor_cool_design.is_finite() {
-                                t_outdoor_cool_design
-                            } else {
-                                35.0
-                            };
-
-                            // Mixed air temperature = blend of return air (≈zone setpoint)
-                            // and outdoor air at design conditions
-                            let cp_air = 1005.0_f64;
-                            let oa_frac = li.min_oa_fraction;
-                            let t_zone_heat = 21.0_f64; // heating setpoint
-                            let t_zone_cool = 24.0_f64; // cooling setpoint
-
-                            // Heating: coil heats mixed air from T_mixed to T_supply_heat
-                            let t_mixed_heat =
-                                (1.0 - oa_frac) * t_zone_heat + oa_frac * t_outdoor_heat;
-                            let coil_heat_cap = zone_airflow
-                                * cp_air
-                                * (li.heating_supply_temp - t_mixed_heat).max(0.0);
-
-                            // Cooling: coil cools mixed air from T_mixed to T_supply_cool
-                            let t_mixed_cool =
-                                (1.0 - oa_frac) * t_zone_cool + oa_frac * t_outdoor_cool;
-                            let coil_cool_cap = zone_airflow
-                                * cp_air
-                                * (t_mixed_cool - li.cooling_supply_temp).max(0.0);
-
-                            // The zone design loads and the sized airflow both
-                            // already carry the sizing factors.
-                            let zone_heat = zone_peak_heat.max(coil_heat_cap);
-                            let zone_cool = zone_peak_cool.max(coil_cool_cap);
-
-                            (zone_flow_m3, zone_heat, zone_cool)
-                        }
-                        // CRAC / CRAH: cooling-only, no OA mixing.
-                        // Sized identically to PSZ-AC: served zone peak cooling load,
-                        // design airflow from zone sizing.  No heating capacity needed.
-                        AirLoopSystemType::Crac | AirLoopSystemType::Crah => {
-                            let zone_airflow: f64 = li
-                                .served_zones
-                                .iter()
-                                .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
-                                .sum();
-                            let zone_flow_m3 = zone_airflow / air_density;
-                            let zone_cool: f64 = li
-                                .served_zones
-                                .iter()
-                                .map(|z| {
-                                    sizing_result
-                                        .zone_peak_cooling
-                                        .get(z)
-                                        .copied()
-                                        .unwrap_or(0.0)
-                                })
-                                .sum::<f64>();
-                            (zone_flow_m3, 0.0, zone_cool)
-                        }
-                    };
-
+                    });
+                    let controls = model.air_loops.iter().find(|al| al.name == li.name);
+                    let design = size_air_loop(
+                        li,
+                        controls,
+                        fan_flow,
+                        air_density,
+                        &zone_design_flows,
+                        &sizing_result.zone_sizing,
+                        &zone_heating_setpoints,
+                        &zone_cooling_setpoints,
+                    );
                     for comp_name in &li.component_names {
-                        loop_comp_sizing
-                            .insert(comp_name.clone(), (loop_flow, loop_heat, loop_cool));
+                        loop_comp_sizing.insert(comp_name.clone(), design);
                     }
                 }
 
@@ -2025,10 +1911,11 @@ fn main() -> Result<()> {
                     // with zone-specific sizing. Without this guard, terminal boxes would
                     // get the full system flow/capacity from the unwrap_or default, then
                     // the terminal-specific sizing would skip them (no longer autosize).
-                    let (loop_flow, loop_heat, loop_cool) = match loop_comp_sizing.get(&name) {
-                        Some(&vals) => vals,
-                        None => continue, // Skip terminal boxes and other non-loop components
+                    let Some(&design) = loop_comp_sizing.get(&name) else {
+                        continue; // Skip terminal boxes and other non-loop components
                     };
+                    let (loop_flow, loop_heat, loop_cool) =
+                        (design.volume_flow, design.heating, design.cooling);
 
                     // Autosize fan flow rate
                     if let Some(_flow) = comp.design_air_flow_rate() {
@@ -2057,12 +1944,23 @@ fn main() -> Result<()> {
                     if matches!(kind, ComponentKind::CoolingCoil | ComponentKind::EvapCooler) {
                         if let Some(cap) = comp.nominal_capacity() {
                             if is_autosize(cap) {
-                                comp.set_nominal_capacity(loop_cool);
+                                let rated = match comp
+                                    .design_capacity_modifier(design.t_wb_in, design.t_outdoor)
+                                {
+                                    Some((modifier, range)) => {
+                                        openbse_io::system_sizing::dx_rated_capacity(
+                                            loop_cool, modifier, loop_flow, range,
+                                        )
+                                    }
+                                    None => loop_cool,
+                                };
+                                comp.set_nominal_capacity(rated);
                                 info!(
-                                    "Autosized '{}' capacity: {:.0} W ({:.1} kW)",
+                                    "Autosized '{}' capacity: {:.0} W ({:.1} kW; design load {:.0} W)",
                                     name,
-                                    loop_cool,
-                                    loop_cool / 1000.0
+                                    rated,
+                                    rated / 1000.0,
+                                    loop_cool
                                 );
                             }
                         }
@@ -7357,6 +7255,7 @@ room_air:
             heating_sat_reset: None,
             zone_oa_data: vec![],
             design_supply_flow: 0.3,
+            zone_outdoor_air: HashMap::new(),
             economizer_type: openbse_io::input::EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
@@ -7399,6 +7298,7 @@ room_air:
             heating_sat_reset: None,
             zone_oa_data: vec![],
             design_supply_flow: 0.5,
+            zone_outdoor_air: HashMap::new(),
             economizer_type: econ_type,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,
@@ -8564,6 +8464,7 @@ mod tests_datacenter {
             heating_sat_reset: None,
             zone_oa_data: vec![],
             design_supply_flow: 2.5,
+            zone_outdoor_air: HashMap::new(),
             economizer_type: openbse_io::input::EconomizerType::NoEconomizer,
             economizer_high_limit: None,
             economizer_high_limit_enthalpy: None,

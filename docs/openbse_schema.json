@@ -593,6 +593,7 @@
       "properties": {
         "heating_supply_temp": { "type": "number", "default": 35.0, "description": "Design heating supply air temperature [C]." },
         "cooling_supply_temp": { "type": "number", "default": 13.0, "description": "Design cooling supply air temperature [C]." },
+        "cooling_supply_humidity_ratio": { "type": "number", "default": 0.008, "description": "Humidity ratio of the air leaving the cooling coil at the design peak [kg/kg], for sizing its total capacity (EnergyPlus Sizing:System Central Cooling Design Supply Air Humidity Ratio)." },
         "cycling": { "$ref": "#/$defs/CyclingMethod" },
         "deadband": { "type": "number", "default": 1.0, "description": "Thermostat deadband [C]." },
         "design_zone_flow": { "$ref": "#/$defs/AutosizeOrNumber", "default": 0.5, "description": "Design air flow rate per zone [kg/s]. Use 'autosize' for auto-calculation." },
