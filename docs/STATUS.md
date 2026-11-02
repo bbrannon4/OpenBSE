@@ -6,7 +6,7 @@ Last updated: 2026-10-25
 
 ### Simulation Engine
 - Single-zone and multi-zone heat balance with 3rd-order backward difference predictor-corrector
-- ASHRAE Standard 140-2023: Sections 7, 9A, 9B, 10 and 11 implemented (96 cases); 548 of 550 gate checks pass; open misses are case 660 heating (#148) and CE540 condenser fan (#149)
+- ASHRAE Standard 140-2023: Sections 7, 9A, 9B, 10 and 11 implemented (96 cases); 548 of 550 gate checks pass; open misses are CE540 condenser fan (#149) and CE195 February sensible load (#295)
 - Weather file processing (EPW/CSV format)
 - Design-day autosizing for fans, coils, boilers, chillers, pumps and towers with configurable oversize factors; an `autosize` field nothing sizes is an error
 - Built-in energy-conservation and sanity checks, reported in the `.err` file
