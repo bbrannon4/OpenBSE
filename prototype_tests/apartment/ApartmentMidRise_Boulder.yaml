@@ -756,7 +756,6 @@ simple_constructions:
 f_factor_constructions:
 - name: Ground Floor Slab
   f_factor: 1.264
-  thermal_capacity: 400000.0
   solar_absorptance: 0.7
   thermal_absorptance: 0.9
   ground_temperatures:
