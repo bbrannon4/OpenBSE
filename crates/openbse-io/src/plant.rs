@@ -364,10 +364,6 @@ pub struct PlantSizingInputs {
     /// Capacity [W] of each boiler and chiller as built; the autosize sentinel
     /// marks one to be sized here.
     pub equipment_capacity: HashMap<String, f64>,
-    /// Coincident building peak zone heating / cooling load on the design days
-    /// [W], zero without design days. Primary pumps keep sizing from these.
-    pub coincident_peak_heating: f64,
-    pub coincident_peak_cooling: f64,
 }
 
 /// Results of [`size_plant`].
@@ -597,50 +593,25 @@ impl<'a> LoopSizer<'a> {
         }
     }
 
-    /// Load [W] a pump is sized for. Condenser loops use their heat-rejection
-    /// load; heating-only and cooling-only loops keep the coincident building
-    /// peak from the design days; other loops use the installed boiler and
-    /// chiller capacity. The loop design load is the fallback when that basis
-    /// is zero (no design days, or a loop with neither boilers nor chillers).
+    /// Load [W] a pump is sized for: the loop design load, so that its flow is
+    /// the sum of its demand components' design flows (E+ `Pumps::SizePump`,
+    /// `PlantSizData.DesVolFlowRate`). A loop with no sized demand falls back to
+    /// its installed boilers and chillers.
     fn pump_basis(&mut self, pl: &PlantLoopInput, loop_load: f64) -> f64 {
-        let is_condenser = self.model.plant_loops.iter().any(|ol| {
-            ol.supply_equipment.iter().any(|eq| {
-                matches!(eq, PlantEquipmentInput::Chiller(c)
-                    if c.condenser_plant_loop.as_deref() == Some(pl.name.as_str()))
-            })
-        });
-        let has_boiler = pl
-            .supply_equipment
-            .iter()
-            .any(|eq| matches!(eq, PlantEquipmentInput::Boiler(_)));
-        let has_chiller = pl
-            .supply_equipment
-            .iter()
-            .any(|eq| matches!(eq, PlantEquipmentInput::Chiller(_)));
-        let basis = if is_condenser {
-            loop_load
-        } else if has_boiler && !has_chiller {
-            self.inputs.coincident_peak_heating
-        } else if has_chiller && !has_boiler {
-            self.inputs.coincident_peak_cooling
-        } else {
-            pl.supply_equipment
-                .iter()
-                .filter(|eq| {
-                    matches!(
-                        eq,
-                        PlantEquipmentInput::Boiler(_) | PlantEquipmentInput::Chiller(_)
-                    )
-                })
-                .filter_map(|eq| self.capacity(eq, pl))
-                .filter(|c| *c > 0.0)
-                .sum()
-        };
-        if basis > 0.0 {
-            basis
-        } else {
-            loop_load
+        if loop_load > 0.0 {
+            return loop_load;
         }
+        pl.supply_equipment
+            .iter()
+            .filter(|eq| {
+                matches!(
+                    eq,
+                    PlantEquipmentInput::Boiler(_) | PlantEquipmentInput::Chiller(_)
+                )
+            })
+            .filter_map(|eq| self.capacity(eq, pl))
+            .filter(|c| *c > 0.0)
+            .sum()
     }
 }
 
@@ -705,8 +676,6 @@ plant_loops:
                 .iter()
                 .map(|(n, c)| (n.to_string(), *c))
                 .collect(),
-            coincident_peak_heating: 0.0,
-            coincident_peak_cooling: 0.0,
         }
     }
 
@@ -877,7 +846,6 @@ air_loops:
             ("Box A", 10_000.0),
             ("CHW Coil", 80_000.0),
         ]);
-        inputs.coincident_peak_heating = 25_000.0;
         let sizes = size_plant(&m, &inputs).expect("sizes");
 
         assert_eq!(sizes.loop_design_load["HHW"], 40_000.0);
@@ -889,8 +857,8 @@ air_loops:
         let flow = |w: f64, dt: f64, t: f64| w / (water_rho(t) * water_cp(t) * dt);
         let (hot, cold) = (HOT_WATER_CONVERSION_TEMP, COLD_WATER_CONVERSION_TEMP);
         assert_eq!(sizes.design_flow["Boiler"], flow(40_000.0, 10.0, hot));
-        // Heating-only loop pump keeps the coincident building peak.
-        assert_eq!(sizes.design_flow["HHW Pump"], flow(25_000.0, 10.0, hot));
+        // The pump carries what the coils on its loop draw, as the boiler does.
+        assert_eq!(sizes.design_flow["HHW Pump"], sizes.design_flow["Boiler"]);
         assert_eq!(sizes.design_flow["Tower"], flow(100_000.0, 5.0, cold));
         assert_eq!(sizes.design_flow["CW Pump"], flow(100_000.0, 5.0, cold));
     }

@@ -230,8 +230,8 @@ differences are:
 
 **Coincident peaks.** Every design day is run again (@sec-dd-runs). The
 coincident peak heating and cooling loads are the largest sums over all
-zones at one hour, before any sizing factor. They size primary pumps (@sec-plant-sizing) and are
-written to `_system_sizing.csv`. The second run uses the same inputs as the
+zones at one hour, before any sizing factor. They are written to
+`_system_sizing.csv` as a report. The second run uses the same inputs as the
 first, so it repeats it exactly
 ([#232](https://github.com/bbrannon4/OpenBSE/issues/232)).
 
@@ -384,25 +384,19 @@ $$ {#eq-plant-flow}
 with $\rho_w$ and $c_{p,w}$ at the loop's conversion temperature (@sec-water-properties),
 where $Q$ is the following basis:
 
-- a boiler's flow, a cooling tower's flow and a heat exchanger's flow use
-  $Q_\text{loop}$;
-- a pump on a condenser loop uses $Q_\text{loop}$;
-- a pump on a heating-only or cooling-only loop uses the coincident zone
-  peak of @sec-system-sizing;
-- a pump on a loop with both boilers and chillers uses the sum of their
-  capacities.
+- a boiler's flow, a pump's flow, a cooling tower's flow and a heat
+  exchanger's flow use $Q_\text{loop}$;
+- a pump on a loop with no sized demand uses the sum of the capacities of the
+  loop's boilers and chillers.
 
-A pump falls back to $Q_\text{loop}$ when its basis is zero. A loop that
+A loop that
 nothing draws on sizes its equipment to zero. A loop that has demand but
 nothing to size from is a severe error.
 
 **Comparison with EnergyPlus.** @eq-plant-load is the E+ `Sizing:Plant`
 non-coincident load, with condenser loads at $Q(1 + 1/\text{COP})$
-[@eplus-engref-25-2, "Plant and Condenser Loop Sizing"]. EnergyPlus sizes pumps from the
-loop's design flow. OpenBSE's coincident zone peak excludes the outdoor-air
-and reheat loads and the sizing factors, so on a heating-only or
-cooling-only loop the pump flow is below its coils' design flows
-([#230](https://github.com/bbrannon4/OpenBSE/issues/230)).
+[@eplus-engref-25-2, "Plant and Condenser Loop Sizing"]. Pumps take the loop's
+design flow, the sum of the demand components' design flows, as in `Pumps::SizePump`.
 
 ## Outdoor-air fraction after sizing {#sec-oa-after-sizing}
 
@@ -430,8 +424,6 @@ flows are both per zone instance, so no multiplier is needed in the ratio.
 - [#198](https://github.com/bbrannon4/OpenBSE/issues/198),
   [#50](https://github.com/bbrannon4/OpenBSE/issues/50): design-day
   humidity, temperature profile and sky model.
-- [#230](https://github.com/bbrannon4/OpenBSE/issues/230): pumps sized from
-  the coincident zone peak, not the loop design flow.
 - [#280](https://github.com/bbrannon4/OpenBSE/issues/280): a loop can't serve
   zones with different multipliers.
 - [#232](https://github.com/bbrannon4/OpenBSE/issues/232): duplicate system
