@@ -56,10 +56,11 @@ The weather is described in @sec-design-days. A run has these steps:
    `design_day_cooling_setpoints` set its own zones' setpoints. These
    capture setback recovery, which E+ prototypes size on through their
    SummerDesignDay and WinterDesignDay setpoint schedules.
-4. **Repetition.** The 24-hour sequence is repeated 5 times at the
+4. **Repetition.** The 24-hour sequence is repeated until it converges (at
+   least 5 days, at most 25; see the comparison below) at the
    simulation timestep. Each timestep calls the envelope solve once and
    then advances the backward-difference history once (@sec-zone-air-hb).
-   Loads are recorded only on the last day.
+   Loads are taken only from the last day.
 5. **Outdoor air.** Zones whose air loop carries outdoor air leave it out
    of their balance, so their loads exclude it (@sec-infiltration).
 
@@ -93,9 +94,11 @@ are averaged with `General::MovingAvg` before the peak is taken
 [@eplus-engref-25-2, "Zone Design Loads and Air Flow Rates"]. The
 differences are:
 
-- **Warmup.** EnergyPlus repeats a design day until temperatures and loads
-  converge (up to 25 days by default), not a fixed 5
-  ([#232](https://github.com/bbrannon4/OpenBSE/issues/232)).
+- **Warmup.** OpenBSE repeats a design day until every zone's daily
+  temperature extremes are within 0.4 K and its peak loads within 4% of the
+  day before (loads below 100 W count as 100 W), up to 25 days, with the
+  EnergyPlus test and defaults (`CheckWarmupConvergence`). It repeats at least
+  5 days; the EnergyPlus default minimum is 1.
 - **Averaging window.** EnergyPlus defaults to one hour of timesteps;
   OpenBSE defaults to one timestep
   ([#327](https://github.com/bbrannon4/OpenBSE/issues/327)).

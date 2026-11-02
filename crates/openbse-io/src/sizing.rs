@@ -273,9 +273,10 @@ struct SizingSetpoints {
 /// How each design day is stepped through.
 #[derive(Debug, Clone, Copy)]
 struct SizingSteps {
-    /// Days repeated so the envelope reaches a periodic state; loads come
-    /// from the last one.
-    warmup_days: usize,
+    /// Fewest repetitions of a design day; loads come from the last repetition.
+    min_warmup_days: usize,
+    /// Repetitions after which an unconverged design day is used anyway.
+    max_warmup_days: usize,
     per_hour: u32,
     /// Timesteps the loads are averaged over before their peak is taken.
     averaging_window: usize,
@@ -375,8 +376,15 @@ fn run_single_design_day(
     let tph = steps.per_hour.max(1);
     let dt = 3600.0 / tph as f64;
 
-    for day_num in 0..steps.warmup_days {
-        let is_last_day = day_num == steps.warmup_days - 1;
+    let mut previous_day: Option<HashMap<String, DayExtremes>> = None;
+    let mut days_run = 0;
+    let mut converged = false;
+    while !converged && days_run < steps.max_warmup_days {
+        let day_num = days_run;
+        days_run += 1;
+        last_day_steps.clear();
+        last_day_hours.clear();
+        let mut this_day: HashMap<String, DayExtremes> = HashMap::new();
 
         for i in 0..weather_hours.len() {
             let hour = (i + 1) as u32;
@@ -462,30 +470,44 @@ fn run_single_design_day(
                 let result = env.solve_timestep(&ctx, wh, &hvac);
                 env.update_bdf_history();
 
-                if is_last_day {
-                    let step_loads = env
-                        .zones
-                        .iter()
-                        .map(|zone| {
-                            let name = &zone.input.name;
-                            let hl = result.zone_heating_loads.get(name).copied().unwrap_or(0.0);
-                            let cl = result.zone_cooling_loads.get(name).copied().unwrap_or(0.0);
-                            (name.clone(), (hl, cl))
-                        })
-                        .collect();
-                    last_day_steps.push((hour, step_loads));
-                    if sub + 1 == tph {
-                        last_day_hours.push(sizing_hour(
-                            env,
-                            hour,
-                            wh,
-                            oa_handled_by_hvac,
-                            &return_heat,
-                        ));
-                    }
+                let step_loads = env
+                    .zones
+                    .iter()
+                    .map(|zone| {
+                        let name = &zone.input.name;
+                        let hl = result.zone_heating_loads.get(name).copied().unwrap_or(0.0);
+                        let cl = result.zone_cooling_loads.get(name).copied().unwrap_or(0.0);
+                        this_day
+                            .entry(name.clone())
+                            .or_insert_with(DayExtremes::new)
+                            .record(zone.temp, hl, cl);
+                        (name.clone(), (hl, cl))
+                    })
+                    .collect();
+                last_day_steps.push((hour, step_loads));
+                if sub + 1 == tph {
+                    last_day_hours.push(sizing_hour(
+                        env,
+                        hour,
+                        wh,
+                        oa_handled_by_hvac,
+                        &return_heat,
+                    ));
                 }
             }
         }
+        converged = days_run >= steps.min_warmup_days
+            && previous_day
+                .as_ref()
+                .is_some_and(|prev| day_converged(&this_day, prev));
+        previous_day = Some(this_day);
+    }
+    if !converged {
+        log::warn!(
+            "Design day '{}' did not converge in {} days; sizing uses the last day",
+            dd.name,
+            days_run
+        );
     }
 
     // ── Restore original ideal_loads state ────────────────────────────────
@@ -544,6 +566,58 @@ fn sizing_hour(
 struct DesignDayRun {
     loads: StepLoads,
     hours: Vec<SizingHour>,
+}
+
+/// A zone's temperature range and peak loads over one day.
+#[derive(Debug, Clone, Copy)]
+struct DayExtremes {
+    t_min: f64,
+    t_max: f64,
+    heating: f64,
+    cooling: f64,
+}
+
+impl DayExtremes {
+    fn new() -> Self {
+        Self {
+            t_min: f64::INFINITY,
+            t_max: f64::NEG_INFINITY,
+            heating: 0.0,
+            cooling: 0.0,
+        }
+    }
+
+    fn record(&mut self, temp: f64, heating: f64, cooling: f64) {
+        self.t_min = self.t_min.min(temp);
+        self.t_max = self.t_max.max(temp);
+        self.heating = self.heating.max(heating);
+        self.cooling = self.cooling.max(cooling);
+    }
+}
+
+/// Whether a design day repeats itself, by the E+ warmup test
+/// (`HeatBalanceManager::CheckWarmupConvergence`, `Building` defaults): every
+/// zone's daily temperature extremes within 0.4 K of the day before, and its peak
+/// loads within 4%, with loads below 100 W counted as 100 W.
+fn day_converged(
+    today: &HashMap<String, DayExtremes>,
+    yesterday: &HashMap<String, DayExtremes>,
+) -> bool {
+    const TEMP_TOL: f64 = 0.4;
+    const LOAD_TOL: f64 = 0.04;
+    const MIN_LOAD: f64 = 100.0;
+    let load_close = |a: f64, b: f64| {
+        let (a, b) = (a.max(MIN_LOAD), b.max(MIN_LOAD));
+        (a - b).abs() / b <= LOAD_TOL
+    };
+    today.iter().all(|(zone, d)| {
+        yesterday.get(zone).is_some_and(|y| {
+            (d.t_min - y.t_min).abs() <= TEMP_TOL
+                && (d.t_max - y.t_max).abs() <= TEMP_TOL
+                && load_close(d.heating, y.heating)
+                && load_close(d.cooling, y.cooling)
+        })
+    })
 }
 
 /// Zone (heating, cooling) loads per timestep, tagged with their hour.
@@ -1154,7 +1228,8 @@ pub fn run_sizing(
     // ── Gather setpoints from resolved thermostats ───────────────────────
     let mut setpoints = SizingSetpoints::default();
     let steps = SizingSteps {
-        warmup_days: 5,
+        min_warmup_days: 5,
+        max_warmup_days: 25,
         per_hour: timesteps_per_hour,
         averaging_window,
     };
@@ -1537,6 +1612,21 @@ fn write_system_sizing_csv(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn design_day_converges_on_temperatures_and_loads() {
+        let day = |t: f64, heating: f64, cooling: f64| {
+            let mut d = DayExtremes::new();
+            d.record(t, heating, cooling);
+            HashMap::from([("Z".to_string(), d)])
+        };
+        let base = day(21.0, 10_000.0, 0.0);
+        assert!(day_converged(&day(21.3, 10_300.0, 0.0), &base));
+        assert!(!day_converged(&day(21.5, 10_000.0, 0.0), &base));
+        assert!(!day_converged(&day(21.0, 10_500.0, 0.0), &base));
+        // A load this small does not hold the run back.
+        assert!(day_converged(&day(21.0, 0.0, 90.0), &day(21.0, 0.0, 10.0)));
+    }
 
     #[test]
     fn a_design_day_is_heating_or_cooling_never_both_or_neither() {
