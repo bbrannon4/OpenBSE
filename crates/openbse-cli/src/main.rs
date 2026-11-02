@@ -1827,10 +1827,6 @@ fn main() -> Result<()> {
         // Two-stage ASHRAE-compliant sizing:
         //   Stage 1: Zone sizing — peak loads per zone from ALL design days
         //   Stage 2: System sizing — coincident peak system loads
-        // Coincident peak demands for plant loop pump autosizing (E+ Sizing:Plant uses
-        // demand-based sizing, NOT installed equipment capacity).
-        let mut coincident_peak_heating: f64 = 0.0;
-        let mut coincident_peak_cooling: f64 = 0.0;
         // Zone peak loads for VRF autosizing (populated during sizing, used after)
         let mut vrf_zone_peak_heating: HashMap<String, f64> = HashMap::new();
         let mut vrf_zone_peak_cooling: HashMap<String, f64> = HashMap::new();
@@ -1865,9 +1861,6 @@ fn main() -> Result<()> {
                     model.simulation.sizing_averaging_window as usize,
                 );
 
-                // Store coincident peak demands for plant loop pump autosizing
-                coincident_peak_heating = sizing_result.system_sizing.coincident_peak_heating;
-                coincident_peak_cooling = sizing_result.system_sizing.coincident_peak_cooling;
                 // Store zone peaks for VRF autosizing
                 vrf_zone_peak_heating = sizing_result.zone_peak_heating.clone();
                 vrf_zone_peak_cooling = sizing_result.zone_peak_cooling.clone();
@@ -2086,14 +2079,8 @@ fn main() -> Result<()> {
         // resolved is a severe error: the AUTOSIZE sentinel must never reach
         // the simulation as a −99,999 W capacity.
         if !model.plant_loops.is_empty() {
-            let sizing_inputs = plant_sizing_inputs(
-                &model,
-                &graph,
-                &radiant_panels,
-                &comp_zone_multiplier,
-                coincident_peak_heating,
-                coincident_peak_cooling,
-            );
+            let sizing_inputs =
+                plant_sizing_inputs(&model, &graph, &radiant_panels, &comp_zone_multiplier);
             match openbse_io::plant::size_plant(&model, &sizing_inputs) {
                 Ok(sizes) => apply_plant_sizes(&model, &mut graph, &sizes),
                 Err(errors) => {
@@ -8276,15 +8263,11 @@ fn plant_sizing_inputs(
     graph: &SimulationGraph,
     radiant_panels: &[openbse_components::radiant_panel::RadiantPanel],
     comp_zone_multiplier: &HashMap<String, f64>,
-    coincident_peak_heating: f64,
-    coincident_peak_cooling: f64,
 ) -> openbse_io::plant::PlantSizingInputs {
     use openbse_core::types::is_autosize;
     use openbse_io::input::PlantEquipmentInput;
 
     let mut inputs = openbse_io::plant::PlantSizingInputs {
-        coincident_peak_heating,
-        coincident_peak_cooling,
         ..Default::default()
     };
     for d in openbse_io::plant::plant_demands(model) {
