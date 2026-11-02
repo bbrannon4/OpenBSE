@@ -162,19 +162,19 @@
       "tier": "local",
       "tier_reason": "Needs more memory than a GitHub runner has: the local macOS run peaked at 19 GB RSS, and the 16 GB ubuntu-latest runner killed the slow-tier job during LargeOffice_Boulder (exit 143, 2026-10-25, run 40170807753). Run locally, alone, with --tier local before merging engine changes.",
       "heavy": true,
-      "max_unmet_heating_hours": 77980,
-      "max_unmet_heating_hours_reason": "Pre-existing: 70,882 zone-h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change. LargeOffice's EnergyPlus-match work is still open (sizing, VRP density, VAV fan sizing), and unmet hours are summed over 19 zones.",
-      "max_unmet_cooling_hours": 32830,
-      "max_unmet_cooling_hours_reason": "Pre-existing: 29,841 zone-h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change. LargeOffice's EnergyPlus-match work is still open (sizing, VRP density, VAV fan sizing), and unmet hours are summed over 19 zones."
+      "max_unmet_heating_hours": 97150,
+      "max_unmet_heating_hours_reason": "88310 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin, summed over the model's zones; the baseline flags any change. Tracked in #165.",
+      "max_unmet_cooling_hours": 179790,
+      "max_unmet_cooling_hours_reason": "163444 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin, summed over the model's zones; the baseline flags any change. Tracked in #165."
     },
     "prototype_tests/large_office/LargeOffice_Boulder_expanded.yaml": {
       "tier": "local",
       "tier_reason": "Needs more memory than a GitHub runner has: the local macOS run peaked at 19 GB RSS, and the 16 GB ubuntu-latest runner killed the slow-tier job during LargeOffice_Boulder (exit 143, 2026-10-25, run 40170807753). Run locally, alone, with --tier local before merging engine changes.",
       "heavy": true,
-      "max_unmet_heating_hours": 94010,
-      "max_unmet_heating_hours_reason": "Pre-existing: 85,461 zone-h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change. LargeOffice's EnergyPlus-match work is still open (sizing, VRP density, VAV fan sizing), and unmet hours are summed over 19 zones.",
-      "max_unmet_cooling_hours": 70420,
-      "max_unmet_cooling_hours_reason": "Pre-existing: 64,014 zone-h when this gate was added (2026-10-24, main 6c9fe4f); tracked in #165. The limit is ~10% above that, and the baseline flags any change. LargeOffice's EnergyPlus-match work is still open (sizing, VRP density, VAV fan sizing), and unmet hours are summed over 19 zones.",
+      "max_unmet_heating_hours": 115640,
+      "max_unmet_heating_hours_reason": "105125 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin, summed over the model's zones; the baseline flags any change. Tracked in #165.",
+      "max_unmet_cooling_hours": 176270,
+      "max_unmet_cooling_hours_reason": "160244 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin, summed over the model's zones; the baseline flags any change. Tracked in #165.",
       "zone_temp_limits_c": {
         "Perimeter_top_ZN_1": [
           -40.0,
