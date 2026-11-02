@@ -3769,6 +3769,7 @@ fn build_graph_impl(
                         d.leakage_fraction,
                         &d.ambient_zone,
                     );
+                    duct.ground_temperatures = model.simulation.ground_surface_temperatures.clone();
                     duct.submeter = d.submeter.clone();
                     graph.add_air_component(Box::new(duct))
                 }
@@ -5117,6 +5118,24 @@ fn validate_materials(model: &ModelInput, result: &mut ValidationResult) {
     }
 }
 
+/// A duct's ambient is "outdoor", "ground" or a zone (#235). A misspelt zone used
+/// to run as an outdoor duct, with the heat lost to it dropped.
+fn validate_duct_ambients(model: &ModelInput, result: &mut ValidationResult) {
+    for al in &model.air_loops {
+        for eq in &al.equipment {
+            if let EquipmentInput::Duct(d) = eq {
+                let z = d.ambient_zone.as_str();
+                if z != "outdoor" && z != "ground" && !model.zones.iter().any(|m| m.name == z) {
+                    result.severe(format!(
+                        "Duct '{}': ambient_zone '{z}' is not 'outdoor', 'ground' or a zone",
+                        d.name
+                    ));
+                }
+            }
+        }
+    }
+}
+
 /// A scheduled ventilation entry takes one flow, not two (#219). The ACH used to
 /// be silently dropped when both were given.
 fn validate_scheduled_ventilation(model: &ModelInput, result: &mut ValidationResult) {
@@ -5257,6 +5276,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     validate_interzone_surfaces(model, &mut result);
     warn_shading_geometry_ignored(model, &mut result);
     validate_scheduled_ventilation(model, &mut result);
+    validate_duct_ambients(model, &mut result);
 
     // ── Validate people ────────────────────────────────────────────────────
 
