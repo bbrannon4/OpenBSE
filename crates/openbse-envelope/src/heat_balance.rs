@@ -428,13 +428,7 @@ fn glass_room_side_optics(surface: &SurfaceState) -> (f64, f64) {
     // Per-pane (Fresnel) glazing: the hemispherical back properties computed
     // at setup are physical, so reflectance is what remains.
     let tau = surface.diffuse_back_transmittance.clamp(0.0, 1.0);
-    let rho = (1.0 - tau - surface.diffuse_back_absorptance).max(0.0);
-    if surface.glass_kd > 1e-12 {
-        return (tau, rho);
-    }
-    // Otherwise the back absorptance is a typical value, so keep the
-    // reflectance to the range of ordinary glazing.
-    (tau, rho.min(0.25))
+    (tau, (1.0 - tau - surface.diffuse_back_absorptance).max(0.0))
 }
 
 /// Emissivity of the face a surface shows the room: a deployed shade layer's
@@ -1161,6 +1155,7 @@ impl BuildingEnvelope {
                         w.shgc,
                         w.pane_solar_transmittance,
                         w.pane_solar_reflectance,
+                        w.num_panes.unwrap_or(2),
                     )
                 })
                 .unwrap_or((0.0, 0.0, 1.526))
@@ -1168,28 +1163,33 @@ impl BuildingEnvelope {
                 (0.0, 0.0, 1.526)
             };
 
-            // Build E+ SimpleGlazingSystem angular model for windows without
-            // per-pane optical properties (Method 3 in compute_glass_angular_params).
-            // When per-pane properties are available, the Fresnel model is used instead.
-            let sgs_model = if is_window && glass_kd < 1e-12 && glass_ni < 1e-12 {
-                let wc = window_map.get(&surf_input.construction);
-                wc.map(|w| solar::SgsAngularModel::new(w.shgc, w.u_factor))
-            } else {
-                None
-            };
+            // A window with per-pane optical properties uses its Fresnel model
+            // (detailed glazing in E+); any other window is an E+
+            // SimpleGlazingSystem, whatever its SHGC.
+            let glazing = window_map
+                .get(&surf_input.construction)
+                .filter(|_| is_window);
+            let glass_panes = glazing.and_then(|w| w.num_panes).unwrap_or(2);
+            let has_pane_data = glazing.is_some_and(|w| {
+                w.pane_solar_transmittance.is_some() && w.pane_solar_reflectance.is_some()
+            });
+            let sgs_model = glazing
+                .filter(|_| !has_pane_data)
+                .map(|w| solar::SgsAngularModel::new(w.shgc, w.u_factor));
 
             // Hemispherical diffuse back-transmittance and back-absorptance for
             // window cavity back-out: from the Fresnel model's integral, or the
             // simple glazing model's own, as E+'s hemispherical averages.
-            let win_diffuse_back_tau = if is_window && glass_kd > 1e-12 {
-                crate::solar::diffuse_hemispherical_transmittance(glass_n, glass_kd)
+            let win_diffuse_back_tau = if has_pane_data {
+                crate::solar::diffuse_hemispherical_transmittance(glass_n, glass_kd, glass_panes)
             } else if let Some(ref m) = sgs_model {
                 m.tsol * m.diff_tsol_frac
             } else {
                 0.0
             };
-            let win_diffuse_back_abs = if is_window && glass_kd > 1e-12 {
-                let rho = crate::solar::diffuse_hemispherical_reflectance(glass_n, glass_kd);
+            let win_diffuse_back_abs = if has_pane_data {
+                let rho =
+                    crate::solar::diffuse_hemispherical_reflectance(glass_n, glass_kd, glass_panes);
                 (1.0 - win_diffuse_back_tau - rho).max(0.0)
             } else if let Some(ref m) = sgs_model {
                 m.diff_absorptance
@@ -1444,6 +1444,7 @@ impl BuildingEnvelope {
                 glass_kd,
                 glass_ni,
                 glass_n,
+                glass_panes,
                 sgs_model,
                 gap_width: win_gap_width,
                 pane_thickness: win_pane_thickness,
@@ -2968,8 +2969,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                                 surface.transmitted_solar / total_shgc_gain;
                         }
                     } else {
-                        // Fresnel model (per-pane optical properties available) or
-                        // polynomial fallback for legacy paths.
+                        // Fresnel model (per-pane optical properties available).
                         let (beam_shgc, diff_shgc) = solar::window_transmitted_solar_split(
                             surface.shgc,
                             surface.net_area,
@@ -2979,7 +2979,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                             surface.glass_kd,
                             surface.glass_ni,
                             surface.glass_n,
-                            surface.u_factor,
+                            surface.glass_panes,
                         );
                         let total_shgc_gain = (beam_shgc + diff_shgc) * blind_scale;
 

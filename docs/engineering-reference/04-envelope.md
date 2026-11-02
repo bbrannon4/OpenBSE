@@ -665,10 +665,9 @@ where $N_i$ is the inward-flowing fraction of the absorbed solar. Beam
 irradiance uses the values at its incidence angle $\theta$. Diffuse (sky,
 circumsolar, horizon and ground) uses hemispherical averages, computed as
 $\int_0^{\pi/2} X(\theta)\cos\theta\sin\theta\,d\theta \big/ \int_0^{\pi/2}\cos\theta\sin\theta\,d\theta$
-over 200 angles. Which angular model a window gets depends on its inputs
-([#213](https://github.com/bbrannon4/OpenBSE/issues/213), comment):
+over 200 angles. As in EnergyPlus, a window's input data select its model:
 
-1. **Simple glazing** (no pane data, $SHGC < 0.55$). This is EnergyPlus's
+1. **Simple glazing** (no pane data). This is EnergyPlus's
    SimpleGlazingSystem model [@arasteh2009]. The normal-incidence
    transmittance comes from the U-dependent correlations, for example for
    low U:
@@ -711,23 +710,19 @@ over 200 angles. Which angular model a window gets depends on its inputs
    $\tau(\theta) = \tau_\text{sol}\,P_T(\cos\theta)$ and
    $\rho(\theta) = \rho_\text{sol}(1 - P_R + P_T) + (P_R - P_T)$, where
    $P_T$ and $P_R$ are fourth-order polynomials in $\cos\theta$.
-2. **Fresnel** (per-pane $\tau_p$ and $\rho_p$ given, or no pane data and
-   $SHGC \ge 0.55$). Two identical panes of refractive index $n$ and
-   extinction thickness $kd$. With per-pane data, $n$ is fitted to $\rho_p$
-   and $kd$ to $\tau_p$; otherwise $n = 1.526$ and $kd$ is fitted to an
-   estimated transmittance. Each pane's transmittance and reflectance follow
-   from the Fresnel reflectance $r = (r_s + r_p)/2$ and internal absorption
-   $e^{-kd/\cos\theta'}$, and the two panes are combined with their
-   inter-reflections:
+2. **Fresnel** (per-pane $\tau_p$ and $\rho_p$ given). One pane, or two
+   identical panes (`num_panes`, default 2), of refractive index $n$ fitted to
+   $\rho_p$ and extinction thickness $kd$ fitted to $\tau_p$. Each pane's
+   transmittance and reflectance follow from the Fresnel reflectance
+   $r = (r_s + r_p)/2$ and internal absorption $e^{-kd/\cos\theta'}$, and two
+   panes are combined with their inter-reflections:
 
    $$
    \tau_2 = \frac{\tau_1^2}{1 - \rho_1^2},\qquad \rho_2 = \rho_1 + \frac{\tau_1^2\rho_1}{1 - \rho_1^2}.
    $$ {#eq-fresnel-double}
 
    $N_i$ is fitted so @eq-shgc-split reproduces the SHGC at normal
-   incidence. For $0.25 < SHGC < 0.55$ the angular modifier is blended with a
-   U-dependent polynomial, and for $SHGC \le 0.25$ the polynomial replaces
-   it.
+   incidence.
 
 The transmitted solar then splits into beam and diffuse parts
 (@sec-interior-solar). The absorbed-inward part is
@@ -847,8 +842,6 @@ A deployed device is modelled in one of two ways:
 
 ## Known limitations: windows {#sec-windows-limitations}
 
-- [#213](https://github.com/bbrannon4/OpenBSE/issues/213): angular-model
-  selection by input.
 - [#214](https://github.com/bbrannon4/OpenBSE/issues/214): lumped glass node,
   two-pane air-only gap model, ad hoc caps.
 

@@ -439,6 +439,7 @@ pub fn compute_glass_angular_params(
     shgc: f64,
     pane_tau: Option<f64>,
     pane_rho: Option<f64>,
+    panes: u32,
 ) -> (f64, f64, f64) {
     const N_DEFAULT: f64 = 1.526; // soda-lime glass refractive index
 
@@ -449,8 +450,8 @@ pub fn compute_glass_angular_params(
         // and ρ at normal incidence. This ensures the Fresnel angular model
         // produces correct reflectance at all angles, not just transmittance.
         let (n_eff, kd) = derive_effective_n_kd(tau_p, rho_p);
-        let tau_sys = double_pane_transmittance(1.0, n_eff, kd);
-        let rho_sys = double_pane_reflectance(1.0, n_eff, kd);
+        let tau_sys = system_transmittance(1.0, n_eff, kd, panes);
+        let rho_sys = system_reflectance(1.0, n_eff, kd, panes);
         let alpha_sys = (1.0 - tau_sys - rho_sys).max(0.0);
         let ni = if alpha_sys > 0.001 {
             ((shgc - tau_sys) / alpha_sys).clamp(0.0, 1.0)
@@ -458,21 +459,9 @@ pub fn compute_glass_angular_params(
             0.0
         };
         (kd, ni, n_eff)
-    } else if shgc >= 0.55 {
-        // Method 2: E+ SimpleGlazingSystem correlation
-        let tau_est = estimate_system_tau_from_shgc(shgc);
-        let kd = derive_kd_from_system_tau(tau_est, N_DEFAULT);
-        let tau_sys = double_pane_transmittance(1.0, N_DEFAULT, kd);
-        let rho_sys = double_pane_reflectance(1.0, N_DEFAULT, kd);
-        let alpha_sys = (1.0 - tau_sys - rho_sys).max(0.0);
-        let ni = if alpha_sys > 0.001 {
-            ((shgc - tau_sys) / alpha_sys).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        (kd, ni, N_DEFAULT)
     } else {
-        // Method 3: Low-e / tinted → polynomial model
+        // No pane data: the caller uses the simple glazing model, as E+ does for
+        // every `WindowMaterial:SimpleGlazingSystem`, whatever its SHGC.
         (0.0, 0.0, N_DEFAULT)
     }
 }
@@ -531,105 +520,28 @@ fn derive_kd_from_pane_tau(tau_pane: f64, n: f64) -> f64 {
     (-tau_abs.clamp(0.001, 1.0).ln()).max(0.0)
 }
 
-/// Estimate system solar transmittance from SHGC using the EnergyPlus
-/// SimpleGlazingSystem correlation.
-///
-/// Reference: EnergyPlus Engineering Reference, "Simple Window Model"
-/// (WindowManager.cc, CalcSimpleWindowSHGC)
-fn estimate_system_tau_from_shgc(shgc: f64) -> f64 {
-    if shgc < 0.7206 {
-        0.939998 * shgc * shgc + 0.20332 * shgc
-    } else {
-        (1.30415 * shgc - 0.30515).max(0.0)
-    }
-}
-
-/// Find kd such that `double_pane_transmittance(normal, n, kd) = target_tau`.
-///
-/// Uses bisection search; converges to <1e-10 accuracy in 50 iterations.
-fn derive_kd_from_system_tau(target_tau: f64, n: f64) -> f64 {
-    let mut lo = 0.0_f64;
-    let mut hi = 3.0_f64; // kd=3 gives extremely low transmittance
-    for _ in 0..60 {
-        let mid = (lo + hi) / 2.0;
-        let tau = double_pane_transmittance(1.0, n, mid);
-        if tau > target_tau {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-    (lo + hi) / 2.0
-}
-
-///
-/// Returns `SHGC(θ) / SHGC(0°)` as a function of the cosine of the angle of
-/// incidence.
-///
-/// Two models are used depending on glass type:
-///
-/// - **Clear glass** (SHGC ≥ 0.55): First-principles Fresnel optics for a
-///   double-pane clear glass unit (n = 1.526). Computes the full
-///   SHGC(θ) = τ(θ) + N_i × α(θ) at each angle, where N_i is the inward-
-///   flowing fraction of absorbed solar. This properly accounts for the
-///   absorbed-inward component that keeps SHGC higher at oblique angles
-///   than transmittance alone. Matches EnergyPlus detailed glazing model.
-///
-/// - **Low-e / tinted** (SHGC ≤ 0.25): Five-term polynomial with steeper
-///   angular falloff to capture the angle-dependent behavior of coated glass.
-///   Coefficients tuned to match WINDOW 7 generic low-e product data.
-///
-/// Between 0.25 and 0.55 the two curves are linearly blended on SHGC.
+/// Angular SHGC modifier of a window with per-pane data: `SHGC(θ) / SHGC(0°)`
+/// from Fresnel optics for its one or two panes, SHGC(θ) = τ(θ) + N_i·α(θ), as
+/// E+'s detailed glazing. A window without pane data uses `SgsAngularModel`.
 ///
 /// # Arguments
 /// * `cos_incidence` — cosine of the angle of incidence (1.0 = normal, 0.0 = grazing)
 /// * `shgc` — normal-incidence solar heat gain coefficient [0-1] of the window
 /// * `kd` — glass extinction coefficient × thickness per pane (from `compute_glass_angular_params`)
 /// * `ni` — inward-flowing fraction of absorbed solar (from `compute_glass_angular_params`)
-pub fn angular_shgc_modifier(cos_incidence: f64, shgc: f64, kd: f64, ni: f64, n: f64) -> f64 {
-    angular_shgc_modifier_u(cos_incidence, shgc, kd, ni, n, 5.8)
-}
-
-/// Angular SHGC modifier with U-factor for proper double-pane classification.
-///
-/// For double-pane windows (U < 3.4), uses the E+ SimpleGlazingSystem angular
-/// correlation which produces a gentler curve than single-pane tinted glass.
-/// The coefficients were derived to match EnergyPlus LBNL-2804E Step 7
-/// Curve J (triple-coated low-e, applicable to SHGC < 0.55, U < 3.4).
-pub fn angular_shgc_modifier_u(
+pub fn angular_shgc_modifier(
     cos_incidence: f64,
     shgc: f64,
     kd: f64,
     ni: f64,
     n: f64,
-    u_factor: f64,
+    panes: u32,
 ) -> f64 {
     let c = cos_incidence.clamp(0.0, 1.0);
     if c < 0.01 {
         return 0.0;
     }
-
-    // When kd and ni are both zero (Method 3 fallback — no real per-pane
-    // optical properties), the Fresnel model produces meaningless results
-    // (pure glass τ ≈ 0.847, modifier clamped to 1.0). In that case, use
-    // the polynomial model which was designed for low-e/tinted glass.
-    let have_fresnel_params = kd > 1e-12 || ni > 1e-12;
-
-    if shgc >= 0.55 && have_fresnel_params {
-        // Clear glass with real Fresnel parameters: full SHGC(θ) = τ(θ) + N_i × α(θ)
-        fresnel_double_pane_modifier(c, shgc, kd, ni, n)
-    } else if shgc <= 0.25 || !have_fresnel_params {
-        // Low-e / coated glass, or any glass without per-pane optical data:
-        // use polynomial angular model.
-        // Double-pane (U < 3.4) uses a gentler curve matching E+ LBNL-2804E.
-        polynomial_angular_modifier(c, u_factor)
-    } else {
-        // Intermediate SHGC with real per-pane properties: blend Fresnel ↔ polynomial
-        let blend = (shgc - 0.25) / (0.55 - 0.25);
-        let clear_mod = fresnel_double_pane_modifier(c, shgc, kd, ni, n);
-        let lowe_mod = polynomial_angular_modifier(c, u_factor);
-        blend * clear_mod + (1.0 - blend) * lowe_mod
-    }
+    fresnel_modifier(c, shgc, kd, ni, n, panes)
 }
 
 // ─── EnergyPlus SimpleGlazingSystem Angular Model (LBNL-2804E) ──────────────
@@ -1120,34 +1032,11 @@ impl SgsAngularModel {
     }
 }
 
-/// Angular SHGC modifier using E+ SGS model or polynomial fallback.
-///
-/// For SGS windows (no per-pane optical properties, SHGC < 0.55), uses the
-/// full E+ LBNL-2804E angular model with proper curve selection.  For clear
-/// glass with per-pane properties, uses the Fresnel model.
-fn polynomial_angular_modifier(c: f64, u_factor: f64) -> f64 {
-    // Fallback for cases where no SGS model is available.
-    // This should rarely be reached — SGS model is preferred.
-    if u_factor < 3.4 {
-        // Curve J (triple coated, most common for low-U SGS)
-        let c2 = c * c;
-        let c3 = c2 * c;
-        let c4 = c3 * c;
-        (0.08 * c + 6.02 * c2 - 8.84 * c3 + 3.74 * c4).clamp(0.0, 1.0)
-    } else {
-        // Curve D (single coated, common for high-U SGS)
-        let c2 = c * c;
-        let c3 = c2 * c;
-        let c4 = c3 * c;
-        (2.85 * c - 2.58 * c2 + 0.40 * c3 + 0.35 * c4).clamp(0.0, 1.0)
-    }
-}
-
 // ─── Fresnel Optics for Clear Glass ─────────────────────────────────────────
 
-/// Angular SHGC modifier for clear double-pane glass using Fresnel optics.
+/// Angular SHGC modifier for one or two identical panes using Fresnel optics.
 ///
-/// Computes SHGC(θ) / SHGC(0°) for a double-pane assembly where:
+/// Computes SHGC(θ) / SHGC(0°) for the assembly, where:
 ///
 ///   SHGC(θ) = τ_system(θ) + N_i × α_system(θ)
 ///
@@ -1166,10 +1055,10 @@ fn polynomial_angular_modifier(c: f64, u_factor: f64) -> f64 {
 /// * `kd` — glass extinction coefficient × thickness per pane
 /// * `ni` — inward-flowing fraction of absorbed solar
 /// * `n` — effective refractive index for the Fresnel model
-fn fresnel_double_pane_modifier(cos_theta: f64, shgc: f64, kd: f64, ni: f64, n: f64) -> f64 {
+fn fresnel_modifier(cos_theta: f64, shgc: f64, kd: f64, ni: f64, n: f64, panes: u32) -> f64 {
     // Compute system properties at the given angle
-    let tau_angle = double_pane_transmittance(cos_theta, n, kd);
-    let rho_angle = double_pane_reflectance(cos_theta, n, kd);
+    let tau_angle = system_transmittance(cos_theta, n, kd, panes);
+    let rho_angle = system_reflectance(cos_theta, n, kd, panes);
     let alpha_angle = (1.0 - tau_angle - rho_angle).max(0.0);
 
     // SHGC at this angle = transmitted + inward-absorbed
@@ -1182,6 +1071,24 @@ fn fresnel_double_pane_modifier(cos_theta: f64, shgc: f64, kd: f64, ni: f64, n: 
         (shgc_angle / shgc).clamp(0.0, 1.0)
     } else {
         0.0
+    }
+}
+
+/// Transmittance of a one- or two-pane assembly at a given angle.
+fn system_transmittance(cos_theta: f64, n: f64, kd: f64, panes: u32) -> f64 {
+    if panes == 1 {
+        single_pane_transmittance(cos_theta, n, kd)
+    } else {
+        double_pane_transmittance(cos_theta, n, kd)
+    }
+}
+
+/// Reflectance of a one- or two-pane assembly at a given angle.
+fn system_reflectance(cos_theta: f64, n: f64, kd: f64, panes: u32) -> f64 {
+    if panes == 1 {
+        single_pane_reflectance(cos_theta, n, kd)
+    } else {
+        double_pane_reflectance(cos_theta, n, kd)
     }
 }
 
@@ -1283,12 +1190,7 @@ fn fresnel_reflectance(cos_theta: f64, cos_theta_p: f64, n: f64) -> f64 {
 /// where the denominator is 0.5 (Lambert solid angle integral).
 ///
 /// Typically ≈ 0.84–0.90 depending on SHGC/coating type.
-pub fn diffuse_shgc_modifier(shgc: f64, kd: f64, ni: f64, n: f64) -> f64 {
-    diffuse_shgc_modifier_u(shgc, kd, ni, n, 5.8)
-}
-
-/// Hemispherical diffuse SHGC modifier with U-factor for double-pane classification.
-pub fn diffuse_shgc_modifier_u(shgc: f64, kd: f64, ni: f64, n: f64, u_factor: f64) -> f64 {
+pub fn diffuse_shgc_modifier(shgc: f64, kd: f64, ni: f64, n: f64, panes: u32) -> f64 {
     const N_SAMPLES: usize = 200;
     let mut num = 0.0_f64;
     let mut den = 0.0_f64;
@@ -1296,7 +1198,7 @@ pub fn diffuse_shgc_modifier_u(shgc: f64, kd: f64, ni: f64, n: f64, u_factor: f6
         let theta = (i as f64 + 0.5) / N_SAMPLES as f64 * PI / 2.0;
         let cos_t = theta.cos();
         let w = cos_t * theta.sin(); // cosine-weighted solid angle element
-        num += angular_shgc_modifier_u(cos_t, shgc, kd, ni, n, u_factor) * w;
+        num += angular_shgc_modifier(cos_t, shgc, kd, ni, n, panes) * w;
         den += w;
     }
     if den > 0.0 {
@@ -1318,7 +1220,7 @@ pub const DIFFUSE_SHGC_MODIFIER: f64 = 0.88;
 /// zone by transmitting back through a window.
 ///
 /// Returns τ_system_hemispherical, typically 0.55–0.65 for clear double-pane.
-pub fn diffuse_hemispherical_transmittance(n: f64, kd: f64) -> f64 {
+pub fn diffuse_hemispherical_transmittance(n: f64, kd: f64, panes: u32) -> f64 {
     const N_SAMPLES: usize = 200;
     let mut num = 0.0_f64;
     let mut den = 0.0_f64;
@@ -1326,7 +1228,7 @@ pub fn diffuse_hemispherical_transmittance(n: f64, kd: f64) -> f64 {
         let theta = (i as f64 + 0.5) / N_SAMPLES as f64 * PI / 2.0;
         let cos_t = theta.cos();
         let w = cos_t * theta.sin();
-        num += double_pane_transmittance(cos_t, n, kd) * w;
+        num += system_transmittance(cos_t, n, kd, panes) * w;
         den += w;
     }
     if den > 0.0 {
@@ -1341,7 +1243,7 @@ pub fn diffuse_hemispherical_transmittance(n: f64, kd: f64) -> f64 {
 /// Same integration approach as `diffuse_hemispherical_transmittance` but
 /// for the double-pane reflectance. Used to derive hemispherical absorptance:
 ///   α_back_hemi = 1 - τ_back_hemi - ρ_back_hemi
-pub fn diffuse_hemispherical_reflectance(n: f64, kd: f64) -> f64 {
+pub fn diffuse_hemispherical_reflectance(n: f64, kd: f64, panes: u32) -> f64 {
     const N_SAMPLES: usize = 200;
     let mut num = 0.0_f64;
     let mut den = 0.0_f64;
@@ -1349,7 +1251,7 @@ pub fn diffuse_hemispherical_reflectance(n: f64, kd: f64) -> f64 {
         let theta = (i as f64 + 0.5) / N_SAMPLES as f64 * PI / 2.0;
         let cos_t = theta.cos();
         let w = cos_t * theta.sin();
-        num += double_pane_reflectance(cos_t, n, kd) * w;
+        num += system_reflectance(cos_t, n, kd, panes) * w;
         den += w;
     }
     if den > 0.0 {
@@ -1382,10 +1284,10 @@ pub fn window_transmitted_solar_angular(
     kd: f64,
     ni: f64,
     n: f64,
-    u_factor: f64,
+    panes: u32,
 ) -> f64 {
-    let beam_mod = angular_shgc_modifier_u(cos_aoi, shgc, kd, ni, n, u_factor);
-    let diff_mod = diffuse_shgc_modifier_u(shgc, kd, ni, n, u_factor);
+    let beam_mod = angular_shgc_modifier(cos_aoi, shgc, kd, ni, n, panes);
+    let diff_mod = diffuse_shgc_modifier(shgc, kd, ni, n, panes);
     let beam_transmitted = shgc * beam_mod * area * beam_incident;
     let diff_transmitted = shgc * diff_mod * area * diffuse_incident;
     (beam_transmitted + diff_transmitted).max(0.0)
@@ -1405,10 +1307,10 @@ pub fn window_transmitted_solar_split(
     kd: f64,
     ni: f64,
     n: f64,
-    u_factor: f64,
+    panes: u32,
 ) -> (f64, f64) {
-    let beam_mod = angular_shgc_modifier_u(cos_aoi, shgc, kd, ni, n, u_factor);
-    let diff_mod = diffuse_shgc_modifier_u(shgc, kd, ni, n, u_factor);
+    let beam_mod = angular_shgc_modifier(cos_aoi, shgc, kd, ni, n, panes);
+    let diff_mod = diffuse_shgc_modifier(shgc, kd, ni, n, panes);
     let beam_transmitted = (shgc * beam_mod * area * beam_incident).max(0.0);
     let diff_transmitted = (shgc * diff_mod * area * diffuse_incident).max(0.0);
     (beam_transmitted, diff_transmitted)
@@ -1636,153 +1538,90 @@ mod tests {
         assert_relative_eq!(q, 0.7 * 5.0 * 300.0, max_relative = 0.001);
     }
 
+    /// ASHRAE 140 clear double glazing: τ_pane = 0.834, ρ_pane = 0.075.
+    const CLEAR_SHGC: f64 = 0.769;
+    fn clear_double() -> (f64, f64, f64) {
+        compute_glass_angular_params(CLEAR_SHGC, Some(0.834), Some(0.075), 2)
+    }
+
     #[test]
     fn test_angular_shgc_modifier_normal_incidence() {
-        // At normal incidence (cos=1.0), modifier should be ~1.0 for clear glass
-        let (kd, ni, n) = compute_glass_angular_params(0.7, None, None);
-        let m = angular_shgc_modifier(1.0, 0.7, kd, ni, n);
+        let (kd, ni, n) = clear_double();
+        let m = angular_shgc_modifier(1.0, CLEAR_SHGC, kd, ni, n, 2);
         assert_relative_eq!(m, 1.0, max_relative = 0.02);
     }
 
     #[test]
     fn test_angular_shgc_modifier_grazing() {
-        // At grazing (cos≈0), modifier should be ~0
-        let (kd, ni, n) = compute_glass_angular_params(0.7, None, None);
-        let m = angular_shgc_modifier(0.0, 0.7, kd, ni, n);
+        let (kd, ni, n) = clear_double();
+        let m = angular_shgc_modifier(0.0, CLEAR_SHGC, kd, ni, n, 2);
         assert_relative_eq!(m, 0.0, epsilon = 0.01);
     }
 
     #[test]
     fn test_angular_shgc_modifier_60_degrees() {
-        // At 60° (cos=0.5), modifier should be ~0.60-0.85
-        let (kd, ni, n) = compute_glass_angular_params(0.7, None, None);
-        let m = angular_shgc_modifier(0.5, 0.7, kd, ni, n);
-        assert!(m > 0.5, "60° modifier should be > 0.5, got {}", m);
-        assert!(m < 0.95, "60° modifier should be < 0.95, got {}", m);
+        let (kd, ni, n) = clear_double();
+        let m = angular_shgc_modifier(0.5, CLEAR_SHGC, kd, ni, n, 2);
+        assert!(m > 0.5 && m < 0.95, "60° modifier: {m}");
     }
 
     #[test]
     fn test_angular_shgc_modifier_monotonic() {
-        // Modifier should be monotonically increasing with cos(θ) for both clear and low-e
-        for shgc in [0.2, 0.4, 0.7] {
-            let (kd, ni, n) = compute_glass_angular_params(shgc, None, None);
-            let mut prev = 0.0;
-            for i in 1..=10 {
-                let c = i as f64 * 0.1;
-                let m = angular_shgc_modifier(c, shgc, kd, ni, n);
-                assert!(
-                    m >= prev,
-                    "Not monotonic (shgc={}): m({})={} < m({})={}",
-                    shgc,
-                    c,
-                    m,
-                    c - 0.1,
-                    prev
-                );
-                prev = m;
-            }
+        let (kd, ni, n) = clear_double();
+        let mut prev = 0.0;
+        for i in 1..=10 {
+            let c = i as f64 * 0.1;
+            let m = angular_shgc_modifier(c, CLEAR_SHGC, kd, ni, n, 2);
+            assert!(m >= prev, "Not monotonic: m({c})={m} < {prev}");
+            prev = m;
         }
     }
 
+    /// #213: one pane gets one pane's response, flatter than two at 60°.
     #[test]
-    fn test_angular_shgc_modifier_lowe_steeper() {
-        // Without per-pane optical data, the E+ SGS model uses a polynomial
-        // fallback for low-e glass (SHGC < 0.55) vs Fresnel for clear glass.
-        // The polynomial curves (LBNL-2804E) are empirically gentler than
-        // Fresnel, so low-e gets a HIGHER modifier at oblique angles.
-        let (kd_c, ni_c, n_c) = compute_glass_angular_params(0.7, None, None);
-        let (kd_l, ni_l, n_l) = compute_glass_angular_params(0.2, None, None);
-        let m_clear = angular_shgc_modifier(0.5, 0.7, kd_c, ni_c, n_c);
-        let m_lowe = angular_shgc_modifier(0.5, 0.2, kd_l, ni_l, n_l);
-        // Both should be physically reasonable (0.70–0.95 at 60°)
-        assert!(
-            m_clear > 0.70 && m_clear < 0.95,
-            "Clear modifier at 60° should be 0.70-0.95, got {}",
-            m_clear
-        );
-        assert!(
-            m_lowe > 0.70 && m_lowe < 0.95,
-            "Low-e modifier at 60° should be 0.70-0.95, got {}",
-            m_lowe
-        );
-        // In SGS model without per-pane data, polynomial fallback gives
-        // low-e a gentler curve than Fresnel gives clear glass
-        assert!(
-            m_lowe >= m_clear,
-            "SGS model: low-e polynomial ({}) should be >= clear Fresnel ({})",
-            m_lowe,
-            m_clear
+    fn test_single_pane_gets_a_single_pane_response() {
+        let (kd, ni, n) = compute_glass_angular_params(0.864, Some(0.834), Some(0.075), 1);
+        let one = angular_shgc_modifier(0.5, 0.864, kd, ni, n, 1);
+        let (kd2, ni2, n2) = clear_double();
+        let two = angular_shgc_modifier(0.5, CLEAR_SHGC, kd2, ni2, n2, 2);
+        assert!(one > two, "one pane {one}, two panes {two}");
+        assert_relative_eq!(
+            angular_shgc_modifier(1.0, 0.864, kd, ni, n, 1),
+            1.0,
+            max_relative = 0.02
         );
     }
 
     #[test]
     fn test_window_transmitted_solar_angular() {
-        let shgc = 0.7_f64;
-        let (kd, ni, n) = compute_glass_angular_params(shgc, None, None);
-
-        // Normal incidence should be close to flat SHGC model
-        let u_factor = 5.8; // single-pane clear glass
-        let q_angular =
-            window_transmitted_solar_angular(shgc, 5.0, 300.0, 0.0, 1.0, kd, ni, n, u_factor);
+        let shgc = CLEAR_SHGC;
+        let (kd, ni, n) = clear_double();
+        let q_angular = window_transmitted_solar_angular(shgc, 5.0, 300.0, 0.0, 1.0, kd, ni, n, 2);
         let q_flat = window_transmitted_solar(shgc, 5.0, 300.0);
         assert_relative_eq!(q_angular, q_flat, max_relative = 0.02);
 
-        // With diffuse-only radiation, should use the SHGC-dependent diffuse modifier
-        let q_diffuse =
-            window_transmitted_solar_angular(shgc, 5.0, 0.0, 200.0, 1.0, kd, ni, n, u_factor);
-        let expected = shgc * diffuse_shgc_modifier(shgc, kd, ni, n) * 5.0 * 200.0;
+        let q_diffuse = window_transmitted_solar_angular(shgc, 5.0, 0.0, 200.0, 1.0, kd, ni, n, 2);
+        let expected = shgc * diffuse_shgc_modifier(shgc, kd, ni, n, 2) * 5.0 * 200.0;
         assert_relative_eq!(q_diffuse, expected, max_relative = 0.01);
 
-        // At 60° beam incidence, total should be less than flat model
-        let q_angled =
-            window_transmitted_solar_angular(shgc, 5.0, 300.0, 0.0, 0.5, kd, ni, n, u_factor);
+        let q_angled = window_transmitted_solar_angular(shgc, 5.0, 300.0, 0.0, 0.5, kd, ni, n, 2);
         assert!(
             q_angled < q_flat,
-            "Angular model at 60° should give less than flat model"
+            "60° should give less than the flat model"
         );
     }
 
     #[test]
     fn test_diffuse_shgc_modifier_range() {
-        // Diffuse modifier (hemispherical avg) should be physically reasonable:
-        // - Low-e coatings (SHGC=0.2) have steeper angular falloff → lower diffuse modifier (~0.65-0.80)
-        // - Clear glass (SHGC=0.7+) → moderate diffuse modifier (~0.85-0.95)
-        // All should be in [0.60, 0.98]
-        for shgc in [0.2_f64, 0.4, 0.6, 0.8] {
-            let (kd, ni, n) = compute_glass_angular_params(shgc, None, None);
-            let m = diffuse_shgc_modifier(shgc, kd, ni, n);
-            assert!(
-                m > 0.60,
-                "Diffuse modifier too low for shgc={}: {}",
-                shgc,
-                m
-            );
-            assert!(
-                m < 0.98,
-                "Diffuse modifier too high for shgc={}: {}",
-                shgc,
-                m
-            );
-        }
-        // In the SGS model without per-pane data, the polynomial fallback
-        // for low-e is gentler than the Fresnel model for clear glass,
-        // so low-e gets a higher diffuse modifier.
-        let (kd_c, ni_c, n_c) = compute_glass_angular_params(0.8, None, None);
-        let (kd_l, ni_l, n_l) = compute_glass_angular_params(0.2, None, None);
-        let m_clear = diffuse_shgc_modifier(0.8, kd_c, ni_c, n_c);
-        let m_lowe = diffuse_shgc_modifier(0.2, kd_l, ni_l, n_l);
-        assert!(
-            m_lowe >= m_clear,
-            "SGS model: low-e diffuse ({}) should be >= clear diffuse ({})",
-            m_lowe,
-            m_clear
-        );
+        let (kd, ni, n) = clear_double();
+        let m = diffuse_shgc_modifier(CLEAR_SHGC, kd, ni, n, 2);
+        assert!(m > 0.60 && m < 0.98, "Diffuse modifier: {m}");
     }
 
     #[test]
     fn test_compute_glass_angular_params_ashrae140() {
         // ASHRAE 140 double-pane clear: τ_pane=0.834, ρ_pane=0.075, SHGC=0.769
-        let (kd, ni, n) = compute_glass_angular_params(0.769, Some(0.834), Some(0.075));
+        let (kd, ni, n) = compute_glass_angular_params(0.769, Some(0.834), Some(0.075), 2);
         // kd should be ~0.09 (from Beer's law)
         assert!(
             kd > 0.07 && kd < 0.12,
@@ -1803,11 +1642,11 @@ mod tests {
         );
 
         // Verify modifier at normal = 1.0
-        let m_normal = angular_shgc_modifier(1.0, 0.769, kd, ni, n);
+        let m_normal = angular_shgc_modifier(1.0, 0.769, kd, ni, n, 2);
         assert_relative_eq!(m_normal, 1.0, max_relative = 0.01);
 
         // At 60° (cos=0.5), modifier should be ~0.82-0.90 (higher than pure transmittance)
-        let m_60 = angular_shgc_modifier(0.5, 0.769, kd, ni, n);
+        let m_60 = angular_shgc_modifier(0.5, 0.769, kd, ni, n, 2);
         assert!(
             m_60 > 0.75 && m_60 < 0.95,
             "60° SHGC modifier should be ~0.85, got {}",
@@ -1815,23 +1654,13 @@ mod tests {
         );
     }
 
+    /// #213: without pane data the simple glazing model is used at any SHGC.
     #[test]
     fn test_compute_glass_angular_params_no_pane_props() {
-        // Without per-pane properties, should use SGS correlation
-        let (kd, ni, n) = compute_glass_angular_params(0.769, None, None);
-        // Should give reasonable values from the correlation
-        assert!(kd > 0.01, "kd should be positive, got {}", kd);
-        assert!(
-            ni > 0.0,
-            "ni should be positive for clear glass, got {}",
-            ni
-        );
-        // Should use default n=1.526
-        assert_relative_eq!(n, 1.526, max_relative = 0.001);
-
-        // Modifier at normal should still be ~1.0
-        let m = angular_shgc_modifier(1.0, 0.769, kd, ni, n);
-        assert_relative_eq!(m, 1.0, max_relative = 0.02);
+        for shgc in [0.2, 0.5, 0.769, 0.85] {
+            let (kd, ni, _) = compute_glass_angular_params(shgc, None, None, 2);
+            assert_eq!((kd, ni), (0.0, 0.0), "shgc {shgc}");
+        }
     }
 }
 
@@ -1847,7 +1676,7 @@ mod diagnostic_tests {
     fn ashrae140_angular_vs_window7() {
         // ASHRAE 140 double-pane clear window
         let shgc = 0.769_f64;
-        let (kd, ni, n) = compute_glass_angular_params(shgc, Some(0.834), Some(0.075));
+        let (kd, ni, n) = compute_glass_angular_params(shgc, Some(0.834), Some(0.075), 2);
 
         println!("\n=== ASHRAE 140 Window Angular Properties ===");
         println!(
@@ -1869,7 +1698,7 @@ mod diagnostic_tests {
         for i in 0..10 {
             let angle_deg = i as f64 * 10.0;
             let cos_i = (angle_deg * std::f64::consts::PI / 180.0).cos();
-            let ob_mod = angular_shgc_modifier(cos_i, shgc, kd, ni, n);
+            let ob_mod = angular_shgc_modifier(cos_i, shgc, kd, ni, n, 2);
             let w7_mod = w7_shgc[i] / w7_shgc[0]; // W7 modifier
             let ob_tsol = double_pane_transmittance(cos_i, n, kd);
             let diff = ob_mod - w7_mod;
@@ -1881,7 +1710,7 @@ mod diagnostic_tests {
         }
 
         // Hemispherical SHGC modifier (diffuse)
-        let ob_diff_mod = diffuse_shgc_modifier(shgc, kd, ni, n);
+        let ob_diff_mod = diffuse_shgc_modifier(shgc, kd, ni, n, 2);
         let w7_hemis_mod = 0.670 / 0.769; // From WINDOW 7 data: Hemis=0.670
         println!("\nDiffuse/Hemispherical SHGC modifier:");
         println!(
