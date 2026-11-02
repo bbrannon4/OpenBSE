@@ -1705,7 +1705,6 @@
       "properties": {
         "name": { "type": "string" },
         "f_factor": { "type": "number", "description": "Slab edge heat loss coefficient [W/(m*K)]." },
-        "thermal_capacity": { "type": "number", "default": 400000.0, "description": "Areal thermal capacity of the slab [J/(m2*K)]." },
         "solar_absorptance": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1, "description": "Inside (floor surface) solar absorptance [0-1]." },
         "thermal_absorptance": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1 },
         "ground_temperatures": { "type": "array", "items": { "type": "number" }, "minItems": 12, "maxItems": 12, "description": "Monthly ground temperatures [C], January–December (E+ Site:GroundTemperature:FCfactorMethod). If omitted, the building-level ground temperature model is used." }

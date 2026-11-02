@@ -723,9 +723,6 @@ pub struct FFactorConstruction {
     pub name: String,
     /// F-factor (slab edge heat loss coefficient) [W/(m·K)]
     pub f_factor: f64,
-    /// Thermal capacity per unit area [J/(m²·K)] = ρ·cp·thickness of slab
-    #[serde(default = "default_ffactor_thermal_capacity")]
-    pub thermal_capacity: f64,
     /// Inside solar absorptance [0-1] (floor surface)
     #[serde(default = "default_solar_absorptance")]
     pub solar_absorptance: f64,
@@ -739,12 +736,78 @@ pub struct FFactorConstruction {
     pub ground_temperatures: Option<Vec<f64>>,
 }
 
-fn default_ffactor_thermal_capacity() -> f64 {
-    400_000.0
-} // ~200mm concrete slab
+/// Fixed concrete layer of an F-factor floor (E+ `~FC_CONCRETE`):
+/// k [W/(m·K)], ρ [kg/m³], cp [J/(kg·K)], thickness [m].
+const FC_CONCRETE: (f64, f64, f64, f64) = (1.95, 2240.0, 900.0, 0.15);
+/// Air films the F-factor already includes [m²·K/W] (E+ Rfilm_in, Rfilm_out).
+const FC_FILMS: f64 = 0.135 + 0.03;
+/// Resistance of a floor with no exposed perimeter [m²·K/W], as E+.
+const FC_NO_PERIMETER_R: f64 = 177.0;
+
+impl FFactorConstruction {
+    /// Resistance of the floor [m²·K/W], without its air films: the F-factor
+    /// includes them, and the simulation's dynamic inside film would otherwise
+    /// count them twice.
+    pub fn effective_resistance(&self, area: f64, perimeter: f64) -> f64 {
+        if perimeter > 0.0 && self.f_factor > 0.0 {
+            area / (perimeter * self.f_factor) - FC_FILMS
+        } else {
+            FC_NO_PERIMETER_R
+        }
+    }
+
+    /// Layers from outside to inside, as E+ `CreateFCfactorConstructions`: a
+    /// fictitious no-mass layer that makes up the F-factor's resistance, then
+    /// 15 cm of concrete. Errors when the concrete alone resists more than the
+    /// floor should, which E+ also rejects.
+    pub fn layers(&self, area: f64, perimeter: f64) -> Result<Vec<ResolvedLayer>, String> {
+        let (k, rho, cp, thickness) = FC_CONCRETE;
+        let r_fictitious = self.effective_resistance(area, perimeter) - thickness / k;
+        if r_fictitious <= 0.0 {
+            return Err(format!(
+                "F-factor construction '{}': A/(F·P) with A = {area:.2} m² and P = {perimeter:.2} m \
+                 is less than the air films and concrete it must contain ({:.3} m²·K/W); \
+                 check the F-factor and exposed perimeter",
+                self.name,
+                FC_FILMS + thickness / k
+            ));
+        }
+        Ok(vec![
+            ResolvedLayer::new_no_mass(r_fictitious, 1.0),
+            ResolvedLayer::new(k, rho, cp, thickness),
+        ])
+    }
+}
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn f_factor_floor_removes_films_and_uses_fixed_concrete() {
+        let fc = FFactorConstruction {
+            name: "slab".into(),
+            f_factor: 1.264,
+            solar_absorptance: 0.7,
+            thermal_absorptance: 0.9,
+            ground_temperatures: None,
+        };
+        // 100 m² with 20 m exposed: A/(F·P) = 3.956, films 0.165, concrete 0.0769.
+        let layers = fc.layers(100.0, 20.0).unwrap();
+        assert!(layers[0].no_mass);
+        assert!(
+            (layers[0].resistance() - (100.0 / (20.0 * 1.264) - 0.165 - 0.15 / 1.95)).abs() < 1e-9
+        );
+        let c = layers[1].density * layers[1].specific_heat * layers[1].thickness;
+        assert!((c - 302_400.0).abs() < 1e-6);
+        // Total matches E+'s Reff, whatever the split.
+        let total: f64 = layers.iter().map(|l| l.resistance()).sum();
+        assert!((total - fc.effective_resistance(100.0, 20.0)).abs() < 1e-9);
+        // No exposed perimeter: E+'s R = 177.
+        assert_eq!(fc.effective_resistance(100.0, 0.0), 177.0);
+        assert!(fc.layers(100.0, 0.0).is_ok());
+        // Too conductive to contain its own films and concrete: E+ rejects it.
+        assert!(fc.layers(1.0, 20.0).is_err());
+    }
+
     use super::*;
 
     #[test]

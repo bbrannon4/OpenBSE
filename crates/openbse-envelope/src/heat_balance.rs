@@ -1272,11 +1272,9 @@ impl BuildingEnvelope {
                         // Rough estimate: square floor
                         surf_input.area.sqrt() * 2.0
                     });
-                let u_eff = if surf_input.area > 0.0 {
-                    fc.f_factor * perimeter / surf_input.area
-                } else {
-                    0.5 // fallback
-                };
+                // Conductance without air films; the layers come from the same
+                // resistance in `compute_all_ctf`.
+                let u_eff = 1.0 / fc.effective_resistance(surf_input.area, perimeter);
                 log::info!(
                         "F-factor floor '{}': F={:.3} W/(m·K), P={:.2}m, A={:.2}m² → U_eff={:.4} W/(m²·K)",
                         surf_input.name, fc.f_factor, perimeter, surf_input.area, u_eff
@@ -2148,17 +2146,12 @@ impl BuildingEnvelope {
 
             // Try F-factor ground floor construction
             if let Some(fc) = self.f_factor_constructions.get(&construction_name).cloned() {
-                // Effective U = F × P / A (already computed and stored in surface u_factor)
-                let u_eff = self.surfaces[i].u_factor;
-                let ctf = try_calculate_ctf_simple(
-                    u_eff,
-                    fc.thermal_capacity,
-                    self.dt,
-                    false,
-                    None,
-                    None,
-                )
-                .map_err(fail)?;
+                let input = &self.surfaces[i].input;
+                let perimeter = input
+                    .exposed_perimeter
+                    .unwrap_or_else(|| input.area.sqrt() * 2.0);
+                let layers = fc.layers(input.area, perimeter)?;
+                let ctf = try_calculate_ctf(&layers, self.dt).map_err(fail)?;
                 self.note_ctf_error(&ctf, &construction_name, &mut warned);
                 let history = CtfHistory::new(ctf.num_terms.max(1), 21.0);
                 self.ctf_coefficients[i] = Some(ctf);
