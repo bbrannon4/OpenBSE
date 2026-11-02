@@ -110,7 +110,7 @@
       "type": "array",
       "items": { "$ref": "#/$defs/ShadingSurface" },
       "default": [],
-      "description": "External shading surfaces (overhangs, fins, neighboring buildings). These only cast shadows — no thermal mass. Requires `simulation.shading_calculation: detailed`."
+      "description": "External shading surfaces (overhangs, fins, neighboring buildings). These only cast shadows — no thermal mass. Ignored, with a warning, under `simulation.shading_calculation: basic`."
     },
     "people": {
       "type": "array",
@@ -238,7 +238,7 @@
         "end_month": { "type": "integer", "default": 12, "minimum": 1, "maximum": 12 },
         "end_day": { "type": "integer", "default": 31, "minimum": 1, "maximum": 31 },
         "terrain": { "type": "string", "enum": ["country", "suburbs", "city", "ocean"], "default": "suburbs", "description": "Site terrain for wind profile calculations." },
-        "shading_calculation": { "type": "string", "enum": ["basic", "detailed"], "default": "basic", "description": "Shading mode. 'detailed' enables geometric shadow calculations." },
+        "shading_calculation": { "type": "string", "enum": ["basic", "detailed"], "default": "detailed", "description": "Shading mode. 'detailed' (default) computes geometric shadows, as EnergyPlus always does. 'basic' treats every surface as fully sunlit and ignores all shading geometry." },
         "infiltration_interaction": { "type": "string", "enum": ["basic", "ashrae_combined"], "default": "basic", "description": "How infiltration combines with exhaust. 'ashrae_combined' uses sqrt(infil^2 + exhaust^2)." },
         "solar_distribution": { "type": "string", "enum": ["full_exterior", "full_interior_and_exterior"], "default": "full_exterior", "description": "Interior solar distribution method." },
         "airflow_network": { "$ref": "#/$defs/AirflowNetworkConfig" },
@@ -1769,7 +1769,7 @@
 
     "WindowShading": {
       "type": "object",
-      "description": "Window shading devices (windows only). Shading polygons are generated from these parameters relative to the window geometry. Requires shading_calculation: detailed to have an effect.",
+      "description": "Window shading devices (windows only). Shading polygons are generated from these parameters relative to the window geometry. Ignored, with a warning, under shading_calculation: basic.",
       "properties": {
         "overhang": {
           "type": "object",
@@ -1801,7 +1801,7 @@
     "ShadingSurface": {
       "type": "object",
       "required": ["name", "vertices"],
-      "description": "Detached shading surface (E+ Shading:Site:Detailed). Casts shadows only; no thermal mass or heat balance. Requires shading_calculation: detailed.",
+      "description": "Detached shading surface (E+ Shading:Site:Detailed). Casts shadows only; no thermal mass or heat balance. Ignored, with a warning, under shading_calculation: basic.",
       "properties": {
         "name": { "type": "string" },
         "vertices": { "type": "array", "items": { "$ref": "#/$defs/Point3D" }, "minItems": 3, "description": "3D vertices, counter-clockwise from outside." },

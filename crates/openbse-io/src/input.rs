@@ -5117,6 +5117,24 @@ fn validate_materials(model: &ModelInput, result: &mut ValidationResult) {
     }
 }
 
+/// An explicit `shading_calculation: basic` makes the model's shading geometry
+/// do nothing, which must not pass silently (#216).
+fn warn_shading_geometry_ignored(model: &ModelInput, result: &mut ValidationResult) {
+    let basic = model.simulation.shading_calculation == openbse_envelope::ShadingCalculation::Basic;
+    let n_devices = model
+        .surfaces
+        .iter()
+        .filter(|s| s.shading.is_some())
+        .count();
+    if basic && (n_devices > 0 || !model.shading_surfaces.is_empty()) {
+        result.warn(format!(
+            "simulation.shading_calculation is basic, so {} shading surface(s) and {n_devices} \
+             window overhang/fin definition(s) have no effect",
+            model.shading_surfaces.len()
+        ));
+    }
+}
+
 /// Interzone surfaces must pair one-to-one (#207). Also warns, as E+ does
 /// (`SurfaceGeometry.cc`), when the two faces' layers aren't mirror images:
 /// the wall is then a different element seen from each side.
@@ -5209,6 +5227,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     validate_schedules(model, &schedule_names, &builtin_schedules, &mut result);
     validate_interzone_surfaces(model, &mut result);
+    warn_shading_geometry_ignored(model, &mut result);
 
     // ── Validate people ────────────────────────────────────────────────────
 
@@ -5725,6 +5744,29 @@ air_loops:
         validate_model(
             &parse_model_yaml(&format!("simulation: {{}}\nweather_files: []\n{extra}")).unwrap(),
         )
+    }
+
+    #[test]
+    fn shading_defaults_to_detailed_and_basic_warns_about_ignored_geometry() {
+        let mut model: ModelInput =
+            serde_yaml::from_str("simulation: {}\nweather_files: []\n").unwrap();
+        assert_eq!(
+            model.simulation.shading_calculation,
+            openbse_envelope::ShadingCalculation::Detailed
+        );
+        model
+            .shading_surfaces
+            .push(openbse_envelope::ShadingSurfaceInput {
+                name: "tree".into(),
+                vertices: vec![],
+                solar_transmittance: 0.0,
+            });
+        let mut result = ValidationResult::new();
+        warn_shading_geometry_ignored(&model, &mut result);
+        assert_eq!(result.warning_count(), 0);
+        model.simulation.shading_calculation = openbse_envelope::ShadingCalculation::Basic;
+        warn_shading_geometry_ignored(&model, &mut result);
+        assert_eq!(result.warning_count(), 1);
     }
 
     #[test]

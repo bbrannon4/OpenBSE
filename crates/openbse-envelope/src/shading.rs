@@ -36,7 +36,7 @@ use serde::{Deserialize, Serialize};
 /// ```yaml
 /// simulation:
 ///   timesteps_per_hour: 4
-///   shading_calculation: detailed   # enable geometric shadow calculations
+///   shading_calculation: detailed   # the default; `basic` turns shadows off
 ///   start_month: 1
 ///   end_month: 12
 /// ```
@@ -45,17 +45,20 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum ShadingCalculation {
     /// No geometric shadow calculations. All outdoor surfaces receive full,
-    /// unobstructed solar radiation. This is the default for backward
-    /// compatibility and cases without shading geometry.
-    #[default]
+    /// unobstructed solar radiation, and any overhangs, fins and shading
+    /// surfaces in the model do nothing. An explicit opt-out with a warning
+    /// when the model has that geometry.
     Basic,
-    /// Full geometric shadow calculations using Sutherland-Hodgman polygon
-    /// clipping. Computes sunlit fractions per surface per timestep from:
+    /// Full geometric shadow calculations, as E+ always does
+    /// (`ShadowCalculation` with polygon clipping, `FullExterior`). The
+    /// default. Computes per surface and timestep, from:
     /// - Explicit shading surfaces (overhangs, neighboring buildings)
     /// - Window overhang/fin definitions
     /// - Building self-shading (all outdoor surfaces shade each other)
     ///
-    /// Only the beam (direct) solar component is reduced; diffuse is unaffected.
+    /// Beam by the sunlit fraction, sky and horizon diffuse by their shading
+    /// ratios. A surface without vertices neither casts nor receives a shadow.
+    #[default]
     Detailed,
 }
 
