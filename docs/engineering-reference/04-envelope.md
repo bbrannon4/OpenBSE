@@ -241,17 +241,18 @@ The module implements a one-dimensional coupled heat and moisture solver
 after Künzel [@kunzel1995]. It is **not connected to the simulation**:
 nothing calls it, and every surface uses CTF conduction. Its material inputs
 (`vapor_resistance_factor`, `sorption_isotherm`, `liquid_transport_coeff`)
-are accepted but have no effect, and validation warns when they are given. The module also has three known equation
-errors ([#64](https://github.com/bbrannon4/OpenBSE/issues/64)). This section
-will be written when the model is fixed and wired in.
+are accepted but have no effect, and validation warns when they are given. This
+section will be written when the model is wired in. It simplifies EnergyPlus's
+HAMT in ways that will need settling then: dry-material thermal conductivity,
+vapor driven by the moisture-content gradient only, uniform node spacing and
+fixed surface films.
 
 ## Known limitations: materials and constructions {#sec-constructions-limitations}
 
 - [#53](https://github.com/bbrannon4/OpenBSE/issues/53): simple
   constructions use synthetic layers tuned to ASHRAE 140, and do not always
   conserve the specified heat capacity.
-- [#64](https://github.com/bbrannon4/OpenBSE/issues/64): HAMT is not wired
-  in and has known equation errors.
+- HAMT is not wired in (@sec-hamt).
 - [#204](https://github.com/bbrannon4/OpenBSE/issues/204): no CTF time-step
   escalation for massive constructions.
 
