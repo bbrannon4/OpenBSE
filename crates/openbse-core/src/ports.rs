@@ -213,6 +213,21 @@ pub trait AirComponent: std::fmt::Debug {
         None
     }
 
+    /// Part-load ratio a compressor runs at within its own on-cycle this
+    /// timestep (setpoint part load, or cycling below its lowest speed),
+    /// reported with its power uncorrected for cycling. The driver combines it
+    /// with the loop's cycling fraction and applies the cycling penalty
+    /// (E+ RTF = PLR/PLF(PLR)). `None` for anything without a compressor.
+    fn compressor_plr(&self) -> Option<f64> {
+        None
+    }
+
+    /// The compressor's own part-load fraction PLF(PLR), or `None` to use its
+    /// loop's degradation coefficient, PLF = 1 − Cd(1 − PLR).
+    fn part_load_fraction(&self, _plr: f64) -> Option<f64> {
+        None
+    }
+
     /// Design air flow rate for autosizing [m³/s]. Returns None if not applicable.
     fn design_air_flow_rate(&self) -> Option<f64> {
         None

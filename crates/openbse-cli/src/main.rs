@@ -565,6 +565,43 @@ fn size_air_loop(
     }
 }
 
+/// Cycling factors of a compressor that runs `loop_plr` of the time at its own
+/// on-cycle part load `coil_plr`: (time-averaged over on-cycle power, the
+/// runtime fraction of a fan cycling with it). E+ `CalcDoe2DXCoil`:
+/// RTF = PLR/PLF(PLR) with PLF floored at 0.7; a cycling fan runs at the
+/// compressor's RTF at the loop's cycling fraction (OnOffFanPartLoadFraction).
+fn cycling_factors(loop_plr: f64, coil_plr: f64, plf: impl Fn(f64) -> f64) -> (f64, f64) {
+    let coil_plr = coil_plr.clamp(0.0, 1.0);
+    let plr = loop_plr * coil_plr;
+    if plr <= 0.0 {
+        return (0.0, 0.0);
+    }
+    let plf = |x: f64| plf(x).max(0.7);
+    (loop_plr / plf(plr), loop_plr / plf(loop_plr))
+}
+
+/// Scale a compressor's time-averaged electricity: the part its cycling
+/// penalty applies to (`compressor_power` and `condenser_fan_power` when the
+/// component reports them, else all of it) by `factor`, the rest, such as a
+/// supplemental heater, by the loop's cycling fraction.
+fn scale_compressor_power(outputs: &mut HashMap<String, f64>, loop_plr: f64, factor: f64) {
+    let penalised = outputs.get("compressor_power").copied().unwrap_or(0.0)
+        + outputs.get("condenser_fan_power").copied().unwrap_or(0.0);
+    if let Some(ep) = outputs.get_mut("electric_power") {
+        let penalised = if penalised > 0.0 {
+            penalised.min(*ep)
+        } else {
+            *ep
+        };
+        *ep = loop_plr * (*ep - penalised) + factor * penalised;
+    }
+    for key in ["compressor_power", "condenser_fan_power"] {
+        if let Some(v) = outputs.get_mut(key) {
+            *v *= factor;
+        }
+    }
+}
+
 /// Outdoor-air sensible load [W] (positive when it heats the zone) that a
 /// cycling compressor's off-cycle still brings in: a fan that keeps running
 /// keeps drawing outdoor air, a cycling fan draws none. Counted for a cycling
@@ -638,6 +675,11 @@ fn build_loop_infos(
                     use openbse_io::input::EquipmentInput;
                     match eq {
                         EquipmentInput::CoolingCoil(c) if c.source == "dx" => Some(c.name.clone()),
+                        EquipmentInput::HeatingCoil(c)
+                            if matches!(c.source.as_str(), "heat_pump" | "HeatPump" | "hp") =>
+                        {
+                            Some(c.name.clone())
+                        }
                         EquipmentInput::CoolingCoilMultiSpeed(c) => Some(c.name.clone()),
                         EquipmentInput::Wshp(w) => Some(w.name.clone()),
                         _ => None,
@@ -6318,6 +6360,47 @@ fn simulate_all_loops(
             signals.loop_plr.unwrap_or(1.0)
         } * nightcycle_duty;
 
+        // Cycling penalty of each compressor: E+ RTF = PLR/PLF(PLR) at
+        // the part load the compressor actually runs, the loop's cycling
+        // fraction times the coil's own on-cycle part load, with the coil's
+        // PLF curve or else the loop's Cd. Coils report power uncorrected, so
+        // time-averaged power is on-cycle power × loop_plr / PLF.
+        let cd = li.cooling_part_load_cd;
+        let compressors: HashMap<&str, (f64, f64)> = li
+            .dx_compressor_names
+            .iter()
+            .filter_map(|name| {
+                let GraphComponent::Air(c) = graph.component(graph.node_by_name(name)?) else {
+                    return None;
+                };
+                let coil_plr = c.compressor_plr().unwrap_or(1.0);
+                let plf = |plr: f64| c.part_load_fraction(plr).unwrap_or(1.0 - cd * (1.0 - plr));
+                Some((name.as_str(), cycling_factors(loop_plr, coil_plr, plf)))
+            })
+            .collect();
+        // With no compressor running (a furnace heating), the fan cycles at PLR.
+        let fan_cycling_factor = compressors
+            .values()
+            .map(|&(_, fan)| fan)
+            .filter(|&f| f > 0.0)
+            .reduce(f64::max)
+            .unwrap_or(loop_plr);
+        // Scale a compressor's electricity: the part its cycling penalty
+        // applies to by `factor`, the rest (e.g. a supplemental heater) by
+        // the loop's cycling fraction.
+        let scale_compressor = |outputs: &mut HashMap<String, f64>, factor: f64| {
+            scale_compressor_power(outputs, loop_plr, factor)
+        };
+
+        if loop_plr >= 1.0 {
+            // No loop cycling; a coil's own part load still cycles it.
+            for (comp_name, outputs) in &mut loop_result {
+                if let Some(&(factor, _)) = compressors.get(comp_name.as_str()) {
+                    scale_compressor(outputs, factor);
+                }
+            }
+        }
+
         if loop_plr < 1.0 {
             let is_continuous_fan = li.fan_operating_mode
                 == openbse_io::input::FanOperatingMode::Continuous
@@ -6325,15 +6408,6 @@ fn simulate_all_loops(
                     == openbse_io::input::FanOperatingMode::ContinuousNoLoadOff;
             let is_no_load_off =
                 li.fan_operating_mode == openbse_io::input::FanOperatingMode::ContinuousNoLoadOff;
-
-            // E+ Part Load Fraction: accounts for compressor cycling losses.
-            // RTF = PLR / PLF > PLR, so compressor runs longer per unit of
-            // cooling delivered (startup losses, refrigerant migration, etc.).
-            // Default: PLF = 1 - Cd*(1-PLR) with Cd=0.15 (E+ default).
-            // Fan power uses PLR directly (no cycling penalty).
-            let cd = li.cooling_part_load_cd;
-            let plf = (1.0 - cd * (1.0 - loop_plr)).max(0.5);
-            let rtf = loop_plr / plf;
 
             // Extensive (time-averaged) detailed-output keys that track
             // `thermal_output`/`mass_flow` and must be PLR-scaled so the
@@ -6393,36 +6467,22 @@ fn simulate_all_loops(
                     }
                     // Continuous (not no_load_off): keep full rated values.
                 } else {
-                    // DX compressor electric power uses RTF (includes cycling
-                    // penalty via PLF curve). Everything else — gas furnace
-                    // fuel, fan power, electric resistance heat, heat pump
-                    // heating coils (which apply PLF inside the component) —
-                    // uses PLR directly, matching E+ where the PLF curve only
-                    // degrades compressor energy.
-                    let is_dx_compressor = li.dx_compressor_names.contains(comp_name);
-                    // In an on/off DX system the supply fan cycles with the
-                    // compressor, so its runtime is RTF (not PLR). Applies only
-                    // when the loop has a DX compressor — modulating systems and
-                    // non-DX cycling loops keep PLR-based fan energy.
-                    let loop_has_dx = !li.dx_compressor_names.is_empty();
-                    let power_factor = if is_dx_compressor || (is_fan && loop_has_dx) {
-                        rtf
-                    } else {
-                        loop_plr
-                    };
-                    if let Some(ep) = outputs.get_mut("electric_power") {
-                        *ep *= power_factor;
-                    }
-                    // DX electric split: compressor and condenser fan both carry
-                    // the cycling penalty (scale by RTF); the indoor/supply fan
-                    // uses PLR (handled via `electric_power` on the fan
-                    // component). Matches ASHRAE 140 HVAC BESTEST, where CDF is
-                    // applied to compressor and outdoor-fan energy only.
-                    if let Some(v) = outputs.get_mut("compressor_power") {
-                        *v *= rtf;
-                    }
-                    if let Some(v) = outputs.get_mut("condenser_fan_power") {
-                        *v *= rtf;
+                    // DX compressors carry the cycling penalty (above); gas
+                    // fuel, electric resistance heat and other fans use PLR,
+                    // as in E+, where the PLF curve degrades only compressor
+                    // energy. Compressor and condenser fan both carry it, as
+                    // the CDF does in ASHRAE 140 HVAC BESTEST.
+                    if let Some(&(factor, _)) = compressors.get(comp_name.as_str()) {
+                        scale_compressor(outputs, factor);
+                    } else if let Some(ep) = outputs.get_mut("electric_power") {
+                        // In an on/off DX system the supply fan cycles with
+                        // the compressor, so its runtime is the RTF.
+                        let loop_has_dx = !li.dx_compressor_names.is_empty();
+                        *ep *= if is_fan && loop_has_dx {
+                            fan_cycling_factor
+                        } else {
+                            loop_plr
+                        };
                     }
                     if let Some(fp) = outputs.get_mut("fuel_power") {
                         *fp *= loop_plr;
@@ -9119,5 +9179,62 @@ plant_loops:
         let demands = openbse_io::plant::air_side_demands_by_loop(&model);
         assert_eq!(demands["HW"], vec!["H".to_string()]);
         assert_eq!(demands["CHW"], vec!["C".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod compressor_cycling_tests {
+    use super::*;
+
+    const CD: f64 = 0.15;
+    fn linear(plr: f64) -> f64 {
+        1.0 - CD * (1.0 - plr)
+    }
+
+    #[test]
+    fn loop_cycling_takes_the_e_plus_runtime_fraction() {
+        // Half the time on at full coil load: RTF = 0.5 / PLF(0.5).
+        let (factor, fan) = cycling_factors(0.5, 1.0, linear);
+        assert!((factor - 0.5 / 0.925).abs() < 1e-12);
+        assert!((fan - factor).abs() < 1e-12);
+    }
+
+    #[test]
+    fn coil_part_load_is_penalised_without_loop_cycling() {
+        // A coil at half load from its setpoint, on a loop that does not
+        // cycle, still cycles its compressor.
+        let (factor, fan) = cycling_factors(1.0, 0.5, linear);
+        assert!((factor - 1.0 / 0.925).abs() < 1e-12);
+        assert_eq!(fan, 1.0);
+        // Both together: the penalty is taken at the combined part load.
+        let (factor, _) = cycling_factors(0.5, 0.5, linear);
+        assert!((factor - 0.5 / linear(0.25)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn the_coils_own_curve_wins_and_is_floored_like_e_plus() {
+        // A steep curve, read where E+ floors it at 0.7.
+        let (factor, _) = cycling_factors(0.2, 1.0, |plr| 0.5 + 0.5 * plr);
+        assert!((factor - 0.2 / 0.7).abs() < 1e-12);
+        assert_eq!(cycling_factors(0.0, 1.0, linear), (0.0, 0.0));
+        assert_eq!(cycling_factors(1.0, 0.0, linear), (0.0, 0.0));
+    }
+
+    #[test]
+    fn only_the_compressor_share_carries_the_penalty() {
+        // A heat pump at half loop PLR: 2 kW compressor+defrost and a 3 kW
+        // supplemental heater on the on-cycle.
+        let mut out = HashMap::from([
+            ("electric_power".to_string(), 5000.0),
+            ("compressor_power".to_string(), 2000.0),
+        ]);
+        let factor = 0.5 / 0.925;
+        scale_compressor_power(&mut out, 0.5, factor);
+        assert!((out["electric_power"] - (0.5 * 3000.0 + factor * 2000.0)).abs() < 1e-9);
+        assert!((out["compressor_power"] - factor * 2000.0).abs() < 1e-9);
+        // A component without the split takes the penalty on all of it.
+        let mut wshp = HashMap::from([("electric_power".to_string(), 1000.0)]);
+        scale_compressor_power(&mut wshp, 0.5, factor);
+        assert!((wshp["electric_power"] - factor * 1000.0).abs() < 1e-9);
     }
 }

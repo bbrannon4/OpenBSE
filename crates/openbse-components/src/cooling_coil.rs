@@ -70,13 +70,13 @@ pub struct CoolingCoilDX {
     /// When true, compute SHR each timestep via apparatus dew point method.
     /// When false, use constant rated_shr (or SHR=1.0 if no latent model).
     pub autocalculate_shr: bool,
-    /// Dry-coil capacity by wet-bulb iteration (opt-in, E+ CalcDoe2DXCoil).
+    /// Dry-coil capacity by wet-bulb iteration (default, E+ CalcDoe2DXCoil).
     /// When the coil runs dry, raise the entering humidity ratio at constant
     /// dry-bulb until the coil is just dry, and take the capacity and EIR
     /// curves at that wet-bulb, so air far drier than the dry-out point is
-    /// not read as a much weaker coil. When false (default), the capacity at
-    /// the actual wet-bulb is scaled by the sensible fraction of the path to
-    /// the apparatus dew point (#115).
+    /// not read as a much weaker coil. When false, the capacity at the actual
+    /// wet-bulb is scaled by the sensible fraction of the path to the
+    /// apparatus dew point (#115), an OpenBSE approximation.
     #[serde(default)]
     pub dry_coil_wet_bulb_iteration: bool,
     /// Bypass factor derived from rated SHR at ARI conditions.
@@ -154,7 +154,7 @@ impl CoolingCoilDX {
             eir_fflow_curve: None,
             eir_normalization: 1.0,
             autocalculate_shr: false,
-            dry_coil_wet_bulb_iteration: false,
+            dry_coil_wet_bulb_iteration: true,
             bypass_factor: 0.0,
             adp_temp: 0.0,
             adp_w: 0.0,
@@ -178,10 +178,11 @@ impl CoolingCoilDX {
 
     /// Attach performance curves for capacity and EIR modifiers.
     ///
-    /// Auto-normalizes the EIR curve so that it evaluates to 1.0 at
-    /// ARI rated conditions (19.44 °C entering WB, 35 °C outdoor DB).
-    /// This matches the E+ convention where the rated COP directly
-    /// represents the COP at rated conditions.
+    /// Normalizes the EIR curve so that it evaluates to 1.0 at ARI rated
+    /// conditions (19.44 °C entering WB, 35 °C outdoor DB), so the rated COP
+    /// is the COP at rated conditions. E+ normalizes neither curve: it warns
+    /// when one is not 1.0 there and uses it as given. The capacity curve is
+    /// used as given here too.
     pub fn with_curves(
         mut self,
         cap_ft: Option<PerformanceCurve>,
@@ -450,7 +451,7 @@ impl AirComponent for CoolingCoilDX {
             };
             let (mut h_adp, mut t_adp, mut w_adp) = adp_for(available_cap);
 
-            // Dry-coil wet-bulb iteration (opt-in), after E+ CalcDoe2DXCoil:
+            // Dry-coil wet-bulb iteration (the default), after E+ CalcDoe2DXCoil:
             // walk the entering humidity ratio up toward the ADP humidity
             // ratio (relaxation 0.4, 1% tolerance) and re-evaluate the curves
             // at the resulting wet-bulb. Entering enthalpy stays the actual
@@ -485,9 +486,9 @@ impl AirComponent for CoolingCoilDX {
             // is not delivered, so the effective full-load capacity is the
             // sensible heat-transfer capacity, which is < total. Without this,
             // a dry coil overstates capacity by ~1/sensible_fraction, shortening
-            // runtime and under-counting fan/compressor energy. Matches the
-            // manufacturer sensible-capacity column of a DX performance map.
-            // Reference: EnergyPlus DXCoils.cc CalcDoe2DXCoil (dry-coil branch).
+            // runtime and under-counting fan/compressor energy. This is the
+            // non-default alternative to the wet-bulb iteration above; E+
+            // CalcDoe2DXCoil always iterates and has no such scaling.
             let (shr, eff_cap) = if dry_iterated {
                 (1.0, available_cap)
             } else if w_adp >= inlet.state.w {
@@ -579,14 +580,10 @@ impl AirComponent for CoolingCoilDX {
         self.cooling_rate = q_total;
         self.sensible_cooling_rate = q_sensible;
 
-        // Store PLR and RTF for detailed outputs
+        // Part load within the on-cycle. The cycling penalty is the driver's,
+        // at this PLR times the loop's cycling fraction (`compressor_plr`).
         self.plr = plr_power; // plr_power = q_total / available_cap
-        let plf = if let Some(ref curve) = self.plf_curve {
-            curve.evaluate_1d(self.plr)
-        } else {
-            1.0 - 0.15 * (1.0 - self.plr)
-        };
-        self.rtf = if plf > 0.0 { self.plr / plf } else { 0.0 };
+        self.rtf = self.plr;
 
         AirPort::new(
             psych::MoistAirState::new(outlet_t, outlet_w, inlet.state.p_b),
@@ -596,6 +593,14 @@ impl AirComponent for CoolingCoilDX {
 
     fn has_water_side(&self) -> bool {
         false
+    }
+
+    fn compressor_plr(&self) -> Option<f64> {
+        Some(self.plr)
+    }
+
+    fn part_load_fraction(&self, plr: f64) -> Option<f64> {
+        self.plf_curve.as_ref().map(|c| c.evaluate_1d(plr))
     }
 
     fn set_water_inlet(&mut self, _inlet: &WaterPort) {}
@@ -848,6 +853,37 @@ mod tests {
     }
 
     #[test]
+    fn test_part_load_power_is_uncorrected_and_plr_reported() {
+        // The cycling penalty is the driver's, at the coil's own PLR
+        // combined with the loop's; the coil reports both uncorrected.
+        let mut coil = CoolingCoilDX::new("DX", 10000.0, 3.5, 0.8, 0.5, 20.0);
+        coil.autocalculate_shr = false;
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(26.0, 0.5, 101325.0), 0.5);
+        coil.simulate_air(&inlet, &make_ctx(35.0));
+        let plr = coil.compressor_plr().unwrap();
+        assert!(plr > 0.0 && plr < 1.0, "{plr}");
+        assert_relative_eq!(
+            coil.compressor_power,
+            10000.0 * plr / 3.5,
+            max_relative = 0.02
+        );
+        assert!(coil.part_load_fraction(0.5).is_none());
+        let plf = crate::performance_curve::PerformanceCurve::Polynomial {
+            name: "PLF".to_string(),
+            curve_type: crate::performance_curve::CurveType::Linear,
+            coefficients: vec![0.8, 0.2],
+            min_x: 0.0,
+            max_x: 1.0,
+            min_y: 0.0,
+            max_y: 0.0,
+            min_output: None,
+            max_output: None,
+        };
+        let coil = coil.with_plf_curve(plf);
+        assert_relative_eq!(coil.part_load_fraction(0.5).unwrap(), 0.9);
+    }
+
+    #[test]
     fn test_dry_coil_wet_bulb_iteration_reduces_humidity_dependence() {
         // Two entering states at 30 °C, both far too dry to wet the coil. With
         // a wet-bulb-dependent capacity curve the default method reads the
@@ -937,6 +973,9 @@ pub struct CoolingCoilDXMultiSpeed {
     /// Index of the active speed stage (0-based)
     #[serde(skip)]
     pub active_speed: usize,
+    /// Part load of the lowest speed when it cycles; 1 above it.
+    #[serde(skip)]
+    pub stage_plr: f64,
 }
 
 impl CoolingCoilDXMultiSpeed {
@@ -950,6 +989,7 @@ impl CoolingCoilDXMultiSpeed {
             sensible_cooling_rate: 0.0,
             power: 0.0,
             active_speed: 0,
+            stage_plr: 0.0,
         }
     }
 
@@ -1005,6 +1045,7 @@ impl AirComponent for CoolingCoilDXMultiSpeed {
             self.cooling_rate = 0.0;
             self.sensible_cooling_rate = 0.0;
             self.power = 0.0;
+            self.stage_plr = 0.0;
             return *inlet;
         }
 
@@ -1016,6 +1057,7 @@ impl AirComponent for CoolingCoilDXMultiSpeed {
             self.cooling_rate = 0.0;
             self.sensible_cooling_rate = 0.0;
             self.power = 0.0;
+            self.stage_plr = 0.0;
             return *inlet;
         }
 
@@ -1035,11 +1077,22 @@ impl AirComponent for CoolingCoilDXMultiSpeed {
         let stage = &self.speeds[selected];
         let (outlet, total, sensible, power) =
             Self::simulate_stage(stage, inlet, self.outlet_temp_setpoint, t_outdoor);
+        // Only the lowest speed cycles; above it the coil runs continuously.
+        let cap_factor = (1.0 - 0.008 * (t_outdoor - 35.0)).clamp(0.5, 1.05);
+        self.stage_plr = if selected == 0 {
+            (total / (stage.rated_capacity * cap_factor)).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
 
         self.cooling_rate = total;
         self.sensible_cooling_rate = sensible;
         self.power = power;
         outlet
+    }
+
+    fn compressor_plr(&self) -> Option<f64> {
+        Some(self.stage_plr)
     }
 
     fn set_setpoint(&mut self, setpoint: f64) {

@@ -580,10 +580,12 @@ pub struct AirLoopControls {
     /// Overrides minimum_damper_position when set.
     #[serde(default)]
     pub outdoor_air_fraction: Option<f64>,
-    /// Cooling cycling degradation coefficient Cd for the part-load fraction
-    /// PLF = 1 − Cd·(1−PLR), applied to compressor and condenser-fan energy at
-    /// part load. Default 0.15 (EnergyPlus default); ASHRAE 140 HVAC BESTEST
-    /// specifies 0.229.
+    /// Cycling degradation coefficient Cd for the part-load fraction
+    /// PLF = 1 − Cd·(1−PLR) of each DX compressor on the loop without its own
+    /// `plf_curve`, taken at its combined part load (the loop's cycling
+    /// fraction times the coil's own part load) and applied to compressor and
+    /// condenser-fan energy. Default 0.15 (EnergyPlus default); ASHRAE 140
+    /// HVAC BESTEST specifies 0.229.
     #[serde(default = "default_cooling_part_load_cd")]
     pub cooling_part_load_cd: f64,
     /// Return-fan design pressure rise [Pa] (optional — absent = no return fan).
@@ -1446,12 +1448,13 @@ pub struct CoolingCoilInput {
     /// bypass factor method (E+ style). When false, use constant rated SHR.
     #[serde(default = "default_autocalculate_shr")]
     pub autocalculate_shr: bool,
-    /// Dry-coil capacity by wet-bulb iteration (default false). When the DX
+    /// Dry-coil capacity by wet-bulb iteration (default true). When the DX
     /// coil runs dry, find the entering wet-bulb at which it would just be
     /// dry and evaluate the capacity and EIR curves there, as EnergyPlus
-    /// does, instead of at the actual (lower) wet-bulb. Only used with
-    /// `autocalculate_shr`.
-    #[serde(default)]
+    /// does, instead of at the actual (lower) wet-bulb. `false` scales the
+    /// capacity at the actual wet-bulb by its sensible fraction instead. Only
+    /// used with `autocalculate_shr`.
+    #[serde(default = "default_true")]
     pub dry_coil_wet_bulb_iteration: bool,
 
     // ─── Chilled water fields (only used when source: chilled_water) ──
@@ -1472,6 +1475,9 @@ pub struct CoolingCoilInput {
     pub plant_loop: Option<String>,
 }
 
+fn default_true() -> bool {
+    true
+}
 fn default_autocalculate_shr() -> bool {
     true
 }
