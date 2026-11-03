@@ -218,7 +218,7 @@ impl AirComponent for Humidifier {
         self.power
     }
 
-    /// Enthalpy the steam brings to the air, ṁ_steam·h_steam = ṁ_air·Δh (#332).
+    /// Enthalpy the steam brings to the air, ṁ_steam·h_steam = ṁ_air·Δh.
     fn thermal_output(&self) -> f64 {
         self.heat_to_air
     }
@@ -256,8 +256,7 @@ mod tests {
 
     #[test]
     fn test_rated_capacity_uses_the_e_plus_20c_make_up_water() {
-        // E+ SizeHumidifier: (h_g − h_f)(100 °C) + c̄_p·(100 − 20) ≈ 2.592 MJ/kg,
-        // about 1% less than the old 14.4 °C basis (2.6157 MJ/kg).
+        // E+ SizeHumidifier: (h_g − h_f)(100 °C) + c̄_p·(100 − 20) ≈ 2.592 MJ/kg.
         let e = steam_generation_energy();
         assert!((e - 2.5917e6).abs() < 2.0e3, "{e}");
         let hum = Humidifier::new("H", 10_000.0, 0.3, 24.0);
@@ -266,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_thermal_output_is_the_air_enthalpy_gain() {
-        // #332: the run-time check compares ṁ·Δh with thermal_output.
+        // The run-time check compares ṁ·Δh with thermal_output.
         let mut hum = Humidifier::new("H", 50_000.0, 0.3, 24.0);
         hum.w_setpoint = 0.006;
         let inlet = AirPort::new(MoistAirState::new(20.0, 0.002, 101_325.0), 2.0);
