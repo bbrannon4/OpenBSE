@@ -23,5 +23,6 @@ pub mod radiant_panel;
 pub mod thermal_storage;
 pub mod vav_box;
 pub mod vrf;
+pub mod water_coil;
 pub mod water_heater;
 pub mod wshp;

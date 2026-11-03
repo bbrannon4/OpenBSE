@@ -1,25 +1,22 @@
 //! Chilled water cooling coil component model.
 //!
-//! Models a chilled water cooling coil connected to a chilled water plant loop.
-//! Uses an apparatus-dew-point (ADP) wet-coil model: the air follows a straight
-//! condition line from the entering state toward the coil-surface ADP (mean
-//! design chilled-water temperature), condensing moisture when the entering
-//! humidity ratio exceeds w_ADP. Total cooling is limited by both air-side
-//! demand and water-side available heat transfer, and the air enthalpy drop is
-//! kept equal to the water heat gain.
+//! On a plant loop the coil follows E+ `Coil:Cooling:Water` (SimpleAnalysis):
+//! a counterflow coil, dry or wet by the entering dew point, sized so it
+//! delivers its capacity at the design point, its valve holding the outlet
+//! setpoint on the loop's water (see [`crate::water_coil`]). The leaving air
+//! follows from the coil UA, so a wet coil leaves it short of saturation and
+//! the coil's output follows the loop's supply temperature and water flow.
 //!
-//! Physics:
-//!   Q_sensible = m_air × Cp_air × (T_air_in - T_air_out)
-//!   Q_total    = m_air × (h_air_in - h_air_out)   (= water heat gain)
-//!   Q_water    = m_water × Cp_water × (T_water_out - T_water_in)
-//!   Q_total    = min(Q_required_to_setpoint, nominal_capacity, Q_water_available)
+//! Without a plant loop (allowed only in a model with no plant loops) it is
+//! the idealised coil of the ASHRAE 140 §11 analytical cases: it cools to the
+//! setpoint, limited by its capacity, and condenses down to saturation at the
+//! leaving temperature when the entering air is wetter than that (the
+//! quasi-analytical solution reports RHcco = 100% for every wet case).
 //!
-//! The coil receives chilled water from the plant loop (via set_water_inlet)
-//! and returns warmer water (via water_outlet). When no plant loop is connected,
-//! falls back to nominal_capacity so the air-side simulation remains meaningful.
-//!
-//! Reference: EnergyPlus Engineering Reference, "Coil:Cooling:Water"
+//! Either way the total cooling is the air's enthalpy drop, and on a plant
+//! loop it is also the water's heat gain.
 
+use crate::water_coil::{CoolingDesign, CoolingResult, CoolingUa};
 use openbse_core::ports::*;
 use openbse_psychrometrics::{self as psych, FluidState};
 use serde::{Deserialize, Serialize};
@@ -28,28 +25,36 @@ fn default_submeter() -> String {
     "General".to_string()
 }
 
+/// E+ rated entering air for water cooling coils (26.67 °C dry-bulb,
+/// 19.44 °C wet-bulb), used when sizing gives the coil no design air.
+const RATED_AIR_DB: f64 = 26.67;
+const RATED_AIR_WB: f64 = 19.44;
+
 /// Chilled water cooling coil component.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoolingCoilCHW {
     pub name: String,
     #[serde(default = "default_submeter")]
     pub submeter: String,
-    /// Nominal cooling capacity [W] (sensible + latent at design conditions).
-    /// Use AUTOSIZE for autosizing from zone peak cooling load.
+    /// Nominal total cooling capacity [W] at the design point.
+    /// Use AUTOSIZE for autosizing from the air loop's design load.
     pub nominal_capacity: f64,
-    /// Rated sensible heat ratio [0-1] at design conditions.
-    /// Fraction of total cooling that is sensible (typically 0.7-0.85).
-    pub rated_shr: f64,
     /// Desired outlet air temperature setpoint [°C]
     pub outlet_temp_setpoint: f64,
 
-    // ─── Water-side design parameters ────────────────────────────────────
-    /// Design chilled water flow rate [m³/s]
+    // ─── Water-side design overrides (otherwise from the plant loop) ─────
+    /// Design (maximum) chilled-water flow [m³/s]; 0 sizes it from the
+    /// capacity and the design temperature rise.
     pub design_water_flow_rate: f64,
-    /// Design chilled water inlet (supply) temperature [°C] (typically 6.7°C / 44°F)
-    pub design_water_inlet_temp: f64,
-    /// Design chilled water outlet (return) temperature [°C] (typically 12.2°C / 54°F)
-    pub design_water_outlet_temp: f64,
+    /// Design chilled-water inlet (supply) temperature [°C]
+    pub design_water_inlet_temp: Option<f64>,
+    /// Design chilled-water outlet (return) temperature [°C]
+    pub design_water_outlet_temp: Option<f64>,
+    /// Design air flow [m³/s] when sizing gives none; 0 derives it.
+    pub rated_air_flow: f64,
+    /// Water side on a plant loop, once sized.
+    #[serde(default)]
+    pub water_ua: Option<CoolingUa>,
 
     // ─── Runtime state ───────────────────────────────────────────────────
     /// Total cooling rate delivered to air [W] (positive = cooling)
@@ -66,38 +71,89 @@ pub struct CoolingCoilCHW {
 }
 
 impl CoolingCoilCHW {
-    /// Create a new chilled water cooling coil.
-    ///
-    /// # Arguments
-    /// * `name` - Component name
-    /// * `capacity` - Nominal cooling capacity [W] (or AUTOSIZE)
-    /// * `shr` - Sensible heat ratio (typically 0.7-0.85)
-    /// * `setpoint` - Desired outlet air temperature [°C]
-    /// * `water_flow_rate` - Design chilled water flow rate [m³/s]
-    /// * `water_inlet_temp` - Design CHW supply temperature [°C] (e.g., 6.7)
-    /// * `water_outlet_temp` - Design CHW return temperature [°C] (e.g., 12.2)
-    pub fn new(
-        name: &str,
-        capacity: f64,
-        shr: f64,
-        setpoint: f64,
-        water_flow_rate: f64,
-        water_inlet_temp: f64,
-        water_outlet_temp: f64,
-    ) -> Self {
+    /// Create a chilled water cooling coil. It runs as the ideal coil until
+    /// [`AirComponent::size_water_side`] connects it to its plant loop.
+    pub fn new(name: &str, capacity: f64, setpoint: f64) -> Self {
         Self {
             name: name.to_string(),
             submeter: "General".to_string(),
             nominal_capacity: capacity,
-            rated_shr: shr,
             outlet_temp_setpoint: setpoint,
-            design_water_flow_rate: water_flow_rate,
-            design_water_inlet_temp: water_inlet_temp,
-            design_water_outlet_temp: water_outlet_temp,
+            design_water_flow_rate: 0.0,
+            design_water_inlet_temp: None,
+            design_water_outlet_temp: None,
+            rated_air_flow: 0.0,
+            water_ua: None,
             cooling_rate: 0.0,
             sensible_cooling_rate: 0.0,
             water_inlet: None,
             water_outlet_state: None,
+        }
+    }
+
+    /// The idealised coil without a plant loop.
+    fn ideal(&self, inlet: &AirPort, cp_air: f64) -> CoolingResult {
+        let p_b = inlet.state.p_b;
+        let t_set = self.outlet_temp_setpoint;
+        let w_out_set = inlet.state.w.min(psych::w_fn_tdb_rh_pb(t_set, 1.0, p_b));
+        let h_in = psych::h_fn_tdb_w(inlet.state.t_db, inlet.state.w);
+        let q_sens_set = inlet.mass_flow * cp_air * (inlet.state.t_db - t_set);
+        let q_total_set =
+            (inlet.mass_flow * (h_in - psych::h_fn_tdb_w(t_set, w_out_set))).max(q_sens_set);
+        // Short of capacity, scale sensible and latent together (time-averaged
+        // part load) so the air's enthalpy drop stays the total.
+        let plr = (self.nominal_capacity.max(0.0) / q_total_set).min(1.0);
+        let q_total = q_total_set * plr;
+        let w_out = (inlet.state.w - plr * (inlet.state.w - w_out_set)).max(1.0e-5);
+        let t_out = psych::tdb_fn_h_w(h_in - q_total / inlet.mass_flow, w_out);
+        CoolingResult {
+            t_air_out: t_out,
+            w_air_out: w_out,
+            q_total,
+            q_sensible: inlet.mass_flow * cp_air * (inlet.state.t_db - t_out),
+        }
+    }
+
+    /// The coil's design point: the loop's design water (or the overrides)
+    /// and the air sizing found, else E+'s rated air.
+    fn cooling_design(&self, d: &WaterCoilDesign) -> CoolingDesign {
+        let q_total = self.nominal_capacity.max(0.0);
+        let t_water_in = self.design_water_inlet_temp.unwrap_or(d.t_water_in);
+        let rise = self
+            .design_water_outlet_temp
+            .map_or(d.delta_t, |t| t - t_water_in)
+            .max(0.1);
+        let water_flow = if self.design_water_flow_rate > 0.0 {
+            self.design_water_flow_rate * psych::water_rho(t_water_in)
+        } else {
+            q_total / (psych::water_cp(t_water_in) * rise)
+        };
+        let (t_air_in, w_air_in) = d.air_in.unwrap_or((
+            RATED_AIR_DB,
+            psych::w_fn_tdb_twb_pb(RATED_AIR_DB, RATED_AIR_WB, d.p_b),
+        ));
+        let air_flow = match d.air_flow {
+            Some(m) if m > 0.0 => m,
+            _ if self.rated_air_flow > 0.0 => {
+                self.rated_air_flow * psych::rho_air_fn_pb_tdb_w(d.p_b, t_air_in, w_air_in)
+            }
+            // Air that the capacity brings to the setpoint at 90% RH, as E+
+            // resets an unattainable design outlet.
+            _ => {
+                let t_out = self.outlet_temp_setpoint.min(t_air_in - 1.0);
+                let w_out = w_air_in.min(psych::w_fn_tdb_rh_pb(t_out, 0.9, d.p_b));
+                let dh = psych::h_fn_tdb_w(t_air_in, w_air_in) - psych::h_fn_tdb_w(t_out, w_out);
+                q_total / dh.max(1000.0)
+            }
+        };
+        CoolingDesign {
+            q_total,
+            air_flow,
+            t_air_in,
+            w_air_in,
+            water_flow,
+            t_water_in,
+            p_b: d.p_b,
         }
     }
 }
@@ -112,119 +168,38 @@ impl AirComponent for CoolingCoilCHW {
     }
 
     fn simulate_air(&mut self, inlet: &AirPort, _ctx: &SimulationContext) -> AirPort {
-        if inlet.mass_flow <= 0.0 {
-            self.cooling_rate = 0.0;
-            self.sensible_cooling_rate = 0.0;
-            self.water_outlet_state = None;
+        self.cooling_rate = 0.0;
+        self.sensible_cooling_rate = 0.0;
+        self.water_outlet_state = None;
+        if inlet.mass_flow <= 0.0 || inlet.state.t_db <= self.outlet_temp_setpoint {
             return *inlet;
         }
 
         let cp_air = psych::cp_air_fn_w(inlet.state.w);
-
-        // Calculate required sensible cooling to reach setpoint
-        let q_sensible_required =
-            inlet.mass_flow * cp_air * (inlet.state.t_db - self.outlet_temp_setpoint);
-
-        // Only cool, don't heat
-        if q_sensible_required <= 0.0 {
-            self.cooling_rate = 0.0;
-            self.sensible_cooling_rate = 0.0;
-            // Pass water through unchanged if present
-            if let Some(ref wi) = self.water_inlet {
-                self.water_outlet_state = Some(*wi);
-            }
-            return *inlet;
-        }
-
-        // Water-side available capacity (TOTAL: sensible + latent)
-        //
-        // When chilled water plant loop is coupled (water_inlet set with real
-        // flow from chiller loop), capacity is limited by the water-side heat
-        // transfer available. When plant loop is not yet connected (water_inlet
-        // is None), fall back to nominal_capacity so the coil behaves as if
-        // the plant always delivers adequate chilled water.
-        let water_capacity = if let Some(ref wi) = self.water_inlet {
-            if wi.state.mass_flow > 0.0 {
-                // Water absorbs heat: Q = m_w × cp_w × (T_w_out_max - T_w_in)
-                // T_w_out_max is the design return temp (warmer than supply)
-                wi.state.mass_flow
-                    * wi.state.cp
-                    * (self.design_water_outlet_temp - wi.state.temp).max(0.0)
-            } else {
-                0.0 // Water present but zero flow — coil is off
-            }
-        } else {
-            // No water loop connected yet — use nominal capacity directly
-            self.nominal_capacity
-        };
-        let cap_total_avail = self.nominal_capacity.min(water_capacity).max(0.0);
-
-        // ── Leaving-saturation wet-coil model ─────────────────────────────────
-        // The coil is controlled to the leaving-air dry-bulb setpoint. A real
-        // chilled-water coil that is condensing leaves the air at (or very near)
-        // saturation at the leaving temperature: the quasi-analytical ASHRAE 140
-        // §11 solution reports RHcco = 100% for every wet case (AE204/206/226)
-        // and RHcco < 50% (entering humidity unchanged) for every dry case.
-        //
-        // So the leaving humidity ratio is the smaller of the entering ratio and
-        // the saturation ratio at the leaving temperature:
-        //   w_out = min(w_in, w_sat(T_leaving))
-        // When w_in ≤ w_sat the coil runs dry (w unchanged, latent = 0); when
-        // w_in > w_sat it condenses moisture down to saturation (wet, latent > 0).
-        // The air enthalpy drop then equals the total water heat gain, so the air
-        // and water energy balances close (fixes CHW-1 / GitHub #69, which left
-        // the coil billing the water for q_total while never dehumidifying).
-        //
-        // Reference: ASHRAE 140-2023 §11 quasi-analytical solution; EnergyPlus
-        // "Coil:Cooling:Water" detailed model leaves wet-coil air at saturation.
-        let p_b = inlet.state.p_b;
-        let t_out_target = self.outlet_temp_setpoint;
-        let (q_sens_set, q_total_set, w_out_set) = if inlet.state.t_db - t_out_target > 1.0e-6 {
-            let w_sat_out = psych::w_fn_tdb_rh_pb(t_out_target, 1.0, p_b);
-            let w_out = inlet.state.w.min(w_sat_out); // condense to saturation when wet
-            let q_sens = inlet.mass_flow * cp_air * (inlet.state.t_db - t_out_target);
-            let h_in = psych::h_fn_tdb_w(inlet.state.t_db, inlet.state.w);
-            let h_out = psych::h_fn_tdb_w(t_out_target, w_out);
-            let q_tot = inlet.mass_flow * (h_in - h_out);
-            (q_sens.max(0.0), q_tot.max(q_sens).max(0.0), w_out)
-        } else {
-            // Setpoint at/above entering temp — no cooling.
-            (0.0, 0.0, inlet.state.w)
-        };
-
-        // Part-load ratio: scale back when the available capacity can't meet the
-        // total load required to reach the setpoint. Scaling q_total and
-        // q_sensible together keeps the air and water energy balanced.
-        let plr = if q_total_set > 1.0e-6 {
-            (cap_total_avail / q_total_set).min(1.0)
-        } else {
-            0.0
-        };
-
-        let q_sensible = q_sens_set * plr;
-        let q_total = q_total_set * plr;
-        // Interpolate the leaving humidity by PLR (time-averaged): at PLR=1 the
-        // coil reaches w_out_set; at PLR<1 less moisture is removed.
-        let outlet_w = (inlet.state.w - plr * (inlet.state.w - w_out_set)).max(1.0e-5);
-        let outlet_t = inlet.state.t_db - q_sensible / (inlet.mass_flow * cp_air);
-
-        self.cooling_rate = q_total;
-        self.sensible_cooling_rate = q_sensible;
-
-        // Calculate water outlet temperature (water gets warmer by q_total)
-        if let Some(ref wi) = self.water_inlet {
-            if wi.state.mass_flow > 0.0 {
-                let water_outlet_temp =
-                    wi.state.temp + q_total / (wi.state.mass_flow * wi.state.cp);
-                self.water_outlet_state = Some(WaterPort::new(FluidState::water(
-                    water_outlet_temp,
+        let result = match (self.water_ua.as_ref(), self.water_inlet.as_ref()) {
+            (Some(ua), Some(wi)) => {
+                let (r, flow) = ua.control(
+                    self.outlet_temp_setpoint,
+                    inlet.mass_flow,
+                    &inlet.state,
                     wi.state.mass_flow,
-                )));
+                    wi.state.temp,
+                );
+                let t_out = if flow > 0.0 {
+                    wi.state.temp + r.q_total / (flow * psych::water_cp(wi.state.temp))
+                } else {
+                    wi.state.temp
+                };
+                self.water_outlet_state = Some(WaterPort::new(FluidState::water(t_out, flow)));
+                r
             }
-        }
+            _ => self.ideal(inlet, cp_air),
+        };
 
+        self.cooling_rate = result.q_total;
+        self.sensible_cooling_rate = result.q_sensible;
         AirPort::new(
-            psych::MoistAirState::new(outlet_t, outlet_w, p_b),
+            psych::MoistAirState::new(result.t_air_out, result.w_air_out, inlet.state.p_b),
             inlet.mass_flow,
         )
     }
@@ -239,6 +214,23 @@ impl AirComponent for CoolingCoilCHW {
 
     fn water_outlet(&self) -> Option<WaterPort> {
         self.water_outlet_state
+    }
+
+    fn size_water_side(&mut self, design: &WaterCoilDesign) -> Option<String> {
+        let d = self.cooling_design(design);
+        let ua = CoolingUa::size(&d);
+        self.water_ua = Some(ua);
+        (!ua.reaches_design && d.q_total > 0.0).then(|| {
+            format!(
+                "Chilled-water coil '{}': {:.0} W cannot be reached cooling {:.3} kg/s of air \
+                 from {:.1} °C on {:.1} °C water; the coil delivers less than its capacity",
+                self.name, d.q_total, d.air_flow, d.t_air_in, d.t_water_in
+            )
+        })
+    }
+
+    fn design_water_flow(&self) -> Option<f64> {
+        self.water_ua.map(|ua| ua.water_flow_design)
     }
 
     fn design_air_flow_rate(&self) -> Option<f64> {
@@ -281,12 +273,15 @@ impl AirComponent for CoolingCoilCHW {
             "latent_load",
             (self.cooling_rate - self.sensible_cooling_rate).max(0.0),
         );
-        if let Some(ref wi) = self.water_inlet {
-            out("water_inlet_temperature", wi.state.temp);
-            out("water_mass_flow", wi.state.mass_flow);
-        }
-        if let Some(ref wo) = self.water_outlet_state {
-            out("water_outlet_temperature", wo.state.temp);
+        if self.water_ua.is_some() {
+            if let Some(ref wi) = self.water_inlet {
+                out("water_inlet_temperature", wi.state.temp);
+            }
+            let flow = self.water_outlet_state.map_or(0.0, |w| w.state.mass_flow);
+            out("water_mass_flow", flow);
+            if let Some(ref wo) = self.water_outlet_state {
+                out("water_outlet_temperature", wo.state.temp);
+            }
         }
     }
 }
@@ -297,6 +292,8 @@ mod tests {
     use approx::assert_relative_eq;
     use openbse_core::types::{DayType, TimeStep};
     use openbse_psychrometrics::MoistAirState;
+
+    const P: f64 = 101325.0;
 
     fn make_ctx() -> SimulationContext {
         SimulationContext {
@@ -309,165 +306,127 @@ mod tests {
                 sim_time_s: 0.0,
                 dt: 3600.0,
             },
-            outdoor_air: MoistAirState::from_tdb_rh(35.0, 0.4, 101325.0),
+            outdoor_air: MoistAirState::from_tdb_rh(35.0, 0.4, P),
             day_type: DayType::WeatherDay,
             is_sizing: false,
             sizing_internal_gains: SizingInternalGains::Full,
         }
     }
 
-    #[test]
-    fn test_chw_coil_cools_to_setpoint() {
-        let mut coil = CoolingCoilCHW::new(
-            "Test CHW Coil",
-            50000.0, // 50 kW capacity
-            0.8,     // SHR
-            13.0,    // setpoint °C
-            0.002,   // water flow m³/s
-            6.7,     // CHW supply temp
-            12.2,    // CHW return temp
-        );
-        let inlet_state = MoistAirState::from_tdb_rh(25.0, 0.5, 101325.0);
-        let inlet = AirPort::new(inlet_state, 1.0);
-        let ctx = make_ctx();
+    /// A coil sized for 1 kg/s from 26 °C / 50% RH to 13 °C on a 6.7 °C,
+    /// 5.6 K loop, through the path the plant loop uses.
+    fn plant_coil(setpoint: f64) -> (CoolingCoilCHW, AirPort, f64) {
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(26.0, 0.5, P), 1.0);
+        let q = psych::h_fn_tdb_w(26.0, inlet.state.w) - psych::h_fn_tdb_w(13.0, 0.0085);
+        let mut coil = CoolingCoilCHW::new("CHW", q, setpoint);
+        let design = WaterCoilDesign {
+            t_water_in: 6.7,
+            delta_t: 5.6,
+            air_flow: Some(1.0),
+            air_in: Some((26.0, inlet.state.w)),
+            p_b: P,
+        };
+        assert!(coil.size_water_side(&design).is_none());
+        let m_w = coil.design_water_flow().unwrap();
+        coil.set_water_inlet(&WaterPort::new(FluidState::water(6.7, m_w)));
+        (coil, inlet, m_w)
+    }
 
-        let outlet = coil.simulate_air(&inlet, &ctx);
-
-        // Should cool to setpoint with sufficient capacity
-        assert_relative_eq!(outlet.state.t_db, 13.0, max_relative = 0.01);
-        assert!(coil.cooling_rate > 0.0);
-        assert!(coil.sensible_cooling_rate > 0.0);
+    fn enthalpy_drop(inlet: &AirPort, outlet: &AirPort) -> f64 {
+        inlet.mass_flow
+            * (psych::h_fn_tdb_w(inlet.state.t_db, inlet.state.w)
+                - psych::h_fn_tdb_w(outlet.state.t_db, outlet.state.w))
     }
 
     #[test]
-    fn test_chw_coil_no_heating() {
-        let mut coil = CoolingCoilCHW::new("Test CHW", 50000.0, 0.8, 13.0, 0.002, 6.7, 12.2);
-        let inlet_state = MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0);
-        let inlet = AirPort::new(inlet_state, 1.0);
-        let ctx = make_ctx();
+    fn test_plant_coil_holds_setpoint_short_of_saturation_and_balances() {
+        let (mut coil, inlet, m_w) = plant_coil(14.0);
+        let outlet = coil.simulate_air(&inlet, &make_ctx());
+        assert_relative_eq!(outlet.state.t_db, 14.0, epsilon = 0.01);
+        // A real coil leaves the air short of saturation.
+        let rh = psych::rh_fn_tdb_w_pb(outlet.state.t_db, outlet.state.w, P);
+        assert!(rh < 0.99 && outlet.state.w < inlet.state.w, "RH {rh}");
+        // Air enthalpy drop = water gain = -thermal_output.
+        let wo = coil.water_outlet().unwrap();
+        assert!(wo.state.mass_flow < m_w);
+        let water = wo.state.mass_flow * psych::water_cp(6.7) * (wo.state.temp - 6.7);
+        assert_relative_eq!(enthalpy_drop(&inlet, &outlet), -coil.thermal_output());
+        assert_relative_eq!(water, coil.cooling_rate, max_relative = 1e-9);
+    }
 
-        let outlet = coil.simulate_air(&inlet, &ctx);
+    #[test]
+    fn test_plant_coil_follows_supply_temperature_and_flow() {
+        // A warmer supply or a starved branch reaches the air side.
+        let (mut coil, inlet, m_w) = plant_coil(10.0);
+        let mut q_at = |t, m| {
+            coil.set_water_inlet(&WaterPort::new(FluidState::water(t, m)));
+            coil.simulate_air(&inlet, &make_ctx());
+            coil.cooling_rate
+        };
+        let design = q_at(6.7, m_w);
+        assert!(q_at(10.0, m_w) < 0.8 * design);
+        assert!(q_at(6.7, 0.3 * m_w) < design);
+        assert_eq!(q_at(6.7, 0.0), 0.0);
+    }
 
-        assert_relative_eq!(outlet.state.t_db, 10.0, max_relative = 0.001);
+    #[test]
+    fn test_ideal_coil_without_plant_condenses_to_saturation() {
+        // ASHRAE 140 §11 behaviour, kept for coils with no plant loop.
+        let mut coil = CoolingCoilCHW::new("CHW", 50_000.0, 13.0);
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(27.0, 0.6, P), 1.0);
+        let outlet = coil.simulate_air(&inlet, &make_ctx());
+        assert_relative_eq!(outlet.state.t_db, 13.0, epsilon = 1e-9);
+        assert_relative_eq!(outlet.state.w, psych::w_fn_tdb_rh_pb(13.0, 1.0, P));
+        assert_relative_eq!(enthalpy_drop(&inlet, &outlet), coil.cooling_rate);
+        assert!(coil.water_outlet().is_none());
+    }
+
+    #[test]
+    fn test_ideal_coil_capacity_limited_and_no_heating() {
+        let mut coil = CoolingCoilCHW::new("CHW", 1000.0, 13.0);
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(35.0, 0.4, P), 1.0);
+        let outlet = coil.simulate_air(&inlet, &make_ctx());
+        assert!(outlet.state.t_db > 13.0 && outlet.state.t_db < 35.0);
+        assert_relative_eq!(coil.cooling_rate, 1000.0, max_relative = 1e-3);
+        let cold = AirPort::new(MoistAirState::from_tdb_rh(10.0, 0.5, P), 1.0);
+        let outlet = coil.simulate_air(&cold, &make_ctx());
+        assert_eq!(outlet.state.t_db, 10.0);
         assert_eq!(coil.cooling_rate, 0.0);
     }
 
     #[test]
-    fn test_chw_coil_capacity_limited() {
-        let mut coil = CoolingCoilCHW::new("Small CHW", 1000.0, 0.8, 13.0, 0.002, 6.7, 12.2);
-        let inlet_state = MoistAirState::from_tdb_rh(35.0, 0.4, 101325.0);
-        let inlet = AirPort::new(inlet_state, 1.0);
-        let ctx = make_ctx();
-
-        let outlet = coil.simulate_air(&inlet, &ctx);
-
-        // Should NOT reach setpoint — capacity limited
-        assert!(outlet.state.t_db > 13.0);
-        assert!(outlet.state.t_db < 35.0);
-    }
-
-    #[test]
-    fn test_chw_coil_water_side_limited() {
-        let mut coil = CoolingCoilCHW::new("CHW Water Ltd", 50000.0, 0.8, 13.0, 0.001, 6.7, 12.2);
-
-        // Connect water inlet with very low flow — limits capacity
-        let water_in = WaterPort::new(FluidState::water(6.7, 0.05)); // 0.05 kg/s
-        coil.set_water_inlet(&water_in);
-
-        let inlet_state = MoistAirState::from_tdb_rh(30.0, 0.4, 101325.0);
-        let inlet = AirPort::new(inlet_state, 1.0);
-        let ctx = make_ctx();
-
-        let outlet = coil.simulate_air(&inlet, &ctx);
-
-        // Water capacity: 0.05 kg/s × 4186 J/(kg·K) × (12.2 - 6.7) = 1151 W
-        // Should be capacity-limited by water side
-        assert!(outlet.state.t_db > 13.0); // Can't reach setpoint
-        assert!(coil.cooling_rate <= 1200.0); // Roughly water-limited
-
-        // Water outlet should be warmer than inlet
-        let wo = coil.water_outlet().unwrap();
-        assert!(wo.state.temp > 6.7);
-        assert!(wo.state.temp <= 12.2 + 0.1); // Should not exceed design return temp significantly
-    }
-
-    #[test]
-    fn test_chw_coil_no_water_fallback() {
-        // Without water connected, should use nominal capacity
-        let mut coil = CoolingCoilCHW::new("CHW No Water", 20000.0, 0.8, 13.0, 0.002, 6.7, 12.2);
-        let inlet_state = MoistAirState::from_tdb_rh(25.0, 0.5, 101325.0);
-        let inlet = AirPort::new(inlet_state, 0.5);
-        let ctx = make_ctx();
-
-        let outlet = coil.simulate_air(&inlet, &ctx);
-
-        // Should still cool (using nominal capacity fallback)
-        assert!(outlet.state.t_db < 25.0);
-        assert!(coil.cooling_rate > 0.0);
-    }
-
-    #[test]
-    fn test_chw_coil_dehumidifies_and_balances_air_water() {
-        // Humid entering air: the wet coil must remove moisture, and the water
-        // heat gain must equal the air enthalpy drop (no latent billed without
-        // moisture removal). Regression for CHW-1 (#69).
-        let mut coil = CoolingCoilCHW::new("CHW Wet", 50000.0, 0.75, 13.0, 0.01, 6.7, 12.2);
-        // Plenty of chilled water so capacity isn't the limiter.
-        let water_in = WaterPort::new(FluidState::water(6.7, 2.0));
-        coil.set_water_inlet(&water_in);
-
-        let inlet_state = MoistAirState::from_tdb_rh(27.0, 0.6, 101325.0); // warm & humid
-        let inlet = AirPort::new(inlet_state, 1.0);
-        let ctx = make_ctx();
-
-        let w_in = inlet_state.w;
-        let outlet = coil.simulate_air(&inlet, &ctx);
-
-        // Cooled to setpoint and dehumidified.
-        assert_relative_eq!(outlet.state.t_db, 13.0, max_relative = 0.02);
-        assert!(
-            outlet.state.w < w_in - 1.0e-4,
-            "coil must remove moisture: w_in={w_in}, w_out={}",
-            outlet.state.w
+    fn test_design_overrides_set_the_water_flow() {
+        let mut coil = CoolingCoilCHW::new("CHW", 20_000.0, 13.0);
+        coil.design_water_inlet_temp = Some(5.0);
+        coil.design_water_outlet_temp = Some(12.0);
+        let design = WaterCoilDesign {
+            t_water_in: 7.0,
+            delta_t: 5.0,
+            air_flow: None,
+            air_in: None,
+            p_b: P,
+        };
+        coil.size_water_side(&design);
+        assert_relative_eq!(
+            coil.design_water_flow().unwrap(),
+            20_000.0 / (psych::water_cp(5.0) * 7.0),
+            max_relative = 1e-9
         );
-
-        // Air enthalpy drop == reported total cooling (air/water balance).
-        let h_in = psych::h_fn_tdb_w(inlet_state.t_db, w_in);
-        let h_out = psych::h_fn_tdb_w(outlet.state.t_db, outlet.state.w);
-        let air_drop = inlet.mass_flow * (h_in - h_out);
-        assert_relative_eq!(air_drop, coil.cooling_rate, max_relative = 1e-6);
-
-        // Latent present (total > sensible) and consistent with moisture removed.
-        assert!(coil.cooling_rate > coil.sensible_cooling_rate);
-        const H_FG: f64 = 2_501_000.0;
-        let q_latent_from_w = inlet.mass_flow * (w_in - outlet.state.w) * H_FG;
-        let q_latent_reported = coil.cooling_rate - coil.sensible_cooling_rate;
-        // Within a few percent (enthalpy basis vs h_fg approximation).
-        assert!((q_latent_from_w - q_latent_reported).abs() / q_latent_reported < 0.05);
-
-        // Water outlet warmed by exactly q_total.
-        let wo = coil.water_outlet().unwrap();
-        let q_water = 2.0 * water_in.state.cp * (wo.state.temp - 6.7);
-        assert_relative_eq!(q_water, coil.cooling_rate, max_relative = 1e-6);
+        coil.design_water_flow_rate = 0.001;
+        coil.size_water_side(&design);
+        assert_relative_eq!(
+            coil.design_water_flow().unwrap(),
+            0.001 * psych::water_rho(5.0),
+            max_relative = 1e-9
+        );
     }
 
     #[test]
-    fn test_chw_coil_zero_power() {
-        let coil = CoolingCoilCHW::new("CHW", 50000.0, 0.8, 13.0, 0.002, 6.7, 12.2);
-        // CHW coils consume no electricity
+    fn test_chw_coil_zero_flow_and_power() {
+        let mut coil = CoolingCoilCHW::new("CHW", 50_000.0, 13.0);
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(25.0, 0.5, P), 0.0);
+        coil.simulate_air(&inlet, &make_ctx());
+        assert_eq!(coil.cooling_rate, 0.0);
         assert_eq!(coil.power_consumption(), 0.0);
-    }
-
-    #[test]
-    fn test_chw_coil_zero_flow() {
-        let mut coil = CoolingCoilCHW::new("CHW", 50000.0, 0.8, 13.0, 0.002, 6.7, 12.2);
-        let inlet_state = MoistAirState::from_tdb_rh(25.0, 0.5, 101325.0);
-        let inlet = AirPort::new(inlet_state, 0.0); // zero airflow
-        let ctx = make_ctx();
-
-        let outlet = coil.simulate_air(&inlet, &ctx);
-
-        assert_eq!(coil.cooling_rate, 0.0);
-        assert_relative_eq!(outlet.state.t_db, 25.0, max_relative = 0.001);
     }
 }

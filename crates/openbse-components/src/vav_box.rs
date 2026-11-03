@@ -19,6 +19,7 @@
 //!
 //! Reference: EnergyPlus Engineering Reference, "AirTerminal:SingleDuct:VAV:Reheat"
 
+use crate::water_coil::{HeatingDesign, HeatingUa};
 use openbse_core::ports::*;
 use openbse_psychrometrics::{self as psych, FluidState};
 use serde::{Deserialize, Serialize};
@@ -69,13 +70,11 @@ pub struct VAVBox {
     #[serde(skip)]
     pub allocated_flow: Option<f64>,
 
-    // ─── Hot water reheat parameters ─────────────────────────────────────
-    /// Design hot water flow rate [m³/s] (for HotWater reheat)
-    pub design_hw_flow_rate: f64,
-    /// Design hot water inlet temperature [°C] (typically 82°C / 180°F)
-    pub design_hw_inlet_temp: f64,
-    /// Design hot water outlet temperature [°C] (typically 71°C / 160°F)
-    pub design_hw_outlet_temp: f64,
+    /// Water side of a hot-water reheat coil on a plant loop, once sized
+    /// (E+ `Coil:Heating:Water`, see [`crate::water_coil`]). Without one the
+    /// coil is ideal, limited by `reheat_capacity`.
+    #[serde(default)]
+    pub water_ua: Option<HeatingUa>,
 
     // ─── Control signal ──────────────────────────────────────────────────
     /// Zone control signal [-1.0 to +1.0]. Positive = heating demand fraction,
@@ -137,9 +136,7 @@ impl VAVBox {
             max_reheat_fraction: 0.5,
             max_reheat_fraction_autosize: false,
             allocated_flow: None,
-            design_hw_flow_rate: 0.0,
-            design_hw_inlet_temp: 82.0,
-            design_hw_outlet_temp: 71.0,
+            water_ua: None,
             control_signal: 0.0,
             damper_position: 0.0,
             primary_air_flow: 0.0,
@@ -148,19 +145,6 @@ impl VAVBox {
             water_inlet: None,
             water_outlet_state: None,
         }
-    }
-
-    /// Set hot water reheat design parameters.
-    pub fn with_hw_reheat_params(
-        mut self,
-        water_flow_rate: f64,
-        water_inlet_temp: f64,
-        water_outlet_temp: f64,
-    ) -> Self {
-        self.design_hw_flow_rate = water_flow_rate;
-        self.design_hw_inlet_temp = water_inlet_temp;
-        self.design_hw_outlet_temp = water_outlet_temp;
-        self
     }
 
     /// Set maximum reheat air outlet temperature [°C].
@@ -258,41 +242,36 @@ impl AirComponent for VAVBox {
                     self.reheat_power = self.reheat_rate; // COP = 1.0
                 }
                 ReheatType::HotWater => {
-                    // Water-side available capacity
-                    let water_cap = if let Some(ref wi) = self.water_inlet {
-                        if wi.state.mass_flow > 0.0 {
-                            wi.state.mass_flow
-                                * wi.state.cp
-                                * (wi.state.temp - self.design_hw_outlet_temp).max(0.0)
-                        } else {
-                            0.0
-                        }
-                    } else {
-                        // No water loop connected — use nominal capacity
-                        self.reheat_capacity
-                    };
-
-                    let q_actual = q_heating_demand
-                        .min(self.reheat_capacity)
-                        .min(water_cap)
+                    // The valve holds the reheat the zone asks for, no hotter
+                    // than the reheat limit (E+ `CalcVAVReheat` with a water coil).
+                    let q_wanted = q_heating_demand
+                        .min(actual_flow * cp_air * (self.max_reheat_temp - inlet.state.t_db))
                         .max(0.0);
-                    let dt = q_actual / (actual_flow * cp_air).max(0.001);
-                    outlet_t = (inlet.state.t_db + dt).min(self.max_reheat_temp);
-                    let q_delivered = actual_flow * cp_air * (outlet_t - inlet.state.t_db);
-                    self.reheat_rate = q_delivered.max(0.0);
-                    self.reheat_power = 0.0; // HW coils don't consume electricity
-
-                    // Water outlet temperature
-                    if let Some(ref wi) = self.water_inlet {
-                        if wi.state.mass_flow > 0.0 {
-                            let water_out_t = wi.state.temp
-                                - self.reheat_rate / (wi.state.mass_flow * wi.state.cp);
-                            self.water_outlet_state = Some(WaterPort::new(FluidState::water(
-                                water_out_t,
+                    let q_actual = match (self.water_ua.as_ref(), self.water_inlet.as_ref()) {
+                        (Some(ua), Some(wi)) => {
+                            let (q, flow) = ua.control(
+                                q_wanted,
+                                actual_flow,
+                                cp_air,
+                                inlet.state.t_db,
                                 wi.state.mass_flow,
-                            )));
+                                wi.state.temp,
+                            );
+                            let t_out = if flow > 0.0 {
+                                wi.state.temp - q / (flow * psych::water_cp(wi.state.temp))
+                            } else {
+                                wi.state.temp
+                            };
+                            self.water_outlet_state =
+                                Some(WaterPort::new(FluidState::water(t_out, flow)));
+                            q
                         }
-                    }
+                        // No plant loop: an ideal coil.
+                        _ => q_wanted.min(self.reheat_capacity),
+                    };
+                    outlet_t = inlet.state.t_db + q_actual / (actual_flow * cp_air).max(0.001);
+                    self.reheat_rate = q_actual;
+                    self.reheat_power = 0.0; // HW coils don't consume electricity
                 }
                 ReheatType::None => {} // already handled above
             }
@@ -314,6 +293,46 @@ impl AirComponent for VAVBox {
 
     fn water_outlet(&self) -> Option<WaterPort> {
         self.water_outlet_state
+    }
+
+    fn size_water_side(&mut self, design: &WaterCoilDesign) -> Option<String> {
+        if !matches!(self.reheat_type, ReheatType::HotWater) {
+            return None;
+        }
+        // The most reheat the box ever asks for: its capacity, or its heating
+        // maximum flow warmed to the reheat limit, whichever is less. Its air
+        // is the flow that carries that load at the limit, or the minimum.
+        let cp_air = psych::cp_air_fn_w(0.008);
+        let t_air_in = design.air_in.map_or(12.8, |a| a.0);
+        let dt_max = (self.max_reheat_temp - t_air_in).max(0.1);
+        let min_flow = self.max_air_flow * self.min_flow_fraction;
+        let heat_max_flow = self.reheat_primary_air_flow().unwrap_or(min_flow);
+        let cap = self.reheat_capacity.max(0.0);
+        let air_flow = (cap / (cp_air * dt_max))
+            .clamp(min_flow, heat_max_flow.max(min_flow))
+            .max(1.0e-6);
+        let q = cap.min(air_flow * cp_air * dt_max);
+        let water_flow = q / (psych::water_cp(design.t_water_in) * design.delta_t.max(0.1));
+        let d = HeatingDesign {
+            q,
+            air_flow,
+            t_air_in,
+            water_flow,
+            t_water_in: design.t_water_in,
+        };
+        let ua = HeatingUa::size(&d, cp_air);
+        self.water_ua = Some(ua);
+        (!ua.reaches_design && q > 0.0).then(|| {
+            format!(
+                "VAV box '{}': {:.0} W of reheat cannot be reached heating {:.3} kg/s of air \
+                 from {:.1} °C on {:.1} °C water; the coil delivers less than asked",
+                self.name, q, air_flow, t_air_in, design.t_water_in
+            )
+        })
+    }
+
+    fn design_water_flow(&self) -> Option<f64> {
+        self.water_ua.map(|ua| ua.water_flow_design)
     }
 
     fn design_air_flow_rate(&self) -> Option<f64> {
@@ -424,6 +443,10 @@ impl AirComponent for VAVBox {
 
     fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
         out("sensible_load", self.reheat_rate);
+        if self.water_ua.is_some() {
+            let flow = self.water_outlet_state.map_or(0.0, |w| w.state.mass_flow);
+            out("water_mass_flow", flow);
+        }
     }
 }
 
@@ -597,28 +620,47 @@ mod tests {
         }
     }
 
+    fn hw_design(t_water: f64) -> WaterCoilDesign {
+        WaterCoilDesign {
+            t_water_in: t_water,
+            delta_t: 11.0,
+            air_flow: None,
+            air_in: Some((13.0, 0.008)),
+            p_b: 101325.0,
+        }
+    }
+
     #[test]
     fn test_vav_heating_mode_with_hw_reheat() {
-        let mut vav = VAVBox::new("Zone1 VAV", "Zone1", 1.0, 0.3, ReheatType::HotWater, 5000.0)
-            .with_hw_reheat_params(0.001, 82.0, 71.0);
-
-        // Connect hot water
-        let hw = WaterPort::new(FluidState::water(82.0, 0.1));
-        vav.set_water_inlet(&hw);
+        let mut vav = VAVBox::new("Zone1 VAV", "Zone1", 1.0, 0.3, ReheatType::HotWater, 5000.0);
+        assert!(vav.size_water_side(&hw_design(82.0)).is_none());
+        let m_w = vav.design_water_flow().unwrap();
+        vav.set_water_inlet(&WaterPort::new(FluidState::water(82.0, m_w)));
 
         let inlet = make_supply_air(13.0, 2.0);
-        let ctx = make_ctx();
-
         vav.control_signal = 0.6; // 60% of reheat capacity
-        let outlet = vav.simulate_air(&inlet, &ctx);
+        let outlet = vav.simulate_air(&inlet, &make_ctx());
 
-        assert!(outlet.state.t_db > 13.0);
-        assert!(vav.reheat_rate > 0.0);
+        // The coil meets the demand on part of its water, and the air's gain
+        // is the water's loss.
+        assert_relative_eq!(vav.reheat_rate, 3000.0, max_relative = 1e-9);
         assert_eq!(vav.reheat_power, 0.0); // HW reheat = no electricity
-
-        // Water outlet should be cooler than inlet
+        let cp = psych::cp_air_fn_w(inlet.state.w);
+        let air = outlet.mass_flow * cp * (outlet.state.t_db - 13.0);
+        assert_relative_eq!(air, vav.reheat_rate, max_relative = 1e-6);
         let wo = vav.water_outlet().unwrap();
-        assert!(wo.state.temp < 82.0);
+        assert!(wo.state.mass_flow < m_w);
+        let water = wo.state.mass_flow * psych::water_cp(82.0) * (82.0 - wo.state.temp);
+        assert_relative_eq!(water, vav.reheat_rate, max_relative = 1e-9);
+
+        // The same box on a 45 °C loop falls short of its full capacity.
+        let mut cool_loop = vav.clone();
+        cool_loop.set_water_inlet(&WaterPort::new(FluidState::water(45.0, m_w)));
+        cool_loop.control_signal = 1.0;
+        cool_loop.simulate_air(&inlet, &make_ctx());
+        vav.control_signal = 1.0;
+        vav.simulate_air(&inlet, &make_ctx());
+        assert!(cool_loop.reheat_rate < 0.8 * vav.reheat_rate);
     }
 
     #[test]

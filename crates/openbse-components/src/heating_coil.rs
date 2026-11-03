@@ -1,17 +1,16 @@
 //! Heating coil component models.
 //!
-//! Supports both simple electric and hot water coils.
-//! Physics match EnergyPlus HeatingCoils.cc.
+//! Electric, gas and hot-water coils. Electric and gas coils match
+//! EnergyPlus `HeatingCoils.cc`: Q = min(load, capacity), with the input
+//! efficiency.
 //!
-//! Hot water coil: Q = m_air * Cp * (T_out - T_in), limited by water-side capacity
-//! Electric coil: Q = Capacity * PLR
-//!
-//! Optional UA-based (NTU-effectiveness) model for hot water coils matches
-//! EnergyPlus `Coil:Heating:Water` — cross-flow heat exchanger with both
-//! streams unmixed.
-//!
-//! Reference: EnergyPlus Engineering Reference, Chapter "Coils"
+//! A hot-water coil on a plant loop follows E+ `Coil:Heating:Water`
+//! (`WaterCoils.cc`): a cross-flow ε-NTU coil sized so it delivers its
+//! capacity at the design point, its valve holding the outlet setpoint on the
+//! loop's water (see [`crate::water_coil`]). Without a plant loop (allowed only
+//! in a model with no plant loops) it is an ideal coil limited by capacity.
 
+use crate::water_coil::{HeatingDesign, HeatingUa};
 use openbse_core::ports::*;
 use openbse_psychrometrics::{self as psych, FluidState};
 use serde::{Deserialize, Serialize};
@@ -31,62 +30,26 @@ pub enum HeatingCoilType {
     Gas,
 }
 
-/// Rated conditions for the UA-based (NTU-effectiveness) hot water coil model.
-///
-/// These define the single operating point from which UA_design is derived.
-/// Defaults match EnergyPlus `Coil:Heating:Water` defaults.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct UaModelConfig {
-    /// Rated water inlet temperature [°C] (default 82.2 / 180°F)
-    pub rated_water_inlet_temp: f64,
-    /// Rated water outlet temperature [°C] (default 71.1 / 160°F)
-    pub rated_water_outlet_temp: f64,
-    /// Rated air inlet temperature [°C] (default 16.6 / 61.9°F)
-    pub rated_air_inlet_temp: f64,
-    /// Rated air outlet temperature [°C] (default 32.2 / 90°F)
-    pub rated_air_outlet_temp: f64,
-    /// Overall heat transfer coefficient × area [W/K], computed during init
-    pub ua_design: f64,
+/// Rated conditions of a hot-water coil (E+ `Coil:Heating:Water` "Nominal
+/// Capacity" input method). Any value left `None` comes from the coil's
+/// design point: the loop's design supply temperature and temperature
+/// difference, and the air its sizing found.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct HotWaterRating {
+    /// Rated water inlet temperature [°C]
+    pub water_inlet_temp: Option<f64>,
+    /// Rated water outlet temperature [°C]
+    pub water_outlet_temp: Option<f64>,
+    /// Rated air inlet temperature [°C]
+    pub air_inlet_temp: Option<f64>,
+    /// Rated air outlet temperature [°C]
+    pub air_outlet_temp: Option<f64>,
 }
 
-impl Default for UaModelConfig {
-    fn default() -> Self {
-        Self {
-            rated_water_inlet_temp: 82.2,
-            rated_water_outlet_temp: 71.1,
-            rated_air_inlet_temp: 16.6,
-            rated_air_outlet_temp: 32.2,
-            ua_design: 0.0, // computed from rated capacity
-        }
-    }
-}
-
-impl UaModelConfig {
-    /// Compute UA_design from the rated capacity and rated temperature conditions.
-    ///
-    /// Uses the log-mean temperature difference (LMTD) for a counterflow
-    /// arrangement: UA = Q_rated / LMTD.
-    pub fn compute_ua(&mut self, rated_capacity: f64) {
-        // ΔT at hot end: water_in vs air_out
-        let dt1 = self.rated_water_inlet_temp - self.rated_air_outlet_temp;
-        // ΔT at cold end: water_out vs air_in
-        let dt2 = self.rated_water_outlet_temp - self.rated_air_inlet_temp;
-
-        if dt1 <= 0.0 || dt2 <= 0.0 || rated_capacity <= 0.0 {
-            self.ua_design = 0.0;
-            return;
-        }
-
-        let lmtd = if (dt1 - dt2).abs() < 1e-6 {
-            // Degenerate case: both deltas equal → LMTD = ΔT
-            dt1
-        } else {
-            (dt1 - dt2) / (dt1 / dt2).ln()
-        };
-
-        self.ua_design = rated_capacity / lmtd;
-    }
-}
+/// E+ `Coil:Heating:Water` rated air temperatures, used when neither the
+/// rating nor sizing gives the coil's air.
+const RATED_AIR_INLET: f64 = 16.6;
+const RATED_AIR_OUTLET: f64 = 32.2;
 
 /// Heating coil component.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,23 +60,18 @@ pub struct HeatingCoil {
     pub submeter: String,
     /// Nominal heating capacity [W]. Use AUTOSIZE for autosizing.
     pub nominal_capacity: f64,
-    /// Efficiency [0-1] (electric coils only, always 1.0 for hot water)
+    /// Efficiency [0-1]: burner efficiency of a gas coil, conversion
+    /// efficiency of an electric coil; 1.0 for hot water.
     pub efficiency: f64,
     /// Desired outlet air temperature setpoint [°C]
     pub outlet_temp_setpoint: f64,
 
-    // Hot water coil parameters
-    /// Design water flow rate [m³/s]
-    pub design_water_flow_rate: f64,
-    /// Design water inlet temperature [°C]
-    pub design_water_inlet_temp: f64,
-    /// Design water outlet temperature [°C]
-    pub design_water_outlet_temp: f64,
-
-    /// Optional UA-based (NTU-effectiveness) model config.
-    /// When `Some`, the hot water coil uses the cross-flow effectiveness
-    /// method instead of the simple capacity-based model.
-    pub ua_model: Option<UaModelConfig>,
+    /// Rated conditions of a hot-water coil.
+    #[serde(default)]
+    pub rating: HotWaterRating,
+    /// Water side of a hot-water coil on a plant loop, once sized.
+    #[serde(default)]
+    pub water_ua: Option<HeatingUa>,
 
     /// On-cycle parasitic electric load [W] of a gas coil (draft / inducer
     /// fan). Drawn in proportion to burner firing; its heat leaves with the
@@ -133,25 +91,27 @@ pub struct HeatingCoil {
 }
 
 impl HeatingCoil {
-    /// Create a simple electric heating coil.
-    pub fn electric(name: &str, capacity: f64, setpoint: f64) -> Self {
+    fn new(name: &str, coil_type: HeatingCoilType, capacity: f64, setpoint: f64) -> Self {
         Self {
             name: name.to_string(),
-            coil_type: HeatingCoilType::Electric,
+            coil_type,
             submeter: "General".to_string(),
             nominal_capacity: capacity,
             efficiency: 1.0,
             outlet_temp_setpoint: setpoint,
-            design_water_flow_rate: 0.0,
-            design_water_inlet_temp: 0.0,
-            design_water_outlet_temp: 0.0,
-            ua_model: None,
+            rating: HotWaterRating::default(),
+            water_ua: None,
             parasitic_electric_load: 0.0,
             heating_rate: 0.0,
             energy_consumption: 0.0,
             water_inlet: None,
             water_outlet: None,
         }
+    }
+
+    /// Create an electric resistance heating coil.
+    pub fn electric(name: &str, capacity: f64, setpoint: f64) -> Self {
+        Self::new(name, HeatingCoilType::Electric, capacity, setpoint)
     }
 
     /// Create a gas furnace heating coil.
@@ -160,222 +120,81 @@ impl HeatingCoil {
     /// The coil delivers capacity to the air, but consumes capacity/efficiency
     /// worth of fuel energy.
     pub fn gas(name: &str, capacity: f64, setpoint: f64, burner_efficiency: f64) -> Self {
-        Self {
-            name: name.to_string(),
-            coil_type: HeatingCoilType::Gas,
-            submeter: "General".to_string(),
-            nominal_capacity: capacity,
-            efficiency: burner_efficiency,
-            outlet_temp_setpoint: setpoint,
-            design_water_flow_rate: 0.0,
-            design_water_inlet_temp: 0.0,
-            design_water_outlet_temp: 0.0,
-            ua_model: None,
-            parasitic_electric_load: 0.0,
-            heating_rate: 0.0,
-            energy_consumption: 0.0,
-            water_inlet: None,
-            water_outlet: None,
-        }
+        let mut coil = Self::new(name, HeatingCoilType::Gas, capacity, setpoint);
+        coil.efficiency = burner_efficiency;
+        coil
     }
 
-    /// Create a hot water heating coil (simple capacity-based model).
-    pub fn hot_water(
-        name: &str,
-        capacity: f64,
-        setpoint: f64,
-        water_flow_rate: f64,
-        water_inlet_temp: f64,
-        water_outlet_temp: f64,
-    ) -> Self {
-        Self {
-            name: name.to_string(),
-            coil_type: HeatingCoilType::HotWater,
-            submeter: "General".to_string(),
-            nominal_capacity: capacity,
-            efficiency: 1.0,
-            outlet_temp_setpoint: setpoint,
-            design_water_flow_rate: water_flow_rate,
-            design_water_inlet_temp: water_inlet_temp,
-            design_water_outlet_temp: water_outlet_temp,
-            ua_model: None,
-            parasitic_electric_load: 0.0,
-            heating_rate: 0.0,
-            energy_consumption: 0.0,
-            water_inlet: None,
-            water_outlet: None,
-        }
+    /// Create a hot-water heating coil. It runs as an ideal coil until
+    /// [`AirComponent::size_water_side`] connects it to its plant loop.
+    pub fn hot_water(name: &str, capacity: f64, setpoint: f64) -> Self {
+        Self::new(name, HeatingCoilType::HotWater, capacity, setpoint)
     }
 
-    /// Create a hot water heating coil with the UA-based NTU-effectiveness model.
-    ///
-    /// `ua_cfg` contains the rated conditions; UA_design is computed from
-    /// `capacity` and the rated temperatures during construction.
-    pub fn hot_water_ua(
-        name: &str,
-        capacity: f64,
-        setpoint: f64,
-        water_flow_rate: f64,
-        water_inlet_temp: f64,
-        water_outlet_temp: f64,
-        mut ua_cfg: UaModelConfig,
-    ) -> Self {
-        ua_cfg.compute_ua(capacity);
-        Self {
-            name: name.to_string(),
-            coil_type: HeatingCoilType::HotWater,
-            submeter: "General".to_string(),
-            nominal_capacity: capacity,
-            efficiency: 1.0,
-            outlet_temp_setpoint: setpoint,
-            design_water_flow_rate: water_flow_rate,
-            design_water_inlet_temp: water_inlet_temp,
-            design_water_outlet_temp: water_outlet_temp,
-            ua_model: Some(ua_cfg),
-            parasitic_electric_load: 0.0,
-            heating_rate: 0.0,
-            energy_consumption: 0.0,
-            water_inlet: None,
-            water_outlet: None,
-        }
+    /// Size the water side from a design point (see [`HeatingUa::size`]).
+    pub fn with_water_design(mut self, design: &HeatingDesign) -> Self {
+        self.water_ua = Some(HeatingUa::size(design, psych::cp_air_fn_w(0.008)));
+        self
     }
 
-    // ─── Hot water coil: simple capacity-based model ─────────────────
-
-    fn simulate_hot_water_simple(
-        &mut self,
-        inlet: &AirPort,
-        cp_air: f64,
-        q_required: f64,
-    ) -> AirPort {
-        // Calculate water-side available capacity.
-        //
-        // When the hot water plant loop is coupled (water_inlet is set with
-        // real flow from the HHW boiler loop), capacity is limited by the
-        // water-side heat available. When the plant loop is not yet connected
-        // (water_inlet is None — common in current simulation architecture
-        // where plant loops run independently), fall back to nominal_capacity
-        // so the coil behaves as if the plant loop always delivers adequate
-        // hot water.
-        let water_capacity = if let Some(ref wi) = self.water_inlet {
-            if wi.state.mass_flow > 0.0 {
-                wi.state.mass_flow
-                    * wi.state.cp
-                    * (wi.state.temp - self.design_water_outlet_temp).max(0.0)
-            } else {
-                0.0
-            }
-        } else {
-            self.nominal_capacity
-        };
-
-        let q_actual = q_required.min(self.nominal_capacity).min(water_capacity);
-        let outlet_t = inlet.state.t_db + q_actual / (inlet.mass_flow * cp_air);
-
-        self.heating_rate = q_actual;
+    fn simulate_hot_water(&mut self, inlet: &AirPort, cp_air: f64, q_required: f64) -> AirPort {
         self.energy_consumption = 0.0;
-
-        if let Some(ref wi) = self.water_inlet {
-            if wi.state.mass_flow > 0.0 {
-                let water_outlet_temp =
-                    wi.state.temp - q_actual / (wi.state.mass_flow * wi.state.cp);
-                self.water_outlet = Some(WaterPort::new(FluidState::water(
-                    water_outlet_temp,
+        self.water_outlet = None;
+        let q_actual = match (self.water_ua.as_ref(), self.water_inlet.as_ref()) {
+            (Some(ua), Some(wi)) => {
+                let (q, flow) = ua.control(
+                    q_required,
+                    inlet.mass_flow,
+                    cp_air,
+                    inlet.state.t_db,
                     wi.state.mass_flow,
-                )));
+                    wi.state.temp,
+                );
+                let t_out = if flow > 0.0 {
+                    wi.state.temp - q / (flow * psych::water_cp(wi.state.temp))
+                } else {
+                    wi.state.temp
+                };
+                self.water_outlet = Some(WaterPort::new(FluidState::water(t_out, flow)));
+                q
             }
-        }
-
+            // No plant loop: an ideal coil.
+            _ => q_required.min(self.nominal_capacity),
+        };
+        self.heating_rate = q_actual;
+        let outlet_t = inlet.state.t_db + q_actual / (inlet.mass_flow * cp_air);
         AirPort::new(
             psych::MoistAirState::new(outlet_t, inlet.state.w, inlet.state.p_b),
             inlet.mass_flow,
         )
     }
 
-    // ─── Hot water coil: UA-based NTU-effectiveness model ────────────
-
-    fn simulate_hot_water_ua(&mut self, inlet: &AirPort, cp_air: f64, q_required: f64) -> AirPort {
-        let ua_cfg = self.ua_model.as_ref().unwrap();
-        let ua = ua_cfg.ua_design;
-
-        // If UA was never computed or is zero, fall back to simple model
-        if ua <= 0.0 {
-            return self.simulate_hot_water_simple(inlet, cp_air, q_required);
-        }
-
-        // When no water loop is connected, use the simple capacity model
-        // (plant loop energy is tracked via boiler fuel consumption)
-        let wi = match self.water_inlet {
-            Some(ref wi) if wi.state.mass_flow > 1e-10 => *wi,
-            Some(_) => {
-                // Water present but zero/negligible flow — coil is off
-                self.heating_rate = 0.0;
-                self.energy_consumption = 0.0;
-                return *inlet;
-            }
-            None => {
-                // No water loop connected — fall back to simple model
-                // so the coil still functions before plant-air coupling
-                return self.simulate_hot_water_simple(inlet, cp_air, q_required);
-            }
+    /// The design point of a hot-water coil of capacity `q`: the rating where
+    /// given, else the loop's design water and the air sizing found.
+    fn heating_design(&self, q: f64, d: &WaterCoilDesign) -> HeatingDesign {
+        let cp_air = psych::cp_air_fn_w(0.008);
+        let t_water_in = self.rating.water_inlet_temp.unwrap_or(d.t_water_in);
+        let t_water_out = self
+            .rating
+            .water_outlet_temp
+            .unwrap_or(t_water_in - d.delta_t);
+        let t_air_in = self
+            .rating
+            .air_inlet_temp
+            .or(d.air_in.map(|a| a.0))
+            .unwrap_or(RATED_AIR_INLET);
+        let air_flow = match (self.rating.air_outlet_temp, d.air_flow) {
+            (Some(t_out), _) => q / (cp_air * (t_out - t_air_in).max(0.1)),
+            (None, Some(m)) if m > 0.0 => m,
+            _ => q / (cp_air * (RATED_AIR_OUTLET - RATED_AIR_INLET)),
         };
-
-        let c_air = inlet.mass_flow * cp_air;
-        let c_water = wi.state.mass_flow * wi.state.cp;
-
-        if c_air <= 0.0 || c_water <= 0.0 {
-            self.heating_rate = 0.0;
-            self.energy_consumption = 0.0;
-            return *inlet;
+        HeatingDesign {
+            q,
+            air_flow,
+            t_air_in,
+            water_flow: q / (psych::water_cp(t_water_in) * (t_water_in - t_water_out).max(0.1)),
+            t_water_in,
         }
-
-        let c_min = c_air.min(c_water);
-        let c_max = c_air.max(c_water);
-        let c_ratio = c_min / c_max;
-
-        let ntu = ua / c_min;
-
-        // Cross-flow effectiveness, both streams unmixed
-        // ε = 1 - exp((NTU^0.78 / C_ratio) * (exp(-C_ratio * NTU^0.22) - 1))
-        let effectiveness = if c_ratio < 1e-6 {
-            // One stream has much larger capacity (C_ratio → 0):
-            // ε = 1 - exp(-NTU)
-            1.0 - (-ntu).exp()
-        } else {
-            let ntu_078 = ntu.powf(0.78);
-            let ntu_022 = ntu.powf(0.22);
-            1.0 - ((ntu_078 / c_ratio) * ((-c_ratio * ntu_022).exp() - 1.0)).exp()
-        };
-
-        let q_max = c_min * (wi.state.temp - inlet.state.t_db);
-        if q_max <= 0.0 {
-            // Water is colder than air — no heating possible
-            self.heating_rate = 0.0;
-            self.energy_consumption = 0.0;
-            return *inlet;
-        }
-
-        let q_hx = effectiveness * q_max;
-
-        // Limit by what's actually required AND by nominal capacity
-        let q_actual = q_hx.min(q_required).min(self.nominal_capacity);
-
-        let outlet_t = inlet.state.t_db + q_actual / (inlet.mass_flow * cp_air);
-
-        self.heating_rate = q_actual;
-        self.energy_consumption = 0.0;
-
-        // Water outlet temperature
-        let water_outlet_temp = wi.state.temp - q_actual / (wi.state.mass_flow * wi.state.cp);
-        self.water_outlet = Some(WaterPort::new(FluidState::water(
-            water_outlet_temp,
-            wi.state.mass_flow,
-        )));
-
-        AirPort::new(
-            psych::MoistAirState::new(outlet_t, inlet.state.w, inlet.state.p_b),
-            inlet.mass_flow,
-        )
     }
 }
 
@@ -442,14 +261,7 @@ impl AirComponent for HeatingCoil {
                     inlet.mass_flow,
                 )
             }
-            HeatingCoilType::HotWater => {
-                // Dispatch to UA-based or simple capacity-based model
-                if self.ua_model.is_some() {
-                    self.simulate_hot_water_ua(inlet, cp_air, q_required)
-                } else {
-                    self.simulate_hot_water_simple(inlet, cp_air, q_required)
-                }
-            }
+            HeatingCoilType::HotWater => self.simulate_hot_water(inlet, cp_air, q_required),
         }
     }
 
@@ -463,6 +275,26 @@ impl AirComponent for HeatingCoil {
 
     fn water_outlet(&self) -> Option<WaterPort> {
         self.water_outlet
+    }
+
+    fn size_water_side(&mut self, design: &WaterCoilDesign) -> Option<String> {
+        if !matches!(self.coil_type, HeatingCoilType::HotWater) {
+            return None;
+        }
+        let d = self.heating_design(self.nominal_capacity.max(0.0), design);
+        let ua = HeatingUa::size(&d, psych::cp_air_fn_w(0.008));
+        self.water_ua = Some(ua);
+        (!ua.reaches_design && d.q > 0.0).then(|| {
+            format!(
+                "Hot-water coil '{}': {:.0} W cannot be reached heating {:.3} kg/s of air \
+                 from {:.1} °C on {:.1} °C water; the coil delivers less than its capacity",
+                self.name, d.q, d.air_flow, d.t_air_in, d.t_water_in
+            )
+        })
+    }
+
+    fn design_water_flow(&self) -> Option<f64> {
+        self.water_ua.map(|ua| ua.water_flow_design)
     }
 
     fn design_air_flow_rate(&self) -> Option<f64> {
@@ -483,10 +315,6 @@ impl AirComponent for HeatingCoil {
 
     fn set_nominal_capacity(&mut self, cap: f64) {
         self.nominal_capacity = cap;
-        // Recompute UA when capacity is set (e.g. after autosizing)
-        if let Some(ref mut ua_cfg) = self.ua_model {
-            ua_cfg.compute_ua(cap);
-        }
     }
 
     fn unsized_fields(&self) -> Vec<&'static str> {
@@ -521,6 +349,13 @@ impl AirComponent for HeatingCoil {
 
     fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
         out("sensible_load", self.heating_rate);
+        if self.water_ua.is_some() {
+            let flow = self.water_outlet.map_or(0.0, |w| w.state.mass_flow);
+            out("water_mass_flow", flow);
+            if let Some(w) = self.water_outlet {
+                out("water_outlet_temperature", w.state.temp);
+            }
+        }
     }
 }
 
@@ -634,277 +469,146 @@ mod tests {
         assert_eq!(part.power_consumption(), 0.0);
     }
 
-    // ─── UA model tests ──────────────────────────────────────────────
+    // ─── Hot-water coil on a plant loop ──────────────────────────────
 
-    #[test]
-    fn test_ua_compute_from_rated_conditions() {
-        let mut cfg = UaModelConfig::default();
-        // Rated capacity: Q = m_air * cp * (T_air_out - T_air_in)
-        // For defaults: ΔT_air = 32.2 - 16.6 = 15.6 °C
-        // ΔT1 = 82.2 - 32.2 = 50.0, ΔT2 = 71.1 - 16.6 = 54.5
-        // LMTD = (50 - 54.5) / ln(50/54.5) ≈ 52.22
-        let rated_capacity = 10000.0; // 10 kW
-        cfg.compute_ua(rated_capacity);
-
-        let dt1: f64 = 82.2 - 32.2; // 50.0
-        let dt2: f64 = 71.1 - 16.6; // 54.5
-        let lmtd = (dt1 - dt2) / (dt1 / dt2).ln();
-        let expected_ua = rated_capacity / lmtd;
-
-        assert_relative_eq!(cfg.ua_design, expected_ua, max_relative = 1e-6);
-        assert!(cfg.ua_design > 0.0);
+    /// A 10 kW coil sized at the E+ rated point (82.2/71.1 °C water,
+    /// 16.6/32.2 °C air) through the same path a plant loop uses.
+    fn rated_coil(setpoint: f64) -> (HeatingCoil, f64, f64) {
+        let design = WaterCoilDesign {
+            t_water_in: 82.2,
+            delta_t: 82.2 - 71.1,
+            air_flow: None,
+            air_in: Some((16.6, 0.008)),
+            p_b: 101325.0,
+        };
+        let mut coil = HeatingCoil::hot_water("HW", 10_000.0, setpoint);
+        assert!(coil.size_water_side(&design).is_none());
+        let cp_air = psych::cp_air_fn_w(0.008);
+        let m_air = 10_000.0 / (cp_air * (32.2 - 16.6));
+        let m_water = coil.design_water_flow().unwrap();
+        (coil, m_air, m_water)
     }
 
     #[test]
-    fn test_ua_model_at_design_conditions() {
-        // At rated conditions, the UA model should deliver approximately
-        // the rated capacity.
-        let rated_capacity = 10000.0; // 10 kW
-        let ua_cfg = UaModelConfig::default();
-
-        let mut coil = HeatingCoil::hot_water_ua(
-            "UA Test Coil",
-            rated_capacity,
-            50.0, // high setpoint so coil is not limited by setpoint
-            0.001,
-            82.2,
-            71.1,
-            ua_cfg,
-        );
-
-        // Calculate water mass flow from rated conditions:
-        // Q = m_w * cp_w * (T_w_in - T_w_out) => m_w = Q / (cp_w * ΔT_w)
-        let cp_water = 4180.0;
-        let m_water = rated_capacity / (cp_water * (82.2 - 71.1));
-
-        // Set water inlet at rated conditions
+    fn test_hot_water_coil_delivers_capacity_at_its_design_point() {
+        let (mut coil, m_air, m_water) = rated_coil(60.0);
         coil.set_water_inlet(&WaterPort::new(FluidState::water(82.2, m_water)));
-
-        // Air inlet at rated conditions
-        // Q = m_air * cp_air * (T_air_out - T_air_in)
-        let cp_air = psych::cp_air_fn_w(0.008);
-        let m_air = rated_capacity / (cp_air * (32.2 - 16.6));
-        let inlet_state = MoistAirState::new(16.6, 0.008, 101325.0);
-        let inlet = AirPort::new(inlet_state, m_air);
-        let ctx = make_ctx();
-
-        let outlet = coil.simulate_air(&inlet, &ctx);
-
-        // At design conditions, the cross-flow effectiveness formula gives a
-        // slightly different result than the counterflow LMTD used to compute UA
-        // (since the coil is modeled as cross-flow, not counterflow). The result
-        // should still be reasonably close to rated capacity.
-        assert_relative_eq!(coil.heating_rate, rated_capacity, max_relative = 0.15);
-        assert!(coil.heating_rate > rated_capacity * 0.80);
-        // Air outlet should be in the right neighborhood
-        assert!(outlet.state.t_db > 28.0);
-        assert!(outlet.state.t_db < 36.0);
+        let inlet = AirPort::new(MoistAirState::new(16.6, 0.008, 101325.0), m_air);
+        let outlet = coil.simulate_air(&inlet, &make_ctx());
+        // The UA reproduces the rated point.
+        assert_relative_eq!(coil.heating_rate, 10_000.0, max_relative = 1e-3);
+        assert_relative_eq!(outlet.state.t_db, 32.2, epsilon = 0.02);
     }
 
     #[test]
-    fn test_ua_model_off_design_lower_water_temp() {
-        // With lower water inlet temp, the UA model should deliver less heat
-        // than the simple capacity model would.
-        let rated_capacity = 10000.0;
-        let ua_cfg = UaModelConfig::default();
-
-        let mut coil = HeatingCoil::hot_water_ua(
-            "UA Off-Design",
-            rated_capacity,
-            50.0,
-            0.001,
-            82.2,
-            71.1,
-            ua_cfg,
-        );
-
-        // Water inlet at 60°C instead of rated 82.2°C
-        let cp_water = 4180.0;
-        let m_water = rated_capacity / (cp_water * (82.2 - 71.1));
-        coil.set_water_inlet(&WaterPort::new(FluidState::water(60.0, m_water)));
-
-        let cp_air = psych::cp_air_fn_w(0.008);
-        let m_air = rated_capacity / (cp_air * (32.2 - 16.6));
-        let inlet_state = MoistAirState::new(16.6, 0.008, 101325.0);
-        let inlet = AirPort::new(inlet_state, m_air);
-        let ctx = make_ctx();
-
-        let _outlet = coil.simulate_air(&inlet, &ctx);
-
-        // With lower water temp, effectiveness model delivers less heat
-        assert!(coil.heating_rate < rated_capacity);
-        assert!(coil.heating_rate > 0.0);
-    }
-
-    #[test]
-    fn test_ua_model_zero_water_flow() {
-        let rated_capacity = 10000.0;
-        let ua_cfg = UaModelConfig::default();
-
-        let mut coil = HeatingCoil::hot_water_ua(
-            "UA Zero Flow",
-            rated_capacity,
-            50.0,
-            0.001,
-            82.2,
-            71.1,
-            ua_cfg,
-        );
-
-        // Set water inlet with zero flow
-        coil.set_water_inlet(&WaterPort::new(FluidState::water(82.2, 0.0)));
-
-        let inlet_state = MoistAirState::new(16.6, 0.008, 101325.0);
-        let inlet = AirPort::new(inlet_state, 0.5);
-        let ctx = make_ctx();
-
-        let outlet = coil.simulate_air(&inlet, &ctx);
-
-        // Zero water flow => no heating
-        assert_eq!(coil.heating_rate, 0.0);
-        assert_relative_eq!(outlet.state.t_db, 16.6, max_relative = 0.001);
-    }
-
-    #[test]
-    fn test_ua_model_no_water_loop_falls_back() {
-        // When no water loop is connected, UA model should fall back to
-        // the simple capacity model (backward compatibility)
-        let rated_capacity = 10000.0;
-        let ua_cfg = UaModelConfig::default();
-
-        let mut coil = HeatingCoil::hot_water_ua(
-            "UA Fallback",
-            rated_capacity,
-            35.0,
-            0.001,
-            82.2,
-            71.1,
-            ua_cfg,
-        );
-
-        // No water_inlet set — simulate without plant loop
-        let inlet_state = MoistAirState::from_tdb_rh(10.0, 0.5, 101325.0);
-        let inlet = AirPort::new(inlet_state, 0.3);
-        let ctx = make_ctx();
-
-        let outlet = coil.simulate_air(&inlet, &ctx);
-
-        // Should still heat (falls back to simple model)
-        assert!(coil.heating_rate > 0.0);
-        assert!(outlet.state.t_db > 10.0);
-    }
-
-    #[test]
-    fn test_ua_model_water_outlet_temp() {
-        let rated_capacity = 10000.0;
-        let ua_cfg = UaModelConfig::default();
-
-        let mut coil = HeatingCoil::hot_water_ua(
-            "UA Water Out",
-            rated_capacity,
-            50.0,
-            0.001,
-            82.2,
-            71.1,
-            ua_cfg,
-        );
-
-        let cp_water = 4180.0;
-        let m_water = rated_capacity / (cp_water * (82.2 - 71.1));
-        coil.set_water_inlet(&WaterPort::new(FluidState::water(82.2, m_water)));
-
-        let cp_air = psych::cp_air_fn_w(0.008);
-        let m_air = rated_capacity / (cp_air * (32.2 - 16.6));
-        let inlet_state = MoistAirState::new(16.6, 0.008, 101325.0);
-        let inlet = AirPort::new(inlet_state, m_air);
-        let ctx = make_ctx();
-
-        let _outlet = coil.simulate_air(&inlet, &ctx);
-
-        // Check water outlet exists and temp dropped
-        let wo = coil.water_outlet().expect("water outlet should be set");
-        assert!(wo.state.temp < 82.2);
-        assert!(wo.state.temp > 0.0);
-        // Energy balance: Q = m_w * cp_w * (T_w_in - T_w_out)
-        let q_from_water = m_water * cp_water * (82.2 - wo.state.temp);
-        assert_relative_eq!(q_from_water, coil.heating_rate, max_relative = 0.01);
-    }
-
-    #[test]
-    fn test_ua_model_capacity_limited() {
-        // Even with UA model, nominal capacity should be a hard limit
-        let rated_capacity = 1000.0; // very small capacity
-        let ua_cfg = UaModelConfig::default();
-
-        let mut coil = HeatingCoil::hot_water_ua(
-            "UA Cap Limited",
-            rated_capacity,
-            50.0,
-            0.001,
-            82.2,
-            71.1,
-            ua_cfg,
-        );
-
-        // Provide lots of hot water
-        coil.set_water_inlet(&WaterPort::new(FluidState::water(82.2, 1.0)));
-
-        let inlet_state = MoistAirState::new(16.6, 0.008, 101325.0);
-        let inlet = AirPort::new(inlet_state, 1.0);
-        let ctx = make_ctx();
-
-        let _outlet = coil.simulate_air(&inlet, &ctx);
-
-        // Heating rate should not exceed nominal capacity
-        assert!(coil.heating_rate <= rated_capacity + 1e-6);
-    }
-
-    #[test]
-    fn test_ua_model_vs_simple_differ_off_design() {
-        // At off-design conditions, the UA model should give a different
-        // result than the simple model.
-        let rated_capacity = 10000.0;
-
-        // UA model coil
-        let mut ua_coil = HeatingCoil::hot_water_ua(
-            "UA Coil",
-            rated_capacity,
-            50.0,
-            0.001,
-            82.2,
-            71.1,
-            UaModelConfig::default(),
-        );
-
-        // Simple model coil
-        let mut simple_coil =
-            HeatingCoil::hot_water("Simple Coil", rated_capacity, 50.0, 0.001, 82.2, 71.1);
-
-        // Off-design: moderately lower water temp (still above design_water_outlet
-        // of 71°C so the simple model gets nonzero water capacity), higher air flow
-        let m_water = 0.5;
-        let water_in = WaterPort::new(FluidState::water(75.0, m_water));
-        ua_coil.set_water_inlet(&water_in);
-        simple_coil.set_water_inlet(&water_in);
-
-        let inlet_state = MoistAirState::new(20.0, 0.008, 101325.0);
-        let inlet = AirPort::new(inlet_state, 1.5);
-        let ctx = make_ctx();
-
-        let _out_ua = ua_coil.simulate_air(&inlet, &ctx);
-        let _out_simple = simple_coil.simulate_air(&inlet, &ctx);
-
-        // Both should heat, but amounts should differ
-        assert!(ua_coil.heating_rate > 0.0);
-        assert!(simple_coil.heating_rate > 0.0);
-        // The UA model uses effectiveness so it should generally give a
-        // different (typically lower) result than the simple model at off-design
-        let diff = (ua_coil.heating_rate - simple_coil.heating_rate).abs();
+    fn test_hot_water_coil_follows_loop_temperature() {
+        // A 60 °C loop does not heat as well as an 82 °C one.
+        let (mut coil, m_air, m_water) = rated_coil(60.0);
+        let inlet = AirPort::new(MoistAirState::new(16.6, 0.008, 101325.0), m_air);
+        let mut q_at = |t| {
+            coil.set_water_inlet(&WaterPort::new(FluidState::water(t, m_water)));
+            coil.simulate_air(&inlet, &make_ctx());
+            coil.heating_rate
+        };
+        let (q82, q60, q50) = (q_at(82.2), q_at(60.0), q_at(50.0));
         assert!(
-            diff > 1.0,
-            "UA and simple models should differ at off-design: UA={}, Simple={}",
-            ua_coil.heating_rate,
-            simple_coil.heating_rate
+            q60 < 0.75 * q82 && q50 < q60 && q50 > 0.0,
+            "{q82} {q60} {q50}"
         );
+    }
+
+    #[test]
+    fn test_hot_water_coil_holds_setpoint_on_less_water_and_balances() {
+        let (mut coil, m_air, m_water) = rated_coil(25.0);
+        coil.set_water_inlet(&WaterPort::new(FluidState::water(82.2, m_water)));
+        let inlet = AirPort::new(MoistAirState::new(16.6, 0.008, 101325.0), m_air);
+        let outlet = coil.simulate_air(&inlet, &make_ctx());
+        assert_relative_eq!(outlet.state.t_db, 25.0, epsilon = 1e-6);
+        let wo = coil.water_outlet().expect("water outlet");
+        assert!(wo.state.mass_flow < 0.5 * m_water);
+        // Air gain = water loss = thermal_output: the plant sees what the air got.
+        let air = m_air * psych::cp_air_fn_w(0.008) * (outlet.state.t_db - 16.6);
+        let water = wo.state.mass_flow * psych::water_cp(82.2) * (82.2 - wo.state.temp);
+        assert_relative_eq!(air, coil.thermal_output(), max_relative = 1e-9);
+        assert_relative_eq!(water, coil.thermal_output(), max_relative = 1e-9);
+        let mut flow = None;
+        coil.report_outputs(&mut |k, v| {
+            if k == "water_mass_flow" {
+                flow = Some(v)
+            }
+        });
+        assert_eq!(flow, Some(wo.state.mass_flow));
+    }
+
+    #[test]
+    fn test_hot_water_coil_starved_of_water_heats_less() {
+        let (mut coil, m_air, m_water) = rated_coil(60.0);
+        let inlet = AirPort::new(MoistAirState::new(16.6, 0.008, 101325.0), m_air);
+        coil.set_water_inlet(&WaterPort::new(FluidState::water(82.2, 0.0)));
+        coil.simulate_air(&inlet, &make_ctx());
+        assert_eq!(coil.heating_rate, 0.0);
+        coil.set_water_inlet(&WaterPort::new(FluidState::water(82.2, 0.3 * m_water)));
+        coil.simulate_air(&inlet, &make_ctx());
+        assert!(coil.heating_rate > 0.3 * 10_000.0 && coil.heating_rate < 10_000.0);
+        // More water than its design flow is not drawn.
+        coil.set_water_inlet(&WaterPort::new(FluidState::water(82.2, 3.0 * m_water)));
+        coil.simulate_air(&inlet, &make_ctx());
+        assert_relative_eq!(coil.water_outlet().unwrap().state.mass_flow, m_water);
+    }
+
+    #[test]
+    fn test_hot_water_coil_rating_sets_design_water() {
+        // A rated condensing-boiler coil (60/40 °C) on a loop designed at 82 °C:
+        // the rating wins, and the design flow follows its 20 K drop.
+        let mut coil = HeatingCoil::hot_water("HW", 10_000.0, 40.0);
+        coil.rating = HotWaterRating {
+            water_inlet_temp: Some(60.0),
+            water_outlet_temp: Some(40.0),
+            ..Default::default()
+        };
+        let design = WaterCoilDesign {
+            t_water_in: 82.0,
+            delta_t: 11.0,
+            air_flow: Some(0.5),
+            air_in: Some((10.0, 0.005)),
+            p_b: 101325.0,
+        };
+        assert!(coil.size_water_side(&design).is_none());
+        assert_relative_eq!(
+            coil.design_water_flow().unwrap(),
+            10_000.0 / (psych::water_cp(60.0) * 20.0),
+            max_relative = 1e-9
+        );
+    }
+
+    #[test]
+    fn test_hot_water_coil_without_plant_is_ideal() {
+        let mut coil = HeatingCoil::hot_water("HW", 5_000.0, 50.0);
+        let inlet = AirPort::new(MoistAirState::new(10.0, 0.005, 101325.0), 1.0);
+        coil.simulate_air(&inlet, &make_ctx());
+        assert_relative_eq!(coil.heating_rate, 5_000.0);
+        assert!(coil.water_outlet().is_none());
+    }
+
+    #[test]
+    fn test_unreachable_design_warns() {
+        let mut coil = HeatingCoil::hot_water("HW", 100_000.0, 60.0);
+        let design = WaterCoilDesign {
+            t_water_in: 45.0,
+            delta_t: 10.0,
+            air_flow: Some(1.0),
+            air_in: Some((10.0, 0.005)),
+            p_b: 101325.0,
+        };
+        assert!(coil.size_water_side(&design).is_some());
+    }
+
+    #[test]
+    fn test_electric_coil_reads_efficiency() {
+        let mut coil = HeatingCoil::electric("E", 10_000.0, 30.0);
+        coil.efficiency = 0.95;
+        let inlet = AirPort::new(MoistAirState::new(20.0, 0.005, 101325.0), 0.2);
+        coil.simulate_air(&inlet, &make_ctx());
+        assert_relative_eq!(coil.power_consumption(), coil.heating_rate / 0.95);
     }
 }
