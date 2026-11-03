@@ -394,6 +394,31 @@ fn sizing_outdoor_air(
     }
 }
 
+/// The leaving temperature the VAV controls give the central heating coil on
+/// a heating design day, which the coil is sized to reach: its preheat
+/// setpoint, else the fixed supply temperature, else the Warmest reset's
+/// maximum (no zone cools), less the rise of a supply fan downstream.
+fn vav_heating_coil_target(li: &LoopInfo) -> f64 {
+    let supply = if let Some(t) = li.preheat_setpoint {
+        return t;
+    } else if li.fixed_cooling_sat {
+        li.cooling_supply_temp
+    } else {
+        openbse_airloop::WARMEST_SAT_MAX.max(li.cooling_supply_temp)
+    };
+    let fan_downstream = li
+        .component_names
+        .iter()
+        .skip_while(|n| li.component_kinds.get(*n) != Some(&ComponentKind::HeatingCoil))
+        .skip(1)
+        .any(|n| li.fan_names.contains(n));
+    if fan_downstream {
+        supply - li.supply_fan_dt
+    } else {
+        supply
+    }
+}
+
 /// Size one air loop's flow and coils at its design inlet states (E+
 /// `Sizing:System` with `CoolingCapacitySizer` and `HeatingCapacitySizer`).
 #[allow(clippy::too_many_arguments)]
@@ -482,7 +507,7 @@ fn size_air_loop(
 
     // The heating coil's air: constant-volume loops heat all their flow to the
     // supply temperature. A VAV's central coil only tempers the zones' heating
-    // flow to the cooling supply temperature, its boxes reheating from there
+    // flow to the temperature its controls give it, its boxes reheating from there
     // (E+ autosizes SysAirMinFlowRat to DesHeatVolFlow/DesMainVolFlow). A dual
     // duct's hot deck carries the heating flow, but mixes at the system's
     // outdoor-air fraction because one fan draws both decks.
@@ -497,11 +522,7 @@ fn size_air_loop(
         })
         .sum();
     let (heat_flow, t_heat, heat_oa) = match li.system_type {
-        AirLoopSystemType::Vav => (
-            zone_heating_flow,
-            li.preheat_setpoint.unwrap_or(li.cooling_supply_temp),
-            outdoor_air,
-        ),
+        AirLoopSystemType::Vav => (zone_heating_flow, vav_heating_coil_target(li), outdoor_air),
         AirLoopSystemType::DualDuct => (
             zone_heating_flow,
             li.heating_supply_temp,
@@ -7358,6 +7379,36 @@ room_air:
         let mut vav = make_pthp_loop(vec![]);
         vav.system_type = AirLoopSystemType::Vav;
         assert!(vav.carries_return_air_heat());
+    }
+
+    #[test]
+    fn vav_heating_coil_is_sized_to_its_control_target() {
+        let mut li = make_pthp_loop(vec!["Fan".into(), "Heat".into()]);
+        li.system_type = AirLoopSystemType::Vav;
+        li.cooling_supply_temp = 12.8;
+        li.fan_names = ["Fan".to_string()].into_iter().collect();
+        li.component_kinds = [
+            ("Fan".to_string(), ComponentKind::Fan),
+            ("Heat".to_string(), ComponentKind::HeatingCoil),
+        ]
+        .into_iter()
+        .collect();
+        li.supply_fan_dt = 0.8;
+        li.preheat_setpoint = None;
+        li.fixed_cooling_sat = false;
+        // Blow-through fan: the coil reaches the Warmest maximum itself.
+        assert_eq!(
+            vav_heating_coil_target(&li),
+            openbse_airloop::WARMEST_SAT_MAX
+        );
+        // Draw-through fan: the coil aims below it by the fan's rise.
+        li.component_names = vec!["Heat".into(), "Fan".into()];
+        assert!((vav_heating_coil_target(&li) - (15.6 - 0.8)).abs() < 1e-12);
+        // Fixed supply temperature and a preheat setpoint take precedence.
+        li.fixed_cooling_sat = true;
+        assert!((vav_heating_coil_target(&li) - (12.8 - 0.8)).abs() < 1e-12);
+        li.preheat_setpoint = Some(10.0);
+        assert_eq!(vav_heating_coil_target(&li), 10.0);
     }
 
     fn make_pthp_loop(component_names: Vec<String>) -> LoopInfo {
