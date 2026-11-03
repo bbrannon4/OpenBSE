@@ -43,6 +43,15 @@ $$ {#eq-hot-aisle}
 $\dot Q_\text{byp}$ is taken from the room air's gains, because it goes straight to the
 unit's coil. It is recomputed each HVAC iteration from the current supply.
 
+**Sizing.** The design-day runs take the bypass the same way, at the zone's cooling
+supply temperature and its current air temperature, with the unit taking at least the
+captured flow: $\dot Q_\text{byp}$ is no zone load and heats the return, as
+return-air lighting heat does (@sec-air-sizing). The unit's design flow then carries
+only the room's own load, and its coil is sized on the hot return it sees in
+operation. Left in the room, the bypass sized a 500 kW hall's CRAH for 83 m³/s of
+room air where it ran at about 40 kg/s of hot return
+([#343](https://github.com/bbrannon4/OpenBSE/issues/343)).
+
 **Supply temperature.** For a CRAC or CRAH (@sec-crac-crah) whose first zone is a data
 centre, the supply setpoint is replaced by `rack_inlet_temp_max_c`, or otherwise the
 equipment class's allowable limit: A1 32, A2 35, A3 40, A4 45 °C. With the default
