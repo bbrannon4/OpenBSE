@@ -369,6 +369,9 @@ with `SimAirServingZones` peak states. Differences:
   `ZoneRetTempAtCoolPeak`, on a loop whose return carries the heat, the
   `return_air_fraction` share of lights is no zone load during sizing. It raises the
   coil's return temperature by $q/(\dot m c_p)$, up to 60 °C.
+- **Hot-aisle bypass.** A data-centre zone's captured server exhaust
+  (@sec-hot-aisle) is treated the same way during sizing. E+'s ITE object moves
+  heat to the return through its return approach temperature instead.
 
 ## Plant sizing {#sec-plant-sizing}
 

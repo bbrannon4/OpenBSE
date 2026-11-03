@@ -282,6 +282,15 @@ struct SizingSteps {
     averaging_window: usize,
 }
 
+/// Where zone heat leaves through the return instead of the room during
+/// sizing: return-air lighting on these loops' zones, and each data-centre
+/// zone's hot-aisle bypass at its cooling supply temperature.
+#[derive(Clone, Copy)]
+struct ReturnHeatPaths<'a> {
+    lighting_zones: &'a HashSet<String>,
+    supply_temps: &'a HashMap<String, (f64, f64)>,
+}
+
 /// Run a single design day through the envelope with ideal HVAC holding
 /// zones at their setpoint temperature, returning per-zone loads at each hour.
 ///
@@ -293,7 +302,7 @@ fn run_single_design_day(
     zone_setpoints: &HashMap<String, f64>, // setpoint to hold zone at
     zone_hourly_setpoints: &HashMap<String, Vec<f64>>, // per-zone hourly override
     oa_handled_by_hvac: &HashMap<String, bool>,
-    return_air_zones: &HashSet<String>,
+    return_paths: ReturnHeatPaths,
     steps: SizingSteps,
 ) -> DesignDayRun {
     let is_heating_dd = is_heating_design_day(dd);
@@ -453,11 +462,14 @@ fn run_single_design_day(
                 // No supply air — ideal loads handles HVAC directly. The envelope
                 // puts lighting return-air heat in the zone air when no return
                 // carries it; on loops whose return would, take it back out.
-                let return_heat: HashMap<String, f64> = env
+                let mut return_heat: HashMap<String, f64> = env
                     .lighting_return_air_gains(&ctx)
                     .into_iter()
-                    .filter(|(zone, _)| return_air_zones.contains(zone))
+                    .filter(|(zone, _)| return_paths.lighting_zones.contains(zone))
                     .collect();
+                for (zone, q) in hot_aisle_bypass(env, &ctx, return_paths.supply_temps) {
+                    *return_heat.entry(zone).or_default() += q;
+                }
                 let hvac = ZoneHvacConditions {
                     oa_handled_by_hvac: oa_handled_by_hvac.clone(),
                     other_sensible_gains: return_heat
@@ -519,6 +531,71 @@ fn run_single_design_day(
         loads: hourly_peaks_of_averaged_loads(&last_day_steps, steps.averaging_window),
         hours: last_day_hours,
     }
+}
+
+/// Server exhaust each data-centre zone sends straight to its unit [W].
+///
+/// At run time the captured share of the hot aisle bypasses the room
+/// (`hot_aisle_return` in the driver): it is no room load and heats the unit's
+/// return. Sizing takes it the same way, at the zone's cooling supply
+/// temperature and its current air temperature, with the unit taking at least
+/// the captured flow, so the unit's design flow carries only the room's own
+/// load and its coil is sized on the hot return it sees in operation.
+fn hot_aisle_bypass(
+    env: &BuildingEnvelope,
+    ctx: &SimulationContext,
+    zone_supply_temps: &HashMap<String, (f64, f64)>,
+) -> Vec<(String, f64)> {
+    use openbse_core::ports::SizingInternalGains;
+    let (hour, dow) = (
+        ctx.timestep.hour,
+        env.schedule_day_type(ctx.timestep.month, ctx.timestep.day),
+    );
+    env.zones
+        .iter()
+        .filter_map(|z| {
+            let dc = z.input.data_center.as_ref()?;
+            let fraction = dc
+                .it_load_schedule
+                .as_ref()
+                .map_or(1.0, |s| env.schedule_manager.fraction(s, hour, dow));
+            // The IT gain as the design day's internal-gains mode sets it.
+            let level = match ctx.sizing_internal_gains {
+                SizingInternalGains::Off => 0.0,
+                SizingInternalGains::Full => 1.0,
+                SizingInternalGains::Scheduled => fraction,
+                SizingInternalGains::FullWhenOccupied => (fraction > 0.0) as u8 as f64,
+            };
+            let t_supply = zone_supply_temps.get(&z.input.name)?.1;
+            let q = design_bypass_heat(
+                dc,
+                dc.it_load_w() * level,
+                t_supply,
+                z.temp,
+                z.humidity_ratio,
+            );
+            (q > 0.0).then(|| (z.input.name.clone(), q))
+        })
+        .collect()
+}
+
+/// The captured hot-aisle exhaust's heat above the room [W], for a unit that
+/// takes at least the captured flow (the driver's `hot_aisle_return`).
+fn design_bypass_heat(
+    dc: &openbse_envelope::zone::DataCenterConfig,
+    p_it: f64,
+    t_supply: f64,
+    t_zone: f64,
+    w: f64,
+) -> f64 {
+    if p_it <= 0.0 {
+        return 0.0;
+    }
+    let cp = psych::cp_air_fn_w(w);
+    let rho = psych::rho_air_fn_pb_tdb_w(101_325.0, t_supply, w);
+    let m_it = dc.it_mass_flow(p_it, t_supply, rho, cp);
+    let t_hot = t_supply + p_it / (m_it * cp);
+    dc.containment_efficiency.clamp(0.0, 1.0) * m_it * cp * (t_hot - t_zone)
 }
 
 /// Outdoor state and zone states at the end of a design-day hour. Coil sizing
@@ -720,7 +797,10 @@ fn run_zone_sizing(
                 &setpoints.heating,
                 &setpoints.dd_heating,
                 oa_handled_by_hvac,
-                return_air_zones,
+                ReturnHeatPaths {
+                    lighting_zones: return_air_zones,
+                    supply_temps: zone_supply_temps,
+                },
                 steps,
             );
             (dd.name.clone(), loads)
@@ -763,7 +843,10 @@ fn run_zone_sizing(
                 &setpoints.cooling,
                 &setpoints.dd_cooling,
                 oa_handled_by_hvac,
-                return_air_zones,
+                ReturnHeatPaths {
+                    lighting_zones: return_air_zones,
+                    supply_temps: zone_supply_temps,
+                },
                 steps,
             );
             (dd.name.clone(), loads)
@@ -932,7 +1015,7 @@ fn run_system_sizing(
     setpoints: &SizingSetpoints,
     latitude: f64,
     oa_handled_by_hvac: &HashMap<String, bool>,
-    return_air_zones: &HashSet<String>,
+    return_paths: ReturnHeatPaths,
     steps: SizingSteps,
 ) -> SystemSizingResult {
     let mut coincident_peak_heating = 0.0_f64;
@@ -966,7 +1049,7 @@ fn run_system_sizing(
                 &setpoints.heating,
                 &setpoints.dd_heating,
                 oa_handled_by_hvac,
-                return_air_zones,
+                return_paths,
                 steps,
             );
             (dd.name.clone(), loads)
@@ -1014,7 +1097,7 @@ fn run_system_sizing(
                 &setpoints.cooling,
                 &setpoints.dd_cooling,
                 oa_handled_by_hvac,
-                return_air_zones,
+                return_paths,
                 steps,
             );
             (dd.name.clone(), loads)
@@ -1368,7 +1451,10 @@ pub fn run_sizing(
         &setpoints,
         latitude,
         oa_handled_by_hvac,
-        return_air_zones,
+        ReturnHeatPaths {
+            lighting_zones: return_air_zones,
+            supply_temps: zone_supply_temps,
+        },
         steps,
     );
 
@@ -1611,6 +1697,20 @@ fn write_system_sizing_csv(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn design_bypass_is_the_captured_exhaust_above_the_room() {
+        let dc: openbse_envelope::zone::DataCenterConfig =
+            serde_yaml::from_str("it_load_kw: 100.0\nrack_outlet_temp_c: 35.0").unwrap();
+        let w = 0.008;
+        let cp = psych::cp_air_fn_w(w);
+        // Server air: 100 kW over 35 − 18 = 17 K; the default 85% is captured
+        // and arrives 35 − 24 = 11 K above the room.
+        let q = design_bypass_heat(&dc, 100_000.0, 18.0, 24.0, w);
+        let m_it = 100_000.0 / (cp * 17.0);
+        assert!((q - 0.85 * m_it * cp * 11.0).abs() < 1e-6, "{q}");
+        assert_eq!(design_bypass_heat(&dc, 0.0, 18.0, 24.0, w), 0.0);
+    }
+
     use super::*;
 
     #[test]
