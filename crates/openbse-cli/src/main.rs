@@ -345,8 +345,15 @@ struct LoopCoilSizing {
 
 /// A loop's minimum outdoor air for coil sizing, as its controls draw it: FCU,
 /// CRAC and CRAH recirculate, a DOAS takes only outdoor air, a stated damper
-/// position is a fraction, and otherwise the zones' requirement is a flow.
-fn sizing_outdoor_air(li: &LoopInfo) -> openbse_io::system_sizing::OutdoorAir {
+/// position is a fraction, and otherwise the zones' requirement is a flow. A
+/// VAV loop draws that requirement through VRP (`build_vav_signals`), so it is
+/// sized on the VRP flow, the larger of Vot at the cooling design flows and at
+/// the zones' minimum (heating) flows, as E+ `Sizing:System` with
+/// VentilationRateProcedure does (`ManageSystemVentilationAdjustments`).
+fn sizing_outdoor_air(
+    li: &LoopInfo,
+    zone_design_flows: &HashMap<String, f64>,
+) -> openbse_io::system_sizing::OutdoorAir {
     use openbse_io::system_sizing::OutdoorAir;
     match li.system_type {
         AirLoopSystemType::Fcu | AirLoopSystemType::Crac | AirLoopSystemType::Crah => {
@@ -358,11 +365,31 @@ fn sizing_outdoor_air(li: &LoopInfo) -> openbse_io::system_sizing::OutdoorAir {
         }
         _ => {
             let required: f64 = li.zone_outdoor_air.values().sum();
-            if required > 0.0 {
-                OutdoorAir::Flow(required)
-            } else {
-                OutdoorAir::Fraction(li.min_oa_fraction)
+            if required <= 0.0 {
+                return OutdoorAir::Fraction(li.min_oa_fraction);
             }
+            if li.system_type != AirLoopSystemType::Vav || li.zone_oa_data.is_empty() {
+                return OutdoorAir::Flow(required);
+            }
+            let rho = li.std_air_density;
+            let vot_at = |fraction: f64| {
+                let flows: HashMap<String, f64> = li
+                    .served_zones
+                    .iter()
+                    .map(|z| {
+                        let flow = zone_design_flows.get(z).copied().unwrap_or(0.0) * fraction;
+                        (z.clone(), flow)
+                    })
+                    .collect();
+                let vps = flows.values().sum::<f64>() / rho;
+                // Design occupancy: every People object at its full count.
+                openbse_airloop::vrp_outdoor_air(&li.zone_oa_data, &flows, vps, rho, |oa| {
+                    oa.occupants(|_| 1.0)
+                })
+            };
+            let heating_fraction = li.min_vav_fraction.clamp(0.0, 1.0);
+            let vot = vot_at(1.0).max(vot_at(heating_fraction));
+            OutdoorAir::Flow((vot * rho).max(required))
         }
     }
 }
@@ -413,7 +440,7 @@ fn size_air_loop(
         li.cooling_supply_temp
     };
     let w_cool = controls.map_or(0.008, |al| al.controls.cooling_supply_humidity_ratio);
-    let outdoor_air = sizing_outdoor_air(li);
+    let outdoor_air = sizing_outdoor_air(li, zone_design_flows);
 
     let basis = if multizone && zone_sum == ZoneSum::Coincident {
         CoolingPeakBasis::Coincident

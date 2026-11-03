@@ -267,6 +267,20 @@ the 20% the controls fall back on. FCU, CRAC and CRAH recirculate ($x = 0$), a D
 takes only outdoor air ($x = 1$), and a loop whose zones take their outdoor air
 directly has $x = 0$. Economizers and heat recovery get no credit.
 
+A VAV loop draws its zones' requirement through the ventilation rate procedure
+(@eq-vrp), so it is sized on the corrected flow: with every People object at its
+full count,
+
+$$
+V_{ot,d} = \max\left(V_{ot}(\dot m_{\text{des},z}),\ V_{ot}(f_\text{min}\,\dot m_{\text{des},z})\right),
+$$ {#eq-vrp-sizing}
+
+$V_{ot} = V_{ou}/E_v$ at the zones' design flows (cooling) and at their minimum
+flows, the loop's `min_vav_fraction` of design (heating), and never less than the
+uncorrected requirement. Without it the coils were sized for less outdoor air than
+the controls take at turndown: a VAV preheat coil came to 30 W where the loop
+supplied 4 °C air on design nights ([#342](https://github.com/bbrannon4/OpenBSE/issues/342)).
+
 **Mixed air.** The inlet state mixes return air, at the flow-weighted zone
 temperature and humidity, with outdoor air: $T_m = (1 - x)T_r + xT_o$, and the same
 for $w$. Zone humidity comes from a quasi-steady balance with supply air at $w_s$:
@@ -337,6 +351,10 @@ with `SimAirServingZones` peak states. Differences:
   taking mostly outdoor air is then sized on mild night air: a Hospital ER coil came
   to 7.9 kW against an 18 kW zone load. OpenBSE takes the coil's own worst hour, at
   or above the E+ size.
+- **Ventilation rate procedure.** @eq-vrp-sizing follows E+ `Sizing:System` with
+  VentilationRateProcedure (`ManageSystemVentilationAdjustments`), which takes the
+  larger of the cooling and heating Vot; E+ uses each zone's minimum heating flow,
+  OpenBSE the loop's minimum fraction of each zone's design flow.
 - **Dual duct.** OpenBSE's hot deck mixes at the system's fraction, because one fan
   draws both decks.
 - **DOAS.** Flow and temperatures follow the controls, not the zones' outdoor air
