@@ -163,6 +163,23 @@ pub fn coil_plant_load(
         .sum()
 }
 
+/// Water flow [kg/s] the given air-side components draw this HVAC iteration,
+/// each scaled by its zone multiplier. Components without a water side report
+/// none.
+pub fn coil_plant_flow(
+    components: &[String],
+    outputs: &HashMap<String, HashMap<String, f64>>,
+    zone_multiplier: &HashMap<String, f64>,
+) -> f64 {
+    components
+        .iter()
+        .filter_map(|name| {
+            let m = outputs.get(name)?.get("water_mass_flow").copied()?;
+            Some(m * zone_multiplier.get(name).copied().unwrap_or(1.0))
+        })
+        .sum()
+}
+
 /// Check that every water coil, reheat terminal and radiant panel is connected
 /// to an existing plant loop, and that every plant loop has some demand.
 ///
@@ -197,6 +214,20 @@ pub fn validate_plant_connections(model: &ModelInput, result: &mut ValidationRes
                 d.object, d.name, d.source
             )),
             _ => {}
+        }
+    }
+
+    for al in &model.air_loops {
+        for eq in &al.equipment {
+            if let EquipmentInput::HeatingCoil(c) = eq {
+                if c.ua_model.is_some() {
+                    result.push_warning(format!(
+                        "Heating coil '{}': ua_model is not read; a hot-water coil on \
+                         a plant loop always uses the UA (ε-NTU) model",
+                        c.name
+                    ));
+                }
+            }
         }
     }
 

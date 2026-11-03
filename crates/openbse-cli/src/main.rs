@@ -341,6 +341,10 @@ struct LoopCoilSizing {
     t_wb_in: f64,
     /// Outdoor dry-bulb at the cooling peak [°C]
     t_outdoor: f64,
+    /// Heating coil air flow [kg/s] and entering temperature [°C] at its peak
+    heat_air: Option<(f64, f64)>,
+    /// Cooling coil air flow [kg/s] and entering state (t_db [°C], w) at its peak
+    cool_air: Option<(f64, (f64, f64))>,
 }
 
 /// A loop's minimum outdoor air for coil sizing, as its controls draw it: FCU,
@@ -482,6 +486,7 @@ fn size_air_loop(
         w_cool,
     );
 
+    let mut cool_air = None;
     let (cooling, t_wb_in, t_outdoor) = match inlet {
         None => (0.0, 19.44, 35.0),
         Some(inlet) => {
@@ -497,6 +502,7 @@ fn size_air_loop(
                 .any(|n| li.fan_names.contains(n));
             let t_coil_in = inlet.t_db + if blow_through { li.supply_fan_dt } else { 0.0 };
             let p = 101_325.0 * air_density / 1.2041;
+            cool_air = Some((mass_flow, (t_coil_in, inlet.w)));
             (
                 cooling_coil_load(&inlet, mass_flow, t_cool, w_cool) + fan_load,
                 openbse_psychrometrics::twb_fn_tdb_w_pb(t_coil_in, inlet.w, p),
@@ -544,12 +550,18 @@ fn size_air_loop(
         ),
     };
 
+    let heat_air = (heating > 0.0 && heat_flow > 0.0).then(|| {
+        let cp = openbse_psychrometrics::cp_air_fn_w(0.0);
+        (heat_flow, t_heat - heating / (heat_flow * cp))
+    });
     LoopCoilSizing {
         volume_flow: mass_flow / air_density,
         heating,
         cooling,
         t_wb_in,
         t_outdoor,
+        heat_air,
+        cool_air,
     }
 }
 
@@ -1892,6 +1904,8 @@ fn main() -> Result<()> {
         // Zone peak loads for VRF autosizing (populated during sizing, used after)
         let mut vrf_zone_peak_heating: HashMap<String, f64> = HashMap::new();
         let mut vrf_zone_peak_cooling: HashMap<String, f64> = HashMap::new();
+        // Air each water coil sees at its design point, for its water side.
+        let mut water_coil_air: HashMap<String, WaterCoilAir> = HashMap::new();
         if !model.design_days.is_empty() {
             if let Some(ref mut env) = envelope {
                 let latitude = weather_data.location.latitude;
@@ -1962,6 +1976,34 @@ fn main() -> Result<()> {
                     );
                     for comp_name in &li.component_names {
                         loop_comp_sizing.insert(comp_name.clone(), design);
+                        let air = match li.component_kinds.get(comp_name) {
+                            Some(ComponentKind::HeatingCoil) => {
+                                design.heat_air.map(|(m, t)| WaterCoilAir {
+                                    flow: Some(m),
+                                    inlet: (t, 0.008),
+                                })
+                            }
+                            Some(ComponentKind::CoolingCoil) => {
+                                design.cool_air.map(|(m, inlet)| WaterCoilAir {
+                                    flow: Some(m),
+                                    inlet,
+                                })
+                            }
+                            _ => None,
+                        };
+                        if let Some(air) = air {
+                            water_coil_air.insert(comp_name.clone(), air);
+                        }
+                    }
+                    // Terminals reheat the loop's cooling supply air.
+                    for term_name in li.terminal_boxes.values() {
+                        water_coil_air.insert(
+                            term_name.clone(),
+                            WaterCoilAir {
+                                flow: None,
+                                inlet: (li.cooling_supply_temp, 0.008),
+                            },
+                        );
                     }
                 }
 
@@ -2152,7 +2194,13 @@ fn main() -> Result<()> {
             let sizing_inputs =
                 plant_sizing_inputs(&model, &graph, &radiant_panels, &comp_zone_multiplier);
             match openbse_io::plant::size_plant(&model, &sizing_inputs) {
-                Ok(sizes) => apply_plant_sizes(&model, &mut graph, &sizes),
+                Ok(sizes) => {
+                    apply_plant_sizes(&model, &mut graph, &sizes);
+                    for w in size_water_coils(&model, &mut graph, &loop_infos, &water_coil_air) {
+                        warn!("{w}");
+                        validation.push_warning(w);
+                    }
+                }
                 Err(errors) => {
                     for e in &errors {
                         log::error!("{e}");
@@ -2686,6 +2734,46 @@ fn main() -> Result<()> {
         // loops (or cyclic dependencies) can read previous-timestep values.
         let mut loop_supply_conditions: HashMap<String, (f64, f64)> = HashMap::new();
 
+        // Water coils and reheat terminals each plant loop feeds, and the most
+        // water its pumps move [kg/s] (pumps on a loop run in series).
+        let water_feeds: Vec<(usize, petgraph::graph::NodeIndex)> = model
+            .plant_loops
+            .iter()
+            .enumerate()
+            .flat_map(|(i, pl)| {
+                plant_coil_demands[&pl.name]
+                    .iter()
+                    .filter_map(|n| graph.node_by_name(n))
+                    .filter(|&idx| {
+                        matches!(graph.component(idx),
+                            GraphComponent::Air(c) if c.design_water_flow().is_some())
+                    })
+                    .map(move |idx| (i, idx))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let pump_flow_limit: Vec<Option<f64>> = model
+            .plant_loops
+            .iter()
+            .map(|pl| {
+                let rho = openbse_psychrometrics::water_rho(pl.water_conversion_temp());
+                pl.supply_equipment
+                    .iter()
+                    .filter(|eq| matches!(eq, openbse_io::input::PlantEquipmentInput::Pump(_)))
+                    .filter_map(|eq| match graph.component(graph.node_by_name(eq.name())?) {
+                        GraphComponent::Plant(p) => p.design_water_flow_rate(),
+                        _ => None,
+                    })
+                    .map(|v| v * rho)
+                    .reduce(f64::min)
+            })
+            .collect();
+        // Each loop's supply temperature below (heating) or above (cooling)
+        // its setpoint when its equipment falls short [K], and the share of
+        // their design water its coils may draw when its pumps cannot move it.
+        let mut plant_supply_offset = vec![0.0_f64; model.plant_loops.len()];
+        let mut plant_flow_scale = vec![1.0_f64; model.plant_loops.len()];
+
         // ── Warmup: repeat the run period's first week until the zones settle ──
         //
         // Without warmup, zones start at 21°C but surfaces (especially ground
@@ -3095,6 +3183,23 @@ fn main() -> Result<()> {
                             .map(|(zone, (mode, _))| (zone, mode))
                             .collect();
                         for hvac_iter in 0..MAX_HVAC_ITER {
+                            // Each water coil gets its loop's supply water.
+                            if hvac_iter == 0 {
+                                plant_flow_scale.fill(1.0);
+                            }
+                            for &(li, idx) in &water_feeds {
+                                let t_supply = plant_supply_setpoint(
+                                    &model.plant_loops[li],
+                                    interp_weather.dry_bulb,
+                                ) + plant_supply_offset[li];
+                                if let GraphComponent::Air(c) = graph.component_mut(idx) {
+                                    let flow =
+                                        c.design_water_flow().unwrap_or(0.0) * plant_flow_scale[li];
+                                    c.set_water_inlet(&WaterPort::new(
+                                        openbse_psychrometrics::FluidState::water(t_supply, flow),
+                                    ));
+                                }
+                            }
                             // The hot-aisle return follows the supply the units are
                             // producing now, not last timestep's (CRAC-5 / #62).
                             if hvac_iter > 0 {
@@ -3182,6 +3287,7 @@ fn main() -> Result<()> {
                             // Air-side demand on each loop, known before any loop
                             // runs: heat-recovery chillers need their receiving
                             // loop's demand.
+                            let mut radiant_loads: HashMap<&str, f64> = HashMap::new();
                             let air_side_loads: HashMap<&str, f64> = model
                                 .plant_loops
                                 .iter()
@@ -3202,11 +3308,14 @@ fn main() -> Result<()> {
                                     {
                                         if rp_input.plant_loop.as_deref() == Some(pl.name.as_str())
                                         {
-                                            load += rp.thermal_output_to_zone
+                                            let rp_load = rp.thermal_output_to_zone
                                                 * comp_zone_multiplier
                                                     .get(&rp.name)
                                                     .copied()
                                                     .unwrap_or(1.0);
+                                            load += rp_load;
+                                            *radiant_loads.entry(pl.name.as_str()).or_default() +=
+                                                rp_load.abs();
                                         }
                                     }
                                     (pl.name.as_str(), load)
@@ -3310,23 +3419,49 @@ fn main() -> Result<()> {
                                 }
 
                                 // ── Simulate loop equipment ──────────────────────
+                                if total_load.abs() <= 0.0 {
+                                    plant_supply_offset[loop_idx] = 0.0;
+                                }
                                 if total_load.abs() > 0.0 {
+                                    // A demand loop carries the water its coils' valves
+                                    // draw, plus each radiant panel's load at the loop
+                                    // ΔT; a condenser loop carries its load at the ΔT.
+                                    let coil_flow = openbse_io::plant::coil_plant_flow(
+                                        &plant_coil_demands[&plant_loop.name],
+                                        &hvac_result.component_outputs,
+                                        &comp_zone_multiplier,
+                                    );
+                                    let demand_flow = coil_flow
+                                        + radiant_loads
+                                            .get(plant_loop.name.as_str())
+                                            .copied()
+                                            .unwrap_or(0.0)
+                                            / (cp_water * loop_delta_t);
                                     let loop_mass_flow =
-                                        total_load.abs() / (cp_water * loop_delta_t);
-                                    // Inlet temp: condenser return is warmer, heating return
-                                    // is colder, cooling return is warmer.
-                                    let effective_plant_sp =
-                                        if let Some(ref reset) = plant_loop.setpoint_reset {
-                                            apply_plant_reset(reset, interp_weather.dry_bulb)
+                                        if condenser_load > 0.0 || demand_flow <= 1e-9 {
+                                            total_load.abs() / (cp_water * loop_delta_t)
                                         } else {
-                                            plant_loop.design_supply_temp
+                                            demand_flow
                                         };
-                                    let inlet_temp = if condenser_load > 0.0 {
-                                        effective_plant_sp + loop_delta_t
-                                    } else if total_load > 0.0 {
-                                        effective_plant_sp - loop_delta_t
+                                    if let Some(limit) = pump_flow_limit[loop_idx] {
+                                        if coil_flow > limit && condenser_load <= 0.0 {
+                                            plant_flow_scale[loop_idx] *= limit / coil_flow;
+                                        }
+                                    }
+                                    // Return water: a condenser returns its design ΔT
+                                    // warmer; a demand loop returns what its load did to
+                                    // the water it carried.
+                                    let effective_plant_sp =
+                                        plant_supply_setpoint(plant_loop, interp_weather.dry_bulb);
+                                    let return_dt = if condenser_load > 0.0 {
+                                        loop_delta_t
                                     } else {
-                                        effective_plant_sp + loop_delta_t
+                                        total_load.abs() / (cp_water * loop_mass_flow)
+                                    };
+                                    let inlet_temp = if condenser_load <= 0.0 && total_load > 0.0 {
+                                        effective_plant_sp - return_dt
+                                    } else {
+                                        effective_plant_sp + return_dt
                                     };
 
                                     // Equipment loading — supports Sequential and EqualSplit modes.
@@ -3577,6 +3712,17 @@ fn main() -> Result<()> {
                                     );
                                     let recovered_used =
                                         if total_load > 0.0 { recovered } else { 0.0 };
+                                    // Heat the equipment could not supply leaves the
+                                    // water short of setpoint, which the coils see
+                                    // on the next pass.
+                                    plant_supply_offset[loop_idx] = if condenser_load > 0.0 {
+                                        0.0
+                                    } else {
+                                        let unmet =
+                                            (total_load.abs() - delivered_total - recovered_used)
+                                                .clamp(0.0, total_load.abs());
+                                        -total_load.signum() * unmet / (cp_water * loop_mass_flow)
+                                    };
                                     step_plant.push((
                                         plant_loop.name.clone(),
                                         total_load,
@@ -6569,6 +6715,11 @@ fn simulate_all_loops(
                             );
                             term_outputs
                                 .insert("thermal_output".to_string(), component.thermal_output());
+                            // Detailed outputs, including the water flow a hot-water
+                            // reheat coil draws from its plant loop.
+                            component.report_outputs(&mut |k, v| {
+                                term_outputs.insert(k.to_string(), v);
+                            });
                             all_outputs.insert(term_name.clone(), term_outputs);
 
                             // Terminal outlet → zone supply
@@ -8506,6 +8657,70 @@ fn plant_sizing_inputs(
     inputs
 }
 
+/// Air a water coil sees at its design point.
+#[derive(Debug, Clone, Copy)]
+struct WaterCoilAir {
+    /// Air flow [kg/s], when sizing found one
+    flow: Option<f64>,
+    /// Entering dry-bulb [°C] and humidity ratio [kg/kg]
+    inlet: (f64, f64),
+}
+
+/// Size the water side of every coil and reheat terminal on a plant loop, at
+/// its loop's design supply temperature and temperature difference (E+
+/// `SizeWaterCoil`). Returns a warning for each coil whose design load is out
+/// of reach.
+fn size_water_coils(
+    model: &openbse_io::input::ModelInput,
+    graph: &mut SimulationGraph,
+    loop_infos: &[LoopInfo],
+    coil_air: &HashMap<String, WaterCoilAir>,
+) -> Vec<String> {
+    let p_b = 101_325.0 * site_standard_air_density(model) / 1.2041;
+    let terminal_supply: HashMap<&str, f64> = loop_infos
+        .iter()
+        .flat_map(|li| {
+            li.terminal_boxes
+                .values()
+                .map(move |t| (t.as_str(), li.cooling_supply_temp))
+        })
+        .collect();
+    let mut warnings = Vec::new();
+    for d in openbse_io::plant::plant_demands(model) {
+        let Some(pl) = d
+            .plant_loop
+            .filter(|_| d.water && !d.radiant_panel)
+            .and_then(|l| model.plant_loops.iter().find(|pl| pl.name == l))
+        else {
+            continue;
+        };
+        let Some(idx) = graph.node_by_name(d.name) else {
+            continue;
+        };
+        let air = coil_air.get(d.name).copied();
+        let air_in = air
+            .map(|a| a.inlet)
+            .or_else(|| terminal_supply.get(d.name).map(|&t| (t, 0.008)));
+        let design = openbse_core::ports::WaterCoilDesign {
+            t_water_in: pl.design_supply_temp,
+            delta_t: pl.design_delta_t.max(1.0),
+            air_flow: air.and_then(|a| a.flow),
+            air_in,
+            p_b,
+        };
+        if let GraphComponent::Air(comp) = graph.component_mut(idx) {
+            warnings.extend(comp.size_water_side(&design));
+            if let Some(flow) = comp.design_water_flow() {
+                info!(
+                    "Sized '{}' water side: design water flow {:.4} kg/s at {:.1} °C",
+                    d.name, flow, design.t_water_in
+                );
+            }
+        }
+    }
+    warnings
+}
+
 /// Set the plant sizes on the built components, in model order.
 fn apply_plant_sizes(
     model: &openbse_io::input::ModelInput,
@@ -8544,6 +8759,14 @@ fn apply_plant_sizes(
             }
         }
     }
+}
+
+/// A plant loop's supply setpoint this timestep [°C]: its outdoor reset, else its design
+/// supply temperature.
+fn plant_supply_setpoint(pl: &openbse_io::input::PlantLoopInput, t_outdoor: f64) -> f64 {
+    pl.setpoint_reset
+        .as_ref()
+        .map_or(pl.design_supply_temp, |r| apply_plant_reset(r, t_outdoor))
 }
 
 fn apply_plant_reset(reset: &openbse_io::input::PlantResetConfig, t_outdoor: f64) -> f64 {
@@ -8841,5 +9064,60 @@ mod single_zone_reset_tests {
     fn dx_or_gas_psz_keeps_cycling_control() {
         let al = psz("- {type: heating_coil, name: H, source: gas, capacity: 1000.0, setpoint: 12.8}\n- {type: cooling_coil, name: C, source: chilled_water, capacity: 1000.0, setpoint: 12.8}\n");
         assert!(default_single_zone_reset(&al, &al.detect_system_type()).is_none());
+    }
+}
+
+#[cfg(test)]
+mod water_coil_sizing_tests {
+    use super::*;
+
+    const MODEL: &str = r#"
+simulation: {start_month: 1, start_day: 1, end_month: 1, end_day: 1}
+weather_files: []
+zones:
+  - {name: Z, volume: 100.0, floor_area: 40.0}
+air_loops:
+  - name: L
+    system_type: psz_ac
+    controls: {cooling_supply_temp: 12.8, heating_supply_temp: 40.0}
+    equipment:
+      - {type: heating_coil, name: H, source: hot_water, capacity: 10000.0, setpoint: 40.0, plant_loop: HW}
+      - {type: cooling_coil, name: C, source: chilled_water, capacity: 12000.0, setpoint: 12.8, plant_loop: CHW}
+      - {type: fan, name: F, source: constant_volume, design_flow_rate: 0.5, pressure_rise: 500.0}
+    zone_terminals:
+      - {zone: Z}
+plant_loops:
+  - name: HW
+    design_supply_temp: 60.0
+    design_delta_t: 20.0
+    supply_equipment:
+      - {type: boiler, name: B, capacity: 20000.0}
+  - name: CHW
+    design_supply_temp: 7.0
+    design_delta_t: 5.0
+    supply_equipment:
+      - {type: chiller, name: Ch, capacity: 20000.0, cop: 5.0}
+"#;
+
+    #[test]
+    fn every_plant_coil_is_sized_at_its_loops_design_water() {
+        let model = openbse_io::input::parse_model_yaml(MODEL).expect("model");
+        let mut graph = openbse_io::input::build_graph(&model).expect("graph");
+        let loop_infos = build_loop_infos(&model, &[]);
+        let warnings = size_water_coils(&model, &mut graph, &loop_infos, &HashMap::new());
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let flow = |name: &str| match graph.component(graph.node_by_name(name).unwrap()) {
+            GraphComponent::Air(c) => c.design_water_flow(),
+            _ => None,
+        };
+        let cp = openbse_psychrometrics::water_cp;
+        let h = flow("H").expect("hot-water coil sized");
+        let c = flow("C").expect("chilled-water coil sized");
+        assert!((h - 10_000.0 / (cp(60.0) * 20.0)).abs() < 1e-9, "{h}");
+        assert!((c - 12_000.0 / (cp(7.0) * 5.0)).abs() < 1e-9, "{c}");
+        // Water coils are the loops' demand, and nothing else is fed.
+        let demands = openbse_io::plant::air_side_demands_by_loop(&model);
+        assert_eq!(demands["HW"], vec!["H".to_string()]);
+        assert_eq!(demands["CHW"], vec!["C".to_string()]);
     }
 }

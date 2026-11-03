@@ -13,7 +13,7 @@ use openbse_components::cooling_coil::CoolingCoilDX;
 use openbse_components::fan::{Fan, FanType};
 use openbse_components::heat_pump_coil::HeatPumpHeatingCoil;
 use openbse_components::heat_recovery::HeatRecovery;
-use openbse_components::heating_coil::{HeatingCoil, UaModelConfig};
+use openbse_components::heating_coil::{HeatingCoil, HotWaterRating};
 use openbse_components::pfp_box::PFPBox;
 use openbse_components::vav_box::{ReheatType, VAVBox};
 use openbse_controls::setpoint::{PlantLoopSetpoint, SetpointController};
@@ -1353,21 +1353,24 @@ pub struct HeatingCoilInput {
     #[serde(default)]
     pub plant_loop: Option<String>,
 
-    /// Enable the UA-based (NTU-effectiveness) model for hot water coils.
-    /// When true, uses a cross-flow heat exchanger effectiveness method
-    /// instead of the simple capacity-based model. Default: false.
+    /// Not read: a hot-water coil on a plant loop always uses the
+    /// UA (ε-NTU) model. Setting it gives a warning.
     #[serde(default)]
-    pub ua_model: bool,
-    /// Rated water inlet temperature [°C] for UA model (default 82.2)
+    pub ua_model: Option<bool>,
+    /// Rated water inlet temperature [°C] of a hot-water coil
+    /// (default: the plant loop's design supply temperature)
     #[serde(default)]
     pub rated_water_inlet_temp: Option<f64>,
-    /// Rated water outlet temperature [°C] for UA model (default 71.1)
+    /// Rated water outlet temperature [°C] (default: inlet minus the loop's
+    /// design temperature difference)
     #[serde(default)]
     pub rated_water_outlet_temp: Option<f64>,
-    /// Rated air inlet temperature [°C] for UA model (default 16.6)
+    /// Rated air inlet temperature [°C] (default: the coil's design entering
+    /// air from sizing, else 16.6)
     #[serde(default)]
     pub rated_air_inlet_temp: Option<f64>,
-    /// Rated air outlet temperature [°C] for UA model (default 32.2)
+    /// Rated air outlet temperature [°C] (default: from the capacity and the
+    /// design air flow from sizing, else 32.2)
     #[serde(default)]
     pub rated_air_outlet_temp: Option<f64>,
 }
@@ -1452,15 +1455,18 @@ pub struct CoolingCoilInput {
     pub dry_coil_wet_bulb_iteration: bool,
 
     // ─── Chilled water fields (only used when source: chilled_water) ──
-    /// Design chilled water flow rate [m³/s]
+    /// Design (maximum) chilled water flow rate [m³/s] (default: capacity
+    /// over the design temperature rise)
     #[serde(default)]
     pub design_water_flow_rate: f64,
-    /// Design CHW supply temperature [°C] (default 6.7 / 44°F)
-    #[serde(default = "default_chw_supply_temp")]
-    pub design_water_inlet_temp: f64,
-    /// Design CHW return temperature [°C] (default 12.2 / 54°F)
-    #[serde(default = "default_chw_return_temp")]
-    pub design_water_outlet_temp: f64,
+    /// Design CHW supply temperature [°C] (default: the plant loop's design
+    /// supply temperature)
+    #[serde(default)]
+    pub design_water_inlet_temp: Option<f64>,
+    /// Design CHW return temperature [°C] (default: supply plus the plant
+    /// loop's design temperature difference)
+    #[serde(default)]
+    pub design_water_outlet_temp: Option<f64>,
     /// Plant loop name this coil connects to
     #[serde(default)]
     pub plant_loop: Option<String>,
@@ -1480,12 +1486,6 @@ fn default_shr() -> f64 {
 }
 fn default_dx_coil_setpoint() -> f64 {
     13.0
-}
-fn default_chw_supply_temp() -> f64 {
-    6.7
-}
-fn default_chw_return_temp() -> f64 {
-    12.2
 }
 
 /// One speed stage for a multi-speed DX cooling coil.
@@ -3513,37 +3513,15 @@ fn build_graph_impl(
                             graph.add_air_component(Box::new(coil))
                         }
                         "hot_water" | "HotWater" => {
-                            if c.ua_model {
-                                let mut ua_cfg = UaModelConfig::default();
-                                if let Some(v) = c.rated_water_inlet_temp {
-                                    ua_cfg.rated_water_inlet_temp = v;
-                                }
-                                if let Some(v) = c.rated_water_outlet_temp {
-                                    ua_cfg.rated_water_outlet_temp = v;
-                                }
-                                if let Some(v) = c.rated_air_inlet_temp {
-                                    ua_cfg.rated_air_inlet_temp = v;
-                                }
-                                if let Some(v) = c.rated_air_outlet_temp {
-                                    ua_cfg.rated_air_outlet_temp = v;
-                                }
-                                let mut coil = HeatingCoil::hot_water_ua(
-                                    &c.name, cap, c.setpoint, 0.001, // default water flow
-                                    82.0,  // default water inlet temp
-                                    71.0,  // default water outlet temp
-                                    ua_cfg,
-                                );
-                                coil.submeter = c.submeter.clone();
-                                graph.add_air_component(Box::new(coil))
-                            } else {
-                                let mut coil = HeatingCoil::hot_water(
-                                    &c.name, cap, c.setpoint, 0.001, // default water flow
-                                    82.0,  // default water inlet temp
-                                    71.0,  // default water outlet temp
-                                );
-                                coil.submeter = c.submeter.clone();
-                                graph.add_air_component(Box::new(coil))
-                            }
+                            let mut coil = HeatingCoil::hot_water(&c.name, cap, c.setpoint);
+                            coil.rating = HotWaterRating {
+                                water_inlet_temp: c.rated_water_inlet_temp,
+                                water_outlet_temp: c.rated_water_outlet_temp,
+                                air_inlet_temp: c.rated_air_inlet_temp,
+                                air_outlet_temp: c.rated_air_outlet_temp,
+                            };
+                            coil.submeter = c.submeter.clone();
+                            graph.add_air_component(Box::new(coil))
                         }
                         "gas" | "Gas" | "furnace" | "Furnace" => {
                             let mut coil = HeatingCoil::gas(&c.name, cap, c.setpoint, c.efficiency);
@@ -3553,6 +3531,7 @@ fn build_graph_impl(
                         }
                         _ => {
                             let mut coil = HeatingCoil::electric(&c.name, cap, c.setpoint);
+                            coil.efficiency = c.efficiency;
                             coil.submeter = c.submeter.clone();
                             graph.add_air_component(Box::new(coil))
                         }
@@ -3561,27 +3540,14 @@ fn build_graph_impl(
                 EquipmentInput::CoolingCoil(c) => {
                     match c.source.as_str() {
                         "chilled_water" | "ChilledWater" | "chw" => {
-                            // Chilled water cooling coil (connected to CHW plant loop)
-                            let water_flow = if c.design_water_flow_rate > 0.0 {
-                                c.design_water_flow_rate
-                            } else {
-                                // Default: derive from capacity (2.4 GPM/ton ≈ 0.000151 m³/s per 3517W)
-                                let cap = c.capacity.to_f64();
-                                if cap > 0.0 {
-                                    cap / 3517.0 * 0.000151
-                                } else {
-                                    0.001
-                                }
-                            };
-                            let mut coil = CoolingCoilCHW::new(
-                                &c.name,
-                                c.capacity.to_f64(),
-                                c.shr,
-                                c.setpoint,
-                                water_flow,
-                                c.design_water_inlet_temp,
-                                c.design_water_outlet_temp,
-                            );
+                            // Chilled water cooling coil; its water side is sized
+                            // with its plant loop after autosizing.
+                            let mut coil =
+                                CoolingCoilCHW::new(&c.name, c.capacity.to_f64(), c.setpoint);
+                            coil.design_water_flow_rate = c.design_water_flow_rate;
+                            coil.design_water_inlet_temp = c.design_water_inlet_temp;
+                            coil.design_water_outlet_temp = c.design_water_outlet_temp;
+                            coil.rated_air_flow = c.rated_airflow.to_f64().max(0.0);
                             coil.submeter = c.submeter.clone();
                             graph.add_air_component(Box::new(coil))
                         }

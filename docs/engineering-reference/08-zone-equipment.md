@@ -61,9 +61,13 @@ $\dot m = \operatorname{clamp}(s\dot Q_r/[c_p\max(T_{r,\text{max}} - T_\text{in}
 
 **Outlet.** The delivered reheat is limited by $\dot Q_r$ and
 $T_{r,\text{max}}$, and $W$ is unchanged. Electric reheat draws
-$\dot Q$ of electricity. Hot-water reheat is a load on its plant loop. Its
-water-side limit never applies, because the box never receives its water
-inlet ([#234](https://github.com/bbrannon4/OpenBSE/issues/234)).
+$\dot Q$ of electricity. Hot-water reheat on a plant loop is the cross-flow
+coil of @sec-heating-coils: its valve delivers the reheat asked for, held to
+$T_{r,\text{max}}$, on the loop's supply water, so a cooler loop can leave the
+box short. It is sized at the most reheat the box ever asks for, the smaller of
+$\dot Q_r$ and its heating maximum flow warmed from the loop's cooling supply
+temperature to $T_{r,\text{max}}$, on the air flow that carries that load at
+the limit. Without a plant loop the coil is ideal, limited by $\dot Q_r$.
 
 **Comparison with EnergyPlus.** The sequence follows
 `AirTerminal:SingleDuct:VAV:Reheat` with `ReverseWithLimits`
@@ -159,8 +163,6 @@ dual-duct systems should not be relied on until this is fixed.
   its secondary flow cannot be autosized, and there is no series box.
 - [#55](https://github.com/bbrannon4/OpenBSE/issues/55): fan-powered box
   secondary air not live.
-- [#234](https://github.com/bbrannon4/OpenBSE/issues/234): hot-water reheat
-  never sees its water inlet.
 
 ## Fan coils, PTAC and PTHP {#sec-fcu-ptac}
 

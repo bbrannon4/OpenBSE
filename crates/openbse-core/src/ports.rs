@@ -109,6 +109,23 @@ impl AirPort {
     }
 }
 
+/// The design state a water coil's water side is sized at (E+ `SizeWaterCoil`):
+/// its plant loop's design supply temperature and temperature difference, and
+/// the air the coil sees at its design point when sizing found one.
+#[derive(Debug, Clone, Copy)]
+pub struct WaterCoilDesign {
+    /// Plant loop design supply temperature [°C]
+    pub t_water_in: f64,
+    /// Plant loop design temperature difference [K]
+    pub delta_t: f64,
+    /// Air flow through the coil at its design point [kg/s]
+    pub air_flow: Option<f64>,
+    /// Entering air at the design point: dry-bulb [°C], humidity ratio [kg/kg]
+    pub air_in: Option<(f64, f64)>,
+    /// Barometric pressure [Pa]
+    pub p_b: f64,
+}
+
 /// A water-side port (inlet or outlet of a plant component).
 #[derive(Debug, Clone, Copy)]
 pub struct WaterPort {
@@ -179,6 +196,20 @@ pub trait AirComponent: std::fmt::Debug {
 
     /// Get the water-side outlet conditions after simulation.
     fn water_outlet(&self) -> Option<WaterPort> {
+        None
+    }
+
+    /// Size the water side of a coil on a plant loop: its design water flow
+    /// and UA. Called once, after the coil's capacity is known. Returns a
+    /// warning when the design load is beyond the coil's reach at the design
+    /// temperatures. A coil that is never sized has no plant loop and runs as
+    /// an ideal coil limited only by its capacity.
+    fn size_water_side(&mut self, _design: &WaterCoilDesign) -> Option<String> {
+        None
+    }
+
+    /// Design (maximum) water flow of a coil sized by [`Self::size_water_side`] [kg/s].
+    fn design_water_flow(&self) -> Option<f64> {
         None
     }
 

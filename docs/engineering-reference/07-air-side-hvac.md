@@ -117,9 +117,8 @@ $$ {#eq-heating-coil}
 
 with $W$ unchanged. The coil types differ as follows:
 
-- **Electric.** The coil draws $\dot Q$ of electricity. The `efficiency`
-  input is not read: it is fixed at 1
-  ([#234](https://github.com/bbrannon4/OpenBSE/issues/234)).
+- **Electric.** The coil draws $\dot Q/\eta$ of electricity, with $\eta$
+  the `efficiency` input (default 1).
 - **Gas.** The coil burns $\dot Q/\eta_b$ of fuel, with $\eta_b$ the burner
   efficiency. An on-cycle parasitic electric load $P_\text{par}$ is drawn in
   proportion to firing, $P_\text{par}\dot Q/\dot Q_\text{cap}$. Its heat is
@@ -127,78 +126,68 @@ with $W$ unchanged. The coil types differ as follows:
 - **Hot water.** The coil uses no energy itself. Its output is a load on its
   plant loop (@sec-plant).
 
-**Hot-water capacity.** The hot-water coil has two optional limits, but in
-the current code neither one ever applies
-([#234](https://github.com/bbrannon4/OpenBSE/issues/234)):
+**Hot-water coils on a plant loop.** A hot-water coil on a plant loop is a
+cross-flow heat exchanger with both streams unmixed (`water_coil.rs`,
+`HeatingUa`). With the capacity rates $C_a = \dot m c_p$ and
+$C_w = \dot m_wc_{p,w}$, $C_r = C_\text{min}/C_\text{max}$ and
+$\text{NTU} = UA/C_\text{min}$, its output at water flow $\dot m_w$ and entering
+water temperature $T_{w,\text{in}}$ is
 
-- A **water-side limit**, $\dot m_wc_{p,w}(T_{w,\text{in}} - 71)$. The coil
-  is never given its water inlet, so this limit is replaced by the nominal
-  capacity. As a result, hot-water coil output does not depend on the
-  loop's supply temperature or flow.
-- A **UA model** (`ua_model: true`), meant to apply a cross-flow
-  effectiveness. With no water inlet, the coil falls back to the plain
-  model above. The UA model also has two errors: its effectiveness has the
-  exponents of the both-unmixed correlation swapped, and its UA is taken
-  from the counterflow LMTD at the rated point. Together they would deliver
-  86.5% of rated capacity at the rated point.
+$$
+\varepsilon = 1 - \exp\left[\frac{\text{NTU}^{0.22}}{C_r}\left(e^{-C_r\text{NTU}^{0.78}} - 1\right)\right], \qquad
+\dot Q(\dot m_w) = \varepsilon\,C_\text{min}\,(T_{w,\text{in}} - T_\text{in}).
+$$ {#eq-crossflow-unmixed}
+
+$UA$ follows the flows and temperatures through its convective parts
+[@wetter1999]. At the design point it splits into a water side
+$UA_{w,d} = UA_d(1 + r)/r$ and an air side $UA_{a,d} = rUA_{w,d}$, with
+$r = 0.5$, and
+
+$$
+UA = \left[\frac{1}{x_wUA_{w,d}(\dot m_w/\dot m_{w,d})^{0.85}} + \frac{1}{x_aUA_{a,d}(\dot m/\dot m_d)^{0.8}}\right]^{-1},
+$$ {#eq-water-coil-ua}
+
+with $x_a = 1 + 4.769\times10^{-3}(T_\text{in} - T_{\text{in},d})$ and
+$x_w = 1 + s(T_{w,\text{in}} - T_{w,d})$, $s = 0.014/(1 + 0.014T_{w,d})$.
+
+- **Sizing.** $UA_d$ is solved so the coil delivers its capacity at its design
+  point (`size_water_coils` in `main.rs`, after plant sizing): the loop's
+  design supply temperature $T_{w,d}$; a design water flow
+  $\dot m_{w,d} = \dot Q_\text{cap}/(c_{p,w}\Delta T_d)$ from the loop's design
+  temperature difference; and the air its sizing found (@sec-system-sizing),
+  the mixed-air temperature and flow at the heating peak. The optional
+  `rated_*` inputs override any of these, as `Coil:Heating:Water`'s
+  Nominal Capacity method does. Without either, the air is E+'s rated
+  16.6 °C to 32.2 °C. A design load that would need an effectiveness above
+  0.99 is out of reach of the design temperatures: the coil is sized at 0.99
+  and the run warns that it delivers less than its capacity.
+- **Control.** The coil's valve modulates $\dot m_w$ to deliver
+  $\dot Q_\text{req}$ (`HeatingUa::control`, regula falsi to 0.001 K of
+  air). Its most is the smaller of $\dot m_{w,d}$ and the water its loop
+  offers. Short of that, it delivers $\dot Q(\dot m_w)$ at full flow. There
+  is no cap at the nominal capacity: a coil delivers what its water allows.
+- **Water.** The water leaves at
+  $T_{w,\text{in}} - \dot Q/(\dot m_wc_{p,w})$, and the coil reports its
+  water flow to its loop (@sec-plant-loop), which supplies the
+  temperature. A colder loop, a reset or a short boiler therefore lowers the
+  coil's output.
+
+A hot-water coil with no plant loop (allowed only in a model without plant
+loops) is an ideal coil: @eq-heating-coil with its nominal capacity.
 
 **Comparison with EnergyPlus.** The electric and gas coils match
 `Coil:Heating:Electric` and `Coil:Heating:Fuel` with no part-load fuel curve
 (`HeatingCoils.cc`). OpenBSE has no part-load curve and no off-cycle
-parasitic fuel ([#71](https://github.com/bbrannon4/OpenBSE/issues/71)).
-`Coil:Heating:Water` (`WaterCoils.cc`, `CalcSimpleHeatingCoil`) instead
-computes the output from the cross-flow both-unmixed effectiveness
-
-$$
-\varepsilon = 1 - \exp\left[\frac{\text{NTU}^{0.22}}{C_r}\left(e^{-C_r\text{NTU}^{0.78}} - 1\right)\right],
-$$ {#eq-crossflow-unmixed}
-
-the water inlet temperature and both flows. Its UA is solved so that the
-model meets the rated capacity [@eplus-engref-25-2, "Hot-Water-Based Air Heating Coil"]. In
-EnergyPlus, the loop temperature and flow therefore limit the coil
-([#234](https://github.com/bbrannon4/OpenBSE/issues/234)).
-
-## Ducts {#sec-ducts}
-
-**Source:** `openbse-components/src/duct.rs` (`Duct`); `main.rs`
-(`simulate_loop_components`, and "Duct distribution losses → ambient
-zone").
-
-A duct of length $L$, diameter $D$ and wall U-value $U$ exchanges heat with
-its ambient temperature $T_a$. Its effectiveness is that of a stream
-against a constant-temperature reservoir:
-
-$$
-\varepsilon = 1 - \exp\left(-\frac{U\pi DL}{\dot m c_p}\right), \qquad
-T_\text{out} = T_\text{in} - \varepsilon(T_\text{in} - T_a), \qquad
-\dot Q_\text{cond} = \dot m c_p(T_\text{in} - T_\text{out}).
-$$ {#eq-duct}
-
-A fraction $f_\text{leak}$ of the inlet mass flow leaks out, so
-$\dot m_\text{out} = (1 - f_\text{leak})\dot m$, with the outlet state
-unchanged by the leak.
-
-The ambient is set by `ambient_zone`:
-
-- `outdoor`: the outdoor dry-bulb;
-- `ground`: the month's value of `simulation.ground_surface_temperatures`;
-- a zone name: that zone's air temperature. Any other name is a severe error.
-
-**Losses to the ambient zone.** When the ambient is a zone, the losses
-return to it as gains, multiplied by the duct's zone multiplier:
-
-- sensible: $\dot Q_\text{cond} + \dot m_\text{leak}c_p(T_\text{in} - T_z)$;
-- latent: $\dot m_\text{leak}(W_\text{in} - W_z)h_g(T_z)$, with $h_g$ the vapour
-  enthalpy of @sec-psychrometrics.
-
-The duct reads that zone's temperature within the HVAC iteration
-(@sec-hvac-iteration), so the coupling converges with it.
-
-**Comparison with EnergyPlus.** EnergyPlus's `Duct` object is lossless. Duct
-losses need AirflowNetwork distribution, whose duct conduction has the form
-of @eq-duct [@eplus-engref-25-2, "AirflowNetwork Model"]. OpenBSE adds
-this as a component. Leakage only removes air, so a return duct in an attic or
-crawlspace can't draw ambient air in.
+parasitic fuel ([#71](https://github.com/bbrannon4/OpenBSE/issues/71)). The
+hot-water coil matches `Coil:Heating:Water` (`WaterCoils.cc`,
+`CalcSimpleHeatingCoil`, `CalcAdjustedCoilUA`), with its UA autosized at
+the design point as E+'s `WaterCoilUA` sizing does and the valve held to the
+setpoint as a `Controller:WaterCoil` does
+[@eplus-engref-25-2, "Hot-Water-Based Air Heating Coil"]. Two
+differences: E+ sizes the coil on its own design supply-air temperature, and
+OpenBSE on the temperature its capacity reaches from the design mixed air,
+which is the same point when the capacity is autosized; and a design point
+out of reach is a warning here where E+ stops sizing.
 
 ## Known limitations: fans, heating coils and ducts {#sec-air-side-limitations-a}
 
@@ -207,9 +196,9 @@ crawlspace can't draw ambient air in.
   off-cycle parasitics.
 - [#72](https://github.com/bbrannon4/OpenBSE/issues/72): Standard 205 fan
   at fixed static pressure; stale power after a failed map query.
-- [#234](https://github.com/bbrannon4/OpenBSE/issues/234): hot-water coils
-  never see their water inlet; the UA model is inert and has swapped
-  exponents; electric-coil efficiency is not read.
+- Hot-water and chilled-water coils have no fouling, no `DetailedGeometry`
+  model and no humidity-ratio control; a coil's water ΔT at design is its
+  loop's, with no per-coil `Design Water Temperature Difference`.
 - Ducts have no inward (return-side) leakage; filed for later.
 
 ## DX cooling coils {#sec-dx-cooling}
@@ -445,39 +434,71 @@ cooling than its air stream receives when the outlet is clamped
 
 ## Chilled-water cooling coils {#sec-chw-coil}
 
-**Source:** `openbse-components/src/chw_cooling_coil.rs` (`CoolingCoilCHW`).
+**Source:** `openbse-components/src/chw_cooling_coil.rs` (`CoolingCoilCHW`),
+`openbse-components/src/water_coil.rs` (`CoolingUa`).
 
-The coil cools the air to its outlet setpoint $T_\text{sp}$. If the
-entering air is wetter than saturation at $T_\text{sp}$, it leaves
-saturated:
+**On a plant loop** the coil is a counterflow coil with an external (air-side)
+and an internal (water-side) UA, $UA_i = 3.3\,UA_e$ at the design point, each
+following flow and temperature as in @eq-water-coil-ua (exponents 0.8 and
+0.85). It is dry or wet by the entering dew point $T_\text{dp}$:
+
+- **Dry** ($T_\text{dp} \le T_{w,\text{in}}$): the counterflow effectiveness on
+  $UA = (1/UA_e + 1/UA_i)^{-1}$ and the sensible capacity rates, with $W$
+  unchanged.
+- **Wet:** the same effectiveness on enthalpy. The water's capacity rate is
+  $\dot m_wc_{p,w}/c_\text{sat}$, with $c_\text{sat}$ the slope of the saturated
+  enthalpy between $T_{w,\text{in}}$ and $T_\text{dp}$, and the overall
+  conductance $UA_h = (c_\text{sat}/UA_i + c_{p,a}/UA_e)^{-1}$. The total is
+  $\dot Q_\text{tot} = \varepsilon\,C_{\text{min},h}(h_\text{in} - h_\text{sat}(T_{w,\text{in}}))$.
+  The leaving air moves from the entering state toward the surface condition
+  at the air-side effectiveness $1 - e^{-UA_e/C_a}$, so it leaves short of
+  saturation; if that would pass saturation it is put on the saturation line
+  at the same enthalpy.
+- **Mostly dry:** when the entering dew point is above the water temperature
+  the coil takes the larger of the wet and dry totals. E+'s SimpleAnalysis
+  always takes the wet result, which falls below the dry one on a coil that is
+  only slightly wet and jumps at the dew point; taking the larger brackets the
+  part-wet coil without that jump [@brandemuehl1993].
+
+The total is always the air's enthalpy drop, $\dot m(h_\text{in} - h_\text{out})$,
+and the water's heat gain.
+
+- **Sizing.** $UA_e$ is solved (on its logarithm, regula falsi) so the coil
+  delivers its nominal total capacity at its design point: the loop's design
+  supply temperature, a design water flow
+  $\dot Q_\text{cap}/(c_{p,w}\Delta T_d)$, and the mixed-air state and flow at
+  the loop's cooling peak (@sec-system-sizing). The inputs
+  `design_water_inlet_temp`, `design_water_outlet_temp` and
+  `design_water_flow_rate` override the loop's values; without sizing, the
+  air is E+'s rated 26.67 °C dry-bulb, 19.44 °C wet-bulb at `rated_airflow`.
+  A design load out of reach is sized at a very large UA and warned about.
+- **Control.** The valve modulates $\dot m_w$ until the leaving air is at the
+  setpoint (0.001 K), up to the design flow or the water the loop offers.
+  The leaving humidity follows from the coil, so a warmer chilled-water reset
+  removes less moisture.
+
+**Without a plant loop** (allowed only in a model without plant loops) the
+coil is the idealised coil of the ASHRAE 140 §11 analytical cases. If the
+entering air is wetter than saturation at $T_\text{sp}$, it leaves saturated:
 
 $$
 W_{\text{out},f} = \min\left(W_\text{in},\ W_\text{sat}(T_\text{sp})\right), \qquad
-\dot Q_{\text{tot},f} = \dot m\left[h_\text{in} - h(T_\text{sp}, W_{\text{out},f})\right], \qquad
-\dot Q_{s,f} = \dot m c_p(T_\text{in} - T_\text{sp}).
+\dot Q_{\text{tot},f} = \dot m\left[h_\text{in} - h(T_\text{sp}, W_{\text{out},f})\right].
 $$ {#eq-chw-coil}
 
-The capacity limit is the nominal capacity $\dot Q_\text{cap}$, a total
-(sensible plus latent) value. With
-$\text{PLR} = \min(\dot Q_\text{cap}/\dot Q_{\text{tot},f},\ 1)$, the coil
-delivers $\text{PLR}\,\dot Q_{\text{tot},f}$ and $\text{PLR}\,\dot Q_{s,f}$,
-with $W_\text{out}$ interpolated by PLR as in @eq-dx-plr. Its total output
-is a load on its chilled-water loop (@sec-plant).
+With $\text{PLR} = \min(\dot Q_\text{cap}/\dot Q_{\text{tot},f},\ 1)$, the coil
+delivers $\text{PLR}\,\dot Q_{\text{tot},f}$, with $W_\text{out}$ interpolated by
+PLR as in @eq-dx-plr and the temperature from the leaving enthalpy. The `shr`
+input applies to DX coils only.
 
-The code also has a water-side limit,
-$\dot m_wc_{p,w}(T_{w,\text{out},d} - T_{w,\text{in}})$. As with hot-water
-coils, the coil is never given its water inlet, so this limit never applies,
-and coil output does not depend on the chilled-water temperature or flow
-([#239](https://github.com/bbrannon4/OpenBSE/issues/239)). The `shr` input
-is not read.
-
-**Comparison with EnergyPlus.** EnergyPlus `Coil:Cooling:Water`
-(`WaterCoils.cc`) computes the outlet from the coil UA, the water inlet
-temperature and flow, and the wet and dry parts of the coil, so the leaving
-air is generally short of saturation [@eplus-engref-25-2, "Chilled-Water-Based Air Cooling Coil"].
-Forcing saturation reproduces the ASHRAE 140 analytical cases, but
-overstates latent removal for typical coils
-([#239](https://github.com/bbrannon4/OpenBSE/issues/239)).
+**Comparison with EnergyPlus.** On a plant loop the coil follows
+`Coil:Cooling:Water` with Type of Analysis SimpleAnalysis and its default
+CounterFlow configuration (`WaterCoils.cc`, `CoolingCoil`,
+`CoilCompletelyDry`, `CoilCompletelyWet`, `WetCoilOutletCondition`,
+`CalcAdjustedCoilUA`), its UA solved at the design point as `InitWaterCoil`
+does [@eplus-engref-25-2, "Chilled-Water-Based Air Cooling Coil"]. The
+differences are the larger-of-wet-and-dry rule above and the absence of the
+DetailedAnalysis part-wet iteration.
 
 ## Air-to-air heat recovery {#sec-heat-recovery}
 
@@ -594,7 +615,6 @@ the secondary flow ratio.
 
 ## Known limitations: other air-side components {#sec-air-side-limitations-c}
 
-- [#239](https://github.com/bbrannon4/OpenBSE/issues/239): chilled-water
-  coil's water side never connected, leaving air forced to saturation,
-  `shr` unread; humidifier reference temperature; heat-recovery effectiveness
-  fixed with flow and no frost control; evaporative cooler has no setpoint.
+- [#239](https://github.com/bbrannon4/OpenBSE/issues/239): humidifier
+  reference temperature; heat-recovery effectiveness fixed with flow and no
+  frost control; evaporative cooler has no setpoint.

@@ -13,17 +13,43 @@ multiplier, plus its water-source radiant panels. Heating is positive and
 cooling negative. A condenser loop instead takes the heat rejected by the
 chillers on it, $\sum(\dot Q_\text{ch} + P_\text{ch} - \dot Q_\text{rec})$.
 
-**State.** With the design temperature difference $\Delta T_d$ and the supply
-setpoint $T_\text{sp}$ (from the loop's outdoor reset if it has one), the loop's
-flow and return temperature are
+**Coils.** Before the air side runs, each water coil and hot-water reheat
+terminal on the loop gets the loop's supply water: up to its design water flow
+(@sec-heating-coils, @sec-chw-coil) at the supply temperature
 
 $$
-\dot m = \frac{|\dot Q|}{c_{p,w}\,\max(\Delta T_d, 1)}, \qquad
-T_\text{ret} = T_\text{sp} \mp \Delta T_d,
+T_\text{sup} = T_\text{sp} + \delta,
+$$ {#eq-plant-supply}
+
+with $T_\text{sp}$ the supply setpoint (from the loop's outdoor reset if it has
+one) and $\delta$ the shortfall of the last pass, below. Each coil's valve takes
+the water it needs and reports its flow.
+
+**State.** The loop's flow is the sum of its coils' water flows, each times its
+zone multiplier, plus each water radiant panel's load at the design difference
+$\Delta T_d$. A condenser loop, or a loop whose coils drew no water, takes its
+load at $\Delta T_d$. The water returns with what the load did to it:
+
+$$
+\dot m = \sum_k \dot m_{w,k} + \frac{|\dot Q_\text{panels}|}{c_{p,w}\Delta T_d}, \qquad
+T_\text{ret} = T_\text{sp} \mp \frac{|\dot Q|}{\dot m c_{p,w}},
 $$ {#eq-plant-state}
 
-with the minus sign for a heating loop and $c_{p,w}$ at the loop's conversion
-temperature (@sec-water-properties). A loop with no load is not simulated.
+with the minus sign for a heating loop, $\Delta T_d$ at least 1 K and
+$c_{p,w}$ at the loop's conversion temperature (@sec-water-properties). A
+condenser loop returns $\Delta T_d$ warmer. A loop with no load is not
+simulated.
+
+**Shortfall.** If the supply equipment delivers less than the load, the water
+leaves short of setpoint by
+$\delta = \mp(|\dot Q| - \dot Q_\text{del})/(\dot m c_{p,w})$, and the coils see
+that water on the next pass. Since a coil's output rises more slowly with its
+water temperature than the water's own capacity rate, the passes converge to the
+output the equipment can supply.
+
+**Flow limit.** If the coils draw more water than the loop's smallest pump
+moves at its design flow, every coil's available flow is scaled down by that
+ratio for the rest of the timestep.
 
 **Dispatch.** The supply equipment is simulated in series, in input order. Each
 takes the outlet of the one before:
@@ -42,9 +68,14 @@ heating loop's load before its boilers run.
 side (coil control valves, limited by design flows and the pump) and tracks the
 loop's temperature with its fluid volume and common-pipe options
 [@eplus-engref-25-2, "Plant Flow Resolver"]. OpenBSE's loop is an algebraic
-balance. It has no flow limit, no water temperature history, and its supply
-state reaches neither coils nor chillers. A setpoint reset changes only @eq-plant-state, so it brings no chiller efficiency gain. Pump heat is not added
-to the load ([#251](https://github.com/bbrannon4/OpenBSE/issues/251)).
+balance on the same demand-side flows: its coils' valves set the flow, limited
+by their design flows and by the pump, and the supply temperature they see falls
+when the equipment falls short. It has no water temperature history (loop
+volume, common pipe), and a constant-speed pump does not bypass its excess flow
+to the return. A chiller's efficiency still reads its own setpoint, so a reset
+changes what the coils do but brings no chiller efficiency gain. Pump heat is
+not added to the load, and the coils see the setpoint without it
+([#251](https://github.com/bbrannon4/OpenBSE/issues/251)).
 
 ## Pumps {#sec-pumps}
 
@@ -259,17 +290,14 @@ are overstated. It also runs only while the loop has a load
 
 ## Known limitations {#sec-plant-limitations}
 
-- [#251](https://github.com/bbrannon4/OpenBSE/issues/251): loops solved from the
-  load, no flow limit or temperature feedback, reset inert, condenser temperature
-  not from the tower, pump defaults and heat.
+- [#251](https://github.com/bbrannon4/OpenBSE/issues/251): no loop thermal
+  capacity, reset inert at the chiller, condenser temperature not from the tower,
+  pump defaults and heat.
 - [#230](https://github.com/bbrannon4/OpenBSE/issues/230): pump sizing basis.
 - [#252](https://github.com/bbrannon4/OpenBSE/issues/252): tower has no
   effectiveness model, fan cycling or water use.
 - [#253](https://github.com/bbrannon4/OpenBSE/issues/253): storage charges free;
   heat-exchanger heat never reaches its source loop.
-- [#234](https://github.com/bbrannon4/OpenBSE/issues/234),
-  [#239](https://github.com/bbrannon4/OpenBSE/issues/239): coils don't see their
-  loop's water.
 - [#71](https://github.com/bbrannon4/OpenBSE/issues/71),
   [#72](https://github.com/bbrannon4/OpenBSE/issues/72): boiler curve,
   heat-exchanger effectiveness, Standard 205 chiller flows.

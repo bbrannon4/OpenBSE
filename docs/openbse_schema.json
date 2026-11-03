@@ -712,7 +712,7 @@
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
         "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Nominal heating capacity [W]." },
         "setpoint": { "type": "number", "default": 35.0, "description": "Outlet air temperature setpoint [C]." },
-        "efficiency": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Heating efficiency [0-1]. 1.0 for electric, <1.0 for gas. Ignored for hot_water source (boiler handles efficiency)." },
+        "efficiency": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Heating efficiency [0-1]: conversion efficiency of an electric coil (energy = heat / efficiency), burner efficiency of a gas coil. Ignored for hot_water source (boiler handles efficiency)." },
         "parasitic_electric_load": { "type": "number", "default": 0.0, "minimum": 0, "description": "On-cycle parasitic electric load [W] for gas coils (draft / inducer fan). Runs with the burner; adds no heat to the supply air." },
         "cop": { "type": "number", "default": 3.0, "description": "Rated heating COP (heat_pump source only)." },
         "rated_airflow": { "type": "number", "default": 0.0, "description": "Rated airflow [m3/s] (heat_pump source only). 0 = derived from capacity (~500 CFM/ton)." },
@@ -721,11 +721,11 @@
         "cap_ft_curve": { "type": "string", "description": "Name of a top-level performance curve for capacity f(T_outdoor) (heat_pump source only)." },
         "eir_ft_curve": { "type": "string", "description": "Name of a top-level performance curve for EIR f(T_outdoor) (heat_pump source only)." },
         "plant_loop": { "type": "string", "description": "Hot water plant loop that supplies this coil (hot_water source only). Required when the model has plant loops; in a model without plant loops a hot_water coil is an ideal water source." },
-        "ua_model": { "type": "boolean", "default": false, "description": "Use the UA-based (NTU-effectiveness cross-flow) model for hot water coils instead of the simple capacity-based model." },
-        "rated_water_inlet_temp": { "type": "number", "description": "Rated water inlet temperature [C] for the UA model (default 82.2)." },
-        "rated_water_outlet_temp": { "type": "number", "description": "Rated water outlet temperature [C] for the UA model (default 71.1)." },
-        "rated_air_inlet_temp": { "type": "number", "description": "Rated air inlet temperature [C] for the UA model (default 16.6)." },
-        "rated_air_outlet_temp": { "type": "number", "description": "Rated air outlet temperature [C] for the UA model (default 32.2)." }
+        "ua_model": { "type": "boolean", "description": "Not read (gives a warning): a hot_water coil on a plant loop always uses the UA (cross-flow ε-NTU) model, sized at its design point." },
+        "rated_water_inlet_temp": { "type": "number", "description": "Rated water inlet temperature [C] of a hot_water coil (default: its plant loop's design supply temperature)." },
+        "rated_water_outlet_temp": { "type": "number", "description": "Rated water outlet temperature [C] (default: inlet minus the plant loop's design temperature difference)." },
+        "rated_air_inlet_temp": { "type": "number", "description": "Rated air inlet temperature [C] (default: the coil's design mixed air from sizing, else 16.6)." },
+        "rated_air_outlet_temp": { "type": "number", "description": "Rated air outlet temperature [C]; sets the design air flow from the capacity (default: the design air flow from sizing, else 32.2)." }
       }
     },
 
@@ -746,8 +746,8 @@
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
         "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated total cooling capacity [W] at ARI conditions. May be omitted when a205_file is set." },
         "cop": { "type": "number", "default": 3.5, "description": "Rated COP (coefficient of performance). DX source only; ignored when a205_file is set." },
-        "shr": { "type": "number", "default": 0.8, "minimum": 0, "maximum": 1, "description": "Rated sensible heat ratio [0-1]." },
-        "rated_airflow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated air volume flow rate [m3/s]." },
+        "shr": { "type": "number", "default": 0.8, "minimum": 0, "maximum": 1, "description": "Rated sensible heat ratio [0-1]. DX source only." },
+        "rated_airflow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated air volume flow rate [m3/s]. For a chilled_water coil, its design air flow when sizing gives none." },
         "a205_file": { "type": "string", "description": "Path to an ASHRAE Standard 205 RS0004 DX performance file (.a205 CBOR or .a205.json). Relative paths resolve against the model YAML directory. When set, curves on this coil are ignored. DX source only." },
         "setpoint": { "type": "number", "default": 13.0, "description": "Outlet air temperature setpoint [C]." },
         "condenser_fan_power": { "type": "number", "default": 0.0, "minimum": 0, "description": "Rated outdoor (condenser) fan power [W], DX source only. Runs with the compressor; reported under cooling electricity." },
@@ -758,9 +758,9 @@
         "eir_fflow_curve": { "type": "string", "description": "Name of a top-level performance curve for EIR f(flow fraction)." },
         "autocalculate_shr": { "type": "boolean", "default": true, "description": "Compute SHR each timestep with the apparatus dew point / bypass factor method (E+ style). false = constant rated SHR." },
         "dry_coil_wet_bulb_iteration": { "type": "boolean", "default": false, "description": "When the DX coil runs dry, evaluate capacity/EIR curves at the wet-bulb at which the coil would just be dry (as EnergyPlus does). Only used with autocalculate_shr." },
-        "design_water_flow_rate": { "type": "number", "default": 0.0, "description": "Design chilled water flow rate [m3/s] (chilled_water source only)." },
-        "design_water_inlet_temp": { "type": "number", "default": 6.7, "description": "Design chilled water supply temperature [C] (chilled_water source only)." },
-        "design_water_outlet_temp": { "type": "number", "default": 12.2, "description": "Design chilled water return temperature [C] (chilled_water source only)." },
+        "design_water_flow_rate": { "type": "number", "default": 0.0, "description": "Design (maximum) chilled water flow rate [m3/s] (chilled_water source only). 0 = capacity over the design temperature rise." },
+        "design_water_inlet_temp": { "type": "number", "description": "Design chilled water supply temperature [C] (chilled_water source only). Default: the plant loop's design supply temperature." },
+        "design_water_outlet_temp": { "type": "number", "description": "Design chilled water return temperature [C] (chilled_water source only). Default: supply plus the plant loop's design temperature difference." },
         "plant_loop": { "type": "string", "description": "Chilled water plant loop that supplies this coil (chilled_water source only). Required when the model has plant loops; in a model without plant loops a chilled_water coil is an ideal water source." }
       }
     },
@@ -1760,7 +1760,7 @@
         "wind_exposure": { "type": "boolean", "default": true, "description": "Whether the exterior face sees wind-driven convection (false = natural convection only, E+ NoWind)." },
         "adjacent_surface": { "type": "string", "description": "Name of the opposite face of an interzone surface (E+ Outside Boundary Condition Object). Optional: surfaces are otherwise paired by coincident vertices, then by matching area and orientation. Anything that can't be paired one-to-one is a severe error." },
         "exposed_perimeter": { "type": "number", "description": "Exposed perimeter [m] for F-factor ground floors. Required when the construction is an f_factor_constructions entry; U_eff = F x P / A." },
-        "height": { "type": "number", "description": "Window height [m] for the ISO 15099 interior convection model (default from the vertices, or sqrt(area) without them)." },
+        "height": { "type": "number", "description": "Window height [m] for the ISO 15099 interior convection model (default from the vertices, or sqrt(area) without them)." }
       }
     },
 
