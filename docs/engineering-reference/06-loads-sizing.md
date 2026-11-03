@@ -277,9 +277,9 @@ $$ {#eq-vrp-sizing}
 
 $V_{ot} = V_{ou}/E_v$ at the zones' design flows (cooling) and at their minimum
 flows, the loop's `min_vav_fraction` of design (heating), and never less than the
-uncorrected requirement. Without it the coils were sized for less outdoor air than
-the controls take at turndown: a VAV preheat coil came to 30 W where the loop
-supplied 4 °C air on design nights ([#342](https://github.com/bbrannon4/OpenBSE/issues/342)).
+uncorrected requirement. The coils are then sized for the outdoor air the controls
+take at turndown, when VRP raises the outdoor-air fraction, so a preheat coil can
+hold the supply temperature on design nights.
 
 **Mixed air.** The inlet state mixes return air, at the flow-weighted zone
 temperature and humidity, with outdoor air: $T_m = (1 - x)T_r + xT_o$, and the same

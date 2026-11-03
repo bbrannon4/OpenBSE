@@ -1518,8 +1518,8 @@ pub fn build_vav_signals(
                 })
             },
         );
-        // E+ converts flows at the site's standard density; sea-level air
-        // (1.204 kg/m³) overstated the OA fraction by ~23% in Denver.
+        // Flows convert at the site's standard density, as in E+; at
+        // altitude sea-level density would overstate the OA fraction.
         let vps = total_flow / li.std_air_density; // total supply [m³/s]
         let ys = if vps > 0.01 {
             vot / vps
