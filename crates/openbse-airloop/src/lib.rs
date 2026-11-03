@@ -295,6 +295,11 @@ pub fn dual_maximum_heating_flow(
     (zone_load.max(0.0) / (cp * (max_reheat_temp - zone_temp))).clamp(min_flow, heat_max_flow)
 }
 
+/// Highest supply temperature the VAV Warmest reset sets [°C] (E+
+/// `SetpointManager:Warmest` Maximum Setpoint Temperature): with no zone
+/// cooling, as on a heating design day, the supply sits here.
+pub const WARMEST_SAT_MAX: f64 = 15.6;
+
 // ─── HVAC Mode ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1401,7 +1406,7 @@ pub fn build_vav_signals(
     // band rising to half of design over a 5 K error.
     let v_heat_max_frac = 0.50;
     let sat_min = li.cooling_supply_temp; // E+ SetpointManager:Warmest MinimumTemperature
-    let sat_max = 15.6_f64; // E+ SetpointManager:Warmest MaximumTemperature
+    let sat_max = WARMEST_SAT_MAX;
 
     let mut sat_setpoint = sat_max; // start warm, only drop if a zone needs it
 

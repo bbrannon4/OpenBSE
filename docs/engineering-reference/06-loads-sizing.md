@@ -316,8 +316,11 @@ $$ {#eq-heating-coil-load}
 
 with no fan heat. For most loops $\dot m_c$ is the fan flow and $T_\text{out}$ the
 heating supply temperature. A VAV loop's central coil tempers the zones' summed
-heating flow to `preheat_setpoint` or else the cooling supply temperature, its boxes
-reheating from there. A dual-duct hot deck carries the summed heating flow to the
+heating flow to the temperature its controls give it on a heating design day, its
+boxes reheating from there: `preheat_setpoint`, else the fixed supply temperature,
+else the Warmest reset's 15.6 °C maximum (no zone cools), less the rise of a supply
+fan downstream of the coil. E+ sizes it to the Central Heating Design Supply Air
+Temperature of `Sizing:System`, an input; here the controls set it. A dual-duct hot deck carries the summed heating flow to the
 heating supply temperature, at the system's outdoor-air fraction. CRAC and CRAH have
 none. A DOAS uses the temperatures its controls run at.
 
