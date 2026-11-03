@@ -175,6 +175,17 @@ pub struct Unphysical {
     pub first_time: StepTime,
 }
 
+/// Timesteps in which an air loop's terminals pass a different mass flow than
+/// its supply fan moves.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct MassImbalance {
+    pub steps: u64,
+    /// Supplied minus passed [kg/s], at the worst step
+    pub worst: f64,
+    pub worst_supplied: f64,
+    pub worst_time: StepTime,
+}
+
 /// Everything the checks have seen during one run period.
 #[derive(Debug, Default)]
 pub struct RunChecks {
@@ -185,6 +196,8 @@ pub struct RunChecks {
     /// Plant demand components not yet seen in the outputs, by loop.
     pub plant_unseen: BTreeMap<String, BTreeSet<String>>,
     pub air_components: BTreeMap<String, Balance>,
+    /// Air loops whose terminals pass a different flow than the loop supplies.
+    pub air_loop_mass: BTreeMap<String, MassImbalance>,
     pub convergence: NonConvergence,
     /// Keyed by "'component' key: what is wrong".
     pub unphysical: BTreeMap<String, Unphysical>,
@@ -305,6 +318,22 @@ impl RunChecks {
         }
     }
 
+    /// Mass conservation of an air loop with terminal boxes: the flow its
+    /// supply carries [kg/s] against the sum its terminals pass [kg/s].
+    pub fn air_loop_mass(&mut self, air_loop: &str, supplied: f64, passed: f64, now: StepTime) {
+        let diff = supplied - passed;
+        if diff.abs() <= 1.0e-6 * supplied.abs().max(passed.abs()) + 1.0e-9 {
+            return;
+        }
+        let e = self.air_loop_mass.entry(air_loop.to_string()).or_default();
+        if e.steps == 0 || diff.abs() > e.worst.abs() {
+            e.worst = diff;
+            e.worst_supplied = supplied;
+            e.worst_time = now;
+        }
+        e.steps += 1;
+    }
+
     /// Unphysical output values: NaN or inf anywhere, a negative part-load
     /// ratio or capacity, a COP ≤ 0 while the component runs.
     pub fn states(&mut self, outputs: &HashMap<String, HashMap<String, f64>>, now: StepTime) {
@@ -396,6 +425,16 @@ impl RunChecks {
             &self.plant_excess,
             "Plant loop '{}' equipment delivers more heat than the loop demand",
         );
+        for (l, m) in &self.air_loop_mass {
+            push(
+                Severity::Severe,
+                format!(
+                    "Air loop '{l}': its terminals pass a different air flow than it supplies in \
+                     {} timesteps (worst {:+.4} kg/s of {:.4} kg/s at {}); mass is not conserved",
+                    m.steps, m.worst, m.worst_supplied, m.worst_time
+                ),
+            );
+        }
         for (l, names) in &self.plant_unseen {
             if !names.is_empty() {
                 let list: Vec<String> = names.iter().map(|n| format!("'{n}'")).collect();
@@ -738,5 +777,22 @@ mod tests {
         let v = report(&c);
         assert_eq!(v.error_count(), 2, "{}", v.to_err_file());
         assert!(v.to_err_file().contains("[warmup] Surface 'Slab'"));
+    }
+
+    #[test]
+    fn air_loop_mass_imbalance_is_severe() {
+        let mut c = RunChecks::default();
+        let now = StepTime::default();
+        c.air_loop_mass("AHU", 1.0, 1.0, now);
+        c.air_loop_mass("AHU", 1.0, 1.0 - 1.0e-9, now);
+        assert!(c.air_loop_mass.is_empty());
+        c.air_loop_mass("AHU", 1.4, 1.0, now);
+        let mut v = ValidationResult::default();
+        c.report(&mut v);
+        assert!(
+            v.to_err_file().contains("mass is not conserved"),
+            "{}",
+            v.to_err_file()
+        );
     }
 }

@@ -65,6 +65,9 @@ pub struct VAVBox {
     /// Maximum Flow Fraction During Reheat from the zone's design heating flow).
     #[serde(default)]
     pub max_reheat_fraction_autosize: bool,
+    /// Primary flow the air loop allocates this timestep [kg/s].
+    #[serde(skip)]
+    pub allocated_flow: Option<f64>,
 
     // ─── Hot water reheat parameters ─────────────────────────────────────
     /// Design hot water flow rate [m³/s] (for HotWater reheat)
@@ -133,6 +136,7 @@ impl VAVBox {
             max_reheat_temp: 40.0,
             max_reheat_fraction: 0.5,
             max_reheat_fraction_autosize: false,
+            allocated_flow: None,
             design_hw_flow_rate: 0.0,
             design_hw_inlet_temp: 82.0,
             design_hw_outlet_temp: 71.0,
@@ -223,6 +227,7 @@ impl AirComponent for VAVBox {
             (min_flow, false)
         };
 
+        let air_flow = self.allocated_flow.unwrap_or(air_flow);
         self.primary_air_flow = air_flow;
         self.damper_position = if self.max_air_flow > 0.0 {
             air_flow / self.max_air_flow
@@ -358,6 +363,14 @@ impl AirComponent for VAVBox {
 
     fn max_reheat_temp(&self) -> Option<f64> {
         Some(self.max_reheat_temp)
+    }
+
+    fn set_primary_air_flow(&mut self, flow: Option<f64>) {
+        self.allocated_flow = flow;
+    }
+
+    fn primary_air_flow(&self) -> Option<f64> {
+        Some(self.primary_air_flow)
     }
 
     /// E+ `SingleDuct` sizing: the heating maximum is the zone's design

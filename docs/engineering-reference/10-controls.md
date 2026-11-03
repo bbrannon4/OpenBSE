@@ -157,7 +157,8 @@ deadband it takes its minimum. In heating it takes the flow its box runs at
 (@eq-vav-dual-max): the minimum while reheat to $T_{r,\text{max}}$ covers the load,
 then just enough flow to carry it at that temperature, up to the box's heating
 maximum. A zone without a sized box takes a fraction rising to 0.5 over a 5 K
-error. The fan's flow is the total, so fan and coils carry what the boxes deliver.
+error. The fan's flow is the total, and each box passes the flow allocated to its
+zone, so the fan and coils carry exactly what the boxes deliver.
 
 **Outdoor air.** The minimum follows the ASHRAE 62.1 ventilation rate procedure
 [@ashrae621]:

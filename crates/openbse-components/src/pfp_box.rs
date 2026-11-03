@@ -62,6 +62,9 @@ pub struct PFPBox {
     /// cooling (E+ "Fan On Flow Fraction", autosized to the minimum fraction).
     #[serde(default)]
     pub fan_on_flow_fraction: f64,
+    /// Primary flow the air loop allocates this timestep [kg/s].
+    #[serde(skip)]
+    pub allocated_flow: Option<f64>,
 
     // ─── Electric reheat coil ────────────────────────────────────────────
     /// Reheat coil capacity [W]
@@ -128,6 +131,7 @@ impl PFPBox {
             secondary_fan_efficiency: 0.55,
             secondary_air_temp: 24.0,
             fan_on_flow_fraction: min_primary_fraction,
+            allocated_flow: None,
             reheat_capacity,
             max_reheat_temp: 35.0,
             control_signal: 0.0,
@@ -222,6 +226,7 @@ impl AirComponent for PFPBox {
             primary_flow = min_primary;
         }
 
+        let primary_flow = self.allocated_flow.unwrap_or(primary_flow);
         self.primary_air_flow = primary_flow.min(inlet.mass_flow);
         self.damper_position = if self.max_primary_flow > 0.0 {
             self.primary_air_flow / self.max_primary_flow
@@ -314,6 +319,14 @@ impl AirComponent for PFPBox {
 
     fn max_reheat_temp(&self) -> Option<f64> {
         Some(self.max_reheat_temp)
+    }
+
+    fn set_primary_air_flow(&mut self, flow: Option<f64>) {
+        self.allocated_flow = flow;
+    }
+
+    fn primary_air_flow(&self) -> Option<f64> {
+        Some(self.primary_air_flow)
     }
 
     /// Reheat that holds the zone: the zone load, plus warming the minimum

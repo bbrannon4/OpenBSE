@@ -70,8 +70,9 @@ inlet ([#234](https://github.com/bbrannon4/OpenBSE/issues/234)).
 (`SingleDuct.cc`, `SimVAV`) [@eplus-engref-25-2, "Air System Distribution
 Terminals"], including E+'s autosized heating maximum flow. E+ has no default
 reheat temperature limit and recommends 35 °C when it is unknown; OpenBSE's
-default is 40 °C. The air loop's flow in heating is the sum of the flows the boxes
-run at (@sec-controls).
+default is 40 °C. The air loop allocates each box its primary flow from these same
+rules (@sec-controls), and the box passes exactly that flow, so the loop's supply is
+the sum of its boxes' flows.
 
 ## Parallel fan-powered boxes {#sec-pfp-box}
 
