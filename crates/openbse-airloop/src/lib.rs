@@ -222,6 +222,40 @@ impl ZoneOaData {
     }
 }
 
+/// ASHRAE 62.1 §6.2.5 multi-zone VRP: the system outdoor air Vot [m³/s] for
+/// the given zone primary flows [kg/s], system primary flow `vps` [m³/s] and
+/// occupants.
+///
+/// In a multi-zone recirculating system every zone gets the same mixed air,
+/// so a zone at part flow gets less outdoor air than it needs. The critical
+/// zone's discharge fraction Zd = Voz/Vdz sets the system ventilation
+/// efficiency Ev = 1 + Xs − max(Zd) (Eq 6-6, bounded to 0.15–1), with
+/// Xs = Vou/Vps, and Vot = Vou/Ev (E+ `Controller:MechanicalVentilation` at
+/// run time, `ManageSystemVentilationAdjustments` in sizing). Zone air
+/// distribution effectiveness Ez is 1 (well-mixed ceiling supply).
+pub fn vrp_outdoor_air(
+    zones: &[ZoneOaData],
+    zone_flows: &HashMap<String, f64>,
+    vps: f64,
+    air_density: f64,
+    occupants: impl Fn(&ZoneOaData) -> f64,
+) -> f64 {
+    let mut vou = 0.0_f64; // uncorrected total OA [m³/s]
+    let mut max_zd = 0.0_f64; // critical zone discharge OA fraction
+    for oa in zones {
+        // Breathing-zone OA, ASHRAE 62.1 Eq 6-1; Voz = Vbz / Ez with Ez = 1.
+        let voz = oa.required_flow(occupants(oa));
+        vou += voz;
+        let vdz = zone_flows.get(&oa.zone_name).copied().unwrap_or(0.1) / air_density;
+        if vdz > 0.001 {
+            max_zd = max_zd.max(voz / vdz);
+        }
+    }
+    let xs = if vps > 0.01 { vou / vps } else { 0.0 };
+    let ev = (1.0 + xs - max_zd).clamp(0.15, 1.0);
+    vou / ev
+}
+
 // ─── HVAC Mode ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1473,46 +1507,20 @@ pub fn build_vav_signals(
     // of zero (unoccupied, or its schedule at zero) means ventilation is off,
     // as when E+'s controller is unavailable.
     let vrp_min_oa = if !li.zone_oa_data.is_empty() && effective_min_oa > 0.0 {
-        // E+ converts flows at the site's standard density; sea-level air
-        // (1.204 kg/m³) overstated the OA fraction by ~23% in Denver.
-        let air_density = li.std_air_density;
-        let mut vou = 0.0_f64; // uncorrected total OA [m³/s]
-        let mut max_zd = 0.0_f64; // critical zone discharge OA fraction
-
-        for oa in &li.zone_oa_data {
-            let occupants = oa.occupants(|sched| {
-                schedule_mgr.map_or(1.0, |sm| sm.fraction(sched, hour, day_of_week))
-            });
-
-            // Breathing zone OA [m³/s]: ASHRAE 62.1 Eq 6-1
-            let vbz = oa.required_flow(occupants);
-            // Zone OA with distribution effectiveness: Voz = Vbz / Ez
-            // Ez = 1.0 for well-mixed ceiling supply (ASHRAE 62.1 Table 6-2)
-            let voz = vbz;
-            vou += voz;
-
-            // Zone discharge OA fraction: Zd = Voz / Vdz
-            // Vdz = actual zone airflow [m³/s]
-            let vdz_kg = signals
-                .zone_air_flows
-                .get(&oa.zone_name)
-                .copied()
-                .unwrap_or(0.1);
-            let vdz = vdz_kg / air_density; // kg/s → m³/s
-            if vdz > 0.001 {
-                let zd = voz / vdz;
-                max_zd = max_zd.max(zd);
-            }
-        }
-
-        // System ventilation efficiency: ASHRAE 62.1 Eq 6-6
-        // Ev = 1 + Xs - max(Zd)
-        let vps = total_flow / air_density; // total supply [m³/s]
-        let xs = if vps > 0.01 { vou / vps } else { 0.0 };
-        let ev = (1.0 + xs - max_zd).clamp(0.15, 1.0);
-
-        // Corrected system OA: Vot = Vou / Ev
-        let vot = vou / ev;
+        let vot = vrp_outdoor_air(
+            &li.zone_oa_data,
+            &signals.zone_air_flows,
+            total_flow / li.std_air_density,
+            li.std_air_density,
+            |oa| {
+                oa.occupants(|sched| {
+                    schedule_mgr.map_or(1.0, |sm| sm.fraction(sched, hour, day_of_week))
+                })
+            },
+        );
+        // Flows convert at the site's standard density, as in E+; at
+        // altitude sea-level density would overstate the OA fraction.
+        let vps = total_flow / li.std_air_density; // total supply [m³/s]
         let ys = if vps > 0.01 {
             vot / vps
         } else {
@@ -2049,6 +2057,33 @@ mod tests {
         assert!((oa.required_flow(occupants) - 0.45).abs() < 1e-12);
         oa.requirement.oa_method = openbse_envelope::zone_loads::OaMethod::Maximum;
         assert!((oa.required_flow(occupants) - 0.2).abs() < 1e-12);
+    }
+
+    #[test]
+    fn vrp_corrects_for_the_critical_zone() {
+        let zone = |name: &str| ZoneOaData {
+            zone_name: name.to_string(),
+            requirement: openbse_envelope::zone::OutdoorAirInput {
+                per_area: 0.001,
+                ..Default::default()
+            },
+            people: vec![],
+            floor_area: 100.0,
+            volume: 300.0,
+        };
+        let zones = [zone("A"), zone("B")];
+        // Each zone needs 0.1 m³/s; B at 0.2 m³/s is critical (Zd = 0.5).
+        // Xs = 0.2/1.2, Ev = 1 + Xs − 0.5 = 2/3, so Vot = 0.2/Ev = 0.3.
+        let flows: HashMap<String, f64> = [("A".to_string(), 1.0), ("B".to_string(), 0.2)]
+            .into_iter()
+            .collect();
+        let vot = vrp_outdoor_air(&zones, &flows, 1.2, 1.0, |_| 0.0);
+        assert!((vot - 0.3).abs() < 1e-12, "{vot}");
+        // At equal discharge fractions there is nothing to correct.
+        let even: HashMap<String, f64> = [("A".to_string(), 1.0), ("B".to_string(), 1.0)]
+            .into_iter()
+            .collect();
+        assert!((vrp_outdoor_air(&zones, &even, 2.0, 1.0, |_| 0.0) - 0.2).abs() < 1e-12);
     }
 
     #[test]
