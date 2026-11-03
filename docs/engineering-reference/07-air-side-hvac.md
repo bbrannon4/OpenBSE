@@ -423,6 +423,11 @@ Each timestep, the coil goes through these steps:
    delivered fraction.
 4. **Latent.** It removes the latent part as
    $\Delta W = \dot Q_\text{lat}/(\dot m h_g)$, with $h_g$ at the outlet temperature.
+5. **Outlet.** The outlet is held at least 0.1 K above the setpoint and at
+   least $10^{-5}$ kg/kg; air past saturation is moved onto the saturation
+   line at the same enthalpy. The cooling booked is then the air's own
+   change, $\dot m(h_\text{in} - h_\text{out})$ and $\dot m c_p\Delta T$, and
+   power is pro-rated by the total delivered.
 
 The file's cycling degradation coefficient is meant to apply below the
 minimum sequence. With the linear mapping, that branch is never reached
@@ -433,9 +438,7 @@ minimum sequence. With the linear mapping, that branch is never reached
 the first sequence below its capacity and interpolates between adjacent
 sequences above it. OpenBSE snaps and pro-rates instead, which can under-
 or over-deliver
-([#72](https://github.com/bbrannon4/OpenBSE/issues/72)). It also books more
-cooling than its air stream receives when the outlet is clamped
-([#168](https://github.com/bbrannon4/OpenBSE/issues/168)).
+([#72](https://github.com/bbrannon4/OpenBSE/issues/72)).
 
 ## Known limitations: DX and heat-pump coils {#sec-air-side-limitations-b}
 
@@ -444,8 +447,6 @@ cooling than its air stream receives when the outlet is clamped
   normalization and a constant-SHR mode E+ lacks.
 - [#72](https://github.com/bbrannon4/OpenBSE/issues/72): Standard 205 DX
   coil never cycles below its minimum sequence; staging snaps.
-- [#168](https://github.com/bbrannon4/OpenBSE/issues/168): Standard 205 DX
-  coil books more cooling than its outlet shows.
 - [#56](https://github.com/bbrannon4/OpenBSE/issues/56),
   [#57](https://github.com/bbrannon4/OpenBSE/issues/57): the same curve
   conventions in the water-source heat pumps and VRF (@sec-zone-equipment).
