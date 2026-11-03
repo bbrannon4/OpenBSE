@@ -6,10 +6,13 @@
 //!   - A secondary (parallel) fan that draws plenum/return air
 //!   - An electric resistance reheat coil downstream of the mixing point
 //!
-//! Control sequence:
+//! Control sequence (E+ `CalcParallelPIU`):
 //!   1. Cooling mode: primary damper modulates open (more cold AHU air),
-//!      secondary fan OFF, reheat OFF.
-//!   2. Deadband: primary at minimum, secondary fan OFF, reheat OFF.
+//!      reheat OFF; the secondary fan runs while the primary flow is at or
+//!      below the fan-on flow fraction.
+//!   2. Deadband: primary at minimum, reheat OFF, secondary fan OFF. When
+//!      minimum primary air alone would cool the zone below its heating
+//!      setpoint the driver asks for reheat, which is heating mode.
 //!   3. Heating mode: primary at minimum, secondary fan ON (draws warm
 //!      plenum air), reheat coil modulates to meet heating load.
 //!      The secondary fan provides constant flow of warm return/plenum air
@@ -55,6 +58,10 @@ pub struct PFPBox {
     /// In a real building this comes from the return air plenum.
     /// Default: 24°C (typical return air temperature).
     pub secondary_air_temp: f64,
+    /// Primary flow fraction at or below which the secondary fan runs while
+    /// cooling (E+ "Fan On Flow Fraction", autosized to the minimum fraction).
+    #[serde(default)]
+    pub fan_on_flow_fraction: f64,
 
     // ─── Electric reheat coil ────────────────────────────────────────────
     /// Reheat coil capacity [W]
@@ -120,6 +127,7 @@ impl PFPBox {
             secondary_fan_pressure: 375.0, // typical PFP fan
             secondary_fan_efficiency: 0.55,
             secondary_air_temp: 24.0,
+            fan_on_flow_fraction: min_primary_fraction,
             reheat_capacity,
             max_reheat_temp: 35.0,
             control_signal: 0.0,
@@ -197,12 +205,13 @@ impl AirComponent for PFPBox {
         let primary_flow: f64;
 
         if self.control_signal < 0.0 {
-            // COOLING MODE: modulate primary damper, secondary fan OFF
+            // COOLING MODE: modulate primary damper; fan on at low primary flow
             // control_signal is -1.0 (full cooling) to 0.0 (no cooling)
-            secondary_fan_on = false;
 
             let cooling_frac = (-self.control_signal).clamp(0.0, 1.0);
             primary_flow = min_primary + cooling_frac * (self.max_primary_flow - min_primary);
+            secondary_fan_on =
+                primary_flow <= (self.fan_on_flow_fraction + 1.0e-6) * self.max_primary_flow;
         } else if self.control_signal > 0.0 {
             // HEATING MODE: primary at minimum, secondary fan ON, reheat on
             secondary_fan_on = true;
@@ -301,6 +310,30 @@ impl AirComponent for PFPBox {
 
     fn set_nominal_capacity(&mut self, cap: f64) {
         self.reheat_capacity = cap;
+    }
+
+    fn max_reheat_temp(&self) -> Option<f64> {
+        Some(self.max_reheat_temp)
+    }
+
+    /// Reheat that holds the zone: the zone load, plus warming the minimum
+    /// primary air and the secondary air (net of the fan's heat) to the zone
+    /// (E+ `CalcParallelPIU`, coil load = QZnReq − ṁ·cp·(T_mix − T_zone)).
+    fn reheat_for_zone_load(&self, zone_load: f64, zone_temp: f64, inlet_temp: f64) -> Option<f64> {
+        if openbse_core::types::is_autosize(self.max_primary_flow)
+            || openbse_core::types::is_autosize(self.secondary_fan_flow)
+            || self.max_primary_flow <= 0.0
+        {
+            return None;
+        }
+        let cp_air = 1006.0;
+        let primary = self.max_primary_flow * self.min_primary_fraction;
+        let secondary = self.secondary_fan_flow.max(0.0);
+        let q = zone_load
+            + primary * cp_air * (zone_temp - inlet_temp)
+            + secondary * cp_air * (zone_temp - self.secondary_air_temp)
+            - self.secondary_fan_power();
+        Some(if q.is_nan() { 0.0 } else { q.max(0.0) })
     }
 
     fn reheat_primary_air_flow(&self) -> Option<f64> {
@@ -486,5 +519,35 @@ mod tests {
 
         assert_eq!(outlet.mass_flow, 0.0);
         assert_eq!(pfp.primary_air_flow, 0.0);
+    }
+
+    #[test]
+    fn test_pfp_reheat_covers_load_and_both_air_streams() {
+        let pfp = PFPBox::new("P", "Z", 1.0, 0.3, 0.4, 10_000.0).with_secondary_air_temp(23.0);
+        let q = pfp.reheat_for_zone_load(2000.0, 21.0, 13.0).unwrap();
+        let expected = 2000.0 + 0.3 * 1006.0 * (21.0 - 13.0) + 0.4 * 1006.0 * (21.0 - 23.0)
+            - pfp.secondary_fan_power();
+        assert_relative_eq!(q, expected, max_relative = 1e-12);
+        // Delivering it holds the zone: the mixed outlet carries the load.
+        let mut pfp = pfp;
+        pfp.control_signal = q / pfp.reheat_capacity;
+        let out = pfp.simulate_air(&make_supply_air(13.0, 2.0), &make_ctx());
+        let cp = psych::cp_air_fn_w(out.state.w);
+        assert_relative_eq!(
+            out.mass_flow * cp * (out.state.t_db - 21.0),
+            2000.0,
+            max_relative = 0.01
+        );
+    }
+
+    #[test]
+    fn test_pfp_fan_runs_at_low_primary_flow_while_cooling() {
+        let mut pfp = PFPBox::new("P", "Z", 1.0, 0.3, 0.4, 10_000.0);
+        pfp.control_signal = -1.0e-6; // cooling at minimum primary
+        pfp.simulate_air(&make_supply_air(13.0, 2.0), &make_ctx());
+        assert!(pfp.fan_power > 0.0 && pfp.secondary_air_flow > 0.0);
+        pfp.control_signal = -0.8; // well open: fan off
+        pfp.simulate_air(&make_supply_air(13.0, 2.0), &make_ctx());
+        assert_eq!(pfp.fan_power, 0.0);
     }
 }

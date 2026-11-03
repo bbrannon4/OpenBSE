@@ -122,6 +122,12 @@ pub struct LoopInfo {
     /// the terminal-reheat control size the minimum airflow per zone (constant
     /// volume = 1.0). Empty for loops without VAV terminal boxes.
     pub terminal_min_flow: HashMap<String, f64>,
+    /// Per-zone terminal heating limits from the sized boxes: the heating
+    /// maximum primary flow [kg/s], the maximum reheat air temperature [°C]
+    /// and the reheat capacity [W].
+    /// A heating zone's flow is then the one its box's dual-maximum sequence
+    /// runs at, so the fan and coil carry what the boxes deliver.
+    pub terminal_heating: HashMap<String, (f64, f64, f64)>,
     /// Fixed minimum outdoor-air mass flow [kg/s] (optional). When set, the OA
     /// fraction is this flow divided by the current total supply flow, so a VAV
     /// system throttling down draws a rising OA fraction (fixed OA volume).
@@ -254,6 +260,39 @@ pub fn vrp_outdoor_air(
     let xs = if vps > 0.01 { vou / vps } else { 0.0 };
     let ev = (1.0 + xs - max_zd).clamp(0.15, 1.0);
     vou / ev
+}
+
+/// Primary flow [kg/s] of a VAV box heating its zone, as the box runs it
+/// (E+ `AirTerminal:SingleDuct:VAV:Reheat` with ReverseWithLimits): reheat at
+/// minimum flow up to the reheat limit, and only beyond that the damper opens,
+/// just far enough to carry the load at the limit, up to the heating maximum
+/// and to the flow its reheat capacity can bring to the limit.
+pub fn dual_maximum_heating_flow(
+    zone_load: f64,
+    zone_temp: f64,
+    supply_temp: f64,
+    min_flow: f64,
+    heat_max_flow: f64,
+    max_reheat_temp: f64,
+    reheat_capacity: f64,
+) -> f64 {
+    let cp = 1006.0;
+    let capacity_flow = if max_reheat_temp > supply_temp {
+        reheat_capacity.max(0.0) / (cp * (max_reheat_temp - supply_temp))
+    } else {
+        heat_max_flow
+    };
+    let heat_max_flow = heat_max_flow.min(capacity_flow).max(min_flow);
+    let at_min = zone_load + min_flow * cp * (zone_temp - supply_temp);
+    if at_min <= 0.0
+        || (min_flow > 0.0 && supply_temp + at_min / (min_flow * cp) <= max_reheat_temp)
+    {
+        return min_flow;
+    }
+    if max_reheat_temp <= zone_temp {
+        return heat_max_flow;
+    }
+    (zone_load.max(0.0) / (cp * (max_reheat_temp - zone_temp))).clamp(min_flow, heat_max_flow)
 }
 
 // ─── HVAC Mode ───────────────────────────────────────────────────────────────
@@ -1358,6 +1397,8 @@ pub fn build_vav_signals(
     // This keeps SAT as warm as possible, minimizing both cooling coil work
     // AND reheat energy (the key to avoiding simultaneous heating/cooling).
     let cp = 1005.0_f64;
+    // Heating flow of a zone without a sized terminal box: a proportional
+    // band rising to half of design over a 5 K error.
     let v_heat_max_frac = 0.50;
     let sat_min = li.cooling_supply_temp; // E+ SetpointManager:Warmest MinimumTemperature
     let sat_max = 15.6_f64; // E+ SetpointManager:Warmest MaximumTemperature
@@ -1444,6 +1485,12 @@ pub fn build_vav_signals(
                 min_flow
             }
         } else {
+            // Each box's own minimum, else the loop's.
+            let min_flow = design_flow
+                * li.terminal_min_flow
+                    .get(zone_name)
+                    .copied()
+                    .unwrap_or(li.min_vav_fraction);
             match mode {
                 HvacMode::Cooling => {
                     let cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
@@ -1451,24 +1498,36 @@ pub fn build_vav_signals(
                         // m = Q / (Cp × (T_zone - SAT))
                         let dt = (zone_temp - sat_setpoint).max(1.0);
                         let m_needed = cool_load / (cp * dt);
-                        let min_flow = design_flow * li.min_vav_fraction;
-                        let flow = m_needed.clamp(min_flow, design_flow);
+                        let flow = m_needed.clamp(min_flow, design_flow.max(min_flow));
                         let frac = ((flow - min_flow) / (design_flow - min_flow).max(0.001))
                             .clamp(0.0, 1.0);
                         max_cooling_demand = max_cooling_demand.max(frac);
                         flow
                     } else {
                         // Dehumidification-only: run at minimum flow to activate DX coil
-                        design_flow * li.min_vav_fraction
+                        min_flow
                     }
                 }
-                HvacMode::Heating => {
-                    let error = (heat_sp - zone_temp).clamp(0.0, 5.0);
-                    let frac = li.min_vav_fraction
-                        + (v_heat_max_frac - li.min_vav_fraction) * (error / 5.0);
-                    design_flow * frac
-                }
-                HvacMode::Deadband => design_flow * li.min_vav_fraction,
+                HvacMode::Heating => match li.terminal_heating.get(zone_name) {
+                    Some(&(heat_max_flow, max_reheat_temp, reheat_capacity)) => {
+                        dual_maximum_heating_flow(
+                            zone_heating_loads.get(zone_name).copied().unwrap_or(0.0),
+                            zone_temp,
+                            sat_setpoint,
+                            min_flow,
+                            heat_max_flow,
+                            max_reheat_temp,
+                            reheat_capacity,
+                        )
+                    }
+                    None => {
+                        let error = (heat_sp - zone_temp).clamp(0.0, 5.0);
+                        let frac = li.min_vav_fraction
+                            + (v_heat_max_frac - li.min_vav_fraction) * (error / 5.0);
+                        (design_flow * frac).max(min_flow)
+                    }
+                },
+                HvacMode::Deadband => min_flow,
             }
         };
 
@@ -1967,6 +2026,7 @@ mod tests {
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
+            terminal_heating: HashMap::new(),
             min_oa_flow_mass: None,
             std_air_density: 1.204,
             dd_boxes: HashMap::new(),
@@ -2129,6 +2189,32 @@ mod tests {
         let mut ctx = f.ctx(-10.0);
         ctx.effective_min_oa = 0.0;
         assert_eq!(build_vav_signals(&li, &ctx, false).oa_fraction, Some(0.0));
+    }
+
+    #[test]
+    fn heating_flow_follows_the_box_dual_maximum_sequence() {
+        let cp = 1006.0;
+        // Small load: reheat at minimum flow, under the 40 °C limit.
+        assert_eq!(
+            dual_maximum_heating_flow(500.0, 21.0, 13.0, 0.1, 0.5, 40.0, 1.0e6),
+            0.1
+        );
+        // Large load: the damper opens until the air at the limit carries it.
+        let flow = dual_maximum_heating_flow(5000.0, 21.0, 13.0, 0.1, 0.5, 40.0, 1.0e6);
+        assert!((flow - 5000.0 / (cp * 19.0)).abs() < 1e-9, "{flow}");
+        // Beyond the heating maximum it stays there.
+        assert_eq!(
+            dual_maximum_heating_flow(50_000.0, 21.0, 13.0, 0.1, 0.5, 40.0, 1.0e6),
+            0.5
+        );
+        // A 3 kW coil can bring only 3000/(cp·27) kg/s to 40 °C from 13 °C.
+        let flow = dual_maximum_heating_flow(50_000.0, 21.0, 13.0, 0.1, 0.5, 40.0, 3000.0);
+        assert!((flow - 3000.0 / (cp * 27.0)).abs() < 1e-9, "{flow}");
+        // No load: minimum.
+        assert_eq!(
+            dual_maximum_heating_flow(-200.0, 22.0, 13.0, 0.1, 0.5, 40.0, 1.0e6),
+            0.1
+        );
     }
 
     #[test]

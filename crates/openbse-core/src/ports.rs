@@ -241,6 +241,16 @@ pub trait AirComponent: std::fmt::Debug {
         None
     }
 
+    /// Maximum reheat air temperature of a reheat terminal [°C]. `None` for
+    /// anything else.
+    fn max_reheat_temp(&self) -> Option<f64> {
+        None
+    }
+
+    /// Size a reheat terminal's heating maximum primary flow from the zone's
+    /// design heating airflow [kg/s], if it was left to autosize.
+    fn size_reheat_flow(&mut self, _zone_heating_flow: f64) {}
+
     /// Input fields (by YAML key, e.g. `"capacity"`) that still hold the
     /// [`AUTOSIZE`](crate::types::AUTOSIZE) sentinel.
     ///

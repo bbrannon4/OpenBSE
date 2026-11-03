@@ -957,8 +957,8 @@
         "min_flow_fraction": { "type": "number", "default": 0.30, "minimum": 0, "maximum": 1, "description": "Minimum flow fraction [0-1]." },
         "reheat_type": { "type": "string", "enum": ["none", "electric", "hot_water"], "x-aliases": ["hw"], "default": "none", "description": "Reheat coil type." },
         "reheat_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Reheat coil capacity [W]." },
-        "max_reheat_temp": { "type": "number", "description": "Maximum reheat discharge air temperature [C] (default 35.0)." },
-        "max_reheat_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Maximum flow fraction during reheat [0-1] (E+ Damper Heating Action). Set equal to min_flow_fraction for reheat-first control; default 0.5 (ASHRAE G36 dual-maximum)." },
+        "max_reheat_temp": { "type": "number", "description": "Maximum reheat discharge air temperature [C] (default 40.0; E+ has no default and recommends 35 when unknown)." },
+        "max_reheat_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Maximum flow fraction during reheat [0-1] (E+ Maximum Flow Fraction During Reheat, ReverseWithLimits). Set equal to min_flow_fraction for reheat-first control. Default: the zone's design heating flow over the box's maximum flow, bounded by its minimum, as E+ autosizes it (0.002032 m3/s per m2 of floor area without design days)." },
         "plant_loop": { "type": "string", "description": "Hot water plant loop for hot_water reheat. Required when the model has plant loops." }
       }
     },
@@ -975,7 +975,8 @@
         "min_primary_fraction": { "type": "number", "default": 0.30, "minimum": 0, "maximum": 1, "description": "Minimum primary flow fraction [0-1]." },
         "secondary_fan_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Secondary fan flow rate [kg/s]." },
         "reheat_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Electric reheat coil capacity [W]." },
-        "secondary_air_temp": { "type": "number", "description": "Secondary (plenum) air temperature [C]. Default: zone return air temperature." }
+        "secondary_air_temp": { "type": "number", "description": "Secondary (plenum) air temperature [C] (default 24.0)." },
+        "fan_on_flow_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Primary flow fraction at or below which the secondary fan runs while cooling (E+ Fan On Flow Fraction). Default: min_primary_fraction." }
       }
     },
 

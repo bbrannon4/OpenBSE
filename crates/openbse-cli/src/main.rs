@@ -667,6 +667,7 @@ fn build_loop_infos(
                         }
                         openbse_io::input::TerminalInput::PfpBox(pb) => {
                             terminal_boxes.insert(zc.zone.clone(), pb.name.clone());
+                            terminal_min_flow.insert(zc.zone.clone(), pb.min_primary_fraction);
                         }
                         openbse_io::input::TerminalInput::DualDuctBox(dd) => {
                             // Dual-duct boxes are simulated via the signal builder, not the graph.
@@ -712,6 +713,7 @@ fn build_loop_infos(
                 cooling_part_load_cd: al.controls.cooling_part_load_cd,
                 terminal_boxes,
                 terminal_min_flow,
+                terminal_heating: HashMap::new(),
                 dd_boxes,
                 heat_recovery_name,
                 dcv: al.dcv,
@@ -2051,6 +2053,14 @@ fn main() -> Result<()> {
                                     );
                                 }
 
+                                // Heating maximum flow: the zone's design heating
+                                // flow (E+ SingleDuct sizing, ReverseWithLimits).
+                                if let Some(&heat_flow) =
+                                    sizing_result.zone_heating_airflow.get(zone_name)
+                                {
+                                    comp.size_reheat_flow(heat_flow);
+                                }
+
                                 if let Some(cap) = comp.nominal_capacity() {
                                     if is_autosize(cap) {
                                         let zone_heat = sizing_result
@@ -2135,6 +2145,39 @@ fn main() -> Result<()> {
                         errors.len(),
                         err_path.display()
                     );
+                }
+            }
+        }
+
+        // ── Terminal heating limits, after sizing ───────────────────────────────
+        // Without design days a box left to autosize its heating maximum takes
+        // E+'s 0.002032 m³/s per m² of floor area. Each loop then carries its
+        // boxes' heating limits, so the VAV controls give a heating zone the
+        // flow its box runs at.
+        {
+            let rho = site_standard_air_density(&model);
+            let floor_area: HashMap<&str, f64> = resolved_zones_for_oa
+                .iter()
+                .map(|z| (z.name.as_str(), z.floor_area))
+                .collect();
+            for li in &mut loop_infos {
+                for (zone_name, term_name) in &li.terminal_boxes {
+                    let Some(idx) = graph.node_by_name(term_name) else {
+                        continue;
+                    };
+                    let GraphComponent::Air(comp) = graph.component_mut(idx) else {
+                        continue;
+                    };
+                    let area = floor_area.get(zone_name.as_str()).copied().unwrap_or(0.0);
+                    comp.size_reheat_flow(0.002032 * area * rho);
+                    if let (Some(heat_max), Some(t_max), Some(capacity)) = (
+                        comp.reheat_primary_air_flow(),
+                        comp.max_reheat_temp(),
+                        comp.nominal_capacity(),
+                    ) {
+                        li.terminal_heating
+                            .insert(zone_name.clone(), (heat_max, t_max, capacity));
+                    }
                 }
             }
         }
@@ -7280,6 +7323,7 @@ room_air:
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
+            terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
@@ -7323,6 +7367,7 @@ room_air:
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
+            terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
@@ -8485,6 +8530,7 @@ mod tests_datacenter {
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
+            terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,

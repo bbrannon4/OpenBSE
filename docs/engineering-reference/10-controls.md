@@ -152,10 +152,12 @@ less the fan's rise if the fan is downstream, which scales with the square of th
 flow fraction. A preheat coil can hold a fixed setpoint.
 
 **Zone flows.** In cooling, each zone takes
-$\dot Q_c/[c_p\max(T_z - T_s, 1)]$, between its minimum and design flow. Otherwise
-it takes its minimum, or in heating a fraction rising to 0.5 over a 5 K error. The
-fan's flow is the total
-([#246](https://github.com/bbrannon4/OpenBSE/issues/246)).
+$\dot Q_c/[c_p\max(T_z - T_s, 1)]$, between its box's minimum and design flow. In
+deadband it takes its minimum. In heating it takes the flow its box runs at
+(@eq-vav-dual-max): the minimum while reheat to $T_{r,\text{max}}$ covers the load,
+then just enough flow to carry it at that temperature, up to the box's heating
+maximum. A zone without a sized box takes a fraction rising to 0.5 over a 5 K
+error. The fan's flow is the total, so fan and coils carry what the boxes deliver.
 
 **Outdoor air.** The minimum follows the ASHRAE 62.1 ventilation rate procedure
 [@ashrae621]:
@@ -282,5 +284,4 @@ air's capacitance rate
   cycling runtime floor; multi-zone PSZ.
 - [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no daylight saving or
   start day of week.
-- [#245](https://github.com/bbrannon4/OpenBSE/issues/245),
-  [#246](https://github.com/bbrannon4/OpenBSE/issues/246): terminal control.
+- [#245](https://github.com/bbrannon4/OpenBSE/issues/245): dual-duct terminal control.
