@@ -442,9 +442,11 @@ or over-deliver
 
 ## Known limitations: DX and heat-pump coils {#sec-air-side-limitations-b}
 
-- Heat-pump heating coils have no PLF curve, crankcase heater, defrost EIR
-  curve or flow-fraction curves; DX coils keep linear no-curve defaults, EIR
-  normalization and a constant-SHR mode E+ lacks.
+- [#357](https://github.com/bbrannon4/OpenBSE/issues/357): heat-pump heating
+  coils have no PLF curve, crankcase heater, defrost EIR curve or flow-fraction
+  curves.
+- DX coils keep linear no-curve defaults, EIR normalization and a constant-SHR
+  mode E+ lacks (documented above).
 - [#72](https://github.com/bbrannon4/OpenBSE/issues/72): Standard 205 DX
   coil never cycles below its minimum sequence; staging snaps.
 - [#56](https://github.com/bbrannon4/OpenBSE/issues/56),
