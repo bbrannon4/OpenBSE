@@ -91,9 +91,10 @@ timestep more than half the deadband beyond the setpoint on the far side, the
 output is $x_\text{min}$.
 
 **Scaling.** Coil and fan outputs and flows scale by $x$. DX compressors and
-condenser fans, and the fan of a loop with DX, scale by
-$\text{RTF} = x/\max(1 - C_d(1 - x),\ 0.5)$ (@sec-dx-cooling). Continuous fans stay
-at full power. `ContinuousNoLoadOff` fans stop in deadband.
+condenser fans take the cycling penalty of @eq-dx-rtf at their combined part load,
+and the cycling fan of a loop with DX runs $x/\text{PLF}(x)$ of the time while a
+compressor runs (@sec-dx-cooling). Continuous fans stay at full power.
+`ContinuousNoLoadOff` fans stop in deadband.
 
 A zone in its dead band calls for cooling when the heat of a continuous fan,
 $\dot Q_f$, exceeds the load the zone can still take before its cooling setpoint,

@@ -53,11 +53,12 @@ pub struct HeatPumpHeatingCoil {
     /// Desired outlet air temperature setpoint [°C]
     pub outlet_temp_setpoint: f64,
 
-    /// Optional capacity modifier curve: f(T_db_outdoor, T_db_indoor)
-    /// Biquadratic: Cap_mod = c1 + c2·Todb + c3·Todb² + c4·Tidb + c5·Tidb² + c6·Todb·Tidb
+    /// Optional capacity modifier curve: f(T_db_indoor, T_db_outdoor), the
+    /// argument order of E+ `Coil:Heating:DX:SingleSpeed` (`CalcDXHeatingCoil`).
+    /// Biquadratic: Cap_mod = c1 + c2·Tidb + c3·Tidb² + c4·Todb + c5·Todb² + c6·Tidb·Todb
     #[serde(skip)]
     pub cap_ft_curve: Option<PerformanceCurve>,
-    /// Optional EIR modifier curve: f(T_db_outdoor, T_db_indoor)
+    /// Optional EIR modifier curve: f(T_db_indoor, T_db_outdoor), as E+
     #[serde(skip)]
     pub eir_ft_curve: Option<PerformanceCurve>,
 
@@ -67,8 +68,8 @@ pub struct HeatPumpHeatingCoil {
     /// Outdoor temperature below which defrost activates [°C] (default: 5.0).
     /// Maps to E+ "Maximum Outdoor Dry-Bulb Temperature for Defrost Operation".
     pub defrost_onset_temp: f64,
-    /// Defrost time fraction [0-1] whenever defrost is active (default: 0.08).
-    /// Maps to E+ timed-defrost "Defrost Time Period Fraction" (E+ default 0.058333).
+    /// Defrost time fraction [0-1] whenever defrost is active (default
+    /// 0.058333, the E+ timed-defrost "Defrost Time Period Fraction" default).
     pub defrost_max_fraction: f64,
     /// Legacy field, no longer used (the old linear-ramp defrost model was
     /// replaced by the E+ timed-defrost formulation). Retained so existing
@@ -94,6 +95,9 @@ pub struct HeatPumpHeatingCoil {
     /// Compressor electric power [W]
     #[serde(skip)]
     pub compressor_power: f64,
+    /// Compressor part-load ratio this timestep, uncorrected for cycling
+    #[serde(skip)]
+    pub plr: f64,
     /// Defrost electric power [W] (resistive strategy only)
     #[serde(skip)]
     pub defrost_power: f64,
@@ -132,7 +136,7 @@ impl HeatPumpHeatingCoil {
             eir_ft_curve: None,
             defrost_strategy: DefrostStrategy::ReverseCycle,
             defrost_onset_temp: 5.0,
-            defrost_max_fraction: 0.08,
+            defrost_max_fraction: 0.058333,
             defrost_min_temp: -8.33,
             defrost_heater_power: 0.0,
             supplemental_capacity: 0.0,
@@ -140,6 +144,7 @@ impl HeatPumpHeatingCoil {
             hp_heating_rate: 0.0,
             supplemental_heating_rate: 0.0,
             compressor_power: 0.0,
+            plr: 0.0,
             defrost_power: 0.0,
             supplemental_power: 0.0,
             total_heating_rate: 0.0,
@@ -175,7 +180,7 @@ impl HeatPumpHeatingCoil {
     /// based on AHRI 210/240 high-temp (47°F) and low-temp (17°F) rating points.
     fn available_capacity(&self, t_outdoor: f64, t_indoor: f64) -> f64 {
         if let Some(ref curve) = self.cap_ft_curve {
-            let modifier = curve.evaluate(t_outdoor, t_indoor);
+            let modifier = curve.evaluate(t_indoor, t_outdoor);
             self.rated_capacity * modifier
         } else {
             // Default linear capacity degradation with outdoor temperature.
@@ -193,7 +198,7 @@ impl HeatPumpHeatingCoil {
     /// Calculate COP at current outdoor conditions.
     fn available_cop(&self, t_outdoor: f64, t_indoor: f64) -> f64 {
         if let Some(ref curve) = self.eir_ft_curve {
-            let eir_modifier = curve.evaluate(t_outdoor, t_indoor);
+            let eir_modifier = curve.evaluate(t_indoor, t_outdoor);
             if eir_modifier > 0.0 {
                 self.rated_cop / eir_modifier
             } else {
@@ -292,6 +297,7 @@ impl AirComponent for HeatPumpHeatingCoil {
         self.hp_heating_rate = 0.0;
         self.supplemental_heating_rate = 0.0;
         self.compressor_power = 0.0;
+        self.plr = 0.0;
         self.defrost_power = 0.0;
         self.supplemental_power = 0.0;
         self.total_heating_rate = 0.0;
@@ -338,10 +344,11 @@ impl AirComponent for HeatPumpHeatingCoil {
                 // Heat delivered by HP
                 q_hp = net_capacity * plr;
 
-                // Compressor power
-                // PLF curve: PLF = 1 - Cd × (1 - PLR), Cd ≈ 0.15
-                let plf = 1.0 - 0.15 * (1.0 - plr);
-                let runtime = if plf > 0.0 { plr / plf } else { 0.0 };
+                // Compressor power at this part load, uncorrected for
+                // cycling: the driver applies the cycling penalty at this PLR
+                // times the loop's cycling fraction (`compressor_plr`).
+                self.plr = plr;
+                let runtime = plr;
 
                 p_compressor = if cop > 0.0 {
                     available_cap * defrost.capacity_multiplier / cop
@@ -425,8 +432,18 @@ impl AirComponent for HeatPumpHeatingCoil {
         self.total_heating_rate
     }
 
+    fn compressor_plr(&self) -> Option<f64> {
+        Some(self.plr)
+    }
+
     fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
         out("sensible_load", self.total_heating_rate);
+        // The power the cycling penalty applies to: compressor and defrost,
+        // not the supplemental heater.
+        out(
+            "compressor_power",
+            self.compressor_power + self.defrost_power,
+        );
         out(
             "cop_operating",
             if self.compressor_power > 0.0 {
@@ -549,6 +566,46 @@ mod tests {
         assert!(coil.supplemental_heating_rate > 0.0);
         assert!(coil.total_heating_rate > coil.hp_heating_rate);
         assert_relative_eq!(outlet.state.t_db, 35.0, max_relative = 0.01);
+    }
+
+    #[test]
+    fn test_hp_curves_take_indoor_then_outdoor_like_e_plus() {
+        use crate::performance_curve::{CurveType, PerformanceCurve};
+        // A biquadratic in its first argument only. E+ passes the
+        // indoor dry-bulb first, so 20 °C entering air gives 1 + 0.01·20.
+        let indoor_only = PerformanceCurve::Polynomial {
+            name: "Cap".to_string(),
+            curve_type: CurveType::Biquadratic,
+            coefficients: vec![1.0, 0.01, 0.0, 0.0, 0.0, 0.0],
+            min_x: -50.0,
+            max_x: 50.0,
+            min_y: -50.0,
+            max_y: 50.0,
+            min_output: None,
+            max_output: None,
+        };
+        let coil = HeatPumpHeatingCoil::new("HP", 10_000.0, 3.5, 0.5, 35.0)
+            .with_curves(Some(indoor_only), None);
+        assert_relative_eq!(
+            coil.available_capacity(-5.0, 20.0),
+            12_000.0,
+            max_relative = 1e-12
+        );
+    }
+
+    #[test]
+    fn test_hp_defaults_and_uncorrected_part_load_power() {
+        let mut coil = HeatPumpHeatingCoil::new("HP", 10_000.0, 3.5, 0.5, 21.0);
+        // E+ Defrost Time Period Fraction default.
+        assert_eq!(coil.defrost_max_fraction, 0.058333);
+        // Part load: the coil reports power at its PLR and the PLR itself; the
+        // cycling penalty is the driver's.
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(20.0, 0.5, 101325.0), 0.5);
+        coil.simulate_air(&inlet, &make_ctx(8.33));
+        let plr = coil.compressor_plr().unwrap();
+        assert!(plr > 0.0 && plr < 1.0, "{plr}");
+        let full = coil.available_capacity(8.33, 20.0) / coil.available_cop(8.33, 20.0);
+        assert_relative_eq!(coil.compressor_power, full * plr, max_relative = 1e-9);
     }
 
     #[test]

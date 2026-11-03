@@ -64,6 +64,8 @@ pub struct CoolingCoilDXA205 {
     cooling_rate: f64,
     power_consumption: f64,
     plr: f64,
+    /// On-cycle part load, uncorrected for cycling
+    compressor_plr: f64,
     sequence_number: f64,
     in_range: bool,
 }
@@ -119,6 +121,7 @@ impl CoolingCoilDXA205 {
             cooling_rate: 0.0,
             power_consumption: 0.0,
             plr: 0.0,
+            compressor_plr: 0.0,
             sequence_number: 0.0,
             in_range: true,
         })
@@ -178,6 +181,7 @@ impl AirComponent for CoolingCoilDXA205 {
             self.sensible_cooling_rate = 0.0;
             self.power_consumption = 0.0;
             self.plr = 0.0;
+            self.compressor_plr = 0.0;
             self.sequence_number = 0.0;
             return *inlet;
         }
@@ -189,6 +193,7 @@ impl AirComponent for CoolingCoilDXA205 {
             self.sensible_cooling_rate = 0.0;
             self.power_consumption = 0.0;
             self.plr = 0.0;
+            self.compressor_plr = 0.0;
             self.sequence_number = 0.0;
             return *inlet;
         }
@@ -243,15 +248,14 @@ impl AirComponent for CoolingCoilDXA205 {
         self.sequence_number = sequence;
         self.in_range = r_op.in_range;
 
-        // 5) Apply cycling degradation
-        let cd = self.rs0004.performance.cycling_degradation_coefficient;
+        // 5) Cycling below the lowest speed. Power is uncorrected here: the
+        // driver applies the file's degradation coefficient (`part_load_fraction`)
+        // at this part load times the loop's cycling fraction.
         let (eff_total, eff_sensible, eff_power) = if cycling_ratio < 1.0 {
-            let plf = (1.0 - cd * (1.0 - cycling_ratio)).max(0.01);
-            let rtf = (cycling_ratio / plf).min(1.0);
             (
                 r_op.gross_total_capacity * cycling_ratio,
                 r_op.gross_sensible_capacity * cycling_ratio,
-                r_op.gross_power * rtf,
+                r_op.gross_power * cycling_ratio,
             )
         } else {
             (
@@ -279,6 +283,11 @@ impl AirComponent for CoolingCoilDXA205 {
                 0.0
             };
         self.plr = plr_raw;
+        self.compressor_plr = if eff_sensible > 0.0 {
+            cycling_ratio * delivered_sensible / eff_sensible
+        } else {
+            0.0
+        };
 
         // 6) Compute outlet state
         let dt = delivered_sensible / (inlet.mass_flow * cp_air);
@@ -291,6 +300,16 @@ impl AirComponent for CoolingCoilDXA205 {
             psych::MoistAirState::new(out_t, out_w, inlet.state.p_b),
             inlet.mass_flow,
         )
+    }
+
+    fn compressor_plr(&self) -> Option<f64> {
+        Some(self.compressor_plr)
+    }
+
+    /// PLF = 1 − Cd·(1 − PLR), with the file's cycling degradation coefficient.
+    fn part_load_fraction(&self, plr: f64) -> Option<f64> {
+        let cd = self.rs0004.performance.cycling_degradation_coefficient;
+        Some(1.0 - cd * (1.0 - plr))
     }
 
     fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {

@@ -253,13 +253,14 @@ T_\text{ADP} = T_\text{sat}(h_\text{ADP}), \qquad
 \text{SHR} = \min\left(\frac{h(T_\text{in}, W_\text{ADP}) - h_\text{ADP}}{h_\text{in} - h_\text{ADP}},\ 1\right).
 $$ {#eq-dx-adp}
 
-**Dry coil.** If $W_\text{ADP} \ge W_\text{in}$, the coil is dry. By
-default its capacity is scaled to the sensible part of the path to the ADP,
+**Dry coil.** If $W_\text{ADP} \ge W_\text{in}$, the coil is dry. It raises
+the entering humidity ratio at constant dry-bulb toward $W_\text{ADP}$
+(relaxation 0.4, 1% tolerance) and re-evaluates the curves at that wet-bulb,
+so air far drier than the dry-out point is not read as a weaker coil, with
+$\text{SHR} = 1$. With `dry_coil_wet_bulb_iteration: false` it instead scales
+the capacity to the sensible part of the path to the ADP,
 $\dot Q_\text{eff} = \dot Q_\text{av}\,c_p(T_\text{in} - T_\text{ADP})/(h_\text{in} - h_\text{ADP})$
-(the factor clamped to $[0.1, 1]$), with $\text{SHR} = 1$. With
-`dry_coil_wet_bulb_iteration`, it instead raises the entering humidity
-ratio at constant dry-bulb toward $W_\text{ADP}$ (relaxation 0.4, 1%
-tolerance) and re-evaluates the curves at that wet-bulb.
+(the factor clamped to $[0.1, 1]$).
 
 **Part load and outlet.** The coil meets the sensible load to its outlet
 setpoint:
@@ -285,28 +286,47 @@ P = \frac{\dot Q_\text{av}\,\text{PLR}_t}{\text{COP}} + P_\text{cf}, \qquad
 \text{PLR}_t = \frac{\dot Q_\text{tot}}{\dot Q_\text{av}},
 $$ {#eq-dx-power}
 
-with the condenser fan at full power whenever the compressor runs. The
-coil reports $\text{RTF} = \text{PLR}/\text{PLF}(\text{PLR})$, but that
-value does not reach the energy. When the system cycles the coil, the loop
-scales compressor and condenser-fan power by
-$\text{RTF}_\text{loop} = x/(1 - C_d(1 - x))$, with $x$ the loop part-load
-ratio and $C_d$ the loop's `cooling_part_load_cd` (default 0.15)
-(@sec-controls).
+with the condenser fan at full power whenever the compressor runs, both
+uncorrected for cycling. The cycling penalty is taken at the part load the
+compressor actually runs: the loop's cycling fraction $x$ (@sec-controls)
+times the coil's own $\text{PLR}_t$,
+
+$$
+\text{PLR}_c = x\,\text{PLR}_t, \qquad
+\text{RTF} = \frac{\text{PLR}_c}{\text{PLF}(\text{PLR}_c)}, \qquad
+\bar P = P\,\frac{x}{\text{PLF}(\text{PLR}_c)},
+$$ {#eq-dx-rtf}
+
+with $\text{PLF}$ the coil's `plf_curve`, or else $1 - C_d(1 - \text{PLR})$
+with the loop's `cooling_part_load_cd` (default 0.15), floored at 0.7. A
+supply fan that cycles with the compressor runs $x/\text{PLF}(x)$ of the
+time; with no compressor running it runs $x$. The same applies to every DX
+compressor: heat-pump heating coils (their compressor and defrost power,
+not the supplemental heater), multi-speed coils cycling their lowest speed,
+Standard 205 coils with the file's degradation coefficient, and water-source
+heat pumps.
 
 **Comparison with EnergyPlus.** @eq-dx-cap–@eq-dx-plr follow
 `Coil:Cooling:DX:SingleSpeed` (`DXCoils.cc`, `CalcCBF`, `CalcDoe2DXCoil`)
 [@eplus-engref-25-2, "Single-Speed Electric DX Air Cooling Coil"]. The
 differences are ([#237](https://github.com/bbrannon4/OpenBSE/issues/237)):
 
-- **Power.** EnergyPlus computes $P = \dot Q\,\text{EIR}\,\text{RTF}$ inside
-  the coil, from the coil's own PLF curve, whatever drives the part load.
-  OpenBSE's coil PLF curve never affects energy, and part load reached
-  through the outlet setpoint carries no cycling penalty.
-- **Dry coil.** EnergyPlus always uses the wet-bulb iteration, which
-  OpenBSE offers only as an option.
-- **Curves.** EnergyPlus normalizes neither curve and requires both.
-  OpenBSE rescales the EIR curve and has linear defaults.
-- **Constant SHR.** EnergyPlus has no constant-SHR mode.
+- **Power.** @eq-dx-rtf is E+'s $P = \dot Q\,\text{EIR}\,\text{RTF}$
+  (`CalcDoe2DXCoil`), with the PLR the unitary system gives the coil written
+  as the loop's cycling fraction times the coil's own part load.
+- **Dry coil.** The wet-bulb iteration is E+'s; the sensible scaling is an
+  OpenBSE option E+ does not have.
+- **Curves.** EnergyPlus normalizes neither curve: it warns when one is not
+  1 at the rating point and requires both. OpenBSE rescales the EIR curve to
+  1 there, uses the capacity curve as given, and without curves uses linear
+  outdoor dry-bulb modifiers that ignore the entering wet-bulb
+  (capacity $1 - 0.008(T_o - 35)$ in $[0.5, 1.05]$, EIR
+  $1 + 0.012(T_o - 35)$ in $[0.4, 1.10]$, so COP stops falling above about
+  43 °C).
+- **Constant SHR.** EnergyPlus has no constant-SHR mode. With
+  `autocalculate_shr: false` the total load is the sensible load over the
+  rated SHR, so moisture is removed even from air drier than the coil's dew
+  point.
 - **Condenser fan.** In EnergyPlus the single-speed coil's EIR includes the
   outdoor fan. $P_\text{cf}$ is OpenBSE's own addition.
 
@@ -330,7 +350,7 @@ clamped to $[0.2, 1.15]$ and $[0.3, 1.10]$. Neither rises above the rating
 point.
 
 **Defrost.** Below `defrost_onset_temp` (default 5 °C), the timed-defrost
-model applies, with defrost time fraction $f_d$ (default 0.08). The outdoor
+model applies, with defrost time fraction $f_d$ (default 0.058333). The outdoor
 coil temperature and frost humidity depression are
 
 $$
@@ -354,13 +374,15 @@ $$
 \begin{gathered}
 \dot Q_\text{net} = \dot Q_r\text{CAP}_{fT}\,m_Q - \dot Q_\text{def}, \qquad
 \text{PLR} = \min\left(\frac{\dot m c_p(T_\text{sp} - T_\text{in})}{\dot Q_\text{net}},\ 1\right),\\
-\text{RTF} = \frac{\text{PLR}}{1 - 0.15(1 - \text{PLR})}, \qquad
-P = \frac{\dot Q_r\text{CAP}_{fT}\,m_Q}{\text{COP}}m_P\,\text{RTF} + P_\text{def}\,\text{RTF}.
+P = \left(\frac{\dot Q_r\text{CAP}_{fT}\,m_Q}{\text{COP}}m_P + P_\text{def}\right)\text{PLR},
 \end{gathered}
 $$ {#eq-hp-heating}
 
-The heat pump delivers $\text{PLR}\,\dot Q_\text{net}$. The supplemental
-heater covers any shortfall up to $\dot Q_\text{sup}$, at a COP of 1.
+with the cycling penalty of @eq-dx-rtf applied to it. The heat pump delivers
+$\text{PLR}\,\dot Q_\text{net}$. The supplemental heater covers any
+shortfall up to $\dot Q_\text{sup}$, at a COP of 1. The capacity and EIR
+curves take the indoor dry-bulb first and the outdoor dry-bulb second, as
+E+'s do.
 
 **Comparison with EnergyPlus.** The defrost model, @eq-hp-frost and
 @eq-hp-defrost, matches EnergyPlus's timed defrost (`CalcDXHeatingCoil`)
@@ -368,15 +390,13 @@ with a defrost EIR modifier of 1 [@eplus-engref-25-2, "Single-Speed
 Electric Heat Pump DX Air Heating Coil"]. The differences are
 ([#237](https://github.com/bbrannon4/OpenBSE/issues/237)):
 
-- **Curve arguments.** EnergyPlus's biquadratic curves take the indoor
-  dry-bulb first. A biquadratic copied from an EnergyPlus file is therefore
-  evaluated with its axes swapped.
-- **Part load.** The PLF is fixed at $C_d = 0.15$, with no curve input.
+- **Part load.** The PLF is the loop's linear $C_d$; the coil has no PLF
+  curve input.
 - **Defrost load.** EnergyPlus raises the runtime instead of subtracting
-  the defrost load from capacity.
-- **Defaults and missing inputs.** EnergyPlus's default defrost time
-  fraction is 0.058333. OpenBSE has no crankcase heater, defrost EIR curve
-  or flow-fraction curves.
+  the defrost load from capacity. The two agree to first order and differ
+  at full load.
+- **Missing inputs.** OpenBSE has no crankcase heater, defrost EIR curve or
+  flow-fraction curves, and `rated_airflow` is not used in the simulation.
 - **Supplemental heat.** EnergyPlus models the supplemental heater as a
   separate coil.
 
@@ -419,11 +439,9 @@ cooling than its air stream receives when the outlet is clamped
 
 ## Known limitations: DX and heat-pump coils {#sec-air-side-limitations-b}
 
-- [#237](https://github.com/bbrannon4/OpenBSE/issues/237): DX cycling
-  penalty applied at loop level with a linear $C_d$ (coil PLF curves
-  unused, none for setpoint part load); heat-pump curve axes swapped; dry
-  coil, default curves, EIR normalization and constant-SHR mode differ from
-  EnergyPlus.
+- Heat-pump heating coils have no PLF curve, crankcase heater, defrost EIR
+  curve or flow-fraction curves; DX coils keep linear no-curve defaults, EIR
+  normalization and a constant-SHR mode E+ lacks.
 - [#72](https://github.com/bbrannon4/OpenBSE/issues/72): Standard 205 DX
   coil never cycles below its minimum sequence; staging snaps.
 - [#168](https://github.com/bbrannon4/OpenBSE/issues/168): Standard 205 DX
