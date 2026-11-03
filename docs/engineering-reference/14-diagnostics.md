@@ -61,8 +61,7 @@ $$ {#eq-check-run}
 | Surface–air convergence | envelope solves whose outer passes reached their limit (@sec-surface-hb) | warning |
 | HVAC convergence | timesteps whose iteration reached its limit (@sec-hvac-iteration) | warning |
 
-The air-component check stays a warning because of a known imbalance
-([#168](https://github.com/bbrannon4/OpenBSE/issues/168)).
+The air-component check is a warning.
 
 **Holds.** The envelope solver keeps running when a state goes bad: it holds a surface
 temperature beyond the limit at its previous iteration's value, and replaces NaN states from
@@ -96,4 +95,3 @@ against its ranges. A change that shifts results has to change a baseline on pur
 - [#165](https://github.com/bbrannon4/OpenBSE/issues/165): unmet-hour counts and limits. Many shipped
   models show thousands of unmet hours, mostly proportional heating holding the zone below
   setpoint ([#178](https://github.com/bbrannon4/OpenBSE/issues/178)).
-- [#168](https://github.com/bbrannon4/OpenBSE/issues/168): Standard 205 DX coil imbalance.

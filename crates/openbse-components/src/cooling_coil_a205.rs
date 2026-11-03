@@ -274,27 +274,37 @@ impl AirComponent for CoolingCoilDXA205 {
             0.0
         };
 
-        self.sensible_cooling_rate = delivered_sensible;
-        self.cooling_rate = delivered_total;
-        self.power_consumption = eff_power
-            * if eff_sensible > 0.0 {
-                delivered_sensible / eff_sensible
-            } else {
-                0.0
-            };
-        self.plr = plr_raw;
-        self.compressor_plr = if eff_sensible > 0.0 {
-            cycling_ratio * delivered_sensible / eff_sensible
+        // 6) Outlet state, then every rate from the outlet produced: the
+        // outlet holds at least 0.1 K above setpoint and stays at or above
+        // saturation's dryness and 1e-5 kg/kg, so what the coil books is what
+        // its air stream receives.
+        let p_b = inlet.state.p_b;
+        let dt = delivered_sensible / (inlet.mass_flow * cp_air);
+        let mut out_t = (inlet.state.t_db - dt).max(self.outlet_temp_setpoint - 0.1);
+        let q_latent = (delivered_total - delivered_sensible).max(0.0);
+        let dw = q_latent / (inlet.mass_flow * psych::hg_air_fn_tdb(out_t));
+        let mut out_w = (inlet.state.w - dw).max(1.0e-5);
+        if out_w > psych::w_fn_tdp_pb(out_t, p_b) {
+            // Past saturation: hold the enthalpy and move onto the saturation line.
+            let h_out = psych::h_fn_tdb_w(out_t, out_w);
+            out_t = psych::tsat_fn_h_pb(h_out, p_b);
+            out_w = psych::w_fn_tdb_h(out_t, h_out).min(inlet.state.w);
+        }
+        let h_in = psych::h_fn_tdb_w(inlet.state.t_db, inlet.state.w);
+        let actual_total = (inlet.mass_flow * (h_in - psych::h_fn_tdb_w(out_t, out_w))).max(0.0);
+        let actual_sensible = inlet.mass_flow * cp_air * (inlet.state.t_db - out_t);
+        let fraction = if eff_total > 0.0 {
+            (actual_total / eff_total).min(1.0)
         } else {
             0.0
         };
 
-        // 6) Compute outlet state
-        let dt = delivered_sensible / (inlet.mass_flow * cp_air);
-        let out_t = (inlet.state.t_db - dt).max(self.outlet_temp_setpoint - 0.1);
-        let q_latent = (delivered_total - delivered_sensible).max(0.0);
-        let dw = q_latent / (inlet.mass_flow * psych::hg_air_fn_tdb(out_t));
-        let out_w = (inlet.state.w - dw).max(1.0e-5);
+        self.sensible_cooling_rate = actual_sensible;
+        self.cooling_rate = actual_total;
+        // Electricity follows the cooling delivered.
+        self.power_consumption = eff_power * fraction;
+        self.plr = plr_raw;
+        self.compressor_plr = cycling_ratio * fraction;
 
         AirPort::new(
             psych::MoistAirState::new(out_t, out_w, inlet.state.p_b),
