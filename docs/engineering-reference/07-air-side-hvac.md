@@ -535,7 +535,7 @@ not bypassed.
 `HeatExchanger:AirToAir:SensibleAndLatent` (`HeatRecovery.cc`,
 `CalcAirToAirGenericHeatExch`) at 100% flow [@eplus-engref-25-2, "Air System
 Air-To-Air Sensible and Latent Effectiveness Heat Exchanger"]. The
-differences are ([#239](https://github.com/bbrannon4/OpenBSE/issues/239)):
+differences are ([#345](https://github.com/bbrannon4/OpenBSE/issues/345)):
 
 - **Effectiveness.** EnergyPlus varies it with flow; OpenBSE does not.
 - **Control.** EnergyPlus has frost control and economizer lockout, where
@@ -546,8 +546,10 @@ differences are ([#239](https://github.com/bbrannon4/OpenBSE/issues/239)):
 **Source:** `openbse-components/src/humidifier.rs` (`Humidifier`).
 
 An electric steam humidifier has rated power $P_r$ and steam capacity
-$\dot m_{s,r} = P_r/\Delta h_s$, with $\Delta h_s = 2.6157\times10^6$ J/kg
-(water at 14.4 °C to steam at 100 °C). Its target humidity ratio is either
+$\dot m_{s,r} = P_r/\Delta h_s$, with
+$\Delta h_s = h_{fg}(100\,°\text{C}) + \bar c_{p,w}(100 - 20) \approx 2.592\times10^6$
+J/kg: make-up water at 20 °C to steam at 100 °C, with $h_{fg} = 2.2565\times10^6$
+J/kg and $\bar c_{p,w}$ the mean of the water's specific heat at 20 and 100 °C. Its target humidity ratio is either
 a fixed `w_setpoint`, or the humidity ratio at `min_rh_setpoint` and the
 served zone's live air temperature. Below the target,
 
@@ -562,13 +564,15 @@ $$ {#eq-humidifier}
 
 with $h_g(100\,°\text{C}) = 2.50094\times10^6 + 1858.95\times100$ J/kg, the
 vapour enthalpy on the basis of @eq-enthalpy. The make-up water is
-$\dot m_s$.
+$\dot m_s$, and the humidifier's thermal output is the enthalpy it adds to the
+air, $\dot m_sh_g(100\,°\text{C}) = \dot m(h_\text{out} - h_\text{in})$.
 
 **Comparison with EnergyPlus.** @eq-humidifier matches
 `Humidifier:Steam:Electric` (`Humidifiers.cc`) [@eplus-engref-25-2,
-"Air System Humidifiers"]. EnergyPlus heats the water from 20 °C, which takes about 1%
-less energy per kilogram than the 14.4 °C here; the code comment says the
-two are the same ([#239](https://github.com/bbrannon4/OpenBSE/issues/239)).
+"Air System Humidifiers"], including the 20 °C make-up water of its rated
+capacity (`SizeHumidifier`). EnergyPlus takes the rated capacity and power as
+separate inputs and checks them against each other; OpenBSE derives the
+capacity from the power.
 
 ## Evaporative coolers {#sec-evap-cooler}
 
@@ -605,7 +609,7 @@ the secondary flow ratio.
 @eq-evap-indirect is the two-step form of
 `EvaporativeCooler:Indirect:CelDekPad` (`EvaporativeCoolers.cc`)
 [@eplus-engref-25-2, "Evaporative Coolers"]. The differences are
-([#239](https://github.com/bbrannon4/OpenBSE/issues/239)):
+([#345](https://github.com/bbrannon4/OpenBSE/issues/345)):
 
 - **Effectiveness.** EnergyPlus's CelDek pads derive it from the pad depth
   and air velocity.
@@ -615,6 +619,6 @@ the secondary flow ratio.
 
 ## Known limitations: other air-side components {#sec-air-side-limitations-c}
 
-- [#239](https://github.com/bbrannon4/OpenBSE/issues/239): humidifier
-  reference temperature; heat-recovery effectiveness fixed with flow and no
-  frost control; evaporative cooler has no setpoint.
+- [#345](https://github.com/bbrannon4/OpenBSE/issues/345): heat-recovery
+  effectiveness fixed with flow and no frost control; evaporative cooler has no
+  setpoint; humidifier capacity always derived from its power.
