@@ -3,10 +3,12 @@
 //! Models an electric steam humidifier that adds moisture to the supply air
 //! when the supply air humidity ratio is below the setpoint.
 //!
-//! Physics:
-//!   - Steam generation: rated_power converts water to steam
-//!   - Moisture added: Δw = power × efficiency / (h_fg × mass_flow_air)
+//! Physics (E+ `Humidifier:Steam:Electric`):
+//!   - Rated steam output: rated_power / (energy to make 1 kg of steam from
+//!     20 °C water)
+//!   - Moisture added: the deficit to the setpoint, up to the rated output
 //!   - Part-load: power = rated_power × (actual_steam / rated_capacity)
+//!   - The 100 °C steam also warms the air slightly.
 //!
 //! Control: maintains a minimum humidity ratio at the outlet. The setpoint
 //! is typically derived from a zone minimum RH requirement (e.g., 30% RH).
@@ -21,15 +23,20 @@ fn default_submeter() -> String {
     "General".to_string()
 }
 
-/// Total energy to generate 1 kg of steam from inlet water [J/kg].
-///
-/// Includes heating water from ~14°C to 100°C plus latent heat of vaporization.
-/// h_steam(100°C) = 2,676,100 J/kg, h_water(14.4°C) ≈ 60,400 J/kg
-/// Δh = 2,615,700 J/kg.
-///
-/// Reference: EnergyPlus Engineering Reference, "Humidifiers" — uses the same
-/// enthalpy difference for sizing the rated steam capacity from rated power.
-const H_STEAM_TOTAL: f64 = 2_615_700.0;
+/// Latent heat of vaporization of water at 100 °C [J/kg] (IAPWS-IF97 steam
+/// tables: h_g − h_f = 2675.6 − 419.1 kJ/kg).
+const H_FG_100C: f64 = 2_256_500.0;
+/// Make-up water temperature of the rating [°C] (E+ `Humidifiers.cc`, `Tref`).
+const T_MAKEUP_WATER: f64 = 20.0;
+
+/// Energy to make 1 kg of 100 °C steam from 20 °C make-up water [J/kg]: the
+/// latent heat plus warming the water at its mean specific heat, as E+
+/// `Humidifier:Steam:Electric` relates rated power and capacity
+/// (`SizeHumidifier`: NomPower = NomCap·[(h_g − h_f) + c̄_p(100 − 20)]).
+fn steam_generation_energy() -> f64 {
+    let cp_mean = 0.5 * (psych::water_cp(100.0) + psych::water_cp(T_MAKEUP_WATER));
+    H_FG_100C + cp_mean * (100.0 - T_MAKEUP_WATER)
+}
 
 /// Enthalpy of the steam entering the airstream [J/kg]: water vapour at
 /// 100 °C on the psychrometric basis of `h_fn_tdb_w` (h_fg + cp_vapour·T),
@@ -44,8 +51,7 @@ pub struct Humidifier {
     pub submeter: String,
     /// Rated (maximum) electric power input [W].
     pub rated_power: f64,
-    /// Rated (maximum) steam output capacity [kg/s].
-    /// Autosized from rated_power / H_STEAM_TOTAL if not set explicitly.
+    /// Rated (maximum) steam output capacity [kg/s], from the rated power.
     pub rated_capacity: f64,
     /// Minimum humidity ratio setpoint [kg_water/kg_dry_air].
     /// The humidifier adds moisture when the supply air w < this setpoint.
@@ -83,6 +89,9 @@ pub struct Humidifier {
     /// Water (steam) mass flow added this timestep [kg/s].
     #[serde(skip)]
     pub moisture_added: f64,
+    /// Enthalpy the steam adds to the air this timestep [W].
+    #[serde(skip)]
+    pub heat_to_air: f64,
 }
 
 impl Humidifier {
@@ -99,7 +108,7 @@ impl Humidifier {
         min_rh_setpoint: f64,
         zone_cooling_setpoint: f64,
     ) -> Self {
-        let rated_capacity = rated_power / H_STEAM_TOTAL;
+        let rated_capacity = rated_power / steam_generation_energy();
         Self {
             name: name.to_string(),
             submeter: "General".to_string(),
@@ -113,6 +122,7 @@ impl Humidifier {
             zone_air_temp: None,
             power: 0.0,
             moisture_added: 0.0,
+            heat_to_air: 0.0,
         }
     }
 }
@@ -131,6 +141,7 @@ impl AirComponent for Humidifier {
         if inlet.mass_flow <= 0.0 {
             self.power = self.standby_power;
             self.moisture_added = 0.0;
+            self.heat_to_air = 0.0;
             return *inlet;
         }
 
@@ -153,6 +164,7 @@ impl AirComponent for Humidifier {
         if w_in >= w_target {
             self.power = self.standby_power;
             self.moisture_added = 0.0;
+            self.heat_to_air = 0.0;
             return *inlet;
         }
 
@@ -178,6 +190,7 @@ impl AirComponent for Humidifier {
         let dw = moisture_actual / inlet.mass_flow;
         let w_out = w_in + dw;
         let h_out = psych::h_fn_tdb_w(inlet.state.t_db, w_in) + dw * H_STEAM_100C;
+        self.heat_to_air = moisture_actual * H_STEAM_100C;
         let t_out = psych::tdb_fn_h_w(h_out, w_out);
 
         AirPort::new(
@@ -203,6 +216,11 @@ impl AirComponent for Humidifier {
 
     fn power_consumption(&self) -> f64 {
         self.power
+    }
+
+    /// Enthalpy the steam brings to the air, ṁ_steam·h_steam = ṁ_air·Δh (#332).
+    fn thermal_output(&self) -> f64 {
+        self.heat_to_air
     }
 
     /// Make-up water equals the steam added [kg/s].
@@ -234,6 +252,33 @@ mod tests {
             is_sizing: false,
             sizing_internal_gains: SizingInternalGains::Full,
         }
+    }
+
+    #[test]
+    fn test_rated_capacity_uses_the_e_plus_20c_make_up_water() {
+        // E+ SizeHumidifier: (h_g − h_f)(100 °C) + c̄_p·(100 − 20) ≈ 2.592 MJ/kg,
+        // about 1% less than the old 14.4 °C basis (2.6157 MJ/kg).
+        let e = steam_generation_energy();
+        assert!((e - 2.5917e6).abs() < 2.0e3, "{e}");
+        let hum = Humidifier::new("H", 10_000.0, 0.3, 24.0);
+        assert_relative_eq!(hum.rated_capacity, 10_000.0 / e, max_relative = 1e-12);
+    }
+
+    #[test]
+    fn test_thermal_output_is_the_air_enthalpy_gain() {
+        // #332: the run-time check compares ṁ·Δh with thermal_output.
+        let mut hum = Humidifier::new("H", 50_000.0, 0.3, 24.0);
+        hum.w_setpoint = 0.006;
+        let inlet = AirPort::new(MoistAirState::new(20.0, 0.002, 101_325.0), 2.0);
+        let out = hum.simulate_air(&inlet, &make_ctx());
+        let gain = inlet.mass_flow
+            * (psych::h_fn_tdb_w(out.state.t_db, out.state.w) - psych::h_fn_tdb_w(20.0, 0.002));
+        assert!(gain > 0.0);
+        assert_relative_eq!(hum.thermal_output(), gain, max_relative = 1e-6);
+        // Idle: nothing added.
+        hum.w_setpoint = 0.001;
+        hum.simulate_air(&inlet, &make_ctx());
+        assert_eq!(hum.thermal_output(), 0.0);
     }
 
     #[test]
