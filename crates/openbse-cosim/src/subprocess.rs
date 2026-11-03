@@ -34,15 +34,23 @@ pub struct SubprocessTransport {
 }
 
 impl SubprocessTransport {
-    /// Spawn the child process with piped stdin/stdout.
-    pub fn spawn(command: &[String]) -> Result<Self, String> {
+    /// Spawn the child process with piped stdin/stdout, in `working_dir` when
+    /// given (the model's directory, so its relative paths resolve there).
+    pub fn spawn(
+        command: &[String],
+        working_dir: Option<&std::path::Path>,
+    ) -> Result<Self, String> {
         if command.is_empty() {
             return Err("cosim command list is empty".to_string());
         }
-        let mut child = Command::new(&command[0])
-            .args(&command[1..])
+        let mut cmd = Command::new(&command[0]);
+        cmd.args(&command[1..])
             .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
+            .stdout(Stdio::piped());
+        if let Some(dir) = working_dir {
+            cmd.current_dir(dir);
+        }
+        let mut child = cmd
             .spawn()
             .map_err(|e| format!("failed to spawn '{}': {}", command[0], e))?;
 
