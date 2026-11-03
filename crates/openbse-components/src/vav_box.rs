@@ -61,6 +61,13 @@ pub struct VAVBox {
     /// value to deliver more reheat energy. Typically 0.5 (ASHRAE G36
     /// dual-maximum). Default: 0.5.
     pub max_reheat_fraction: f64,
+    /// Whether `max_reheat_fraction` is left to autosize (E+ autosizes the
+    /// Maximum Flow Fraction During Reheat from the zone's design heating flow).
+    #[serde(default)]
+    pub max_reheat_fraction_autosize: bool,
+    /// Primary flow the air loop allocates this timestep [kg/s].
+    #[serde(skip)]
+    pub allocated_flow: Option<f64>,
 
     // ─── Hot water reheat parameters ─────────────────────────────────────
     /// Design hot water flow rate [m³/s] (for HotWater reheat)
@@ -125,8 +132,11 @@ impl VAVBox {
             min_flow_fraction: min_flow_fraction.clamp(0.0, 1.0),
             reheat_type,
             reheat_capacity,
-            max_reheat_temp: 40.0, // E+ default Maximum Reheat Air Temperature
+            // E+ has no default limit and recommends 35 °C when unknown.
+            max_reheat_temp: 40.0,
             max_reheat_fraction: 0.5,
+            max_reheat_fraction_autosize: false,
+            allocated_flow: None,
             design_hw_flow_rate: 0.0,
             design_hw_inlet_temp: 82.0,
             design_hw_outlet_temp: 71.0,
@@ -217,6 +227,7 @@ impl AirComponent for VAVBox {
             (min_flow, false)
         };
 
+        let air_flow = self.allocated_flow.unwrap_or(air_flow);
         self.primary_air_flow = air_flow;
         self.damper_position = if self.max_air_flow > 0.0 {
             air_flow / self.max_air_flow
@@ -348,6 +359,30 @@ impl AirComponent for VAVBox {
             return None;
         }
         Some(self.max_air_flow * self.max_reheat_fraction.max(self.min_flow_fraction))
+    }
+
+    fn max_reheat_temp(&self) -> Option<f64> {
+        Some(self.max_reheat_temp)
+    }
+
+    fn set_primary_air_flow(&mut self, flow: Option<f64>) {
+        self.allocated_flow = flow;
+    }
+
+    fn primary_air_flow(&self) -> Option<f64> {
+        Some(self.primary_air_flow)
+    }
+
+    /// E+ `SingleDuct` sizing: the heating maximum is the zone's design
+    /// heating flow, between the box's minimum and maximum flow.
+    fn size_reheat_flow(&mut self, zone_heating_flow: f64) {
+        if !self.max_reheat_fraction_autosize || self.max_air_flow <= 0.0 {
+            return;
+        }
+        let min_flow = self.max_air_flow * self.min_flow_fraction;
+        let flow = zone_heating_flow.clamp(min_flow, self.max_air_flow);
+        self.max_reheat_fraction = flow / self.max_air_flow;
+        self.max_reheat_fraction_autosize = false;
     }
 
     fn reheat_for_zone_load(&self, zone_load: f64, zone_temp: f64, inlet_temp: f64) -> Option<f64> {
@@ -584,6 +619,25 @@ mod tests {
         // Water outlet should be cooler than inlet
         let wo = vav.water_outlet().unwrap();
         assert!(wo.state.temp < 82.0);
+    }
+
+    #[test]
+    fn test_reheat_fraction_autosizes_to_the_design_heating_flow() {
+        let mut vav = VAVBox::new("B", "Z", 1.0, 0.3, ReheatType::Electric, 5000.0);
+        vav.max_reheat_fraction_autosize = true;
+        vav.size_reheat_flow(0.6);
+        assert_relative_eq!(vav.max_reheat_fraction, 0.6);
+        // Sized once; and bounded by the box's minimum and maximum.
+        vav.size_reheat_flow(0.1);
+        assert_relative_eq!(vav.max_reheat_fraction, 0.6);
+        let mut low = VAVBox::new("B", "Z", 1.0, 0.3, ReheatType::Electric, 5000.0);
+        low.max_reheat_fraction_autosize = true;
+        low.size_reheat_flow(0.1);
+        assert_relative_eq!(low.max_reheat_fraction, 0.3);
+        // A stated fraction is left alone.
+        let mut fixed = VAVBox::new("B", "Z", 1.0, 0.3, ReheatType::Electric, 5000.0);
+        fixed.size_reheat_flow(0.9);
+        assert_relative_eq!(fixed.max_reheat_fraction, 0.5);
     }
 
     #[test]

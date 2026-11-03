@@ -667,6 +667,7 @@ fn build_loop_infos(
                         }
                         openbse_io::input::TerminalInput::PfpBox(pb) => {
                             terminal_boxes.insert(zc.zone.clone(), pb.name.clone());
+                            terminal_min_flow.insert(zc.zone.clone(), pb.min_primary_fraction);
                         }
                         openbse_io::input::TerminalInput::DualDuctBox(dd) => {
                             // Dual-duct boxes are simulated via the signal builder, not the graph.
@@ -712,6 +713,7 @@ fn build_loop_infos(
                 cooling_part_load_cd: al.controls.cooling_part_load_cd,
                 terminal_boxes,
                 terminal_min_flow,
+                terminal_heating: HashMap::new(),
                 dd_boxes,
                 heat_recovery_name,
                 dcv: al.dcv,
@@ -2051,6 +2053,14 @@ fn main() -> Result<()> {
                                     );
                                 }
 
+                                // Heating maximum flow: the zone's design heating
+                                // flow (E+ SingleDuct sizing, ReverseWithLimits).
+                                if let Some(&heat_flow) =
+                                    sizing_result.zone_heating_airflow.get(zone_name)
+                                {
+                                    comp.size_reheat_flow(heat_flow);
+                                }
+
                                 if let Some(cap) = comp.nominal_capacity() {
                                     if is_autosize(cap) {
                                         let zone_heat = sizing_result
@@ -2135,6 +2145,39 @@ fn main() -> Result<()> {
                         errors.len(),
                         err_path.display()
                     );
+                }
+            }
+        }
+
+        // ── Terminal heating limits, after sizing ───────────────────────────────
+        // Without design days a box left to autosize its heating maximum takes
+        // E+'s 0.002032 m³/s per m² of floor area. Each loop then carries its
+        // boxes' heating limits, so the VAV controls give a heating zone the
+        // flow its box runs at.
+        {
+            let rho = site_standard_air_density(&model);
+            let floor_area: HashMap<&str, f64> = resolved_zones_for_oa
+                .iter()
+                .map(|z| (z.name.as_str(), z.floor_area))
+                .collect();
+            for li in &mut loop_infos {
+                for (zone_name, term_name) in &li.terminal_boxes {
+                    let Some(idx) = graph.node_by_name(term_name) else {
+                        continue;
+                    };
+                    let GraphComponent::Air(comp) = graph.component_mut(idx) else {
+                        continue;
+                    };
+                    let area = floor_area.get(zone_name.as_str()).copied().unwrap_or(0.0);
+                    comp.size_reheat_flow(0.002032 * area * rho);
+                    if let (Some(heat_max), Some(t_max), Some(capacity)) = (
+                        comp.reheat_primary_air_flow(),
+                        comp.max_reheat_temp(),
+                        comp.nominal_capacity(),
+                    ) {
+                        li.terminal_heating
+                            .insert(zone_name.clone(), (heat_max, t_max, capacity));
+                    }
                 }
             }
         }
@@ -3971,6 +4014,18 @@ fn main() -> Result<()> {
                             );
                         }
                         checks.components(&hvac_result.component_outputs, dt_h, now);
+                        if let Some(flows) = hvac_result.component_outputs.get("__air_loop_mass__")
+                        {
+                            for (key, &supplied) in flows {
+                                if let Some(air_loop) = key.strip_suffix("|supplied") {
+                                    let passed = flows
+                                        .get(&format!("{air_loop}|passed"))
+                                        .copied()
+                                        .unwrap_or(0.0);
+                                    checks.air_loop_mass(air_loop, supplied, passed, now);
+                                }
+                            }
+                        }
                         checks.states(&hvac_result.component_outputs, now);
                         if let Some(fatal) = env.diagnostics.fatal.take() {
                             checks.envelope("run period", env.diagnostics.take());
@@ -6296,6 +6351,23 @@ fn simulate_all_loops(
                     (supply.mass_flow * loop_plr, supply_temp, supply_w)
                 };
 
+            // Share of the supply that reaches the zones this timestep (the
+            // fan's runtime fraction when it cycles).
+            let supply_flow_scale = if supply.mass_flow > 0.0 {
+                effective_flow / supply.mass_flow
+            } else {
+                0.0
+            };
+            let mut terminal_primary_flow = 0.0_f64;
+            let mut allocated_total = 0.0_f64;
+            for zone_name in &li.served_zones {
+                if li.terminal_boxes.contains_key(zone_name) {
+                    allocated_total += signals
+                        .zone_air_flows
+                        .get(zone_name)
+                        .map_or(0.0, |f| f * supply_flow_scale);
+                }
+            }
             for zone_name in &li.served_zones {
                 // Check if this zone has a terminal box
                 if let Some(term_name) = li.terminal_boxes.get(zone_name) {
@@ -6450,9 +6522,20 @@ fn simulate_all_loops(
                             .get(zone_name)
                             .copied()
                             .unwrap_or(effective_flow / li.served_zones.len().max(1) as f64);
-                        let term_inlet = AirPort::new(supply.state, term_inlet_flow);
+                        // The box passes the flow the loop allocated its zone,
+                        // so the supply equals the sum of the boxes' flows.
+                        let allocated = signals
+                            .zone_air_flows
+                            .get(zone_name)
+                            .map(|f| f * supply_flow_scale);
+                        let term_inlet =
+                            AirPort::new(supply.state, allocated.unwrap_or(term_inlet_flow));
                         if let GraphComponent::Air(component) = graph.component_mut(node_idx) {
+                            component.set_primary_air_flow(allocated);
                             let term_outlet = component.simulate_air(&term_inlet, ctx);
+                            terminal_primary_flow += component
+                                .primary_air_flow()
+                                .unwrap_or(term_outlet.mass_flow);
 
                             // Record terminal outputs
                             let mut term_outputs = HashMap::new();
@@ -6536,6 +6619,24 @@ fn simulate_all_loops(
                         *zone_return_flows.entry(zone_name.clone()).or_default() += zone_flow;
                     }
                 }
+            }
+            // Mass conservation: the boxes pass what the loop sends them; with
+            // a box in every zone that is the whole supply.
+            if !li.terminal_boxes.is_empty() {
+                let supplied = if li
+                    .served_zones
+                    .iter()
+                    .all(|z| li.terminal_boxes.contains_key(z))
+                {
+                    effective_flow
+                } else {
+                    allocated_total
+                };
+                let flows = all_outputs
+                    .entry("__air_loop_mass__".to_string())
+                    .or_default();
+                flows.insert(format!("{}|supplied", li.name), supplied);
+                flows.insert(format!("{}|passed", li.name), terminal_primary_flow);
             }
         }
     }
@@ -7280,6 +7381,7 @@ room_air:
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
+            terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
@@ -7323,6 +7425,7 @@ room_air:
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
+            terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,
@@ -8485,6 +8588,7 @@ mod tests_datacenter {
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
+            terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
             explicit_min_oa: false,
             heat_recovery_name: None,

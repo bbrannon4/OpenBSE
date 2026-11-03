@@ -1752,13 +1752,16 @@ pub struct VavBoxInput {
     /// Reheat coil capacity [W]. Use `autosize` to let the engine calculate.
     #[serde(default)]
     pub reheat_capacity: AutosizeValue,
-    /// Maximum reheat discharge air temperature [°C] (default 35.0)
+    /// Maximum reheat discharge air temperature [°C] (default 40.0; E+ has no
+    /// default and recommends 35 °C when unknown)
     #[serde(default)]
     pub max_reheat_temp: Option<f64>,
-    /// Maximum flow fraction during reheat [0-1] (E+ "Damper Heating Action").
-    /// The heating-mode damper opens from the minimum toward this fraction of
-    /// maximum flow. Set equal to `min_flow_fraction` to hold minimum flow during
-    /// reheat (reheat-first control); default 0.5 (ASHRAE G36 dual-maximum).
+    /// Maximum flow fraction during reheat [0-1] (E+ "Maximum Flow Fraction
+    /// During Reheat" with ReverseWithLimits). The heating-mode damper opens
+    /// from the minimum toward this fraction of maximum flow. Set equal to
+    /// `min_flow_fraction` to hold minimum flow during reheat. Default: the
+    /// zone's design heating flow over the box's maximum, as E+ autosizes it
+    /// (0.002032 m³/s per m² of floor area without design days).
     #[serde(default)]
     pub max_reheat_fraction: Option<f64>,
     /// Plant loop name for hot water reheat
@@ -1794,9 +1797,13 @@ pub struct PfpBoxInput {
     /// Electric reheat coil capacity [W]. Use `autosize` to let the engine calculate.
     #[serde(default)]
     pub reheat_capacity: AutosizeValue,
-    /// Secondary air (plenum) temperature [°C] (default: zone return air temp)
+    /// Secondary air (plenum) temperature [°C] (default 24.0)
     #[serde(default)]
     pub secondary_air_temp: Option<f64>,
+    /// Primary flow fraction at or below which the secondary fan runs while
+    /// cooling (E+ "Fan On Flow Fraction"; default: `min_primary_fraction`)
+    #[serde(default)]
+    pub fan_on_flow_fraction: Option<f64>,
 }
 
 /// Dual-duct CAV mixing box input.
@@ -3868,8 +3875,9 @@ fn build_graph_impl(
                         if let Some(t) = vb.max_reheat_temp {
                             box_component.max_reheat_temp = t;
                         }
-                        if let Some(f) = vb.max_reheat_fraction {
-                            box_component.max_reheat_fraction = f;
+                        match vb.max_reheat_fraction {
+                            Some(f) => box_component.max_reheat_fraction = f,
+                            None => box_component.max_reheat_fraction_autosize = true,
                         }
                         graph.add_air_component(Box::new(box_component))
                     }
@@ -3883,6 +3891,12 @@ fn build_graph_impl(
                             pb.reheat_capacity.to_f64(),
                         );
                         box_component.submeter = pb.submeter.clone();
+                        if let Some(t) = pb.secondary_air_temp {
+                            box_component.secondary_air_temp = t;
+                        }
+                        if let Some(f) = pb.fan_on_flow_fraction {
+                            box_component.fan_on_flow_fraction = f.clamp(0.0, 1.0);
+                        }
                         graph.add_air_component(Box::new(box_component))
                     }
                     // DualDuctBox handled above via `continue` — unreachable here

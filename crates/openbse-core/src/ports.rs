@@ -241,6 +241,27 @@ pub trait AirComponent: std::fmt::Debug {
         None
     }
 
+    /// Primary air flow the air loop allocates to a terminal box this
+    /// timestep [kg/s]. The box passes exactly that flow (its damper), so the
+    /// loop's supply equals the sum of its boxes' flows. `None` lets the box
+    /// set its own flow from its control signal.
+    fn set_primary_air_flow(&mut self, _flow: Option<f64>) {}
+
+    /// Primary air flow a terminal box passed this timestep [kg/s].
+    fn primary_air_flow(&self) -> Option<f64> {
+        None
+    }
+
+    /// Maximum reheat air temperature of a reheat terminal [°C]. `None` for
+    /// anything else.
+    fn max_reheat_temp(&self) -> Option<f64> {
+        None
+    }
+
+    /// Size a reheat terminal's heating maximum primary flow from the zone's
+    /// design heating airflow [kg/s], if it was left to autosize.
+    fn size_reheat_flow(&mut self, _zone_heating_flow: f64) {}
+
     /// Input fields (by YAML key, e.g. `"capacity"`) that still hold the
     /// [`AUTOSIZE`](crate::types::AUTOSIZE) sentinel.
     ///

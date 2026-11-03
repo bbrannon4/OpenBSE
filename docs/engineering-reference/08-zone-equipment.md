@@ -16,7 +16,9 @@ air-loop simulation).
 - a minimum flow fraction $f_\text{min}$;
 - a reheat type (none, electric or hot water) and capacity $\dot Q_r$;
 - a maximum reheat air temperature $T_{r,\text{max}}$ (default 40 °C);
-- a maximum flow fraction during reheat $f_r$ (default 0.5).
+- a maximum flow fraction during reheat $f_r$. By default it is sized to the
+  zone's design heating flow over $\dot m_\text{max}$, or without design days to
+  $0.002032$ m³/s per m² of floor area, bounded by $f_\text{min}$ and 1.
 
 Let $\dot m_\text{min} = f_\text{min}\dot m_\text{max}$ and
 $\dot m_{h,\text{max}} = \max(f_r, f_\text{min})\dot m_\text{max}$.
@@ -66,16 +68,11 @@ inlet ([#234](https://github.com/bbrannon4/OpenBSE/issues/234)).
 **Comparison with EnergyPlus.** The sequence follows
 `AirTerminal:SingleDuct:VAV:Reheat` with `ReverseWithLimits`
 (`SingleDuct.cc`, `SimVAV`) [@eplus-engref-25-2, "Air System Distribution
-Terminals"]. The differences are
-([#246](https://github.com/bbrannon4/OpenBSE/issues/246)):
-
-- **Defaults.** EnergyPlus has no default reheat temperature limit
-  (35 °C is recommended; the code comment says 40 °C is the default). It
-  autosizes $f_r$ to $0.002032$ m³/s per m² of floor area.
-- **Central flow.** In heating, `build_vav_signals` gives the air loop a
-  flow from a proportional band on the zone temperature error, rising to
-  half of design. That flow can differ from the one the box sets, so the fan
-  and coil can see a different flow from the zone.
+Terminals"], including E+'s autosized heating maximum flow. E+ has no default
+reheat temperature limit and recommends 35 °C when it is unknown; OpenBSE's
+default is 40 °C. The air loop allocates each box its primary flow from these same
+rules (@sec-controls), and the box passes exactly that flow, so the loop's supply is
+the sum of its boxes' flows.
 
 ## Parallel fan-powered boxes {#sec-pfp-box}
 
@@ -84,9 +81,13 @@ Terminals"]. The differences are
 A parallel fan-powered box has a primary damper, a secondary fan drawing
 plenum air in parallel, and an electric reheat coil. Its modes are:
 
-- **Cooling** ($s < 0$): primary flow as in @eq-vav-cooling, fan off.
+- **Cooling** ($s < 0$): primary flow as in @eq-vav-cooling; the fan runs
+  while the primary flow is at or below `fan_on_flow_fraction` of maximum
+  (default $f_\text{min}$), so at minimum primary flow.
 - **Deadband** ($s = 0$): minimum primary flow, fan off.
-- **Heating** ($s > 0$): minimum primary flow, fan on, reheat on.
+- **Heating** ($s > 0$): minimum primary flow, fan on, reheat on. The driver
+  asks for this whenever minimum primary air would cool the zone below its
+  heating setpoint, deadband included.
 
 With the fan on, the mixed state at flow
 $\dot m = \dot m_p + \dot m_s$ is
@@ -97,24 +98,25 @@ T_\text{mix} = \frac{\dot m_pT_\text{in} + \dot m_sT_s}{\dot m} + \frac{P_f}{\do
 P_f = \frac{\dot m_s\Delta p_f}{1.2\,\eta_f},
 $$ {#eq-pfp-mix}
 
-with the secondary air temperature $T_s$ fixed at 24 °C,
-$\Delta p_f = 375$ Pa and $\eta_f = 0.55$. The reheat is
-$\min(s\dot Q_r, \dot Q_r)$, limited to a 35 °C outlet. The box's power is
-$P_f$ plus the reheat.
+with the secondary air temperature $T_s$ from `secondary_air_temp` (default
+24 °C), $\Delta p_f = 375$ Pa and $\eta_f = 0.55$. The reheat the driver asks for
+holds the zone with the mix:
 
-**Comparison with EnergyPlus.** EnergyPlus's
-`AirTerminal:SingleDuct:ParallelPIU:Reheat` runs the fan whenever the primary
-flow is at or below `Fan On Flow Fraction`, draws actual induced air, and
-offers water, fuel and steam coils. In OpenBSE
-([#246](https://github.com/bbrannon4/OpenBSE/issues/246),
-[#55](https://github.com/bbrannon4/OpenBSE/issues/55)):
+$$
+\dot Q = \dot Q_z + \dot m_pc_p(T_z - T_\text{in}) + \dot m_sc_p(T_z - T_s) - P_f,
+$$ {#eq-pfp-reheat}
 
-- the `secondary_air_temp` input is not read, and the temperature is not
-  live;
-- reheat demand is the zone heating load alone, so it leaves out the
-  primary-air term of @eq-vav-reheat, and there is no reheat in deadband;
-- the mixed humidity ratio is the primary air's;
-- the secondary fan's flow cannot be autosized.
+limited to $\dot Q_r$ and a 35 °C outlet. The box's power is $P_f$ plus the
+reheat.
+
+**Comparison with EnergyPlus.** @eq-pfp-reheat and the fan-on rule follow
+`AirTerminal:SingleDuct:ParallelPIU:Reheat` (`PoweredInductionUnits.cc`,
+`CalcParallelPIU`), with E+'s autosized Fan On Flow Fraction as the default.
+E+ also raises the primary flow while cooling to offset the induced air;
+OpenBSE does not, which matters little with plenum air near the zone
+temperature. E+ draws actual induced air and offers water, fuel and steam
+coils ([#350](https://github.com/bbrannon4/OpenBSE/issues/350),
+[#55](https://github.com/bbrannon4/OpenBSE/issues/55)).
 
 ## Dual-duct boxes {#sec-dual-duct-box}
 
@@ -152,9 +154,9 @@ dual-duct systems should not be relied on until this is fixed.
 
 - [#245](https://github.com/bbrannon4/OpenBSE/issues/245): dual-duct mix
   from PLR with a damper minimum, so it does not meet the load.
-- [#246](https://github.com/bbrannon4/OpenBSE/issues/246): fan-powered box
-  input not read, reheat short of the primary-air term and fan-on logic;
-  VAV flow seen by the air loop differs from the box's.
+- [#350](https://github.com/bbrannon4/OpenBSE/issues/350): fan-powered box
+  reheat is electric only, its induced air takes the primary air's humidity,
+  its secondary flow cannot be autosized, and there is no series box.
 - [#55](https://github.com/bbrannon4/OpenBSE/issues/55): fan-powered box
   secondary air not live.
 - [#234](https://github.com/bbrannon4/OpenBSE/issues/234): hot-water reheat
