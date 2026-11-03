@@ -922,7 +922,7 @@
       "properties": {
         "type": { "type": "string", "const": "external_air" },
         "name": { "type": "string" },
-        "command": { "type": "array", "items": { "type": "string" }, "description": "Command line used to launch the co-simulation process (e.g. [python, ahu_model.py])." },
+        "command": { "type": "array", "items": { "type": "string" }, "description": "Command line used to launch the co-simulation process (e.g. [python, ahu_model.py]). It runs in the model file's directory." },
         "inputs": { "type": "array", "items": { "type": "string" }, "description": "Input variable names sent to the process each timestep (e.g. inlet_temp_c, inlet_humidity_ratio, inlet_mass_flow_kg_s, outdoor_temp_c, sim_time_s)." },
         "outputs": { "type": "array", "items": { "type": "string" }, "description": "Output variable names expected back each timestep (e.g. outlet_temp_c, outlet_humidity_ratio, power_w)." }
       }
@@ -1271,7 +1271,7 @@
       "properties": {
         "type": { "type": "string", "const": "external_plant" },
         "name": { "type": "string" },
-        "command": { "type": "array", "items": { "type": "string" }, "description": "Command line used to launch the co-simulation process (e.g. [python, chiller.py])." },
+        "command": { "type": "array", "items": { "type": "string" }, "description": "Command line used to launch the co-simulation process (e.g. [python, chiller.py]). It runs in the model file's directory." },
         "inputs": { "type": "array", "items": { "type": "string" }, "description": "Input variable names sent to the process each timestep (e.g. return_temp_c, return_flow_kg_s, load_request_w, outdoor_temp_c, sim_time_s)." },
         "outputs": { "type": "array", "items": { "type": "string" }, "description": "Output variable names expected back each timestep (e.g. supply_temp_c, power_w, thermal_output_w)." }
       }

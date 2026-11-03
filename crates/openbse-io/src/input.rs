@@ -3823,7 +3823,8 @@ fn build_graph_impl(
                         e.command.clone(),
                         e.inputs.clone(),
                         e.outputs.clone(),
-                    );
+                    )
+                    .with_working_dir(model_dir);
                     graph.add_air_component(Box::new(component))
                 }
             };
@@ -4194,7 +4195,8 @@ fn build_graph_impl(
                         e.command.clone(),
                         e.inputs.clone(),
                         e.outputs.clone(),
-                    );
+                    )
+                    .with_working_dir(model_dir);
                     graph.add_plant_component(Box::new(component))
                 }
             };

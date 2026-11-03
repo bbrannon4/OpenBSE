@@ -137,6 +137,13 @@ pub trait AirComponent: std::fmt::Debug {
     /// Component name.
     fn name(&self) -> &str;
 
+    /// A failure that makes the run's results meaningless (for example a
+    /// co-simulation process that cannot be reached). The driver stops the run
+    /// with it as a severe error. Default: none.
+    fn fatal_error(&self) -> Option<String> {
+        None
+    }
+
     /// What kind of component this is, for energy accounting.
     /// Defaults to `Other` — override to get automatic end-use routing.
     fn component_kind(&self) -> ComponentKind {
@@ -352,6 +359,13 @@ pub trait AirComponent: std::fmt::Debug {
 pub trait PlantComponent: std::fmt::Debug {
     /// Component name.
     fn name(&self) -> &str;
+
+    /// A failure that makes the run's results meaningless (for example a
+    /// co-simulation process that cannot be reached). The driver stops the run
+    /// with it as a severe error. Default: none.
+    fn fatal_error(&self) -> Option<String> {
+        None
+    }
 
     /// What kind of component this is, for energy accounting.
     /// Defaults to `Other` — override to get automatic end-use routing.

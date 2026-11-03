@@ -9,7 +9,8 @@ OpenBSE sends it the current state, and takes back its outlet and its energy use
 
 ## Protocol {#sec-cosim-protocol}
 
-The child starts the first time the component is called with flow. The two exchange
+The child starts the first time the component is called with flow, in the model file's
+directory, so a relative script path in `command` resolves next to the model. The two exchange
 newline-delimited JSON over its stdin and stdout. Each call writes
 
 ```json
@@ -18,6 +19,11 @@ newline-delimited JSON over its stdin and stdout. Each call writes
 
 and reads one line back, either `{"outputs": {...}}` or `{"error": "..."}`. When the
 component is dropped, OpenBSE writes `{"command":"stop"}` and waits for the child to exit.
+
+A child that cannot be started, or an exchange that fails (the child exits, closes its
+output or sends an unreadable line), stops the run with a severe error at the end of that
+timestep: the component's results would otherwise be missing from the energy and the
+loads.
 
 **Calls.** An exchange happens at every call to the component. That is every HVAC iteration
 (@sec-hvac-iteration), including warmup, with the same `time_s`, and no flag saying which

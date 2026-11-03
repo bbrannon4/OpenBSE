@@ -38,6 +38,10 @@ pub struct ExternalPlantComponent {
     pub output_vars: Vec<String>,
 
     transport: Option<SubprocessTransport>,
+    /// Directory the subprocess runs in (the model's directory).
+    working_dir: Option<std::path::PathBuf>,
+    /// The first spawn or exchange failure; the driver stops the run on it.
+    failure: Option<String>,
     last_power_w: f64,
     last_fuel_w: f64,
     last_thermal_w: f64,
@@ -65,15 +69,26 @@ impl ExternalPlantComponent {
             input_vars,
             output_vars,
             transport: None,
+            working_dir: None,
+            failure: None,
             last_power_w: 0.0,
             last_fuel_w: 0.0,
             last_thermal_w: 0.0,
         }
     }
 
+    /// Run the subprocess in `dir`, normally the model's directory.
+    pub fn with_working_dir(mut self, dir: Option<&std::path::Path>) -> Self {
+        self.working_dir = dir.map(|d| d.to_path_buf());
+        self
+    }
+
     fn ensure_started(&mut self) -> Result<(), String> {
         if self.transport.is_none() {
-            self.transport = Some(SubprocessTransport::spawn(&self.command)?);
+            self.transport = Some(SubprocessTransport::spawn(
+                &self.command,
+                self.working_dir.as_deref(),
+            )?);
         }
         Ok(())
     }
@@ -120,6 +135,10 @@ impl PlantComponent for ExternalPlantComponent {
         &self.name
     }
 
+    fn fatal_error(&self) -> Option<String> {
+        self.failure.clone()
+    }
+
     fn component_kind(&self) -> ComponentKind {
         ComponentKind::Other
     }
@@ -138,7 +157,9 @@ impl PlantComponent for ExternalPlantComponent {
         }
 
         if let Err(e) = self.ensure_started() {
-            log::error!("cosim '{}': failed to start subprocess: {}", self.name, e);
+            let msg = format!("cosim '{}': failed to start subprocess: {}", self.name, e);
+            log::error!("{msg}");
+            self.failure.get_or_insert(msg);
             return *inlet;
         }
 
@@ -154,7 +175,9 @@ impl PlantComponent for ExternalPlantComponent {
         {
             Ok(o) => o,
             Err(e) => {
-                log::error!("cosim '{}': exchange failed: {}", self.name, e);
+                let msg = format!("cosim '{}': exchange failed: {}", self.name, e);
+                log::error!("{msg}");
+                self.failure.get_or_insert(msg);
                 self.last_power_w = 0.0;
                 self.last_fuel_w = 0.0;
                 self.last_thermal_w = 0.0;

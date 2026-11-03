@@ -218,6 +218,17 @@ impl SimulationGraph {
         self.graph.node_weights()
     }
 
+    /// Fatal failures reported by any component (see `fatal_error`).
+    pub fn fatal_errors(&self) -> Vec<String> {
+        self.graph
+            .node_weights()
+            .filter_map(|gc| match gc {
+                GraphComponent::Air(c) => c.fatal_error(),
+                GraphComponent::Plant(c) => c.fatal_error(),
+            })
+            .collect()
+    }
+
     /// Iterate over all air components mutably (for autosizing).
     pub fn air_components_mut(&mut self) -> Vec<&mut Box<dyn AirComponent>> {
         self.graph

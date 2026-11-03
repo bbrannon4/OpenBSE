@@ -3977,6 +3977,15 @@ fn main() -> Result<()> {
                             checks.report(&mut validation);
                             return Err(stop_on_severe(&mut validation, &err_path, vec![fatal]));
                         }
+                        let component_failures = graph.fatal_errors();
+                        if !component_failures.is_empty() {
+                            checks.report(&mut validation);
+                            return Err(stop_on_severe(
+                                &mut validation,
+                                &err_path,
+                                component_failures,
+                            ));
+                        }
                     }
 
                     // ── Assemble timestep result ──────────────────────────
