@@ -539,8 +539,8 @@ fn run_single_design_day(
 /// (`hot_aisle_return` in the driver): it is no room load and heats the unit's
 /// return. Sizing takes it the same way, at the zone's cooling supply
 /// temperature and its current air temperature, with the unit taking at least
-/// the captured flow. Left in the room, it sized the unit's flow for the whole
-/// IT load across the room-to-supply difference, and the coil for room air.
+/// the captured flow, so the unit's design flow carries only the room's own
+/// load and its coil is sized on the hot return it sees in operation.
 fn hot_aisle_bypass(
     env: &BuildingEnvelope,
     ctx: &SimulationContext,
