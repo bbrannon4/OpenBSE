@@ -74,11 +74,7 @@
       "weather_reason": "Its 10 Denver AMY files (2015-2024) aren't available; one TMY3 year still exercises the parametric runs."
     },
     "examples/office_dual_duct.yaml": {
-      "tier": "fast",
-      "max_unmet_heating_hours": 12210,
-      "max_unmet_heating_hours_reason": "11091 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting.",
-      "max_unmet_cooling_hours": 12740,
-      "max_unmet_cooling_hours_reason": "11579 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
+      "tier": "fast"
     },
     "examples/office_vrf.yaml": {
       "tier": "fast"
