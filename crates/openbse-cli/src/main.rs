@@ -6633,6 +6633,19 @@ fn simulate_all_loops(
                     // magnitude.  Initial zone temps (frozen across HVAC iterations)
                     // determine heating/cooling mode.
                     let zone_temp_init = initial_zone_temps.get(zone_name).copied().unwrap_or(21.0);
+                    // An induction box draws its secondary air from the zone,
+                    // at the start-of-timestep state its reheat is sized from
+                    // (E+ PIU secondary inlet on the zone exhaust node).
+                    if let Some(GraphComponent::Air(c)) = graph
+                        .node_by_name(term_name)
+                        .map(|idx| graph.component_mut(idx))
+                    {
+                        let w_zone = zone_humidity_ratios
+                            .get(zone_name)
+                            .copied()
+                            .unwrap_or(0.008);
+                        c.set_induced_air(zone_temp_init, w_zone);
+                    }
                     let heat_sp = active_heat_sp.get(zone_name).copied().unwrap_or(21.1);
                     let cool_sp = active_cool_sp.get(zone_name).copied().unwrap_or(23.9);
                     let zone_heat_load = zone_heating_loads.get(zone_name).copied().unwrap_or(0.0);

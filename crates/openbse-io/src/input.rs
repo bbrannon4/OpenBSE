@@ -1803,9 +1803,6 @@ pub struct PfpBoxInput {
     /// Electric reheat coil capacity [W]. Use `autosize` to let the engine calculate.
     #[serde(default)]
     pub reheat_capacity: AutosizeValue,
-    /// Secondary air (plenum) temperature [°C] (default 24.0)
-    #[serde(default)]
-    pub secondary_air_temp: Option<f64>,
     /// Primary flow fraction at or below which the secondary fan runs while
     /// cooling (E+ "Fan On Flow Fraction"; default: `min_primary_fraction`)
     #[serde(default)]
@@ -3855,9 +3852,6 @@ fn build_graph_impl(
                             pb.reheat_capacity.to_f64(),
                         );
                         box_component.submeter = pb.submeter.clone();
-                        if let Some(t) = pb.secondary_air_temp {
-                            box_component.secondary_air_temp = t;
-                        }
                         if let Some(f) = pb.fan_on_flow_fraction {
                             box_component.fan_on_flow_fraction = f.clamp(0.0, 1.0);
                         }

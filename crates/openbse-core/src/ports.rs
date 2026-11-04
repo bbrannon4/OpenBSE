@@ -352,6 +352,11 @@ pub trait AirComponent: std::fmt::Debug {
     /// Default implementation is a no-op (most components don't need exhaust air).
     fn set_exhaust_conditions(&mut self, _temp: f64, _w: f64) {}
 
+    /// Set the state of the air a terminal induces from its zone [°C, kg/kg].
+    /// Called by the driver before `reheat_for_zone_load()` and `simulate_air()`.
+    /// Default implementation is a no-op (only induction terminals draw zone air).
+    fn set_induced_air(&mut self, _temp: f64, _w: f64) {}
+
     /// Set the ambient temperature surrounding this component [°C].
     /// Used by duct components to model conduction losses to the surrounding space.
     fn set_ambient_temp(&mut self, _temp: f64) {}

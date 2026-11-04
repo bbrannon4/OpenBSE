@@ -102,9 +102,10 @@ T_\text{mix} = \frac{\dot m_pT_\text{in} + \dot m_sT_s}{\dot m} + \frac{P_f}{\do
 P_f = \frac{\dot m_s\Delta p_f}{1.2\,\eta_f},
 $$ {#eq-pfp-mix}
 
-with the secondary air temperature $T_s$ from `secondary_air_temp` (default
-24 °C), $\Delta p_f = 375$ Pa and $\eta_f = 0.55$. The reheat the driver asks for
-holds the zone with the mix:
+with $\Delta p_f = 375$ Pa and $\eta_f = 0.55$. The secondary fan draws zone
+air: $T_s$ and its humidity ratio are the zone's at the start of the timestep,
+and the mixed humidity ratio weights the two streams' by flow. The reheat the
+driver asks for holds the zone with the mix:
 
 $$
 \dot Q = \dot Q_z + \dot m_pc_p(T_z - T_\text{in}) + \dot m_sc_p(T_z - T_s) - P_f,
@@ -117,10 +118,12 @@ reheat.
 `AirTerminal:SingleDuct:ParallelPIU:Reheat` (`PoweredInductionUnits.cc`,
 `CalcParallelPIU`), with E+'s autosized Fan On Flow Fraction as the default.
 E+ also raises the primary flow while cooling to offset the induced air;
-OpenBSE does not, which matters little with plenum air near the zone
-temperature. E+ draws actual induced air and offers water, fuel and steam
-coils ([#350](https://github.com/bbrannon4/OpenBSE/issues/350),
-[#55](https://github.com/bbrannon4/OpenBSE/issues/55)).
+OpenBSE does not, which matters little with induced air near the zone
+temperature. E+ draws the induced air from whatever node feeds the secondary
+inlet, a return plenum or the zone's exhaust node; OpenBSE models no plenum on
+this path and always draws zone air, as E+ does from the exhaust node. E+ also
+offers water, fuel and steam coils
+([#350](https://github.com/bbrannon4/OpenBSE/issues/350)).
 
 ## Dual-duct boxes {#sec-dual-duct-box}
 
@@ -182,10 +185,9 @@ enthalpy and humidity mixing. Differences:
 - Dual-duct boxes are constant-volume only: there is no variable-volume or
   outdoor-air dual-duct box, and the decks have no supply-temperature reset.
 - [#350](https://github.com/bbrannon4/OpenBSE/issues/350): fan-powered box
-  reheat is electric only, its induced air takes the primary air's humidity,
-  its secondary flow cannot be autosized, and there is no series box.
-- [#55](https://github.com/bbrannon4/OpenBSE/issues/55): fan-powered box
-  secondary air not live.
+  reheat is electric only, its secondary flow cannot be autosized, and there is
+  no series box.
+- A fan-powered box induces zone air, never return-plenum air.
 
 ## Fan coils, PTAC and PTHP {#sec-fcu-ptac}
 
