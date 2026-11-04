@@ -293,10 +293,11 @@ fn multizone_design_flow(
 
 /// Whether a unit cycles its coils under a fan that keeps running with no load.
 fn runs_fan_through_deadband(li: &LoopInfo) -> bool {
-    matches!(
+    (matches!(
         li.system_type,
         AirLoopSystemType::PszAc | AirLoopSystemType::Ptac | AirLoopSystemType::Pthp
-    ) && li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous
+    ) || openbse_airloop::fcu_cycles(li))
+        && li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous
 }
 
 /// Whether the heat of a fan that runs with the coils off [W] takes a zone in
@@ -6029,6 +6030,7 @@ fn simulate_all_loops(
             // to the mixed air after the builder runs (see below).
             raw_t_outdoor: t_outdoor,
             w_outdoor,
+            p_b: ctx.outdoor_air.p_b,
             effective_min_oa,
             schedule_mgr,
             hour,
@@ -6220,6 +6222,7 @@ fn simulate_all_loops(
         } else if li.system_type == AirLoopSystemType::PszAc
             || li.system_type == AirLoopSystemType::Ptac
             || li.system_type == AirLoopSystemType::Pthp
+            || openbse_airloop::fcu_cycles(li)
         {
             let control_zone = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
             let zone_cool_load = zone_cooling_loads.get(control_zone).copied().unwrap_or(0.0);
@@ -7917,6 +7920,7 @@ room_air:
             t_outdoor: 30.0,
             raw_t_outdoor: 30.0,
             w_outdoor: 0.010,
+            p_b: 101_325.0,
             effective_min_oa: 0.2,
             schedule_mgr: None,
             hour: 12,
@@ -8052,6 +8056,7 @@ room_air:
             t_outdoor: 5.0,
             raw_t_outdoor: 5.0,
             w_outdoor: 0.005,
+            p_b: 101_325.0,
             effective_min_oa: 0.0,
             schedule_mgr: None,
             hour: 0,
@@ -8119,6 +8124,7 @@ room_air:
             t_outdoor: 30.0,
             raw_t_outdoor: 30.0,
             w_outdoor: 0.005,
+            p_b: 101_325.0,
             effective_min_oa: 0.0,
             schedule_mgr: None,
             hour: 0,
@@ -8347,6 +8353,7 @@ room_air:
             t_outdoor: 20.0,
             raw_t_outdoor: 20.0,
             w_outdoor: 0.015, // high
+            p_b: 101_325.0,
             effective_min_oa: li.min_oa_fraction,
             schedule_mgr: None,
             hour: 0,
@@ -8591,6 +8598,7 @@ room_air:
             t_outdoor: 20.0,
             raw_t_outdoor: 20.0,
             w_outdoor: 0.008,
+            p_b: 101_325.0,
             effective_min_oa: li.min_oa_fraction,
             schedule_mgr: None,
             hour: 0,
@@ -8656,6 +8664,7 @@ room_air:
             t_outdoor: 20.0,
             raw_t_outdoor: 20.0,
             w_outdoor: 0.008,
+            p_b: 101_325.0,
             effective_min_oa: li.min_oa_fraction,
             schedule_mgr: None,
             hour: 0,
@@ -9279,6 +9288,7 @@ mod tests_datacenter {
             t_outdoor: 0.0,
             raw_t_outdoor: 0.0,
             w_outdoor: 0.005,
+            p_b: 101_325.0,
             effective_min_oa: 0.0,
             schedule_mgr: None,
             hour: 0,
@@ -9338,6 +9348,7 @@ mod tests_datacenter {
             t_outdoor: 0.0,
             raw_t_outdoor: 0.0,
             w_outdoor: 0.005,
+            p_b: 101_325.0,
             effective_min_oa: 0.0,
             schedule_mgr: None,
             hour: 0,

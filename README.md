@@ -133,7 +133,7 @@ The **desktop editor** (`openbse-editor`) is a Tauri + React app in `tools/edito
 ### Controls
 - **PSZ-AC** — ASHRAE 90.1 modulating economizer, on/off and proportional cycling, gas furnace with fixed heating DAT
 - **DOAS** — 100% outdoor air, fixed supply setpoints, always-on pre-conditioning
-- **FCU** — per-zone recirculating fan coil, proportional fan speed modulation
+- **FCU** — per-zone recirculating fan coil, load-based: variable fan (E+ ASHRAE90VariableFan) or on/off cycling
 - **VAV** — ASHRAE Guideline 36 dual-maximum, SAT reset (13-18°C), modulating economizer, preheat frost protection
 - **CRAC/CRAH** — data-center cooling with contained hot-aisle return air (IT heat counted once) and variable-speed airflow
 - **Design Day Autosizing** — two-stage ASHRAE-compliant sizing (zone peak + system coincident), including plant equipment, with configurable oversize factors

@@ -396,6 +396,8 @@ pub struct SignalCtx<'a> {
     pub raw_t_outdoor: f64,
     /// Outdoor humidity ratio [kg/kg].
     pub w_outdoor: f64,
+    /// Site barometric pressure [Pa].
+    pub p_b: f64,
     /// Minimum outdoor-air fraction for this loop [0-1].
     pub effective_min_oa: f64,
     /// Schedule manager for occupancy-based DCV (VAV VRP).
@@ -542,8 +544,7 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         .get(control_zone)
         .copied()
         .unwrap_or(0.008);
-    let zone_rh_pct =
-        openbse_psychrometrics::rh_fn_tdb_w_pb(control_temp, zone_w, 101325.0) * 100.0;
+    let zone_rh_pct = openbse_psychrometrics::rh_fn_tdb_w_pb(control_temp, zone_w, ctx.p_b) * 100.0;
     let mut dehumidify_only = false;
     if let Some(&max_rh) = zone_max_rh.get(control_zone) {
         if zone_rh_pct > max_rh && mode == HvacMode::Deadband {
@@ -824,7 +825,7 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
                     let w_target = openbse_psychrometrics::w_fn_tdb_rh_pb(
                         control_temp,
                         min_rh / 100.0,
-                        101325.0,
+                        ctx.p_b,
                     );
                     signals.coil_setpoints.insert(name.clone(), w_target);
                 }
@@ -925,7 +926,7 @@ pub fn build_crac_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         .get(zone_name)
         .copied()
         .unwrap_or(0.008);
-    let zone_rh_pct = openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp, zone_w, 101325.0) * 100.0;
+    let zone_rh_pct = openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp, zone_w, ctx.p_b) * 100.0;
     let mut dehumidify_only = false;
     let mode = if let Some(&max_rh) = zone_max_rh.get(zone_name) {
         if zone_rh_pct > max_rh && mode == HvacMode::Deadband {
@@ -1024,7 +1025,7 @@ pub fn build_crah_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         .get(zone_name)
         .copied()
         .unwrap_or(0.008);
-    let zone_rh_pct = openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp, zone_w, 101325.0) * 100.0;
+    let zone_rh_pct = openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp, zone_w, ctx.p_b) * 100.0;
     let mut dehumidify_only = false;
     let mode = if let Some(&max_rh) = zone_max_rh.get(zone_name) {
         if zone_rh_pct > max_rh && mode == HvacMode::Deadband {
@@ -1158,6 +1159,74 @@ pub fn build_doas_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     signals
 }
 
+/// E+ `ZoneHVAC:FourPipeFanCoil` low-speed supply flow ratio (default).
+pub const FCU_LOW_SPEED_RATIO: f64 = 0.33;
+
+/// A fan coil set to on/off cycling (E+ `CyclingFan`).
+pub fn fcu_cycles(li: &LoopInfo) -> bool {
+    li.system_type == AirLoopSystemType::Fcu
+        && li.cycling == openbse_io::input::CyclingMethod::OnOff
+}
+
+/// A variable-fan fan coil's flow [kg/s] and coil leaving-air target [°C]
+/// (None with no load), E+ `ASHRAE90VariableFan` (`FanCoilUnits.cc`, the
+/// single-zone VAV model): with no load the fan runs at its low speed and the
+/// coils are off; with a load the unit stays at low speed and modulates the
+/// coil until the supply reaches its limit (the design heating or cooling
+/// supply temperature), then raises the fan speed with the supply held at the
+/// limit. The supply delivers the predictor's load against the setpoint it is
+/// computed to reach: ṁ·cp·(T_sup − T_sp) = Q. A fan downstream of the coils
+/// warms the air after them, so the coil aims below the supply by its rise.
+fn fcu_variable_fan(
+    li: &LoopInfo,
+    ctx: &SignalCtx,
+    mode: HvacMode,
+    design_flow: f64,
+) -> (f64, Option<f64>) {
+    let zone = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
+    let low = design_flow * FCU_LOW_SPEED_RATIO;
+    let w = ctx.zone_humidity_ratios.get(zone).copied().unwrap_or(0.008);
+    let cp = openbse_psychrometrics::cp_air_fn_w(w);
+    let (load, t_ref, t_limit) = match mode {
+        HvacMode::Heating => (
+            ctx.zone_heating_loads.get(zone).copied().unwrap_or(0.0),
+            ctx.zone_heat_sp.get(zone).copied().unwrap_or(21.1),
+            li.heating_supply_temp,
+        ),
+        HvacMode::Cooling => (
+            -ctx.zone_cooling_loads.get(zone).copied().unwrap_or(0.0),
+            ctx.zone_cool_sp.get(zone).copied().unwrap_or(23.9),
+            li.cooling_supply_temp,
+        ),
+        HvacMode::Deadband => return (low, None),
+    };
+    let headroom = t_limit - t_ref;
+    if load == 0.0 || headroom * load <= 0.0 || design_flow <= 0.0 {
+        return (low, None);
+    }
+    let flow = (load / (cp * headroom)).clamp(low, design_flow);
+    let t_supply = t_ref + load / (flow * cp);
+    let t_supply = if load > 0.0 {
+        t_supply.min(t_limit)
+    } else {
+        t_supply.max(t_limit)
+    };
+    let fan_rise = if fan_after_coils(li) {
+        li.supply_fan_dt
+    } else {
+        0.0
+    };
+    (flow, Some(t_supply - fan_rise))
+}
+
+/// Whether a supply fan follows the loop's coils (draw-through).
+fn fan_after_coils(li: &LoopInfo) -> bool {
+    li.component_names
+        .iter()
+        .skip_while(|n| matches!(li.coil_role(n), CoilRole::Other | CoilRole::Humidifier))
+        .any(|n| li.fan_names.contains(n))
+}
+
 /// FCU: recirculating fan coil, per-zone thermostat (one zone per FCU loop).
 pub fn build_fcu_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     let zone_temps = ctx.zone_temps;
@@ -1194,7 +1263,7 @@ pub fn build_fcu_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         .copied()
         .unwrap_or(0.008);
     let zone_rh_pct_fcu =
-        openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp, zone_w_fcu, 101325.0) * 100.0;
+        openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp, zone_w_fcu, ctx.p_b) * 100.0;
     let mut dehumidify_only_fcu = false;
     if let Some(&max_rh) = zone_max_rh.get(zone_name) {
         if zone_rh_pct_fcu > max_rh && mode == HvacMode::Deadband {
@@ -1221,7 +1290,12 @@ pub fn build_fcu_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         || li.fan_operating_mode == openbse_io::input::FanOperatingMode::ContinuousNoLoadOff;
     let is_no_load_off_mode =
         li.fan_operating_mode == openbse_io::input::FanOperatingMode::ContinuousNoLoadOff;
-    let flow = if is_ptac {
+    // A fan coil set to on/off cycling runs as E+'s `CyclingFan` method: fan
+    // and coil at full output, the loop's runtime fraction meeting the load,
+    // exactly as a PTAC does. Otherwise it runs E+'s `ASHRAE90VariableFan`.
+    let cycles = is_ptac || fcu_cycles(li);
+    let variable = (!cycles).then(|| fcu_variable_fan(li, ctx, mode, design_flow));
+    let flow = if cycles {
         match mode {
             HvacMode::Deadband => {
                 if is_continuous_fan_mode && !is_no_load_off_mode {
@@ -1233,51 +1307,23 @@ pub fn build_fcu_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
             _ => design_flow,
         }
     } else {
-        // FCU modulates fan speed: deadband = 20%, heating/cooling = proportional
-        match mode {
-            HvacMode::Deadband => design_flow * 0.20,
-            HvacMode::Heating => {
-                let error = (heat_sp - zone_temp).clamp(0.0, 5.0);
-                let frac = 0.30 + 0.70 * (error / 5.0); // 30-100% of design
-                design_flow * frac
-            }
-            HvacMode::Cooling => {
-                let error = (zone_temp - cool_sp).clamp(0.0, 5.0);
-                let frac = 0.30 + 0.70 * (error / 5.0); // 30-100% of design
-                design_flow * frac
-            }
-        }
+        variable.map_or(0.0, |(flow, _)| flow)
     };
 
-    // PTAC OA = 0 (matching E+): PTAC recirculates zone air only.
-    // Zone ventilation is handled independently by zone outdoor_air spec
-    // (equivalent to E+ separate ERV with 0% effectiveness).
-    // FCU: also recirculates zone air only (OA fraction = 0).
+    // A PTAC mixes the loop's minimum outdoor air; a fan coil mixes none (its
+    // loop's fraction is 0), so its zone takes outdoor air directly or from a
+    // DOAS.
     let oa_frac = if is_ptac { li.min_oa_fraction } else { 0.0 };
     let mixed_air_temp = (1.0 - oa_frac) * zone_temp + oa_frac * t_outdoor;
 
-    // PTAC uses ON/OFF cycling with PLR modulation (like PSZ-AC):
-    // coils target design supply temps at full capacity, then PLR
-    // scales the output to match the zone load.
-    //
-    // FCU uses proportional modulation: coil setpoint varies with zone error.
+    // A cycling unit's coils target the design supply temperatures at full
+    // capacity and the loop's PLR scales the output to the load. A variable-fan
+    // fan coil's coils target the supply that meets the load at its flow.
     for name in &li.component_names {
         let role = li.coil_role(name);
-        if is_ptac {
-            // PTAC / PTHP control matching EnergyPlus:
-            //
-            // Heating: coil targets the design supply temp at full capacity.
-            // PLR cycling (computed in simulate_all_loops) sets the ON/OFF
-            // duty cycle to match the zone load.  For PTAC this is a water
-            // coil; for PTHP this is a heat pump coil — both use the same
-            // ON/OFF PLR path.
-            //
-            // Cooling (DX coil): same ON/OFF PLR approach.
+        if cycles {
             match mode {
                 HvacMode::Heating => {
-                    // E+ PTAC (Fan:OnOff cycling): run heating coil at
-                    // design supply temp during ON-period, off during
-                    // OFF-period.  PLR sets the duty cycle.
                     if role == CoilRole::Heating {
                         signals
                             .coil_setpoints
@@ -1287,7 +1333,6 @@ pub fn build_fcu_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
                     }
                 }
                 HvacMode::Cooling => {
-                    // DX cooling: run at full capacity, PLR handles cycling.
                     if role == CoilRole::Cooling {
                         signals
                             .coil_setpoints
@@ -1305,33 +1350,16 @@ pub fn build_fcu_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
                 }
             }
         } else {
-            // FCU: proportional modulation
-            match mode {
-                HvacMode::Heating => {
-                    let error = heat_sp - zone_temp;
-                    let target = (heat_sp + error.min(14.0)).clamp(heat_sp, 45.0);
-                    if role == CoilRole::Heating {
-                        signals.coil_setpoints.insert(name.clone(), target);
-                    } else if role == CoilRole::Cooling {
-                        signals.coil_setpoints.insert(name.clone(), 99.0);
-                    }
-                }
-                HvacMode::Cooling => {
-                    let error = zone_temp - cool_sp;
-                    let target = (cool_sp - error.min(10.0)).clamp(12.0, cool_sp);
-                    if role == CoilRole::Cooling {
-                        signals.coil_setpoints.insert(name.clone(), target);
-                    } else if role == CoilRole::Heating {
-                        signals.coil_setpoints.insert(name.clone(), -99.0);
-                    }
-                }
-                HvacMode::Deadband => {
-                    if role == CoilRole::Heating {
-                        signals.coil_setpoints.insert(name.clone(), -99.0);
-                    } else if role == CoilRole::Cooling {
-                        signals.coil_setpoints.insert(name.clone(), 99.0);
-                    }
-                }
+            let target = variable.and_then(|(_, t)| t);
+            let (heat_sp_coil, cool_sp_coil) = match (mode, target) {
+                (HvacMode::Heating, Some(t)) => (t, 99.0),
+                (HvacMode::Cooling, Some(t)) => (-99.0, t),
+                _ => (-99.0, 99.0),
+            };
+            if role == CoilRole::Heating {
+                signals.coil_setpoints.insert(name.clone(), heat_sp_coil);
+            } else if role == CoilRole::Cooling {
+                signals.coil_setpoints.insert(name.clone(), cool_sp_coil);
             }
         }
         // Dehumidification-only: override cooling coil setpoint to minimize sensible cooling
@@ -1343,7 +1371,7 @@ pub fn build_fcu_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
             if let Some(&min_rh) = zone_min_rh.get(zone_name) {
                 if zone_rh_pct_fcu < min_rh {
                     let w_target =
-                        openbse_psychrometrics::w_fn_tdb_rh_pb(zone_temp, min_rh / 100.0, 101325.0);
+                        openbse_psychrometrics::w_fn_tdb_rh_pb(zone_temp, min_rh / 100.0, ctx.p_b);
                     signals.coil_setpoints.insert(name.clone(), w_target);
                 }
             }
@@ -1460,7 +1488,7 @@ pub fn build_vav_signals(
             .copied()
             .unwrap_or(0.008);
         let zone_rh_vav =
-            openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp, zone_w_vav, 101325.0) * 100.0;
+            openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp, zone_w_vav, ctx.p_b) * 100.0;
         let mode = if let Some(&max_rh) = zone_max_rh.get(zone_name) {
             if zone_rh_vav > max_rh && base_mode == HvacMode::Deadband {
                 HvacMode::Cooling
@@ -1774,13 +1802,13 @@ pub fn build_vav_signals(
                         .copied()
                         .unwrap_or(0.008);
                     let zone_rh_h =
-                        openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp_h, zone_w_h, 101325.0)
+                        openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp_h, zone_w_h, ctx.p_b)
                             * 100.0;
                     if zone_rh_h < min_rh {
                         let w_target = openbse_psychrometrics::w_fn_tdb_rh_pb(
                             zone_temp_h,
                             min_rh / 100.0,
-                            101325.0,
+                            ctx.p_b,
                         );
                         signals.coil_setpoints.insert(name.clone(), w_target);
                         break; // Set based on first zone needing humidification
@@ -1925,13 +1953,13 @@ pub fn build_dual_duct_signals(li: &mut LoopInfo, ctx: &SignalCtx) -> ControlSig
                         .copied()
                         .unwrap_or(0.008);
                     let zone_rh_h =
-                        openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp_h, zone_w_h, 101325.0)
+                        openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp_h, zone_w_h, ctx.p_b)
                             * 100.0;
                     if zone_rh_h < min_rh {
                         let w_target = openbse_psychrometrics::w_fn_tdb_rh_pb(
                             zone_temp_h,
                             min_rh / 100.0,
-                            101325.0,
+                            ctx.p_b,
                         );
                         signals.coil_setpoints.insert(name.clone(), w_target);
                         break;
@@ -2043,6 +2071,7 @@ mod tests {
                 t_outdoor,
                 raw_t_outdoor: t_outdoor,
                 w_outdoor: 0.005,
+                p_b: 101_325.0,
                 effective_min_oa: 0.15,
                 schedule_mgr: None,
                 hour: 0,
@@ -2193,6 +2222,105 @@ mod tests {
         assert_eq!(li.coil_role("DX Cooling Coil"), CoilRole::Cooling);
         assert_eq!(li.coil_role("HW Reheat"), CoilRole::Heating);
         assert_eq!(li.coil_role("Steam Humidifier"), CoilRole::Humidifier);
+    }
+
+    fn fcu_fixture(mode: HvacMode, heat: f64, cool: f64) -> Fixture {
+        Fixture {
+            temps: one("Zone1", 22.0),
+            heat_sp: one("Zone1", 21.0),
+            cool_sp: one("Zone1", 24.0),
+            flows: one("Zone1", 0.5),
+            cool_loads: one("Zone1", cool),
+            heat_loads: one("Zone1", heat),
+            modes: [("Zone1".to_string(), mode)].into_iter().collect(),
+            empty: HashMap::new(),
+            returns: HashMap::new(),
+        }
+    }
+
+    fn fcu_loop() -> LoopInfo {
+        let mut li = make_loop(
+            AirLoopSystemType::Fcu,
+            vec![
+                "FCU Fan".to_string(),
+                "FCU Heating Coil".to_string(),
+                "FCU Cooling Coil".to_string(),
+            ],
+        );
+        li.fan_names.insert("FCU Fan".to_string());
+        li.cycling = openbse_io::input::CyclingMethod::Proportional;
+        li.heating_supply_temp = 35.0;
+        li.cooling_supply_temp = 13.0;
+        li
+    }
+
+    /// The variable-fan fan coil (E+ ASHRAE90VariableFan) delivers exactly
+    /// the predictor's load: at low speed while the coil can, then at higher
+    /// flow with the supply held at its limit. With no load it idles at low
+    /// speed with its coils off.
+    #[test]
+    fn variable_fan_coil_meets_the_load() {
+        let li = fcu_loop();
+        let cp = openbse_psychrometrics::cp_air_fn_w(0.008);
+        let low = 0.5 * FCU_LOW_SPEED_RATIO;
+        let run = |mode, heat, cool| {
+            let f = fcu_fixture(mode, heat, cool);
+            let s = build_fcu_signals(&li, &f.ctx(0.0));
+            (
+                s.air_mass_flows["FCU Fan"],
+                s.coil_setpoints["FCU Heating Coil"],
+                s.coil_setpoints["FCU Cooling Coil"],
+            )
+        };
+        let (flow, heat_sp, cool_sp) = run(HvacMode::Deadband, 0.0, 0.0);
+        assert!((flow - low).abs() < 1e-12);
+        assert_eq!((heat_sp, cool_sp), (-99.0, 99.0));
+
+        // Small heating load: low speed, coil trims to the load.
+        let (flow, heat_sp, cool_sp) = run(HvacMode::Heating, 500.0, 0.0);
+        assert!((flow - low).abs() < 1e-12);
+        assert!((flow * cp * (heat_sp - 21.0) - 500.0).abs() < 1e-6);
+        assert_eq!(cool_sp, 99.0);
+
+        // Large heating load: supply at its 35 °C limit, flow raised.
+        let (flow, heat_sp, _) = run(HvacMode::Heating, 5000.0, 0.0);
+        assert!((heat_sp - 35.0).abs() < 1e-12);
+        assert!((flow * cp * (35.0 - 21.0) - 5000.0).abs() < 1e-6);
+        assert!(flow > low && flow < 0.5);
+
+        // Cooling beyond the design flow: flat out at the 13 °C limit.
+        let (flow, heat_sp, cool_sp) = run(HvacMode::Cooling, 0.0, 20_000.0);
+        assert!((flow - 0.5).abs() < 1e-12);
+        assert_eq!((heat_sp, cool_sp), (-99.0, 13.0));
+    }
+
+    /// On/off cycling stays available: the fan coil then runs as E+'s
+    /// CyclingFan, at design flow and design supply temperature, off with no
+    /// load (the loop's runtime fraction meets the load).
+    #[test]
+    fn cycling_fan_coil_runs_flat_out() {
+        let mut li = fcu_loop();
+        li.cycling = openbse_io::input::CyclingMethod::OnOff;
+        assert!(fcu_cycles(&li));
+        let f = fcu_fixture(HvacMode::Heating, 500.0, 0.0);
+        let s = build_fcu_signals(&li, &f.ctx(0.0));
+        assert_eq!(s.air_mass_flows["FCU Fan"], 0.5);
+        assert_eq!(s.coil_setpoints["FCU Heating Coil"], 35.0);
+        let f = fcu_fixture(HvacMode::Deadband, 0.0, 0.0);
+        let s = build_fcu_signals(&li, &f.ctx(0.0));
+        assert_eq!(s.air_mass_flows["FCU Fan"], 0.0);
+    }
+
+    /// A draw-through fan warms the air after the coil, so the coil aims
+    /// below the supply that meets the load by the fan's rise.
+    #[test]
+    fn draw_through_fan_coil_aims_below_the_supply() {
+        let mut li = fcu_loop();
+        li.component_names.rotate_left(1);
+        li.supply_fan_dt = 0.6;
+        let f = fcu_fixture(HvacMode::Heating, 5000.0, 0.0);
+        let s = build_fcu_signals(&li, &f.ctx(0.0));
+        assert!((s.coil_setpoints["FCU Heating Coil"] - 34.4).abs() < 1e-12);
     }
 
     #[test]
