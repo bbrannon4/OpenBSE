@@ -3894,8 +3894,9 @@ fn main() -> Result<()> {
                                     idu_vec,
                                     t_outdoor,
                                     &current_zone_temps,
+                                    &zone_humidity_ratios,
                                     &vrf_loads,
-                                    ctx.outdoor_air.w,
+                                    ctx.outdoor_air.p_b,
                                 );
                                 // Record compressor energy in hvac_result outputs,
                                 // with the heating-mode share so end uses split
@@ -8833,7 +8834,7 @@ fn set_zone_supply(
                 .insert(zone_name.clone(), supply_w);
         }
     }
-    // VRF is recirculating — it does not handle outdoor air.
+    // VRF units recirculate zone air, dried by the coil in cooling.
     for iu in vrf_systems.iter().flat_map(|(_, idus)| idus) {
         if iu.mass_flow > 1e-9 {
             conds.supply_temps.insert(iu.zone.clone(), iu.supply_temp);

@@ -276,86 +276,8 @@ impl CoolingCoilDX {
     /// curve such that the bypass factor (BF) is consistent with the
     /// rated SHR.
     fn initialize_bypass_factor(&mut self) {
-        // ARI rated indoor entering conditions
-        let t_db_rated = 26.67_f64;
-        let t_wb_rated = 19.44_f64;
-        let p_b = 101325.0_f64;
-
-        let w_rated = psych::w_fn_tdb_twb_pb(t_db_rated, t_wb_rated, p_b);
-        let h_rated = psych::h_fn_tdb_w(t_db_rated, w_rated);
-
-        // The apparatus dew point (ADP) lies on the saturation curve.
-        // We search for it by iterating: for a candidate ADP temperature,
-        // compute the saturation humidity ratio and enthalpy, then check
-        // whether the resulting SHR matches the rated SHR.
-        //
-        // SHR_rated = (h_in - h_adp) * BF_sensible / (h_in - h_adp)
-        // Actually, from the E+ method:
-        //   slope_condition_line = (h_in - h_adp) / (t_db_in - t_adp)
-        //   SHR = cp_moist / slope  where cp_moist ≈ cp_air(w)
-        //
-        // Rearranging: slope = cp_moist / SHR
-        // And: h_adp = h_in - slope × (t_db_in - t_adp)
-        //
-        // We find t_adp where h_sat(t_adp) == h_adp from the condition line.
-
-        let shr = self.rated_shr.clamp(0.01, 0.999);
-        let cp_moist = psych::cp_air_fn_w(w_rated);
-        let slope = cp_moist / shr; // J/kg per °C
-
-        // Search for ADP temperature: where h_sat(t) intersects the condition line
-        // h_condition(t) = h_rated - slope × (t_db_rated - t)
-        // We need: h_sat(t) = h_condition(t)
-        //
-        // Search range: from 0°C to the entering dew point
-        let t_dp_entering = psych::tdp_fn_w_pb(w_rated, p_b);
-        let t_low = -10.0_f64;
-        let t_high = t_dp_entering.min(t_db_rated - 1.0);
-
-        // Bisection search
-        let mut lo = t_low;
-        let mut hi = t_high;
-        let mut t_adp = (lo + hi) / 2.0;
-
-        for _ in 0..50 {
-            t_adp = (lo + hi) / 2.0;
-            let w_sat = psych::w_fn_tdb_rh_pb(t_adp, 1.0, p_b);
-            let h_sat = psych::h_fn_tdb_w(t_adp, w_sat);
-            let h_cond = h_rated - slope * (t_db_rated - t_adp);
-
-            if (h_sat - h_cond).abs() < 0.1 {
-                break;
-            }
-            if h_sat < h_cond {
-                lo = t_adp;
-            } else {
-                hi = t_adp;
-            }
-        }
-
-        let w_adp = psych::w_fn_tdb_rh_pb(t_adp, 1.0, p_b);
-        let h_adp = psych::h_fn_tdb_w(t_adp, w_adp);
-
-        // Bypass factor: fraction of air that "bypasses" the coil surface
-        let dh = h_rated - h_adp;
-        let bf = if dh.abs() > 1.0 {
-            // BF from enthalpy: h_out = h_adp + BF × (h_in - h_adp)
-            // At rated: h_out = h_in - Q_total / m_dot
-            //         = h_in - rated_cap / (rated_airflow × rho × (1))
-            // But we can compute BF directly from the SHR relationship.
-            // For the rated condition, use the airflow to compute h_out:
-            let rho_rated = psych::rho_air_fn_pb_tdb_w(p_b, t_db_rated, w_rated);
-            let m_dot_rated = self.rated_airflow * rho_rated;
-            if m_dot_rated > 0.001 {
-                let h_out = h_rated - self.rated_capacity / m_dot_rated;
-                ((h_out - h_adp) / dh).clamp(0.0, 0.9)
-            } else {
-                0.2 // Reasonable default
-            }
-        } else {
-            0.2
-        };
-
+        let (t_adp, w_adp, h_adp, bf) =
+            rated_bypass_factor(self.rated_shr, self.rated_capacity, self.rated_airflow);
         self.adp_temp = t_adp;
         self.adp_w = w_adp;
         self.adp_h = h_adp;
@@ -690,6 +612,83 @@ impl AirComponent for CoolingCoilDX {
         };
         out("cycling_loss", cycling_loss);
     }
+}
+
+/// Apparatus dew point (temperature [°C], humidity ratio, enthalpy [J/kg])
+/// and bypass factor of a DX coil at its AHRI rating point (26.67 °C dry-bulb,
+/// 19.44 °C wet-bulb entering), from its rated SHR, total capacity [W] and
+/// airflow [m³/s], as E+ `DXCoils::CalcCBF`.
+pub fn rated_bypass_factor(
+    rated_shr: f64,
+    rated_capacity: f64,
+    rated_airflow: f64,
+) -> (f64, f64, f64, f64) {
+    // ARI rated indoor entering conditions
+    let t_db_rated = 26.67_f64;
+    let t_wb_rated = 19.44_f64;
+    let p_b = 101325.0_f64;
+
+    let w_rated = psych::w_fn_tdb_twb_pb(t_db_rated, t_wb_rated, p_b);
+    let h_rated = psych::h_fn_tdb_w(t_db_rated, w_rated);
+
+    let shr = rated_shr.clamp(0.01, 0.999);
+    let cp_moist = psych::cp_air_fn_w(w_rated);
+    let slope = cp_moist / shr; // J/kg per °C
+
+    // Search for ADP temperature: where h_sat(t) intersects the condition line
+    // h_condition(t) = h_rated - slope × (t_db_rated - t)
+    // We need: h_sat(t) = h_condition(t)
+    //
+    // Search range: from 0°C to the entering dew point
+    let t_dp_entering = psych::tdp_fn_w_pb(w_rated, p_b);
+    let t_low = -10.0_f64;
+    let t_high = t_dp_entering.min(t_db_rated - 1.0);
+
+    // Bisection search
+    let mut lo = t_low;
+    let mut hi = t_high;
+    let mut t_adp = (lo + hi) / 2.0;
+
+    for _ in 0..50 {
+        t_adp = (lo + hi) / 2.0;
+        let w_sat = psych::w_fn_tdb_rh_pb(t_adp, 1.0, p_b);
+        let h_sat = psych::h_fn_tdb_w(t_adp, w_sat);
+        let h_cond = h_rated - slope * (t_db_rated - t_adp);
+
+        if (h_sat - h_cond).abs() < 0.1 {
+            break;
+        }
+        if h_sat < h_cond {
+            lo = t_adp;
+        } else {
+            hi = t_adp;
+        }
+    }
+
+    let w_adp = psych::w_fn_tdb_rh_pb(t_adp, 1.0, p_b);
+    let h_adp = psych::h_fn_tdb_w(t_adp, w_adp);
+
+    // Bypass factor: fraction of air that "bypasses" the coil surface
+    let dh = h_rated - h_adp;
+    let bf = if dh.abs() > 1.0 {
+        // BF from enthalpy: h_out = h_adp + BF × (h_in - h_adp)
+        // At rated: h_out = h_in - Q_total / m_dot
+        //         = h_in - rated_cap / (rated_airflow × rho × (1))
+        // But we can compute BF directly from the SHR relationship.
+        // For the rated condition, use the airflow to compute h_out:
+        let rho_rated = psych::rho_air_fn_pb_tdb_w(p_b, t_db_rated, w_rated);
+        let m_dot_rated = rated_airflow * rho_rated;
+        if m_dot_rated > 0.001 {
+            let h_out = h_rated - rated_capacity / m_dot_rated;
+            ((h_out - h_adp) / dh).clamp(0.0, 0.9)
+        } else {
+            0.2 // Reasonable default
+        }
+    } else {
+        0.2
+    };
+
+    (t_adp, w_adp, h_adp, bf)
 }
 
 #[cfg(test)]
