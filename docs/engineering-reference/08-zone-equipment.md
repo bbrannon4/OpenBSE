@@ -125,39 +125,62 @@ coils ([#350](https://github.com/bbrannon4/OpenBSE/issues/350),
 ## Dual-duct boxes {#sec-dual-duct-box}
 
 **Source:** `openbse-components/src/dual_duct_box.rs` (`DualDuctBox`);
-`openbse-airloop/src/lib.rs` (`build_dual_duct_signals`).
+`openbse-airloop/src/lib.rs` (`build_dual_duct_signals`);
+`openbse-cli/src/main.rs` (`simulate_dual_duct_decks`).
 
-A dual-duct box delivers a constant design flow $\dot m_d$ blended from a
-hot and a cold deck. With $\dot m_\text{min} = f_\text{min}\dot m_d$
-(default $f_\text{min} = 0.2$) and the part-load ratio
-$\text{PLR} = \dot Q_z/[\dot m_dc_p|T_\text{deck} - T_\text{sp}|]$,
+**Decks.** The loop's fan and any other shared components carry the whole
+flow. After them the supply splits: the heating coils run in series on the
+hot deck's flow and the cooling coils on the cold deck's. Each deck's flow is
+the sum of its boxes' flows, and each coil holds its deck setpoint
+(`heating_supply_temp`, `cooling_supply_temp`) while its deck carries air.
+Input validation rejects a dual-duct loop that lists any component other
+than heat recovery after a coil, or a heat pump.
+
+**Box.** A dual-duct box passes its constant design flow $\dot m_d$ and splits it
+between the decks so the mix meets the zone load $\dot Q_z$ (positive heating),
+measured against the zone temperature $T_\text{ref}$:
 
 $$
 \begin{aligned}
-\text{heating:}\quad & \dot m_\text{hot} = \dot m_\text{min} + \text{PLR}(\dot m_d - \dot m_\text{min}), && \dot m_\text{cold} = \dot m_d - \dot m_\text{hot},\\
-\text{cooling:}\quad & \dot m_\text{cold} = \dot m_\text{min} + \text{PLR}(\dot m_d - \dot m_\text{min}), && \dot m_\text{hot} = \dot m_d - \dot m_\text{cold},\\
-\text{deadband:}\quad & \dot m_\text{hot} = \dot m_\text{cold} = \dot m_d/2, &&
+T_\text{target} &= T_\text{ref} + \frac{\dot Q_z}{\dot m_d\,c_p},\\
+\dot m_\text{cold} &= \dot m_d\,\frac{T_\text{hot} - T_\text{target}}{T_\text{hot} - T_\text{cold}}, \qquad 0 \le \dot m_\text{cold} \le \dot m_d,\\
+\dot m_\text{hot} &= \dot m_d - \dot m_\text{cold}.
 \end{aligned}
 $$ {#eq-dual-duct}
 
-and $T_\text{sup} = (\dot m_\text{hot}T_\text{hot} + \dot m_\text{cold}T_\text{cold})/\dot m_d$,
-with the deck *setpoints* as $T_\text{hot}$ and $T_\text{cold}$.
+$\dot Q_z$ is the predictor's load to the heating or cooling setpoint, and
+$T_\text{ref}$ is that setpoint, so the zone lands on it. With no load, $T_\text{ref}$
+is the zone temperature at the start of the timestep and the supply holds the
+zone where it is. $T_\text{hot}$ and $T_\text{cold}$ are the decks' leaving
+temperatures from the last simulation of each deck (the setpoints before a deck
+has carried air), so a coil short of capacity shows in the mix. The box's outlet
+then mixes the decks' actual leaving enthalpy and humidity ratio at those flows,
+so the zones receive exactly the air the deck coils conditioned. With decks
+within $10^{-5}$ K of each other the box takes the hot deck for a heating load
+and the cold deck otherwise.
 
-**Comparison with EnergyPlus.** EnergyPlus's
-`AirTerminal:DualDuct:ConstantVolume` (`DualDuct.cc`,
-`SimDualDuctConstVol`) solves the mix from the zone load and the decks'
-actual states, with no minimum on either deck, so a zero load gets supply air
-at the zone temperature. @eq-dual-duct does not meet the load. A small load
-has $\text{PLR} \approx 0$, so most of the air comes from the *opposite*
-deck: with decks at 35 °C and 13 °C, a small cooling load gets 30.6 °C air
-and a small heating load gets 17.4 °C air
-([#245](https://github.com/bbrannon4/OpenBSE/issues/245)). The results for
-dual-duct systems should not be relied on until this is fixed.
+A constant-volume dual-duct system mixes the decks at every load, so both deck
+coils run whenever the zones need any supply between the deck temperatures.
+
+**Comparison with EnergyPlus.** @eq-dual-duct is EnergyPlus's
+`AirTerminal:DualDuct:ConstantVolume` (`DualDuct.cc`, `SimDualDuctConstVol`):
+$\dot m_\text{cold} = (Q_\text{ZnReq} - \dot m c_p T_\text{hot})/(c_p T_\text{cold} - c_p T_\text{hot})$
+with $Q_\text{ZnReq} = \dot Q_z + \dot m c_p T_z$, no minimum on either deck, and
+enthalpy and humidity mixing. Differences:
+
+- **Reference temperature.** E+ takes $T_z$ from the zone node, the zone
+  temperature at the end of the last timestep, for every load. OpenBSE measures
+  a load against the setpoint the load is computed to reach, which delivers the
+  load exactly; with no load both use the zone temperature.
+- **Deck temperatures.** E+ reads the deck inlet nodes within its air-loop
+  iteration; OpenBSE reads the decks' last simulated states within its HVAC
+  iteration. Both converge to the same states.
+- **Fan.** OpenBSE has one fan ahead of the split; E+ allows a fan on each deck.
 
 ## Known limitations: terminals {#sec-terminal-limitations}
 
-- [#245](https://github.com/bbrannon4/OpenBSE/issues/245): dual-duct mix
-  from PLR with a damper minimum, so it does not meet the load.
+- Dual-duct boxes are constant-volume only: there is no variable-volume or
+  outdoor-air dual-duct box, and the decks have no supply-temperature reset.
 - [#350](https://github.com/bbrannon4/OpenBSE/issues/350): fan-powered box
   reheat is electric only, its induced air takes the primary air's humidity,
   its secondary flow cannot be autosized, and there is no series box.

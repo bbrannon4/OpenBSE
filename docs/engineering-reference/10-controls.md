@@ -250,10 +250,9 @@ OpenBSE, neither the zones' outdoor air nor the loop's supply temperatures are r
 
 - **Fan coils, PTAC, PTHP:** @sec-fcu-ptac.
 - **CRAC and CRAH:** @sec-crac-crah.
-- **Dual duct:** @sec-dual-duct-box. Its coils aim at the deck temperatures when
-  any zone needs them. It has no economizer, and its mode comes from the in-iteration
-  temperature rather than the predictor
-  ([#245](https://github.com/bbrannon4/OpenBSE/issues/245)).
+- **Dual duct:** @sec-dual-duct-box. Each deck coil holds its deck temperature
+  while its boxes draw air from it, and the boxes meet the predictor's zone loads.
+  The loop has no economizer.
 
 ## Supply-temperature and plant resets {#sec-resets}
 
@@ -286,4 +285,3 @@ air's capacitance rate
   cycling runtime floor; multi-zone PSZ.
 - [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no daylight saving or
   start day of week.
-- [#245](https://github.com/bbrannon4/OpenBSE/issues/245): dual-duct terminal control.

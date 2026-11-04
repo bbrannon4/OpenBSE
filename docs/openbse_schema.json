@@ -983,13 +983,12 @@
     "DualDuctBox": {
       "type": "object",
       "required": ["type", "name", "design_flow"],
-      "description": "Dual-duct constant-volume mixing box that blends hot and cold deck supply air.",
+      "description": "Dual-duct constant-volume mixing box: passes its design flow and splits it between the hot and cold decks so the mixed air meets the zone load (E+ AirTerminal:DualDuct:ConstantVolume).",
       "properties": {
         "type": { "type": "string", "const": "dual_duct_box" },
         "name": { "type": "string" },
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
-        "design_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design total supply flow [kg/s]." },
-        "min_flow_fraction": { "type": "number", "default": 0.20, "minimum": 0, "maximum": 1, "description": "Minimum flow fraction for each damper [0-1]." }
+        "design_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design total supply flow [kg/s]." }
       }
     },
 
