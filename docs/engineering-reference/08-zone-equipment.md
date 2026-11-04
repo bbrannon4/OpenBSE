@@ -250,14 +250,34 @@ A VRF system has one outdoor unit and indoor units in several zones. The mode
 of each indoor unit is frozen at the start of the timestep from the zone's
 load line. The load follows each envelope solve (@sec-hvac-iteration).
 
-**Indoor units.** A unit meets its zone load up to its capacity and what its
-rated airflow can carry at its fixed supply temperature (13 °C cooling, 40 °C
-heating):
+**Indoor units.** A unit draws zone air ($T_z$, $W_z$) and meets its zone's
+sensible load up to its capacity and what its rated airflow can carry at its
+fixed supply temperature (13 °C cooling, 40 °C heating), with $\rho$ and $c_p$
+at the zone air state and site pressure. In heating the air leaves at $W_z$.
+In cooling the coil dries it along the line to its apparatus dew point (E+
+`CalcDoe2DXCoil`): with bypass factor $b$,
 
 $$
-\dot Q_i = \min\left(|\dot Q_z|,\ \dot Q_{\text{cap},i},\ \rho\dot V_ic_p|T_\text{sup} - T_z|\right), \qquad
-\text{PLR}_i = \frac{\dot Q_i}{\dot Q_{\text{cap},i}}.
+T_\text{adp} = \frac{T_\text{sup} - bT_z}{1 - b}, \qquad
+W_\text{sup} = \begin{cases}
+W_\text{adp} + b(W_z - W_\text{adp}) & W_\text{adp} = W_\text{sat}(T_\text{adp}) < W_z,\\
+W_z & \text{otherwise},
+\end{cases}
+$$ {#eq-vrf-coil}
+
+and the sensible share of the coil's total load is
+$\text{SHR} = [h(T_z, W_z) - h(T_\text{sup}, W_z)]/[h(T_z, W_z) - h(T_\text{sup}, W_\text{sup})]$.
+$b$ comes from the rated SHR at the AHRI rating point (E+ `CalcCBF`), with the
+rated SHR autosized as E+ does, $0.431 + 6086\,\dot V/\dot Q$ with $\dot V/\dot Q$
+limited to $4.027\times10^{-5}$–$6.041\times10^{-5}$ m³/s per W. The unit's load
+on the outdoor unit is its total:
+
+$$
+\dot Q_{s,i} = \min\left(|\dot Q_z|,\ \text{SHR}\,\dot Q_{\text{cap},i},\ \rho\dot V_ic_p|T_\text{sup} - T_z|\right), \qquad
+\text{PLR}_i = \frac{\dot Q_{s,i}}{\text{SHR}\,\dot Q_{\text{cap},i}},
 $$ {#eq-vrf-unit}
+
+with $\text{SHR} = 1$ in heating.
 
 Without heat recovery, the units in the mode with the smaller total demand
 turn off.
@@ -277,10 +297,10 @@ $$ {#eq-vrf-power}
 where $P_c$ is the first term, and $E_c$, $E_h$ are the EIR-f(T) curve values.
 It is shared among the units by PLR.
 
-**Supply.** Each unit's flow is the one that delivers its heat at its fixed
-supply temperature, $\dot m = \dot Q_i/(c_p|T_\text{sup} - T_z|)$. The supply
-humidity ratio is the *outdoor* air's
-([#248](https://github.com/bbrannon4/OpenBSE/issues/248)).
+**Supply.** Each unit's flow is the one that delivers its sensible heat at its
+fixed supply temperature, $\dot m = \dot Q_{s,i}/(c_p|T_\text{sup} - T_z|)$, at
+$W_\text{sup}$, so the zone's moisture balance sees the coil's condensate and
+the supply enthalpy closes against the compressor's total load.
 
 **Comparison with EnergyPlus.** `AirConditioner:VariableRefrigerantFlow`
 (`HVACVariableRefrigerantFlow.cc`) runs fixed fan flows with a variable
@@ -288,11 +308,13 @@ leaving temperature, the reverse of @eq-vrf-unit
 ([#180](https://github.com/bbrannon4/OpenBSE/issues/180)). OpenBSE has
 none of the following from EnergyPlus:
 
-- part-load EIR curves, piping correction, defrost
-  ([#57](https://github.com/bbrannon4/OpenBSE/issues/57));
-- a latent split and an indoor fan; supply air also starts from the outdoor
-  humidity rather than the zone's
-  ([#248](https://github.com/bbrannon4/OpenBSE/issues/248)).
+- part-load EIR curves ([#57](https://github.com/bbrannon4/OpenBSE/issues/57));
+- an indoor fan, piping correction, defrost, crankcase heater and operating
+  limits ([#365](https://github.com/bbrannon4/OpenBSE/issues/365)).
+
+The coil's latent split follows E+'s DX method at the unit's own fixed leaving
+temperature; E+'s VRF coil instead has a variable leaving temperature at fixed
+flow and its own capacity-curve inputs.
 
 The curve arguments are $(T_o, \bar T_z)$, the reverse of EnergyPlus's order,
 with dry-bulb in place of the indoor wet-bulb for cooling
@@ -414,8 +436,8 @@ differences in @sec-dx-cooling and @sec-chw-coil.
 
 ## Known limitations: zone equipment {#sec-zone-equipment-limitations}
 
-- [#248](https://github.com/bbrannon4/OpenBSE/issues/248): VRF supply at the
-  outdoor humidity, no latent cooling or indoor fan.
+- [#365](https://github.com/bbrannon4/OpenBSE/issues/365): VRF has no indoor
+  fan, defrost, piping correction, crankcase heater or operating limits.
 - [#57](https://github.com/bbrannon4/OpenBSE/issues/57),
   [#180](https://github.com/bbrannon4/OpenBSE/issues/180): VRF part load,
   curve axes and flow control.
