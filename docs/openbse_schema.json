@@ -975,7 +975,6 @@
         "min_primary_fraction": { "type": "number", "default": 0.30, "minimum": 0, "maximum": 1, "description": "Minimum primary flow fraction [0-1]." },
         "secondary_fan_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Secondary fan flow rate [kg/s]." },
         "reheat_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Electric reheat coil capacity [W]." },
-        "secondary_air_temp": { "type": "number", "description": "Secondary (plenum) air temperature [C] (default 24.0)." },
         "fan_on_flow_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Primary flow fraction at or below which the secondary fan runs while cooling (E+ Fan On Flow Fraction). Default: min_primary_fraction." }
       }
     },

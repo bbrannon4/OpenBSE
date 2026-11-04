@@ -54,10 +54,13 @@ pub struct PFPBox {
     pub secondary_fan_pressure: f64,
     /// Secondary fan total efficiency (motor + impeller, typically 0.5-0.65)
     pub secondary_fan_efficiency: f64,
-    /// Secondary (plenum/return) air temperature [°C].
-    /// In a real building this comes from the return air plenum.
-    /// Default: 24°C (typical return air temperature).
+    /// Temperature of the air the secondary fan induces from the zone [°C],
+    /// set by the driver each call.
+    #[serde(skip)]
     pub secondary_air_temp: f64,
+    /// Humidity ratio of the induced air [kg/kg], set with its temperature.
+    #[serde(skip)]
+    pub secondary_air_w: f64,
     /// Primary flow fraction at or below which the secondary fan runs while
     /// cooling (E+ "Fan On Flow Fraction", autosized to the minimum fraction).
     #[serde(default)]
@@ -130,6 +133,7 @@ impl PFPBox {
             secondary_fan_pressure: 375.0, // typical PFP fan
             secondary_fan_efficiency: 0.55,
             secondary_air_temp: 24.0,
+            secondary_air_w: 0.0,
             fan_on_flow_fraction: min_primary_fraction,
             allocated_flow: None,
             reheat_capacity,
@@ -152,7 +156,7 @@ impl PFPBox {
         self
     }
 
-    /// Set secondary (plenum/return) air temperature [°C].
+    /// Set the induced air temperature [°C] before the driver first does.
     pub fn with_secondary_air_temp(mut self, temp: f64) -> Self {
         self.secondary_air_temp = temp;
         self
@@ -249,8 +253,14 @@ impl AirComponent for PFPBox {
                 mixed_temp = (self.primary_air_flow * inlet.state.t_db
                     + self.secondary_air_flow * self.secondary_air_temp)
                     / total;
-                // Simplified: use primary humidity for mixed (plenum similar)
-                mixed_w = inlet.state.w;
+                let induced_w = if self.secondary_air_w > 0.0 {
+                    self.secondary_air_w
+                } else {
+                    inlet.state.w
+                };
+                mixed_w = (self.primary_air_flow * inlet.state.w
+                    + self.secondary_air_flow * induced_w)
+                    / total;
             }
             mixed_flow = total;
 
@@ -319,6 +329,11 @@ impl AirComponent for PFPBox {
 
     fn max_reheat_temp(&self) -> Option<f64> {
         Some(self.max_reheat_temp)
+    }
+
+    fn set_induced_air(&mut self, temp: f64, w: f64) {
+        self.secondary_air_temp = temp;
+        self.secondary_air_w = w;
     }
 
     fn set_primary_air_flow(&mut self, flow: Option<f64>) {
@@ -449,6 +464,32 @@ mod tests {
         // Reheat should be active
         assert!(pfp.reheat_rate > 0.0);
         assert!(pfp.reheat_power > 0.0);
+    }
+
+    /// The induced air is the zone's: it carries the zone's moisture into the
+    /// mix, and at the zone's temperature it adds no heat, so the box delivers
+    /// only the primary air's heat, the fan's and the reheat.
+    #[test]
+    fn induced_air_takes_the_zone_state_and_adds_no_heat() {
+        use openbse_core::ports::AirComponent;
+        let mut pfp = PFPBox::new("P", "Z", 1.0, 0.3, 0.5, 10_000.0);
+        let (t_zone, w_zone) = (20.0, 0.006);
+        pfp.set_induced_air(t_zone, w_zone);
+        let inlet = make_supply_air(13.0, 2.0);
+        pfp.control_signal = 0.3;
+        let outlet = pfp.simulate_air(&inlet, &make_ctx());
+
+        let (m_p, m_s) = (pfp.primary_air_flow, pfp.secondary_air_flow);
+        let w_mix = (m_p * inlet.state.w + m_s * w_zone) / (m_p + m_s);
+        assert!((outlet.state.w - w_mix).abs() < 1e-12);
+
+        let cp = psych::cp_air_fn_w(inlet.state.w);
+        let delivered = outlet.mass_flow * cp * (outlet.state.t_db - t_zone);
+        let expected = m_p * cp * (inlet.state.t_db - t_zone) + pfp.fan_power + pfp.reheat_rate;
+        assert!(
+            (delivered - expected).abs() < 1.0,
+            "delivered {delivered:.1} W, expected {expected:.1} W"
+        );
     }
 
     #[test]
