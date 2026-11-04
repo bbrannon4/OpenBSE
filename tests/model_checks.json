@@ -73,7 +73,9 @@
       "tier": "fast"
     },
     "examples/office_vrf.yaml": {
-      "tier": "fast"
+      "tier": "fast",
+      "max_unmet_heating_hours": 650,
+      "max_unmet_heating_hours_reason": "584 h measured, about 10% margin. The airflow limit uses zone air at site pressure (E+ standard density at site pressure), not outdoor air at 101,325 Pa, so the 5e-5 m3/s-per-W airflow rule (#327) can't carry full heating capacity in the coldest hours. Recorded on #328."
     },
     "examples/parametric_sweep.yaml": {
       "tier": "fast"
