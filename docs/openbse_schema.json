@@ -1113,20 +1113,6 @@
       }
     },
 
-    "PumpRole": {
-      "type": "string",
-      "enum": ["single", "primary", "secondary", "headered"],
-      "default": "single",
-      "description": "Pump role in the plant loop. 'single' = standalone pump, 'primary' = constant flow through boiler/chiller, 'secondary' = variable flow distribution pump, 'headered' = staged pump bank."
-    },
-
-    "PumpControlStrategy": {
-      "type": "string",
-      "enum": ["demand", "continuous", "staged", "intermittent"],
-      "default": "demand",
-      "description": "Pump control strategy. 'demand' = flow varies with load, 'continuous' = constant speed when plant is active, 'staged' = OFF unless staged on by plant controller, 'intermittent' = cycles on/off within the timestep to match demand (E+ Intermittent; same as demand for variable-speed pumps)."
-    },
-
     "Pump": {
       "type": "object",
       "required": ["type", "name", "design_flow_rate"],
@@ -1139,21 +1125,21 @@
           "type": "string",
           "enum": ["constant_speed", "variable_speed"],
           "default": "variable_speed",
-          "description": "Pump motor type."
+          "description": "constant_speed draws its design power whenever it runs; variable_speed follows power_curve."
         },
         "design_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design water flow rate [m3/s]. 'autosize' sizes a condenser-loop pump from the chillers' heat rejection, a heating-only or cooling-only loop pump from the design-day coincident peak load, and others from the installed boiler and chiller capacity; the loop design load is the fallback." },
         "design_head": { "type": "number", "default": 179352.0, "description": "Design pump head [Pa]. Default ~60 ft H2O." },
         "motor_efficiency": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Motor efficiency [0-1]." },
-        "impeller_efficiency": { "type": "number", "default": 0.667, "minimum": 0, "maximum": 1, "description": "Impeller/hydraulic efficiency [0-1]. Total efficiency = motor_efficiency * impeller_efficiency." },
+        "impeller_efficiency": { "type": "number", "default": 0.78, "minimum": 0, "maximum": 1, "description": "Impeller/hydraulic efficiency [0-1]. Design power = flow * head / (motor_efficiency * impeller_efficiency). The default is E+'s design shaft power per unit flow per unit head, 1.282051282 W/((m3/s)-Pa)." },
         "num_pumps": { "type": "integer", "default": 1, "minimum": 1, "description": "Number of pumps in headered configuration. Each pump's flow = total / num_pumps." },
-        "motor_heat_to_fluid_fraction": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Fraction of motor inefficiency heat added to the fluid stream [0-1] (E+ Fraction of Motor Inefficiencies to Fluid Stream)." },
+        "motor_heat_to_fluid_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of the motor losses added to the fluid [0-1] (E+ Fraction of Motor Inefficiencies to Fluid Stream). The shaft work always heats the fluid: heat = motor_efficiency * P + (1 - motor_efficiency) * P * fraction." },
         "power_curve": {
           "type": "array",
           "items": { "type": "number" },
-          "description": "Part-load power curve coefficients [c1, c2, c3, c4]. power_frac = c1 + c2*PLR + c3*PLR^2 + c4*PLR^3. Default: [0, 0, 0, 1] (affinity laws)."
-        },
-        "role": { "$ref": "#/$defs/PumpRole" },
-        "control_strategy": { "$ref": "#/$defs/PumpControlStrategy" }
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "Variable-speed part-load power curve coefficients [c1, c2, c3, c4]: power_frac = c1 + c2*PLR + c3*PLR^2 + c4*PLR^3, with PLR the flow over the design flow. Default [0, 1, 0, 0], E+'s Pump:VariableSpeed default. Not allowed on a constant_speed pump."
+        }
       }
     },
 
@@ -2331,16 +2317,20 @@
       "properties": {
         "name": { "type": "string" },
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
-        "pump_type": { "type": "string", "enum": ["constant_speed", "variable_speed"], "default": "variable_speed", "description": "Pump motor type." },
+        "pump_type": { "type": "string", "enum": ["constant_speed", "variable_speed"], "default": "variable_speed", "description": "constant_speed draws its design power whenever it runs; variable_speed follows power_curve." },
         "design_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design water flow rate [m3/s]." },
         "design_head": { "type": "number", "default": 179352.0, "description": "Design pump head [Pa]." },
         "motor_efficiency": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Motor efficiency [0-1]." },
-        "impeller_efficiency": { "type": "number", "default": 0.667, "minimum": 0, "maximum": 1, "description": "Impeller/hydraulic efficiency [0-1]." },
+        "impeller_efficiency": { "type": "number", "default": 0.78, "minimum": 0, "maximum": 1, "description": "Impeller/hydraulic efficiency [0-1]. Design power = flow * head / (motor_efficiency * impeller_efficiency). The default is E+'s design shaft power per unit flow per unit head, 1.282051282 W/((m3/s)-Pa)." },
         "num_pumps": { "type": "integer", "default": 1, "minimum": 1, "description": "Number of headered pumps." },
-        "motor_heat_to_fluid_fraction": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Fraction of motor inefficiency heat added to the fluid [0-1]." },
-        "power_curve": { "type": "array", "items": { "type": "number" }, "description": "Part-load power curve coefficients [c1, c2, c3, c4]." },
-        "role": { "$ref": "#/$defs/PumpRole" },
-        "control_strategy": { "$ref": "#/$defs/PumpControlStrategy" }
+        "motor_heat_to_fluid_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of the motor losses added to the fluid [0-1] (E+ Fraction of Motor Inefficiencies to Fluid Stream). The shaft work always heats the fluid: heat = motor_efficiency * P + (1 - motor_efficiency) * P * fraction." },
+        "power_curve": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "Variable-speed part-load power curve coefficients [c1, c2, c3, c4]: power_frac = c1 + c2*PLR + c3*PLR^2 + c4*PLR^3, with PLR the flow over the design flow. Default [0, 1, 0, 0], E+'s Pump:VariableSpeed default. Not allowed on a constant_speed pump."
+        }
       }
     },
 

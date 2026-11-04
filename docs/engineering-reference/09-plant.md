@@ -87,25 +87,33 @@ $$
 P_d = \frac{\dot V_dH}{\eta_m\eta_i},
 $$ {#eq-pump-design}
 
-with motor efficiency $\eta_m$ and impeller efficiency $\eta_i$ (default 0.667).
+with motor efficiency $\eta_m$ and impeller efficiency $\eta_i$ (default 0.78).
 With the flow fraction $x = \min(\dot m/(\rho_w\dot V_d), 1)$, $\rho_w$ at the entering water:
 
 - **Constant speed:** $P = P_d$ whenever the loop has a load.
-- **Variable speed:** $P = P_df(\max(x, x_\text{min}))$, with $x_\text{min}$
-  default 0.1 and $f$ the optional cubic $c_1 + c_2x + c_3x^2 + c_4x^3$, or
-  $x^n$ (default $n = 3$).
+- **Variable speed:** $P = P_df(x)$, with $f$ the cubic
+  $c_1 + c_2x + c_3x^2 + c_4x^3$, by default $f = x$.
 - **Headered ($N$ pumps):** $\lceil xN\rceil$ pumps run, each at $P_d/N$ (constant)
-  or at the variable-speed power for its share of the flow.
+  or at the variable-speed power for an equal share of the flow.
 
-Heat to the water is $P f_\text{fluid}$ (default $f_\text{fluid} = 1$). It raises
-the outlet temperature but not the load.
+All the shaft work ends up in the water, and the fraction $f_\text{fluid}$
+(default 0) of the motor losses:
 
-**Comparison with EnergyPlus.** @eq-pump-design is `Pump:VariableSpeed` with a
-hydraulic efficiency of $1/1.282 = 0.78$ by default, where OpenBSE's is 0.667.
-EnergyPlus's default part-load curve is linear ($f = x$), with no default
-minimum flow. Its heat to the fluid is $\eta_mP + (1 - \eta_m)Pf_\text{fluid}$,
-with a default $f_\text{fluid}$ of 0
-([#251](https://github.com/bbrannon4/OpenBSE/issues/251)). Pump sizing is in
+$$
+\dot Q_\text{fluid} = \eta_mP + (1 - \eta_m)Pf_\text{fluid}.
+$$ {#eq-pump-heat}
+
+It raises the outlet temperature.
+
+**Comparison with EnergyPlus.** @eq-pump-design and @eq-pump-heat match
+`Pump:VariableSpeed` and `Pump:ConstantSpeed` (`Pumps.cc`, `CalcPumps`), whose
+default design shaft power per unit flow per unit head, 1.282051282 W/((m³/s)·Pa),
+is $\eta_i = 0.78$, and whose default part-load coefficients are (0, 1, 0, 0).
+EnergyPlus's headered pumps run all but one at full flow and the last at part
+load; OpenBSE runs the pumps that are on at an equal share, as parallel pumps on
+one speed signal do. The two agree for a linear curve. OpenBSE has no minimum
+flow and no continuous pump control: a pump runs only while its loop has a load,
+as an EnergyPlus `Intermittent` pump does. Pump sizing is in
 @sec-plant-sizing ([#230](https://github.com/bbrannon4/OpenBSE/issues/230)).
 
 ## Boilers {#sec-boilers}
@@ -292,7 +300,7 @@ are overstated. It also runs only while the loop has a load
 
 - [#251](https://github.com/bbrannon4/OpenBSE/issues/251): no loop thermal
   capacity, reset inert at the chiller, condenser temperature not from the tower,
-  pump defaults and heat.
+  pump heat not in the load.
 - [#230](https://github.com/bbrannon4/OpenBSE/issues/230): pump sizing basis.
 - [#252](https://github.com/bbrannon4/OpenBSE/issues/252): tower has no
   effectiveness model, fan cycling or water use.
