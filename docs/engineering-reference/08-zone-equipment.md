@@ -201,20 +201,29 @@ ratio cycles the output to the zone load (@sec-controls). A PTHP's heating
 coil is the heat-pump coil of @sec-hp-heating. The outdoor-air fraction is the
 loop's minimum.
 
-**Fan coils.** The fan coil uses a proportional band on the zone temperature
-error $e$ (limited to 5 K), not the zone load:
+**Fan coils.** A fan coil meets the predictor's zone load $\dot Q_z$ (positive
+heating), measured against the setpoint $T_\text{sp}$ the load is computed to
+reach. In a zone that loops listed ahead of it also serve, it meets what they
+leave: its load to each setpoint is the zone's less
+$\sum_i \dot m_i c_p(T_i - T_\text{sp})$ over their supply streams, and that
+remaining load sets its mode, as EnergyPlus distributes a zone's load over its
+equipment in sequence (`RemainingOutputReqToHeatSP`, `ToCoolSP`). By default it runs EnergyPlus's `ASHRAE90VariableFan` method: with no load
+the fan runs at its low speed $\dot m_\text{low} = 0.33\,\dot m_d$ with both
+coils off; with a load it stays at low speed while the coil can meet the load
+below the supply limit $T_\text{lim}$ (`heating_supply_temp` or
+`cooling_supply_temp`), then raises the fan speed with the supply held at the
+limit:
 
 $$
-\dot m = \dot m_d\left(0.30 + 0.70\frac{e}{5}\right), \qquad
-T_\text{sp} =
-\begin{cases}
-\operatorname{clamp}(T_{h} + e',\ T_{h},\ 45) & \text{heating},\ e' = \min(e_h, 14),\\
-\operatorname{clamp}(T_{c} - e',\ 12,\ T_{c}) & \text{cooling},\ e' = \min(e_c, 10),
-\end{cases}
+\dot m = \operatorname{clamp}\left(\frac{\dot Q_z}{c_p(T_\text{lim} - T_\text{sp})},\ \dot m_\text{low},\ \dot m_d\right), \qquad
+T_\text{sup} = T_\text{sp} + \frac{\dot Q_z}{\dot m c_p},
 $$ {#eq-fcu}
 
-with 20% of design flow and both coils off in deadband. Here $T_h$ and $T_c$
-are the setpoints, and $e_h$ and $e_c$ the errors before the 5 K limit.
+with $T_\text{sup}$ limited to $T_\text{lim}$. The active coil aims at
+$T_\text{sup}$, less the fan's design rise when the fan follows the coils. With
+`cycling: on_off` it runs EnergyPlus's `CyclingFan` method instead: fan and coil
+at design flow and design supply temperature, the loop's runtime fraction
+meeting the load, as a PTAC does.
 
 A fan coil mixes no outdoor air: its zone's `outdoor_air` enters directly
 (@sec-infiltration) unless a DOAS serves the zone, and a
@@ -222,11 +231,15 @@ A fan coil mixes no outdoor air: its zone's `outdoor_air` enters directly
 
 **Comparison with EnergyPlus.** `ZoneHVAC:PackagedTerminalAirConditioner` and
 `:PackagedTerminalHeatPump` cycle to the load, as OpenBSE's do.
-`ZoneHVAC:FourPipeFanCoil` meets the zone load with its capacity-control
-methods; @eq-fcu leaves a steady offset from setpoint
-([#249](https://github.com/bbrannon4/OpenBSE/issues/249)). E+'s fan coil can
-mix outdoor air through its own mixer; OpenBSE's takes none, and its zone's
-ventilation enters as if through a separate system with no heat recovery.
+`ZoneHVAC:FourPipeFanCoil` with `ASHRAE90VariableFan` follows the single-zone
+VAV model (`FanCoilUnits.cc`, `SZVAVModel::calcSZVAVModel`): low-speed coil
+modulation up to the design supply temperature, then fan speed, as in
+@eq-fcu. E+ solves the coil and fan iteratively against its zone node
+temperature; OpenBSE sets the flow and coil target directly from the load
+against setpoint. E+ offers other capacity-control methods, a low-speed ratio
+input and an outdoor-air mixer; OpenBSE's fan coil mixes none, and its zone's
+ventilation enters as if through a separate system with no heat recovery
+([#364](https://github.com/bbrannon4/OpenBSE/issues/364)).
 
 ## Variable refrigerant flow {#sec-vrf}
 
@@ -389,8 +402,8 @@ differences in @sec-dx-cooling and @sec-chw-coil.
 - [#57](https://github.com/bbrannon4/OpenBSE/issues/57),
   [#180](https://github.com/bbrannon4/OpenBSE/issues/180): VRF part load,
   curve axes and flow control.
-- [#249](https://github.com/bbrannon4/OpenBSE/issues/249): fan-coil
-  proportional control; no fan-coil outdoor-air mixer.
+- [#364](https://github.com/bbrannon4/OpenBSE/issues/364): one fan-coil
+  capacity-control method plus on/off cycling; no fan-coil outdoor-air mixer.
 - [#58](https://github.com/bbrannon4/OpenBSE/issues/58): radiant panels are
   either thermostat-controlled or follow water temperature, not both.
 - [#56](https://github.com/bbrannon4/OpenBSE/issues/56): water- and

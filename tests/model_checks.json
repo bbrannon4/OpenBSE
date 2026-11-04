@@ -44,11 +44,7 @@
       "max_unmet_heating_hours_reason": "3639 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/doas_fancoil.yaml": {
-      "tier": "fast",
-      "max_unmet_heating_hours": 11600,
-      "max_unmet_heating_hours_reason": "10,535 h measured with #229, +10%. #229 removed a per-loop override that sized these zones at the DOAS supply temperature, which inflated fan coil and DOAS flow at runtime; at correct flows the proportional-only fan coil control droops further below setpoint. Must come back down once #165 and #178 are fixed; recorded on #328.",
-      "max_unmet_cooling_hours": 5020,
-      "max_unmet_cooling_hours_reason": "4558 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
+      "tier": "fast"
     },
     "examples/doe_retail_standalone.yaml": {
       "tier": "fast",
@@ -138,9 +134,7 @@
       "max_unmet_cooling_hours_reason": "877 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/vav_reheat.yaml": {
-      "tier": "fast",
-      "max_unmet_heating_hours": 26950,
-      "max_unmet_heating_hours_reason": "24492 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
+      "tier": "fast"
     },
     "prototype_tests/apartment/ApartmentMidRise_Boulder.yaml": {
       "tier": "slow",
