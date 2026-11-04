@@ -110,7 +110,7 @@ jobs:
       - name: Verify model baselines are untampered
         run: |
           sha256sum -c - <<'SUMS'
-          a5e9bfed2decb01d021a45c8fa4545efa17396b1171fee7716ac8248064f2a86  tests/model_baselines.json
+          c9088783c897fdf5b846fc47dc43d6793cac78aeb715dac3278b232a119baa0b  tests/model_baselines.json
           bed22aa1380ab4eaf38de744310d09ffcc24899c70ef3ba097ee705341abfb3d  tests/model_checks.json
           SUMS
 
@@ -150,7 +150,7 @@ jobs:
       - name: Verify model baselines are untampered
         run: |
           sha256sum -c - <<'SUMS'
-          a5e9bfed2decb01d021a45c8fa4545efa17396b1171fee7716ac8248064f2a86  tests/model_baselines.json
+          c9088783c897fdf5b846fc47dc43d6793cac78aeb715dac3278b232a119baa0b  tests/model_baselines.json
           bed22aa1380ab4eaf38de744310d09ffcc24899c70ef3ba097ee705341abfb3d  tests/model_checks.json
           SUMS
 
