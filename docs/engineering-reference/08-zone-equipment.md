@@ -233,8 +233,8 @@ A fan coil mixes no outdoor air: its zone's `outdoor_air` enters directly
 `:PackagedTerminalHeatPump` cycle to the load, as OpenBSE's do.
 `ZoneHVAC:FourPipeFanCoil` with `ASHRAE90VariableFan` follows the single-zone
 VAV model (`FanCoilUnits.cc`, `SZVAVModel::calcSZVAVModel`): low-speed coil
-modulation up to the design supply temperature, then fan speed, as in
-@eq-fcu. E+ solves the coil and fan iteratively against its zone node
+modulation up to the design supply temperature, then fan speed, as
+in @eq-fcu. E+ solves the coil and fan iteratively against its zone node
 temperature; OpenBSE sets the flow and coil target directly from the load
 against setpoint. E+ offers other capacity-control methods, a low-speed ratio
 input and an outdoor-air mixer; OpenBSE's fan coil mixes none, and its zone's
