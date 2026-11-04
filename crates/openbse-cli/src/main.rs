@@ -7830,7 +7830,7 @@ room_air:
     #[test]
     fn dual_duct_decks_carry_the_box_flows_and_conserve_energy() {
         use openbse_components::{
-            cooling_coil::CoolingCoil, dual_duct_box::DualDuctBox, fan::Fan,
+            cooling_coil::CoolingCoilDX, dual_duct_box::DualDuctBox, fan::Fan,
             heating_coil::HeatingCoil,
         };
         use openbse_core::types::{DayType, TimeStep};
@@ -7841,7 +7841,7 @@ room_air:
             "Fan", 1.0, 500.0, 0.6, 0.9, 1.0,
         )));
         graph.add_air_component(Box::new(HeatingCoil::electric("Hot Coil", 50_000.0, 38.0)));
-        graph.add_air_component(Box::new(CoolingCoil::new(
+        graph.add_air_component(Box::new(CoolingCoilDX::new(
             "Cold Coil",
             50_000.0,
             3.5,
