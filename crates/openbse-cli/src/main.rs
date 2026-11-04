@@ -347,6 +347,30 @@ struct LoopCoilSizing {
     cool_air: Option<(f64, (f64, f64))>,
 }
 
+/// Loops that recirculate zone air and mix no outdoor air.
+fn recirculates_only(li: &LoopInfo) -> bool {
+    matches!(
+        li.system_type,
+        AirLoopSystemType::Fcu | AirLoopSystemType::Crac | AirLoopSystemType::Crah
+    )
+}
+
+/// Whether each served zone takes its outdoor air through an air loop: true
+/// when any loop serving it mixes outdoor air, so a zone served by a DOAS and
+/// a fan coil is ventilated once, by the DOAS, whatever order the loops are
+/// listed in. A zone whose loops all recirculate takes its outdoor air
+/// directly.
+fn zones_with_hvac_outdoor_air(loop_infos: &[LoopInfo]) -> HashMap<String, bool> {
+    let mut handled: HashMap<String, bool> = HashMap::new();
+    for li in loop_infos {
+        let mixes_oa = li.min_oa_fraction > 0.001;
+        for zone in &li.served_zones {
+            *handled.entry(zone.clone()).or_insert(false) |= mixes_oa;
+        }
+    }
+    handled
+}
+
 /// A loop's minimum outdoor air for coil sizing, as its controls draw it: FCU,
 /// CRAC and CRAH recirculate, a DOAS takes only outdoor air, a stated damper
 /// position is a fraction, and otherwise the zones' requirement is a flow. A
@@ -717,6 +741,10 @@ fn build_loop_infos(
                 system_type != AirLoopSystemType::Doas && al.minimum_damper_position().is_some();
             let min_oa_fraction = match system_type {
                 AirLoopSystemType::Doas => 1.0,
+                // Recirculating units mix no outdoor air (validation rejects a
+                // damper position on them); their zones take it directly or
+                // from a DOAS.
+                AirLoopSystemType::Fcu | AirLoopSystemType::Crac | AirLoopSystemType::Crah => 0.0,
                 _ => al.minimum_damper_position().unwrap_or_else(|| {
                     let computed = compute_oa_fraction(model, al, resolved_zones, 0.20);
                     log::info!(
@@ -1929,13 +1957,7 @@ fn main() -> Result<()> {
         // Build OA handling flags for sizing: zones served by HVAC with
         // min_oa_fraction=0 (e.g. PTAC with separate ERV) have zone OA flowing
         // directly, so sizing must include that OA load.
-        let sizing_oa_handled: HashMap<String, bool> = loop_infos
-            .iter()
-            .flat_map(|li| {
-                let handles_oa = li.min_oa_fraction > 0.001;
-                li.served_zones.iter().map(move |z| (z.clone(), handles_oa))
-            })
-            .collect();
+        let sizing_oa_handled = zones_with_hvac_outdoor_air(&loop_infos);
 
         // ── Design Day Sizing Run ──────────────────────────────────────────
         // Two-stage ASHRAE-compliant sizing:
@@ -2322,7 +2344,7 @@ fn main() -> Result<()> {
                             .collect();
                         let has_oa = !zone_flows.is_empty();
                         let total_oa_flow: f64 = zone_flows.iter().sum();
-                        if has_oa && !li.explicit_min_oa {
+                        if has_oa && !li.explicit_min_oa && !recirculates_only(li) {
                             let new_frac = (total_oa_flow / flow_m3s).clamp(0.0, 1.0);
                             if (new_frac - li.min_oa_fraction).abs() > 0.001 {
                                 info!(
@@ -3894,18 +3916,10 @@ fn main() -> Result<()> {
                                 &vrf_systems,
                             );
 
-                            // Tell the envelope which zones have HVAC-handled OA.
-                            // If a zone's air loop has min_oa_fraction > 0, HVAC handles OA
-                            // and zone-level OA should be suppressed. If min_oa_fraction == 0,
-                            // zone OA flows directly (like E+ separate ERV configuration).
-                            for li in &loop_infos {
-                                let handles_oa = li.min_oa_fraction > 0.001;
-                                for zone_name in &li.served_zones {
-                                    hvac_conds
-                                        .oa_handled_by_hvac
-                                        .insert(zone_name.clone(), handles_oa);
-                                }
-                            }
+                            // Tell the envelope which zones take their outdoor
+                            // air through a loop; the rest take it directly.
+                            hvac_conds.oa_handled_by_hvac =
+                                zones_with_hvac_outdoor_air(&loop_infos);
                             // Pass setpoints so envelope can compute ideal loads at setpoint
                             hvac_conds.cooling_setpoints = zone_cooling_setpoints.clone();
                             hvac_conds.heating_setpoints = zone_heating_setpoints.clone();
@@ -7950,6 +7964,51 @@ room_air:
             );
         }
         assert!((zone_enthalpy - deck_enthalpy).abs() < 1e-6 * deck_enthalpy.abs());
+    }
+
+    /// A zone takes outdoor air through a loop only if a loop serving it mixes
+    /// outdoor air, whatever order the loops come in; a fan coil alone leaves
+    /// it to enter directly.
+    #[test]
+    fn zone_outdoor_air_is_handled_by_any_loop_that_mixes_it() {
+        let loop_for = |system_type: AirLoopSystemType, oa: f64, zones: &[&str]| {
+            let mut li = make_psz_loop(openbse_io::input::EconomizerType::NoEconomizer);
+            li.system_type = system_type;
+            li.min_oa_fraction = oa;
+            li.served_zones = zones.iter().map(|z| z.to_string()).collect();
+            li
+        };
+        let doas = loop_for(AirLoopSystemType::Doas, 1.0, &["A", "B"]);
+        let fcu_a = loop_for(AirLoopSystemType::Fcu, 0.0, &["A"]);
+        let fcu_c = loop_for(AirLoopSystemType::Fcu, 0.0, &["C"]);
+        for loops in [
+            vec![doas.clone(), fcu_a.clone(), fcu_c.clone()],
+            vec![fcu_a, fcu_c, doas],
+        ] {
+            let handled = zones_with_hvac_outdoor_air(&loops);
+            assert_eq!(handled.get("A"), Some(&true));
+            assert_eq!(handled.get("B"), Some(&true));
+            assert_eq!(
+                handled.get("C"),
+                Some(&false),
+                "a fan coil mixes no outdoor air"
+            );
+        }
+        assert!(recirculates_only(&loop_for(
+            AirLoopSystemType::Fcu,
+            0.0,
+            &["A"]
+        )));
+        assert!(recirculates_only(&loop_for(
+            AirLoopSystemType::Crah,
+            0.0,
+            &["A"]
+        )));
+        assert!(!recirculates_only(&loop_for(
+            AirLoopSystemType::Ptac,
+            0.0,
+            &["A"]
+        )));
     }
 
     // ── PTHP tests ──────────────────────────────────────────────────────────

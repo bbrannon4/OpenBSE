@@ -1028,9 +1028,11 @@ $$ {#eq-zone-oa}
 (or the largest of the four), with $P_z(t)$ the scheduled occupancy. Where
 the flow enters depends on what serves the zone (@sec-framework):
 
-- **Air loop with outdoor air.** If the zone's air loop carries outdoor air
-  (minimum outdoor-air fraction > 0), it arrives only through the supply.
-- **No outdoor air in the loop.** For a recirculating unit, the flow enters
+- **Air loop with outdoor air.** If any air loop serving the zone carries
+  outdoor air (minimum outdoor-air fraction > 0), it arrives only through the
+  supply. A zone served by a DOAS and a fan coil takes it from the DOAS.
+- **No outdoor air in the loops.** For a zone served only by recirculating
+  units (fan coils, CRAC, CRAH, or a loop whose fraction is 0), the flow enters
   the zone directly at $T_o$.
 - **No air loop.** It also enters directly at $T_o$, except in sizing.
 

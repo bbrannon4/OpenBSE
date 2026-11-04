@@ -4969,6 +4969,27 @@ fn validate_dual_duct_loops(model: &ModelInput, result: &mut ValidationResult) {
     }
 }
 
+/// Fan coils, CRAC and CRAH units recirculate zone air: they have no
+/// outdoor-air path, so a damper position on one would be ignored. Their
+/// zones take outdoor air directly or from a DOAS.
+fn validate_recirculating_loops(model: &ModelInput, result: &mut ValidationResult) {
+    for air_loop in &model.air_loops {
+        let system_type = air_loop.detect_system_type();
+        let recirculates = matches!(
+            system_type,
+            AirLoopSystemType::Fcu | AirLoopSystemType::Crac | AirLoopSystemType::Crah
+        );
+        if recirculates && air_loop.minimum_damper_position().is_some_and(|p| p > 0.0) {
+            result.severe(format!(
+                "Air loop '{}' ({:?}) sets minimum_damper_position, but this unit \
+                 recirculates zone air and mixes no outdoor air: give its zones \
+                 outdoor_air (entering directly) or serve them with a DOAS",
+                air_loop.name, system_type
+            ));
+        }
+    }
+}
+
 /// Validate all cross-references in a parsed model.
 ///
 /// Checks that every zone name, zone group name, and schedule name referenced
@@ -5710,6 +5731,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     validate_materials(model, &mut result);
     validate_zone_multipliers(model, &mut result);
     validate_dual_duct_loops(model, &mut result);
+    validate_recirculating_loops(model, &mut result);
 
     // ── Validate window shading controls ───────────────────────────────────
 
@@ -6070,6 +6092,44 @@ surfaces:
         );
         assert_eq!(result.error_count(), 0);
         assert_eq!(result.warning_count(), 1);
+    }
+
+    #[test]
+    fn a_damper_position_on_a_recirculating_unit_is_severe() {
+        let model = |system: &str, damper: f64| {
+            parse_model_yaml(&format!(
+                r#"
+simulation: {{}}
+weather_files: []
+zones:
+  - name: Office
+air_loops:
+  - name: Unit
+    system_type: {system}
+    controls:
+      minimum_damper_position: {damper}
+    equipment:
+      - {{type: fan, name: Fan, source: constant_volume, design_flow_rate: 1.0, pressure_rise: 500.0}}
+    zone_terminals:
+      - zone: Office
+"#
+            ))
+            .unwrap()
+        };
+        for system in ["fcu", "crac", "crah"] {
+            let report = validate_model(&model(system, 0.2)).to_err_file();
+            assert!(
+                report.contains("mixes no outdoor air"),
+                "{system}: {report}"
+            );
+            let report = validate_model(&model(system, 0.0)).to_err_file();
+            assert!(
+                !report.contains("mixes no outdoor air"),
+                "{system}: {report}"
+            );
+        }
+        let report = validate_model(&model("ptac", 0.2)).to_err_file();
+        assert!(!report.contains("mixes no outdoor air"), "{report}");
     }
 
     #[test]

@@ -214,16 +214,19 @@ T_\text{sp} =
 $$ {#eq-fcu}
 
 with 20% of design flow and both coils off in deadband. Here $T_h$ and $T_c$
-are the setpoints, and $e_h$ and $e_c$ the errors before the 5 K limit. It mixes no outdoor air.
+are the setpoints, and $e_h$ and $e_c$ the errors before the 5 K limit.
+
+A fan coil mixes no outdoor air: its zone's `outdoor_air` enters directly
+(@sec-infiltration) unless a DOAS serves the zone, and a
+`minimum_damper_position` on a fan-coil loop is a severe error.
 
 **Comparison with EnergyPlus.** `ZoneHVAC:PackagedTerminalAirConditioner` and
 `:PackagedTerminalHeatPump` cycle to the load, as OpenBSE's do.
 `ZoneHVAC:FourPipeFanCoil` meets the zone load with its capacity-control
-methods; @eq-fcu leaves a steady offset from setpoint. Also, a zone served
-only by a fan coil can lose its ventilation: the loop's computed outdoor-air
-fraction marks the zone's outdoor air as handled by the loop
-(@sec-infiltration), but the fan coil mixes none
-([#249](https://github.com/bbrannon4/OpenBSE/issues/249)).
+methods; @eq-fcu leaves a steady offset from setpoint
+([#249](https://github.com/bbrannon4/OpenBSE/issues/249)). E+'s fan coil can
+mix outdoor air through its own mixer; OpenBSE's takes none, and its zone's
+ventilation enters as if through a separate system with no heat recovery.
 
 ## Variable refrigerant flow {#sec-vrf}
 
@@ -386,8 +389,8 @@ differences in @sec-dx-cooling and @sec-chw-coil.
 - [#57](https://github.com/bbrannon4/OpenBSE/issues/57),
   [#180](https://github.com/bbrannon4/OpenBSE/issues/180): VRF part load,
   curve axes and flow control.
-- [#249](https://github.com/bbrannon4/OpenBSE/issues/249): fan-coil zones can
-  lose outdoor air; proportional control.
+- [#249](https://github.com/bbrannon4/OpenBSE/issues/249): fan-coil
+  proportional control; no fan-coil outdoor-air mixer.
 - [#58](https://github.com/bbrannon4/OpenBSE/issues/58): radiant panels are
   either thermostat-controlled or follow water temperature, not both.
 - [#56](https://github.com/bbrannon4/OpenBSE/issues/56): water- and
