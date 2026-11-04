@@ -613,12 +613,18 @@ fn scale_compressor_power(outputs: &mut HashMap<String, f64>, loop_plr: f64, fac
     let penalised = outputs.get("compressor_power").copied().unwrap_or(0.0)
         + outputs.get("condenser_fan_power").copied().unwrap_or(0.0);
     if let Some(ep) = outputs.get_mut("electric_power") {
+        let on_cycle = *ep;
         let penalised = if penalised > 0.0 {
             penalised.min(*ep)
         } else {
             *ep
         };
         *ep = loop_plr * (*ep - penalised) + factor * penalised;
+        // A heat pump's heating-mode share scales with its power.
+        let ratio = if on_cycle > 0.0 { *ep / on_cycle } else { 0.0 };
+        if let Some(hp) = outputs.get_mut("heating_electric_power") {
+            *hp *= ratio;
+        }
     }
     for key in ["compressor_power", "condenser_fan_power"] {
         if let Some(v) = outputs.get_mut(key) {
@@ -707,6 +713,7 @@ fn build_loop_infos(
                         }
                         EquipmentInput::CoolingCoilMultiSpeed(c) => Some(c.name.clone()),
                         EquipmentInput::Wshp(w) => Some(w.name.clone()),
+                        EquipmentInput::Gshp(g) => Some(g.name.clone()),
                         _ => None,
                     }
                 })
@@ -9589,8 +9596,18 @@ mod compressor_cycling_tests {
         assert!((out["electric_power"] - (0.5 * 3000.0 + factor * 2000.0)).abs() < 1e-9);
         assert!((out["compressor_power"] - factor * 2000.0).abs() < 1e-9);
         // A component without the split takes the penalty on all of it.
-        let mut wshp = HashMap::from([("electric_power".to_string(), 1000.0)]);
-        scale_compressor_power(&mut wshp, 0.5, factor);
-        assert!((wshp["electric_power"] - factor * 1000.0).abs() < 1e-9);
+        let mut unit = HashMap::from([("electric_power".to_string(), 1000.0)]);
+        scale_compressor_power(&mut unit, 0.5, factor);
+        assert!((unit["electric_power"] - factor * 1000.0).abs() < 1e-9);
+        // A heat pump heating: its heating share follows its power, so all of
+        // the time-averaged power is booked as heating.
+        let mut gshp = HashMap::from([
+            ("electric_power".to_string(), 1000.0),
+            ("compressor_power".to_string(), 1000.0),
+            ("heating_electric_power".to_string(), 1000.0),
+        ]);
+        scale_compressor_power(&mut gshp, 0.5, factor);
+        assert!((gshp["heating_electric_power"] - gshp["electric_power"]).abs() < 1e-9);
+        assert!((gshp["electric_power"] - factor * 1000.0).abs() < 1e-9);
     }
 }

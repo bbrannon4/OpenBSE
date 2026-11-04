@@ -4969,6 +4969,23 @@ fn validate_dual_duct_loops(model: &ModelInput, result: &mut ValidationResult) {
     }
 }
 
+/// A water-source heat pump has no water side yet: its source temperature
+/// would be a stand-in, not its loop's, so it is refused.
+fn validate_no_wshp(model: &ModelInput, result: &mut ValidationResult) {
+    for air_loop in &model.air_loops {
+        for eq in &air_loop.equipment {
+            if let EquipmentInput::Wshp(w) = eq {
+                result.severe(format!(
+                    "Water-source heat pump '{}' in air loop '{}': OpenBSE does not connect a \
+                     WSHP to a water loop yet (#361), so it has no source temperature; use a \
+                     gshp or a DX unit",
+                    w.name, air_loop.name
+                ));
+            }
+        }
+    }
+}
+
 /// Fan coils, CRAC and CRAH units recirculate zone air: they have no
 /// outdoor-air path, so a damper position on one would be ignored. Their
 /// zones take outdoor air directly or from a DOAS.
@@ -5732,6 +5749,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     validate_zone_multipliers(model, &mut result);
     validate_dual_duct_loops(model, &mut result);
     validate_recirculating_loops(model, &mut result);
+    validate_no_wshp(model, &mut result);
 
     // ── Validate window shading controls ───────────────────────────────────
 
