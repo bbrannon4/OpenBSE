@@ -2568,6 +2568,11 @@ fn main() -> Result<()> {
                 odu.cooling_eir_ft = resolve_curve(&ou_in.cooling_eir_ft);
                 odu.heating_cap_ft = resolve_curve(&ou_in.heating_cap_ft);
                 odu.heating_eir_ft = resolve_curve(&ou_in.heating_eir_ft);
+                odu.cooling_eir_fplr = resolve_curve(&ou_in.cooling_eir_fplr);
+                odu.heating_eir_fplr = resolve_curve(&ou_in.heating_eir_fplr);
+                odu.cooling_plf_fplr = resolve_curve(&ou_in.cooling_plf_fplr);
+                odu.heating_plf_fplr = resolve_curve(&ou_in.heating_plf_fplr);
+                odu.min_plr = ou_in.min_plr;
 
                 // Airflow for autosized indoor units: 0.00005 m³/s per W of capacity
                 let airflow_per_watt = 0.00005_f64;
@@ -3892,11 +3897,10 @@ fn main() -> Result<()> {
                             for (odu, idu_vec) in &mut vrf_systems {
                                 odu.coordinate(
                                     idu_vec,
-                                    t_outdoor,
+                                    &ctx.outdoor_air,
                                     &current_zone_temps,
                                     &zone_humidity_ratios,
                                     &vrf_loads,
-                                    ctx.outdoor_air.p_b,
                                 );
                                 // Record compressor energy in hvac_result outputs,
                                 // with the heating-mode share so end uses split

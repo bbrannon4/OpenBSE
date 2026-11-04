@@ -2432,10 +2432,15 @@
         "rated_cooling_cop": { "type": "number", "default": 3.5, "description": "Rated cooling COP [W/W]." },
         "rated_heating_cop": { "type": "number", "default": 4.0, "description": "Rated heating COP [W/W]." },
         "heat_recovery": { "type": "boolean", "default": false, "description": "Enable simultaneous heating/cooling heat recovery." },
-        "cooling_cap_ft": { "type": "string", "description": "Cooling capacity curve name f(outdoor_db, indoor_t)." },
-        "cooling_eir_ft": { "type": "string", "description": "Cooling EIR curve name f(outdoor_db, indoor_t)." },
-        "heating_cap_ft": { "type": "string", "description": "Heating capacity curve name f(outdoor_db, indoor_t)." },
-        "heating_eir_ft": { "type": "string", "description": "Heating EIR curve name f(outdoor_db, indoor_t)." }
+        "cooling_cap_ft": { "type": "string", "description": "Cooling capacity curve name f(indoor wet-bulb, outdoor dry-bulb), as E+." },
+        "cooling_eir_ft": { "type": "string", "description": "Cooling EIR curve name f(indoor wet-bulb, outdoor dry-bulb), as E+; above 1 costs more power." },
+        "cooling_eir_fplr": { "type": "string", "description": "Cooling EIR curve name f(part-load ratio) for PLR up to 1, as E+'s low part-load curve: full-load power times this. Default: power proportional to PLR." },
+        "heating_cap_ft": { "type": "string", "description": "Heating capacity curve name f(indoor dry-bulb, outdoor wet-bulb), as E+'s default outdoor wet-bulb type." },
+        "heating_eir_ft": { "type": "string", "description": "Heating EIR curve name f(indoor dry-bulb, outdoor wet-bulb), as E+; above 1 costs more power." },
+        "heating_eir_fplr": { "type": "string", "description": "Heating EIR curve name f(part-load ratio) for PLR up to 1, as E+'s low part-load curve. Default: power proportional to PLR." },
+        "min_plr": { "type": "number", "default": 0.15, "minimum": 0, "maximum": 1, "description": "Part-load ratio below which the compressor cycles: the EIR-f(PLR) curves are read at this value and power scales by the runtime fraction (E+ Minimum Heat Pump Part-Load Ratio)." },
+        "cooling_plf_fplr": { "type": "string", "description": "Cooling part-load fraction curve name f(cycling ratio), floored at 0.7 (E+). Default: no cycling loss." },
+        "heating_plf_fplr": { "type": "string", "description": "Heating part-load fraction curve name f(cycling ratio), floored at 0.7 (E+). Default: no cycling loss." }
       }
     },
 

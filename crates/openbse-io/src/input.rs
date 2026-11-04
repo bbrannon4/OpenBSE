@@ -3249,18 +3249,39 @@ pub struct VrfOutdoorUnitInput {
     /// Enable heat recovery mode (default false)
     #[serde(default)]
     pub heat_recovery: bool,
-    /// Optional cooling capacity curve name f(outdoor_db, indoor_t)
+    /// Optional cooling capacity curve name f(indoor wet-bulb, outdoor dry-bulb)
     #[serde(default)]
     pub cooling_cap_ft: Option<String>,
-    /// Optional cooling EIR curve name f(outdoor_db, indoor_t)
+    /// Optional cooling EIR curve name f(indoor wet-bulb, outdoor dry-bulb)
     #[serde(default)]
     pub cooling_eir_ft: Option<String>,
-    /// Optional heating capacity curve name f(outdoor_db, indoor_t)
+    /// Optional cooling EIR curve name f(part-load ratio); default: power
+    /// proportional to part-load ratio
+    #[serde(default)]
+    pub cooling_eir_fplr: Option<String>,
+    /// Optional heating capacity curve name f(indoor dry-bulb, outdoor wet-bulb)
     #[serde(default)]
     pub heating_cap_ft: Option<String>,
-    /// Optional heating EIR curve name f(outdoor_db, indoor_t)
+    /// Optional heating EIR curve name f(indoor dry-bulb, outdoor wet-bulb)
     #[serde(default)]
     pub heating_eir_ft: Option<String>,
+    /// Optional heating EIR curve name f(part-load ratio); default: power
+    /// proportional to part-load ratio
+    #[serde(default)]
+    pub heating_eir_fplr: Option<String>,
+    /// Part-load ratio below which the compressor cycles (default 0.15, E+)
+    #[serde(default = "default_vrf_min_plr")]
+    pub min_plr: f64,
+    /// Optional cooling part-load fraction curve name f(cycling ratio)
+    #[serde(default)]
+    pub cooling_plf_fplr: Option<String>,
+    /// Optional heating part-load fraction curve name f(cycling ratio)
+    #[serde(default)]
+    pub heating_plf_fplr: Option<String>,
+}
+
+fn default_vrf_min_plr() -> f64 {
+    0.15
 }
 
 /// VRF indoor unit (fan-coil) serving a single zone.
