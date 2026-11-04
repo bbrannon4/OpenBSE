@@ -55,13 +55,14 @@ $$ {#eq-check-run}
 | Plant reporting | each demand component reports an output at least once | severe |
 | Unphysical | NaN or infinite outputs, negative PLR or capacity, COP at or below 0 while running | severe |
 | Envelope holds | inside surface temperature beyond 200 °C, NaN states replaced | severe |
-| Air component | $\dot m\Delta h$ across a component = its `thermal_output` | warning |
+| Air component | $\dot m\Delta h$ across a component = its `thermal_output` | severe |
 | Air-loop mass | an air loop's terminal boxes pass the flow it supplies | severe |
 | Plant unmet | capacity-limited loops | warning |
 | Surface–air convergence | envelope solves whose outer passes reached their limit (@sec-surface-hb) | warning |
 | HVAC convergence | timesteps whose iteration reached its limit (@sec-hvac-iteration) | warning |
 
-The air-component check is a warning.
+Every air-side component books what its air stream receives, so a component whose
+$\dot m\Delta h$ and `thermal_output` disagree is a wiring or model error.
 
 **Holds.** The envelope solver keeps running when a state goes bad: it holds a surface
 temperature beyond the limit at its previous iteration's value, and replaces NaN states from
