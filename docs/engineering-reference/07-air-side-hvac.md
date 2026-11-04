@@ -303,8 +303,8 @@ supply fan that cycles with the compressor runs $x/\text{PLF}(x)$ of the
 time; with no compressor running it runs $x$. The same applies to every DX
 compressor: heat-pump heating coils (their compressor and defrost power,
 not the supplemental heater), multi-speed coils cycling their lowest speed,
-Standard 205 coils with the file's degradation coefficient, and water-source
-heat pumps.
+Standard 205 coils with the file's degradation coefficient, and ground-source
+heat pumps in both modes.
 
 **Comparison with EnergyPlus.** @eq-dx-cap–@eq-dx-plr follow
 `Coil:Cooling:DX:SingleSpeed` (`DXCoils.cc`, `CalcCBF`, `CalcDoe2DXCoil`)
@@ -449,9 +449,8 @@ or over-deliver
   mode E+ lacks (documented above).
 - [#72](https://github.com/bbrannon4/OpenBSE/issues/72): Standard 205 DX
   coil never cycles below its minimum sequence; staging snaps.
-- [#56](https://github.com/bbrannon4/OpenBSE/issues/56),
-  [#57](https://github.com/bbrannon4/OpenBSE/issues/57): the same curve
-  conventions in the water-source heat pumps and VRF (@sec-zone-equipment).
+- [#57](https://github.com/bbrannon4/OpenBSE/issues/57): the same curve
+  conventions in VRF (@sec-zone-equipment).
 
 ## Chilled-water cooling coils {#sec-chw-coil}
 

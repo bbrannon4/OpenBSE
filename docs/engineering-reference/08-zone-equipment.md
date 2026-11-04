@@ -326,16 +326,16 @@ distributes radiant output by user fractions to surfaces and people. There is
 no dew-point limit for chilled ceilings
 ([#58](https://github.com/bbrannon4/OpenBSE/issues/58)).
 
-## Ground- and water-source heat pumps {#sec-gshp-wshp}
+## Ground-source heat pumps {#sec-gshp-wshp}
 
-**Source:** `openbse-components/src/gshp.rs` (`GroundSourceHeatPump`),
-`wshp.rs` (`WaterSourceHeatPump`).
+**Source:** `openbse-components/src/gshp.rs` (`GroundSourceHeatPump`).
 
-Both are air-loop components that heat or cool toward an outlet setpoint, by
-sign, with a 0.1 K deadband. They are sensible only: $W$ is unchanged.
+A ground-source heat pump is an air-loop component that heats or cools toward
+an outlet setpoint, by sign, with a 0.1 K deadband. It is sensible only: $W$ is
+unchanged.
 
-**Ground-source.** The entering water temperature $T_e$ is the ground
-temperature, from a table or the Kusuda model at the loop depth $d$:
+The entering water temperature $T_e$ is the ground temperature, from a table or
+the Kusuda model at the loop depth $d$:
 
 $$
 T_e(t) = \bar T - A\,e^{-d\sqrt{\pi/(365\alpha)}}\cos\left[\frac{2\pi}{365}\left(t - t_0 - \frac{d}{2}\sqrt{\frac{365}{\pi\alpha}}\right)\right],
@@ -346,30 +346,28 @@ and amplitude. Then
 
 $$
 \dot Q = \min\left(\dot m c_p|T_\text{in} - T_\text{sp}|,\ \dot Q_r\,\text{CAP}(T_e, T_\text{in})\right), \qquad
-P = \frac{\dot Q}{\text{COP}\,\text{EIR}(T_e, T_\text{in})}.
+P = \frac{\dot Q\,\text{EIR}(T_e, T_\text{in})}{\text{COP}},
 $$ {#eq-gshp}
 
-**Water-source.** Cooling capacity is
-$\dot Q_r\operatorname{clamp}(1 - 0.015(T_\text{lw} - 30),\ 0.5,\ 1.2)$, with
-the leaving water temperature $T_\text{lw}$ taken as the outdoor dry-bulb,
-limited to $[15, 45]$ °C. Heating capacity and both COPs are constant, with
-$P = \dot Q/\text{COP}$.
+with each mode's rated capacity, COP and curves. EIR is an energy-input-ratio
+modifier: a value above 1 costs more power for the same heat. The unit reports
+$\text{PLR} = \dot Q/[\dot Q_r\,\text{CAP}]$, and the loop applies the
+compressor cycling penalty at that part load with the loop's
+`cooling_part_load_cd` (@eq-dx-rtf). Heating-mode electricity is reported as
+heating, cooling-mode electricity as cooling.
+
+A water-source heat pump (`wshp`) is a severe input error: OpenBSE does not
+connect one to a water loop, so it would have no source temperature
+([#361](https://github.com/bbrannon4/OpenBSE/issues/361)).
 
 **Comparison with EnergyPlus.** `Coil:*:WaterToAirHeatPump:EquationFit` uses
-curve fits in the water and air states, with total and sensible cooling
-capacities and a part-load fraction. OpenBSE differs as follows
-([#56](https://github.com/bbrannon4/OpenBSE/issues/56)):
-
-- **EIR curve.** In @eq-gshp a curve value above 1 improves efficiency, the
-  reverse of the EnergyPlus meaning.
-- **Water side.** The water-source unit has no water loop: its source
-  temperature is a proxy, and its rejected heat loads nothing.
-- **Ground loop.** The ground-source unit reads the undisturbed ground
-  temperature. Its rejected heat never warms the loop, unlike
-  `GroundHeatExchanger:System`.
-- **Part load.** A ground-source unit has no cycling penalty.
-- **Energy reporting.** Heating-mode electricity from both is reported under
-  cooling.
+curve fits in normalized load-side and source-side temperatures and air and
+water flow ratios, with total and sensible cooling capacities and its own
+part-load fraction curve. @eq-gshp keeps E+'s EIR meaning and part-load
+penalty, with biquadratics of $T_e$ (x) and the entering air dry-bulb (y).
+The unit reads the undisturbed ground temperature, so its rejected heat never
+warms the loop, unlike `GroundHeatExchanger:System`
+([#362](https://github.com/bbrannon4/OpenBSE/issues/362)).
 
 ## CRAC and CRAH units {#sec-crac-crah}
 
@@ -406,6 +404,7 @@ differences in @sec-dx-cooling and @sec-chw-coil.
   capacity-control method plus on/off cycling; no fan-coil outdoor-air mixer.
 - [#58](https://github.com/bbrannon4/OpenBSE/issues/58): radiant panels are
   either thermostat-controlled or follow water temperature, not both.
-- [#56](https://github.com/bbrannon4/OpenBSE/issues/56): water- and
-  ground-source heat pump fidelity, EIR convention, no water or ground loop
-  coupling, heating energy reported as cooling.
+- [#362](https://github.com/bbrannon4/OpenBSE/issues/362): ground-source heat
+  pump has no ground-loop heat balance, EquationFit form or latent capacity.
+- [#361](https://github.com/bbrannon4/OpenBSE/issues/361): no water-source heat
+  pump.

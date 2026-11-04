@@ -52,10 +52,10 @@ tables play the part of `Table:Lookup` [@eplus-engref-25-2, "Performance Curves"
 limits are required inputs, and it has more forms (quad-linear, triquadratic, exponents and so
 on) ([#71](https://github.com/bbrannon4/OpenBSE/issues/71)). The arguments are *not* always in
 EnergyPlus's order. The heat-pump coil and VRF evaluate $(T_o, T_i)$ where EnergyPlus evaluates
-indoor first, and the GSHP's EIR acts in reverse, so curves copied from EnergyPlus need checking
+indoor first, so curves copied from EnergyPlus need checking
 ([#237](https://github.com/bbrannon4/OpenBSE/issues/237),
-[#57](https://github.com/bbrannon4/OpenBSE/issues/57),
-[#56](https://github.com/bbrannon4/OpenBSE/issues/56)).
+[#57](https://github.com/bbrannon4/OpenBSE/issues/57)). The GSHP's curves take the entering water
+temperature and entering air dry-bulb (@sec-gshp-wshp).
 
 ## References {.unnumbered}
 

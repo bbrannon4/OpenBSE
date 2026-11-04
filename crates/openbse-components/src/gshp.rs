@@ -4,9 +4,11 @@
 //! ground via a buried loop. Entering water temperature (EWT) is computed from
 //! a ground temperature model each timestep — no external plant loop needed.
 //!
-//! Physics (mirrors WSHP):
-//!   Cooling: Q = rated_cap × PLR × cap_mod; W = Q / (COP × eir_mod)
-//!   Heating: Q = rated_cap × PLR × cap_mod; W = Q / (COP × eir_mod)
+//! Physics: the unit meets its outlet setpoint up to the available capacity,
+//!   Q_avail = rated_cap × CapFT(EWT, T_in),   W = Q × EIRFT(EWT, T_in) / COP,
+//! with EIRFT an energy-input-ratio modifier (above 1 costs more power), as in
+//! E+. The curves take the entering water temperature (x) and the entering air
+//! dry-bulb (y). Cycling losses apply at the loop through `compressor_plr`.
 //!
 //! Ground temperature is computed from one of three sources:
 //!   Auto        — Kusuda-Achenbach sinusoidal model at loop_depth
@@ -124,6 +126,9 @@ pub struct GroundSourceHeatPump {
     /// Current mode
     #[serde(skip)]
     pub mode: GshpMode,
+    /// Delivered over available capacity this timestep [0-1]
+    #[serde(skip)]
+    pub plr: f64,
 }
 
 impl GroundSourceHeatPump {
@@ -160,70 +165,7 @@ impl GroundSourceHeatPump {
             air_thermal_output: 0.0,
             current_ewt: 12.0,
             mode: GshpMode::Off,
-        }
-    }
-
-    /// Simulate for one timestep with an explicit entering water temperature.
-    ///
-    /// Returns `(supply_temp [°C], supply_mass_flow [kg/s])`.
-    pub fn simulate_ground(
-        &mut self,
-        mode: GshpMode,
-        load_fraction: f64, // PLR [0-1]
-        indoor_temp: f64,   // zone air temp [°C]
-        ewt: f64,           // entering water temp from ground [°C]
-        _ambient_temp: f64, // outdoor air temp (reserved for defrost)
-    ) -> (f64, f64) {
-        self.current_ewt = ewt;
-        let cp = psych::cp_air_fn_w(0.008); // typical supply air humidity
-
-        match mode {
-            GshpMode::Off => {
-                self.power = 0.0;
-                self.air_thermal_output = 0.0;
-                self.mode = GshpMode::Off;
-                (indoor_temp, 0.0)
-            }
-            GshpMode::Cooling => {
-                let cap_mod = self
-                    .cooling_cap_ft
-                    .as_ref()
-                    .map(|c| c.evaluate(ewt, indoor_temp))
-                    .unwrap_or(1.0);
-                let eir_mod = self
-                    .cooling_eir_ft
-                    .as_ref()
-                    .map(|c| c.evaluate(ewt, indoor_temp))
-                    .unwrap_or(1.0);
-                let q = self.rated_cooling_capacity * load_fraction.clamp(0.0, 1.0) * cap_mod;
-                let w = q / (self.cop_cooling * eir_mod).max(0.1);
-                let t_supply = self.outlet_temp_setpoint;
-                let mass_flow = (q / (cp * (indoor_temp - t_supply).abs())).max(0.01);
-                self.power = w;
-                self.air_thermal_output = -q;
-                self.mode = GshpMode::Cooling;
-                (t_supply, mass_flow)
-            }
-            GshpMode::Heating => {
-                let cap_mod = self
-                    .heating_cap_ft
-                    .as_ref()
-                    .map(|c| c.evaluate(ewt, indoor_temp))
-                    .unwrap_or(1.0);
-                let eir_mod = self
-                    .heating_eir_ft
-                    .as_ref()
-                    .map(|c| c.evaluate(ewt, indoor_temp))
-                    .unwrap_or(1.0);
-                let q = self.rated_heating_capacity * load_fraction.clamp(0.0, 1.0) * cap_mod;
-                let w = q / (self.cop_heating * eir_mod).max(0.1);
-                let t_supply = self.outlet_temp_setpoint;
-                let mass_flow = (q / (cp * (t_supply - indoor_temp).abs())).max(0.01);
-                self.power = w;
-                self.air_thermal_output = q;
-                self.mode = GshpMode::Heating;
-                (t_supply, mass_flow)
-            }
+            plr: 0.0,
         }
     }
 
@@ -298,6 +240,15 @@ fn interpolate_monthly(temps: &[f64; 12], day_of_year: f64) -> f64 {
     }
 }
 
+/// Delivered over available capacity [0-1].
+fn part_load(delivered: f64, available: f64) -> f64 {
+    if available > 0.0 {
+        (delivered / available).clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
 /// Compute day of year from month (1-based) and day.
 fn day_of_year(month: u32, day: u32) -> u32 {
     let days_before: [u32; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
@@ -318,6 +269,7 @@ impl AirComponent for GroundSourceHeatPump {
         if inlet.mass_flow <= 0.0 {
             self.power = 0.0;
             self.air_thermal_output = 0.0;
+            self.plr = 0.0;
             self.mode = GshpMode::Off;
             return *inlet;
         }
@@ -338,6 +290,7 @@ impl AirComponent for GroundSourceHeatPump {
         if mode == GshpMode::Off {
             self.power = 0.0;
             self.air_thermal_output = 0.0;
+            self.plr = 0.0;
             self.mode = GshpMode::Off;
             return *inlet;
         }
@@ -363,7 +316,8 @@ impl AirComponent for GroundSourceHeatPump {
                 let cap_needed = inlet.mass_flow * cp * (t_in - t_sp);
                 let cap_actual = cap_needed.min(cap_available).max(0.0);
                 let t_out = t_in - cap_actual / (inlet.mass_flow * cp).max(1e-6);
-                self.power = cap_actual / (self.cop_cooling * eir_mod).max(0.1);
+                self.power = cap_actual * eir_mod / self.cop_cooling.max(0.1);
+                self.plr = part_load(cap_actual, cap_available);
                 self.air_thermal_output = -cap_actual;
                 self.mode = GshpMode::Cooling;
                 AirPort::new(
@@ -386,7 +340,8 @@ impl AirComponent for GroundSourceHeatPump {
                 let cap_needed = inlet.mass_flow * cp * (t_sp - t_in);
                 let cap_actual = cap_needed.min(cap_available).max(0.0);
                 let t_out = t_in + cap_actual / (inlet.mass_flow * cp).max(1e-6);
-                self.power = cap_actual / (self.cop_heating * eir_mod).max(0.1);
+                self.power = cap_actual * eir_mod / self.cop_heating.max(0.1);
+                self.plr = part_load(cap_actual, cap_available);
                 self.air_thermal_output = cap_actual;
                 self.mode = GshpMode::Heating;
                 AirPort::new(
@@ -408,6 +363,21 @@ impl AirComponent for GroundSourceHeatPump {
 
     fn thermal_output(&self) -> f64 {
         self.air_thermal_output
+    }
+
+    fn compressor_plr(&self) -> Option<f64> {
+        Some(self.plr)
+    }
+
+    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
+        // All of the unit's power runs the compressor; in heating it is
+        // heating energy.
+        out("compressor_power", self.power);
+        out("plr", self.plr);
+        out("entering_water_temperature", self.current_ewt);
+        if self.mode == GshpMode::Heating {
+            out("heating_electric_power", self.power);
+        }
     }
 
     fn nominal_capacity(&self) -> Option<f64> {
@@ -498,34 +468,91 @@ mod tests {
         g
     }
 
+    fn air(t: f64, flow: f64) -> AirPort {
+        AirPort::new(MoistAirState::from_tdb_rh(t, 0.5, 101325.0), flow)
+    }
+
     #[test]
     fn test_cooling_power_equals_q_over_cop() {
         let mut gshp = make_gshp_cooling();
-        let ewt = 15.0;
-        let (_, _) = gshp.simulate_ground(GshpMode::Cooling, 1.0, 26.0, ewt, 30.0);
+        gshp.simulate_air(&air(26.0, 0.5), &make_ctx());
         let q = -gshp.air_thermal_output;
-        let expected_w = q / gshp.cop_cooling;
-        assert_relative_eq!(gshp.power, expected_w, max_relative = 0.01);
+        assert!(q > 0.0);
+        assert_relative_eq!(gshp.power, q / gshp.cop_cooling, max_relative = 1e-9);
         assert_eq!(gshp.mode, GshpMode::Cooling);
     }
 
     #[test]
     fn test_heating_power_equals_q_over_cop() {
         let mut gshp = make_gshp_heating();
-        let ewt = 8.0;
-        let (t_sup, _) = gshp.simulate_ground(GshpMode::Heating, 1.0, 20.0, ewt, -5.0);
+        let out = gshp.simulate_air(&air(20.0, 0.3), &make_ctx());
         let q = gshp.air_thermal_output;
-        let expected_w = q / gshp.cop_heating;
-        assert_relative_eq!(gshp.power, expected_w, max_relative = 0.01);
-        assert_eq!(t_sup, 40.0);
+        assert_relative_eq!(gshp.power, q / gshp.cop_heating, max_relative = 1e-9);
+        assert_relative_eq!(out.state.t_db, 40.0, epsilon = 0.01);
         assert_eq!(gshp.mode, GshpMode::Heating);
     }
 
+    /// EIRFT is an energy input ratio: a modifier above 1 costs more power
+    /// for the same heat, as E+ defines it.
     #[test]
-    fn test_cooling_supply_temp_equals_setpoint() {
-        let mut gshp = make_gshp_cooling();
-        let (t_sup, _) = gshp.simulate_ground(GshpMode::Cooling, 0.8, 26.0, 15.0, 30.0);
-        assert_relative_eq!(t_sup, 13.0, epsilon = 0.01);
+    fn eir_modifier_above_one_raises_power() {
+        use crate::performance_curve::{CurveType, PerformanceCurve};
+        let constant = |v: f64| PerformanceCurve::Polynomial {
+            name: "eir".to_string(),
+            curve_type: CurveType::Biquadratic,
+            coefficients: vec![v, 0.0, 0.0, 0.0, 0.0, 0.0],
+            min_x: -100.0,
+            max_x: 100.0,
+            min_y: -100.0,
+            max_y: 100.0,
+            min_output: None,
+            max_output: None,
+        };
+        for heating in [false, true] {
+            let mut gshp = if heating {
+                make_gshp_heating()
+            } else {
+                make_gshp_cooling()
+            };
+            let inlet = air(if heating { 20.0 } else { 26.0 }, 0.2);
+            gshp.simulate_air(&inlet, &make_ctx());
+            let base = gshp.power;
+            if heating {
+                gshp.heating_eir_ft = Some(constant(1.2));
+            } else {
+                gshp.cooling_eir_ft = Some(constant(1.2));
+            }
+            gshp.simulate_air(&inlet, &make_ctx());
+            assert_relative_eq!(gshp.power, 1.2 * base, max_relative = 1e-9);
+        }
+    }
+
+    /// The unit reports its own part load for the loop's cycling penalty,
+    /// and books heating-mode power as heating.
+    #[test]
+    fn reports_part_load_and_heating_power() {
+        let mut gshp = make_gshp_heating();
+        gshp.simulate_air(&air(35.0, 0.3), &make_ctx());
+        let expected_plr = 0.3 * psych::cp_air_fn_w(gshp_w()) * 5.0 / 9_000.0;
+        assert_relative_eq!(gshp.plr, expected_plr, max_relative = 0.01);
+        let mut outputs = std::collections::HashMap::new();
+        gshp.report_outputs(&mut |k, v| {
+            outputs.insert(k.to_string(), v);
+        });
+        assert_eq!(outputs["heating_electric_power"], gshp.power);
+        assert_eq!(outputs["compressor_power"], gshp.power);
+
+        let mut cooling = make_gshp_cooling();
+        cooling.simulate_air(&air(26.0, 0.5), &make_ctx());
+        let mut outputs = std::collections::HashMap::new();
+        cooling.report_outputs(&mut |k, v| {
+            outputs.insert(k.to_string(), v);
+        });
+        assert!(!outputs.contains_key("heating_electric_power"));
+    }
+
+    fn gshp_w() -> f64 {
+        MoistAirState::from_tdb_rh(35.0, 0.5, 101325.0).w
     }
 
     #[test]
@@ -590,7 +617,7 @@ mod tests {
             max_output: None,
         };
         gshp.cooling_cap_ft = Some(curve);
-        let (_, _) = gshp.simulate_ground(GshpMode::Cooling, 1.0, 26.0, 15.0, 30.0);
+        gshp.simulate_air(&air(26.0, 2.0), &make_ctx());
         let q = -gshp.air_thermal_output;
         let expected = gshp.rated_cooling_capacity * 0.9;
         assert_relative_eq!(q, expected, max_relative = 0.01);
