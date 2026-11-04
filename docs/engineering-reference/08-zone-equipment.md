@@ -203,7 +203,11 @@ loop's minimum.
 
 **Fan coils.** A fan coil meets the predictor's zone load $\dot Q_z$ (positive
 heating), measured against the setpoint $T_\text{sp}$ the load is computed to
-reach. By default it runs EnergyPlus's `ASHRAE90VariableFan` method: with no load
+reach. In a zone that loops listed ahead of it also serve, it meets what they
+leave: its load to each setpoint is the zone's less
+$\sum_i \dot m_i c_p(T_i - T_\text{sp})$ over their supply streams, and that
+remaining load sets its mode, as EnergyPlus distributes a zone's load over its
+equipment in sequence (`RemainingOutputReqToHeatSP`, `ToCoolSP`). By default it runs EnergyPlus's `ASHRAE90VariableFan` method: with no load
 the fan runs at its low speed $\dot m_\text{low} = 0.33\,\dot m_d$ with both
 coils off; with a load it stays at low speed while the coil can meet the load
 below the supply limit $T_\text{lim}$ (`heating_supply_temp` or

@@ -6010,6 +6010,45 @@ fn simulate_all_loops(
             }
         }
 
+        // A fan coil serves what the loops ahead of it leave of its zone's load,
+        // as E+ distributes a zone's load over its equipment in sequence
+        // (`RemainingOutputReqToHeatSP`/`ToCoolSP`): the air they already
+        // supply counts against the load to each setpoint, and decides the mode.
+        let mut predictor_modes = predictor_modes;
+        let mut remaining: Option<(HashMap<String, f64>, HashMap<String, f64>)> = None;
+        if li.system_type == AirLoopSystemType::Fcu {
+            let (remaining_heat, remaining_cool) = remaining
+                .get_or_insert_with(|| (zone_heating_loads.clone(), zone_cooling_loads.clone()));
+            for z in &li.served_zones {
+                let Some(earlier) = zone_supply.get(z).filter(|e| !e.is_empty()) else {
+                    continue;
+                };
+                let cp = openbse_psychrometrics::cp_air_fn_w(
+                    zone_humidity_ratios.get(z).copied().unwrap_or(0.008),
+                );
+                let delivered_at =
+                    |sp: f64| -> f64 { earlier.iter().map(|&(t, m, _)| m * cp * (t - sp)).sum() };
+                let hsp = active_heat_sp.get(z).copied().unwrap_or(21.1);
+                let csp = active_cool_sp.get(z).copied().unwrap_or(23.9);
+                let heat = zone_heating_loads.get(z).copied().unwrap_or(0.0);
+                let cool = zone_cooling_loads.get(z).copied().unwrap_or(0.0);
+                let to_heat =
+                    zone_loads_to_heating_sp.get(z).copied().unwrap_or(heat) - delivered_at(hsp);
+                let to_cool =
+                    zone_loads_to_cooling_sp.get(z).copied().unwrap_or(-cool) - delivered_at(csp);
+                let (mode, h, c) = if to_heat > 0.0 {
+                    (HvacMode::Heating, to_heat, 0.0)
+                } else if to_cool < 0.0 {
+                    (HvacMode::Cooling, 0.0, -to_cool)
+                } else {
+                    (HvacMode::Deadband, 0.0, 0.0)
+                };
+                predictor_modes.insert(z.clone(), mode);
+                remaining_heat.insert(z.clone(), h);
+                remaining_cool.insert(z.clone(), c);
+            }
+        }
+
         // Per-zone state + outdoor conditions shared by every signal builder.
         // The builders read only the fields they need (see openbse_airloop).
         let sig_ctx = openbse_airloop::SignalCtx {
@@ -6018,8 +6057,8 @@ fn simulate_all_loops(
             zone_heat_sp: active_heat_sp,
             zone_cool_sp: active_cool_sp,
             zone_design_flows,
-            zone_cooling_loads,
-            zone_heating_loads,
+            zone_cooling_loads: remaining.as_ref().map_or(zone_cooling_loads, |r| &r.1),
+            zone_heating_loads: remaining.as_ref().map_or(zone_heating_loads, |r| &r.0),
             zone_humidity_ratios,
             zone_max_rh,
             zone_min_rh,
@@ -6225,8 +6264,12 @@ fn simulate_all_loops(
             || openbse_airloop::fcu_cycles(li)
         {
             let control_zone = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
-            let zone_cool_load = zone_cooling_loads.get(control_zone).copied().unwrap_or(0.0);
-            let zone_heat_load = zone_heating_loads.get(control_zone).copied().unwrap_or(0.0);
+            // A cycling fan coil's runtime meets what the loops ahead of it leave.
+            let (cool_loads, heat_loads) = remaining
+                .as_ref()
+                .map_or((zone_cooling_loads, zone_heating_loads), |r| (&r.1, &r.0));
+            let zone_cool_load = cool_loads.get(control_zone).copied().unwrap_or(0.0);
+            let zone_heat_load = heat_loads.get(control_zone).copied().unwrap_or(0.0);
             let control_temp = zone_temps.get(control_zone).copied().unwrap_or(21.0);
             let heat_sp = active_heat_sp.get(control_zone).copied().unwrap_or(21.1);
             let cool_sp = active_cool_sp.get(control_zone).copied().unwrap_or(23.9);
