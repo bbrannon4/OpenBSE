@@ -50,12 +50,10 @@ axes. A missing variable reads as 0. Table axes can be validated against a compo
 `Curve:Linear`, `Curve:Quadratic`, `Curve:Cubic`, `Curve:Biquadratic` and `Curve:Bicubic`, and
 tables play the part of `Table:Lookup` [@eplus-engref-25-2, "Performance Curves"]. EnergyPlus's
 limits are required inputs, and it has more forms (quad-linear, triquadratic, exponents and so
-on) ([#71](https://github.com/bbrannon4/OpenBSE/issues/71)). The arguments are *not* always in
-EnergyPlus's order. The heat-pump coil and VRF evaluate $(T_o, T_i)$ where EnergyPlus evaluates
-indoor first, so curves copied from EnergyPlus need checking
-([#237](https://github.com/bbrannon4/OpenBSE/issues/237),
-[#57](https://github.com/bbrannon4/OpenBSE/issues/57)). The GSHP's curves take the entering water
-temperature and entering air dry-bulb (@sec-gshp-wshp).
+on) ([#71](https://github.com/bbrannon4/OpenBSE/issues/71)). The heat-pump coil and VRF take
+EnergyPlus's arguments in its order (indoor first) and EIR curves keep its meaning, a value above
+1 costing more power. The GSHP's curves take the entering water temperature and the entering air
+dry-bulb (@sec-gshp-wshp).
 
 ## References {.unnumbered}
 

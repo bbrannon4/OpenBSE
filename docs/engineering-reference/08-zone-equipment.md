@@ -282,20 +282,33 @@ with $\text{SHR} = 1$ in heating.
 Without heat recovery, the units in the mode with the smaller total demand
 turn off.
 
-**Outdoor unit.** Available capacity is the rated capacity times
-$\text{CAP}_{fT}(T_o, \bar T_z)$, with $\bar T_z$ the mean zone temperature of
-the operating units. If demand exceeds it, all PLRs in that mode scale down.
-Compressor power is
+**Outdoor unit.** Available capacity $\dot Q_a$ is the rated capacity times
+$\text{CAP}_{fT}$, evaluated on EnergyPlus's axes: cooling at (indoor wet-bulb,
+outdoor dry-bulb), heating at (indoor dry-bulb, outdoor wet-bulb), with the
+indoor state the operating units' average weighted by their part load. If
+demand exceeds it, all PLRs in that mode scale down. A mode's compressor power
+at load $\dot Q$ is full-load power times the EIR-f(PLR) curve
+(`cooling_eir_fplr`, `heating_eir_fplr`; PLR itself without one). Below the
+minimum part-load ratio $x_\text{min}$ (`min_plr`, default 0.15) the compressor
+cycles: the curve is read at $x_\text{min}$ and power scales by the runtime
+fraction $\text{RTF} = \min(1,\ c/\text{PLF}(c))$ with cycling ratio
+$c = \min(1, x/x_\text{min})$ and $\text{PLF}$ from `cooling_plf_fplr` or
+`heating_plf_fplr` (floored at 0.7; 1 without a curve):
 
 $$
+P(\dot Q) = \frac{\dot Q_a}{\text{COP}}\,E_{fT}\,\text{EIR}_{fPLR}\!\left(\max(x, x_\text{min})\right)\text{RTF},
+\quad x = \frac{\dot Q}{\dot Q_a},
+\qquad
 P = \begin{cases}
-\dfrac{\dot Q_c}{\text{COP}_c}E_c + \dfrac{\max(0,\ \dot Q_h - \dot Q_c - P_c)}{\text{COP}_h}E_h & \text{heat recovery, both modes},\\[2ex]
-\dfrac{\dot Q_c}{\text{COP}_c}E_c \ \text{ or }\ \dfrac{\dot Q_h}{\text{COP}_h}E_h & \text{otherwise},
+P_c(\dot Q_c) + P_h\left(\max(0,\ \dot Q_h - \dot Q_c - P_c)\right) & \text{heat recovery, both modes},\\
+P_c(\dot Q_c)\ \text{ or }\ P_h(\dot Q_h) & \text{otherwise},
 \end{cases}
 $$ {#eq-vrf-power}
 
-where $P_c$ is the first term, and $E_c$, $E_h$ are the EIR-f(T) curve values.
-It is shared among the units by PLR.
+With no curves this is power proportional to PLR.
+
+where $E_{fT}$ is the EIR-f(T) curve value (above 1 costs more power). It is
+shared among the units by PLR.
 
 **Supply.** Each unit's flow is the one that delivers its sensible heat at its
 fixed supply temperature, $\dot m = \dot Q_{s,i}/(c_p|T_\text{sup} - T_z|)$, at
@@ -304,11 +317,11 @@ the supply enthalpy closes against the compressor's total load.
 
 **Comparison with EnergyPlus.** `AirConditioner:VariableRefrigerantFlow`
 (`HVACVariableRefrigerantFlow.cc`) runs fixed fan flows with a variable
-leaving temperature, the reverse of @eq-vrf-unit
-([#180](https://github.com/bbrannon4/OpenBSE/issues/180)). OpenBSE has
+leaving temperature, the reverse of @eq-vrf-unit. Both deliver the zone's
+load and book the same coil heat, so the compressor sees the same load; the
+indoor fan's energy and heat and the coil's leaving state differ. OpenBSE has
 none of the following from EnergyPlus:
 
-- part-load EIR curves ([#57](https://github.com/bbrannon4/OpenBSE/issues/57));
 - an indoor fan, piping correction, defrost, crankcase heater and operating
   limits ([#365](https://github.com/bbrannon4/OpenBSE/issues/365)).
 
@@ -316,9 +329,17 @@ The coil's latent split follows E+'s DX method at the unit's own fixed leaving
 temperature; E+'s VRF coil instead has a variable leaving temperature at fixed
 flow and its own capacity-curve inputs.
 
-The curve arguments are $(T_o, \bar T_z)$, the reverse of EnergyPlus's order,
-with dry-bulb in place of the indoor wet-bulb for cooling
-([#57](https://github.com/bbrannon4/OpenBSE/issues/57)).
+@eq-vrf-power follows E+'s full-load power times its low part-load EIR curve
+with its minimum-PLR cycling (`HVACVariableRefrigerantFlow.cc`); E+'s separate
+high part-load curve (PLR above 1) does not arise, since capacity caps the load.
+E+'s boundary and high-temperature capacity and EIR curves, combination-ratio
+correction, piping correction and defrost are not modelled
+([#365](https://github.com/bbrannon4/OpenBSE/issues/365)). Replaying E+ 25.2's
+`VariableRefrigerantFlow_5Zone` example (Chicago, annual) through
+@eq-vrf-power with E+'s low curves, its minimum PLR and part-load fraction
+curve and its piping factor gives compressor energy 7.6 % below E+ in cooling
+and 11 % above in heating; without the minimum-PLR cycling, cooling comes out
+54 % above E+, since 56 % of operating hours fall below E+'s minimum PLR.
 
 ## Radiant panels {#sec-radiant-panel}
 
@@ -437,10 +458,8 @@ differences in @sec-dx-cooling and @sec-chw-coil.
 ## Known limitations: zone equipment {#sec-zone-equipment-limitations}
 
 - [#365](https://github.com/bbrannon4/OpenBSE/issues/365): VRF has no indoor
-  fan, defrost, piping correction, crankcase heater or operating limits.
-- [#57](https://github.com/bbrannon4/OpenBSE/issues/57),
-  [#180](https://github.com/bbrannon4/OpenBSE/issues/180): VRF part load,
-  curve axes and flow control.
+  fan or fixed-flow terminal option, defrost, piping correction, boundary
+  curves, crankcase heater or operating limits.
 - [#364](https://github.com/bbrannon4/OpenBSE/issues/364): one fan-coil
   capacity-control method plus on/off cycling; no fan-coil outdoor-air mixer.
 - [#363](https://github.com/bbrannon4/OpenBSE/issues/363): chilled ceilings have
