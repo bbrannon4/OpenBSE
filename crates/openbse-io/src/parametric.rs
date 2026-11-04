@@ -185,7 +185,6 @@ fn apply_single_override(
                     }
                     crate::input::TerminalInput::DualDuctBox(b) if b.name == comp_name => {
                         match field_name {
-                            "min_flow_fraction" => b.min_flow_fraction = value,
                             "design_flow" => {
                                 b.design_flow = openbse_core::types::AutosizeValue::Value(value)
                             }

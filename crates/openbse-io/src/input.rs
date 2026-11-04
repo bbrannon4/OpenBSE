@@ -1819,7 +1819,6 @@ pub struct PfpBoxInput {
 ///   type: dual_duct_box
 ///   name: DD-Box-Perimeter
 ///   design_flow: autosize
-///   min_flow_fraction: 0.20   # optional, default 0.20
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1830,13 +1829,6 @@ pub struct DualDuctBoxInput {
     pub submeter: String,
     /// Design total supply flow [kg/s]. Use `autosize` to let the engine calculate.
     pub design_flow: AutosizeValue,
-    /// Minimum flow fraction for each damper [0-1] (default 0.20)
-    #[serde(default = "default_dd_min_flow_fraction")]
-    pub min_flow_fraction: f64,
-}
-
-fn default_dd_min_flow_fraction() -> f64 {
-    0.20
 }
 
 fn default_min_flow_fraction() -> f64 {
@@ -4932,6 +4924,57 @@ impl ValidationResult {
     }
 }
 
+/// A dual-duct loop splits into its two decks after the components that
+/// carry the whole flow: heating coils run on the hot deck and cooling coils
+/// on the cold deck, so nothing else may follow a coil. Its boxes control
+/// temperature only.
+fn validate_dual_duct_loops(model: &ModelInput, result: &mut ValidationResult) {
+    for air_loop in &model.air_loops {
+        if air_loop.detect_system_type() != AirLoopSystemType::DualDuct {
+            continue;
+        }
+        let mut coil_seen = false;
+        for eq in &air_loop.equipment {
+            match eq {
+                EquipmentInput::HeatingCoil(_)
+                | EquipmentInput::CoolingCoil(_)
+                | EquipmentInput::CoolingCoilMultiSpeed(_)
+                | EquipmentInput::EvapCooler(_) => coil_seen = true,
+                EquipmentInput::Wshp(_) | EquipmentInput::Gshp(_) => result.severe(format!(
+                    "Heat pump '{}' in dual-duct loop '{}': each deck needs its own \
+                     heating or cooling coil",
+                    eq.name(),
+                    air_loop.name
+                )),
+                // Runs on the outdoor air ahead of the mixing box.
+                EquipmentInput::HeatRecovery(_) => {}
+                _ if coil_seen => result.severe(format!(
+                    "'{}' follows a deck coil in dual-duct loop '{}': list the fan and \
+                     other shared components before the coils, where the loop splits \
+                     into its hot and cold decks",
+                    eq.name(),
+                    air_loop.name
+                )),
+                _ => {}
+            }
+        }
+        for zt in &air_loop.zone_terminals {
+            let has_max_rh = model
+                .zones
+                .iter()
+                .any(|z| z.name == zt.zone && z.max_relative_humidity.is_some());
+            if has_max_rh {
+                result.warn(format!(
+                    "Zone '{}' sets max_relative_humidity but is served by dual-duct loop \
+                     '{}': the mixing box controls temperature only, and the cold deck \
+                     sets the supply humidity",
+                    zt.zone, air_loop.name
+                ));
+            }
+        }
+    }
+}
+
 /// Validate all cross-references in a parsed model.
 ///
 /// Checks that every zone name, zone group name, and schedule name referenced
@@ -5672,6 +5715,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     validate_materials(model, &mut result);
     validate_zone_multipliers(model, &mut result);
+    validate_dual_duct_loops(model, &mut result);
 
     // ── Validate window shading controls ───────────────────────────────────
 

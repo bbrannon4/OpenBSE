@@ -56,7 +56,7 @@ $$ {#eq-check-run}
 | Unphysical | NaN or infinite outputs, negative PLR or capacity, COP at or below 0 while running | severe |
 | Envelope holds | inside surface temperature beyond 200 °C, NaN states replaced | severe |
 | Air component | $\dot m\Delta h$ across a component = its `thermal_output` | severe |
-| Air-loop mass | an air loop's terminal boxes pass the flow it supplies | severe |
+| Air-loop mass | an air loop's terminal boxes pass the flow it supplies; a dual-duct loop's decks carry what its boxes pass | severe |
 | Plant unmet | capacity-limited loops | warning |
 | Surface–air convergence | envelope solves whose outer passes reached their limit (@sec-surface-hb) | warning |
 | HVAC convergence | timesteps whose iteration reached its limit (@sec-hvac-iteration) | warning |

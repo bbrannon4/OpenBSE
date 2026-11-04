@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 
 use openbse_airloop::{
     build_crac_signals, build_crah_signals, build_doas_signals, build_dual_duct_signals,
-    build_fcu_signals, build_psz_signals, build_vav_signals, hvac_mode, HvacMode, LoopInfo,
-    ZoneOaData,
+    build_fcu_signals, build_psz_signals, build_vav_signals, hvac_mode, CoilRole, HvacMode,
+    LoopInfo, ZoneOaData,
 };
 use openbse_core::graph::{GraphComponent, SimulationGraph};
 use openbse_core::ports::{
@@ -755,11 +755,8 @@ fn build_loop_infos(
                             } else {
                                 0.5
                             };
-                            let box_obj = openbse_components::dual_duct_box::DualDuctBox::new(
-                                &dd.name,
-                                flow,
-                                dd.min_flow_fraction,
-                            );
+                            let box_obj =
+                                openbse_components::dual_duct_box::DualDuctBox::new(&dd.name, flow);
                             dd_boxes.insert(zc.zone.clone(), box_obj);
                         }
                     }
@@ -790,6 +787,7 @@ fn build_loop_infos(
                 terminal_min_flow,
                 terminal_heating: HashMap::new(),
                 dd_boxes,
+                dd_deck_temps: (None, None),
                 heat_recovery_name,
                 dcv: al.dcv,
                 cooling_sat_reset,
@@ -6107,15 +6105,37 @@ fn simulate_all_loops(
             li.component_names.clone()
         };
 
-        // Run this loop's components in order (at full capacity, PLR=1.0)
-        let (mut loop_result, supply_air) = simulate_loop_components(
-            graph,
-            ctx,
-            &chain_components,
-            &signals,
-            zone_temps,
-            t_outdoor,
-        );
+        // Run this loop's components in order (at full capacity, PLR=1.0);
+        // a dual-duct loop splits into its two decks after the fan.
+        let mut dd_decks: Option<(AirPort, AirPort)> = None;
+        let (mut loop_result, supply_air) = if li.system_type == AirLoopSystemType::DualDuct {
+            let (outputs, decks, mixed) = simulate_dual_duct_decks(
+                graph,
+                ctx,
+                li,
+                &chain_components,
+                &signals,
+                zone_temps,
+                t_outdoor,
+            );
+            if decks.0.mass_flow > 0.0 {
+                li.dd_deck_temps.0 = Some(decks.0.state.t_db);
+            }
+            if decks.1.mass_flow > 0.0 {
+                li.dd_deck_temps.1 = Some(decks.1.state.t_db);
+            }
+            dd_decks = Some(decks);
+            (outputs, Some(mixed))
+        } else {
+            simulate_loop_components(
+                graph,
+                ctx,
+                &chain_components,
+                &signals,
+                zone_temps,
+                t_outdoor,
+            )
+        };
 
         if let Some((hr_name, outputs)) = hr_outputs {
             loop_result.insert(hr_name, outputs);
@@ -6586,6 +6606,7 @@ fn simulate_all_loops(
                 0.0
             };
             let mut terminal_primary_flow = 0.0_f64;
+            let mut dd_passed = 0.0_f64;
             let mut allocated_total = 0.0_f64;
             for zone_name in &li.served_zones {
                 if li.terminal_boxes.contains_key(zone_name) {
@@ -6822,18 +6843,26 @@ fn simulate_all_loops(
                             (flow, effective_supply_temp)
                         }
                         AirLoopSystemType::DualDuct => {
-                            // Dual-duct: per-zone blended supply temp from signal builder,
-                            // constant design_flow (CAV — no PLR scaling of flow).
-                            let flow =
-                                signals.zone_air_flows.get(zone_name).copied().unwrap_or(
-                                    effective_flow / li.served_zones.len().max(1) as f64,
-                                );
-                            let temp = signals
-                                .zone_supply_temps
-                                .get(zone_name)
-                                .copied()
-                                .unwrap_or(effective_supply_temp);
-                            (flow, temp)
+                            // Each box mixes the decks' actual leaving air at
+                            // the flows it chose, so the zones receive exactly
+                            // the air the deck coils conditioned.
+                            let returns_heat = li.carries_return_air_heat();
+                            if let (Some((hot, cold)), Some(dd_box)) =
+                                (dd_decks.as_ref(), li.dd_boxes.get_mut(zone_name))
+                            {
+                                let mixed = dd_box.mix(&hot.state, &cold.state);
+                                zone_supply.entry(zone_name.clone()).or_default().push((
+                                    mixed.t_db,
+                                    dd_box.hot_flow + dd_box.cold_flow,
+                                    mixed.w,
+                                ));
+                                dd_passed += dd_box.hot_flow + dd_box.cold_flow;
+                                if returns_heat {
+                                    *zone_return_flows.entry(zone_name.clone()).or_default() +=
+                                        dd_box.hot_flow + dd_box.cold_flow;
+                                }
+                            }
+                            continue;
                         }
                         // CRAC / CRAH: recirculating, no OA mixing.
                         // Supply the full effective flow to the single served zone.
@@ -6851,6 +6880,17 @@ fn simulate_all_loops(
                         *zone_return_flows.entry(zone_name.clone()).or_default() += zone_flow;
                     }
                 }
+            }
+            // Mass conservation: the decks carry exactly what the boxes pass.
+            if let Some((hot, cold)) = dd_decks.as_ref() {
+                let flows = all_outputs
+                    .entry("__air_loop_mass__".to_string())
+                    .or_default();
+                flows.insert(
+                    format!("{}|supplied", li.name),
+                    hot.mass_flow + cold.mass_flow,
+                );
+                flows.insert(format!("{}|passed", li.name), dd_passed);
             }
             // Mass conservation: the boxes pass what the loop sends them; with
             // a box in every zone that is the whole supply.
@@ -6914,106 +6954,178 @@ fn simulate_loop_components(
     t_outdoor: f64,
 ) -> (HashMap<String, HashMap<String, f64>>, Option<AirPort>) {
     let mut outputs: HashMap<String, HashMap<String, f64>> = HashMap::new();
+    let inlet_air = loop_inlet_air(ctx, signals);
+    let mut last_outlet: Option<AirPort> = None;
+    for comp_name in component_names {
+        let this_inlet = last_outlet.unwrap_or(inlet_air);
+        if let Some((outlet, comp_outputs)) = simulate_air_component(
+            graph, ctx, comp_name, this_inlet, signals, zone_temps, t_outdoor,
+        ) {
+            outputs.insert(comp_name.clone(), comp_outputs);
+            last_outlet = Some(outlet);
+        }
+    }
+    (outputs, last_outlet)
+}
 
-    // Check for inlet override signals (mixed air temp for PSZ, recirculation for FCU, VAV)
-    let inlet_temp_override: Option<f64> = signals.mixed_air_temp;
+/// Component outputs, the decks' leaving air (hot, cold), and their mix.
+type DualDuctSupply = (
+    HashMap<String, HashMap<String, f64>>,
+    (AirPort, AirPort),
+    AirPort,
+);
 
+/// A dual-duct loop's supply: the components ahead of the deck split carry
+/// the whole flow; from their outlet the heating coils run in series on the
+/// hot deck's flow and the cooling coils on the cold deck's, as in an E+
+/// dual-duct `AirLoopHVAC` whose supply branch splits into a hot and a cold
+/// deck. Input validation puts every other component ahead of the coils.
+/// Returns the outputs, the two decks' leaving air (hot, cold), and their
+/// mix at the deck flows.
+fn simulate_dual_duct_decks(
+    graph: &mut SimulationGraph,
+    ctx: &SimulationContext,
+    li: &LoopInfo,
+    component_names: &[String],
+    signals: &ControlSignals,
+    zone_temps: &HashMap<String, f64>,
+    t_outdoor: f64,
+) -> DualDuctSupply {
+    let mut outputs: HashMap<String, HashMap<String, f64>> = HashMap::new();
+    let hot_flow: f64 = li.dd_boxes.values().map(|b| b.hot_flow).sum();
+    let cold_flow: f64 = li.dd_boxes.values().map(|b| b.cold_flow).sum();
+    let mut common = loop_inlet_air(ctx, signals);
+    common.mass_flow = hot_flow + cold_flow;
+    let mut hot: Option<AirPort> = None;
+    let mut cold: Option<AirPort> = None;
+    for comp_name in component_names {
+        let role = li.coil_role(comp_name);
+        let inlet = match role {
+            CoilRole::Heating => hot.unwrap_or(AirPort::new(common.state, hot_flow)),
+            CoilRole::Cooling => cold.unwrap_or(AirPort::new(common.state, cold_flow)),
+            _ => common,
+        };
+        if let Some((outlet, comp_outputs)) =
+            simulate_air_component(graph, ctx, comp_name, inlet, signals, zone_temps, t_outdoor)
+        {
+            outputs.insert(comp_name.clone(), comp_outputs);
+            match role {
+                CoilRole::Heating => hot = Some(outlet),
+                CoilRole::Cooling => cold = Some(outlet),
+                _ => common = outlet,
+            }
+        }
+    }
+    let hot = hot.unwrap_or(AirPort::new(common.state, hot_flow));
+    let cold = cold.unwrap_or(AirPort::new(common.state, cold_flow));
+    let total = hot.mass_flow + cold.mass_flow;
+    let mixed = if total > 0.0 {
+        let h = (hot.mass_flow * hot.state.h + cold.mass_flow * cold.state.h) / total;
+        let w = (hot.mass_flow * hot.state.w + cold.mass_flow * cold.state.w) / total;
+        AirPort::new(
+            openbse_psychrometrics::MoistAirState::new(
+                openbse_psychrometrics::tdb_fn_h_w(h, w),
+                w,
+                common.state.p_b,
+            ),
+            total,
+        )
+    } else {
+        AirPort::new(common.state, 0.0)
+    };
+    (outputs, (hot, cold), mixed)
+}
+
+/// Air entering a loop's component chain: the mixed air the signals set
+/// (return and outdoor air blended at the outdoor-air fraction), else
+/// outdoor air.
+fn loop_inlet_air(ctx: &SimulationContext, signals: &ControlSignals) -> AirPort {
     // OA fraction for humidity blending (defaults to 1.0 = 100% outdoor air if not set)
     let oa_fraction = signals.oa_fraction.unwrap_or(1.0);
-
-    // Build inlet air state with proper humidity blending
-    let mut inlet_air = AirPort::new(ctx.outdoor_air, 1.0);
-    if let Some(override_temp) = inlet_temp_override {
-        // Blend humidity: w_mixed = OA_frac * w_oa + (1 - OA_frac) * w_indoor
-        // When heat recovery is present, use the post-HR outdoor humidity (effective OA w)
-        // instead of raw outdoor humidity. This accounts for moisture transfer in the ERV.
-        let w_oa = signals.effective_oa_w.unwrap_or(ctx.outdoor_air.w);
-        // Return-air humidity: actual served-zone moisture balance average
-        // (set by simulate_all_loops). Fallback for direct callers: 50% RH
-        // at the return temperature.
-        let w_indoor = signals.return_air_w.unwrap_or_else(|| {
-            openbse_psychrometrics::MoistAirState::from_tdb_rh(
-                inlet_temp_override.unwrap_or(ctx.outdoor_air.t_db),
-                0.50,
-                ctx.outdoor_air.p_b,
-            )
+    let inlet_air = AirPort::new(ctx.outdoor_air, 1.0);
+    let Some(override_temp) = signals.mixed_air_temp else {
+        return inlet_air;
+    };
+    // Blend humidity: w_mixed = OA_frac * w_oa + (1 - OA_frac) * w_indoor
+    // When heat recovery is present, use the post-HR outdoor humidity (effective OA w)
+    // instead of raw outdoor humidity. This accounts for moisture transfer in the ERV.
+    let w_oa = signals.effective_oa_w.unwrap_or(ctx.outdoor_air.w);
+    // Return-air humidity: actual served-zone moisture balance average
+    // (set by simulate_all_loops). Fallback for direct callers: 50% RH
+    // at the return temperature.
+    let w_indoor = signals.return_air_w.unwrap_or_else(|| {
+        openbse_psychrometrics::MoistAirState::from_tdb_rh(override_temp, 0.50, ctx.outdoor_air.p_b)
             .w
-        });
-        let w_mixed = oa_fraction * w_oa + (1.0 - oa_fraction) * w_indoor;
-        let mixed_state =
-            openbse_psychrometrics::MoistAirState::new(override_temp, w_mixed, ctx.outdoor_air.p_b);
-        inlet_air = AirPort::new(mixed_state, inlet_air.mass_flow);
+    });
+    let w_mixed = oa_fraction * w_oa + (1.0 - oa_fraction) * w_indoor;
+    let mixed_state =
+        openbse_psychrometrics::MoistAirState::new(override_temp, w_mixed, ctx.outdoor_air.p_b);
+    AirPort::new(mixed_state, inlet_air.mass_flow)
+}
+
+/// Simulate one air component from `inlet`, applying its setpoint and flow
+/// signals; returns its outlet and outputs (None for a name not in the graph
+/// or a plant component).
+fn simulate_air_component(
+    graph: &mut SimulationGraph,
+    ctx: &SimulationContext,
+    comp_name: &str,
+    inlet: AirPort,
+    signals: &ControlSignals,
+    zone_temps: &HashMap<String, f64>,
+    t_outdoor: f64,
+) -> Option<(AirPort, HashMap<String, f64>)> {
+    let node_idx = graph.node_by_name(comp_name)?;
+    let GraphComponent::Air(component) = graph.component_mut(node_idx) else {
+        // Plant components are not part of air loops — skip
+        return None;
+    };
+    // Apply setpoint override (skip special sentinel keys)
+    if let Some(&sp) = signals.coil_setpoints.get(comp_name) {
+        component.set_setpoint(sp);
     }
 
-    let mut last_outlet: Option<AirPort> = None;
-
-    for comp_name in component_names {
-        // Get node index for this component
-        let node_idx = match graph.node_by_name(comp_name) {
-            Some(idx) => idx,
-            None => continue,
-        };
-
-        match graph.component_mut(node_idx) {
-            GraphComponent::Air(component) => {
-                // Apply setpoint override (skip special sentinel keys)
-                if let Some(&sp) = signals.coil_setpoints.get(comp_name.as_str()) {
-                    component.set_setpoint(sp);
-                }
-
-                // Resolve duct ambient temperature before simulation
-                // (a ground ambient comes from the duct's own monthly table; validation
-                // rejects a name that is neither these nor a zone, and HVAC-only runs
-                // have no zone temperatures).
-                if let Some(amb_zone) = component.ambient_zone().map(|s| s.to_string()) {
-                    match amb_zone.as_str() {
-                        "outdoor" => component.set_ambient_temp(t_outdoor),
-                        "ground" => {}
-                        zone_name => component.set_ambient_temp(
-                            zone_temps.get(zone_name).copied().unwrap_or(t_outdoor),
-                        ),
-                    }
-                }
-
-                // Use previous component's outlet as inlet; first component uses loop inlet
-                let mut this_inlet = last_outlet.unwrap_or(inlet_air);
-
-                // Apply mass flow override if set
-                if let Some(&flow) = signals.air_mass_flows.get(comp_name.as_str()) {
-                    this_inlet.mass_flow = flow;
-                }
-
-                let outlet = component.simulate_air(&this_inlet, ctx);
-
-                let mut comp_outputs = HashMap::new();
-                comp_outputs.insert("outlet_temperature".to_string(), outlet.state.t_db);
-                comp_outputs.insert("outlet_temp".to_string(), outlet.state.t_db);
-                comp_outputs.insert("outlet_humidity_ratio".to_string(), outlet.state.w);
-                comp_outputs.insert("outlet_w".to_string(), outlet.state.w);
-                comp_outputs.insert("mass_flow".to_string(), outlet.mass_flow);
-                comp_outputs.insert("outlet_enthalpy".to_string(), outlet.state.h);
-                comp_outputs.insert("inlet_temperature".to_string(), this_inlet.state.t_db);
-                comp_outputs.insert("inlet_humidity_ratio".to_string(), this_inlet.state.w);
-                comp_outputs.insert("inlet_enthalpy".to_string(), this_inlet.state.h);
-                comp_outputs.insert("electric_power".to_string(), component.power_consumption());
-                comp_outputs.insert("fuel_power".to_string(), component.fuel_consumption());
-                comp_outputs.insert("thermal_output".to_string(), component.thermal_output());
-                // Merge component-specific detailed outputs (visitor avoids a
-                // per-component HashMap allocation each timestep).
-                component.report_outputs(&mut |k, v| {
-                    comp_outputs.insert(k.to_string(), v);
-                });
-                outputs.insert(comp_name.clone(), comp_outputs);
-
-                last_outlet = Some(outlet);
-            }
-            GraphComponent::Plant(_) => {
-                // Plant components are not part of air loops — skip
+    // Resolve duct ambient temperature before simulation
+    // (a ground ambient comes from the duct's own monthly table; validation
+    // rejects a name that is neither these nor a zone, and HVAC-only runs
+    // have no zone temperatures).
+    if let Some(amb_zone) = component.ambient_zone().map(|s| s.to_string()) {
+        match amb_zone.as_str() {
+            "outdoor" => component.set_ambient_temp(t_outdoor),
+            "ground" => {}
+            zone_name => {
+                component.set_ambient_temp(zone_temps.get(zone_name).copied().unwrap_or(t_outdoor))
             }
         }
     }
 
-    (outputs, last_outlet)
+    let mut this_inlet = inlet;
+    // Apply mass flow override if set
+    if let Some(&flow) = signals.air_mass_flows.get(comp_name) {
+        this_inlet.mass_flow = flow;
+    }
+
+    let outlet = component.simulate_air(&this_inlet, ctx);
+
+    let mut comp_outputs = HashMap::new();
+    comp_outputs.insert("outlet_temperature".to_string(), outlet.state.t_db);
+    comp_outputs.insert("outlet_temp".to_string(), outlet.state.t_db);
+    comp_outputs.insert("outlet_humidity_ratio".to_string(), outlet.state.w);
+    comp_outputs.insert("outlet_w".to_string(), outlet.state.w);
+    comp_outputs.insert("mass_flow".to_string(), outlet.mass_flow);
+    comp_outputs.insert("outlet_enthalpy".to_string(), outlet.state.h);
+    comp_outputs.insert("inlet_temperature".to_string(), this_inlet.state.t_db);
+    comp_outputs.insert("inlet_humidity_ratio".to_string(), this_inlet.state.w);
+    comp_outputs.insert("inlet_enthalpy".to_string(), this_inlet.state.h);
+    comp_outputs.insert("electric_power".to_string(), component.power_consumption());
+    comp_outputs.insert("fuel_power".to_string(), component.fuel_consumption());
+    comp_outputs.insert("thermal_output".to_string(), component.thermal_output());
+    // Merge component-specific detailed outputs (visitor avoids a
+    // per-component HashMap allocation each timestep).
+    component.report_outputs(&mut |k, v| {
+        comp_outputs.insert(k.to_string(), v);
+    });
+    Some((outlet, comp_outputs))
 }
 
 /// Run a loop's heat recovery on its outdoor air and fold the result into
@@ -7645,6 +7757,7 @@ room_air:
             terminal_min_flow: HashMap::new(),
             terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
+            dd_deck_temps: (None, None),
             explicit_min_oa: false,
             heat_recovery_name: None,
             dcv: false,
@@ -7689,6 +7802,7 @@ room_air:
             terminal_min_flow: HashMap::new(),
             terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
+            dd_deck_temps: (None, None),
             explicit_min_oa: false,
             heat_recovery_name: None,
             dcv: false,
@@ -7708,6 +7822,121 @@ room_air:
             min_oa_flow_mass: None,
             std_air_density: 1.204,
         }
+    }
+
+    /// A dual-duct loop: the deck coils carry exactly their boxes' flows, the
+    /// zones receive exactly the enthalpy the decks leave with, and each box
+    /// delivers its zone's load.
+    #[test]
+    fn dual_duct_decks_carry_the_box_flows_and_conserve_energy() {
+        use openbse_components::{
+            cooling_coil::CoolingCoil, dual_duct_box::DualDuctBox, fan::Fan,
+            heating_coil::HeatingCoil,
+        };
+        use openbse_core::types::{DayType, TimeStep};
+        use openbse_psychrometrics::MoistAirState;
+
+        let mut graph = SimulationGraph::new();
+        graph.add_air_component(Box::new(Fan::constant_volume(
+            "Fan", 1.0, 500.0, 0.6, 0.9, 1.0,
+        )));
+        graph.add_air_component(Box::new(HeatingCoil::electric("Hot Coil", 50_000.0, 38.0)));
+        graph.add_air_component(Box::new(CoolingCoil::new(
+            "Cold Coil",
+            50_000.0,
+            3.5,
+            0.75,
+            1.0,
+            13.0,
+        )));
+        let mut li = make_psz_loop(openbse_io::input::EconomizerType::NoEconomizer);
+        li.system_type = AirLoopSystemType::DualDuct;
+        li.heating_supply_temp = 38.0;
+        li.component_names = vec!["Fan".into(), "Hot Coil".into(), "Cold Coil".into()];
+        li.component_kinds = [
+            ("Fan".to_string(), ComponentKind::Fan),
+            ("Hot Coil".to_string(), ComponentKind::HeatingCoil),
+            ("Cold Coil".to_string(), ComponentKind::CoolingCoil),
+        ]
+        .into();
+        li.served_zones = vec!["Warm".into(), "Cool".into()];
+        for z in &li.served_zones {
+            li.dd_boxes.insert(z.clone(), DualDuctBox::new(z, 0.5));
+        }
+
+        let map = |a: f64, b: f64| -> HashMap<String, f64> {
+            [("Warm".to_string(), a), ("Cool".to_string(), b)].into()
+        };
+        let temps = map(20.5, 24.5);
+        let (heat_sp, cool_sp) = (map(21.0, 21.0), map(24.0, 24.0));
+        let (heat_loads, cool_loads) = (map(2_000.0, 0.0), map(0.0, 3_000.0));
+        let flows = map(0.5, 0.5);
+        let w = map(0.008, 0.008);
+        let empty: HashMap<String, f64> = HashMap::new();
+        let modes: HashMap<String, HvacMode> = HashMap::new();
+        let sig_ctx = openbse_airloop::SignalCtx {
+            zone_temps: &temps,
+            zone_start_temps: &temps,
+            zone_heat_sp: &heat_sp,
+            zone_cool_sp: &cool_sp,
+            zone_design_flows: &flows,
+            zone_cooling_loads: &cool_loads,
+            zone_heating_loads: &heat_loads,
+            zone_humidity_ratios: &w,
+            zone_max_rh: &empty,
+            zone_min_rh: &empty,
+            zone_return_temps: &empty,
+            predictor_modes: &modes,
+            t_outdoor: 30.0,
+            raw_t_outdoor: 30.0,
+            w_outdoor: 0.010,
+            effective_min_oa: 0.2,
+            schedule_mgr: None,
+            hour: 12,
+            day_of_week: 2,
+        };
+        let signals = build_dual_duct_signals(&mut li, &sig_ctx);
+        let ctx = SimulationContext {
+            timestep: TimeStep {
+                month: 7,
+                day: 15,
+                hour: 14,
+                sub_hour: 1,
+                timesteps_per_hour: 1,
+                sim_time_s: 0.0,
+                dt: 3600.0,
+            },
+            outdoor_air: MoistAirState::new(30.0, 0.010, 101_325.0),
+            day_type: DayType::WeatherDay,
+            is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
+        };
+        let names = li.component_names.clone();
+        let (outputs, (hot, cold), mixed) =
+            simulate_dual_duct_decks(&mut graph, &ctx, &li, &names, &signals, &temps, 30.0);
+
+        let box_hot: f64 = li.dd_boxes.values().map(|b| b.hot_flow).sum();
+        let box_cold: f64 = li.dd_boxes.values().map(|b| b.cold_flow).sum();
+        assert!((outputs["Hot Coil"]["mass_flow"] - box_hot).abs() < 1e-12);
+        assert!((outputs["Cold Coil"]["mass_flow"] - box_cold).abs() < 1e-12);
+        assert!((outputs["Fan"]["mass_flow"] - 1.0).abs() < 1e-12);
+        assert!((hot.mass_flow + cold.mass_flow - mixed.mass_flow).abs() < 1e-12);
+
+        let deck_enthalpy = hot.mass_flow * hot.state.h + cold.mass_flow * cold.state.h;
+        let mut zone_enthalpy = 0.0;
+        for z in ["Warm", "Cool"] {
+            let b = li.dd_boxes.get_mut(z).unwrap();
+            let out = b.mix(&hot.state, &cold.state);
+            zone_enthalpy += (b.hot_flow + b.cold_flow) * out.h;
+            let t_ref = if z == "Warm" { 21.0 } else { 24.0 };
+            let load = if z == "Warm" { 2_000.0 } else { -3_000.0 };
+            let delivered = 0.5 * openbse_psychrometrics::cp_air_fn_w(out.w) * (out.t_db - t_ref);
+            assert!(
+                (delivered - load).abs() < 0.05 * load.abs(),
+                "{z}: delivered {delivered:.0} W for a {load} W load"
+            );
+        }
+        assert!((zone_enthalpy - deck_enthalpy).abs() < 1e-6 * deck_enthalpy.abs());
     }
 
     // ── PTHP tests ──────────────────────────────────────────────────────────
@@ -8924,6 +9153,7 @@ mod tests_datacenter {
             terminal_min_flow: HashMap::new(),
             terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
+            dd_deck_temps: (None, None),
             explicit_min_oa: false,
             heat_recovery_name: None,
             dcv: false,

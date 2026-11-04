@@ -1,30 +1,28 @@
-//! Dual-duct mixing box terminal unit.
+//! Dual-duct constant-volume mixing box (E+ `AirTerminal:DualDuct:ConstantVolume`,
+//! `DualDuct.cc` `SimDualDuctConstVol`).
 //!
-//! Models a constant air volume (CAV) dual-duct mixing box that blends supply air
-//! from a hot deck and cold deck to meet the zone's heating or cooling load.
+//! The box always passes its design flow. It splits that flow between the hot
+//! and cold decks so the mixed air meets the zone's load. With the load `Q`
+//! (positive heating) measured against the zone temperature `T_ref`:
 //!
-//! Control sequence (CAV — total flow is always constant at design_flow):
-//!   1. Heating: hot damper opens from minimum toward full; cold damper takes remainder.
-//!      blend is mostly hot deck air → zone receives warm supply.
-//!   2. Deadband: each damper at 50% → supply temperature is midpoint blend.
-//!   3. Cooling: cold damper opens from minimum toward full; hot damper takes remainder.
-//!      blend is mostly cold deck air → zone receives cool supply.
+//!   T_target = T_ref + Q / (ṁ·cp)
+//!   ṁ_cold   = ṁ · (T_hot − T_target) / (T_hot − T_cold),  limited to [0, ṁ]
+//!   ṁ_hot    = ṁ − ṁ_cold
 //!
-//! Total zone supply flow = hot_flow + cold_flow = design_flow (constant).
-//!
-//! Reference: EnergyPlus Engineering Reference,
-//!   "AirTerminal:DualDuct:ConstantVolume"
+//! which is E+'s `ṁ_cold = (QZnReq − ṁ·cp·T_hot) / (cp·T_cold − cp·T_hot)` with
+//! `QZnReq = Q + ṁ·cp·T_ref`. A zero load supplies air at the zone temperature.
+//! The outlet mixes the two decks' enthalpy and humidity ratio at those flows.
 
 use openbse_core::ports::ComponentKind;
+use openbse_psychrometrics::{self as psych, MoistAirState};
 use serde::{Deserialize, Serialize};
 
 fn default_submeter() -> String {
     "General".to_string()
 }
 
-fn default_min_flow_fraction() -> f64 {
-    0.20
-}
+/// Deck temperatures closer than this give no usable mix (E+ `SmallTempDiff`).
+const SMALL_TEMP_DIFF: f64 = 1.0e-5;
 
 /// CAV dual-duct mixing box terminal unit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,92 +32,79 @@ pub struct DualDuctBox {
     pub submeter: String,
     /// Design total supply flow [kg/s]
     pub design_flow: f64,
-    /// Minimum flow fraction for each damper [0-1], default 0.20
-    #[serde(default = "default_min_flow_fraction")]
-    pub min_flow_fraction: f64,
 
     // ─── Runtime state ───────────────────────────────────────────────────
-    /// Current hot deck flow contribution [kg/s]
+    /// Current hot deck flow [kg/s]
     #[serde(skip)]
     pub hot_flow: f64,
-    /// Current cold deck flow contribution [kg/s]
+    /// Current cold deck flow [kg/s]
     #[serde(skip)]
     pub cold_flow: f64,
-    /// Current blended supply temperature [°C]
+    /// Current mixed supply temperature [°C]
     #[serde(skip)]
     pub supply_temp: f64,
-    /// Current total supply mass flow [kg/s]
+    /// Current mixed supply humidity ratio [kg/kg]
     #[serde(skip)]
-    pub supply_mass_flow: f64,
+    pub supply_w: f64,
 }
 
 impl DualDuctBox {
-    /// Create a new dual-duct mixing box.
-    ///
-    /// # Arguments
-    /// * `name` - Component name
-    /// * `design_flow` - Design total supply flow rate [kg/s]
-    /// * `min_flow_fraction` - Minimum fraction of design_flow per damper [0-1]
-    pub fn new(name: &str, design_flow: f64, min_flow_fraction: f64) -> Self {
+    /// Create a new dual-duct mixing box with its design total flow [kg/s].
+    pub fn new(name: &str, design_flow: f64) -> Self {
         Self {
             name: name.to_string(),
             submeter: "General".to_string(),
             design_flow,
-            min_flow_fraction: min_flow_fraction.clamp(0.0, 0.5),
             hot_flow: 0.0,
             cold_flow: 0.0,
             supply_temp: 21.0,
-            supply_mass_flow: 0.0,
+            supply_w: 0.0,
         }
     }
 
-    /// Simulate the mixing box for one timestep.
-    ///
-    /// Determines damper positions from mode and PLR, then blends the two
-    /// deck temperatures proportionally to compute the mixed supply temperature.
-    ///
-    /// # Arguments
-    /// * `heating` - true when the zone needs heating
-    /// * `cooling` - true when the zone needs cooling
-    /// * `plr` - part-load ratio [0-1] (modulates the active damper)
-    /// * `hot_deck_temp` - temperature of the hot deck supply air [°C]
-    /// * `cold_deck_temp` - temperature of the cold deck supply air [°C]
-    ///
-    /// # Returns
-    /// `(supply_temp, total_mass_flow)` — blended supply temperature [°C] and
-    /// total supply mass flow rate [kg/s] (always equals design_flow).
-    pub fn simulate(
+    /// Split `flow` [kg/s] between the decks so the mixed air delivers `load`
+    /// [W, positive heating] to a zone at `t_ref` [°C], given the decks'
+    /// temperatures [°C]. Returns `(hot_flow, cold_flow)`.
+    pub fn set_flows(
         &mut self,
-        heating: bool,
-        cooling: bool,
-        plr: f64,
-        hot_deck_temp: f64,
-        cold_deck_temp: f64,
+        flow: f64,
+        load: f64,
+        t_ref: f64,
+        t_hot: f64,
+        t_cold: f64,
+        cp: f64,
     ) -> (f64, f64) {
-        let plr = plr.clamp(0.0, 1.0);
-        let min_flow = self.design_flow * self.min_flow_fraction;
-
-        if heating && !cooling {
-            // Heating: hot damper modulates open; cold damper takes remainder
-            self.hot_flow = min_flow + plr * (self.design_flow - min_flow);
-            self.cold_flow = self.design_flow - self.hot_flow;
-        } else if cooling && !heating {
-            // Cooling: cold damper modulates open; hot damper takes remainder
-            self.cold_flow = min_flow + plr * (self.design_flow - min_flow);
-            self.hot_flow = self.design_flow - self.cold_flow;
+        let flow = flow.max(0.0);
+        let cold = if flow <= 0.0 {
+            0.0
+        } else if (t_hot - t_cold).abs() > SMALL_TEMP_DIFF {
+            let t_target = t_ref + load / (flow * cp);
+            flow * (t_hot - t_target) / (t_hot - t_cold)
+        } else if load > 0.0 {
+            0.0
         } else {
-            // Deadband (or simultaneous — not physically valid): 50/50 split
-            self.hot_flow = self.design_flow / 2.0;
-            self.cold_flow = self.design_flow / 2.0;
-        }
+            flow
+        };
+        self.cold_flow = cold.clamp(0.0, flow);
+        self.hot_flow = flow - self.cold_flow;
+        (self.hot_flow, self.cold_flow)
+    }
 
-        // Blended supply temperature: energy-weighted mix
-        let total = self.design_flow.max(1e-6);
-        self.supply_temp =
-            (self.hot_flow * hot_deck_temp + self.cold_flow * cold_deck_temp) / total;
-        self.supply_mass_flow = self.design_flow;
-
-        (self.supply_temp, self.design_flow)
+    /// Mix the decks' actual states at the flows `set_flows` chose.
+    pub fn mix(&mut self, hot: &MoistAirState, cold: &MoistAirState) -> MoistAirState {
+        let total = self.hot_flow + self.cold_flow;
+        let (h, w) = if total > 0.0 {
+            (
+                (self.hot_flow * hot.h + self.cold_flow * cold.h) / total,
+                (self.hot_flow * hot.w + self.cold_flow * cold.w) / total,
+            )
+        } else {
+            ((hot.h + cold.h) / 2.0, (hot.w + cold.w) / 2.0)
+        };
+        let state = MoistAirState::new(psych::tdb_fn_h_w(h, w), w, cold.p_b);
+        self.supply_temp = state.t_db;
+        self.supply_w = state.w;
+        state
     }
 
     /// Component classification for energy accounting.
@@ -135,125 +120,77 @@ mod tests {
     const HOT: f64 = 38.0;
     const COLD: f64 = 13.0;
     const FLOW: f64 = 0.5; // kg/s
-    const MIN_FRAC: f64 = 0.20;
-    const TOL: f64 = 1e-6;
+    const CP: f64 = 1006.0;
 
-    fn make_box() -> DualDuctBox {
-        DualDuctBox::new("test-box", FLOW, MIN_FRAC)
+    fn deck(t: f64, w: f64) -> MoistAirState {
+        MoistAirState::new(t, w, 101_325.0)
     }
 
     #[test]
-    fn test_full_heating_plr1() {
-        let mut b = make_box();
-        let (supply_temp, total_flow) = b.simulate(true, false, 1.0, HOT, COLD);
-
-        // PLR=1 heating: hot damper fully open, cold at minimum
-        assert!(
-            (total_flow - FLOW).abs() < TOL,
-            "total flow must equal design_flow"
-        );
-        // hot_flow = min + 1.0*(design - min) = design_flow
-        // cold_flow = design_flow - design_flow = 0
-        let expected_hot = FLOW; // min + 1.0*(FLOW - FLOW*MIN_FRAC) = FLOW
-        let expected_cold = 0.0;
-        assert!(
-            (b.hot_flow - expected_hot).abs() < TOL,
-            "hot_flow = {}, expected {}",
-            b.hot_flow,
-            expected_hot
-        );
-        assert!(
-            (b.cold_flow - expected_cold).abs() < TOL,
-            "cold_flow = {}, expected {}",
-            b.cold_flow,
-            expected_cold
-        );
-        // Supply temp must equal hot deck (all hot air)
-        assert!(
-            (supply_temp - HOT).abs() < TOL,
-            "supply_temp = {}, expected {}",
-            supply_temp,
-            HOT
-        );
+    fn zero_load_supplies_air_at_the_zone_temperature() {
+        let mut b = DualDuctBox::new("b", FLOW);
+        let (hot, cold) = b.set_flows(FLOW, 0.0, 22.0, HOT, COLD, CP);
+        assert!((hot + cold - FLOW).abs() < 1e-12);
+        let out = b.mix(&deck(HOT, 0.008), &deck(COLD, 0.008));
+        assert!((out.t_db - 22.0).abs() < 0.05, "supply {}", out.t_db);
     }
 
     #[test]
-    fn test_full_cooling_plr1() {
-        let mut b = make_box();
-        let (supply_temp, total_flow) = b.simulate(false, true, 1.0, HOT, COLD);
-
-        assert!(
-            (total_flow - FLOW).abs() < TOL,
-            "total flow must equal design_flow"
-        );
-        // cold_flow = design_flow; hot_flow = 0
-        assert!(
-            (b.cold_flow - FLOW).abs() < TOL,
-            "cold_flow = {}, expected {}",
-            b.cold_flow,
-            FLOW
-        );
-        assert!((b.hot_flow).abs() < TOL, "hot_flow = {}", b.hot_flow);
-        assert!(
-            (supply_temp - COLD).abs() < TOL,
-            "supply_temp = {}, expected {}",
-            supply_temp,
-            COLD
-        );
+    fn small_loads_take_the_matching_deck() {
+        // A small cooling load cools and a small heating load heats: the
+        // supply sits just either side of the zone temperature.
+        let mut b = DualDuctBox::new("b", FLOW);
+        b.set_flows(FLOW, -200.0, 24.0, HOT, COLD, CP);
+        let cooling = b.mix(&deck(HOT, 0.008), &deck(COLD, 0.008)).t_db;
+        b.set_flows(FLOW, 200.0, 21.0, HOT, COLD, CP);
+        let heating = b.mix(&deck(HOT, 0.008), &deck(COLD, 0.008)).t_db;
+        assert!(cooling < 24.0 && cooling > 23.0, "cooling supply {cooling}");
+        assert!(heating > 21.0 && heating < 22.0, "heating supply {heating}");
     }
 
     #[test]
-    fn test_deadband_midpoint_blend() {
-        let mut b = make_box();
-        // Deadband: both dampers at 50/50
-        let (supply_temp, total_flow) = b.simulate(false, false, 0.0, HOT, COLD);
-
-        assert!(
-            (total_flow - FLOW).abs() < TOL,
-            "total flow must equal design_flow"
-        );
-        // 50/50 split → supply = midpoint
-        let expected_temp = (HOT + COLD) / 2.0;
-        assert!(
-            (supply_temp - expected_temp).abs() < TOL,
-            "supply_temp = {}, expected midpoint {}",
-            supply_temp,
-            expected_temp
-        );
+    fn the_mix_meets_the_load_within_the_decks() {
+        let mut b = DualDuctBox::new("b", FLOW);
+        for &(load, t_ref) in &[(3000.0, 21.0), (-4000.0, 24.0), (-1000.0, 24.0)] {
+            b.set_flows(FLOW, load, t_ref, HOT, COLD, CP);
+            let out = b.mix(&deck(HOT, 0.008), &deck(COLD, 0.008));
+            let delivered = FLOW * CP * (out.t_db - t_ref);
+            assert!(
+                (delivered - load).abs() < 0.01 * load.abs(),
+                "load {load}: delivered {delivered}"
+            );
+        }
     }
 
     #[test]
-    fn test_partial_heating_plr() {
-        let mut b = make_box();
-        let plr = 0.5;
-        let (supply_temp, total_flow) = b.simulate(true, false, plr, HOT, COLD);
+    fn loads_beyond_a_deck_take_all_of_that_deck() {
+        let mut b = DualDuctBox::new("b", FLOW);
+        assert_eq!(b.set_flows(FLOW, 1.0e6, 21.0, HOT, COLD, CP), (FLOW, 0.0));
+        assert_eq!(b.set_flows(FLOW, -1.0e6, 24.0, HOT, COLD, CP), (0.0, FLOW));
+    }
 
-        assert!(
-            (total_flow - FLOW).abs() < TOL,
-            "total flow must equal design_flow"
-        );
-        // hot_flow = min + 0.5*(design - min)
-        let min_flow = FLOW * MIN_FRAC;
-        let expected_hot = min_flow + plr * (FLOW - min_flow);
-        let expected_cold = FLOW - expected_hot;
-        let expected_temp = (expected_hot * HOT + expected_cold * COLD) / FLOW;
-        assert!(
-            (b.hot_flow - expected_hot).abs() < TOL,
-            "hot_flow mismatch: {} vs {}",
-            b.hot_flow,
-            expected_hot
-        );
-        assert!(
-            (supply_temp - expected_temp).abs() < TOL,
-            "supply_temp mismatch: {} vs {}",
-            supply_temp,
-            expected_temp
-        );
+    #[test]
+    fn equal_decks_pick_one_by_the_load_sign() {
+        let mut b = DualDuctBox::new("b", FLOW);
+        assert_eq!(b.set_flows(FLOW, 100.0, 21.0, 20.0, 20.0, CP), (FLOW, 0.0));
+        assert_eq!(b.set_flows(FLOW, -100.0, 21.0, 20.0, 20.0, CP), (0.0, FLOW));
+    }
+
+    #[test]
+    fn mixing_conserves_mass_moisture_and_enthalpy() {
+        let mut b = DualDuctBox::new("b", FLOW);
+        let (hot, cold) = b.set_flows(FLOW, 1500.0, 21.0, HOT, COLD, CP);
+        let (h_deck, c_deck) = (deck(HOT, 0.0080), deck(COLD, 0.0075));
+        let out = b.mix(&h_deck, &c_deck);
+        let enthalpy_in = hot * h_deck.h + cold * c_deck.h;
+        let water_in = hot * h_deck.w + cold * c_deck.w;
+        assert!((FLOW * out.h - enthalpy_in).abs() < 1e-6 * enthalpy_in.abs());
+        assert!((FLOW * out.w - water_in).abs() < 1e-12);
     }
 
     #[test]
     fn test_component_kind() {
-        let b = make_box();
+        let b = DualDuctBox::new("b", FLOW);
         assert_eq!(b.component_kind(), ComponentKind::DualDuctBox);
     }
 }
