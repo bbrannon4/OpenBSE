@@ -1683,17 +1683,6 @@ fn main() -> Result<()> {
             .iter()
             .map(|dhw_input| {
                 dhw_input.pump.as_ref().map(|p| {
-                    let pump_type = match p.pump_type.as_str() {
-                        "constant_speed" => openbse_components::pump::PumpType::ConstantSpeed,
-                        _ => openbse_components::pump::PumpType::VariableSpeed,
-                    };
-                    let power_curve = p.power_curve.as_ref().and_then(|v| {
-                        if v.len() >= 4 {
-                            Some([v[0], v[1], v[2], v[3]])
-                        } else {
-                            None
-                        }
-                    });
                     // Autosize design flow to sum of peak draw rates [L/s → m³/s]
                     let design_flow = if p.design_flow_rate.is_autosize() {
                         dhw_input
@@ -1704,18 +1693,7 @@ fn main() -> Result<()> {
                     } else {
                         p.design_flow_rate.to_f64()
                     };
-                    let mut pump = openbse_components::pump::Pump::new_headered(
-                        &p.name,
-                        pump_type,
-                        design_flow,
-                        p.design_head,
-                        p.motor_efficiency,
-                        p.impeller_efficiency,
-                        p.num_pumps,
-                        power_curve,
-                    );
-                    pump.motor_heat_to_fluid_fraction = p.motor_heat_to_fluid_fraction;
-                    pump
+                    p.build(design_flow)
                 })
             })
             .collect();
