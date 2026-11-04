@@ -301,30 +301,49 @@ with dry-bulb in place of the indoor wet-bulb for cooling
 ## Radiant panels {#sec-radiant-panel}
 
 **Source:** `openbse-components/src/radiant_panel.rs` (`RadiantPanel`);
-`main.rs` (`radiant_panel_plrs`, `radiant_panel_zone_loads`).
+`main.rs` (`radiant_panel_loads`, `radiant_panel_zone_loads`).
 
 A radiant panel is a hot-water, chilled-water or electric zone heater or
 cooler. Its output $\dot Q$ divides by the radiant fraction $f_r$ (default 0.5
 for hot water and electric, 0.7 for chilled ceilings):
 $\dot Q_\text{conv} = (1 - f_r)\dot Q$ goes to the zone air and
-$\dot Q_\text{rad} = f_r\dot Q$ to the surfaces (@sec-internal-gains). The
-output depends on the input:
+$\dot Q_\text{rad} = f_r\dot Q$ to the surfaces (@sec-internal-gains).
 
-- **Without `ua`, or electric:** load-controlled. Panels in a zone take the
-  load to setpoint in order, $\text{PLR} = \min(\dot Q_z/\dot Q_\text{cap}, 1)$.
-  Hot-water and chilled-water panels ignore the water temperature.
-- **With `ua`:** $\dot Q = UA(T_w - T_z)$, limited to the capacity. No
-  thermostat acts on it, so it runs whenever the water is hot or cold.
+Every panel meets its zone's load to setpoint up to what it can deliver.
+Panels in a zone take the load in input order, each up to its capacity
+$\dot Q_\text{avail}$:
+
+$$
+\dot Q = \min(\dot Q_z,\ \dot Q_\text{avail}), \qquad
+\dot Q_\text{avail} =
+\begin{cases}
+\dot Q_r & \text{electric},\\
+\operatorname{clamp}(UA\,(T_w - T_z),\ 0,\ \dot Q_r) & \text{hot water},\\
+\operatorname{clamp}(UA\,(T_z - T_w),\ 0,\ \dot Q_r) & \text{chilled water},
+\end{cases}
+$$ {#eq-radiant-panel}
+
+with $T_w$ the entering water temperature from the panel's plant loop and
+$T_z$ the zone air. Without a stated `ua`, the rated capacity $\dot Q_r$ is
+taken at the loop's design supply temperature $T_{w,d}$ and E+'s rating air
+temperatures: $UA = \dot Q_r/(T_{w,d} - 18)$ for hot water and
+$UA = \dot Q_r/(24 - T_{w,d})$ for chilled water; a loop on the wrong side of
+its rating air temperature is a severe input error. A water panel's entering
+temperature starts at $T_{w,d}$ and then follows its loop's supply.
 
 Electric panels draw $\dot Q$; water panels are loads on their plant loops.
 
 **Comparison with EnergyPlus.** `ZoneHVAC:Baseboard:RadiantConvective:Water`
-computes capacity from UA and the water temperature *and* meets the load up to
-that capacity; OpenBSE does one or the other
-([#58](https://github.com/bbrannon4/OpenBSE/issues/58)). EnergyPlus also
-distributes radiant output by user fractions to surfaces and people. There is
-no dew-point limit for chilled ceilings
-([#58](https://github.com/bbrannon4/OpenBSE/issues/58)).
+and `ZoneHVAC:CoolingPanel:RadiantConvective:Water` meet the load up to the
+capacity their water temperature allows, as @eq-radiant-panel does. Their
+capacity comes from effectiveness with the water flow, sized at rated average
+water temperature 87.78 °C and 18 °C air (baseboard) or 5 °C inlet water and
+24 °C space (cooling panel). OpenBSE uses $UA\,\Delta T$ on the entering water
+with no flow effect, rated at the loop's own design temperature, so a low-temperature
+loop's panel keeps its rated capacity at design. EnergyPlus also distributes
+radiant output to named surfaces and people by fraction, and limits chilled
+panels by the zone dew point; OpenBSE does neither
+([#363](https://github.com/bbrannon4/OpenBSE/issues/363)).
 
 ## Ground-source heat pumps {#sec-gshp-wshp}
 
@@ -402,8 +421,9 @@ differences in @sec-dx-cooling and @sec-chw-coil.
   curve axes and flow control.
 - [#364](https://github.com/bbrannon4/OpenBSE/issues/364): one fan-coil
   capacity-control method plus on/off cycling; no fan-coil outdoor-air mixer.
-- [#58](https://github.com/bbrannon4/OpenBSE/issues/58): radiant panels are
-  either thermostat-controlled or follow water temperature, not both.
+- [#363](https://github.com/bbrannon4/OpenBSE/issues/363): chilled ceilings have
+  no condensation limit; radiant panels have no per-surface distribution or
+  water-flow effect.
 - [#362](https://github.com/bbrannon4/OpenBSE/issues/362): ground-source heat
   pump has no ground-loop heat balance, EquationFit form or latent capacity.
 - [#361](https://github.com/bbrannon4/OpenBSE/issues/361): no water-source heat

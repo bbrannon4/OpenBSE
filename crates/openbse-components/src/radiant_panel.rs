@@ -9,16 +9,27 @@
 //!   Q_convective = Q_total × (1 - radiant_fraction)  → zone air directly
 //!   Q_radiant    = Q_total × radiant_fraction          → surfaces (via ZoneHvacConditions.radiant_gains)
 //!
-//! Water-source panels implement `PlantComponent` to participate in plant loops.
-//! Electric panels compute output from thermostat mode directly.
+//! Every panel meets its zone's load up to what it can deliver. An electric
+//! panel can deliver its rated capacity. A water panel can deliver
+//! UA·(T_water − T_zone) (heating) or UA·(T_zone − T_water) (cooling), up to its
+//! rated capacity, as E+'s water baseboard and cooling panel do. Without a
+//! stated UA, UA is the rated capacity over the rating temperature difference:
+//! the loop's design supply temperature against E+'s rating air temperatures
+//! (18 °C entering air for a baseboard, 24 °C space for a cooling panel).
 //!
 //! Default radiant fractions (matching ASHRAE HOF):
 //!   fin-tube / panel radiator: 0.50
 //!   chilled ceiling:           0.70
 
-use openbse_core::ports::*;
-use openbse_psychrometrics::FluidState;
+use openbse_core::ports::ComponentKind;
 use serde::{Deserialize, Serialize};
+
+/// Air temperature a hot-water panel's rated capacity is quoted at [°C]
+/// (E+ `ZoneHVAC:Baseboard:RadiantConvective:Water` sizing).
+pub const RATED_AIR_TEMP_HEATING: f64 = 18.0;
+/// Space temperature a chilled panel's rated capacity is quoted at [°C]
+/// (E+ `ZoneHVAC:CoolingPanel:RadiantConvective:Water` default).
+pub const RATED_AIR_TEMP_COOLING: f64 = 24.0;
 
 fn default_submeter() -> String {
     "General".to_string()
@@ -46,8 +57,8 @@ pub enum RadiantPanelSource {
 
 /// A radiant panel (fin-tube radiator, chilled ceiling, or electric radiant heater).
 ///
-/// Water-source panels implement `PlantComponent` and participate in hot or
-/// chilled water plant loops. Electric panels run standalone.
+/// Water-source panels draw on a hot or chilled water plant loop; electric
+/// panels run standalone.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RadiantPanel {
     pub name: String,
@@ -62,17 +73,20 @@ pub struct RadiantPanel {
     /// Fraction of total output that is radiant [0-1].
     /// Remainder is convective.
     pub radiant_fraction: f64,
-    /// Optional UA model [W/K].
-    /// When `Some(ua)`: Q_total = ua × (T_water - T_zone), capped at rated_capacity.
-    /// When `None`: Q_total = rated_capacity × PLR.
+    /// Water-to-zone conductance [W/K]; `None` derives it from the rated
+    /// capacity at the rating temperatures.
     #[serde(default)]
     pub ua: Option<f64>,
+    /// Water temperature the rated capacity is quoted at [°C]: the plant
+    /// loop's design supply temperature.
+    #[serde(default)]
+    pub rated_water_temp: f64,
 
     // ─── Runtime state ──────────────────────────────────────────────────
     /// Entering water temperature for this timestep [°C] (water-source only).
     #[serde(skip)]
     pub entering_water_temp: f64,
-    /// Part-load ratio [0-1] (electric/PLR-mode panels).
+    /// Output over rated capacity [0-1].
     #[serde(skip)]
     pub plr: f64,
     /// Electric power consumed this timestep [W].
@@ -101,6 +115,7 @@ impl RadiantPanel {
             rated_capacity,
             radiant_fraction: default_hot_water_radiant_fraction(),
             ua,
+            rated_water_temp: 60.0,
             entering_water_temp: 60.0,
             plr: 0.0,
             power: 0.0,
@@ -120,6 +135,7 @@ impl RadiantPanel {
             rated_capacity,
             radiant_fraction: default_chilled_ceiling_radiant_fraction(),
             ua,
+            rated_water_temp: 10.0,
             entering_water_temp: 10.0,
             plr: 0.0,
             power: 0.0,
@@ -139,6 +155,7 @@ impl RadiantPanel {
             rated_capacity,
             radiant_fraction: default_hot_water_radiant_fraction(),
             ua: None,
+            rated_water_temp: 0.0,
             entering_water_temp: 0.0,
             plr: 0.0,
             power: 0.0,
@@ -161,169 +178,57 @@ impl RadiantPanel {
         self.radiant_output = q * self.radiant_fraction;
     }
 
-    /// Compute output using UA model (water-source panels).
-    ///
-    /// `t_water` = entering water temperature [°C]
-    /// `t_zone`  = current zone air temperature [°C]
-    /// `ua`      = effective UA [W/K]
-    ///
-    /// Returns Q [W] (positive = heat into zone for HW; negative for CHW).
-    pub fn simulate_water_ua(&mut self, t_water: f64, t_zone: f64) {
-        self.entering_water_temp = t_water;
-        let ua = self.ua.unwrap_or(self.rated_capacity / 40.0_f64.max(1.0));
-        let q_raw = ua * (t_water - t_zone);
-        // Cap magnitude at rated capacity; preserve sign for cooling.
-        let q = if q_raw.abs() > self.rated_capacity {
-            q_raw.signum() * self.rated_capacity
-        } else {
-            q_raw
-        };
-        self.thermal_output_to_zone = q;
-        self.convective_output = q * (1.0 - self.radiant_fraction);
-        self.radiant_output = q * self.radiant_fraction;
-        self.power = 0.0;
-        self.plr = (q.abs() / self.rated_capacity.max(1.0)).clamp(0.0, 1.0);
-    }
-
-    /// Compute output using PLR model (water-source without UA).
-    ///
-    /// `plr` = requested part-load ratio [0, 1].
-    /// Sign convention: positive = heating, negative = cooling.
-    pub fn simulate_water_plr(&mut self, t_water: f64, plr: f64) {
-        self.entering_water_temp = t_water;
-        self.plr = plr.clamp(0.0, 1.0);
-        let q = match self.source {
-            RadiantPanelSource::ChilledWater => -(self.rated_capacity * self.plr),
-            _ => self.rated_capacity * self.plr,
-        };
-        self.thermal_output_to_zone = q;
-        self.convective_output = q * (1.0 - self.radiant_fraction);
-        self.radiant_output = q * self.radiant_fraction;
-        self.power = 0.0;
-    }
-}
-
-// ─── PlantComponent for water-source panels ──────────────────────────────────
-
-impl PlantComponent for RadiantPanel {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn component_kind(&self) -> ComponentKind {
-        ComponentKind::RadiantPanel
-    }
-
-    fn rated_capacity(&self) -> f64 {
-        self.rated_capacity
-    }
-
-    /// Simulate water-source panel for one timestep.
-    ///
-    /// `load` = requested thermal load [W] (positive = zone needs heating, negative = cooling).
-    /// Returns outlet water conditions after heat exchange.
-    fn simulate_plant(
-        &mut self,
-        inlet: &WaterPort,
-        load: f64,
-        _ctx: &SimulationContext,
-    ) -> WaterPort {
-        if load.abs() < 1.0 || inlet.state.mass_flow <= 0.0 {
-            self.thermal_output_to_zone = 0.0;
-            self.convective_output = 0.0;
-            self.radiant_output = 0.0;
-            self.power = 0.0;
-            self.plr = 0.0;
-            return *inlet;
+    /// Water-to-zone conductance [W/K]: the stated UA, else the rated capacity
+    /// over the rating temperature difference (0 when the loop's design
+    /// temperature can't deliver heat at the rating point; validation
+    /// rejects that).
+    pub fn effective_ua(&self) -> f64 {
+        if let Some(ua) = self.ua {
+            return ua;
         }
-
-        self.entering_water_temp = inlet.state.temp;
-
-        // UA model or PLR model depending on configuration.
-        let q = if let Some(ua) = self.ua {
-            // UA model: estimate zone temp from supply water temp.
-            // Zone temp not available in plant interface; use UA directly with
-            // inlet water and cap at rated capacity.
-            let q_ua = ua * (inlet.state.temp - 20.0); // 20°C nominal zone temp
-            let q_cap = q_ua.abs().min(self.rated_capacity) * q_ua.signum();
-            // Respect requested load direction and cap
-            if load.signum() == q_cap.signum() {
-                if q_cap.abs() < load.abs() {
-                    q_cap
-                } else {
-                    load.signum() * load.abs().min(q_cap.abs())
-                }
-            } else {
-                0.0
-            }
-        } else {
-            // PLR model: deliver requested load up to rated capacity.
-            let q_max = match self.source {
-                RadiantPanelSource::ChilledWater => -self.rated_capacity,
-                _ => self.rated_capacity,
-            };
-            if load.signum() == q_max.signum() || q_max == 0.0 {
-                let magnitude = load.abs().min(self.rated_capacity);
-                load.signum() * magnitude
-            } else {
-                0.0
-            }
+        let dt = match self.source {
+            RadiantPanelSource::ChilledWater => RATED_AIR_TEMP_COOLING - self.rated_water_temp,
+            _ => self.rated_water_temp - RATED_AIR_TEMP_HEATING,
         };
+        if dt > 0.0 {
+            self.rated_capacity / dt
+        } else {
+            0.0
+        }
+    }
 
+    /// Heat [W, magnitude] the panel can deliver into a zone at `t_zone`
+    /// from water entering at `t_water`: UA times the driving difference, up
+    /// to the rated capacity. An electric panel can deliver its rated
+    /// capacity.
+    pub fn capacity(&self, t_water: f64, t_zone: f64) -> f64 {
+        let dt = match self.source {
+            RadiantPanelSource::Electric => return self.rated_capacity.max(0.0),
+            RadiantPanelSource::ChilledWater => t_zone - t_water,
+            RadiantPanelSource::HotWater => t_water - t_zone,
+        };
+        (self.effective_ua() * dt).clamp(0.0, self.rated_capacity.max(0.0))
+    }
+
+    /// Water panel: deliver `load` [W, magnitude, heating for hot water and
+    /// cooling for chilled water] up to what the water can deliver.
+    pub fn simulate_water(&mut self, t_water: f64, t_zone: f64, load: f64) {
+        self.entering_water_temp = t_water;
+        let magnitude = load.max(0.0).min(self.capacity(t_water, t_zone));
+        let q = match self.source {
+            RadiantPanelSource::ChilledWater => -magnitude,
+            _ => magnitude,
+        };
         self.thermal_output_to_zone = q;
         self.convective_output = q * (1.0 - self.radiant_fraction);
         self.radiant_output = q * self.radiant_fraction;
-        self.plr = (q.abs() / self.rated_capacity.max(1.0)).clamp(0.0, 1.0);
         self.power = 0.0;
-
-        // Compute outlet water temperature from energy balance.
-        let cp = inlet.state.cp;
-        let m = inlet.state.mass_flow;
-        // Heat removed from water = Q delivered to zone (water cools for HW, warms for CHW).
-        let dt = -q / (m * cp).max(1e-6);
-        let t_out = inlet.state.temp + dt;
-
-        WaterPort::new(FluidState::water(t_out, m))
+        self.plr = (magnitude / self.rated_capacity.max(1.0)).clamp(0.0, 1.0);
     }
 
-    fn power_consumption(&self) -> f64 {
-        self.power
-    }
-
-    fn thermal_output(&self) -> f64 {
-        self.thermal_output_to_zone
-    }
-
-    fn nominal_capacity(&self) -> Option<f64> {
-        Some(self.rated_capacity)
-    }
-
-    fn set_nominal_capacity(&mut self, cap: f64) {
-        self.rated_capacity = cap;
-    }
-
-    fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
-        out("plr", self.plr);
-        out("radiant_output", self.radiant_output.max(0.0));
-        out("convective_output", self.convective_output.max(0.0));
-        out("entering_water_temp", self.entering_water_temp);
-        out(
-            "radiant_panel_heating_rate",
-            if self.thermal_output_to_zone > 0.0 {
-                self.thermal_output_to_zone
-            } else {
-                0.0
-            },
-        );
-        out(
-            "radiant_panel_cooling_rate",
-            if self.thermal_output_to_zone < 0.0 {
-                -self.thermal_output_to_zone
-            } else {
-                0.0
-            },
-        );
-        out("radiant_panel_electric_power", self.power);
+    /// Component classification for energy accounting.
+    pub fn component_kind(&self) -> ComponentKind {
+        ComponentKind::RadiantPanel
     }
 }
 
@@ -331,79 +236,28 @@ impl PlantComponent for RadiantPanel {
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
-    use openbse_core::ports::SizingInternalGains;
-    use openbse_core::types::{DayType, TimeStep};
-    use openbse_psychrometrics::MoistAirState;
-
-    fn make_ctx() -> SimulationContext {
-        SimulationContext {
-            timestep: TimeStep {
-                month: 1,
-                day: 15,
-                hour: 8,
-                sub_hour: 1,
-                timesteps_per_hour: 1,
-                sim_time_s: 0.0,
-                dt: 3600.0,
-            },
-            outdoor_air: MoistAirState::from_tdb_rh(-5.0, 0.80, 101325.0),
-            day_type: DayType::WeatherDay,
-            is_sizing: false,
-            sizing_internal_gains: SizingInternalGains::Full,
-        }
-    }
 
     #[test]
     fn test_hot_water_radiant_convective_split() {
         // Verify heating output splits correctly: 50% radiant, 50% convective (default).
-        let mut panel = RadiantPanel::new_hot_water("HW-Panel-1", "Room", 2000.0, None);
-        let inlet = WaterPort::new(FluidState::water(70.0, 0.05)); // 70°C hot water
-        let ctx = make_ctx();
+        let mut panel = RadiantPanel::new_hot_water("HW-Panel-1", "Room", 2000.0, Some(100.0));
+        panel.simulate_water(70.0, 20.0, 1000.0);
 
-        // Request 1000W heating from plant
-        let _outlet = panel.simulate_plant(&inlet, 1000.0, &ctx);
-
-        assert!(
-            panel.thermal_output_to_zone > 0.0,
-            "Heating must deliver positive heat"
-        );
-        assert_relative_eq!(
-            panel.radiant_output,
-            panel.thermal_output_to_zone * 0.5,
-            max_relative = 0.01
-        );
-        assert_relative_eq!(
-            panel.convective_output,
-            panel.thermal_output_to_zone * 0.5,
-            max_relative = 0.01
-        );
-        assert_relative_eq!(
-            panel.radiant_output + panel.convective_output,
-            panel.thermal_output_to_zone,
-            max_relative = 0.001
-        );
+        assert_relative_eq!(panel.thermal_output_to_zone, 1000.0, max_relative = 1e-9);
+        assert_relative_eq!(panel.radiant_output, 500.0, max_relative = 1e-9);
+        assert_relative_eq!(panel.convective_output, 500.0, max_relative = 1e-9);
     }
 
     #[test]
     fn test_chilled_water_cooling_mode() {
-        // Chilled ceiling panel should deliver cooling (negative Q to zone).
+        // Chilled ceiling panel delivers cooling (negative Q to zone).
         let mut panel = RadiantPanel::new_chilled_water("CHW-Panel-1", "Room", 3000.0, None);
-        let inlet = WaterPort::new(FluidState::water(8.0, 0.1)); // 8°C chilled water
-        let ctx = make_ctx();
+        panel.rated_water_temp = 14.0;
+        panel.simulate_water(14.0, 25.0, 2000.0);
 
-        // Request 2000W cooling (negative load for cooling)
-        let _outlet = panel.simulate_plant(&inlet, -2000.0, &ctx);
-
-        assert!(
-            panel.thermal_output_to_zone < 0.0,
-            "Chilled panel must deliver negative Q (cooling)"
-        );
+        assert_relative_eq!(panel.thermal_output_to_zone, -2000.0, max_relative = 1e-9);
         assert_relative_eq!(panel.radiant_fraction, 0.70, max_relative = 0.001);
-        assert_relative_eq!(
-            panel.radiant_output.abs(),
-            panel.thermal_output_to_zone.abs() * 0.70,
-            max_relative = 0.01
-        );
+        assert_relative_eq!(panel.radiant_output, -1400.0, max_relative = 1e-9);
     }
 
     #[test]
@@ -419,44 +273,41 @@ mod tests {
         assert_relative_eq!(panel.convective_output, 750.0, max_relative = 0.001);
     }
 
+    /// A UA panel is thermostatic: it meets the load, and only the load,
+    /// up to UA·ΔT.
     #[test]
-    fn test_hot_water_ua_model() {
-        // UA model: Q = ua × (T_water - T_zone), capped at rated_capacity.
+    fn ua_panel_meets_the_load_up_to_ua_times_dt() {
         let mut panel = RadiantPanel::new_hot_water("HW-UA", "Room", 5000.0, Some(100.0));
-        // With T_water=60°C, T_zone=20°C: Q = 100 × 40 = 4000W < 5000W cap
-        panel.simulate_water_ua(60.0, 20.0);
-
-        assert_relative_eq!(panel.thermal_output_to_zone, 4000.0, max_relative = 0.001);
-        assert_relative_eq!(panel.entering_water_temp, 60.0, max_relative = 0.001);
-    }
-
-    #[test]
-    fn test_water_outlet_temp_energy_balance() {
-        // Verify outlet water temperature is computed correctly from energy balance.
-        let mut panel = RadiantPanel::new_hot_water("HW-Balance", "Room", 3000.0, None);
-        let m_dot = 0.1; // kg/s
-        let cp = 4186.0; // J/(kg·K)
-        let inlet = WaterPort::new(FluidState::water(70.0, m_dot));
-        let ctx = make_ctx();
-
-        let outlet = panel.simulate_plant(&inlet, 2000.0, &ctx);
-
-        // Expected outlet temp: T_in - Q/(m*cp) = 70 - 2000/(0.1*4186)
-        let expected_dt = 2000.0 / (m_dot * cp);
-        let expected_t_out = 70.0 - expected_dt;
-        assert_relative_eq!(outlet.state.temp, expected_t_out, max_relative = 0.01);
-    }
-
-    #[test]
-    fn test_zero_flow_no_output() {
-        // Zero water flow → no thermal output.
-        let mut panel = RadiantPanel::new_hot_water("HW-Zero", "Room", 3000.0, None);
-        let inlet = WaterPort::new(FluidState::water(70.0, 0.0));
-        let ctx = make_ctx();
-
-        let _outlet = panel.simulate_plant(&inlet, 2000.0, &ctx);
-
+        panel.simulate_water(60.0, 20.0, 1500.0);
+        assert_relative_eq!(panel.thermal_output_to_zone, 1500.0, max_relative = 1e-9);
+        panel.simulate_water(60.0, 20.0, 9000.0);
+        assert_relative_eq!(panel.thermal_output_to_zone, 4000.0, max_relative = 1e-9);
+        panel.simulate_water(60.0, 20.0, 0.0);
         assert_eq!(panel.thermal_output_to_zone, 0.0);
-        assert_eq!(panel.plr, 0.0);
+    }
+
+    /// Without a stated UA the output still collapses as the water cools:
+    /// rated at the loop's design temperature and E+'s 18 °C rating air.
+    #[test]
+    fn output_follows_the_water_temperature_without_a_stated_ua() {
+        let mut panel = RadiantPanel::new_hot_water("HW", "Room", 2500.0, None);
+        panel.rated_water_temp = 82.0;
+        assert_relative_eq!(panel.capacity(82.0, 18.0), 2500.0, max_relative = 1e-9);
+        assert_relative_eq!(
+            panel.capacity(50.0, 18.0),
+            2500.0 * 32.0 / 64.0,
+            max_relative = 1e-9
+        );
+        assert_eq!(
+            panel.capacity(30.0, 31.0),
+            0.0,
+            "water colder than the zone heats nothing"
+        );
+        panel.simulate_water(30.0, 20.0, 2500.0);
+        assert_relative_eq!(
+            panel.thermal_output_to_zone,
+            2500.0 * 10.0 / 64.0,
+            max_relative = 1e-9
+        );
     }
 }

@@ -2356,7 +2356,7 @@
         "rated_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated capacity [W] or 'autosize'." },
         "radiant_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Radiant fraction of output [0-1]. Default 0.5 (hot_water/electric), 0.7 (chilled_water)." },
         "plant_loop": { "type": "string", "description": "Plant loop name (required for hot_water and chilled_water when the model has plant loops)." },
-        "ua": { "type": "number", "description": "Optional UA [W/K]; output becomes UA x (T_water - T_zone) instead of PLR x rated_capacity." }
+        "ua": { "type": "number", "description": "Water-to-zone conductance [W/K]. The panel meets its zone load up to UA x (T_water - T_zone) and its rated capacity. Default: rated capacity over (loop design supply temperature - 18 C) for heating, or (24 C - loop design supply temperature) for cooling (E+ rating points)." }
       }
     },
 

@@ -1739,6 +1739,12 @@ fn main() -> Result<()> {
                 };
                 let cap = rp.rated_capacity.to_f64();
                 let rf = rp.effective_radiant_fraction();
+                // Rated at, and starting from, its loop's design supply water.
+                let design_water = rp
+                    .plant_loop
+                    .as_deref()
+                    .and_then(|l| model.plant_loops.iter().find(|pl| pl.name == l))
+                    .map_or(0.0, |pl| pl.design_supply_temp);
                 RadiantPanel {
                     name: rp.name.clone(),
                     submeter: rp.submeter.clone(),
@@ -1747,7 +1753,8 @@ fn main() -> Result<()> {
                     rated_capacity: cap,
                     radiant_fraction: rf,
                     ua: rp.ua,
-                    entering_water_temp: 0.0,
+                    rated_water_temp: design_water,
+                    entering_water_temp: design_water,
                     plr: 0.0,
                     power: 0.0,
                     thermal_output_to_zone: 0.0,
@@ -3230,7 +3237,7 @@ fn main() -> Result<()> {
                         // unmet after each envelope solve. Controlled on the
                         // in-iteration air temperature instead, they flipped on
                         // and off between iterations.
-                        let mut panel_plrs = radiant_panel_plrs(
+                        let mut panel_loads = radiant_panel_loads(
                             &radiant_panels,
                             &radiant_panel_zone_loads(
                                 &radiant_panels,
@@ -3239,6 +3246,7 @@ fn main() -> Result<()> {
                                 zone_cooling_setpoints,
                                 |rp| rp.convective_output,
                             ),
+                            &current_zone_temps,
                         );
                         // VRF indoor units hold the mode the predictor calls for
                         // (#170); their load follows each envelope solve.
@@ -3327,22 +3335,15 @@ fn main() -> Result<()> {
 
                             // Radiant panels run before the plant, so the plant
                             // supplies what the zones receive this iteration.
-                            for (rp, plr) in radiant_panels.iter_mut().zip(&panel_plrs) {
+                            for (rp, &load) in radiant_panels.iter_mut().zip(&panel_loads) {
                                 use openbse_components::radiant_panel::RadiantPanelSource;
-                                let t_water = rp.entering_water_temp;
-                                match (rp.source, plr) {
-                                    (RadiantPanelSource::Electric, _) => {
-                                        rp.simulate_electric(plr.unwrap_or(0.0))
-                                    }
-                                    (_, Some(plr)) => rp.simulate_water_plr(t_water, *plr),
-                                    // UA panels follow the water-to-air ΔT (#58).
-                                    (_, None) => {
-                                        let t_zone = current_zone_temps
-                                            .get(&rp.zone)
-                                            .copied()
-                                            .unwrap_or(21.0);
-                                        rp.simulate_water_ua(t_water, t_zone);
-                                    }
+                                if rp.source == RadiantPanelSource::Electric {
+                                    rp.simulate_electric(load / rp.rated_capacity.max(1.0));
+                                } else {
+                                    let t_water = rp.entering_water_temp;
+                                    let t_zone =
+                                        current_zone_temps.get(&rp.zone).copied().unwrap_or(21.0);
+                                    rp.simulate_water(t_water, t_zone, load);
                                 }
                             }
 
@@ -4057,7 +4058,7 @@ fn main() -> Result<()> {
                             // share reaches it only through the surfaces), so the
                             // correction approaches the load from one side.
                             if !radiant_panels.is_empty() {
-                                panel_plrs = radiant_panel_plrs(
+                                panel_loads = radiant_panel_loads(
                                     &radiant_panels,
                                     &radiant_panel_zone_loads(
                                         &radiant_panels,
@@ -4066,6 +4067,7 @@ fn main() -> Result<()> {
                                         zone_cooling_setpoints,
                                         |rp| rp.thermal_output_to_zone,
                                     ),
+                                    &env_result.zone_temps,
                                 );
                             }
 
@@ -8958,31 +8960,33 @@ fn radiant_panel_zone_loads(
     loads
 }
 
-/// Part-load ratio of each radiant panel that meets its zone's load, `None`
-/// for UA panels, whose output follows the water-to-zone ΔT instead (#58).
-/// Panels in one zone take the load in input order.
-fn radiant_panel_plrs(
+/// The load [W, magnitude] each radiant panel takes of its zone's heating
+/// (hot water, electric) or cooling (chilled water) load: in input order, each
+/// takes what remains up to what it can deliver, an electric panel its rated
+/// capacity and a water panel UA·ΔT at the zone's temperature.
+fn radiant_panel_loads(
     panels: &[openbse_components::radiant_panel::RadiantPanel],
     zone_loads: &HashMap<String, (f64, f64)>,
-) -> Vec<Option<f64>> {
+    zone_temps: &HashMap<String, f64>,
+) -> Vec<f64> {
     use openbse_components::radiant_panel::RadiantPanelSource;
     let mut remaining = zone_loads.clone();
     panels
         .iter()
         .map(|rp| {
-            if rp.ua.is_some() && rp.source != RadiantPanelSource::Electric {
-                return None;
-            }
             let Some((heat, cool)) = remaining.get_mut(&rp.zone) else {
-                return Some(0.0);
+                return 0.0;
             };
             let load = match rp.source {
                 RadiantPanelSource::ChilledWater => cool,
                 _ => heat,
             };
-            let plr = (*load / rp.rated_capacity.max(1.0)).clamp(0.0, 1.0);
-            *load -= plr * rp.rated_capacity;
-            Some(plr)
+            let t_zone = zone_temps.get(&rp.zone).copied().unwrap_or(21.0);
+            let taken = load
+                .min(rp.capacity(rp.entering_water_temp, t_zone))
+                .max(0.0);
+            *load -= taken;
+            taken
         })
         .collect()
 }
@@ -9436,28 +9440,52 @@ mod radiant_panel_control_tests {
     use super::*;
     use openbse_components::radiant_panel::RadiantPanel;
 
+    fn hot(name: &str, ua: Option<f64>) -> RadiantPanel {
+        let mut p = RadiantPanel::new_hot_water(name, "Z", 1000.0, ua);
+        p.rated_water_temp = 82.0;
+        p.entering_water_temp = 82.0;
+        p
+    }
+
     #[test]
     fn panels_in_one_zone_take_the_load_in_order() {
         let panels = vec![
-            RadiantPanel::new_hot_water("a", "Z", 1000.0, None),
-            RadiantPanel::new_hot_water("b", "Z", 1000.0, None),
+            hot("a", None),
+            hot("b", None),
             RadiantPanel::new_chilled_water("c", "Z", 1000.0, None),
-            RadiantPanel::new_hot_water("ua", "Z", 1000.0, Some(50.0)),
+            hot("ua", Some(50.0)),
             RadiantPanel::new_electric("e", "Other", 500.0),
         ];
-        let loads = HashMap::from([("Z".to_string(), (1500.0, 0.0))]);
-        let plrs = radiant_panel_plrs(&panels, &loads);
-        // The first panel runs flat out, the second takes the rest, the
-        // chilled panel has no cooling load, the UA panel isn't load-controlled,
-        // and a zone without a load leaves its panel off.
-        assert_eq!(plrs, vec![Some(1.0), Some(0.5), Some(0.0), None, Some(0.0)]);
+        let loads = HashMap::from([("Z".to_string(), (2500.0, 0.0))]);
+        let temps = HashMap::from([("Z".to_string(), 18.0)]);
+        // The first panel runs flat out, the second takes 1000 W too, the
+        // chilled panel has no cooling load, the UA panel takes the remaining
+        // 500 W (within its 50 × 64 K), and a zone without a load leaves its
+        // panel off.
+        assert_eq!(
+            radiant_panel_loads(&panels, &loads, &temps),
+            vec![1000.0, 1000.0, 0.0, 500.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn a_panel_takes_only_what_its_water_can_deliver() {
+        // Water at 50 °C into a zone at 18 °C: half the 64 K rating difference.
+        let mut panel = hot("a", None);
+        panel.entering_water_temp = 50.0;
+        let loads = HashMap::from([("Z".to_string(), (2000.0, 0.0))]);
+        let temps = HashMap::from([("Z".to_string(), 18.0)]);
+        assert_eq!(radiant_panel_loads(&[panel], &loads, &temps), vec![500.0]);
     }
 
     #[test]
     fn chilled_panel_meets_the_cooling_load() {
-        let panels = vec![RadiantPanel::new_chilled_water("c", "Z", 2000.0, None)];
+        let mut panel = RadiantPanel::new_chilled_water("c", "Z", 2000.0, None);
+        panel.rated_water_temp = 14.0;
+        panel.entering_water_temp = 14.0;
         let loads = HashMap::from([("Z".to_string(), (0.0, 500.0))]);
-        assert_eq!(radiant_panel_plrs(&panels, &loads), vec![Some(0.25)]);
+        let temps = HashMap::from([("Z".to_string(), 25.0)]);
+        assert_eq!(radiant_panel_loads(&[panel], &loads, &temps), vec![500.0]);
     }
 }
 

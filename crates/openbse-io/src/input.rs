@@ -3085,8 +3085,10 @@ pub struct RadiantPanelInput {
     /// Plant loop name (required for hot_water and chilled_water panels).
     #[serde(default)]
     pub plant_loop: Option<String>,
-    /// Optional UA value [W/K].
-    /// When set, Q = ua × (T_water - T_zone) instead of PLR × rated_capacity.
+    /// Water-to-zone conductance [W/K]. The panel meets its zone's load up to
+    /// ua × (T_water − T_zone) and its rated capacity. Default: the rated
+    /// capacity over the loop's design supply temperature less 18 °C (heating)
+    /// or 24 °C less it (cooling).
     #[serde(default)]
     pub ua: Option<f64>,
 }
@@ -5007,6 +5009,35 @@ fn validate_recirculating_loops(model: &ModelInput, result: &mut ValidationResul
     }
 }
 
+/// A water panel without a stated `ua` is rated at its loop's design supply
+/// temperature against E+'s rating air temperatures (18 °C for heating, 24 °C
+/// for cooling); a loop on the wrong side of that delivers nothing.
+fn validate_radiant_panel_rating(model: &ModelInput, result: &mut ValidationResult) {
+    for rp in model.radiant_panels.iter().filter(|rp| rp.ua.is_none()) {
+        let Some(pl) = rp
+            .plant_loop
+            .as_deref()
+            .and_then(|l| model.plant_loops.iter().find(|pl| pl.name == l))
+        else {
+            continue;
+        };
+        let t = pl.design_supply_temp;
+        let unusable = match rp.source {
+            RadiantPanelSourceInput::HotWater => t <= 18.0,
+            RadiantPanelSourceInput::ChilledWater => t >= 24.0,
+            RadiantPanelSourceInput::Electric => false,
+        };
+        if unusable {
+            result.severe(format!(
+                "Radiant panel '{}' has no ua, so its capacity is rated at plant loop '{}''s \
+                 design supply temperature ({t} °C) against 18 °C air for heating or 24 °C \
+                 for cooling, where it delivers nothing: give it a ua",
+                rp.name, pl.name
+            ));
+        }
+    }
+}
+
 /// Validate all cross-references in a parsed model.
 ///
 /// Checks that every zone name, zone group name, and schedule name referenced
@@ -5750,6 +5781,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     validate_dual_duct_loops(model, &mut result);
     validate_recirculating_loops(model, &mut result);
     validate_no_wshp(model, &mut result);
+    validate_radiant_panel_rating(model, &mut result);
 
     // ── Validate window shading controls ───────────────────────────────────
 
