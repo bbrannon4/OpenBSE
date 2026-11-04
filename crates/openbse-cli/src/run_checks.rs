@@ -472,7 +472,7 @@ impl RunChecks {
         }
         balances(
             &mut push,
-            Severity::Warning,
+            Severity::Severe,
             &self.air_components,
             "Air component '{}': air enthalpy change ṁ·Δh differs from its thermal_output",
         );
@@ -726,7 +726,7 @@ mod tests {
         )]);
         c.components(&outputs, 0.25, now());
         let v = report(&c);
-        assert_eq!(v.warning_count(), 1, "{}", v.to_err_file());
+        assert_eq!(v.error_count(), 1, "{}", v.to_err_file());
         assert!(v.to_err_file().contains("'Humidifier'"));
     }
 
