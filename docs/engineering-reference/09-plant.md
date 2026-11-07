@@ -11,7 +11,8 @@ Each HVAC iteration, each plant loop is solved from its load, in order.
 coils and hot-water reheat terminals on it, each multiplied by its zone
 multiplier, plus its water-source radiant panels. Heating is positive and
 cooling negative. A condenser loop instead takes the heat rejected by the
-chillers on it, $\sum(\dot Q_\text{ch} + P_\text{ch} - \dot Q_\text{rec})$.
+chillers on it, $\sum(\dot Q_\text{ch} + P_\text{ch} + \dot Q_\text{false} - \dot Q_\text{rec})$,
+with the false load of @eq-chiller.
 
 **Coils.** Before the air side runs, each water coil and hot-water reheat
 terminal on the loop gets the loop's supply water: up to its design water flow
@@ -214,8 +215,6 @@ on Condenser Entering Temperature"]. The differences are
   the condenser temperature above. Both evaluate the curves at the leaving
   chilled-water setpoint.
 - EnergyPlus requires the curves.
-- The condenser loop's load leaves out the false load, so energy doesn't close
-  while false-loading.
 - OpenBSE has no air-cooled condenser fan power ratio.
 
 ## ASHRAE 205 chillers {#sec-chiller-a205}

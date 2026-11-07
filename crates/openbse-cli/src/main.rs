@@ -3392,8 +3392,9 @@ fn main() -> Result<()> {
 
                                 // 2b. Condenser demand: sum heat rejection from chillers
                                 //    whose condenser_plant_loop references this loop.
-                                //    Q_cond = Q_evap + W_compressor (already-simulated
-                                //    chillers from upstream loops in topo order).
+                                //    Q_cond = Q_evap + W_compressor + Q_false - Q_recovered
+                                //    (already-simulated chillers from upstream loops in
+                                //    topo order).
                                 let mut condenser_load = 0.0_f64;
                                 for other_loop in &model.plant_loops {
                                     for eq in &other_loop.supply_equipment {
@@ -3407,20 +3408,12 @@ fn main() -> Result<()> {
                                                     .component_outputs
                                                     .get(c.name.as_str())
                                                 {
-                                                    let thermal = outputs
-                                                        .get("thermal_output")
+                                                    // Cooling, power and any false
+                                                    // load, less heat recovered.
+                                                    condenser_load += outputs
+                                                        .get("condenser_heat_rate")
                                                         .copied()
                                                         .unwrap_or(0.0);
-                                                    let electric = outputs
-                                                        .get("electric_power")
-                                                        .copied()
-                                                        .unwrap_or(0.0);
-                                                    let recovered = outputs
-                                                        .get("heat_recovery_rate")
-                                                        .copied()
-                                                        .unwrap_or(0.0);
-                                                    condenser_load +=
-                                                        thermal + electric - recovered;
                                                 }
                                             }
                                         }
