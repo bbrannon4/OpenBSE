@@ -223,8 +223,19 @@ on Condenser Entering Temperature"]. The differences are
 
 A chiller with an `a205_file` reads a Standard 205 RS0001 map [@ashrae205] of
 net capacity and power against the evaporator and condenser states and the
-compressor sequence. The PLR is the load over the full-sequence capacity, mapped
-to a sequence, with cycling below the minimum. The condenser temperature follows @sec-chiller. The map is queried at the file's evaporator and condenser flows.
+compressor sequence, at the loop's supply setpoint and the condenser temperature
+of @sec-chiller. The chiller meets the load exactly:
+
+- below the first stage's capacity $\dot Q_1$ it cycles that stage, at power
+  $P_1c/(1 - C_d(1 - c))$ with $c = \dot Q/\dot Q_1$ and the file's cycling
+  degradation coefficient $C_d$;
+- with continuous control, it runs at the sequence whose capacity is the load;
+- with discrete stages, it cycles between the two stages that bracket the load,
+  at power $fP_{k+1} + (1 - f)P_k$ with $f$ the time at the upper stage;
+- above full capacity, it runs the full stage.
+
+The map is queried at the file's evaporator and condenser flows. Its condenser
+heat is the cooling plus the power.
 
 **Comparison with EnergyPlus.** EnergyPlus's `Chiller:Electric:ASHRAE205` reads
 the same data. OpenBSE's differences, including the fixed flows, are in
