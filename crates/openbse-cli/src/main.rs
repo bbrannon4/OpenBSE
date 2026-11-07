@@ -3722,6 +3722,7 @@ fn main() -> Result<()> {
                                                         (demand - taken).max(0.0),
                                                     );
                                                 }
+                                                component.set_supply_setpoint(effective_plant_sp);
                                                 let outlet = component.simulate_plant(
                                                     &current_inlet,
                                                     equip_load,

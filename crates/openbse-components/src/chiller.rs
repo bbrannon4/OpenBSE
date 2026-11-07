@@ -606,6 +606,10 @@ impl PlantComponent for AirCooledChiller {
         }
     }
 
+    fn set_supply_setpoint(&mut self, setpoint: f64) {
+        self.chw_setpoint = setpoint;
+    }
+
     fn set_heat_recovery_conditions(&mut self, inlet_temp: f64, max_heat: f64) {
         self.heat_recovery_inlet_temp = inlet_temp;
         self.heat_recovery_max = max_heat;
@@ -759,6 +763,25 @@ mod tests {
             max_output: None,
         });
         chiller
+    }
+
+    /// A reset of the loop's supply setpoint reaches the curves: warmer
+    /// chilled water gives more capacity and less power for the same load.
+    #[test]
+    fn test_supply_setpoint_reset_reaches_the_curves() {
+        let ctx = make_ctx(30.0);
+        let inlet = WaterPort::new(FluidState::water(12.0, 10.0));
+        let mut at = |sp: f64| {
+            let mut c = make_water_cooled_chiller(500_000.0, 6.0);
+            c.set_supply_setpoint(sp);
+            c.simulate_plant(&inlet, 300_000.0, &ctx);
+            let t_c = c.condenser_temp(&ctx);
+            (c.electric_power, c.capacity_modifier(t_c))
+        };
+        let (p_cold, cap_cold) = at(6.67);
+        let (p_warm, cap_warm) = at(10.0);
+        assert!(cap_warm > cap_cold, "{cap_warm} vs {cap_cold}");
+        assert!(p_warm < p_cold, "{p_warm} vs {p_cold}");
     }
 
     #[test]
