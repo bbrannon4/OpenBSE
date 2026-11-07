@@ -1,18 +1,18 @@
-//! Variable speed pump component for plant loops.
+//! Constant and variable speed pumps for plant loops (E+ `Pump:ConstantSpeed`,
+//! `Pump:VariableSpeed`, `HeaderedPumps:*`).
 //!
-//! Models a centrifugal pump with variable speed drive that adjusts
-//! speed to match the required flow demand from the plant loop.
+//! Design power:
+//!   P_design = Q_design * H_design / (eta_motor * eta_impeller)
+//! with eta_impeller = 1/1.282051282 = 0.78 by default, E+'s design shaft
+//! power per unit flow per unit head.
 //!
-//! Power curve (affinity laws):
-//!   P = P_design * (Q/Q_design)^n  where n ~ 2.5-3.0
+//! Part-load power of a variable-speed pump:
+//!   P = P_design * (c1 + c2*x + c3*x^2 + c4*x^3),  x = Q/Q_design
+//! with E+'s default coefficients (0, 1, 0, 0).
 //!
-//! Design power calculation:
-//!   P_design = (Q_design * H_design) / eta_motor
-//!
-//! where Q = volumetric flow [m^3/s], H = head [Pa], eta = motor efficiency.
-//!
-//! The pump adds a small amount of heat to the fluid equal to the fraction
-//! of motor losses dissipated into the fluid stream.
+//! Heat to the fluid: all shaft work ends up in the water, plus the given
+//! fraction of the motor losses (E+ `CalcPumps`):
+//!   Q_fluid = eta_motor * P + (1 - eta_motor) * P * f_fluid
 //!
 //! Reference: EnergyPlus Engineering Reference, "Pumps"
 
@@ -20,6 +20,14 @@ use openbse_core::ports::*;
 use openbse_core::types::*;
 use openbse_psychrometrics::FluidState;
 use serde::{Deserialize, Serialize};
+
+/// E+ default design shaft power per unit flow per unit head is
+/// 1.282051282 W/((m³/s)·Pa), a hydraulic efficiency of 0.78.
+pub const DEFAULT_IMPELLER_EFFICIENCY: f64 = 1.0 / 1.282051282;
+
+/// E+ `Pump:VariableSpeed` default part-load coefficients: power in
+/// proportion to flow.
+pub const DEFAULT_POWER_CURVE: [f64; 4] = [0.0, 1.0, 0.0, 0.0];
 
 fn default_submeter() -> String {
     "General".to_string()
@@ -50,24 +58,20 @@ pub struct Pump {
     pub design_head: f64,
     /// Design (rated) motor efficiency [0-1]
     pub motor_efficiency: f64,
-    /// Impeller/hydraulic efficiency [0-1] (default 0.667).
+    /// Impeller/hydraulic efficiency [0-1] (default 0.78, E+'s 1/1.282051282).
     /// Total pump efficiency = motor_efficiency × impeller_efficiency.
     pub impeller_efficiency: f64,
-    /// Pump curve exponent for affinity laws (default 3.0)
-    pub curve_exponent: f64,
-    /// Minimum flow fraction for variable speed pump [0-1] (default 0.1)
-    pub min_flow_fraction: f64,
-    /// Fraction of motor heat going to fluid [0-1] (default 1.0)
+    /// Fraction of the motor losses that heats the fluid [0-1] (default 0, as
+    /// E+). The shaft work always heats the fluid.
     pub motor_heat_to_fluid_fraction: f64,
     /// Number of identical pumps in headered (banked) configuration (default 1).
     /// For num_pumps > 1: pumps stage on/off; each individual pump handles
     /// design_flow_rate / num_pumps at full speed.
     pub num_pumps: u32,
-    /// Part-load power curve coefficients [c1, c2, c3, c4].
-    /// power_frac = c1 + c2*PLR + c3*PLR² + c4*PLR³
-    /// When None, uses pure affinity laws (PLR^curve_exponent).
+    /// Variable-speed part-load power curve coefficients [c1, c2, c3, c4]:
+    /// power_frac = c1 + c2*PLR + c3*PLR² + c4*PLR³ (default E+'s 0, 1, 0, 0).
     #[serde(skip)]
-    pub power_curve: Option<[f64; 4]>,
+    pub power_curve: [f64; 4],
 
     // ─── Runtime state ──────────────────────────────────────────────────
     /// Electric power consumption this timestep [W]
@@ -105,12 +109,10 @@ impl Pump {
             design_flow_rate,
             design_head,
             motor_efficiency,
-            impeller_efficiency: 0.667,
-            curve_exponent: 3.0,
-            min_flow_fraction: 0.1,
-            motor_heat_to_fluid_fraction: 1.0,
+            impeller_efficiency: DEFAULT_IMPELLER_EFFICIENCY,
+            motor_heat_to_fluid_fraction: 0.0,
             num_pumps: 1,
-            power_curve: None,
+            power_curve: DEFAULT_POWER_CURVE,
             power: 0.0,
             heat_to_fluid: 0.0,
             current_mass_flow: 0.0,
@@ -138,20 +140,14 @@ impl Pump {
         );
         pump.impeller_efficiency = impeller_efficiency;
         pump.num_pumps = num_pumps.max(1);
-        pump.power_curve = power_curve;
+        pump.power_curve = power_curve.unwrap_or(DEFAULT_POWER_CURVE);
         pump
     }
 
-    /// Evaluate power fraction from PLR using the custom curve or affinity laws.
-    /// Returns fraction of design power [0-1+].
+    /// Fraction of design power at part-load ratio `plr` (E+ `CalcPumps`).
     fn power_fraction(&self, plr: f64) -> f64 {
-        if let Some(c) = &self.power_curve {
-            // E+ polynomial: frac = c1 + c2*PLR + c3*PLR² + c4*PLR³
-            (c[0] + c[1] * plr + c[2] * plr * plr + c[3] * plr * plr * plr).max(0.0)
-        } else {
-            // Pure affinity laws
-            plr.powf(self.curve_exponent)
-        }
+        let c = &self.power_curve;
+        (c[0] + c[1] * plr + c[2] * plr * plr + c[3] * plr * plr * plr).max(0.0)
     }
 
     /// Design (rated) power [W] = Q_design * H_design / (eta_motor * eta_impeller).
@@ -212,15 +208,12 @@ impl PlantComponent for Pump {
                     let per_pump_flow_frac = 1.0 / n;
                     let pumps_on = (system_flow_frac / per_pump_flow_frac).ceil().max(1.0) as u32;
                     // Individual pump PLR
-                    let individual_plr =
-                        (system_flow_frac * n / pumps_on as f64).clamp(self.min_flow_fraction, 1.0);
+                    let individual_plr = (system_flow_frac * n / pumps_on as f64).min(1.0);
                     let per_pump_power =
                         (total_design_power / n) * self.power_fraction(individual_plr);
                     per_pump_power * pumps_on as f64
                 } else {
-                    // Single variable speed pump
-                    let plr = system_flow_frac.clamp(self.min_flow_fraction, 1.0);
-                    total_design_power * self.power_fraction(plr)
+                    total_design_power * self.power_fraction(system_flow_frac)
                 }
             }
         };
@@ -228,8 +221,11 @@ impl PlantComponent for Pump {
         // Store current flow for detailed outputs
         self.current_mass_flow = inlet.state.mass_flow;
 
-        // Heat added to fluid from pump motor losses
-        self.heat_to_fluid = self.power * self.motor_heat_to_fluid_fraction;
+        // The shaft work all ends up in the water; the motor losses only in
+        // the given fraction.
+        let shaft_power = self.power * self.motor_efficiency;
+        self.heat_to_fluid =
+            shaft_power + (self.power - shaft_power) * self.motor_heat_to_fluid_fraction;
 
         // Calculate small temperature rise from pump heat
         let delta_t = self.heat_to_fluid / (inlet.state.mass_flow * inlet.state.cp);
@@ -289,14 +285,13 @@ mod tests {
         }
     }
 
-    /// Variable speed pump at 50% flow should use ~12.5% power (affinity laws, n=3).
-    /// PLR = 0.5, power = design_power * 0.5^3 = 0.125 * design_power
+    /// Variable speed pump at 50% flow: E+'s default linear curve gives 50%
+    /// of design power, and a cubic curve 12.5%.
     #[test]
-    fn test_variable_speed_pump_affinity_laws() {
+    fn test_variable_speed_pump_part_load() {
         let design_flow = 0.01; // m^3/s
         let design_head = 200_000.0; // Pa
         let motor_eff = 0.90;
-        let impeller_eff = 0.667;
         let mut pump = Pump::new(
             "VS Pump",
             PumpType::VariableSpeed,
@@ -304,20 +299,18 @@ mod tests {
             design_head,
             motor_eff,
         );
-        pump.curve_exponent = 3.0;
+        let design_power = design_flow * design_head * 1.282051282 / motor_eff;
+        assert_relative_eq!(pump.design_power(), design_power, max_relative = 1e-9);
 
-        let design_power = design_flow * design_head / (motor_eff * impeller_eff);
-
-        // 50% of design mass flow
         let half_mass_flow = design_flow * water_rho(20.0) * 0.5;
         let inlet = WaterPort::new(FluidState::water(20.0, half_mass_flow));
         let ctx = make_ctx();
+        pump.simulate_plant(&inlet, 1.0, &ctx);
+        assert_relative_eq!(pump.power, 0.5 * design_power, max_relative = 1e-9);
 
-        let _outlet = pump.simulate_plant(&inlet, 1.0, &ctx);
-
-        // Expected: design_power * 0.5^3 = design_power * 0.125
-        let expected_power = design_power * 0.125;
-        assert_relative_eq!(pump.power, expected_power, max_relative = 0.001);
+        pump.power_curve = [0.0, 0.0, 0.0, 1.0];
+        pump.simulate_plant(&inlet, 1.0, &ctx);
+        assert_relative_eq!(pump.power, 0.125 * design_power, max_relative = 1e-9);
     }
 
     /// Constant speed pump always uses full design power when load > 0.
@@ -326,7 +319,7 @@ mod tests {
         let design_flow = 0.01;
         let design_head = 200_000.0;
         let motor_eff = 0.90;
-        let impeller_eff = 0.667;
+        let impeller_eff = DEFAULT_IMPELLER_EFFICIENCY;
         let mut pump = Pump::new(
             "CS Pump",
             PumpType::ConstantSpeed,
@@ -362,36 +355,34 @@ mod tests {
         assert_relative_eq!(outlet.state.temp, inlet.state.temp, max_relative = 0.001);
     }
 
-    /// Pump adds small heat to water: delta_T = power * frac / (m_dot * cp).
+    /// Heat to the water is the shaft work plus the given fraction of the
+    /// motor losses (E+ `CalcPumps`), and the outlet carries exactly it.
     #[test]
     fn test_pump_heat_addition() {
         let design_flow = 0.01;
-        let design_head = 200_000.0;
         let motor_eff = 0.90;
-        let impeller_eff = 0.667;
         let mut pump = Pump::new(
             "Heat Pump",
             PumpType::ConstantSpeed,
             design_flow,
-            design_head,
+            200_000.0,
             motor_eff,
         );
-        pump.motor_heat_to_fluid_fraction = 1.0;
-
-        let design_power = design_flow * design_head / (motor_eff * impeller_eff);
         let mass_flow = design_flow * water_rho(20.0);
         let inlet = WaterPort::new(FluidState::water(20.0, mass_flow));
         let ctx = make_ctx();
 
-        let outlet = pump.simulate_plant(&inlet, 1.0, &ctx);
-
-        // Expected temperature rise
-        let expected_dt = design_power * 1.0 / (mass_flow * water_cp(20.0));
-        assert_relative_eq!(
-            outlet.state.temp - inlet.state.temp,
-            expected_dt,
-            max_relative = 0.001
-        );
-        assert!(outlet.state.temp > inlet.state.temp);
+        for f in [0.0, 0.5, 1.0] {
+            pump.motor_heat_to_fluid_fraction = f;
+            let outlet = pump.simulate_plant(&inlet, 1.0, &ctx);
+            let p = pump.design_power();
+            let expected = motor_eff * p + (1.0 - motor_eff) * p * f;
+            assert_relative_eq!(pump.heat_to_fluid, expected, max_relative = 1e-9);
+            assert_relative_eq!(
+                (outlet.state.temp - inlet.state.temp) * mass_flow * water_cp(20.0),
+                expected,
+                max_relative = 1e-9
+            );
+        }
     }
 }

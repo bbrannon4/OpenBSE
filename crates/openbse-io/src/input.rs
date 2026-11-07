@@ -1975,46 +1975,22 @@ pub struct ExternalPlantInput {
     pub outputs: Vec<String>,
 }
 
-/// Pump role in the plant loop — determines staging and control behavior.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(deny_unknown_fields)]
+/// Pump type.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum PumpRole {
-    /// Single pump or unspecified (default behavior)
+pub enum PumpTypeInput {
+    /// Full design power whenever the loop has a load (E+ `Pump:ConstantSpeed`).
+    ConstantSpeed,
+    /// Power follows the part-load curve of the flow (E+ `Pump:VariableSpeed`).
     #[default]
-    Single,
-    /// Primary-loop pump (constant flow through chiller/boiler)
-    Primary,
-    /// Secondary/distribution pump (variable flow to demand side)
-    Secondary,
-    /// Headered pump bank (multiple pumps stage on/off)
-    Headered,
-}
-
-/// Pump control strategy — how the pump modulates flow.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-#[serde(rename_all = "snake_case")]
-pub enum PumpControlStrategy {
-    /// Pump follows load — flow varies with demand (default for variable_speed)
-    #[default]
-    Demand,
-    /// Pump runs at constant speed whenever plant is active
-    Continuous,
-    /// Pump is OFF unless staged on by plant controller
-    Staged,
-    /// Pump cycles on/off within the timestep to match demand (E+ Intermittent).
-    /// Constant speed: full power when any flow exists, off otherwise.
-    /// Same as Demand for variable speed pumps.
-    Intermittent,
+    VariableSpeed,
 }
 
 /// Pump definition for plant water loops.
 ///
-/// Design power = Q × H / (motor_efficiency × impeller_efficiency).
-/// In EnergyPlus, impeller_efficiency is an internal default (~0.667) that
-/// accounts for hydraulic/mechanical losses in the pump impeller, distinct
-/// from motor losses. The effective "total efficiency" ≈ 0.9 × 0.667 = 0.60.
+/// Design power = Q × H / (motor_efficiency × impeller_efficiency). The
+/// impeller efficiency default 0.78 is E+'s design shaft power per unit flow
+/// per unit head, 1.282051282 W/((m³/s)·Pa).
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PumpInput {
@@ -2022,19 +1998,18 @@ pub struct PumpInput {
     /// Submeter label for end-use reporting (default: "General")
     #[serde(default = "default_submeter")]
     pub submeter: String,
-    /// Pump type: "constant_speed" or "variable_speed" (default: "variable_speed")
-    #[serde(default = "default_pump_type")]
-    pub pump_type: String,
+    /// Pump type (default: variable_speed).
+    #[serde(default)]
+    pub pump_type: PumpTypeInput,
     /// Design water flow rate [m³/s]. Use `autosize` to let the engine calculate.
     pub design_flow_rate: AutosizeValue,
     /// Design pump head [Pa] (default: 179352 Pa ≈ 60 ft H2O)
     #[serde(default = "default_pump_head")]
     pub design_head: f64,
     /// Motor efficiency [0-1] (default: 0.9).
-    /// Controls fraction of motor heat going to fluid stream.
     #[serde(default = "default_pump_motor_eff")]
     pub motor_efficiency: f64,
-    /// Impeller/hydraulic efficiency [0-1] (default: 0.667).
+    /// Impeller/hydraulic efficiency [0-1] (default: 0.78, as E+).
     /// Combined with motor efficiency gives total pump efficiency.
     /// Design power = Q × H / (motor_eff × impeller_eff).
     #[serde(default = "default_impeller_eff")]
@@ -2044,40 +2019,48 @@ pub struct PumpInput {
     /// Each individual pump's design flow = total design flow / num_pumps.
     #[serde(default = "default_num_pumps")]
     pub num_pumps: u32,
-    /// Fraction of motor inefficiency heat added to the fluid stream [0-1] (default: 1.0).
-    /// E+ field: "Fraction of Motor Inefficiencies to Fluid Stream".
-    /// Set to 0.0 to match E+ models where pump heat doesn't warm the water.
-    #[serde(default = "default_motor_heat_to_fluid")]
+    /// Fraction of the motor losses added to the fluid stream [0-1] (default:
+    /// 0, as E+'s "Fraction of Motor Inefficiencies to Fluid Stream"). The
+    /// shaft work always heats the fluid.
+    #[serde(default)]
     pub motor_heat_to_fluid_fraction: f64,
-    /// Part-load power curve coefficients [c1, c2, c3, c4] for variable speed pumps.
-    /// power_frac = c1 + c2*PLR + c3*PLR² + c4*PLR³
-    /// Default: [0, 0, 0, 1] (pure cubic / affinity laws).
-    /// E+ common curve: [0, 0.5726, -0.3010, 0.7347]
+    /// Part-load power curve coefficients [c1, c2, c3, c4] for a variable
+    /// speed pump: power_frac = c1 + c2*PLR + c3*PLR² + c4*PLR³.
+    /// Default: [0, 1, 0, 0], E+'s `Pump:VariableSpeed` default.
     #[serde(default)]
-    pub power_curve: Option<Vec<f64>>,
-    /// Pump role in the plant loop (default: single).
-    /// Use `primary`/`secondary` for primary-secondary pumping configurations.
-    #[serde(default)]
-    pub role: PumpRole,
-    /// Control strategy (default: demand — follows load).
-    /// Use `continuous` for constant-speed primary pumps.
-    #[serde(default)]
-    pub control_strategy: PumpControlStrategy,
+    pub power_curve: Option<[f64; 4]>,
+}
+
+impl PumpInput {
+    /// The pump component at the given design flow [m³/s].
+    pub fn build(&self, design_flow: f64) -> openbse_components::pump::Pump {
+        use openbse_components::pump::{Pump, PumpType};
+        let pump_type = match self.pump_type {
+            PumpTypeInput::ConstantSpeed => PumpType::ConstantSpeed,
+            PumpTypeInput::VariableSpeed => PumpType::VariableSpeed,
+        };
+        let mut pump = Pump::new_headered(
+            &self.name,
+            pump_type,
+            design_flow,
+            self.design_head,
+            self.motor_efficiency,
+            self.impeller_efficiency,
+            self.num_pumps,
+            self.power_curve,
+        );
+        pump.motor_heat_to_fluid_fraction = self.motor_heat_to_fluid_fraction;
+        pump
+    }
 }
 
 fn default_num_pumps() -> u32 {
     1
 }
 fn default_impeller_eff() -> f64 {
-    0.667
-}
-fn default_motor_heat_to_fluid() -> f64 {
-    1.0
+    openbse_components::pump::DEFAULT_IMPELLER_EFFICIENCY
 }
 
-fn default_pump_type() -> String {
-    "variable_speed".to_string()
-}
 fn default_pump_head() -> f64 {
     179_352.0
 }
@@ -4100,29 +4083,7 @@ fn build_graph_impl(
                     }
                 }
                 PlantEquipmentInput::Pump(p) => {
-                    let pump_type = match p.pump_type.as_str() {
-                        "constant_speed" => openbse_components::pump::PumpType::ConstantSpeed,
-                        _ => openbse_components::pump::PumpType::VariableSpeed,
-                    };
-                    // Convert optional Vec<f64> power curve to [f64; 4]
-                    let power_curve = p.power_curve.as_ref().and_then(|v| {
-                        if v.len() >= 4 {
-                            Some([v[0], v[1], v[2], v[3]])
-                        } else {
-                            None
-                        }
-                    });
-                    let mut pump = openbse_components::pump::Pump::new_headered(
-                        &p.name,
-                        pump_type,
-                        p.design_flow_rate.to_f64(),
-                        p.design_head,
-                        p.motor_efficiency,
-                        p.impeller_efficiency,
-                        p.num_pumps,
-                        power_curve,
-                    );
-                    pump.motor_heat_to_fluid_fraction = p.motor_heat_to_fluid_fraction;
+                    let mut pump = p.build(p.design_flow_rate.to_f64());
                     pump.submeter = p.submeter.clone();
                     graph.add_plant_component(Box::new(pump))
                 }
@@ -5731,6 +5692,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     crate::plant::validate_plant_connections(model, &mut result);
     crate::plant::validate_chiller_models(model, &mut result);
+    crate::plant::validate_pumps(model, &mut result);
 
     // ── Validate construction references ───────────────────────────────────
     //

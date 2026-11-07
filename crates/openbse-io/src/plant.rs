@@ -20,8 +20,8 @@ use openbse_core::types::is_autosize;
 
 use crate::input::{
     ChillerHeatRecoveryInput, ChillerInput, CoolingCoilInput, CurveInput, EquipmentInput,
-    HeatingCoilInput, ModelInput, PlantEquipmentInput, PlantLoopInput, RadiantPanelSourceInput,
-    TerminalInput, ValidationResult, VavBoxInput,
+    HeatingCoilInput, ModelInput, PlantEquipmentInput, PlantLoopInput, PumpTypeInput,
+    RadiantPanelSourceInput, TerminalInput, ValidationResult, VavBoxInput,
 };
 
 impl HeatingCoilInput {
@@ -261,6 +261,29 @@ pub fn validate_plant_connections(model: &ModelInput, result: &mut ValidationRes
                  condenser or heat exchanger draws on it, so its equipment never runs \
                  (anything on it marked autosize is sized to zero)",
                 pl.name
+            ));
+        }
+    }
+}
+
+/// A part-load curve applies only to a variable-speed pump; E+'s
+/// `Pump:ConstantSpeed` has none, so one given there would be ignored.
+pub fn validate_pumps(model: &ModelInput, result: &mut ValidationResult) {
+    let plant = model
+        .plant_loops
+        .iter()
+        .flat_map(|pl| &pl.supply_equipment)
+        .filter_map(|eq| match eq {
+            PlantEquipmentInput::Pump(p) => Some(p),
+            _ => None,
+        });
+    let dhw = model.dhw_systems.iter().filter_map(|d| d.pump.as_ref());
+    for p in plant.chain(dhw) {
+        if p.pump_type == PumpTypeInput::ConstantSpeed && p.power_curve.is_some() {
+            result.push_severe(format!(
+                "Pump '{}': power_curve applies only to a variable_speed pump; a \
+                 constant_speed pump draws its design power whenever it runs",
+                p.name
             ));
         }
     }
@@ -752,6 +775,40 @@ plant_loops:
         assert!(err.contains("heating coil 'Preheat' uses hot_water but names no plant_loop"));
         assert!(err.contains("VAV box 'Box A' uses hot_water"), "{err}");
         assert!(err.contains("Plant loop 'HHW' has no demand"), "{err}");
+    }
+
+    #[test]
+    fn pump_inputs_are_checked() {
+        let pump = "{type: pump, name: HHW Pump, design_flow_rate: autosize}";
+        let with = |p: &str| PLANT_MODEL.replace(pump, p);
+
+        let yaml = with(
+            "{type: pump, name: HHW Pump, design_flow_rate: autosize, \
+                         pump_type: constant_speed, power_curve: [0, 1, 0, 0]}",
+        );
+        let mut r = ValidationResult::new();
+        validate_pumps(&model(&yaml), &mut r);
+        assert!(r
+            .to_err_file()
+            .contains("power_curve applies only to a variable_speed pump"));
+
+        let mut r = ValidationResult::new();
+        let yaml = with(
+            "{type: pump, name: HHW Pump, design_flow_rate: autosize, \
+                         power_curve: [0, 1, 0, 0]}",
+        );
+        validate_pumps(&model(&yaml), &mut r);
+        assert_eq!(r.error_count(), 0, "{}", r.to_err_file());
+
+        // A curve with the wrong number of coefficients, or an unknown pump
+        // type, is refused rather than replaced by the default.
+        for bad in [
+            "{type: pump, name: HHW Pump, design_flow_rate: autosize, power_curve: [0, 1, 0]}",
+            "{type: pump, name: HHW Pump, design_flow_rate: autosize, pump_type: headered}",
+            "{type: pump, name: HHW Pump, design_flow_rate: autosize, role: primary}",
+        ] {
+            assert!(parse_model_yaml(&with(bad)).is_err(), "{bad}");
+        }
     }
 
     const CHILLER: &str = "{type: chiller, name: Chiller, capacity: autosize, cop: 4.0, \
