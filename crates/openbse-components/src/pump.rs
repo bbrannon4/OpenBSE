@@ -254,6 +254,11 @@ impl PlantComponent for Pump {
         self.power
     }
 
+    /// Heat the pump adds to the water [W].
+    fn thermal_output(&self) -> f64 {
+        self.heat_to_fluid
+    }
+
     fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
         out("water_mass_flow", self.current_mass_flow);
         out("pressure_rise", self.design_head);

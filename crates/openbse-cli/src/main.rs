@@ -3584,14 +3584,14 @@ fn main() -> Result<()> {
                                         })
                                         .collect();
 
-                                    let per_unit_load = if plant_loop.staging_mode
+                                    let equal_split = plant_loop.staging_mode
                                         == openbse_io::input::StagingMode::EqualSplit
-                                        && !energy_equip_names.is_empty()
-                                    {
-                                        total_load.abs() / energy_equip_names.len() as f64
-                                    } else {
-                                        0.0 // unused in sequential
-                                    };
+                                        && !energy_equip_names.is_empty();
+                                    let is_condenser = condenser_load > 0.0;
+                                    // Pump heat in the water this pass [W]. Pumps run
+                                    // first, as at the inlet of an E+ supply side, so
+                                    // the units after them meet the load with it.
+                                    let mut pump_heat = 0.0_f64;
 
                                     // Track whether previous non-pump unit hit staging threshold
                                     let mut prev_plr: f64 = 1.0; // allow first unit to start
@@ -3605,7 +3605,24 @@ fn main() -> Result<()> {
                                     // Heat the supply units delivered, for the loop check.
                                     let mut delivered_total = 0.0_f64;
 
-                                    for equip in &plant_loop.supply_equipment {
+                                    let is_pump_input =
+                                        |eq: &&openbse_io::input::PlantEquipmentInput| {
+                                            matches!(
+                                                eq,
+                                                openbse_io::input::PlantEquipmentInput::Pump(_)
+                                            )
+                                        };
+                                    let dispatch_order = plant_loop
+                                        .supply_equipment
+                                        .iter()
+                                        .filter(is_pump_input)
+                                        .chain(
+                                            plant_loop
+                                                .supply_equipment
+                                                .iter()
+                                                .filter(|eq| !is_pump_input(eq)),
+                                        );
+                                    for equip in dispatch_order {
                                         let equip_name = match equip {
                                         openbse_io::input::PlantEquipmentInput::Boiler(b) => {
                                             &b.name
@@ -3654,10 +3671,15 @@ fn main() -> Result<()> {
                                                 let load_before = remaining_load.abs();
                                                 let equip_load = if is_pump {
                                                     total_load.abs()
-                                                } else if plant_loop.staging_mode
-                                                    == openbse_io::input::StagingMode::EqualSplit
-                                                {
-                                                    per_unit_load
+                                                } else if equal_split {
+                                                    load_with_pump_heat(
+                                                        total_load,
+                                                        pump_heat,
+                                                        total_load,
+                                                        is_condenser,
+                                                    )
+                                                    .abs()
+                                                        / energy_equip_names.len() as f64
                                                 } else {
                                                     remaining_load.abs()
                                                 };
@@ -3750,7 +3772,16 @@ fn main() -> Result<()> {
                                                         && delivered + 1.0 < equip_load;
                                                 }
 
-                                                if remaining_load > 0.0 {
+                                                if is_pump {
+                                                    let q = component.thermal_output();
+                                                    pump_heat += q;
+                                                    remaining_load = load_with_pump_heat(
+                                                        remaining_load,
+                                                        q,
+                                                        total_load,
+                                                        is_condenser,
+                                                    );
+                                                } else if remaining_load > 0.0 {
                                                     remaining_load -= delivered;
                                                 } else {
                                                     remaining_load += delivered;
@@ -3769,17 +3800,23 @@ fn main() -> Result<()> {
                                     // Heat the equipment could not supply leaves the
                                     // water short of setpoint, which the coils see
                                     // on the next pass.
-                                    plant_supply_offset[loop_idx] = if condenser_load > 0.0 {
+                                    let served_load = load_with_pump_heat(
+                                        total_load,
+                                        pump_heat,
+                                        total_load,
+                                        is_condenser,
+                                    );
+                                    plant_supply_offset[loop_idx] = if is_condenser {
                                         0.0
                                     } else {
                                         let unmet =
-                                            (total_load.abs() - delivered_total - recovered_used)
-                                                .clamp(0.0, total_load.abs());
+                                            (served_load.abs() - delivered_total - recovered_used)
+                                                .clamp(0.0, served_load.abs());
                                         -total_load.signum() * unmet / (cp_water * loop_mass_flow)
                                     };
                                     step_plant.push((
                                         plant_loop.name.clone(),
-                                        total_load,
+                                        served_load,
                                         delivered_total + recovered_used,
                                     ));
                                 }
@@ -4975,6 +5012,31 @@ fn main() -> Result<()> {
                             dhw_sys.ambient_w = zone.humidity_ratio;
                         }
 
+                        // The circulation pump runs with the draw; its heat
+                        // enters the tank with the makeup water.
+                        dhw_sys.inlet_heat = 0.0;
+                        if let Some(ref mut pump) = dhw_pumps[dhw_idx] {
+                            if total_draw > 0.0 {
+                                let total_peak: f64 =
+                                    dhw_input.loads.iter().map(|l| l.peak_flow_rate).sum();
+                                let flow_frac =
+                                    (total_draw / total_peak.max(1e-10)).clamp(0.0, 1.0);
+                                let mass_flow = pump.design_flow_rate
+                                    * openbse_psychrometrics::water_rho(dhw_sys.tank_temperature())
+                                    * flow_frac;
+                                let inlet =
+                                    WaterPort::new(openbse_psychrometrics::FluidState::water(
+                                        dhw_sys.tank_temperature(),
+                                        mass_flow,
+                                    ));
+                                pump.simulate_plant(&inlet, 1.0, &ctx);
+                                dhw_sys.inlet_heat = pump.thermal_output();
+                                snapshot
+                                    .pump_electric_power
+                                    .insert(pump.name.clone(), pump.power_consumption());
+                            }
+                        }
+
                         dhw_sys.simulate(total_draw, t_mains, dt);
 
                         if let Some(zone) = ambient_zone {
@@ -4990,29 +5052,6 @@ fn main() -> Result<()> {
                         }
                         if fp > 0.0 {
                             snapshot.dhw_fuel_power.insert(dhw_sys.name.clone(), fp);
-                        }
-
-                        // SWH circulation pump — reuse the real Pump component
-                        if let Some(ref mut pump) = dhw_pumps[dhw_idx] {
-                            if total_draw > 0.0 {
-                                // Compute mass flow from draw fraction
-                                let total_peak: f64 =
-                                    dhw_input.loads.iter().map(|l| l.peak_flow_rate).sum();
-                                let flow_frac =
-                                    (total_draw / total_peak.max(1e-10)).clamp(0.0, 1.0);
-                                let mass_flow = pump.design_flow_rate
-                                    * openbse_psychrometrics::water_rho(dhw_sys.tank_temperature())
-                                    * flow_frac;
-                                let inlet =
-                                    WaterPort::new(openbse_psychrometrics::FluidState::water(
-                                        dhw_sys.tank_temperature(),
-                                        mass_flow,
-                                    ));
-                                let _outlet = pump.simulate_plant(&inlet, 1.0, &ctx);
-                                snapshot
-                                    .pump_electric_power
-                                    .insert(pump.name.clone(), pump.power_consumption());
-                            }
                         }
                     }
 
@@ -9168,6 +9207,22 @@ fn apply_plant_sizes(
     }
 }
 
+/// A plant loop's load on its supply units once `pump_heat` [W] is in the
+/// water, in the load's sign convention (heating positive, cooling negative,
+/// a condenser loop's heat rejection positive). The pump heat is heat a heating
+/// loop no longer needs and heat a cooling or condenser loop must also remove,
+/// as E+ adds `TotalPumpHeat` to the loop.
+/// `loop_load` is the loop's own load, which says whether it heats.
+fn load_with_pump_heat(load: f64, pump_heat: f64, loop_load: f64, condenser: bool) -> f64 {
+    if condenser {
+        load + pump_heat
+    } else if loop_load > 0.0 {
+        (load - pump_heat).max(0.0)
+    } else {
+        load - pump_heat
+    }
+}
+
 /// A plant loop's supply setpoint this timestep [°C]: its outdoor reset, else its design
 /// supply temperature.
 fn plant_supply_setpoint(pl: &openbse_io::input::PlantLoopInput, t_outdoor: f64) -> f64 {
@@ -9188,6 +9243,22 @@ fn apply_plant_reset(reset: &openbse_io::input::PlantResetConfig, t_outdoor: f64
             let frac = ((t_outdoor - oa_low) / (oa_high - oa_low)).clamp(0.0, 1.0);
             sp_min + (1.0 - frac) * (sp_max - sp_min)
         }
+    }
+}
+
+#[cfg(test)]
+mod pump_heat_tests {
+    use super::load_with_pump_heat;
+
+    #[test]
+    fn pump_heat_lowers_a_heating_load_and_raises_cooling_and_condenser_loads() {
+        assert_eq!(load_with_pump_heat(1000.0, 100.0, 1000.0, false), 900.0);
+        assert_eq!(load_with_pump_heat(-1000.0, 100.0, -1000.0, false), -1100.0);
+        assert_eq!(load_with_pump_heat(1000.0, 100.0, 1000.0, true), 1100.0);
+        // A heating loop whose remaining load is already met stays a heating
+        // loop: the pump's heat leaves nothing for its boilers to do.
+        assert_eq!(load_with_pump_heat(0.0, 100.0, 1000.0, false), 0.0);
+        assert_eq!(load_with_pump_heat(50.0, 100.0, 1000.0, false), 0.0);
     }
 }
 

@@ -51,10 +51,14 @@ output the equipment can supply.
 moves at its design flow, every coil's available flow is scaled down by that
 ratio for the rest of the timestep.
 
-**Dispatch.** The supply equipment is simulated in series, in input order. Each
-takes the outlet of the one before:
+**Dispatch.** The supply equipment is simulated in series: the pumps first, as
+at the inlet of the supply side, then the rest in input order. Each takes the
+outlet of the one before:
 
-- **Pumps** see the whole load and flow.
+- **Pumps** see the whole load and flow. Their heat (@eq-pump-heat) is in the
+  water the other units receive: it comes off a heating loop's load and is added
+  to a cooling or condenser loop's, as $\dot Q - \dot Q_\text{pump}$ in the
+  load's sign (a condenser loop's rejection counts positive).
 - **Sequential staging** (`staging_mode`): each unit takes the remaining load.
   The next starts only if the last unit's output over its rated capacity reached
   `staging_threshold` (default 0.9), or it was unable to meet the load asked of it.
@@ -73,9 +77,11 @@ by their design flows and by the pump, and the supply temperature they see falls
 when the equipment falls short. It has no water temperature history (loop
 volume, common pipe), and a constant-speed pump does not bypass its excess flow
 to the return. A chiller's efficiency still reads its own setpoint, so a reset
-changes what the coils do but brings no chiller efficiency gain. Pump heat is
-not added to the load, and the coils see the setpoint without it
-([#251](https://github.com/bbrannon4/OpenBSE/issues/251)).
+changes what the coils do but brings no chiller efficiency gain
+([#251](https://github.com/bbrannon4/OpenBSE/issues/251)). Pump heat enters
+the load as EnergyPlus adds a loop side's `TotalPumpHeat` to its water. Because
+the loop has no water temperature history, the coils see the setpoint, and pump
+heat beyond a heating loop's load is not carried to the next timestep.
 
 ## Pumps {#sec-pumps}
 
@@ -103,7 +109,8 @@ $$
 \dot Q_\text{fluid} = \eta_mP + (1 - \eta_m)Pf_\text{fluid}.
 $$ {#eq-pump-heat}
 
-It raises the outlet temperature.
+It raises the outlet temperature and enters the loop's load
+(@sec-plant-loop).
 
 **Comparison with EnergyPlus.** @eq-pump-design and @eq-pump-heat match
 `Pump:VariableSpeed` and `Pump:ConstantSpeed` (`Pumps.cc`, `CalcPumps`), whose
@@ -299,8 +306,7 @@ are overstated. It also runs only while the loop has a load
 ## Known limitations {#sec-plant-limitations}
 
 - [#251](https://github.com/bbrannon4/OpenBSE/issues/251): no loop thermal
-  capacity, reset inert at the chiller, condenser temperature not from the tower,
-  pump heat not in the load.
+  capacity, reset inert at the chiller, condenser temperature not from the tower.
 - [#230](https://github.com/bbrannon4/OpenBSE/issues/230): pump sizing basis.
 - [#252](https://github.com/bbrannon4/OpenBSE/issues/252): tower has no
   effectiveness model, fan cycling or water use.

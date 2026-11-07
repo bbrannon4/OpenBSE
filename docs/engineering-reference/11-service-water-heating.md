@@ -40,7 +40,9 @@ $$ {#eq-dhw-draw}
 
 with $T$ the tank temperature at the end of the last step. A depleted tank supplies
 more water for the same heat, up to the whole fixture flow. A pump, if present, runs
-in proportion to the draw with the model of @sec-pumps, and is off otherwise.
+in proportion to the draw with the model of @sec-pumps, and is off otherwise. Its heat to
+the water (@eq-pump-heat) enters the tank with the makeup water, as the draw's
+inlet temperature raised by $\dot Q_\text{pump}/(\dot m_\text{draw}c_{p,w})$.
 
 **Comparison with EnergyPlus.** @eq-dhw-draw is `CalcEquipmentFlowRates` of
 `WaterUse:Equipment`. EnergyPlus can also add sensible and latent gains to the
