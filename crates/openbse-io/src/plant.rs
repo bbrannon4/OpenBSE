@@ -292,6 +292,23 @@ pub fn validate_pumps(model: &ModelInput, result: &mut ValidationResult) {
 /// Check chiller inputs the parser cannot: the reformulated EIR model's
 /// requirements, the min unloading ratio and condenser heat recovery.
 pub fn validate_chiller_models(model: &ModelInput, result: &mut ValidationResult) {
+    for pl in &model.plant_loops {
+        for eq in &pl.supply_equipment {
+            if let PlantEquipmentInput::Chiller(c) = eq {
+                match c.chw_setpoint {
+                    Some(sp) if (sp - pl.design_supply_temp).abs() > 1e-6 => {
+                        result.push_severe(format!(
+                            "Chiller '{}': chw_setpoint {sp} differs from plant loop '{}' \
+                             design_supply_temp {}; a chiller leaves at its loop's setpoint, \
+                             so remove chw_setpoint or make them equal",
+                            c.name, pl.name, pl.design_supply_temp
+                        ))
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
     let chillers = model
         .plant_loops
         .iter()
@@ -819,6 +836,21 @@ plant_loops:
         let mut result = ValidationResult::new();
         validate_chiller_models(&m, &mut result);
         result
+    }
+
+    #[test]
+    fn chw_setpoint_must_match_its_loop() {
+        let yaml = PLANT_MODEL.replace(
+            CHILLER,
+            "{type: chiller, name: Chiller, capacity: autosize, cop: 4.0, chw_setpoint: 5.0, \
+             condenser_type: water_cooled, condenser_plant_loop: CW}",
+        );
+        let err = validate_chillers(&yaml).to_err_file();
+        assert!(
+            err.contains("chw_setpoint 5 differs from plant loop"),
+            "{err}"
+        );
+        assert_eq!(validate_chillers(PLANT_MODEL).error_count(), 0);
     }
 
     #[test]

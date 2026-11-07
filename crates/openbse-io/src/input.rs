@@ -2164,9 +2164,11 @@ pub struct ChillerInput {
     /// Rated COP at ARI conditions (typical 2.5-4.5 for air-cooled)
     #[serde(default = "default_chiller_cop")]
     pub cop: f64,
-    /// Chilled water supply temperature setpoint [C]
-    #[serde(default = "default_chw_setpoint")]
-    pub chw_setpoint: f64,
+    /// Chilled water supply setpoint [C]. The chiller leaves at its loop's
+    /// supply setpoint (its reset included), so this may be omitted; if given,
+    /// it must equal the loop's `design_supply_temp`.
+    #[serde(default)]
+    pub chw_setpoint: Option<f64>,
     /// Design CHW flow rate [m3/s]. Calculated from capacity if not specified.
     #[serde(default)]
     pub design_chw_flow: f64,
@@ -2273,9 +2275,6 @@ fn default_heat_recovery_capacity_fraction() -> f64 {
 
 fn default_chiller_cop() -> f64 {
     3.5
-}
-fn default_chw_setpoint() -> f64 {
-    7.0
 }
 fn default_condenser_type() -> String {
     "air_cooled".to_string()
@@ -3918,14 +3917,18 @@ fn build_graph_impl(
                         } else {
                             0.0
                         };
-                        let mut chiller =
-                            ChillerA205::from_rs0001(&ci.name, rs0001, ci.chw_setpoint, chw_flow)
-                                .map_err(|e| {
-                                InputError::ParseError(format!(
-                                    "chiller '{}': failed to initialize from a205 data: {}",
-                                    ci.name, e
-                                ))
-                            })?;
+                        let mut chiller = ChillerA205::from_rs0001(
+                            &ci.name,
+                            rs0001,
+                            plant_loop.design_supply_temp,
+                            chw_flow,
+                        )
+                        .map_err(|e| {
+                            InputError::ParseError(format!(
+                                "chiller '{}': failed to initialize from a205 data: {}",
+                                ci.name, e
+                            ))
+                        })?;
                         chiller.submeter = ci.submeter.clone();
                         chiller.min_plr = ci.min_plr;
                         chiller.condenser_entering_temp = ci.condenser_entering_temp;
@@ -3952,7 +3955,7 @@ fn build_graph_impl(
                             &ci.name,
                             capacity,
                             ci.cop,
-                            ci.chw_setpoint,
+                            plant_loop.design_supply_temp,
                             chw_flow,
                         );
                         chiller.min_plr = ci.min_plr;

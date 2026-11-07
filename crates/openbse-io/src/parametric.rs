@@ -551,7 +551,6 @@ fn set_chiller_field(c: &mut ChillerInput, field: &str, value: f64) {
     match field {
         "capacity" => c.capacity = openbse_core::types::AutosizeValue::Value(value),
         "cop" => c.cop = value,
-        "chw_setpoint" => c.chw_setpoint = value,
         "design_chw_flow" => c.design_chw_flow = value,
         "tower_approach" => c.tower_approach = value,
         "min_plr" => c.min_plr = value,

@@ -529,6 +529,11 @@ pub trait PlantComponent: std::fmt::Debug {
     /// take this timestep, before `simulate_plant()`. Default no-op.
     fn set_heat_recovery_conditions(&mut self, _inlet_temp: f64, _max_heat: f64) {}
 
+    /// The loop's supply setpoint this timestep [°C], its outdoor reset
+    /// included, before `simulate_plant()`. Chillers evaluate their curves at
+    /// it; a leaving-setpoint boiler holds it. Default no-op.
+    fn set_supply_setpoint(&mut self, _setpoint: f64) {}
+
     /// Condenser heat delivered to another plant loop this timestep [W].
     fn heat_recovered(&self) -> f64 {
         0.0

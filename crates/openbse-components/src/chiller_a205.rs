@@ -344,6 +344,10 @@ impl PlantComponent for ChillerA205 {
         WaterPort::new(FluidState::water(t_outlet, mass_flow))
     }
 
+    fn set_supply_setpoint(&mut self, setpoint: f64) {
+        self.chw_setpoint = setpoint;
+    }
+
     fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
         out("plr", self.plr);
         out("compressor_sequence", self.sequence_number);

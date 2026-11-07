@@ -76,9 +76,10 @@ balance on the same demand-side flows: its coils' valves set the flow, limited
 by their design flows and by the pump, and the supply temperature they see falls
 when the equipment falls short. It has no water temperature history (loop
 volume, common pipe), and a constant-speed pump does not bypass its excess flow
-to the return. A chiller's efficiency still reads its own setpoint, so a reset
-changes what the coils do but brings no chiller efficiency gain
-([#251](https://github.com/bbrannon4/OpenBSE/issues/251)). Pump heat enters
+to the return ([#251](https://github.com/bbrannon4/OpenBSE/issues/251)). The
+supply setpoint, its reset included, reaches the coils, the chillers' curves and
+leaving-setpoint boilers, as an EnergyPlus setpoint manager sets the supply
+outlet node's setpoint that they read. Pump heat enters
 the load as EnergyPlus adds a loop side's `TotalPumpHeat` to its water. Because
 the loop has no water temperature history, the coils see the setpoint, and pump
 heat beyond a heating loop's load is not carried to the next timestep.
@@ -138,8 +139,8 @@ $$ {#eq-boiler}
 
 with $\eta_n$ the nominal efficiency and $f$ the optional efficiency curve. The
 outlet is limited to 99.9 °C. In `LeavingSetpointModulated` mode, the outlet is
-the leaving setpoint and the flow is the one that delivers the load, up to the
-design flow.
+the loop's supply setpoint $T_\text{sp}$ and the flow is the one that delivers
+the load, up to the design flow.
 
 **Comparison with EnergyPlus.** @eq-boiler matches `Boiler:HotWater`
 (`Boilers.cc`, `CalcBoilerModel`) [@eplus-engref-25-2, "Boilers"]. EnergyPlus's
@@ -153,8 +154,9 @@ it has an off-cycle parasitic fuel load
 models water-cooled chillers: `operate`, `operate_reformulated`,
 `operate_with_heat_recovery`, `condenser_temp`).
 
-**EIR model.** At the condenser temperature $T_c$ and the chilled-water setpoint
-$T_e$, with load $\dot Q$,
+**EIR model.** At the condenser temperature $T_c$ and the loop's supply
+setpoint $T_e = T_\text{sp}$ (@eq-plant-supply, its reset included), with load
+$\dot Q$,
 
 $$
 \begin{gathered}
@@ -208,7 +210,9 @@ limit.
 on Condenser Entering Temperature"]. The differences are
 ([#251](https://github.com/bbrannon4/OpenBSE/issues/251)):
 
-- EnergyPlus reads the actual leaving chilled-water and condenser temperatures.
+- EnergyPlus reads the condenser loop's actual temperature, where OpenBSE uses
+  the condenser temperature above. Both evaluate the curves at the leaving
+  chilled-water setpoint.
 - EnergyPlus requires the curves.
 - The condenser loop's load leaves out the false load, so energy doesn't close
   while false-loading.
@@ -306,7 +310,7 @@ are overstated. It also runs only while the loop has a load
 ## Known limitations {#sec-plant-limitations}
 
 - [#251](https://github.com/bbrannon4/OpenBSE/issues/251): no loop thermal
-  capacity, reset inert at the chiller, condenser temperature not from the tower.
+  capacity, condenser temperature not from the tower.
 - [#230](https://github.com/bbrannon4/OpenBSE/issues/230): pump sizing basis.
 - [#252](https://github.com/bbrannon4/OpenBSE/issues/252): tower has no
   effectiveness model, fan cycling or water use.

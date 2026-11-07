@@ -1069,7 +1069,7 @@
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
         "capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Nominal cooling capacity [W]. 'autosize' sizes it to the loop design load: the sum of the design capacities of the coils and panels on the loop (E+ Sizing:Plant, non-coincident). Every autosized chiller on a loop gets the whole load. May be omitted when a205_file is set." },
         "cop": { "type": "number", "default": 3.5, "description": "Rated COP at ARI conditions." },
-        "chw_setpoint": { "type": "number", "default": 7.0, "description": "Chilled water supply setpoint [C]." },
+        "chw_setpoint": { "type": "number", "description": "Chilled water supply setpoint [C]. Optional: the chiller leaves at its plant loop's supply setpoint, its reset included, and evaluates its curves there. If given, it must equal the loop's design_supply_temp." },
         "design_chw_flow": { "type": "number", "default": 0.0, "description": "Design chilled water flow rate [m3/s]. Auto-calculated if 0." },
         "condenser_type": {
           "type": "string",

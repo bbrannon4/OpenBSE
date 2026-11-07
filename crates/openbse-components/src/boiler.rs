@@ -149,6 +149,10 @@ impl PlantComponent for Boiler {
         &self.name
     }
 
+    fn set_supply_setpoint(&mut self, setpoint: f64) {
+        self.leaving_setpoint = setpoint;
+    }
+
     fn component_kind(&self) -> ComponentKind {
         ComponentKind::Boiler
     }
