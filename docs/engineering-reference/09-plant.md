@@ -290,13 +290,18 @@ A chilled-water or ice store holds energy $E$ [Wh], with three strategies:
   slack below it.
 - **Demand limiting:** discharge the load above a threshold.
 
-Discharge is also limited by the maximum rate and the stored energy. The state
-evolves with a standby loss at 20 °C ambient and a fixed store temperature (6 °C or
-−5 °C):
+The state evolves once per timestep, from its value at the start of the step
+however many HVAC iterations run, with a standby loss at 20 °C ambient and a
+fixed store temperature (6 °C or −5 °C):
 
 $$
-E^{t+\Delta t} = \operatorname{clamp}\left(E^t + \left[\dot Q_\text{ch} - \dot Q_\text{dis} - UA(20 - T_\text{store})\right]\frac{\Delta t}{3600},\ 0,\ E_\text{cap}\right).
+E^{t+\Delta t} = E^t - \dot Q_\text{loss}\frac{\Delta t}{3600} + \left(\dot Q_\text{ch} - \dot Q_\text{dis}\right)\frac{\Delta t}{3600}, \qquad
+\dot Q_\text{loss} = \min\left(UA(20 - T_\text{store}),\ \frac{3600E^t}{\Delta t}\right).
 $$ {#eq-storage}
+
+Charge is limited by the maximum rate and the room left after the loss, and
+discharge by the maximum rate and the energy left after it, so $E$ stays within
+$[0, E_\text{cap}]$ and closes exactly.
 
 The store draws 500 W while charging or discharging.
 

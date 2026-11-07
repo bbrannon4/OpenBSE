@@ -67,9 +67,16 @@ pub struct ThermalStorage {
     pub peak_hours: Vec<u32>,
 
     // ─── State ──────────────────────────────────────────────────────────────
-    /// Current state of charge [Wh]
+    /// State of charge at the end of the current timestep [Wh]
     #[serde(skip)]
     pub stored_energy_wh: f64,
+    /// State of charge at the start of the current timestep [Wh]: every HVAC
+    /// iteration steps from it, so the step is counted once.
+    #[serde(skip)]
+    stored_at_step_start: f64,
+    /// The timestep `stored_at_step_start` belongs to (month, day, hour, sub-hour).
+    #[serde(skip)]
+    step: Option<(u32, u32, u32, u32)>,
     /// Current charge rate [W] (positive = charging)
     #[serde(skip)]
     pub charge_rate: f64,
@@ -105,6 +112,8 @@ impl ThermalStorage {
             control_strategy,
             peak_hours: vec![],
             stored_energy_wh: 0.0,
+            stored_at_step_start: 0.0,
+            step: None,
             charge_rate: 0.0,
             discharge_rate: 0.0,
             power: 0.0,
@@ -114,6 +123,17 @@ impl ThermalStorage {
 
     fn is_peak_hour(&self, hour: u32) -> bool {
         self.peak_hours.contains(&hour)
+    }
+
+    /// On the first call of a new timestep, the state the last one ended in
+    /// becomes the state this one starts from.
+    fn begin_step(&mut self, ctx: &SimulationContext) {
+        let t = &ctx.timestep;
+        let key = (t.month, t.day, t.hour, t.sub_hour);
+        if self.step != Some(key) {
+            self.step = Some(key);
+            self.stored_at_step_start = self.stored_energy_wh;
+        }
     }
 
     fn storage_temp(&self) -> f64 {
@@ -143,6 +163,7 @@ impl PlantComponent for ThermalStorage {
         load: f64,
         ctx: &SimulationContext,
     ) -> WaterPort {
+        self.begin_step(ctx);
         let dt = ctx.timestep.dt; // seconds
         let hour = ctx.timestep.hour;
         let is_peak = self.is_peak_hour(hour);
@@ -150,21 +171,25 @@ impl PlantComponent for ThermalStorage {
         // Standby loss: ambient 20°C assumed; cooling loss warms the storage
         let t_storage = self.storage_temp();
         let standby_loss_w = self.loss_ua * (20.0 - t_storage); // always positive for CHW/ice
-        let standby_loss_wh = standby_loss_w * dt / 3600.0;
+        let standby_loss_wh = (standby_loss_w * dt / 3600.0).min(self.stored_at_step_start);
+        // Energy that can leave, and room that can fill, this step after the
+        // standby loss, so the state of charge stays in range without clipping.
+        let stored = self.stored_at_step_start - standby_loss_wh;
+        let dt_h = dt / 3600.0;
 
         let cooling_load = load.abs(); // treat any load as cooling demand magnitude
 
         // Determine charge and discharge rates based on control strategy
         let (charge, discharge) = match self.control_strategy {
             TesControlStrategy::FullStorage => {
-                if !is_peak && self.stored_energy_wh < self.capacity_wh {
+                if !is_peak && stored < self.capacity_wh {
                     // Off-peak: charge at max rate
-                    let avail_cap = (self.capacity_wh - self.stored_energy_wh) / (dt / 3600.0);
+                    let avail_cap = (self.capacity_wh - stored) / dt_h;
                     let c = self.max_charge_rate.min(avail_cap);
                     (c, 0.0)
-                } else if is_peak && self.stored_energy_wh > 0.0 {
+                } else if is_peak && stored > 0.0 {
                     // Peak: discharge to meet load
-                    let avail_energy = self.stored_energy_wh / (dt / 3600.0);
+                    let avail_energy = stored / dt_h;
                     let d = cooling_load.min(self.max_discharge_rate).min(avail_energy);
                     (0.0, d)
                 } else {
@@ -174,16 +199,14 @@ impl PlantComponent for ThermalStorage {
             TesControlStrategy::LoadLeveling => {
                 // Discharge when demand exceeds a baseline; charge when below
                 // Simplified: discharge = max(0, load - max_charge_rate); charge if slack
-                if cooling_load > self.max_charge_rate && self.stored_energy_wh > 0.0 {
+                if cooling_load > self.max_charge_rate && stored > 0.0 {
                     let need = cooling_load - self.max_charge_rate;
-                    let avail = self.stored_energy_wh / (dt / 3600.0);
+                    let avail = stored / dt_h;
                     let d = need.min(self.max_discharge_rate).min(avail);
                     (0.0, d)
-                } else if cooling_load < self.max_charge_rate
-                    && self.stored_energy_wh < self.capacity_wh
-                {
+                } else if cooling_load < self.max_charge_rate && stored < self.capacity_wh {
                     let slack = self.max_charge_rate - cooling_load;
-                    let avail_cap = (self.capacity_wh - self.stored_energy_wh) / (dt / 3600.0);
+                    let avail_cap = (self.capacity_wh - stored) / dt_h;
                     let c = slack.min(self.max_charge_rate).min(avail_cap);
                     (c, 0.0)
                 } else {
@@ -191,9 +214,9 @@ impl PlantComponent for ThermalStorage {
                 }
             }
             TesControlStrategy::DemandLimiting { threshold_w } => {
-                if cooling_load > threshold_w && self.stored_energy_wh > 0.0 {
+                if cooling_load > threshold_w && stored > 0.0 {
                     let need = cooling_load - threshold_w;
-                    let avail = self.stored_energy_wh / (dt / 3600.0);
+                    let avail = stored / dt_h;
                     let d = need.min(self.max_discharge_rate).min(avail);
                     (0.0, d)
                 } else {
@@ -205,9 +228,7 @@ impl PlantComponent for ThermalStorage {
         self.charge_rate = charge;
         self.discharge_rate = discharge;
 
-        // Update state of charge
-        let delta_wh = (charge - discharge) * dt / 3600.0 - standby_loss_wh;
-        self.stored_energy_wh = (self.stored_energy_wh + delta_wh).clamp(0.0, self.capacity_wh);
+        self.stored_energy_wh = stored + (charge - discharge) * dt_h;
 
         // Net thermal output: positive = provides cooling to loop
         self.net_thermal = discharge;
@@ -346,6 +367,40 @@ mod tests {
             tes.stored_energy_wh < 5000.0,
             "stored energy should decrease due to standby loss"
         );
+    }
+
+    /// HVAC iterations repeat a timestep: the store steps once from its
+    /// start-of-step state, and that state closes on charge, discharge and loss.
+    #[test]
+    fn test_iterations_step_the_state_once_and_close() {
+        let mut tes = ThermalStorage::new(
+            "TES",
+            TesType::Ice,
+            100_000.0,
+            5000.0,
+            8000.0,
+            TesControlStrategy::FullStorage,
+        );
+        tes.peak_hours = vec![15];
+        tes.stored_energy_wh = 50_000.0;
+        let inlet = make_inlet();
+        for (hour, load) in [(2, 0.0), (15, 6000.0), (15, 6000.0), (16, 0.0)] {
+            let start = if tes.step == Some((7, 15, hour, 1)) {
+                tes.stored_at_step_start
+            } else {
+                tes.stored_energy_wh
+            };
+            for _ in 0..4 {
+                tes.simulate_plant(&inlet, load, &make_ctx(hour));
+            }
+            let loss = tes.loss_ua * (20.0 - tes.storage_temp());
+            let expected = start + tes.charge_rate - tes.discharge_rate - loss;
+            assert!(
+                (tes.stored_energy_wh - expected).abs() < 1e-9,
+                "hour {hour}: {} vs {expected}",
+                tes.stored_energy_wh
+            );
+        }
     }
 
     #[test]
