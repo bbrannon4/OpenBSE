@@ -149,6 +149,10 @@ pub struct AirCooledChiller {
     pub condenser_inlet_temp: f64,
     #[serde(skip)]
     pub condenser_outlet_temp: f64,
+    /// Heat rejected to the condenser this timestep [W]: cooling, power and
+    /// any false load, less the heat recovered.
+    #[serde(skip)]
+    pub condenser_heat: f64,
     /// Heat-recovery water entering temperature [°C], set by the plant
     /// solver from the receiving loop.
     #[serde(skip)]
@@ -229,6 +233,7 @@ impl AirCooledChiller {
             water_mass_flow: 0.0,
             condenser_inlet_temp: 0.0,
             condenser_outlet_temp: 0.0,
+            condenser_heat: 0.0,
             heat_recovery_inlet_temp: 0.0,
             heat_recovery_max: f64::INFINITY,
             heat_recovered: 0.0,
@@ -505,6 +510,7 @@ impl PlantComponent for AirCooledChiller {
             self.water_outlet_temp = inlet.state.temp;
             self.water_mass_flow = inlet.state.mass_flow;
             self.condenser_outlet_temp = t_cond_in;
+            self.condenser_heat = 0.0;
             self.heat_recovered = 0.0;
             self.heat_recovery_outlet_temp = self.heat_recovery_inlet_temp;
             return *inlet;
@@ -522,6 +528,7 @@ impl PlantComponent for AirCooledChiller {
             }
         };
         self.condenser_outlet_temp = t_cond_out;
+        self.condenser_heat = op.heat_rejected() - recovered;
         self.heat_recovered = recovered;
         self.heat_recovery_outlet_temp = match self.heat_recovery.as_ref() {
             Some(hr) if recovered > 0.0 => {
@@ -589,6 +596,7 @@ impl PlantComponent for AirCooledChiller {
         out("water_inlet_temperature", self.water_inlet_temp);
         out("water_outlet_temperature", self.water_outlet_temp);
         out("water_mass_flow", self.water_mass_flow);
+        out("condenser_heat_rate", self.condenser_heat);
         if self.model == ChillerModel::ReformulatedEir {
             out("condenser_inlet_temperature", self.condenser_inlet_temp);
             out("condenser_outlet_temperature", self.condenser_outlet_temp);
@@ -1039,6 +1047,34 @@ mod tests {
         assert_relative_eq!(op_low.power, op_unload.power, max_relative = 1e-12);
         assert_relative_eq!(op_low.false_load, 0.08 * avail, max_relative = 1e-9);
         assert_relative_eq!(op_unload.false_load, 0.0);
+    }
+
+    /// The condenser takes the false load with the cooling and power, so
+    /// heat in equals heat out across the chiller.
+    #[test]
+    fn test_condenser_heat_includes_false_load() {
+        let mut chiller = make_reformulated_chiller(6.7, 22.0);
+        chiller.model = ChillerModel::Eir;
+        chiller.water_cooled = true;
+        chiller.condenser_entering_temp = Some(22.0);
+        chiller.tower_approach = 0.0;
+        chiller.min_unloading_ratio = Some(0.2);
+        let ctx = make_ctx(20.0);
+        let avail = chiller.rated_capacity * chiller.capacity_modifier(22.0);
+        let inlet = WaterPort::new(FluidState::water(12.0, 20.0));
+        chiller.simulate_plant(&inlet, 0.12 * avail, &ctx);
+        let mut heat = 0.0;
+        chiller.report_outputs(&mut |k, v| {
+            if k == "condenser_heat_rate" {
+                heat = v;
+            }
+        });
+        let false_load = 0.08 * avail;
+        assert_relative_eq!(
+            heat,
+            chiller.actual_capacity + chiller.electric_power + false_load,
+            max_relative = 1e-9
+        );
     }
 
     #[test]

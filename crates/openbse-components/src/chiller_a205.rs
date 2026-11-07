@@ -361,6 +361,11 @@ impl PlantComponent for ChillerA205 {
         out("water_inlet_temperature", self.water_inlet_temp);
         out("water_outlet_temperature", self.water_outlet_temp);
         out("water_mass_flow", self.water_mass_flow);
+        // Everything the chiller takes in leaves through its condenser.
+        out(
+            "condenser_heat_rate",
+            self.actual_capacity + self.electric_power,
+        );
     }
 }
 
