@@ -160,6 +160,22 @@ pub struct WaterHeater {
     /// Evaporator bypass factor, derived once from the rated SHR.
     #[serde(skip)]
     hp_bypass_factor: Option<f64>,
+    /// Heat the circulation pump puts into the water entering with the draw
+    /// this step [W]; set before `simulate`.
+    #[serde(skip)]
+    pub inlet_heat: f64,
+}
+
+/// Temperature rise of the draw's makeup water from `heat` [W] added to it.
+fn inlet_temp_rise(heat: f64, draw_flow_liters_per_s: f64, tank_temp: f64) -> f64 {
+    let capacity_rate = draw_flow_liters_per_s / 1000.0
+        * psych::water_rho(psych::COLD_WATER_CONVERSION_TEMP)
+        * psych::water_cp(tank_temp);
+    if capacity_rate > 0.0 {
+        heat / capacity_rate
+    } else {
+        0.0
+    }
 }
 
 /// Most heating and floating intervals resolved in one step; generous, since
@@ -407,6 +423,7 @@ impl WaterHeater {
             evaporator_sensible: 0.0,
             evaporator_latent: 0.0,
             hp_bypass_factor: None,
+            inlet_heat: 0.0,
         }
     }
 
@@ -490,7 +507,8 @@ impl WaterHeater {
             cp: psych::water_cp(self.tank_temp),
             m_draw: draw_flow_liters_per_s / 1000.0
                 * psych::water_rho(psych::COLD_WATER_CONVERSION_TEMP),
-            t_mains: mains_temp,
+            t_mains: mains_temp
+                + inlet_temp_rise(self.inlet_heat, draw_flow_liters_per_s, self.tank_temp),
             ua: self.ua_standby,
             t_ambient: self.ambient_temp,
         };
@@ -1040,6 +1058,31 @@ mod tests {
             let t_eq = (5000.0 * 0.8 + c * 10.0 + 2.0 * 20.0) / (c + 2.0);
             assert!((wh.tank_temp - t_eq).abs() < 0.01, "{}", wh.tank_temp);
         }
+    }
+
+    #[test]
+    fn test_circulation_pump_heat_enters_the_tank() {
+        // Heater input plus the pump's heat equals the draw's heat over mains,
+        // the shell loss and the change in storage; the pump saves heater energy.
+        let run = |pump_heat: f64| {
+            let mut wh = WaterHeater::new("T", WaterHeaterFuel::Gas, 200.0, 5000.0, 0.8, 60.0, 2.0);
+            wh.control_type = WaterHeaterControl::Modulate;
+            wh.inlet_heat = pump_heat;
+            let t0 = wh.tank_temp;
+            wh.simulate(0.01, 10.0, 3600.0);
+            let stored = tank_capacity(wh.tank_volume, t0) * (wh.tank_temp - t0);
+            let net = (wh.heating_rate + pump_heat - wh.delivery_rate - wh.standby_loss) * 3600.0;
+            assert!(
+                (stored - net).abs() < 1e-5 * stored.abs().max(1e4),
+                "{stored} vs {net}"
+            );
+            wh.heating_rate
+        };
+        let saved = run(0.0) - run(100.0);
+        assert!(
+            (saved - 100.0).abs() < 1e-6,
+            "pump heat saved {saved} W of heater output"
+        );
     }
 
     #[test]
