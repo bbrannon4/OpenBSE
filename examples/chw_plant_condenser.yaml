@@ -368,10 +368,7 @@ plant_loops:
         name: CW Tower
         tower_type: variable_speed
         design_water_flow: autosize
-        design_air_flow: 25.0
         design_fan_power: 15000
-        design_inlet_water_temp: 35.0
-        design_approach: 3.9
         design_range: 5.56
 
 thermostats:

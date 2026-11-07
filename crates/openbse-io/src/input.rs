@@ -2294,42 +2294,36 @@ pub struct CoolingTowerInput {
     /// Submeter label for end-use reporting (default: "General")
     #[serde(default = "default_submeter")]
     pub submeter: String,
-    /// Tower type: "single_speed", "two_speed", or "variable_speed" (default)
-    #[serde(default = "default_ct_tower_type")]
-    pub tower_type: String,
+    /// Tower type: `single_speed`, `two_speed` or `variable_speed` (default).
+    #[serde(default)]
+    pub tower_type: openbse_components::cooling_tower::CoolingTowerType,
     /// Design water flow rate [m³/s]. Use `autosize` to size from condenser demand.
     #[serde(default)]
     pub design_water_flow: AutosizeValue,
-    /// Design air flow rate [m³/s]
-    pub design_air_flow: f64,
+    /// Design air flow rate [m³/s]. Not used by the tower model, which has no
+    /// air-side effectiveness; a warning says so.
+    #[serde(default)]
+    pub design_air_flow: Option<f64>,
     /// Design fan power [W]
     pub design_fan_power: f64,
-    /// Design inlet water temperature [°C] (default 35)
-    #[serde(default = "default_ct_inlet_temp")]
-    pub design_inlet_water_temp: f64,
-    /// Design approach temperature [°C] — T_water_out - T_wb (default 3.9)
-    #[serde(default = "default_ct_approach")]
-    pub design_approach: f64,
+    /// Design inlet water temperature [°C]. Not used by the tower model; a
+    /// warning says so.
+    #[serde(default)]
+    pub design_inlet_water_temp: Option<f64>,
+    /// Design approach temperature [°C], T_water_out - T_wb. Not used by the
+    /// tower model, whose outlet stays 2 K above the wet-bulb; a warning says so.
+    #[serde(default)]
+    pub design_approach: Option<f64>,
     /// Design range [°C] — T_water_in - T_water_out (default 5.56)
     #[serde(default = "default_ct_range")]
     pub design_range: f64,
-    /// Fan power ratio curve coefficients [C1, C2, C3, C4, C5].
-    /// PLF = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4.
-    /// Same polynomial form as the VAV fan curve.
-    /// Default: E+ CoolingTower:VariableSpeed FanPowerRatioFunctionofAirFlowRateRatio.
+    /// Variable-speed fan power ratio curve coefficients [C1, C2, C3, C4, C5]:
+    /// PLF = C1 + C2*x + C3*x^2 + C4*x^3 + C5*x^4 of the air-flow ratio x.
+    /// Default: x³, E+'s `CoolingTower:VariableSpeed` without a curve.
     #[serde(default)]
-    pub fan_power_curve: Option<Vec<f64>>,
+    pub fan_power_curve: Option<[f64; 5]>,
 }
 
-fn default_ct_tower_type() -> String {
-    "variable_speed".to_string()
-}
-fn default_ct_inlet_temp() -> f64 {
-    35.0
-}
-fn default_ct_approach() -> f64 {
-    3.9
-}
 fn default_ct_range() -> f64 {
     5.56
 }
@@ -4089,28 +4083,19 @@ fn build_graph_impl(
                     graph.add_plant_component(Box::new(pump))
                 }
                 PlantEquipmentInput::CoolingTower(ct) => {
-                    use openbse_components::cooling_tower::{CoolingTower, CoolingTowerType};
-                    let tower_type = match ct.tower_type.as_str() {
-                        "single_speed" => CoolingTowerType::SingleSpeed,
-                        "two_speed" => CoolingTowerType::TwoSpeed,
-                        _ => CoolingTowerType::VariableSpeed,
-                    };
+                    use openbse_components::cooling_tower::CoolingTower;
                     let mut tower = CoolingTower::new(
                         &ct.name,
-                        tower_type,
+                        ct.tower_type,
                         ct.design_water_flow.to_f64(),
-                        ct.design_air_flow,
+                        ct.design_air_flow.unwrap_or(0.0),
                         ct.design_fan_power,
-                        ct.design_inlet_water_temp,
-                        ct.design_approach,
+                        ct.design_inlet_water_temp.unwrap_or(35.0),
+                        ct.design_approach.unwrap_or(3.9),
                         ct.design_range,
                     );
-                    // Apply custom fan power curve if specified
-                    if let Some(ref curve) = ct.fan_power_curve {
-                        if curve.len() >= 5 {
-                            tower.fan_power_curve =
-                                [curve[0], curve[1], curve[2], curve[3], curve[4]];
-                        }
+                    if let Some(curve) = ct.fan_power_curve {
+                        tower.fan_power_curve = curve;
                     }
                     tower.submeter = ct.submeter.clone();
                     graph.add_plant_component(Box::new(tower))
@@ -5691,6 +5676,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     crate::plant::validate_chiller_models(model, &mut result);
     crate::plant::validate_pumps(model, &mut result);
     crate::plant::validate_thermal_storage(model, &mut result);
+    crate::plant::validate_cooling_towers(model, &mut result);
 
     // ── Validate construction references ───────────────────────────────────
     //

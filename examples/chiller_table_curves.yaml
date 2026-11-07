@@ -226,10 +226,7 @@ plant_loops:
         name: Tower1
         tower_type: variable_speed
         design_water_flow: 0.0107
-        design_air_flow: 10.0
         design_fan_power: 7500
-        design_inlet_water_temp: 35.0
-        design_approach: 3.9
         design_range: 5.6
 
 air_loops:

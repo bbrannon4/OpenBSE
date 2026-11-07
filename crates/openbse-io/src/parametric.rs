@@ -575,10 +575,10 @@ fn set_pump_field(p: &mut PumpInput, field: &str, value: f64) {
 
 fn set_cooling_tower_field(ct: &mut CoolingTowerInput, field: &str, value: f64) {
     match field {
-        "design_air_flow" => ct.design_air_flow = value,
+        "design_air_flow" => ct.design_air_flow = Some(value),
         "design_fan_power" => ct.design_fan_power = value,
-        "design_inlet_water_temp" => ct.design_inlet_water_temp = value,
-        "design_approach" => ct.design_approach = value,
+        "design_inlet_water_temp" => ct.design_inlet_water_temp = Some(value),
+        "design_approach" => ct.design_approach = Some(value),
         "design_range" => ct.design_range = value,
         _ => log::warn!(
             "Unknown field '{}' on cooling tower '{}' — skipping",

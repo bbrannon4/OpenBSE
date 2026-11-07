@@ -266,6 +266,44 @@ pub fn validate_plant_connections(model: &ModelInput, result: &mut ValidationRes
     }
 }
 
+/// Cooling tower inputs the tower model reads, or would ignore.
+pub fn validate_cooling_towers(model: &ModelInput, result: &mut ValidationResult) {
+    use openbse_components::cooling_tower::CoolingTowerType;
+    let towers = model
+        .plant_loops
+        .iter()
+        .flat_map(|pl| &pl.supply_equipment)
+        .filter_map(|eq| match eq {
+            PlantEquipmentInput::CoolingTower(ct) => Some(ct),
+            _ => None,
+        });
+    for ct in towers {
+        let unused: Vec<&str> = [
+            ("design_air_flow", ct.design_air_flow),
+            ("design_inlet_water_temp", ct.design_inlet_water_temp),
+            ("design_approach", ct.design_approach),
+        ]
+        .into_iter()
+        .filter_map(|(name, v)| v.map(|_| name))
+        .collect();
+        if !unused.is_empty() {
+            result.push_warning(format!(
+                "Cooling tower '{}': {} not used; the tower rejects its load down to \
+                 2 K above the wet-bulb, with fan power from the load over its design \
+                 capacity (#252)",
+                ct.name,
+                unused.join(", ")
+            ));
+        }
+        if ct.fan_power_curve.is_some() && ct.tower_type != CoolingTowerType::VariableSpeed {
+            result.push_severe(format!(
+                "Cooling tower '{}': fan_power_curve applies only to a variable_speed tower",
+                ct.name
+            ));
+        }
+    }
+}
+
 /// Thermal storage is charged by its loop's chillers, so it must sit on a
 /// loop that has one.
 pub fn validate_thermal_storage(model: &ModelInput, result: &mut ValidationResult) {
@@ -748,7 +786,7 @@ plant_loops:
     design_delta_t: 5.0
     supply_equipment:
       - {type: pump, name: CW Pump, design_flow_rate: autosize}
-      - {type: cooling_tower, name: Tower, design_water_flow: autosize, design_air_flow: 10.0, design_fan_power: 5000.0}
+      - {type: cooling_tower, name: Tower, design_water_flow: autosize, design_fan_power: 5000.0}
 "#;
 
     fn model(yaml: &str) -> ModelInput {
@@ -858,6 +896,39 @@ plant_loops:
         let mut result = ValidationResult::new();
         validate_chiller_models(&m, &mut result);
         result
+    }
+
+    #[test]
+    fn cooling_tower_inputs_are_checked() {
+        let tower =
+            "{type: cooling_tower, name: Tower, design_water_flow: autosize, design_fan_power: 5000.0}";
+        let check = |t: &str| {
+            let mut r = ValidationResult::new();
+            validate_cooling_towers(&model(&PLANT_MODEL.replace(tower, t)), &mut r);
+            r
+        };
+        assert_eq!(check(tower).warning_count(), 0);
+        let r = check(
+            "{type: cooling_tower, name: Tower, design_fan_power: 5000.0, design_air_flow: 10.0, \
+             design_approach: 3.9}",
+        );
+        assert!(r
+            .to_err_file()
+            .contains("design_air_flow, design_approach not used"));
+        let r = check(
+            "{type: cooling_tower, name: Tower, design_fan_power: 5000.0, tower_type: two_speed, \
+             fan_power_curve: [0, 0, 0, 1, 0]}",
+        );
+        assert!(r.to_err_file().contains("only to a variable_speed tower"));
+        for bad in [
+            "{type: cooling_tower, name: Tower, design_fan_power: 5000.0, tower_type: cell}",
+            "{type: cooling_tower, name: Tower, design_fan_power: 5000.0, fan_power_curve: [0, 1]}",
+        ] {
+            assert!(
+                parse_model_yaml(&PLANT_MODEL.replace(tower, bad)).is_err(),
+                "{bad}"
+            );
+        }
     }
 
     #[test]
