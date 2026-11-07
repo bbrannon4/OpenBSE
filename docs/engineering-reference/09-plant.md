@@ -280,15 +280,25 @@ time the source loop ran
 
 ## Thermal storage {#sec-thermal-storage}
 
-**Source:** `openbse-components/src/thermal_storage.rs` (`ThermalStorage`).
+**Source:** `openbse-components/src/thermal_storage.rs` (`ThermalStorage`);
+`openbse-cli/src/main.rs` (plant step).
 
-A chilled-water or ice store holds energy $E$ [Wh], with three strategies:
+A chilled-water or ice store on a chilled-water loop holds energy $E$ [Wh]. Each
+timestep, before the loop is solved and whether or not it has a load, the store
+plans from the coils' cooling load $\dot Q_c$ with one of three strategies:
 
-- **Full storage:** charge at the maximum rate off-peak, discharge to the load on
-  peak.
-- **Load leveling:** discharge the load above `max_charge_rate`; charge with the
-  slack below it.
-- **Demand limiting:** discharge the load above a threshold.
+- **Full storage:** charge at `max_charge_rate` off-peak; discharge on peak.
+- **Load leveling:** the chillers run at `max_charge_rate`: the store charges with
+  the slack below it and discharges the load above it.
+- **Demand limiting:** discharge the load above `threshold_w`.
+
+A store never charges and discharges in the same step. Its charge $\dot Q_\text{ch}$
+is added to the loop's cooling load, so the loop's chillers make it; discharge
+meets the load the dispatch passes to the store, up to its plan. Charging comes
+last: if the chillers fall short, the charge is cut first, and the store keeps
+only what was made. Ice charging costs the chillers $1/f$ times their power for
+the charge, with $f$ = `ice_charge_cop_factor` (default 0.85); the difference is
+booked to the store as cooling electricity.
 
 The state evolves once per timestep, from its value at the start of the step
 however many HVAC iterations run, with a standby loss at 20 °C ambient and a
@@ -301,14 +311,15 @@ $$ {#eq-storage}
 
 Charge is limited by the maximum rate and the room left after the loss, and
 discharge by the maximum rate and the energy left after it, so $E$ stays within
-$[0, E_\text{cap}]$ and closes exactly.
-
-The store draws 500 W while charging or discharging.
+$[0, E_\text{cap}]$ and closes exactly. A store must sit on a loop with a
+chiller.
 
 **Comparison with EnergyPlus.** EnergyPlus's `ThermalStorage:Ice:Simple` and
-`ThermalStorage:ChilledWater:Mixed` are charged by a chiller. In OpenBSE charging
-costs nothing: $\dot Q_\text{ch}$ puts no load on a chiller, so storage's savings
-are overstated. It also runs only while the loop has a load
+`ThermalStorage:ChilledWater:Mixed` are plant components on the chiller's branch:
+the chiller charges them at the leaving temperature the loop asks for, and their
+loss follows the tank temperature and the ambient. OpenBSE charges at the loop's
+setpoint with the $1/f$ penalty for ice, and its loss uses a fixed store
+temperature and a 20 °C ambient
 ([#253](https://github.com/bbrannon4/OpenBSE/issues/253)).
 
 ## Known limitations {#sec-plant-limitations}
@@ -318,8 +329,9 @@ are overstated. It also runs only while the loop has a load
 - [#230](https://github.com/bbrannon4/OpenBSE/issues/230): pump sizing basis.
 - [#252](https://github.com/bbrannon4/OpenBSE/issues/252): tower has no
   effectiveness model, fan cycling or water use.
-- [#253](https://github.com/bbrannon4/OpenBSE/issues/253): storage charges free;
-  heat-exchanger heat never reaches its source loop.
+- [#253](https://github.com/bbrannon4/OpenBSE/issues/253): storage is a
+  simplified component, not a chiller-storage plant branch; heat-exchanger heat
+  never reaches its source loop.
 - [#71](https://github.com/bbrannon4/OpenBSE/issues/71),
   [#72](https://github.com/bbrannon4/OpenBSE/issues/72): boiler curve,
   heat-exchanger effectiveness, Standard 205 chiller flows.

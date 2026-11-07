@@ -3465,6 +3465,30 @@ fn main() -> Result<()> {
                                         });
                                 }
 
+                                // Thermal storage plans every timestep, load or not:
+                                // its charge is cooling the loop's chillers must make.
+                                let mut storage_requests: Vec<(&str, f64)> = Vec::new();
+                                for equip in &plant_loop.supply_equipment {
+                                    if let openbse_io::input::PlantEquipmentInput::ThermalStorage(
+                                        ts,
+                                    ) = equip
+                                    {
+                                        if let Some(GraphComponent::Plant(c)) = graph
+                                            .node_by_name(&ts.name)
+                                            .map(|i| graph.component_mut(i))
+                                        {
+                                            let request = c.storage_charge_request(
+                                                (-total_load).max(0.0),
+                                                &ctx,
+                                            );
+                                            storage_requests.push((ts.name.as_str(), request));
+                                        }
+                                    }
+                                }
+                                let storage_charge: f64 =
+                                    storage_requests.iter().map(|(_, r)| r).sum();
+                                total_load -= storage_charge;
+
                                 // ── Simulate loop equipment ──────────────────────
                                 if total_load.abs() <= 0.0 {
                                     plant_supply_offset[loop_idx] = 0.0;
@@ -3597,6 +3621,10 @@ fn main() -> Result<()> {
                                     let mut prev_saturated = false;
                                     // Heat the supply units delivered, for the loop check.
                                     let mut delivered_total = 0.0_f64;
+                                    // Chillers' cooling and power this pass, for the
+                                    // share that charged storage.
+                                    let mut chiller_cooling = 0.0_f64;
+                                    let mut chiller_power = 0.0_f64;
 
                                     let is_pump_input =
                                         |eq: &&openbse_io::input::PlantEquipmentInput| {
@@ -3752,6 +3780,14 @@ fn main() -> Result<()> {
 
                                                 if !is_pump {
                                                     delivered_total += delivered;
+                                                    if matches!(
+                                                        equip,
+                                                        openbse_io::input::PlantEquipmentInput::Chiller(_)
+                                                    ) {
+                                                        chiller_cooling += delivered;
+                                                        chiller_power +=
+                                                            component.power_consumption();
+                                                    }
                                                     let cap = component.rated_capacity();
                                                     prev_plr = if cap > 0.0 && cap.is_finite() {
                                                         (delivered / cap).min(1.0)
@@ -3794,18 +3830,54 @@ fn main() -> Result<()> {
                                     // Heat the equipment could not supply leaves the
                                     // water short of setpoint, which the coils see
                                     // on the next pass.
-                                    let served_load = load_with_pump_heat(
+                                    let mut served_load = load_with_pump_heat(
                                         total_load,
                                         pump_heat,
                                         total_load,
                                         is_condenser,
                                     );
+                                    let mut unmet =
+                                        (served_load.abs() - delivered_total - recovered_used)
+                                            .clamp(0.0, served_load.abs());
+                                    // Charging comes last: a shortfall cuts it first,
+                                    // and the store keeps only what was made.
+                                    if storage_charge > 0.0 {
+                                        let charged = (storage_charge - unmet).max(0.0);
+                                        let power_share = if chiller_cooling > 0.0 {
+                                            chiller_power * charged / chiller_cooling
+                                        } else {
+                                            0.0
+                                        };
+                                        for &(ts_name, request) in &storage_requests {
+                                            if let Some(GraphComponent::Plant(c)) = graph
+                                                .node_by_name(ts_name)
+                                                .map(|i| graph.component_mut(i))
+                                            {
+                                                let share = request / storage_charge;
+                                                c.set_storage_charge(
+                                                    charged * share,
+                                                    power_share * share,
+                                                    &ctx,
+                                                );
+                                                if let Some(out) =
+                                                    hvac_result.component_outputs.get_mut(ts_name)
+                                                {
+                                                    out.insert(
+                                                        "electric_power".to_string(),
+                                                        c.power_consumption(),
+                                                    );
+                                                    c.report_outputs(&mut |k, v| {
+                                                        out.insert(k.to_string(), v);
+                                                    });
+                                                }
+                                            }
+                                        }
+                                        served_load += storage_charge - charged;
+                                        unmet = (unmet - (storage_charge - charged)).max(0.0);
+                                    }
                                     plant_supply_offset[loop_idx] = if is_condenser {
                                         0.0
                                     } else {
-                                        let unmet =
-                                            (served_load.abs() - delivered_total - recovered_used)
-                                                .clamp(0.0, served_load.abs());
                                         -total_load.signum() * unmet / (cp_water * loop_mass_flow)
                                     };
                                     step_plant.push((

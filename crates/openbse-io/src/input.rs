@@ -2397,7 +2397,8 @@ pub struct ThermalStorageInput {
     /// Standby loss UA [W/K] (default 5.0)
     #[serde(default = "default_tes_loss_ua")]
     pub loss_ua: f64,
-    /// COP penalty factor when making ice (default 0.85)
+    /// Chiller COP while making ice over its COP chilling water (default
+    /// 0.85): ice charging costs the chillers 1/factor times the power.
     #[serde(default = "default_ice_charge_cop_factor")]
     pub ice_charge_cop_factor: f64,
     /// Control strategy
@@ -5696,6 +5697,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     crate::plant::validate_plant_connections(model, &mut result);
     crate::plant::validate_chiller_models(model, &mut result);
     crate::plant::validate_pumps(model, &mut result);
+    crate::plant::validate_thermal_storage(model, &mut result);
 
     // ── Validate construction references ───────────────────────────────────
     //

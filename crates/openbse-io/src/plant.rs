@@ -266,6 +266,28 @@ pub fn validate_plant_connections(model: &ModelInput, result: &mut ValidationRes
     }
 }
 
+/// Thermal storage is charged by its loop's chillers, so it must sit on a
+/// loop that has one.
+pub fn validate_thermal_storage(model: &ModelInput, result: &mut ValidationResult) {
+    for pl in &model.plant_loops {
+        let has_chiller = pl
+            .supply_equipment
+            .iter()
+            .any(|eq| matches!(eq, PlantEquipmentInput::Chiller(_)));
+        for eq in &pl.supply_equipment {
+            if let PlantEquipmentInput::ThermalStorage(ts) = eq {
+                if !has_chiller {
+                    result.push_severe(format!(
+                        "Thermal storage '{}' is on plant loop '{}', which has no chiller \
+                         to charge it; put it on a chilled-water loop with a chiller",
+                        ts.name, pl.name
+                    ));
+                }
+            }
+        }
+    }
+}
+
 /// A part-load curve applies only to a variable-speed pump; E+'s
 /// `Pump:ConstantSpeed` has none, so one given there would be ignored.
 pub fn validate_pumps(model: &ModelInput, result: &mut ValidationResult) {
@@ -836,6 +858,21 @@ plant_loops:
         let mut result = ValidationResult::new();
         validate_chiller_models(&m, &mut result);
         result
+    }
+
+    #[test]
+    fn thermal_storage_needs_a_chiller_on_its_loop() {
+        let pump = "{type: pump, name: HHW Pump, design_flow_rate: autosize}";
+        let tes = "{type: thermal_storage, name: TES, tes_type: ice, capacity_wh: 1000, \
+                   max_charge_rate: 100, max_discharge_rate: 100, control_strategy: full_storage}";
+        let yaml = PLANT_MODEL.replace(pump, &format!("{pump}\n      - {tes}"));
+        let mut r = ValidationResult::new();
+        validate_thermal_storage(&model(&yaml), &mut r);
+        assert!(
+            r.to_err_file().contains("no chiller to charge it"),
+            "{}",
+            r.to_err_file()
+        );
     }
 
     #[test]

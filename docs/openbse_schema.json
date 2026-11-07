@@ -1211,7 +1211,7 @@
     },
 
     "TesControlStrategy": {
-      "description": "Thermal storage control strategy: full_storage (charge off-peak, discharge during peak hours), load_leveling (chiller runs at a constant rate; TES supplements demand), or {demand_limiting: {threshold_w}} (discharge to keep building peak demand below threshold [W]).",
+      "description": "Thermal storage control strategy: full_storage (charge off-peak, discharge during peak hours), load_leveling (chillers run at max_charge_rate; TES takes the slack and covers the load above it), or {demand_limiting: {threshold_w}} (discharge the loop's cooling load above threshold [W]). The charge is a load on the loop's chillers.",
       "oneOf": [
         { "type": "string", "enum": ["full_storage", "load_leveling"] },
         {
@@ -1222,7 +1222,7 @@
               "type": "object",
               "required": ["threshold_w"],
               "properties": {
-                "threshold_w": { "type": "number", "description": "Building peak demand threshold [W]." }
+                "threshold_w": { "type": "number", "description": "Loop cooling load above which the store discharges [W]." }
               }
             }
           }
@@ -1233,7 +1233,7 @@
     "ThermalStorage": {
       "type": "object",
       "required": ["type", "name", "tes_type", "capacity_wh", "max_charge_rate", "max_discharge_rate", "control_strategy"],
-      "description": "Thermal energy storage (chilled water or ice) plant component.",
+      "description": "Thermal energy storage (chilled water or ice) on a chilled-water loop. The loop's chillers make its charge.",
       "properties": {
         "type": { "type": "string", "const": "thermal_storage" },
         "name": { "type": "string" },
@@ -1243,7 +1243,7 @@
         "max_charge_rate": { "type": "number", "description": "Maximum charge rate [W]." },
         "max_discharge_rate": { "type": "number", "description": "Maximum discharge rate [W]." },
         "loss_ua": { "type": "number", "default": 5.0, "description": "Standby loss UA [W/K]." },
-        "ice_charge_cop_factor": { "type": "number", "default": 0.85, "description": "COP penalty factor when making ice." },
+        "ice_charge_cop_factor": { "type": "number", "default": 0.85, "description": "Chiller COP while making ice over its COP chilling water: ice charging costs the chillers 1/factor times the power, booked to the store as cooling electricity." },
         "control_strategy": { "$ref": "#/$defs/TesControlStrategy" },
         "peak_hours": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 24 }, "default": [], "description": "Peak hours (1-24) during which charging is suppressed." }
       }
