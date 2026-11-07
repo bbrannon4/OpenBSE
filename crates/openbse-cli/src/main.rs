@@ -3744,9 +3744,23 @@ fn main() -> Result<()> {
                                                     );
                                                 }
                                                 component.set_supply_setpoint(effective_plant_sp);
+                                                // A heat exchanger serves either direction,
+                                                // so it takes the load's sign: heating
+                                                // positive, cooling (and a condenser loop's
+                                                // rejection) negative. The others know theirs.
+                                                let signed_load = match equip {
+                                                    openbse_io::input::PlantEquipmentInput::HeatExchanger(_) => {
+                                                        if is_condenser || total_load < 0.0 {
+                                                            -equip_load
+                                                        } else {
+                                                            equip_load
+                                                        }
+                                                    }
+                                                    _ => equip_load,
+                                                };
                                                 let outlet = component.simulate_plant(
                                                     &current_inlet,
-                                                    equip_load,
+                                                    signed_load,
                                                     &ctx,
                                                 );
                                                 current_inlet = outlet;
