@@ -450,9 +450,11 @@ pub trait PlantComponent: std::fmt::Debug {
     /// Takes inlet water conditions and a requested thermal load, returns
     /// outlet water conditions.
     ///
-    /// **`load`**: requested thermal load in Watts.
-    /// Positive = heating requested (raise water temperature).
-    /// Negative = cooling requested (lower water temperature).
+    /// **`load`**: requested thermal load in Watts, as a magnitude for
+    /// single-purpose units (a boiler heats, a chiller or tower cools, a pump
+    /// treats any load as "on"). A heat exchanger, which can do either, gets
+    /// the sign: positive = heating requested (raise water temperature),
+    /// negative = cooling requested (lower water temperature).
     /// The component should deliver up to its capacity and update its
     /// internal `thermal_output()` accordingly.
     ///
