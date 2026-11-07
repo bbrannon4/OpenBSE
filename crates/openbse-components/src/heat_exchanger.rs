@@ -28,9 +28,11 @@ use openbse_psychrometrics::{water_cp, FluidState};
 use serde::{Deserialize, Serialize};
 
 /// Heat exchanger control mode.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum HXControlMode {
     /// Always active when there is load on the demand loop.
+    #[default]
     AlwaysOn,
     /// Active only when source-side temperature enables free cooling.
     /// For a waterside economizer: activates when T_source < T_demand_inlet - threshold.
