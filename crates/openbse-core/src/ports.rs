@@ -529,6 +529,18 @@ pub trait PlantComponent: std::fmt::Debug {
     /// take this timestep, before `simulate_plant()`. Default no-op.
     fn set_heat_recovery_conditions(&mut self, _inlet_temp: f64, _max_heat: f64) {}
 
+    /// Thermal storage: plan this timestep from the cooling load of the coils
+    /// the loop serves [W, ≥ 0] and return the charge rate [W] the loop's
+    /// chillers must make for it. Called every timestep, load or not.
+    /// Default: no storage, 0.
+    fn storage_charge_request(&mut self, _cooling_load: f64, _ctx: &SimulationContext) -> f64 {
+        0.0
+    }
+
+    /// Thermal storage: the charge rate [W] the chillers delivered after
+    /// dispatch (at most the request) and the chiller power [W] it took.
+    fn set_storage_charge(&mut self, _charge: f64, _chiller_power: f64, _ctx: &SimulationContext) {}
+
     /// The loop's supply setpoint this timestep [°C], its outdoor reset
     /// included, before `simulate_plant()`. Chillers evaluate their curves at
     /// it; a leaving-setpoint boiler holds it. Default no-op.

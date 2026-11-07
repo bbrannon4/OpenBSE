@@ -2,11 +2,16 @@
 //!
 //! Supports chilled-water and ice storage with three control strategies:
 //!   FullStorage:    charge off-peak, discharge during peak hours.
-//!   LoadLeveling:   chiller runs at constant rate; TES fills the gap.
-//!   DemandLimiting: discharge when building power > threshold.
+//!   LoadLeveling:   chillers run at `max_charge_rate`; TES takes the slack
+//!                   and covers the load above it.
+//!   DemandLimiting: discharge the loop's cooling load above a threshold.
+//!
+//! The charge is cooling the loop's chillers make: the plant adds it to the
+//! loop's load and reports back what was made. Ice charging costs the
+//! chillers 1/`ice_charge_cop_factor` times the power.
 //!
 //! Standby loss: Q_loss = loss_ua × (T_ambient - T_storage).
-//! State of charge evolves each timestep:
+//! State of charge evolves once per timestep:
 //!   stored_energy_wh += (charge_rate - discharge_rate - standby_loss) × dt / 3600.
 
 use openbse_core::ports::*;
@@ -35,9 +40,10 @@ pub enum TesType {
 pub enum TesControlStrategy {
     /// Charge off-peak, discharge during peak hours.
     FullStorage,
-    /// Chiller runs at constant rate; TES supplements demand.
+    /// Chillers run at `max_charge_rate`; TES takes the slack and covers the
+    /// load above it.
     LoadLeveling,
-    /// Discharge to prevent building peak demand exceeding threshold [W].
+    /// Discharge the loop's cooling load above `threshold_w` [W].
     DemandLimiting { threshold_w: f64 },
 }
 
@@ -83,7 +89,10 @@ pub struct ThermalStorage {
     /// Current discharge rate [W]
     #[serde(skip)]
     pub discharge_rate: f64,
-    /// Electric power for TES controls/pumps [W]
+    /// Most the store may discharge this step [W], from its plan.
+    #[serde(skip)]
+    discharge_limit: f64,
+    /// Extra chiller electricity for making ice [W], booked to the store
     #[serde(skip)]
     pub power: f64,
     /// Net thermal output to loop [W] (positive = discharging = cooling provided)
@@ -116,6 +125,7 @@ impl ThermalStorage {
             step: None,
             charge_rate: 0.0,
             discharge_rate: 0.0,
+            discharge_limit: 0.0,
             power: 0.0,
             net_thermal: 0.0,
         }
@@ -134,6 +144,66 @@ impl ThermalStorage {
             self.step = Some(key);
             self.stored_at_step_start = self.stored_energy_wh;
         }
+    }
+
+    fn planned(&self, ctx: &SimulationContext) -> bool {
+        let t = &ctx.timestep;
+        self.step == Some((t.month, t.day, t.hour, t.sub_hour))
+    }
+
+    /// Standby loss over a step of `dt` seconds [Wh], at most what is stored.
+    fn standby_loss_wh(&self, dt: f64) -> f64 {
+        // Ambient 20 °C; the loss warms the store.
+        let loss_w = self.loss_ua * (20.0 - self.storage_temp());
+        (loss_w * dt / 3600.0).clamp(0.0, self.stored_at_step_start)
+    }
+
+    /// Decide this step's charge and the most it may discharge, from the
+    /// cooling load of the coils it serves [W]. Charging and discharging are
+    /// never planned for the same step. The charge is a load on the chillers.
+    fn plan_step(&mut self, cooling_load: f64, ctx: &SimulationContext) {
+        self.begin_step(ctx);
+        let dt_h = ctx.timestep.dt / 3600.0;
+        // Energy that can leave, and room that can fill, after the standby
+        // loss, so the state of charge stays in range without clipping.
+        let stored = self.stored_at_step_start - self.standby_loss_wh(ctx.timestep.dt);
+        let room = (self.capacity_wh - stored) / dt_h;
+        let available = (stored / dt_h).min(self.max_discharge_rate);
+        let is_peak = self.is_peak_hour(ctx.timestep.hour);
+
+        let (charge, discharge) = match self.control_strategy {
+            TesControlStrategy::FullStorage => {
+                if is_peak {
+                    (0.0, available)
+                } else {
+                    (self.max_charge_rate.min(room), 0.0)
+                }
+            }
+            // The chillers run at `max_charge_rate`: the store takes the
+            // slack below it and covers the load above it.
+            TesControlStrategy::LoadLeveling => {
+                if cooling_load > self.max_charge_rate {
+                    (0.0, (cooling_load - self.max_charge_rate).min(available))
+                } else {
+                    ((self.max_charge_rate - cooling_load).min(room), 0.0)
+                }
+            }
+            TesControlStrategy::DemandLimiting { threshold_w } => {
+                (0.0, (cooling_load - threshold_w).clamp(0.0, available))
+            }
+        };
+        self.charge_rate = charge.max(0.0);
+        self.discharge_limit = discharge.max(0.0);
+        self.discharge_rate = 0.0;
+        self.net_thermal = 0.0;
+        self.power = 0.0;
+        self.update_state(ctx.timestep.dt);
+    }
+
+    /// End-of-step state from the start-of-step state and this step's rates.
+    fn update_state(&mut self, dt: f64) {
+        self.stored_energy_wh = self.stored_at_step_start - self.standby_loss_wh(dt)
+            + (self.charge_rate - self.discharge_rate) * dt / 3600.0;
     }
 
     fn storage_temp(&self) -> f64 {
@@ -163,94 +233,42 @@ impl PlantComponent for ThermalStorage {
         load: f64,
         ctx: &SimulationContext,
     ) -> WaterPort {
-        self.begin_step(ctx);
-        let dt = ctx.timestep.dt; // seconds
-        let hour = ctx.timestep.hour;
-        let is_peak = self.is_peak_hour(hour);
-
-        // Standby loss: ambient 20°C assumed; cooling loss warms the storage
-        let t_storage = self.storage_temp();
-        let standby_loss_w = self.loss_ua * (20.0 - t_storage); // always positive for CHW/ice
-        let standby_loss_wh = (standby_loss_w * dt / 3600.0).min(self.stored_at_step_start);
-        // Energy that can leave, and room that can fill, this step after the
-        // standby loss, so the state of charge stays in range without clipping.
-        let stored = self.stored_at_step_start - standby_loss_wh;
-        let dt_h = dt / 3600.0;
-
-        let cooling_load = load.abs(); // treat any load as cooling demand magnitude
-
-        // Determine charge and discharge rates based on control strategy
-        let (charge, discharge) = match self.control_strategy {
-            TesControlStrategy::FullStorage => {
-                if !is_peak && stored < self.capacity_wh {
-                    // Off-peak: charge at max rate
-                    let avail_cap = (self.capacity_wh - stored) / dt_h;
-                    let c = self.max_charge_rate.min(avail_cap);
-                    (c, 0.0)
-                } else if is_peak && stored > 0.0 {
-                    // Peak: discharge to meet load
-                    let avail_energy = stored / dt_h;
-                    let d = cooling_load.min(self.max_discharge_rate).min(avail_energy);
-                    (0.0, d)
-                } else {
-                    (0.0, 0.0)
-                }
-            }
-            TesControlStrategy::LoadLeveling => {
-                // Discharge when demand exceeds a baseline; charge when below
-                // Simplified: discharge = max(0, load - max_charge_rate); charge if slack
-                if cooling_load > self.max_charge_rate && stored > 0.0 {
-                    let need = cooling_load - self.max_charge_rate;
-                    let avail = stored / dt_h;
-                    let d = need.min(self.max_discharge_rate).min(avail);
-                    (0.0, d)
-                } else if cooling_load < self.max_charge_rate && stored < self.capacity_wh {
-                    let slack = self.max_charge_rate - cooling_load;
-                    let avail_cap = (self.capacity_wh - stored) / dt_h;
-                    let c = slack.min(self.max_charge_rate).min(avail_cap);
-                    (c, 0.0)
-                } else {
-                    (0.0, 0.0)
-                }
-            }
-            TesControlStrategy::DemandLimiting { threshold_w } => {
-                if cooling_load > threshold_w && stored > 0.0 {
-                    let need = cooling_load - threshold_w;
-                    let avail = stored / dt_h;
-                    let d = need.min(self.max_discharge_rate).min(avail);
-                    (0.0, d)
-                } else {
-                    (0.0, 0.0)
-                }
-            }
-        };
-
-        self.charge_rate = charge;
+        if !self.planned(ctx) {
+            self.plan_step(load.max(0.0), ctx);
+        }
+        let discharge = load.max(0.0).min(self.discharge_limit);
         self.discharge_rate = discharge;
-
-        self.stored_energy_wh = stored + (charge - discharge) * dt_h;
-
-        // Net thermal output: positive = provides cooling to loop
         self.net_thermal = discharge;
-        // Small pump/controls power
-        self.power = if charge > 0.0 || discharge > 0.0 {
-            500.0
-        } else {
-            0.0
-        };
+        self.update_state(ctx.timestep.dt);
 
-        // Compute outlet conditions
         if discharge <= 0.0 || inlet.state.mass_flow <= 0.0 {
             return *inlet;
         }
         let cp = inlet.state.cp;
-        let dt_fluid = discharge / (inlet.state.mass_flow * cp).max(1.0);
-        let t_out = inlet.state.temp - dt_fluid; // cooling lowers temp
+        let t_out = inlet.state.temp - discharge / (inlet.state.mass_flow * cp);
         WaterPort::new(FluidState {
             temp: t_out,
             mass_flow: inlet.state.mass_flow,
             cp,
         })
+    }
+
+    fn storage_charge_request(&mut self, cooling_load: f64, ctx: &SimulationContext) -> f64 {
+        self.plan_step(cooling_load, ctx);
+        self.charge_rate
+    }
+
+    fn set_storage_charge(&mut self, charge: f64, chiller_power: f64, ctx: &SimulationContext) {
+        self.charge_rate = charge.clamp(0.0, self.charge_rate);
+        // Making ice takes a colder evaporator than chilling water: the
+        // chillers' power for the charge rises by 1/f.
+        self.power = match self.tes_type {
+            TesType::Ice if self.charge_rate > 0.0 => {
+                chiller_power * (1.0 / self.ice_charge_cop_factor.max(0.01) - 1.0)
+            }
+            _ => 0.0,
+        };
+        self.update_state(ctx.timestep.dt);
     }
 
     fn power_consumption(&self) -> f64 {
