@@ -436,6 +436,23 @@ export function comfortPathFor(modelPath: string): string {
   return modelPath.replace(/\.ya?ml$/i, "") + "_comfort.json";
 }
 
+/** The run's `.err` file, written next to the model by a Workbench run. */
+export function errPathFor(modelPath: string): string {
+  return modelPath.replace(/\.ya?ml$/i, "") + ".err";
+}
+
+/** Comfort-grid diagnostics from an `.err` file: severe errors and warnings. */
+export function comfortDiagnostics(errText: string): { severe: string[]; warnings: string[] } {
+  const severe: string[] = [];
+  const warnings: string[] = [];
+  for (const raw of errText.split(/\r?\n/)) {
+    const m = raw.match(/^\*\*\s*(Severe|Warning)\s*\*\*\s*(.*)$/);
+    if (!m || !/comfort[ _]grid/i.test(m[2])) continue;
+    (m[1] === "Severe" ? severe : warnings).push(m[2]);
+  }
+  return { severe, warnings };
+}
+
 // ─── Annual statistics ───────────────────────────────────────────────────────
 
 export type AnnualMetric =

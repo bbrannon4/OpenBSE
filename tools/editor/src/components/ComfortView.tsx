@@ -10,6 +10,8 @@ import {
   buildZoneModels,
   colorFor,
   comfortPathFor,
+  comfortDiagnostics,
+  errPathFor,
   evaluateHour,
   hourIndex,
   hourLabel,
@@ -64,6 +66,8 @@ export function ComfortView({ modelPath, reloadKey, unitSystem }: Props) {
   // Each load is tagged with its path so a result for a previous model is
   // never shown, and "loading" falls out of the tag instead of extra state.
   const [loaded, setLoaded] = useState<{ path: string; data: ComfortData | null; error: string | null } | null>(null);
+  // Comfort-grid lines of the last run's .err file, tagged with the model path.
+  const [diag, setDiag] = useState<{ path: string; severe: string[]; warnings: string[] } | null>(null);
   const [mode, setMode] = useState<Mode>("hour");
   const [view, setView] = useState<View>("3d");
   const [hourMetric, setHourMetric] = useState<PointMetric>("operative");
@@ -104,6 +108,22 @@ export function ComfortView({ modelPath, reloadKey, unitSystem }: Props) {
       cancelled = true;
     };
   }, [path, reloadKey]);
+
+  useEffect(() => {
+    if (!modelPath) return;
+    let cancelled = false;
+    invoke<string>("read_yaml_file", { path: errPathFor(modelPath) })
+      .then((text) => {
+        if (!cancelled) setDiag({ path: modelPath, ...comfortDiagnostics(text) });
+      })
+      .catch(() => {
+        if (!cancelled) setDiag({ path: modelPath, severe: [], warnings: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [modelPath, reloadKey]);
+  const runDiag = diag && diag.path === modelPath ? diag : null;
 
   const current = loaded && loaded.path === path ? loaded : null;
   const data = current?.data ?? null;
@@ -146,6 +166,15 @@ export function ComfortView({ modelPath, reloadKey, unitSystem }: Props) {
   if (loading && !data) {
     return <ComfortMessage title="Loading comfort grid…" body="" />;
   }
+  // A severe comfort-grid error stopped the last run: any grid on disk is stale.
+  if (runDiag && runDiag.severe.length > 0) {
+    return (
+      <ComfortMessage
+        title="The last run stopped on a comfort grid error"
+        body={[...runDiag.severe, ...runDiag.warnings].join("\n")}
+      />
+    );
+  }
   if (!data) {
     return (
       <ComfortMessage
@@ -153,6 +182,7 @@ export function ComfortView({ modelPath, reloadKey, unitSystem }: Props) {
         body={
           "Add a Comfort Grid block (sidebar: Output › Comfort Grid) and run the simulation. " +
           "It writes <model>_comfort.json next to the model, which this tab reads." +
+          (runDiag && runDiag.warnings.length > 0 ? `\n\n${runDiag.warnings.join("\n")}` : "") +
           (error && !error.includes("No such file") ? `\n\n${error}` : "")
         }
       />

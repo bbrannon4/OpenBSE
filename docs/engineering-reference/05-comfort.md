@@ -115,6 +115,12 @@ transmittance and assumes every occupant is in the sun
 The grid gives the radiant field within a zone. The zone air is well mixed,
 so air temperature and humidity are the same at every point.
 
+**Zones.** The grid covers the zones listed in `comfort_grid.zones`, or every
+zone. A zone needs vertices on all its surfaces to be gridded. A listed zone that
+can't be gridded is a warning in the `.err` file; a grid left with no zone is a
+severe error that stops the run before it starts, as does a `comfort_grid` in a
+model without zones and surfaces.
+
 **Points.** Points are laid on the zone's floor polygons at a set spacing,
 kept a set distance from the floor boundary, at the occupant's radiant
 centre height. The default height is 0.6 m seated and 1.1 m standing

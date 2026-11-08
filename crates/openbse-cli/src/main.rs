@@ -2564,13 +2564,29 @@ fn main() -> Result<()> {
         };
 
         // Spatial comfort grid (#136): opt-in, and only meaningful with an envelope.
+        // Zones it can't grid are reported in the .err file; a grid with no
+        // zone at all stops the run before it starts.
         let mut comfort_recorder = match (&model.comfort_grid, &envelope) {
             (Some(cfg), Some(env)) => {
-                Some(openbse_io::comfort_grid::ComfortGridRecorder::new(cfg, env))
+                let recorder = openbse_io::comfort_grid::ComfortGridRecorder::new(cfg, env);
+                let (warnings, severe) = recorder.diagnostics(cfg);
+                for w in warnings {
+                    validation.push_warning(w);
+                }
+                if let Some(e) = severe {
+                    return Err(stop_on_severe(&mut validation, &err_path, vec![e]));
+                }
+                Some(recorder)
             }
             (Some(_), None) => {
-                warn!("comfort_grid needs zones and surfaces; ignoring it");
-                None
+                return Err(stop_on_severe(
+                    &mut validation,
+                    &err_path,
+                    vec![
+                        "comfort_grid needs zones and surfaces; the model has no envelope"
+                            .to_string(),
+                    ],
+                ));
             }
             _ => None,
         };
