@@ -1103,8 +1103,10 @@ derived from ASHRAE unit leakage areas [@ashrae2021fund, Ch. 16]. With a
 target ACH50 they are all rescaled so the envelope passes it at 50 Pa.
 Operable windows and doorways may be large openings, two-way openings or
 horizontal openings, with scheduled or natural-ventilation-controlled areas.
-Exhaust fans and the net HVAC supply–return imbalance (from the previous
-timestep) are fixed flows, and duct leaks are pressure-dependent cracks.
+Each zone's net HVAC exchange with the outdoors, outdoor air minus exhaust
+(zone exhaust fans included), from the previous timestep, is a fixed flow.
+Duct leaks are pressure-dependent cracks, or fixed flows when no static
+pressures are given.
 
 **Flow elements.** With $\Delta p$ the pressure difference across a path
 and $\bar\rho$ the mean density of its two nodes:
@@ -1149,8 +1151,11 @@ pressure coefficient $C_p$ comes from one of three models:
 node, $R_i = \sum_\text{paths}\dot m_{\to i} = 0$, by Newton–Raphson with a
 dense Jacobian and adaptive under-relaxation. It starts from the stored pressures
 and stops when the largest residual is below the
-absolute tolerance or $10^{-4}$ of the total through-flow (at most 30
-iterations). After solving, each zone's outdoor inflow becomes
+absolute tolerance or $10^{-4}$ of the total through-flow, or when the
+pressure step is below `convergence_tolerance` [Pa] with the residual
+within ten times those limits (at most 30 iterations). The absolute
+tolerance is `convergence_tolerance` × 0.001 m³/s at reference density,
+$1.2\times10^{-4}$ kg/s at the default 0.1. After solving, each zone's outdoor inflow becomes
 $\dot m_\text{inf}$. Its inflows from other zones become a mass-weighted
 stream mixed with the outdoor air (`mix_advective_streams`), giving the
 combined advective term of @eq-zone-ode and its humidity. Passive species
@@ -1179,7 +1184,7 @@ differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
 ## Known limitations: infiltration, ventilation and AFN {#sec-infiltration-limitations}
 
 - [#90](https://github.com/bbrannon4/OpenBSE/issues/90): AFN cleanups;
-  tolerance units, density convention, high-rise $C_p$.
+  density convention, high-rise $C_p$.
 - Scheduled ventilation lacks E+'s `ZoneVentilation:DesignFlowRate`
   coefficients and schedule (filed for later).
 

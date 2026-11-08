@@ -6416,6 +6416,67 @@ mod tests {
         assert_eq!(envelope.zones[0].nat_vent_on_timesteps, 2);
     }
 
+    /// A zone exhaust fan reaches the airflow network only through the
+    /// zone's net HVAC injection path, as −ṁ_exhaust, and the zone's AFN
+    /// inflows then balance it. No other fixed-flow path exists for it.
+    #[test]
+    fn test_afn_exhaust_fan_drives_net_path_and_balances() {
+        let mut envelope = make_two_zone_model(false);
+        envelope.zones[0].input.exhaust_fan = Some(crate::zone::ExhaustFanInput {
+            tag: "exhaust".to_string(),
+            flow_rate: 0.05,
+            pressure_rise: 0.0,
+            total_efficiency: 0.5,
+            motor_efficiency: 0.9,
+            motor_in_airstream_fraction: 1.0,
+            schedule: None,
+        });
+        // Rebuild so the network sees the exhaust fan input.
+        envelope.build_airflow_network(&crate::airflow_network::AirflowNetworkConfig {
+            enabled: true,
+            ..Default::default()
+        });
+        envelope.initialize(3600.0).unwrap();
+        let ctx = make_ctx();
+        let weather = make_weather_hour(0.0);
+        let hvac = ZoneHvacConditions::default();
+        // The network uses the previous timestep's exhaust flow.
+        envelope.solve_timestep(&ctx, &weather, &hvac);
+        envelope.update_bdf_history();
+        envelope.solve_timestep(&ctx, &weather, &hvac);
+
+        let afn = envelope.airflow_network.as_ref().unwrap();
+        let fixed: Vec<_> = afn
+            .paths
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| {
+                matches!(
+                    p.element,
+                    crate::airflow_network::FlowElement::FixedFlow { .. }
+                )
+            })
+            .map(|(i, _)| i)
+            .collect();
+        let net_paths: Vec<usize> = afn
+            .hvac_net_path_indices
+            .iter()
+            .flatten()
+            .copied()
+            .collect();
+        assert_eq!(fixed, net_paths, "only the net HVAC paths are fixed flows");
+
+        let m_exh = envelope.zones[0].exhaust_mass_flow;
+        assert!(m_exh > 0.05, "exhaust mass flow {m_exh}");
+        let net = &afn.paths[afn.hvac_net_path_indices[0].unwrap()];
+        assert_relative_eq!(net.mass_flow, -m_exh, max_relative = 1e-9);
+        // Zone 0 mass balance: crack inflow from outdoors plus interzone
+        // inflow replaces the exhausted air.
+        let inflow = afn.zone_outdoor_mass_flow[0]
+            + afn.zone_interzone_flows[0].iter().map(|f| f.1).sum::<f64>();
+        assert_relative_eq!(inflow, m_exh, max_relative = 0.01);
+    }
+
     /// The opening decision is taken from the start-of-step temperature and
     /// held: a zone temperature solved inside the iteration can't flip it (#188).
     #[test]
