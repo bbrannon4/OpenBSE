@@ -1169,7 +1169,11 @@ $\dot m_\text{inf}$. Its inflows from other zones become a mass-weighted
 stream mixed with the outdoor air (`mix_advective_streams`), giving the
 combined advective term of @eq-zone-ode and its humidity. Passive species
 (e.g. CO₂) are then advanced by an implicit zone mass balance on the solved
-flows, with sources, decay, deposition and filtration.
+flows, with sources, decay, deposition and filtration. Duct leaks carry
+species too: a return leak brings ambient-zone air to the zone, and a supply
+leak spills supply air into the ambient zone, its outdoor-air fraction
+$f = \dot m_\text{OA}/\dot m_\text{supply}$ at the outdoor concentration
+(that air never reaches the zone) and the rest at the zone's concentration.
 
 **Comparison with EnergyPlus.** The network, element equations (E+
 `generic_crack`, with its density and viscosity corrections), the
@@ -1177,10 +1181,10 @@ two-way and horizontal openings, the Swami–Chandra $C_p$ and the
 Newton–Raphson solution follow EnergyPlus's AirflowNetwork (AIRNET)
 [@eplus-engref-25-2, "AirflowNetwork Model"]. They are generated
 automatically rather than from AirflowNetwork input objects. The
-differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
+differences:
 
 - **High-rise $C_p$.** It is a simple cosine rather than the Akins
-  surface-average table.
+  surface-average table ([#432](https://github.com/bbrannon4/OpenBSE/issues/432)).
 - **No duct network.** There is no AirflowNetwork:Distribution duct
   network; duct leakage is a pair of leak paths per duct.
 - **Timing.** E+ solves contaminants once per system timestep after the HVAC
@@ -1191,8 +1195,9 @@ differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
 
 ## Known limitations: infiltration, ventilation and AFN {#sec-infiltration-limitations}
 
-- [#90](https://github.com/bbrannon4/OpenBSE/issues/90): AFN cleanups;
-  high-rise $C_p$.
+- [#432](https://github.com/bbrannon4/OpenBSE/issues/432): high-rise wind
+  pressure coefficients are $0.6\cos\theta$ windward and $-0.3$ leeward,
+  not E+'s Akins surface-average table.
 - Scheduled ventilation lacks E+'s `ZoneVentilation:DesignFlowRate`
   coefficients and schedule (filed for later).
 
