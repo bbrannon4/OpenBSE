@@ -1647,7 +1647,8 @@ pub struct HeatRecoveryInput {
     /// Submeter label for end-use reporting (default: "General")
     #[serde(default = "default_submeter")]
     pub submeter: String,
-    /// Heat recovery source: "wheel", "plate", "runaround_coil"
+    /// Heat recovery source: "wheel" (sensible and latent), "plate" or
+    /// "runaround_coil" (sensible only); anything else is a severe error
     #[serde(default = "default_hr_source")]
     pub source: String,
     /// Sensible effectiveness at design conditions [0-1]; with
@@ -3742,8 +3743,11 @@ fn build_graph_impl(
                     graph.add_air_component(Box::new(gshp))
                 }
                 EquipmentInput::HeatRecovery(hr) => {
+                    // `validate_heat_recovery` rejects any other source.
                     let erv = match hr.source.as_str() {
-                        "plate" | "plate_hx" => HeatRecovery::plate_hx(
+                        // A runaround coil loop passes heat through a
+                        // glycol loop and transfers no moisture.
+                        "plate" | "plate_hx" | "runaround_coil" => HeatRecovery::plate_hx(
                             &hr.name,
                             hr.sensible_effectiveness,
                             hr.parasitic_power,
@@ -4835,6 +4839,41 @@ impl ValidationResult {
     }
 }
 
+/// Heat-recovery sources: a wheel moves heat and moisture; a plate exchanger
+/// and a runaround coil loop move heat only, so a latent effectiveness on
+/// them would be ignored.
+fn validate_heat_recovery(model: &ModelInput, result: &mut ValidationResult) {
+    let units = model
+        .air_loops
+        .iter()
+        .flat_map(|al| al.equipment.iter().map(move |eq| (al, eq)));
+    for (al, eq) in units {
+        let EquipmentInput::HeatRecovery(hr) = eq else {
+            continue;
+        };
+        let sensible_only = match hr.source.as_str() {
+            "wheel" => false,
+            "plate" | "plate_hx" | "runaround_coil" => true,
+            other => {
+                result.severe(format!(
+                    "Heat recovery '{}' in air loop '{}': unknown source '{other}' \
+                     (use wheel, plate or runaround_coil)",
+                    hr.name, al.name
+                ));
+                continue;
+            }
+        };
+        if sensible_only && hr.latent_effectiveness > 0.0 {
+            result.severe(format!(
+                "Heat recovery '{}' in air loop '{}': a {} transfers no moisture, \
+                 so latent_effectiveness {} would be ignored; remove it or use \
+                 source: wheel",
+                hr.name, al.name, hr.source, hr.latent_effectiveness
+            ));
+        }
+    }
+}
+
 /// A dual-duct loop splits into its two decks after the components that
 /// carry the whole flow: heating coils run on the hot deck and cooling coils
 /// on the cold deck, so nothing else may follow a coil. Its boxes control
@@ -5921,6 +5960,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     validate_materials(model, &mut result);
     validate_zone_multipliers(model, &mut result);
     validate_dual_duct_loops(model, &mut result);
+    validate_heat_recovery(model, &mut result);
     validate_recirculating_loops(model, &mut result);
     validate_ups_curves(model, &mut result);
     validate_supply_temp_limits(model, &mut result);
@@ -6330,6 +6370,82 @@ air_loops:
             ),
             1
         );
+    }
+
+    /// #435: a runaround coil is built sensible-only, an unknown source is
+    /// severe rather than a silent wheel, and a latent effectiveness on a
+    /// sensible-only device is severe rather than ignored.
+    #[test]
+    fn heat_recovery_sources_are_built_as_named() {
+        use openbse_core::graph::GraphComponent;
+        use openbse_core::ports::{AirPort, SimulationContext, SizingInternalGains};
+        use openbse_core::types::{DayType, TimeStep};
+        use openbse_psychrometrics::MoistAirState;
+        let model = |source: &str, latent: f64| {
+            parse_model_yaml(&format!(
+                r#"
+simulation: {{}}
+weather_files: []
+zones:
+  - name: Office
+air_loops:
+  - name: AHU
+    system_type: psz_ac
+    equipment:
+      - {{type: heat_recovery, name: HR, source: {source}, sensible_effectiveness: 0.7, latent_effectiveness: {latent}}}
+      - {{type: fan, name: Fan, source: constant_volume, design_flow_rate: 1.0, pressure_rise: 500.0}}
+    zone_terminals:
+      - zone: Office
+"#
+            ))
+            .unwrap()
+        };
+        let report = |m: &ModelInput| validate_model(m).to_err_file();
+        assert!(report(&model("rotary", 0.0)).contains("unknown source 'rotary'"));
+        assert!(report(&model("runaround_coil", 0.6)).contains("transfers no moisture"));
+        assert!(report(&model("plate", 0.6)).contains("transfers no moisture"));
+        assert_eq!(
+            validate_model(&model("runaround_coil", 0.0)).error_count(),
+            0
+        );
+        assert_eq!(validate_model(&model("wheel", 0.6)).error_count(), 0);
+
+        // Humid exhaust, dry outdoor air: heat moves either way, moisture
+        // only through the wheel.
+        let ctx = SimulationContext {
+            timestep: TimeStep {
+                month: 1,
+                day: 15,
+                hour: 12,
+                sub_hour: 1,
+                timesteps_per_hour: 1,
+                sim_time_s: 0.0,
+                dt: 3600.0,
+            },
+            outdoor_air: MoistAirState::new(0.0, 0.002, 101325.0),
+            day_type: DayType::WeatherDay,
+            is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
+        };
+        let outlet = |source: &str| {
+            let mut graph =
+                build_graph(&model(source, if source == "wheel" { 0.6 } else { 0.0 })).unwrap();
+            let idx = graph.node_by_name("HR").unwrap();
+            let GraphComponent::Air(c) = graph.component_mut(idx) else {
+                panic!("heat recovery is an air component");
+            };
+            c.set_exhaust_conditions(22.0, 0.012);
+            let inlet = AirPort::new(MoistAirState::new(0.0, 0.002, 101325.0), 1.0);
+            c.simulate_air(&inlet, &ctx).state
+        };
+        let runaround = outlet("runaround_coil");
+        assert!(runaround.t_db > 10.0, "heat recovered: {}", runaround.t_db);
+        assert!(
+            (runaround.w - 0.002).abs() < 1e-12,
+            "no moisture: {}",
+            runaround.w
+        );
+        assert!(outlet("wheel").w > 0.005);
     }
 
     #[test]

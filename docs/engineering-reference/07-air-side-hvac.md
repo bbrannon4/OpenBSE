@@ -528,9 +528,12 @@ DetailedAnalysis part-wet iteration.
 
 **Source:** `openbse-components/src/heat_recovery.rs` (`HeatRecovery`).
 
-An enthalpy wheel or a plate exchanger transfers heat, and for the wheel
+An enthalpy wheel (`source: wheel`), a plate exchanger (`plate`) or a
+runaround coil loop (`runaround_coil`) transfers heat, and for the wheel
 moisture, from the exhaust air at $(T_x, W_x)$ to the outdoor air entering
-it. The driver sets the exhaust state from the return air each timestep.
+it. The plate and the runaround loop are sensible-only: a
+`latent_effectiveness` on them is a severe input error, as is any other
+`source`. The driver sets the exhaust state from the return air each timestep.
 Let:
 
 - $C_s = \dot m c_p$ be the supply capacity rate;
@@ -538,7 +541,8 @@ Let:
   $C_\text{min} = rC_s$;
 - $\varepsilon_s$ be the sensible effectiveness, or the separate cooling
   effectiveness when $T_\text{in} > T_x$;
-- $\varepsilon_l$ be the latent effectiveness (zero for a plate exchanger).
+- $\varepsilon_l$ be the latent effectiveness (zero for a plate exchanger or
+  runaround loop).
 
 Then
 
@@ -564,6 +568,10 @@ differences are ([#345](https://github.com/bbrannon4/OpenBSE/issues/345)):
 - **Effectiveness.** EnergyPlus varies it with flow; OpenBSE does not.
 - **Control.** EnergyPlus has frost control and economizer lockout, where
   OpenBSE has a fixed ±1 K bypass.
+- **Runaround loop.** EnergyPlus models a coil loop as
+  `HeatExchanger:AirToAir:SensibleAndLatent` with zero latent effectiveness, or
+  as two water coils on a pumped loop; OpenBSE uses the first form, with the
+  loop pump in `parasitic_power`.
 
 ## Humidifiers {#sec-humidifier}
 
