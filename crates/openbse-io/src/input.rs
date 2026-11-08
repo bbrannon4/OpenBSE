@@ -1079,6 +1079,9 @@ pub struct ExternalAirInput {
     /// Output variable names expected from the process each timestep.
     /// See [`openbse_cosim::ExternalAirComponent`] for available names.
     pub outputs: Vec<String>,
+    /// Longest wait for one response before the run stops [s] (default 60).
+    #[serde(default = "default_cosim_timeout")]
+    pub timeout_s: f64,
 }
 
 /// Electric steam humidifier.
@@ -1973,6 +1976,13 @@ pub struct ExternalPlantInput {
     /// Output variable names expected from the process each timestep.
     /// See [`openbse_cosim::ExternalPlantComponent`] for available names.
     pub outputs: Vec<String>,
+    /// Longest wait for one response before the run stops [s] (default 60).
+    #[serde(default = "default_cosim_timeout")]
+    pub timeout_s: f64,
+}
+
+fn default_cosim_timeout() -> f64 {
+    openbse_cosim::subprocess::DEFAULT_TIMEOUT_S
 }
 
 /// Pump type.
@@ -3792,7 +3802,8 @@ fn build_graph_impl(
                         e.inputs.clone(),
                         e.outputs.clone(),
                     )
-                    .with_working_dir(model_dir);
+                    .with_working_dir(model_dir)
+                    .with_timeout(e.timeout_s);
                     graph.add_air_component(Box::new(component))
                 }
             };
@@ -4136,7 +4147,8 @@ fn build_graph_impl(
                         e.inputs.clone(),
                         e.outputs.clone(),
                     )
-                    .with_working_dir(model_dir);
+                    .with_working_dir(model_dir)
+                    .with_timeout(e.timeout_s);
                     graph.add_plant_component(Box::new(component))
                 }
             };
@@ -5246,6 +5258,71 @@ fn validate_duct_ambients(model: &ModelInput, result: &mut ValidationResult) {
     }
 }
 
+/// Co-simulation variable names must be ones the engine knows, and the
+/// required outputs must be declared: an unknown input would be sent as
+/// nothing useful and an unknown output would be ignored.
+fn validate_cosim(model: &ModelInput, result: &mut ValidationResult) {
+    use openbse_cosim::external_air::{AIR_INPUTS, AIR_OUTPUTS, AIR_REQUIRED_OUTPUTS};
+    use openbse_cosim::external_plant::{PLANT_INPUTS, PLANT_OUTPUTS, PLANT_REQUIRED_OUTPUTS};
+    use openbse_cosim::subprocess::unknown_names;
+    let mut check = |kind: &str,
+                     name: &str,
+                     io: (&[String], &[String]),
+                     known: (&[&str], &[&str]),
+                     required: &[&str],
+                     timeout_s: f64| {
+        let (inputs, outputs) = io;
+        for v in unknown_names(inputs, known.0) {
+            result.severe(format!(
+                "{kind} '{name}': unknown input '{v}' (known: {})",
+                known.0.join(", ")
+            ));
+        }
+        for v in unknown_names(outputs, known.1) {
+            result.severe(format!(
+                "{kind} '{name}': unknown output '{v}' (known: {})",
+                known.1.join(", ")
+            ));
+        }
+        for r in required.iter().filter(|r| !outputs.iter().any(|o| o == *r)) {
+            result.severe(format!("{kind} '{name}': outputs must include '{r}'"));
+        }
+        if !(timeout_s > 0.0 && timeout_s.is_finite()) {
+            result.severe(format!(
+                "{kind} '{name}': timeout_s must be positive, got {timeout_s}"
+            ));
+        }
+    };
+    for al in &model.air_loops {
+        for eq in &al.equipment {
+            if let EquipmentInput::ExternalAir(e) = eq {
+                check(
+                    "external_air",
+                    &e.name,
+                    (&e.inputs, &e.outputs),
+                    (AIR_INPUTS, AIR_OUTPUTS),
+                    AIR_REQUIRED_OUTPUTS,
+                    e.timeout_s,
+                );
+            }
+        }
+    }
+    for pl in &model.plant_loops {
+        for eq in &pl.supply_equipment {
+            if let PlantEquipmentInput::ExternalPlant(e) = eq {
+                check(
+                    "external_plant",
+                    &e.name,
+                    (&e.inputs, &e.outputs),
+                    (PLANT_INPUTS, PLANT_OUTPUTS),
+                    PLANT_REQUIRED_OUTPUTS,
+                    e.timeout_s,
+                );
+            }
+        }
+    }
+}
+
 /// A scheduled ventilation entry takes one flow, not two (#219). The ACH used to
 /// be silently dropped when both were given.
 fn validate_scheduled_ventilation(model: &ModelInput, result: &mut ValidationResult) {
@@ -5388,6 +5465,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     validate_scheduled_ventilation(model, &mut result);
     validate_duct_ambients(model, &mut result);
     validate_window_panes(model, &mut result);
+    validate_cosim(model, &mut result);
 
     // ── Validate people ────────────────────────────────────────────────────
 

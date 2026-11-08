@@ -3023,6 +3023,7 @@ fn main() -> Result<()> {
                 }
             }
             let in_warmup = warmup_tracker.is_some();
+            graph.set_warmup(in_warmup);
             let hour_idx = if in_warmup {
                 warmup_hour += 1;
                 warmup_start_hour + warmup_hour - 1
@@ -3885,11 +3886,13 @@ fn main() -> Result<()> {
                                                 }
                                                 component.set_supply_setpoint(effective_plant_sp);
                                                 // A heat exchanger serves either direction,
-                                                // so it takes the load's sign: heating
+                                                // and an external unit is told which, so
+                                                // they take the load's sign: heating
                                                 // positive, cooling (and a condenser loop's
                                                 // rejection) negative. The others know theirs.
                                                 let signed_load = match equip {
-                                                    openbse_io::input::PlantEquipmentInput::HeatExchanger(_) => {
+                                                    openbse_io::input::PlantEquipmentInput::HeatExchanger(_)
+                                                    | openbse_io::input::PlantEquipmentInput::ExternalPlant(_) => {
                                                         if is_condenser || total_load < 0.0 {
                                                             -equip_load
                                                         } else {

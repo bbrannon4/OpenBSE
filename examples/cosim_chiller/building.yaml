@@ -10,8 +10,9 @@
 # To run:
 #   openbse examples/cosim_chiller/building.yaml
 #
-# OpenBSE will spawn `python chiller.py` (relative to the model directory),
-# exchange one JSON message per timestep, and shut it down cleanly at the end.
+# OpenBSE spawns `python chiller.py` in the model directory, exchanges one
+# JSON message per HVAC iteration (several per timestep while the HVAC
+# solution converges), and shuts it down at the end.
 
 simulation:
   timesteps_per_hour: 1
@@ -541,15 +542,15 @@ plant_loops:
     design_delta_t: 5.0
     supply_equipment:
       # The native chiller is replaced with a Python co-simulation component.
-      # OpenBSE spawns chiller.py once at startup and exchanges one JSON message
-      # per timestep over stdin/stdout.
+      # OpenBSE spawns chiller.py once and exchanges one JSON message per HVAC
+      # iteration over stdin/stdout.
       - type: external_plant
         name: Python Chiller
         command: ["python", "chiller.py"]
         inputs:
           - return_temp_c        # entering chilled water temp [°C]
           - return_flow_kg_s     # chilled water mass flow [kg/s]
-          - load_request_w       # cooling load requested by coils [W]
+          - load_request_w       # load asked of the chiller, negative for cooling [W]
           - outdoor_temp_c       # outdoor dry-bulb for condenser penalty [°C]
           - sim_time_s
         outputs:
