@@ -73,7 +73,14 @@ SZ_RANGES = {k: tuple(v) for k, v in _RANGES["sun_zone_temp_ranges_c"].items()}
 # When a known failure starts passing, CI prints a notice so you can promote it.
 # When a currently-passing check regresses, CI fails.
 # ---------------------------------------------------------------------------
-KNOWN_FAILURES: set = set()
+KNOWN_FAILURES = {
+    # CE195: 0.1 kWh below range. Every CE case's sensible coil load sits low
+    # in its range by a similar amount (#295). The DX coil reports sensible
+    # heat at the outlet humidity's cp, as E+ does (PsyDeltaHSenFnTdb2W2Tdb1W1),
+    # which is what its air stream carries; at the inlet's cp it overstated it
+    # by about 0.5 % and CE195 passed.
+    ("CE195", "Feb Coil Load Sensible (kWh)"),
+}
 
 
 def read_load_results(case):

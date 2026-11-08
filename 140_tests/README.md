@@ -3,12 +3,12 @@
 **Standard:** ASHRAE Standard 140-2023 — Section 7 (thermal fabric), Section 9 (cooling equipment), Section 10 (heating equipment) and Section 11 (air-side equipment)
 **Weather:** each section uses its own prescribed files (see `weather/`). Section 7 uses 725650TYCST.epw (Denver, CO — 39.833°N, 104.650°W, 1650m elevation)
 
-## Current Status: 550/550 gate checks pass
+## Current Status: 549/550 gate checks pass
 
 | Section | Cases | Checks passing |
 |---|---|---|
 | 7 — Thermal fabric (600 and 900 series) | 27 | 63/63 |
-| 9A — Cooling equipment, analytical (CE100–CE200) | 14 | 112/112 |
+| 9A — Cooling equipment, analytical (CE100–CE200) | 14 | 111/112 |
 | 9B — Cooling equipment, dynamic (CE300–CE545) | 20 | 231/231 |
 | 10 — Heating equipment (HE100–HE230) | 11 | 48/48 |
 | 11 — Air-side equipment (AE101–AE445) | 24 | 96/96 |
@@ -20,7 +20,7 @@ Section 7 in detail:
 - **Free-float temperatures:** 18/18 pass (all 6 cases)
 - **960 Sun Zone temperatures:** 3/3 pass
 
-Checks that are expected to fail would be listed, with the reason, under `KNOWN_FAILURES` in `scripts/build_140_csv.py`; none are.
+One miss: CE195 February sensible coil load, 0.1 kWh below range (#295). It is listed, with the reason, under `KNOWN_FAILURES` in `scripts/build_140_csv.py`.
 
 `scripts/build_140_csv.py` writes the complete pass/fail matrix to `scripts/FULL_140_RESULTS.csv`. CI runs every case and this gate on each commit and keeps that file as a run artifact. The copy committed at `results/FULL_140_RESULTS.csv` is the matrix at the commit that last regenerated it. Zone temperatures (free-float maxima, minima and means, and the furnace cases' zone temperatures) are hourly integrated values, as the Standard's output forms ask: the gate averages any sub-hourly rows to the hour before taking extremes.
 

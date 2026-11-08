@@ -267,14 +267,18 @@ setpoint:
 
 $$
 \begin{gathered}
-\text{PLR} = \min\left(\frac{\dot m c_p(T_\text{in} - T_\text{sp})}{\text{SHR}\,\dot Q_\text{eff}},\ 1\right), \qquad
-T_\text{out} = T_\text{in} - \frac{\text{PLR}\,\text{SHR}\,\dot Q_\text{eff}}{\dot m c_p},\\
+\text{PLR} = \min\left(\frac{\dot m c_p(W_\text{in})(T_\text{in} - T_\text{sp})}{\text{SHR}\,\dot Q_\text{eff}},\ 1\right), \qquad
+T_\text{out} = T_\text{in} - \frac{\text{PLR}\,\text{SHR}\,\dot Q_\text{eff}}{\dot m c_p(W_\text{out})},\\
 W_\text{out} = W_\text{in} - \text{PLR}\left(W_\text{in} - W_{\text{out},f}\right), \qquad
 W_{\text{out},f} = W\!\left(T_\text{in},\ h_\text{in} - (1 - \text{SHR})\dot Q_\text{eff}/\dot m\right).
 \end{gathered}
 $$ {#eq-dx-plr}
 
-The delivered total is $\text{PLR}\,\dot Q_\text{eff}$. With
+The delivered total is $\text{PLR}\,\dot Q_\text{eff}$. The latent part leaves at
+the entering dry-bulb and the air is then cooled at $W_\text{out}$, so with
+$c_p(W_\text{out})$ the outlet enthalpy is exactly
+$h_\text{in} - \text{PLR}\,\dot Q_\text{eff}/\dot m$, as EnergyPlus sets the outlet
+from its enthalpy and humidity ratio (`PsyTdbFnHW`). With
 `autocalculate_shr: false`, the SHR is the rated one, and the latent part
 $\dot Q(1/\text{SHR} - 1)$ is removed as $\Delta W = \dot Q_\text{lat}/(\dot m h_g)$,
 with $h_g$ at the outlet temperature, whatever the entering humidity.
