@@ -67,7 +67,10 @@ PSZ-AC, PTAC and PTHP loops simulate their components at full flow, then find th
 loop part-load ratio from the zone load, and scale the outputs by it. From the
 supply state, with $T_\text{ref} = \min(T_h, T_z)$ in heating and
 $\max(T_c, T_z)$ in cooling, the net capacity is
-$\dot Q_\text{cap} = \dot mc_p|T_\text{sup} - T_\text{ref}|$. Then
+$\dot Q_\text{cap} = \dot mc_p|T_\text{sup} - T_\text{ref}|$, with $\dot m$ the control
+zone's share of the supply: all of it for a single-zone unit, $1/n$ of it for a PSZ-AC
+serving $n$ zones, as E+ `UnitarySystem` divides the control zone's load by its
+`ControlZoneMassFlowFrac`. Then
 
 $$
 x = \begin{cases}
