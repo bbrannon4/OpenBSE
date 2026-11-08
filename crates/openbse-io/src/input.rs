@@ -3155,7 +3155,9 @@ pub struct UpsInput {
     /// Efficiency at full load [0-1] (default 0.95)
     #[serde(default = "default_ups_efficiency")]
     pub efficiency_at_full_load: f64,
-    /// Optional efficiency curve name f(PLR) — if absent, uses constant efficiency_at_full_load
+    /// Optional curve of part-load ratio (IT load over the UPS rating) that
+    /// multiplies `efficiency_at_full_load`, as E+'s ITE power supply curve;
+    /// without it the efficiency is constant.
     #[serde(default)]
     pub efficiency_curve: Option<String>,
 }
@@ -5024,6 +5026,23 @@ fn validate_supply_temp_limits(model: &ModelInput, result: &mut ValidationResult
     }
 }
 
+/// A UPS efficiency curve must name a curve in `performance_curves`.
+fn validate_ups_curves(model: &ModelInput, result: &mut ValidationResult) {
+    let Some(dist) = model.electrical_distribution.as_ref() else {
+        return;
+    };
+    for ups in &dist.ups {
+        if let Some(name) = &ups.efficiency_curve {
+            if !model.performance_curves.iter().any(|c| c.name() == name) {
+                result.severe(format!(
+                    "UPS '{}': efficiency_curve '{name}' not found in performance_curves",
+                    ups.name
+                ));
+            }
+        }
+    }
+}
+
 /// A water panel without a stated `ua` is rated at its loop's design supply
 /// temperature against E+'s rating air temperatures (18 °C for heating, 24 °C
 /// for cooling); a loop on the wrong side of that delivers nothing.
@@ -5798,6 +5817,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     validate_zone_multipliers(model, &mut result);
     validate_dual_duct_loops(model, &mut result);
     validate_recirculating_loops(model, &mut result);
+    validate_ups_curves(model, &mut result);
     validate_supply_temp_limits(model, &mut result);
     validate_no_wshp(model, &mut result);
     validate_radiant_panel_rating(model, &mut result);
