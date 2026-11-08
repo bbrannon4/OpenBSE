@@ -11,13 +11,13 @@ A zone with a `data_center` block gets an equipment gain of $P_\text{IT}$, from
 `it_load_kw` or `rack_count` × `kw_per_rack`, times `it_load_schedule`. The gain is
 wholly sensible and convective, and tagged with the `datacenter` submeter. It is
 reported under the `it_equipment` end use, not as plug load. An optional
-`lighting_w_per_m2` adds lights.
+`lighting_w_per_m2` adds lights; without it the hall has none.
 
 **Comparison with EnergyPlus.** `ElectricEquipment:ITE:AirCooled` [@eplus-engref-25-2,
 "Heat Gain from IT Equipment"] has CPU power and airflow as functions of inlet
 temperature and load, separate fan power, supply and return approach temperatures and
 recirculation. OpenBSE's IT power depends only on its schedule
-([#260](https://github.com/bbrannon4/OpenBSE/issues/260)).
+([#399](https://github.com/bbrannon4/OpenBSE/issues/399)).
 
 ## Hot-aisle return {#sec-hot-aisle}
 
@@ -41,7 +41,9 @@ T_\text{ret} = T_z + \frac{\dot Q_\text{byp}}{\dot m_uc_p}.
 $$ {#eq-hot-aisle}
 
 $\dot Q_\text{byp}$ is taken from the room air's gains, because it goes straight to the
-unit's coil. It is recomputed each HVAC iteration from the current supply.
+unit's coil. It is recomputed each HVAC iteration from the current supply. The server
+airflow converts to volume at the timestep's barometric pressure. The reported
+`dc_return_air_temp` is this $T_\text{ret}$, and `dc_rack_outlet_temp` is $T_\text{hot}$.
 
 **Sizing.** The design-day runs take the bypass the same way, at the zone's cooling
 supply temperature and its current air temperature, with the unit taking at least the
@@ -99,15 +101,15 @@ where $E_\text{mech}$ is the fan, cooling, pump and heat-rejection energy tagged
 `datacenter` submeter [@ashrae904]. It compares MLC with a limit from the first digit of the
 climate zone (0.05 to 0.08), and ELC with 0.06.
 
-These limits have no citation, and have not been checked against the standard. Do not
-rely on the report's PASS and FAIL. If nothing is tagged, MLC is zero. The hourly `pue`
-output counts all submeter energy, so it can differ from the annual one
-([#260](https://github.com/bbrannon4/OpenBSE/issues/260)).
+These limits have no citation and have not been checked against the standard, so the
+report gives each metric only as below or above them, with no compliance result. With no
+HVAC energy tagged `datacenter`, MLC is not evaluated and the run warns. The hourly
+`pue` output counts all submeter energy, so it can differ from the annual one
+([#399](https://github.com/bbrannon4/OpenBSE/issues/399)).
 
 ## Known limitations {#sec-datacenter-limitations}
 
-- [#260](https://github.com/bbrannon4/OpenBSE/issues/260): unverified 90.4 limits and
-  tag-dependent MLC.
 - [#399](https://github.com/bbrannon4/OpenBSE/issues/399): no IT temperature or fan
-  model; distribution losses heat no zone.
+  model; distribution losses heat no zone; unverified 90.4 limits; annual and hourly
+  PUE differ.
 - [#62](https://github.com/bbrannon4/OpenBSE/issues/62): earlier CRAC and CRAH review.

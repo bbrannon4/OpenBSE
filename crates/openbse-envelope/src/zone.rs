@@ -836,7 +836,8 @@ pub struct DataCenterConfig {
     /// from rack temperature difference.
     #[serde(default)]
     pub airflow_m3_per_s_per_kw: Option<f64>,
-    /// Lighting power density inside the data center [W/m²] (default 5.0)
+    /// Lighting power density inside the data center [W/m²]; no lights when
+    /// omitted.
     #[serde(default)]
     pub lighting_w_per_m2: Option<f64>,
 }

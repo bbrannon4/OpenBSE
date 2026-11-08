@@ -104,6 +104,7 @@ fn data_center_return_temps(
     current_zone_temps: &HashMap<String, f64>,
     hour: u32,
     dow: u32,
+    p_b: f64,
 ) -> HashMap<String, HotAisleReturn> {
     env.zones
         .iter()
@@ -121,8 +122,7 @@ fn data_center_return_temps(
             }
             let cp = openbse_psychrometrics::cp_air_fn_w(z.humidity_ratio);
             let t_supply = z.supply_air_temp;
-            let rho =
-                openbse_psychrometrics::rho_air_fn_pb_tdb_w(101_325.0, t_supply, z.humidity_ratio);
+            let rho = openbse_psychrometrics::rho_air_fn_pb_tdb_w(p_b, t_supply, z.humidity_ratio);
             let m_it = dc.it_mass_flow(it_pw_w, t_supply, rho, cp);
             let t_zone = current_zone_temps
                 .get(&z.input.name)
@@ -1632,6 +1632,17 @@ fn main() -> Result<()> {
                     comp_submeter.insert(equip.name().to_string(), "datacenter".to_string());
                 }
             }
+        }
+
+        if model.zones.iter().any(|z| z.data_center.is_some())
+            && !comp_submeter.values().any(|m| m == "datacenter")
+        {
+            validation.push_warning(
+                "Data centre zones are modelled, but no HVAC equipment is tagged \
+                 `submeter: datacenter`: the ASHRAE 90.4 MLC counts only tagged energy and is \
+                 not evaluated"
+                    .to_string(),
+            );
         }
 
         // ── 4a-3. Build component kind map for energy accounting ─────────────
@@ -3253,8 +3264,13 @@ fn main() -> Result<()> {
                         // aisles for data-center zones, stratified returns (#91,
                         // #225) and lighting return-air heat (#51), all recomputed
                         // each HVAC iteration below.
-                        let mut dc_returns =
-                            data_center_return_temps(env, &current_zone_temps, hour, dow);
+                        let mut dc_returns = data_center_return_temps(
+                            env,
+                            &current_zone_temps,
+                            hour,
+                            dow,
+                            ctx.outdoor_air.p_b,
+                        );
                         let lighting_return_air = env.lighting_return_air_gains(&ctx);
 
                         // ── Dynamic blind control (#104) ─────────────────────────
@@ -3349,8 +3365,13 @@ fn main() -> Result<()> {
                             // The hot-aisle return follows the supply the units are
                             // producing now, not last timestep's (CRAC-5 / #62).
                             if hvac_iter > 0 {
-                                dc_returns =
-                                    data_center_return_temps(env, &current_zone_temps, hour, dow);
+                                dc_returns = data_center_return_temps(
+                                    env,
+                                    &current_zone_temps,
+                                    hour,
+                                    dow,
+                                    ctx.outdoor_air.p_b,
+                                );
                             }
                             let mut zone_return_temps: HashMap<String, f64> = dc_returns
                                 .iter()
@@ -5103,14 +5124,29 @@ fn main() -> Result<()> {
                                 // Hot-aisle rise is driven by the server (IT) airflow,
                                 // not the CRAC/CRAH supply flow (CRAC-1 / #62).
                                 let rho_dc = openbse_psychrometrics::rho_air_fn_pb_tdb_w(
-                                    101_325.0,
+                                    ctx.outdoor_air.p_b,
                                     t_supply,
                                     zone.humidity_ratio,
                                 );
                                 let m_it = dc.it_mass_flow(it_pw, t_supply, rho_dc, cp_air_dc);
                                 let t_hot = t_supply + it_pw / (m_it * cp_air_dc).max(1.0);
-                                let cont_eff = dc.containment_efficiency;
-                                let t_return = cont_eff * t_hot + (1.0 - cont_eff) * zone.temp;
+                                // The return the unit receives (@eq-hot-aisle), or
+                                // the room air when it moves none.
+                                let m_unit = zone.supply_air_mass_flow;
+                                let t_return = if m_unit > 1.0e-6 {
+                                    hot_aisle_return(
+                                        zone.temp,
+                                        t_supply,
+                                        it_pw,
+                                        m_it,
+                                        m_unit,
+                                        dc.containment_efficiency,
+                                        cp_air_dc,
+                                    )
+                                    .temp
+                                } else {
+                                    zone.temp
+                                };
                                 snapshot
                                     .component_outputs
                                     .entry(zone.input.name.clone())
