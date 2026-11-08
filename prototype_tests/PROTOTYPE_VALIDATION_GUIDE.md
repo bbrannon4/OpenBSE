@@ -110,15 +110,14 @@ a reversed construction in the YAML for each interzone pair.
 |-----------|---------------|-------|
 | `People` | `people:` | Zone, count, activity level (W/person), radiant fraction, schedule name |
 | `Lights` | `lights:` | Zone, power (W), radiant fraction (E+ radiant + visible), schedule name |
-| `ElectricEquipment` | `equipment:` | Zone, power (W), radiant fraction, lost fraction (= E+ lost + latent), schedule name |
-| `GasEquipment` | `equipment:` | Same as electric but use full gas input power. Set lost_fraction = E+ lost + latent. |
+| `ElectricEquipment` | `equipment:` | Zone, power (W), radiant, latent and lost fractions, schedule name |
+| `GasEquipment` | `equipment:` | Same as electric but use full gas input power (no gas equipment type yet, #223). |
 
-**Fraction conversions:**
-- `lost_fraction` = E+ Fraction Lost + E+ Fraction Latent (OpenBSE has no
-  latent model, so latent heat is treated as lost)
-- `radiant_fraction` = E+ Fraction Radiant / (1 − lost_fraction)
-- Verify: `(1 − lost_fraction) × radiant_fraction` should equal E+ Fraction
-  Radiant
+**Fractions:** equipment `radiant_fraction`, `latent_fraction` and
+`lost_fraction` are fractions of the total power, as in E+: copy Fraction
+Radiant, Fraction Latent and Fraction Lost directly. The latent part reaches
+the zone moisture balance. A lights `radiant_fraction` is E+ Fraction
+Radiant + Fraction Visible.
 
 ### 2.6 Schedules
 
@@ -285,8 +284,8 @@ results.
    with the monthly values those preprocessors computed. Otherwise E+
    defaults to 18°C constant, which may not match the original model.
 
-3. **Fraction conversions.** E+ `Fraction Radiant`, `Fraction Latent`,
-   `Fraction Lost` do not map 1:1 to OpenBSE fields. See Section 2.5.
+3. **Gain fractions.** Equipment fractions copy E+ directly; lights'
+   radiant fraction adds E+'s visible fraction. See Section 2.5.
 
 4. **Missing zones.** Every zone in the IDF must exist in the YAML. Missing
    unconditioned zones (basements, garages, plenums) change the thermal
