@@ -12,7 +12,8 @@ warnings and severe errors, with a summary line. It is written whether or not th
 Before running, the model is checked for the following:
 
 - **References:** zones in each object, zone groups, constructions and the kind each must be,
-  and schedules.
+  schedules, and every named performance curve (coils, heat pumps, boilers, chillers, VRF,
+  water heaters, UPS units).
 - **Plant:** every water coil, terminal and panel is connected to a loop that exists, and
   every loop has demand. Chiller inputs meet each model's needs.
 - **Values:** for example, a heating supply temperature at or below the setpoint, and
