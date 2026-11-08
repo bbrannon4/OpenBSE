@@ -782,55 +782,83 @@ fn wind_surface_angle(wind_dir: f64, azimuth: f64) -> f64 {
 
 // ─── Flow element math ──────────────────────────────────────────────────────
 
+/// Dynamic viscosity of air [Pa·s] at `t_c` [°C] (E+ `AIRDYNAMICVISCOSITY`).
+fn air_viscosity(t_c: f64) -> f64 {
+    1.71432e-5 + 4.828e-8 * t_c
+}
+
+/// Upstream density times T_up/T̄ [kg/m³] (E+ `generic_crack` `RhoCor`).
+fn corrected_density(up: &PressureNode, a: &PressureNode, b: &PressureNode) -> f64 {
+    up.density * up.temperature / (0.5 * (a.temperature + b.temperature))
+}
+
+/// Mean of the two nodes' air viscosities [Pa·s].
+fn mean_viscosity(a: &PressureNode, b: &PressureNode) -> f64 {
+    0.5 * (air_viscosity(a.temperature - 273.15) + air_viscosity(b.temperature - 273.15))
+}
+
+/// Mass flow through an element that flows from the upstream node with
+/// coefficient `k_ab` (ΔP > 0, A → B) or `k_ba` (ΔP < 0) as k·|ΔP|^n.
+/// Below MIN_DP the flow follows the chord between the ±MIN_DP endpoints,
+/// so it is continuous through zero: a sign(ΔP)·|ΔP|^n clamp is
+/// discontinuous at ΔP = 0 and traps Newton in a limit cycle whenever the
+/// balance point needs a flow inside the jump (#93).
+fn upwind_power_law(k_ab: f64, k_ba: f64, n: f64, dp: f64) -> (f64, f64) {
+    if dp.abs() < MIN_DP {
+        let f_plus = k_ab * MIN_DP.powf(n);
+        let f_minus = -k_ba * MIN_DP.powf(n);
+        let slope = (f_plus - f_minus) / (2.0 * MIN_DP);
+        return (0.5 * (f_plus + f_minus) + slope * dp, slope);
+    }
+    let (k, sign) = if dp >= 0.0 { (k_ab, 1.0) } else { (k_ba, -1.0) };
+    let dp_abs = dp.abs();
+    (sign * k * dp_abs.powf(n), k * n * dp_abs.powf(n - 1.0))
+}
+
 /// Compute mass flow [kg/s] through a flow element given pressure difference.
 ///
 /// `dp` = P_a - P_b + stack + wind [Pa], evaluated at the path height.
-/// `rho_a`, `rho_b` = air density at node A / node B [kg/m³].
+/// `node_a`, `node_b` = the path's end nodes (density, temperature).
 ///
 /// Returns (mass_flow [kg/s], d(mass_flow)/d(dp) [kg/s/Pa]).
 /// Positive flow = A → B. For two-way openings the returned flow is the net
 /// of the two directional components (see `two_way_components`).
-pub fn flow_and_derivative(element: &FlowElement, dp: f64, rho_a: f64, rho_b: f64) -> (f64, f64) {
-    let rho_avg = 0.5 * (rho_a + rho_b);
+pub fn flow_and_derivative(
+    element: &FlowElement,
+    dp: f64,
+    node_a: &PressureNode,
+    node_b: &PressureNode,
+) -> (f64, f64) {
+    let (rho_a, rho_b) = (node_a.density, node_b.density);
     match element {
         FlowElement::PowerLawCrack {
             coefficient,
             exponent,
         } => {
-            let c = *coefficient;
+            // E+ AIRNET `generic_crack`: the coefficient is at reference
+            // conditions (20 °C dry air, 101,325 Pa); the flow takes the
+            // upstream node's density times T_up/T̄ (for an ideal gas, the
+            // density at the mean temperature, whichever way it flows) and
+            // the mean of the two nodes' viscosities:
+            //   ṁ = C·(ρ_up·T_up/(T̄·ρ_ref))^(1−n)·(μ_ref/μ̄)^(2n−1)·|ΔP|^n.
             let n = *exponent;
-            // Density correction: Q ∝ (ρ/ρ_ref)^(1-n) per ASHRAE
-            let rho_corr = (rho_avg / RHO_REF).powf(1.0 - n);
-            // Below MIN_DP, linearize through zero: a sign(ΔP)·|ΔP|^n clamp
-            // is discontinuous at ΔP = 0 and traps Newton in a limit cycle
-            // whenever the balance point needs a flow inside the jump (#93).
-            if dp.abs() < MIN_DP {
-                let slope = c * rho_corr * MIN_DP.powf(n) / MIN_DP;
-                return (slope * dp, slope);
-            }
-            let dp_abs = dp.abs();
-            let sign = if dp >= 0.0 { 1.0 } else { -1.0 };
-            let flow = sign * c * rho_corr * dp_abs.powf(n);
-            let dflow = c * rho_corr * n * dp_abs.powf(n - 1.0);
-            (flow, dflow)
+            let visc = (air_viscosity(20.0) / mean_viscosity(node_a, node_b)).powf(2.0 * n - 1.0);
+            let k = |up: &PressureNode| {
+                coefficient * (corrected_density(up, node_a, node_b) / RHO_REF).powf(1.0 - n) * visc
+            };
+            upwind_power_law(k(node_a), k(node_b), n, dp)
         }
         FlowElement::LargeOpening {
             discharge_coefficient,
             area,
         } => {
-            let cd = *discharge_coefficient;
-            let a = *area;
-            // Linearize through zero below MIN_DP (see PowerLawCrack note).
-            if dp.abs() < MIN_DP {
-                let slope = cd * a * (2.0 * rho_avg * MIN_DP).sqrt() / MIN_DP;
-                return (slope * dp, slope);
-            }
-            let dp_abs = dp.abs();
-            let sign = if dp >= 0.0 { 1.0 } else { -1.0 };
-            let flow = sign * cd * a * (2.0 * rho_avg * dp_abs).sqrt();
-            // dQ/ddp = Cd * A * sqrt(rho_avg / (2 * |dp|))
-            let dflow = cd * a * (rho_avg / (2.0 * dp_abs)).sqrt();
-            (flow, dflow)
+            // Orifice, the n = 0.5 crack of E+ `generic_crack` (as its
+            // effective-leakage-area element): ṁ = Cd·A·√(2ρ|ΔP|) with ρ the
+            // same corrected upstream density; the viscosity term vanishes.
+            let k = |up: &PressureNode| {
+                discharge_coefficient * area * (2.0 * corrected_density(up, node_a, node_b)).sqrt()
+            };
+            upwind_power_law(k(node_a), k(node_b), 0.5, dp)
         }
         FlowElement::FixedFlow { mass_flow } => {
             (*mass_flow, 0.0) // no pressure dependence
@@ -1665,10 +1693,8 @@ pub fn solve_pressures(
                 weather_wind_mod_coeff,
             );
 
-            let rho_a = network.nodes[a].density;
-            let rho_b = network.nodes[b].density;
-
-            let (flow, dflow_ddp) = flow_and_derivative(&path.element, dp, rho_a, rho_b);
+            let (flow, dflow_ddp) =
+                flow_and_derivative(&path.element, dp, &network.nodes[a], &network.nodes[b]);
             total_flow += flow.abs();
 
             // flow > 0 means A → B: leaves A, enters B
@@ -1848,7 +1874,12 @@ fn post_solve(network: &mut AirflowNetwork, wind_speed_met: f64, terrain: Terrai
         );
         let rho_a = network.nodes[path.node_a].density;
         let rho_b = network.nodes[path.node_b].density;
-        let (flow, _) = flow_and_derivative(&path.element, dp, rho_a, rho_b);
+        let (flow, _) = flow_and_derivative(
+            &path.element,
+            dp,
+            &network.nodes[path.node_a],
+            &network.nodes[path.node_b],
+        );
         path.mass_flow = flow;
 
         // HVAC net injection and duct leakage paths drive zone pressure but
@@ -1993,8 +2024,99 @@ pub(crate) fn solve_linear_system(a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>>
 
 #[cfg(test)]
 mod tests {
+    /// `flow_and_derivative` between two nodes at 20 °C with the given
+    /// densities.
+    fn flow_and_derivative(element: &FlowElement, dp: f64, rho_a: f64, rho_b: f64) -> (f64, f64) {
+        let node = |density| PressureNode {
+            zone_index: None,
+            ref_height: 0.0,
+            pressure: 0.0,
+            temperature: 293.15,
+            density,
+        };
+        super::flow_and_derivative(element, dp, &node(rho_a), &node(rho_b))
+    }
+
     use super::*;
     use approx::assert_relative_eq;
+
+    /// Cracks and orifices follow E+ `generic_crack`: upstream density times
+    /// T_up/T̄ and, for cracks, the mean viscosity. With ideal-gas nodes the
+    /// corrected density is the same in both directions.
+    #[test]
+    fn test_crack_and_orifice_follow_eplus_generic_crack() {
+        let node = |t_c: f64| PressureNode {
+            zone_index: None,
+            ref_height: 0.0,
+            pressure: 0.0,
+            temperature: t_c + 273.15,
+            density: 101_325.0 / (287.055 * (t_c + 273.15)),
+        };
+        let (cold, warm) = (node(-10.0), node(22.0));
+        let t_mean = 0.5 * (cold.temperature + warm.temperature);
+        let (c, n) = (0.002, 0.65);
+        let crack = FlowElement::PowerLawCrack {
+            coefficient: c,
+            exponent: n,
+        };
+        // E+ generic_crack, written out independently.
+        let mu = |t: f64| 1.71432e-5 + 4.828e-8 * t;
+        let ctl = |up: &PressureNode| {
+            let rho_cor = up.temperature / t_mean;
+            (RHO_REF / up.density / rho_cor).powf(n - 1.0)
+                * (mu(20.0) / (0.5 * (mu(-10.0) + mu(22.0)))).powf(2.0 * n - 1.0)
+        };
+        let (f_in, _) = super::flow_and_derivative(&crack, 5.0, &cold, &warm);
+        assert_relative_eq!(f_in, c * 5.0_f64.powf(n) * ctl(&cold), max_relative = 1e-12);
+        let (f_out, _) = super::flow_and_derivative(&crack, -5.0, &cold, &warm);
+        assert_relative_eq!(
+            f_out,
+            -c * 5.0_f64.powf(n) * ctl(&warm),
+            max_relative = 1e-12
+        );
+        assert_relative_eq!(f_in, -f_out, max_relative = 1e-12);
+        // The viscosity term: cold air is less viscous, so more flows than
+        // the density correction alone gives.
+        let density_only =
+            c * 5.0_f64.powf(n) * (101_325.0 / (287.055 * t_mean) / RHO_REF).powf(1.0 - n);
+        assert!(f_in > 1.005 * density_only, "{f_in} vs {density_only}");
+
+        let orifice = FlowElement::LargeOpening {
+            discharge_coefficient: 0.6,
+            area: 0.5,
+        };
+        let rho_mean_t = 101_325.0 / (287.055 * t_mean);
+        let (f, _) = super::flow_and_derivative(&orifice, 2.0, &cold, &warm);
+        assert_relative_eq!(
+            f,
+            0.6 * 0.5 * (2.0 * rho_mean_t * 2.0).sqrt(),
+            max_relative = 1e-12
+        );
+        let (f, _) = super::flow_and_derivative(&orifice, -2.0, &cold, &warm);
+        assert_relative_eq!(
+            f,
+            -0.6 * 0.5 * (2.0 * rho_mean_t * 2.0).sqrt(),
+            max_relative = 1e-12
+        );
+
+        // Continuous at the ±MIN_DP joints, derivative matches the flow.
+        for elem in [&crack, &orifice] {
+            for edge in [MIN_DP, -MIN_DP] {
+                let (inside, _) =
+                    super::flow_and_derivative(elem, edge * (1.0 - 1e-9), &cold, &warm);
+                let (outside, _) =
+                    super::flow_and_derivative(elem, edge * (1.0 + 1e-9), &cold, &warm);
+                assert_relative_eq!(inside, outside, max_relative = 1e-6);
+            }
+            for dp in [-3.0, -1e-5, 1e-5, 3.0] {
+                let eps = 1e-7 * (1.0 + f64::abs(dp));
+                let (_, d) = super::flow_and_derivative(elem, dp, &cold, &warm);
+                let (fp, _) = super::flow_and_derivative(elem, dp + eps, &cold, &warm);
+                let (fm, _) = super::flow_and_derivative(elem, dp - eps, &cold, &warm);
+                assert_relative_eq!(d, (fp - fm) / (2.0 * eps), max_relative = 1e-4);
+            }
+        }
+    }
 
     #[test]
     fn test_power_law_crack_flow() {
