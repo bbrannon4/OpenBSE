@@ -6,7 +6,7 @@
 
 Curves modify rated performance as a function of operating conditions. A curve is named
 under `performance_curves` and referenced by components, which supply its arguments by
-position.
+position. A reference to a name that isn't defined is a severe error (@sec-validation).
 
 **Polynomials.**
 

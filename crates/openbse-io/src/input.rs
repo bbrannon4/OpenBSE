@@ -4972,6 +4972,95 @@ fn validate_supply_temp_limits(model: &ModelInput, result: &mut ValidationResult
     }
 }
 
+/// Every named curve reference must name a curve in `performance_curves`:
+/// a misspelt name would otherwise leave the component on its default curve
+/// or constant efficiency.
+fn validate_curve_names(model: &ModelInput, result: &mut ValidationResult) {
+    let mut check = |owner: &str, name: &str, field: &str, curve: &Option<String>| {
+        if let Some(c) = curve {
+            if !model.performance_curves.iter().any(|pc| pc.name() == c) {
+                result.severe(format!(
+                    "{owner} '{name}': {field} '{c}' not found in performance_curves"
+                ));
+            }
+        }
+    };
+    for al in &model.air_loops {
+        for eq in &al.equipment {
+            match eq {
+                EquipmentInput::HeatingCoil(c) => {
+                    check("Heating coil", &c.name, "cap_ft_curve", &c.cap_ft_curve);
+                    check("Heating coil", &c.name, "eir_ft_curve", &c.eir_ft_curve);
+                }
+                EquipmentInput::CoolingCoil(c) => {
+                    check("Cooling coil", &c.name, "cap_ft_curve", &c.cap_ft_curve);
+                    check("Cooling coil", &c.name, "eir_ft_curve", &c.eir_ft_curve);
+                    check("Cooling coil", &c.name, "plf_curve", &c.plf_curve);
+                    check(
+                        "Cooling coil",
+                        &c.name,
+                        "cap_fflow_curve",
+                        &c.cap_fflow_curve,
+                    );
+                    check(
+                        "Cooling coil",
+                        &c.name,
+                        "eir_fflow_curve",
+                        &c.eir_fflow_curve,
+                    );
+                }
+                EquipmentInput::Gshp(g) => {
+                    check("GSHP", &g.name, "cooling_cap_ft", &g.cooling_cap_ft);
+                    check("GSHP", &g.name, "cooling_eir_ft", &g.cooling_eir_ft);
+                    check("GSHP", &g.name, "heating_cap_ft", &g.heating_cap_ft);
+                    check("GSHP", &g.name, "heating_eir_ft", &g.heating_eir_ft);
+                }
+                _ => {}
+            }
+        }
+    }
+    for pl in &model.plant_loops {
+        for eq in &pl.supply_equipment {
+            match eq {
+                PlantEquipmentInput::Boiler(b) => {
+                    check("Boiler", &b.name, "efficiency_curve", &b.efficiency_curve);
+                }
+                PlantEquipmentInput::Chiller(c) => {
+                    check("Chiller", &c.name, "capft_curve", &c.capft_curve);
+                    check("Chiller", &c.name, "eirft_curve", &c.eirft_curve);
+                    check("Chiller", &c.name, "eirfplr_curve", &c.eirfplr_curve);
+                }
+                _ => {}
+            }
+        }
+    }
+    for vrf in &model.vrf_systems {
+        let ou = &vrf.outdoor_unit;
+        for (field, curve) in [
+            ("cooling_cap_ft", &ou.cooling_cap_ft),
+            ("cooling_eir_ft", &ou.cooling_eir_ft),
+            ("cooling_eir_fplr", &ou.cooling_eir_fplr),
+            ("heating_cap_ft", &ou.heating_cap_ft),
+            ("heating_eir_ft", &ou.heating_eir_ft),
+            ("heating_eir_fplr", &ou.heating_eir_fplr),
+            ("cooling_plf_fplr", &ou.cooling_plf_fplr),
+            ("heating_plf_fplr", &ou.heating_plf_fplr),
+        ] {
+            check("VRF outdoor unit", &ou.name, field, curve);
+        }
+    }
+    for dhw in &model.dhw_systems {
+        let wh = &dhw.water_heater;
+        check(
+            "Water heater",
+            &wh.name,
+            "capacity_curve",
+            &wh.capacity_curve,
+        );
+        check("Water heater", &wh.name, "cop_curve", &wh.cop_curve);
+    }
+}
+
 /// A UPS efficiency curve must name a curve in `performance_curves`.
 fn validate_ups_curves(model: &ModelInput, result: &mut ValidationResult) {
     let Some(dist) = model.electrical_distribution.as_ref() else {
@@ -5466,6 +5555,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     validate_duct_ambients(model, &mut result);
     validate_window_panes(model, &mut result);
     validate_cosim(model, &mut result);
+    validate_curve_names(model, &mut result);
 
     // ── Validate people ────────────────────────────────────────────────────
 
