@@ -19,7 +19,12 @@ week of 1 January (Monday if absent). The other header lines are not used.
 
 Each record is one hour, ending at the hour stamped on it (@sec-time). The
 reader keeps every record and fails on a malformed one rather than skipping
-it, since a skipped record would shift every later hour. It removes
+it, since a skipped record would shift every later hour. A blank or non-numeric
+value in any field the engine reads, in a record or in the ground temperatures,
+is an error naming the line and field. EnergyPlus also stops on one
+(`InterpretWeatherDataLine`): missing data is written as the numeric sentinels
+of @tbl-epw-missing, not as blank text, and reading it as zero would give a
+plausible but wrong value. It removes
 29 February. It then requires consecutive hourly records of a non-leap year
 starting on 1 January, so record $N$ is hour $N$ of the year. TMY3 files are
 read the same way, with pressure converted from mbar to Pa. Their horizontal
