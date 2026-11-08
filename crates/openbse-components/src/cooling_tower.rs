@@ -42,6 +42,9 @@ pub enum CoolingTowerType {
 /// PLF = C1 + C2*x + C3*x^2 + C4*x^3 + C5*x^4 where x = air flow fraction.
 const DEFAULT_FAN_POWER_CURVE: [f64; 5] = [0.0058, 0.0740, -0.2180, 0.8517, 0.2866];
 
+/// Closest a tower's outlet water comes to the outdoor wet-bulb [K].
+pub const MIN_APPROACH: f64 = 2.0;
+
 /// Cooling tower component for condenser water heat rejection.
 ///
 /// Rejects heat from the condenser water loop to the atmosphere.
@@ -116,7 +119,7 @@ impl CoolingTower {
             design_inlet_water_temp,
             design_approach,
             design_range,
-            min_approach: 2.0,
+            min_approach: MIN_APPROACH,
             fan_power_curve: DEFAULT_FAN_POWER_CURVE,
             fan_power: 0.0,
             heat_rejected: 0.0,

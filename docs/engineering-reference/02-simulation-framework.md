@@ -395,16 +395,17 @@ The graph's order is used only on the HVAC-only path. On the coupled path:
 
 ### Plant-loop order {#sec-plant-order}
 
-Plant loops are simulated in an order that respects their couplings:
+Plant loops are simulated in an order that respects their couplings. A loop
+runs before any loop it puts heat into, so that heat is part of the other
+loop's load:
 
-- a heat exchanger's source loop runs before the loop it serves;
+- a heat exchanger's demand loop runs before its source loop;
 - a chilled-water loop runs before its condenser loop;
 - a heat-recovery chiller's loop runs before the loop it heats.
 
 The order is a topological sort of these dependencies (Kahn's algorithm).
-Loops in a dependency cycle are appended at the end. A loop that runs before
-one it depends on reads that loop's supply conditions from the previous
-timestep (`loop_supply_conditions`).
+Loops in a dependency cycle are appended at the end, and see heat from a loop
+later in the order on the next HVAC iteration.
 
 ## Known limitations {#sec-framework-limitations}
 

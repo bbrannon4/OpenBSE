@@ -2685,13 +2685,14 @@ fn main() -> Result<()> {
         // ── Pre-compute plant loop simulation order (topological sort) ──────────
         //
         // Build a dependency graph from inter-loop references:
-        // - HeatExchanger source_loop: source loop must simulate first
+        // - HeatExchanger source_loop: the demand loop simulates first
         // - Chiller condenser_plant_loop: CHW loop must simulate first
         // - Chiller heat_recovery plant_loop: CHW loop must simulate first
         //
-        // Topological sort ensures correct ordering. If a cycle is detected
-        // (e.g., waterside economizer creates CHW ↔ Condenser dependency),
-        // remaining loops use lag-one-timestep for cyclic dependencies.
+        // Each edge runs from the loop that puts heat into another to that
+        // loop, so a waterside economizer and its chiller both point from the
+        // chilled-water loop to the condenser loop. A loop left in a cycle
+        // runs in input order and sees the other's heat a pass late.
 
         let plant_loop_order: Vec<usize> = if model.plant_loops.is_empty() {
             vec![]
@@ -2709,11 +2710,12 @@ fn main() -> Result<()> {
 
             for (i, pl) in model.plant_loops.iter().enumerate() {
                 for eq in &pl.supply_equipment {
-                    // HX: source loop must simulate before demand loop
+                    // HX: the demand loop runs first, so the heat it moves is
+                    // load on its source loop, as a chiller's on its condenser loop
                     if let openbse_io::input::PlantEquipmentInput::HeatExchanger(hx) = eq {
                         if let Some(&src_idx) = loop_indices.get(hx.source_loop.as_str()) {
-                            adj[src_idx].push(i);
-                            in_degree[i] += 1;
+                            adj[i].push(src_idx);
+                            in_degree[src_idx] += 1;
                         }
                     }
                     // Chiller with condenser loop: CHW loop simulates before condenser
@@ -3377,6 +3379,9 @@ fn main() -> Result<()> {
                                 .collect();
                             // Condenser heat recovered into each loop this iteration [W].
                             let mut heat_recovered_to: HashMap<String, f64> = HashMap::new();
+                            // Heat the heat exchangers put into each source loop
+                            // this iteration [W]; demand loops run first.
+                            let mut hx_heat_into: HashMap<String, f64> = HashMap::new();
                             step_plant.clear();
 
                             for &loop_idx in &plant_loop_order {
@@ -3423,27 +3428,57 @@ fn main() -> Result<()> {
                                 // Combine: condenser demand is always positive (heat rejection).
                                 // If both coil and condenser demand exist, condenser dominates
                                 // direction (this loop is a condenser loop receiving heat).
+                                //
+                                // Heat a heat exchanger moved into this loop is load on
+                                // it: heat for a tower to reject, else heating or cooling.
+                                let hx_in = hx_heat_into
+                                    .get(plant_loop.name.as_str())
+                                    .copied()
+                                    .unwrap_or(0.0);
+                                if loop_has_tower(plant_loop) {
+                                    condenser_load += hx_in.max(0.0);
+                                } else {
+                                    total_load -= hx_in;
+                                }
                                 if condenser_load > 0.0 {
                                     total_load = condenser_load;
                                 }
 
                                 // ── Inject HX source conditions ──────────────────
-                                // For each HeatExchanger in this loop, provide source-side
-                                // temperature and flow from the already-simulated source loop
-                                // (or lag-one-timestep if source hasn't been simulated yet).
+                                // Each heat exchanger draws its design flow from its
+                                // source loop at that loop's supply temperature: the
+                                // setpoint less any shortfall, and no colder than a
+                                // tower can make it.
                                 for equip in &plant_loop.supply_equipment {
                                     if let openbse_io::input::PlantEquipmentInput::HeatExchanger(
                                         hx,
                                     ) = equip
                                     {
+                                        let Some(src_idx) = model
+                                            .plant_loops
+                                            .iter()
+                                            .position(|pl| pl.name == hx.source_loop)
+                                        else {
+                                            continue;
+                                        };
+                                        let src = &model.plant_loops[src_idx];
+                                        let src_temp = if loop_has_tower(src) {
+                                            plant_supply_setpoint(src, interp_weather.dry_bulb).max(
+                                                ctx.outdoor_air.t_wb()
+                                                    + openbse_components::cooling_tower::MIN_APPROACH,
+                                            )
+                                        } else {
+                                            plant_supply_setpoint(src, interp_weather.dry_bulb)
+                                                + plant_supply_offset[src_idx]
+                                        };
                                         if let Some(node_idx) = graph.node_by_name(&hx.name) {
                                             if let GraphComponent::Plant(component) =
                                                 graph.component_mut(node_idx)
                                             {
-                                                let (src_temp, src_flow) = loop_supply_conditions
-                                                    .get(&hx.source_loop)
-                                                    .copied()
-                                                    .unwrap_or((20.0, 0.0));
+                                                let src_flow = component
+                                                    .design_water_flow_rate()
+                                                    .unwrap_or(0.0)
+                                                    * openbse_psychrometrics::water_rho(src_temp);
                                                 component.set_source_conditions(src_temp, src_flow);
                                             }
                                         }
@@ -3764,6 +3799,13 @@ fn main() -> Result<()> {
                                                     &ctx,
                                                 );
                                                 current_inlet = outlet;
+                                                if let openbse_io::input::PlantEquipmentInput::HeatExchanger(hx) = equip {
+                                                    // Heat it gave the demand side came
+                                                    // out of the source loop.
+                                                    *hx_heat_into
+                                                        .entry(hx.source_loop.clone())
+                                                        .or_default() -= component.thermal_output();
+                                                }
                                                 if let Some(hr_loop) = hr_loop {
                                                     *heat_recovered_to
                                                         .entry(hr_loop.name.clone())
@@ -9285,6 +9327,13 @@ fn apply_plant_sizes(
             }
         }
     }
+}
+
+/// Whether a plant loop rejects heat through a cooling tower.
+fn loop_has_tower(pl: &openbse_io::input::PlantLoopInput) -> bool {
+    pl.supply_equipment
+        .iter()
+        .any(|eq| matches!(eq, openbse_io::input::PlantEquipmentInput::CoolingTower(_)))
 }
 
 /// A plant loop's load on its supply units once `pump_heat` [W] is in the

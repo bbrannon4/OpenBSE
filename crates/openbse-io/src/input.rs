@@ -2352,19 +2352,16 @@ pub struct HeatExchangerInput {
     /// Design flow rate on the demand side [m³/s]. Use `autosize`.
     #[serde(default)]
     pub design_flow_rate: AutosizeValue,
-    /// Control mode: "always_on" (default) or "economizer"
-    #[serde(default = "default_hx_control")]
-    pub control_mode: String,
-    /// For economizer mode: activate when T_source < demand_inlet + threshold [°C] (default 2.0)
+    /// Control mode: `always_on` (default) or `economizer`.
+    #[serde(default)]
+    pub control_mode: openbse_components::heat_exchanger::HXControlMode,
+    /// For economizer mode: activate when T_source < demand_inlet - threshold [°C] (default 2.0)
     #[serde(default = "default_hx_threshold")]
     pub economizer_threshold: f64,
 }
 
 fn default_hx_effectiveness() -> f64 {
     0.80
-}
-fn default_hx_control() -> String {
-    "always_on".to_string()
 }
 fn default_hx_threshold() -> f64 {
     2.0
@@ -4119,16 +4116,12 @@ fn build_graph_impl(
                     graph.add_plant_component(Box::new(tower))
                 }
                 PlantEquipmentInput::HeatExchanger(hx) => {
-                    use openbse_components::heat_exchanger::{HXControlMode, WaterToWaterHX};
-                    let control = match hx.control_mode.as_str() {
-                        "economizer" => HXControlMode::Economizer,
-                        _ => HXControlMode::AlwaysOn,
-                    };
+                    use openbse_components::heat_exchanger::WaterToWaterHX;
                     let hx_component = WaterToWaterHX::new(
                         &hx.name,
                         hx.effectiveness,
                         hx.design_flow_rate.to_f64(),
-                        control,
+                        hx.control_mode,
                         hx.economizer_threshold,
                         &hx.source_loop,
                     );

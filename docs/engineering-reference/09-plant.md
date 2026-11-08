@@ -259,24 +259,37 @@ water use ([#252](https://github.com/bbrannon4/OpenBSE/issues/252)).
 
 ## Water-to-water heat exchangers {#sec-plant-hx}
 
-**Source:** `openbse-components/src/heat_exchanger.rs` (`WaterToWaterHX`).
+**Source:** `openbse-components/src/heat_exchanger.rs` (`WaterToWaterHX`);
+`openbse-cli/src/main.rs` (plant step).
 
-A heat exchanger on a demand loop draws on a source loop at fixed effectiveness
-$\varepsilon$:
+A heat exchanger on a demand loop draws its design flow $\dot V_d$ from a source
+loop and moves heat at fixed effectiveness $\varepsilon$:
 
 $$
 \dot Q = \min\left(|\dot Q_\text{req}|,\ \varepsilon\min(C_d, C_s)|T_s - T_\text{in}|\right),
 $$ {#eq-plant-hx}
 
-in the load's direction, if the temperatures allow it. In `Economizer` mode, it
-runs only when $T_s < T_\text{in} - \Delta T_\text{th}$ (default 2 K).
+in the load's direction (it is the one supply unit that gets the load's sign),
+if the temperatures allow it, with $C_s = \rho_w\dot V_dc_{p,w}$ at $T_s$. In
+`economizer` mode, it runs only when $T_s < T_\text{in} - \Delta T_\text{th}$
+(default 2 K).
+
+The source water arrives at the source loop's supply setpoint less any shortfall
+(@eq-plant-supply), or, on a loop with a cooling tower, at
+$\max(T_\text{sp},\ T_{wb} + 2\ \text{K})$, the coldest the tower can make it
+(@sec-cooling-tower). The demand loop runs first (@sec-plant-order), and the
+heat moved is load on the source loop: heat for a tower loop to reject, or
+heating or cooling for any other.
 
 **Comparison with EnergyPlus.** `HeatExchanger:FluidToFluid` derives its
 effectiveness from UA and the flows
-([#71](https://github.com/bbrannon4/OpenBSE/issues/71)). In OpenBSE, the heat moved
-never reaches the source loop as a load, and the source state is that of the last
-time the source loop ran
-([#253](https://github.com/bbrannon4/OpenBSE/issues/253)).
+([#71](https://github.com/bbrannon4/OpenBSE/issues/71)), and its source side is a
+demand component of the source loop, as here. EnergyPlus's source water is at
+that loop's actual supply temperature; OpenBSE's follows the setpoint and the
+tower's wet-bulb limit, since its loops have no temperature history
+([#251](https://github.com/bbrannon4/OpenBSE/issues/251)). Both sides draw the
+same design flow, as EnergyPlus autosizes the side on the source loop to the
+flow of the side it serves (`SizeFluidHeatExchanger`).
 
 ## Thermal storage {#sec-thermal-storage}
 
@@ -330,8 +343,7 @@ temperature and a 20 °C ambient
 - [#252](https://github.com/bbrannon4/OpenBSE/issues/252): tower has no
   effectiveness model, fan cycling or water use.
 - [#253](https://github.com/bbrannon4/OpenBSE/issues/253): storage is a
-  simplified component, not a chiller-storage plant branch; heat-exchanger heat
-  never reaches its source loop.
+  simplified component, not a chiller-storage plant branch.
 - [#71](https://github.com/bbrannon4/OpenBSE/issues/71),
   [#72](https://github.com/bbrannon4/OpenBSE/issues/72): boiler curve,
   heat-exchanger effectiveness, Standard 205 chiller flows.

@@ -1182,14 +1182,14 @@
         "name": { "type": "string" },
         "source_loop": { "type": "string", "description": "Name of the source plant loop this HX draws from / rejects to." },
         "effectiveness": { "type": "number", "default": 0.80, "minimum": 0, "maximum": 1, "description": "Heat transfer effectiveness [0-1]." },
-        "design_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design flow rate on the demand side [m3/s]. 'autosize' carries this loop's design load at its design_delta_t." },
+        "design_flow_rate": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design flow rate on each side [m3/s]: the exchanger draws the same flow from its source loop. 'autosize' carries this loop's design load at its design_delta_t." },
         "control_mode": {
           "type": "string",
           "enum": ["always_on", "economizer"],
           "default": "always_on",
           "description": "Control mode. 'always_on' for general inter-loop connection, 'economizer' activates only when source temperature enables free cooling."
         },
-        "economizer_threshold": { "type": "number", "default": 2.0, "description": "For economizer mode: activate when T_source < T_demand_in + threshold [C]." }
+        "economizer_threshold": { "type": "number", "default": 2.0, "description": "For economizer mode: activate when T_source < T_demand_in - threshold [C]." }
       }
     },
 
