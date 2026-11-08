@@ -21,4 +21,5 @@ openbse-controls = { workspace = true }
 openbse-envelope = { workspace = true }
 openbse-weather = { workspace = true }
 openbse-psychrometrics = { workspace = true }
+openbse-standards = { workspace = true }
 rayon = { workspace = true }

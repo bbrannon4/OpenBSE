@@ -32,6 +32,7 @@ book:
     - 13-cosimulation.md
     - 14-diagnostics.md
     - 15-curves-references.md
+    - 16-standards-data.md
 
 bibliography: references.bib
 link-citations: true

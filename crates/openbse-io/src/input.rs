@@ -167,6 +167,12 @@ pub struct ModelInput {
     #[serde(default)]
     pub climate_zone: Option<String>,
 
+    // ─── Code / standard ────────────────────────────────────────────────────
+    /// Fill lighting and constructions from a code or standard's tables at
+    /// load (see [`crate::standards`]). Explicit inputs always win.
+    #[serde(default)]
+    pub standard: Option<crate::standards::StandardSelection>,
+
     // ─── Outputs ────────────────────────────────────────────────────────────
     /// Custom output file definitions
     #[serde(default)]
@@ -4293,6 +4299,22 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
 
     let mut zones = model.zones.clone();
 
+    // Per-area loads (watts_per_area, people_per_area, ...) multiply the zone
+    // floor area, so a floor area left to auto-calculate must be known here,
+    // not only later when the envelope is built. Same rule as the envelope:
+    // the sum of the zone's floor-surface polygons.
+    for zone in zones.iter_mut().filter(|z| z.floor_area <= 0.0) {
+        let floors: Vec<&[openbse_envelope::Point3D]> = model
+            .surfaces
+            .iter()
+            .filter(|s| {
+                s.zone == zone.name && s.surface_type == openbse_envelope::SurfaceType::Floor
+            })
+            .filter_map(|s| s.vertices.as_deref())
+            .collect();
+        zone.floor_area = openbse_envelope::geometry::zone_floor_area(&floors);
+    }
+
     // Build zone name → zone group names mapping for expansion
     let zone_group_map: std::collections::HashMap<String, Vec<String>> = model
         .zone_groups
@@ -5768,6 +5790,14 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
             if wanted.contains(name) {
                 return;
             }
+            if name.is_empty() {
+                result.severe(format!(
+                    "{} has no construction: give one, or add a `standard:` block with \
+                     `envelope:` to build it from a standard's tables",
+                    referrer
+                ));
+                return;
+            }
             if other.contains(name) {
                 result.severe(format!(
                     "Construction '{}' referenced by {} is the wrong kind: it must be \
@@ -5908,6 +5938,42 @@ surfaces:
                 validation.to_err_file()
             );
         }
+    }
+
+    /// Per-area loads use the floor area auto-calculated from vertices; they
+    /// used to multiply the YAML value, 0 when left out, and come out zero.
+    #[test]
+    fn per_area_loads_use_the_auto_calculated_floor_area() {
+        let yaml = r#"
+simulation: {timesteps_per_hour: 1}
+weather_files: []
+zones:
+  - name: Z
+people:
+  - {name: P, zones: [Z], people_per_area: 0.05}
+lights:
+  - {name: L, zones: [Z], watts_per_area: 10}
+surfaces:
+  - name: F
+    zone: Z
+    type: floor
+    construction: C
+    boundary: adiabatic
+    vertices: [{x: 0, y: 10, z: 0}, {x: 10, y: 10, z: 0}, {x: 10, y: 0, z: 0}, {x: 0, y: 0, z: 0}]
+"#;
+        let model = parse_model_yaml(yaml).unwrap();
+        let zones = resolve_zone_loads(&model);
+        assert!((zones[0].floor_area - 100.0).abs() < 1e-9);
+        let (mut lights, mut people) = (0.0, 0.0);
+        for g in &zones[0].internal_gains {
+            match g {
+                openbse_envelope::InternalGainInput::Lights { power, .. } => lights += power,
+                openbse_envelope::InternalGainInput::People { count, .. } => people += count,
+                _ => {}
+            }
+        }
+        assert!((lights - 1000.0).abs() < 1e-9, "{lights}");
+        assert!((people - 5.0).abs() < 1e-9, "{people}");
     }
 
     #[test]

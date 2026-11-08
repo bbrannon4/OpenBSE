@@ -1,0 +1,107 @@
+# ASHRAE 90.1-2025 (I-P), Table G3.8: values as printed.
+# Values only. The standard's text and footnotes are not reproduced.
+standard: ashrae_90_1
+edition: "2025"
+table: "G3.8"
+title: Appendix G baseline lighting power density, building area method
+kind: lighting_building_area
+method: appendix_g
+units: ip
+derivation: printed
+lighting:
+  - key: automotive_facility
+    name: "Automotive facility"
+    lpd: 0.90
+  - key: convention_center
+    name: "Convention center"
+    lpd: 1.20
+  - key: courthouse
+    name: "Courthouse"
+    lpd: 1.20
+  - key: dining_bar_lounge_leisure
+    name: "Dining: Bar lounge/leisure"
+    lpd: 1.30
+  - key: dining_cafeteria_fast_food
+    name: "Dining: Cafeteria/fast food"
+    lpd: 1.40
+  - key: dining_family
+    name: "Dining: Family"
+    lpd: 1.60
+  - key: dormitory
+    name: "Dormitory"
+    lpd: 1.00
+  - key: exercise_center
+    name: "Exercise center"
+    lpd: 1.00
+  - key: fire_station
+    name: "Fire station"
+    lpd: 1.00
+  - key: gymnasium
+    name: "Gymnasium"
+    lpd: 1.10
+  - key: health_care_clinic
+    name: "Health care clinic"
+    lpd: 1.00
+  - key: hospital
+    name: "Hospital"
+    lpd: 1.20
+  - key: hotel_motel
+    name: "Hotel/motel"
+    lpd: 1.09
+  - key: library
+    name: "Library"
+    lpd: 1.30
+  - key: manufacturing_facility
+    name: "Manufacturing facility"
+    lpd: 1.17
+  - key: motion_picture_theater
+    name: "Motion picture theater"
+    lpd: 1.20
+  - key: multifamily
+    name: "Multifamily"
+    lpd: 0.70
+  - key: museum
+    name: "Museum"
+    lpd: 1.10
+  - key: office
+    name: "Office"
+    lpd: 1.00
+  - key: parking_garage
+    name: "Parking garage"
+    lpd: 0.30
+  - key: penitentiary
+    name: "Penitentiary"
+    lpd: 1.00
+  - key: performing_arts_theater
+    name: "Performing arts theater"
+    lpd: 1.60
+  - key: police_station
+    name: "Police station"
+    lpd: 1.00
+  - key: post_office
+    name: "Post office"
+    lpd: 1.10
+  - key: religious_facility
+    name: "Religious facility"
+    lpd: 1.30
+  - key: retail
+    name: "Retail"
+    lpd: 1.50
+  - key: school_university
+    name: "School/university"
+    lpd: 1.20
+  - key: sports_arena
+    name: "Sports arena"
+    lpd: 1.10
+  - key: town_hall
+    name: "Town hall"
+    lpd: 1.10
+  - key: transportation
+    name: "Transportation"
+    lpd: 1.00
+  - key: warehouse
+    name: "Warehouse"
+    lpd: 0.80
+  - key: workshop
+    name: "Workshop"
+    lpd: 1.40

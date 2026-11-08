@@ -1161,6 +1161,23 @@ fn main() -> Result<()> {
             // }
         }
 
+        // ── 1a'. Fill lighting and constructions from a code or standard ──────
+        // After parametric overrides, so a run can change the climate zone or
+        // method; before validation, so the filled model is what is checked.
+        let standards_report = openbse_io::standards::apply_standards(&mut model)
+            .with_context(|| "Failed to apply the model's standard")?;
+        if let Some(r) = &standards_report {
+            info!(
+                "Standard {}: {} value(s) applied, {} explicit input(s) kept",
+                r.header,
+                r.applied.len(),
+                r.kept_explicit.len()
+            );
+            for n in &r.notes {
+                info!("  {n}");
+            }
+        }
+
         // ── 1b. Validate model cross-references ────────────────────────────────
         let mut validation = openbse_io::validate_model(&model);
 
@@ -2449,6 +2466,9 @@ fn main() -> Result<()> {
             }
             if let Some(ref cz) = model.climate_zone {
                 report.set_climate_zone(cz.clone());
+            }
+            if let Some(r) = &standards_report {
+                report.set_standards_report(r.clone());
             }
             Some(report)
         } else {

@@ -1,0 +1,244 @@
+# ASHRAE 90.1-2025 (I-P), Table G3.7-1: values as printed.
+# Values only. The standard's text and footnotes are not reproduced.
+standard: ashrae_90_1
+edition: "2025"
+table: "G3.7-1"
+title: Appendix G baseline lighting power density, space-by-space method, common space types
+kind: lighting_space_by_space
+method: appendix_g
+units: ip
+derivation: printed
+lighting:
+  - key: atrium_under_20ft
+    name: "Atrium, <20 ft in height"
+    lpd_per_height: 0.0375
+    occupancy_sensor_reduction_percent: 10
+  - key: atrium_20_to_40ft
+    name: "Atrium, ≥20 ft and ≤40 ft in height"
+    lpd_per_height: 0.0375
+    occupancy_sensor_reduction_percent: 10
+  - key: atrium_over_40ft
+    name: "Atrium, >40 ft in height"
+    lpd: 0.50
+    lpd_per_height: 0.025
+    occupancy_sensor_reduction_percent: 10
+  - key: audience_seating_auditorium
+    name: "Audience seating area, auditorium"
+    lpd: 0.90
+    occupancy_sensor_reduction_percent: 10
+  - key: audience_seating_convention_center
+    name: "Audience seating area, convention center"
+    lpd: 0.70
+    occupancy_sensor_reduction_percent: 10
+  - key: audience_seating_gymnasium
+    name: "Audience seating area, gymnasium"
+    lpd: 0.40
+    occupancy_sensor_reduction_percent: 10
+  - key: audience_seating_motion_picture_theater
+    name: "Audience seating area, motion picture theater"
+    lpd: 1.20
+    occupancy_sensor_reduction_percent: 10
+  - key: audience_seating_performing_arts_theater
+    name: "Audience seating area, performing arts theater"
+    lpd: 2.60
+    occupancy_sensor_reduction_percent: 10
+  - key: audience_seating_sports_arena
+    name: "Audience seating area, in a sports arena"
+    lpd: 0.40
+    occupancy_sensor_reduction_percent: 10
+  - key: audience_seating_other
+    name: "Audience seating area, all other"
+    lpd: 0.90
+    occupancy_sensor_reduction_percent: 10
+  - key: banking_activity_area
+    name: "Banking activity area"
+    lpd: 1.50
+    occupancy_sensor_reduction_percent: 10
+  - key: classroom_preschool_to_12_lab_shop
+    name: "Classroom/lecture hall/training room, preschool through 12th grade, laboratory and shop"
+    lpd: 1.40
+    occupancy_sensor_reduction_percent: 30
+  - key: classroom_other
+    name: "Classroom/lecture hall/training room, all other"
+    lpd: 1.40
+    occupancy_sensor_reduction_percent: None
+  - key: computer_room
+    name: "Computer room"
+    lpd: 2.14
+    occupancy_sensor_reduction_percent: 35
+  - key: conference_meeting_multipurpose
+    name: "Conference/meeting/multipurpose room"
+    lpd: 1.30
+    occupancy_sensor_reduction_percent: None
+  - key: copy_print_room
+    name: "Copy/print room"
+    lpd: 0.90
+    occupancy_sensor_reduction_percent: 10
+  - key: corridor
+    name: "Corridor"
+    lpd: 0.50
+    occupancy_sensor_reduction_percent: 25
+  - key: courtroom
+    name: "Courtroom"
+    lpd: 1.90
+    occupancy_sensor_reduction_percent: 10
+  - key: dining_bar_lounge_leisure
+    name: "Dining area, bar/lounge or leisure dining"
+    lpd: 1.40
+    occupancy_sensor_reduction_percent: 35
+  - key: dining_cafeteria_fast_food
+    name: "Dining area, cafeteria or fast food"
+    lpd: 0.90
+    occupancy_sensor_reduction_percent: 35
+  - key: dining_family
+    name: "Dining area, family dining"
+    lpd: 2.10
+    occupancy_sensor_reduction_percent: 35
+  - key: dining_other
+    name: "Dining area, all other"
+    lpd: 0.90
+    occupancy_sensor_reduction_percent: 35
+  - key: electrical_mechanical_room
+    name: "Electrical/mechanical room"
+    lpd: 1.50
+    occupancy_sensor_reduction_percent: 30
+  - key: emergency_vehicle_garage
+    name: "Emergency vehicle garage"
+    lpd: 0.80
+    occupancy_sensor_reduction_percent: 10
+  - key: equipment_room
+    name: "Equipment room"
+    lpd: 1.20
+    occupancy_sensor_reduction_percent: 10
+  - key: food_preparation
+    name: "Food preparation area"
+    lpd: 1.20
+    occupancy_sensor_reduction_percent: 30
+  - key: guest_room
+    name: "Guest room"
+    lpd: 1.14
+    occupancy_sensor_reduction_percent: 45
+  - key: dwelling_unit
+    name: "Dwelling unit"
+    lpd: 1.07
+    occupancy_sensor_reduction_percent: None
+  - key: laboratory_preschool_to_12_lab_shop
+    name: "Laboratory, preschool through 12th grade, laboratory and shop classrooms"
+    lpd: 1.40
+    occupancy_sensor_reduction_percent: 30
+  - key: laboratory_other
+    name: "Laboratory, all other except in or as a classroom"
+    lpd: 1.40
+    occupancy_sensor_reduction_percent: 10
+  - key: laundry_washing
+    name: "Laundry/washing area"
+    lpd: 0.60
+    occupancy_sensor_reduction_percent: 10
+  - key: loading_dock_interior
+    name: "Loading dock, interior"
+    lpd: 0.59
+    occupancy_sensor_reduction_percent: 10
+  - key: lobby_elevator
+    name: "Lobby, elevator"
+    lpd: 0.80
+    occupancy_sensor_reduction_percent: 25
+  - key: lobby_hotel
+    name: "Lobby, hotel"
+    lpd: 1.10
+    occupancy_sensor_reduction_percent: 25
+  - key: lobby_motion_picture_theater
+    name: "Lobby, motion picture theater"
+    lpd: 1.10
+    occupancy_sensor_reduction_percent: 25
+  - key: lobby_performing_arts_theater
+    name: "Lobby, performing arts theater"
+    lpd: 3.30
+    occupancy_sensor_reduction_percent: 25
+  - key: lobby_other
+    name: "Lobby, all other"
+    lpd: 1.30
+    occupancy_sensor_reduction_percent: 25
+  - key: locker_room
+    name: "Locker room"
+    lpd: 0.60
+    occupancy_sensor_reduction_percent: 25
+  - key: lounge_wellness_room
+    name: "Lounge/breakroom, mother's/wellness room"
+    lpd: 1.13
+    occupancy_sensor_reduction_percent: 24
+  - key: lounge_breakroom_other
+    name: "Lounge/breakroom, all other"
+    lpd: 1.20
+    occupancy_sensor_reduction_percent: None
+  - key: office_enclosed_up_to_250_sqft
+    name: "Office, enclosed and ≤250 ft²"
+    lpd: 1.10
+    occupancy_sensor_reduction_percent: 30
+  - key: office_enclosed_over_250_sqft
+    name: "Office, enclosed and >250 ft²"
+    lpd: 1.10
+    occupancy_sensor_reduction_percent: 30
+  - key: office_open_plan
+    name: "Office, open plan"
+    lpd: 1.10
+    occupancy_sensor_reduction_percent: 15
+  - key: parking_daylight_transition_zone
+    name: "Parking area (interior), daylight transition zone"
+    lpd: 1.75
+    occupancy_sensor_reduction_percent: 30
+  - key: parking_other
+    name: "Parking area (interior), all other parking and drive areas"
+    lpd: 0.18
+    occupancy_sensor_reduction_percent: 30
+  - key: pharmacy_area
+    name: "Pharmacy area"
+    lpd: 1.20
+    occupancy_sensor_reduction_percent: 10
+  - key: restroom
+    name: "Restroom"
+    lpd: 0.90
+    occupancy_sensor_reduction_percent: 45
+  - key: sales_area
+    name: "Sales area"
+    lpd: 1.70
+    occupancy_sensor_reduction_percent: 15
+  - key: seating_area_general
+    name: "Seating area, general"
+    lpd: 0.68
+    occupancy_sensor_reduction_percent: 10
+  - key: security_screening_transportation
+    name: "Security screening, transportation"
+    lpd: 1.53
+    occupancy_sensor_reduction_percent: 0
+  - key: security_screening_transportation_queue
+    name: "Security screening, transportation queue"
+    lpd: 0.92
+    occupancy_sensor_reduction_percent: 0
+  - key: security_screening_general
+    name: "Security screening, general"
+    lpd: 1.06
+    occupancy_sensor_reduction_percent: 0
+  - key: stairwell
+    name: "Stairwell"
+    lpd: 0.60
+    occupancy_sensor_reduction_percent: 75
+  - key: storage_50_sqft_and_over
+    name: "Storage room, ≥50 ft²"
+    lpd: 0.80
+    occupancy_sensor_reduction_percent: 45
+  - key: storage_under_50_sqft
+    name: "Storage room, <50 ft²"
+    lpd: 0.80
+    occupancy_sensor_reduction_percent: 45
+  - key: vehicular_maintenance_area
+    name: "Vehicular maintenance area"
+    lpd: 0.70
+    occupancy_sensor_reduction_percent: 10
+  - key: workshop_preschool_to_12_lab_shop
+    name: "Workshop, preschool through 12th grade, laboratory and shop classrooms"
+    lpd: 1.40
+    occupancy_sensor_reduction_percent: 30
+  - key: workshop_other
+    name: "Workshop, all other"
+    lpd: 1.90
+    occupancy_sensor_reduction_percent: 10

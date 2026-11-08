@@ -231,7 +231,8 @@ outside face is held at the construction's monthly ground temperatures
 
 **Comparison with EnergyPlus.** This is `Construction:FfactorGroundFloor`
 as built by `HeatBalanceManager::CreateFCfactorConstructions`. C-factor walls
-(`Construction:CfactorUndergroundWall`) don't exist.
+(`Construction:CfactorUndergroundWall`) don't exist
+([#401](https://github.com/bbrannon4/OpenBSE/issues/401)).
 
 ## Heat and moisture transfer (HAMT) {#sec-hamt}
 
@@ -1190,7 +1191,10 @@ differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
 `equipment` objects resolved per zone in `openbse-io/src/input.rs`.
 
 Each gain has a design level, scaled each timestep by its schedule fraction
-$f$. With $f$ applied:
+$f$. A level given per floor area (people per m², W/m²) uses the zone's floor
+area as given, or else the sum of its floor-surface areas (@sec-zone-geometry).
+A code or standard can supply lighting levels (@sec-standards). With $f$
+applied:
 
 - **People.** $N$ occupants, either a count or per floor area, release
   sensible $Q_s = N f\,q_s$ and latent $Q_l = N f\,q_l$. Here

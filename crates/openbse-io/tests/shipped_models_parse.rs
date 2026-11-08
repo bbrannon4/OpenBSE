@@ -79,7 +79,11 @@ fn shipped_models_validate() {
         .iter()
         .filter_map(|f| {
             let text = std::fs::read_to_string(f).unwrap();
-            let model = openbse_io::input::parse_model_yaml(&text).ok()?;
+            let mut model = openbse_io::input::parse_model_yaml(&text).ok()?;
+            if let Err(e) = openbse_io::standards::apply_standards(&mut model) {
+                let path = f.strip_prefix(&root).unwrap_or(f).display();
+                return Some(format!("{path}:\n  {e}"));
+            }
             let validation = openbse_io::validate_model(&model);
             let severe: Vec<String> = validation
                 .diagnostics

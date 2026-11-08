@@ -1,0 +1,150 @@
+# ASHRAE 90.1-2025 (I-P), Table 5.5-0: values as printed.
+# Values only. The standard's text and footnotes are not reproduced.
+standard: ashrae_90_1
+edition: "2025"
+table: "5.5-0"
+title: Prescriptive building envelope criteria, climate zone 0
+kind: envelope
+method: prescriptive
+units: ip
+derivation: printed
+climate_zones: [0A, 0B]
+opaque:
+  - element: roof
+    class: insulation_entirely_above_deck
+    name: Insulation entirely above deck
+    criteria:
+      nonresidential: {u_factor: 0.039}
+      residential: {u_factor: 0.032}
+      semiheated: {u_factor: 0.218}
+  - element: roof
+    class: metal_building
+    name: Metal building
+    criteria:
+      nonresidential: {u_factor: 0.041}
+      residential: {u_factor: 0.041}
+      semiheated: {u_factor: 0.115}
+  - element: roof
+    class: attic_and_other
+    name: Attic and other
+    criteria:
+      nonresidential: {u_factor: 0.027}
+      residential: {u_factor: 0.027}
+      semiheated: {u_factor: 0.081}
+  - element: wall_above_grade
+    class: mass
+    name: Mass
+    criteria:
+      nonresidential: {u_factor: 0.580}
+      residential: {u_factor: 0.151}
+      semiheated: {u_factor: 0.580}
+  - element: wall_above_grade
+    class: metal_building
+    name: Metal building
+    criteria:
+      nonresidential: {u_factor: 0.094}
+      residential: {u_factor: 0.094}
+      semiheated: {u_factor: 1.18}
+  - element: wall_above_grade
+    class: steel_framed
+    name: Steel-framed
+    criteria:
+      nonresidential: {u_factor: 0.118}
+      residential: {u_factor: 0.118}
+      semiheated: {u_factor: 0.352}
+  - element: wall_above_grade
+    class: wood_framed_and_other
+    name: Wood-framed and other
+    criteria:
+      nonresidential: {u_factor: 0.089}
+      residential: {u_factor: 0.089}
+      semiheated: {u_factor: 0.292}
+  - element: wall_below_grade
+    class: below_grade_wall
+    name: Below-grade wall
+    criteria:
+      nonresidential: {c_factor: 1.140}
+      residential: {c_factor: 1.140}
+      semiheated: {c_factor: 1.140}
+  - element: floor
+    class: mass
+    name: Mass
+    criteria:
+      nonresidential: {u_factor: 0.322}
+      residential: {u_factor: 0.322}
+      semiheated: {u_factor: 0.322}
+  - element: floor
+    class: steel_joist
+    name: Steel joist
+    criteria:
+      nonresidential: {u_factor: 0.069}
+      residential: {u_factor: 0.069}
+      semiheated: {u_factor: 0.350}
+  - element: floor
+    class: wood_framed_and_other
+    name: Wood-framed and other
+    criteria:
+      nonresidential: {u_factor: 0.066}
+      residential: {u_factor: 0.066}
+      semiheated: {u_factor: 0.282}
+  - element: slab_on_grade
+    class: unheated
+    name: Unheated
+    criteria:
+      nonresidential: {f_factor: 0.730}
+      residential: {f_factor: 0.730}
+      semiheated: {f_factor: 0.730}
+  - element: slab_on_grade
+    class: heated
+    name: Heated
+    criteria:
+      nonresidential: {f_factor: 1.020}
+      residential: {f_factor: 1.020}
+      semiheated: {f_factor: 1.020}
+  - element: opaque_door
+    class: swinging
+    name: Swinging
+    criteria:
+      nonresidential: {u_factor: 0.370}
+      residential: {u_factor: 0.370}
+      semiheated: {u_factor: 0.700}
+  - element: opaque_door
+    class: nonswinging
+    name: Nonswinging
+    criteria:
+      nonresidential: {u_factor: 0.310}
+      residential: {u_factor: 0.310}
+      semiheated: {u_factor: 1.20}
+fenestration:
+  - element: vertical_fenestration
+    class: fixed
+    name: Fixed
+    area_ratio_percent: [0, 40]
+    criteria:
+      nonresidential: {u_factor: 0.48, shgc: 0.21, vt_shgc_min: 1.10}
+      residential: {u_factor: 0.48, shgc: 0.21, vt_shgc_min: 1.10}
+      semiheated: {u_factor: 1.20, shgc: NR, vt_shgc_min: NR}
+  - element: vertical_fenestration
+    class: operable
+    name: Operable
+    area_ratio_percent: [0, 40]
+    criteria:
+      nonresidential: {u_factor: 0.62, shgc: 0.19, vt_shgc_min: 1.10}
+      residential: {u_factor: 0.62, shgc: 0.19, vt_shgc_min: 1.10}
+      semiheated: {u_factor: 1.20, shgc: NR, vt_shgc_min: NR}
+  - element: vertical_fenestration
+    class: entrance_door
+    name: Entrance door
+    area_ratio_percent: [0, 40]
+    criteria:
+      nonresidential: {u_factor: 0.83, shgc: 0.19, vt_shgc_min: 1.10}
+      residential: {u_factor: 0.83, shgc: 0.19, vt_shgc_min: 1.10}
+      semiheated: {u_factor: 1.10, shgc: NR, vt_shgc_min: NR}
+  - element: skylight
+    class: all
+    name: All types
+    area_ratio_percent: [0, 3]
+    criteria:
+      nonresidential: {u_factor: 0.68, shgc: 0.30, vt_shgc_min: NR}
+      residential: {u_factor: 0.68, shgc: 0.30, vt_shgc_min: NR}
+      semiheated: {u_factor: 1.80, shgc: NR, vt_shgc_min: NR}

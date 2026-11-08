@@ -11,6 +11,7 @@ members = [
     "crates/openbse-cli",
     "crates/openbse-a205",
     "crates/openbse-cosim",
+    "crates/openbse-standards",
 ]
 exclude = ["tools/editor/src-tauri"]
 resolver = "2"
@@ -33,6 +34,7 @@ openbse-io = { path = "crates/openbse-io" }
 openbse-airloop = { path = "crates/openbse-airloop" }
 openbse-a205 = { path = "crates/openbse-a205" }
 openbse-cosim = { path = "crates/openbse-cosim" }
+openbse-standards = { path = "crates/openbse-standards" }
 
 # External dependencies
 serde = { version = "1", features = ["derive"] }

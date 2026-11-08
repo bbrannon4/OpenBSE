@@ -1,0 +1,115 @@
+# Typical layered assemblies OpenBSE builds to meet a target assembly U-factor.
+#
+# A standard gives an assembly U-factor (air films included), not layers. To
+# keep the thermal mass of the assembly class, OpenBSE builds a representative
+# layered assembly and solves the resistance of its one `insulation` layer so
+# that the layers plus the films the table assumes give exactly the target U.
+# These assemblies are modelling choices, not standard data, so any standard
+# can map its classes to them (see each edition's `assemblies`).
+#
+# Layers run outside to inside. Thicknesses in m; properties in SI.
+materials:
+  - id: built_up_roofing
+    conductivity: 0.16
+    density: 1120
+    specific_heat: 1460
+    roughness: rough
+    source: ASHRAE Handbook—Fundamentals 2005 Ch. 25 (EnergyPlus ASHRAE_2005_HOF_Materials, F13 Built-up roofing)
+  - id: metal_surface
+    conductivity: 45.28
+    density: 7824
+    specific_heat: 500
+    roughness: smooth
+    source: ASHRAE Handbook—Fundamentals 2005 Ch. 25 (EnergyPlus ASHRAE_2005_HOF_Materials, F08 Metal surface)
+  - id: stucco
+    conductivity: 0.72
+    density: 1856
+    specific_heat: 840
+    roughness: smooth
+    source: ASHRAE Handbook—Fundamentals 2005 Ch. 25 (EnergyPlus ASHRAE_2005_HOF_Materials, F07 25mm stucco)
+  - id: gypsum_board
+    conductivity: 0.16
+    density: 800
+    specific_heat: 1090
+    roughness: medium_smooth
+    source: ASHRAE Handbook—Fundamentals 2005 Ch. 25 (EnergyPlus ASHRAE_2005_HOF_Materials, G01 16mm gypsum board)
+  - id: heavyweight_concrete
+    conductivity: 1.95
+    density: 2240
+    specific_heat: 900
+    roughness: medium_rough
+    source: ASHRAE Handbook—Fundamentals 2005 Ch. 25 (EnergyPlus ASHRAE_2005_HOF_Materials, M15 200mm heavyweight concrete)
+  - id: plywood
+    conductivity: 0.12
+    density: 544
+    specific_heat: 1210
+    roughness: smooth
+    source: ASHRAE Handbook—Fundamentals 2005 Ch. 25 (EnergyPlus ASHRAE_2005_HOF_Materials, G02 16mm plywood)
+
+assemblies:
+  - id: roof_insulation_above_deck
+    element: roof
+    description: Built-up roofing over continuous insulation on a metal deck
+    layers:
+      - {material: built_up_roofing, thickness: 0.0095}
+      - insulation
+      - {material: metal_surface, thickness: 0.0008}
+  - id: roof_metal_building
+    element: roof
+    description: Metal roof panel over insulation draped on purlins
+    layers:
+      - {material: metal_surface, thickness: 0.0008}
+      - insulation
+  - id: roof_attic
+    element: roof
+    description: Insulation on a gypsum ceiling below a ventilated attic, as one assembly
+    layers:
+      - insulation
+      - {material: gypsum_board, thickness: 0.0159}
+  - id: wall_mass
+    element: wall_above_grade
+    description: 200 mm concrete, continuous insulation, gypsum board
+    layers:
+      - {material: heavyweight_concrete, thickness: 0.2032}
+      - insulation
+      - {material: gypsum_board, thickness: 0.0127}
+  - id: wall_metal_building
+    element: wall_above_grade
+    description: Metal wall panel over insulation on girts
+    layers:
+      - {material: metal_surface, thickness: 0.0008}
+      - insulation
+  - id: wall_framed
+    element: wall_above_grade
+    description: Stucco and exterior gypsum sheathing, framed cavity insulation, interior gypsum board
+    layers:
+      - {material: stucco, thickness: 0.0254}
+      - {material: gypsum_board, thickness: 0.0159}
+      - insulation
+      - {material: gypsum_board, thickness: 0.0159}
+  - id: floor_mass
+    element: floor
+    description: Continuous insulation under a 200 mm concrete floor
+    layers:
+      - insulation
+      - {material: heavyweight_concrete, thickness: 0.2032}
+  - id: floor_steel_joist
+    element: floor
+    description: Insulation between steel joists under a 100 mm concrete deck
+    layers:
+      - insulation
+      - {material: metal_surface, thickness: 0.0008}
+      - {material: heavyweight_concrete, thickness: 0.1016}
+  - id: floor_wood_framed
+    element: floor
+    description: Insulation between wood joists under a plywood subfloor
+    layers:
+      - insulation
+      - {material: plywood, thickness: 0.0191}
+  - id: door_metal
+    element: opaque_door
+    description: Insulated hollow metal door
+    layers:
+      - {material: metal_surface, thickness: 0.0008}
+      - insulation
+      - {material: metal_surface, thickness: 0.0008}
