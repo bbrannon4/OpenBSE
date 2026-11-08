@@ -996,13 +996,16 @@ fn build_loop_infos(
                             // Design air temperature rise across a draw-through
                             // fan: dT = dP·motor_factor / (total_eff·rho·cp),
                             // independent of flow (both heat-to-air and the
-                            // mass flow scale with the design flow rate).
+                            // mass flow scale with the design flow rate). The
+                            // fan's volume flow is at the site standard density,
+                            // as E+ Fan sizing uses StdRhoAir.
                             let total_eff = (f.motor_efficiency * f.impeller_efficiency).max(0.01);
                             let motor_factor = f.motor_efficiency
                                 + (1.0 - f.motor_efficiency) * f.motor_in_airstream_fraction;
-                            let rho = 1.2_f64;
                             let cp = 1006.0_f64;
-                            Some(f.pressure_rise * motor_factor / (total_eff * rho * cp))
+                            Some(
+                                f.pressure_rise * motor_factor / (total_eff * std_air_density * cp),
+                            )
                         } else {
                             None
                         }
@@ -1013,12 +1016,12 @@ fn build_loop_infos(
                     .return_fan_pressure_rise
                     .map(|dp| {
                         let eff = al.controls.return_fan_total_efficiency.max(0.01);
-                        dp / (eff * 1.2 * 1006.0)
+                        dp / (eff * std_air_density * 1006.0)
                     })
                     .unwrap_or(0.0),
                 fixed_cooling_sat: al.controls.fixed_cooling_sat,
                 preheat_setpoint: al.controls.preheat_setpoint,
-                min_oa_flow_mass: al.controls.minimum_oa_flow.map(|v| v * 1.229),
+                min_oa_flow_mass: al.controls.minimum_oa_flow.map(|v| v * std_air_density),
                 std_air_density,
             }
         })
@@ -8268,6 +8271,49 @@ room_air:
             );
         }
         assert!((zone_enthalpy - deck_enthalpy).abs() < 1e-6 * deck_enthalpy.abs());
+    }
+
+    /// A fixed minimum outdoor-air volume and the fans' design rise convert
+    /// at the site's standard density, from the design day's pressure.
+    #[test]
+    fn loop_flows_convert_at_the_site_standard_density() {
+        let model = openbse_io::input::parse_model_yaml(
+            r#"
+simulation: {}
+weather_files: []
+design_days:
+  - {name: H, design_temp: -17.8, daily_range: 0.0, humidity_type: wetbulb, humidity_value: -17.8, pressure: 83411.0, wind_speed: 2.3, month: 1, day: 21, day_type: winter}
+zones:
+  - {name: Z, floor_area: 100.0, volume: 300.0}
+air_loops:
+  - name: L
+    system_type: vav
+    controls: {minimum_oa_flow: 0.5, return_fan_pressure_rise: 250.0}
+    equipment:
+      - {type: fan, name: F, source: vav, design_flow_rate: 2.0, pressure_rise: 500.0}
+    zone_terminals:
+      - {zone: Z}
+"#,
+        )
+        .expect("model");
+        let rho = 83411.0 / (287.042 * 293.15);
+        let li = &build_loop_infos(&model, &model.zones)[0];
+        assert!((li.std_air_density - rho).abs() < 1e-12);
+        assert!((li.min_oa_flow_mass.unwrap() - 0.5 * rho).abs() < 1e-12);
+        let openbse_io::input::EquipmentInput::Fan(f) = &model.air_loops[0].equipment[0] else {
+            panic!("fan");
+        };
+        let motor_factor =
+            f.motor_efficiency + (1.0 - f.motor_efficiency) * f.motor_in_airstream_fraction;
+        let total_eff = f.motor_efficiency * f.impeller_efficiency;
+        let rise = 500.0 * motor_factor / (total_eff * rho * 1006.0);
+        assert!(
+            (li.supply_fan_dt - rise).abs() < 1e-12,
+            "{}",
+            li.supply_fan_dt
+        );
+        let return_eff = model.air_loops[0].controls.return_fan_total_efficiency;
+        assert!((li.return_fan_dt - 250.0 / (return_eff * rho * 1006.0)).abs() < 1e-12);
     }
 
     /// A zone takes outdoor air through a loop only if a loop serving it mixes
