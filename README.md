@@ -59,7 +59,7 @@ cargo test --workspace
 ./target/release/openbse examples/simple_heating.yaml -w weather.epw -o results.csv
 ```
 
-The `-w` flag specifies the weather file (EPW). If omitted, the engine falls back to `weather_files` in the YAML. The CLI flag always takes precedence.
+The `-w` flag specifies the weather file (EPW). If omitted, the engine falls back to `weather_files` in the YAML. The CLI flag always takes precedence. The `-o` flag sets the results CSV; every other output (`.err`, summaries, sizing reports) goes in the same folder, which is created if it doesn't exist. Without `-o`, outputs go next to the model file.
 
 ## Architecture
 

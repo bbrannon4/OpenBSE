@@ -1175,6 +1175,10 @@ fn main() -> Result<()> {
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
+    // Create the output folder before simulating, so a bad path fails at once
+    // rather than after the run.
+    std::fs::create_dir_all(&output_dir)
+        .with_context(|| format!("Failed to create output folder {}", output_dir.display()))?;
 
     info!("OpenBSE v{}", env!("CARGO_PKG_VERSION"));
     info!("Reading input file: {}", args.input.display());
