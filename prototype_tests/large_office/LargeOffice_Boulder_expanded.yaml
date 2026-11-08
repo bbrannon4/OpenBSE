@@ -1824,18 +1824,17 @@ infiltration:
   wind_coefficient: 0.224
   schedule: INFIL_SCH_PNNL
 outdoor_air:
-- name: Office Ventilation
+# DOE IDF: every zone's DesignSpecification:OutdoorAir is Flow/Area,
+# 0.0004318 m3/s-m2, data centres included.
+- name: Zone Ventilation
   zones:
   - Office Zones Bottom
   - Office Zones Mid
   - Office Zones Top
-  per_person: 0.00236
-  per_area: 0.000305
-- name: Basement Ventilation
-  zones:
   - Basement Zone
-  per_person: 0.00236
-  per_area: 0.000305
+  - DataCenter Zones
+  per_person: 0.0
+  per_area: 0.0004318
 surfaces:
 - name: Core_bot South IW
   zone: Core_bottom

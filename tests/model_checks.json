@@ -157,7 +157,7 @@
           85.0
         ]
       },
-      "zone_temp_limits_c_reason": "Defect found by this gate (2026-10-25): these conditioned top-floor perimeter offices reach 64.5 °C (ZN_1) and 77.4 °C (ZN_4), and fall to -10 °C. Tracked in #164. Lower the limits back to the default once fixed."
+      "zone_temp_limits_c_reason": "These conditioned top-floor perimeter offices float to about -13 and 74 °C while VAV_top is scheduled off (Sundays, nights): OpenBSE has no night cycle (#255) to restart the loop as the DOE prototype's AvailabilityManager:NightCycle does, and this model's zones have no internal mass (#415). No engine defect (#164). Restore the default limits once the night cycle exists."
     },
     "prototype_tests/large_office/LargeOffice_Boulder_ideal.yaml": {
       "tier": "local",
