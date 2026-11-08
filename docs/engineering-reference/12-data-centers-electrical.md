@@ -50,11 +50,12 @@ return-air lighting heat does (@sec-air-sizing). The unit's design flow then car
 only the room's own load, and its coil is sized on the hot return it sees in
 operation, as the run gives it.
 
-**Supply temperature.** For a CRAC or CRAH (@sec-crac-crah) whose first zone is a data
-centre, the supply setpoint is replaced by `rack_inlet_temp_max_c`, or otherwise the
-equipment class's allowable limit: A1 32, A2 35, A3 40, A4 45 °C. With the default
-class, that makes the setpoint 35 °C, at which the coil cannot cool the room
-([#260](https://github.com/bbrannon4/OpenBSE/issues/260)).
+**Supply temperature.** A CRAC or CRAH (@sec-crac-crah) supplies its loop's
+`cooling_supply_temp`. A data centre's rack inlet limit, `rack_inlet_temp_max_c` or
+otherwise the equipment class's allowable maximum (A1 32, A2 35, A3 40, A4 45 °C), is a
+check on it: a supply above the limit of any data centre the loop serves is a warning.
+The supply sits at the cold-aisle (rack inlet) side, so the limit bounds it; ASHRAE's
+recommended inlet range, 18–27 °C, is the usual design target.
 
 **Comparison with EnergyPlus.** @eq-hot-aisle plays the role of the ITE object's
 return approach. It is a mass-weighted form of the same idea; EnergyPlus's
@@ -100,7 +101,6 @@ output counts all submeter energy, so it can differ from the annual one
 
 ## Known limitations {#sec-datacenter-limitations}
 
-- [#260](https://github.com/bbrannon4/OpenBSE/issues/260): supply setpoint overwritten with
-  the class's allowable limit; UPS curve unread; no IT temperature or fan model; unverified
-  90.4 limits and tag-dependent MLC.
+- [#260](https://github.com/bbrannon4/OpenBSE/issues/260): UPS curve unread; no IT
+  temperature or fan model; unverified 90.4 limits and tag-dependent MLC.
 - [#62](https://github.com/bbrannon4/OpenBSE/issues/62): earlier CRAC and CRAH review.

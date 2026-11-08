@@ -567,7 +567,7 @@ air_loops:
     zone_terminals:
       - zone: DataHall
     controls:
-      cooling_supply_temp: 18.0        # overridden at runtime by rack_inlet_temp_max_c
+      cooling_supply_temp: 18.0        # checked against rack_inlet_temp_max_c
       heating_supply_temp: 40.0
     equipment:
       - type: fan
