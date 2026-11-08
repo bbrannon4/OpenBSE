@@ -12,7 +12,7 @@ R-325 m2K/W exterior envelope (near-adiabatic, but the zone still drifts toward
 outdoor temperature when the system is idle); sensible (convective) and latent
 internal gains on per-case seasonal schedules; cooling setpoint, fan mode and
 outdoor air per case; draw-through supply fan; DX coil with the E300
-performance map (CapFT/EIRFT biquadratic + PLF = 0.771 + 0.229*PLR). Annual run; compared to the §9B comparative ranges.
+performance map (CapFT/EIRFT tables from CE300MAP + PLF = 0.771 + 0.229*PLR). Annual run; compared to the §9B comparative ranges.
 
 Run: python3 140_tests/scripts/generate_ce_b_cases.py
 """
@@ -22,24 +22,65 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 CASES_DIR = os.path.join(os.path.dirname(HERE), "cases")
 
-# ── E300 DX performance curves (from CaseE300.idf) ────────────────────────────
-# Biquadratic f(Twb_entering_C, Todb_outdoor_C), normalized to 1.0 at 19.44/35.
-CAPFT = (0.952735372, -0.000932873, 0.000927172, -0.001291389, -2.65899e-05, -0.000305038)
-EIRFT = (0.535665387, -0.000900699, -0.000155223, 0.012769543, 0.000163848, -0.000158128)
+# ── E300 DX performance map (CE300MAP.xls, normative) ────────────────────────
+# Gross total capacity and compressor power from the Standard's performance map,
+# tabulated on entering wet-bulb x outdoor dry-bulb (the map's own grid, °F
+# points in °C). Each value is the mean over the map's wet-coil entries
+# (SHC < TC) at that EWB and ODB; across entering dry-bulb they agree within
+# 3.6%, the spread coming from nearly dry points. Rows below 10 °C EWB are
+# incomplete in the map and are left out; the table extrapolates linearly
+# there. The coil's dry-coil wet-bulb iteration evaluates a dry coil at the
+# wet-bulb where it would start to condense, as for any wet-coil curve.
+# The 500 series runs the coil at 15-35 °C zone setpoints; at 15 °C (CE540,
+# dry coil near 8 °C EWB) the reference input's biquadratic, fitted for
+# 15.56-26.67 °C EWB, gives about 13% more capacity than this map.
+MAP_EWB = [10.0, 12.7778, 15.5556, 18.3333, 21.1111, 23.8889, 26.6667, 29.4444, 32.2222, 35.0]
+MAP_ODB = [12.7778, 18.3333, 23.8889, 29.4444, 35.0, 40.5556, 46.1111]
+# Cap-fT: map gross total capacity / 33,280 W (the rated capacity), used as is.
+CAPFT_TABLE = [
+    [0.89642, 0.85809, 0.81865, 0.77770, 0.73580, 0.69273, 0.64899],
+    [0.97995, 0.93948, 0.89809, 0.85503, 0.80575, 0.76003, 0.71285],
+    [1.06971, 1.02803, 0.97788, 0.93203, 0.88497, 0.83628, 0.78698],
+    [1.15967, 1.11479, 1.06793, 1.01959, 0.96977, 0.91306, 0.86016],
+    [1.26049, 1.21320, 1.16357, 1.11283, 1.05317, 0.99846, 0.94269],
+    [1.36017, 1.30958, 1.25633, 1.20092, 1.14319, 1.08438, 1.02421],
+    [1.46909, 1.41498, 1.35818, 1.29926, 1.23744, 1.17432, 1.10963],
+    [1.58103, 1.52424, 1.46391, 1.40104, 1.33569, 1.26823, 1.19949],
+    [1.69767, 1.63586, 1.57122, 1.50540, 1.43595, 1.36443, 1.29039],
+    [1.81162, 1.74997, 1.68215, 1.61170, 1.53772, 1.46198, 1.38359],
+]
+# EIR-fT: map compressor power / gross total capacity; the coil normalizes it
+# to 1.0 at 19.44 °C EWB / 35 °C ODB, so the rated COP applies there.
+EIRFT_TABLE = [
+    [0.20772, 0.23836, 0.27203, 0.30943, 0.35092, 0.39527, 0.44560],
+    [0.19666, 0.22698, 0.25849, 0.29436, 0.33526, 0.37885, 0.42560],
+    [0.18705, 0.21530, 0.24721, 0.28163, 0.31893, 0.36053, 0.40606],
+    [0.17868, 0.20581, 0.23616, 0.26898, 0.30529, 0.34595, 0.39112],
+    [0.17019, 0.19661, 0.22564, 0.25742, 0.29360, 0.33164, 0.37476],
+    [0.16354, 0.18901, 0.21750, 0.24785, 0.28206, 0.31955, 0.36155],
+    [0.15731, 0.18223, 0.20905, 0.23915, 0.27496, 0.30886, 0.34889],
+    [0.15189, 0.17546, 0.20210, 0.23072, 0.26316, 0.29849, 0.33710],
+    [0.14662, 0.17010, 0.19492, 0.22336, 0.25493, 0.28969, 0.32737],
+    [0.14264, 0.16484, 0.18935, 0.21813, 0.24817, 0.28158, 0.31925],
+]
 
 
-def curve_poly(name, coeffs):
-    """Emit the biquadratic exactly as the reference input gives it. The 500
-    series runs the coil at 15-35 C zone setpoints, well outside the CE_a
-    performance-map grid, so a tabulated copy of the curve would extrapolate
-    linearly and miss the curvature."""
+def curve_table(name, rows):
+    """Emit a map table on EWB x ODB with linear extrapolation."""
+    axis = lambda xs: ", ".join(f"{x:.4f}" for x in xs)
+    body = "\n".join(f"        - [{', '.join(f'{v:.5f}' for v in r)}]" for r in rows)
     return f"""  - name: {name}
-    curve_type: biquadratic
-    coefficients: [{", ".join(repr(v) for v in coeffs)}]
-    min_x: 0.0
-    max_x: 100.0
-    min_y: 0.0
-    max_y: 100.0"""
+    table:
+      axes:
+        - variable: indoor_wet_bulb
+          values: [{axis(MAP_EWB)}]
+          extrapolation: linear
+        - variable: outdoor_dry_bulb
+          values: [{axis(MAP_ODB)}]
+          extrapolation: linear
+      values:
+{body}
+      output_min: 0.0"""
 
 
 # ── Seasonal schedules ────────────────────────────────────────────────────────
@@ -413,8 +454,8 @@ outputs:
 summary_report: true
 
 performance_curves:
-{curve_poly("CE300 DX CapFT", CAPFT)}
-{curve_poly("CE300 DX EIRFT", EIRFT)}
+{curve_table("CE300 DX CapFT", CAPFT_TABLE)}
+{curve_table("CE300 DX EIRFT", EIRFT_TABLE)}
 """
 
 

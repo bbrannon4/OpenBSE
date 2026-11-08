@@ -74,12 +74,6 @@ SZ_RANGES = {k: tuple(v) for k, v in _RANGES["sun_zone_temp_ranges_c"].items()}
 # When a currently-passing check regresses, CI fails.
 # ---------------------------------------------------------------------------
 KNOWN_FAILURES = {
-    # CE540 (dry coil, 15 C setpoint): OpenBSE's runtime matches EnergyPlus
-    # (supply fan within 1%), but EnergyPlus does not report condenser-fan
-    # energy, so this range comes only from the programs that interpolate the
-    # performance map, which run about 9% longer here than the fitted
-    # biquadratic curve does this far below its data.
-    ("CE540", "Annual Condenser Fan (kWh)"),
     # CE195: 0.03 kWh below range since latent heat became E+'s h_g(T), which
     # puts its latent load on the analytical value. Every CE case's sensible
     # load runs low by a similar amount, mostly the shell's long-wave loss to
