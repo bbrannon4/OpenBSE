@@ -242,20 +242,32 @@ $$
 T_\text{out} = T_\text{in} - \frac{\dot Q}{\dot m c_{p,w}}.
 $$ {#eq-tower}
 
-With $x = \min(\dot Q/\dot Q_d, 1)$ and
-$\dot Q_d = \rho\dot V_dc_{p,w}\Delta T_{\text{range},d}$, fan power is:
+The load over the design capacity, $x = \min(\dot Q/\dot Q_d, 1)$ with
+$\dot Q_d = \rho\dot V_dc_{p,w}\Delta T_{\text{range},d}$, stands for the air-flow
+ratio the fan needs. Fan power is:
 
-- **Single speed:** $P_d$ whenever it rejects heat.
-- **Two speed:** $P_d$ for $x > 0.5$, otherwise $P_df(0.5)$.
-- **Variable speed:** $P_df(x)$, with
-  $f(x) = 0.0058 + 0.0740x - 0.2180x^2 + 0.8517x^3 + 0.2866x^4$ by default.
+- **Single speed:** $P_dx$: the fan runs that fraction of the step.
+- **Two speed:** low speed moves half the air at $0.16P_d$ and cycles up to
+  $x = 0.5$, giving $0.16P_d\,x/0.5$; above that the fan cycles between low and
+  high speed, $hP_d + (1 - h)0.16P_d$ with $h = (x - 0.5)/0.5$.
+- **Variable speed:** $P_df(x)$, with $f$ the quartic `fan_power_curve`, by default
+  $f(x) = x^3$.
 
-**Comparison with EnergyPlus.** `CoolingTower:SingleSpeed` and `:TwoSpeed` use a
-UA from design conditions in the Merkel effectiveness model, with fan cycling.
-`CoolingTower:VariableSpeed` solves the air-flow ratio from an approach model
-[@eplus-engref-25-2, "Cooling Towers and Evaporative Fluid Coolers"]. @eq-tower has no such model, so a tower's
-size does not limit its rejection, and fan power does not cycle. There is no
-water use ([#252](https://github.com/bbrannon4/OpenBSE/issues/252)).
+The design air flow, inlet temperature and approach are not read; a warning says
+so if they are given.
+
+**Comparison with EnergyPlus.** The fan logic follows EnergyPlus: a single-speed
+fan cycles to the fraction of the step needed, a two-speed fan cycles at low
+speed and then between speeds (`FanModeFrac`), with low-speed defaults of half
+the air flow and 0.16 of the power, and a variable-speed tower without a curve
+uses $x^3$. The difference is $x$: EnergyPlus finds the fraction or air-flow
+ratio from the tower's capacity at the current wet-bulb and water state, with a
+UA from the design conditions in the Merkel model (single and two speed) or an
+approach model (variable speed) [@eplus-engref-25-2, "Cooling Towers and
+Evaporative Fluid Coolers"]. @eq-tower has no such model, so a tower's size does
+not limit its rejection and its part load reads against the design capacity.
+There is no water use, basin heater, free convection or cell staging
+([#252](https://github.com/bbrannon4/OpenBSE/issues/252)).
 
 ## Water-to-water heat exchangers {#sec-plant-hx}
 
@@ -341,7 +353,7 @@ temperature and a 20 °C ambient
   capacity, condenser temperature not from the tower.
 - [#230](https://github.com/bbrannon4/OpenBSE/issues/230): pump sizing basis.
 - [#252](https://github.com/bbrannon4/OpenBSE/issues/252): tower has no
-  effectiveness model, fan cycling or water use.
+  effectiveness model (size doesn't limit rejection) or water use.
 - [#253](https://github.com/bbrannon4/OpenBSE/issues/253): storage is a
   simplified component, not a chiller-storage plant branch.
 - [#71](https://github.com/bbrannon4/OpenBSE/issues/71),

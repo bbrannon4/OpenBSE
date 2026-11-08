@@ -1145,8 +1145,8 @@
 
     "CoolingTower": {
       "type": "object",
-      "required": ["type", "name", "design_air_flow", "design_fan_power"],
-      "description": "Cooling tower for condenser water heat rejection. Single/two/variable-speed with effectiveness-NTU model and polynomial fan power curve.",
+      "required": ["type", "name", "design_fan_power"],
+      "description": "Cooling tower for condenser water heat rejection. Rejects its load down to 2 K above the outdoor wet-bulb; fan power follows the load over the design capacity (single and two speed cycle, variable speed follows fan_power_curve).",
       "properties": {
         "type": { "type": "string", "const": "cooling_tower" },
         "name": { "type": "string" },
@@ -1155,20 +1155,20 @@
           "type": "string",
           "enum": ["single_speed", "two_speed", "variable_speed"],
           "default": "variable_speed",
-          "description": "Fan speed control type."
+          "description": "Fan speed control: single_speed cycles the fan; two_speed cycles at low speed (half air flow, 0.16 of design power), then between low and high; variable_speed follows fan_power_curve."
         },
         "design_water_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Design water flow rate [m3/s]. Use 'autosize' to size from condenser demand: chiller capacity x (1 + 1/COP)." },
-        "design_air_flow": { "type": "number", "description": "Design air flow rate [m3/s]." },
+        "design_air_flow": { "type": "number", "description": "Design air flow rate [m3/s]. Not used by the tower model; a warning says so." },
         "design_fan_power": { "type": "number", "description": "Design fan power [W]." },
-        "design_inlet_water_temp": { "type": "number", "default": 35.0, "description": "Design inlet water temperature [C]." },
-        "design_approach": { "type": "number", "default": 3.9, "description": "Design approach temperature [C]. T_water_out - T_wb." },
+        "design_inlet_water_temp": { "type": "number", "description": "Design inlet water temperature [C]. Not used by the tower model; a warning says so." },
+        "design_approach": { "type": "number", "description": "Design approach temperature [C], T_water_out - T_wb. Not used by the tower model, whose outlet stays 2 K above the wet-bulb; a warning says so." },
         "design_range": { "type": "number", "default": 5.56, "description": "Design range [C]. T_water_in - T_water_out." },
         "fan_power_curve": {
           "type": "array",
           "items": { "type": "number" },
           "minItems": 5,
           "maxItems": 5,
-          "description": "Fan power ratio curve [C1..C5]: PLF = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4. Default: E+ variable-speed tower curve [0.0058, 0.0740, -0.2180, 0.8517, 0.2866]."
+          "description": "Variable-speed fan power ratio curve [C1..C5]: PLF = C1 + C2*x + C3*x^2 + C4*x^3 + C5*x^4 of the air-flow ratio x, taken as the load over the design capacity. Default [0, 0, 0, 1, 0], E+'s CoolingTower:VariableSpeed without a curve. Not allowed on single- or two-speed towers."
         }
       }
     },
