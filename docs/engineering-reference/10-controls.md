@@ -157,7 +157,9 @@ $T_{s,\text{min}}$ is the loop's `cooling_supply_temp` and
 $T_{s,\text{max}} = \max(15.6\ °\text{C},\ T_{s,\text{min}})$. With
 `fixed_cooling_sat`, it is the fixed supply temperature. Each coil aims at $T_s$,
 less the fan's rise if the fan is downstream, which scales with the square of the
-flow fraction. A preheat coil can hold a fixed setpoint.
+flow fraction. The design rise is $\Delta T_f = \Delta p\,f_m/(\eta\,\rho_\text{std}\,c_p)$,
+with $f_m$ the share of motor power that reaches the air and $\rho_\text{std}$ the site's
+standard density, as E+ fan power uses `StdRhoAir`. A preheat coil can hold a fixed setpoint.
 
 **Zone flows.** In cooling, each zone takes
 $\dot Q_c/[c_p\max(T_z - T_s, 1)]$, between its box's minimum and design flow. In
@@ -180,7 +182,8 @@ Y_s = \frac{V_{ou}/E_v}{V_{ps}},
 $$ {#eq-vrp}
 
 with $V_{oz}$ the zone requirement at the occupants $P_z(t)$ of this hour, no less than the minimum fraction. A fixed
-`min_oa_flow` overrides it with a constant flow.
+`minimum_oa_flow` overrides it with a constant volume flow, converted to mass at the site's
+standard density, as every outdoor-air flow is (E+ `StdRhoAir`).
 
 **Comparison with EnergyPlus.** @eq-warmest and @eq-vrp follow
 `SetpointManager:Warmest` and `Controller:MechanicalVentilation` with
