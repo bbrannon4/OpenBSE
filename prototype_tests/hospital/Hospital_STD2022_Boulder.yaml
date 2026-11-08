@@ -3113,12 +3113,16 @@ plant_loops:
   design_supply_temp: 48.89
   design_delta_t: 11.0
   supply_equipment:
+  # E+ HeatSys1 Pump: part-load coefficients and design shaft power per unit
+  # flow per unit head (1.4999 W/((m3/s)-Pa), impeller 1/1.4999) from the IDF.
   - type: pump
     name: HHW Pump
     pump_type: variable_speed
     design_flow_rate: autosize
     design_head: 180706.0
     motor_efficiency: 0.909
+    impeller_efficiency: 0.6667
+    power_curve: [0, 0.0205, 0.4101, 0.5753]
   - type: boiler
     name: HW Boiler
     capacity: 1549201.0
@@ -3130,12 +3134,17 @@ plant_loops:
   design_supply_temp: 6.67
   design_delta_t: 5.56
   supply_equipment:
+  # E+ CoolSys1 Pump Secondary: part-load coefficients and design shaft power
+  # per unit flow per unit head (1.3889 W/((m3/s)-Pa), impeller 1/1.3889) from
+  # the IDF.
   - type: pump
     name: CHW Primary Pump
     pump_type: variable_speed
     design_flow_rate: autosize
     design_head: 105798.0
     motor_efficiency: 0.909
+    impeller_efficiency: 0.72
+    power_curve: [0, 0.0205, 0.4101, 0.5753]
   # Heat recovery chiller (E+ Chiller:Electric:EIR, 94 kW, COP 2.84). In E+
   # it sits on its own loop and pre-cools the CHW return through an ideal,
   # always-on heat exchanger, so it takes the base load ahead of the main
