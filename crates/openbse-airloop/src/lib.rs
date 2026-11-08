@@ -1387,19 +1387,23 @@ pub fn build_fcu_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
 
 /// VAV: central AHU + per-zone VAV boxes with reheat.
 ///
-/// ASHRAE Guideline 36 §5.2 / §5.16 — Dual-Maximum VAV control:
+///   **Zone level (VAV box):**
+///   - Cooling: the flow that meets the zone's load at the supply temperature,
+///     between the box minimum and the zone design flow.
+///   - Deadband: the box minimum.
+///   - Heating: a box with sized reheat follows the dual-maximum sequence
+///     ([`dual_maximum_heating_flow`]); a zone without one rises from the loop's
+///     minimum fraction to half its design flow over a 5 K error.
 ///
-///   **Zone-level (VAV box):**
-///   - Cooling: airflow ramps from V_min up to V_cool_max (100% design) proportional to error
-///   - Deadband: airflow at V_min (ventilation minimum)
-///   - Heating: airflow ramps from V_min up to V_heat_max (50% design), AND reheat coil fires
-///     This is "dual-maximum" — heating has its own max, not the single-maximum of old systems
-///
-///   **AHU-level:**
-///   - SAT reset (G36 §5.16): reset supply temp from 13°C (max cooling) to 18°C (min cooling)
-///     based on cooling demand across all zones. Saves energy in mild weather.
-///   - Economizer: differential dry-bulb (100% OA when OA < return in cooling)
-///   - Preheat: frost protection when mixed air < 4°C
+///   **AHU level:**
+///   - Supply temperature (E+ `SetpointManager:Warmest`): the warmest supply that
+///     meets every cooling zone's load at its design flow, between the loop's
+///     `cooling_supply_temp` and 15.6 °C ([`WARMEST_SAT_MAX`], raised to the
+///     cooling supply temperature if that is higher); a fixed `cooling_supply_temp`
+///     with `fixed_cooling_sat`.
+///   - Outdoor air: the minimum corrected by VRP, and the loop's economizer type
+///     with E+ LockoutWithHeating.
+///   - Preheat: a central heating coil holds `preheat_setpoint` when one is given.
 pub fn build_vav_signals(
     li: &LoopInfo,
     ctx: &SignalCtx,
@@ -1436,8 +1440,11 @@ pub fn build_vav_signals(
     // Heating flow of a zone without a sized terminal box: a proportional
     // band rising to half of design over a 5 K error.
     let v_heat_max_frac = 0.50;
-    let sat_min = li.cooling_supply_temp; // E+ SetpointManager:Warmest MinimumTemperature
-    let sat_max = WARMEST_SAT_MAX;
+    // E+ SetpointManager:Warmest Minimum and Maximum Setpoint Temperatures. A
+    // cooling supply temperature above the usual maximum raises the maximum
+    // with it, so the reset holds that temperature rather than inverting.
+    let sat_min = li.cooling_supply_temp;
+    let sat_max = WARMEST_SAT_MAX.max(sat_min);
 
     let mut sat_setpoint = sat_max; // start warm, only drop if a zone needs it
 
@@ -2512,6 +2519,32 @@ mod tests {
         assert!((lights.return_air_temp.unwrap() - 26.0).abs() < 1e-12);
         assert!(lights.economizer_active);
         assert_eq!(lights.oa_fraction, Some(1.0));
+    }
+
+    /// A cooling supply temperature above the Warmest maximum holds the supply
+    /// there instead of inverting the clamp (which panics), in cooling and in
+    /// deadband alike.
+    #[test]
+    fn vav_supply_above_the_warmest_maximum_holds_it() {
+        let mut li = make_loop(AirLoopSystemType::Vav, vec!["CHW Coil".to_string()]);
+        li.component_kinds
+            .insert("CHW Coil".to_string(), ComponentKind::CoolingCoil);
+        li.cooling_supply_temp = WARMEST_SAT_MAX + 2.0;
+        for (mode, load) in [(HvacMode::Cooling, 5_000.0), (HvacMode::Deadband, 0.0)] {
+            let f = Fixture {
+                temps: one("Zone1", 25.0),
+                heat_sp: one("Zone1", 21.0),
+                cool_sp: one("Zone1", 24.0),
+                flows: one("Zone1", 1.0),
+                cool_loads: one("Zone1", load),
+                heat_loads: HashMap::new(),
+                modes: [("Zone1".to_string(), mode)].into_iter().collect(),
+                empty: HashMap::new(),
+                returns: HashMap::new(),
+            };
+            let signals = build_vav_signals(&li, &f.ctx(30.0), true);
+            assert_eq!(signals.coil_setpoints["CHW Coil"], li.cooling_supply_temp);
+        }
     }
 
     #[test]

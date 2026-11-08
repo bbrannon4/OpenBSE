@@ -4973,6 +4973,57 @@ fn validate_recirculating_loops(model: &ModelInput, result: &mut ValidationResul
     }
 }
 
+/// Supply-temperature limits that the controls clamp between, or divide by the
+/// span of, must be ordered: a minimum above its maximum would panic in
+/// `f64::clamp`, and equal reset outdoor temperatures would divide by zero.
+fn validate_supply_temp_limits(model: &ModelInput, result: &mut ValidationResult) {
+    for al in &model.air_loops {
+        let resets = [
+            ("cooling_sat_reset", al.controls.cooling_sat_reset.as_ref()),
+            ("heating_sat_reset", al.controls.heating_sat_reset.as_ref()),
+        ];
+        for (field, reset) in resets {
+            let Some(reset) = reset else { continue };
+            let (sat_min, sat_max) = match *reset {
+                SatResetConfig::OaReset {
+                    sat_min,
+                    sat_max,
+                    oa_low,
+                    oa_high,
+                } => {
+                    if oa_low >= oa_high {
+                        result.severe(format!(
+                            "Air loop '{}': {field} oa_low ({oa_low}) must be below oa_high \
+                             ({oa_high})",
+                            al.name
+                        ));
+                    }
+                    (sat_min, sat_max)
+                }
+                SatResetConfig::DemandReset {
+                    sat_min, sat_max, ..
+                }
+                | SatResetConfig::SingleZone { sat_min, sat_max } => (sat_min, sat_max),
+            };
+            if sat_min > sat_max {
+                result.severe(format!(
+                    "Air loop '{}': {field} sat_min ({sat_min}) is above sat_max ({sat_max})",
+                    al.name
+                ));
+            }
+        }
+        if let Some(r) = al.controls.economizer.as_ref().and_then(|e| e.load_reset) {
+            if r.min_supply_temp > r.max_supply_temp {
+                result.severe(format!(
+                    "Air loop '{}': economizer load_reset min_supply_temp ({}) is above \
+                     max_supply_temp ({})",
+                    al.name, r.min_supply_temp, r.max_supply_temp
+                ));
+            }
+        }
+    }
+}
+
 /// A water panel without a stated `ua` is rated at its loop's design supply
 /// temperature against E+'s rating air temperatures (18 °C for heating, 24 °C
 /// for cooling); a loop on the wrong side of that delivers nothing.
@@ -5747,6 +5798,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     validate_zone_multipliers(model, &mut result);
     validate_dual_duct_loops(model, &mut result);
     validate_recirculating_loops(model, &mut result);
+    validate_supply_temp_limits(model, &mut result);
     validate_no_wshp(model, &mut result);
     validate_radiant_panel_rating(model, &mut result);
 
@@ -6109,6 +6161,51 @@ surfaces:
         );
         assert_eq!(result.error_count(), 0);
         assert_eq!(result.warning_count(), 1);
+    }
+
+    #[test]
+    fn inverted_supply_temperature_limits_are_severe() {
+        let model = |controls: &str| {
+            parse_model_yaml(&format!(
+                r#"
+simulation: {{}}
+weather_files: []
+zones:
+  - name: Office
+air_loops:
+  - name: AHU
+    system_type: vav
+    controls:
+      {controls}
+    equipment:
+      - {{type: fan, name: Fan, source: variable_volume, design_flow_rate: 1.0, pressure_rise: 500.0}}
+    zone_terminals:
+      - zone: Office
+"#
+            ))
+            .unwrap()
+        };
+        let severe = |controls: &str| validate_model(&model(controls)).error_count();
+        let ok = "{type: demand_reset, sat_min: 12.0, sat_max: 16.0}";
+        assert_eq!(severe(&format!("cooling_sat_reset: {ok}")), 0);
+        assert_eq!(
+            severe("cooling_sat_reset: {type: demand_reset, sat_min: 16.0, sat_max: 12.0}"),
+            1
+        );
+        assert_eq!(
+            severe(
+                "heating_sat_reset: {type: oa_reset, sat_min: 20.0, sat_max: 30.0, \
+                 oa_low: 10.0, oa_high: 10.0}"
+            ),
+            1
+        );
+        assert_eq!(
+            severe(
+                "economizer: {economizer_type: differential_dry_bulb, \
+                 load_reset: {min_supply_temp: 18.0, max_supply_temp: 13.0}}"
+            ),
+            1
+        );
     }
 
     #[test]

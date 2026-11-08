@@ -108,8 +108,8 @@ its part-load ratio iteratively against the unit's output; @eq-plr is its closed
 form. EnergyPlus has zero flow with a cycling fan and no load, where
 $x_\text{min}$ keeps the fan on, and a small load is met without a floor
 ([#256](https://github.com/bbrannon4/OpenBSE/issues/256)). PSZ-AC serves several
-zones evenly, controlled by the first
-([#256](https://github.com/bbrannon4/OpenBSE/issues/256)).
+zones evenly, controlled by the first; E+ also controls from one zone but splits by
+design flow ([#389](https://github.com/bbrannon4/OpenBSE/issues/389)).
 
 ## PSZ-AC {#sec-psz}
 
@@ -144,10 +144,12 @@ The economizer is in @sec-economizer.
 cooling zone at its design flow (E+ `SetpointManager:Warmest`):
 
 $$
-T_s = \operatorname{clamp}\left(\min_z\left(T_z - \frac{\dot Q_{c,z}}{\dot m_{d,z}c_p}\right),\ T_{s,\text{min}},\ 15.6\right),
+T_s = \operatorname{clamp}\left(\min_z\left(T_z - \frac{\dot Q_{c,z}}{\dot m_{d,z}c_p}\right),\ T_{s,\text{min}},\ T_{s,\text{max}}\right),
 $$ {#eq-warmest}
 
-over zones in cooling with over 100 W of load, and starting from 15.6 °C. With
+over zones in cooling with over 100 W of load, and starting from $T_{s,\text{max}}$.
+$T_{s,\text{min}}$ is the loop's `cooling_supply_temp` and
+$T_{s,\text{max}} = \max(15.6\ °\text{C},\ T_{s,\text{min}})$. With
 `fixed_cooling_sat`, it is the fixed supply temperature. Each coil aims at $T_s$,
 less the fan's rise if the fan is downstream, which scales with the square of the
 flow fraction. A preheat coil can hold a fixed setpoint.
@@ -178,9 +180,9 @@ with $V_{oz}$ the zone requirement at the occupants $P_z(t)$ of this hour, no le
 **Comparison with EnergyPlus.** @eq-warmest and @eq-vrp follow
 `SetpointManager:Warmest` and `Controller:MechanicalVentilation` with
 `VentilationRateProcedure` [@eplus-engref-25-2, "Outdoor Air System"]. OpenBSE's
-maximum temperature and maximum heating fraction are hard-coded, and a higher
-minimum makes the clamp panic
-([#256](https://github.com/bbrannon4/OpenBSE/issues/256)). @eq-vrp reads the zone's
+maximum temperature (15.6 °C) and maximum heating fraction (0.5) are not inputs;
+E+ takes both from the setpoint manager and terminal
+([#388](https://github.com/bbrannon4/OpenBSE/issues/388)). @eq-vrp reads the zone's
 `outdoor_air`, the same requirement sizing uses, with its absolute and ACH terms and
 combining method and every People object's schedule, as E+ reads
 `DesignSpecification:OutdoorAir`. A zone without `outdoor_air` uses the `per_person_oa`
@@ -281,7 +283,10 @@ air's capacitance rate
 - [#255](https://github.com/bbrannon4/OpenBSE/issues/255): no night cycle;
   unoccupied setpoints unused.
 - [#256](https://github.com/bbrannon4/OpenBSE/issues/256): DOAS flow and
-  temperatures; VAV hard-coded limits and clamp panic; demand reset per iteration;
-  cycling runtime floor; multi-zone PSZ.
+  temperatures; demand reset per iteration; cycling runtime floor.
+- [#388](https://github.com/bbrannon4/OpenBSE/issues/388): VAV Warmest maximum
+  and no-box heating fraction are not inputs.
+- [#389](https://github.com/bbrannon4/OpenBSE/issues/389): a multi-zone PSZ splits
+  its flow evenly.
 - [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no daylight saving or
   start day of week.
