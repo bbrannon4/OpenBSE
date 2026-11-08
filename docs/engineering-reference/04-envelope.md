@@ -1128,7 +1128,10 @@ threshold's two endpoints, so it is continuous through zero.
 - **Two-way openings** integrate the orifice equation in closed form above
   and below the neutral plane. Over the opening height, $\Delta p$ varies
   with slope $g(\rho_b - \rho_a)$, so warm air leaves through the top while
-  cold air enters below.
+  cold air enters below. The opening height is the surface's vertical
+  extent: its `height` times $\sin\beta$, else its vertices' $z$-range, else
+  $\sqrt{A}\sin\beta$; the opening fraction narrows the width. A large
+  opening with no vertical extent is a one-way orifice.
 - **Horizontal openings** add the buoyancy-driven exchange of Cooper and
   Epstein when the upper zone is denser [@cooper1989].
 
