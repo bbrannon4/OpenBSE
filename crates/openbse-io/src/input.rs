@@ -2196,7 +2196,8 @@ pub struct ChillerInput {
     /// and COP at the condenser loop's design_delta_t (5.56 K without one).
     #[serde(default)]
     pub design_condenser_flow: f64,
-    /// Minimum part load ratio (default 0.25, matching E+ typical value)
+    /// Minimum part load ratio (default 0.25, matching E+ typical value).
+    /// An `a205_file` chiller's minimum is its map's first stage instead.
     #[serde(default = "default_chiller_min_plr")]
     pub min_plr: f64,
     /// E+ Minimum Unloading Ratio, at least min_plr. Between min_plr and this
@@ -3922,7 +3923,6 @@ fn build_graph_impl(
                             ))
                         })?;
                         chiller.submeter = ci.submeter.clone();
-                        chiller.min_plr = ci.min_plr;
                         chiller.condenser_entering_temp = ci.condenser_entering_temp;
                         chiller.tower_approach = ci.tower_approach;
                         graph.add_plant_component(Box::new(chiller))

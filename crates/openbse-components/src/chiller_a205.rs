@@ -9,16 +9,17 @@
 //! ### Part-load behavior
 //!
 //! Standard 205 cooling maps include a `compressor_sequence_number` grid
-//! axis that indexes loading stages (1 = minimum, N = full).  Given a
-//! requested load:
+//! axis that indexes loading stages (1 = minimum, N = full).  At the current
+//! temperatures, the chiller meets the load exactly:
 //!
-//! 1. Look up the full-sequence capacity at current temperatures.
-//! 2. PLR = load / full_capacity (clamped to [0, 1]).
-//! 3. Map PLR → sequence number:
-//!    - CONTINUOUS speed: `seq = 1 + PLR * (N - 1)` (linear in PLR).
-//!    - DISCRETE: snap to nearest integer step and apply cycling below the
-//!      minimum step using the file's `cycling_degradation_coefficient`.
-//! 4. Re-query the map at that sequence number to get power and capacity.
+//! - Below the minimum stage's capacity it cycles that stage, with run-time
+//!   fraction `c / (1 - Cd (1 - c))` for capacity ratio `c` and the file's
+//!   `cycling_degradation_coefficient` `Cd`.
+//! - CONTINUOUS: between the minimum and full stage, it runs at the sequence
+//!   whose capacity equals the load (bisection; capacity rises with sequence).
+//! - DISCRETE: it cycles between the two stages that bracket the load, with
+//!   power weighted by the time at each, as E+ multi-speed equipment does.
+//! - Above full capacity it runs the full stage and delivers that.
 //!
 //! Out-of-range conditions are edge-clamped (see `openbse-a205` crate docs).
 
@@ -46,8 +47,6 @@ pub struct ChillerA205 {
     pub chw_setpoint: f64,
     /// Design CHW volumetric flow [m³/s].  If None, use the file's flow axis.
     pub design_chw_flow: f64,
-    /// Lower bound on operating PLR (used for cycling below min step).
-    pub min_plr: f64,
     /// For water-cooled chillers: fixed condenser entering water temperature
     /// [°C].  When None, falls back to wet-bulb + tower_approach.
     pub condenser_entering_temp: Option<f64>,
@@ -147,7 +146,6 @@ impl ChillerA205 {
             submeter: default_submeter(),
             chw_setpoint,
             design_chw_flow,
-            min_plr: 0.10,
             condenser_entering_temp: None,
             tower_approach: 5.56,
             rs0001,
@@ -248,89 +246,98 @@ impl PlantComponent for ChillerA205 {
         }
 
         let t_cond_c = self.condenser_temp_c(ctx);
-        let t_chw_leaving_c = self.chw_setpoint;
-
-        // 1) Full-sequence capacity at current conditions
-        let seq_max = self.interp.sequence_range.1;
-        let seq_min = self.interp.sequence_range.0;
-        let q_full = CoolingQuery {
-            evap_volumetric_flow: self.file_evap_flow,
-            evap_leaving_temp_k: c_to_k(t_chw_leaving_c),
-            condenser_temp_k: c_to_k(t_cond_c),
-            condenser_air_rh: self.default_rh,
-            condenser_liquid_flow: self.file_cond_flow,
-            ambient_pressure_pa: self.default_pressure,
-            compressor_sequence: seq_max,
+        let query = |seq: f64| {
+            self.interp.query(&CoolingQuery {
+                evap_volumetric_flow: self.file_evap_flow,
+                evap_leaving_temp_k: c_to_k(self.chw_setpoint),
+                condenser_temp_k: c_to_k(t_cond_c),
+                condenser_air_rh: self.default_rh,
+                condenser_liquid_flow: self.file_cond_flow,
+                ambient_pressure_pa: self.default_pressure,
+                compressor_sequence: seq,
+            })
         };
-        let r_full = match self.interp.query(&q_full) {
-            Ok(r) => r,
-            Err(e) => {
+        let (seq_min, seq_max) = self.interp.sequence_range;
+        let (r_min, r_max) = match (query(seq_min), query(seq_max)) {
+            (Ok(a), Ok(b)) => (a, b),
+            (Err(e), _) | (_, Err(e)) => {
                 log::warn!("ChillerA205 '{}' map query failed: {}", self.name, e);
                 self.actual_capacity = 0.0;
                 self.electric_power = 0.0;
                 return *inlet;
             }
         };
-        let cap_full = r_full.net_evaporator_capacity.max(1.0);
+        let cap_min = r_min.net_evaporator_capacity.max(1.0);
+        let cap_max = r_max.net_evaporator_capacity.max(cap_min);
+        let cd = self.rs0001.performance.cycling_degradation_coefficient;
 
-        // 2) PLR
-        let plr_raw = (load / cap_full).clamp(0.0, 1.0);
-
-        // 3) Map PLR → sequence number; query at that point.
-        // Below the min step, treat as cycling.
-        let (sequence, cycling_ratio) = {
-            let cont_seq = seq_min + plr_raw * (seq_max - seq_min);
+        let (delivered, power, sequence, in_range) = if load >= cap_max {
+            (cap_max, r_max.input_power, seq_max, r_max.in_range)
+        } else if load <= cap_min {
+            // Cycle the minimum stage.
+            let c = load / cap_min;
+            let plf = (1.0 - cd * (1.0 - c)).max(0.01);
+            let rtf = (c / plf).min(1.0);
+            (load, r_min.input_power * rtf, seq_min, r_min.in_range)
+        } else {
             match self.rs0001.performance.compressor_speed_control_type {
                 SpeedControl::Continuous => {
-                    if cont_seq < seq_min {
-                        // Cycling region
-                        let cyc = plr_raw / self.min_plr.max(1e-6);
-                        (seq_min, cyc.min(1.0))
-                    } else {
-                        (cont_seq, 1.0)
+                    // Capacity rises with sequence: bisect for the load.
+                    let (mut lo, mut hi) = (seq_min, seq_max);
+                    let mut r = r_max;
+                    for _ in 0..40 {
+                        let mid = 0.5 * (lo + hi);
+                        r = match query(mid) {
+                            Ok(r) => r,
+                            Err(_) => break,
+                        };
+                        if r.net_evaporator_capacity < load {
+                            lo = mid;
+                        } else {
+                            hi = mid;
+                        }
                     }
+                    let seq = 0.5 * (lo + hi);
+                    let r = query(seq).unwrap_or(r);
+                    // Bisection leaves the capacity a hair off the load;
+                    // scale that bit so the cooling delivered is the load.
+                    let power = r.input_power * load / r.net_evaporator_capacity.max(1.0);
+                    (load, power, seq, r.in_range)
                 }
                 SpeedControl::Discrete => {
-                    let snapped = cont_seq.round().clamp(seq_min, seq_max);
-                    if cont_seq < seq_min {
-                        let cyc = plr_raw / self.min_plr.max(1e-6);
-                        (seq_min, cyc.min(1.0))
-                    } else {
-                        (snapped, 1.0)
+                    // Cycle between the two stages that bracket the load.
+                    let mut low = r_min;
+                    let mut low_seq = seq_min;
+                    let mut result = (cap_max, r_max.input_power, seq_max, r_max.in_range);
+                    let mut stage = seq_min + 1.0;
+                    while stage <= seq_max + 1e-9 {
+                        let high = query(stage).unwrap_or(r_max);
+                        if high.net_evaporator_capacity >= load {
+                            let span = (high.net_evaporator_capacity - low.net_evaporator_capacity)
+                                .max(1e-9);
+                            let f = ((load - low.net_evaporator_capacity) / span).clamp(0.0, 1.0);
+                            result = (
+                                load,
+                                f * high.input_power + (1.0 - f) * low.input_power,
+                                low_seq + f * (stage - low_seq),
+                                high.in_range && low.in_range,
+                            );
+                            break;
+                        }
+                        low = high;
+                        low_seq = stage;
+                        stage += 1.0;
                     }
+                    result
                 }
             }
         };
 
-        let q_op = CoolingQuery {
-            compressor_sequence: sequence,
-            ..q_full
-        };
-        let r_op = match self.interp.query(&q_op) {
-            Ok(r) => r,
-            Err(_) => r_full,
-        };
-
-        // 4) Apply cycling degradation per RS0001
-        // PLF = 1 - Cd * (1 - cycling_ratio); RTF = cycling_ratio / PLF
-        let cd = self.rs0001.performance.cycling_degradation_coefficient;
-        let inst_power = r_op.input_power;
-        let inst_cap = r_op.net_evaporator_capacity;
-        let (eff_power, eff_cap) = if cycling_ratio < 1.0 {
-            let plf = (1.0 - cd * (1.0 - cycling_ratio)).max(0.01);
-            let rtf = (cycling_ratio / plf).min(1.0);
-            (inst_power * rtf, inst_cap * cycling_ratio)
-        } else {
-            (inst_power, inst_cap)
-        };
-
-        // Deliver up to the requested load
-        let delivered = eff_cap.min(load);
         self.actual_capacity = delivered;
-        self.electric_power = eff_power;
-        self.plr = plr_raw;
+        self.electric_power = power;
+        self.plr = (load / cap_max).min(1.0);
         self.sequence_number = sequence;
-        self.in_range = r_op.in_range;
+        self.in_range = in_range;
 
         // Water outlet
         let mass_flow = inlet.state.mass_flow.max(0.001);
@@ -402,6 +409,56 @@ mod tests {
             is_sizing: false,
             sizing_internal_gains: SizingInternalGains::Full,
         }
+    }
+
+    /// Map power and capacity at a sequence, at 35 °C outdoor and 7 °C leaving.
+    fn map_at(chiller: &ChillerA205, seq: f64) -> (f64, f64) {
+        let r = chiller
+            .interp
+            .query(&CoolingQuery {
+                evap_volumetric_flow: chiller.file_evap_flow,
+                evap_leaving_temp_k: c_to_k(7.0),
+                condenser_temp_k: c_to_k(35.0),
+                condenser_air_rh: chiller.default_rh,
+                condenser_liquid_flow: chiller.file_cond_flow,
+                ambient_pressure_pa: chiller.default_pressure,
+                compressor_sequence: seq,
+            })
+            .unwrap();
+        (r.net_evaporator_capacity, r.input_power)
+    }
+
+    /// The chiller delivers exactly the load, with the map's power: below the
+    /// first stage it cycles that stage, so a small load costs the first
+    /// stage's power in proportion (Cd = 0 in this file), not all of it.
+    #[test]
+    fn part_load_follows_the_map() {
+        let rs = Rs0001::load(&example_path()).unwrap();
+        let mut chiller = ChillerA205::from_rs0001("test", rs, 7.0, 0.0).unwrap();
+        let ctx = make_ctx(35.0);
+        let inlet = WaterPort::new(FluidState::water(12.0, 10.0));
+        let (seq_min, seq_max) = chiller.interp.sequence_range;
+        let (cap1, p1) = map_at(&chiller, seq_min);
+        let (cap_n, p_n) = map_at(&chiller, seq_max);
+
+        // A tenth of the first stage: a tenth of its power.
+        chiller.simulate_plant(&inlet, 0.1 * cap1, &ctx);
+        assert!((chiller.actual_capacity - 0.1 * cap1).abs() < 1e-6);
+        assert!((chiller.electric_power - 0.1 * p1).abs() < 1e-6 * p1);
+
+        // Between stages: the load exactly, at a power between the stages'.
+        let load = 0.5 * (cap1 + cap_n);
+        chiller.simulate_plant(&inlet, load, &ctx);
+        assert!((chiller.actual_capacity - load).abs() < 1e-6);
+        assert!(chiller.electric_power > p1 && chiller.electric_power < p_n);
+        let (cap_s, p_s) = map_at(&chiller, chiller.sequence_number);
+        assert!((cap_s - load).abs() < 1e-3 * load, "{cap_s} vs {load}");
+        assert!((chiller.electric_power - p_s).abs() < 1e-3 * p_s);
+
+        // Beyond full capacity: the full stage.
+        chiller.simulate_plant(&inlet, 2.0 * cap_n, &ctx);
+        assert!((chiller.actual_capacity - cap_n).abs() < 1e-6);
+        assert!((chiller.electric_power - p_n).abs() < 1e-6);
     }
 
     #[test]
