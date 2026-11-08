@@ -262,20 +262,33 @@ pub fn read_epw<R: Read>(reader: R) -> Result<WeatherData, WeatherError> {
         if line.starts_with("GROUND TEMPERATURES") {
             let fields: Vec<&str> = line.split(',').collect();
             if fields.len() >= 2 {
-                let n_depths: usize = fields[1].trim().parse().unwrap_or(0);
+                // A malformed count, depth or temperature must not become 0:
+                // ground temperatures drive ground-contact surfaces all year.
+                let ground_number = |raw: &str, name: &str| -> Result<f64, WeatherError> {
+                    raw.trim().parse().map_err(|_| {
+                        WeatherError::InvalidFormat(format!(
+                            "GROUND TEMPERATURES header: invalid {name} '{}'",
+                            raw.trim()
+                        ))
+                    })
+                };
+                let n_depths: usize = fields[1].trim().parse().map_err(|_| {
+                    WeatherError::InvalidFormat(format!(
+                        "GROUND TEMPERATURES header: invalid number of depths '{}'",
+                        fields[1].trim()
+                    ))
+                })?;
                 // Each depth has 16 fields after the header (depth + 3 soil props + 12 temps)
                 let mut offset = 2; // Start after "GROUND TEMPERATURES,N"
                 for _ in 0..n_depths {
                     if offset + 16 <= fields.len() {
-                        let depth: f64 = fields[offset].trim().parse().unwrap_or(0.0);
-                        // Skip soil_conductivity, soil_density, soil_specific_heat
+                        let depth = ground_number(fields[offset], "depth")?;
+                        // Soil conductivity, density and specific heat are
+                        // often blank and are not used.
                         let temp_start = offset + 4; // 12 monthly temps
                         let mut monthly_temps = [0.0f64; 12];
-                        for m in 0..12 {
-                            if temp_start + m < fields.len() {
-                                monthly_temps[m] =
-                                    fields[temp_start + m].trim().parse().unwrap_or(0.0);
-                            }
+                        for (m, t) in monthly_temps.iter_mut().enumerate() {
+                            *t = ground_number(fields[temp_start + m], "monthly temperature")?;
                         }
                         ground_temperatures.push(EpwGroundTemps {
                             depth,
@@ -382,7 +395,20 @@ fn parse_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
         ));
     }
 
-    let parse_f64 = |idx: usize| -> f64 { fields[idx].trim().parse().unwrap_or(0.0) };
+    // Every field read here lies among the EPW fields EnergyPlus reads as one
+    // numeric list (dry-bulb through ceiling height). A blank or malformed
+    // value there is a fatal error in EnergyPlus (`InterpretWeatherDataLine`);
+    // missing data is written as the numeric sentinels handled below, never
+    // as blank text. Reading it as 0 would feed a plausible value to the run.
+    let parse_f64 = |idx: usize, name: &str| -> Result<f64, WeatherError> {
+        fields[idx].trim().parse().map_err(|_| {
+            WeatherError::InvalidFormat(format!(
+                "invalid {name} '{}' (field {})",
+                fields[idx].trim(),
+                idx + 1
+            ))
+        })
+    };
     let parse_u32 = |idx: usize, name: &str| -> Result<u32, WeatherError> {
         fields[idx].trim().parse().map_err(|_| {
             WeatherError::InvalidFormat(format!("invalid {name} '{}'", fields[idx].trim()))
@@ -397,15 +423,15 @@ fn parse_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
     let missing = |v: f64, sentinel: f64| -> bool { v >= sentinel - 1.0e-6 };
 
     // Pressure: 999999 Pa sentinel → standard sea-level pressure.
-    let mut pressure = parse_f64(9);
+    let mut pressure = parse_f64(9, "atmospheric pressure")?;
     if missing(pressure, 999_999.0) || pressure <= 0.0 {
         pressure = 101_325.0;
     }
 
     // Dry-bulb & dew-point: 99.9 °C sentinel. A missing dry-bulb is rare and
     // severe; fall back to the dew point (saturated) when available, else 0 °C.
-    let mut dry_bulb = parse_f64(6);
-    let mut dew_point = parse_f64(7);
+    let mut dry_bulb = parse_f64(6, "dry-bulb temperature")?;
+    let mut dew_point = parse_f64(7, "dew-point temperature")?;
     let db_missing = missing(dry_bulb, 99.9);
     let dp_missing = missing(dew_point, 99.9);
     if db_missing {
@@ -416,7 +442,7 @@ fn parse_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
     }
 
     // Relative humidity: 999 % sentinel → derive from dry-bulb + dew point.
-    let mut rel_humidity = parse_f64(8);
+    let mut rel_humidity = parse_f64(8, "relative humidity")?;
     if missing(rel_humidity, 999.0) || rel_humidity <= 0.0 {
         // At the dew point the air is saturated, so its humidity ratio is the
         // actual ratio; recover RH at the dry-bulb from it.
@@ -426,27 +452,23 @@ fn parse_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
     }
 
     // Solar/IR: 9999 W/m² sentinel → 0 (treat as no measured flux).
-    let parse_rad = |idx: usize, sentinel: f64| -> f64 {
-        let v = parse_f64(idx);
-        if missing(v, sentinel) {
-            0.0
-        } else {
-            v
-        }
+    let parse_rad = |idx: usize, name: &str| -> Result<f64, WeatherError> {
+        let v = parse_f64(idx, name)?;
+        Ok(if missing(v, 9999.0) { 0.0 } else { v })
     };
 
     // Wind speed: 999 m/s sentinel → calm (0). Wind direction: 999° → north.
-    let mut wind_speed = parse_f64(21);
+    let mut wind_speed = parse_f64(21, "wind speed")?;
     if missing(wind_speed, 999.0) {
         wind_speed = 0.0;
     }
-    let mut wind_direction = parse_f64(20);
+    let mut wind_direction = parse_f64(20, "wind direction")?;
     if missing(wind_direction, 999.0) {
         wind_direction = 0.0;
     }
 
     // Opaque sky cover: 99 (tenths) sentinel → mid-range default.
-    let mut opaque_sky_cover = parse_f64(23);
+    let mut opaque_sky_cover = parse_f64(23, "opaque sky cover")?;
     if missing(opaque_sky_cover, 99.0) {
         opaque_sky_cover = 5.0;
     }
@@ -463,10 +485,10 @@ fn parse_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
         pressure,
         // Field 10 = extraterrestrial horiz rad
         // Field 11 = extraterrestrial direct normal rad
-        horiz_ir_rad: parse_rad(12, 9999.0),
-        global_horiz_rad: parse_rad(13, 9999.0),
-        direct_normal_rad: parse_rad(14, 9999.0),
-        diffuse_horiz_rad: parse_rad(15, 9999.0),
+        horiz_ir_rad: parse_rad(12, "horizontal infrared radiation")?,
+        global_horiz_rad: parse_rad(13, "global horizontal radiation")?,
+        direct_normal_rad: parse_rad(14, "direct normal radiation")?,
+        diffuse_horiz_rad: parse_rad(15, "diffuse horizontal radiation")?,
         // Fields 16-19 = illuminance data
         wind_direction,
         wind_speed,
@@ -607,11 +629,16 @@ fn parse_tmy3_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
         ));
     }
 
-    let parse_f64 = |idx: usize| -> f64 {
-        fields
-            .get(idx)
-            .and_then(|s| s.trim().parse().ok())
-            .unwrap_or(0.0)
+    // A blank or malformed value must not become 0 (a 0 °C dry-bulb or
+    // 0 mbar pressure is plausible-looking and silently wrong).
+    let parse_f64 = |idx: usize, name: &str| -> Result<f64, WeatherError> {
+        fields[idx].trim().parse().map_err(|_| {
+            WeatherError::InvalidFormat(format!(
+                "invalid {name} '{}' (column {})",
+                fields[idx].trim(),
+                idx + 1
+            ))
+        })
     };
 
     // Parse date: MM/DD/YYYY
@@ -664,18 +691,18 @@ fn parse_tmy3_data_line(line: &str) -> Result<WeatherHour, WeatherError> {
     //   Col 43: Wdir      Col 44: src          Col 45: uncert
     //   Col 46: Wspd      Col 47: src          Col 48: uncert
 
-    let ghi = parse_f64(4);
-    let dni = parse_f64(7);
-    let dhi = parse_f64(10);
-    let opaque_sky_cover = parse_f64(28);
-    let dry_bulb = parse_f64(31);
-    let dew_point = parse_f64(34);
-    let rel_humidity = parse_f64(37);
+    let ghi = parse_f64(4, "GHI")?;
+    let dni = parse_f64(7, "DNI")?;
+    let dhi = parse_f64(10, "DHI")?;
+    let opaque_sky_cover = parse_f64(28, "opaque sky cover")?;
+    let dry_bulb = parse_f64(31, "dry-bulb temperature")?;
+    let dew_point = parse_f64(34, "dew-point temperature")?;
+    let rel_humidity = parse_f64(37, "relative humidity")?;
     // TMY3 pressure is in mbar; convert to Pa (1 mbar = 100 Pa)
-    let pressure_mbar = parse_f64(40);
+    let pressure_mbar = parse_f64(40, "pressure")?;
     let pressure = pressure_mbar * 100.0;
-    let wind_direction = parse_f64(43);
-    let wind_speed = parse_f64(46);
+    let wind_direction = parse_f64(43, "wind direction")?;
+    let wind_speed = parse_f64(46, "wind speed")?;
 
     // TMY3 doesn't include horizontal IR radiation directly; it stays 0 and the
     // heat balance derives sky radiation from the Clark & Allen sky model.
@@ -1156,6 +1183,91 @@ mod tests {
         epw.push_str(&epw_record(1, 1, 3));
         let msg = invalid_message(read_epw(epw.as_bytes()));
         assert!(msg.contains("line 10"), "{msg}");
+    }
+
+    /// Replace field `idx` (0-based) of an EPW data record.
+    fn epw_record_with_field(idx: usize, value: &str) -> String {
+        let rec = epw_record(1, 1, 1);
+        let mut fields: Vec<&str> = rec.trim_end().split(',').collect();
+        fields[idx] = value;
+        format!("{}\n", fields.join(","))
+    }
+
+    #[test]
+    fn test_epw_malformed_numeric_field_is_an_error_not_zero() {
+        // Every numeric field the engine reads, blank or non-numeric: an
+        // error naming the line and field, never a silent 0 (#375).
+        let consumed = [6, 7, 8, 9, 12, 13, 14, 15, 20, 21, 23];
+        for idx in consumed {
+            for bad in ["", "2O.5", "n/a"] {
+                let epw = format!("{EPW_HEADER}{}", epw_record_with_field(idx, bad));
+                let msg = invalid_message(read_epw(epw.as_bytes()));
+                assert!(msg.contains("line 9"), "field {idx} '{bad}': {msg}");
+                assert!(
+                    msg.contains(&format!("field {}", idx + 1)),
+                    "field {idx} '{bad}': {msg}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_epw_unused_blank_fields_and_sentinels_still_parse() {
+        // Illuminance (16-19) and total sky cover (22) are not read: blank is fine.
+        let mut rec = epw_record(1, 1, 1);
+        for idx in [16, 17, 18, 19, 22] {
+            let mut f: Vec<String> = rec.trim_end().split(',').map(String::from).collect();
+            f[idx] = String::new();
+            rec = format!("{}\n", f.join(","));
+        }
+        let data = read_epw(format!("{EPW_HEADER}{rec}").as_bytes()).unwrap();
+        assert!((data.hours[0].dry_bulb + 5.0).abs() < 1e-9);
+        // A numeric sentinel is missing data, not malformed text.
+        let epw = format!("{EPW_HEADER}{}", epw_record_with_field(6, "99.9"));
+        let data = read_epw(epw.as_bytes()).unwrap();
+        assert!(
+            (data.hours[0].dry_bulb + 11.0).abs() < 1e-9,
+            "dry-bulb from dew point"
+        );
+    }
+
+    #[test]
+    fn test_epw_malformed_ground_temperature_is_an_error() {
+        let base = "GROUND TEMPERATURES,1,.5,,,,1,2,3,4,5,6,7,8,9,10,11,12";
+        for bad in [
+            "GROUND TEMPERATURES,1,.5,,,,1,2,3,4,5,,7,8,9,10,11,12",
+            "GROUND TEMPERATURES,1,x,,,,1,2,3,4,5,6,7,8,9,10,11,12",
+            "GROUND TEMPERATURES,one,.5,,,,1,2,3,4,5,6,7,8,9,10,11,12",
+        ] {
+            let header = EPW_HEADER.replace("GROUND TEMPERATURES,0", bad);
+            let msg = invalid_message(read_epw(epw_with(&header, &[(1, 1, 1)]).as_bytes()));
+            assert!(msg.contains("GROUND TEMPERATURES"), "{bad}: {msg}");
+        }
+        let header = EPW_HEADER.replace("GROUND TEMPERATURES,0", base);
+        let data = read_epw(epw_with(&header, &[(1, 1, 1)]).as_bytes()).unwrap();
+        assert_eq!(data.ground_temperatures[0].monthly_temps[5], 6.0);
+    }
+
+    #[test]
+    fn test_tmy3_malformed_numeric_field_is_an_error_not_zero() {
+        let row = "01/01/1995,10:00,433,1415,266,1,17,494,1,21,115,1,17,27534,1,17,43873,1,21,14050,1,17,2191,1,32,8,E,9,4,E,9,-2.2,E,9,-7.0,E,9,66,A,7,827,E,9,200,E,9,1.7,E,9,-9900,?,0,11251,E,9";
+        let consumed = [4, 7, 10, 28, 31, 34, 37, 40, 43, 46];
+        for idx in consumed {
+            for bad in ["", "2O.5", "n/a"] {
+                let mut f: Vec<&str> = row.split(',').collect();
+                f[idx] = bad;
+                let tmy3 = format!(
+                    "725650,\"DENVER\",CO,-7.0,39.833,-104.650,1650\nDate,Time,headers...\n{}\n",
+                    f.join(",")
+                );
+                let msg = invalid_message(read_tmy3(tmy3.as_bytes()));
+                assert!(msg.contains("line 3"), "column {idx} '{bad}': {msg}");
+                assert!(
+                    msg.contains(&format!("column {}", idx + 1)),
+                    "column {idx} '{bad}': {msg}"
+                );
+            }
+        }
     }
 
     #[test]
