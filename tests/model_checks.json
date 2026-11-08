@@ -134,19 +134,19 @@
       "tier": "local",
       "tier_reason": "Needs more memory than a GitHub runner has: the local macOS run peaked at 19 GB RSS, and the 16 GB ubuntu-latest runner killed the slow-tier job during LargeOffice_Boulder (exit 143, 2026-10-25, run 40170807753). Run locally, alone, with --tier local before merging engine changes.",
       "heavy": true,
-      "max_unmet_heating_hours": 97150,
-      "max_unmet_heating_hours_reason": "88310 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin, summed over the model's zones; the baseline flags any change. Tracked in #165.",
-      "max_unmet_cooling_hours": 179790,
-      "max_unmet_cooling_hours_reason": "163444 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin, summed over the model's zones; the baseline flags any change. Tracked in #165."
+      "max_unmet_heating_hours": 2640,
+      "max_unmet_heating_hours_reason": "2394 h measured building-wide (any conditioned zone unmet, #165), about 10% margin; the baseline flags any change.",
+      "max_unmet_cooling_hours": 7220,
+      "max_unmet_cooling_hours_reason": "6562 h measured building-wide (any conditioned zone unmet, #165), about 10% margin; the baseline flags any change."
     },
     "prototype_tests/large_office/LargeOffice_Boulder_expanded.yaml": {
       "tier": "local",
       "tier_reason": "Needs more memory than a GitHub runner has: the local macOS run peaked at 19 GB RSS, and the 16 GB ubuntu-latest runner killed the slow-tier job during LargeOffice_Boulder (exit 143, 2026-10-25, run 40170807753). Run locally, alone, with --tier local before merging engine changes.",
       "heavy": true,
-      "max_unmet_heating_hours": 115640,
-      "max_unmet_heating_hours_reason": "105125 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin, summed over the model's zones; the baseline flags any change. Tracked in #165.",
-      "max_unmet_cooling_hours": 176270,
-      "max_unmet_cooling_hours_reason": "160244 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin, summed over the model's zones; the baseline flags any change. Tracked in #165.",
+      "max_unmet_heating_hours": 6740,
+      "max_unmet_heating_hours_reason": "6126 h measured building-wide (any conditioned zone unmet, #165), about 10% margin; the baseline flags any change.",
+      "max_unmet_cooling_hours": 4440,
+      "max_unmet_cooling_hours_reason": "4030 h measured building-wide (any conditioned zone unmet, #165), about 10% margin; the baseline flags any change.",
       "zone_temp_limits_c": {
         "Perimeter_top_ZN_1": [
           -40.0,
