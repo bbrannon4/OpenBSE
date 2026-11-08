@@ -3001,8 +3001,8 @@ impl SummaryReport {
                 let mlc_limit = ashrae_90_4_mlc_limit(cz_str);
                 let elc_limit = 0.060_f64;
 
-                let mlc_pass = mlc <= mlc_limit;
-                let elc_pass = elc <= elc_limit;
+                let mlc_result = metric_vs_unverified_limit(mlc, mlc_limit, annual_mech_j > 0.0);
+                let elc_result = metric_vs_unverified_limit(elc, elc_limit, true);
 
                 writeln!(
                     w,
@@ -3035,18 +3035,14 @@ impl SummaryReport {
                 writeln!(
                     w,
                     "  MLC: {:>8.3}   (limit: {:.3} for CZ {})   {}",
-                    mlc,
-                    mlc_limit,
-                    cz_str,
-                    if mlc_pass { "PASS" } else { "FAIL" }
+                    mlc, mlc_limit, cz_str, mlc_result
                 )?;
                 writeln!(
                     w,
                     "  ELC: {:>8.3}   (limit: {:.3})              {}",
-                    elc,
-                    elc_limit,
-                    if elc_pass { "PASS" } else { "FAIL" }
+                    elc, elc_limit, elc_result
                 )?;
+                writeln!(w, "  {UNVERIFIED_90_4_NOTE}")?;
                 writeln!(w)?;
             }
         }
@@ -3532,8 +3528,8 @@ impl SummaryReport {
                 let mlc_limit = ashrae_90_4_mlc_limit(cz_str);
                 let elc_limit = 0.060_f64;
 
-                let mlc_pass = mlc <= mlc_limit;
-                let elc_pass = elc <= elc_limit;
+                let mlc_result = metric_vs_unverified_limit(mlc, mlc_limit, annual_mech_j > 0.0);
+                let elc_result = metric_vs_unverified_limit(elc, elc_limit, true);
 
                 writeln!(w, "<h2>Data Center Performance (ASHRAE 90.4)</h2>")?;
                 writeln!(w, "<p>Climate Zone: <strong>{}</strong></p>", cz_str)?;
@@ -3580,11 +3576,6 @@ impl SummaryReport {
                 writeln!(w, "<table>")?;
                 html_table_row(&mut w, &["Metric", "Value", "Limit", "Result"], true)?;
                 html_table_row(&mut w, &["PUE", &format!("{:.3}", pue), "—", "—"], false)?;
-                let mlc_result = if mlc_pass {
-                    "<span class=\"pass\">PASS</span>"
-                } else {
-                    "<span class=\"fail\">FAIL</span>"
-                };
                 html_table_row(
                     &mut w,
                     &[
@@ -3595,11 +3586,6 @@ impl SummaryReport {
                     ],
                     false,
                 )?;
-                let elc_result = if elc_pass {
-                    "<span class=\"pass\">PASS</span>"
-                } else {
-                    "<span class=\"fail\">FAIL</span>"
-                };
                 html_table_row(
                     &mut w,
                     &[
@@ -3611,6 +3597,7 @@ impl SummaryReport {
                     false,
                 )?;
                 writeln!(w, "</table>")?;
+                writeln!(w, "<p>{UNVERIFIED_90_4_NOTE}</p>")?;
             }
         }
 
@@ -3803,6 +3790,23 @@ struct EndUseRow {
     label: &'static str,
     monthly: [f64; 12], // in kWh
     total: f64,         // in kWh
+}
+
+/// The 90.4 limits below are not traced to the standard's tables, so the
+/// report compares against them without a PASS or FAIL.
+const UNVERIFIED_90_4_NOTE: &str = "The MLC and ELC limits are placeholders, not \
+     checked against ASHRAE 90.4's tables; they give no compliance result.";
+
+/// A 90.4 metric against its unverified limit. MLC counts only energy tagged
+/// `submeter: datacenter`, so with none it is not evaluated.
+fn metric_vs_unverified_limit(value: f64, limit: f64, evaluated: bool) -> &'static str {
+    if !evaluated {
+        "not evaluated: no energy tagged submeter: datacenter"
+    } else if value <= limit {
+        "below unverified limit"
+    } else {
+        "above unverified limit"
+    }
 }
 
 /// Return the ASHRAE 90.4 MLC (mechanical load coefficient) limit for a climate zone.
@@ -4603,6 +4607,21 @@ variables:
             .get(&("Decorative".to_string(), "lighting".to_string()));
         assert!(dec_light.is_some());
         assert!((dec_light.unwrap()[0] - 900_000.0).abs() < 1.0); // 250W * 3600s
+    }
+
+    /// The unverified 90.4 limits give no PASS or FAIL, and MLC with nothing
+    /// tagged is not evaluated.
+    #[test]
+    fn metrics_against_unverified_limits_give_no_compliance_result() {
+        assert_eq!(
+            metric_vs_unverified_limit(0.04, 0.05, true),
+            "below unverified limit"
+        );
+        assert_eq!(
+            metric_vs_unverified_limit(0.06, 0.05, true),
+            "above unverified limit"
+        );
+        assert!(metric_vs_unverified_limit(0.0, 0.05, false).starts_with("not evaluated"));
     }
 
     #[test]
