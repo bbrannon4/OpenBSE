@@ -444,8 +444,8 @@ plant_loops:
       - type: external_plant
         name: Ext
         command: [python, plant.py]
-        inputs: [inlet_temp_c]
-        outputs: [outlet_temp_c]
+        inputs: [return_temp_c]
+        outputs: [supply_temp_c]
 dhw_systems:
   - name: DHW
     mains_temperature: 12.0

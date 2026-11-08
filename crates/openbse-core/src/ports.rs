@@ -161,6 +161,10 @@ pub trait AirComponent: std::fmt::Debug {
         None
     }
 
+    /// Told at the start of each timestep whether the run is in warmup.
+    /// Default: ignored.
+    fn set_warmup(&mut self, _warmup: bool) {}
+
     /// What kind of component this is, for energy accounting.
     /// Defaults to `Other` — override to get automatic end-use routing.
     fn component_kind(&self) -> ComponentKind {
@@ -438,6 +442,10 @@ pub trait PlantComponent: std::fmt::Debug {
     fn fatal_error(&self) -> Option<String> {
         None
     }
+
+    /// Told at the start of each timestep whether the run is in warmup.
+    /// Default: ignored.
+    fn set_warmup(&mut self, _warmup: bool) {}
 
     /// What kind of component this is, for energy accounting.
     /// Defaults to `Other` — override to get automatic end-use routing.

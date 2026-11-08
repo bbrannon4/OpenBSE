@@ -918,13 +918,14 @@
     "ExternalAir": {
       "type": "object",
       "required": ["type", "name", "command", "inputs", "outputs"],
-      "description": "Air-side co-simulation proxy. Delegates each timestep to an external process via stdin/stdout JSON.",
+      "description": "Air-side co-simulation proxy. Exchanges one stdin/stdout JSON message with an external process per HVAC iteration; see the Engineering Reference, Co-simulation.",
       "properties": {
         "type": { "type": "string", "const": "external_air" },
         "name": { "type": "string" },
         "command": { "type": "array", "items": { "type": "string" }, "description": "Command line used to launch the co-simulation process (e.g. [python, ahu_model.py]). It runs in the model file's directory." },
-        "inputs": { "type": "array", "items": { "type": "string" }, "description": "Input variable names sent to the process each timestep (e.g. inlet_temp_c, inlet_humidity_ratio, inlet_mass_flow_kg_s, outdoor_temp_c, sim_time_s)." },
-        "outputs": { "type": "array", "items": { "type": "string" }, "description": "Output variable names expected back each timestep (e.g. outlet_temp_c, outlet_humidity_ratio, power_w)." }
+        "inputs": { "type": "array", "items": { "enum": ["inlet_temp_c", "inlet_humidity_ratio", "inlet_mass_flow_kg_s", "inlet_enthalpy_j_kg", "outdoor_temp_c", "outdoor_humidity_ratio", "outdoor_pressure_pa", "sim_time_s", "dt_s", "month", "day", "hour", "sub_hour"] }, "description": "Input variable names sent to the process with each exchange." },
+        "outputs": { "type": "array", "items": { "enum": ["outlet_temp_c", "outlet_humidity_ratio", "power_w", "fuel_w", "thermal_output_w", "outlet_mass_flow_kg_s"] }, "description": "Output variable names every response must hold; must include outlet_temp_c and outlet_humidity_ratio." },
+        "timeout_s": { "type": "number", "exclusiveMinimum": 0, "default": 60, "description": "Longest wait for one response before the run stops [s]." }
       }
     },
 
@@ -1252,13 +1253,14 @@
     "ExternalPlant": {
       "type": "object",
       "required": ["type", "name", "command", "inputs", "outputs"],
-      "description": "Plant-side co-simulation proxy. Delegates each timestep to an external process via stdin/stdout JSON.",
+      "description": "Plant-side co-simulation proxy. Exchanges one stdin/stdout JSON message with an external process per HVAC iteration; see the Engineering Reference, Co-simulation.",
       "properties": {
         "type": { "type": "string", "const": "external_plant" },
         "name": { "type": "string" },
         "command": { "type": "array", "items": { "type": "string" }, "description": "Command line used to launch the co-simulation process (e.g. [python, chiller.py]). It runs in the model file's directory." },
-        "inputs": { "type": "array", "items": { "type": "string" }, "description": "Input variable names sent to the process each timestep (e.g. return_temp_c, return_flow_kg_s, load_request_w, outdoor_temp_c, sim_time_s)." },
-        "outputs": { "type": "array", "items": { "type": "string" }, "description": "Output variable names expected back each timestep (e.g. supply_temp_c, power_w, thermal_output_w)." }
+        "inputs": { "type": "array", "items": { "enum": ["return_temp_c", "return_flow_kg_s", "load_request_w", "outdoor_temp_c", "outdoor_humidity_ratio", "outdoor_pressure_pa", "sim_time_s", "dt_s", "month", "day", "hour", "sub_hour"] }, "description": "Input variable names sent to the process with each exchange. load_request_w is positive for heating, negative for cooling." },
+        "outputs": { "type": "array", "items": { "enum": ["supply_temp_c", "supply_flow_kg_s", "power_w", "fuel_w", "thermal_output_w"] }, "description": "Output variable names every response must hold; must include supply_temp_c." },
+        "timeout_s": { "type": "number", "exclusiveMinimum": 0, "default": 60, "description": "Longest wait for one response before the run stops [s]." }
       }
     },
 
