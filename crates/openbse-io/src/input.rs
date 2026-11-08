@@ -366,10 +366,11 @@ pub struct SimulationSettings {
 
     /// Timesteps over which design-day zone loads are averaged before their
     /// peak is taken (E+ `Sizing:Parameters` Timesteps in Averaging Window).
-    /// Default 1: the peak timestep. A window of an hour keeps a setpoint step
+    /// Default: one hour of timesteps, as E+, which keeps a setpoint step
     /// (morning warm-up or pull-down) from sizing on a one-timestep spike.
-    #[serde(default = "default_sizing_averaging_window")]
-    pub sizing_averaging_window: u32,
+    /// Read through [`SimulationSettings::averaging_window`].
+    #[serde(default)]
+    pub sizing_averaging_window: Option<u32>,
 
     /// Holiday dates.  On these days every schedule uses its `holiday`
     /// profile (falling back to `sunday` → `weekend` → `weekday`).
@@ -410,10 +411,6 @@ fn default_auto_cooling_design_days() -> bool {
     true
 }
 
-fn default_sizing_averaging_window() -> u32 {
-    1
-}
-
 /// A fixed-date holiday.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -452,6 +449,12 @@ fn default_end_day() -> u32 {
 }
 
 impl SimulationSettings {
+    /// The sizing averaging window [timesteps]: the input, or one hour.
+    pub fn averaging_window(&self) -> u32 {
+        self.sizing_averaging_window
+            .unwrap_or(self.timesteps_per_hour)
+    }
+
     pub fn to_config(&self) -> SimulationConfig {
         SimulationConfig {
             timesteps_per_hour: self.timesteps_per_hour,
@@ -5756,7 +5759,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
             }
         }
     }
-    if model.simulation.sizing_averaging_window == 0 {
+    if model.simulation.sizing_averaging_window == Some(0) {
         result.severe("simulation sizing_averaging_window must be at least 1 timestep".to_string());
     }
 

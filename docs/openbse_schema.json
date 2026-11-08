@@ -254,7 +254,7 @@
         "cooling_sizing_factor": { "type": "number", "default": 1.15, "description": "Cooling sizing factor applied to zone design loads and airflows (EnergyPlus Sizing:Parameters). 1.15 = 15% safety margin." },
         "sizing_fan_delta_t": { "type": "number", "default": 0.0, "description": "Fan heat temperature rise added to the cooling design supply air temperature when sizing zone cooling airflows [C]. ~2.2 for typical VAV office systems." },
         "auto_cooling_design_days": { "type": "boolean", "default": true, "description": "Also size on monthly cooling design days generated from the weather file. false sizes on the listed design days only, as EnergyPlus does." },
-        "sizing_averaging_window": { "type": "integer", "minimum": 1, "default": 1, "description": "Timesteps over which design-day zone loads are averaged before their peak is taken (EnergyPlus Sizing:Parameters Timesteps in Averaging Window). 1 sizes on the peak timestep." },
+        "sizing_averaging_window": { "type": "integer", "minimum": 1, "description": "Timesteps over which design-day zone loads are averaged before their peak is taken (EnergyPlus Sizing:Parameters Timesteps in Averaging Window). Default: one hour of timesteps (timesteps_per_hour), as EnergyPlus. 1 sizes on the peak timestep." },
         "holidays": {
           "type": "array",
           "default": [],
