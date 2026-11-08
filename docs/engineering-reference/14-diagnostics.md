@@ -69,12 +69,19 @@ temperature beyond the limit at its previous iteration's value, and replaces NaN
 the previous timestep. Each hold is recorded, so a model can't run all year on stuck surfaces
 and report no errors. Beyond 2.5 times the limit, the run stops.
 
-**Unmet hours.** A zone counts as unmet in a timestep when its temperature is more than 0.2 K
-outside its active setpoints. These are reported per zone, and in the summary
-([#165](https://github.com/bbrannon4/OpenBSE/issues/165)).
+**Unmet hours.** A conditioned zone is unmet in a timestep when its temperature is more than
+0.2 K below the heating setpoint or above the cooling setpoint the HVAC controlled to that
+timestep. Unconditioned zones are never counted. The summary counts the building: a timestep
+is an unmet heating (cooling) hour if any zone is unmet heating (cooling), and an unmet load
+hour if any zone is unmet either way, however many zones are. Each zone's own hours are
+listed beside them, and its flags are the `zone:unmet_heating` and `zone:unmet_cooling`
+outputs. The ASHRAE 90.1 line compares the unmet load hours with Appendix G's limit of 300
+[@ashrae901].
 
-**Comparison with EnergyPlus.** The zone heat balance and surface temperature limit have
-counterparts in EnergyPlus: its zone check uses 20% of the root sum of squares of the terms, and its surface limit is the `Building` input's default of
+**Comparison with EnergyPlus.** The building counts match EnergyPlus's facility "Time Setpoint
+Not Met" (any zone) with its default 0.2 K reporting tolerance, and the per-zone hours its
+zone values. EnergyPlus also reports both during occupied hours only; OpenBSE counts every
+hour. The zone heat balance and surface temperature limit have counterparts in EnergyPlus: its zone check uses 20% of the root sum of squares of the terms, and its surface limit is the `Building` input's default of
 200 °C. Plant unmet demand matches its "Plant Supply Side Unmet Demand Rate". The tighter
 tolerances above are a deliberate choice, as these checks exist to catch modelling errors.
 
@@ -93,6 +100,4 @@ against its ranges. A change that shifts results has to change a baseline on pur
 - [#264](https://github.com/bbrannon4/OpenBSE/issues/264): no building energy or moisture
   balance; some hand-offs unchecked; missing schedules are warnings; curve coefficient counts
   unchecked.
-- [#165](https://github.com/bbrannon4/OpenBSE/issues/165): unmet-hour counts and limits. Many shipped
-  models show thousands of unmet hours, mostly proportional heating holding the zone below
-  setpoint ([#178](https://github.com/bbrannon4/OpenBSE/issues/178)).
+- Unmet hours are counted over every hour; there is no occupied-hours count.

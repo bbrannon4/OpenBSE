@@ -2504,10 +2504,7 @@ fn main() -> Result<()> {
             .collect();
 
         let mut summary_report = if model.summary_report {
-            let mut report = SummaryReport::new(
-                zone_heating_setpoints.clone(),
-                zone_cooling_setpoints.clone(),
-            );
+            let mut report = SummaryReport::new();
             // Pass envelope area data for WWR reporting
             if let Some(ref env) = envelope {
                 report.set_envelope_areas(env.envelope_areas.clone());

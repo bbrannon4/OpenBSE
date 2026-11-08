@@ -73,9 +73,9 @@
     "Total": 63845.5,
     "Total Electric": 58032.9,
     "Total Gas": 5812.6,
-    "Total Unmet Hours": 12613.0,
+    "Total Unmet Hours": 6458.0,
     "Unmet Cooling Hours": 0.0,
-    "Unmet Heating Hours": 12613.0
+    "Unmet Heating Hours": 6458.0
   },
   "examples/comfort_perimeter_office.yaml": {
     "Cooling (Electric)": 0.0,
@@ -202,9 +202,9 @@
     "Total": 240909.0,
     "Total Electric": 97348.9,
     "Total Gas": 143560.1,
-    "Total Unmet Hours": 15869.5,
-    "Unmet Cooling Hours": 2993.5,
-    "Unmet Heating Hours": 12876.0
+    "Total Unmet Hours": 5637.0,
+    "Unmet Cooling Hours": 1050.2,
+    "Unmet Heating Hours": 4599.0
   },
   "examples/heat_pump_rtu.yaml": {
     "Cooling (Electric)": 2234.1,
@@ -343,9 +343,9 @@
     "Total": 12279.1,
     "Total Electric": 12279.1,
     "Total Gas": 0.0,
-    "Total Unmet Hours": 808.0,
-    "Unmet Cooling Hours": 224.0,
-    "Unmet Heating Hours": 584.0
+    "Total Unmet Hours": 615.0,
+    "Unmet Cooling Hours": 156.0,
+    "Unmet Heating Hours": 459.0
   },
   "examples/parametric_sweep.yaml": {
     "baseline: Mean zone temp [C]": 20.058,
@@ -490,9 +490,9 @@
     "Total": 16409.9,
     "Total Electric": 9099.7,
     "Total Gas": 7310.2,
-    "Total Unmet Hours": 8110.0,
+    "Total Unmet Hours": 7740.0,
     "Unmet Cooling Hours": 123.0,
-    "Unmet Heating Hours": 7987.0
+    "Unmet Heating Hours": 7642.0
   },
   "examples/roller_shade_office.yaml": {
     "Cooling (Electric)": 0.0,
@@ -542,9 +542,9 @@
     "Total": 3050.9,
     "Total Electric": 3050.9,
     "Total Gas": 0.0,
-    "Total Unmet Hours": 1451.5,
-    "Unmet Cooling Hours": 243.8,
-    "Unmet Heating Hours": 1207.8
+    "Total Unmet Hours": 711.8,
+    "Unmet Cooling Hours": 122.5,
+    "Unmet Heating Hours": 711.8
   },
   "examples/vav_a205_fan_and_chiller.yaml": {
     "Cooling (Electric)": 10453.3,
