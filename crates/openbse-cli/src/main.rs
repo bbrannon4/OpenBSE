@@ -6535,22 +6535,11 @@ fn simulate_all_loops(
 
             let cp_air = 1006.0_f64; // J/(kg·K)
 
-            // Minimum compressor part-load fraction. `effective_min_oa` is the
-            // minimum OUTDOOR-AIR airflow fraction, not a minimum compressor
-            // runtime. In continuous-fan mode the fan always moves full flow, so
-            // ventilation is met regardless of the compressor, and the
-            // compressor must be free to cycle fully OFF (floor 0) — otherwise a
-            // non-zero OA fraction pins the compressor on and over-cools the
-            // zone in mild hours. In cycling-fan mode the fan cycles WITH the
-            // compressor, so the min-OA fraction doubles as the minimum runtime
-            // needed to deliver ventilation air, and the floor stays.
-            let plr_floor =
-                if li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous {
-                    0.0
-                } else {
-                    effective_min_oa
-                };
-
+            // The part load has no floor. `effective_min_oa` is an outdoor-air
+            // fraction, not a runtime: a continuous fan moves its outdoor air
+            // whatever the compressor does, and a cycling fan moves it only while
+            // it runs, so with no load it is off (E+ `Fan:OnOff` in a cycling
+            // UnitarySystem: zero flow with no load).
             if let Some(ref supply) = supply_air {
                 let supply_temp = supply.state.t_db;
                 // The control zone receives only its share of the unit's air (a
@@ -6595,7 +6584,7 @@ fn simulate_all_loops(
                     // A unit with nothing to heat or cool with doesn't run for
                     // that mode (E+ UnitarySystem: no coil, no part load), so a
                     // heating-only unit's fan stays off when the zone is warm.
-                    HvacMode::Heating | HvacMode::Cooling if !li.can_condition(mode) => plr_floor,
+                    HvacMode::Heating | HvacMode::Cooling if !li.can_condition(mode) => 0.0,
                     HvacMode::Heating => {
                         // Capacity reference: the colder of setpoint and zone
                         // temp. Near setpoint both are equivalent; when the
@@ -6610,21 +6599,21 @@ fn simulate_all_loops(
                             // Zone well above heating setpoint (e.g., setpoint
                             // transition to unoccupied).  Stale ideal load is
                             // for the old setpoint — do not heat.
-                            plr_floor
+                            0.0
                         } else if q_capacity < 100.0 {
-                            plr_floor
+                            0.0
                         } else {
                             let corrected_load = zone_heat_load.max(0.0);
 
                             if corrected_load > 10.0 {
                                 let adj_load = (corrected_load - q_fan).max(0.0);
                                 let adj_cap = (q_capacity - q_fan).max(1.0);
-                                (adj_load / adj_cap).clamp(plr_floor, 1.0)
+                                (adj_load / adj_cap).clamp(0.0, 1.0)
                             } else {
                                 // Fallback: proportional zone error for transients
                                 let error = (heat_sp - control_temp).max(0.0);
                                 let max_dt = (supply_temp - heat_sp).max(1.0);
-                                (error / max_dt).clamp(plr_floor, 1.0)
+                                (error / max_dt).clamp(0.0, 1.0)
                             }
                         }
                     }
@@ -6640,9 +6629,9 @@ fn simulate_all_loops(
                         let q_capacity = supply_flow * cp_air * (cool_ref - supply_temp);
                         if init_temp < cool_sp - dead_band * 0.5 {
                             // Zone well below cooling setpoint — do not cool.
-                            plr_floor
+                            0.0
                         } else if q_capacity < 100.0 {
-                            plr_floor
+                            0.0
                         } else {
                             // Room left before the cooling setpoint, when the fan
                             // alone is what pushes the zone over it.
@@ -6680,21 +6669,21 @@ fn simulate_all_loops(
                             if corrected_load > 10.0 || fan_pushed {
                                 let adj_load = corrected_load + q_fan + q_oa - headroom;
                                 let adj_cap = (q_capacity + q_fan + q_oa).max(1.0);
-                                (adj_load / adj_cap).clamp(plr_floor, 1.0)
+                                (adj_load / adj_cap).clamp(0.0, 1.0)
                             } else {
                                 let error = (control_temp - cool_sp).max(0.0);
                                 let max_dt = (cool_sp - supply_temp).max(1.0);
-                                (error / max_dt).clamp(plr_floor, 1.0)
+                                (error / max_dt).clamp(0.0, 1.0)
                             }
                         }
                     }
                     HvacMode::Deadband => {
                         // No active heating or cooling; fan only (if continuous).
-                        plr_floor
+                        0.0
                     }
                 }
             } else {
-                plr_floor
+                0.0
             }
         } else {
             // Non-PSZ-AC systems: no PLR cycling (they modulate internally)
@@ -6788,7 +6777,7 @@ fn simulate_all_loops(
                     // mode (PSZ-AC), the fan also runs during deadband.
                     // For `ContinuousNoLoadOff` (PTAC Fan:OnOff with
                     // No Load Flow = 0), the fan shuts OFF during deadband.
-                    if is_no_load_off && loop_plr <= effective_min_oa + 0.001 {
+                    if is_no_load_off && loop_plr <= 0.001 {
                         if let Some(ep) = outputs.get_mut("electric_power") {
                             *ep = 0.0;
                         }

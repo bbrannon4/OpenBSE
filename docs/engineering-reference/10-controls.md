@@ -79,20 +79,21 @@ x = \begin{cases}
 \end{cases}
 $$ {#eq-plr}
 
-clamped to $[x_\text{min}, 1]$. The terms are:
+clamped to $[0, 1]$. The terms are:
 
 - $\dot Q_h$ and $\dot Q_c$, the zone's loads to setpoint;
 - $\dot Q_f$, the heat of a continuous fan, which arrives in the off-cycle too;
 - $\dot Q_\text{oa} = x_\text{oa}\dot mc_p(T_o - T_z)$, the outdoor-air load in
-  the off-cycle of a continuous fan, zero for a cycling fan;
-- $x_\text{min}$, the minimum outdoor-air fraction for a cycling fan and 0 for a
-  continuous one.
+  the off-cycle of a continuous fan, zero for a cycling fan.
+
+A cycling fan runs only for $x$ of the timestep, so with no load it is off and its
+outdoor air with it; a continuous fan moves its outdoor air all the time.
 
 If the load is under 10 W, a proportional fallback applies:
 $x = |T_\text{sp} - T_z|/|T_\text{sup} - T_\text{sp}|$. If the zone started the
 timestep more than half the deadband beyond the setpoint on the far side, or the
 unit has no equipment that heats or cools as the mode needs (a heating-only unit
-when the zone wants cooling), the output is $x_\text{min}$.
+when the zone wants cooling), the output is 0.
 
 **Scaling.** Coil and fan outputs and flows scale by $x$. DX compressors and
 condenser fans take the cycling penalty of @eq-dx-rtf at their combined part load,
@@ -109,9 +110,9 @@ fan-only output negative.
 
 **Comparison with EnergyPlus.** EnergyPlus's `AirLoopHVAC:UnitarySystem` solves
 its part-load ratio iteratively against the unit's output; @eq-plr is its closed
-form. EnergyPlus has zero flow with a cycling fan and no load, where
-$x_\text{min}$ keeps the fan on, and a small load is met without a floor
-([#256](https://github.com/bbrannon4/OpenBSE/issues/256)). PSZ-AC serves several
+form. As in EnergyPlus, a cycling fan has zero flow with no load
+(`Fan:OnOff` with a cycling UnitarySystem), and a small load is met with a small
+part load. PSZ-AC serves several
 zones evenly, controlled by the first; E+ also controls from one zone but splits by
 design flow ([#389](https://github.com/bbrannon4/OpenBSE/issues/389)).
 
@@ -302,7 +303,6 @@ level and no ignore count.
 
 - [#255](https://github.com/bbrannon4/OpenBSE/issues/255): no night cycle;
   unoccupied setpoints unused.
-- [#256](https://github.com/bbrannon4/OpenBSE/issues/256): cycling runtime floor.
 - [#388](https://github.com/bbrannon4/OpenBSE/issues/388): VAV Warmest maximum
   and no-box heating fraction are not inputs.
 - [#389](https://github.com/bbrannon4/OpenBSE/issues/389): a multi-zone PSZ splits
