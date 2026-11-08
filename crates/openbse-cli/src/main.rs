@@ -6504,6 +6504,10 @@ fn simulate_all_loops(
                 let dead_band = (cool_sp - heat_sp).max(0.5);
 
                 match mode {
+                    // A unit with nothing to heat or cool with doesn't run for
+                    // that mode (E+ UnitarySystem: no coil, no part load), so a
+                    // heating-only unit's fan stays off when the zone is warm.
+                    HvacMode::Heating | HvacMode::Cooling if !li.can_condition(mode) => plr_floor,
                     HvacMode::Heating => {
                         // Capacity reference: the colder of setpoint and zone
                         // temp. Near setpoint both are equivalent; when the
