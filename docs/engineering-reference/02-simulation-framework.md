@@ -44,7 +44,10 @@ Each timestep takes one of three paths.
 - **Coupled envelope and HVAC.** The usual path: the HVAC iteration of @sec-hvac-iteration.
 - **HVAC only.** Taken when the model has no envelope. Components are
   simulated once per timestep in graph order (`simulate_hvac`), with the
-  setpoints of the model's `controls:` block.
+  setpoints of the model's `controls:` block. DHW systems and exterior
+  equipment run as on the coupled path, and every end use reaches its submeter
+  through the same routing (`route_submeter_energy`); only zone lighting and
+  equipment, which need zones, are absent.
 
 ## Timestep loop {#sec-timestep-loop}
 

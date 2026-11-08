@@ -5270,51 +5270,9 @@ fn main() -> Result<()> {
                             .as_ref()
                             .map(|s| env.schedule_manager.fraction(s, hour, dhw_dow))
                             .unwrap_or(1.0);
-                        let mut power = ext.power * frac;
-                        // AstronomicalClock: exterior lights only on during nighttime.
-                        // Use proper solar time (with equation of time and longitude
-                        // correction) to match E+'s sunrise/sunset calculation.
-                        if ext.astronomical_clock && power > 0.0 {
-                            let doy = (hour_idx / 24) + 1;
-                            let clock_hr = (hour_idx % 24) as f64 + 0.5;
-                            let eot = openbse_envelope::solar::equation_of_time(doy);
-                            let tz = weather_data.location.time_zone;
-                            let lon = weather_data.location.longitude;
-                            let solar_hr = clock_hr + (tz - lon / 15.0) + eot;
-                            let sol = openbse_envelope::solar::solar_position(
-                                doy,
-                                solar_hr,
-                                weather_data.location.latitude,
-                            );
-                            if sol.is_sunup {
-                                power = 0.0; // lights off during daytime
-                            }
-                        }
-                        // Route exterior lights to ext_lighting, everything else to ext_equipment
-                        let is_ext_lights = ext
-                            .subcategory
-                            .as_deref()
-                            .map(|s| s.to_lowercase().contains("exterior light"))
-                            .unwrap_or(false);
-                        if is_ext_lights {
-                            snapshot
-                                .ext_lighting_power
-                                .entry(ext.name.clone())
-                                .and_modify(|v| *v += power)
-                                .or_insert(power);
-                        } else if ext.fuel == "natural_gas" {
-                            snapshot
-                                .component_fuel_power
-                                .entry(ext.name.clone())
-                                .and_modify(|v| *v += power)
-                                .or_insert(power);
-                        } else {
-                            snapshot
-                                .ext_equipment_power
-                                .entry(ext.name.clone())
-                                .and_modify(|v| *v += power)
-                                .or_insert(power);
-                        }
+                        let power =
+                            exterior_equipment_power(ext, frac, hour_idx, &weather_data.location);
+                        book_exterior_equipment(&mut snapshot, ext, power);
                     }
 
                     // ── Radiant panel output reporting ────────────────────
@@ -5347,85 +5305,10 @@ fn main() -> Result<()> {
                     }
 
                     // ── Submeter energy routing ───────────────────────────
+                    route_submeter_energy(&mut snapshot, &comp_submeter, &comp_kind_map, &model);
                     {
                         let sm = &mut snapshot.submeter_power;
-                        let add = |sm: &mut HashMap<String, HashMap<String, f64>>,
-                                   meter: &str,
-                                   end_use: &str,
-                                   watts: f64| {
-                            *sm.entry(meter.to_string())
-                                .or_default()
-                                .entry(end_use.to_string())
-                                .or_default() += watts;
-                        };
-
-                        for (comp_name, &pw) in &snapshot.component_electric_power {
-                            let meter = comp_submeter
-                                .get(comp_name)
-                                .map(|s| s.as_str())
-                                .unwrap_or("General");
-                            let end_use = match comp_kind_map.get(comp_name) {
-                                Some(ComponentKind::Fan) => "fan_electric",
-                                Some(ComponentKind::CoolingCoil)
-                                | Some(ComponentKind::EvapCooler)
-                                | Some(ComponentKind::ThermalStorage)
-                                | Some(ComponentKind::Chiller)
-                                | Some(ComponentKind::VrfOutdoor)
-                                | Some(ComponentKind::Gshp)
-                                | Some(ComponentKind::Crac)
-                                | Some(ComponentKind::Crah) => "cooling_electric",
-                                Some(ComponentKind::HeatingCoil) | Some(ComponentKind::Boiler) => {
-                                    "heating_electric"
-                                }
-                                _ => "misc_electric",
-                            };
-                            let heat = snapshot
-                                .component_heating_electric_power
-                                .get(comp_name)
-                                .copied()
-                                .unwrap_or(0.0)
-                                .clamp(0.0, pw.max(0.0));
-                            if heat > 0.0 {
-                                add(sm, meter, "heating_electric", heat);
-                            }
-                            add(sm, meter, end_use, pw - heat);
-                        }
-                        for (comp_name, &pw) in &snapshot.component_fuel_power {
-                            let meter = comp_submeter
-                                .get(comp_name)
-                                .map(|s| s.as_str())
-                                .unwrap_or("General");
-                            add(sm, meter, "heating_gas", pw);
-                        }
-                        for (comp_name, &pw) in &snapshot.pump_electric_power {
-                            let meter = comp_submeter
-                                .get(comp_name)
-                                .map(|s| s.as_str())
-                                .unwrap_or("General");
-                            add(sm, meter, "pump_electric", pw);
-                        }
-                        for (comp_name, &pw) in &snapshot.heat_rejection_power {
-                            let meter = comp_submeter
-                                .get(comp_name)
-                                .map(|s| s.as_str())
-                                .unwrap_or("General");
-                            add(sm, meter, "heat_rejection", pw);
-                        }
-                        for (comp_name, &pw) in &snapshot.humidification_power {
-                            let meter = comp_submeter
-                                .get(comp_name)
-                                .map(|s| s.as_str())
-                                .unwrap_or("General");
-                            add(sm, meter, "humidification", pw);
-                        }
-                        for (comp_name, &pw) in &snapshot.heat_recovery_power {
-                            let meter = comp_submeter
-                                .get(comp_name)
-                                .map(|s| s.as_str())
-                                .unwrap_or("General");
-                            add(sm, meter, "heat_recovery", pw);
-                        }
-
+                        let add = add_submeter_power;
                         // Zone lighting/equipment — per-submeter
                         for zone in &env.zones {
                             let zmult = zone.input.zone_multiplier as f64;
@@ -5450,45 +5333,6 @@ fn main() -> Result<()> {
                                     }
                                     _ => {}
                                 }
-                            }
-                        }
-
-                        // DHW
-                        for dhw_input in &model.dhw_systems {
-                            let meter = &dhw_input.submeter;
-                            if let Some(&ep) = snapshot
-                                .dhw_electric_power
-                                .get(&dhw_input.water_heater.name)
-                            {
-                                add(sm, meter, "dhw_electric", ep);
-                            }
-                            if let Some(&fp) =
-                                snapshot.dhw_fuel_power.get(&dhw_input.water_heater.name)
-                            {
-                                add(sm, meter, "dhw_gas", fp);
-                            }
-                        }
-
-                        // Exterior equipment
-                        for ext in &model.exterior_equipment {
-                            let meter = if ext.submeter != "General" {
-                                &ext.submeter
-                            } else if let Some(ref sc) = ext.subcategory {
-                                sc
-                            } else {
-                                "General"
-                            };
-                            let is_ext_lights = ext
-                                .subcategory
-                                .as_deref()
-                                .map(|s| s.to_lowercase().contains("light"))
-                                .unwrap_or(false);
-                            if is_ext_lights {
-                                if let Some(&pw) = snapshot.ext_lighting_power.get(&ext.name) {
-                                    add(sm, meter, "ext_lighting", pw);
-                                }
-                            } else if let Some(&pw) = snapshot.ext_equipment_power.get(&ext.name) {
-                                add(sm, meter, "ext_equipment", pw);
                             }
                         }
                     }
@@ -5668,37 +5512,16 @@ fn main() -> Result<()> {
                     }
 
                     // ── Exterior equipment (HVAC-only mode) ──────────────────
-                    // Route to typed ext_equipment_power (same as full simulation mode).
                     for ext in &model.exterior_equipment {
-                        let power = ext.power
-                            * ext.schedule.as_deref().map_or(1.0, |s| {
-                                hvac_only_schedules.fraction(s, hour, hvac_only_day_type)
-                            });
-                        let is_hvac_ext_light = ext
-                            .subcategory
-                            .as_deref()
-                            .map(|s| s.to_lowercase().contains("exterior light"))
-                            .unwrap_or(false);
-                        if is_hvac_ext_light {
-                            snapshot
-                                .ext_lighting_power
-                                .entry(ext.name.clone())
-                                .and_modify(|v| *v += power)
-                                .or_insert(power);
-                        } else if ext.fuel == "natural_gas" {
-                            snapshot
-                                .component_fuel_power
-                                .entry(ext.name.clone())
-                                .and_modify(|v| *v += power)
-                                .or_insert(power);
-                        } else {
-                            snapshot
-                                .ext_equipment_power
-                                .entry(ext.name.clone())
-                                .and_modify(|v| *v += power)
-                                .or_insert(power);
-                        }
+                        let frac = ext.schedule.as_deref().map_or(1.0, |s| {
+                            hvac_only_schedules.fraction(s, hour, hvac_only_day_type)
+                        });
+                        let power =
+                            exterior_equipment_power(ext, frac, hour_idx, &weather_data.location);
+                        book_exterior_equipment(&mut snapshot, ext, power);
                     }
+
+                    route_submeter_energy(&mut snapshot, &comp_submeter, &comp_kind_map, &model);
 
                     for writer in &mut output_writers {
                         writer.add_snapshot(&snapshot);
@@ -7676,6 +7499,162 @@ fn terminal_reheat_capacity(
 ) -> f64 {
     let cp_air = 1006.0;
     (zone_heat_load + cp_air * primary_flow * (zone_temp - supply_temp)).max(0.0)
+}
+
+/// Exterior equipment power this hour [W]: rated power times the schedule
+/// fraction, and off while the sun is up under an astronomical clock (solar
+/// time with the equation of time and longitude correction, as E+ finds
+/// sunrise and sunset).
+fn exterior_equipment_power(
+    ext: &openbse_io::input::ExteriorEquipmentInput,
+    frac: f64,
+    hour_idx: u32,
+    location: &openbse_weather::WeatherLocation,
+) -> f64 {
+    let power = ext.power * frac;
+    if !ext.astronomical_clock || power <= 0.0 {
+        return power;
+    }
+    let doy = (hour_idx / 24) + 1;
+    let clock_hr = (hour_idx % 24) as f64 + 0.5;
+    let eot = openbse_envelope::solar::equation_of_time(doy);
+    let solar_hr = clock_hr + (location.time_zone - location.longitude / 15.0) + eot;
+    let sol = openbse_envelope::solar::solar_position(doy, solar_hr, location.latitude);
+    if sol.is_sunup {
+        0.0
+    } else {
+        power
+    }
+}
+
+/// Book exterior equipment to its end use: exterior lights (a subcategory
+/// containing "exterior light"), gas equipment, or exterior equipment.
+fn book_exterior_equipment(
+    snapshot: &mut OutputSnapshot,
+    ext: &openbse_io::input::ExteriorEquipmentInput,
+    power: f64,
+) {
+    let is_ext_lights = ext
+        .subcategory
+        .as_deref()
+        .map(|s| s.to_lowercase().contains("exterior light"))
+        .unwrap_or(false);
+    let map = if is_ext_lights {
+        &mut snapshot.ext_lighting_power
+    } else if ext.fuel == "natural_gas" {
+        &mut snapshot.component_fuel_power
+    } else {
+        &mut snapshot.ext_equipment_power
+    };
+    *map.entry(ext.name.clone()).or_default() += power;
+}
+
+fn add_submeter_power(
+    sm: &mut HashMap<String, HashMap<String, f64>>,
+    meter: &str,
+    end_use: &str,
+    watts: f64,
+) {
+    *sm.entry(meter.to_string())
+        .or_default()
+        .entry(end_use.to_string())
+        .or_default() += watts;
+}
+
+/// Route this timestep's HVAC, plant, DHW and exterior energy to submeters,
+/// from what the snapshot has booked to end uses. Zone lighting and equipment
+/// come from the envelope and are routed by the full simulation.
+fn route_submeter_energy(
+    snapshot: &mut OutputSnapshot,
+    comp_submeter: &HashMap<String, String>,
+    comp_kind_map: &HashMap<String, ComponentKind>,
+    model: &openbse_io::input::ModelInput,
+) {
+    let meter_of = |name: &str| -> String {
+        comp_submeter
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| "General".to_string())
+    };
+    let mut sm = std::mem::take(&mut snapshot.submeter_power);
+    for (comp_name, &pw) in &snapshot.component_electric_power {
+        let meter = meter_of(comp_name);
+        let end_use = match comp_kind_map.get(comp_name) {
+            Some(ComponentKind::Fan) => "fan_electric",
+            Some(ComponentKind::CoolingCoil)
+            | Some(ComponentKind::EvapCooler)
+            | Some(ComponentKind::ThermalStorage)
+            | Some(ComponentKind::Chiller)
+            | Some(ComponentKind::VrfOutdoor)
+            | Some(ComponentKind::Gshp)
+            | Some(ComponentKind::Crac)
+            | Some(ComponentKind::Crah) => "cooling_electric",
+            Some(ComponentKind::HeatingCoil) | Some(ComponentKind::Boiler) => "heating_electric",
+            _ => "misc_electric",
+        };
+        let heat = snapshot
+            .component_heating_electric_power
+            .get(comp_name)
+            .copied()
+            .unwrap_or(0.0)
+            .clamp(0.0, pw.max(0.0));
+        if heat > 0.0 {
+            add_submeter_power(&mut sm, &meter, "heating_electric", heat);
+        }
+        add_submeter_power(&mut sm, &meter, end_use, pw - heat);
+    }
+    let ext_meter = |name: &str| -> Option<String> {
+        model
+            .exterior_equipment
+            .iter()
+            .find(|e| e.name == name)
+            .map(|ext| {
+                if ext.submeter != "General" {
+                    ext.submeter.clone()
+                } else {
+                    ext.subcategory
+                        .clone()
+                        .unwrap_or_else(|| "General".to_string())
+                }
+            })
+    };
+    for (comp_name, &pw) in &snapshot.component_fuel_power {
+        // Gas exterior equipment is booked with component fuel; it keeps its
+        // own meter.
+        let meter = ext_meter(comp_name).unwrap_or_else(|| meter_of(comp_name));
+        add_submeter_power(&mut sm, &meter, "heating_gas", pw);
+    }
+    for (map, end_use) in [
+        (&snapshot.pump_electric_power, "pump_electric"),
+        (&snapshot.heat_rejection_power, "heat_rejection"),
+        (&snapshot.humidification_power, "humidification"),
+        (&snapshot.heat_recovery_power, "heat_recovery"),
+    ] {
+        for (comp_name, &pw) in map {
+            add_submeter_power(&mut sm, &meter_of(comp_name), end_use, pw);
+        }
+    }
+    for dhw_input in &model.dhw_systems {
+        let meter = &dhw_input.submeter;
+        let name = &dhw_input.water_heater.name;
+        if let Some(&ep) = snapshot.dhw_electric_power.get(name) {
+            add_submeter_power(&mut sm, meter, "dhw_electric", ep);
+        }
+        if let Some(&fp) = snapshot.dhw_fuel_power.get(name) {
+            add_submeter_power(&mut sm, meter, "dhw_gas", fp);
+        }
+    }
+    for (map, end_use) in [
+        (&snapshot.ext_lighting_power, "ext_lighting"),
+        (&snapshot.ext_equipment_power, "ext_equipment"),
+    ] {
+        for (name, &pw) in map {
+            if let Some(meter) = ext_meter(name) {
+                add_submeter_power(&mut sm, &meter, end_use, pw);
+            }
+        }
+    }
+    snapshot.submeter_power = sm;
 }
 
 /// Record severe errors found after validation in the `.err` file and return
