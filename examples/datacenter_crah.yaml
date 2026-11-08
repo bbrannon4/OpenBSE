@@ -110,6 +110,13 @@ constructions:
       - material: Concrete
         thickness: 0.200
 
+  # Shared walls between zones. Symmetric, so the two faces of each
+  # interzone pair use the same construction.
+  - name: Partition
+    layers:
+      - material: Concrete
+        thickness: 0.200
+
   - name: OfficeWall
     layers:
       - material: Concrete
@@ -130,6 +137,10 @@ zones:
   #   UPS Room   x=[40,50] y=[0,8]    z=[0,3]
   #   PDU Room   x=[40,50] y=[8,13]   z=[0,3]
   #   Office     x=[0,20]  y=[25,40]  z=[0,3]
+  #
+  # Where two zones touch, each side has an interzone wall (`!zone`); the
+  # rest of each face, including the hall's 1 m above the 3 m rooms, is
+  # outdoor.
 
   - name: DataHall
     volume: 4000.0
@@ -174,15 +185,37 @@ surfaces:
       - {x: 40, y: 0,  z: 4}
       - {x: 0,  y: 0,  z: 4}
 
-  - name: DH North Wall
+  - name: DH North Wall Office
+    zone: DataHall
+    type: wall
+    boundary: !zone "Office"
+    construction: Partition
+    vertices:
+      - {x: 20, y: 25, z: 0}
+      - {x: 0,  y: 25, z: 0}
+      - {x: 0,  y: 25, z: 3}
+      - {x: 20, y: 25, z: 3}
+
+  - name: DH North Wall Upper
+    zone: DataHall
+    type: wall
+    boundary: outdoor
+    construction: InsulatedWall
+    vertices:
+      - {x: 20, y: 25, z: 3}
+      - {x: 0,  y: 25, z: 3}
+      - {x: 0,  y: 25, z: 4}
+      - {x: 20, y: 25, z: 4}
+
+  - name: DH North Wall East
     zone: DataHall
     type: wall
     boundary: outdoor
     construction: InsulatedWall
     vertices:
       - {x: 40, y: 25, z: 0}
-      - {x: 0,  y: 25, z: 0}
-      - {x: 0,  y: 25, z: 4}
+      - {x: 20, y: 25, z: 0}
+      - {x: 20, y: 25, z: 4}
       - {x: 40, y: 25, z: 4}
 
   - name: DH West Wall
@@ -196,16 +229,49 @@ surfaces:
       - {x: 0, y: 0,  z: 4}
       - {x: 0, y: 25, z: 4}
 
-  - name: DH East Wall
+  - name: DH East Wall UPS
     zone: DataHall
     type: wall
-    boundary: adiabatic
+    boundary: !zone "UPS Room"
+    construction: Partition
+    vertices:
+      - {x: 40, y: 0, z: 0}
+      - {x: 40, y: 8, z: 0}
+      - {x: 40, y: 8, z: 3}
+      - {x: 40, y: 0, z: 3}
+
+  - name: DH East Wall PDU
+    zone: DataHall
+    type: wall
+    boundary: !zone "PDU Room"
+    construction: Partition
+    vertices:
+      - {x: 40, y: 8,  z: 0}
+      - {x: 40, y: 13, z: 0}
+      - {x: 40, y: 13, z: 3}
+      - {x: 40, y: 8,  z: 3}
+
+  - name: DH East Wall Upper
+    zone: DataHall
+    type: wall
+    boundary: outdoor
     construction: InsulatedWall
     vertices:
-      - {x: 40, y: 0,  z: 0}
+      - {x: 40, y: 0,  z: 3}
+      - {x: 40, y: 13, z: 3}
+      - {x: 40, y: 13, z: 4}
+      - {x: 40, y: 0,  z: 4}
+
+  - name: DH East Wall North
+    zone: DataHall
+    type: wall
+    boundary: outdoor
+    construction: InsulatedWall
+    vertices:
+      - {x: 40, y: 13, z: 0}
       - {x: 40, y: 25, z: 0}
       - {x: 40, y: 25, z: 4}
-      - {x: 40, y: 0,  z: 4}
+      - {x: 40, y: 13, z: 4}
 
   - name: DH Roof
     zone: DataHall
@@ -255,8 +321,8 @@ surfaces:
   - name: UPS North Wall
     zone: UPS Room
     type: wall
-    boundary: adiabatic
-    construction: InsulatedWall
+    boundary: !zone "PDU Room"
+    construction: Partition
     vertices:
       - {x: 50, y: 8, z: 0}
       - {x: 40, y: 8, z: 0}
@@ -266,8 +332,8 @@ surfaces:
   - name: UPS West Wall
     zone: UPS Room
     type: wall
-    boundary: adiabatic
-    construction: InsulatedWall
+    boundary: !zone "DataHall"
+    construction: Partition
     vertices:
       - {x: 40, y: 8, z: 0}
       - {x: 40, y: 0, z: 0}
@@ -322,8 +388,8 @@ surfaces:
   - name: PDU South Wall
     zone: PDU Room
     type: wall
-    boundary: adiabatic
-    construction: InsulatedWall
+    boundary: !zone "UPS Room"
+    construction: Partition
     vertices:
       - {x: 40, y: 8, z: 0}
       - {x: 50, y: 8, z: 0}
@@ -333,8 +399,8 @@ surfaces:
   - name: PDU West Wall
     zone: PDU Room
     type: wall
-    boundary: adiabatic
-    construction: InsulatedWall
+    boundary: !zone "DataHall"
+    construction: Partition
     vertices:
       - {x: 40, y: 13, z: 0}
       - {x: 40, y: 8,  z: 0}
@@ -367,25 +433,13 @@ surfaces:
   - name: Off South Wall
     zone: Office
     type: wall
-    boundary: outdoor
-    construction: OfficeWall
+    boundary: !zone "DataHall"
+    construction: Partition
     vertices:
       - {x: 0,  y: 25, z: 0}
       - {x: 20, y: 25, z: 0}
       - {x: 20, y: 25, z: 3}
       - {x: 0,  y: 25, z: 3}
-
-  - name: Off South Window
-    zone: Office
-    type: window
-    boundary: outdoor
-    construction: Office Glazing
-    parent_surface: Off South Wall
-    vertices:
-      - {x: 2,  y: 25, z: 0.9}
-      - {x: 18, y: 25, z: 0.9}
-      - {x: 18, y: 25, z: 2.4}
-      - {x: 2,  y: 25, z: 2.4}
 
   - name: Off East Wall
     zone: Office
