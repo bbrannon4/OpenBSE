@@ -102,7 +102,9 @@ pub struct SurfaceInput {
     /// Matches EnergyPlus `Construction:FfactorGroundFloor` PerimeterExposed.
     #[serde(default)]
     pub exposed_perimeter: Option<f64>,
-    /// Window height [m] for the ISO 15099 interior convection model. If not
+    /// Height of the surface along its slope [m]: the window height for the
+    /// ISO 15099 interior convection model, and (times the sine of the tilt)
+    /// a large opening's vertical extent in the airflow network. If not
     /// provided, taken from the vertices, or sqrt(area) without them.
     #[serde(default)]
     pub height: Option<f64>,
@@ -138,6 +140,25 @@ impl SurfaceInput {
                 (hi - lo) / sin_tilt
             }
             _ => square(),
+        }
+    }
+
+    /// Vertical extent of the surface [m]: the input `height` times the sine
+    /// of the tilt, else the vertices' z-range, else a square of the
+    /// surface's area tilted to its slope (sqrt(area) × sin(tilt)).
+    pub fn vertical_extent(&self) -> f64 {
+        let sin_tilt = self.tilt.to_radians().sin().abs();
+        if let Some(h) = self.height {
+            return h * sin_tilt;
+        }
+        match &self.vertices {
+            Some(v) if v.len() >= 3 => {
+                let (lo, hi) = v
+                    .iter()
+                    .fold((f64::MAX, f64::MIN), |(l, h), p| (l.min(p.z), h.max(p.z)));
+                hi - lo
+            }
+            _ => self.area.max(0.0).sqrt() * sin_tilt,
         }
     }
 
@@ -712,6 +733,46 @@ pub struct SurfaceState {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn vertical_extent_from_height_then_vertices_then_area() {
+        let mut door = iz("d", "a", "b", 4.0, 180.0, "g");
+        assert!(
+            (door.vertical_extent() - 2.0).abs() < 1e-12,
+            "square of the area"
+        );
+        door.vertices = Some(vec![
+            Point3D {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            Point3D {
+                x: 0.9,
+                y: 0.0,
+                z: 0.0,
+            },
+            Point3D {
+                x: 0.9,
+                y: 0.0,
+                z: 2.1,
+            },
+            Point3D {
+                x: 0.0,
+                y: 0.0,
+                z: 2.1,
+            },
+        ]);
+        assert!((door.vertical_extent() - 2.1).abs() < 1e-12);
+        door.height = Some(2.0);
+        assert!((door.vertical_extent() - 2.0).abs() < 1e-12);
+        let mut roof = iz("r", "a", "b", 4.0, 0.0, "g");
+        roof.tilt = 0.0;
+        assert!(
+            roof.vertical_extent().abs() < 1e-12,
+            "a flat surface has no extent"
+        );
+    }
+
     #[test]
     fn window_height_comes_from_input_then_vertices_then_area() {
         let mut w = iz("w", "a", "b", 6.0, 180.0, "g");

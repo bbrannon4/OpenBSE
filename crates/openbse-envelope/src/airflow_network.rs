@@ -1103,6 +1103,27 @@ fn effective_leakage(config: &AirflowNetworkConfig) -> EffectiveLeakage {
     }
 }
 
+/// Element for a vertical large opening of `area` [m²] (after any opening
+/// fraction, which narrows the width as a sliding sash does) on a surface
+/// `extent` [m] tall: a two-way opening over the surface's vertical extent,
+/// as E+ takes a detailed opening's height from its surface. A surface with
+/// no vertical extent has no buoyancy counterflow within it and is a one-way
+/// orifice.
+fn large_opening_element(cd: f64, area: f64, extent: f64) -> FlowElement {
+    if extent > 0.01 {
+        FlowElement::TwoWayOpening {
+            discharge_coefficient: cd,
+            width: area / extent,
+            height: extent,
+        }
+    } else {
+        FlowElement::LargeOpening {
+            discharge_coefficient: cd,
+            area,
+        }
+    }
+}
+
 /// Build the airflow network from building geometry.
 ///
 /// Auto-generates pressure nodes (one per zone + outdoor) and flow paths
@@ -1195,21 +1216,13 @@ pub fn build_network(
                             base_area,
                         });
                     }
-                    // Two-way opening (#83): vertical extent from the full
-                    // surface (square-equivalent); the opening fraction
-                    // narrows the width, matching a sliding sash.
-                    let opening_height = surf.input.area.sqrt();
                     paths.push(FlowPath {
                         node_a: outdoor_node,
                         node_b: zone_node,
                         height,
                         cp: 0.0, // updated per timestep
                         azimuth,
-                        element: FlowElement::TwoWayOpening {
-                            discharge_coefficient: cd,
-                            width: base_area / opening_height,
-                            height: opening_height,
-                        },
+                        element: large_opening_element(cd, base_area, surf.input.vertical_extent()),
                         source_surface: Some(si),
                         mass_flow: 0.0,
                     });
@@ -1303,18 +1316,13 @@ pub fn build_network(
                         });
                         continue;
                     }
-                    let opening_height = surf.input.area.sqrt();
                     paths.push(FlowPath {
                         node_a: zone_node,
                         node_b: other_node,
                         height,
                         cp: 0.0,
                         azimuth: 0.0, // irrelevant for interzone
-                        element: FlowElement::TwoWayOpening {
-                            discharge_coefficient: cd,
-                            width: base_area / opening_height,
-                            height: opening_height,
-                        },
+                        element: large_opening_element(cd, base_area, surf.input.vertical_extent()),
                         source_surface: Some(si),
                         mass_flow: 0.0,
                     });

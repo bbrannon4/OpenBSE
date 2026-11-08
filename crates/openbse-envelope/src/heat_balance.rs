@@ -6416,6 +6416,77 @@ mod tests {
         assert_eq!(envelope.zones[0].nat_vent_on_timesteps, 2);
     }
 
+    /// A large opening spans its surface's vertical extent: a doorway with
+    /// vertices 2.1 m tall is a two-way opening 2.1 m high, its width the
+    /// area over that height; a flat one is a one-way orifice.
+    #[test]
+    fn test_afn_large_opening_height_from_vertices() {
+        use crate::airflow_network::FlowElement;
+        use crate::geometry::Point3D;
+        let mut envelope = make_two_zone_model(true);
+        let door = |x0: f64| {
+            vec![
+                Point3D {
+                    x: x0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                Point3D {
+                    x: x0 + 0.9,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                Point3D {
+                    x: x0 + 0.9,
+                    y: 0.0,
+                    z: 2.1,
+                },
+                Point3D {
+                    x: x0,
+                    y: 0.0,
+                    z: 2.1,
+                },
+            ]
+        };
+        for name in ["Partition A", "Partition B"] {
+            let si = envelope
+                .surfaces
+                .iter()
+                .position(|s| s.input.name == name)
+                .unwrap();
+            envelope.surfaces[si].input.vertices = Some(door(0.0));
+        }
+        let config = crate::airflow_network::AirflowNetworkConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        envelope.build_airflow_network(&config);
+        let area = 8.0;
+        let openings: Vec<_> = envelope
+            .airflow_network
+            .as_ref()
+            .unwrap()
+            .paths
+            .iter()
+            .filter_map(|p| match p.element {
+                FlowElement::TwoWayOpening { width, height, .. } => Some((width, height)),
+                _ => None,
+            })
+            .collect();
+        assert!(!openings.is_empty());
+        for (width, height) in openings {
+            assert_relative_eq!(height, 2.1, max_relative = 1e-12);
+            assert_relative_eq!(width, area / 2.1, max_relative = 1e-12);
+        }
+
+        // Without vertices the opening is the square of its area.
+        let envelope = make_two_zone_model(true);
+        let square = envelope.airflow_network.as_ref().unwrap().paths.iter().any(|p| {
+            matches!(p.element, FlowElement::TwoWayOpening { height, .. } if (height - area.sqrt()).abs() < 1e-12)
+        });
+        assert!(square);
+    }
+
     /// A zone exhaust fan reaches the airflow network only through the
     /// zone's net HVAC injection path, as −ṁ_exhaust, and the zone's AFN
     /// inflows then balance it. No other fixed-flow path exists for it.
