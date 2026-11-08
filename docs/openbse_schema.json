@@ -2379,7 +2379,7 @@
               "name": { "type": "string" },
               "it_load_served_kw": { "type": "number", "description": "IT load capacity served [kW]." },
               "efficiency_at_full_load": { "type": "number", "default": 0.95, "minimum": 0, "maximum": 1, "description": "Efficiency at full load [0-1]." },
-              "efficiency_curve": { "type": "string", "description": "Optional efficiency curve f(PLR); constant efficiency_at_full_load if omitted." }
+              "efficiency_curve": { "type": "string", "description": "Optional curve of part-load ratio (IT load over UPS rating) that multiplies efficiency_at_full_load; constant efficiency if omitted. Must name a performance curve." }
             }
           }
         },

@@ -714,6 +714,24 @@ fn data_centre_supply_warnings(
     warnings
 }
 
+/// A UPS's efficiency at part load `plr`: its full-load efficiency times its
+/// `efficiency_curve` at that part load, as E+ `ElectricEquipment:ITE:AirCooled`
+/// multiplies its Design Electric Power Supply Efficiency by the Electric Power
+/// Supply Efficiency Function of Part Load Ratio curve. Validation rejects an
+/// unknown curve name.
+fn ups_efficiency(
+    ups: &openbse_io::input::UpsInput,
+    curves: &[openbse_components::performance_curve::PerformanceCurve],
+    plr: f64,
+) -> f64 {
+    let factor = ups
+        .efficiency_curve
+        .as_ref()
+        .and_then(|name| curves.iter().find(|c| c.name() == name))
+        .map_or(1.0, |c| c.evaluate_1d(plr));
+    (ups.efficiency_at_full_load * factor).clamp(0.01, 1.0)
+}
+
 /// Supply flow [kg/s] of a single-zone VAV unit: the flow that meets the
 /// zone's cooling load [W] with the supply at its coldest, `cooling_dt` below
 /// the setpoint, bounded by the minimum fraction and the design flow. With no
@@ -5111,7 +5129,7 @@ fn main() -> Result<()> {
                         };
                         for ups in &elec_dist.ups {
                             let rated_w = ups.it_load_served_kw * 1000.0;
-                            let eff = ups.efficiency_at_full_load.clamp(0.01, 1.0);
+                            let eff = ups_efficiency(ups, &model.performance_curves, ups_plr);
                             elec_dist_w += rated_w * ups_plr * (1.0 / eff - 1.0);
                         }
 
@@ -9772,6 +9790,36 @@ air_loops:
             assert_eq!(loops[0].cooling_supply_temp, supply);
             assert_eq!(!data_centre_supply_warnings(&m, &loops).is_empty(), warned);
         }
+    }
+
+    /// A UPS efficiency curve multiplies the full-load efficiency at the part
+    /// load; an unknown curve name is a severe error.
+    #[test]
+    fn ups_efficiency_follows_its_curve() {
+        let model = |curve: &str| {
+            openbse_io::input::parse_model_yaml(&format!(
+                r#"
+simulation: {{}}
+weather_files: []
+performance_curves:
+  - {{name: UPS-PLR, curve_type: quadratic, coefficients: [0.9, 0.2, -0.1]}}
+electrical_distribution:
+  ups:
+    - {{name: UPS-1, it_load_served_kw: 100.0, efficiency_at_full_load: 0.95, efficiency_curve: {curve}}}
+"#
+            ))
+            .expect("model")
+        };
+        let m = model("UPS-PLR");
+        let ups = &m.electrical_distribution.as_ref().unwrap().ups[0];
+        let eff = |plr: f64| ups_efficiency(ups, &m.performance_curves, plr);
+        assert!((eff(1.0) - 0.95).abs() < 1e-12);
+        assert!((eff(0.25) - 0.95 * (0.9 + 0.05 - 0.00625)).abs() < 1e-12);
+        assert_eq!(openbse_io::input::validate_model(&m).error_count(), 0);
+        assert_eq!(
+            openbse_io::input::validate_model(&model("Typo")).error_count(),
+            1
+        );
     }
 }
 

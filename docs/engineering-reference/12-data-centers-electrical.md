@@ -71,13 +71,18 @@ x = \min\left(\frac{P}{\sum P_r},\ 1\right), \qquad
 P_\text{loss} = \sum_{\text{UPS, transformers}} P_rx\left(\frac{1}{\eta} - 1\right).
 $$ {#eq-elec-dist}
 
-The defaults are $\eta = 0.95$ for a UPS and 0.985 for a transformer. These losses are
-electricity use that heats nothing. The UPS `efficiency_curve` input is not read
-([#260](https://github.com/bbrannon4/OpenBSE/issues/260)).
+The defaults are $\eta = 0.95$ for a UPS and 0.985 for a transformer. A UPS with an
+`efficiency_curve` runs at $\eta = \eta_\text{full}f(x)$, its full-load efficiency
+times the curve at its part-load ratio, as E+ `ElectricEquipment:ITE:AirCooled`
+multiplies its design power-supply efficiency by its efficiency function of part-load
+ratio; an unknown curve name is a severe error. These losses are electricity use that
+heats nothing; a model puts their heat in a zone with an equipment gain, as
+`datacenter_crah` does.
 
 **Comparison with EnergyPlus.** EnergyPlus has `ElectricLoadCenter:Storage:Converter`
 and `:Transformer` in its electric load centre, and a UPS efficiency curve on its ITE
-object, with a loss fraction to the zone. OpenBSE has none of the rest of the electric
+object, with a loss fraction to the zone, where OpenBSE's losses reach no zone
+([#399](https://github.com/bbrannon4/OpenBSE/issues/399)). OpenBSE has none of the rest of the electric
 load centre (generators, storage, photovoltaics).
 
 ## ASHRAE 90.4 metrics {#sec-90-4}
@@ -101,6 +106,8 @@ output counts all submeter energy, so it can differ from the annual one
 
 ## Known limitations {#sec-datacenter-limitations}
 
-- [#260](https://github.com/bbrannon4/OpenBSE/issues/260): UPS curve unread; no IT
-  temperature or fan model; unverified 90.4 limits and tag-dependent MLC.
+- [#260](https://github.com/bbrannon4/OpenBSE/issues/260): unverified 90.4 limits and
+  tag-dependent MLC.
+- [#399](https://github.com/bbrannon4/OpenBSE/issues/399): no IT temperature or fan
+  model; distribution losses heat no zone.
 - [#62](https://github.com/bbrannon4/OpenBSE/issues/62): earlier CRAC and CRAH review.
