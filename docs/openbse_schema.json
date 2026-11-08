@@ -597,7 +597,7 @@
         "cycling": { "$ref": "#/$defs/CyclingMethod" },
         "deadband": { "type": "number", "default": 1.0, "description": "Thermostat deadband [C]." },
         "design_zone_flow": { "$ref": "#/$defs/AutosizeOrNumber", "default": 0.5, "description": "Design air flow rate per zone [kg/s]. Use 'autosize' for auto-calculation." },
-        "minimum_damper_position": { "type": "number", "minimum": 0, "maximum": 1, "description": "Minimum outdoor air damper position [0-1]. Set to 1.0 for DOAS. If omitted, auto-calculated from zone outdoor air requirements (falls back to 0.20 if no outdoor_air definitions exist)." },
+        "minimum_damper_position": { "type": "number", "minimum": 0, "maximum": 1, "description": "Minimum outdoor air damper position [0-1]. Set to 1.0 for DOAS. If omitted, the served zones' outdoor-air requirement (their outdoor_air, else the connection's per_person_oa and per_area_oa) over the fan flow; 0 when no served zone states one." },
         "minimum_oa_schedule": { "type": "string", "description": "Schedule whose hourly value multiplies the minimum outdoor-air fraction (proportional minimum). Seasonal schedules are honored." },
         "economizer": { "$ref": "#/$defs/EconomizerControls" },
         "fan_operating_mode": { "$ref": "#/$defs/FanOperatingMode" },

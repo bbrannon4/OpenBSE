@@ -26,8 +26,8 @@ use openbse_core::simulation::{ControlSignals, SimulationConfig, TimestepResult}
 use openbse_core::types::{DayType, TimeStep};
 use openbse_envelope::schedule::ScheduleManager;
 use openbse_io::input::{
-    build_controllers, build_envelope, build_graph_with_base, compute_oa_fraction,
-    parse_model_yaml, resolve_thermostats, AirLoopSystemType,
+    build_controllers, build_envelope, build_graph_with_base, parse_model_yaml,
+    resolve_thermostats, AirLoopSystemType,
 };
 use openbse_io::output::{
     write_csv, write_parametric_results, OutputSnapshot, OutputWriter, SummaryReport,
@@ -356,6 +356,18 @@ fn recirculates_only(li: &LoopInfo) -> bool {
     )
 }
 
+/// Whether a loop mixes outdoor air: a DOAS does, a recirculating unit doesn't,
+/// a stated damper position decides, and otherwise its zones' requirement
+/// does (an autosized fan's fraction is only known after sizing).
+fn mixes_outdoor_air(li: &LoopInfo) -> bool {
+    match li.system_type {
+        AirLoopSystemType::Doas => true,
+        _ if recirculates_only(li) => false,
+        _ if li.explicit_min_oa => li.min_oa_fraction > 0.001,
+        _ => li.min_oa_flow_mass.is_some() || li.zone_outdoor_air.values().sum::<f64>() > 0.0,
+    }
+}
+
 /// Whether each served zone takes its outdoor air through an air loop: true
 /// when any loop serving it mixes outdoor air, so a zone served by a DOAS and
 /// a fan coil is ventilated once, by the DOAS, whatever order the loops are
@@ -364,7 +376,7 @@ fn recirculates_only(li: &LoopInfo) -> bool {
 fn zones_with_hvac_outdoor_air(loop_infos: &[LoopInfo]) -> HashMap<String, bool> {
     let mut handled: HashMap<String, bool> = HashMap::new();
     for li in loop_infos {
-        let mixes_oa = li.min_oa_fraction > 0.001;
+        let mixes_oa = mixes_outdoor_air(li);
         for zone in &li.served_zones {
             *handled.entry(zone.clone()).or_insert(false) |= mixes_oa;
         }
@@ -389,13 +401,12 @@ fn sizing_outdoor_air(
             OutdoorAir::Fraction(0.0)
         }
         AirLoopSystemType::Doas => OutdoorAir::Fraction(1.0),
-        _ if li.explicit_min_oa || li.min_oa_fraction <= 0.001 => {
-            OutdoorAir::Fraction(li.min_oa_fraction)
-        }
+        _ if li.explicit_min_oa => OutdoorAir::Fraction(li.min_oa_fraction),
         _ => {
+            // Zones that state no outdoor air get none.
             let required: f64 = li.zone_outdoor_air.values().sum();
             if required <= 0.0 {
-                return OutdoorAir::Fraction(li.min_oa_fraction);
+                return OutdoorAir::Fraction(0.0);
             }
             if li.system_type != AirLoopSystemType::Vav || li.zone_oa_data.is_empty() {
                 return OutdoorAir::Flow(required);
@@ -742,6 +753,17 @@ fn control_zone_flow_fraction(li: &LoopInfo) -> f64 {
     }
 }
 
+/// The design flow [m³/s] of an air loop's first fan with a stated flow, or
+/// None when its fans autosize.
+fn hard_fan_flow(al: &openbse_io::input::AirLoopInput) -> Option<f64> {
+    al.equipment.iter().find_map(|eq| match eq {
+        openbse_io::input::EquipmentInput::Fan(f) => {
+            Some(f.design_flow_rate.to_f64()).filter(|&flow| flow > 0.0)
+        }
+        _ => None,
+    })
+}
+
 /// Supply flow [kg/s] of a single-zone VAV unit: the flow that meets the
 /// zone's cooling load [W] with the supply at its coldest, `cooling_dt` below
 /// the setpoint, bounded by the minimum fraction and the design flow. With no
@@ -831,28 +853,47 @@ fn build_loop_infos(
             // Auto-detect or use explicit system type
             let system_type = al.detect_system_type();
 
-            // Resolve minimum outdoor air fraction:
-            //   1. DOAS always 100%
-            //   2. Explicit controls.minimum_damper_position
-            //   3. Auto-calculate from zone outdoor air requirements
-            //   4. Fallback: 20%
+            // Each served zone's outdoor-air requirement: its `outdoor_air`, else
+            // its connection's per-person and per-area rates. VRP and DCV read
+            // the full data; sizing and the minimum fraction read the design
+            // flow (every People object at its full count) [kg/s].
+            let zone_oa: Vec<ZoneOaData> = al
+                .zone_terminals
+                .iter()
+                .filter_map(|zc| zone_oa_data(zc, resolved_zones))
+                .collect();
+            let zone_outdoor_air: HashMap<String, f64> = zone_oa
+                .iter()
+                .map(|d| {
+                    let people = d.people.iter().map(|(count, _)| count).sum();
+                    (
+                        d.zone_name.clone(),
+                        d.required_flow(people) * std_air_density,
+                    )
+                })
+                .collect();
+
+            // Minimum outdoor-air fraction: a DOAS takes only outdoor air, a
+            // recirculating unit none, a stated damper position is used as it
+            // is, and otherwise the zones' requirement over the fan's flow. A
+            // loop whose zones state no outdoor air takes none (E+: no
+            // AirLoopHVAC:OutdoorAirSystem). An autosized fan's fraction is set
+            // once sizing knows its flow.
             let explicit_min_oa =
                 system_type != AirLoopSystemType::Doas && al.minimum_damper_position().is_some();
+            let required_volume = zone_outdoor_air.values().sum::<f64>() / std_air_density;
             let min_oa_fraction = match system_type {
                 AirLoopSystemType::Doas => 1.0,
                 // Recirculating units mix no outdoor air (validation rejects a
                 // damper position on them); their zones take it directly or
                 // from a DOAS.
                 AirLoopSystemType::Fcu | AirLoopSystemType::Crac | AirLoopSystemType::Crah => 0.0,
-                _ => al.minimum_damper_position().unwrap_or_else(|| {
-                    let computed = compute_oa_fraction(model, al, resolved_zones, 0.20);
-                    log::info!(
-                        "Air loop '{}': auto-calculated minimum damper position = {:.1}%",
-                        al.name,
-                        computed * 100.0
-                    );
-                    computed
-                }),
+                _ => al
+                    .minimum_damper_position()
+                    .unwrap_or_else(|| match hard_fan_flow(al) {
+                        Some(flow) => (required_volume / flow).clamp(0.0, 1.0),
+                        None => 0.0,
+                    }),
             };
 
             // Build terminal box map: zone_name -> component_name
@@ -892,15 +933,6 @@ fn build_loop_infos(
 
             let cooling_sat_reset = default_single_zone_reset(al, &system_type);
             let system_type_is_doas = system_type == AirLoopSystemType::Doas;
-            let zone_outdoor_air: HashMap<String, f64> = al
-                .zone_terminals
-                .iter()
-                .filter_map(|zc| {
-                    let zone = resolved_zones.iter().find(|z| z.name == zc.zone)?;
-                    let v_oa = zone.design_outdoor_air_flow()?;
-                    Some((zc.zone.clone(), v_oa * std_air_density))
-                })
-                .collect();
             LoopInfo {
                 name: al.name.clone(),
                 system_type,
@@ -932,11 +964,7 @@ fn build_loop_infos(
                 sat_reset_base: None,
                 // Needed for the ASHRAE 62.1 VRP multi-zone Ev correction (even
                 // without DCV) and for DCV occupancy-based OA modulation.
-                zone_oa_data: al
-                    .zone_terminals
-                    .iter()
-                    .filter_map(|zc| zone_oa_data(zc, resolved_zones))
-                    .collect(),
+                zone_oa_data: zone_oa,
                 economizer_type: al
                     .controls
                     .economizer
@@ -952,28 +980,12 @@ fn build_loop_infos(
                 economizer_options: openbse_airloop::EconomizerOptions::from_controls(
                     al.controls.economizer.as_ref(),
                 ),
-                design_supply_flow: al
-                    .equipment
-                    .iter()
-                    .find_map(|eq| {
-                        use openbse_io::input::EquipmentInput;
-                        if let EquipmentInput::Fan(f) = eq {
-                            let flow = f.design_flow_rate.to_f64();
-                            if flow > 0.0 {
-                                Some(flow)
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    })
-                    // A DOAS autosizes to its zones' outdoor air, known before sizing.
-                    .unwrap_or(if system_type_is_doas {
-                        zone_outdoor_air.values().sum::<f64>() / std_air_density
-                    } else {
-                        1.0
-                    }),
+                // A DOAS autosizes to its zones' outdoor air, known before sizing.
+                design_supply_flow: hard_fan_flow(al).unwrap_or(if system_type_is_doas {
+                    zone_outdoor_air.values().sum::<f64>() / std_air_density
+                } else {
+                    1.0
+                }),
                 zone_outdoor_air,
                 supply_fan_dt: al
                     .equipment
@@ -2411,52 +2423,39 @@ fn main() -> Result<()> {
             }
         }
 
-        // ── Recompute OA fractions after sizing ──────────────────────────────────
-        // At build time, compute_oa_fraction falls back to 20% when the fan is
-        // autosize (design_flow = -99999).  Now that fans are autosized we can
-        // compute the real fraction from the zone's outdoor_air spec.
-        if let Some(ref envelope) = envelope {
-            for li in &mut loop_infos {
-                // Find the fan in this loop and get its autosized flow [m³/s]
-                let fan_flow = li.component_names.iter().find_map(|cname| {
-                    graph
-                        .node_by_name(cname)
-                        .and_then(|idx| match graph.component(idx) {
-                            GraphComponent::Air(comp) => comp.design_air_flow_rate(),
-                            _ => None,
-                        })
-                });
-
-                if let Some(flow_m3s) = fan_flow {
-                    if flow_m3s > 0.0 {
-                        // Known only now for an autosized fan; DCV divides by it.
-                        li.design_supply_flow = flow_m3s;
-                        // Sum outdoor air requirements for served zones
-                        let zone_flows: Vec<f64> = li
-                            .served_zones
-                            .iter()
-                            .filter_map(|name| {
-                                envelope.zones.iter().find(|z| z.input.name == *name)
-                            })
-                            .filter_map(|z| z.input.design_outdoor_air_flow())
-                            .collect();
-                        let has_oa = !zone_flows.is_empty();
-                        let total_oa_flow: f64 = zone_flows.iter().sum();
-                        if has_oa && !li.explicit_min_oa && !recirculates_only(li) {
-                            let new_frac = (total_oa_flow / flow_m3s).clamp(0.0, 1.0);
-                            if (new_frac - li.min_oa_fraction).abs() > 0.001 {
-                                info!(
-                                "Air loop '{}': OA fraction updated {:.1}% → {:.1}% (after sizing)",
-                                li.name,
-                                li.min_oa_fraction * 100.0,
-                                new_frac * 100.0
-                            );
-                                li.min_oa_fraction = new_frac;
-                            }
-                        }
-                    }
-                }
+        // ── Outdoor-air fractions after sizing ───────────────────────────────────
+        // An autosized fan's flow is known only now: the minimum fraction is the
+        // zones' requirement over it (0 when they state none), and DCV divides
+        // by the design flow.
+        for li in &mut loop_infos {
+            let fan_flow = li.component_names.iter().find_map(|cname| {
+                graph
+                    .node_by_name(cname)
+                    .and_then(|idx| match graph.component(idx) {
+                        GraphComponent::Air(comp) => comp.design_air_flow_rate(),
+                        _ => None,
+                    })
+            });
+            let Some(flow_m3s) = fan_flow.filter(|&f| f > 0.0) else {
+                continue;
+            };
+            li.design_supply_flow = flow_m3s;
+            if li.explicit_min_oa
+                || recirculates_only(li)
+                || li.system_type == AirLoopSystemType::Doas
+            {
+                continue;
             }
+            let required = li.zone_outdoor_air.values().sum::<f64>() / li.std_air_density;
+            let new_frac = (required / flow_m3s).clamp(0.0, 1.0);
+            if (new_frac - li.min_oa_fraction).abs() > 0.001 {
+                info!(
+                    "Air loop '{}': OA fraction {:.1}% from the zones' outdoor air (after sizing)",
+                    li.name,
+                    new_frac * 100.0
+                );
+            }
+            li.min_oa_fraction = new_frac;
         }
 
         // Check if envelope uses ideal loads (ASHRAE 140 mode)
@@ -8274,6 +8273,42 @@ room_air:
     /// A zone takes outdoor air through a loop only if a loop serving it mixes
     /// outdoor air, whatever order the loops come in; a fan coil alone leaves
     /// it to enter directly.
+    /// A loop whose zones state no outdoor air takes none, in its controls and
+    /// in sizing; one whose connection states rates takes them over its fan flow.
+    #[test]
+    fn a_loop_takes_only_the_outdoor_air_its_zones_state() {
+        let model = |connection: &str| {
+            openbse_io::input::parse_model_yaml(&format!(
+                r#"
+simulation: {{}}
+weather_files: []
+zones:
+  - {{name: Z, floor_area: 100.0, volume: 300.0}}
+air_loops:
+  - name: L
+    system_type: psz_ac
+    equipment:
+      - {{type: fan, name: F, source: constant_volume, design_flow_rate: 2.0, pressure_rise: 500.0}}
+    zone_terminals:
+      - {{zone: Z{connection}}}
+"#
+            ))
+            .expect("model")
+        };
+        let loops = |m: &openbse_io::input::ModelInput| build_loop_infos(m, &m.zones);
+        let none = loops(&model(""));
+        assert_eq!(none[0].min_oa_fraction, 0.0);
+        assert!(!mixes_outdoor_air(&none[0]));
+        assert!(matches!(
+            sizing_outdoor_air(&none[0], &HashMap::new()),
+            openbse_io::system_sizing::OutdoorAir::Fraction(x) if x == 0.0
+        ));
+        // 0.001 m³/s per m² over 100 m² is 0.1 of a 2.0 m³/s fan.
+        let rated = loops(&model(", per_area_oa: 0.001"));
+        assert!((rated[0].min_oa_fraction - 0.05).abs() < 1e-12);
+        assert!(mixes_outdoor_air(&rated[0]));
+    }
+
     #[test]
     fn zone_outdoor_air_is_handled_by_any_loop_that_mixes_it() {
         let loop_for = |system_type: AirLoopSystemType, oa: f64, zones: &[&str]| {
