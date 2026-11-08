@@ -1,0 +1,314 @@
+# OpenBSE example: ASHRAE 90.1-2025 quick start
+#
+# A one-storey office in Boulder, CO (climate zone 5B), 20 m x 12 m x 3.5 m,
+# split into an office, a corridor and a storage room. The model gives only
+# geometry, space types and loads that 90.1 does not set; the `standard:`
+# block fills in the rest when the model is loaded:
+#
+# - lighting power for each zone from its `space_type` (Tables 9.5.2.1-1/-2,
+#   or G3.7-1/-2 with `method: appendix_g`);
+# - a construction for every surface that gives none: roofs, walls and the
+#   F-factor slab from Table 5.5-5 (or G3.4-5), windows from the same table.
+#   Opaque assemblies are typical layered build-ups whose insulation is solved
+#   to hit the table's assembly U-factor exactly.
+#
+# Anything the model states explicitly wins: the interior partitions keep the
+# construction given below. Change `method:` to appendix_g to get the
+# baseline building instead; the office's `space_type` names a key for each
+# method because the two lighting tables split offices differently.
+#
+# The summary report's "Values From Code or Standard" section lists every
+# value used, the table and row it came from, and the printed I-P value.
+#
+# Coordinate system: X=East, Y=North, Z=Up; vertices counter-clockwise as
+# seen from outside.
+
+simulation:
+  timesteps_per_hour: 4
+  start_month: 1
+  start_day: 1
+  end_month: 12
+  end_day: 31
+
+weather_files:
+  - ../weather/USA_CO_Boulder.Muni.AP.720533_TMYx.2009-2023.epw
+
+climate_zone: 5B
+
+standard:
+  name: ashrae_90_1
+  edition: "2025"
+  method: prescriptive
+  lighting:
+    method: space_by_space
+    schedule: Office Lighting
+  envelope:
+    category: nonresidential
+    # Assembly classes not given here use the edition's defaults
+    # (data/standards/ashrae_90_1/2025/edition.yaml).
+    classes:
+      wall_above_grade: mass
+
+simple_constructions:
+  - name: Interior Partition
+    u_factor: 1.5
+    thermal_capacity: 20000.0
+
+schedules:
+  - name: Office Occupancy
+    compact:
+      weekday: "0 until 8:00, 1.0 until 12:00, 0.5 until 13:00, 1.0 until 17:00, 0"
+      weekend: "0"
+      holiday: "0"
+  - name: Office Lighting
+    compact:
+      weekday: "0.05 until 7:00, 0.9 until 18:00, 0.05"
+      weekend: "0.05"
+      holiday: "0.05"
+
+zones:
+  - name: Office
+    space_type:
+      prescriptive: office_over_300_sqft
+      appendix_g: office_open_plan
+  - name: Corridor
+    space_type: corridor
+  - name: Storage
+    space_type: storage_50_sqft_and_over
+
+people:
+  - name: Office People
+    zones: [Office]
+    count: 10.0
+    activity_level: 120.0
+    radiant_fraction: 0.3
+    schedule: Office Occupancy
+
+equipment:
+  - name: Office Plug Loads
+    zones: [Office]
+    watts_per_area: 8.0
+    radiant_fraction: 0.3
+    schedule: Office Occupancy
+
+infiltration:
+  - name: Building Infiltration
+    zones: [Office, Corridor, Storage]
+    air_changes_per_hour: 0.2
+
+ideal_loads:
+  - name: Ideal Loads
+    zones: [Office, Corridor, Storage]
+    heating_setpoint: 21.0
+    cooling_setpoint: 24.0
+
+surfaces:
+  # Office: y 0–8 m
+  - name: Office South Wall
+    zone: Office
+    type: wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 20.0, y: 0.0, z: 0.0}
+      - {x: 20.0, y: 0.0, z: 3.5}
+      - {x: 0.0, y: 0.0, z: 3.5}
+  - name: Office South Window
+    zone: Office
+    type: window
+    parent_surface: Office South Wall
+    vertices:
+      - {x: 1.0, y: 0.0, z: 0.9}
+      - {x: 19.0, y: 0.0, z: 0.9}
+      - {x: 19.0, y: 0.0, z: 2.9}
+      - {x: 1.0, y: 0.0, z: 2.9}
+  - name: Office East Wall
+    zone: Office
+    type: wall
+    boundary: outdoor
+    vertices:
+      - {x: 20.0, y: 0.0, z: 0.0}
+      - {x: 20.0, y: 8.0, z: 0.0}
+      - {x: 20.0, y: 8.0, z: 3.5}
+      - {x: 20.0, y: 0.0, z: 3.5}
+  - name: Office East Window
+    zone: Office
+    type: window
+    parent_surface: Office East Wall
+    vertices:
+      - {x: 20.0, y: 1.5, z: 1.0}
+      - {x: 20.0, y: 6.5, z: 1.0}
+      - {x: 20.0, y: 6.5, z: 2.5}
+      - {x: 20.0, y: 1.5, z: 2.5}
+  - name: Office West Wall
+    zone: Office
+    type: wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 8.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 3.5}
+      - {x: 0.0, y: 8.0, z: 3.5}
+  - name: Office West Window
+    zone: Office
+    type: window
+    parent_surface: Office West Wall
+    vertices:
+      - {x: 0.0, y: 6.5, z: 1.0}
+      - {x: 0.0, y: 1.5, z: 1.0}
+      - {x: 0.0, y: 1.5, z: 2.5}
+      - {x: 0.0, y: 6.5, z: 2.5}
+  - name: Office North Partition
+    zone: Office
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 20.0, y: 8.0, z: 0.0}
+      - {x: 0.0, y: 8.0, z: 0.0}
+      - {x: 0.0, y: 8.0, z: 3.5}
+      - {x: 20.0, y: 8.0, z: 3.5}
+  - name: Office Roof
+    zone: Office
+    type: roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 0.0, z: 3.5}
+      - {x: 20.0, y: 0.0, z: 3.5}
+      - {x: 20.0, y: 8.0, z: 3.5}
+      - {x: 0.0, y: 8.0, z: 3.5}
+  - name: Office Slab
+    zone: Office
+    type: floor
+    boundary: ground
+    exposed_perimeter: 36.0
+    sun_exposure: false
+    wind_exposure: false
+    vertices:
+      - {x: 0.0, y: 8.0, z: 0.0}
+      - {x: 20.0, y: 8.0, z: 0.0}
+      - {x: 20.0, y: 0.0, z: 0.0}
+      - {x: 0.0, y: 0.0, z: 0.0}
+
+  # Corridor: y 8–10 m
+  - name: Corridor East Wall
+    zone: Corridor
+    type: wall
+    boundary: outdoor
+    vertices:
+      - {x: 20.0, y: 8.0, z: 0.0}
+      - {x: 20.0, y: 10.0, z: 0.0}
+      - {x: 20.0, y: 10.0, z: 3.5}
+      - {x: 20.0, y: 8.0, z: 3.5}
+  - name: Corridor West Wall
+    zone: Corridor
+    type: wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 10.0, z: 0.0}
+      - {x: 0.0, y: 8.0, z: 0.0}
+      - {x: 0.0, y: 8.0, z: 3.5}
+      - {x: 0.0, y: 10.0, z: 3.5}
+  - name: Corridor South Partition
+    zone: Corridor
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 8.0, z: 0.0}
+      - {x: 20.0, y: 8.0, z: 0.0}
+      - {x: 20.0, y: 8.0, z: 3.5}
+      - {x: 0.0, y: 8.0, z: 3.5}
+  - name: Corridor North Partition
+    zone: Corridor
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 20.0, y: 10.0, z: 0.0}
+      - {x: 0.0, y: 10.0, z: 0.0}
+      - {x: 0.0, y: 10.0, z: 3.5}
+      - {x: 20.0, y: 10.0, z: 3.5}
+  - name: Corridor Roof
+    zone: Corridor
+    type: roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 8.0, z: 3.5}
+      - {x: 20.0, y: 8.0, z: 3.5}
+      - {x: 20.0, y: 10.0, z: 3.5}
+      - {x: 0.0, y: 10.0, z: 3.5}
+  - name: Corridor Slab
+    zone: Corridor
+    type: floor
+    boundary: ground
+    exposed_perimeter: 4.0
+    sun_exposure: false
+    wind_exposure: false
+    vertices:
+      - {x: 0.0, y: 10.0, z: 0.0}
+      - {x: 20.0, y: 10.0, z: 0.0}
+      - {x: 20.0, y: 8.0, z: 0.0}
+      - {x: 0.0, y: 8.0, z: 0.0}
+
+  # Storage: y 10–12 m
+  - name: Storage North Wall
+    zone: Storage
+    type: wall
+    boundary: outdoor
+    vertices:
+      - {x: 20.0, y: 12.0, z: 0.0}
+      - {x: 0.0, y: 12.0, z: 0.0}
+      - {x: 0.0, y: 12.0, z: 3.5}
+      - {x: 20.0, y: 12.0, z: 3.5}
+  - name: Storage East Wall
+    zone: Storage
+    type: wall
+    boundary: outdoor
+    vertices:
+      - {x: 20.0, y: 10.0, z: 0.0}
+      - {x: 20.0, y: 12.0, z: 0.0}
+      - {x: 20.0, y: 12.0, z: 3.5}
+      - {x: 20.0, y: 10.0, z: 3.5}
+  - name: Storage West Wall
+    zone: Storage
+    type: wall
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 12.0, z: 0.0}
+      - {x: 0.0, y: 10.0, z: 0.0}
+      - {x: 0.0, y: 10.0, z: 3.5}
+      - {x: 0.0, y: 12.0, z: 3.5}
+  - name: Storage South Partition
+    zone: Storage
+    type: wall
+    construction: Interior Partition
+    boundary: adiabatic
+    vertices:
+      - {x: 0.0, y: 10.0, z: 0.0}
+      - {x: 20.0, y: 10.0, z: 0.0}
+      - {x: 20.0, y: 10.0, z: 3.5}
+      - {x: 0.0, y: 10.0, z: 3.5}
+  - name: Storage Roof
+    zone: Storage
+    type: roof
+    boundary: outdoor
+    vertices:
+      - {x: 0.0, y: 10.0, z: 3.5}
+      - {x: 20.0, y: 10.0, z: 3.5}
+      - {x: 20.0, y: 12.0, z: 3.5}
+      - {x: 0.0, y: 12.0, z: 3.5}
+  - name: Storage Slab
+    zone: Storage
+    type: floor
+    boundary: ground
+    exposed_perimeter: 24.0
+    sun_exposure: false
+    wind_exposure: false
+    vertices:
+      - {x: 0.0, y: 12.0, z: 0.0}
+      - {x: 20.0, y: 12.0, z: 0.0}
+      - {x: 20.0, y: 10.0, z: 0.0}
+      - {x: 0.0, y: 10.0, z: 0.0}
+
+summary_report: true

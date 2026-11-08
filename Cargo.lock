@@ -472,6 +472,7 @@ dependencies = [
  "openbse-cosim",
  "openbse-envelope",
  "openbse-psychrometrics",
+ "openbse-standards",
  "openbse-weather",
  "rayon",
  "serde",
@@ -487,6 +488,15 @@ version = "0.7.0"
 dependencies = [
  "approx",
  "thiserror",
+]
+
+[[package]]
+name = "openbse-standards"
+version = "0.7.0"
+dependencies = [
+ "openbse-envelope",
+ "serde",
+ "serde_yaml",
 ]
 
 [[package]]

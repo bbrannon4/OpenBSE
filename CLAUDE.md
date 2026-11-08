@@ -27,12 +27,13 @@ npm run build      # full build (tsc + vite)
 
 ## Architecture
 
-- Rust workspace with 11 crates in `crates/` — core, components, controls, envelope, weather, psychrometrics, io, airloop, cli, a205, cosim
+- Rust workspace with 12 crates in `crates/` — core, components, controls, envelope, weather, psychrometrics, io, airloop, cli, a205, cosim, standards
 - Tauri + React desktop editor in `tools/editor/` (excluded from Rust workspace)
 - YAML input format — schema at `docs/openbse_schema.json`
 - Engineering Reference (physics and equations) in `docs/engineering-reference/`, built with Quarto (website + PDF, `.github/workflows/docs.yml`)
 - ASHRAE 140 test cases in `140_tests/cases/`
 - DOE prototype validation models in `prototype_tests/`
+- Code and standard reference tables in `data/standards/` (values and citations only, never the standard's text)
 - Example models in `examples/`
 
 ## Code Style

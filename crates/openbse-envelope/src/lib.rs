@@ -52,8 +52,8 @@ pub use species::{SpeciesConfig, SpeciesGenerationInput, SpeciesTransport, Speci
 pub use surface::{BoundaryCondition, SurfaceInput, SurfaceType};
 pub use zone::{
     dc_rack_inlet_max, DataCenterConfig, DuctLeakageInput, ExhaustFanInput, IdealLoadsAirSystem,
-    InteriorSolarDistribution, OutdoorAirInput, RoomAirGradient, ThermostatScheduleEntry,
-    VentilationScheduleEntry, ZoneComfortConfig, ZoneInput,
+    InteriorSolarDistribution, OutdoorAirInput, RoomAirGradient, SpaceTypeRef,
+    ThermostatScheduleEntry, VentilationScheduleEntry, ZoneComfortConfig, ZoneInput,
 };
 pub use zone_loads::{
     EquipmentGainInput, ExhaustFanTopLevel, IdealLoadsTopLevel, InfiltrationInteraction,

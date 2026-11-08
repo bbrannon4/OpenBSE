@@ -1,0 +1,110 @@
+# ASHRAE 90.1-2025 (I-P), Table G3.4-8: values as printed.
+# Values only. The standard's text and footnotes are not reproduced.
+standard: ashrae_90_1
+edition: "2025"
+table: "G3.4-8"
+title: Appendix G baseline building envelope criteria, climate zone 8
+kind: envelope
+method: appendix_g
+units: ip
+derivation: printed
+climate_zones: [8]
+opaque:
+  - element: roof
+    class: insulation_entirely_above_deck
+    name: Insulation entirely above deck
+    criteria:
+      nonresidential: {u_factor: 0.048}
+      residential: {u_factor: 0.048}
+      semiheated: {u_factor: 0.093}
+  - element: wall_above_grade
+    class: steel_framed
+    name: Steel-framed
+    criteria:
+      nonresidential: {u_factor: 0.064}
+      residential: {u_factor: 0.055}
+      semiheated: {u_factor: 0.124}
+  - element: wall_below_grade
+    class: below_grade_wall
+    name: Below-grade wall
+    criteria:
+      nonresidential: {c_factor: 0.119}
+      residential: {c_factor: 0.119}
+      semiheated: {c_factor: 1.140}
+  - element: floor
+    class: steel_joist
+    name: Steel joist
+    criteria:
+      nonresidential: {u_factor: 0.038}
+      residential: {u_factor: 0.032}
+      semiheated: {u_factor: 0.052}
+  - element: slab_on_grade
+    class: unheated
+    name: Unheated
+    criteria:
+      nonresidential: {f_factor: 0.540}
+      residential: {f_factor: 0.520}
+      semiheated: {f_factor: 0.730}
+  - element: opaque_door
+    class: swinging
+    name: Swinging
+    criteria:
+      nonresidential: {u_factor: 0.500}
+      residential: {u_factor: 0.500}
+      semiheated: {u_factor: 0.700}
+  - element: opaque_door
+    class: nonswinging
+    name: Nonswinging
+    criteria:
+      nonresidential: {u_factor: 0.500}
+      residential: {u_factor: 0.500}
+      semiheated: {u_factor: 1.450}
+fenestration:
+  - element: vertical_fenestration
+    class: all
+    name: Vertical glazing
+    area_ratio_percent: [0, 10.0]
+    criteria:
+      nonresidential: {u_factor: 0.46, shgc: 0.40, vt: 0.44}
+      residential: {u_factor: 0.46, shgc: 0.40, vt: 0.44}
+      semiheated: {u_factor: 1.22, shgc: 0.40, vt: 0.44}
+  - element: vertical_fenestration
+    class: all
+    name: Vertical glazing
+    area_ratio_percent: [10.1, 20.0]
+    criteria:
+      nonresidential: {u_factor: 0.46, shgc: 0.40, vt: 0.44}
+      residential: {u_factor: 0.46, shgc: 0.40, vt: 0.44}
+      semiheated: {u_factor: 1.22, shgc: 0.40, vt: 0.44}
+  - element: vertical_fenestration
+    class: all
+    name: Vertical glazing
+    area_ratio_percent: [20.1, 30.0]
+    criteria:
+      nonresidential: {u_factor: 0.46, shgc: 0.40, vt: 0.44}
+      residential: {u_factor: 0.46, shgc: 0.40, vt: 0.44}
+      semiheated: {u_factor: 1.22, shgc: 0.40, vt: 0.44}
+  - element: vertical_fenestration
+    class: all
+    name: Vertical glazing
+    area_ratio_percent: [30.1, 40.0]
+    criteria:
+      nonresidential: {u_factor: 0.46, shgc: 0.40, vt: 0.44}
+      residential: {u_factor: 0.46, shgc: 0.40, vt: 0.44}
+      semiheated: {u_factor: 1.22, shgc: 0.40, vt: 0.44}
+  - element: skylight
+    class: all
+    name: Skylight, all
+    area_ratio_percent: [0, 2.0]
+    criteria:
+      nonresidential: {u_factor: 0.58, shgc: 0.55, vt: 0.61}
+      residential: {u_factor: 0.58, shgc: 0.55, vt: 0.61}
+      semiheated: {u_factor: 0.81, shgc: 0.55, vt: 0.61}
+  - element: skylight
+    class: all
+    name: Skylight, all
+    area_ratio_percent: [2.1, null]
+    criteria:
+      nonresidential: {u_factor: 0.58, shgc: 0.55, vt: 0.61}
+      residential: {u_factor: 0.58, shgc: 0.55, vt: 0.61}
+      semiheated: {u_factor: 0.81, shgc: 0.55, vt: 0.61}

@@ -196,7 +196,11 @@
     },
     "climate_zone": {
       "type": "string",
-      "description": "ASHRAE climate zone (e.g. \"5A\") — used for ASHRAE 90.4 PUE/MLC/ELC compliance limits in the summary report. Optional; limits show \"Unknown\" if omitted."
+      "description": "ASHRAE climate zone (e.g. \"5A\") — used for ASHRAE 90.4 PUE/MLC/ELC compliance limits in the summary report, and as the default climate zone of `standard`. Optional; limits show \"Unknown\" if omitted."
+    },
+    "standard": {
+      "$ref": "#/$defs/StandardSelection",
+      "description": "Fill lighting power and constructions from a code or standard's tables when the model is loaded. Explicit inputs (a zone's lights, a surface's construction) always win, and the summary report lists every value used with its source table."
     },
     "outputs": {
       "type": "array",
@@ -1721,13 +1725,13 @@
 
     "Surface": {
       "type": "object",
-      "required": ["name", "zone", "type", "construction"],
+      "required": ["name", "zone", "type"],
       "description": "Building surface (wall, floor, roof, or window).",
       "properties": {
         "name": { "type": "string" },
         "zone": { "type": "string", "description": "Zone this surface belongs to." },
         "type": { "$ref": "#/$defs/SurfaceType" },
-        "construction": { "type": "string", "description": "Construction or window_construction name." },
+        "construction": { "type": "string", "default": "", "description": "Construction or window_construction name. May be omitted when `standard.envelope` builds it from the standard's tables." },
         "area": { "type": "number", "default": 0.0, "description": "Surface area [m2]. Auto-calculated from vertices if 0." },
         "azimuth": { "type": "number", "default": 0.0, "description": "Outward normal azimuth [degrees from north, clockwise]." },
         "tilt": { "type": "number", "default": 90.0, "description": "Surface tilt [degrees]. 0=face-up, 90=vertical, 180=face-down." },
@@ -1949,7 +1953,59 @@
           }
         },
         "natural_ventilation": { "$ref": "#/$defs/NaturalVentilation" },
-        "data_center": { "$ref": "#/$defs/DataCenter" }
+        "data_center": { "$ref": "#/$defs/DataCenter" },
+        "space_type": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "object", "additionalProperties": { "type": "string" } }
+          ],
+          "description": "Space type key for the standard's space-by-space lighting table, or one key per method, e.g. {prescriptive: office_over_300_sqft, appendix_g: office_open_plan}. Keys: data/standards/README.md."
+        },
+        "building_area_type": { "type": "string", "description": "Building area type for the building area lighting method, if this zone's differs from `standard.lighting.building_area_type`." },
+        "envelope_category": { "type": "string", "description": "Envelope space-conditioning category for the standard's envelope tables (90.1: nonresidential, residential, semiheated). Default: `standard.envelope.category`. Give one to an unconditioned zone to have its envelope built." }
+      }
+    },
+
+    "StandardSelection": {
+      "type": "object",
+      "required": ["name", "edition", "method"],
+      "description": "Code or standard applied at load. Available data: data/standards/README.md.",
+      "properties": {
+        "name": { "type": "string", "description": "Standard key, e.g. ashrae_90_1." },
+        "edition": { "type": "string", "description": "Edition, e.g. \"2025\" (quote it in YAML)." },
+        "method": { "type": "string", "description": "Compliance method: prescriptive (Section 5 and 9 tables) or appendix_g (baseline building)." },
+        "climate_zone": { "type": "string", "description": "Climate zone for the envelope tables, e.g. 5B. Default: the model's climate_zone." },
+        "lighting": { "$ref": "#/$defs/StandardLighting" },
+        "envelope": { "$ref": "#/$defs/StandardEnvelope" }
+      }
+    },
+
+    "StandardLighting": {
+      "type": "object",
+      "required": ["method"],
+      "description": "Add lights to each zone at the standard's LPD. Zones that any explicit `lights` entry covers are left alone.",
+      "properties": {
+        "method": { "type": "string", "enum": ["space_by_space", "building_area"], "description": "space_by_space uses each zone's space_type; building_area uses building_area_type." },
+        "building_area_type": { "type": "string", "description": "Building area type for the building area method; a zone's building_area_type overrides it." },
+        "schedule": { "type": "string", "description": "Schedule for the generated lights (always on if omitted)." },
+        "radiant_fraction": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1, "description": "Radiant fraction of the generated lights." },
+        "return_air_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Return-air fraction of the generated lights." },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter for the generated lights." }
+      }
+    },
+
+    "StandardEnvelope": {
+      "type": "object",
+      "description": "Build a construction for each surface that names none, from the standard's envelope table for its element, class and category.",
+      "properties": {
+        "category": { "type": "string", "description": "Default envelope space-conditioning category; a zone's envelope_category overrides it. Default: the edition's (nonresidential for 90.1)." },
+        "classes": {
+          "type": "object",
+          "description": "Assembly class per element, overriding the edition's defaults, e.g. {wall_above_grade: mass}.",
+          "propertyNames": { "enum": ["roof", "wall_above_grade", "wall_below_grade", "floor", "slab_on_grade", "opaque_door", "vertical_fenestration", "skylight"] },
+          "additionalProperties": { "type": "string" }
+        },
+        "shgc_where_no_requirement": { "type": "number", "minimum": 0, "maximum": 1, "description": "SHGC to use where the table gives NR for SHGC." }
       }
     },
 

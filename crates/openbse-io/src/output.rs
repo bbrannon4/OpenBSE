@@ -1889,6 +1889,8 @@ pub struct SummaryReport {
     submeter_monthly_j: HashMap<(String, String), [f64; 12]>,
     /// ASHRAE climate zone string (e.g., "5A") for 90.4 limit table lookup.
     climate_zone: Option<String>,
+    /// Values filled in from a code or standard, with their sources.
+    standards: Option<crate::standards::StandardsReport>,
 }
 
 impl SummaryReport {
@@ -1924,7 +1926,13 @@ impl SummaryReport {
             zone_multipliers: HashMap::new(),
             submeter_monthly_j: HashMap::new(),
             climate_zone: None,
+            standards: None,
         }
+    }
+
+    /// Record the values a code or standard supplied, for the report.
+    pub fn set_standards_report(&mut self, report: crate::standards::StandardsReport) {
+        self.standards = Some(report);
     }
 
     /// Set the ASHRAE climate zone for 90.4 PUE/MLC/ELC limit reporting.
@@ -2969,6 +2977,19 @@ impl SummaryReport {
             }
         }
 
+        // -- Values from a code or standard --
+        if let Some(ref r) = self.standards {
+            writeln!(
+                w,
+                "-- Values From Code or Standard --------------------------------"
+            )?;
+            writeln!(w)?;
+            for line in crate::standards::report_lines(r) {
+                writeln!(w, "{line}")?;
+            }
+            writeln!(w)?;
+        }
+
         // -- Data Center Performance (ASHRAE 90.4) --
         {
             let annual_it_j: f64 = self.monthly.iter().map(|m| m.it_equipment_j).sum();
@@ -3499,6 +3520,41 @@ impl SummaryReport {
                     writeln!(w, "<td><b>{:.1}</b></td></tr>", total)?;
                 }
                 writeln!(w, "</table>")?;
+            }
+        }
+
+        // -- Values from a code or standard --
+        if let Some(ref r) = self.standards {
+            let esc = |t: &str| {
+                t.replace('&', "&amp;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;")
+            };
+            writeln!(w, "<h2>Values From Code or Standard</h2>")?;
+            writeln!(w, "<p>{}</p>", esc(&r.header))?;
+            writeln!(
+                w,
+                "<table><tr><th>Applied to</th><th>Quantity</th><th>Value (SI)</th>\
+                 <th>Source</th><th>Printed</th><th>Notes</th></tr>"
+            )?;
+            for a in &r.applied {
+                writeln!(
+                    w,
+                    "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                    esc(&a.target),
+                    esc(&a.quantity),
+                    esc(&a.value),
+                    esc(&a.citation.to_string()),
+                    esc(&a.citation.printed),
+                    esc(a.note.as_deref().unwrap_or(""))
+                )?;
+            }
+            writeln!(w, "</table>")?;
+            for k in &r.kept_explicit {
+                writeln!(w, "<p>Kept: {}</p>", esc(k))?;
+            }
+            for n in &r.notes {
+                writeln!(w, "<p>Note: {}</p>", esc(n))?;
             }
         }
 

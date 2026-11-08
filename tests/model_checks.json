@@ -16,6 +16,9 @@
     "examples/1zone_uncontrolled.yaml": {
       "tier": "fast"
     },
+    "examples/ashrae_901_2025_quick_start.yaml": {
+      "tier": "fast"
+    },
     "examples/chiller_table_curves.yaml": {
       "tier": "fast",
       "max_unmet_heating_hours": 2450,
@@ -48,10 +51,10 @@
     },
     "examples/doe_retail_standalone.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 15110,
-      "max_unmet_heating_hours_reason": "13728 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting.",
-      "max_unmet_cooling_hours": 3100,
-      "max_unmet_cooling_hours_reason": "2812 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
+      "max_unmet_heating_hours": 7700,
+      "max_unmet_heating_hours_reason": "6997 h measured against the setpoints the HVAC controls to (#291), about 10% margin; down from 13728 h once lights and people stopped resolving to zero (see the cooling reason). Tracked in #165: mostly proportional heating droop (#178) and per-zone counting.",
+      "max_unmet_cooling_hours": 4650,
+      "max_unmet_cooling_hours_reason": "4227 h measured, about 10% margin. Rose from 2812 h when lights and people, set per floor area, stopped resolving to zero (the zones take their floor area from vertices, which per-area loads did not see before the ASHRAE 90.1-2025 data PR). The DX capacities, fixed at the E+ IDF values, now face the full internal gains. Tracked in #165; the baseline flags any change."
     },
     "examples/heat_pump_rtu.yaml": {
       "tier": "fast",

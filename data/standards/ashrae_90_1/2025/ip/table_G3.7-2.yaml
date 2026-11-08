@@ -1,0 +1,267 @@
+# ASHRAE 90.1-2025 (I-P), Table G3.7-2: values as printed.
+# Values only. The standard's text and footnotes are not reproduced.
+standard: ashrae_90_1
+edition: "2025"
+table: "G3.7-2"
+title: Appendix G baseline lighting power density, space-by-space method, building-specific space types
+kind: lighting_space_by_space
+method: appendix_g
+units: ip
+derivation: printed
+lighting:
+  - key: casino_betting_area
+    name: "Casino gaming area, betting/sportsbook/keno/bingo"
+    lpd: 1.34
+    occupancy_sensor_reduction_percent: 0
+  - key: casino_high_limit_game_area
+    name: "Casino gaming area, high-limit game area"
+    lpd: 2.78
+    occupancy_sensor_reduction_percent: 0
+  - key: casino_slot_machine_area
+    name: "Casino gaming area, slot machine/digital gaming"
+    lpd: 0.90
+    occupancy_sensor_reduction_percent: 0
+  - key: casino_table_games_area
+    name: "Casino gaming area, table games"
+    lpd: 1.80
+    occupancy_sensor_reduction_percent: 0
+  - key: convention_center_exhibit_space
+    name: "Convention center, exhibit space"
+    lpd: 1.30
+    occupancy_sensor_reduction_percent: 35
+  - key: correctional_audience_seating
+    name: "Correctional facility, audience seating area"
+    lpd: 0.70
+    occupancy_sensor_reduction_percent: 10
+  - key: correctional_classroom
+    name: "Correctional facility, classroom"
+    lpd: 1.30
+    occupancy_sensor_reduction_percent: None
+  - key: correctional_confinement_cells
+    name: "Correctional facility, confinement cells"
+    lpd: 0.90
+    occupancy_sensor_reduction_percent: 10
+  - key: correctional_dining
+    name: "Correctional facility, dining area"
+    lpd: 1.30
+    occupancy_sensor_reduction_percent: 35
+  - key: dormitory_living_quarters
+    name: "Dormitory, living quarters"
+    lpd: 1.11
+    occupancy_sensor_reduction_percent: 10
+  - key: visually_impaired_chapel
+    name: "Facility for the visually impaired, chapel"
+    lpd: 2.77
+    occupancy_sensor_reduction_percent: 10
+  - key: visually_impaired_corridor
+    name: "Facility for the visually impaired, corridor"
+    lpd: 1.15
+    occupancy_sensor_reduction_percent: 25
+  - key: visually_impaired_dining
+    name: "Facility for the visually impaired, dining"
+    lpd: 3.32
+    occupancy_sensor_reduction_percent: 35
+  - key: visually_impaired_lobby
+    name: "Facility for the visually impaired, lobby"
+    lpd: 2.26
+    occupancy_sensor_reduction_percent: 25
+  - key: visually_impaired_recreation_room
+    name: "Facility for the visually impaired, recreation room"
+    lpd: 3.02
+    occupancy_sensor_reduction_percent: 10
+  - key: visually_impaired_restroom
+    name: "Facility for the visually impaired, restroom"
+    lpd: 1.52
+    occupancy_sensor_reduction_percent: 45
+  - key: fire_station_sleeping_quarters
+    name: "Fire station, sleeping quarters"
+    lpd: 0.30
+    occupancy_sensor_reduction_percent: 10
+  - key: gymnasium_exercise_area
+    name: "Gymnasium/fitness center, exercise area"
+    lpd: 0.90
+    occupancy_sensor_reduction_percent: 35
+  - key: gymnasium_playing_area
+    name: "Gymnasium/fitness center, playing area"
+    lpd: 1.40
+    occupancy_sensor_reduction_percent: 35
+  - key: healthcare_control_room
+    name: "Health care facility, control room (MRI/CT/radiology/PET)"
+    lpd: 2.14
+    occupancy_sensor_reduction_percent: 10
+  - key: healthcare_exam_treatment_room
+    name: "Health care facility, exam/treatment room"
+    lpd: 1.50
+    occupancy_sensor_reduction_percent: 10
+  - key: healthcare_hospital_corridor
+    name: "Health care facility, hospital corridor"
+    lpd: 1.00
+    occupancy_sensor_reduction_percent: 25
+  - key: healthcare_lounge
+    name: "Health care facility, lounge"
+    lpd: 0.80
+    occupancy_sensor_reduction_percent: None
+  - key: healthcare_medical_supply_room
+    name: "Health care facility, medical supply room"
+    lpd: 1.40
+    occupancy_sensor_reduction_percent: 45
+  - key: healthcare_nursery
+    name: "Health care facility, nursery"
+    lpd: 0.60
+    occupancy_sensor_reduction_percent: 10
+  - key: healthcare_nurse_station
+    name: "Health care facility, nurse station"
+    lpd: 1.00
+    occupancy_sensor_reduction_percent: 10
+  - key: healthcare_operating_room
+    name: "Health care facility, operating room"
+    lpd: 2.20
+    occupancy_sensor_reduction_percent: 10
+  - key: healthcare_patient_room
+    name: "Health care facility, patient room"
+    lpd: 0.70
+    occupancy_sensor_reduction_percent: 10
+  - key: healthcare_physical_therapy_room
+    name: "Health care facility, physical therapy room"
+    lpd: 0.90
+    occupancy_sensor_reduction_percent: 10
+  - key: healthcare_recovery_room
+    name: "Health care facility, recovery room"
+    lpd: 0.80
+    occupancy_sensor_reduction_percent: 10
+  - key: healthcare_telemedicine
+    name: "Health care facility, telemedicine"
+    lpd: 2.21
+    occupancy_sensor_reduction_percent: 10
+  - key: library_reading_area
+    name: "Library, reading area"
+    lpd: 1.20
+    occupancy_sensor_reduction_percent: 15
+  - key: library_stacks
+    name: "Library, stacks"
+    lpd: 1.70
+    occupancy_sensor_reduction_percent: 15
+  - key: manufacturing_detailed
+    name: "Manufacturing facility, detailed manufacturing area"
+    lpd: 2.10
+    occupancy_sensor_reduction_percent: 10
+  - key: manufacturing_low_bay
+    name: "Manufacturing facility, low bay (<25 ft floor-to-ceiling)"
+    lpd: 1.20
+    occupancy_sensor_reduction_percent: 10
+  - key: manufacturing_high_bay
+    name: "Manufacturing facility, high bay (25 to 50 ft floor-to-ceiling)"
+    lpd: 1.70
+    occupancy_sensor_reduction_percent: 10
+  - key: manufacturing_extra_high_bay
+    name: "Manufacturing facility, extra-high bay (>50 ft floor-to-ceiling)"
+    lpd: 1.32
+    occupancy_sensor_reduction_percent: 10
+  - key: museum_general_exhibition
+    name: "Museum, general exhibition area"
+    lpd: 1.00
+    occupancy_sensor_reduction_percent: 10
+  - key: museum_restoration
+    name: "Museum, restoration room"
+    lpd: 1.70
+    occupancy_sensor_reduction_percent: 10
+  - key: performing_arts_dressing_room
+    name: "Performing arts theater, dressing room"
+    lpd: 0.64
+    occupancy_sensor_reduction_percent: 0
+  - key: post_office_sorting_area
+    name: "Post office, sorting area"
+    lpd: 1.20
+    occupancy_sensor_reduction_percent: 10
+  - key: religious_audience_seating
+    name: "Religious facility, audience seating area"
+    lpd: 1.70
+    occupancy_sensor_reduction_percent: 10
+  - key: religious_fellowship_hall
+    name: "Religious facility, fellowship hall"
+    lpd: 0.90
+    occupancy_sensor_reduction_percent: 10
+  - key: religious_worship_pulpit_choir
+    name: "Religious facility, worship/pulpit/choir area"
+    lpd: 2.40
+    occupancy_sensor_reduction_percent: 10
+  - key: retail_dressing_fitting_room
+    name: "Retail facility, dressing/fitting room"
+    lpd: 0.89
+    occupancy_sensor_reduction_percent: 10
+  - key: retail_hair_care
+    name: "Retail facility, hair care"
+    lpd: 1.04
+    occupancy_sensor_reduction_percent: 10
+  - key: retail_nail_care
+    name: "Retail facility, manicure/pedicure"
+    lpd: 0.70
+    occupancy_sensor_reduction_percent: 10
+  - key: retail_mall_concourse
+    name: "Retail facility, mall concourse"
+    lpd: 1.70
+    occupancy_sensor_reduction_percent: 10
+  - key: retail_massage
+    name: "Retail facility, massage"
+    lpd: 0.81
+    occupancy_sensor_reduction_percent: 10
+  - key: sports_arena_class_1
+    name: "Sports arena playing area, class I facility"
+    lpd: 4.61
+    occupancy_sensor_reduction_percent: 10
+  - key: sports_arena_class_2
+    name: "Sports arena playing area, class II facility"
+    lpd: 3.01
+    occupancy_sensor_reduction_percent: 10
+  - key: sports_arena_class_3
+    name: "Sports arena playing area, class III facility"
+    lpd: 2.26
+    occupancy_sensor_reduction_percent: 10
+  - key: sports_arena_class_4
+    name: "Sports arena playing area, class IV facility"
+    lpd: 1.50
+    occupancy_sensor_reduction_percent: 10
+  - key: natatorium_class_1
+    name: "Natatorium, class I facility"
+    lpd: 3.57
+    occupancy_sensor_reduction_percent: 0
+  - key: natatorium_class_2
+    name: "Natatorium, class II facility"
+    lpd: 2.38
+    occupancy_sensor_reduction_percent: 0
+  - key: natatorium_class_3
+    name: "Natatorium, class III facility"
+    lpd: 1.42
+    occupancy_sensor_reduction_percent: 0
+  - key: natatorium_class_4
+    name: "Natatorium, class IV facility"
+    lpd: 0.48
+    occupancy_sensor_reduction_percent: 0
+  - key: transportation_airport_hangar
+    name: "Transportation facility, airport hangar"
+    lpd: 2.25
+    occupancy_sensor_reduction_percent: 0
+  - key: transportation_baggage_carousel
+    name: "Transportation facility, baggage/carousel area"
+    lpd: 1.00
+    occupancy_sensor_reduction_percent: 10
+  - key: transportation_concourse
+    name: "Transportation facility, airport concourse"
+    lpd: 0.60
+    occupancy_sensor_reduction_percent: 10
+  - key: transportation_passenger_loading
+    name: "Transportation facility, passenger loading area"
+    lpd: 1.11
+    occupancy_sensor_reduction_percent: 10
+  - key: transportation_ticket_counter
+    name: "Transportation facility, ticket counter"
+    lpd: 1.50
+    occupancy_sensor_reduction_percent: 10
+  - key: warehouse_bulky_palletized
+    name: "Warehouse storage area, medium-to-bulky palletized items"
+    lpd: 0.90
+    occupancy_sensor_reduction_percent: 45
+  - key: warehouse_smaller_items
+    name: "Warehouse storage area, smaller hand-carried items"
+    lpd: 1.40
+    occupancy_sensor_reduction_percent: 45

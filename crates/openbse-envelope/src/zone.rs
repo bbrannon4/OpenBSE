@@ -667,6 +667,38 @@ pub struct ZoneInput {
     /// When absent, ASHRAE 55 defaults are used (1.2 met, 0.5 clo, 0.1 m/s).
     #[serde(default)]
     pub comfort: Option<ZoneComfortConfig>,
+    /// Space type key for a code or standard's lighting tables (see the
+    /// model's `standard:` block). One key for every method, or one per
+    /// method: `{prescriptive: office_up_to_150_sqft, appendix_g: office_open_plan}`.
+    #[serde(default)]
+    pub space_type: Option<SpaceTypeRef>,
+    /// Building area type for the building area lighting method, when this
+    /// zone's differs from the project's.
+    #[serde(default)]
+    pub building_area_type: Option<String>,
+    /// Envelope space-conditioning category for the standard's envelope
+    /// tables (e.g. `nonresidential`, `residential`, `semiheated`). Default:
+    /// the project's.
+    #[serde(default)]
+    pub envelope_category: Option<String>,
+}
+
+/// A zone's space type: one key, or one key per compliance method.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum SpaceTypeRef {
+    One(String),
+    PerMethod(std::collections::BTreeMap<String, String>),
+}
+
+impl SpaceTypeRef {
+    /// The key to use under `method`.
+    pub fn for_method(&self, method: &str) -> Option<&str> {
+        match self {
+            SpaceTypeRef::One(k) => Some(k),
+            SpaceTypeRef::PerMethod(m) => m.get(method).map(|s| s.as_str()),
+        }
+    }
 }
 
 /// In-zone vertical temperature stratification (#91): constant-gradient
@@ -1817,6 +1849,9 @@ mod tests {
             species_generation: vec![],
             room_air: None,
             comfort: None,
+            space_type: None,
+            building_area_type: None,
+            envelope_category: None,
         };
         let mut zone = ZoneState::new(input, 22.0);
         let (min_on, min_off) = (2u32, 3u32);
@@ -1920,6 +1955,9 @@ mod tests {
                 control_at_thermostat_height: false,
             }),
             comfort: None,
+            space_type: None,
+            building_area_type: None,
+            envelope_category: None,
         };
         let mut zone = ZoneState::new(input, 22.0);
         zone.current_gradient = 1.5;
@@ -2183,6 +2221,9 @@ mod tests {
             species_generation: vec![],
             room_air: None,
             comfort: None,
+            space_type: None,
+            building_area_type: None,
+            envelope_category: None,
         };
 
         // During night setback
@@ -2252,6 +2293,9 @@ mod tests {
             species_generation: vec![],
             room_air: None,
             comfort: None,
+            space_type: None,
+            building_area_type: None,
+            envelope_category: None,
         };
 
         // During night ventilation period (unconditional — no temp conditions)
@@ -2296,6 +2340,9 @@ mod tests {
             species_generation: vec![],
             room_air: None,
             comfort: None,
+            space_type: None,
+            building_area_type: None,
+            envelope_category: None,
         };
 
         // Zone hot enough, outdoor cooler → ventilate
