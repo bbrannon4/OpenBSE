@@ -732,6 +732,16 @@ fn ups_efficiency(
     (ups.efficiency_at_full_load * factor).clamp(0.01, 1.0)
 }
 
+/// The share of a cycling unit's supply air its control zone (the first served
+/// zone) receives: a PSZ splits its air evenly between its zones, the other
+/// unitary types serve one zone.
+fn control_zone_flow_fraction(li: &LoopInfo) -> f64 {
+    match li.system_type {
+        AirLoopSystemType::PszAc => 1.0 / li.served_zones.len().max(1) as f64,
+        _ => 1.0,
+    }
+}
+
 /// Supply flow [kg/s] of a single-zone VAV unit: the flow that meets the
 /// zone's cooling load [W] with the supply at its coldest, `cooling_dt` below
 /// the setpoint, bounded by the minimum fraction and the design flow. With no
@@ -6543,7 +6553,11 @@ fn simulate_all_loops(
 
             if let Some(ref supply) = supply_air {
                 let supply_temp = supply.state.t_db;
-                let supply_flow = supply.mass_flow;
+                // The control zone receives only its share of the unit's air (a
+                // PSZ splits it evenly), so the unit runs until that share meets
+                // its load: E+ UnitarySystem divides the control zone's load by
+                // ControlZoneMassFlowFrac (QZnReq = ZoneLoad / fraction).
+                let supply_flow = supply.mass_flow * control_zone_flow_fraction(li);
 
                 // Mode-based PLR with continuous fan heat correction.
                 //
@@ -8106,7 +8120,7 @@ room_air:
         }
     }
 
-    fn make_psz_loop(econ_type: openbse_io::input::EconomizerType) -> LoopInfo {
+    pub(crate) fn make_psz_loop(econ_type: openbse_io::input::EconomizerType) -> LoopInfo {
         LoopInfo {
             name: "test_psz".to_string(),
             system_type: AirLoopSystemType::PszAc,
@@ -10061,5 +10075,15 @@ mod compressor_cycling_tests {
         scale_compressor_power(&mut gshp, 0.5, factor);
         assert!((gshp["heating_electric_power"] - gshp["electric_power"]).abs() < 1e-9);
         assert!((gshp["electric_power"] - factor * 1000.0).abs() < 1e-9);
+    }
+
+    /// A PSZ's control zone gets 1/n of the air, a single-zone unit all of it.
+    #[test]
+    fn control_zone_gets_its_share_of_the_air() {
+        let mut li = crate::tests::make_psz_loop(openbse_io::input::EconomizerType::NoEconomizer);
+        li.served_zones = vec!["A".to_string(), "B".to_string()];
+        assert_eq!(control_zone_flow_fraction(&li), 0.5);
+        li.system_type = AirLoopSystemType::Ptac;
+        assert_eq!(control_zone_flow_fraction(&li), 1.0);
     }
 }
