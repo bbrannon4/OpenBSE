@@ -883,7 +883,7 @@ fn data_center_supply_flow(
 /// - Always in cooling-only mode (data centers have no heating)
 /// - High-sensible operation comes from the coil's configured `shr`
 ///   (e.g. 0.98); the builder does not set it.
-/// - Supply air setpoint from `cooling_supply_temp` or rack_inlet_temp_max_c
+/// - Supply air setpoint from the loop's `cooling_supply_temp`
 /// - Airflow modulates with load when the fan is variable-speed
 ///   ([`data_center_supply_flow`])
 pub fn build_crac_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
@@ -963,7 +963,7 @@ pub fn build_crac_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
                     let sp = if dehumidify_only {
                         zone_temp - 0.5
                     } else {
-                        li.cooling_supply_temp // target rack_inlet_temp_max_c like CRAH
+                        li.cooling_supply_temp
                     };
                     signals.coil_setpoints.insert(name.clone(), sp);
                 }

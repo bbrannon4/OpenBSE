@@ -676,6 +676,44 @@ fn run_dhw_pump(
         .insert(pump.name.clone(), pump.power_consumption());
 }
 
+/// A CRAC or CRAH serving a data centre supplies its own `cooling_supply_temp`;
+/// the zone's rack inlet limit (`rack_inlet_temp_max_c`, else the equipment
+/// class's allowable maximum) is a check on it. One warning per loop and zone
+/// it exceeds.
+fn data_centre_supply_warnings(
+    model: &openbse_io::input::ModelInput,
+    loop_infos: &[LoopInfo],
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    for li in loop_infos {
+        if !matches!(
+            li.system_type,
+            AirLoopSystemType::Crac | AirLoopSystemType::Crah
+        ) {
+            continue;
+        }
+        for zone in model
+            .zones
+            .iter()
+            .filter(|z| li.served_zones.contains(&z.name))
+        {
+            let Some(dc) = zone.data_center.as_ref() else {
+                continue;
+            };
+            let limit = openbse_envelope::dc_rack_inlet_max(dc);
+            if li.cooling_supply_temp > limit {
+                warnings.push(format!(
+                    "Air loop '{}' supplies {:.1} °C to data centre '{}', above its rack inlet \
+                     limit of {:.1} °C (rack_inlet_temp_max_c or the equipment class's \
+                     allowable maximum)",
+                    li.name, li.cooling_supply_temp, zone.name, limit
+                ));
+            }
+        }
+    }
+    warnings
+}
+
 /// Supply flow [kg/s] of a single-zone VAV unit: the flow that meets the
 /// zone's cooling load [W] with the supply at its coldest, `cooling_dt` below
 /// the setpoint, bounded by the minimum fraction and the design flow. With no
@@ -1397,29 +1435,8 @@ fn main() -> Result<()> {
             return Err(stop_on_severe(&mut validation, &err_path, unsized_doas));
         }
 
-        // For CRAC/CRAH loops serving a DC zone: override cooling_supply_temp
-        // from the zone's rack_inlet_temp_max (ASHRAE A-class inlet limit).
-        {
-            let dc_zone_map: HashMap<String, f64> = model
-                .zones
-                .iter()
-                .filter_map(|z| {
-                    z.data_center
-                        .as_ref()
-                        .map(|dc| (z.name.clone(), openbse_envelope::dc_rack_inlet_max(dc)))
-                })
-                .collect();
-            for li in &mut loop_infos {
-                if li.system_type == AirLoopSystemType::Crac
-                    || li.system_type == AirLoopSystemType::Crah
-                {
-                    if let Some(&rack_inlet_max) =
-                        li.served_zones.first().and_then(|z| dc_zone_map.get(z))
-                    {
-                        li.cooling_supply_temp = rack_inlet_max;
-                    }
-                }
-            }
+        for w in data_centre_supply_warnings(&model, &loop_infos) {
+            validation.push_warning(w);
         }
 
         for li in &loop_infos {
@@ -9720,6 +9737,37 @@ mod tests_datacenter {
             cooling_sp
         );
         let _ = coil_sp; // may be absent if no matching name
+    }
+
+    /// A CRAH supplies its own temperature; the rack inlet limit only warns.
+    #[test]
+    fn data_centre_supply_is_the_loops_and_the_rack_limit_warns() {
+        let model = |supply: f64| {
+            openbse_io::input::parse_model_yaml(&format!(
+                r#"
+simulation: {{}}
+weather_files: []
+zones:
+  - name: Hall
+    data_center: {{it_load_kw: 100.0, rack_inlet_temp_max_c: 27.0}}
+air_loops:
+  - name: CRAH
+    system_type: crah
+    controls: {{cooling_supply_temp: {supply}}}
+    equipment:
+      - {{type: fan, name: F, source: constant_volume, design_flow_rate: 5.0, pressure_rise: 500.0}}
+    zone_terminals:
+      - {{zone: Hall}}
+"#
+            ))
+            .expect("model")
+        };
+        for (supply, warned) in [(18.0, false), (30.0, true)] {
+            let m = model(supply);
+            let loops = build_loop_infos(&m, &m.zones);
+            assert_eq!(loops[0].cooling_supply_temp, supply);
+            assert_eq!(!data_centre_supply_warnings(&m, &loops).is_empty(), warned);
+        }
     }
 }
 
