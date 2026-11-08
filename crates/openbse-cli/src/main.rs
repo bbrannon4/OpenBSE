@@ -7551,11 +7551,11 @@ fn apply_heat_recovery(
 
     // The mixed air moves `oa_frac` K per K of outdoor-air change, so the
     // outlet that lands it on its setpoint is (E+ OutdoorAirPretreat):
-    let setpoint = if signals.sat_setpoint > 0.0 {
-        let mixed_setpoint = signals.sat_setpoint - li.supply_fan_dt;
-        (oa.t_db + (mixed_setpoint - mixed) / oa_frac).clamp(-99.0, 99.0)
-    } else {
-        f64::NAN // no setpoint: full recovery
+    // The mixed-air setpoint is the economizer's: the supply setpoint less
+    // the fan's rise at this flow (E+ SetpointManager:MixedAir).
+    let setpoint = match signals.mixed_air_setpoint {
+        Some(mixed_setpoint) => (oa.t_db + (mixed_setpoint - mixed) / oa_frac).clamp(-99.0, 99.0),
+        None => f64::NAN, // no setpoint: full recovery
     };
     comp.set_setpoint(setpoint);
 

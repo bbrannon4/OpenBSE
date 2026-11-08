@@ -231,8 +231,9 @@ fan's rise.
 
 **Heat recovery.** Heat recovery (@sec-heat-recovery) treats the outdoor air before
 it mixes, and its exhaust is the return air. It stops while the economizer is open.
-With a supply setpoint, its outlet aims to land the mixed air on the target (E+
-`OutdoorAirPretreat`).
+With a supply setpoint, its outlet aims to land the mixed air on the economizer's
+mixed-air target, the supply setpoint less the fan's rise at the current flow, which
+is also what the coils aim at (E+ `OutdoorAirPretreat` with `SetpointManager:MixedAir`).
 
 **Comparison with EnergyPlus.** The limits and @eq-economizer follow
 `Controller:OutdoorAir` [@eplus-engref-25-2, "Outdoor Air System"]. The return

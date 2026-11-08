@@ -1867,8 +1867,8 @@ pub fn build_vav_signals(
     signals.oa_fraction = Some(oa_frac);
     signals.economizer_active = oa_frac > vrp_min_oa + 1e-6;
 
-    // The mixed-air target heat recovery is throttled to.
-    signals.sat_setpoint = sat_setpoint;
+    // The mixed-air target heat recovery is throttled to: the economizer's.
+    signals.mixed_air_setpoint = Some(mixed_air_setpoint);
 
     signals
 }
@@ -2613,6 +2613,46 @@ mod tests {
         assert!((lights.return_air_temp.unwrap() - 26.0).abs() < 1e-12);
         assert!(lights.economizer_active);
         assert_eq!(lights.oa_fraction, Some(1.0));
+    }
+
+    /// The mixed-air setpoint that heat recovery is throttled to is the one
+    /// the coils aim at: the supply setpoint less the fan's rise at this flow,
+    /// not at design flow.
+    #[test]
+    fn vav_mixed_air_setpoint_matches_the_coils() {
+        let mut li = make_loop(
+            AirLoopSystemType::Vav,
+            vec!["CHW Coil".to_string(), "Fan".to_string()],
+        );
+        li.component_kinds
+            .insert("Fan".to_string(), ComponentKind::Fan);
+        li.component_kinds
+            .insert("CHW Coil".to_string(), ComponentKind::CoolingCoil);
+        li.fan_names = HashSet::from(["Fan".to_string()]);
+        li.supply_fan_dt = 2.0;
+        li.fixed_cooling_sat = true;
+        li.cooling_supply_temp = 12.8;
+        let f = Fixture {
+            temps: one("Zone1", 24.0),
+            heat_sp: one("Zone1", 21.0),
+            cool_sp: one("Zone1", 25.0),
+            flows: one("Zone1", 1.0),
+            cool_loads: HashMap::new(),
+            heat_loads: HashMap::new(),
+            modes: [("Zone1".to_string(), HvacMode::Deadband)]
+                .into_iter()
+                .collect(),
+            empty: HashMap::new(),
+            returns: HashMap::new(),
+        };
+        let s = build_vav_signals(&li, &f.ctx(5.0), false);
+        let coil = s.coil_setpoints["CHW Coil"];
+        assert_eq!(s.mixed_air_setpoint, Some(coil));
+        // At minimum flow the fan adds a fraction of its design rise.
+        let flow_frac = s.air_mass_flows["CHW Coil"] / 1.0;
+        assert!(flow_frac < 1.0, "{flow_frac}");
+        let rise = 2.0 * flow_frac * flow_frac;
+        assert!((coil - (12.8 - rise)).abs() < 1e-9, "{coil}");
     }
 
     /// A loop can heat or cool only with equipment that does.
