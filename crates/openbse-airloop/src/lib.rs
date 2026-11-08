@@ -154,6 +154,29 @@ pub enum CoilRole {
 }
 
 impl LoopInfo {
+    /// Whether the loop has equipment that can heat (`HvacMode::Heating`) or
+    /// cool (`HvacMode::Cooling`) its supply air: a coil of that kind, a
+    /// ground-source heat pump, or a co-simulated component. A loop with
+    /// none has no runtime in that mode.
+    pub fn can_condition(&self, mode: HvacMode) -> bool {
+        if mode == HvacMode::Deadband {
+            return false;
+        }
+        self.component_names
+            .iter()
+            .any(|n| match (self.component_kinds.get(n), mode) {
+                (Some(ComponentKind::Gshp | ComponentKind::Other), _) => true,
+                (Some(ComponentKind::CoolingCoil | ComponentKind::EvapCooler), m) => {
+                    m == HvacMode::Cooling
+                }
+                (Some(ComponentKind::HeatingCoil), m) => m == HvacMode::Heating,
+                (Some(_), _) => false,
+                (None, HvacMode::Cooling) => self.coil_role(n) == CoilRole::Cooling,
+                (None, HvacMode::Heating) => self.coil_role(n) == CoilRole::Heating,
+                (None, HvacMode::Deadband) => false,
+            })
+    }
+
     /// Control role for a component, dispatched on its `ComponentKind` from
     /// the loop's equipment list. Falls back to the legacy name-substring
     /// heuristic for components not in the map (e.g., hand-built test loops),
@@ -2590,6 +2613,25 @@ mod tests {
         assert!((lights.return_air_temp.unwrap() - 26.0).abs() < 1e-12);
         assert!(lights.economizer_active);
         assert_eq!(lights.oa_fraction, Some(1.0));
+    }
+
+    /// A loop can heat or cool only with equipment that does.
+    #[test]
+    fn a_loop_conditions_only_with_its_equipment() {
+        let mut li = make_loop(
+            AirLoopSystemType::PszAc,
+            vec!["Fan".to_string(), "Heater".to_string()],
+        );
+        li.component_kinds
+            .insert("Fan".to_string(), ComponentKind::Fan);
+        li.component_kinds
+            .insert("Heater".to_string(), ComponentKind::HeatingCoil);
+        assert!(li.can_condition(HvacMode::Heating));
+        assert!(!li.can_condition(HvacMode::Cooling));
+        li.component_kinds
+            .insert("Heater".to_string(), ComponentKind::Gshp);
+        assert!(li.can_condition(HvacMode::Heating) && li.can_condition(HvacMode::Cooling));
+        assert!(!li.can_condition(HvacMode::Deadband));
     }
 
     /// A cooling supply temperature above the Warmest maximum holds the supply

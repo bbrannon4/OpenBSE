@@ -87,8 +87,9 @@ clamped to $[x_\text{min}, 1]$. The terms are:
 
 If the load is under 10 W, a proportional fallback applies:
 $x = |T_\text{sp} - T_z|/|T_\text{sup} - T_\text{sp}|$. If the zone started the
-timestep more than half the deadband beyond the setpoint on the far side, the
-output is $x_\text{min}$.
+timestep more than half the deadband beyond the setpoint on the far side, or the
+unit has no equipment that heats or cools as the mode needs (a heating-only unit
+when the zone wants cooling), the output is $x_\text{min}$.
 
 **Scaling.** Coil and fan outputs and flows scale by $x$. DX compressors and
 condenser fans take the cycling penalty of @eq-dx-rtf at their combined part load,
