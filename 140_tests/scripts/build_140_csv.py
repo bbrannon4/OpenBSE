@@ -104,52 +104,82 @@ def is_zone_temp_column(header):
     return ('zone_temp' in h or ':temperature' in h) and 'supply' not in h
 
 
+def hourly_values(fname, pick_column):
+    """Hourly integrated values of one column of an OpenBSE results CSV.
+
+    Standard 140 reports free-float and conditioned-zone temperatures as
+    hourly integrated values (Std140_TF_Output: "Annual Hourly Integrated
+    Zone Temperature Extremes"). Rows are grouped by their (Month, Day, Hour)
+    and averaged, so a sub-hourly file gives the hour's mean and an hourly
+    file is returned as is. `pick_column(header)` selects the column; None if
+    there is none.
+    """
+    with open(fname) as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        col = next((i for i, h in enumerate(header) if pick_column(h)), None)
+        if col is None:
+            return None
+        keys = [header.index(k) for k in ("Month", "Day", "Hour") if k in header]
+        sums, counts, order = {}, {}, []
+        for i, row in enumerate(reader):
+            key = tuple(row[k] for k in keys) if len(keys) == 3 else i
+            if key not in sums:
+                sums[key], counts[key] = 0.0, 0
+                order.append(key)
+            sums[key] += float(row[col])
+            counts[key] += 1
+    return [sums[k] / counts[k] for k in order]
+
+
+def extremes(values):
+    """(max, min, mean) of a series, or (None, None, None) when empty."""
+    if not values:
+        return None, None, None
+    return max(values), min(values), sum(values) / len(values)
+
+
+def check_hourly_values():
+    """Self-check of the hourly integration on a half-hourly control: the
+    hour means are 10 and 20, so the extremes are 20 and 10, not the
+    sub-hourly 30 and 0; an hourly file passes through unchanged."""
+    import tempfile
+
+    rows = {
+        "Month,Day,Hour,SubHour,Z:zone_temperature [C]": ["1,1,1,1,0", "1,1,1,2,20", "1,1,2,1,10", "1,1,2,2,30"],
+        "Month,Day,Hour,Z:zone_temperature [C]": ["1,1,1,10", "1,1,2,20"],
+    }
+    for header, lines in rows.items():
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as f:
+            f.write("\n".join([header] + lines) + "\n")
+        try:
+            got = extremes(hourly_values(f.name, is_zone_temp_column))
+        finally:
+            os.unlink(f.name)
+        assert got == (20.0, 10.0, 15.0), f"hourly integration gave {got}"
+
+
 def read_ff_temps(case):
-    """Read free-float zone temperatures from results CSV."""
+    """Hourly integrated free-float zone temperature extremes and mean."""
     # Try custom zone_results.csv first, fall back to default results CSV
     fname = os.path.join(BASE_DIR, f"ashrae140_case{case}_zone_results.csv")
     if not os.path.exists(fname):
         fname = os.path.join(BASE_DIR, f"ashrae140_case{case}_results.csv")
     if not os.path.exists(fname):
         return None, None, None
-    with open(fname) as f:
-        reader = csv.reader(f)
-        header = next(reader)
-        col = None
-        for i, h in enumerate(header):
-            if is_zone_temp_column(h):
-                col = i
-                break
-        if col is None:
-            return None, None, None
-        temps = [float(row[col]) for row in reader]
-    if not temps:
-        return None, None, None
-    return max(temps), min(temps), sum(temps) / len(temps)
+    return extremes(hourly_values(fname, is_zone_temp_column))
 
 
 def read_960_sz_temps():
-    """Read 960 Sun Zone temperatures."""
+    """Hourly integrated 960 Sun Zone temperature extremes and mean."""
     fname = os.path.join(BASE_DIR, "ashrae140_case960_zone_results.csv")
     if not os.path.exists(fname):
         fname = os.path.join(BASE_DIR, "ashrae140_case960_results.csv")
     if not os.path.exists(fname):
         return None, None, None
-    with open(fname) as f:
-        reader = csv.reader(f)
-        header = next(reader)
-        # Find Sun Zone temperature column
-        col = None
-        for i, h in enumerate(header):
-            if 'sun zone' in h.lower() and is_zone_temp_column(h):
-                col = i
-                break
-        if col is None:
-            return None, None, None
-        temps = [float(row[col]) for row in reader]
-    if not temps:
-        return None, None, None
-    return max(temps), min(temps), sum(temps) / len(temps)
+    return extremes(
+        hourly_values(fname, lambda h: "sun zone" in h.lower() and is_zone_temp_column(h))
+    )
 
 
 def _feb_rows(path):
@@ -250,14 +280,9 @@ def read_he_results(case):
     ) / 1000.0
     result = {"load": load_gj, "input": input_gj, "fuel": fuel_m3s, "fan": fan_kwh}
     if os.path.exists(zp):
-        with open(zp) as f:
-            zrows = list(csv.DictReader(f))
-        tkeys = [k for k in zrows[0] if "temperature" in k]
-        if tkeys and zrows:
-            temps = [float(r[tkeys[0]]) for r in zrows]
-            result["meanT"] = sum(temps) / len(temps)
-            result["maxT"] = max(temps)
-            result["minT"] = min(temps)
+        temps = hourly_values(zp, lambda h: "temperature" in h)
+        if temps:
+            result["maxT"], result["minT"], result["meanT"] = extremes(temps)
     return result
 
 
@@ -377,6 +402,8 @@ def pct_delta(delta, lo, hi):
 
 def main():
     ci_mode = "--ci" in sys.argv
+    if ci_mode:
+        check_hourly_values()
 
     rows = []
     header = ["Case", "Metric", "OpenBSE", "Min", "Max", "Status", "Delta", "Pct Delta"]
