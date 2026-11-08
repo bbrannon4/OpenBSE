@@ -475,6 +475,64 @@ fn lw_exchange(
     }
 }
 
+/// How each inside face follows its zone's air within one solve: the
+/// sensitivity β = ∂T_si/∂T_z of the converged inside-face balance
+/// (@eq-inside-temp without its damping term, which cancels at convergence),
+/// with the zone's other faces responding too through the long-wave exchange:
+///
+///   β_i = (h_c,i + h_r,i·β̄_i) / (Z₀' + h_c,i + h_r,i),  β̄_i = Σ_j w_ij β_j / Σ_j w_ij,
+///
+/// where Z₀' is Z₀ (Z₀ − Y₀ for an adiabatic face) and w_ij the linearised
+/// long-wave weights. Outside faces are held, as they are within a pass.
+/// A massless adiabatic face has β = 1; a face behind heavy mass, β ≈ 0.
+/// `z_eff[i]` is (zone, Z₀') per face; for an unshaded window Z₀' is its
+/// glass node's conductance to the outdoors. Faces without one (windows
+/// behind a deployed shade) keep β = 0, as if held.
+fn surface_air_response(
+    surfaces: &[SurfaceState],
+    zone_rad: &[ZoneRadExchange],
+    z_eff: &[Option<(usize, f64)>],
+) -> Vec<f64> {
+    let n = surfaces.len();
+    let mut beta = vec![0.0; n];
+    for _ in 0..200 {
+        let mut max_change = 0.0_f64;
+        for i in 0..n {
+            let Some((zi, z0)) = z_eff[i] else {
+                continue;
+            };
+            let s = &surfaces[i];
+            let hc = s.h_conv_inside.max(0.1);
+            let (mut w_sum, mut wb_sum) = (0.0_f64, 0.0_f64);
+            if let (Some(zr), Some(k)) = (zone_rad.get(zi), s.rad_index) {
+                if k < zr.interchange.len() {
+                    let ti = s.temp_inside + 273.15;
+                    for (j, &gij) in zr.interchange[k].iter().enumerate() {
+                        if j == k || gij == 0.0 {
+                            continue;
+                        }
+                        let sj = zr.surfaces[j];
+                        let tj = surfaces[sj].temp_inside + 273.15;
+                        let w = gij * (ti * ti + tj * tj) * (ti + tj);
+                        w_sum += w;
+                        wb_sum += w * beta[sj];
+                    }
+                }
+            }
+            let area = s.net_area.max(0.01);
+            let hr = 5.6704e-8 * w_sum / area;
+            let b_mrt = if w_sum > 0.0 { wb_sum / w_sum } else { 0.0 };
+            let b = ((hc + hr * b_mrt) / (z0 + hc + hr).max(0.1)).clamp(0.0, 1.0);
+            max_change = max_change.max((b - beta[i]).abs());
+            beta[i] = b;
+        }
+        if max_change < 1.0e-4 {
+            break;
+        }
+    }
+    beta
+}
+
 const STEFAN_BOLTZMANN: f64 = 5.6704e-8;
 
 /// Discharge factor for buoyancy-driven flow through the glass–shade gap,
@@ -666,6 +724,7 @@ impl BuildingEnvelope {
         }
         s.temp_inside = t_sh;
         s.temp_glass_inside = t_g;
+        s.window_u_out = 0.0;
         // The shade's room face exchanges with the room air through sum_ha
         // (with the shade temperature); the warmed gap air returned to the
         // room is added explicitly.
@@ -1490,6 +1549,7 @@ impl BuildingEnvelope {
                 blind_u_factor: 0.0,
                 shade: None,
                 temp_glass_inside: initial_temp,
+                window_u_out: 0.0,
                 shade_absorbed_solar: 0.0,
                 glass_reflected_absorbed: 0.0,
             };
@@ -3370,10 +3430,11 @@ impl EnvelopeSolver for BuildingEnvelope {
         // because this loop can contract slowly: on the low-mass CE cases a
         // last change of 0.001 K still left the zone 0.1 K off its settled mean.
         // The first pass doesn't count: it starts from the previous solve's zone
-        // air, whatever the surfaces then do. More than five passes would settle
-        // further but sets off the HVAC iteration on near-massless zones (CE130
-        // fails its range at 20): see the issue filed with #209.
-        const MAX_SURFACE_AIR_PASSES: u32 = 5;
+        // air, whatever the surfaces then do. The pass limit is only a guard:
+        // the HVAC iteration stays stable however far this settles, because
+        // the load it reads lets the faces follow the air
+        // (`surface_air_response`).
+        const MAX_SURFACE_AIR_PASSES: u32 = 20;
         const ZONE_AIR_TOL: f64 = 1.0e-4;
         const SURFACE_TOL: f64 = 2.0e-4;
         const ZONE_W_TOL: f64 = 1.0e-7;
@@ -3382,6 +3443,7 @@ impl EnvelopeSolver for BuildingEnvelope {
         let mut surface_temps_start: Vec<f64> = vec![0.0; n_surf];
         let mut zone_w_start: Vec<f64> = vec![0.0; self.zones.len()];
         let (mut passes, mut settled, mut last_delta) = (0, false, 0.0_f64);
+        let mut surface_beta: Vec<f64> = Vec::new();
         for pass in 0..MAX_SURFACE_AIR_PASSES {
             for (t, s) in surface_temps_start.iter_mut().zip(&self.surfaces) {
                 *t = s.temp_inside;
@@ -3896,6 +3958,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // through the zone's interchange areas, as in E+'s ScriptF.
                     self.surfaces[i].temp_inside = t_glass;
                     self.surfaces[i].temp_glass_inside = t_glass;
+                    self.surfaces[i].window_u_out = u_e_glass;
 
                     // Window interior convection coefficient (TARP natural convection).
                     // This enters sum_ha and sum_hat in the zone air balance, coupling
@@ -4523,6 +4586,39 @@ impl EnvelopeSolver for BuildingEnvelope {
                 let t_zone = t_zone_vec.get(pc.zi).copied().unwrap_or(21.0) + surface_air_offset[i];
                 self.surfaces[i].q_conv_inside =
                     self.surfaces[i].h_conv_inside * (self.surfaces[i].temp_inside - t_zone);
+            }
+
+            // How each inside face follows the zone air, for the load line.
+            let z_eff: Vec<Option<(usize, f64)>> = precomp
+                .iter()
+                .map(|p| {
+                    p.as_ref().map(|pc| {
+                        let z = if pc.is_adiabatic {
+                            pc.ctf_z0 - pc.ctf_y0
+                        } else {
+                            pc.ctf_z0
+                        };
+                        (pc.zi, z)
+                    })
+                })
+                .collect();
+            // An unshaded window's glass node follows the air the same way,
+            // with its path to the outdoors in place of the CTF term.
+            let z_eff: Vec<Option<(usize, f64)>> = z_eff
+                .into_iter()
+                .zip(&self.surfaces)
+                .map(|(z, s)| {
+                    z.or_else(|| {
+                        (s.is_window && s.window_u_out > 0.0).then(|| {
+                            let zi = self.zone_index.get(&s.input.zone).copied().unwrap_or(0);
+                            (zi, s.window_u_out)
+                        })
+                    })
+                })
+                .collect();
+            // β changes little between passes; the first pass's serves the solve.
+            if pass == 0 {
+                surface_beta = surface_air_response(&self.surfaces, &self.zone_rad, &z_eff);
             }
 
             // 6c. Zone air heat balance
@@ -5270,9 +5366,25 @@ impl EnvelopeSolver for BuildingEnvelope {
                 // Positive Q = heating needed
                 zone.ideal_heating_load = zone.load_to_heating_setpoint.max(0.0);
 
+                // The load to hold the air at a setpoint, with each inside
+                // face following the air as β·ΔT (`surface_air_response`)
+                // rather than staying where this solve left it. Without this,
+                // a light zone's faces carry this HVAC iteration's air error
+                // into the next iteration's load: an overcooled iteration
+                // leaves cool faces that read as a heat source, cutting the
+                // next load, and Σ hA ≫ ρVc_p/Δt + ṁc_p makes that swing grow.
+                let t_air_faces = t_zone_vec.get(zone_idx).copied().unwrap_or(zone.temp);
+                let sum_hab: f64 = zone
+                    .surface_indices
+                    .iter()
+                    .map(|&si| {
+                        let s = &self.surfaces[si];
+                        s.h_conv_inside * s.net_area * surface_beta[si]
+                    })
+                    .sum();
                 zone.ideal_load_line = crate::zone::IdealLoadLine {
-                    conductance: sum_ha + mcpi,
-                    driving: sum_hat + mcpi * t_outdoor + q_conv_total,
+                    conductance: sum_ha - sum_hab + mcpi,
+                    driving: sum_hat - sum_hab * t_air_faces + mcpi * t_outdoor + q_conv_total,
                     air_capacity: rho_air * zone.input.volume * cp_air / dt,
                     bdf_multiplier: dt / dt_eff,
                     t_history: t_prev_eff,
@@ -6318,7 +6430,11 @@ mod tests {
         for _ in 0..4 {
             envelope.solve_timestep(&ctx, &weather, &hvac);
             let z = &envelope.zones[0];
-            assert!(z.ideal_load_line.at(z.temp_no_hvac).abs() < 1e-6);
+            // Exact once the surface–air passes settle: the faces' response
+            // term, Σ hAβ·(T_z' − T), is then zero. They settle to 10⁻⁴ K,
+            // which leaves about 0.1 W here against a load of kilowatts.
+            let q = z.ideal_load_line.at(z.temp_no_hvac);
+            assert!(q.abs() < 0.5, "load at the free-floating temperature {q} W");
             envelope.update_bdf_history();
         }
         let z = &envelope.zones[0];
@@ -7164,12 +7280,109 @@ mod tests {
         }
         let c = env.diagnostics.surface_air;
         assert_eq!(c.solves, 10);
-        // The first few leave the 21 °C start for a 0 °C day and use all five.
+        // The first few leave the 21 °C start for a 0 °C day and may use them all.
         assert!(c.unconverged < 10, "{} unconverged", c.unconverged);
         let per_solve = c.passes as f64 / c.solves as f64;
         assert!(
             (2.0..20.0).contains(&per_solve),
             "{per_solve} passes per solve"
+        );
+    }
+
+    /// The simple model with every opaque layer massless (R = 2 m²·K/W).
+    fn make_light_model() -> BuildingEnvelope {
+        let mut env = make_simple_model();
+        for m in env.materials.values_mut() {
+            m.thermal_resistance = Some(2.0);
+        }
+        env.initialize(3600.0).unwrap();
+        env
+    }
+
+    /// β = ∂T_si/∂T_z: a massless face follows the air almost fully, a face
+    /// behind concrete much less, and every β lies in [0, 1].
+    #[test]
+    fn test_surface_air_response_follows_mass() {
+        let ctx = make_ctx();
+        let weather = make_weather_hour(0.0);
+        let hvac = ZoneHvacConditions::default();
+        let beta_of = |mut env: BuildingEnvelope| {
+            for _ in 0..3 {
+                env.solve_timestep(&ctx, &weather, &hvac);
+            }
+            let z_eff: Vec<Option<(usize, f64)>> = env
+                .surfaces
+                .iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    if s.is_window {
+                        (s.window_u_out > 0.0).then_some((0, s.window_u_out))
+                    } else {
+                        env.ctf_coefficients[i].as_ref().map(|c| (0, c.z[0]))
+                    }
+                })
+                .collect();
+            let beta = surface_air_response(&env.surfaces, &env.zone_rad, &z_eff);
+            let wall = env
+                .surfaces
+                .iter()
+                .position(|s| s.input.name == "South Wall");
+            let window = env.surfaces.iter().position(|s| s.is_window);
+            (beta, wall.unwrap(), window.unwrap())
+        };
+        let mut heavy = make_simple_model();
+        heavy.initialize(3600.0).unwrap();
+        let (b_heavy, wall, window) = beta_of(heavy);
+        let (b_light, _, _) = beta_of(make_light_model());
+        assert!(b_heavy
+            .iter()
+            .chain(&b_light)
+            .all(|b| (0.0..=1.0).contains(b)));
+        assert!(b_light[wall] > 0.5, "massless wall β {}", b_light[wall]);
+        assert!(
+            b_heavy[wall] < b_light[wall],
+            "{} vs {}",
+            b_heavy[wall],
+            b_light[wall]
+        );
+        assert!(b_heavy[window] > 0.0, "unshaded glass follows the air");
+    }
+
+    /// #320: the load to hold a light zone at setpoint must not depend on the
+    /// air its faces were last solved against, or the HVAC iteration feeds its
+    /// own error back (an overcooled iteration's cool faces cut the next load).
+    #[test]
+    fn test_load_line_ignores_iteration_air_in_light_zone() {
+        let ctx = make_ctx();
+        let weather = make_weather_hour(0.0);
+        let hvac = ZoneHvacConditions::default();
+        let mut a = make_light_model();
+        for _ in 0..5 {
+            a.solve_timestep(&ctx, &weather, &hvac);
+        }
+        // Two HVAC iterations of one timestep: the same zone, two supplies.
+        let mut b = a.clone();
+        let mut warm = ZoneHvacConditions::default();
+        warm.supply_temps.insert("TestZone".to_string(), 40.0);
+        warm.supply_mass_flows.insert("TestZone".to_string(), 0.2);
+        a.solve_timestep(&ctx, &weather, &hvac);
+        b.solve_timestep(&ctx, &weather, &warm);
+        let dt_air = b.zones[0].temp - a.zones[0].temp;
+        assert!(
+            dt_air > 3.0,
+            "the supplies should leave the air apart: {dt_air}"
+        );
+        let load = |e: &BuildingEnvelope| e.zones[0].ideal_load_line.at(21.0);
+        let sum_ha: f64 = a
+            .surfaces
+            .iter()
+            .map(|s| s.h_conv_inside * s.net_area)
+            .sum();
+        let diff = (load(&a) - load(&b)).abs();
+        // Without the face response the loads differ by about Σ hA·β·ΔT.
+        assert!(
+            diff < 0.1 * sum_ha * dt_air,
+            "load moved {diff:.1} W with the iteration's air ({dt_air:.2} K, Σ hA = {sum_ha:.1} W/K)"
         );
     }
 

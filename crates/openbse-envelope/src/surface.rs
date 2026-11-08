@@ -724,6 +724,10 @@ pub struct SurfaceState {
     /// shade layer is down, when `temp_inside` is the shade (the face the
     /// room sees) and this is the glass behind it.
     pub temp_glass_inside: f64,
+    /// Conductance from an unshaded window's glass node to the outdoors,
+    /// 1/(1/h_e + 1/u_glass) [W/(m²·K)], from its last solve; 0 for opaque
+    /// surfaces and for windows behind a deployed shade.
+    pub window_u_out: f64,
     /// Solar absorbed by the deployed shade layer [W].
     pub shade_absorbed_solar: f64,
     /// Solar reflected by the deployed shade and absorbed on its way back
