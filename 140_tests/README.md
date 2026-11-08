@@ -22,7 +22,7 @@ Section 7 in detail:
 
 One miss: CE195 February sensible coil load, 0.03 kWh below range (#295). It is listed, with the reason, under `KNOWN_FAILURES` in `scripts/build_140_csv.py`.
 
-`scripts/build_140_csv.py` writes the complete pass/fail matrix to `scripts/FULL_140_RESULTS.csv`. CI runs every case and this gate on each commit. The copy committed at `results/FULL_140_RESULTS.csv` is a snapshot taken with the v0.7.0 portal submission.
+`scripts/build_140_csv.py` writes the complete pass/fail matrix to `scripts/FULL_140_RESULTS.csv`. CI runs every case and this gate on each commit and keeps that file as a run artifact. The copy committed at `results/FULL_140_RESULTS.csv` is the matrix at the commit that last regenerated it. Zone temperatures (free-float maxima, minima and means, and the furnace cases' zone temperatures) are hourly integrated values, as the Standard's output forms ask: the gate averages any sub-hourly rows to the hour before taking extremes.
 
 **Tight margins to watch:** Case 980FF mean temp (exactly at floor), Case 640/680/695 heating within 15 kWh of ceiling. (Case 960 heating gained ~80 kWh of margin once the sunspace switched to geometric interior solar distribution, and Case 670 sits mid-range since the single-pane first-principles path — see issue #101.)
 
