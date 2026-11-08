@@ -651,6 +651,34 @@ fn off_cycle_outdoor_air_load(
     oa_fraction * flow_capacity_rate * (t_outdoor - t_zone)
 }
 
+/// Run a DHW system's circulation pump with the draw, at the draw's share of
+/// the loads' peak flow. Its electricity goes to the snapshot and its heat
+/// enters the tank with the makeup water (`inlet_heat`, zero with no draw).
+fn run_dhw_pump(
+    pump: Option<&mut openbse_components::pump::Pump>,
+    dhw_input: &openbse_io::input::DhwSystemInput,
+    dhw_sys: &mut openbse_components::water_heater::WaterHeater,
+    total_draw: f64,
+    ctx: &SimulationContext,
+    snapshot: &mut OutputSnapshot,
+) {
+    dhw_sys.inlet_heat = 0.0;
+    let Some(pump) = pump else { return };
+    if total_draw <= 0.0 {
+        return;
+    }
+    let total_peak: f64 = dhw_input.loads.iter().map(|l| l.peak_flow_rate).sum();
+    let flow_frac = (total_draw / total_peak.max(1e-10)).clamp(0.0, 1.0);
+    let t_tank = dhw_sys.tank_temperature();
+    let mass_flow = pump.design_flow_rate * openbse_psychrometrics::water_rho(t_tank) * flow_frac;
+    let inlet = WaterPort::new(openbse_psychrometrics::FluidState::water(t_tank, mass_flow));
+    pump.simulate_plant(&inlet, 1.0, ctx);
+    dhw_sys.inlet_heat = pump.thermal_output();
+    snapshot
+        .pump_electric_power
+        .insert(pump.name.clone(), pump.power_consumption());
+}
+
 /// Supply flow [kg/s] of a single-zone VAV unit: the flow that meets the
 /// zone's cooling load [W] with the supply at its coldest, `cooling_dt` below
 /// the setpoint, bounded by the minimum fraction and the design flow. With no
@@ -1521,6 +1549,10 @@ fn main() -> Result<()> {
                 };
                 comp_submeter.insert(name, sm);
             }
+        }
+
+        for pump in model.dhw_systems.iter().filter_map(|d| d.pump.as_ref()) {
+            comp_submeter.insert(pump.name.clone(), pump.submeter.clone());
         }
 
         // ── Duct → ambient-zone map ───────────────────────────────────────────
@@ -5134,31 +5166,14 @@ fn main() -> Result<()> {
                             dhw_sys.ambient_w = zone.humidity_ratio;
                         }
 
-                        // The circulation pump runs with the draw; its heat
-                        // enters the tank with the makeup water.
-                        dhw_sys.inlet_heat = 0.0;
-                        if let Some(ref mut pump) = dhw_pumps[dhw_idx] {
-                            if total_draw > 0.0 {
-                                let total_peak: f64 =
-                                    dhw_input.loads.iter().map(|l| l.peak_flow_rate).sum();
-                                let flow_frac =
-                                    (total_draw / total_peak.max(1e-10)).clamp(0.0, 1.0);
-                                let mass_flow = pump.design_flow_rate
-                                    * openbse_psychrometrics::water_rho(dhw_sys.tank_temperature())
-                                    * flow_frac;
-                                let inlet =
-                                    WaterPort::new(openbse_psychrometrics::FluidState::water(
-                                        dhw_sys.tank_temperature(),
-                                        mass_flow,
-                                    ));
-                                pump.simulate_plant(&inlet, 1.0, &ctx);
-                                dhw_sys.inlet_heat = pump.thermal_output();
-                                snapshot
-                                    .pump_electric_power
-                                    .insert(pump.name.clone(), pump.power_consumption());
-                            }
-                        }
-
+                        run_dhw_pump(
+                            dhw_pumps[dhw_idx].as_mut(),
+                            dhw_input,
+                            dhw_sys,
+                            total_draw,
+                            &ctx,
+                            &mut snapshot,
+                        );
                         dhw_sys.simulate(total_draw, t_mains, dt);
 
                         if let Some(zone) = ambient_zone {
@@ -5547,7 +5562,9 @@ fn main() -> Result<()> {
                             weather_data.leap_year,
                         )
                     };
-                    for (dhw_sys, dhw_input) in dhw_systems.iter_mut().zip(&model.dhw_systems) {
+                    for (dhw_idx, (dhw_sys, dhw_input)) in
+                        dhw_systems.iter_mut().zip(&model.dhw_systems).enumerate()
+                    {
                         let t_mains = dhw_input.mains_temperature.temperature(
                             (hour_idx / 24) + 1,
                             weather_data.location.latitude,
@@ -5559,6 +5576,14 @@ fn main() -> Result<()> {
                             |sched_name| {
                                 hvac_only_schedules.fraction(sched_name, hour, hvac_only_day_type)
                             },
+                        );
+                        run_dhw_pump(
+                            dhw_pumps[dhw_idx].as_mut(),
+                            dhw_input,
+                            dhw_sys,
+                            total_draw,
+                            &ctx,
+                            &mut snapshot,
                         );
                         dhw_sys.simulate(total_draw, t_mains, dt);
                         let ep = dhw_sys.electric_power();
