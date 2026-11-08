@@ -120,3 +120,66 @@ fn the_dhw_pump_books_to_its_submeter() {
         "{plumbing}"
     );
 }
+
+/// The summary's Submeter Breakdown row for `meter` and `end_use` [kWh].
+fn submeter(summary: &str, meter: &str, end_use: &str) -> f64 {
+    let breakdown = summary
+        .split("Submeter Breakdown")
+        .nth(1)
+        .expect("a submeter breakdown");
+    let row = breakdown
+        .lines()
+        .find(|l| l.contains(meter) && l.contains(end_use))
+        .unwrap_or_else(|| panic!("no {meter} {end_use} row in:\n{breakdown}"));
+    row.split_whitespace().last().unwrap().parse().unwrap()
+}
+
+/// HVAC-only mode routes energy to submeters as the full simulation does,
+/// and exterior lights on an astronomical clock are off while the sun is up.
+#[test]
+fn hvac_only_mode_routes_submeters_and_honours_the_astronomical_clock() {
+    let model = |clock: bool| {
+        format!(
+            "simulation: {{timesteps_per_hour: 1, start_month: 1, start_day: 1, end_month: 1, end_day: 31}}
+weather_files: []
+exterior_equipment:
+  - name: Lot Lights
+    submeter: Site
+    power: 1000.0
+    subcategory: Exterior Lights
+    astronomical_clock: {clock}
+dhw_systems:
+  - name: DHW
+    submeter: Plumbing
+    mains_temperature: 10.0
+    water_heater:
+      name: Heater
+      fuel_type: electric
+      tank_volume: 300
+      capacity: 20000
+      efficiency: 0.98
+      setpoint: 60.0
+      ua_standby: 1.5
+{PUMP}    loads:
+      - name: Draw
+        peak_flow_rate: 0.05
+        use_temperature: 43.3
+"
+        )
+    };
+    let always = run("ext_always", &model(false));
+    let clock = run("ext_clock", &model(true));
+    // 31 days × 24 h × 1 kW, and only the night hours under the clock.
+    assert!((end_use(&always, "Exterior Lighting") - 744.0).abs() < 0.5);
+    let night = end_use(&clock, "Exterior Lighting");
+    assert!(night > 300.0 && night < 600.0, "{night} kWh at night");
+    // Each end use reaches its submeter in full.
+    for summary in [&always, &clock] {
+        let ext = end_use(summary, "Exterior Lighting");
+        assert!((submeter(summary, "Site", "ext_lighting") - ext).abs() < 0.2);
+        let dhw = end_use(summary, "DHW (Electric)");
+        assert!((submeter(summary, "Plumbing", "dhw_electric") - dhw).abs() < 0.2);
+        let pump = end_use(summary, "Pumps (Electric)");
+        assert!((submeter(summary, "Plumbing", "pump") - pump).abs() < 0.2);
+    }
+}
