@@ -312,13 +312,28 @@ fn fan_pushes_above_cooling_setpoint(fan_heat: f64, load_to_cooling_sp: f64) -> 
 
 /// Each zone's heating and cooling supply temperatures for its design flows
 /// [°C]: those of its first loop that is not a DOAS, because that loop meets the
-/// zone's load, or else its DOAS.
-fn zone_design_supply_temps(loop_infos: &[LoopInfo]) -> HashMap<String, (f64, f64)> {
+/// zone's load, else its VRF indoor unit's, else its DOAS's.
+fn zone_design_supply_temps(
+    loop_infos: &[LoopInfo],
+    vrf_systems: &[openbse_io::input::VrfSystemInput],
+) -> HashMap<String, (f64, f64)> {
     let mut temps = HashMap::new();
     let (doas, others): (Vec<_>, Vec<_>) = loop_infos
         .iter()
         .partition(|li| li.system_type == AirLoopSystemType::Doas);
-    for li in others.into_iter().chain(doas) {
+    for li in &others {
+        for zone in &li.served_zones {
+            temps
+                .entry(zone.clone())
+                .or_insert((li.heating_supply_temp, li.cooling_supply_temp));
+        }
+    }
+    for iu in vrf_systems.iter().flat_map(|s| &s.indoor_units) {
+        temps
+            .entry(iu.zone.clone())
+            .or_insert((iu.heating_supply_temp, iu.cooling_supply_temp));
+    }
+    for li in &doas {
         for zone in &li.served_zones {
             temps
                 .entry(zone.clone())
@@ -2085,12 +2100,13 @@ fn main() -> Result<()> {
         // Zone peak loads for VRF autosizing (populated during sizing, used after)
         let mut vrf_zone_peak_heating: HashMap<String, f64> = HashMap::new();
         let mut vrf_zone_peak_cooling: HashMap<String, f64> = HashMap::new();
+        let mut vrf_zone_design_flow: HashMap<String, f64> = HashMap::new();
         // Air each water coil sees at its design point, for its water side.
         let mut water_coil_air: HashMap<String, WaterCoilAir> = HashMap::new();
         if !model.design_days.is_empty() {
             if let Some(ref mut env) = envelope {
                 let latitude = weather_data.location.latitude;
-                let zone_supply_temps = zone_design_supply_temps(&loop_infos);
+                let zone_supply_temps = zone_design_supply_temps(&loop_infos, &model.vrf_systems);
                 // Zones whose lighting return-air heat goes to the return, not
                 // into the zone load (E+ `CalcZoneLeavingConditions`).
                 let return_air_zones: HashSet<String> = loop_infos
@@ -2121,6 +2137,7 @@ fn main() -> Result<()> {
                 // Store zone peaks for VRF autosizing
                 vrf_zone_peak_heating = sizing_result.zone_peak_heating.clone();
                 vrf_zone_peak_cooling = sizing_result.zone_peak_cooling.clone();
+                vrf_zone_design_flow = sizing_result.zone_design_airflow.clone();
 
                 // Apply sized zone airflows (override design_zone_flow).
                 for (zone_name, &flow) in &sizing_result.zone_design_airflow {
@@ -2676,8 +2693,14 @@ fn main() -> Result<()> {
                 odu.heating_plf_fplr = resolve_curve(&ou_in.heating_plf_fplr);
                 odu.min_plr = ou_in.min_plr;
 
-                // Airflow for autosized indoor units: 0.00005 m³/s per W of capacity
-                let airflow_per_watt = 0.00005_f64;
+                // An autosized indoor unit moves its zone's design flow, as E+
+                // sizes a VRF terminal unit's supply air flow from the zone's
+                // design flows, at the site's standard density (E+ StdRhoAir).
+                let site_std_rho = model
+                    .design_days
+                    .first()
+                    .map_or(101_325.0, |dd| dd.pressure)
+                    / (287.042 * 293.15);
 
                 let indoor_units: Vec<VrfIndoorUnit> = sys
                     .indoor_units
@@ -2702,7 +2725,9 @@ fn main() -> Result<()> {
                             iu_in.heating_capacity.to_f64()
                         };
                         let airflow = if iu_in.rated_airflow.is_autosize() {
-                            cool_cap.max(heat_cap) * airflow_per_watt
+                            vrf_zone_design_flow
+                                .get(&iu_in.zone)
+                                .map_or(0.0, |m| m / site_std_rho)
                         } else {
                             iu_in.rated_airflow.to_f64()
                         };
@@ -2750,6 +2775,7 @@ fn main() -> Result<()> {
                 zone_design_flows: &zone_design_flows,
                 zone_peak_cooling: &vrf_zone_peak_cooling,
                 zone_peak_heating: &vrf_zone_peak_heating,
+                zone_sized_flows: &vrf_zone_design_flow,
             },
             autosize_check::AirSizing::new(!model.design_days.is_empty(), envelope.is_some()),
         );

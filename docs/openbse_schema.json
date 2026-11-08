@@ -2446,7 +2446,7 @@
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
         "cooling_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated cooling capacity [W] or 'autosize'." },
         "heating_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated heating capacity [W] or 'autosize'." },
-        "rated_airflow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated supply airflow [m3/s] or 'autosize'." },
+        "rated_airflow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated supply airflow [m3/s], or 'autosize' for the zone's design flow from design-day sizing (the larger of its heating and cooling design flows, at the indoor unit's supply temperatures)." },
         "cooling_supply_temp": { "type": "number", "default": 13.0, "description": "Cooling supply air temperature [C]." },
         "heating_supply_temp": { "type": "number", "default": 40.0, "description": "Heating supply air temperature [C]." }
       }

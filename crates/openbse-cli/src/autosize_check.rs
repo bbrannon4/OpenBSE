@@ -71,6 +71,9 @@ pub struct SizedValues<'a> {
     /// Zone peak loads from design-day sizing, which size VRF indoor units.
     pub zone_peak_cooling: &'a HashMap<String, f64>,
     pub zone_peak_heating: &'a HashMap<String, f64>,
+    /// Zone design flows from design-day sizing [kg/s], which size VRF
+    /// indoor-unit airflow; empty without design days.
+    pub zone_sized_flows: &'a HashMap<String, f64>,
 }
 
 /// One message per `autosize` field that sizing left unresolved.
@@ -162,6 +165,9 @@ pub fn unsized_autosize_errors(
                 if value.is_autosize() && !peaks.contains_key(&iu.zone) {
                     errors.push(message(&owner, field, air_sizing));
                 }
+            }
+            if iu.rated_airflow.is_autosize() && !sized.zone_sized_flows.contains_key(&iu.zone) {
+                errors.push(message(&owner, "rated_airflow", air_sizing));
             }
         }
     }
