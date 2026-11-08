@@ -27,7 +27,7 @@
 use openbse_core::ports::ComponentKind;
 use openbse_core::simulation::TimestepResult;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::path::Path;
 
@@ -1838,16 +1838,19 @@ struct MonthlyEnergy {
 /// monthly energy breakdown and unmet hours analysis.
 pub struct SummaryReport {
     monthly: [MonthlyEnergy; 12],
-    /// Unmet heating hours: zone temp < heating setpoint - tolerance
+    /// Building unmet heating hours: time in which any conditioned zone is
+    /// below its heating setpoint less the tolerance.
     unmet_heating_hours: f64,
-    /// Unmet cooling hours: zone temp > cooling setpoint + tolerance
+    /// Building unmet cooling hours: time in which any conditioned zone is
+    /// above its cooling setpoint plus the tolerance.
     unmet_cooling_hours: f64,
+    /// Building unmet load hours: time in which any zone is unmet either way
+    /// (ASHRAE 90.1 Section 3, "unmet load hour").
+    unmet_any_hours: f64,
+    /// Each zone's own unmet heating and cooling hours.
+    zone_unmet_hours: BTreeMap<String, (f64, f64)>,
     /// Tolerance for unmet hours [deg C]
     unmet_tolerance: f64,
-    /// Zone heating setpoints (zone_name -> setpoint)
-    heating_setpoints: HashMap<String, f64>,
-    /// Zone cooling setpoints (zone_name -> setpoint)
-    cooling_setpoints: HashMap<String, f64>,
     /// Total timesteps processed
     total_timesteps: u64,
     /// Timestep duration [s]
@@ -1891,18 +1894,21 @@ pub struct SummaryReport {
     climate_zone: Option<String>,
 }
 
+impl Default for SummaryReport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SummaryReport {
-    pub fn new(
-        heating_setpoints: HashMap<String, f64>,
-        cooling_setpoints: HashMap<String, f64>,
-    ) -> Self {
+    pub fn new() -> Self {
         Self {
             monthly: Default::default(),
             unmet_heating_hours: 0.0,
             unmet_cooling_hours: 0.0,
+            unmet_any_hours: 0.0,
+            zone_unmet_hours: BTreeMap::new(),
             unmet_tolerance: 0.2, // 0.2 deg C tolerance
-            heating_setpoints,
-            cooling_setpoints,
             total_timesteps: 0,
             dt: 3600.0,
             peak_heating: (0.0, 0, 0, 0, 0.0, 0.0, 0.0),
@@ -2229,30 +2235,42 @@ impl SummaryReport {
             }
         }
 
-        // Unmet hours check
-        // Use per-timestep setpoints (schedule-aware) when available,
-        // otherwise fall back to static setpoints from ideal_loads defaults
+        // Unmet hours, against the setpoints the HVAC controlled to this
+        // timestep. The driver gives them for conditioned zones only, so an
+        // unconditioned zone is never counted. A timestep counts once for the
+        // building however many zones are unmet, as EnergyPlus's facility
+        // "Time Setpoint Not Met" and the ASHRAE 90.1 unmet load hour.
         let hours_fraction = snapshot.dt / 3600.0;
+        let (mut heat_any, mut cool_any) = (false, false);
         for (zone_name, &zone_temp) in &snapshot.zone_temperature {
-            let heat_sp = snapshot
+            let heat = snapshot
                 .zone_heating_setpoint
                 .get(zone_name)
-                .or_else(|| self.heating_setpoints.get(zone_name));
-            let cool_sp = snapshot
+                .is_some_and(|&sp| zone_temp < sp - self.unmet_tolerance);
+            let cool = snapshot
                 .zone_cooling_setpoint
                 .get(zone_name)
-                .or_else(|| self.cooling_setpoints.get(zone_name));
-
-            if let Some(&sp) = heat_sp {
-                if zone_temp < sp - self.unmet_tolerance {
-                    self.unmet_heating_hours += hours_fraction;
+                .is_some_and(|&sp| zone_temp > sp + self.unmet_tolerance);
+            if heat || cool {
+                let z = self.zone_unmet_hours.entry(zone_name.clone()).or_default();
+                if heat {
+                    z.0 += hours_fraction;
+                }
+                if cool {
+                    z.1 += hours_fraction;
                 }
             }
-            if let Some(&sp) = cool_sp {
-                if zone_temp > sp + self.unmet_tolerance {
-                    self.unmet_cooling_hours += hours_fraction;
-                }
-            }
+            heat_any |= heat;
+            cool_any |= cool;
+        }
+        if heat_any {
+            self.unmet_heating_hours += hours_fraction;
+        }
+        if cool_any {
+            self.unmet_cooling_hours += hours_fraction;
+        }
+        if heat_any || cool_any {
+            self.unmet_any_hours += hours_fraction;
         }
     }
 
@@ -2488,6 +2506,11 @@ impl SummaryReport {
             "  Unmet Cooling Hours: {:>8.1} hr",
             self.unmet_cooling_hours
         )?;
+        writeln!(
+            w,
+            "  Unmet Load Hours:    {:>8.1} hr  (any zone, heating or cooling)",
+            self.unmet_any_hours
+        )?;
 
         let total_hours = self.total_timesteps as f64 * self.dt / 3600.0;
         if total_hours > 0.0 {
@@ -2496,18 +2519,18 @@ impl SummaryReport {
             writeln!(w)?;
             writeln!(
                 w,
-                "  Heating setpoint met: {:>5.1}% of occupied hours",
+                "  Heating setpoint met in every zone: {:>5.1}% of hours",
                 100.0 - heat_pct
             )?;
             writeln!(
                 w,
-                "  Cooling setpoint met: {:>5.1}% of occupied hours",
+                "  Cooling setpoint met in every zone: {:>5.1}% of hours",
                 100.0 - cool_pct
             )?;
 
-            // ASHRAE Standard 90.1 compliance check (300 unmet hours max)
+            // ASHRAE 90.1 Appendix G (G3.1.2.3): at most 300 unmet load hours.
             writeln!(w)?;
-            let total_unmet = self.unmet_heating_hours + self.unmet_cooling_hours;
+            let total_unmet = self.unmet_any_hours;
             if total_unmet <= 300.0 {
                 writeln!(
                     w,
@@ -2520,6 +2543,13 @@ impl SummaryReport {
                     "  ASHRAE 90.1 Compliance: FAIL ({:.0} > 300 unmet hours)",
                     total_unmet
                 )?;
+            }
+        }
+        if !self.zone_unmet_hours.is_empty() {
+            writeln!(w)?;
+            writeln!(w, "  {:<40} {:>10} {:>10}", "Zone", "Heating", "Cooling")?;
+            for (zone, (h, c)) in &self.zone_unmet_hours {
+                writeln!(w, "  {:<40} {:>10.1} {:>10.1}", zone, h, c)?;
             }
         }
         writeln!(w)?;
@@ -3380,7 +3410,7 @@ impl SummaryReport {
 
         // -- Unmet Hours --
         let total_hours = self.total_timesteps as f64 * self.dt / 3600.0;
-        let total_unmet = self.unmet_heating_hours + self.unmet_cooling_hours;
+        let total_unmet = self.unmet_any_hours;
 
         writeln!(w, "<h2>Unmet Hours</h2>")?;
         writeln!(w, "<table>")?;
@@ -3395,7 +3425,27 @@ impl SummaryReport {
             &["Unmet Cooling", &format!("{:.1}", self.unmet_cooling_hours)],
             false,
         )?;
+        html_table_row(
+            &mut w,
+            &[
+                "Unmet Load (either)",
+                &format!("{:.1}", self.unmet_any_hours),
+            ],
+            false,
+        )?;
         writeln!(w, "</table>")?;
+        if !self.zone_unmet_hours.is_empty() {
+            writeln!(w, "<table>")?;
+            html_table_row(&mut w, &["Zone", "Heating", "Cooling"], true)?;
+            for (zone, (h, c)) in &self.zone_unmet_hours {
+                html_table_row(
+                    &mut w,
+                    &[zone, &format!("{:.1}", h), &format!("{:.1}", c)],
+                    false,
+                )?;
+            }
+            writeln!(w, "</table>")?;
+        }
 
         if total_hours > 0.0 {
             let compliance_class = if total_unmet <= 300.0 { "pass" } else { "fail" };
@@ -3777,8 +3827,7 @@ impl SummaryReport {
         writeln!(w, "Unmet Hours")?;
         writeln!(w, "Unmet Heating Hours,{:.1}", self.unmet_heating_hours)?;
         writeln!(w, "Unmet Cooling Hours,{:.1}", self.unmet_cooling_hours)?;
-        let total_unmet = self.unmet_heating_hours + self.unmet_cooling_hours;
-        writeln!(w, "Total Unmet Hours,{:.1}", total_unmet)?;
+        writeln!(w, "Total Unmet Hours,{:.1}", self.unmet_any_hours)?;
 
         w.flush()?;
         Ok(())
@@ -4101,12 +4150,7 @@ mod tests {
 
     #[test]
     fn test_summary_report_monthly_energy() {
-        let mut heating_sp = HashMap::new();
-        heating_sp.insert("Zone1".to_string(), 20.0);
-        let mut cooling_sp = HashMap::new();
-        cooling_sp.insert("Zone1".to_string(), 27.0);
-
-        let mut report = SummaryReport::new(heating_sp, cooling_sp);
+        let mut report = SummaryReport::new();
 
         // January: 100W heating for 10 hours
         for h in 1..=10 {
@@ -4122,32 +4166,49 @@ mod tests {
         assert!((jan_kwh - 1.0).abs() < 0.01);
     }
 
+    /// One hour of `(zone, temperature, heating sp, cooling sp)` states.
+    fn unmet_snapshot(hour: u32, zones: &[(&str, f64, f64, f64)]) -> OutputSnapshot {
+        let mut snap = OutputSnapshot::new(1, 1, hour, 1, 3600.0);
+        for &(z, t, h, c) in zones {
+            snap.zone_temperature.insert(z.to_string(), t);
+            snap.zone_heating_setpoint.insert(z.to_string(), h);
+            snap.zone_cooling_setpoint.insert(z.to_string(), c);
+        }
+        snap
+    }
+
     #[test]
     fn test_summary_report_unmet_hours() {
-        let mut heating_sp = HashMap::new();
-        heating_sp.insert("Zone1".to_string(), 20.0);
-        let cooling_sp = HashMap::new();
+        let mut report = SummaryReport::new();
+        // 19.0 C is below 20.0 - 0.2 C: unmet.
+        report.add_snapshot(&unmet_snapshot(1, &[("Zone1", 19.0, 20.0, 27.0)]));
+        assert!((report.unmet_heating_hours - 1.0).abs() < 1e-9);
+        // 19.9 C is within the tolerance: met.
+        report.add_snapshot(&unmet_snapshot(2, &[("Zone1", 19.9, 20.0, 27.0)]));
+        assert!((report.unmet_heating_hours - 1.0).abs() < 1e-9);
+        assert!((report.unmet_any_hours - 1.0).abs() < 1e-9);
+    }
 
-        let mut report = SummaryReport::new(heating_sp, cooling_sp);
-
-        // Zone at 19.0 C (below 20.0 - 0.2 = 19.8 C tolerance)
-        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
-        snap.zone_temperature.insert("Zone1".to_string(), 19.0);
-        snap.zone_heating_rate.insert("Zone1".to_string(), 0.0);
-        snap.zone_cooling_rate.insert("Zone1".to_string(), 0.0);
-        report.add_snapshot(&snap);
-
-        assert!((report.unmet_heating_hours - 1.0).abs() < 0.01);
-
-        // Zone at 19.9 C (above 19.8 C tolerance -- NOT unmet)
-        let mut snap2 = OutputSnapshot::new(1, 1, 2, 1, 3600.0);
-        snap2.zone_temperature.insert("Zone1".to_string(), 19.9);
-        snap2.zone_heating_rate.insert("Zone1".to_string(), 0.0);
-        snap2.zone_cooling_rate.insert("Zone1".to_string(), 0.0);
-        report.add_snapshot(&snap2);
-
-        // Should still be 1.0 (second snapshot was within tolerance)
-        assert!((report.unmet_heating_hours - 1.0).abs() < 0.01);
+    /// Unmet hours count the building once per hour however many zones are
+    /// unmet; an hour with one zone too cold and another too hot is one unmet
+    /// load hour. Each zone keeps its own count, and a zone the driver gives
+    /// no setpoint (unconditioned) is never counted.
+    #[test]
+    fn unmet_hours_are_building_wide() {
+        let mut report = SummaryReport::new();
+        let both_cold = [("A", 18.0, 21.0, 24.0), ("B", 18.0, 21.0, 24.0)];
+        let one_each = [("A", 18.0, 21.0, 24.0), ("B", 26.0, 21.0, 24.0)];
+        report.add_snapshot(&unmet_snapshot(1, &both_cold));
+        report.add_snapshot(&unmet_snapshot(2, &one_each));
+        let mut attic = OutputSnapshot::new(1, 1, 3, 1, 3600.0);
+        attic.zone_temperature.insert("Attic".to_string(), 50.0);
+        report.add_snapshot(&attic);
+        assert!((report.unmet_heating_hours - 2.0).abs() < 1e-9);
+        assert!((report.unmet_cooling_hours - 1.0).abs() < 1e-9);
+        assert!((report.unmet_any_hours - 2.0).abs() < 1e-9);
+        assert_eq!(report.zone_unmet_hours["A"], (2.0, 0.0));
+        assert_eq!(report.zone_unmet_hours["B"], (1.0, 1.0));
+        assert!(!report.zone_unmet_hours.contains_key("Attic"));
     }
 
     #[test]
@@ -4224,7 +4285,7 @@ variables:
 
         // Summary report: the annual total is the sum of its category rows, so
         // VRF-1 must survive into "Other (Electric)" and be counted in the total.
-        let mut report = SummaryReport::new(HashMap::new(), HashMap::new());
+        let mut report = SummaryReport::new();
         report.add_snapshot(&snap);
         let rows = report.compute_enduse_rows();
         let other = rows.iter().find(|r| r.label == "Other (Electric)").unwrap();
@@ -4255,7 +4316,7 @@ variables:
         assert!((get("building:cooling_electric") - 400.0).abs() < 1e-9);
         assert!((get("building:total_electric") - 1000.0).abs() < 1e-9);
 
-        let mut report = SummaryReport::new(HashMap::new(), HashMap::new());
+        let mut report = SummaryReport::new();
         report.add_snapshot(&snap);
         let rows = report.compute_enduse_rows();
         let row = |label: &str| rows.iter().find(|r| r.label == label).unwrap().total;
@@ -4387,10 +4448,7 @@ variables:
 
     #[test]
     fn test_peak_coincident_conditions() {
-        let mut report = SummaryReport::new(
-            vec![("Zone1".to_string(), 20.0)].into_iter().collect(),
-            vec![("Zone1".to_string(), 25.0)].into_iter().collect(),
-        );
+        let mut report = SummaryReport::new();
 
         let mut snap = OutputSnapshot::new(1, 15, 8, 1, 3600.0);
         snap.zone_heating_rate.insert("Zone1".to_string(), 5000.0);
@@ -4582,7 +4640,7 @@ variables:
 
     #[test]
     fn test_submeter_summary_accumulation() {
-        let mut report = SummaryReport::new(HashMap::new(), HashMap::new());
+        let mut report = SummaryReport::new();
 
         let mut snap = OutputSnapshot::new(1, 15, 12, 1, 3600.0);
         let mut general = HashMap::new();
@@ -4638,7 +4696,7 @@ variables:
 
     #[test]
     fn test_it_equipment_power_accumulation() {
-        let mut report = SummaryReport::new(HashMap::new(), HashMap::new());
+        let mut report = SummaryReport::new();
         let mut snap = OutputSnapshot::new(1, 15, 12, 1, 3600.0);
         snap.it_equipment_power
             .insert("DataHall".to_string(), 500_000.0); // 500 kW
