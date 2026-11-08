@@ -863,6 +863,7 @@ fn build_loop_infos(
                 dcv: al.dcv,
                 cooling_sat_reset,
                 heating_sat_reset: al.controls.heating_sat_reset.clone(),
+                sat_reset_base: None,
                 // Needed for the ASHRAE 62.1 VRP multi-zone Ev correction (even
                 // without DCV) and for DCV occupancy-based OA modulation.
                 zone_oa_data: al
@@ -2699,37 +2700,6 @@ fn main() -> Result<()> {
         // return-air heat [kg/s] (#51), carried over between timesteps.
         let mut return_air_flows: HashMap<String, f64> = HashMap::new();
 
-        // ── Zone thermal capacities ─────────────────────────────────────────
-        //
-        // C_zone = ρ_air × V_zone × c_p / Δt, the supply-air reset's stand-in for
-        // a zone's capacity when it estimates how hard the zone is loaded.
-        let zone_thermal_caps: HashMap<String, f64> = envelope
-            .as_ref()
-            .map(|env| {
-                // Use the same air density as envelope heat balance (standard at site altitude).
-                let site_pressure = model
-                    .design_days
-                    .first()
-                    .map(|dd| dd.pressure)
-                    .unwrap_or(101325.0);
-                let rho_air = site_pressure / (287.042 * 293.15);
-                env.zones
-                    .iter()
-                    .map(|z| {
-                        // Use 3rd-order backward difference multiplier (11/6) to
-                        // match the zone solve's effective thermal capacitance.
-                        // This ensures the HVAC iteration convergence correction
-                        // uses the same cap as the zone energy balance.
-                        let cap_mult = 11.0_f64 / 6.0;
-                        (
-                            z.input.name.clone(),
-                            rho_air * z.input.volume * 1006.0 * cap_mult / dt,
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
         // ── Pre-compute plant loop simulation order (topological sort) ──────────
         //
         // Build a dependency graph from inter-loop references:
@@ -3358,7 +3328,6 @@ fn main() -> Result<()> {
                                     &loads_to_heating_sp,
                                     &loads_to_cooling_sp,
                                     &initial_zone_temps,
-                                    &zone_thermal_caps,
                                     &predictor_no_hvac_temps,
                                     &zone_humidity_ratios,
                                     &zone_max_rh,
@@ -5884,7 +5853,6 @@ fn simulate_all_loops(
     zone_loads_to_heating_sp: &HashMap<String, f64>,
     zone_loads_to_cooling_sp: &HashMap<String, f64>,
     initial_zone_temps: &HashMap<String, f64>,
-    zone_thermal_caps: &HashMap<String, f64>,
     predictor_no_hvac_temps: &HashMap<String, f64>,
     zone_humidity_ratios: &HashMap<String, f64>,
     zone_max_rh: &HashMap<String, f64>,
@@ -6105,29 +6073,39 @@ fn simulate_all_loops(
         // Supply flow of a single-zone VAV loop, set by its SingleZone reset.
         let mut single_zone_vav_flow: Option<f64> = None;
         // Apply SAT reset before signal builders so all paths see updated temps.
-        {
-            let zone_vav_plrs: HashMap<String, f64> = li
-                .served_zones
-                .iter()
-                .map(|z| {
-                    let load = zone_cooling_loads.get(z).copied().unwrap_or(0.0);
-                    let cap = zone_thermal_caps.get(z).copied().unwrap_or(1.0) * 5.0;
-                    let plr = (load / cap.max(1.0)).clamp(0.0, 1.0);
-                    (z.clone(), plr)
-                })
-                .collect();
+        if li.cooling_sat_reset.is_some() || li.heating_sat_reset.is_some() {
+            // Each reset starts from where the last timestep left it, so it
+            // moves once per timestep, not once per HVAC iteration.
+            let (cool_base, heat_base) = sat_reset_base(
+                &mut li.sat_reset_base,
+                ctx.timestep.sim_time_s,
+                (li.cooling_supply_temp, li.heating_supply_temp),
+            );
             if let Some(ref reset) = li.cooling_sat_reset.clone() {
-                li.cooling_supply_temp =
-                    apply_sat_reset(reset, t_outdoor, li.cooling_supply_temp, &zone_vav_plrs);
+                let plrs = demand_reset_plrs(
+                    &li.served_zones,
+                    zone_cooling_loads,
+                    active_cool_sp,
+                    zone_design_flows,
+                    cool_base,
+                    -1.0,
+                );
+                li.cooling_supply_temp = apply_sat_reset(reset, t_outdoor, cool_base, &plrs);
             }
             if let Some(ref reset) = li.heating_sat_reset.clone() {
-                li.heating_supply_temp = apply_sat_reset_heating(
-                    reset,
-                    t_outdoor,
-                    li.heating_supply_temp,
-                    &zone_vav_plrs,
+                let plrs = demand_reset_plrs(
+                    &li.served_zones,
+                    zone_heating_loads,
+                    active_heat_sp,
+                    zone_design_flows,
+                    heat_base,
+                    1.0,
                 );
+                li.heating_supply_temp =
+                    apply_sat_reset_heating(reset, t_outdoor, heat_base, &plrs);
             }
+        }
+        {
             // SingleZone SAT reset (EnergyPlus SetpointManager:SingleZone): the
             // supply temperature is reset to the value that holds the control
             // zone exactly at its setpoint given the zone sensible load and the
@@ -8036,6 +8014,7 @@ room_air:
             dcv: false,
             cooling_sat_reset: None,
             heating_sat_reset: None,
+            sat_reset_base: None,
             zone_oa_data: vec![],
             design_supply_flow: 0.3,
             zone_outdoor_air: HashMap::new(),
@@ -8081,6 +8060,7 @@ room_air:
             dcv: false,
             cooling_sat_reset: None,
             heating_sat_reset: None,
+            sat_reset_base: None,
             zone_oa_data: vec![],
             design_supply_flow: 0.5,
             zone_outdoor_air: HashMap::new(),
@@ -8929,6 +8909,49 @@ room_air:
 
 // ─── Setpoint Reset Helpers ───────────────────────────────────────────────────
 
+/// The (cooling, heating) supply temperatures a loop's resets start from this
+/// timestep: `current`, the values it entered the timestep with, kept in
+/// `state` for every HVAC iteration of the timestep at simulation time `now` [s].
+fn sat_reset_base(
+    state: &mut Option<(f64, f64, f64)>,
+    now: f64,
+    current: (f64, f64),
+) -> (f64, f64) {
+    match *state {
+        Some((t, c, h)) if t == now => (c, h),
+        _ => {
+            *state = Some((now, current.0, current.1));
+            current
+        }
+    }
+}
+
+/// Each zone's part load for a demand reset: the share of its design flow that
+/// meets the predictor's load at the supply temperature, ṁ = Q/(cp·ΔT) over
+/// ṁ_design, which is how far its box would open (the signal E+
+/// `SetpointManager:WarmestTemperatureFlow` reads). `sign` is −1 for cooling
+/// (supply below setpoint) and +1 for heating; ΔT is held at least 1 K.
+fn demand_reset_plrs(
+    zones: &[String],
+    loads: &HashMap<String, f64>,
+    setpoints: &HashMap<String, f64>,
+    design_flows: &HashMap<String, f64>,
+    t_supply: f64,
+    sign: f64,
+) -> HashMap<String, f64> {
+    let cp = 1006.0;
+    zones
+        .iter()
+        .filter_map(|z| {
+            let load = loads.get(z).copied().unwrap_or(0.0).max(0.0);
+            let design_flow = design_flows.get(z).copied().filter(|&m| m > 0.0)?;
+            let t_sp = setpoints.get(z).copied()?;
+            let dt = (sign * (t_supply - t_sp)).max(1.0);
+            Some((z.clone(), (load / (design_flow * cp * dt)).clamp(0.0, 1.0)))
+        })
+        .collect()
+}
+
 fn apply_sat_reset(
     reset: &openbse_io::input::SatResetConfig,
     t_outdoor: f64,
@@ -8952,12 +8975,14 @@ fn apply_sat_reset(
             sat_max,
             step,
         } => {
+            // Validation orders sat_min ≤ sat_max.
             let max_plr = zone_plrs.values().cloned().fold(0.0_f64, f64::max);
-            if max_plr >= 0.95 {
-                (current_sat - step).max(*sat_min)
+            let next = if max_plr >= 0.95 {
+                current_sat - step
             } else {
-                (current_sat + step).min(*sat_max)
-            }
+                current_sat + step
+            };
+            next.clamp(*sat_min, *sat_max)
         }
         SatResetConfig::SingleZone { .. } => current_sat,
     }
@@ -8988,11 +9013,12 @@ fn apply_sat_reset_heating(
         } => {
             // For heating demand reset: step up if zones are loaded (need more heat)
             let max_plr = zone_plrs.values().cloned().fold(0.0_f64, f64::max);
-            if max_plr >= 0.95 {
-                (current_sat + step).min(*sat_max)
+            let next = if max_plr >= 0.95 {
+                current_sat + step
             } else {
-                (current_sat - step).max(*sat_min)
-            }
+                current_sat - step
+            };
+            next.clamp(*sat_min, *sat_max)
         }
         SatResetConfig::SingleZone { .. } => current_sat,
     }
@@ -9442,6 +9468,37 @@ mod pump_heat_tests {
 mod setpoint_reset_tests {
     use super::*;
 
+    /// A demand reset steps once per timestep, however many HVAC iterations
+    /// call it, and reads how far each box would open.
+    #[test]
+    fn demand_reset_moves_once_per_timestep() {
+        let reset = openbse_io::input::SatResetConfig::DemandReset {
+            sat_min: 12.0,
+            sat_max: 16.0,
+            step: 0.5,
+        };
+        let mut state = None;
+        let mut sat = 13.0;
+        let zones = vec!["Z".to_string()];
+        let one = |v: f64| HashMap::from([("Z".to_string(), v)]);
+        // A 1 kg/s box at 24 °C with 13 °C air carries 11.07 kW fully open.
+        let plrs = demand_reset_plrs(&zones, &one(5_000.0), &one(24.0), &one(1.0), 13.0, -1.0);
+        assert!((plrs["Z"] - 5_000.0 / (1006.0 * 11.0)).abs() < 1e-12);
+        for t in [0.0, 900.0] {
+            for _iteration in 0..10 {
+                let (base, _) = sat_reset_base(&mut state, t, (sat, 30.0));
+                sat = apply_sat_reset(&reset, 20.0, base, &plrs);
+            }
+        }
+        // Two timesteps at part load: two steps up, not twenty.
+        assert!((sat - 14.0).abs() < 1e-12);
+        // A fully open box steps the reset back down.
+        let full = demand_reset_plrs(&zones, &one(20_000.0), &one(24.0), &one(1.0), 14.0, -1.0);
+        assert_eq!(full["Z"], 1.0);
+        let (base, _) = sat_reset_base(&mut state, 1800.0, (sat, 30.0));
+        assert_eq!(apply_sat_reset(&reset, 20.0, base, &full), 13.5);
+    }
+
     #[test]
     fn test_sat_oa_reset_at_oa_low() {
         let reset = openbse_io::input::SatResetConfig::OaReset {
@@ -9524,6 +9581,7 @@ mod tests_datacenter {
             dcv: false,
             cooling_sat_reset: None,
             heating_sat_reset: None,
+            sat_reset_base: None,
             zone_oa_data: vec![],
             design_supply_flow: 2.5,
             zone_outdoor_air: HashMap::new(),

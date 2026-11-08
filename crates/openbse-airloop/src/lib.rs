@@ -88,6 +88,10 @@ pub struct LoopInfo {
     pub cooling_sat_reset: Option<openbse_io::input::SatResetConfig>,
     /// Heating SAT reset configuration (cloned from AirLoopControls).
     pub heating_sat_reset: Option<openbse_io::input::SatResetConfig>,
+    /// Supply temperatures (cooling, heating) [°C] the resets started this
+    /// timestep from, keyed by the timestep's simulation time [s], so a reset
+    /// moves once per timestep however many HVAC iterations call it.
+    pub sat_reset_base: Option<(f64, f64, f64)>,
     /// Per-zone OA data for ASHRAE 62.1 VRP and DCV calculations.
     /// From each zone's `outdoor_air`, or else its connection's rates.
     pub zone_oa_data: Vec<ZoneOaData>,
@@ -2037,6 +2041,7 @@ mod tests {
             dcv: false,
             cooling_sat_reset: None,
             heating_sat_reset: None,
+            sat_reset_base: None,
             zone_oa_data: vec![],
             design_supply_flow: 0.5,
             zone_outdoor_air: HashMap::new(),

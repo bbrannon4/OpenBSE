@@ -272,11 +272,24 @@ $$ {#eq-oa-reset}
 
 for cooling supply air, heating supply air and plant loops alike.
 
-**Demand reset.** A cooling supply temperature moves down by `step` if the highest
-zone "PLR" is at least 0.95, and otherwise up. Heating goes the opposite way. It
-runs each HVAC iteration, and its PLR is the cooling load over five times the zone
-air's capacitance rate
-([#256](https://github.com/bbrannon4/OpenBSE/issues/256)).
+**Demand reset.** Once per timestep, a cooling supply temperature moves down by
+`step` if the most loaded zone's part load is at least 0.95, and otherwise up, within
+$[T_\text{min}, T_\text{max}]$; a heating supply temperature goes the opposite way.
+The part load is how far the zone's box would open to meet the predictor's load at
+the supply temperature the timestep started with,
+
+$$
+\text{PLR}_z = \frac{\dot Q_z}{\dot m_{d,z}c_p\max(|T_s - T_{\text{sp},z}|,\ 1)},
+$$ {#eq-demand-reset-plr}
+
+with the cooling load and setpoint for a cooling reset and the heating ones for a
+heating reset.
+
+**Comparison with EnergyPlus.** E+ has no stepping demand reset;
+`SetpointManager:WarmestTemperatureFlow` reads the same box positions but sets the
+supply temperature directly each timestep. The stepped reset is a common building
+automation sequence (ASHRAE Guideline 36 trim and respond), here with one request
+level and no ignore count.
 
 **Plant.** A plant loop's reset reaches only the loop's return estimate
 (@sec-plant-loop, [#251](https://github.com/bbrannon4/OpenBSE/issues/251)).
@@ -285,8 +298,7 @@ air's capacitance rate
 
 - [#255](https://github.com/bbrannon4/OpenBSE/issues/255): no night cycle;
   unoccupied setpoints unused.
-- [#256](https://github.com/bbrannon4/OpenBSE/issues/256): demand reset per
-  iteration; cycling runtime floor.
+- [#256](https://github.com/bbrannon4/OpenBSE/issues/256): cycling runtime floor.
 - [#388](https://github.com/bbrannon4/OpenBSE/issues/388): VAV Warmest maximum
   and no-box heating fraction are not inputs.
 - [#389](https://github.com/bbrannon4/OpenBSE/issues/389): a multi-zone PSZ splits
