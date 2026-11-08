@@ -262,8 +262,8 @@ the served zones' summed outdoor-air requirement $\sum\dot m_{oa}$ for a DOAS
 (E+ `Sizing:System` with a `VentilationRequirement` load).
 
 **Outdoor air.** The coil's outdoor-air fraction $x$ is the loop's stated damper
-position, or else the zones' outdoor-air requirement over the system flow, or else
-the 20% the controls fall back on. FCU, CRAC and CRAH recirculate ($x = 0$), a DOAS
+position, or else the zones' outdoor-air requirement over the system flow; a loop
+whose zones state no outdoor air takes none. FCU, CRAC and CRAH recirculate ($x = 0$), a DOAS
 takes only outdoor air ($x = 1$), and a loop whose zones take their outdoor air
 directly has $x = 0$. Economizers and heat recovery get no credit.
 
@@ -419,20 +419,21 @@ design flow, the sum of the demand components' design flows, as in `Pumps::SizeP
 
 ## Outdoor-air fraction after sizing {#sec-oa-after-sizing}
 
-**Source:** `main.rs` ("Recompute OA fractions after sizing");
-`openbse-io/src/input.rs` (`compute_oa_fraction`).
+**Source:** `main.rs` (`build_loop_infos`, "Outdoor-air fractions after sizing").
 
-When a loop is built, its minimum outdoor-air fraction is computed from the zone
-outdoor-air flows (@eq-zone-oa), summed or maximized as each zone specifies. With
-an autosized fan, the fraction falls back to 0.2 until sizing is done.
-After sizing, unless `minimum_damper_position` is given, the fraction
-becomes
+Each served zone's requirement is its `outdoor_air` (@eq-zone-oa), summed or
+maximized as the zone specifies, or else its connection's `per_person_oa` and
+`per_area_oa`. Unless `minimum_damper_position` is given, a loop's minimum
+outdoor-air fraction is
 
 $$
 x_\text{oa} = \min\left(1,\ \frac{\sum_z \dot V_{\text{oa},z}}{\dot V_\text{fan}}\right),
 $$ {#eq-oa-fraction-sized}
 
-with $\dot V_{\text{oa},z}$ from @eq-zone-oa at design occupancy, summing all of the
+at build time for a hard-sized fan and after sizing for an autosized one, and 0 when
+no served zone states a requirement, as an EnergyPlus air loop without an
+`AirLoopHVAC:OutdoorAirSystem` takes none. Sizing reads the requirement directly
+(@sec-air-sizing), so it needs no fraction. Here $\dot V_{\text{oa},z}$ is at design occupancy, summing all of the
 zone's People objects. This is the same function the zone's outdoor-air floor
 and the ideal-loads outdoor air use, like EnergyPlus's single
 `DesignSpecification:OutdoorAir` calculation. The fan flow and the outdoor-air

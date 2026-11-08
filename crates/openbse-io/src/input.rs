@@ -558,8 +558,8 @@ pub struct AirLoopControls {
     #[serde(default = "default_controls_zone_flow")]
     pub design_zone_flow: AutosizeValue,
     /// Minimum outdoor air damper position [0-1].
-    /// If omitted, auto-calculated from zone outdoor air requirements.
-    /// Falls back to 0.20 if no outdoor_air definitions exist.
+    /// If omitted, the served zones' outdoor-air requirement over the fan
+    /// flow, or 0 when no served zone states one.
     #[serde(default)]
     pub minimum_damper_position: Option<f64>,
     /// Economizer settings (optional — absent = no economizer)
@@ -4637,72 +4637,6 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
     zones
 }
 
-/// Compute minimum outdoor air fraction for an air loop from zone ventilation requirements.
-///
-///   total_oa = Σ ZoneInput::design_outdoor_air_flow
-///   min_oa_fraction = total_oa / design_supply_flow
-///
-/// Both flows are for one instance of a multiplied zone, so no multiplier enters.
-///
-/// Returns the computed fraction clamped to [0, 1], or `default_fraction` if
-/// no outdoor air data is available for the served zones.
-pub fn compute_oa_fraction(
-    model: &ModelInput,
-    air_loop: &AirLoopInput,
-    resolved_zones: &[openbse_envelope::ZoneInput],
-    default_fraction: f64,
-) -> f64 {
-    let served_zone_names: Vec<String> = air_loop
-        .zone_terminals
-        .iter()
-        .map(|zc| zc.zone.clone())
-        .collect();
-
-    if served_zone_names.is_empty() {
-        return default_fraction;
-    }
-
-    // Total outdoor air requirement [m³/s], preferring the resolved zone data
-    let zone_flows: Vec<f64> = served_zone_names
-        .iter()
-        .filter_map(|name| {
-            resolved_zones
-                .iter()
-                .chain(model.zones.iter())
-                .find(|z| z.name == *name)
-        })
-        .filter_map(|z| z.design_outdoor_air_flow())
-        .collect();
-    let has_oa_data = !zone_flows.is_empty();
-    let total_oa_flow: f64 = zone_flows.iter().sum();
-
-    if !has_oa_data || total_oa_flow <= 0.0 {
-        return default_fraction;
-    }
-
-    // Find design supply flow from the fan in this air loop
-    let design_flow = air_loop.equipment.iter().find_map(|eq| match eq {
-        EquipmentInput::Fan(f) => {
-            let flow = f.design_flow_rate.to_f64();
-            if flow > 0.0 {
-                Some(flow)
-            } else {
-                None
-            }
-        }
-        _ => None,
-    });
-
-    match design_flow {
-        Some(flow) => {
-            // OA flow is in m³/s and fan design flow is also in m³/s,
-            // so the ratio is dimensionally consistent.
-            (total_oa_flow / flow).clamp(0.0, 1.0)
-        }
-        _ => default_fraction,
-    }
-}
-
 /// Resolve thermostat definitions, expanding zone group references to
 /// individual zone names.
 ///
@@ -6125,11 +6059,10 @@ air_loops:
             ))
             .unwrap()
         };
-        let fraction =
-            |m: &ModelInput| compute_oa_fraction(m, &m.air_loops[0], &resolve_zone_loads(m), 0.2);
+        let flow = |m: &ModelInput| resolve_zone_loads(m)[0].design_outdoor_air_flow().unwrap();
         // Area 0.1 + absolute 0.05 + ACH 1.2 × 300 / 3600 = 0.1 m³/s
-        assert!((fraction(&model("sum")) - 0.25).abs() < 1e-12);
-        assert!((fraction(&model("maximum")) - 0.1).abs() < 1e-12);
+        assert!((flow(&model("sum")) - 0.25).abs() < 1e-12);
+        assert!((flow(&model("maximum")) - 0.1).abs() < 1e-12);
     }
 
     #[test]
