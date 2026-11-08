@@ -111,7 +111,7 @@ jobs:
         run: |
           sha256sum -c - <<'SUMS'
           cacc6c69d3653318debce117bee1436df9d790adb84703eabf27517578f9656d  tests/model_baselines.json
-          8c9fb69ea0a2d87528cf0b904f39497a8482119c5d5dbdd057f08a10d1d6605a  tests/model_checks.json
+          5a7ef47e4494265d527063f3b0a3811079dfadb87742e9b2ee49fc09e4f92758  tests/model_checks.json
           SUMS
 
       - name: Build release
@@ -151,7 +151,7 @@ jobs:
         run: |
           sha256sum -c - <<'SUMS'
           cacc6c69d3653318debce117bee1436df9d790adb84703eabf27517578f9656d  tests/model_baselines.json
-          8c9fb69ea0a2d87528cf0b904f39497a8482119c5d5dbdd057f08a10d1d6605a  tests/model_checks.json
+          5a7ef47e4494265d527063f3b0a3811079dfadb87742e9b2ee49fc09e4f92758  tests/model_checks.json
           SUMS
 
       - name: Build release
