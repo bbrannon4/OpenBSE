@@ -71,3 +71,14 @@ export default defineConfig([
   },
 ])
 ```
+
+## Saving
+
+Saving edits the model file's text only where the model changed: comments,
+blank lines, key order, flow lists and number formatting elsewhere stay as they
+were (`src/lib/yaml-doc.ts`). `scripts/check-yaml-save.mts` saves every shipped
+model with a set of edits and checks the result:
+
+```bash
+node --experimental-strip-types scripts/check-yaml-save.mts
+```

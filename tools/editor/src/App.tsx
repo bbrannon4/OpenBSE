@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import yaml from "js-yaml";
 import { ClassBrowser } from "./components/ClassBrowser";
 import { ObjectEditor } from "./components/ObjectEditor";
 import { OutputsEditor } from "./components/OutputsEditor";
@@ -18,72 +17,12 @@ import type { ClassInfo } from "./lib/schema";
 import type { ParsedCsv } from "./lib/csv";
 import { parseCsv } from "./lib/csv";
 import { loadSettings, saveSettings, type UnitSystem } from "./lib/units";
+import { parseModel, serializeModel, type Model } from "./lib/yaml-doc";
 import logoSvg from "./assets/logo.svg";
 import "./App.css";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Model = Record<string, any>;
 
 type ViewMode = "edit" | "network" | "charts" | "parametric" | "energy" | "comfort";
-
-// `!zone <name>` is only valid as a surface `boundary`. Elsewhere `{ zone: ... }`
-// is an ordinary map (e.g. an air loop's zone connection), so the tag must not
-// be inferred from shape alone; mark boundary values explicitly before dumping.
-class ZoneBoundary {
-  zone: string;
-  constructor(zone: string) {
-    this.zone = zone;
-  }
-}
-
-const ZoneTag = new yaml.Type("!zone", {
-  kind: "scalar",
-  instanceOf: ZoneBoundary,
-  construct(data: string) {
-    return { zone: data };
-  },
-  represent(obj: unknown) {
-    return (obj as ZoneBoundary).zone;
-  },
-});
-
-const OPENBSE_SCHEMA = yaml.DEFAULT_SCHEMA.extend([ZoneTag]);
-
-function isZoneOnly(value: unknown): value is { zone: string } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.keys(value).length === 1 &&
-    typeof (value as { zone?: unknown }).zone === "string"
-  );
-}
-
-function tagZoneBoundaries(node: unknown): unknown {
-  if (Array.isArray(node)) return node.map(tagZoneBoundaries);
-  if (typeof node !== "object" || node === null) return node;
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(node)) {
-    out[key] =
-      key === "boundary" && isZoneOnly(value)
-        ? new ZoneBoundary(value.zone)
-        : tagZoneBoundaries(value);
-  }
-  return out;
-}
-
-function serializeYaml(model: Model): string {
-  const clean = tagZoneBoundaries(JSON.parse(JSON.stringify(model)));
-  return yaml.dump(clean, {
-    indent: 2,
-    lineWidth: 120,
-    noRefs: true,
-    sortKeys: false,
-    quotingType: '"',
-    forceQuotes: false,
-    schema: OPENBSE_SCHEMA,
-  });
-}
 
 function yieldToUI(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -101,6 +40,25 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [model, setModel] = useState<Model>({});
+  // The file's text and the model it held when opened or last saved: a save
+  // edits that text only where the model changed, keeping comments and format.
+  const savedSource = useRef<string | null>(null);
+  const savedModel = useRef<Model | null>(null);
+  const loadText = useCallback((contents: string) => {
+    const { source, model: parsed } = parseModel(contents);
+    savedSource.current = source;
+    savedModel.current = structuredClone(parsed);
+    setModel(parsed);
+  }, []);
+  const writeModel = useCallback(
+    async (path: string) => {
+      const text = serializeModel(savedSource.current, savedModel.current, model);
+      await invoke("write_yaml_file", { path, contents: text });
+      savedSource.current = text;
+      savedModel.current = structuredClone(model);
+    },
+    [model]
+  );
   const [filePath, setFilePath] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("edit");
@@ -169,6 +127,8 @@ function App() {
   // ===== File I/O =====
 
   const handleNew = useCallback(() => {
+    savedSource.current = null;
+    savedModel.current = null;
     setModel({});
     setFilePath(null);
     setDirty(false);
@@ -185,14 +145,13 @@ function App() {
     try {
       const path = selected as string;
       const contents = await invoke<string>("read_yaml_file", { path });
-      const parsed = parseYaml(contents);
-      setModel(parsed);
+      loadText(contents);
       setFilePath(path);
       setDirty(false);
     } catch (e) {
       setError(`Failed to open file: ${e}`);
     }
-  }, []);
+  }, [loadText]);
 
   const handleSave = useCallback(async () => {
     let path = filePath;
@@ -206,14 +165,13 @@ function App() {
       path = selected;
     }
     try {
-      const yamlStr = serializeYaml(model);
-      await invoke("write_yaml_file", { path, contents: yamlStr });
+      await writeModel(path);
       setFilePath(path);
       setDirty(false);
     } catch (e) {
       setError(`Failed to save: ${e}`);
     }
-  }, [filePath, model]);
+  }, [filePath, writeModel]);
 
   const handleSaveAs = useCallback(async () => {
     const selected = await save({
@@ -223,14 +181,13 @@ function App() {
     });
     if (!selected) return;
     try {
-      const yamlStr = serializeYaml(model);
-      await invoke("write_yaml_file", { path: selected, contents: yamlStr });
+      await writeModel(selected);
       setFilePath(selected);
       setDirty(false);
     } catch (e) {
       setError(`Failed to save: ${e}`);
     }
-  }, [filePath, model]);
+  }, [filePath, writeModel]);
 
   // ===== Instance Management =====
 
@@ -333,8 +290,7 @@ function App() {
         const yamlPath = result.yaml_files[0];
         try {
           const contents = await invoke<string>("read_yaml_file", { path: yamlPath });
-          const parsed = parseYaml(contents);
-          setModel(parsed);
+          loadText(contents);
           setFilePath(yamlPath);
           setDirty(false);
         } catch (e) {
@@ -380,7 +336,7 @@ function App() {
     } catch (e) {
       setError(`Failed to scan folder: ${e}`);
     }
-  }, [loadAndParseCsv]);
+  }, [loadAndParseCsv, loadText]);
 
   // ===== Simulation results auto-load =====
   const handleSimulationComplete = useCallback(
@@ -667,12 +623,6 @@ function App() {
       )}
     </div>
   );
-}
-
-function parseYaml(yamlStr: string): Model {
-  const result = yaml.load(yamlStr, { schema: OPENBSE_SCHEMA });
-  if (typeof result !== "object" || result === null) return {};
-  return result as Model;
 }
 
 export default App;
