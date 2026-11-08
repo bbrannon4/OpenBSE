@@ -194,7 +194,7 @@ impl SpeciesTransport {
         // Interzone couplings [kg/s]: inflow[i] += ṁ from zone j → zone i.
         // Thermal accumulation (zone_interzone_flows) already carries both
         // directions of two-way openings; duct leakage paths are excluded
-        // there but DO carry species, so add them from their tracked indices.
+        // there but DO carry species, so they are added below.
         let mut interzone = vec![vec![0.0_f64; n_zones]; n_zones]; // [to][from]
         let mut outdoor_in = network.zone_outdoor_mass_flow.clone(); // at C_out
 
@@ -204,33 +204,54 @@ impl SpeciesTransport {
             }
         }
 
-        // Duct leakage paths (#85): supply leak carries zone air to the
-        // ambient zone; return leak carries ambient-zone air to the zone.
-        let duct_paths = network
-            .duct_supply_leak_path_indices
-            .iter()
-            .chain(network.duct_return_leak_path_indices.iter())
-            .filter_map(|&idx| idx);
-        for path_idx in duct_paths {
+        // HVAC outdoor air and scheduled ventilation enter at C_out.
+        for (zi, outdoor) in outdoor_in.iter_mut().enumerate() {
+            *outdoor += zone_oa_flow.get(zi).copied().unwrap_or(0.0).max(0.0)
+                + zone_vent_flow.get(zi).copied().unwrap_or(0.0).max(0.0);
+        }
+
+        // Duct leakage paths (#85). A supply leak spills supply air, the
+        // mix of outdoor air (fraction f = OA/supply) and the zone's return
+        // air, into the ambient zone: its outdoor-air share never reaches
+        // the zone, and only its return-air share carries zone air. A return
+        // leak carries ambient-zone air to the zone.
+        let leak_flow = |path_idx: usize| {
             let path = &network.paths[path_idx];
             let m = match path.element {
                 FlowElement::FixedFlow { mass_flow } => mass_flow,
                 _ => path.mass_flow,
             };
-            if m <= 0.0 {
-                continue;
-            }
             let from = network.nodes[path.node_a].zone_index;
             let to = network.nodes[path.node_b].zone_index;
-            if let (Some(from), Some(to)) = (from, to) {
-                interzone[to][from] += m;
+            match (from, to) {
+                (Some(from), Some(to)) if m > 0.0 => Some((from, to, m)),
+                _ => None,
+            }
+        };
+        for path_idx in network.duct_supply_leak_path_indices.iter().flatten() {
+            if let Some((from, to, m)) = leak_flow(*path_idx) {
+                let oa = zone_oa_flow.get(from).copied().unwrap_or(0.0).max(0.0);
+                let supply = oa
+                    + inputs
+                        .recirc_flow
+                        .get(from)
+                        .copied()
+                        .unwrap_or(0.0)
+                        .max(0.0);
+                let m_oa = if supply > 0.0 {
+                    (m * oa / supply).min(outdoor_in[from])
+                } else {
+                    0.0
+                };
+                outdoor_in[from] -= m_oa;
+                outdoor_in[to] += m_oa;
+                interzone[to][from] += m - m_oa;
             }
         }
-
-        // HVAC outdoor air and scheduled ventilation enter at C_out.
-        for (zi, outdoor) in outdoor_in.iter_mut().enumerate() {
-            *outdoor += zone_oa_flow.get(zi).copied().unwrap_or(0.0).max(0.0)
-                + zone_vent_flow.get(zi).copied().unwrap_or(0.0).max(0.0);
+        for path_idx in network.duct_return_leak_path_indices.iter().flatten() {
+            if let Some((from, to, m)) = leak_flow(*path_idx) {
+                interzone[to][from] += m;
+            }
         }
 
         // Quasi-steady zone mass balance: total outflow = total inflow.
@@ -667,6 +688,67 @@ mod tests {
         }
         let expected = source / (m_inf + v_d * a_surf * RHO);
         assert_relative_eq!(transport.concentration(0, 0), expected, max_relative = 1e-6);
+    }
+
+    /// A supply-duct leak spills supply air, not zone air: with outdoor-air
+    /// fraction f, the attic gets (1 − f)·C_zone, the leaked outdoor air never
+    /// reaches the zone, and species mass is conserved:
+    /// source = exfiltration·C_zone + leak·C_attic at steady state.
+    #[test]
+    fn test_supply_duct_leak_carries_supply_air() {
+        let mut network = scaffold(2); // zone 0 = conditioned, zone 1 = attic
+        let (oa, recirc, m_leak) = (0.03, 0.07, 0.02);
+        network.paths.push(FlowPath {
+            node_a: 0,
+            node_b: 1,
+            height: 1.5,
+            cp: 0.0,
+            azimuth: 0.0,
+            element: FlowElement::FixedFlow { mass_flow: m_leak },
+            source_surface: None,
+            mass_flow: m_leak,
+        });
+        network.duct_supply_leak_path_indices[0] = Some(0);
+        let species = vec![SpeciesConfig {
+            name: "co2".to_string(),
+            outdoor_concentration: 0.0,
+            initial_concentration: Some(0.0),
+            decay_rate: 0.0,
+            deposition_velocity: 0.0,
+            hvac_filter_efficiency: 0.0,
+            generation_per_met_watt: None,
+        }];
+        let mut transport = SpeciesTransport::new(&species, 2);
+        let mass = vec![50.0 * RHO, 50.0 * RHO];
+        let source = 1e-6;
+        let sources = vec![vec![source, 0.0]];
+        let (rho, area, _, vent, _) = plain_inputs(&mass);
+        for _ in 0..5000 {
+            transport.step(
+                &network,
+                &SpeciesZoneInputs {
+                    air_mass: &mass,
+                    air_density: &rho,
+                    surface_area: &area,
+                    oa_flow: &[oa, 0.0],
+                    vent_flow: &vent,
+                    recirc_flow: &[recirc, 0.0],
+                },
+                &sources,
+                60.0,
+            );
+            transport.commit_timestep();
+        }
+        let f = oa / (oa + recirc);
+        let c_zone = transport.concentration(0, 0);
+        let c_attic = transport.concentration(0, 1);
+        // Zone: the delivered outdoor air (OA − f·leak) carries the source out.
+        assert_relative_eq!(c_zone, source / (oa - f * m_leak), max_relative = 1e-6);
+        assert_relative_eq!(c_attic, (1.0 - f) * c_zone, max_relative = 1e-6);
+        // Conservation: the zone exfiltrates what the supply brings beyond
+        // its return, S − leak − R = OA − leak, and the attic exhausts the leak.
+        let out = (oa - m_leak) * c_zone + m_leak * c_attic;
+        assert_relative_eq!(out, source, max_relative = 1e-6);
     }
 
     /// Return-duct leakage (#85) carries attic species into the conditioned

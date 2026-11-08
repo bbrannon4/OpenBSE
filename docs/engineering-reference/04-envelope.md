@@ -1169,7 +1169,11 @@ $\dot m_\text{inf}$. Its inflows from other zones become a mass-weighted
 stream mixed with the outdoor air (`mix_advective_streams`), giving the
 combined advective term of @eq-zone-ode and its humidity. Passive species
 (e.g. CO₂) are then advanced by an implicit zone mass balance on the solved
-flows, with sources, decay, deposition and filtration.
+flows, with sources, decay, deposition and filtration. Duct leaks carry
+species too: a return leak brings ambient-zone air to the zone, and a supply
+leak spills supply air into the ambient zone, its outdoor-air fraction
+$f = \dot m_\text{OA}/\dot m_\text{supply}$ at the outdoor concentration
+(that air never reaches the zone) and the rest at the zone's concentration.
 
 **Comparison with EnergyPlus.** The network, element equations (E+
 `generic_crack`, with its density and viscosity corrections), the
