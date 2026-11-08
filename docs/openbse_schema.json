@@ -329,7 +329,7 @@
         "wall_leakage_class": { "$ref": "#/$defs/LeakageClass", "description": "ASHRAE leakage class for exterior walls. Overrides wall_leakage_per_area." },
         "window_leakage_class": { "$ref": "#/$defs/LeakageClass", "description": "ASHRAE leakage class for windows. Overrides window_leakage_per_area." },
         "interzone_leakage_class": { "$ref": "#/$defs/LeakageClass", "description": "ASHRAE leakage class for interzone surfaces. Overrides interzone_leakage_per_area." },
-        "convergence_tolerance": { "type": "number", "default": 0.1, "description": "Newton-Raphson convergence tolerance [Pa]." },
+        "convergence_tolerance": { "type": "number", "default": 0.1, "description": "Newton-Raphson convergence tolerance: the solve stops when the pressure step is below this value [Pa], or when the largest zone mass residual is below this value × 0.001 m³/s at reference density (1.2e-4 kg/s at the default)." },
         "max_iterations": { "type": "integer", "default": 30, "description": "Maximum Newton-Raphson iterations." },
         "damping": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1, "description": "Damping factor for pressure updates (starting factor when adaptive_damping is on)." },
         "adaptive_damping": { "type": "boolean", "default": true, "description": "Adapt the Newton under-relaxation factor per iteration: grow toward a full step while the residual falls, cut on overshoot." },

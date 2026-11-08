@@ -7,7 +7,8 @@
 //! Flow models:
 //!   - Power-law cracks: Q = C × |ΔP|^n × sign(ΔP), n ≈ 0.65
 //!   - Large openings (orifice): Q = Cd × A × sqrt(2ρ|ΔP|) × sign(ΔP)
-//!   - Fixed flows: exhaust fans, HVAC imbalance
+//!   - Fixed flows: net HVAC exchange with outdoors (outdoor air − exhaust,
+//!     exhaust fans included), duct leaks without static pressures
 //!
 //! Wind pressure coefficients from Swami & Chandra (1988) for low-rise,
 //! or simplified cosine model for high-rise buildings.
@@ -213,7 +214,11 @@ pub struct AirflowNetworkConfig {
     /// `interzone_leakage_per_area` and `default_crack_exponent` for interzone cracks.
     #[serde(default)]
     pub interzone_leakage_class: Option<LeakageClass>,
-    /// Newton-Raphson convergence tolerance [Pa].
+    /// Newton-Raphson convergence tolerance. Two tests use it: a pressure
+    /// step below `convergence_tolerance` [Pa], and an absolute mass residual
+    /// below `convergence_tolerance` × 0.001 m³/s at reference density
+    /// [kg/s] (1.2e-4 kg/s at the default 0.1; E+'s absolute airflow
+    /// tolerance defaults to 1e-4 kg/s).
     #[serde(default = "default_convergence_tol")]
     pub convergence_tolerance: f64,
     /// Maximum Newton-Raphson iterations.
@@ -384,7 +389,7 @@ pub enum FlowElement {
         /// Opening area [m²].
         area: f64,
     },
-    /// Fixed mass flow rate (exhaust fans, HVAC imbalance).
+    /// Fixed mass flow rate (net HVAC exchange with outdoors, duct leaks).
     /// Positive = flow from node_a to node_b.
     FixedFlow {
         /// Mass flow rate [kg/s].
@@ -1341,25 +1346,9 @@ pub fn build_network(
         }
     }
 
-    // Exhaust fans (added as FixedFlow, mass_flow updated each timestep)
-    for (zi, zone) in zones.iter().enumerate() {
-        if zone.input.exhaust_fan.is_some() {
-            let zone_node = zone_to_node[zi];
-            paths.push(FlowPath {
-                node_a: zone_node,
-                node_b: outdoor_node,
-                height: zone.centroid_height,
-                cp: 0.0,
-                azimuth: 0.0,
-                element: FlowElement::FixedFlow { mass_flow: 0.0 },
-                source_surface: None,
-                mass_flow: 0.0,
-            });
-        }
-    }
-
     // HVAC net injection paths: one per zone (outdoor → zone).
-    // mass_flow = OA_supply − exhaust, updated each timestep before solving.
+    // mass_flow = OA_supply − exhaust (zone exhaust fans included), updated
+    // each timestep before solving: the only path that carries exhaust.
     // Positive → pressurisation; negative → depressurisation.
     // Excluded from zone_outdoor_mass_flow so OA isn't double-counted.
     let mut hvac_net_path_indices: Vec<Option<usize>> = vec![None; n_zones];
