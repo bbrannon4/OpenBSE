@@ -1108,16 +1108,22 @@ Each zone's net HVAC exchange with the outdoors, outdoor air minus exhaust
 Duct leaks are pressure-dependent cracks, or fixed flows when no static
 pressures are given.
 
-**Flow elements.** With $\Delta p$ the pressure difference across a path
-and $\bar\rho$ the mean density of its two nodes:
+**Flow elements.** With $\Delta p$ the pressure difference across a path:
 
 $$
-\dot m_\text{crack} = C\left(\frac{\bar\rho}{\rho_\text{ref}}\right)^{1-n}\operatorname{sgn}(\Delta p)|\Delta p|^n,
+\dot m_\text{crack} = C\left(\frac{\rho^*}{\rho_\text{ref}}\right)^{1-n}\left(\frac{\mu_\text{ref}}{\bar\mu}\right)^{2n-1}\operatorname{sgn}(\Delta p)|\Delta p|^n,
 \qquad
-\dot m_\text{open} = C_d A\operatorname{sgn}(\Delta p)\sqrt{2\bar\rho|\Delta p|},
+\dot m_\text{open} = C_d A\operatorname{sgn}(\Delta p)\sqrt{2\rho^*|\Delta p|},
 $$ {#eq-afn-elements}
 
-linearized through zero for $|\Delta p|$ below a small threshold.
+where $\rho^* = \rho_\text{up}T_\text{up}/\bar T$ is the upstream node's
+density corrected to the mean temperature of the two nodes (for an ideal
+gas, the density at $\bar T$ in either flow direction), $\bar\mu$ the mean
+of the two nodes' viscosities, $\mu = 1.71432\times10^{-5} + 4.828\times10^{-8}\,T$
+Pa·s with $T$ in °C, and $\rho_\text{ref} = 1.2041$ kg/m³ and $\mu_\text{ref}$
+the values for dry air at 20 °C and 101,325 Pa, where $C$ is defined. Below a
+small $|\Delta p|$ threshold the flow follows the chord between the
+threshold's two endpoints, so it is continuous through zero.
 
 - **Two-way openings** integrate the orifice equation in closed form above
   and below the neutral plane. Over the opening height, $\Delta p$ varies
@@ -1162,15 +1168,14 @@ combined advective term of @eq-zone-ode and its humidity. Passive species
 (e.g. CO₂) are then advanced by an implicit zone mass balance on the solved
 flows, with sources, decay, deposition and filtration.
 
-**Comparison with EnergyPlus.** The network, element equations, the
+**Comparison with EnergyPlus.** The network, element equations (E+
+`generic_crack`, with its density and viscosity corrections), the
 two-way and horizontal openings, the Swami–Chandra $C_p$ and the
 Newton–Raphson solution follow EnergyPlus's AirflowNetwork (AIRNET)
 [@eplus-engref-25-2, "AirflowNetwork Model"]. They are generated
 automatically rather than from AirflowNetwork input objects. The
 differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
 
-- **Density.** Element flows use the mean of the two node densities, not
-  the upstream density, and cracks have no viscosity correction.
 - **High-rise $C_p$.** It is a simple cosine rather than the Akins
   surface-average table.
 - **No duct network.** There is no AirflowNetwork:Distribution duct
@@ -1184,7 +1189,7 @@ differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
 ## Known limitations: infiltration, ventilation and AFN {#sec-infiltration-limitations}
 
 - [#90](https://github.com/bbrannon4/OpenBSE/issues/90): AFN cleanups;
-  density convention, high-rise $C_p$.
+  high-rise $C_p$.
 - Scheduled ventilation lacks E+'s `ZoneVentilation:DesignFlowRate`
   coefficients and schedule (filed for later).
 
