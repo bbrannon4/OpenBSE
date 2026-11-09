@@ -58,6 +58,7 @@ simulation:
   timesteps_per_hour: 4       # 15-minute timestep (E+ uses 6/hr = 10-min)
   heating_sizing_factor: 1.2  # E+ Sizing:Parameters
   cooling_sizing_factor: 1.2
+  auto_cooling_design_days: false  # size on the IDF's design days only
   start_month: 1
   start_day: 1
   end_month: 12
@@ -165,6 +166,15 @@ schedules:
 # DOE Prototype opaque material definitions (90.1-2019, CZ 5B)
 
 materials:
+  # Interior furnishings (prototype InternalMass, construction InteriorFurnishings)
+  - name: Std Wood 6inch
+    conductivity: 0.12
+    density: 540.0
+    specific_heat: 1210.0
+    thermal_absorptance: 0.9
+    solar_absorptance: 0.7
+    roughness: medium_smooth
+
   # ── Exterior Wall Assembly ──
   # Outside to inside: 200mm normalweight concrete, insulation board, 13mm gypsum
 
@@ -253,6 +263,11 @@ materials:
 # Layered constructions: outside layer first, inside layer last.
 
 constructions:
+  - name: InteriorFurnishings
+    layers:
+      - material: Std Wood 6inch
+        thickness: 0.15
+
   # Mass exterior wall: concrete + insulation + gypsum
   # U-factor approx 0.51 W/(m²K) per 90.1-2019 Table 5.5-3 (CZ 5B)
   - name: Exterior Wall
@@ -351,28 +366,43 @@ zones:
   # Storage/receiving area along the north wall.
   # 54.27m x 7.0m x 6.096m = 2,317.33 m³
   - name: Back Space
+    internal_mass:            # prototype InternalMass [m²]
+      - construction: InteriorFurnishings
+        area: 759.78
 
   # ── Core Retail ──
   # Main sales floor occupying the building core.
   # 54.27m x 29.27m x 6.096m = 9,762.95 m³
-  # 12 skylights provide daylighting to this interior zone.
+  # 16 skylights in the roof.
   - name: Core Retail
+    internal_mass:            # prototype InternalMass [m²]
+      - construction: InteriorFurnishings
+        area: 3200.9658
 
   # ── Point of Sale ──
   # Checkout area at the southwest corner of the building.
   # 25.135m x 6.0m x 6.096m = 919.94 m³
   - name: Point of Sale
+    internal_mass:            # prototype InternalMass [m²]
+      - construction: InteriorFurnishings
+        area: 301.62
 
   # ── Front Retail ──
   # Retail display area at the southeast corner of the building.
   # 25.135m x 6.0m x 6.096m = 919.94 m³
   - name: Front Retail
+    internal_mass:            # prototype InternalMass [m²]
+      - construction: InteriorFurnishings
+        area: 301.62
 
   # ── Front Entry ──
   # Vestibule/entry area between POS and Front Retail zones.
   # 4.0m x 3.0m x 6.096m = 73.15 m³
   # Heated only (unit heater), no cooling.
   - name: Front Entry
+    internal_mass:            # prototype InternalMass [m²]
+      - construction: InteriorFurnishings
+        area: 24.0
 
 # ─── Zone Groups ───────────────────────────────────────────────────────────
 # Logical groupings of thermal zones for thermostat and HVAC control.
@@ -594,19 +624,6 @@ surfaces:
       - {x: 0.0,   y: 42.27, z: 6.096}
       - {x: 54.27, y: 42.27, z: 6.096}
 
-  # Back Space - North Wall Window (small strip window for daylighting)
-  - name: Back Space North Window
-    zone: Back Space
-    type: window
-    construction: Standard Window
-    boundary: outdoor
-    parent_surface: Back Space North Wall
-    vertices:
-      - {x: 50.0,  y: 42.27, z: 1.0}
-      - {x: 4.27,  y: 42.27, z: 1.0}
-      - {x: 4.27,  y: 42.27, z: 2.5}
-      - {x: 50.0,  y: 42.27, z: 2.5}
-
   # Back Space - East Wall (exterior, faces east)
   # Only the back space portion: Y=[35.27, 42.27]
   - name: Back Space East Wall
@@ -675,7 +692,7 @@ surfaces:
   # Exterior walls: east (partial), west (partial)
   # Interior walls: north (Back Space), south split into 3 segments
   #   (Point of Sale, Front Entry upper, Front Retail)
-  # 12 skylights in the roof (~40 m² total skylight area)
+  # 16 skylights in the roof (23.8 m² of glazing)
   # ════════════════════════════════════════════════════════════════════════════
 
   # Core Retail - East Wall (exterior, faces east)
@@ -789,12 +806,8 @@ surfaces:
       - {x: 54.27, y: 35.27, z: 6.096}
       - {x: 0.0,   y: 35.27, z: 6.096}
 
-  # Core Retail - Skylights (12 units in a 4x3 grid pattern)
-  # Total skylight area: ~40 m², each skylight ~3.33 m² (1.83m x 1.83m)
-  # Grid: 4 columns along X (spaced at ~12m), 3 rows along Y (spaced at ~9m)
-  # Starting offsets: X=8.0, Y=10.0, spacing X=12.0, Y=9.0
-
-  # Row 1 (Y~10.7): 4 skylights
+  # Core Retail - Skylights: 16 of 1.219 m × 1.219 m in a 4 × 4 grid, as the
+  # prototype IDF (23.8 m² of glazing).
   - name: Core Retail Skylight 1-1
     zone: Core Retail
     type: window
@@ -802,10 +815,10 @@ surfaces:
     boundary: outdoor
     parent_surface: Core Retail Roof
     vertices:
-      - {x: 7.085,  y: 9.785,  z: 6.096}
-      - {x: 8.915,  y: 9.785,  z: 6.096}
-      - {x: 8.915,  y: 11.615, z: 6.096}
-      - {x: 7.085,  y: 11.615, z: 6.096}
+      - {x: 3.3528, y: 10.572, z: 6.096}
+      - {x: 3.3528, y: 9.3528, z: 6.096}
+      - {x: 4.572, y: 9.3528, z: 6.096}
+      - {x: 4.572, y: 10.572, z: 6.096}
 
   - name: Core Retail Skylight 1-2
     zone: Core Retail
@@ -814,10 +827,10 @@ surfaces:
     boundary: outdoor
     parent_surface: Core Retail Roof
     vertices:
-      - {x: 19.085, y: 9.785,  z: 6.096}
-      - {x: 20.915, y: 9.785,  z: 6.096}
-      - {x: 20.915, y: 11.615, z: 6.096}
-      - {x: 19.085, y: 11.615, z: 6.096}
+      - {x: 9.7536, y: 10.572, z: 6.096}
+      - {x: 9.7536, y: 9.3528, z: 6.096}
+      - {x: 10.9728, y: 9.3528, z: 6.096}
+      - {x: 10.9728, y: 10.572, z: 6.096}
 
   - name: Core Retail Skylight 1-3
     zone: Core Retail
@@ -826,10 +839,10 @@ surfaces:
     boundary: outdoor
     parent_surface: Core Retail Roof
     vertices:
-      - {x: 31.085, y: 9.785,  z: 6.096}
-      - {x: 32.915, y: 9.785,  z: 6.096}
-      - {x: 32.915, y: 11.615, z: 6.096}
-      - {x: 31.085, y: 11.615, z: 6.096}
+      - {x: 16.1544, y: 10.572, z: 6.096}
+      - {x: 16.1544, y: 9.3528, z: 6.096}
+      - {x: 17.3736, y: 9.3528, z: 6.096}
+      - {x: 17.3736, y: 10.572, z: 6.096}
 
   - name: Core Retail Skylight 1-4
     zone: Core Retail
@@ -838,12 +851,11 @@ surfaces:
     boundary: outdoor
     parent_surface: Core Retail Roof
     vertices:
-      - {x: 43.085, y: 9.785,  z: 6.096}
-      - {x: 44.915, y: 9.785,  z: 6.096}
-      - {x: 44.915, y: 11.615, z: 6.096}
-      - {x: 43.085, y: 11.615, z: 6.096}
+      - {x: 22.563, y: 10.572, z: 6.096}
+      - {x: 22.563, y: 9.3528, z: 6.096}
+      - {x: 23.7822, y: 9.3528, z: 6.096}
+      - {x: 23.7822, y: 10.572, z: 6.096}
 
-  # Row 2 (Y~19.7): 4 skylights
   - name: Core Retail Skylight 2-1
     zone: Core Retail
     type: window
@@ -851,10 +863,10 @@ surfaces:
     boundary: outdoor
     parent_surface: Core Retail Roof
     vertices:
-      - {x: 7.085,  y: 18.785, z: 6.096}
-      - {x: 8.915,  y: 18.785, z: 6.096}
-      - {x: 8.915,  y: 20.615, z: 6.096}
-      - {x: 7.085,  y: 20.615, z: 6.096}
+      - {x: 3.3528, y: 17.684, z: 6.096}
+      - {x: 3.3528, y: 16.4648, z: 6.096}
+      - {x: 4.572, y: 16.4648, z: 6.096}
+      - {x: 4.572, y: 17.684, z: 6.096}
 
   - name: Core Retail Skylight 2-2
     zone: Core Retail
@@ -863,10 +875,10 @@ surfaces:
     boundary: outdoor
     parent_surface: Core Retail Roof
     vertices:
-      - {x: 19.085, y: 18.785, z: 6.096}
-      - {x: 20.915, y: 18.785, z: 6.096}
-      - {x: 20.915, y: 20.615, z: 6.096}
-      - {x: 19.085, y: 20.615, z: 6.096}
+      - {x: 9.7536, y: 17.684, z: 6.096}
+      - {x: 9.7536, y: 16.4648, z: 6.096}
+      - {x: 10.9728, y: 16.4648, z: 6.096}
+      - {x: 10.9728, y: 17.684, z: 6.096}
 
   - name: Core Retail Skylight 2-3
     zone: Core Retail
@@ -875,10 +887,10 @@ surfaces:
     boundary: outdoor
     parent_surface: Core Retail Roof
     vertices:
-      - {x: 31.085, y: 18.785, z: 6.096}
-      - {x: 32.915, y: 18.785, z: 6.096}
-      - {x: 32.915, y: 20.615, z: 6.096}
-      - {x: 31.085, y: 20.615, z: 6.096}
+      - {x: 16.1544, y: 17.684, z: 6.096}
+      - {x: 16.1544, y: 16.4648, z: 6.096}
+      - {x: 17.3736, y: 16.4648, z: 6.096}
+      - {x: 17.3736, y: 17.684, z: 6.096}
 
   - name: Core Retail Skylight 2-4
     zone: Core Retail
@@ -887,12 +899,11 @@ surfaces:
     boundary: outdoor
     parent_surface: Core Retail Roof
     vertices:
-      - {x: 43.085, y: 18.785, z: 6.096}
-      - {x: 44.915, y: 18.785, z: 6.096}
-      - {x: 44.915, y: 20.615, z: 6.096}
-      - {x: 43.085, y: 20.615, z: 6.096}
+      - {x: 22.563, y: 17.684, z: 6.096}
+      - {x: 22.563, y: 16.4648, z: 6.096}
+      - {x: 23.7822, y: 16.4648, z: 6.096}
+      - {x: 23.7822, y: 17.684, z: 6.096}
 
-  # Row 3 (Y~28.7): 4 skylights
   - name: Core Retail Skylight 3-1
     zone: Core Retail
     type: window
@@ -900,10 +911,10 @@ surfaces:
     boundary: outdoor
     parent_surface: Core Retail Roof
     vertices:
-      - {x: 7.085,  y: 27.785, z: 6.096}
-      - {x: 8.915,  y: 27.785, z: 6.096}
-      - {x: 8.915,  y: 29.615, z: 6.096}
-      - {x: 7.085,  y: 29.615, z: 6.096}
+      - {x: 3.3528, y: 24.796, z: 6.096}
+      - {x: 3.3528, y: 23.5768, z: 6.096}
+      - {x: 4.572, y: 23.5768, z: 6.096}
+      - {x: 4.572, y: 24.796, z: 6.096}
 
   - name: Core Retail Skylight 3-2
     zone: Core Retail
@@ -912,10 +923,10 @@ surfaces:
     boundary: outdoor
     parent_surface: Core Retail Roof
     vertices:
-      - {x: 19.085, y: 27.785, z: 6.096}
-      - {x: 20.915, y: 27.785, z: 6.096}
-      - {x: 20.915, y: 29.615, z: 6.096}
-      - {x: 19.085, y: 29.615, z: 6.096}
+      - {x: 9.7536, y: 24.796, z: 6.096}
+      - {x: 9.7536, y: 23.5768, z: 6.096}
+      - {x: 10.9728, y: 23.5768, z: 6.096}
+      - {x: 10.9728, y: 24.796, z: 6.096}
 
   - name: Core Retail Skylight 3-3
     zone: Core Retail
@@ -924,10 +935,10 @@ surfaces:
     boundary: outdoor
     parent_surface: Core Retail Roof
     vertices:
-      - {x: 31.085, y: 27.785, z: 6.096}
-      - {x: 32.915, y: 27.785, z: 6.096}
-      - {x: 32.915, y: 29.615, z: 6.096}
-      - {x: 31.085, y: 29.615, z: 6.096}
+      - {x: 16.1544, y: 24.796, z: 6.096}
+      - {x: 16.1544, y: 23.5768, z: 6.096}
+      - {x: 17.3736, y: 23.5768, z: 6.096}
+      - {x: 17.3736, y: 24.796, z: 6.096}
 
   - name: Core Retail Skylight 3-4
     zone: Core Retail
@@ -936,10 +947,58 @@ surfaces:
     boundary: outdoor
     parent_surface: Core Retail Roof
     vertices:
-      - {x: 43.085, y: 27.785, z: 6.096}
-      - {x: 44.915, y: 27.785, z: 6.096}
-      - {x: 44.915, y: 29.615, z: 6.096}
-      - {x: 43.085, y: 29.615, z: 6.096}
+      - {x: 22.563, y: 24.796, z: 6.096}
+      - {x: 22.563, y: 23.5768, z: 6.096}
+      - {x: 23.7822, y: 23.5768, z: 6.096}
+      - {x: 23.7822, y: 24.796, z: 6.096}
+
+  - name: Core Retail Skylight 4-1
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 3.3528, y: 31.9172, z: 6.096}
+      - {x: 3.3528, y: 30.698, z: 6.096}
+      - {x: 4.572, y: 30.698, z: 6.096}
+      - {x: 4.572, y: 31.9172, z: 6.096}
+
+  - name: Core Retail Skylight 4-2
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 9.7536, y: 31.9172, z: 6.096}
+      - {x: 9.7536, y: 30.698, z: 6.096}
+      - {x: 10.9728, y: 30.698, z: 6.096}
+      - {x: 10.9728, y: 31.9172, z: 6.096}
+
+  - name: Core Retail Skylight 4-3
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 16.1544, y: 31.9172, z: 6.096}
+      - {x: 16.1544, y: 30.698, z: 6.096}
+      - {x: 17.3736, y: 30.698, z: 6.096}
+      - {x: 17.3736, y: 31.9172, z: 6.096}
+
+  - name: Core Retail Skylight 4-4
+    zone: Core Retail
+    type: window
+    construction: Skylight
+    boundary: outdoor
+    parent_surface: Core Retail Roof
+    vertices:
+      - {x: 22.563, y: 31.9172, z: 6.096}
+      - {x: 22.563, y: 30.698, z: 6.096}
+      - {x: 23.7822, y: 30.698, z: 6.096}
+      - {x: 23.7822, y: 31.9172, z: 6.096}
 
   # Core Retail - Floor (ground contact, F-factor slab - very low U due to large area)
   - name: Core Retail Notch Floor
@@ -994,31 +1053,18 @@ surfaces:
       - {x: 25.135, y: 0.0, z: 6.096}
       - {x: 0.0,    y: 0.0, z: 6.096}
 
-  # Point of Sale - South Wall Windows (storefront glazing)
-  # Two large windows on the south facade for customer visibility
-  - name: POS South Window 1
+  # Point of Sale - South Wall storefront glazing (prototype IDF)
+  - name: POS South Glazing
     zone: Point of Sale
     type: window
     construction: Standard Window
     boundary: outdoor
     parent_surface: POS South Wall
     vertices:
-      - {x: 1.0,  y: 0.0, z: 0.5}
-      - {x: 12.0, y: 0.0, z: 0.5}
-      - {x: 12.0, y: 0.0, z: 4.0}
-      - {x: 1.0,  y: 0.0, z: 4.0}
-
-  - name: POS South Window 2
-    zone: Point of Sale
-    type: window
-    construction: Standard Window
-    boundary: outdoor
-    parent_surface: POS South Wall
-    vertices:
-      - {x: 13.0,  y: 0.0, z: 0.5}
-      - {x: 24.135, y: 0.0, z: 0.5}
-      - {x: 24.135, y: 0.0, z: 4.0}
-      - {x: 13.0,   y: 0.0, z: 4.0}
+      - {x: 0.05, y: 0, z: 2.66}
+      - {x: 0.05, y: 0, z: 1.14}
+      - {x: 25.085, y: 0, z: 1.14}
+      - {x: 25.085, y: 0, z: 2.66}
 
   # Point of Sale - West Wall (exterior, faces west)
   - name: POS West Wall
@@ -1114,19 +1160,18 @@ surfaces:
       - {x: 29.135, y: 0.0, z: 6.096}
       - {x: 25.135, y: 0.0, z: 6.096}
 
-  # Front Entry - South Door/Window (large glass entrance)
-  # Nearly full-height glazing for the entrance
-  - name: Entry South Window
+  # Front Entry - South Wall glazing (prototype IDF)
+  - name: Entry South Glazing
     zone: Front Entry
     type: window
     construction: Standard Window
     boundary: outdoor
     parent_surface: Entry South Wall
     vertices:
-      - {x: 25.335, y: 0.0, z: 0.1}
-      - {x: 28.935, y: 0.0, z: 0.1}
-      - {x: 28.935, y: 0.0, z: 5.0}
-      - {x: 25.335, y: 0.0, z: 5.0}
+      - {x: 25.635, y: 0, z: 2.66}
+      - {x: 25.635, y: 0, z: 0.05}
+      - {x: 28.635, y: 0, z: 0.05}
+      - {x: 28.635, y: 0, z: 2.66}
 
   # Front Entry - West Wall (interior, adjacent to Point of Sale)
   - name: Entry West Wall
@@ -1208,30 +1253,18 @@ surfaces:
       - {x: 54.27,  y: 0.0, z: 6.096}
       - {x: 29.135, y: 0.0, z: 6.096}
 
-  # Front Retail - South Wall Windows (storefront glazing)
-  - name: Front Retail South Window 1
+  # Front Retail - South Wall storefront glazing (prototype IDF)
+  - name: Front Retail South Glazing
     zone: Front Retail
     type: window
     construction: Standard Window
     boundary: outdoor
     parent_surface: Front Retail South Wall
     vertices:
-      - {x: 30.135, y: 0.0, z: 0.5}
-      - {x: 41.0,   y: 0.0, z: 0.5}
-      - {x: 41.0,   y: 0.0, z: 4.0}
-      - {x: 30.135, y: 0.0, z: 4.0}
-
-  - name: Front Retail South Window 2
-    zone: Front Retail
-    type: window
-    construction: Standard Window
-    boundary: outdoor
-    parent_surface: Front Retail South Wall
-    vertices:
-      - {x: 42.0,  y: 0.0, z: 0.5}
-      - {x: 53.27, y: 0.0, z: 0.5}
-      - {x: 53.27, y: 0.0, z: 4.0}
-      - {x: 42.0,  y: 0.0, z: 4.0}
+      - {x: 29.185, y: 0, z: 2.66}
+      - {x: 29.185, y: 0, z: 1.14}
+      - {x: 54.22, y: 0, z: 1.14}
+      - {x: 54.22, y: 0, z: 2.66}
 
   # Front Retail - East Wall (exterior, faces east)
   - name: Front Retail East Wall
@@ -1244,19 +1277,6 @@ surfaces:
       - {x: 54.27, y: 6.0, z: 0.0}
       - {x: 54.27, y: 6.0, z: 6.096}
       - {x: 54.27, y: 0.0, z: 6.096}
-
-  # Front Retail - East Wall Window
-  - name: Front Retail East Window
-    zone: Front Retail
-    type: window
-    construction: Standard Window
-    boundary: outdoor
-    parent_surface: Front Retail East Wall
-    vertices:
-      - {x: 54.27, y: 0.5, z: 0.5}
-      - {x: 54.27, y: 5.5, z: 0.5}
-      - {x: 54.27, y: 5.5, z: 4.0}
-      - {x: 54.27, y: 0.5, z: 4.0}
 
   # Front Retail - West Wall (interior, adjacent to Front Entry)
   # Only the portion adjacent to the entry: Y=[0, 3.0]
