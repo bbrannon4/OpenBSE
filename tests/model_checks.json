@@ -68,8 +68,8 @@
     },
     "examples/office_vrf.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 510,
-      "max_unmet_heating_hours_reason": "459 h measured building-wide (any conditioned zone unmet, #165), about 10% margin; the baseline flags any change."
+      "max_unmet_heating_hours": 115,
+      "max_unmet_heating_hours_reason": "104 h measured building-wide (any conditioned zone unmet), with indoor-unit airflow from the zone design flow (#327); about 10% margin; the baseline flags any change."
     },
     "examples/parametric_sweep.yaml": {
       "tier": "fast"

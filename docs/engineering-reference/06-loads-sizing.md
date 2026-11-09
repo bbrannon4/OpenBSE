@@ -337,9 +337,11 @@ design flow is $\dot m_\text{des}$.
 
 **VRF.** An autosized indoor unit's capacities are $Q_c$ and $Q_h$ of
 its zone, at least 500 W. A unit with no sizing result, such as one in a
-model without design days, is a severe error. Its
-airflow is $5\times10^{-5}$ m³/s per watt of the larger capacity. An
-autosized outdoor unit takes the sum of its indoor units' capacities.
+model without design days, is a severe error. An autosized airflow is
+the zone's design flow (@sec-zone-sizing) at the site's standard density, with
+the zone's design flows taken at the indoor unit's supply temperatures unless
+an air loop other than a DOAS also serves the zone. An autosized outdoor unit
+takes the sum of its indoor units' capacities.
 
 **Comparison with EnergyPlus.** @eq-cooling-coil-load, the DX modifier and range,
 and @eq-heating-coil-load follow `CoolingCapacitySizer` and `HeatingCapacitySizer`,
@@ -357,8 +359,9 @@ with `SimAirServingZones` peak states. Differences:
   OpenBSE the loop's minimum fraction of each zone's design flow.
 - **Dual duct.** OpenBSE's hot deck mixes at the system's fraction, because one fan
   draws both decks.
-- **VRF airflow.** EnergyPlus sizes VRF terminal airflow from the zone
-  design flow ([#327](https://github.com/bbrannon4/OpenBSE/issues/327)).
+- **VRF airflow.** EnergyPlus sizes a VRF terminal unit's cooling and heating
+  supply flows separately from the zone's design cooling and heating flows;
+  OpenBSE's indoor unit has one rated airflow, the larger of the two.
 - **Reheat.** EnergyPlus sizes a reheat coil from the zone's design heating
   flow, between the coil inlet temperature and the zone's design heating
   supply temperature. @eq-reheat-size is the same balance written with the
@@ -442,4 +445,3 @@ flows are both per zone instance, so no multiplier is needed in the ratio.
   humidity, temperature profile and sky model.
 - [#280](https://github.com/bbrannon4/OpenBSE/issues/280): a loop can't serve
   zones with different multipliers.
-- [#327](https://github.com/bbrannon4/OpenBSE/issues/327): VRF airflow.
