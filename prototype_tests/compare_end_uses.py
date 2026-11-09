@@ -151,15 +151,15 @@ eplus_office = {k: v * 277.778 for k, v in eplus_office_gj.items()}
 
 # OpenBSE results (kWh): LargeOffice_Boulder in tests/model_baselines.json
 openbse_office = {
-    'Heating\n(Gas)':       455945.8,
-    'Cooling\n(Elec)':      589937.1,
+    'Heating\n(Gas)':       455045.3,
+    'Cooling\n(Elec)':      589598.0,
     'Interior\nLighting':  1558538.6,
     'Exterior\nLighting':   279272.8,
     'Interior\nEquipment': 4076724.8,
     'Exterior\nEquipment':  713075.0,
-    'Fans':                1038789.5,
-    'Pumps':                 99989.5,
-    'DHW\n(Elec)':          125146.3,
+    'Fans':                1038012.9,
+    'Pumps':                 99962.4,
+    'DHW\n(Elec)':          125146.7,
 }
 
 cats_o = list(eplus_office.keys())
