@@ -42,10 +42,10 @@
     },
     "examples/doe_retail_standalone.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 5060,
-      "max_unmet_heating_hours_reason": "4599 h measured building-wide (any conditioned zone unmet, #165), about 10% margin; the baseline flags any change.",
-      "max_unmet_cooling_hours": 1160,
-      "max_unmet_cooling_hours_reason": "1050 h measured building-wide (any conditioned zone unmet, #165), about 10% margin; the baseline flags any change."
+      "max_unmet_heating_hours": 3100,
+      "max_unmet_heating_hours_reason": "2820 h measured building-wide (any conditioned zone unmet, #165), about 10% margin; the baseline flags any change.",
+      "max_unmet_cooling_hours": 1640,
+      "max_unmet_cooling_hours_reason": "1494 h measured building-wide (any conditioned zone unmet, #165) with the zones' people and lighting gains resolved (#450), about 10% margin; the baseline flags any change."
     },
     "examples/heat_pump_rtu.yaml": {
       "tier": "fast",
