@@ -2115,7 +2115,7 @@ fn main() -> Result<()> {
                     model.simulation.timesteps_per_hour,
                     model.simulation.sizing_fan_delta_t,
                     model.simulation.auto_cooling_design_days,
-                    model.simulation.sizing_averaging_window as usize,
+                    model.simulation.averaging_window() as usize,
                 );
 
                 // Store zone peaks for VRF autosizing

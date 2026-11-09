@@ -86,7 +86,8 @@ $$
 $$ {#eq-sizing-avg}
 
 Each hour's load is the largest $\bar Q_k$ among its timesteps. The default
-window is $N = 1$, the single-timestep peak.
+window is one hour, $N$ = `timesteps_per_hour`, as EnergyPlus; $N = 1$ takes the
+single-timestep peak.
 
 **Comparison with EnergyPlus.** EnergyPlus sizes zones the same way: an
 ideal sensible load holds each zone at its sizing setpoint, and the loads
@@ -99,9 +100,6 @@ differences are:
   day before (loads below 100 W count as 100 W), up to 25 days, with the
   EnergyPlus test and defaults (`CheckWarmupConvergence`). It repeats at least
   5 days; the EnergyPlus default minimum is 1.
-- **Averaging window.** EnergyPlus defaults to one hour of timesteps;
-  OpenBSE defaults to one timestep
-  ([#327](https://github.com/bbrannon4/OpenBSE/issues/327)).
 - **Gains.** EnergyPlus has no gains mode. It evaluates each schedule's
   SummerDesignDay or WinterDesignDay day schedule. OpenBSE schedules have
   no design-day day types, so the modes stand in for them.
@@ -444,5 +442,4 @@ flows are both per zone instance, so no multiplier is needed in the ratio.
   humidity, temperature profile and sky model.
 - [#280](https://github.com/bbrannon4/OpenBSE/issues/280): a loop can't serve
   zones with different multipliers.
-- [#327](https://github.com/bbrannon4/OpenBSE/issues/327): averaging default,
-  VRF airflow.
+- [#327](https://github.com/bbrannon4/OpenBSE/issues/327): VRF airflow.
