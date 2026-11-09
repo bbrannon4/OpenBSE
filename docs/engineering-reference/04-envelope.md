@@ -1306,7 +1306,10 @@ differences:
 `equipment` objects resolved per zone in `openbse-io/src/input.rs`.
 
 Each gain has a design level, scaled each timestep by its schedule fraction
-$f$. With $f$ applied:
+$f$. A design level given per floor area (people, lights, equipment, and
+infiltration or ventilation flows) uses the zone's stated floor area, or else
+the area of its floor surfaces (@sec-zone-geometry); such a load on a zone
+with neither is a severe error. With $f$ applied:
 
 - **People.** $N$ occupants, either a count or per floor area, release
   sensible $Q_s = N f\,q_s$ and latent $Q_l = N f\,q_l$. Here
