@@ -11,13 +11,10 @@
 //! These are used to size zone-level equipment (VAV boxes, fan coils, etc.).
 //!
 //! ## Stage 2: System Sizing
-//! With zone equipment hard-sized from Stage 1:
-//!   1. Re-run each design day with zone airflows set to design values
-//!   2. At each timestep, sum all zone loads (coincident peak)
-//!   3. System capacity = max coincident sum across all hours and design days
+//! From the same design-day runs, sum the zone loads at each timestep; the
+//! largest sum over all hours and design days is the coincident peak.
 //!
-//! Results: system heating/cooling capacity, system airflow.
-//! These are used to size AHU coils, fans, and central plant equipment.
+//! Results: coincident peak heating/cooling loads, system airflow.
 //!
 //! Reference: ASHRAE Handbook — Fundamentals, Chapter 18 (Nonresidential
 //! Cooling and Heating Load Calculations).
@@ -752,7 +749,7 @@ fn run_zone_sizing(
     return_air_zones: &HashSet<String>,
     steps: SizingSteps,
     sizing_fan_delta_t: f64,
-) -> ZoneSizingResult {
+) -> (ZoneSizingResult, SystemSizingResult) {
     let cp_air = 1005.0;
 
     let mut zone_peak_heating: HashMap<String, f64> = HashMap::new();
@@ -988,7 +985,8 @@ fn run_zone_sizing(
         })
         .collect();
 
-    ZoneSizingResult {
+    let system = coincident_peaks(env, &heating_results, &cooling_results);
+    let zone = ZoneSizingResult {
         zone_peak_heating,
         zone_peak_cooling,
         zone_heating_dd,
@@ -1001,127 +999,43 @@ fn run_zone_sizing(
         zone_cooling_flow_sequences,
         cooling_days,
         heating_days,
-    }
+    };
+    (zone, system)
 }
 
-/// Stage 2: System Sizing — find coincident peak system loads.
+/// Stage 2: System Sizing — the coincident peak system loads.
 ///
-/// With zone design airflows established from Stage 1, re-run each design
-/// day and at each timestep sum all zone loads to find the coincident peak.
-/// This is the actual load the AHU/system must handle.
-fn run_system_sizing(
-    env: &mut BuildingEnvelope,
-    design_days: &[DesignDayInput],
-    setpoints: &SizingSetpoints,
-    latitude: f64,
-    oa_handled_by_hvac: &HashMap<String, bool>,
-    return_paths: ReturnHeatPaths,
-    steps: SizingSteps,
+/// At each timestep of each design day, sum the zone loads of the zone-sizing
+/// runs (every zone instance, since plant pumps size from it); the largest sum
+/// is the load the system meets at once (E+ `Sizing:System` coincident loads).
+fn coincident_peaks(
+    env: &BuildingEnvelope,
+    heating_results: &[(String, DesignDayRun)],
+    cooling_results: &[(String, DesignDayRun)],
 ) -> SystemSizingResult {
-    let mut coincident_peak_heating = 0.0_f64;
-    let mut coincident_peak_cooling = 0.0_f64;
-    let mut heating_peak_dd = String::new();
-    let mut cooling_peak_dd = String::new();
-    let mut heating_peak_hour = 0_u32;
-    let mut cooling_peak_hour = 0_u32;
-
-    // ── Run ALL heating design days (in parallel) ─────────────────────────
-    use rayon::prelude::*;
-
-    let heating_dds: Vec<_> = design_days
-        .iter()
-        .filter(|dd| is_heating_design_day(dd))
-        .collect();
-
-    log::info!(
-        "System sizing: running {} heating DDs in parallel",
-        heating_dds.len()
-    );
-    let heating_results: Vec<_> = heating_dds
-        .par_iter()
-        .map(|dd| {
-            let weather_hours = generate_heating_design_weather(dd);
-            let mut env_copy = env.clone();
-            let loads = run_single_design_day(
-                &mut env_copy,
-                dd,
-                &weather_hours,
-                &setpoints.heating,
-                &setpoints.dd_heating,
-                oa_handled_by_hvac,
-                return_paths,
-                steps,
-            );
-            (dd.name.clone(), loads)
-        })
-        .collect();
-
-    for (dd_name, run) in &heating_results {
-        for (hour, zone_loads) in &run.loads {
-            // Plant pumps size from this, so it counts every zone instance.
-            let total_heating: f64 = env
-                .zones
-                .iter()
-                .filter_map(|z| {
-                    let &(hl, _) = zone_loads.get(&z.input.name)?;
-                    Some(hl * z.input.zone_multiplier as f64)
-                })
-                .sum();
-            if total_heating > coincident_peak_heating {
-                coincident_peak_heating = total_heating;
-                heating_peak_dd = dd_name.clone();
-                heating_peak_hour = *hour;
+    let peak = |results: &[(String, DesignDayRun)], heating: bool| {
+        let mut best = (0.0_f64, String::new(), 0_u32);
+        for (dd_name, run) in results {
+            for (hour, zone_loads) in &run.loads {
+                let total: f64 = env
+                    .zones
+                    .iter()
+                    .filter_map(|z| {
+                        let &(hl, cl) = zone_loads.get(&z.input.name)?;
+                        let q = if heating { hl } else { cl };
+                        Some(q * z.input.zone_multiplier as f64)
+                    })
+                    .sum();
+                if total > best.0 {
+                    best = (total, dd_name.clone(), *hour);
+                }
             }
         }
-    }
-
-    // ── Run ALL cooling design days (in parallel) ────────────────────────
-    let cooling_dds: Vec<_> = design_days
-        .iter()
-        .filter(|dd| is_cooling_design_day(dd))
-        .collect();
-
-    log::info!(
-        "System sizing: running {} cooling DDs in parallel",
-        cooling_dds.len()
-    );
-    let cooling_results: Vec<_> = cooling_dds
-        .par_iter()
-        .map(|dd| {
-            let weather_hours = generate_cooling_design_weather(dd, latitude);
-            let mut env_copy = env.clone();
-            let loads = run_single_design_day(
-                &mut env_copy,
-                dd,
-                &weather_hours,
-                &setpoints.cooling,
-                &setpoints.dd_cooling,
-                oa_handled_by_hvac,
-                return_paths,
-                steps,
-            );
-            (dd.name.clone(), loads)
-        })
-        .collect();
-
-    for (dd_name, run) in &cooling_results {
-        for (hour, zone_loads) in &run.loads {
-            let total_cooling: f64 = env
-                .zones
-                .iter()
-                .filter_map(|z| {
-                    let &(_, cl) = zone_loads.get(&z.input.name)?;
-                    Some(cl * z.input.zone_multiplier as f64)
-                })
-                .sum();
-            if total_cooling > coincident_peak_cooling {
-                coincident_peak_cooling = total_cooling;
-                cooling_peak_dd = dd_name.clone();
-                cooling_peak_hour = *hour;
-            }
-        }
-    }
-
+        best
+    };
+    let (coincident_peak_heating, heating_peak_dd, heating_peak_hour) = peak(heating_results, true);
+    let (coincident_peak_cooling, cooling_peak_dd, cooling_peak_hour) =
+        peak(cooling_results, false);
     SystemSizingResult {
         coincident_peak_heating,
         coincident_peak_cooling,
@@ -1394,7 +1308,7 @@ pub fn run_sizing(
     log::info!("══════════════════════════════════════════════════════════");
 
     // ── Stage 1: Zone Sizing ─────────────────────────────────────────────
-    let zone_sizing = run_zone_sizing(
+    let (zone_sizing, system_sizing) = run_zone_sizing(
         env,
         &all_design_days,
         &setpoints,
@@ -1439,24 +1353,6 @@ pub fn run_sizing(
             mf
         );
     }
-
-    log::info!("══════════════════════════════════════════════════════════");
-    log::info!("  STAGE 2: System Sizing");
-    log::info!("══════════════════════════════════════════════════════════");
-
-    // ── Stage 2: System Sizing ───────────────────────────────────────────
-    let system_sizing = run_system_sizing(
-        env,
-        &all_design_days,
-        &setpoints,
-        latitude,
-        oa_handled_by_hvac,
-        ReturnHeatPaths {
-            lighting_zones: return_air_zones,
-            supply_temps: zone_supply_temps,
-        },
-        steps,
-    );
 
     // System capacities with sizing factors
     let system_heating_capacity = system_sizing.coincident_peak_heating * heating_sizing_factor;

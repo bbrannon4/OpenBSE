@@ -220,15 +220,13 @@ differences are:
 
 ## System sizing {#sec-system-sizing}
 
-**Source:** `sizing.rs` (`run_system_sizing`); `main.rs`
+**Source:** `sizing.rs` (`coincident_peaks`); `main.rs`
 (`multizone_design_flow`).
 
-**Coincident peaks.** Every design day is run again (@sec-dd-runs). The
+**Coincident peaks.** From the zone-sizing runs (@sec-dd-runs), the
 coincident peak heating and cooling loads are the largest sums over all
-zones at one hour, before any sizing factor. They are written to
-`_system_sizing.csv` as a report. The second run uses the same inputs as the
-first, so it repeats it exactly
-([#327](https://github.com/bbrannon4/OpenBSE/issues/327)).
+zone instances at one hour, before any sizing factor. They are written to
+`_system_sizing.csv` as a report.
 
 **Multizone flow.** A VAV or dual-duct loop's design supply flow follows the
 loop's `zone_sum`:
@@ -446,5 +444,5 @@ flows are both per zone instance, so no multiplier is needed in the ratio.
   humidity, temperature profile and sky model.
 - [#280](https://github.com/bbrannon4/OpenBSE/issues/280): a loop can't serve
   zones with different multipliers.
-- [#327](https://github.com/bbrannon4/OpenBSE/issues/327): duplicate system
-  run, averaging default, VRF airflow.
+- [#327](https://github.com/bbrannon4/OpenBSE/issues/327): averaging default,
+  VRF airflow.
