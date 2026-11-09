@@ -4299,6 +4299,33 @@ pub fn build_envelope(
     Some(env)
 }
 
+/// Each zone's floor area [m²]: the stated `floor_area`, or else the area of
+/// its floor surfaces' vertices (the rule `BuildingEnvelope` applies), or 0.
+fn zone_floor_areas(model: &ModelInput) -> std::collections::HashMap<String, f64> {
+    model
+        .zones
+        .iter()
+        .map(|zone| {
+            if zone.floor_area > 0.0 {
+                return (zone.name.clone(), zone.floor_area);
+            }
+            let floors: Vec<&[openbse_envelope::Point3D]> = model
+                .surfaces
+                .iter()
+                .filter(|s| s.zone == zone.name)
+                .filter(|s| s.surface_type == openbse_envelope::SurfaceType::Floor)
+                .filter_map(|s| s.vertices.as_deref())
+                .collect();
+            let area = if floors.is_empty() {
+                0.0
+            } else {
+                openbse_envelope::geometry::zone_floor_area(&floors).max(0.0)
+            };
+            (zone.name.clone(), area)
+        })
+        .collect()
+}
+
 /// Resolve top-level zone load objects into per-zone `ZoneInput` fields.
 ///
 /// For each top-level object (people, lights, equipment, infiltration,
@@ -4313,6 +4340,13 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
     use openbse_envelope::{InfiltrationInput, InternalGainInput};
 
     let mut zones = model.zones.clone();
+
+    // Per-area loads resolve against each zone's floor area, which a zone
+    // that states none takes from its floor surfaces.
+    let floor_areas = zone_floor_areas(model);
+    for zone in &mut zones {
+        zone.floor_area = floor_areas.get(&zone.name).copied().unwrap_or(0.0);
+    }
 
     // Build zone name → zone group names mapping for expansion
     let zone_group_map: std::collections::HashMap<String, Vec<String>> = model
@@ -5503,6 +5537,58 @@ fn warn_shading_geometry_ignored(model: &ModelInput, result: &mut ValidationResu
 /// Interzone surfaces must pair one-to-one (#207). Also warns, as E+ does
 /// (`SurfaceGeometry.cc`), when the two faces' layers aren't mirror images:
 /// the wall is then a different element seen from each side.
+/// A load given per floor area (people, lights, equipment, infiltration or
+/// ventilation) needs a zone with a floor area, stated or from its floor
+/// surfaces; on a zone with none it would silently be zero.
+fn validate_per_area_loads(model: &ModelInput, result: &mut ValidationResult) {
+    let areas = zone_floor_areas(model);
+    let groups: std::collections::HashMap<&str, &[String]> = model
+        .zone_groups
+        .iter()
+        .map(|g| (g.name.as_str(), g.zones.as_slice()))
+        .collect();
+    let mut check = |kind: &str, name: &str, zones: &[String], per_area: bool| {
+        if !per_area {
+            return;
+        }
+        for r in zones {
+            let members = groups
+                .get(r.as_str())
+                .copied()
+                .unwrap_or(std::slice::from_ref(r));
+            for z in members {
+                if areas.get(z).is_some_and(|a| *a <= 0.0) {
+                    result.severe(format!(
+                        "{kind} '{name}' is given per floor area, but zone '{z}' has no \
+                         floor area: give the zone a floor_area or floor surfaces with vertices"
+                    ));
+                }
+            }
+        }
+    };
+    for p in &model.people {
+        let per_area = p.people_per_area.is_some() || p.area_per_person.is_some();
+        check("People", &p.name, &p.zones, per_area);
+    }
+    for l in &model.lights {
+        check("Lights", &l.name, &l.zones, l.watts_per_area.is_some());
+    }
+    for e in model.equipment.iter().chain(&model.equipment_it) {
+        check("Equipment", &e.name, &e.zones, e.watts_per_area.is_some());
+    }
+    for i in &model.infiltration {
+        check(
+            "Infiltration",
+            &i.name,
+            &i.zones,
+            i.flow_per_floor_area.is_some(),
+        );
+    }
+    for v in &model.ventilation {
+        check("Ventilation", &v.name, &v.zones, v.per_area.is_some());
+    }
+}
+
 fn validate_interzone_surfaces(model: &ModelInput, result: &mut ValidationResult) {
     let pairing = openbse_envelope::surface::pair_interzone_surfaces(&model.surfaces);
     for msg in pairing.errors {
@@ -5592,6 +5678,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     validate_schedules(model, &schedule_names, &builtin_schedules, &mut result);
     validate_interzone_surfaces(model, &mut result);
+    validate_per_area_loads(model, &mut result);
     warn_shading_geometry_ignored(model, &mut result);
     validate_scheduled_ventilation(model, &mut result);
     validate_duct_ambients(model, &mut result);
@@ -6197,6 +6284,61 @@ air_loops:
         model.simulation.shading_calculation = openbse_envelope::ShadingCalculation::Basic;
         warn_shading_geometry_ignored(&model, &mut result);
         assert_eq!(result.warning_count(), 1);
+    }
+
+    /// A 6 × 5 m zone that states no floor area, with per-area people, lights,
+    /// equipment and infiltration.
+    fn per_area_model(floor: &str) -> ModelInput {
+        parse_model_yaml(&format!(
+            "simulation: {{}}\nweather_files: []\n\
+             zones:\n- {{name: Room}}\n\
+             surfaces:\n{floor}\
+             people:\n- {{name: P, zones: [Room], area_per_person: 6.0}}\n\
+             lights:\n- {{name: L, zones: [Room], watts_per_area: 10.0}}\n\
+             equipment:\n- {{name: E, zones: [Room], watts_per_area: 5.0}}\n\
+             infiltration:\n- {{name: I, zones: [Room], flow_per_floor_area: 0.001}}\n"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn per_area_loads_use_the_floor_area_from_geometry() {
+        let floor = "- {name: F, zone: Room, type: floor, construction: C, vertices: \
+                     [{x: 0, y: 0, z: 0}, {x: 0, y: 5, z: 0}, {x: 6, y: 5, z: 0}, {x: 6, y: 0, z: 0}]}\n";
+        let model = per_area_model(floor);
+        use openbse_envelope::InternalGainInput;
+        let zone = &resolve_zone_loads(&model)[0];
+        assert!((zone.floor_area - 30.0).abs() < 1e-9, "{}", zone.floor_area);
+        let mut seen = 0;
+        for g in &zone.internal_gains {
+            match g {
+                InternalGainInput::People { count, .. } => {
+                    assert!((count - 5.0).abs() < 1e-9, "{count} people");
+                    seen += 1;
+                }
+                InternalGainInput::Lights { power, .. } => {
+                    assert!((power - 300.0).abs() < 1e-9, "{power} W lights");
+                    seen += 1;
+                }
+                InternalGainInput::Equipment { power, .. } => {
+                    assert!((power - 150.0).abs() < 1e-9, "{power} W equipment");
+                    seen += 1;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(seen, 3);
+        assert!((zone.infiltration[0].design_flow_rate - 0.03).abs() < 1e-12);
+        assert!(!validate_model(&model)
+            .to_err_file()
+            .contains("no floor area"));
+    }
+
+    #[test]
+    fn per_area_loads_on_a_zone_without_floor_area_are_severe() {
+        let result = validate_model(&per_area_model(""));
+        assert_eq!(result.error_count(), 4, "{}", result.to_err_file());
+        assert!(result.to_err_file().contains("no floor area"));
     }
 
     #[test]
