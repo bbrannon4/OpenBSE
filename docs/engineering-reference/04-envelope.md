@@ -300,6 +300,10 @@ fixed surface films.
   constructions use synthetic layers tuned to ASHRAE 140, and do not always
   conserve the specified heat capacity.
 - HAMT is not wired in (@sec-hamt).
+- [#448](https://github.com/bbrannon4/OpenBSE/issues/448): the CTF node
+  network (at least 6 divisions per layer, face half-cells lumped into the
+  first and last node, as in EnergyPlus) misses 7–9% of a 20 cm concrete
+  wall's daily face-flux swing against the exact solution.
 
 ## Surface heat balances {#sec-surface-hb}
 
