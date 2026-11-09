@@ -776,7 +776,7 @@
           "type": "string",
           "enum": ["wheel", "plate", "runaround_coil"],
           "default": "wheel",
-          "description": "Heat recovery device type. Wheels transfer both sensible and latent; plates are sensible-only."
+          "description": "Heat recovery device type. Wheels transfer both sensible and latent; plates and runaround coil loops are sensible-only (a latent_effectiveness on them is a severe error). Any other value is a severe error."
         },
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
         "sensible_effectiveness": { "type": "number", "default": 0.76, "minimum": 0, "maximum": 1, "description": "Sensible effectiveness at design conditions [0-1]. With cooling_sensible_effectiveness set, this is the heating-season value." },
