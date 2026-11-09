@@ -70,7 +70,8 @@ On the coupled path, one timestep runs as follows.
 
 1. **Start-of-step state.** The zone air temperatures
    $T_z^\text{start}$, humidity ratios, predictor temperatures and loads are
-   read from the envelope. They stay fixed through the HVAC iteration; see @sec-predictor.
+   read from the envelope. The temperatures and modes stay fixed through the HVAC
+   iteration and the loads are refreshed from each solve; see @sec-predictor.
 2. **Shading control.** Blind and shade deployment is evaluated from the
    previous timestep's surface conditions (`evaluate_blind_control`).
 3. **Radiant panels and VRF.** Panel part-load ratios and VRF indoor-unit
@@ -225,35 +226,65 @@ value throughout, which delays the response to a new load by one timestep.
 
 **Load to setpoint.** Each solve also stores a zone's load as a linear
 function of the target temperature $T^*$ (`IdealLoadLine`), with the same
-storage term and history $\tilde T_k$ as @eq-zone-solve:
+storage term and history $\tilde T_k$ as @eq-zone-solve, and with each inside
+face following the air:
 
 $$
 \begin{aligned}
 \dot Q(T^*) ={}&
-\left(\sum_i h_{c,i} A_i + \dot m_\text{inf} c_p + a_k \tfrac{C_z}{\Delta t}\right) T^* \\
-&- \sum_i h_{c,i} A_i T_{s,i} - \dot m_\text{inf} c_p T_\text{o} - \dot Q_\text{conv}
+\left(\sum_i h_{c,i} A_i (1 - \beta_i) + \dot m_\text{inf} c_p + a_k \tfrac{C_z}{\Delta t}\right) T^* \\
+&- \sum_i h_{c,i} A_i \left(T_{s,i} - \beta_i T_z'\right) - \dot m_\text{inf} c_p T_\text{o} - \dot Q_\text{conv}
 - a_k \tfrac{C_z}{\Delta t}\, \tilde T_k,
 \end{aligned}
 $$ {#eq-load-line}
 
-positive when heat is needed. Within the HVAC iteration the controls use
-$\dot Q(T_\text{sp})$, so delivering that load lands the zone on setpoint in a
-transient as well as at steady state. The history is fixed through the HVAC
-iteration and advances in `update_bdf_history`. The heating load is
-$\max(\dot Q, 0)$ at the heating setpoint and the cooling load
-$\max(-\dot Q, 0)$ at the cooling setpoint. On the first iteration the
-previous solve's loads are used.
+positive when heat is needed. $T_z'$ is the air temperature the faces
+$T_{s,i}$ were just solved against, and $\beta_i = \partial T_{s,i}/\partial T_z$
+is how far face $i$ follows the air within the timestep, from the converged
+inside-face balance (@eq-inside-temp) without its damping term, the zone's other
+faces responding too through the long-wave exchange (@eq-lw-linear):
+
+$$
+\beta_i = \frac{h_{c,i} + h_{r,i}\,\bar\beta_i}{Z_0' + h_{c,i} + h_{r,i}}, \qquad
+\bar\beta_i = \frac{\sum_j w_{ij}\beta_j}{\sum_j w_{ij}},
+$$ {#eq-surface-beta}
+
+with $Z_0' = Z_0$ ($Z_0 - Y_0$ for an adiabatic face) and the outside face held.
+For an unshaded window, $Z_0'$ is the glass node's conductance to the outdoors,
+$u_{e,g}$ of @eq-window-node; a window behind a deployed shade has $\beta = 0$.
+A massless face has $\beta \approx 1$ and a face behind heavy mass $\beta \approx 0$.
+$\beta$ is evaluated once per solve (`surface_air_response`).
+
+The controls use $\dot Q(T_\text{sp})$, so delivering that load lands the zone
+on setpoint in a transient as well as at steady state, with its faces where
+they would then be. The load is refreshed from every envelope solve of the HVAC
+iteration; on the first iteration the previous solve's loads are used. The
+history is fixed through the HVAC iteration and advances in
+`update_bdf_history`. The heating load is $\max(\dot Q, 0)$ at the heating
+setpoint and the cooling load $\max(-\dot Q, 0)$ at the cooling setpoint.
+
+The face response keeps the refresh from feeding the iteration's own error back.
+With the faces held at $T_{s,i}$ ($\beta = 0$), an iteration that overcools a
+light zone leaves cool faces, which read as a heat source and cut the next load,
+by $\sum_i h_{c,i}A_i\beta_i$ per kelvin of error. Against a response of
+$a_k C_z/\Delta t + \dot m_\text{sup} c_p$ per kelvin, that swing grows wherever
+the faces outweigh the air and supply, as on the near-massless ASHRAE 140 CE
+cases with a one-hour step. With @eq-load-line the load at setpoint doesn't
+depend on where the iteration left the air, to first order, however far the
+surface–air passes settle (@sec-surface-hb).
 
 **Comparison with EnergyPlus.** EnergyPlus predicts each zone's load once per
 timestep, before the system simulation, with the current timestep's weather,
 gains and surface temperatures
 (`ZoneSpaceHeatBalanceData::calcPredictedSystemLoad`)
 [@eplus-engref-25-2, "Summary of Predictor-Corrector Procedure"]
-[@taylor1990]. Holding the mode and the load fixed through the system
-iteration matches EnergyPlus. E+ evaluates the predictor before any HVAC
-runs, where OpenBSE needs one iteration to get it. The refresh comes from a
-solve that includes that iteration's HVAC, so its surface temperatures differ
-slightly from E+'s, which use the previous zone air temperature.
+[@taylor1990]. Holding the mode fixed through the system iteration matches
+EnergyPlus. E+ evaluates the predictor before any HVAC runs, where OpenBSE
+needs one iteration to get it. E+ holds the surfaces at their state against
+the previous zone air temperature, which is @eq-load-line with $\beta = 0$
+and $T_{s,i}$ from that state; OpenBSE's faces respond to the zone air within
+the timestep, so its load is the one that holds the setpoint with the faces
+following. The two agree for heavy constructions ($\beta \to 0$).
 
 ## HVAC–zone iteration {#sec-hvac-iteration}
 
@@ -267,8 +298,8 @@ timestep. Iteration $m = 0, 1, \dots$ runs four steps.
    - the zone temperatures of the last iteration, $T_z^{(m-1)}$ (or
      $T_z^\text{start}$ when $m = 0$), for AHU-level controls such as
      supply-air reset and the economizer;
-   - $T_z^\text{start}$, the predictor modes and the start-of-step loads
-     for terminal and unitary control.
+   - $T_z^\text{start}$, the predictor modes and the loads to setpoint
+     (@eq-load-line) from the last solve, for terminal and unitary control.
 
    Radiant panels are simulated next, and then the plant loops, which take
    the coil, terminal and panel loads in plant order (@sec-plant-order).

@@ -265,11 +265,11 @@ Each opaque surface has an outside and an inside face temperature, linked by
 the conduction of @eq-ctf. Windows have their own balance (@sec-window-hb).
 Each envelope solve repeats the following steps until, after at least two passes,
 no zone air temperature changes by more than 10⁻⁴ K, no zone humidity ratio by
-more than 10⁻⁷ kg/kg and no inside face by more than 2×10⁻⁴ K, or until five
-passes. A solve still changing by more than 0.001 K after five is counted and
-reported as a warning (@sec-diagnostics). The limit of five is the old fixed count:
-more passes destabilize the HVAC iteration on near-massless zones
-([#320](https://github.com/bbrannon4/OpenBSE/issues/320)).
+more than 10⁻⁷ kg/kg and no inside face by more than 2×10⁻⁴ K, or until 20
+passes. A solve still changing by more than 0.001 K after 20 is counted and
+reported as a warning (@sec-diagnostics). The limit is a guard only: the HVAC
+iteration reads a load in which the faces follow the air (@eq-load-line), so it
+stays stable however far the passes settle.
 
 1. Solve the outside faces.
 2. Solve the windows.
