@@ -1,75 +1,44 @@
 # Large Office Prototype — E+ Comparison Notes
 
-## Weather File
-- **E+**: Denver-Aurora-Buckley AFB TMY3 (WMO 724695, lat 39.72°N)
-- **OpenBSE**: Same file (`prototype_tests/Denver-Buckley.epw`)
+## Models
 
-## Annual Energy End-Use Comparison
+- **E+ reference:** `eplus_run/in.idf`, the DOE 90.1-2019 Large Office, run
+  annually with EnergyPlus 25.2. Its end uses are in `eplus_run/eplustbl.csv`.
+- **OpenBSE:** `LargeOffice_Boulder.yaml` recreates that IDF as a person would
+  by hand: every floor explicit (no zone multipliers), envelope, internal mass
+  and interzone surfaces generated from the IDF by `envelope_from_idf.py`, and
+  every other input checked against its IDF object in `INPUT_AUDIT.md`, which
+  also lists what OpenBSE can't yet express. The plenum zones are left out
+  because every plenum surface in this IDF is adiabatic.
+- **Envelope check:** `LargeOffice_Boulder_ideal.yaml`, with ideal loads in place
+  of the HVAC (`IDEAL_LOADS_COMPARISON.md`).
 
-| End Use | E+ [kWh] | OpenBSE [kWh] | Diff % | Status |
-|---|---|---|---|---|
-| Interior Lighting | 1,558,539 | 1,558,539 | -0.0% | PASS |
-| Exterior Lighting | 279,464 | 292,714 | +4.7% | PASS |
-| Interior Equipment | 4,076,778 | 4,072,466 | -0.1% | PASS |
-| Exterior Equipment | 713,075 | 696,046 | -2.4% | PASS |
-| Fans | 1,010,319 | 899,357 | -11.0% | FAIL |
-| Pumps | 129,769 | 101,073 | -22.1% | FAIL |
-| Cooling (Electric) | 552,933 | 647,751 | +17.1% | FAIL |
-| Heating (Gas) | 404,736 | 410,850 | +1.5% | PASS |
-| Heating (Electric) | 0 | 0 | 0% | PASS |
-| DHW (Electric) | 125,133 | 128,981 | +3.1% | PASS |
+## Weather
 
-**7/10 end uses within +/-5%**
+Both run on Denver-Aurora-Buckley AFB TMY3 (WMO 724695): E+ on
+`USA_CO_Denver-Aurora-Buckley.AFB.724695_TMY3.epw`, OpenBSE on the same file as
+`prototype_tests/Denver-Buckley.epw`. Despite the model's name, it does not use
+Boulder weather.
 
-## Key Model Differences
+## Annual end uses
 
-### Zone Multiplier Expansion
-E+ uses `zone_multiplier = 10` for mid-floor zones (5 office + 1 datacenter).
-OpenBSE expands these into 60 explicit zones (10 floors x 6 zones each)
-since it doesn't support zone multipliers.
+| End use | E+ [kWh] | OpenBSE [kWh] | Difference |
+|---|---:|---:|---:|
+| Heating (gas) | 472,503 | 455,946 | −3.5% |
+| Cooling | 589,511 | 589,937 | +0.1% |
+| Fans | 1,042,617 | 1,038,790 | −0.4% |
+| Pumps | 135,044 | 99,990 | −26.0% |
+| Interior lighting | 1,558,539 | 1,558,539 | 0.0% |
+| Exterior lighting | 279,583 | 279,273 | −0.1% |
+| Interior equipment | 4,076,778 | 4,076,725 | 0.0% |
+| Exterior equipment | 713,075 | 713,075 | 0.0% |
+| Service hot water | 125,133 | 125,146 | 0.0% |
 
-**Impact**: E+'s zone multiplier multiplies gains and air volume but NOT
-surface areas. This gives the multiplied zone an artificially high
-gains-to-surface ratio, keeping the core zone warmer (~23C on weekends
-vs OpenBSE's ~18C). The explicit expansion is more physically correct
-but produces different thermal behavior. This is the primary driver of
-the fans (-11%) and cooling (+17%) gaps.
+OpenBSE values are the committed baselines in `tests/model_baselines.json`.
+E+ values are `eplustbl.csv` (GJ × 277.78).
 
-### Plenum Zones
-E+ has 3 plenum zones (GroundFloor, MidFloor, TopFloor) with exterior
-walls and infiltration. OpenBSE does not model these. In the E+ IDF all
-conditioned zone ceilings have Adiabatic boundary conditions, so the
-plenums are thermally decoupled from occupied zones.
+## Open gaps
 
-### Interior Wall Coupling
-E+ has interzone (Surface boundary) interior walls between Core and
-Perimeter zones. OpenBSE matches this with `boundary: !zone` interzone
-coupling. This allows heat transfer from the warm core to cold perimeter
-zones, significantly improving the heating energy match (+1.5%).
-
-### Floor/Ceiling Constructions
-- Floors: 100mm normalweight concrete + carpet pad (matching E+ int_slab_floor)
-- Ceilings: Lightweight acoustic tile (matching E+ DropCeiling)
-- Both use adiabatic boundary conditions
-
-## Root Cause of Remaining Gaps
-
-### Fans (-11.0%)
-Interzone coupling reduces perimeter heating loads (core warms perimeter),
-reducing total airflow. E+'s zone multiplier concentrates gains without
-scaling surfaces, producing higher peak loads and more airflow. OpenBSE's
-explicit zones are more physically accurate but give lower runtime airflow.
-
-### Cooling (+17.1%)
-Higher chiller electricity from excess perimeter cooling. The explicit
-zone expansion produces different temperature profiles vs E+'s multiplied
-approach.
-
-### Pumps (-22.1%)
-Downstream of the fan gap -- lower HVAC runtime means less pump operation.
-
-## Next Steps
-- Implement zone multiplier support in OpenBSE engine to eliminate the
-  surface area scaling discrepancy
-- Add plenum zones to capture plenum envelope losses
-- Investigate pump scheduling to ensure pumps run whenever any coil demands flow
+- **Pumps (−26%).** Not yet traced. Chilled- and hot-water pump energy follows
+  the loops' flows and heads; compare them loop by loop with E+'s pump output
+  variables before changing anything.
