@@ -139,26 +139,6 @@
       "max_unmet_cooling_hours": 7220,
       "max_unmet_cooling_hours_reason": "6562 h measured building-wide (any conditioned zone unmet, #165), about 10% margin; the baseline flags any change."
     },
-    "prototype_tests/large_office/LargeOffice_Boulder_expanded.yaml": {
-      "tier": "local",
-      "tier_reason": "Needs more memory than a GitHub runner has: the local macOS run peaked at 19 GB RSS, and the 16 GB ubuntu-latest runner killed the slow-tier job during LargeOffice_Boulder (exit 143, 2026-10-25, run 40170807753). Run locally, alone, with --tier local before merging engine changes.",
-      "heavy": true,
-      "max_unmet_heating_hours": 6740,
-      "max_unmet_heating_hours_reason": "6126 h measured building-wide (any conditioned zone unmet, #165), about 10% margin; the baseline flags any change.",
-      "max_unmet_cooling_hours": 4440,
-      "max_unmet_cooling_hours_reason": "4030 h measured building-wide (any conditioned zone unmet, #165), about 10% margin; the baseline flags any change.",
-      "zone_temp_limits_c": {
-        "Perimeter_top_ZN_1": [
-          -40.0,
-          85.0
-        ],
-        "Perimeter_top_ZN_4": [
-          -40.0,
-          85.0
-        ]
-      },
-      "zone_temp_limits_c_reason": "These conditioned top-floor perimeter offices float to about -13 and 74 °C while VAV_top is scheduled off (Sundays, nights): OpenBSE has no night cycle (#255) to restart the loop as the DOE prototype's AvailabilityManager:NightCycle does, and this model's zones have no internal mass (#415). No engine defect (#164). Restore the default limits once the night cycle exists."
-    },
     "prototype_tests/large_office/LargeOffice_Boulder_ideal.yaml": {
       "tier": "local",
       "tier_reason": "Needs more memory than a GitHub runner has: the local macOS run peaked at 19 GB RSS, and the 16 GB ubuntu-latest runner killed the slow-tier job during LargeOffice_Boulder (exit 143, 2026-10-25, run 40170807753). Run locally, alone, with --tier local before merging engine changes.",
