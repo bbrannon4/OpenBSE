@@ -200,15 +200,15 @@ DOE prototype building models are compared with EnergyPlus, end use by end use, 
 
 | End use | EnergyPlus [kWh] | OpenBSE [kWh] | Difference |
 |---|---:|---:|---:|
-| Heating (gas) | 472,503 | 455,946 | −3.5% |
-| Cooling | 589,511 | 589,937 | +0.1% |
-| Fans | 1,042,617 | 1,038,790 | −0.4% |
-| Pumps | 135,044 | 99,990 | −26.0% |
+| Heating (gas) | 472,503 | 455,045 | −3.7% |
+| Cooling | 589,511 | 589,598 | 0.0% |
+| Fans | 1,042,617 | 1,038,013 | −0.4% |
+| Pumps | 135,044 | 99,962 | −26.0% |
 | Interior lighting | 1,558,539 | 1,558,539 | 0.0% |
 | Exterior lighting | 279,583 | 279,273 | −0.1% |
 | Interior equipment | 4,076,778 | 4,076,725 | 0.0% |
 | Exterior equipment | 713,075 | 713,075 | 0.0% |
-| Service hot water | 125,133 | 125,146 | 0.0% |
+| Service hot water | 125,133 | 125,147 | 0.0% |
 
 The pump gap is open. The inputs are checked object by object against the IDF in [`INPUT_AUDIT.md`](prototype_tests/large_office/INPUT_AUDIT.md), which also lists what OpenBSE can't yet express.
 
