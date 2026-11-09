@@ -4,15 +4,23 @@
 //! state-space method of Seem (1987), matching EnergyPlus's `calculateTransferFunction()`.
 //!
 //! Algorithm:
-//! 1. Discretize each layer into N finite-difference nodes (minimum 6)
-//! 2. Build state-space matrices A, B, C, D
-//! 3. Compute matrix exponential exp(A·dt) via Taylor series with scaling/squaring
-//! 4. Compute A⁻¹, then Gamma1 and Gamma2 intermediate matrices
-//! 5. Iteratively compute CTF coefficients (s, e) using R-matrix recurrence
+//! 1. Discretize each layer into N finite-difference nodes (6 to 19 per layer)
+//! 2. Pick the CTF time step: the zone timestep, or a whole number of zone
+//!    timesteps when a layer reaches the node cap (Fourier number 1)
+//! 3. Build state-space matrices A, B, C, D
+//! 4. Compute matrix exponential exp(A·Δt) via Taylor series with scaling/squaring
+//! 5. Compute A⁻¹, then Gamma1 and Gamma2 intermediate matrices
+//! 6. Iteratively compute CTF coefficients (s, e) using R-matrix recurrence
+//! 7. If the series needs more than 18 history terms or its X, Y and Z sums
+//!    disagree, lengthen the CTF time step by one zone timestep and repeat
 //!
 //! Per-timestep conduction equations:
 //!   q_inside  = Σ(Y·T_out) - Σ(Z·T_in) + Σ(Φ·q_in_old)
 //!   q_outside = Σ(X·T_out) - Σ(Y·T_in) + Σ(Φ·q_out_old)
+//!
+//! When the CTF time step spans several zone timesteps, the history terms are
+//! spaced one CTF time step apart and the surface balance still updates every
+//! zone timestep, reading staggered history sets ([`CtfHistory::update`]).
 //!
 //! References:
 //!   - Seem, J.E. (1987). "Modeling of Heat Transfer in Buildings." PhD Dissertation,
@@ -35,12 +43,43 @@ pub struct CtfCoefficients {
     /// Number of CTF terms
     pub num_terms: usize,
     /// How far the steady-state U implied by the coefficients is from the
-    /// construction's own U, in percent. Above 5% the CTF is rejected; between
-    /// 1% and 5% the caller reports a warning.
+    /// construction's own U, in percent. Above 5% the CTF is not accepted;
+    /// between 1% and 5% the caller reports a warning.
     pub steady_state_error_pct: f64,
+    /// CTF time step [s]: the interval between history terms.
+    pub time_step: f64,
+    /// CTF time step in zone timesteps (E+ `NumHistories`); 1 for almost every
+    /// construction, more for massive layers that reach the node cap.
+    pub num_histories: usize,
+}
+
+impl CtfCoefficients {
+    /// A massless (or nearly massless) construction: steady conduction at
+    /// conductance `u`, with no history terms.
+    fn steady(u: f64, dt: f64) -> Self {
+        Self {
+            x: vec![u],
+            y: vec![u],
+            z: vec![u],
+            phi: vec![],
+            num_terms: 1,
+            steady_state_error_pct: 0.0,
+            time_step: dt,
+            num_histories: 1,
+        }
+    }
 }
 
 /// CTF history state for one surface (persists across timesteps).
+///
+/// `t_outside`, `t_inside`, `q_inside` and `q_outside` are the histories the
+/// CTF equations read, index 0 = one CTF time step back. When the CTF time
+/// step equals the zone timestep they are a plain shift register. When it
+/// spans N zone timesteps, every zone timestep's values are kept for N times
+/// the series length, and the working histories are the exact values N, 2N, …
+/// zone timesteps back. Each zone timestep then belongs to one of N staggered
+/// history sets, each a CTF recursion at the CTF time step, so the surface
+/// balance updates every zone timestep and each set conserves energy on its own.
 #[derive(Debug, Clone)]
 pub struct CtfHistory {
     /// Past outside surface temperatures [°C], index 0 = most recent
@@ -51,6 +90,18 @@ pub struct CtfHistory {
     pub q_inside: Vec<f64>,
     /// Past outside heat flux values [W/m²]
     pub q_outside: Vec<f64>,
+    /// Every zone timestep's values, for a CTF time step longer than the zone
+    /// timestep.
+    staggered: Option<StaggeredHistory>,
+}
+
+/// Ring of [t_out, t_in, q_in, q_out] for every zone timestep, newest at `head − 1`.
+#[derive(Debug, Clone)]
+struct StaggeredHistory {
+    /// Zone timesteps per CTF time step (E+ `NumHistories`, ≥ 2).
+    num_histories: usize,
+    ring: Vec<[f64; 4]>,
+    head: usize,
 }
 
 impl CtfHistory {
@@ -60,53 +111,94 @@ impl CtfHistory {
             t_inside: vec![initial_temp; num_terms],
             q_inside: vec![0.0; num_terms],
             q_outside: vec![0.0; num_terms],
+            staggered: None,
         }
+    }
+
+    /// History sized and timed for `ctf`, starting at a uniform temperature
+    /// with zero flux.
+    pub fn for_ctf(ctf: &CtfCoefficients, initial_temp: f64) -> Self {
+        let num_terms = ctf.num_terms.max(1);
+        let mut history = Self::new(num_terms, initial_temp);
+        if ctf.num_histories > 1 {
+            history.staggered = Some(StaggeredHistory {
+                num_histories: ctf.num_histories,
+                ring: vec![[initial_temp, initial_temp, 0.0, 0.0]; ctf.num_histories * num_terms],
+                head: 0,
+            });
+        }
+        history
     }
 
     /// Reset all history entries to a uniform temperature with zero flux.
     /// Used at the start of each sizing design day to clear residual state.
     pub fn reset(&mut self, temp: f64) {
-        for v in self.t_outside.iter_mut() {
-            *v = temp;
-        }
-        for v in self.t_inside.iter_mut() {
-            *v = temp;
-        }
-        for v in self.q_inside.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.q_outside.iter_mut() {
-            *v = 0.0;
+        self.t_outside.fill(temp);
+        self.t_inside.fill(temp);
+        self.q_inside.fill(0.0);
+        self.q_outside.fill(0.0);
+        if let Some(st) = &mut self.staggered {
+            st.ring.fill([temp, temp, 0.0, 0.0]);
+            st.head = 0;
         }
     }
 
-    /// Shift history: push current values in, oldest falls off.
-    pub fn shift(&mut self, t_out: f64, t_in: f64, q_in: f64, q_out: f64) {
-        for i in (1..self.t_outside.len()).rev() {
-            self.t_outside[i] = self.t_outside[i - 1];
-            self.t_inside[i] = self.t_inside[i - 1];
-            self.q_inside[i] = self.q_inside[i - 1];
-            self.q_outside[i] = self.q_outside[i - 1];
-        }
-        if !self.t_outside.is_empty() {
-            self.t_outside[0] = t_out;
-            self.t_inside[0] = t_in;
-            self.q_inside[0] = q_in;
-            self.q_outside[0] = q_out;
+    /// Record the end of a zone timestep: the current surface temperatures and
+    /// conduction fluxes enter the history.
+    ///
+    /// With a CTF time step of N zone timesteps, the next zone timestep reads
+    /// the values N·(i + 1) zone timesteps back, which are exact, not
+    /// interpolated.
+    pub fn update(&mut self, t_out: f64, t_in: f64, q_in: f64, q_out: f64) {
+        let Some(st) = &mut self.staggered else {
+            shift_in(&mut self.t_outside, t_out);
+            shift_in(&mut self.t_inside, t_in);
+            shift_in(&mut self.q_inside, q_in);
+            shift_in(&mut self.q_outside, q_out);
+            return;
+        };
+        let len = st.ring.len();
+        st.ring[st.head] = [t_out, t_in, q_in, q_out];
+        st.head = (st.head + 1) % len;
+        for i in 0..self.t_outside.len() {
+            // k zone timesteps back, counting the value just stored as k = 1.
+            let k = st.num_histories * (i + 1);
+            let [a, b, c, d] = st.ring[(st.head + len - k) % len];
+            self.t_outside[i] = a;
+            self.t_inside[i] = b;
+            self.q_inside[i] = c;
+            self.q_outside[i] = d;
         }
     }
+}
+
+/// Push `value` in at index 0; the oldest entry falls off.
+fn shift_in(history: &mut [f64], value: f64) {
+    if history.is_empty() {
+        return;
+    }
+    history.copy_within(..history.len() - 1, 1);
+    history[0] = value;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 // State-Space CTF Calculation (Seem 1987)
 // ══════════════════════════════════════════════════════════════════════════════
 
-/// Minimum number of nodes per material layer (E+ MinNodes = 6).
+/// Minimum number of nodes per material layer (E+ `MinNodes`).
 const MIN_NODES: usize = 6;
-/// Maximum CTF terms (E+ MaxCTFTerms - 1 = 18).
-const MAX_CTF_TERMS: usize = 18;
+/// Maximum nodes per layer, and one more than the most history terms a CTF
+/// series may have (E+ `Construction::MaxCTFTerms`).
+const MAX_CTF_TERMS: usize = 19;
 /// Convergence limit for flux history ratio (E+ ConvrgLim).
 const CONVERGENCE_LIMIT: f64 = 1.0e-13;
+/// Largest allowed relative difference between the X, Y and Z series sums,
+/// which are equal for a valid CTF set (E+ `MaxAllowedCTFSumError`).
+const MAX_CTF_SUM_ERROR: f64 = 0.01;
+/// Largest allowed steady-state U error of a CTF set [%].
+const MAX_U_ERROR_PCT: f64 = 5.0;
+/// Longest CTF time step [s] (E+ `MaxAllowedTimeStep`, 7 h).
+const MAX_CTF_TIME_STEP: f64 = 7.0 * 3600.0;
 
 /// Layer properties extracted for the state-space calculation.
 /// All values in SI units.
@@ -116,6 +208,40 @@ struct LayerProps {
     cp: f64,  // specific heat [J/(kg·K)]
     dx: f64,  // node spacing [m]
     nodes: usize,
+    /// Position in the construction, 1 = outside layer (for messages).
+    position: usize,
+}
+
+/// Nodes in a massed layer (E+ `calculateTransferFunction`): the explicit
+/// finite-difference stability spacing √(2αΔt) at the zone timestep, truncated
+/// to a whole number and held within [`MIN_NODES`, `MAX_CTF_TERMS`].
+fn layer_nodes(l: &ResolvedLayer, dt_zone: f64) -> usize {
+    let alpha = l.conductivity / (l.density * l.specific_heat);
+    let dxn = (2.0 * alpha * dt_zone).sqrt();
+    let nodes = (l.thickness / dxn) as usize;
+    nodes.clamp(MIN_NODES, MAX_CTF_TERMS)
+}
+
+/// Initial CTF time step and its length in zone timesteps (E+
+/// `calculateTransferFunction`). A layer at the node cap is coarser than the
+/// stability spacing, so the CTF time step grows to that layer's Fourier-number-1
+/// step ρ·cp·Δx²/k, rounded to the nearest whole number of zone timesteps.
+/// Otherwise the CTF time step is the zone timestep.
+fn initial_ctf_time_step(layers: &[LayerProps], dt_zone: f64) -> (f64, usize) {
+    let dtn = layers
+        .iter()
+        .filter(|l| l.nodes >= MAX_CTF_TERMS && l.rho * l.cp > 0.0)
+        .map(|l| l.rho * l.cp * l.dx * l.dx / l.k)
+        .fold(0.0_f64, f64::max);
+    // E+ keeps a computed step within 10% of the zone timestep as is; a capped
+    // layer always gives at least twice the zone timestep, so in one dimension
+    // only the two branches below occur.
+    if dtn > dt_zone {
+        let n = ((dtn / dt_zone) + 0.5) as usize;
+        (dt_zone * n as f64, n.max(1))
+    } else {
+        (dt_zone, 1)
+    }
 }
 
 /// Calculate CTF coefficients from resolved layers using the state-space method.
@@ -135,6 +261,13 @@ struct LayerProps {
 /// layers: no capacitance of their own, a conductance of 1/R between the two
 /// adjacent interface nodes, which take their capacitance from the neighbouring
 /// massed layers. Adjacent interior NoMass layers are combined first.
+///
+/// The CTF time step starts at `dt` (the zone timestep) or, when a layer reaches
+/// the node cap, at that layer's Fourier-number-1 step in whole zone timesteps.
+/// If the series then needs more than `MAX_CTF_TERMS − 1` history terms, its X,
+/// Y and Z sums differ by more than 1%, or its steady-state U is more than 5% off
+/// the layers' U, the CTF time step grows by one zone timestep and the series is
+/// recomputed. A CTF time step reaching 7 h is an error, as in EnergyPlus.
 pub fn try_calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> Result<CtfCoefficients, String> {
     let total_r: f64 = layers.iter().map(|l| l.resistance()).sum();
 
@@ -179,14 +312,7 @@ pub fn try_calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> Result<CtfCoeffic
     // Very low thermal mass or no massed layers: steady-state CTF
     if total_c < 1.0 || massed_layers.is_empty() || total_r <= 0.0 {
         let u = if total_r > 0.0 { 1.0 / total_r } else { 5.0 };
-        return Ok(CtfCoefficients {
-            x: vec![u],
-            y: vec![u],
-            z: vec![u],
-            phi: vec![],
-            num_terms: 1,
-            steady_state_error_pct: 0.0,
-        });
+        return Ok(CtfCoefficients::steady(u, dt));
     }
 
     // Compute nodes per layer and build LayerProps. `massed_layers` starts and ends
@@ -194,7 +320,8 @@ pub fn try_calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> Result<CtfCoeffic
     // dx = R (E+ `Construction::calculateTransferFunction`, resistive layers), so the
     // conductance across them is 1/R and they add no capacitance.
     let mut layer_props: Vec<LayerProps> = Vec::with_capacity(massed_layers.len());
-    for l in massed_layers {
+    for (offset, l) in massed_layers.iter().enumerate() {
+        let position = massed_start + offset + 1;
         if is_massless(l) {
             let r = l.resistance();
             if r <= 0.0 {
@@ -209,21 +336,19 @@ pub fn try_calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> Result<CtfCoeffic
                     cp: 0.0,
                     dx: r,
                     nodes: 1,
+                    position,
                 }),
             }
             continue;
         }
-        let alpha = l.conductivity / (l.density * l.specific_heat);
-        let dxn = (2.0 * alpha * dt).sqrt();
-        let nodes_raw = (l.thickness / dxn).ceil() as usize;
-        let nodes = nodes_raw.max(MIN_NODES).min(MAX_CTF_TERMS);
-        let dx = l.thickness / nodes as f64;
+        let nodes = layer_nodes(l, dt);
         layer_props.push(LayerProps {
             k: l.conductivity,
             rho: l.density,
             cp: l.specific_heat,
-            dx,
+            dx: l.thickness / nodes as f64,
             nodes,
+            position,
         });
     }
 
@@ -241,72 +366,122 @@ pub fn try_calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> Result<CtfCoeffic
             y: vec![c0],
             z: vec![c0],
             phi: vec![alpha],
-            num_terms: 1,
-            steady_state_error_pct: 0.0,
+            ..CtfCoefficients::steady(u, dt)
         });
     }
 
-    // Build state-space matrices with NoMass boundary resistances
+    // Build state-space matrices with NoMass boundary resistances. They depend
+    // only on the node network, which is fixed at the zone timestep.
     let (a_mat, b_vec, c_vec, d_vec) =
         build_state_space(&layer_props, rcmax, r_outside_nomass, r_inside_nomass);
 
-    // Compute CTF from state-space
-    let mut result = compute_ctf_from_state_space(&a_mat, &b_vec, &c_vec, &d_vec, rcmax, dt)?;
-
-    // A non-finite solution means the construction is degenerate; running with
-    // it would put NaN or inf into the heat balance.
-    let has_nan = result.x.iter().any(|v| v.is_nan())
-        || result.y.iter().any(|v| v.is_nan())
-        || result.z.iter().any(|v| v.is_nan())
-        || result.phi.iter().any(|v| v.is_nan());
-    if has_nan {
-        return Err(format!(
-            "the CTF state-space solution is not finite (rcmax={rcmax}, layers={}, \
-             massed={}): a layer has zero or infinite conductivity, zero thickness, or \
-             zero density or specific heat",
-            layers.len(),
-            massed_layers.len(),
-        ));
-    }
-
-    // Diagnostic: verify steady-state U-value from CTF coefficients
-    // At steady state: q*(1-ΣΦ) = ΣY*Tout - ΣZ*Tin → U = ΣZ/(1-ΣΦ)
-    let sum_z: f64 = result.z.iter().sum();
-    let _sum_y: f64 = result.y.iter().sum();
-    let sum_phi: f64 = result.phi.iter().sum();
-    let u_ctf = sum_z / (1.0 - sum_phi);
     let u_expected = 1.0 / total_r;
-    let u_error_pct = ((u_ctf - u_expected) / u_expected * 100.0).abs();
-    result.steady_state_error_pct = u_error_pct;
-    if u_error_pct > 5.0 {
-        use std::fmt::Write as _;
-        let mut msg = format!(
-            "the CTF steady-state U is {u_ctf:.4} W/(m²K) but the layers give {u_expected:.4} \
-             ({u_error_pct:.1}% off)\n  layers={} (massed={}), rcmax={rcmax}, \
-             terms={}, Z₀={:.2}, Y₀={:.2}, ΣΦ={sum_phi:.4}",
-            layers.len(),
-            massed_layers.len(),
-            result.num_terms,
-            result.z[0],
-            result.y[0],
-        );
-        if r_outside_nomass > 0.0 || r_inside_nomass > 0.0 {
-            let _ = write!(
-                msg,
-                "\n  NoMass R: outside={r_outside_nomass:.4}, inside={r_inside_nomass:.4}"
-            );
+    let (mut ctf_dt, mut num_histories) = initial_ctf_time_step(&layer_props, dt);
+    // Why the previous attempt was rejected, for the error message.
+    let mut last_rejection = String::from("the first CTF time step was already too long");
+    loop {
+        if ctf_dt >= MAX_CTF_TIME_STEP - 1.0e-9 {
+            return Err(ctf_time_step_error(&layer_props, ctf_dt, &last_rejection));
         }
-        for (li, lp) in layer_props.iter().enumerate() {
-            let _ = write!(
-                msg,
-                "\n  layer[{li}]: k={:.4}, ρ={:.1}, cp={:.1}, dx={:.5}, nodes={}",
-                lp.k, lp.rho, lp.cp, lp.dx, lp.nodes
-            );
-        }
-        return Err(msg);
-    }
 
-    Ok(result)
+        let attempt = compute_ctf_from_state_space(&a_mat, &b_vec, &c_vec, &d_vec, rcmax, ctf_dt)?;
+        let Some(mut result) = attempt else {
+            last_rejection = format!(
+                "at a {:.0} s CTF time step the series needed more than {} history terms",
+                ctf_dt,
+                MAX_CTF_TERMS - 1
+            );
+            num_histories += 1;
+            ctf_dt += dt;
+            continue;
+        };
+
+        // A non-finite solution means the construction is degenerate; running with
+        // it would put NaN or inf into the heat balance.
+        let has_nan = [&result.x, &result.y, &result.z, &result.phi]
+            .iter()
+            .any(|v| v.iter().any(|c| !c.is_finite()));
+        if has_nan {
+            return Err(format!(
+                "the CTF state-space solution is not finite (rcmax={rcmax}, layers={}, \
+                 massed={}): a layer has zero or infinite conductivity, zero thickness, or \
+                 zero density or specific heat",
+                layers.len(),
+                massed_layers.len(),
+            ));
+        }
+
+        // In theory ΣX = ΣY = ΣZ; a CTF set whose sums disagree has not reached a
+        // valid solution (E+ MaxAllowedCTFSumError).
+        let sums = [&result.x, &result.y, &result.z].map(|v| v.iter().sum::<f64>().abs());
+        let biggest = sums.iter().copied().fold(0.0_f64, f64::max);
+        if biggest <= 0.0 {
+            return Err(
+                "the CTF series sums are all zero: the construction conducts no \
+                        heat. Check the layer conductivities and thicknesses"
+                    .to_string(),
+            );
+        }
+        let sum_error = ((sums[0] - sums[1]).abs()).max((sums[2] - sums[1]).abs()) / biggest;
+
+        // Steady-state U from the coefficients:
+        // q*(1-ΣΦ) = ΣY*Tout - ΣZ*Tin → U = ΣZ/(1-ΣΦ)
+        let sum_z: f64 = result.z.iter().sum();
+        let sum_phi: f64 = result.phi.iter().sum();
+        let u_ctf = sum_z / (1.0 - sum_phi);
+        let u_error_pct = ((u_ctf - u_expected) / u_expected * 100.0).abs();
+
+        if sum_error > MAX_CTF_SUM_ERROR || u_error_pct > MAX_U_ERROR_PCT {
+            last_rejection = format!(
+                "at a {ctf_dt:.0} s CTF time step the X, Y and Z sums differed by \
+                 {:.1}% and the steady-state U was {u_ctf:.4} W/(m²K) against {u_expected:.4} \
+                 from the layers",
+                sum_error * 100.0
+            );
+            num_histories += 1;
+            ctf_dt += dt;
+            continue;
+        }
+
+        result.steady_state_error_pct = u_error_pct;
+        result.time_step = ctf_dt;
+        result.num_histories = num_histories;
+        if num_histories > 1 {
+            log::info!(
+                "CTF time step {ctf_dt:.0} s ({num_histories} zone timesteps) for a \
+                 construction with {rcmax} nodes and {} terms",
+                result.num_terms
+            );
+        }
+        return Ok(result);
+    }
+}
+
+/// The error for a construction whose CTF time step reaches 7 h: name the
+/// layer with the longest Fourier-number step and what to change.
+fn ctf_time_step_error(layers: &[LayerProps], ctf_dt: f64, last_rejection: &str) -> String {
+    use std::fmt::Write as _;
+    let limiting = layers.iter().filter(|l| l.rho * l.cp > 0.0).max_by(|a, b| {
+        let fo = |l: &LayerProps| l.rho * l.cp * l.dx * l.dx / l.k;
+        fo(a).total_cmp(&fo(b))
+    });
+    let mut msg = format!(
+        "no stable CTF series with a time step under 7 h (reached {:.1} h; {last_rejection})",
+        ctf_dt / 3600.0
+    );
+    if let Some(l) = limiting {
+        let thickness = l.dx * l.nodes as f64;
+        let _ = write!(
+            msg,
+            ". Layer {} ({thickness:.3} m, k={:.3} W/(m·K), ρ={:.0} kg/m³, cp={:.0} J/(kg·K)) \
+             has the longest node time constant. A construction this massive is beyond the CTF method \
+             (EnergyPlus stops at the same limit): check the layer properties, and model \
+             less of the mass, for ground contact a thinner soil layer on a `ground` \
+             boundary or an F-factor construction",
+            l.position, l.k, l.rho, l.cp
+        );
+    }
+    msg
 }
 
 /// Panicking form of [`try_calculate_ctf`], for tests and callers that build
@@ -335,26 +510,12 @@ pub fn try_calculate_ctf_simple(
     mass_density: Option<f64>,
 ) -> Result<CtfCoefficients, String> {
     if u_factor <= 0.0 {
-        return Ok(CtfCoefficients {
-            x: vec![0.0],
-            y: vec![0.0],
-            z: vec![0.0],
-            phi: vec![],
-            num_terms: 1,
-            steady_state_error_pct: 0.0,
-        });
+        return Ok(CtfCoefficients::steady(0.0, dt));
     }
 
     // Very low thermal mass: steady-state
     if thermal_capacity < 1.0 {
-        return Ok(CtfCoefficients {
-            x: vec![u_factor],
-            y: vec![u_factor],
-            z: vec![u_factor],
-            phi: vec![],
-            num_terms: 1,
-            steady_state_error_pct: 0.0,
-        });
+        return Ok(CtfCoefficients::steady(u_factor, dt));
     }
 
     // Reconstruct a synthetic material for the state-space CTF method.
@@ -376,8 +537,7 @@ pub fn try_calculate_ctf_simple(
             y: vec![c0],
             z: vec![c0],
             phi: vec![alpha_val],
-            num_terms: 1,
-            steady_state_error_pct: 0.0,
+            ..CtfCoefficients::steady(u_factor, dt)
         });
     }
 
@@ -1080,6 +1240,12 @@ fn mat_trace(a: &[f64], n: usize) -> f64 {
 /// Compute CTF coefficients from state-space matrices A, B, C, D.
 ///
 /// Implements Seem (1987) equations 2.1.24–2.1.26 with the R-matrix recurrence.
+///
+/// The series runs until the flux term ratio |e_j/e_1| falls below
+/// [`CONVERGENCE_LIMIT`] or it reaches `n` terms, where R(n) = 0 by the
+/// Cayley–Hamilton theorem and the series is exact (E+
+/// `calculateFinalCoefficients`). Returns `Ok(None)` once it needs more than
+/// `MAX_CTF_TERMS − 1` history terms, so the caller can lengthen the time step.
 fn compute_ctf_from_state_space(
     a: &[f64], // n×n
     b: &[f64], // n×2 (col 0: outside, col 1: inside)
@@ -1087,7 +1253,7 @@ fn compute_ctf_from_state_space(
     d: &[f64], // 2×2
     n: usize,
     dt: f64,
-) -> Result<CtfCoefficients, String> {
+) -> Result<Option<CtfCoefficients>, String> {
     // Step 1: Matrix exponential exp(A*dt)
     let a_exp = matrix_exponential(a, n, dt);
 
@@ -1219,7 +1385,11 @@ fn compute_ctf_from_state_space(
     let mut e1_abs = 0.0; // |e(1)| for convergence check
     let mut converged = false;
 
-    for j in 1..=MAX_CTF_TERMS {
+    for j in 1..=n {
+        if j > MAX_CTF_TERMS - 1 {
+            return Ok(None);
+        }
+
         // PhiR = AExp * R(j-1)
         let phi_r = mat_mul(&a_exp, &r_prev, n);
 
@@ -1231,10 +1401,13 @@ fn compute_ctf_from_state_space(
             e1_abs = e_j.abs();
         }
 
-        // R(j) = PhiR + e(j) * I
-        let mut r_curr = phi_r.clone();
-        for i in 0..n {
-            r_curr[i * n + i] += e_j;
+        // R(j) = PhiR + e(j) * I; the last one, R(n), is zero.
+        let last = j == n;
+        let mut r_curr = if last { vec![0.0; n * n] } else { phi_r };
+        if !last {
+            for i in 0..n {
+                r_curr[i * n + i] += e_j;
+            }
         }
 
         // s(j) = C * [R(j-1) * (Gamma1 - Gamma2) + R(j) * Gamma2] + e(j) * D
@@ -1287,8 +1460,8 @@ fn compute_ctf_from_state_space(
         z_vec.push(-s_j[2 + 1]); // E+ negates Z
         phi_vec.push(-e_j); // E+ negates e
 
-        // Check convergence: |e(j)| / |e(1)| < limit
-        if e1_abs > 0.0 && (e_j.abs() / e1_abs) < CONVERGENCE_LIMIT {
+        // Check convergence: |e(j)| / |e(1)| < limit, or the exact last term
+        if last || (e1_abs > 0.0 && (e_j.abs() / e1_abs) < CONVERGENCE_LIMIT) {
             converged = true;
             break;
         }
@@ -1303,22 +1476,20 @@ fn compute_ctf_from_state_space(
         r_prev = r_curr;
     }
 
-    if !converged {
-        return Err(format!(
-            "the CTF series did not converge within {MAX_CTF_TERMS} terms"
-        ));
-    }
+    debug_assert!(converged, "the series always ends by term n");
 
     let num_terms = x_vec.len();
 
-    Ok(CtfCoefficients {
+    Ok(Some(CtfCoefficients {
         x: x_vec,
         y: y_vec,
         z: z_vec,
         phi: phi_vec,
         num_terms,
         steady_state_error_pct: 0.0,
-    })
+        time_step: dt,
+        num_histories: 1,
+    }))
 }
 
 /// Apply CTF to compute surface heat fluxes for one timestep.
@@ -1762,9 +1933,7 @@ mod tests {
         // Print layer discretization
         for (li, l) in layers.iter().enumerate() {
             let alpha = l.conductivity / (l.density * l.specific_heat);
-            let dxn = (2.0 * alpha * dt).sqrt();
-            let nodes_raw = (l.thickness / dxn).ceil() as usize;
-            let nodes = nodes_raw.max(6).min(18);
+            let nodes = layer_nodes(l, dt);
             let dx = l.thickness / nodes as f64;
             println!(
                 "    Layer[{}]: t={:.4}m k={:.3} ρ={:.0} cp={:.0} → α={:.3e}, nodes={}, dx={:.5}m",
@@ -1772,16 +1941,7 @@ mod tests {
             );
         }
 
-        let rcmax: usize = layers
-            .iter()
-            .map(|l| {
-                let alpha = l.conductivity / (l.density * l.specific_heat);
-                let dxn = (2.0 * alpha * dt).sqrt();
-
-                (l.thickness / dxn).ceil().max(6.0).min(18.0) as usize
-            })
-            .sum::<usize>()
-            - 1;
+        let rcmax: usize = layers.iter().map(|l| layer_nodes(l, dt)).sum::<usize>() - 1;
         println!("  rcmax (state nodes) = {}", rcmax);
 
         println!("\n  j    X           Y           Z           Phi");
@@ -1887,33 +2047,316 @@ mod tests {
                     step, q_s, q_l, ratio
                 );
             }
-            hist_s.shift(t_out, 20.0, q_s, qo_s);
-            hist_l.shift(t_out, 20.0, q_l, qo_l);
+            hist_s.update(t_out, 20.0, q_s, qo_s);
+            hist_l.update(t_out, 20.0, q_l, qo_l);
         }
     }
 
     #[test]
-    fn test_heavy_wall_short_timestep_is_an_error_not_a_panic() {
-        // #121: 15 mm plaster | 365 mm solid brick | 15 mm plaster. At 15 min the
-        // CTF is fine; at 5 min the series does not converge, which must come back
-        // as an error the caller can report (it used to run on with a U off by
-        // orders of magnitude, then later crash).
+    fn test_heavy_wall_short_timestep_lengthens_the_ctf_time_step() {
+        // 15 mm plaster | 365 mm solid brick | 15 mm plaster. At 15 min the CTF
+        // runs at the zone timestep. At 5 min the brick reaches the 19-node cap,
+        // so the CTF time step becomes a whole number of zone timesteps.
         let plaster = ResolvedLayer::new(0.7, 1400.0, 1000.0, 0.015);
         let brick = ResolvedLayer::new(0.77, 1700.0, 800.0, 0.365);
         let layers = vec![plaster.clone(), brick, plaster];
 
         let ok = try_calculate_ctf(&layers, 900.0).expect("15-minute CTF converges");
+        assert_eq!(ok.num_histories, 1);
+        assert_eq!(ok.time_step, 900.0);
         assert!(
             ok.steady_state_error_pct < 1.0,
             "{}",
             ok.steady_state_error_pct
         );
 
-        let err = try_calculate_ctf(&layers, 300.0).expect_err("5-minute CTF must fail");
+        let fine = try_calculate_ctf(&layers, 300.0).expect("5-minute CTF runs");
+        assert!(fine.num_histories >= 2, "{}", fine.num_histories);
+        assert_eq!(fine.time_step, 300.0 * fine.num_histories as f64);
+        assert!(fine.phi.len() < MAX_CTF_TERMS);
         assert!(
-            err.contains("did not converge") || err.contains("steady-state U"),
-            "{err}"
+            fine.steady_state_error_pct < 0.1,
+            "{}",
+            fine.steady_state_error_pct
         );
+    }
+
+    #[test]
+    fn test_node_count_follows_energyplus() {
+        // E+: int(L/√(2αΔt)), held within [6, 19].
+        let concrete = ResolvedLayer::new(1.311, 2240.0, 836.8, 0.2);
+        let alpha = 1.311 / (2240.0 * 836.8);
+        let dxn = (2.0 * alpha * 600.0_f64).sqrt();
+        assert_eq!(layer_nodes(&concrete, 600.0), (0.2 / dxn) as usize);
+        assert_eq!(layer_nodes(&concrete, 3600.0), MIN_NODES);
+        let thick = ResolvedLayer::new(1.311, 2240.0, 836.8, 2.0);
+        assert_eq!(layer_nodes(&thick, 600.0), MAX_CTF_TERMS);
+    }
+
+    #[test]
+    fn test_capped_layer_sets_fourier_number_time_step() {
+        // 60 cm of dense concrete at 10-minute timesteps: 19 nodes, Δx = L/19,
+        // ρ·cp·Δx²/k ≈ 1,420 s → 2 zone timesteps (E+ rounds to the nearest).
+        let layers = vec![ResolvedLayer::new(1.311, 2240.0, 836.8, 0.6)];
+        let dx: f64 = 0.6 / 19.0;
+        let dtn = 2240.0 * 836.8 * dx * dx / 1.311;
+        let expected = ((dtn / 600.0) + 0.5) as usize;
+        let ctf = try_calculate_ctf(&layers, 600.0).unwrap();
+        assert!(ctf.num_histories >= expected, "{}", ctf.num_histories);
+        assert_eq!(ctf.time_step, 600.0 * ctf.num_histories as f64);
+    }
+
+    /// The CTF of a slab with no history terms needed beyond its nodes, at a
+    /// zone timestep, compared with E+'s rule that the series is exact at rcmax.
+    #[test]
+    fn test_series_never_exceeds_the_term_limit() {
+        for (k, rho, cp, l, dt) in [
+            (1.311, 2240.0, 836.8, 0.6, 600.0),
+            (1.0, 1800.0, 1100.0, 1.5, 600.0),
+            (0.77, 1700.0, 800.0, 0.365, 60.0),
+        ] {
+            let ctf = try_calculate_ctf(&[ResolvedLayer::new(k, rho, cp, l)], dt).unwrap();
+            assert!(
+                ctf.phi.len() < MAX_CTF_TERMS,
+                "{l} m: {} terms",
+                ctf.phi.len()
+            );
+            let [ux, uy, uz] = ctf_u_values(&ctf);
+            assert!((ux - uy).abs() <= MAX_CTF_SUM_ERROR * uy.abs());
+            assert!((uz - uy).abs() <= MAX_CTF_SUM_ERROR * uy.abs());
+        }
+    }
+
+    #[test]
+    fn test_too_long_ctf_time_step_is_an_error_naming_the_layer() {
+        // 3 m of soil in one layer: Δx = 3/19 m gives a Fourier step near 14 h,
+        // past E+'s 7 h ceiling. Three 1 m layers of it (56 nodes) need more
+        // than 18 history terms at every step up to 7 h. EnergyPlus stops on both.
+        let soil = |l| ResolvedLayer::new(1.0, 1800.0, 1100.0, l);
+        let err = try_calculate_ctf(&[soil(3.0)], 600.0).expect_err("one 3 m layer");
+        assert!(err.contains("Layer 1") && err.contains("7 h"), "{err}");
+        let err = try_calculate_ctf(&[soil(1.0), soil(1.0), soil(1.0)], 600.0)
+            .expect_err("three 1 m layers");
+        assert!(err.contains("history terms"), "{err}");
+    }
+
+    #[test]
+    fn test_staggered_histories_hold_exact_past_values() {
+        // With N zone timesteps per CTF time step, the working history after the
+        // update at the end of zone step n holds the exact values at
+        // n + 1 − N·(i + 1), for any signal.
+        for n_hist in [1usize, 2, 3, 5] {
+            let ctf = CtfCoefficients {
+                num_terms: 4,
+                num_histories: n_hist,
+                ..CtfCoefficients::steady(1.0, 60.0)
+            };
+            let mut h = CtfHistory::for_ctf(&ctf, 0.0);
+            let f = |t: f64| (2.0 * t, 1.0 - t * t, (0.3 * t).sin(), -3.0 * t);
+            let steps = 40;
+            for n in 0..steps {
+                let (a, b, c, d) = f(n as f64);
+                h.update(a, b, c, d);
+                if n < 5 * n_hist {
+                    continue; // still reading the initial history
+                }
+                for i in 0..4 {
+                    let t = (n + 1) as f64 - (n_hist * (i + 1)) as f64;
+                    let (a, b, c, d) = f(t);
+                    let got = [h.t_outside[i], h.t_inside[i], h.q_inside[i], h.q_outside[i]];
+                    for (g, e) in got.iter().zip([a, b, c, d]) {
+                        assert!((g - e).abs() < 1e-9, "N={n_hist} n={n} i={i}: {g} vs {e}");
+                    }
+                }
+            }
+            h.reset(5.0);
+            assert!(h.t_outside.iter().all(|&v| v == 5.0));
+            assert!(h.q_inside.iter().all(|&v| v == 0.0));
+        }
+    }
+
+    /// Minimal complex arithmetic for the analytical slab solutions.
+    #[derive(Clone, Copy)]
+    struct Cx(f64, f64);
+    impl Cx {
+        fn mul(self, o: Cx) -> Cx {
+            Cx(self.0 * o.0 - self.1 * o.1, self.0 * o.1 + self.1 * o.0)
+        }
+        fn div(self, o: Cx) -> Cx {
+            let d = o.0 * o.0 + o.1 * o.1;
+            Cx(
+                (self.0 * o.0 + self.1 * o.1) / d,
+                (self.1 * o.0 - self.0 * o.1) / d,
+            )
+        }
+        fn exp(self) -> Cx {
+            let m = self.0.exp();
+            Cx(m * self.1.cos(), m * self.1.sin())
+        }
+        fn sinh(self) -> Cx {
+            let a = self.exp();
+            let b = Cx(-self.0, -self.1).exp();
+            Cx((a.0 - b.0) / 2.0, (a.1 - b.1) / 2.0)
+        }
+        fn cosh(self) -> Cx {
+            let a = self.exp();
+            let b = Cx(-self.0, -self.1).exp();
+            Cx((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0)
+        }
+    }
+
+    /// Drive a CTF with the outside face at 20 + `amp`·sin(ωt) and the inside
+    /// face at 20 °C for `periods` periods at zone step `dt`, and compare the
+    /// last period's face fluxes with the exact periodic solution for a
+    /// homogeneous slab (transmission matrix, γ = √(iω/α)):
+    /// q_in = kγ/sinh(γL)·T̃_o, q_out = kγ·coth(γL)·T̃_o.
+    /// Returns the largest errors as fractions of each flux amplitude.
+    fn periodic_slab_errors(
+        layer: &ResolvedLayer,
+        dt: f64,
+        period: f64,
+        periods: usize,
+        amp: f64,
+    ) -> (f64, f64, usize) {
+        let ctf = calculate_ctf(std::slice::from_ref(layer), dt);
+        let mut h = CtfHistory::for_ctf(&ctf, 20.0);
+        let omega = 2.0 * std::f64::consts::PI / period;
+        let alpha = layer.conductivity / (layer.density * layer.specific_heat);
+        let g = (omega / (2.0 * alpha)).sqrt();
+        let gamma = Cx(g, g);
+        let gl = Cx(g * layer.thickness, g * layer.thickness);
+        let kg = Cx(layer.conductivity * gamma.0, layer.conductivity * gamma.1);
+        let h_in = kg.div(gl.sinh());
+        let h_out = kg.mul(gl.cosh()).div(gl.sinh());
+        let steps_per_period = (period / dt).round() as usize;
+        let (mut e_in, mut e_out) = (0.0_f64, 0.0_f64);
+        let amp_in = amp * (h_in.0.hypot(h_in.1));
+        let amp_out = amp * (h_out.0.hypot(h_out.1));
+        for n in 1..=periods * steps_per_period {
+            let t = n as f64 * dt;
+            let t_o = 20.0 + amp * (omega * t).sin();
+            let (q_in, q_out) = apply_ctf(&ctf, &h, t_o, 20.0);
+            h.update(t_o, 20.0, q_in, q_out);
+            if n > (periods - 1) * steps_per_period {
+                // Im(H·A·e^{iωt}) for T_o − 20 = Im(A·e^{iωt})
+                let ph = Cx((omega * t).cos(), (omega * t).sin());
+                let exact_in = amp * h_in.mul(ph).1;
+                let exact_out = amp * h_out.mul(ph).1;
+                e_in = e_in.max((q_in - exact_in).abs() / amp_in);
+                e_out = e_out.max((q_out - exact_out).abs() / amp_out);
+            }
+        }
+        (e_in, e_out, ctf.num_histories)
+    }
+
+    #[test]
+    fn test_thick_concrete_periodic_response_matches_analytical() {
+        // 60 cm of dense concrete at 6 timesteps per hour, daily cycle.
+        let concrete = ResolvedLayer::new(1.311, 2240.0, 836.8, 0.6);
+        let (e_in, e_out, n_hist) = periodic_slab_errors(&concrete, 600.0, 86_400.0, 10, 10.0);
+        assert!(n_hist >= 2, "{n_hist}");
+        // The remaining error is the CTF itself, not its staggered histories: the
+        // node network (19 nodes, surface half-cells lumped into the first and
+        // last node as in E+) damps the inside amplitude about 4% and the 20 min
+        // CTF step lags the phase. Measured: 6.0% inside, 7.5% outside here; the
+        // same wall run at a 15 min zone timestep with N = 1 gives 8.2% and 10.0%.
+        assert!(
+            e_in < 0.07,
+            "inside flux error {:.2}% of amplitude",
+            e_in * 100.0
+        );
+        assert!(
+            e_out < 0.085,
+            "outside flux error {:.2}% of amplitude",
+            e_out * 100.0
+        );
+    }
+
+    #[test]
+    fn test_thick_soil_annual_response_matches_analytical() {
+        // 1.5 m of soil at 6 timesteps per hour, annual cycle (ground coupling).
+        let soil = ResolvedLayer::new(1.0, 1800.0, 1100.0, 1.5);
+        let year = 365.0 * 86_400.0;
+        let (e_in, e_out, n_hist) = periodic_slab_errors(&soil, 600.0, year, 2, 10.0);
+        assert!(n_hist > 10, "{n_hist}");
+        assert!(
+            e_in < 0.01,
+            "inside flux error {:.3}% of amplitude",
+            e_in * 100.0
+        );
+        assert!(
+            e_out < 0.01,
+            "outside flux error {:.3}% of amplitude",
+            e_out * 100.0
+        );
+    }
+
+    #[test]
+    fn test_thick_concrete_step_response_and_energy_closure() {
+        // 60 cm of concrete, uniform at 20 °C; the outside face steps to 30 °C,
+        // the inside face stays at 20 °C. Exact inside flux:
+        //   q_in(t) = kΔT/L·[1 + 2·Σ (−1)ⁿ·exp(−n²π²αt/L²)].
+        // Energy closes: Σ(q_out − q_in)·Δt = stored heat = ρ·cp·L·ΔT/2 once the
+        // profile is linear.
+        let (k, rho, cp, l) = (1.311, 2240.0, 836.8, 0.6);
+        let layer = ResolvedLayer::new(k, rho, cp, l);
+        let dt = 600.0;
+        let ctf = calculate_ctf(std::slice::from_ref(&layer), dt);
+        assert!(ctf.num_histories >= 2);
+        let mut h = CtfHistory::for_ctf(&ctf, 20.0);
+        let alpha = k / (rho * cp);
+        let dtemp = 10.0;
+        let exact_in = |t: f64| {
+            let s: f64 = (1..200)
+                .map(|n| {
+                    let n = n as f64;
+                    let sign = if n as i64 % 2 == 0 { 1.0 } else { -1.0 };
+                    sign * (-(n * n) * std::f64::consts::PI.powi(2) * alpha * t / (l * l)).exp()
+                })
+                .sum();
+            k * dtemp / l * (1.0 + 2.0 * s)
+        };
+        let steady = k * dtemp / l;
+        let mut stored = 0.0;
+        let mut worst = 0.0_f64;
+        let days = 10;
+        for n in 1..=(days * 144) {
+            let t = n as f64 * dt;
+            let (q_in, q_out) = apply_ctf(&ctf, &h, 30.0, 20.0);
+            h.update(30.0, 20.0, q_in, q_out);
+            stored += (q_out - q_in) * dt;
+            // Past the first CTF time step (the CTF ramps a step over one step).
+            if t > 6.0 * 3600.0 {
+                worst = worst.max((q_in - exact_in(t)).abs() / steady);
+            }
+        }
+        assert!(
+            worst < 0.02,
+            "inside flux error {:.2}% of steady flux",
+            worst * 100.0
+        );
+        let expected = rho * cp * l * dtemp / 2.0;
+        assert!(
+            (stored - expected).abs() < 1e-3 * expected,
+            "stored {stored:.0} J/m² vs {expected:.0}"
+        );
+    }
+
+    #[test]
+    fn test_thick_construction_steady_state_u_matches_layers() {
+        // Concrete, soil and insulation; 2.3 m in all at 6 timesteps per hour.
+        let layers = vec![
+            ResolvedLayer::new(1.311, 2240.0, 836.8, 0.6),
+            ResolvedLayer::new(1.0, 1800.0, 1100.0, 1.0),
+            ResolvedLayer::new(0.04, 30.0, 840.0, 0.1),
+            ResolvedLayer::new(1.311, 2240.0, 836.8, 0.6),
+        ];
+        let u = 1.0 / (0.6 / 1.311 + 1.0 / 1.0 + 0.1 / 0.04 + 0.6 / 1.311);
+        let ctf = try_calculate_ctf(&layers, 600.0).unwrap();
+        assert!(ctf.num_histories > 1);
+        for got in ctf_u_values(&ctf) {
+            assert!((got - u).abs() < 1e-3 * u, "U {got:.5} vs {u:.5}");
+        }
     }
 
     /// Steady-state U-value of a CTF set from its X, Y and Z series.
@@ -2051,8 +2494,8 @@ mod tests {
                 "  {:>4}   {:>10.4}   {:>10.4}    {:.3}",
                 step, q_nm, q_ph, ratio
             );
-            hist_nm.shift(t_out, 20.0, q_nm, qo_nm);
-            hist_ph.shift(t_out, 20.0, q_ph, qo_ph);
+            hist_nm.update(t_out, 20.0, q_nm, qo_nm);
+            hist_ph.update(t_out, 20.0, q_ph, qo_ph);
         }
 
         // At steady state (step 9), both should converge to U * ΔT
@@ -2209,8 +2652,8 @@ mod tests {
                     step, q_s, q_l, ratio
                 );
             }
-            hist_s.shift(t_out, 20.0, q_s, qo_s);
-            hist_l.shift(t_out, 20.0, q_l, qo_l);
+            hist_s.update(t_out, 20.0, q_s, qo_s);
+            hist_l.update(t_out, 20.0, q_l, qo_l);
         }
     }
 }

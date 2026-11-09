@@ -79,9 +79,10 @@ where:
 - $q''_\text{ko}$ is the conduction flux entering the wall at the outside
   face (positive inward).
 
-The past terms $t-j$ are the values stored at the end of earlier timesteps
-(`CtfHistory`, shifted once per timestep; @sec-timestep-loop). The history
-starts at 21 °C with zero flux.
+The past terms $t-j$ are the values $j$ CTF time steps back
+(@sec-ctf-time-step), stored at the end of each zone timestep
+(`CtfHistory`; see @sec-timestep-loop). The history starts at 21 °C with
+zero flux.
 
 ### State-space formulation {#sec-ctf-state-space}
 
@@ -90,8 +91,10 @@ handled as follows:
 
 - **Massed layers.** A massed layer of thickness $L$ and diffusivity
   $\alpha = k/(\rho c_p)$ gets
-  $N = \min(\max(\lceil L/\Delta x_n\rceil, 6), 18)$ divisions of width
-  $\Delta x = L/N$, with $\Delta x_n = \sqrt{2\alpha\,\Delta t}$.
+  $N = \min(\max(\lfloor L/\Delta x_n\rfloor, 6), 19)$ divisions of width
+  $\Delta x = L/N$, with $\Delta x_n = \sqrt{2\alpha\,\Delta t_z}$ at the
+  zone timestep $\Delta t_z$ (the explicit finite-difference stability
+  spacing).
 - **Massless layers at either end** ($\rho c_p L < 1$ J/(m²·K), or NoMass) add
   their resistance in series with the conductance $k/\Delta x$ between the
   face and the first or last node.
@@ -119,8 +122,8 @@ where $A$ is tridiagonal (nodal conductances over capacitances), and $B$, $C$
 and $D$ couple the first and last node to the faces through the boundary
 conductances $h_\text{b} = 1/(R_\text{nomass} + \Delta x/k)$.
 
-Assuming the face temperatures vary linearly within a timestep, the exact
-discrete solution uses
+Assuming the face temperatures vary linearly within a CTF time step
+$\Delta t$, the exact discrete solution uses
 
 $$
 \Phi = e^{A\Delta t},\qquad
@@ -145,13 +148,47 @@ $$ {#eq-ctf-coefficients}
 
 The two cross terms of $S_0$ are set to the mean of their magnitudes, so the
 construction is reciprocal. The series stops when
-$|e_j|/|e_1| < 10^{-13}$. If it has not converged in 18 terms, the run stops
-with an error.
+$|e_j|/|e_1| < 10^{-13}$, or at $j = n$, the number of nodes, where
+$R_n = 0$ by the Cayley–Hamilton theorem and the series is exact.
 
-**Checks.** The steady-state transmittance implied by the coefficients,
-$U_\text{CTF} = \sum Z_j / (1 - \sum\Phi_j)$, is compared with
-$1/\sum R_\ell$. A difference above 1% is reported as a warning, and above 5%
-as an error.
+### CTF time step {#sec-ctf-time-step}
+
+The CTF time step $\Delta t$ is the zone timestep for almost every
+construction. A layer at the 19-division cap is coarser than its stability
+spacing, so the CTF time step grows to that layer's Fourier-number-one step,
+rounded to the nearest whole number $N$ of zone timesteps:
+
+$$
+\Delta t_n = \max_{\ell:\,N_\ell = 19} \frac{\rho_\ell c_{p,\ell}\,\Delta x_\ell^2}{k_\ell},
+\qquad N = \left\lfloor \frac{\Delta t_n}{\Delta t_z} + \tfrac12 \right\rfloor,
+\qquad \Delta t = N\,\Delta t_z .
+$$ {#eq-ctf-time-step}
+
+A capped layer always gives $\Delta t_n \ge 2\Delta t_z$, so $N \ge 2$ there.
+The node network stays as set at the zone timestep. The series is then
+rejected, $N$ grows by one and the series is recomputed while any of these
+holds:
+
+- it needs more than 18 history terms;
+- its sums disagree, $\max(|\sum X - \sum Y|, |\sum Z - \sum Y|) > 0.01
+  \max(\sum X, \sum Y, \sum Z)$ (in theory they are equal);
+- its steady-state transmittance
+  $U_\text{CTF} = \sum Z_j / (1 - \sum\Phi_j)$ is more than 5% from
+  $1/\sum R_\ell$.
+
+A CTF time step reaching 7 h is an error naming the construction and the
+layer with the longest node time constant. A single layer of soil or
+concrete thicker than about 2 to 2.5 m reaches it, and so do several
+metre-thick ones together. An
+accepted series whose $U_\text{CTF}$ is more than 1% off is reported as a
+warning.
+
+**Staggered histories.** With $N > 1$, every zone timestep's face
+temperatures and fluxes are kept for $N$ times the series length. The zone
+timestep $t$ reads the exact values at $t - N\Delta t_z$, $t - 2N\Delta t_z$,
+and so on. The zone timesteps fall into $N$ interleaved history sets, each a
+CTF recursion at $\Delta t$ in its own right. The surface balance therefore
+updates every zone timestep, and each set conserves energy on its own.
 
 **Special cases.**
 
@@ -161,20 +198,30 @@ as an error.
   $X_0 = Y_0 = Z_0 = U(1 - e^{-\Delta t/\tau})$ and
   $\Phi_1 = e^{-\Delta t/\tau}$, with $\tau = RC$.
 
-**Comparison with EnergyPlus.** The method, node rules, capacitances and
-recurrence follow `Construction::calculateTransferFunction`
+**Comparison with EnergyPlus.** The method, node rules (6 to `MaxCTFTerms`
+= 19 divisions, truncated), capacitances, recurrence, the CTF time step of
+@eq-ctf-time-step, its escalation on more than 18 terms or a sum mismatch
+above 1%, and the 7 h ceiling (`MaxAllowedTimeStep`) follow
+`Construction::calculateTransferFunction`
 [@eplus-engref-25-2, "Conduction Transfer Function (CTF) Calculations in EnergyPlus"]. The
 differences are:
 
-- **Node count.** It is rounded up, where EnergyPlus truncates, and capped at
-  18 rather than 19.
-- **No CTF time-step escalation.** EnergyPlus lengthens the CTF time step
-  (to a multiple of the zone timestep) when a layer hits the node cap, or
-  when the series needs too many terms, and keeps multi-step histories.
-  OpenBSE always uses the zone timestep and stops instead
-  ([#204](https://github.com/bbrannon4/OpenBSE/issues/204)).
-- **Acceptance test.** EnergyPlus checks $\sum X = \sum Y = \sum Z$; OpenBSE
-  checks the steady-state U.
+- **Multi-step histories.** EnergyPlus (`UpdateThermalHistories`) keeps one
+  master history at the start of each block of $N$ zone timesteps and
+  interpolates the working histories linearly between block starts. OpenBSE
+  reads the exact past values. For 60 cm of concrete at 10 min with its outside
+  face stepped 10 K, the master-history interpolation stores 1.8% less heat
+  than the step delivers (3.9% at 1 min); the exact histories close to 0.01%,
+  as a single-step CTF does. Their periodic accuracy is the same or slightly
+  better (daily cycle, inside flux 6.0% against 6.1% of its amplitude).
+- **Steady-state check.** OpenBSE also escalates when $U_\text{CTF}$ is more
+  than 5% off the layers' U, and warns above 1%.
+- **Massless end layers.** EnergyPlus gives a NoMass first or last layer the
+  properties of air and nodes of its own; OpenBSE adds its resistance to the
+  boundary conductance (@sec-ctf-state-space).
+- **Layer thickness.** EnergyPlus rejects any layer over 3 m; OpenBSE has no
+  thickness limit of its own, and a massive layer that thick reaches the 7 h
+  ceiling.
 
 ## Simple constructions {#sec-simple-constructions}
 
@@ -253,8 +300,10 @@ fixed surface films.
   constructions use synthetic layers tuned to ASHRAE 140, and do not always
   conserve the specified heat capacity.
 - HAMT is not wired in (@sec-hamt).
-- [#204](https://github.com/bbrannon4/OpenBSE/issues/204): no CTF time-step
-  escalation for massive constructions.
+- [#448](https://github.com/bbrannon4/OpenBSE/issues/448): the CTF node
+  network (at least 6 divisions per layer, face half-cells lumped into the
+  first and last node, as in EnergyPlus) misses 7–9% of a 20 cm concrete
+  wall's daily face-flux swing against the exact solution.
 
 ## Surface heat balances {#sec-surface-hb}
 

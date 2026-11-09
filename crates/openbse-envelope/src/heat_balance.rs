@@ -2163,7 +2163,7 @@ impl BuildingEnvelope {
                 let resolved_layers = construction.resolve_layers(&self.materials)?;
                 let ctf = try_calculate_ctf(&resolved_layers, self.dt).map_err(fail)?;
                 self.note_ctf_error(&ctf, &construction_name, &mut warned);
-                let history = CtfHistory::new(ctf.num_terms.max(1), 21.0);
+                let history = CtfHistory::for_ctf(&ctf, 21.0);
                 self.ctf_coefficients[i] = Some(ctf);
                 self.ctf_histories[i] = Some(history);
                 continue;
@@ -2181,7 +2181,7 @@ impl BuildingEnvelope {
                 )
                 .map_err(fail)?;
                 self.note_ctf_error(&ctf, &construction_name, &mut warned);
-                let history = CtfHistory::new(ctf.num_terms.max(1), 21.0);
+                let history = CtfHistory::for_ctf(&ctf, 21.0);
                 self.ctf_coefficients[i] = Some(ctf);
                 self.ctf_histories[i] = Some(history);
                 continue;
@@ -2196,7 +2196,7 @@ impl BuildingEnvelope {
                 let layers = fc.layers(input.area, perimeter)?;
                 let ctf = try_calculate_ctf(&layers, self.dt).map_err(fail)?;
                 self.note_ctf_error(&ctf, &construction_name, &mut warned);
-                let history = CtfHistory::new(ctf.num_terms.max(1), 21.0);
+                let history = CtfHistory::for_ctf(&ctf, 21.0);
                 self.ctf_coefficients[i] = Some(ctf);
                 self.ctf_histories[i] = Some(history);
             }
@@ -2301,14 +2301,12 @@ fn timestep_gains(
     }
 }
 
-/// Describe a CTF failure with the construction and surface it belongs to and
-/// the usual remedy: thick, massive layers need a longer time step than a high
-/// `timesteps_per_hour` gives.
+/// Describe a CTF failure with the construction and surface it belongs to;
+/// `err` says what failed and what to change.
 fn ctf_failure(construction: &str, surface: &str, dt: f64, err: &str) -> String {
     format!(
-        "Construction '{construction}' (surface '{surface}'): {err}. The conduction transfer \
-         function could not be computed at a {dt:.0} s time step. Thick, massive layers often \
-         need a longer step: try fewer timesteps_per_hour, or check the layer properties."
+        "Construction '{construction}' (surface '{surface}'): the conduction transfer \
+         function could not be computed for a {dt:.0} s zone timestep: {err}."
     )
 }
 
@@ -5720,7 +5718,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                 } else {
                     self.ctf_q_last_outside[i]
                 };
-                history.shift(t_out, t_in, q_in, q_out);
+                history.update(t_out, t_in, q_in, q_out);
             }
         }
     }
@@ -7193,6 +7191,69 @@ mod tests {
         );
         let d = &envelope.diagnostics;
         assert!(d.surface_temp_holds.is_empty() && d.nan_holds.is_empty());
+    }
+
+    #[test]
+    fn thick_wall_with_long_ctf_time_step_runs_and_closes() {
+        // 80 cm of concrete at 10-minute timesteps: the CTF time step spans
+        // several zone timesteps. The surface still updates every zone timestep,
+        // the zone air balance closes, and at steady state the wall passes as
+        // much heat at its inside face as enters at its outside face.
+        use crate::material::ConstructionLayer;
+        let mut envelope = make_simple_model();
+        envelope.constructions.get_mut("Wall").unwrap().layers = vec![
+            ConstructionLayer {
+                material: "Concrete".to_string(),
+                thickness: 0.8,
+            },
+            ConstructionLayer {
+                material: "Insulation".to_string(),
+                thickness: 0.1,
+            },
+        ];
+        let dt = 600.0;
+        envelope.initialize(dt).unwrap();
+        let ctf = envelope.ctf_coefficients[0].clone().unwrap();
+        assert!(ctf.num_histories > 1, "{}", ctf.num_histories);
+        let mut ctx = make_ctx();
+        ctx.timestep.dt = dt;
+        ctx.timestep.timesteps_per_hour = 6;
+        let mut weather = make_weather_hour(0.0);
+        weather.global_horiz_rad = 0.0;
+        weather.direct_normal_rad = 0.0;
+        weather.diffuse_horiz_rad = 0.0;
+        let hvac = ZoneHvacConditions::default();
+        let mut t_in_last = Vec::new();
+        // 80 days: the concrete's time constant is about ten days.
+        for _ in 0..(80 * 144) {
+            envelope.solve_timestep(&ctx, &weather, &hvac);
+            envelope.update_bdf_history();
+            t_in_last.push(envelope.surfaces[0].temp_inside);
+            if t_in_last.len() > 12 {
+                t_in_last.remove(0);
+            }
+        }
+        envelope.solve_timestep(&ctx, &weather, &hvac);
+        let s = &envelope.surfaces[0];
+        assert!(s.temp_inside.is_finite() && s.temp_outside.is_finite());
+        let (q_in, q_out) = (s.q_cond_inside, s.q_cond_outside);
+        assert!(
+            (q_in - q_out).abs() < 0.01 * q_in.abs().max(0.1),
+            "steady wall: q_in {q_in:.4} vs q_out {q_out:.4} W/m²"
+        );
+        // Conduction at steady state is U across the two faces.
+        let u = 1.0 / (0.8 / 1.311 + 0.1 / 0.04);
+        let q_u = u * (s.temp_outside - s.temp_inside);
+        assert!(
+            (q_in - q_u).abs() < 0.01 * q_u.abs(),
+            "{q_in:.4} vs U·ΔT {q_u:.4}"
+        );
+        // No sawtooth between the staggered history sets.
+        let spread = t_in_last.iter().cloned().fold(f64::MIN, f64::max)
+            - t_in_last.iter().cloned().fold(f64::MAX, f64::min);
+        assert!(spread < 1e-3, "inside face varies {spread:.5} K over 2 h");
+        let b = envelope.zones[0].air_balance;
+        assert!(b.residual().abs() < 1e-6 * b.rss(), "{b:?}");
     }
 
     #[test]
