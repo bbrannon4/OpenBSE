@@ -4,6 +4,7 @@
 
 mod autosize_check;
 mod run_checks;
+mod sizing_checks;
 mod warmup;
 
 use anyhow::{Context, Result};
@@ -2781,6 +2782,10 @@ fn main() -> Result<()> {
         );
         if !never_sized.is_empty() {
             return Err(stop_on_severe(&mut validation, &err_path, never_sized));
+        }
+        for w in sizing_checks::dx_flow_per_capacity_warnings(&graph) {
+            warn!("{w}");
+            validation.push_warning(w);
         }
 
         // ── 7. Run the simulation loop ──────────────────────────────────────────

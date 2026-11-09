@@ -7,7 +7,7 @@ warnings and severe errors, with a summary line. It is written whether or not th
 
 **Source:** `openbse-io/src/input.rs` (`validate_model`, `ValidationResult`);
 `openbse-io/src/plant.rs` (`validate_plant_connections`, `validate_chiller_models`);
-`openbse-cli/src/autosize_check.rs`.
+`openbse-cli/src/autosize_check.rs`; `openbse-cli/src/sizing_checks.rs`.
 
 Before running, the model is checked for the following:
 
@@ -21,7 +21,9 @@ Before running, the model is checked for the following:
 
 A severe error stops the run. A missing schedule is a warning, and the object falls back to
 always on. After sizing, any `autosize` value still unresolved is a severe error
-(@sec-sizing), because otherwise the sentinel would run as a real value.
+(@sec-sizing), because otherwise the sentinel would run as a real value. A DX coil whose
+rated airflow per watt of rated capacity lies outside 300–450 cfm/ton is a warning, as in
+EnergyPlus.
 
 ## Run-time checks {#sec-run-checks}
 

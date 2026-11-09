@@ -132,8 +132,9 @@ impl VrfIndoorUnit {
         if let Some(bf) = self.bypass_factor {
             return bf;
         }
+        let (min_ratio, max_ratio) = openbse_core::types::DX_FLOW_PER_CAPACITY;
         let flow_per_cap =
-            (self.rated_airflow / self.cooling_capacity.max(1.0)).clamp(4.027e-5, 6.041e-5);
+            (self.rated_airflow / self.cooling_capacity.max(1.0)).clamp(min_ratio, max_ratio);
         let shr = 0.431 + 6086.0 * flow_per_cap;
         let (_, _, _, bf) = crate::cooling_coil::rated_bypass_factor(
             shr,

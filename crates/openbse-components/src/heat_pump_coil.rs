@@ -416,6 +416,10 @@ impl AirComponent for HeatPumpHeatingCoil {
         Some(self.rated_capacity)
     }
 
+    fn dx_rated_points(&self) -> Vec<(f64, f64)> {
+        vec![(self.rated_airflow, self.rated_capacity)]
+    }
+
     fn set_nominal_capacity(&mut self, cap: f64) {
         self.rated_capacity = cap;
     }

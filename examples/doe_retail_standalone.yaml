@@ -56,6 +56,8 @@
 
 simulation:
   timesteps_per_hour: 4       # 15-minute timestep (E+ uses 6/hr = 10-min)
+  heating_sizing_factor: 1.2  # E+ Sizing:Parameters
+  cooling_sizing_factor: 1.2
   start_month: 1
   start_day: 1
   end_month: 12
@@ -1375,7 +1377,7 @@ air_loops:
         efficiency: 0.81           # Gas furnace thermal efficiency
       - type: cooling_coil
         name: Back Space DX
-        capacity: 32422.0          # 32.4 kW rated cooling (Speed 2 from IDF)
+        capacity: autosize         # sized with rated_airflow (E+ prototype: 32.4 kW)
         cop: 3.799
         shr: 0.797
         rated_airflow: autosize
@@ -1408,7 +1410,7 @@ air_loops:
         efficiency: 0.80
       - type: cooling_coil
         name: Core Retail DX
-        capacity: 137784.0         # 137.8 kW rated cooling
+        capacity: autosize         # sized with rated_airflow (E+ prototype: 137.8 kW)
         cop: 3.399
         shr: 0.789
         rated_airflow: autosize
@@ -1443,7 +1445,7 @@ air_loops:
         efficiency: 0.81
       - type: cooling_coil
         name: POS DX
-        capacity: 19866.0          # 19.9 kW rated cooling
+        capacity: autosize         # sized with rated_airflow (E+ prototype: 19.9 kW)
         cop: 3.799
         shr: 0.799
         rated_airflow: autosize
@@ -1476,7 +1478,7 @@ air_loops:
         efficiency: 0.81
       - type: cooling_coil
         name: Front Retail DX
-        capacity: 14678.0          # 14.7 kW rated cooling
+        capacity: autosize         # sized with rated_airflow (E+ prototype: 14.7 kW)
         cop: 4.117
         shr: 0.799
         rated_airflow: autosize
@@ -1524,6 +1526,10 @@ thermostats:
     cooling_setpoint: 23.89      # 75 F (occupied)
     unoccupied_heating_setpoint: 15.56  # 60 F (night setback per E+ HTGSETP_SCH)
     unoccupied_cooling_setpoint: 29.44  # 85 F (night setup per E+ CLGSETP_SCH)
+    # E+ WinterDesignDay / SummerDesignDay setpoints, hour 1 first: sizing
+    # sees the morning warm-up and pull-down after the night setback/setup.
+    design_day_heating_setpoints: [15.56, 15.56, 15.56, 15.56, 15.56, 15.56, 18.33, 21.11, 21.11, 21.11, 21.11, 21.11, 21.11, 21.11, 21.11, 21.11, 21.11, 21.11, 21.11, 21.11, 21.11, 15.56, 15.56, 15.56]
+    design_day_cooling_setpoints: [29.44, 29.44, 29.44, 29.44, 29.44, 29.44, 26.67, 23.89, 23.89, 23.89, 23.89, 23.89, 23.89, 23.89, 23.89, 23.89, 23.89, 23.89, 23.89, 23.89, 23.89, 29.44, 29.44, 29.44]
 
   # Entry vestibule thermostat: heating only, relaxed setpoints
   - name: Entry Thermostat
@@ -1531,6 +1537,7 @@ thermostats:
     heating_setpoint: 16.0       # Minimum heating to prevent freezing
     cooling_setpoint: 100.0      # Effectively no cooling (setpoint unreachable)
     unoccupied_heating_setpoint: 15.56  # Night setback (close to occupied for entry)
+    design_day_heating_setpoints: [15.56, 15.56, 15.56, 15.56, 15.56, 15.56, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 15.56, 15.56, 15.56]  # E+ HTGSETP_SCH_FrontEntry_STD2013
     unoccupied_cooling_setpoint: 100.0  # No cooling
 
 # ─── Outputs ────────────────────────────────────────────────────────────────

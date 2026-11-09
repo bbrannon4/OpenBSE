@@ -258,6 +258,13 @@ pub trait AirComponent: std::fmt::Debug {
     /// Set the nominal capacity (called during autosizing).
     fn set_nominal_capacity(&mut self, _cap: f64) {}
 
+    /// Rated air volume flow [m³/s] and rated total capacity [W] at each speed
+    /// of a DX coil, checked after sizing against
+    /// [`crate::types::DX_FLOW_PER_CAPACITY`]. Empty for anything else.
+    fn dx_rated_points(&self) -> Vec<(f64, f64)> {
+        Vec::new()
+    }
+
     /// Available over rated total capacity at the design coil-inlet wet-bulb and
     /// outdoor temperature, and the coil's flow-per-capacity range [m³/s/W], for
     /// a coil whose rated capacity is not its capacity at the design state
