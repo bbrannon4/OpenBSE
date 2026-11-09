@@ -302,7 +302,12 @@ where $w_s$ is `cooling_supply_humidity_ratio` (default 0.008) and the last term
 the heat of the supply and return fans. A DX coil's rated capacity is
 $Q_{cc}$ over its capacity-temperature modifier at the inlet wet-bulb (with the rise
 of a blow-through fan) and the outdoor temperature, then held between $\dot V/6.041\times10^{-5}$
-and $\dot V/4.027\times10^{-5}$ W.
+and $\dot V/4.027\times10^{-5}$ W (300 to 450 cfm/ton, E+ `CoolingCapacitySizer`). After
+sizing, any DX coil speed whose rated $\dot V$ per watt of rated total capacity lies outside
+that range, because one of the two was given by hand, is a warning naming the coil (E+
+`SizeDXCoil`, cooling and heat-pump heating coils alike). The coil's curves and rated bypass
+factor hold only near that ratio; far below it, the outlet of a coil chilling a small airflow
+can fall below freezing.
 
 **Heating coils.** The load is the largest over the heating design-day hours of
 

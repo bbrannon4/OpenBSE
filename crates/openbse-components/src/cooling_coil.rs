@@ -566,12 +566,14 @@ impl AirComponent for CoolingCoilDX {
     }
 
     fn design_capacity_modifier(&self, t_wb_in: f64, t_outdoor: f64) -> Option<(f64, (f64, f64))> {
-        // E+ MinRatedVolFlowPerRatedTotCap / MaxRatedVolFlowPerRatedTotCap for a
-        // single-speed coil (450 and 300 cfm per ton)
         Some((
             self.capacity_temperature_modifier(t_outdoor, t_wb_in),
-            (4.027e-5, 6.041e-5),
+            openbse_core::types::DX_FLOW_PER_CAPACITY,
         ))
+    }
+
+    fn dx_rated_points(&self) -> Vec<(f64, f64)> {
+        vec![(self.rated_airflow, self.rated_capacity)]
     }
 
     fn unsized_fields(&self) -> Vec<&'static str> {
@@ -1110,6 +1112,13 @@ impl AirComponent for CoolingCoilDXMultiSpeed {
         self.sensible_cooling_rate = sensible;
         self.power = power;
         outlet
+    }
+
+    fn dx_rated_points(&self) -> Vec<(f64, f64)> {
+        self.speeds
+            .iter()
+            .map(|sp| (sp.rated_airflow, sp.rated_capacity))
+            .collect()
     }
 
     fn compressor_plr(&self) -> Option<f64> {
