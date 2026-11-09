@@ -107,7 +107,7 @@ Each model is documented, with its equations, its EnergyPlus comparison and its 
 ### Building envelope
 - **Materials and constructions** — multi-layer opaque constructions, massless layers, simple U-factor constructions, F-factor ground floors
 - **Vertex geometry** — 3D polygon surfaces with automatic area, azimuth, tilt and zone volume; interzone surfaces; internal mass; zone multipliers
-- **Conduction** — Seem (1987) state-space conduction transfer functions matching EnergyPlus, including its longer CTF time step for massive layers, with a lumped RC element for single-node constructions
+- **Conduction** — Seem (1987) state-space conduction transfer functions as in EnergyPlus, including its longer CTF time step for massive layers, on a finer node network with nodes on the surfaces (a 20 cm concrete wall's daily flux error is under 1%, against 7–9% with EnergyPlus's network), with a lumped RC element for single-node constructions
 - **Convection** — TARP natural convection inside; DOE-2 (MoWiTT) with roughness correction outside
 - **Interior long-wave exchange** — grey-body ScriptF exchange between a zone's surfaces from their view factors
 - **Windows** — U-factor/SHGC glazing with the E+ SimpleGlazingSystem angular model (LBNL-2804E), a glass-node heat balance, and interior shades and blinds triggered by irradiance or zone temperature with hysteresis

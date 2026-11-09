@@ -1,16 +1,19 @@
 //! Conduction Transfer Function (CTF) calculation and application.
 //!
 //! Implements heat conduction through wall/roof/floor constructions using the
-//! state-space method of Seem (1987), matching EnergyPlus's `calculateTransferFunction()`.
+//! state-space method of Seem (1987), as EnergyPlus's `calculateTransferFunction()`
+//! does, on a finer node network with nodes on the surfaces.
 //!
 //! Algorithm:
-//! 1. Discretize each layer into N finite-difference nodes (6 to 19 per layer)
+//! 1. Discretize each massed layer into N divisions (10 to 19 per layer), with
+//!    grid points on both faces of every layer ([`build_network`])
 //! 2. Pick the CTF time step: the zone timestep, or a whole number of zone
 //!    timesteps when a layer reaches the node cap (Fourier number 1)
 //! 3. Build state-space matrices A, B, C, D
 //! 4. Compute matrix exponential exp(A·Δt) via Taylor series with scaling/squaring
 //! 5. Compute A⁻¹, then Gamma1 and Gamma2 intermediate matrices
-//! 6. Iteratively compute CTF coefficients (s, e) using R-matrix recurrence
+//! 6. Iteratively compute CTF coefficients (s, e) using R-matrix recurrence,
+//!    then add the storage of the surface half cells ([`add_face_storage`])
 //! 7. If the series needs more than 18 history terms or its X, Y and Z sums
 //!    disagree, lengthen the CTF time step by one zone timestep and repeat
 //!
@@ -185,8 +188,10 @@ fn shift_in(history: &mut [f64], value: f64) {
 // State-Space CTF Calculation (Seem 1987)
 // ══════════════════════════════════════════════════════════════════════════════
 
-/// Minimum number of nodes per material layer (E+ `MinNodes`).
-const MIN_NODES: usize = 6;
+/// Minimum number of divisions per massed layer. EnergyPlus uses 6
+/// (`MinNodes`); with face nodes, 10 holds a 20 cm concrete wall's daily
+/// face-flux error under 1% of its amplitude (the error falls as 1/N²).
+const MIN_NODES: usize = 10;
 /// Maximum nodes per layer, and one more than the most history terms a CTF
 /// series may have (E+ `Construction::MaxCTFTerms`).
 const MAX_CTF_TERMS: usize = 19;
@@ -214,12 +219,12 @@ struct LayerProps {
 
 /// Nodes in a massed layer (E+ `calculateTransferFunction`): the explicit
 /// finite-difference stability spacing √(2αΔt) at the zone timestep, truncated
-/// to a whole number and held within [`MIN_NODES`, `MAX_CTF_TERMS`].
-fn layer_nodes(l: &ResolvedLayer, dt_zone: f64) -> usize {
+/// to a whole number and held within [`min_nodes`, `MAX_CTF_TERMS`].
+fn layer_nodes(l: &ResolvedLayer, dt_zone: f64, min_nodes: usize) -> usize {
     let alpha = l.conductivity / (l.density * l.specific_heat);
     let dxn = (2.0 * alpha * dt_zone).sqrt();
     let nodes = (l.thickness / dxn) as usize;
-    nodes.clamp(MIN_NODES, MAX_CTF_TERMS)
+    nodes.clamp(min_nodes, MAX_CTF_TERMS)
 }
 
 /// Initial CTF time step and its length in zone timesteps (E+
@@ -246,21 +251,20 @@ fn initial_ctf_time_step(layers: &[LayerProps], dt_zone: f64) -> (f64, usize) {
 
 /// Calculate CTF coefficients from resolved layers using the state-space method.
 ///
-/// This is the full Seem (1987) algorithm matching EnergyPlus's
-/// `calculateTransferFunction()`. It properly handles multi-layer constructions
-/// with distributed thermal mass.
+/// This is the Seem (1987) algorithm of EnergyPlus's
+/// `calculateTransferFunction()`, on a node network with at least
+/// [`MIN_NODES`] divisions per massed layer and nodes on the surfaces
+/// ([`build_network`]), which makes its spatial error second order in Δx.
 ///
-/// NoMass layers (those with `no_mass == true` or negligible ρ·cp) are handled
-/// by accumulating their resistance on the outside/inside boundary without
-/// creating finite-difference nodes. This matches EnergyPlus's treatment of
-/// `Material:NoMass`, where the resistance is folded into the boundary
-/// conductance between the surface and the first/last massed node.
+/// NoMass layers (those with `no_mass == true` or negligible ρ·cp) at either
+/// end add their resistance between the surface and the face of the first or
+/// last massed layer, which is then a node of its own.
 ///
 /// NoMass layers between massed layers (e.g. insulation in a cavity wall) become
-/// a single resistive node pair, as EnergyPlus does for interior resistive
-/// layers: no capacitance of their own, a conductance of 1/R between the two
-/// adjacent interface nodes, which take their capacitance from the neighbouring
-/// massed layers. Adjacent interior NoMass layers are combined first.
+/// one resistive division, as EnergyPlus does for interior resistive layers: no
+/// capacitance of their own, a conductance of 1/R between the two adjacent
+/// interface nodes, which take their capacitance from the neighbouring massed
+/// layers. Adjacent interior NoMass layers are combined first.
 ///
 /// The CTF time step starts at `dt` (the zone timestep) or, when a layer reaches
 /// the node cap, at that layer's Fourier-number-1 step in whole zone timesteps.
@@ -269,6 +273,37 @@ fn initial_ctf_time_step(layers: &[LayerProps], dt_zone: f64) -> (f64, usize) {
 /// the layers' U, the CTF time step grows by one zone timestep and the series is
 /// recomputed. A CTF time step reaching 7 h is an error, as in EnergyPlus.
 pub fn try_calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> Result<CtfCoefficients, String> {
+    ctf_for_network(layers, dt, Discretization::FaceNodes)
+}
+
+/// How a construction is divided into nodes.
+#[derive(Clone, Copy, PartialEq)]
+enum Discretization {
+    /// At least [`MIN_NODES`] divisions per massed layer, with nodes on the
+    /// surfaces (OpenBSE).
+    FaceNodes,
+    /// EnergyPlus's network: at least 6 divisions, and each surface half cell
+    /// lumped into the first node inside it. Kept only to measure the
+    /// difference in tests.
+    #[cfg(test)]
+    EnergyPlus,
+}
+
+impl Discretization {
+    fn min_nodes(self) -> usize {
+        match self {
+            Discretization::FaceNodes => MIN_NODES,
+            #[cfg(test)]
+            Discretization::EnergyPlus => 6,
+        }
+    }
+}
+
+fn ctf_for_network(
+    layers: &[ResolvedLayer],
+    dt: f64,
+    disc: Discretization,
+) -> Result<CtfCoefficients, String> {
     let total_r: f64 = layers.iter().map(|l| l.resistance()).sum();
 
     // Partition layers into massless (outside/inside boundary) and massed (interior).
@@ -341,7 +376,7 @@ pub fn try_calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> Result<CtfCoeffic
             }
             continue;
         }
-        let nodes = layer_nodes(l, dt);
+        let nodes = layer_nodes(l, dt, disc.min_nodes());
         layer_props.push(LayerProps {
             k: l.conductivity,
             rho: l.density,
@@ -352,28 +387,11 @@ pub fn try_calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> Result<CtfCoeffic
         });
     }
 
-    // Total state-space nodes: sum(nodes) - 1 (following E+ convention)
-    let rcmax: usize = layer_props.iter().map(|l| l.nodes).sum::<usize>() - 1;
-
-    if rcmax == 0 {
-        // Degenerate case: single node → use lumped RC
-        let u = 1.0 / total_r;
-        let tau = total_r * total_c;
-        let alpha = (-dt / tau).exp();
-        let c0 = u * (1.0 - alpha);
-        return Ok(CtfCoefficients {
-            x: vec![c0],
-            y: vec![c0],
-            z: vec![c0],
-            phi: vec![alpha],
-            ..CtfCoefficients::steady(u, dt)
-        });
-    }
-
-    // Build state-space matrices with NoMass boundary resistances. They depend
-    // only on the node network, which is fixed at the zone timestep.
-    let (a_mat, b_vec, c_vec, d_vec) =
-        build_state_space(&layer_props, rcmax, r_outside_nomass, r_inside_nomass);
+    // The node network depends only on the layers and the zone timestep, not on
+    // the CTF time step.
+    let network = build_network(&layer_props, r_outside_nomass, r_inside_nomass, disc);
+    let rcmax = network.caps.len();
+    let (a_mat, b_vec, c_vec, d_vec) = build_state_space(&network);
 
     let u_expected = 1.0 / total_r;
     let (mut ctf_dt, mut num_histories) = initial_ctf_time_step(&layer_props, dt);
@@ -395,6 +413,13 @@ pub fn try_calculate_ctf(layers: &[ResolvedLayer], dt: f64) -> Result<CtfCoeffic
             ctf_dt += dt;
             continue;
         };
+
+        add_face_storage(
+            &mut result,
+            network.face_cap_out,
+            network.face_cap_in,
+            ctf_dt,
+        );
 
         // A non-finite solution means the construction is degenerate; running with
         // it would put NaN or inf into the heat balance.
@@ -848,222 +873,168 @@ pub fn calculate_ctf_simple(
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// State-Space Matrix Construction
+// Node Network and State-Space Matrices
 // ══════════════════════════════════════════════════════════════════════════════
 
-/// Build state-space matrices A, B, C, D from layer properties.
+/// Finite-volume node network of the massed part of a construction.
 ///
-/// A: rcmax × rcmax tridiagonal matrix (thermal capacitance/conductance)
-/// B: rcmax × 2 input matrix (outside and inside surface temperatures)
-/// C: 2 × rcmax output matrix (outside and inside surface fluxes)
-/// D: 2 × 2 feedthrough matrix
-///
-/// `r_outside_extra` and `r_inside_extra` are additional thermal resistances
-/// from NoMass layers on the outside/inside boundaries. These modify the
-/// boundary conductance between the surface and the first/last massed node.
-///
-/// Returns (A_flat, B_vec, C_vec, D_vec) where A_flat is row-major rcmax×rcmax.
-fn build_state_space(
-    layers: &[LayerProps],
-    rcmax: usize,
-    r_outside_extra: f64,
-    r_inside_extra: f64,
-) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
-    let n = rcmax;
+/// Each massed layer of `nodes` divisions contributes `nodes + 1` grid points
+/// at spacing Δx, including both of its faces. A point carries the heat
+/// capacity of the material within Δx/2 of it: a full cell inside a layer, a
+/// half cell at a face, and the two neighbouring half cells at a layer
+/// interface. An interior NoMass layer is one link of conductance 1/R between
+/// two interface points. Grid points with a fixed temperature are not states:
+/// when a face is the surface itself (no NoMass resistance outside it), its
+/// temperature is the CTF input and its half cell is kept as a face storage
+/// term ([`add_face_storage`]); behind a NoMass resistance the face point is a
+/// state like any other.
+struct Network {
+    /// Heat capacity of each state node [J/(m²·K)].
+    caps: Vec<f64>,
+    /// Conductances [W/(m²·K)]: `links[0]` from the outside surface to node 0,
+    /// `links[i]` between nodes i − 1 and i, `links[n]` from node n − 1 to the
+    /// inside surface.
+    links: Vec<f64>,
+    /// Half-cell heat capacity at the outside surface [J/(m²·K)], 0 behind a
+    /// NoMass resistance.
+    face_cap_out: f64,
+    /// Half-cell heat capacity at the inside surface [J/(m²·K)].
+    face_cap_in: f64,
+}
+
+/// Build the node network for `layers` (massed at both ends) with NoMass
+/// resistances `r_out` and `r_in` between the surfaces and the massed layers.
+fn build_network(layers: &[LayerProps], r_out: f64, r_in: f64, disc: Discretization) -> Network {
+    let mut caps = vec![0.0];
+    let mut links = Vec::new();
+    for l in layers {
+        let cell = l.rho * l.cp * l.dx;
+        if let Some(face) = caps.last_mut() {
+            *face += 0.5 * cell;
+        }
+        for i in 0..l.nodes {
+            links.push(l.k / l.dx);
+            caps.push(if i + 1 < l.nodes { cell } else { 0.5 * cell });
+        }
+    }
+    let mut face_cap_out = 0.0;
+    if r_out > 0.0 {
+        links.insert(0, 1.0 / r_out);
+    } else {
+        face_cap_out = caps.remove(0);
+    }
+    let mut face_cap_in = 0.0;
+    if r_in > 0.0 {
+        links.push(1.0 / r_in);
+    } else {
+        face_cap_in = caps.pop().unwrap_or(0.0);
+    }
+    let net = Network {
+        caps,
+        links,
+        face_cap_out,
+        face_cap_in,
+    };
+    #[cfg(test)]
+    if disc == Discretization::EnergyPlus {
+        return net.lumped();
+    }
+    #[cfg(not(test))]
+    let _ = disc;
+    net
+}
+
+#[cfg(test)]
+impl Network {
+    /// EnergyPlus's network: each surface half cell joins the first node
+    /// inside it (1.5 cells), and a face behind a NoMass resistance is not a
+    /// node, its resistance in series with the first Δx/k.
+    fn lumped(mut self) -> Self {
+        let series = |a: f64, b: f64| 1.0 / (1.0 / a + 1.0 / b);
+        if self.face_cap_out > 0.0 {
+            self.caps[0] += std::mem::take(&mut self.face_cap_out);
+        } else {
+            let face = self.caps.remove(0);
+            self.caps[0] += face;
+            let g = series(self.links[0], self.links[1]);
+            self.links.splice(0..2, [g]);
+        }
+        if self.face_cap_in > 0.0 {
+            let last = self.caps.len() - 1;
+            self.caps[last] += std::mem::take(&mut self.face_cap_in);
+        } else {
+            let face = self.caps.pop().unwrap_or(0.0);
+            let last = self.caps.len() - 1;
+            self.caps[last] += face;
+            let m = self.links.len();
+            let g = series(self.links[m - 2], self.links[m - 1]);
+            self.links.splice(m - 2..m, [g]);
+        }
+        self
+    }
+}
+
+/// State-space matrices of a node network, row-major:
+/// A (n × n, tridiagonal), B (n × 2: outside, inside surface temperature),
+/// C (2 × n: outside flux into the wall, inside flux into the zone) and
+/// D (2 × 2 feedthrough).
+fn build_state_space(net: &Network) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+    let n = net.caps.len();
+    let g = &net.links;
     let mut a = vec![0.0; n * n];
-    let mut b = vec![0.0; n * 2]; // columns: outside, inside
-    let mut c = vec![0.0; 2 * n]; // rows: outside flux, inside flux
-    let mut d = vec![0.0; 4]; // 2×2
-
-    // Map from global node index to (layer_index, node_within_layer)
-    // Node 0 = first interior node (just inside outside surface)
-    // Node rcmax-1 = last interior node (just inside inside surface)
-    //
-    // For layer L with `nodes_L` divisions:
-    //   - Node 0 of layer 0 starts at global index 0
-    //   - Layer interfaces share a node
-    //
-    // Build a flat array of node properties
-    struct NodeInfo {
-        k_left: f64,   // conductivity to left neighbor
-        k_right: f64,  // conductivity to right neighbor
-        dx_left: f64,  // distance to left neighbor
-        dx_right: f64, // distance to right neighbor
-        cap: f64,      // thermal capacitance of this node [J/(m²·K)]
-    }
-
-    let mut nodes: Vec<NodeInfo> = Vec::with_capacity(n);
-
-    let mut global_idx = 0;
-    for (li, layer) in layers.iter().enumerate() {
-        // Each layer has `layer.nodes` divisions, so `layer.nodes - 1` interior nodes
-        // (plus potentially shared interface nodes with adjacent layers).
-        // Interior nodes of this layer: indices 1 to layer.nodes - 1
-        // Interface with next layer: node at index layer.nodes (= node 0 of next layer)
-
-        let is_first_layer = li == 0;
-        let is_last_layer = li == layers.len() - 1;
-
-        for node_in_layer in 0..layer.nodes {
-            let is_first_node = node_in_layer == 0 && is_first_layer;
-            let is_last_node = node_in_layer == layer.nodes - 1 && is_last_layer;
-            let is_interface = node_in_layer == layer.nodes - 1 && !is_last_layer;
-
-            if is_interface {
-                // Interface node between this layer and the next
-                let next = &layers[li + 1];
-                let cap = 0.5 * (layer.rho * layer.cp * layer.dx + next.rho * next.cp * next.dx);
-                nodes.push(NodeInfo {
-                    k_left: layer.k,
-                    k_right: next.k,
-                    dx_left: layer.dx,
-                    dx_right: next.dx,
-                    cap,
-                });
-            } else if is_first_node {
-                // First node (adjacent to outside surface)
-                // E+ uses 1.5x cap for surface-adjacent nodes
-                let cap = layer.rho * layer.cp * layer.dx * 1.5;
-                nodes.push(NodeInfo {
-                    k_left: layer.k,
-                    k_right: layer.k,
-                    dx_left: layer.dx,
-                    dx_right: layer.dx,
-                    cap,
-                });
-            } else if is_last_node {
-                // Last node (adjacent to inside surface)
-                let cap = layer.rho * layer.cp * layer.dx * 1.5;
-                nodes.push(NodeInfo {
-                    k_left: layer.k,
-                    k_right: layer.k,
-                    dx_left: layer.dx,
-                    dx_right: layer.dx,
-                    cap,
-                });
-            } else {
-                // Interior node
-                let cap = layer.rho * layer.cp * layer.dx;
-                nodes.push(NodeInfo {
-                    k_left: layer.k,
-                    k_right: layer.k,
-                    dx_left: layer.dx,
-                    dx_right: layer.dx,
-                    cap,
-                });
-            }
-
-            global_idx += 1;
-            if global_idx >= n {
-                break;
-            }
-        }
-        // Skip the last node of this layer if it's the interface node
-        // (it was already added and counted as one node for both layers)
-        if global_idx >= n {
-            break;
-        }
-    }
-
-    // Ensure we have exactly n nodes
-    assert_eq!(
-        nodes.len(),
-        n,
-        "Node count mismatch: {} vs {}",
-        nodes.len(),
-        n
-    );
-
-    // Fix surface-adjacent capacitance for last node: it should have 1.5× cap
-    // because it represents a control volume extending dx/2 to the inside surface.
-    // Due to the loop truncation (global_idx >= n break), this node may not have
-    // been tagged as is_last_node, so fix it up here.
-    {
-        let last = layers.last().unwrap();
-        let expected_cap = 1.5 * last.rho * last.cp * last.dx;
-        let current_cap = nodes[n - 1].cap;
-        let plain_cap = last.rho * last.cp * last.dx;
-        // Only fix if it's a plain interior node (not already an interface or 1.5× node)
-        if (current_cap - plain_cap).abs() < 1.0e-6 * plain_cap {
-            nodes[n - 1].cap = expected_cap;
-        }
-    }
-
-    // Compute effective boundary conductances, including NoMass resistance.
-    //
-    // Without NoMass: h = k/dx (conductance from surface to first/last massed node)
-    // With NoMass:    h = 1/(R_nomass + dx/k) (NoMass resistance in series)
-    //
-    // This matches E+'s treatment where Material:NoMass resistance is added to the
-    // boundary terms in the state-space formulation.
-    let first_layer = &layers[0];
-    let last_layer = layers.last().unwrap();
-
-    let h_boundary_out = if r_outside_extra > 0.0 {
-        1.0 / (r_outside_extra + first_layer.dx / first_layer.k)
-    } else {
-        first_layer.k / first_layer.dx
-    };
-
-    let h_boundary_in = if r_inside_extra > 0.0 {
-        1.0 / (r_inside_extra + last_layer.dx / last_layer.k)
-    } else {
-        last_layer.k / last_layer.dx
-    };
-
-    // Fill A matrix (tridiagonal)
-    for i in 0..n {
-        let cap = nodes[i].cap;
-        if cap <= 0.0 {
-            continue;
-        }
-
-        // Left coupling: for node 0, goes to outside surface (through NoMass);
-        // for other nodes, goes to node i-1.
-        let cond_left = if i == 0 {
-            h_boundary_out
-        } else {
-            nodes[i].k_left / nodes[i].dx_left
-        };
-
-        // Right coupling: for node n-1, goes to inside surface (through NoMass);
-        // for other nodes, goes to node i+1.
-        let cond_right = if i == n - 1 {
-            h_boundary_in
-        } else {
-            nodes[i].k_right / nodes[i].dx_right
-        };
-
-        // Diagonal: -(cond_left + cond_right) / cap
-        a[i * n + i] = -(cond_left + cond_right) / cap;
-
-        // Off-diagonal (internal node-to-node coupling only)
+    let mut b = vec![0.0; n * 2];
+    let mut c = vec![0.0; 2 * n];
+    let mut d = vec![0.0; 4];
+    for (i, &cap) in net.caps.iter().enumerate() {
+        a[i * n + i] = -(g[i] + g[i + 1]) / cap;
         if i > 0 {
-            a[i * n + (i - 1)] = cond_left / cap;
+            a[i * n + i - 1] = g[i] / cap;
         }
-        if i < n - 1 {
-            a[i * n + (i + 1)] = cond_right / cap;
+        if i + 1 < n {
+            a[i * n + i + 1] = g[i + 1] / cap;
         }
     }
-
-    // B matrix: outside surface drives node 0, inside surface drives node n-1
-    let cap_0 = nodes[0].cap;
-    let cap_n = nodes[n - 1].cap;
-
-    // Outside input → node 0 (through NoMass boundary resistance)
-    b[0] = h_boundary_out / cap_0; // b[0*2+0]
-                                   // Inside input → node n-1 (through NoMass boundary resistance)
-    b[(n - 1) * 2 + 1] = h_boundary_in / cap_n;
-
-    // C matrix: fluxes at surfaces (using boundary conductances)
-    c[0] = -h_boundary_out; // c[0*n+0]: outside flux, node 0
-    c[n + (n - 1)] = h_boundary_in; // inside flux, node n-1
-
-    // D matrix: direct feedthrough (using boundary conductances)
-    d[0] = h_boundary_out; // d[0*2+0]: outside temp → outside flux
-    d[2 + 1] = -h_boundary_in; // inside temp → inside flux
-
+    b[0] = g[0] / net.caps[0];
+    b[(n - 1) * 2 + 1] = g[n] / net.caps[n - 1];
+    c[0] = -g[0];
+    c[n + n - 1] = g[n];
+    d[0] = g[0];
+    d[3] = -g[n];
     (a, b, c, d)
+}
+
+/// Add the storage of the surface half cells to a CTF set.
+///
+/// A face at the surface has the surface temperature, which the CTF method
+/// takes as linear over each step, so its half cell C stores
+/// C·(Tₙ − Tₙ₋₁)/Δt per unit time over the step, exactly. That term enters the
+/// outside flux (into the wall) with a plus sign and the inside flux (into the
+/// zone) with a minus sign. Because the flux histories hold the total flux,
+/// the term is multiplied by the flux polynomial Φ(z) = 1 − Σφⱼz⁻ʲ: X and Z
+/// gain (C/Δt)·(1 − z⁻¹)·Φ(z), one term longer than Φ, whose coefficients sum
+/// to zero, so the steady-state U is unchanged.
+fn add_face_storage(ctf: &mut CtfCoefficients, cap_out: f64, cap_in: f64, dt: f64) {
+    if cap_out <= 0.0 && cap_in <= 0.0 {
+        return;
+    }
+    // Φ(z) coefficients, then (1 − z⁻¹)·Φ(z).
+    let mut p = vec![1.0];
+    p.extend(ctf.phi.iter().map(|f| -f));
+    let mut diff = Vec::with_capacity(p.len() + 1);
+    diff.push(p[0]);
+    diff.extend(p.windows(2).map(|w| w[1] - w[0]));
+    diff.push(-p[p.len() - 1]);
+
+    let len = diff.len().max(ctf.x.len());
+    for series in [&mut ctf.x, &mut ctf.y, &mut ctf.z] {
+        series.resize(len, 0.0);
+    }
+    ctf.phi.resize(len - 1, 0.0);
+    for (j, dj) in diff.iter().enumerate() {
+        ctf.x[j] += cap_out / dt * dj;
+        ctf.z[j] += cap_in / dt * dj;
+    }
+    ctf.num_terms = len;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1933,7 +1904,7 @@ mod tests {
         // Print layer discretization
         for (li, l) in layers.iter().enumerate() {
             let alpha = l.conductivity / (l.density * l.specific_heat);
-            let nodes = layer_nodes(l, dt);
+            let nodes = layer_nodes(l, dt, MIN_NODES);
             let dx = l.thickness / nodes as f64;
             println!(
                 "    Layer[{}]: t={:.4}m k={:.3} ρ={:.0} cp={:.0} → α={:.3e}, nodes={}, dx={:.5}m",
@@ -1941,7 +1912,11 @@ mod tests {
             );
         }
 
-        let rcmax: usize = layers.iter().map(|l| layer_nodes(l, dt)).sum::<usize>() - 1;
+        let rcmax: usize = layers
+            .iter()
+            .map(|l| layer_nodes(l, dt, MIN_NODES))
+            .sum::<usize>()
+            - 1;
         println!("  rcmax (state nodes) = {}", rcmax);
 
         println!("\n  j    X           Y           Z           Phi");
@@ -2083,14 +2058,17 @@ mod tests {
 
     #[test]
     fn test_node_count_follows_energyplus() {
-        // E+: int(L/√(2αΔt)), held within [6, 19].
-        let concrete = ResolvedLayer::new(1.311, 2240.0, 836.8, 0.2);
+        // E+'s rule int(L/√(2αΔt)), held within [MIN_NODES, 19].
+        let concrete = ResolvedLayer::new(1.311, 2240.0, 836.8, 0.4);
         let alpha = 1.311 / (2240.0 * 836.8);
         let dxn = (2.0 * alpha * 600.0_f64).sqrt();
-        assert_eq!(layer_nodes(&concrete, 600.0), (0.2 / dxn) as usize);
-        assert_eq!(layer_nodes(&concrete, 3600.0), MIN_NODES);
+        assert_eq!(
+            layer_nodes(&concrete, 600.0, MIN_NODES),
+            (0.4 / dxn) as usize
+        );
+        assert_eq!(layer_nodes(&concrete, 3600.0, MIN_NODES), MIN_NODES);
         let thick = ResolvedLayer::new(1.311, 2240.0, 836.8, 2.0);
-        assert_eq!(layer_nodes(&thick, 600.0), MAX_CTF_TERMS);
+        assert_eq!(layer_nodes(&thick, 600.0, MIN_NODES), MAX_CTF_TERMS);
     }
 
     #[test]
@@ -2116,11 +2094,11 @@ mod tests {
             (0.77, 1700.0, 800.0, 0.365, 60.0),
         ] {
             let ctf = try_calculate_ctf(&[ResolvedLayer::new(k, rho, cp, l)], dt).unwrap();
-            assert!(
-                ctf.phi.len() < MAX_CTF_TERMS,
-                "{l} m: {} terms",
-                ctf.phi.len()
-            );
+            // Flux history terms from the series; the face storage term adds one
+            // temperature term (and a zero φ) beyond it.
+            let flux_terms = ctf.phi.iter().rposition(|f| *f != 0.0).map_or(0, |i| i + 1);
+            assert!(flux_terms < MAX_CTF_TERMS, "{l} m: {flux_terms} terms");
+            assert!(ctf.x.len() <= MAX_CTF_TERMS + 1, "{l} m: {}", ctf.x.len());
             let [ux, uy, uz] = ctf_u_values(&ctf);
             assert!((ux - uy).abs() <= MAX_CTF_SUM_ERROR * uy.abs());
             assert!((uz - uy).abs() <= MAX_CTF_SUM_ERROR * uy.abs());
@@ -2175,10 +2153,16 @@ mod tests {
         }
     }
 
-    /// Minimal complex arithmetic for the analytical slab solutions.
-    #[derive(Clone, Copy)]
+    /// Minimal complex arithmetic for the analytical solutions.
+    #[derive(Clone, Copy, Debug)]
     struct Cx(f64, f64);
     impl Cx {
+        fn add(self, o: Cx) -> Cx {
+            Cx(self.0 + o.0, self.1 + o.1)
+        }
+        fn scale(self, f: f64) -> Cx {
+            Cx(self.0 * f, self.1 * f)
+        }
         fn mul(self, o: Cx) -> Cx {
             Cx(self.0 * o.0 - self.1 * o.1, self.0 * o.1 + self.1 * o.0)
         }
@@ -2188,6 +2172,15 @@ mod tests {
                 (self.0 * o.0 + self.1 * o.1) / d,
                 (self.1 * o.0 - self.0 * o.1) / d,
             )
+        }
+        fn abs(self) -> f64 {
+            self.0.hypot(self.1)
+        }
+        /// Principal square root.
+        fn sqrt(self) -> Cx {
+            let m = self.abs().sqrt();
+            let th = self.1.atan2(self.0) / 2.0;
+            Cx(m * th.cos(), m * th.sin())
         }
         fn exp(self) -> Cx {
             let m = self.0.exp();
@@ -2205,33 +2198,106 @@ mod tests {
         }
     }
 
+    /// Exact face-flux transfer functions of a layered wall at Laplace variable
+    /// `s`, with the inside face held at zero: (q_out/T_o, q_in/T_o), from the
+    /// product of the layers' transmission matrices [T; q]ₒ = M·[T; q]ᵢ
+    /// (Carslaw & Jaeger; a NoMass layer is [[1, R], [0, 1]]).
+    fn exact_admittances(layers: &[ResolvedLayer], s: Cx) -> (Cx, Cx) {
+        let one = Cx(1.0, 0.0);
+        let zero = Cx(0.0, 0.0);
+        let mut m = [one, zero, zero, one];
+        for l in layers {
+            let lm = if l.no_mass || l.density * l.specific_heat * l.thickness < 1.0 {
+                [one, Cx(l.resistance(), 0.0), zero, one]
+            } else {
+                let gamma = s.scale(l.density * l.specific_heat / l.conductivity).sqrt();
+                let gl = gamma.scale(l.thickness);
+                let kg = gamma.scale(l.conductivity);
+                let (ch, sh) = (gl.cosh(), gl.sinh());
+                [ch, sh.div(kg), kg.mul(sh), ch]
+            };
+            m = [
+                m[0].mul(lm[0]).add(m[1].mul(lm[2])),
+                m[0].mul(lm[1]).add(m[1].mul(lm[3])),
+                m[2].mul(lm[0]).add(m[3].mul(lm[2])),
+                m[2].mul(lm[1]).add(m[3].mul(lm[3])),
+            ];
+        }
+        (m[3].div(m[1]), one.div(m[1]))
+    }
+
+    /// Inverse Laplace transform by the fixed Talbot contour (Abate & Valkó
+    /// 2004, M = 18: about nine significant digits for diffusion transforms).
+    fn talbot(f: impl Fn(Cx) -> Cx, t: f64) -> f64 {
+        let m = 18;
+        let r = 2.0 * m as f64 / (5.0 * t);
+        let mut sum = 0.5 * f(Cx(r, 0.0)).0 * (r * t).exp();
+        for k in 1..m {
+            let th = k as f64 * std::f64::consts::PI / m as f64;
+            let cot = th.cos() / th.sin();
+            let s = Cx(r * th * cot, r * th);
+            let sigma = th + (th * cot - 1.0) * cot;
+            sum += s.scale(t).exp().mul(f(s)).mul(Cx(1.0, sigma)).0;
+        }
+        r / m as f64 * sum
+    }
+
+    /// Light, medium, heavy and insulated walls (outside layer first), plus a
+    /// wall whose faces sit behind NoMass resistances.
+    fn accuracy_walls() -> Vec<(&'static str, Vec<ResolvedLayer>)> {
+        let concrete = |l| ResolvedLayer::new(1.311, 2240.0, 836.8, l);
+        let siding = ResolvedLayer::new(0.14, 530.0, 900.0, 0.009);
+        vec![
+            // ASHRAE 140 LTWALL: siding | fiberglass | plasterboard
+            (
+                "light",
+                vec![
+                    siding.clone(),
+                    ResolvedLayer::new(0.04, 12.0, 840.0, 0.066),
+                    ResolvedLayer::new(0.16, 950.0, 840.0, 0.012),
+                ],
+            ),
+            ("medium", vec![concrete(0.1)]),
+            ("heavy", vec![concrete(0.2)]),
+            // ASHRAE 140 HWWALL: siding | foam | concrete block
+            (
+                "insulated",
+                vec![
+                    siding,
+                    ResolvedLayer::new(0.04, 10.0, 1400.0, 0.0615),
+                    ResolvedLayer::new(0.51, 1400.0, 1000.0, 0.1),
+                ],
+            ),
+            (
+                "nomass faces",
+                vec![
+                    ResolvedLayer::new_no_mass(2.0, 0.08),
+                    concrete(0.15),
+                    ResolvedLayer::new_no_mass(0.1, 0.01),
+                ],
+            ),
+        ]
+    }
+
     /// Drive a CTF with the outside face at 20 + `amp`·sin(ωt) and the inside
     /// face at 20 °C for `periods` periods at zone step `dt`, and compare the
-    /// last period's face fluxes with the exact periodic solution for a
-    /// homogeneous slab (transmission matrix, γ = √(iω/α)):
-    /// q_in = kγ/sinh(γL)·T̃_o, q_out = kγ·coth(γL)·T̃_o.
-    /// Returns the largest errors as fractions of each flux amplitude.
-    fn periodic_slab_errors(
-        layer: &ResolvedLayer,
+    /// last period's face fluxes with the exact periodic solution
+    /// (`exact_admittances` at s = iω). Returns the largest errors as fractions
+    /// of each flux amplitude, and the CTF's zone timesteps per CTF time step.
+    fn periodic_errors(
+        layers: &[ResolvedLayer],
+        disc: Discretization,
         dt: f64,
         period: f64,
         periods: usize,
-        amp: f64,
     ) -> (f64, f64, usize) {
-        let ctf = calculate_ctf(std::slice::from_ref(layer), dt);
+        let amp = 10.0;
+        let ctf = ctf_for_network(layers, dt, disc).unwrap();
         let mut h = CtfHistory::for_ctf(&ctf, 20.0);
         let omega = 2.0 * std::f64::consts::PI / period;
-        let alpha = layer.conductivity / (layer.density * layer.specific_heat);
-        let g = (omega / (2.0 * alpha)).sqrt();
-        let gamma = Cx(g, g);
-        let gl = Cx(g * layer.thickness, g * layer.thickness);
-        let kg = Cx(layer.conductivity * gamma.0, layer.conductivity * gamma.1);
-        let h_in = kg.div(gl.sinh());
-        let h_out = kg.mul(gl.cosh()).div(gl.sinh());
+        let (h_out, h_in) = exact_admittances(layers, Cx(0.0, omega));
         let steps_per_period = (period / dt).round() as usize;
         let (mut e_in, mut e_out) = (0.0_f64, 0.0_f64);
-        let amp_in = amp * (h_in.0.hypot(h_in.1));
-        let amp_out = amp * (h_out.0.hypot(h_out.1));
         for n in 1..=periods * steps_per_period {
             let t = n as f64 * dt;
             let t_o = 20.0 + amp * (omega * t).sin();
@@ -2242,31 +2308,218 @@ mod tests {
                 let ph = Cx((omega * t).cos(), (omega * t).sin());
                 let exact_in = amp * h_in.mul(ph).1;
                 let exact_out = amp * h_out.mul(ph).1;
-                e_in = e_in.max((q_in - exact_in).abs() / amp_in);
-                e_out = e_out.max((q_out - exact_out).abs() / amp_out);
+                e_in = e_in.max((q_in - exact_in).abs() / (amp * h_in.abs()));
+                e_out = e_out.max((q_out - exact_out).abs() / (amp * h_out.abs()));
             }
         }
         (e_in, e_out, ctf.num_histories)
     }
 
+    /// Step the outside face of a wall at a uniform 20 °C to 30 °C over the
+    /// first zone step (the CTF's linear input) and hold the inside face at
+    /// 20 °C for `hours`. Compares both face fluxes with the exact response to
+    /// that same ramp, q(t) = ΔT/Δt·[g(t) − g(t − Δt)] with g = L⁻¹{H(s)/s²},
+    /// so the difference is the node network's alone. Returns the largest
+    /// errors as fractions of each flux's largest exact value, and the stored
+    /// heat Σ(q_out − q_in)·Δt over the stored heat of the final linear
+    /// profile.
+    fn step_errors(
+        layers: &[ResolvedLayer],
+        disc: Discretization,
+        dt: f64,
+        hours: f64,
+    ) -> (f64, f64, f64) {
+        let dtemp = 10.0;
+        let ctf = ctf_for_network(layers, dt, disc).unwrap();
+        let mut h = CtfHistory::for_ctf(&ctf, 20.0);
+        let g = |t: f64, inside: bool| {
+            if t <= 0.0 {
+                return 0.0;
+            }
+            talbot(
+                |s| {
+                    let (qo, qi) = exact_admittances(layers, s);
+                    (if inside { qi } else { qo }).div(s.mul(s))
+                },
+                t,
+            )
+        };
+        let steps = (hours * 3600.0 / dt).round() as usize;
+        let (mut stored, mut peak_in, mut peak_out) = (0.0, 0.0_f64, 0.0_f64);
+        let mut errs = Vec::with_capacity(steps);
+        for n in 1..=steps {
+            let t = n as f64 * dt;
+            let (q_in, q_out) = apply_ctf(&ctf, &h, 30.0, 20.0);
+            h.update(30.0, 20.0, q_in, q_out);
+            stored += (q_out - q_in) * dt;
+            let exact_in = dtemp / dt * (g(t, true) - g(t - dt, true));
+            let exact_out = dtemp / dt * (g(t, false) - g(t - dt, false));
+            peak_in = peak_in.max(exact_in.abs());
+            peak_out = peak_out.max(exact_out.abs());
+            errs.push(((q_in - exact_in).abs(), (q_out - exact_out).abs()));
+        }
+        let e_in = errs.iter().map(|e| e.0).fold(0.0, f64::max) / peak_in;
+        let e_out = errs.iter().map(|e| e.1).fold(0.0, f64::max) / peak_out;
+        // Final profile: linear in resistance from 30 °C outside to 20 °C inside.
+        let total_r: f64 = layers.iter().map(|l| l.resistance()).sum();
+        let (mut r_cum, mut expected) = (0.0, 0.0);
+        for l in layers {
+            let rise_start = dtemp * (1.0 - r_cum / total_r);
+            r_cum += l.resistance();
+            let rise_end = dtemp * (1.0 - r_cum / total_r);
+            if !l.no_mass {
+                let c = l.density * l.specific_heat * l.thickness;
+                expected += c * 0.5 * (rise_start + rise_end);
+            }
+        }
+        (e_in, e_out, stored / expected)
+    }
+
+    #[test]
+    fn test_talbot_matches_the_slab_step_series() {
+        // Inside flux of a slab after an outside step:
+        //   q_in(t) = kΔT/L·[1 + 2·Σ (−1)ⁿ·exp(−n²π²αt/L²)].
+        let (k, rho, cp, l) = (1.311, 2240.0, 836.8, 0.2);
+        let layer = [ResolvedLayer::new(k, rho, cp, l)];
+        let alpha = k / (rho * cp);
+        for hours in [1.0, 4.0, 12.0, 48.0] {
+            let t = hours * 3600.0;
+            let series: f64 = (1..200)
+                .map(|n| {
+                    let n = n as f64;
+                    let sign = if n as i64 % 2 == 0 { 1.0 } else { -1.0 };
+                    sign * (-(n * n) * std::f64::consts::PI.powi(2) * alpha * t / (l * l)).exp()
+                })
+                .sum();
+            let exact = k / l * (1.0 + 2.0 * series);
+            let got = talbot(|s| exact_admittances(&layer, s).1.div(s), t);
+            assert!(
+                (got - exact).abs() < 1e-6 * k / l,
+                "{hours} h: {got} vs {exact}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_face_nodes_match_the_exact_daily_cycle() {
+        // Daily sinusoid at a 10 min zone step. Largest errors, % of each flux
+        // amplitude (inside / outside), measured:
+        //   wall          face nodes    EnergyPlus network
+        //   light         0.02 / 0.73   0.07 / 0.73
+        //   medium        0.18 / 0.24   1.92 / 2.02
+        //   heavy         0.78 / 0.39   7.21 / 8.45
+        //   insulated     0.15 / 0.71   2.28 / 0.76
+        //   nomass faces  0.07 / 0.01   3.95 / 0.21
+        // The light wall's outside error is the step's phase error, the same
+        // for both; the rest is the network's spatial error, O(Δx²) with face
+        // nodes and O(Δx) with E+'s lumped surface half cells.
+        let limits = [
+            ("light", 0.001, 0.01),
+            ("medium", 0.003, 0.004),
+            ("heavy", 0.01, 0.006),
+            ("insulated", 0.003, 0.01),
+            ("nomass faces", 0.0015, 0.0005),
+        ];
+        for ((name, layers), (lname, lim_in, lim_out)) in accuracy_walls().iter().zip(limits) {
+            assert_eq!(*name, lname);
+            let (e_in, e_out, _) =
+                periodic_errors(layers, Discretization::FaceNodes, 600.0, 86_400.0, 12);
+            let (l_in, l_out, _) =
+                periodic_errors(layers, Discretization::EnergyPlus, 600.0, 86_400.0, 12);
+            println!(
+                "{name:13} face {:.2} / {:.2} %, E+ {:.2} / {:.2} %",
+                e_in * 100.0,
+                e_out * 100.0,
+                l_in * 100.0,
+                l_out * 100.0
+            );
+            assert!(e_in < lim_in, "{name}: inside {:.2}%", e_in * 100.0);
+            assert!(e_out < lim_out, "{name}: outside {:.2}%", e_out * 100.0);
+            assert!(e_in <= l_in && e_out <= l_out * 1.001, "{name}");
+        }
+    }
+
+    #[test]
+    fn test_face_nodes_match_the_exact_step_response_and_store_its_heat() {
+        // Ramp-then-hold outside step at a 10 min zone step, run for 20 days so
+        // that every wall (the slowest has a 160 h time constant) settles.
+        // Largest errors, % of each flux's largest value (inside / outside):
+        //   wall          face nodes    EnergyPlus network
+        //   light         0.22 / 0.02   0.89 / 0.11
+        //   medium        1.52 / 1.50   7.09 / 24.2
+        //   heavy         1.67 / 6.19   7.31 / 51.4
+        //   insulated     0.27 / 0.03   1.72 / 0.10
+        //   nomass faces  0.03 / 0.06   1.14 / 0.55
+        // A coarse network cannot follow the first step of heat entering a
+        // massive face; E+'s lumped half cell sits a full Δx inside it.
+        let limits = [
+            ("light", 0.004, 0.001),
+            ("medium", 0.02, 0.02),
+            ("heavy", 0.02, 0.07),
+            ("insulated", 0.004, 0.001),
+            ("nomass faces", 0.001, 0.001),
+        ];
+        for ((name, layers), (lname, lim_in, lim_out)) in accuracy_walls().iter().zip(limits) {
+            assert_eq!(*name, lname);
+            let (e_in, e_out, closure) =
+                step_errors(layers, Discretization::FaceNodes, 600.0, 480.0);
+            let (l_in, l_out, _) = step_errors(layers, Discretization::EnergyPlus, 600.0, 480.0);
+            println!(
+                "{name:13} face {:.2} / {:.2} %, E+ {:.2} / {:.2} %, stored {closure:.6}",
+                e_in * 100.0,
+                e_out * 100.0,
+                l_in * 100.0,
+                l_out * 100.0
+            );
+            assert!(e_in < lim_in, "{name}: inside {:.2}%", e_in * 100.0);
+            assert!(e_out < lim_out, "{name}: outside {:.2}%", e_out * 100.0);
+            assert!(e_in <= l_in && e_out <= l_out, "{name}");
+            // The heat the faces let in is the heat the final profile holds.
+            assert!((closure - 1.0).abs() < 1e-5, "{name}: stored {closure:.6}");
+        }
+    }
+
+    #[test]
+    fn test_face_nodes_keep_the_steady_state_u() {
+        // ΣX, ΣY and ΣZ over 1 − ΣΦ equal the layers' U. At a 1 min step a
+        // slow wall (160 h time constant) has 1 − ΣΦ ≈ 10⁻⁴, so the series'
+        // 10⁻¹³ convergence limit shows as up to 5·10⁻⁴ in one sum, the same
+        // order as with EnergyPlus's network.
+        for (name, layers) in accuracy_walls() {
+            let u = 1.0 / layers.iter().map(|l| l.resistance()).sum::<f64>();
+            for (dt, tol) in [
+                (3600.0, 1e-8),
+                (900.0, 1e-8),
+                (600.0, 1e-8),
+                (300.0, 1e-8),
+                (60.0, 1e-3),
+            ] {
+                let ctf = try_calculate_ctf(&layers, dt).unwrap();
+                for got in ctf_u_values(&ctf) {
+                    assert!((got - u).abs() < tol * u, "{name} dt={dt}: U {got} vs {u}");
+                }
+            }
+        }
+    }
+
     #[test]
     fn test_thick_concrete_periodic_response_matches_analytical() {
         // 60 cm of dense concrete at 6 timesteps per hour, daily cycle.
-        let concrete = ResolvedLayer::new(1.311, 2240.0, 836.8, 0.6);
-        let (e_in, e_out, n_hist) = periodic_slab_errors(&concrete, 600.0, 86_400.0, 10, 10.0);
+        let concrete = [ResolvedLayer::new(1.311, 2240.0, 836.8, 0.6)];
+        let (e_in, e_out, n_hist) =
+            periodic_errors(&concrete, Discretization::FaceNodes, 600.0, 86_400.0, 10);
         assert!(n_hist >= 2, "{n_hist}");
         // The remaining error is the CTF itself, not its staggered histories: the
-        // node network (19 nodes, surface half-cells lumped into the first and
-        // last node as in E+) damps the inside amplitude about 4% and the 20 min
-        // CTF step lags the phase. Measured: 6.0% inside, 7.5% outside here; the
-        // same wall run at a 15 min zone timestep with N = 1 gives 8.2% and 10.0%.
+        // layer is at the 19-division cap, and the 20 min CTF step lags the
+        // phase. Measured: 3.7% inside, 0.9% outside (E+'s network: 6.0% and
+        // 7.5%).
         assert!(
-            e_in < 0.07,
+            e_in < 0.04,
             "inside flux error {:.2}% of amplitude",
             e_in * 100.0
         );
         assert!(
-            e_out < 0.085,
+            e_out < 0.01,
             "outside flux error {:.2}% of amplitude",
             e_out * 100.0
         );
@@ -2275,9 +2528,10 @@ mod tests {
     #[test]
     fn test_thick_soil_annual_response_matches_analytical() {
         // 1.5 m of soil at 6 timesteps per hour, annual cycle (ground coupling).
-        let soil = ResolvedLayer::new(1.0, 1800.0, 1100.0, 1.5);
+        let soil = [ResolvedLayer::new(1.0, 1800.0, 1100.0, 1.5)];
         let year = 365.0 * 86_400.0;
-        let (e_in, e_out, n_hist) = periodic_slab_errors(&soil, 600.0, year, 2, 10.0);
+        let (e_in, e_out, n_hist) =
+            periodic_errors(&soil, Discretization::FaceNodes, 600.0, year, 2);
         assert!(n_hist > 10, "{n_hist}");
         assert!(
             e_in < 0.01,
