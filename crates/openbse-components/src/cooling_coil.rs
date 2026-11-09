@@ -444,8 +444,6 @@ impl AirComponent for CoolingCoilDX {
             // Actual delivered quantities
             let qs = q_sens_full * plr;
             let qt = eff_cap * plr;
-            let dt = qs / (m * cp_air);
-            let out_t = inlet.state.t_db - dt;
 
             // Full-load outlet humidity per E+: remove the latent portion of
             // the enthalpy change at the entering dry-bulb, then interpolate
@@ -456,9 +454,17 @@ impl AirComponent for CoolingCoilDX {
                 let h_tin_wout = h_in - (1.0 - shr) * (h_in - h_out_full);
                 let w_out_full = psych::w_fn_tdb_h(inlet.state.t_db, h_tin_wout);
                 inlet.state.w - plr * (inlet.state.w - w_out_full)
-            };
+            }
+            .max(1.0e-5);
 
-            (qs, qt, out_t, out_w.max(1.0e-5))
+            // The latent part leaves at the entering dry-bulb, so the air is
+            // then cooled at the outlet humidity: with cp at w_out the outlet
+            // enthalpy is exactly h_in − q_total/ṁ, as E+ sets the outlet
+            // from its enthalpy and humidity (PsyTdbFnHW).
+            let dt = qs / (m * psych::cp_air_fn_w(out_w));
+            let out_t = inlet.state.t_db - dt;
+
+            (qs, qt, out_t, out_w)
         } else {
             // Constant SHR mode: total = sensible / rated_SHR, with the
             // latent portion removed from the airstream. (Previously latent
@@ -829,6 +835,22 @@ mod tests {
             coil.cooling_rate > coil.sensible_cooling_rate + 1.0,
             "Expected latent cooling"
         );
+    }
+
+    /// The outlet state carries exactly the coil's total output, ṁ·Δh = q,
+    /// even far from rated: a large coil on a small flow, cooling 27 °C humid
+    /// air by about 30 K and removing 10 g/kg (#327).
+    #[test]
+    fn test_wet_coil_outlet_enthalpy_matches_total_output() {
+        for (cap, flow) in [(10_000.0, 0.5), (137_784.0, 2.7)] {
+            let mut coil =
+                CoolingCoilDX::new("DX", cap, 3.4, 0.79, 0.0, -50.0).with_autocalculate_shr(true);
+            let inlet = AirPort::new(MoistAirState::new(27.0, 0.014, 101325.0), flow);
+            let out = coil.simulate_air(&inlet, &make_ctx(35.0));
+            assert!(out.state.w < inlet.state.w, "wet coil");
+            let dh = inlet.mass_flow * (inlet.state.h - out.state.h);
+            assert_relative_eq!(dh, coil.cooling_rate, max_relative = 1e-6);
+        }
     }
 
     #[test]
