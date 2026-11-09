@@ -50,8 +50,8 @@ is a severe error.
 ## Conduction transfer functions {#sec-ctf}
 
 **Source:** `openbse-envelope/src/ctf.rs`: `try_calculate_ctf`,
-`build_state_space`, `matrix_exponential`, `compute_ctf_from_state_space`,
-`apply_ctf`, `CtfHistory`; coefficients built at initialization by
+`build_network`, `build_state_space`, `matrix_exponential`,
+`compute_ctf_from_state_space`, `add_face_storage`, `apply_ctf`, `CtfHistory`; coefficients built at initialization by
 `heat_balance.rs::compute_all_ctf`.
 
 Conduction through an opaque construction is one-dimensional, with constant
@@ -91,27 +91,32 @@ handled as follows:
 
 - **Massed layers.** A massed layer of thickness $L$ and diffusivity
   $\alpha = k/(\rho c_p)$ gets
-  $N = \min(\max(\lfloor L/\Delta x_n\rfloor, 6), 19)$ divisions of width
+  $N = \min(\max(\lfloor L/\Delta x_n\rfloor, 10), 19)$ divisions of width
   $\Delta x = L/N$, with $\Delta x_n = \sqrt{2\alpha\,\Delta t_z}$ at the
   zone timestep $\Delta t_z$ (the explicit finite-difference stability
-  spacing).
-- **Massless layers at either end** ($\rho c_p L < 1$ J/(m²·K), or NoMass) add
-  their resistance in series with the conductance $k/\Delta x$ between the
-  face and the first or last node.
+  spacing). Its $N + 1$ grid points include both of its faces.
+- **Massless layers at either end** ($\rho c_p L < 1$ J/(m²·K), or NoMass) are
+  a conductance $1/R$ between the surface and the face of the first or last
+  massed layer.
 - **Massless layers between massed ones** become one resistive division of
   conductance $1/R$ with no capacitance; adjacent ones are combined.
 
-The interior nodes $\theta$ (one fewer than the total number of divisions)
-carry these capacitances:
+Each grid point carries the heat capacity of the material within
+$\Delta x/2$ of it:
 
-- $\rho c_p \Delta x$ for a node inside a layer;
+- $\rho c_p \Delta x$ inside a layer;
 - $\tfrac12(\rho c_p\Delta x)_\ell + \tfrac12(\rho c_p\Delta x)_{\ell+1}$
-  for a node at a layer interface;
-- $1.5\,\rho c_p \Delta x$ for the first and last node, which also hold the
-  half-cell at each face.
+  at a layer interface;
+- $C_\text{f} = \tfrac12\rho c_p \Delta x$ at the outer face of the first and
+  last massed layer.
 
-The total capacitance is therefore conserved. With the face temperatures
-$u = (T_\text{so}, T_\text{si})^\mathsf{T}$ as inputs and the face fluxes
+This is the finite-volume network with nodes on the faces, whose spatial
+error is second order in $\Delta x$. The total capacitance is conserved. The
+grid points are the states $\theta$, except a face that is itself the
+surface: its temperature is a CTF input, and its half cell enters as a face
+storage term (below). Behind a NoMass resistance the face is a state like
+any other. With the surface temperatures
+$u = (T_\text{so}, T_\text{si})^\mathsf{T}$ as inputs and the surface fluxes
 $y = (q''_\text{ko}, q''_\text{ki})^\mathsf{T}$ as outputs:
 
 $$
@@ -119,8 +124,8 @@ $$
 $$ {#eq-state-space}
 
 where $A$ is tridiagonal (nodal conductances over capacitances), and $B$, $C$
-and $D$ couple the first and last node to the faces through the boundary
-conductances $h_\text{b} = 1/(R_\text{nomass} + \Delta x/k)$.
+and $D$ couple the first and last state to the surfaces through the
+conductance between them, $k/\Delta x$ or $1/R$.
 
 Assuming the face temperatures vary linearly within a CTF time step
 $\Delta t$, the exact discrete solution uses
@@ -150,6 +155,23 @@ The two cross terms of $S_0$ are set to the mean of their magnitudes, so the
 construction is reciprocal. The series stops when
 $|e_j|/|e_1| < 10^{-13}$, or at $j = n$, the number of nodes, where
 $R_n = 0$ by the Cayley–Hamilton theorem and the series is exact.
+
+**Face storage.** A face at the surface has the surface temperature, which
+varies linearly within each step, so its half cell stores
+$C_\text{f}(T^t - T^{t-1})/\Delta t$ per unit time over the step, exactly. The
+term adds to $q''_\text{ko}$ at the outside face and subtracts from
+$q''_\text{ki}$ at the inside face. Because the flux histories hold the total
+flux, it is multiplied by the flux polynomial
+$\Phi(z) = 1 - \sum_{j\ge1}\Phi_j z^{-j}$:
+
+$$
+X_j \mathrel{+}= \frac{C_\text{f,o}}{\Delta t}\,d_j,\qquad
+Z_j \mathrel{+}= \frac{C_\text{f,i}}{\Delta t}\,d_j,\qquad
+\sum_j d_j z^{-j} = (1 - z^{-1})\,\Phi(z).
+$$ {#eq-ctf-face-storage}
+
+The series gains one term (with $\Phi_j = 0$ there). Since $\sum_j d_j = 0$,
+the steady-state transmittance is unchanged.
 
 ### CTF time step {#sec-ctf-time-step}
 
@@ -194,17 +216,46 @@ updates every zone timestep, and each set conserves energy on its own.
 
 - With total capacitance below 1 J/(m²·K), the CTF is steady state:
   $X_0 = Y_0 = Z_0 = U$, with no history.
-- When the construction reduces to a single node, it is a lumped RC element:
+- A simple construction with $\tau < 10\,\Delta t$
+  (@sec-simple-constructions) is a lumped RC element:
   $X_0 = Y_0 = Z_0 = U(1 - e^{-\Delta t/\tau})$ and
   $\Phi_1 = e^{-\Delta t/\tau}$, with $\tau = RC$.
 
-**Comparison with EnergyPlus.** The method, node rules (6 to `MaxCTFTerms`
-= 19 divisions, truncated), capacitances, recurrence, the CTF time step of
-@eq-ctf-time-step, its escalation on more than 18 terms or a sum mismatch
-above 1%, and the 7 h ceiling (`MaxAllowedTimeStep`) follow
+**Comparison with EnergyPlus.** The method, the stability spacing and
+19-division cap, the interface capacitances, the recurrence, the CTF time
+step of @eq-ctf-time-step, its escalation on more than 18 terms or a sum
+mismatch above 1%, and the 7 h ceiling (`MaxAllowedTimeStep`) follow
 `Construction::calculateTransferFunction`
 [@eplus-engref-25-2, "Conduction Transfer Function (CTF) Calculations in EnergyPlus"]. The
 differences are:
+
+- **Node network.** EnergyPlus uses at least 6 divisions (`MinNodes`) and
+  puts each surface half cell into the first node inside it
+  ($1.5\,\rho c_p\Delta x$, a full $\Delta x$ from the surface), a first-order
+  error in $\Delta x$. OpenBSE uses at least 10 divisions and keeps the half
+  cell on the surface. Against the exact solutions, with the outside surface
+  driven and the inside surface held, at a 10 min step (largest error over
+  the last day or the whole response, as a percentage of each flux's
+  amplitude or largest value, inside / outside):
+
+  | Wall | Daily cycle, OpenBSE | Daily cycle, EnergyPlus network | Step, OpenBSE | Step, EnergyPlus network |
+  |---|---|---|---|---|
+  | Light (ASHRAE 140 LTWALL) | 0.02 / 0.73 | 0.07 / 0.73 | 0.22 / 0.02 | 0.89 / 0.11 |
+  | 10 cm concrete | 0.18 / 0.24 | 1.92 / 2.02 | 1.52 / 1.50 | 7.09 / 24.2 |
+  | 20 cm concrete | 0.78 / 0.39 | 7.21 / 8.45 | 1.67 / 6.19 | 7.31 / 51.4 |
+  | Insulated (ASHRAE 140 HWWALL) | 0.15 / 0.71 | 2.28 / 0.76 | 0.27 / 0.03 | 1.72 / 0.10 |
+  | NoMass faces, 15 cm concrete | 0.07 / 0.01 | 3.95 / 0.21 | 0.03 / 0.06 | 1.14 / 0.55 |
+
+  The daily cycle is compared with the transmission-matrix solution; the
+  step (linear over the first zone step, then held) with its exact response,
+  inverted from the same matrices by the fixed Talbot contour. That step
+  comparison isolates the network: the CTF is exact for linear inputs. The
+  light wall's outside error at the daily cycle is the time step's phase
+  error, the same for both (6% at 1 h, 1.3% at 15 min). The steady-state U
+  stays exact (within $10^{-8}$ at steps of 5 min and longer), and the
+  heat the step lets in matches the final profile's stored heat within
+  $10^{-6}$. The finer network adds about one CTF term on average; the
+  shipped models' run times change by less than their run-to-run spread.
 
 - **Multi-step histories.** EnergyPlus (`UpdateThermalHistories`) keeps one
   master history at the start of each block of $N$ zone timesteps and
@@ -213,12 +264,14 @@ differences are:
   face stepped 10 K, the master-history interpolation stores 1.8% less heat
   than the step delivers (3.9% at 1 min); the exact histories close to 0.01%,
   as a single-step CTF does. Their periodic accuracy is the same or slightly
-  better (daily cycle, inside flux 6.0% against 6.1% of its amplitude).
+  better (daily cycle, inside flux 6.0% against 6.1% of its amplitude, both
+  on EnergyPlus's node network).
 - **Steady-state check.** OpenBSE also escalates when $U_\text{CTF}$ is more
   than 5% off the layers' U, and warns above 1%.
 - **Massless end layers.** EnergyPlus gives a NoMass first or last layer the
-  properties of air and nodes of its own; OpenBSE adds its resistance to the
-  boundary conductance (@sec-ctf-state-space).
+  properties of air and nodes of its own; OpenBSE makes it a conductance
+  between the surface and the massed layer's face node
+  (@sec-ctf-state-space).
 - **Layer thickness.** EnergyPlus rejects any layer over 3 m; OpenBSE has no
   thickness limit of its own, and a massive layer that thick reaches the 7 h
   ceiling.
@@ -300,10 +353,6 @@ fixed surface films.
   constructions use synthetic layers tuned to ASHRAE 140, and do not always
   conserve the specified heat capacity.
 - HAMT is not wired in (@sec-hamt).
-- [#448](https://github.com/bbrannon4/OpenBSE/issues/448): the CTF node
-  network (at least 6 divisions per layer, face half-cells lumped into the
-  first and last node, as in EnergyPlus) misses 7–9% of a 20 cm concrete
-  wall's daily face-flux swing against the exact solution.
 
 ## Surface heat balances {#sec-surface-hb}
 
