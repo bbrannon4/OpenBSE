@@ -131,11 +131,13 @@ equipment:
   - name: {case} Sensible Gain
     zones: [{z}]
     power: {c['sens']}
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 0.0
   - name: {case} Latent Gain
     zones: [{z}]
     power: {LATENT_W}
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 1.0
 

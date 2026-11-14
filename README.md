@@ -115,7 +115,7 @@ Each model is documented, with its equations, its EnergyPlus comparison and its 
 - **External shading** — overhangs, fins and shading surfaces with polygon-clipped beam shadows and sky view factor reduction; solar precomputed and cached to disk
 - **Infiltration and ventilation** — E+ design-flow-rate infiltration, the ASHRAE combined model, scheduled and natural ventilation
 - **Airflow network** — multizone pressure network generated from the geometry (cracks, openings, stack and wind pressures with Swami & Chandra Cp), duct leakage, and passive species such as CO₂
-- **Internal gains** — people, lights and equipment with radiant, convective, latent and lost fractions
+- **Internal gains** — people (E+ temperature-dependent sensible heat), lights, equipment on any fuel (electric, gas, district hot water and steam, other fuels or unmetered, each on its own meter) with radiant, convective, latent and lost fractions, and outdoor-temperature-controlled baseboards
 - **Zone air balance** — third-order backward-difference predictor-corrector for temperature and humidity (E+ `ZoneTempPredictorCorrector`), with optional linear room-air stratification
 - **Thermal comfort** — Fanger PMV/PPD (ISO 7730 / ASHRAE 55), operative and mean radiant temperature, direct-beam solar MRT correction (ASHRAE 55 SolarCal), and a spatial comfort grid within a zone
 

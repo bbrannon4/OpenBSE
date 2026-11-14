@@ -1137,9 +1137,10 @@ equipment:
   power: 75998.0
   radiant_fraction: 0.5
   schedule: BLDG_EQUIP_EXTD_SCH
-- name: Kitchen Gas Equipment
+- name: Kitchen Gas Equipment     # IDF GasEquipment Kitchen_Flr_5_MiscPlugGas_Equip
   zones:
   - Kitchen
+  fuel: natural_gas
   power: 149946.0
   radiant_fraction: 0.5
   schedule: BLDG_EQUIP_EXTD_SCH

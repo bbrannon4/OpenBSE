@@ -503,12 +503,12 @@ equipment:
   lost_fraction: 0.251045   # E+ Lost=0.2510
   schedule: Misc Plug Load
 
-# ── Gas Equipment (full input power with lost_fraction) ─────────
-# OpenBSE has no separate GasEquipment type (#223). Entering the full gas
-# input power with the IDF's fractions keeps the zone's sensible and latent
-# gains as in E+, and the equipment counter tracks total fuel input.
+# ── Gas Equipment (E+ GasEquipment: fuel natural_gas) ───────────
+# Full gas input power with the IDF's fractions; the whole input is metered
+# as interior equipment natural gas, as in E+.
 - name: Gas Range
   zones: [Living]
+  fuel: natural_gas
   power: 540.941345         # E+ gas_range1 (full gas input)
   radiant_fraction: 0.69     # E+ Rad=0.69
   latent_fraction: 0.06     # E+ Lat=0.06
@@ -517,6 +517,7 @@ equipment:
 
 - name: Gas Dryer
   zones: [Living]
+  fuel: natural_gas
   power: 395.595892         # E+ gas_dryer1 (gas component)
   radiant_fraction: 0.1     # E+ Rad=0.1
   latent_fraction: 0.05     # E+ Lat=0.05
@@ -525,6 +526,7 @@ equipment:
 
 - name: Gas Misc
   zones: [Living]
+  fuel: natural_gas
   power: 61.125464          # E+ gas_mels1 (gas component)
   radiant_fraction: 0.69     # E+ Rad=0.69
   latent_fraction: 0.06     # E+ Lat=0.06
@@ -1232,10 +1234,8 @@ surfaces:
 #    capacity. Consider adding autosize SHR support.
 #    Future: add AirflowNetwork support to OpenBSE.
 #
-# 3. GAS EQUIPMENT: No native GasEquipment type — gas range, dryer,
-#    misc gas gains are modeled as equipment with full input power and
-#    lost_fraction. Energy tracking includes gas, but fuel type is not
-#    distinguished from electric in the end-use summary.
+# 3. GAS EQUIPMENT: gas range, dryer and misc gas gains are equipment with
+#    fuel: natural_gas, the IDF's GasEquipment input power and fractions.
 #
 # 4. UNCONDITIONED ZONES: Garage, basement, and attic are all modeled
 #    as unconditioned free-floating zones with interzone coupling to

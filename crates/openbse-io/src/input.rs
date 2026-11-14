@@ -108,9 +108,12 @@ pub struct ModelInput {
     /// Lights definitions (assignable to zones)
     #[serde(default)]
     pub lights: Vec<openbse_envelope::LightsInput>,
-    /// Equipment gain definitions (assignable to zones)
+    /// Equipment gain definitions (assignable to zones), of any fuel
     #[serde(default)]
     pub equipment: Vec<openbse_envelope::EquipmentGainInput>,
+    /// Outdoor-temperature-controlled baseboard heat (assignable to zones)
+    #[serde(default)]
+    pub outdoor_controlled_baseboards: Vec<openbse_envelope::OutdoorControlledBaseboardInput>,
     /// Infiltration definitions (assignable to zones)
     #[serde(default)]
     pub infiltration: Vec<openbse_envelope::InfiltrationTopLevel>,
@@ -4326,6 +4329,33 @@ fn zone_floor_areas(model: &ModelInput) -> std::collections::HashMap<String, f64
         .collect()
 }
 
+/// A zone's design number of people: the count of every people gain already
+/// resolved into it (E+ `TotOccupants`).
+fn zone_design_occupants(zone: &openbse_envelope::ZoneInput) -> f64 {
+    zone.internal_gains
+        .iter()
+        .map(|g| match g {
+            openbse_envelope::InternalGainInput::People { count, .. } => *count,
+            _ => 0.0,
+        })
+        .sum()
+}
+
+/// An equipment object's design level in one zone [W]: per floor area, per
+/// person, or the stated power (E+ `setDesignLevel`).
+fn equipment_design_level(
+    equip: &openbse_envelope::EquipmentGainInput,
+    zone: &openbse_envelope::ZoneInput,
+) -> f64 {
+    if let Some(wpa) = equip.watts_per_area {
+        wpa * zone.floor_area
+    } else if let Some(wpp) = equip.watts_per_person {
+        wpp * zone_design_occupants(zone)
+    } else {
+        equip.power
+    }
+}
+
 /// Resolve top-level zone load objects into per-zone `ZoneInput` fields.
 ///
 /// For each top-level object (people, lights, equipment, infiltration,
@@ -4422,24 +4452,39 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
         }
     }
 
-    // Resolve top-level equipment → internal_gains (Equipment variant)
+    // Resolve top-level equipment → internal_gains (Equipment variant). People
+    // are resolved first, so a per-person level sees the zone's occupants.
     for equip in &model.equipment {
         let target_zones = expand_zones(&equip.zones);
         for zone_name in &target_zones {
             if let Some(zone) = zones.iter_mut().find(|z| z.name == *zone_name) {
-                let power = if let Some(wpf) = equip.watts_per_area {
-                    wpf * zone.floor_area
-                } else {
-                    equip.power
-                };
                 zone.internal_gains.push(InternalGainInput::Equipment {
-                    power,
+                    power: equipment_design_level(equip, zone),
                     radiant_fraction: equip.radiant_fraction,
                     lost_fraction: equip.lost_fraction,
                     latent_fraction: equip.latent_fraction,
                     schedule: equip.schedule.clone(),
                     submeter: equip.submeter.clone(),
+                    fuel: equip.fuel,
                 });
+            }
+        }
+    }
+
+    // Resolve top-level outdoor-controlled baseboards → internal_gains
+    for bb in &model.outdoor_controlled_baseboards {
+        for zone_name in &expand_zones(&bb.zones) {
+            if let Some(zone) = zones.iter_mut().find(|z| z.name == *zone_name) {
+                zone.internal_gains
+                    .push(InternalGainInput::OutdoorControlledBaseboard {
+                        capacity_at_low_temperature: bb.capacity_at_low_temperature,
+                        low_temperature: bb.low_temperature,
+                        capacity_at_high_temperature: bb.capacity_at_high_temperature,
+                        high_temperature: bb.high_temperature,
+                        radiant_fraction: bb.radiant_fraction,
+                        schedule: bb.schedule.clone(),
+                        submeter: bb.submeter.clone(),
+                    });
             }
         }
     }
@@ -4450,23 +4495,19 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
         let target_zones = expand_zones(&equip.zones);
         for zone_name in &target_zones {
             if let Some(zone) = zones.iter_mut().find(|z| z.name == *zone_name) {
-                let power = if let Some(wpf) = equip.watts_per_area {
-                    wpf * zone.floor_area
-                } else {
-                    equip.power
-                };
                 let submeter = if equip.submeter == "General" {
                     "datacenter".to_string()
                 } else {
                     equip.submeter.clone()
                 };
                 zone.internal_gains.push(InternalGainInput::Equipment {
-                    power,
+                    power: equipment_design_level(equip, zone),
                     radiant_fraction: equip.radiant_fraction,
                     lost_fraction: equip.lost_fraction,
                     latent_fraction: equip.latent_fraction,
                     schedule: equip.schedule.clone(),
                     submeter,
+                    fuel: equip.fuel,
                 });
             }
         }
@@ -4484,6 +4525,7 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                     latent_fraction: 0.0,  // servers produce sensible heat only
                     schedule: dc.it_load_schedule.clone(),
                     submeter: "datacenter".to_string(),
+                    fuel: openbse_envelope::EquipmentFuel::Electricity,
                 });
             }
 
@@ -4571,16 +4613,7 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
 
                 // Compute per_person and per_area flow components
                 let pp_flow = if let Some(pp) = vent.per_person {
-                    // Count people already resolved for this zone
-                    let people_count: f64 = zone
-                        .internal_gains
-                        .iter()
-                        .map(|g| match g {
-                            InternalGainInput::People { count, .. } => *count,
-                            _ => 0.0,
-                        })
-                        .sum();
-                    pp * people_count
+                    pp * zone_design_occupants(zone)
                 } else {
                     0.0
                 };
@@ -5506,6 +5539,94 @@ fn validate_scheduled_ventilation(model: &ModelInput, result: &mut ValidationRes
     }
 }
 
+/// Equipment and baseboard inputs E+ rejects (`GetInternalHeatGainsInput`,
+/// `setDesignLevel`), plus one way to give the design level, and per-person
+/// equipment on a zone with people (E+ only warns and uses 0 W; OpenBSE stops,
+/// as it does for a per-area load on a zone without floor area).
+fn validate_equipment_levels(model: &ModelInput, result: &mut ValidationResult) {
+    use openbse_envelope::EquipmentFuel;
+    let occupants: std::collections::HashMap<String, f64> = resolve_zone_loads(model)
+        .iter()
+        .map(|z| (z.name.clone(), zone_design_occupants(z)))
+        .collect();
+    let groups: std::collections::HashMap<&str, &[String]> = model
+        .zone_groups
+        .iter()
+        .map(|g| (g.name.as_str(), g.zones.as_slice()))
+        .collect();
+    let members = |r: &String| -> Vec<String> {
+        groups
+            .get(r.as_str())
+            .map_or_else(|| vec![r.clone()], |g| g.to_vec())
+    };
+    let equipment = model.equipment.iter().map(|e| ("Equipment", e));
+    let it = model.equipment_it.iter().map(|e| ("IT equipment", e));
+    for (kind, e) in equipment.chain(it) {
+        let name = &e.name;
+        let ways = [
+            e.power != 0.0,
+            e.watts_per_area.is_some(),
+            e.watts_per_person.is_some(),
+        ];
+        if ways.iter().filter(|w| **w).count() > 1 {
+            result.severe(format!(
+                "{kind} '{name}': give one of power, watts_per_area and watts_per_person"
+            ));
+        }
+        if e.fuel != EquipmentFuel::None && e.power < 0.0 {
+            result.severe(format!(
+                "{kind} '{name}': power {} W is negative; only fuel: none (unmetered) \
+                 equipment may remove heat",
+                e.power
+            ));
+        }
+        if e.watts_per_area.is_some_and(|w| w < 0.0) {
+            result.severe(format!("{kind} '{name}': watts_per_area is negative"));
+        }
+        if let Some(wpp) = e.watts_per_person {
+            if wpp <= 0.0 {
+                result.severe(format!(
+                    "{kind} '{name}': watts_per_person must be positive"
+                ));
+            }
+            for z in e.zones.iter().flat_map(members) {
+                if occupants.get(&z).is_some_and(|n| *n <= 0.0) {
+                    result.severe(format!(
+                        "{kind} '{name}' is given per person, but zone '{z}' has no people"
+                    ));
+                }
+            }
+        }
+        if kind == "IT equipment" && e.fuel != EquipmentFuel::Electricity {
+            result.severe(format!(
+                "IT equipment '{name}': fuel is {}; IT equipment is electric",
+                e.fuel.key()
+            ));
+        }
+    }
+    for b in &model.outdoor_controlled_baseboards {
+        let name = &b.name;
+        if b.capacity_at_low_temperature <= 0.0 || b.capacity_at_high_temperature < 0.0 {
+            result.severe(format!(
+                "Outdoor-controlled baseboard '{name}': capacity_at_low_temperature must be \
+                 positive and capacity_at_high_temperature not negative"
+            ));
+        }
+        if b.high_temperature <= b.low_temperature {
+            result.severe(format!(
+                "Outdoor-controlled baseboard '{name}': high_temperature ({} °C) must be above \
+                 low_temperature ({} °C)",
+                b.high_temperature, b.low_temperature
+            ));
+        }
+        if !(0.0..=1.0).contains(&b.radiant_fraction) {
+            result.severe(format!(
+                "Outdoor-controlled baseboard '{name}': radiant_fraction must be within [0, 1]"
+            ));
+        }
+    }
+}
+
 /// A gain's fractions are of its total (#186), so they can't add up to more.
 fn check_gain_fractions(kind: &str, name: &str, sum: f64, result: &mut ValidationResult) {
     if sum > 1.0 + 1e-6 {
@@ -5727,6 +5848,15 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
             &mut result,
         );
     }
+    for b in &model.outdoor_controlled_baseboards {
+        check_zone_refs(
+            &b.zones,
+            "Outdoor-controlled baseboard",
+            &b.name,
+            &mut result,
+        );
+    }
+    validate_equipment_levels(model, &mut result);
 
     // ── Validate ground surface temperatures ───────────────────────────────
 
@@ -6299,6 +6429,94 @@ air_loops:
              infiltration:\n- {{name: I, zones: [Room], flow_per_floor_area: 0.001}}\n"
         ))
         .unwrap()
+    }
+
+    /// A 30 m² room with 4 people and the given extra YAML.
+    fn equipment_model(extra: &str) -> ModelInput {
+        parse_model_yaml(&format!(
+            "simulation: {{}}\nweather_files: []\n\
+             zones:\n- {{name: Room, floor_area: 30.0}}\n- {{name: Empty, floor_area: 30.0}}\n\
+             people:\n- {{name: P, zones: [Room], count: 4.0, activity_level: 120.0}}\n{extra}"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn equipment_keeps_its_fuel_and_takes_a_level_per_person() {
+        use openbse_envelope::{EquipmentFuel, InternalGainInput};
+        let model = equipment_model(
+            "equipment:\n\
+             - {name: Range, zones: [Room], fuel: natural_gas, watts_per_person: 150.0}\n\
+             - {name: Steam, zones: [Room], fuel: district_heating_steam, power: 900.0}\n\
+             outdoor_controlled_baseboards:\n\
+             - {name: BB, zones: [Room], capacity_at_low_temperature: 1000.0, low_temperature: -10.0, \
+                capacity_at_high_temperature: 200.0, high_temperature: 15.0}\n",
+        );
+        let zone = &resolve_zone_loads(&model)[0];
+        let mut equipment = vec![];
+        let mut baseboards = 0;
+        for g in &zone.internal_gains {
+            match g {
+                InternalGainInput::Equipment { power, fuel, .. } => equipment.push((*fuel, *power)),
+                InternalGainInput::OutdoorControlledBaseboard { .. } => baseboards += 1,
+                _ => {}
+            }
+        }
+        // 150 W/person × 4 people (E+ Watts/Person × TotOccupants).
+        assert_eq!(
+            equipment,
+            vec![
+                (EquipmentFuel::NaturalGas, 600.0),
+                (EquipmentFuel::DistrictHeatingSteam, 900.0)
+            ]
+        );
+        assert_eq!(baseboards, 1);
+        assert_eq!(
+            validate_model(&model).error_count(),
+            0,
+            "{}",
+            validate_model(&model).to_err_file()
+        );
+    }
+
+    #[test]
+    fn invalid_equipment_and_baseboards_are_severe() {
+        let errors = |extra: &str| validate_model(&equipment_model(extra)).to_err_file();
+        // Only unmetered equipment may remove heat (E+ OtherEquipment, fuel None).
+        assert!(
+            errors("equipment:\n- {name: E, zones: [Room], power: -100.0}\n")
+                .contains("only fuel: none")
+        );
+        assert!(
+            !errors("equipment:\n- {name: E, zones: [Room], fuel: none, power: -100.0}\n")
+                .contains("severe")
+        );
+        assert!(errors(
+            "equipment:\n- {name: E, zones: [Room], power: 10.0, watts_per_area: 1.0}\n"
+        )
+        .contains("give one of power"));
+        assert!(
+            errors("equipment:\n- {name: E, zones: [Empty], watts_per_person: 10.0}\n")
+                .contains("zone 'Empty' has no people")
+        );
+        assert!(
+            errors("equipment:\n- {name: E, zones: [Room], watts_per_person: 0.0}\n")
+                .contains("watts_per_person must be positive")
+        );
+        assert!(errors(
+            "equipment_it:\n- {name: S, zones: [Room], power: 10.0, fuel: natural_gas}\n"
+        )
+        .contains("IT equipment is electric"));
+        let bb = |lo: f64, hi: f64, r: f64| {
+            errors(&format!(
+                "outdoor_controlled_baseboards:\n- {{name: B, zones: [Room], \
+                 capacity_at_low_temperature: 1000.0, low_temperature: {lo}, \
+                 capacity_at_high_temperature: 0.0, high_temperature: {hi}, radiant_fraction: {r}}}\n"
+            ))
+        };
+        assert!(bb(10.0, 10.0, 0.0).contains("must be above"));
+        assert!(bb(-10.0, 10.0, 1.5).contains("radiant_fraction"));
+        assert!(!bb(-10.0, 10.0, 0.5).contains("severe"));
     }
 
     #[test]

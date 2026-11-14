@@ -5109,7 +5109,7 @@ fn main() -> Result<()> {
                             .insert(zone.input.name.clone(), zone.lighting_power * zmult);
                         snapshot
                             .zone_equipment_power
-                            .insert(zone.input.name.clone(), zone.equipment_power * zmult);
+                            .insert(zone.input.name.clone(), zone.equipment_power.scaled(zmult));
 
                         // IT equipment: gains with submeter == "datacenter" are IT loads.
                         // Sum them separately for ASHRAE 90.4 PUE/MLC/ELC accounting.
@@ -5122,6 +5122,7 @@ fn main() -> Result<()> {
                                     power,
                                     schedule,
                                     submeter,
+                                    fuel: openbse_envelope::EquipmentFuel::Electricity,
                                     ..
                                 } = gain
                                 {
@@ -5357,29 +5358,19 @@ fn main() -> Result<()> {
                     {
                         let sm = &mut snapshot.submeter_power;
                         let add = add_submeter_power;
-                        // Zone lighting/equipment — per-submeter
+                        // Zone lighting, equipment (per fuel) and baseboards — per-submeter
                         for zone in &env.zones {
                             let zmult = zone.input.zone_multiplier as f64;
                             let dow = env.schedule_day_type(month, day);
                             for gain in &zone.input.internal_gains {
-                                match gain {
-                                    openbse_envelope::internal_gains::InternalGainInput::Lights {
-                                        power, schedule, submeter, ..
-                                    } => {
-                                        let frac = schedule.as_ref()
-                                            .map(|s| env.schedule_manager.fraction(s, hour, dow))
-                                            .unwrap_or(1.0);
-                                        add(sm, submeter, "lighting", power * frac * zmult);
-                                    }
-                                    openbse_envelope::internal_gains::InternalGainInput::Equipment {
-                                        power, schedule, submeter, ..
-                                    } => {
-                                        let frac = schedule.as_ref()
-                                            .map(|s| env.schedule_manager.fraction(s, hour, dow))
-                                            .unwrap_or(1.0);
-                                        add(sm, submeter, "equipment", power * frac * zmult);
-                                    }
-                                    _ => {}
+                                let frac = gain
+                                    .schedule()
+                                    .map(|s| env.schedule_manager.fraction(s, hour, dow))
+                                    .unwrap_or(1.0);
+                                if let Some((meter, end_use, pw)) =
+                                    gain.metered_use(frac, ctx.outdoor_air.t_db)
+                                {
+                                    add(sm, meter, &end_use, pw * zmult);
                                 }
                             }
                         }

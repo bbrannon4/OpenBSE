@@ -1118,8 +1118,8 @@ pub struct ZoneState {
     pub q_internal_rad: f64,
     /// Lighting electric power [W] (scheduled)
     pub lighting_power: f64,
-    /// Equipment electric power [W] (scheduled)
-    pub equipment_power: f64,
+    /// Equipment and baseboard power by fuel group [W] (scheduled)
+    pub equipment_power: crate::internal_gains::FuelPowers,
     /// People sensible heat [W] (scheduled)
     pub people_heat: f64,
     /// Infiltration mass flow rate [kg/s]
@@ -1381,7 +1381,7 @@ impl ZoneState {
             q_internal_conv: 0.0,
             q_internal_rad: 0.0,
             lighting_power: 0.0,
-            equipment_power: 0.0,
+            equipment_power: Default::default(),
             people_heat: 0.0,
             infiltration_mass_flow: 0.0,
             ventilation_mass_flow: 0.0,

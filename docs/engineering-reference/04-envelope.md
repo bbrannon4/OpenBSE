@@ -1302,14 +1302,17 @@ differences:
 ## Internal gains {#sec-internal-gains}
 
 **Source:** `openbse-envelope/src/internal_gains.rs::resolve_gains_scheduled`;
-`heat_balance.rs::timestep_gains`; top-level `people`, `lights` and
-`equipment` objects resolved per zone in `openbse-io/src/input.rs`.
+`heat_balance.rs::timestep_gains`; top-level `people`, `lights`,
+`equipment` and `outdoor_controlled_baseboards` objects resolved per zone in
+`openbse-io/src/input.rs`.
 
 Each gain has a design level, scaled each timestep by its schedule fraction
 $f$. A design level given per floor area (people, lights, equipment, and
 infiltration or ventilation flows) uses the zone's stated floor area, or else
 the area of its floor surfaces (@sec-zone-geometry); such a load on a zone
-with neither is a severe error. With $f$ applied:
+with neither is a severe error. Equipment given per person uses the zone's
+design number of people, the sum of its people counts; per-person
+equipment in a zone without people is a severe error. With $f$ applied:
 
 - **People.** $N$ occupants, either a count or per floor area, release
   sensible $Q_s = N f\,q_s$ and latent $Q_l = N f\,q_l$, with
@@ -1331,6 +1334,21 @@ with neither is a severe error. With $f$ applied:
   Q_r = Pfr,\qquad
   Q_c = Pf(1-\phi_\text{lost}-\phi_l-r).
   $$ {#eq-equipment-gain}
+  The split is the same whatever the equipment's `fuel`, which only names the
+  meter the input power $Pf$ is booked to (see below). Equipment with fuel
+  `none` meters nothing and may have a negative $P$, a heat sink.
+- **Outdoor-controlled baseboard.** Electric heat whose capacity follows the
+  outdoor dry-bulb temperature $T_o$ between two points
+  $(T_\text{low}, Q_\text{low})$ and $(T_\text{high}, Q_\text{high})$:
+  $$
+  Q = f\times\begin{cases}
+  Q_\text{low}, & T_o \le T_\text{low},\\
+  Q_\text{low} + (T_o - T_\text{low})\dfrac{Q_\text{high}-Q_\text{low}}{T_\text{high}-T_\text{low}}, & T_\text{low} < T_o < T_\text{high},\\
+  0, & T_o \ge T_\text{high}.
+  \end{cases}
+  $$ {#eq-baseboard-gain}
+  The fraction $r$ (default 0) is radiant and the rest convective. No
+  thermostat controls it: it is a scheduled gain, not HVAC.
 
 The default sensible heat per person is the correlation of EnergyPlus
 (`InternalHeatGains::InitInternalHeatGains`), held within $[0, M]$:
@@ -1351,7 +1369,16 @@ The convective parts enter the zone air as $\dot Q_\text{conv}$
 (@eq-zone-ode). The radiant parts are spread over the zone's surfaces
 (@eq-radiant-gain-flux). The latent parts become a moisture source
 $\dot m_w = Q_l/h_g(T_z)$ in the zone moisture balance (@sec-zone-moisture).
-Electric power is booked whole, whatever leaves the zone.
+
+**Energy and fuel.** Lights' power and each equipment object's whole input
+power, lost heat included, are booked to the interior lighting and interior
+equipment end uses, the equipment on its fuel: electricity, natural gas,
+district heating water, district heating steam, or another fuel (propane,
+fuel oil no. 1 or 2, diesel, gasoline, coal, other fuel 1 or 2, district
+cooling). The summary report has an interior equipment row and a fuel total
+for each of the first four, and groups the rest as *Other Fuels*; submeters
+keep each fuel apart (end use `equipment_<fuel>`). Baseboards are electric
+interior equipment.
 
 **Sizing.** On design days, a design day's `internal_gains` mode chooses
 among no gains (`off`, the heating default), design levels at every hour
@@ -1361,8 +1388,25 @@ design levels whenever the zone's scheduled gain is non-zero
 
 **Comparison with EnergyPlus.**
 
-- **Model structure.** `People`, `Lights` and `ElectricEquipment` have the
-  same structure (`InternalHeatGains`).
+- **Model structure.** `People` and `Lights` have the structure of their
+  EnergyPlus objects (`InternalHeatGains`). EnergyPlus's five equipment
+  objects compute the same split from the same fractions
+  (`InitInternalHeatGains`) and differ only in their meter, so OpenBSE has
+  one equipment gain with a `fuel`:
+
+  | EnergyPlus object | `fuel` | EnergyPlus meter |
+  |---|---|---|
+  | `ElectricEquipment` | `electricity` | Electricity:InteriorEquipment |
+  | `GasEquipment` | `natural_gas` | NaturalGas:InteriorEquipment |
+  | `HotWaterEquipment` | `district_heating_water` | DistrictHeatingWater:InteriorEquipment |
+  | `SteamEquipment` | `district_heating_steam` | DistrictHeatingSteam:InteriorEquipment |
+  | `OtherEquipment` | its fuel type, or `none` | that fuel's InteriorEquipment, or none |
+
+  The design level is a level, per floor area or per person, as there
+  (`setDesignLevel`); only `none` may be negative, as for `OtherEquipment`.
+  `ZoneBaseboard:OutdoorTemperatureControlled` follows @eq-baseboard-gain,
+  the same branches as `InitInternalHeatGains`, and is metered on
+  Electricity:InteriorEquipment as there.
 - **Fraction conventions.** Lights' and equipment's radiant, latent, lost
   and return-air fractions are each a fraction of the *total*, as in
   EnergyPlus; fractions that add up to more than 1 are a severe error. A
@@ -1374,8 +1418,16 @@ design levels whenever the zone's scheduled gain is non-zero
   zone solve), and design days use the same correlation. EnergyPlus requires
   an activity level schedule; OpenBSE requires a constant `activity_level`
   for each people object.
-- **Missing gain types.** Gas, hot-water, steam and other equipment do not
-  exist ([#223](https://github.com/bbrannon4/OpenBSE/issues/223)).
+- **Defaults and checks.** Equipment's default radiant fraction is 0.3
+  (EnergyPlus: 0). Per-person equipment in a zone without people is a
+  severe error; EnergyPlus warns and uses 0 W.
+- **Not modelled.** The carbon dioxide generation rate of `GasEquipment`
+  and `OtherEquipment`: OpenBSE has no zone CO₂ balance outside the airflow
+  network's species, where a zone's `species_generation` can carry it.
+  EMS overrides and demand limiting of equipment are not modelled.
+- **Baseboard outdoor temperature.** The site dry-bulb temperature;
+  EnergyPlus uses the outdoor temperature at the zone's centroid height,
+  which differs by about 0.1 K per 15 m.
 
 ## Ground heat transfer {#sec-ground-ht}
 
@@ -1429,8 +1481,12 @@ polygon areas. The volume, when not given, follows EnergyPlus
 
 ## Known limitations: gains, ground and geometry {#sec-gains-limitations}
 
-- [#223](https://github.com/bbrannon4/OpenBSE/issues/223): only electric
-  equipment; `full_when_occupied` granularity.
+- [#223](https://github.com/bbrannon4/OpenBSE/issues/223): `full_when_occupied`
+  granularity.
+- The summary report totals propane, fuel oils, diesel, gasoline, coal,
+  other fuels 1 and 2 and district cooling together as *Other Fuels*.
+- [#461](https://github.com/bbrannon4/OpenBSE/issues/461): exterior gas
+  equipment is reported as heating gas.
 - No multidimensional ground heat transfer model.
 
 ## Zone air heat balance {#sec-zone-air-hb}

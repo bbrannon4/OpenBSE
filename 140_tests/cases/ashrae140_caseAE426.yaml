@@ -31,10 +31,10 @@ zones:
     floor_area: 48.0
 
 equipment:
-  - {name: AE426 Z1 Sensible, zones: [AE426 Zone1], power: 1465.0, radiant_fraction: 0.0, latent_fraction: 0.0}
-  - {name: AE426 Z1 Latent, zones: [AE426 Zone1], power: 586.1, radiant_fraction: 0.0, latent_fraction: 1.0}
-  - {name: AE426 Z2 Sensible, zones: [AE426 Zone2], power: 2345.0, radiant_fraction: 0.0, latent_fraction: 0.0}
-  - {name: AE426 Z2 Latent, zones: [AE426 Zone2], power: 879.2, radiant_fraction: 0.0, latent_fraction: 1.0}
+  - {name: AE426 Z1 Sensible, zones: [AE426 Zone1], power: 1465.0, fuel: none, radiant_fraction: 0.0, latent_fraction: 0.0}
+  - {name: AE426 Z1 Latent, zones: [AE426 Zone1], power: 586.1, fuel: none, radiant_fraction: 0.0, latent_fraction: 1.0}
+  - {name: AE426 Z2 Sensible, zones: [AE426 Zone2], power: 2345.0, fuel: none, radiant_fraction: 0.0, latent_fraction: 0.0}
+  - {name: AE426 Z2 Latent, zones: [AE426 Zone2], power: 879.2, fuel: none, radiant_fraction: 0.0, latent_fraction: 1.0}
 
 surfaces:
   - {name: AE426 Zone1 N, zone: AE426 Zone1, type: wall, construction: Adiabatic Wall, boundary: adiabatic, vertices: [{x: 8.0, y: 6.0, z: 0},{x: 0.0, y: 6.0, z: 0},{x: 0.0, y: 6.0, z: 2.7},{x: 8.0, y: 6.0, z: 2.7}]}

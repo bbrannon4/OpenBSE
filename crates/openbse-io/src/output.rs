@@ -26,6 +26,7 @@
 
 use openbse_core::ports::ComponentKind;
 use openbse_core::simulation::TimestepResult;
+use openbse_envelope::{EquipmentFuel, FuelGroup, FuelPowers};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
@@ -546,7 +547,42 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
         (
             "building:total_gas",
             "W",
-            "Total gas/fuel power (all end uses)",
+            "Total natural gas power (all end uses)",
+        ),
+        (
+            "building:equipment_gas",
+            "W",
+            "Interior equipment natural gas power",
+        ),
+        (
+            "building:equipment_district_heating_water",
+            "W",
+            "Interior equipment district heating water power",
+        ),
+        (
+            "building:equipment_district_heating_steam",
+            "W",
+            "Interior equipment district heating steam power",
+        ),
+        (
+            "building:equipment_other_fuel",
+            "W",
+            "Interior equipment power on other fuels",
+        ),
+        (
+            "building:total_district_heating_water",
+            "W",
+            "Total district heating water power",
+        ),
+        (
+            "building:total_district_heating_steam",
+            "W",
+            "Total district heating steam power",
+        ),
+        (
+            "building:total_other_fuel",
+            "W",
+            "Total power on other fuels (propane, fuel oil, coal, ...)",
         ),
         // Submeter variables
         (
@@ -554,10 +590,38 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
             "W",
             "Submeter total electric power",
         ),
-        ("submeter:total_gas", "W", "Submeter total gas power"),
+        (
+            "submeter:total_gas",
+            "W",
+            "Submeter total natural gas power",
+        ),
+        (
+            "submeter:total_district_heating_water",
+            "W",
+            "Submeter total district heating water power",
+        ),
+        (
+            "submeter:total_district_heating_steam",
+            "W",
+            "Submeter total district heating steam power",
+        ),
+        (
+            "submeter:total_other_fuel",
+            "W",
+            "Submeter total power on other fuels",
+        ),
         ("submeter:total", "W", "Submeter total power (all fuels)"),
         ("submeter:lighting", "W", "Submeter lighting power"),
-        ("submeter:equipment", "W", "Submeter equipment power"),
+        (
+            "submeter:equipment",
+            "W",
+            "Submeter electric equipment power",
+        ),
+        (
+            "submeter:equipment_natural_gas",
+            "W",
+            "Submeter natural gas equipment power (equipment_<fuel> for any other fuel)",
+        ),
         ("submeter:heating_gas", "W", "Submeter heating gas power"),
         (
             "submeter:cooling_electric",
@@ -567,6 +631,19 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
         ("submeter:fan_electric", "W", "Submeter fan electric power"),
         ("submeter:dhw_gas", "W", "Submeter DHW gas power"),
     ]
+}
+
+/// The fuel group of a submeter end-use key: gas heating and DHW gas are
+/// natural gas, `equipment_<fuel>` follows its fuel, and the rest is electric.
+fn submeter_end_use_group(end_use: &str) -> FuelGroup {
+    match end_use {
+        "heating_gas" | "dhw_gas" => FuelGroup::NaturalGas,
+        other => other
+            .strip_prefix("equipment_")
+            .and_then(EquipmentFuel::from_key)
+            .and_then(EquipmentFuel::group)
+            .unwrap_or(FuelGroup::Electricity),
+    }
 }
 
 /// Get the unit string for a variable spec (`category:variable` or `category:variable:filter`).
@@ -847,7 +924,8 @@ pub struct OutputSnapshot {
     pub component_heating_electric_power: HashMap<String, f64>,
     // Internal gains by type (zone_name -> watts)
     pub zone_lighting_power: HashMap<String, f64>,
-    pub zone_equipment_power: HashMap<String, f64>,
+    /// Interior equipment and baseboard power by fuel group (zone_name -> W)
+    pub zone_equipment_power: HashMap<String, FuelPowers>,
 
     // Per-zone gain breakdown (zone_name -> watts, positive = heat into zone)
     pub zone_gain_people_sensible: HashMap<String, f64>,
@@ -919,6 +997,14 @@ pub struct OutputSnapshot {
 }
 
 impl OutputSnapshot {
+    /// Interior equipment power of one fuel group over all zones [W].
+    fn zone_equipment_group(&self, group: FuelGroup) -> f64 {
+        self.zone_equipment_power
+            .values()
+            .map(|p| p.get(group))
+            .sum()
+    }
+
     /// Create a snapshot with default/zero values.
     pub fn new(month: u32, day: u32, hour: u32, sub_hour: u32, dt: f64) -> Self {
         Self {
@@ -1176,7 +1262,15 @@ impl OutputSnapshot {
                     "dhw_gas" => self.dhw_fuel_power.values().sum(),
                     "lighting" => self.zone_lighting_power.values().sum(),
                     "ext_lighting" => self.ext_lighting_power.values().sum(),
-                    "equipment" => self.zone_equipment_power.values().sum(),
+                    "equipment" => self.zone_equipment_group(FuelGroup::Electricity),
+                    "equipment_gas" => self.zone_equipment_group(FuelGroup::NaturalGas),
+                    "equipment_district_heating_water" => {
+                        self.zone_equipment_group(FuelGroup::DistrictHeatingWater)
+                    }
+                    "equipment_district_heating_steam" => {
+                        self.zone_equipment_group(FuelGroup::DistrictHeatingSteam)
+                    }
+                    "equipment_other_fuel" => self.zone_equipment_group(FuelGroup::OtherFuel),
                     "ext_equipment" => self.ext_equipment_power.values().sum(),
                     "total_electric" => {
                         // Sum EVERY generic electric component exactly once, plus
@@ -1190,14 +1284,23 @@ impl OutputSnapshot {
                             + self.dhw_electric_power.values().sum::<f64>()
                             + self.zone_lighting_power.values().sum::<f64>()
                             + self.ext_lighting_power.values().sum::<f64>()
-                            + self.zone_equipment_power.values().sum::<f64>()
+                            + self.zone_equipment_group(FuelGroup::Electricity)
                             + self.ext_equipment_power.values().sum::<f64>()
                     }
                     "total_gas" => {
-                        // All fuel-burning components are gas heating; plus DHW gas.
+                        // All fuel-burning components are gas heating; plus DHW
+                        // and interior equipment gas.
                         self.component_fuel_power.values().sum::<f64>()
                             + self.dhw_fuel_power.values().sum::<f64>()
+                            + self.zone_equipment_group(FuelGroup::NaturalGas)
                     }
+                    "total_district_heating_water" => {
+                        self.zone_equipment_group(FuelGroup::DistrictHeatingWater)
+                    }
+                    "total_district_heating_steam" => {
+                        self.zone_equipment_group(FuelGroup::DistrictHeatingSteam)
+                    }
+                    "total_other_fuel" => self.zone_equipment_group(FuelGroup::OtherFuel),
                     _ => return HashMap::new(),
                 };
                 single("Building", value)
@@ -1212,17 +1315,19 @@ impl OutputSnapshot {
                 let end_use = variable;
                 let mut result = HashMap::new();
                 for (meter_name, end_uses) in &self.submeter_power {
+                    let of_group = |group: FuelGroup| -> f64 {
+                        end_uses
+                            .iter()
+                            .filter(|(k, _)| submeter_end_use_group(k) == group)
+                            .map(|(_, &v)| v)
+                            .sum()
+                    };
                     let val = match end_use {
-                        "total_electric" => end_uses
-                            .iter()
-                            .filter(|(k, _)| !k.contains("gas"))
-                            .map(|(_, &v)| v)
-                            .sum(),
-                        "total_gas" => end_uses
-                            .iter()
-                            .filter(|(k, _)| k.contains("gas"))
-                            .map(|(_, &v)| v)
-                            .sum(),
+                        "total_electric" => of_group(FuelGroup::Electricity),
+                        "total_gas" => of_group(FuelGroup::NaturalGas),
+                        "total_district_heating_water" => of_group(FuelGroup::DistrictHeatingWater),
+                        "total_district_heating_steam" => of_group(FuelGroup::DistrictHeatingSteam),
+                        "total_other_fuel" => of_group(FuelGroup::OtherFuel),
                         "total" => end_uses.values().sum(),
                         other => *end_uses.get(other).unwrap_or(&0.0),
                     };
@@ -1813,19 +1918,23 @@ struct MonthlyEnergy {
     cooling_j: f64, // Total zone cooling loads [J]
     hours: f64,     // Number of hours in data
     // Electric end uses
-    fan_elec_j: f64,            // Fan electric [J]
-    cool_elec_j: f64,           // Cooling electric (DX compressor, chiller) [J]
-    heat_elec_j: f64,           // Heating electric (electric coil, HP compressor) [J]
-    pump_elec_j: f64,           // Pump electric [J]
-    heat_rejection_elec_j: f64, // Cooling tower fan electric [J]
-    humidification_elec_j: f64, // Humidifier electric [J]
-    heat_recovery_elec_j: f64,  // Heat recovery electric (wheel motor, etc.) [J]
-    dhw_elec_j: f64,            // DHW electric (water heater) [J]
-    other_elec_j: f64,          // Uncategorized electric HVAC components [J]
-    lighting_j: f64,            // Interior lighting [J]
-    ext_lighting_j: f64,        // Exterior lighting [J]
-    equipment_j: f64,           // Interior equipment/plug loads [J]
-    ext_equipment_j: f64,       // Exterior equipment [J]
+    fan_elec_j: f64,             // Fan electric [J]
+    cool_elec_j: f64,            // Cooling electric (DX compressor, chiller) [J]
+    heat_elec_j: f64,            // Heating electric (electric coil, HP compressor) [J]
+    pump_elec_j: f64,            // Pump electric [J]
+    heat_rejection_elec_j: f64,  // Cooling tower fan electric [J]
+    humidification_elec_j: f64,  // Humidifier electric [J]
+    heat_recovery_elec_j: f64,   // Heat recovery electric (wheel motor, etc.) [J]
+    dhw_elec_j: f64,             // DHW electric (water heater) [J]
+    other_elec_j: f64,           // Uncategorized electric HVAC components [J]
+    lighting_j: f64,             // Interior lighting [J]
+    ext_lighting_j: f64,         // Exterior lighting [J]
+    equipment_j: f64,            // Interior electric equipment/plug loads [J]
+    equipment_gas_j: f64,        // Interior natural gas equipment [J]
+    equipment_dh_water_j: f64,   // Interior district heating water equipment [J]
+    equipment_dh_steam_j: f64,   // Interior district heating steam equipment [J]
+    equipment_other_fuel_j: f64, // Interior equipment on other fuels [J]
+    ext_equipment_j: f64,        // Exterior equipment [J]
     // Gas end uses
     heat_gas_j: f64, // Heating gas (boiler, gas furnace) [J]
     dhw_gas_j: f64,  // DHW gas (gas water heater) [J]
@@ -2141,14 +2250,18 @@ impl SummaryReport {
         for &pw in snapshot.zone_lighting_power.values() {
             me.lighting_j += pw * snapshot.dt;
         }
-        for (&pw, zone_name) in snapshot.zone_equipment_power.iter().map(|(k, v)| (v, k)) {
+        for (zone_name, pw) in &snapshot.zone_equipment_power {
             let it_pw = snapshot
                 .it_equipment_power
                 .get(zone_name)
                 .copied()
                 .unwrap_or(0.0);
-            let equip_only = (pw - it_pw).max(0.0);
+            let equip_only = (pw.get(FuelGroup::Electricity) - it_pw).max(0.0);
             me.equipment_j += equip_only * snapshot.dt;
+            me.equipment_gas_j += pw.get(FuelGroup::NaturalGas) * snapshot.dt;
+            me.equipment_dh_water_j += pw.get(FuelGroup::DistrictHeatingWater) * snapshot.dt;
+            me.equipment_dh_steam_j += pw.get(FuelGroup::DistrictHeatingSteam) * snapshot.dt;
+            me.equipment_other_fuel_j += pw.get(FuelGroup::OtherFuel) * snapshot.dt;
         }
 
         // 4. Data center end uses
@@ -2364,6 +2477,13 @@ impl SummaryReport {
         // -- Monthly Energy End-Use --
         {
             let rows = self.compute_enduse_rows();
+            // Label column wide enough for the longest end use.
+            let lw = rows
+                .iter()
+                .map(|r| r.label.len())
+                .max()
+                .unwrap_or(0)
+                .max(28);
             let month_names = [
                 "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
             ];
@@ -2375,13 +2495,13 @@ impl SummaryReport {
             writeln!(w)?;
 
             // Header
-            write!(w, "  {:<21}", "End Use")?;
+            write!(w, "  {:<lw$}", "End Use")?;
             for mn in &month_names {
                 write!(w, "  {:>7}", mn)?;
             }
             writeln!(w, "  {:>9}", "Total")?;
 
-            write!(w, "  {:-<21}", "")?;
+            write!(w, "  {:-<lw$}", "")?;
             for _ in 0..12 {
                 write!(w, "  {:-<7}", "")?;
             }
@@ -2389,7 +2509,7 @@ impl SummaryReport {
 
             // Data rows
             for row in &rows {
-                write!(w, "  {:<21}", row.label)?;
+                write!(w, "  {:<lw$}", row.label)?;
                 for mi in 0..12 {
                     write!(w, "  {:>7.1}", row.monthly[mi])?;
                 }
@@ -2397,52 +2517,20 @@ impl SummaryReport {
             }
 
             // Separator
-            write!(w, "  {:-<21}", "")?;
+            write!(w, "  {:-<lw$}", "")?;
             for _ in 0..12 {
                 write!(w, "  {:-<7}", "")?;
             }
             writeln!(w, "  {:-<9}", "")?;
 
-            // Total Electric
-            let mut total_elec = [0.0_f64; 12];
-            let mut total_elec_annual = 0.0_f64;
-            for row in &rows {
-                if !row.label.contains("Gas") {
-                    for mi in 0..12 {
-                        total_elec[mi] += row.monthly[mi];
-                    }
-                    total_elec_annual += row.total;
+            // Fuel totals and the grand total
+            for (label, monthly, total) in fuel_totals(&rows) {
+                write!(w, "  {:<lw$}", label)?;
+                for v in monthly {
+                    write!(w, "  {:>7.1}", v)?;
                 }
+                writeln!(w, "  {:>9.1}", total)?;
             }
-            write!(w, "  {:<21}", "Total Electric")?;
-            for mi in 0..12 {
-                write!(w, "  {:>7.1}", total_elec[mi])?;
-            }
-            writeln!(w, "  {:>9.1}", total_elec_annual)?;
-
-            // Total Gas
-            let mut total_gas = [0.0_f64; 12];
-            let mut total_gas_annual = 0.0_f64;
-            for row in &rows {
-                if row.label.contains("Gas") {
-                    for mi in 0..12 {
-                        total_gas[mi] += row.monthly[mi];
-                    }
-                    total_gas_annual += row.total;
-                }
-            }
-            write!(w, "  {:<21}", "Total Gas")?;
-            for mi in 0..12 {
-                write!(w, "  {:>7.1}", total_gas[mi])?;
-            }
-            writeln!(w, "  {:>9.1}", total_gas_annual)?;
-
-            // Grand Total
-            write!(w, "  {:<21}", "Total")?;
-            for mi in 0..12 {
-                write!(w, "  {:>7.1}", total_elec[mi] + total_gas[mi])?;
-            }
-            writeln!(w, "  {:>9.1}", total_elec_annual + total_gas_annual)?;
             writeln!(w)?;
 
             // -- Zone Loads [kWh] --
@@ -3090,7 +3178,10 @@ impl SummaryReport {
     fn compute_enduse_rows(&self) -> Vec<EndUseRow> {
         let j_to_kwh = 1.0 / 3_600_000.0;
 
-        let make_row = |label: &'static str, extractor: fn(&MonthlyEnergy) -> f64| -> EndUseRow {
+        let make_row = |label: &'static str,
+                        fuel: FuelGroup,
+                        extractor: fn(&MonthlyEnergy) -> f64|
+         -> EndUseRow {
             let mut monthly = [0.0_f64; 12];
             let mut total = 0.0_f64;
             for (i, me) in self.monthly.iter().enumerate() {
@@ -3100,29 +3191,49 @@ impl SummaryReport {
             }
             EndUseRow {
                 label,
+                fuel,
                 monthly,
                 total,
             }
         };
+        use FuelGroup::{DistrictHeatingSteam, DistrictHeatingWater, Electricity, NaturalGas};
 
         vec![
-            make_row("Interior Lighting", |m| m.lighting_j),
-            make_row("Exterior Lighting", |m| m.ext_lighting_j),
-            make_row("Interior Equipment", |m| m.equipment_j),
-            make_row("Exterior Equipment", |m| m.ext_equipment_j),
-            make_row("IT Equipment", |m| m.it_equipment_j),
-            make_row("Elec Distribution", |m| m.elec_dist_j),
-            make_row("Fans (Electric)", |m| m.fan_elec_j),
-            make_row("Pumps (Electric)", |m| m.pump_elec_j),
-            make_row("Cooling (Electric)", |m| m.cool_elec_j),
-            make_row("Heating (Electric)", |m| m.heat_elec_j),
-            make_row("Other (Electric)", |m| m.other_elec_j),
-            make_row("Heating (Gas)", |m| m.heat_gas_j),
-            make_row("Heat Rejection", |m| m.heat_rejection_elec_j),
-            make_row("Humidification", |m| m.humidification_elec_j),
-            make_row("Heat Recovery", |m| m.heat_recovery_elec_j),
-            make_row("DHW (Electric)", |m| m.dhw_elec_j),
-            make_row("DHW (Gas)", |m| m.dhw_gas_j),
+            make_row("Interior Lighting", Electricity, |m| m.lighting_j),
+            make_row("Exterior Lighting", Electricity, |m| m.ext_lighting_j),
+            make_row("Interior Equipment", Electricity, |m| m.equipment_j),
+            make_row("Interior Equipment (Gas)", NaturalGas, |m| {
+                m.equipment_gas_j
+            }),
+            make_row(
+                "Interior Equipment (District Heating Water)",
+                DistrictHeatingWater,
+                |m| m.equipment_dh_water_j,
+            ),
+            make_row(
+                "Interior Equipment (District Heating Steam)",
+                DistrictHeatingSteam,
+                |m| m.equipment_dh_steam_j,
+            ),
+            make_row(
+                "Interior Equipment (Other Fuels)",
+                FuelGroup::OtherFuel,
+                |m| m.equipment_other_fuel_j,
+            ),
+            make_row("Exterior Equipment", Electricity, |m| m.ext_equipment_j),
+            make_row("IT Equipment", Electricity, |m| m.it_equipment_j),
+            make_row("Elec Distribution", Electricity, |m| m.elec_dist_j),
+            make_row("Fans (Electric)", Electricity, |m| m.fan_elec_j),
+            make_row("Pumps (Electric)", Electricity, |m| m.pump_elec_j),
+            make_row("Cooling (Electric)", Electricity, |m| m.cool_elec_j),
+            make_row("Heating (Electric)", Electricity, |m| m.heat_elec_j),
+            make_row("Other (Electric)", Electricity, |m| m.other_elec_j),
+            make_row("Heating (Gas)", NaturalGas, |m| m.heat_gas_j),
+            make_row("Heat Rejection", Electricity, |m| m.heat_rejection_elec_j),
+            make_row("Humidification", Electricity, |m| m.humidification_elec_j),
+            make_row("Heat Recovery", Electricity, |m| m.heat_recovery_elec_j),
+            make_row("DHW (Electric)", Electricity, |m| m.dhw_elec_j),
+            make_row("DHW (Gas)", NaturalGas, |m| m.dhw_gas_j),
         ]
     }
 
@@ -3280,46 +3391,14 @@ impl SummaryReport {
             writeln!(w, "<td>{:.1}</td></tr>", row.total)?;
         }
 
-        // Total Electric
-        let mut te_monthly = [0.0_f64; 12];
-        let mut te_total = 0.0_f64;
-        for row in &rows {
-            if !row.label.contains("Gas") {
-                for mi in 0..12 {
-                    te_monthly[mi] += row.monthly[mi];
-                }
-                te_total += row.total;
+        // Fuel totals and the grand total
+        for (label, monthly, total) in fuel_totals(&rows) {
+            write!(w, "<tr class=\"total-row\"><td>{label}</td>")?;
+            for v in monthly {
+                write!(w, "<td>{:.1}</td>", v)?;
             }
+            writeln!(w, "<td>{:.1}</td></tr>", total)?;
         }
-        write!(w, "<tr class=\"total-row\"><td>Total Electric</td>")?;
-        for mi in 0..12 {
-            write!(w, "<td>{:.1}</td>", te_monthly[mi])?;
-        }
-        writeln!(w, "<td>{:.1}</td></tr>", te_total)?;
-
-        // Total Gas
-        let mut tg_monthly = [0.0_f64; 12];
-        let mut tg_total = 0.0_f64;
-        for row in &rows {
-            if row.label.contains("Gas") {
-                for mi in 0..12 {
-                    tg_monthly[mi] += row.monthly[mi];
-                }
-                tg_total += row.total;
-            }
-        }
-        write!(w, "<tr class=\"total-row\"><td>Total Gas</td>")?;
-        for mi in 0..12 {
-            write!(w, "<td>{:.1}</td>", tg_monthly[mi])?;
-        }
-        writeln!(w, "<td>{:.1}</td></tr>", tg_total)?;
-
-        // Grand Total
-        write!(w, "<tr class=\"total-row\"><td>Total</td>")?;
-        for mi in 0..12 {
-            write!(w, "<td>{:.1}</td>", te_monthly[mi] + tg_monthly[mi])?;
-        }
-        writeln!(w, "<td>{:.1}</td></tr>", te_total + tg_total)?;
         writeln!(w, "</table>")?;
 
         // -- Zone Loads Summary --
@@ -3683,46 +3762,14 @@ impl SummaryReport {
             writeln!(w, ",{:.1}", row.total)?;
         }
 
-        // Total Electric
-        let mut te_monthly = [0.0_f64; 12];
-        let mut te_total = 0.0_f64;
-        for row in &rows {
-            if !row.label.contains("Gas") {
-                for mi in 0..12 {
-                    te_monthly[mi] += row.monthly[mi];
-                }
-                te_total += row.total;
+        // Fuel totals and the grand total
+        for (label, monthly, total) in fuel_totals(&rows) {
+            write!(w, "{label}")?;
+            for v in monthly {
+                write!(w, ",{:.1}", v)?;
             }
+            writeln!(w, ",{:.1}", total)?;
         }
-        write!(w, "Total Electric")?;
-        for mi in 0..12 {
-            write!(w, ",{:.1}", te_monthly[mi])?;
-        }
-        writeln!(w, ",{:.1}", te_total)?;
-
-        // Total Gas
-        let mut tg_monthly = [0.0_f64; 12];
-        let mut tg_total = 0.0_f64;
-        for row in &rows {
-            if row.label.contains("Gas") {
-                for mi in 0..12 {
-                    tg_monthly[mi] += row.monthly[mi];
-                }
-                tg_total += row.total;
-            }
-        }
-        write!(w, "Total Gas")?;
-        for mi in 0..12 {
-            write!(w, ",{:.1}", tg_monthly[mi])?;
-        }
-        writeln!(w, ",{:.1}", tg_total)?;
-
-        // Grand Total
-        write!(w, "Total")?;
-        for mi in 0..12 {
-            write!(w, ",{:.1}", te_monthly[mi] + tg_monthly[mi])?;
-        }
-        writeln!(w, ",{:.1}", te_total + tg_total)?;
 
         writeln!(w)?;
 
@@ -3837,8 +3884,52 @@ impl SummaryReport {
 /// A single end-use row for the monthly breakdown table.
 struct EndUseRow {
     label: &'static str,
+    fuel: FuelGroup,
     monthly: [f64; 12], // in kWh
     total: f64,         // in kWh
+}
+
+/// The label of each fuel group's total row, in report order.
+const FUEL_TOTAL_LABELS: [(FuelGroup, &str); 5] = [
+    (FuelGroup::Electricity, "Total Electric"),
+    (FuelGroup::NaturalGas, "Total Gas"),
+    (
+        FuelGroup::DistrictHeatingWater,
+        "Total District Heating Water",
+    ),
+    (
+        FuelGroup::DistrictHeatingSteam,
+        "Total District Heating Steam",
+    ),
+    (FuelGroup::OtherFuel, "Total Other Fuels"),
+];
+
+/// The total rows under the end uses: each fuel group's monthly and annual
+/// sum, then the grand total over all fuels [kWh].
+fn fuel_totals(rows: &[EndUseRow]) -> Vec<(&'static str, [f64; 12], f64)> {
+    let mut out: Vec<_> = FUEL_TOTAL_LABELS
+        .iter()
+        .map(|&(group, label)| {
+            let mut monthly = [0.0_f64; 12];
+            let mut total = 0.0_f64;
+            for row in rows.iter().filter(|r| r.fuel == group) {
+                for (m, v) in monthly.iter_mut().zip(row.monthly) {
+                    *m += v;
+                }
+                total += row.total;
+            }
+            (label, monthly, total)
+        })
+        .collect();
+    let mut monthly = [0.0_f64; 12];
+    for (_, m, _) in &out {
+        for (g, v) in monthly.iter_mut().zip(m) {
+            *g += v;
+        }
+    }
+    let total = out.iter().map(|(_, _, t)| t).sum();
+    out.push(("Total", monthly, total));
+    out
 }
 
 /// The 90.4 limits below are not traced to the standard's tables, so the
@@ -4292,11 +4383,90 @@ variables:
         assert!((other.total - 1.0).abs() < 1e-9); // 1000 W * 3600 s = 1 kWh
         let elec_total: f64 = rows
             .iter()
-            .filter(|r| !r.label.contains("Gas"))
+            .filter(|r| r.fuel == FuelGroup::Electricity)
             .map(|r| r.total)
             .sum();
         // 1500 W * 3600 s = 1.5 kWh total electric.
         assert!((elec_total - 1.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn equipment_energy_is_reported_on_its_fuel() {
+        // One zone with 1000 W electric, 2000 W gas, 3000 W district hot water,
+        // 4000 W steam and 500 W propane equipment for an hour, plus 600 W of
+        // gas heating: each lands on its own row and fuel total, as E+ meters
+        // GasEquipment on NaturalGas, HotWaterEquipment on DistrictHeatingWater
+        // and SteamEquipment on DistrictHeatingSteam, all InteriorEquipment.
+        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
+        let mut p = FuelPowers::default();
+        p.add(FuelGroup::Electricity, 1000.0);
+        p.add(FuelGroup::NaturalGas, 2000.0);
+        p.add(FuelGroup::DistrictHeatingWater, 3000.0);
+        p.add(FuelGroup::DistrictHeatingSteam, 4000.0);
+        p.add(FuelGroup::OtherFuel, 500.0);
+        snap.zone_equipment_power.insert("Kitchen".to_string(), p);
+        snap.component_fuel_power
+            .insert("Boiler".to_string(), 600.0);
+
+        let get = |spec: &str| snap.get_variable_values(spec)["Building"];
+        assert_eq!(get("building:equipment"), 1000.0);
+        assert_eq!(get("building:equipment_gas"), 2000.0);
+        assert_eq!(get("building:equipment_district_heating_water"), 3000.0);
+        assert_eq!(get("building:equipment_district_heating_steam"), 4000.0);
+        assert_eq!(get("building:equipment_other_fuel"), 500.0);
+        assert_eq!(get("building:total_electric"), 1000.0);
+        assert_eq!(get("building:total_gas"), 2600.0);
+        assert_eq!(get("building:total_district_heating_water"), 3000.0);
+        assert_eq!(get("building:total_district_heating_steam"), 4000.0);
+        assert_eq!(get("building:total_other_fuel"), 500.0);
+
+        let mut report = SummaryReport::new();
+        report.add_snapshot(&snap);
+        let rows = report.compute_enduse_rows();
+        let row = |label: &str| rows.iter().find(|r| r.label == label).unwrap().total;
+        assert!((row("Interior Equipment") - 1.0).abs() < 1e-9);
+        assert!((row("Interior Equipment (Gas)") - 2.0).abs() < 1e-9);
+        assert!((row("Interior Equipment (District Heating Water)") - 3.0).abs() < 1e-9);
+        assert!((row("Interior Equipment (District Heating Steam)") - 4.0).abs() < 1e-9);
+        assert!((row("Interior Equipment (Other Fuels)") - 0.5).abs() < 1e-9);
+        let totals: std::collections::HashMap<_, _> = fuel_totals(&rows)
+            .into_iter()
+            .map(|(label, _, total)| (label, total))
+            .collect();
+        assert!((totals["Total Electric"] - 1.0).abs() < 1e-9);
+        assert!((totals["Total Gas"] - 2.6).abs() < 1e-9);
+        assert!((totals["Total District Heating Water"] - 3.0).abs() < 1e-9);
+        assert!((totals["Total District Heating Steam"] - 4.0).abs() < 1e-9);
+        assert!((totals["Total Other Fuels"] - 0.5).abs() < 1e-9);
+        assert!((totals["Total"] - 11.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn submeter_totals_follow_each_end_use_fuel() {
+        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
+        let uses: HashMap<String, f64> = [
+            ("lighting", 100.0),
+            ("equipment", 200.0),
+            ("equipment_natural_gas", 300.0),
+            ("equipment_gasoline", 50.0),
+            ("equipment_district_heating_water", 400.0),
+            ("equipment_district_heating_steam", 500.0),
+            ("heating_gas", 600.0),
+            ("dhw_gas", 700.0),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        snap.submeter_power.insert("Kitchen".to_string(), uses);
+        let get = |spec: &str| snap.get_variable_values(spec)["Kitchen"];
+        assert_eq!(get("submeter:total_electric"), 300.0);
+        assert_eq!(get("submeter:total_gas"), 1600.0);
+        assert_eq!(get("submeter:total_district_heating_water"), 400.0);
+        assert_eq!(get("submeter:total_district_heating_steam"), 500.0);
+        // Gasoline is not natural gas, though its key contains "gas".
+        assert_eq!(get("submeter:total_other_fuel"), 50.0);
+        assert_eq!(get("submeter:total"), 2850.0);
+        assert_eq!(get("submeter:equipment_natural_gas"), 300.0);
     }
 
     #[test]

@@ -102,6 +102,7 @@ equipment:
   - name: Internal Gains
     zones: [Case640 Zone]
     power: 200.0
+    fuel: none
     radiant_fraction: 0.6
 
 infiltration:

@@ -1,7 +1,9 @@
-//! Internal heat gains: people, lighting, equipment.
+//! Internal heat gains: people, lighting, equipment of any fuel, and
+//! outdoor-temperature-controlled baseboard heat.
 //!
 //! Each gain type has a design level, a radiant/convective split, and an
-//! optional schedule reference for time-varying operation.
+//! optional schedule reference for time-varying operation. Equipment carries
+//! the fuel it draws, which decides the meter its energy is booked to.
 
 use serde::{Deserialize, Serialize};
 
@@ -79,7 +81,189 @@ pub enum InternalGainInput {
         /// Submeter label for end-use reporting (default: "General")
         #[serde(default = "default_submeter")]
         submeter: String,
+        /// Fuel the equipment draws (default electricity). It sets only the
+        /// meter the power is booked to; the heat split is the same for every
+        /// fuel, as in E+.
+        #[serde(default)]
+        fuel: EquipmentFuel,
     },
+    /// Baseboard heat whose capacity follows the outdoor temperature (E+
+    /// `ZoneBaseboard:OutdoorTemperatureControlled`): electric, metered as
+    /// interior equipment.
+    OutdoorControlledBaseboard {
+        /// Capacity at and below `low_temperature` [W]
+        capacity_at_low_temperature: f64,
+        /// Outdoor temperature of the low-temperature capacity [°C]
+        low_temperature: f64,
+        /// Capacity just below `high_temperature` [W]; none at or above it
+        capacity_at_high_temperature: f64,
+        /// Outdoor temperature at and above which the baseboard is off [°C]
+        high_temperature: f64,
+        /// Fraction radiant [0-1] (default 0, as E+)
+        #[serde(default)]
+        radiant_fraction: f64,
+        /// Schedule name, a fraction of the capacity (default: always on)
+        #[serde(default)]
+        schedule: Option<String>,
+        /// Submeter label for end-use reporting (default: "General")
+        #[serde(default = "default_submeter")]
+        submeter: String,
+    },
+}
+
+/// The fuel or energy source an equipment gain draws: the fuel types of E+
+/// `OtherEquipment`, which cover `ElectricEquipment` (electricity),
+/// `GasEquipment` (natural gas), `HotWaterEquipment` (district heating water)
+/// and `SteamEquipment` (district heating steam). `none` meters nothing and,
+/// as in E+, is the only fuel whose design level may be negative (a heat sink).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EquipmentFuel {
+    #[default]
+    Electricity,
+    NaturalGas,
+    Propane,
+    FuelOilNo1,
+    FuelOilNo2,
+    Diesel,
+    Gasoline,
+    Coal,
+    OtherFuel1,
+    OtherFuel2,
+    DistrictHeatingWater,
+    DistrictHeatingSteam,
+    DistrictCooling,
+    None,
+}
+
+impl EquipmentFuel {
+    pub const ALL: [EquipmentFuel; 14] = [
+        Self::Electricity,
+        Self::NaturalGas,
+        Self::Propane,
+        Self::FuelOilNo1,
+        Self::FuelOilNo2,
+        Self::Diesel,
+        Self::Gasoline,
+        Self::Coal,
+        Self::OtherFuel1,
+        Self::OtherFuel2,
+        Self::DistrictHeatingWater,
+        Self::DistrictHeatingSteam,
+        Self::DistrictCooling,
+        Self::None,
+    ];
+
+    /// The YAML name.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Electricity => "electricity",
+            Self::NaturalGas => "natural_gas",
+            Self::Propane => "propane",
+            Self::FuelOilNo1 => "fuel_oil_no1",
+            Self::FuelOilNo2 => "fuel_oil_no2",
+            Self::Diesel => "diesel",
+            Self::Gasoline => "gasoline",
+            Self::Coal => "coal",
+            Self::OtherFuel1 => "other_fuel1",
+            Self::OtherFuel2 => "other_fuel2",
+            Self::DistrictHeatingWater => "district_heating_water",
+            Self::DistrictHeatingSteam => "district_heating_steam",
+            Self::DistrictCooling => "district_cooling",
+            Self::None => "none",
+        }
+    }
+
+    /// The fuel with YAML name `key`.
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|f| f.key() == key)
+    }
+
+    /// The summary report's fuel group, or `None` for unmetered equipment.
+    pub fn group(self) -> Option<FuelGroup> {
+        match self {
+            Self::Electricity => Some(FuelGroup::Electricity),
+            Self::NaturalGas => Some(FuelGroup::NaturalGas),
+            Self::DistrictHeatingWater => Some(FuelGroup::DistrictHeatingWater),
+            Self::DistrictHeatingSteam => Some(FuelGroup::DistrictHeatingSteam),
+            Self::None => None,
+            _ => Some(FuelGroup::OtherFuel),
+        }
+    }
+
+    /// The submeter end-use key of equipment on this fuel: `equipment` for
+    /// electricity, `equipment_<fuel>` otherwise, and `None` when unmetered.
+    pub fn end_use_key(self) -> Option<String> {
+        match self {
+            Self::Electricity => Some("equipment".to_string()),
+            Self::None => None,
+            f => Some(format!("equipment_{}", f.key())),
+        }
+    }
+}
+
+/// The fuels the summary report totals separately. Propane, the fuel oils,
+/// diesel, gasoline, coal, other fuels 1 and 2 and district cooling share
+/// `OtherFuel`; submeters keep each one apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FuelGroup {
+    Electricity,
+    NaturalGas,
+    DistrictHeatingWater,
+    DistrictHeatingSteam,
+    OtherFuel,
+}
+
+impl FuelGroup {
+    pub const ALL: [FuelGroup; 5] = [
+        Self::Electricity,
+        Self::NaturalGas,
+        Self::DistrictHeatingWater,
+        Self::DistrictHeatingSteam,
+        Self::OtherFuel,
+    ];
+
+    fn index(self) -> usize {
+        self as usize
+    }
+}
+
+/// Power drawn by fuel group [W].
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FuelPowers([f64; 5]);
+
+impl FuelPowers {
+    pub fn get(&self, group: FuelGroup) -> f64 {
+        self.0[group.index()]
+    }
+
+    pub fn add(&mut self, group: FuelGroup, watts: f64) {
+        self.0[group.index()] += watts;
+    }
+
+    /// Every group multiplied by `k` (e.g. a zone multiplier).
+    pub fn scaled(&self, k: f64) -> Self {
+        Self(self.0.map(|w| w * k))
+    }
+
+    /// Sum over all groups [W].
+    pub fn total(&self) -> f64 {
+        self.0.iter().sum()
+    }
+}
+
+/// Baseboard capacity at outdoor temperature `t_out` [W], before its
+/// schedule: the low-temperature capacity at and below `t_low`, linear up to
+/// the high-temperature capacity, and none at or above `t_high`
+/// (E+ `InitInternalHeatGains`).
+pub fn baseboard_capacity(t_out: f64, cap_low: f64, t_low: f64, cap_high: f64, t_high: f64) -> f64 {
+    if t_out >= t_high {
+        0.0
+    } else if t_out > t_low {
+        cap_low + (t_out - t_low) * (cap_high - cap_low) / (t_high - t_low)
+    } else {
+        cap_low
+    }
 }
 
 fn default_people_radiant() -> f64 {
@@ -103,8 +287,9 @@ pub struct ResolvedGain {
     pub total: f64,
     /// Lighting electric power this timestep [W] (scheduled)
     pub lighting_power: f64,
-    /// Equipment electric power this timestep [W] (scheduled)
-    pub equipment_power: f64,
+    /// Equipment and baseboard power drawn this timestep, by fuel group [W]
+    /// (scheduled; unmetered `none` equipment excluded)
+    pub equipment_power: FuelPowers,
     /// People sensible heat this timestep [W] (scheduled)
     pub people_heat: f64,
     /// People latent heat this timestep [W] (scheduled, for humidity modeling)
@@ -115,7 +300,8 @@ pub struct ResolvedGain {
     // ─── Per-type gain breakdown (conv + rad = heat entering zone) ────
     /// Lighting heat to zone [W] (conv + rad, excluding return air fraction)
     pub lighting_gain_to_zone: f64,
-    /// Equipment sensible heat to zone [W] (conv + rad, excluding lost fraction)
+    /// Equipment and baseboard sensible heat to zone [W] (conv + rad,
+    /// excluding lost fraction)
     pub equipment_sensible_gain_to_zone: f64,
     /// Lighting heat to the return air [W] (`return_air_fraction`). It is
     /// part of `convective`: with no return air to carry it, the heat stays
@@ -129,8 +315,12 @@ pub struct ResolvedGain {
 ///
 /// If a `ScheduleManager` is provided, schedule fractions are looked up by name.
 /// Otherwise, all gains run at 100% (backward compatible).
-pub fn resolve_gains(gains: &[InternalGainInput], zone_air_temp: f64) -> ResolvedGain {
-    resolve_gains_scheduled(gains, None, 1, 1, 1, zone_air_temp)
+pub fn resolve_gains(
+    gains: &[InternalGainInput],
+    zone_air_temp: f64,
+    t_outdoor: f64,
+) -> ResolvedGain {
+    resolve_gains_scheduled(gains, None, 1, 1, 1, zone_air_temp, t_outdoor)
 }
 
 /// E+ `InitInternalHeatGains` coefficients for the sensible heat of one person
@@ -167,6 +357,8 @@ pub fn people_sensible_per_person(m: f64, t: f64) -> f64 {
 /// `zone_air_temp` — the zone air temperature [°C] people's sensible heat
 /// follows when their sensible fraction is autocalculated (E+ uses the zone
 /// mean air temperature at the start of the timestep)
+/// `t_outdoor` — the outdoor dry-bulb temperature [°C] baseboard capacity
+/// follows
 pub fn resolve_gains_scheduled(
     gains: &[InternalGainInput],
     schedule_mgr: Option<&crate::schedule::ScheduleManager>,
@@ -174,6 +366,7 @@ pub fn resolve_gains_scheduled(
     day_of_week: u32,
     day_of_year: u32,
     zone_air_temp: f64,
+    t_outdoor: f64,
 ) -> ResolvedGain {
     let mut result = ResolvedGain::default();
 
@@ -235,13 +428,14 @@ pub fn resolve_gains_scheduled(
                 latent_fraction,
                 schedule,
                 submeter: _,
+                fuel,
             } => {
                 let frac =
                     schedule_fraction(schedule, schedule_mgr, hour, day_of_week, day_of_year);
                 let total = power * frac;
-                // All fractions are of the total, as in E+ `ElectricEquipment` (#186).
-                // Only the non-lost portion enters the zone; latent generates
-                // moisture, not sensible heat.
+                // All fractions are of the total, as in E+'s equipment objects
+                // (#186), whatever the fuel. Only the non-lost portion enters
+                // the zone; latent generates moisture, not sensible heat.
                 let latent = total * latent_fraction;
                 let sensible = total * (1.0 - lost_fraction - latent_fraction);
                 let radiant = total * radiant_fraction;
@@ -249,14 +443,91 @@ pub fn resolve_gains_scheduled(
                 result.convective += sensible - radiant;
                 result.total += sensible;
                 result.equipment_latent += latent;
-                // Report full electric power for energy accounting
-                result.equipment_power += total;
+                // The whole input power is metered on its fuel, lost heat included.
+                if let Some(group) = fuel.group() {
+                    result.equipment_power.add(group, total);
+                }
                 result.equipment_sensible_gain_to_zone += sensible;
+            }
+            InternalGainInput::OutdoorControlledBaseboard {
+                capacity_at_low_temperature,
+                low_temperature,
+                capacity_at_high_temperature,
+                high_temperature,
+                radiant_fraction,
+                schedule,
+                submeter: _,
+            } => {
+                let frac =
+                    schedule_fraction(schedule, schedule_mgr, hour, day_of_week, day_of_year);
+                let total = frac
+                    * baseboard_capacity(
+                        t_outdoor,
+                        *capacity_at_low_temperature,
+                        *low_temperature,
+                        *capacity_at_high_temperature,
+                        *high_temperature,
+                    );
+                let radiant = total * radiant_fraction;
+                result.radiative += radiant;
+                result.convective += total - radiant;
+                result.total += total;
+                result.equipment_power.add(FuelGroup::Electricity, total);
+                result.equipment_sensible_gain_to_zone += total;
             }
         }
     }
 
     result
+}
+
+impl InternalGainInput {
+    /// The gain's schedule, if any.
+    pub fn schedule(&self) -> Option<&str> {
+        match self {
+            Self::People { schedule, .. }
+            | Self::Lights { schedule, .. }
+            | Self::Equipment { schedule, .. }
+            | Self::OutdoorControlledBaseboard { schedule, .. } => schedule.as_deref(),
+        }
+    }
+
+    /// The energy this gain meters at schedule fraction `frac` and outdoor
+    /// temperature `t_outdoor`: its submeter, its end-use key and the power
+    /// [W]. People and unmetered (`none`) equipment meter nothing.
+    pub fn metered_use(&self, frac: f64, t_outdoor: f64) -> Option<(&str, String, f64)> {
+        match self {
+            Self::People { .. } => None,
+            Self::Lights {
+                power, submeter, ..
+            } => Some((submeter, "lighting".to_string(), power * frac)),
+            Self::Equipment {
+                power,
+                submeter,
+                fuel,
+                ..
+            } => fuel
+                .end_use_key()
+                .map(|key| (submeter.as_str(), key, power * frac)),
+            Self::OutdoorControlledBaseboard {
+                capacity_at_low_temperature,
+                low_temperature,
+                capacity_at_high_temperature,
+                high_temperature,
+                submeter,
+                ..
+            } => {
+                let cap = baseboard_capacity(
+                    t_outdoor,
+                    *capacity_at_low_temperature,
+                    *low_temperature,
+                    *capacity_at_high_temperature,
+                    *high_temperature,
+                );
+                Some((submeter, "equipment".to_string(), cap * frac))
+            }
+        }
+    }
 }
 
 /// Helper: get schedule fraction, defaulting to 1.0 if no schedule specified.
@@ -289,7 +560,7 @@ mod tests {
             sensible_gain_per_person: None,
             latent_gain_per_person: None,
         }];
-        let resolved = resolve_gains(&gains, 24.0);
+        let resolved = resolve_gains(&gains, 24.0, 0.0);
         // 10 people × 120 W/person × 0.6 sensible = 720 W sensible
         assert_relative_eq!(resolved.total, 720.0);
         assert_relative_eq!(resolved.radiative, 216.0); // 720 × 0.3
@@ -341,7 +612,7 @@ mod tests {
         };
         let mut previous = f64::INFINITY;
         for t in [18.0, 21.0, 24.0, 27.0, 30.0] {
-            let r = resolve_gains(&[people(None)], t);
+            let r = resolve_gains(&[people(None)], t, 0.0);
             // Sensible plus latent is the whole activity level.
             assert_relative_eq!(r.people_heat + r.people_latent, 1200.0, epsilon = 1e-9);
             assert_relative_eq!(
@@ -355,7 +626,7 @@ mod tests {
         }
         // A given fraction ignores the zone temperature.
         for t in [18.0, 30.0] {
-            let r = resolve_gains(&[people(Some(0.6))], t);
+            let r = resolve_gains(&[people(Some(0.6))], t, 0.0);
             assert_relative_eq!(r.people_heat, 720.0);
             assert_relative_eq!(r.people_latent, 480.0);
         }
@@ -370,7 +641,7 @@ mod tests {
             schedule: None,
             submeter: "General".to_string(),
         }];
-        let resolved = resolve_gains(&gains, 24.0);
+        let resolved = resolve_gains(&gains, 24.0, 0.0);
         // 1000 total: 700 radiant, 200 to return air, 100 convective. The 200
         // bound for the return air is zone convective until an air loop's
         // return carries it.
@@ -405,9 +676,10 @@ mod tests {
                 latent_fraction: 0.0,
                 schedule: None,
                 submeter: "General".to_string(),
+                fuel: EquipmentFuel::Electricity,
             },
         ];
-        let resolved = resolve_gains(&gains, 24.0);
+        let resolved = resolve_gains(&gains, 24.0, 0.0);
         assert_relative_eq!(resolved.total, 860.0); // 5×120×0.6=360 + 500
     }
 
@@ -438,14 +710,15 @@ mod tests {
             latent_fraction: 0.0,
             schedule: Some("half".to_string()),
             submeter: "General".to_string(),
+            fuel: EquipmentFuel::Electricity,
         }];
 
         // Weekday: 50% schedule → 500W
-        let resolved = resolve_gains_scheduled(&gains, Some(&schedules), 12, 1, 1, 24.0);
+        let resolved = resolve_gains_scheduled(&gains, Some(&schedules), 12, 1, 1, 24.0, 0.0);
         assert_relative_eq!(resolved.total, 500.0);
 
         // Weekend: 0% schedule → 0W
-        let resolved = resolve_gains_scheduled(&gains, Some(&schedules), 12, 6, 1, 24.0);
+        let resolved = resolve_gains_scheduled(&gains, Some(&schedules), 12, 6, 1, 24.0, 0.0);
         assert_relative_eq!(resolved.total, 0.0);
     }
 
@@ -459,14 +732,15 @@ mod tests {
             latent_fraction: 0.0,
             schedule: None,
             submeter: "General".to_string(),
+            fuel: EquipmentFuel::Electricity,
         }];
-        let resolved = resolve_gains(&gains, 24.0);
+        let resolved = resolve_gains(&gains, 24.0, 0.0);
         // 1000W total, 950W lost, 50W to zone: 15W radiant, 35W convective
         assert_relative_eq!(resolved.total, 50.0, epsilon = 1e-10);
         assert_relative_eq!(resolved.radiative, 15.0, epsilon = 1e-10);
         assert_relative_eq!(resolved.convective, 35.0, epsilon = 1e-10);
         // Full 1000W reported for electricity accounting
-        assert_relative_eq!(resolved.equipment_power, 1000.0);
+        assert_relative_eq!(resolved.equipment_power.get(FuelGroup::Electricity), 1000.0);
     }
 
     /// #186: E+'s worked example, 0.4 return, 0.4 radiant + 0.2 visible.
@@ -479,7 +753,7 @@ mod tests {
             schedule: None,
             submeter: Default::default(),
         }];
-        let r = resolve_gains(&gains, 24.0);
+        let r = resolve_gains(&gains, 24.0, 0.0);
         assert!((r.radiative - 600.0).abs() < 1e-9);
         assert!((r.lighting_return_air - 400.0).abs() < 1e-9);
         assert!((r.radiative + r.convective - 1000.0).abs() < 1e-9);
@@ -495,12 +769,217 @@ mod tests {
             latent_fraction: 0.2,
             schedule: None,
             submeter: Default::default(),
+            fuel: EquipmentFuel::Electricity,
         }];
-        let r = resolve_gains(&gains, 24.0);
+        let r = resolve_gains(&gains, 24.0, 0.0);
         assert!((r.radiative - 300.0).abs() < 1e-9);
         assert!((r.equipment_latent - 200.0).abs() < 1e-9);
         assert!((r.convective - 400.0).abs() < 1e-9);
         let lost = 100.0;
         assert!((r.radiative + r.convective + r.equipment_latent + lost - 1000.0).abs() < 1e-9);
+    }
+
+    fn equipment(power: f64, fuel: EquipmentFuel) -> InternalGainInput {
+        InternalGainInput::Equipment {
+            power,
+            radiant_fraction: 0.3,
+            lost_fraction: 0.25,
+            latent_fraction: 0.05,
+            schedule: None,
+            submeter: "Kitchen".to_string(),
+            fuel,
+        }
+    }
+
+    /// E+ `InitInternalHeatGains` gives every equipment type the same split
+    /// (Q·FractionRadiant, Q·FractionConvected, Q·FractionLatent, Q·FractionLost,
+    /// FractionConvected = 1 − the other three) and meters the whole Q on the
+    /// object's resource: Electricity, NaturalGas, DistrictHeatingWater,
+    /// DistrictHeatingSteam, or OtherEquipment's fuel (none for `None`).
+    #[test]
+    fn every_fuel_splits_heat_alike_and_meters_its_whole_input() {
+        let (q, rad, lost, lat) = (1000.0, 0.3, 0.25, 0.05);
+        for fuel in EquipmentFuel::ALL {
+            let r = resolve_gains(&[equipment(q, fuel)], 24.0, 0.0);
+            assert_relative_eq!(r.radiative, q * rad, epsilon = 1e-9);
+            assert_relative_eq!(r.convective, q * (1.0 - rad - lost - lat), epsilon = 1e-9);
+            assert_relative_eq!(r.equipment_latent, q * lat, epsilon = 1e-9);
+            // Radiant + convective + latent + lost is the whole input.
+            assert_relative_eq!(
+                r.radiative + r.convective + r.equipment_latent + q * lost,
+                q,
+                epsilon = 1e-9
+            );
+            assert_relative_eq!(
+                r.equipment_sensible_gain_to_zone,
+                q * (1.0 - lost - lat),
+                epsilon = 1e-9
+            );
+            match fuel.group() {
+                Some(g) => {
+                    assert_relative_eq!(r.equipment_power.get(g), q);
+                    assert_relative_eq!(r.equipment_power.total(), q);
+                }
+                None => assert_eq!(r.equipment_power.total(), 0.0),
+            }
+        }
+        use EquipmentFuel as F;
+        assert_eq!(F::Electricity.group(), Some(FuelGroup::Electricity));
+        assert_eq!(F::NaturalGas.group(), Some(FuelGroup::NaturalGas));
+        assert_eq!(
+            F::DistrictHeatingWater.group(),
+            Some(FuelGroup::DistrictHeatingWater)
+        );
+        assert_eq!(
+            F::DistrictHeatingSteam.group(),
+            Some(FuelGroup::DistrictHeatingSteam)
+        );
+        for f in [
+            F::Propane,
+            F::FuelOilNo1,
+            F::FuelOilNo2,
+            F::Diesel,
+            F::Gasoline,
+            F::Coal,
+        ] {
+            assert_eq!(f.group(), Some(FuelGroup::OtherFuel));
+        }
+        for f in [F::OtherFuel1, F::OtherFuel2, F::DistrictCooling] {
+            assert_eq!(f.group(), Some(FuelGroup::OtherFuel));
+        }
+        assert_eq!(F::None.group(), None);
+    }
+
+    #[test]
+    fn fuel_names_round_trip() {
+        for fuel in EquipmentFuel::ALL {
+            let yaml = serde_yaml::to_string(&fuel).unwrap();
+            assert_eq!(yaml.trim(), fuel.key());
+            assert_eq!(EquipmentFuel::from_key(fuel.key()), Some(fuel));
+            let back: EquipmentFuel = serde_yaml::from_str(fuel.key()).unwrap();
+            assert_eq!(back, fuel);
+        }
+        let g: InternalGainInput =
+            serde_yaml::from_str("{type: equipment, power: 100, fuel: natural_gas}").unwrap();
+        assert!(matches!(
+            g,
+            InternalGainInput::Equipment {
+                fuel: EquipmentFuel::NaturalGas,
+                ..
+            }
+        ));
+        // Without a fuel, equipment is electric.
+        let g: InternalGainInput = serde_yaml::from_str("{type: equipment, power: 100}").unwrap();
+        assert!(matches!(
+            g,
+            InternalGainInput::Equipment {
+                fuel: EquipmentFuel::Electricity,
+                ..
+            }
+        ));
+    }
+
+    /// E+ OtherEquipment with fuel None and a negative level is a heat sink
+    /// (the ASHRAE 140 AE cases' imposed heating loads).
+    #[test]
+    fn unmetered_negative_equipment_removes_heat() {
+        let sink = InternalGainInput::Equipment {
+            power: -2931.0,
+            radiant_fraction: 0.0,
+            lost_fraction: 0.0,
+            latent_fraction: 0.0,
+            schedule: None,
+            submeter: "General".to_string(),
+            fuel: EquipmentFuel::None,
+        };
+        let r = resolve_gains(&[sink.clone()], 21.0, -29.0);
+        assert_relative_eq!(r.convective, -2931.0);
+        assert_relative_eq!(r.total, -2931.0);
+        assert_eq!(r.equipment_power.total(), 0.0);
+        assert!(sink.metered_use(1.0, 0.0).is_none());
+    }
+
+    #[test]
+    fn metered_use_keys_follow_the_fuel() {
+        let key = |fuel| {
+            equipment(1000.0, fuel)
+                .metered_use(0.5, 0.0)
+                .map(|(m, k, w)| (m.to_string(), k, w))
+        };
+        let kitchen = |k: &str| Some(("Kitchen".to_string(), k.to_string(), 500.0));
+        assert_eq!(key(EquipmentFuel::Electricity), kitchen("equipment"));
+        assert_eq!(
+            key(EquipmentFuel::NaturalGas),
+            kitchen("equipment_natural_gas")
+        );
+        assert_eq!(
+            key(EquipmentFuel::DistrictHeatingWater),
+            kitchen("equipment_district_heating_water")
+        );
+        assert_eq!(key(EquipmentFuel::Propane), kitchen("equipment_propane"));
+        assert_eq!(key(EquipmentFuel::None), None);
+    }
+
+    /// E+ `InitInternalHeatGains` for `ZoneBaseboard:OutdoorTemperatureControlled`:
+    /// none at or above the high temperature, linear between the two points,
+    /// the low-temperature capacity at and below the low temperature, all times
+    /// the schedule; radiant by its fraction and the rest convective.
+    #[test]
+    fn baseboard_capacity_follows_eplus() {
+        let cap = |t| baseboard_capacity(t, 1500.0, -10.0, 500.0, 15.0);
+        assert_eq!(cap(-30.0), 1500.0);
+        assert_eq!(cap(-10.0), 1500.0);
+        assert_relative_eq!(cap(0.0), 1100.0, epsilon = 1e-9);
+        assert_relative_eq!(cap(14.999), 500.04, epsilon = 1e-9);
+        assert_eq!(cap(15.0), 0.0);
+        assert_eq!(cap(25.0), 0.0);
+
+        use crate::schedule::{ScheduleInput, ScheduleManager};
+        let schedules = ScheduleManager::from_inputs(vec![ScheduleInput {
+            name: "half".to_string(),
+            weekday: vec![0.5; 24],
+            weekend: None,
+            saturday: None,
+            sunday: None,
+            holiday: None,
+            monday: None,
+            tuesday: None,
+            wednesday: None,
+            thursday: None,
+            friday: None,
+            compact: None,
+            seasons: None,
+        }]);
+        let bb = InternalGainInput::OutdoorControlledBaseboard {
+            capacity_at_low_temperature: 1500.0,
+            low_temperature: -10.0,
+            capacity_at_high_temperature: 500.0,
+            high_temperature: 15.0,
+            radiant_fraction: 0.4,
+            schedule: Some("half".to_string()),
+            submeter: "Lobby".to_string(),
+        };
+        let r = resolve_gains_scheduled(
+            std::slice::from_ref(&bb),
+            Some(&schedules),
+            12,
+            1,
+            1,
+            21.0,
+            0.0,
+        );
+        assert_relative_eq!(r.total, 550.0, epsilon = 1e-9);
+        assert_relative_eq!(r.radiative, 220.0, epsilon = 1e-9);
+        assert_relative_eq!(r.convective, 330.0, epsilon = 1e-9);
+        assert_relative_eq!(
+            r.equipment_power.get(FuelGroup::Electricity),
+            550.0,
+            epsilon = 1e-9
+        );
+        assert_eq!(r.equipment_latent, 0.0);
+        // Metered as electric interior equipment.
+        let (meter, key, w) = bb.metered_use(0.5, 0.0).unwrap();
+        assert_eq!((meter, key.as_str()), ("Lobby", "equipment"));
+        assert_relative_eq!(w, 550.0, epsilon = 1e-9);
     }
 }

@@ -2273,6 +2273,7 @@ impl BuildingEnvelope {
 /// `zone_air_temp` is the zone air temperature at the end of the previous
 /// timestep, which people's autocalculated sensible heat follows (E+ reads the
 /// zone mean air temperature once per timestep, before the zone solve).
+/// Outdoor-controlled baseboards follow the outdoor dry-bulb in `ctx`.
 fn timestep_gains(
     gains: &[internal_gains::InternalGainInput],
     schedule_manager: &ScheduleManager,
@@ -2283,6 +2284,7 @@ fn timestep_gains(
     zone_air_temp: f64,
 ) -> internal_gains::ResolvedGain {
     use openbse_core::ports::SizingInternalGains;
+    let t_outdoor = ctx.outdoor_air.t_db;
     let scheduled = || {
         internal_gains::resolve_gains_scheduled(
             gains,
@@ -2291,11 +2293,21 @@ fn timestep_gains(
             dow,
             doy,
             zone_air_temp,
+            t_outdoor,
         )
     };
     // No schedule manager: every gain at its design level.
-    let full =
-        || internal_gains::resolve_gains_scheduled(gains, None, hour, dow, doy, zone_air_temp);
+    let full = || {
+        internal_gains::resolve_gains_scheduled(
+            gains,
+            None,
+            hour,
+            dow,
+            doy,
+            zone_air_temp,
+            t_outdoor,
+        )
+    };
     if !ctx.is_sizing {
         return scheduled();
     }
@@ -6118,6 +6130,7 @@ mod tests {
                 latent_fraction: 0.0,
                 schedule: None,
                 submeter: "General".to_string(),
+                fuel: Default::default(),
             }],
             internal_mass: vec![],
 
@@ -7237,6 +7250,104 @@ mod tests {
     }
 
     #[test]
+    fn equipment_of_any_fuel_heats_the_zone_alike_and_meters_its_own_fuel() {
+        use crate::internal_gains::{EquipmentFuel, FuelGroup, InternalGainInput};
+        // E+ Electric, Gas, HotWater, Steam and OtherEquipment share one heat
+        // model: the same equipment on any fuel gives the same zone state, and
+        // only the meter differs. Latent heat reaches the moisture balance.
+        let run = |fuel: EquipmentFuel, latent_fraction: f64| {
+            let mut env = make_simple_model();
+            env.zones[0].input.internal_gains = vec![InternalGainInput::Equipment {
+                power: 2000.0,
+                radiant_fraction: 0.3,
+                lost_fraction: 0.2,
+                latent_fraction,
+                schedule: None,
+                submeter: "General".to_string(),
+                fuel,
+            }];
+            env.initialize(3600.0).unwrap();
+            env.solve_timestep(
+                &make_ctx(),
+                &make_weather_hour(0.0),
+                &ZoneHvacConditions::default(),
+            );
+            env
+        };
+        let elec = run(EquipmentFuel::Electricity, 0.1);
+        let ze = &elec.zones[0];
+        assert!((ze.equipment_power.get(FuelGroup::Electricity) - 2000.0).abs() < 1e-9);
+        assert!((ze.equipment_latent - 200.0).abs() < 1e-9);
+        assert!((ze.equipment_sensible_gain_to_zone - 1400.0).abs() < 1e-9);
+        for (fuel, group) in [
+            (EquipmentFuel::NaturalGas, Some(FuelGroup::NaturalGas)),
+            (
+                EquipmentFuel::DistrictHeatingWater,
+                Some(FuelGroup::DistrictHeatingWater),
+            ),
+            (
+                EquipmentFuel::DistrictHeatingSteam,
+                Some(FuelGroup::DistrictHeatingSteam),
+            ),
+            (EquipmentFuel::Propane, Some(FuelGroup::OtherFuel)),
+            (EquipmentFuel::None, None),
+        ] {
+            let env = run(fuel, 0.1);
+            let z = &env.zones[0];
+            assert_eq!(z.temp, ze.temp, "{fuel:?}");
+            assert_eq!(z.humidity_ratio, ze.humidity_ratio, "{fuel:?}");
+            assert_eq!(z.q_internal_conv, ze.q_internal_conv, "{fuel:?}");
+            assert_eq!(z.q_internal_rad, ze.q_internal_rad, "{fuel:?}");
+            // The whole input, lost heat included, on its own meter only.
+            let want = group.map_or(0.0, |_| 2000.0);
+            assert!((z.equipment_power.total() - want).abs() < 1e-9, "{fuel:?}");
+            if let Some(g) = group {
+                assert!((z.equipment_power.get(g) - 2000.0).abs() < 1e-9, "{fuel:?}");
+            }
+        }
+        // Gas equipment's latent part is moisture: the humidity ratio above a
+        // copy without it is m = Q_l / h_g, stored and diluted over the step.
+        let gas = run(EquipmentFuel::NaturalGas, 0.1);
+        let dry = run(EquipmentFuel::NaturalGas, 0.0);
+        let (zg, zd) = (&gas.zones[0], &dry.zones[0]);
+        let m = zg.equipment_latent / psych::hg_air_fn_tdb(zg.temp);
+        let rho = psych::rho_air_fn_pb_tdb_w(101_325.0, zg.temp, zg.humidity_ratio);
+        let expected = m / (rho * zg.input.volume / 3600.0 + zg.infiltration_mass_flow);
+        let got = zg.humidity_ratio - zd.humidity_ratio;
+        assert!(
+            (got - expected).abs() < 0.05 * expected,
+            "humidity ratio difference {got:.3e} vs {expected:.3e}"
+        );
+    }
+
+    #[test]
+    fn outdoor_controlled_baseboard_follows_the_outdoor_temperature() {
+        use crate::internal_gains::{FuelGroup, InternalGainInput};
+        let mut env = make_simple_model();
+        env.zones[0].input.internal_gains = vec![InternalGainInput::OutdoorControlledBaseboard {
+            capacity_at_low_temperature: 1500.0,
+            low_temperature: -10.0,
+            capacity_at_high_temperature: 500.0,
+            high_temperature: 15.0,
+            radiant_fraction: 0.4,
+            schedule: None,
+            submeter: "General".to_string(),
+        }];
+        env.initialize(3600.0).unwrap();
+        // make_ctx's outdoor air is at 0 °C: 1500 + 10 × (500 − 1500) / 25 = 1100 W.
+        env.solve_timestep(
+            &make_ctx(),
+            &make_weather_hour(0.0),
+            &ZoneHvacConditions::default(),
+        );
+        let z = &env.zones[0];
+        assert!((z.equipment_power.get(FuelGroup::Electricity) - 1100.0).abs() < 1e-9);
+        assert!((z.q_internal_rad - 440.0).abs() < 1e-9);
+        assert!((z.q_internal_conv - 660.0).abs() < 1e-9);
+        assert_eq!(z.equipment_latent, 0.0);
+    }
+
+    #[test]
     fn zone_air_balance_terms_close() {
         // The terms stored for the CLI's zone air heat balance check (#160)
         // must close at the solved temperature, gains and supply air included.
@@ -7863,6 +7974,7 @@ mod tests {
                 latent_fraction: 0.0,
                 schedule: None,
                 submeter: "General".to_string(),
+                fuel: Default::default(),
             }],
             internal_mass: vec![],
 
