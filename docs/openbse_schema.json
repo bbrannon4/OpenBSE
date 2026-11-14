@@ -1078,6 +1078,7 @@
             "cycling_run_time": { "type": "number", "minimum": 0, "default": 3600, "description": "Cycling run time [s], rounded to whole timesteps." }
           }
         },
+        "high_temperature_turn_off": { "type": "number", "description": "Outdoor dry-bulb [C] above which the loop is off (EnergyPlus AvailabilityManager:HighTemperatureTurnOff sensing outdoor air). Overrides availability_schedule and night_cycle." },
         "dcv": { "type": "boolean", "default": false, "description": "Demand-controlled ventilation: recalculate the minimum OA each timestep from current occupancy x per-person OA + per-area OA (ASHRAE 62.1 VRP). Uses per_person_oa / per_area_oa on the zone terminals." },
         "equipment": {
           "type": "array",

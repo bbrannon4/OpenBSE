@@ -946,6 +946,12 @@ pub struct AirLoopInput {
     /// heating or cooling setpoint by half the `thermostat_tolerance`.
     #[serde(default)]
     pub night_cycle: Option<NightCycleInput>,
+    /// Outdoor dry-bulb [°C] above which the loop is off (E+
+    /// `AvailabilityManager:HighTemperatureTurnOff` sensing outdoor air), e.g.
+    /// an entry heater locked out in mild weather. Overrides the
+    /// availability schedule and any night cycle.
+    #[serde(default)]
+    pub high_temperature_turn_off: Option<f64>,
     /// Demand-controlled ventilation: modulates outdoor air based on real-time
     /// occupancy.  When `true`, the minimum OA fraction is recalculated each
     /// timestep from each zone's current occupancy schedule value × per-person

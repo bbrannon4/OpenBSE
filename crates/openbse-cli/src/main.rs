@@ -336,6 +336,13 @@ pub(crate) fn no_load_push(off_output: f64, to_heat: f64, to_cool: f64) -> Optio
     }
 }
 
+/// Whether a loop is forced off by its high-temperature turn-off (E+
+/// `AvailabilityManager:HighTemperatureTurnOff` on the outdoor air): outdoor
+/// air warmer than its temperature.
+fn turned_off_by_temperature(limit: Option<f64>, t_outdoor: f64) -> bool {
+    limit.is_some_and(|limit| t_outdoor > limit)
+}
+
 /// Whether a loop its availability schedule has off runs this timestep under
 /// its night-cycle manager, as E+ `CalcNCycSysAvailMgr` with FixedRunTime.
 /// `timers` holds each cycling loop's stop timestep: the loop runs while the
@@ -1086,6 +1093,7 @@ fn build_loop_infos(
                 fan_operating_mode: al.controls.fan_operating_mode,
                 available_fan_mode: al.controls.fan_operating_mode,
                 night_cycle: al.night_cycle.clone(),
+                high_temperature_turn_off: al.high_temperature_turn_off,
                 unitary_speeds,
                 cooling_part_load_cd: al.controls.cooling_part_load_cd,
                 terminal_boxes,
@@ -5960,7 +5968,10 @@ fn simulate_all_loops(
             (Some(sched_name), Some(mgr)) => mgr.fraction(sched_name, hour, day_of_week) >= 0.5,
             _ => true,
         };
+        // E+ HighTemperatureTurnOff: forced off above its temperature.
+        let forced_off = turned_off_by_temperature(li.high_temperature_turn_off, t_outdoor);
         let night_cycling = !available
+            && !forced_off
             && night_cycle_runs(
                 li,
                 nightcycle_timers,
@@ -5976,6 +5987,7 @@ fn simulate_all_loops(
                     Some((t, heat, cool))
                 },
             );
+        let available = available && !forced_off;
         if available {
             nightcycle_timers.remove(&li.name);
         }
@@ -8218,6 +8230,13 @@ mod tests {
     }
 
     #[test]
+    fn high_temperature_turns_a_loop_off_above_its_limit() {
+        assert!(turned_off_by_temperature(Some(7.2), 7.3));
+        assert!(!turned_off_by_temperature(Some(7.2), 7.2));
+        assert!(!turned_off_by_temperature(None, 40.0));
+    }
+
+    #[test]
     fn a_fan_that_stops_with_no_load_runs_while_there_is_one() {
         use openbse_io::input::FanOperatingMode::*;
         assert!(fan_runs_whole_timestep(Continuous, false));
@@ -8444,6 +8463,7 @@ room_air:
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
             available_fan_mode: openbse_io::input::FanOperatingMode::Cycling,
             night_cycle: None,
+            high_temperature_turn_off: None,
             unitary_speeds: None,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
@@ -8493,6 +8513,7 @@ room_air:
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
             available_fan_mode: openbse_io::input::FanOperatingMode::Cycling,
             night_cycle: None,
+            high_temperature_turn_off: None,
             unitary_speeds: None,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
@@ -10138,6 +10159,7 @@ mod tests_datacenter {
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
             available_fan_mode: openbse_io::input::FanOperatingMode::Cycling,
             night_cycle: None,
+            high_temperature_turn_off: None,
             unitary_speeds: None,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),

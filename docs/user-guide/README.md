@@ -390,6 +390,10 @@ heating or cooling setpoint:
       cycling_run_time: 1800        # [s], whole timesteps
 ```
 
+`high_temperature_turn_off: 7.2` turns a loop off while the outdoor air is
+warmer than 7.2 °C (E+ `AvailabilityManager:HighTemperatureTurnOff`), e.g. an
+entry heater locked out in mild weather.
+
 #### Equipment Order (Supply Air Path)
 
 The `equipment:` list defines the supply-side airflow path. Components are connected in series — air flows through them in the order listed. The ordering convention follows the physical path air takes from outdoor air intake to supply duct:
