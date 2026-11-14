@@ -21,8 +21,14 @@ block take effect only in HVAC-only mode, and a warning says so.
 
 **Thermostats.** A thermostat gives a set of zones a heating and a cooling
 setpoint. A `thermostat_schedule` overrides these by hour (1–24), optionally
-within a date range. The first entry that applies wins. The scheduled setpoints
-drive the mode, the load to setpoint and the coil control alike.
+within a date range. The first entry that applies wins. Named setpoint
+schedules (`heating_setpoint_schedule`, `cooling_setpoint_schedule`) instead set
+each side every timestep from a schedule of temperatures, read by hour and day
+type, holidays included, as EnergyPlus `ThermostatSetpoint:DualSetpoint`; a
+thermostat takes one form or the other. The scheduled setpoints drive the mode,
+the load to setpoint, the coil control and unmet hours alike. Design days hold
+their own setpoints (`design_day_*_setpoints`, @sec-dd-runs) and set the
+schedules aside.
 
 **Mode.** A zone's mode comes from the predictor (@sec-predictor) and is held for
 the timestep. It is heating below the heating setpoint, cooling above the cooling
@@ -37,17 +43,19 @@ falling back to the next), from arrays or `"value until HH:MM"` strings. Optiona
 seasons override them by date range. Hour $h$ covers the hour ending at $h$. An
 `until` boundary inside an hour gives that hour the time-weighted average of the
 values it spans, which keeps the schedule's integral. A string must reach 24:00.
-Values are fractions: anything outside 0 to 1 is clamped, with a validation warning.
-A reference to an undefined schedule is a severe error.
+Values are fractions: anything outside 0 to 1 is clamped, with a validation warning,
+except in a thermostat's setpoint schedules, which hold temperatures and are read
+unclamped. A reference to an undefined schedule is a severe error.
 
 The day of week starts from the weather file's January 1. A file containing
 29 February has that day dropped, because the simulation calendar has 365 days,
 but later dates keep their true day of week.
 
 **Comparison with EnergyPlus.** EnergyPlus's `ZoneControl:Thermostat` takes
-setpoint schedules, which are its only mechanism; OpenBSE's thermostat schedules
-are separate from its named schedules. Schedules have no design-day types, daylight saving or
-start day of week ([#199](https://github.com/bbrannon4/OpenBSE/issues/199)).
+setpoint schedules, as OpenBSE's named setpoint schedules do. Schedules have no
+design-day types, so a design day's setpoints are given on the thermostat; nor
+daylight saving or start day of week
+([#199](https://github.com/bbrannon4/OpenBSE/issues/199)).
 
 ## Availability {#sec-availability}
 

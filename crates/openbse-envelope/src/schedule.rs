@@ -391,6 +391,13 @@ impl ScheduleInput {
     ///
     /// `day_of_week`: 1=Mon..7=Sun, **8=Holiday**.
     pub fn fraction(&self, hour: u32, day_of_week: u32) -> f64 {
+        self.value(hour, day_of_week).clamp(0.0, 1.0)
+    }
+
+    /// The schedule's value for a given hour (1-24) and day type, unclamped:
+    /// a temperature schedule (a thermostat setpoint) is read with this, a
+    /// fraction schedule with [`Self::fraction`]. Day-type resolution as there.
+    pub fn value(&self, hour: u32, day_of_week: u32) -> f64 {
         let idx = ((hour as usize).saturating_sub(1)).min(23);
         let values = match day_of_week {
             1 => self.monday.as_ref().unwrap_or(&self.weekday),
@@ -422,20 +429,20 @@ impl ScheduleInput {
             }
             _ => &self.weekday,
         };
-
-        if idx < values.len() {
-            values[idx].clamp(0.0, 1.0)
-        } else if !values.is_empty() {
-            values.last().copied().unwrap_or(1.0).clamp(0.0, 1.0)
-        } else {
-            1.0
-        }
+        values.get(idx).or(values.last()).copied().unwrap_or(1.0)
     }
 
     /// Seasonal fraction: like [`Self::fraction`] but resolves `seasons` by
     /// day-of-year (1–365) first, falling back to the date-unaware day arrays
     /// when no period matches (or no seasons are defined).
     pub fn fraction_doy(&self, hour: u32, day_of_week: u32, day_of_year: u32) -> f64 {
+        self.value_doy(hour, day_of_week, day_of_year)
+            .clamp(0.0, 1.0)
+    }
+
+    /// Seasonal value: like [`Self::value`] but resolves `seasons` by
+    /// day-of-year (1–365) first, as [`Self::fraction_doy`] does.
+    pub fn value_doy(&self, hour: u32, day_of_week: u32, day_of_year: u32) -> f64 {
         if let Some(seasons) = &self.seasons {
             for s in seasons {
                 let start = day_of_year_from_md(s.start_month, s.start_day);
@@ -454,15 +461,11 @@ impl ScheduleInput {
                         &s.weekday
                     };
                     let idx = ((hour as usize).saturating_sub(1)).min(23);
-                    return if idx < values.len() {
-                        values[idx].clamp(0.0, 1.0)
-                    } else {
-                        values.last().copied().unwrap_or(1.0).clamp(0.0, 1.0)
-                    };
+                    return values.get(idx).or(values.last()).copied().unwrap_or(1.0);
                 }
             }
         }
-        self.fraction(hour, day_of_week)
+        self.value(hour, day_of_week)
     }
 
     /// Create an "always on" schedule (fraction = 1.0 at all times).
@@ -562,6 +565,20 @@ impl ScheduleManager {
             None => 1.0,
         }
     }
+
+    /// Look up a schedule's unclamped value (a temperature schedule), with
+    /// day-of-year awareness. `None` if the schedule is not defined.
+    pub fn value_doy(
+        &self,
+        name: &str,
+        hour: u32,
+        day_of_week: u32,
+        day_of_year: u32,
+    ) -> Option<f64> {
+        self.schedules
+            .get(name)
+            .map(|sched| sched.value_doy(hour, day_of_week, day_of_year))
+    }
 }
 
 /// Calculate day of week from month/day, given the day of week for January 1.
@@ -586,6 +603,23 @@ pub fn day_of_week(month: u32, day: u32, jan1_dow: u32, leap_year: bool) -> u32 
 
 #[cfg(test)]
 mod tests {
+    /// A setpoint schedule's values are temperatures: `value` reads them as
+    /// given, by day type, where `fraction` clamps to [0, 1].
+    #[test]
+    fn value_reads_a_temperature_schedule_unclamped() {
+        let mut s = ScheduleInput::always_on("SP");
+        s.weekday = vec![21.1; 24];
+        s.weekday[0] = 15.6;
+        s.holiday = Some(vec![15.6; 24]);
+        assert_eq!(s.value(1, 3), 15.6);
+        assert_eq!(s.value(12, 3), 21.1);
+        assert_eq!(s.value(12, 8), 15.6);
+        assert_eq!(s.fraction(12, 3), 1.0);
+        let mgr = ScheduleManager::from_inputs(vec![s]);
+        assert_eq!(mgr.value_doy("SP", 12, 3, 100), Some(21.1));
+        assert_eq!(mgr.value_doy("missing", 12, 3, 100), None);
+    }
+
     use super::*;
 
     #[test]

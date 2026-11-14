@@ -601,6 +601,11 @@ pub struct ZoneInput {
     /// Thermostat schedule for time-of-day setpoint changes
     #[serde(default)]
     pub thermostat_schedule: Vec<ThermostatScheduleEntry>,
+    /// Heating and cooling setpoint schedule names from the zone's thermostat
+    /// (`heating_setpoint_schedule`, `cooling_setpoint_schedule`), set when the
+    /// model is resolved.
+    #[serde(skip)]
+    pub setpoint_schedules: (Option<String>, Option<String>),
     /// Ventilation schedule for time-based mechanical ventilation
     #[serde(default)]
     pub ventilation_schedule: Vec<VentilationScheduleEntry>,
@@ -941,7 +946,30 @@ impl ZoneInput {
     /// If a thermostat schedule is defined, returns the setpoints for the
     /// first matching period. Otherwise, returns the ideal_loads default
     /// setpoints (or 20/27 if no ideal loads).
-    pub fn active_setpoints(&self, hour: u32, day_of_year: u32) -> (f64, f64) {
+    ///
+    /// A setpoint schedule from the zone's thermostat (`setpoint_schedules`)
+    /// overrides its side, read for `day_of_week` (8 = holiday) from
+    /// `schedules`.
+    pub fn active_setpoints(
+        &self,
+        hour: u32,
+        day_of_year: u32,
+        day_of_week: u32,
+        schedules: &crate::schedule::ScheduleManager,
+    ) -> (f64, f64) {
+        let (heat, cool) = self.base_setpoints(hour, day_of_year);
+        let read = |name: &Option<String>, base: f64| {
+            name.as_deref()
+                .and_then(|n| schedules.value_doy(n, hour, day_of_week, day_of_year))
+                .unwrap_or(base)
+        };
+        (
+            read(&self.setpoint_schedules.0, heat),
+            read(&self.setpoint_schedules.1, cool),
+        )
+    }
+
+    fn base_setpoints(&self, hour: u32, day_of_year: u32) -> (f64, f64) {
         // Check thermostat schedule first
         if let Some(entry) = self
             .thermostat_schedule
@@ -1803,6 +1831,7 @@ mod tests {
             internal_mass: vec![],
             ideal_loads: None,
             thermostat_schedule: vec![],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![],
             solar_distribution: None,
             exhaust_fan: None,
@@ -1898,6 +1927,7 @@ mod tests {
             internal_mass: vec![],
             ideal_loads: None,
             thermostat_schedule: vec![],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![],
             solar_distribution: None,
             exhaust_fan: None,
@@ -2169,6 +2199,7 @@ mod tests {
                 end_month: None,
                 end_day: None,
             }],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![],
             solar_distribution: None,
             exhaust_fan: None,
@@ -2187,12 +2218,12 @@ mod tests {
         };
 
         // During night setback
-        let (h, c) = input.active_setpoints(3, 1);
+        let (h, c) = input.active_setpoints(3, 1, 1, &crate::schedule::ScheduleManager::new());
         assert_relative_eq!(h, 10.0);
         assert_relative_eq!(c, 99.0);
 
         // During day (falls through to ideal_loads defaults)
-        let (h, c) = input.active_setpoints(12, 1);
+        let (h, c) = input.active_setpoints(12, 1, 1, &crate::schedule::ScheduleManager::new());
         assert_relative_eq!(h, 20.0);
         assert_relative_eq!(c, 27.0);
     }
@@ -2231,6 +2262,7 @@ mod tests {
 
             ideal_loads: None,
             thermostat_schedule: vec![],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![VentilationScheduleEntry {
                 start_hour: 18,
                 end_hour: 7,
@@ -2275,6 +2307,7 @@ mod tests {
 
             ideal_loads: None,
             thermostat_schedule: vec![],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![VentilationScheduleEntry {
                 start_hour: 18,
                 end_hour: 7,

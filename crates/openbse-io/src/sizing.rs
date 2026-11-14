@@ -353,6 +353,14 @@ fn run_single_design_day(
         .iter()
         .map(|z| z.input.ideal_loads.clone())
         .collect();
+    // A thermostat's setpoint schedules hold the run's setpoints; a design day
+    // holds its own (`design_day_*_setpoints`), as E+ reads the schedules'
+    // design-day day types, so they are set aside while sizing.
+    let original_setpoint_schedules: Vec<(Option<String>, Option<String>)> = env
+        .zones
+        .iter_mut()
+        .map(|z| std::mem::take(&mut z.input.setpoint_schedules))
+        .collect();
 
     // The zone floats between its heating and cooling setpoints, as E+ zone
     // sizing holds the thermostat's dual setpoints: the design day sets its
@@ -540,6 +548,13 @@ fn run_single_design_day(
     // ── Restore original ideal_loads state ────────────────────────────────
     for (zone, orig) in env.zones.iter_mut().zip(original_ideal_loads.into_iter()) {
         zone.input.ideal_loads = orig;
+    }
+    for (zone, orig) in env
+        .zones
+        .iter_mut()
+        .zip(original_setpoint_schedules.into_iter())
+    {
+        zone.input.setpoint_schedules = orig;
     }
 
     DesignDayRun {

@@ -4726,12 +4726,15 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
     // real-HVAC cases such as ASHRAE 140 Section 10 HE220/HE230).
     let resolved_tstats = resolve_thermostats(model);
     for tstat in &resolved_tstats {
-        if tstat.thermostat_schedule.is_empty() {
-            continue;
-        }
         for zone_name in expand_zones(&tstat.zones) {
             if let Some(zone) = zones.iter_mut().find(|z| z.name == zone_name) {
-                zone.thermostat_schedule = tstat.thermostat_schedule.clone();
+                if !tstat.thermostat_schedule.is_empty() {
+                    zone.thermostat_schedule = tstat.thermostat_schedule.clone();
+                }
+                zone.setpoint_schedules = (
+                    tstat.heating_setpoint_schedule.clone(),
+                    tstat.cooling_setpoint_schedule.clone(),
+                );
             }
         }
     }
@@ -5321,6 +5324,7 @@ fn collect_schedule_refs(value: &serde_yaml::Value, path: &str, out: &mut Vec<(S
 /// parse, and warn about values the [0, 1] clamp in `ScheduleInput::fraction`
 /// would change. Schedules here are fractional multipliers by design (#66), so
 /// out-of-range values aren't an error, but the clamp shouldn't be silent.
+/// Thermostat setpoint schedules hold temperatures and are read unclamped.
 fn validate_schedules(
     model: &ModelInput,
     schedule_names: &std::collections::HashSet<&str>,
@@ -5344,10 +5348,27 @@ fn validate_schedules(
         Err(e) => result.severe(format!("Could not check schedule references: {e}")),
     }
 
+    // Thermostat setpoint schedules hold temperatures, read unclamped.
+    let mut setpoint_schedules = std::collections::HashSet::new();
+    for t in &model.thermostats {
+        let named = [&t.heating_setpoint_schedule, &t.cooling_setpoint_schedule];
+        if named.iter().any(|n| n.is_some()) && !t.thermostat_schedule.is_empty() {
+            result.severe(format!(
+                "Thermostat '{}': give either thermostat_schedule or setpoint schedules \
+                 (heating_setpoint_schedule, cooling_setpoint_schedule), not both",
+                t.name
+            ));
+        }
+        setpoint_schedules.extend(named.into_iter().flatten().map(String::as_str));
+    }
+
     for input in &model.schedules {
         let mut schedule = input.clone();
         if let Err(e) = schedule.resolve_compact() {
             result.severe(e);
+            continue;
+        }
+        if setpoint_schedules.contains(schedule.name.as_str()) {
             continue;
         }
         let (min, max) = schedule
@@ -7071,6 +7092,26 @@ air_loops:
         );
         assert!(
             report.contains("Construction 'Glass' referenced by surface 'Wall' is the wrong kind"),
+            "{report}"
+        );
+    }
+
+    /// A thermostat takes setpoint schedules or a `thermostat_schedule`, not
+    /// both; temperatures in a setpoint schedule draw no clamp warning.
+    #[test]
+    fn validation_of_setpoint_schedules() {
+        let yaml = |extra: &str| {
+            format!(
+                "simulation: {{}}\nweather_files: []\nzones:\n  - name: Hall\nschedules:\n  - name: HTG\n    weekday: [15.6, 15.6, 15.6, 15.6, 15.6, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 15.6, 15.6, 15.6]\nthermostats:\n  - name: Stat\n    zones: [Hall]\n    heating_setpoint_schedule: HTG\n{extra}"
+            )
+        };
+        let report = validate_model(&parse_model_yaml(&yaml("")).unwrap()).to_err_file();
+        assert!(!report.contains("clamped"), "{report}");
+        assert!(!report.contains("not both"), "{report}");
+        let both = yaml("    thermostat_schedule:\n      - {start_hour: 1, end_hour: 6, heating_setpoint: 15.0, cooling_setpoint: 30.0}\n");
+        let report = validate_model(&parse_model_yaml(&both).unwrap()).to_err_file();
+        assert!(
+            report.contains("Thermostat 'Stat': give either thermostat_schedule"),
             "{report}"
         );
     }

@@ -1345,6 +1345,8 @@
         "cooling_setpoint": { "type": "number", "default": 23.9, "description": "Occupied cooling setpoint [C]." },
         "unoccupied_heating_setpoint": { "type": "number", "default": 15.56, "description": "Unoccupied heating setpoint [C]." },
         "unoccupied_cooling_setpoint": { "type": "number", "default": 29.44, "description": "Unoccupied cooling setpoint [C]." },
+        "heating_setpoint_schedule": { "type": "string", "description": "Name of a schedule of heating setpoints [C], read unclamped by hour and day type (holidays included) every timestep, as EnergyPlus ThermostatSetpoint:DualSetpoint. It sets the heating setpoint for the HVAC, the zone loads and unmet hours in place of heating_setpoint. Design days use design_day_heating_setpoints. Cannot be combined with thermostat_schedule." },
+        "cooling_setpoint_schedule": { "type": "string", "description": "Name of a schedule of cooling setpoints [C], as heating_setpoint_schedule for cooling_setpoint." },
         "thermostat_schedule": {
           "type": "array",
           "items": { "$ref": "#/$defs/ThermostatScheduleEntry" },

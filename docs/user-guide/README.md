@@ -792,6 +792,23 @@ thermostats:
 | `cooling_setpoint` | 23.9 °C | Occupied cooling setpoint |
 | `unoccupied_heating_setpoint` | 15.6 °C | Unoccupied heating setpoint |
 | `unoccupied_cooling_setpoint` | 29.4 °C | Unoccupied cooling setpoint |
+| `heating_setpoint_schedule` | — | Schedule of heating setpoints [°C] by hour and day type, in place of `heating_setpoint` (EnergyPlus `ThermostatSetpoint:DualSetpoint`) |
+| `cooling_setpoint_schedule` | — | Schedule of cooling setpoints [°C], as above |
+| `design_day_heating_setpoints` / `design_day_cooling_setpoints` | — | 24 hourly setpoints held on the heating / cooling design days |
+
+A setpoint schedule is an ordinary named schedule whose values are temperatures:
+
+```yaml
+schedules:
+  - name: Heating Setpoints
+    weekday:  [15.6, 15.6, 15.6, 15.6, 15.6, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 15.6, 15.6, 15.6]
+    sunday:   [15.6, 15.6, 15.6, 15.6, 15.6, 15.6, 15.6, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 15.6, 15.6, 15.6, 15.6, 15.6]
+thermostats:
+  - name: Office Thermostat
+    zones: [Office Zones]
+    heating_setpoint_schedule: Heating Setpoints
+    cooling_setpoint: 23.9
+```
 
 The thermostat automatically determines the mode (heating, cooling, or deadband) and modulates supply air temperature and flow rate proportionally to the deviation from setpoint.
 

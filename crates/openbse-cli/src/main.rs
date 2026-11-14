@@ -2057,16 +2057,25 @@ fn main() -> Result<()> {
 
         // Per-zone setpoint schedules (e.g. night setback). Empty for zones
         // without a schedule.
-        let mut zone_sp_schedule: HashMap<
-            String,
-            Vec<openbse_envelope::zone::ThermostatScheduleEntry>,
-        > = HashMap::new();
+        let mut zone_sp_schedule = ZoneSetpointSchedules::default();
         for tstat in &resolved_thermostats {
-            if tstat.thermostat_schedule.is_empty() {
-                continue;
-            }
             for zone_name in &tstat.zones {
-                zone_sp_schedule.insert(zone_name.clone(), tstat.thermostat_schedule.clone());
+                if !tstat.thermostat_schedule.is_empty() {
+                    zone_sp_schedule
+                        .entries
+                        .insert(zone_name.clone(), tstat.thermostat_schedule.clone());
+                }
+                if tstat.heating_setpoint_schedule.is_some()
+                    || tstat.cooling_setpoint_schedule.is_some()
+                {
+                    zone_sp_schedule.named.insert(
+                        zone_name.clone(),
+                        (
+                            tstat.heating_setpoint_schedule.clone(),
+                            tstat.cooling_setpoint_schedule.clone(),
+                        ),
+                    );
+                }
             }
         }
 
@@ -3336,15 +3345,18 @@ fn main() -> Result<()> {
                             );
                         }
 
-                        // Setpoints in force this timestep: a `thermostat_schedule`
-                        // entry (e.g. a night setback) overrides the constants. Mode,
-                        // loads and coil control all use these (#117).
+                        // Setpoints in force this timestep: a thermostat's schedules
+                        // (a `thermostat_schedule` entry or a named setpoint schedule)
+                        // override the constants. Mode, loads and coil control all
+                        // use these (#117).
+                        let doy = ctx.timestep.day_of_year();
                         let scheduled_sp = scheduled_setpoints(
                             &zone_heating_setpoints,
                             &zone_cooling_setpoints,
                             &zone_sp_schedule,
                             hour,
-                            ctx.timestep.day_of_year(),
+                            doy,
+                            &|name| env.schedule_manager.value_doy(name, hour, dow, doy),
                         );
                         let (zone_heating_setpoints, zone_cooling_setpoints) =
                             scheduled_sp.as_ref().map_or(
@@ -4773,6 +4785,14 @@ fn main() -> Result<()> {
                             &zone_sp_schedule,
                             hour,
                             ctx.timestep.day_of_year(),
+                            &|n| {
+                                env.schedule_manager.value_doy(
+                                    n,
+                                    hour,
+                                    env.schedule_day_type(month, day),
+                                    ctx.timestep.day_of_year(),
+                                )
+                            },
                         );
                         let is_conditioned = zone.input.conditioned;
 
@@ -7769,56 +7789,101 @@ fn resolve_path(input_file: &Path, relative_path: &str) -> PathBuf {
     }
 }
 
+/// Each zone's setpoint schedules: `thermostat_schedule` entries and named
+/// heating and cooling setpoint schedules (`heating_setpoint_schedule`,
+/// `cooling_setpoint_schedule`).
+#[derive(Default)]
+struct ZoneSetpointSchedules {
+    entries: HashMap<String, Vec<openbse_envelope::zone::ThermostatScheduleEntry>>,
+    named: HashMap<String, (Option<String>, Option<String>)>,
+}
+
+impl ZoneSetpointSchedules {
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty() && self.named.is_empty()
+    }
+
+    /// The scheduled (heating, cooling) setpoints of `zone` at this hour and
+    /// date, each `None` where no schedule sets it. `read` gives a named
+    /// schedule's value now.
+    fn at(
+        &self,
+        zone: &str,
+        hour: u32,
+        day_of_year: u32,
+        read: &dyn Fn(&str) -> Option<f64>,
+    ) -> (Option<f64>, Option<f64>) {
+        let (mut heat, mut cool) = self
+            .entries
+            .get(zone)
+            .and_then(|entries| entries.iter().find(|e| e.applies(hour, day_of_year)))
+            .map_or((None, None), |e| {
+                (Some(e.heating_setpoint), Some(e.cooling_setpoint))
+            });
+        if let Some((h, c)) = self.named.get(zone) {
+            heat = h.as_deref().and_then(read).or(heat);
+            cool = c.as_deref().and_then(read).or(cool);
+        }
+        (heat, cool)
+    }
+}
+
 /// (Heating, cooling) setpoints in force at one timestep: the constant
-/// thermostat values for each zone, overridden by whichever `thermostat_schedule`
-/// entry applies at this hour and date. Returns `None` when no zone has a
-/// schedule, so the caller keeps using the constant maps untouched.
+/// thermostat values for each zone, overridden by its schedules at this hour
+/// and date. Returns `None` when no zone has a schedule, so the caller keeps
+/// using the constant maps untouched.
 fn scheduled_setpoints(
     heat_base: &HashMap<String, f64>,
     cool_base: &HashMap<String, f64>,
-    schedules: &HashMap<String, Vec<openbse_envelope::zone::ThermostatScheduleEntry>>,
+    schedules: &ZoneSetpointSchedules,
     hour: u32,
     day_of_year: u32,
+    read: &dyn Fn(&str) -> Option<f64>,
 ) -> Option<(HashMap<String, f64>, HashMap<String, f64>)> {
     if schedules.is_empty() {
         return None;
     }
     let mut heat = heat_base.clone();
     let mut cool = cool_base.clone();
-    for (zone, entries) in schedules {
-        if let Some(entry) = entries.iter().find(|e| e.applies(hour, day_of_year)) {
-            heat.insert(zone.clone(), entry.heating_setpoint);
-            cool.insert(zone.clone(), entry.cooling_setpoint);
+    let zones: HashSet<&String> = schedules
+        .entries
+        .keys()
+        .chain(schedules.named.keys())
+        .collect();
+    for zone in zones {
+        let (h, c) = schedules.at(zone, hour, day_of_year, read);
+        if let Some(h) = h {
+            heat.insert(zone.clone(), h);
+        }
+        if let Some(c) = c {
+            cool.insert(zone.clone(), c);
         }
     }
     Some((heat, cool))
 }
 
-/// The heating and cooling setpoints a zone's HVAC controls to at this hour: its
-/// `thermostat_schedule` entry, else its thermostat's or ideal loads' constants.
-/// `None` when the zone has neither heating nor cooling control. A missing side
-/// is never compared: it reads as an infinitely wide deadband.
+/// The heating and cooling setpoints a zone's HVAC controls to at this hour:
+/// its schedules, else its thermostat's or ideal loads' constants. `None` when
+/// the zone has neither heating nor cooling control. A missing side is never
+/// compared: it reads as an infinitely wide deadband.
 fn controlled_setpoints(
     zone: &str,
     heat_base: &HashMap<String, f64>,
     cool_base: &HashMap<String, f64>,
-    schedules: &HashMap<String, Vec<openbse_envelope::zone::ThermostatScheduleEntry>>,
+    schedules: &ZoneSetpointSchedules,
     hour: u32,
     day_of_year: u32,
+    read: &dyn Fn(&str) -> Option<f64>,
 ) -> Option<(f64, f64)> {
-    if let Some(entry) = schedules
-        .get(zone)
-        .and_then(|entries| entries.iter().find(|e| e.applies(hour, day_of_year)))
-    {
-        return Some((entry.heating_setpoint, entry.cooling_setpoint));
-    }
-    let (heat, cool) = (heat_base.get(zone), cool_base.get(zone));
+    let (h, c) = schedules.at(zone, hour, day_of_year, read);
+    let heat = h.or_else(|| heat_base.get(zone).copied());
+    let cool = c.or_else(|| cool_base.get(zone).copied());
     if heat.is_none() && cool.is_none() {
         return None;
     }
     Some((
-        heat.copied().unwrap_or(f64::NEG_INFINITY),
-        cool.copied().unwrap_or(f64::INFINITY),
+        heat.unwrap_or(f64::NEG_INFINITY),
+        cool.unwrap_or(f64::INFINITY),
     ))
 }
 
@@ -7850,15 +7915,15 @@ mod tests {
     fn unmet_hours_read_the_thermostat_not_a_default() {
         let heat = HashMap::from([("Z".to_string(), 21.0)]);
         let cool = HashMap::from([("Z".to_string(), 25.0)]);
-        let none = HashMap::new();
+        let none = ZoneSetpointSchedules::default();
         // #291: a thermostat at 21/25 was compared with the 20/27 fallback.
         assert_eq!(
-            controlled_setpoints("Z", &heat, &cool, &none, 12, 100),
+            controlled_setpoints("Z", &heat, &cool, &none, 12, 100, &|_| None),
             Some((21.0, 25.0))
         );
         // A zone with no control isn't compared at all.
         assert_eq!(
-            controlled_setpoints("Y", &heat, &cool, &none, 12, 100),
+            controlled_setpoints("Y", &heat, &cool, &none, 12, 100, &|_| None),
             None
         );
     }
@@ -7871,13 +7936,16 @@ mod tests {
             "{start_hour: 1, end_hour: 6, heating_setpoint: 15.0, cooling_setpoint: 30.0}",
         )
         .unwrap();
-        let sched = HashMap::from([("Z".to_string(), vec![entry])]);
+        let sched = ZoneSetpointSchedules {
+            entries: HashMap::from([("Z".to_string(), vec![entry])]),
+            ..Default::default()
+        };
         assert_eq!(
-            controlled_setpoints("Z", &heat, &cool, &sched, 3, 100),
+            controlled_setpoints("Z", &heat, &cool, &sched, 3, 100, &|_| None),
             Some((15.0, 30.0))
         );
         assert_eq!(
-            controlled_setpoints("Z", &heat, &cool, &sched, 12, 100),
+            controlled_setpoints("Z", &heat, &cool, &sched, 12, 100, &|_| None),
             Some((21.0, 25.0))
         );
     }
@@ -7888,25 +7956,49 @@ mod tests {
     fn scheduled_setpoints_override_heating_and_cooling() {
         let heat = HashMap::from([("A".to_string(), 20.0), ("B".to_string(), 21.0)]);
         let cool = HashMap::from([("A".to_string(), 26.0), ("B".to_string(), 25.0)]);
-        let schedules = HashMap::from([(
-            "A".to_string(),
-            vec![openbse_envelope::zone::ThermostatScheduleEntry {
-                start_hour: 1,
-                end_hour: 6,
-                heating_setpoint: 15.0,
-                cooling_setpoint: 30.0,
-                start_month: None,
-                start_day: None,
-                end_month: None,
-                end_day: None,
-            }],
-        )]);
-        let (h, c) = scheduled_setpoints(&heat, &cool, &schedules, 3, 10).unwrap();
+        let schedules = ZoneSetpointSchedules {
+            entries: HashMap::from([(
+                "A".to_string(),
+                vec![openbse_envelope::zone::ThermostatScheduleEntry {
+                    start_hour: 1,
+                    end_hour: 6,
+                    heating_setpoint: 15.0,
+                    cooling_setpoint: 30.0,
+                    start_month: None,
+                    start_day: None,
+                    end_month: None,
+                    end_day: None,
+                }],
+            )]),
+            ..Default::default()
+        };
+        let none = &|_: &str| None;
+        let (h, c) = scheduled_setpoints(&heat, &cool, &schedules, 3, 10, none).unwrap();
         assert_eq!((h["A"], c["A"]), (15.0, 30.0));
         assert_eq!((h["B"], c["B"]), (21.0, 25.0));
-        let (h, c) = scheduled_setpoints(&heat, &cool, &schedules, 12, 10).unwrap();
+        let (h, c) = scheduled_setpoints(&heat, &cool, &schedules, 12, 10, none).unwrap();
         assert_eq!((h["A"], c["A"]), (20.0, 26.0));
-        assert!(scheduled_setpoints(&heat, &cool, &HashMap::new(), 3, 10).is_none());
+        let empty = ZoneSetpointSchedules::default();
+        assert!(scheduled_setpoints(&heat, &cool, &empty, 3, 10, none).is_none());
+    }
+
+    /// A named setpoint schedule sets its side of the zone's setpoints and
+    /// leaves the other at the thermostat's constant.
+    #[test]
+    fn named_setpoint_schedule_overrides_its_side() {
+        let heat = HashMap::from([("A".to_string(), 21.0)]);
+        let cool = HashMap::from([("A".to_string(), 24.0)]);
+        let schedules = ZoneSetpointSchedules {
+            named: HashMap::from([("A".to_string(), (Some("HTG".to_string()), None))]),
+            ..Default::default()
+        };
+        let read = &|name: &str| (name == "HTG").then_some(15.6);
+        let (h, c) = scheduled_setpoints(&heat, &cool, &schedules, 3, 10, read).unwrap();
+        assert_eq!((h["A"], c["A"]), (15.6, 24.0));
+        assert_eq!(
+            controlled_setpoints("A", &heat, &cool, &schedules, 3, 10, read),
+            Some((15.6, 24.0))
+        );
     }
 
     #[test]

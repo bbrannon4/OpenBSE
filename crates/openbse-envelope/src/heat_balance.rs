@@ -3562,9 +3562,12 @@ impl EnvelopeSolver for BuildingEnvelope {
                     } else if zone.ideal_pred_mode_locked {
                         // Reuse locked mode — still need to set t_zone_vec
                         let pred_mode = zone.ideal_pred_mode;
-                        let (heat_sp, cool_sp) = zone
-                            .input
-                            .active_setpoints(hour, ctx.timestep.day_of_year());
+                        let (heat_sp, cool_sp) = zone.input.active_setpoints(
+                            hour,
+                            ctx.timestep.day_of_year(),
+                            self.schedule_day_type(ctx.timestep.month, ctx.timestep.day),
+                            &self.schedule_manager,
+                        );
                         let t_zone = match pred_mode {
                             1 => heat_sp,
                             -1 => cool_sp,
@@ -3749,9 +3752,12 @@ impl EnvelopeSolver for BuildingEnvelope {
                             zone.temp_prev
                         };
 
-                        let (heat_sp, cool_sp) = zone
-                            .input
-                            .active_setpoints(hour, ctx.timestep.day_of_year());
+                        let (heat_sp, cool_sp) = zone.input.active_setpoints(
+                            hour,
+                            ctx.timestep.day_of_year(),
+                            self.schedule_day_type(ctx.timestep.month, ctx.timestep.day),
+                            &self.schedule_manager,
+                        );
                         let il = zone.input.ideal_loads.as_ref().unwrap();
                         let mut pred_mode = if t_free_pred < heat_sp {
                             1_i8
@@ -3986,6 +3992,8 @@ impl EnvelopeSolver for BuildingEnvelope {
             }
 
             // 6c. Zone air heat balance
+            let schedule_dow = self.schedule_day_type(ctx.timestep.month, ctx.timestep.day);
+            let schedule_manager = &self.schedule_manager;
             for (zone_idx, zone) in self.zones.iter_mut().enumerate() {
                 let cp_air = psych::cp_air_fn_w(zone.humidity_ratio);
                 let rho_air = psych::rho_air_fn_pb_tdb_w(p_b, zone.temp, zone.humidity_ratio);
@@ -4201,9 +4209,12 @@ impl EnvelopeSolver for BuildingEnvelope {
                     );
 
                     // Step 2: Get active setpoints (may vary by schedule)
-                    let (mut heat_sp, mut cool_sp) = zone
-                        .input
-                        .active_setpoints(hour, ctx.timestep.day_of_year());
+                    let (mut heat_sp, mut cool_sp) = zone.input.active_setpoints(
+                        hour,
+                        ctx.timestep.day_of_year(),
+                        schedule_dow,
+                        schedule_manager,
+                    );
 
                     // Step 2b: Natural ventilation setpoint reset.
                     //
@@ -5445,6 +5456,7 @@ mod tests {
 
             ideal_loads: None,
             thermostat_schedule: vec![],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![],
             solar_distribution: None,
             exhaust_fan: None,
@@ -5628,6 +5640,7 @@ mod tests {
             internal_mass: vec![],
             ideal_loads: None,
             thermostat_schedule: vec![],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![],
             solar_distribution: None,
             exhaust_fan: None,
@@ -6390,6 +6403,7 @@ mod tests {
 
             ideal_loads: None,
             thermostat_schedule: vec![],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![],
             solar_distribution: None,
             exhaust_fan: None,
@@ -7193,6 +7207,7 @@ mod tests {
                 cooling_capacity: 1_000_000.0,
             }),
             thermostat_schedule: vec![],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![],
             solar_distribution: None,
             exhaust_fan: None,
@@ -7357,6 +7372,7 @@ mod tests {
                 cooling_capacity: 1_000_000.0,
             }),
             thermostat_schedule: vec![],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![],
             solar_distribution: None,
             exhaust_fan: None,
@@ -7502,6 +7518,7 @@ mod tests {
                 cooling_capacity: 1_000_000.0,
             }),
             thermostat_schedule: vec![],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![],
             solar_distribution: None,
             exhaust_fan: None,
