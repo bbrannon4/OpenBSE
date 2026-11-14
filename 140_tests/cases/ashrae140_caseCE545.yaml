@@ -53,6 +53,7 @@ equipment:
   - name: CE545 Sensible Gain
     zones: [CE545 Zone]
     power: 18758.0
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 0.0
     schedule: CE545 SensSch

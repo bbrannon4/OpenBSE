@@ -118,10 +118,10 @@ zones:
     floor_area: 48.0
 
 equipment:
-  - {{name: {case} Z1 Sensible, zones: [{z1n}], power: {s1}, radiant_fraction: 0.0, latent_fraction: 0.0}}
-  - {{name: {case} Z1 Latent, zones: [{z1n}], power: {LAT1}, radiant_fraction: 0.0, latent_fraction: 1.0}}
-  - {{name: {case} Z2 Sensible, zones: [{z2n}], power: {s2}, radiant_fraction: 0.0, latent_fraction: 0.0}}
-  - {{name: {case} Z2 Latent, zones: [{z2n}], power: {LAT2}, radiant_fraction: 0.0, latent_fraction: 1.0}}
+  - {{name: {case} Z1 Sensible, zones: [{z1n}], power: {s1}, fuel: none, radiant_fraction: 0.0, latent_fraction: 0.0}}
+  - {{name: {case} Z1 Latent, zones: [{z1n}], power: {LAT1}, fuel: none, radiant_fraction: 0.0, latent_fraction: 1.0}}
+  - {{name: {case} Z2 Sensible, zones: [{z2n}], power: {s2}, fuel: none, radiant_fraction: 0.0, latent_fraction: 0.0}}
+  - {{name: {case} Z2 Latent, zones: [{z2n}], power: {LAT2}, fuel: none, radiant_fraction: 0.0, latent_fraction: 1.0}}
 
 surfaces:
 {surfaces(case, 'Zone1')}

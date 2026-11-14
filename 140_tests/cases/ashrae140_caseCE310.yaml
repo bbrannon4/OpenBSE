@@ -56,12 +56,14 @@ equipment:
   - name: CE310 Sensible Gain
     zones: [CE310 Zone]
     power: 18758.0
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 0.0
     schedule: CE310 SensSch
   - name: CE310 Latent Gain
     zones: [CE310 Zone]
     power: 9379.0
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 1.0
     schedule: CE310 LatSch

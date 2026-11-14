@@ -276,6 +276,7 @@ def gain_block(case, z, c):
     equip = [f"""  - name: {case} Sensible Gain
     zones: [{z}]
     power: {c['sens'][0]}
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 0.0
     schedule: {sens_sched}"""]
@@ -284,6 +285,7 @@ def gain_block(case, z, c):
         equip.append(f"""  - name: {case} Latent Gain
     zones: [{z}]
     power: {c['lat'][0]}
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 1.0
     schedule: {lat_sched}""")

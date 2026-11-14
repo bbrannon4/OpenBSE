@@ -56,12 +56,14 @@ equipment:
   - name: CE525 Sensible Gain
     zones: [CE525 Zone]
     power: 18758.0
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 0.0
     schedule: CE525 SensSch
   - name: CE525 Latent Gain
     zones: [CE525 Zone]
     power: 7621.0
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 1.0
     schedule: CE525 LatSch

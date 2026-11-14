@@ -125,6 +125,7 @@ equipment:
   - name: {case} Internal Load
     zones: [{z}]
     power: {power:.1f}
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: {lf:.6f}
 

@@ -128,7 +128,13 @@
       "type": "array",
       "items": { "$ref": "#/$defs/EquipmentGain" },
       "default": [],
-      "description": "Internal equipment gain definitions assignable to zones."
+      "description": "Internal equipment gain definitions assignable to zones, of any fuel (`fuel`)."
+    },
+    "outdoor_controlled_baseboards": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/OutdoorControlledBaseboard" },
+      "default": [],
+      "description": "Baseboard heat whose capacity follows the outdoor temperature (E+ ZoneBaseboard:OutdoorTemperatureControlled), assignable to zones."
     },
     "infiltration": {
       "type": "array",
@@ -1981,7 +1987,8 @@
       "oneOf": [
         { "$ref": "#/$defs/ZonePeopleGain" },
         { "$ref": "#/$defs/ZoneLightsGain" },
-        { "$ref": "#/$defs/ZoneEquipmentGain" }
+        { "$ref": "#/$defs/ZoneEquipmentGain" },
+        { "$ref": "#/$defs/ZoneOutdoorControlledBaseboardGain" }
       ]
     },
 
@@ -2021,12 +2028,13 @@
       "description": "Zone-level equipment gain.",
       "properties": {
         "type": { "type": "string", "const": "equipment" },
-        "power": { "type": "number", "description": "Equipment power [W]." },
+        "power": { "type": "number", "description": "Equipment power [W]. May be negative only with fuel: none." },
         "radiant_fraction": { "type": "number", "default": 0.3, "minimum": 0, "maximum": 1 },
         "lost_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of heat that does not enter the zone [0-1]." },
         "latent_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of the total power that is latent [0-1]. Radiant + lost + latent must not exceed 1; the rest is convective." },
         "schedule": { "type": "string" },
-        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use reporting." }
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use reporting." },
+        "fuel": { "type": "string", "enum": ["electricity", "natural_gas", "propane", "fuel_oil_no1", "fuel_oil_no2", "diesel", "gasoline", "coal", "other_fuel1", "other_fuel2", "district_heating_water", "district_heating_steam", "district_cooling", "none"], "default": "electricity", "description": "Fuel the equipment draws, which sets only the meter its power is booked to (the heat split is the same for every fuel). `electricity` is E+ ElectricEquipment, `natural_gas` GasEquipment, `district_heating_water` HotWaterEquipment, `district_heating_steam` SteamEquipment, and the rest are the fuel types of E+ OtherEquipment. `none` meters nothing and is the only fuel whose power may be negative (a heat sink). The summary report totals electricity, natural gas, district heating water and steam separately and the remaining fuels as Other Fuels; submeters keep each fuel apart (end use `equipment_<fuel>`)." }
       }
     },
 
@@ -2113,15 +2121,48 @@
       }
     },
 
+    "ZoneOutdoorControlledBaseboardGain": {
+      "type": "object",
+      "required": ["type", "capacity_at_low_temperature", "low_temperature", "capacity_at_high_temperature", "high_temperature"],
+      "description": "Zone-level outdoor-temperature-controlled baseboard heat (E+ ZoneBaseboard:OutdoorTemperatureControlled).",
+      "properties": {
+        "type": { "type": "string", "const": "outdoor_controlled_baseboard" },
+        "capacity_at_low_temperature": { "type": "number", "exclusiveMinimum": 0, "description": "Capacity at and below low_temperature [W]." },
+        "low_temperature": { "type": "number", "description": "Outdoor dry-bulb temperature of the low-temperature capacity [C]." },
+        "capacity_at_high_temperature": { "type": "number", "minimum": 0, "description": "Capacity just below high_temperature [W]; linear in outdoor temperature between the two points." },
+        "high_temperature": { "type": "number", "description": "Outdoor dry-bulb temperature at and above which the baseboard is off [C]. Must be above low_temperature." },
+        "radiant_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of the heat that is radiant [0-1]; the rest is convective." },
+        "schedule": { "type": "string", "description": "Schedule name, a fraction of the capacity (default: always on)." },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." }
+      }
+    },
+    "OutdoorControlledBaseboard": {
+      "type": "object",
+      "required": ["name", "zones", "capacity_at_low_temperature", "low_temperature", "capacity_at_high_temperature", "high_temperature"],
+      "description": "Baseboard heat whose capacity follows the outdoor temperature (E+ ZoneBaseboard:OutdoorTemperatureControlled). An electric internal gain metered as interior equipment, not HVAC: no thermostat controls it.",
+      "properties": {
+        "name": { "type": "string" },
+        "zones": { "type": "array", "items": { "type": "string" }, "description": "Zone or zone group names; each zone gets the full capacity." },
+        "capacity_at_low_temperature": { "type": "number", "exclusiveMinimum": 0, "description": "Capacity at and below low_temperature [W]." },
+        "low_temperature": { "type": "number", "description": "Outdoor dry-bulb temperature of the low-temperature capacity [C]." },
+        "capacity_at_high_temperature": { "type": "number", "minimum": 0, "description": "Capacity just below high_temperature [W]; linear in outdoor temperature between the two points." },
+        "high_temperature": { "type": "number", "description": "Outdoor dry-bulb temperature at and above which the baseboard is off [C]. Must be above low_temperature." },
+        "radiant_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of the heat that is radiant [0-1]; the rest is convective." },
+        "schedule": { "type": "string", "description": "Schedule name, a fraction of the capacity (default: always on)." },
+        "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." }
+      }
+    },
     "EquipmentGain": {
       "type": "object",
       "required": ["name", "zones"],
-      "description": "Internal equipment gain definition.",
+      "description": "Internal equipment gain definition, of any fuel (E+ ElectricEquipment, GasEquipment, HotWaterEquipment, SteamEquipment, OtherEquipment).",
       "properties": {
         "name": { "type": "string" },
         "zones": { "type": "array", "items": { "type": "string" }, "description": "Zone or zone group names." },
-        "power": { "type": "number", "default": 0, "description": "Total equipment power [W]." },
-        "watts_per_area": { "type": "number", "description": "Equipment power density [W/m2]." },
+        "power": { "type": "number", "default": 0, "description": "Total equipment power [W]. May be negative only with fuel: none." },
+        "watts_per_area": { "type": "number", "minimum": 0, "description": "Equipment power density [W/m2]. Give one of power, watts_per_area and watts_per_person." },
+        "watts_per_person": { "type": "number", "exclusiveMinimum": 0, "description": "Equipment power per person [W/person], times the zone's design number of people (E+ Watts/Person). Give one of power, watts_per_area and watts_per_person." },
+        "fuel": { "type": "string", "enum": ["electricity", "natural_gas", "propane", "fuel_oil_no1", "fuel_oil_no2", "diesel", "gasoline", "coal", "other_fuel1", "other_fuel2", "district_heating_water", "district_heating_steam", "district_cooling", "none"], "default": "electricity", "description": "Fuel the equipment draws, which sets only the meter its power is booked to (the heat split is the same for every fuel). `electricity` is E+ ElectricEquipment, `natural_gas` GasEquipment, `district_heating_water` HotWaterEquipment, `district_heating_steam` SteamEquipment, and the rest are the fuel types of E+ OtherEquipment. `none` meters nothing and is the only fuel whose power may be negative (a heat sink). The summary report totals electricity, natural gas, district heating water and steam separately and the remaining fuels as Other Fuels; submeters keep each fuel apart (end use `equipment_<fuel>`)." },
         "radiant_fraction": { "type": "number", "default": 0.3, "minimum": 0, "maximum": 1 },
         "lost_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of heat that does not enter the zone [0-1]. Fraction of the total: radiant + lost + latent must not exceed 1, so a lost_fraction above 0.7 needs a radiant_fraction below its default. Example: elevator with lost_fraction=0.95 means only 5% of heat enters the zone." },
         "latent_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of equipment heat that is latent (moisture-generating) [0-1]. Fraction of the total: radiant + lost + latent must not exceed 1; the rest is convective. Examples: kitchen equipment, laundry." },
@@ -2480,7 +2521,7 @@
         "variables": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Variable specs to include in output. Format: `category:variable` (all entities) or `category:variable:name_filter` (specific entity or glob with `*`), optionally followed by `@mean`, `@sum`, `@min` or `@max` to override how the variable is reduced to the reporting frequency.\n\nDefault reduction: energy quantities (zone:heating_energy, zone:cooling_energy, building:*, submeter:*) are summed; everything else is time-averaged. Summing a rate integrates it over time, so W becomes Wh, kg/s becomes kg, m³/s becomes m³ and unmet/active flags become hours.\n\nExamples: `zone:temperature`, `zone:temperature@max`, `zone:temperature:living_unit1`, `surface:transmitted_solar:Window*`, `building:fan_electric`, `component:outlet_temperature`.\n\n**Site variables:** site:outdoor_temperature [°C], site:wind_speed [m/s], site:direct_normal_radiation [W/m²], site:diffuse_horizontal_radiation [W/m²], site:relative_humidity [%]\n\n**Zone state variables:** zone:temperature [°C], zone:humidity_ratio [kg/kg], zone:heating_rate [W], zone:cooling_rate [W], zone:heating_energy [J], zone:cooling_energy [J], zone:infiltration_mass_flow [kg/s], zone:nat_vent_flow [m³/s], zone:nat_vent_mass_flow [kg/s], zone:nat_vent_active [-], zone:internal_gains_convective [W], zone:internal_gains_radiative [W], zone:supply_air_temperature [°C], zone:supply_air_mass_flow [kg/s]\n\n**Zone gain breakdown (all W, positive = heat into zone):** zone:gain_people_sensible, zone:gain_people_latent, zone:gain_lighting, zone:gain_equipment_sensible, zone:gain_equipment_latent, zone:gain_infiltration_sensible, zone:gain_infiltration_latent, zone:gain_ventilation_sensible, zone:gain_ventilation_latent, zone:gain_natural_ventilation_sensible, zone:gain_natural_ventilation_latent, zone:gain_solar, zone:gain_hvac_sensible, zone:gain_hvac_latent\n\n**Zone comfort variables:** zone:mean_radiant_temperature [°C] (long-wave, area-weighted surface MRT), zone:effective_mrt [°C] (long-wave MRT + solar correction; the MRT that drives PMV and operative temperature), zone:operative_temperature [°C], zone:pmv [-] (Predicted Mean Vote, −3 cold … 0 neutral … +3 hot), zone:ppd [%] (Predicted Percentage Dissatisfied), zone:solar_mrt_correction [K] (ASHRAE 55 Annex C direct-beam solar MRT increment)\n\n**Zone unmet variables:** zone:unmet_heating [-] (0 or 1; summed → hours), zone:unmet_cooling [-] (0 or 1; summed → hours)\n\n**Surface variables:** surface:inside_temperature [°C], surface:outside_temperature [°C], surface:inside_convection_coefficient [W/(m²·K)], surface:incident_solar [W/m²], surface:transmitted_solar [W], surface:cond_inside [W], surface:convection_inside [W], surface:radiation_inside [W], surface:inside_radiation_coefficient [W/(m²·K)], surface:blind_deployed [-] (1=deployed, 0=retracted; only emitted for windows with shading_control)\n\n**Component variables:** component:outlet_temperature [°C], component:inlet_temperature [°C], component:mass_flow [kg/s], component:outlet_humidity_ratio [kg/kg], component:electric_power [W], component:fuel_power [W], component:thermal_output [W], component:cop_operating [-], component:plr [-], component:rtf [-], component:sensible_load [W], component:latent_load [W], component:total_load [W], component:conduction_loss [W], component:leakage_loss [W], component:pressure_rise [Pa], component:total_efficiency [-], component:effectiveness [-]. Use name_filter to select a specific component: `component:outlet_temperature:MyAHU`.\n\n**Building energy meters (summed → Wh):** building:fan_electric, building:cooling_electric, building:heating_electric, building:heating_gas, building:pump_electric, building:heat_rejection, building:humidification, building:heat_recovery, building:dhw_electric, building:dhw_gas, building:lighting, building:ext_lighting, building:equipment, building:ext_equipment, building:total_electric, building:total_gas\n\n**Submeter variables (summed → Wh):** submeter:total_electric, submeter:total_gas, submeter:total, submeter:lighting, submeter:equipment, submeter:heating_gas, submeter:cooling_electric, submeter:fan_electric, submeter:dhw_gas. Use name_filter to select a specific submeter: `submeter:lighting:Decorative`."
+          "description": "Variable specs to include in output. Format: `category:variable` (all entities) or `category:variable:name_filter` (specific entity or glob with `*`), optionally followed by `@mean`, `@sum`, `@min` or `@max` to override how the variable is reduced to the reporting frequency.\n\nDefault reduction: energy quantities (zone:heating_energy, zone:cooling_energy, building:*, submeter:*) are summed; everything else is time-averaged. Summing a rate integrates it over time, so W becomes Wh, kg/s becomes kg, m³/s becomes m³ and unmet/active flags become hours.\n\nExamples: `zone:temperature`, `zone:temperature@max`, `zone:temperature:living_unit1`, `surface:transmitted_solar:Window*`, `building:fan_electric`, `component:outlet_temperature`.\n\n**Site variables:** site:outdoor_temperature [°C], site:wind_speed [m/s], site:direct_normal_radiation [W/m²], site:diffuse_horizontal_radiation [W/m²], site:relative_humidity [%]\n\n**Zone state variables:** zone:temperature [°C], zone:humidity_ratio [kg/kg], zone:heating_rate [W], zone:cooling_rate [W], zone:heating_energy [J], zone:cooling_energy [J], zone:infiltration_mass_flow [kg/s], zone:nat_vent_flow [m³/s], zone:nat_vent_mass_flow [kg/s], zone:nat_vent_active [-], zone:internal_gains_convective [W], zone:internal_gains_radiative [W], zone:supply_air_temperature [°C], zone:supply_air_mass_flow [kg/s]\n\n**Zone gain breakdown (all W, positive = heat into zone):** zone:gain_people_sensible, zone:gain_people_latent, zone:gain_lighting, zone:gain_equipment_sensible, zone:gain_equipment_latent, zone:gain_infiltration_sensible, zone:gain_infiltration_latent, zone:gain_ventilation_sensible, zone:gain_ventilation_latent, zone:gain_natural_ventilation_sensible, zone:gain_natural_ventilation_latent, zone:gain_solar, zone:gain_hvac_sensible, zone:gain_hvac_latent\n\n**Zone comfort variables:** zone:mean_radiant_temperature [°C] (long-wave, area-weighted surface MRT), zone:effective_mrt [°C] (long-wave MRT + solar correction; the MRT that drives PMV and operative temperature), zone:operative_temperature [°C], zone:pmv [-] (Predicted Mean Vote, −3 cold … 0 neutral … +3 hot), zone:ppd [%] (Predicted Percentage Dissatisfied), zone:solar_mrt_correction [K] (ASHRAE 55 Annex C direct-beam solar MRT increment)\n\n**Zone unmet variables:** zone:unmet_heating [-] (0 or 1; summed → hours), zone:unmet_cooling [-] (0 or 1; summed → hours)\n\n**Surface variables:** surface:inside_temperature [°C], surface:outside_temperature [°C], surface:inside_convection_coefficient [W/(m²·K)], surface:incident_solar [W/m²], surface:transmitted_solar [W], surface:cond_inside [W], surface:convection_inside [W], surface:radiation_inside [W], surface:inside_radiation_coefficient [W/(m²·K)], surface:blind_deployed [-] (1=deployed, 0=retracted; only emitted for windows with shading_control)\n\n**Component variables:** component:outlet_temperature [°C], component:inlet_temperature [°C], component:mass_flow [kg/s], component:outlet_humidity_ratio [kg/kg], component:electric_power [W], component:fuel_power [W], component:thermal_output [W], component:cop_operating [-], component:plr [-], component:rtf [-], component:sensible_load [W], component:latent_load [W], component:total_load [W], component:conduction_loss [W], component:leakage_loss [W], component:pressure_rise [Pa], component:total_efficiency [-], component:effectiveness [-]. Use name_filter to select a specific component: `component:outlet_temperature:MyAHU`.\n\n**Building energy meters (summed → Wh):** building:fan_electric, building:cooling_electric, building:heating_electric, building:heating_gas, building:pump_electric, building:heat_rejection, building:humidification, building:heat_recovery, building:dhw_electric, building:dhw_gas, building:lighting, building:ext_lighting, building:equipment (electric), building:equipment_gas, building:equipment_district_heating_water, building:equipment_district_heating_steam, building:equipment_other_fuel, building:ext_equipment, building:total_electric, building:total_gas, building:total_district_heating_water, building:total_district_heating_steam, building:total_other_fuel\n\n**Submeter variables (summed → Wh):** submeter:total_electric, submeter:total_gas, submeter:total_district_heating_water, submeter:total_district_heating_steam, submeter:total_other_fuel, submeter:total, submeter:lighting, submeter:equipment (electric), submeter:equipment_<fuel> (e.g. submeter:equipment_natural_gas), submeter:heating_gas, submeter:cooling_electric, submeter:fan_electric, submeter:dhw_gas. Use name_filter to select a specific submeter: `submeter:lighting:Decorative`."
         }
       }
     }

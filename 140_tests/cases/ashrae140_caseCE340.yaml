@@ -71,12 +71,14 @@ equipment:
   - name: CE340 Sensible Gain
     zones: [CE340 Zone]
     power: 18758.0
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 0.0
     schedule: CE340 SensSch
   - name: CE340 Latent Gain
     zones: [CE340 Zone]
     power: 1466.0
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 1.0
     schedule: CE340 LatSch

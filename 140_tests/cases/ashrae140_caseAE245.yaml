@@ -30,11 +30,13 @@ equipment:
   - name: AE245 Sensible Gain
     zones: [AE245 Zone]
     power: 1465.0
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 0.0
   - name: AE245 Latent Gain
     zones: [AE245 Zone]
     power: 586.1
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 1.0
 

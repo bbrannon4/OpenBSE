@@ -56,12 +56,14 @@ equipment:
   - name: CE360 Sensible Gain
     zones: [CE360 Zone]
     power: 29310.0
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 0.0
     schedule: CE360 SensSch
   - name: CE360 Latent Gain
     zones: [CE360 Zone]
     power: 1466.0
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 1.0
     schedule: CE360 LatSch

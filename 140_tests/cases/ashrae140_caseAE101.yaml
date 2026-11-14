@@ -30,11 +30,13 @@ equipment:
   - name: AE101 Sensible Gain
     zones: [AE101 Zone]
     power: -2931.0
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 0.0
   - name: AE101 Latent Gain
     zones: [AE101 Zone]
     power: 586.1
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 1.0
 

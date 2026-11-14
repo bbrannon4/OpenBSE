@@ -39,7 +39,7 @@ pub use geometry::{azimuth_to_cardinal, CardinalDirection, EnvelopeAreas, Point3
 pub use ground_temp::GroundTempModel;
 pub use heat_balance::{BuildingEnvelope, SolarDistributionMethod};
 pub use infiltration::InfiltrationInput;
-pub use internal_gains::InternalGainInput;
+pub use internal_gains::{EquipmentFuel, FuelGroup, FuelPowers, InternalGainInput};
 pub use material::{
     Construction, ConstructionLayer, FFactorConstruction, Material, ResolvedLayer,
     SimpleConstruction, WindowConstruction,
@@ -57,6 +57,6 @@ pub use zone::{
 };
 pub use zone_loads::{
     EquipmentGainInput, ExhaustFanTopLevel, IdealLoadsTopLevel, InfiltrationInteraction,
-    InfiltrationTopLevel, LightsInput, OutdoorAirTopLevel, PeopleInput, ThermostatInput,
-    VentilationCombiningMethod, VentilationTopLevel,
+    InfiltrationTopLevel, LightsInput, OutdoorAirTopLevel, OutdoorControlledBaseboardInput,
+    PeopleInput, ThermostatInput, VentilationCombiningMethod, VentilationTopLevel,
 };

@@ -309,6 +309,22 @@ internal_gains:
 
 Two built-in schedules are always available: `always_on` (1.0 at all times) and `always_off` (0.0 at all times). If no schedule is specified, the gain runs at 100% at all times.
 
+Equipment draws electricity unless it states a `fuel`, which sets the meter its whole input power is booked to; the heat it gives the zone is the same for every fuel. EnergyPlus `GasEquipment` is `fuel: natural_gas`, `HotWaterEquipment` is `fuel: district_heating_water`, `SteamEquipment` is `fuel: district_heating_steam`, and `OtherEquipment` takes its fuel type, or `fuel: none` for an unmetered gain, the only kind whose power may be negative (a heat sink). Top-level `equipment` may give its level as `power`, `watts_per_area` or `watts_per_person`:
+
+```yaml
+equipment:
+  - name: Kitchen Range
+    zones: [Kitchen]
+    fuel: natural_gas
+    power: 15000.0
+    radiant_fraction: 0.3
+    latent_fraction: 0.2
+    lost_fraction: 0.3
+    schedule: Kitchen Hours
+```
+
+Baseboard heat whose capacity follows the outdoor temperature (EnergyPlus `ZoneBaseboard:OutdoorTemperatureControlled`) is an electric internal gain, not HVAC: `outdoor_controlled_baseboards` with `capacity_at_low_temperature`, `low_temperature`, `capacity_at_high_temperature`, `high_temperature` (off at and above it), `radiant_fraction` and an optional `schedule`.
+
 ### Air Loops
 
 An air loop defines a series of supply-side equipment and the zone terminals it serves. Equipment is connected in the order listed — air flows through them sequentially. System behavior (PSZ-AC, DOAS, FCU, VAV, PTAC) is auto-detected from the equipment and controls configuration. Zone connections are listed under `zone_terminals:` (the legacy key `zones:` is accepted as an alias).
@@ -1471,10 +1487,17 @@ Additional component-specific variables:
 | `building:dhw_gas` | Wh | DHW gas/fuel energy |
 | `building:lighting` | Wh | Interior lighting energy |
 | `building:ext_lighting` | Wh | Exterior lighting energy |
-| `building:equipment` | Wh | Interior equipment energy |
+| `building:equipment` | Wh | Interior electric equipment energy (baseboards included) |
+| `building:equipment_gas` | Wh | Interior natural gas equipment energy |
+| `building:equipment_district_heating_water` | Wh | Interior district heating water equipment energy |
+| `building:equipment_district_heating_steam` | Wh | Interior district heating steam equipment energy |
+| `building:equipment_other_fuel` | Wh | Interior equipment energy on other fuels |
 | `building:ext_equipment` | Wh | Exterior equipment energy |
 | `building:total_electric` | Wh | Total electric energy |
-| `building:total_gas` | Wh | Total gas/fuel energy |
+| `building:total_gas` | Wh | Total natural gas energy |
+| `building:total_district_heating_water` | Wh | Total district heating water energy |
+| `building:total_district_heating_steam` | Wh | Total district heating steam energy |
+| `building:total_other_fuel` | Wh | Total energy on other fuels (propane, fuel oil, coal, ...) |
 
 ### Submeters
 
@@ -1515,10 +1538,13 @@ air_loops:
 | `submeter:equipment:Kitchen` | Equipment energy for the "Kitchen" submeter [Wh] |
 | `submeter:fan_electric:HVAC-Zone1` | Fan energy for the "HVAC-Zone1" submeter [Wh] |
 | `submeter:total_electric` | Sum of all electric end uses (per submeter) [Wh] |
-| `submeter:total_gas` | Sum of all gas end uses (per submeter) [Wh] |
+| `submeter:total_gas` | Sum of all natural gas end uses (per submeter) [Wh] |
+| `submeter:total_district_heating_water` | Sum of district heating water end uses (per submeter) [Wh] |
+| `submeter:total_district_heating_steam` | Sum of district heating steam end uses (per submeter) [Wh] |
+| `submeter:total_other_fuel` | Sum of end uses on other fuels (per submeter) [Wh] |
 | `submeter:total` | Sum of all end uses (per submeter) [Wh] |
 
-End-use categories: `fan_electric`, `cooling_electric`, `heating_electric`, `heating_gas`, `pump_electric`, `heat_rejection`, `humidification`, `heat_recovery`, `dhw_electric`, `dhw_gas`, `lighting`, `ext_lighting`, `equipment`, `ext_equipment`.
+End-use categories: `fan_electric`, `cooling_electric`, `heating_electric`, `heating_gas`, `pump_electric`, `heat_rejection`, `humidification`, `heat_recovery`, `dhw_electric`, `dhw_gas`, `lighting`, `ext_lighting`, `equipment` (electric), `equipment_<fuel>` (e.g. `equipment_natural_gas`, `equipment_district_heating_water`), `ext_equipment`.
 
 When any non-"General" submeters exist, the summary report includes a **Submeter Breakdown** section showing monthly energy by submeter and end-use category.
 

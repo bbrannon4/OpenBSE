@@ -134,6 +134,7 @@ equipment:
   - name: Internal Gains
     zones: [Case670 Zone]
     power: 200.0              # 200W continuous, 60% radiant
+    fuel: none
     radiant_fraction: 0.6
 
 infiltration:
