@@ -2257,6 +2257,7 @@ impl BuildingEnvelope {
                     hour,
                     dow,
                     doy,
+                    z.temp_prev,
                 );
                 (gains.lighting_return_air > 0.0)
                     .then(|| (z.input.name.clone(), gains.lighting_return_air))
@@ -2268,6 +2269,10 @@ impl BuildingEnvelope {
 /// A zone's internal gains this timestep. Normal simulation follows the
 /// schedules; sizing follows the design day's `internal_gains` mode
 /// (Off / Full / Scheduled / FullWhenOccupied).
+///
+/// `zone_air_temp` is the zone air temperature at the end of the previous
+/// timestep, which people's autocalculated sensible heat follows (E+ reads the
+/// zone mean air temperature once per timestep, before the zone solve).
 fn timestep_gains(
     gains: &[internal_gains::InternalGainInput],
     schedule_manager: &ScheduleManager,
@@ -2275,12 +2280,22 @@ fn timestep_gains(
     hour: u32,
     dow: u32,
     doy: u32,
+    zone_air_temp: f64,
 ) -> internal_gains::ResolvedGain {
     use openbse_core::ports::SizingInternalGains;
-    let scheduled =
-        || internal_gains::resolve_gains_scheduled(gains, Some(schedule_manager), hour, dow, doy);
+    let scheduled = || {
+        internal_gains::resolve_gains_scheduled(
+            gains,
+            Some(schedule_manager),
+            hour,
+            dow,
+            doy,
+            zone_air_temp,
+        )
+    };
     // No schedule manager: every gain at its design level.
-    let full = || internal_gains::resolve_gains_scheduled(gains, None, hour, dow, doy);
+    let full =
+        || internal_gains::resolve_gains_scheduled(gains, None, hour, dow, doy, zone_air_temp);
     if !ctx.is_sizing {
         return scheduled();
     }
@@ -2387,6 +2402,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                 hour,
                 dow,
                 doy,
+                zone.temp_prev,
             );
             zone.q_internal_conv = gains.convective;
             zone.q_internal_rad = gains.radiative;
@@ -7158,6 +7174,66 @@ mod tests {
         // With HVAC supply at 35°C, zone should stay well above freezing
         let t_zone = envelope.zones[0].temp;
         assert!(t_zone > 15.0, "HVAC should keep zone warm: got {}", t_zone);
+    }
+
+    #[test]
+    fn people_heat_follows_the_previous_zone_temperature_and_latent_reaches_the_moisture_balance() {
+        use crate::internal_gains::{people_sensible_per_person, InternalGainInput};
+        // Two copies of a zone with 10 people at 120 W, identical except that
+        // one releases no latent heat: same sensible heat, so nearly the same
+        // air temperature, and the difference in humidity ratio after one step
+        // is the people's moisture alone (the humidity changes the air's heat
+        // capacity, so the temperatures differ by hundredths of a kelvin).
+        let with_people = |latent: Option<f64>| {
+            let mut env = make_simple_model();
+            env.zones[0].input.internal_gains = vec![InternalGainInput::People {
+                count: 10.0,
+                activity_level: 120.0,
+                sensible_fraction: None,
+                radiant_fraction: 0.3,
+                schedule: None,
+                sensible_gain_per_person: None,
+                latent_gain_per_person: latent,
+            }];
+            env.initialize(3600.0).unwrap();
+            env
+        };
+        let ctx = make_ctx();
+        let weather = make_weather_hour(0.0);
+        let hvac = ZoneHvacConditions::default();
+        // From the same initial state, one step.
+        let mut a = with_people(None);
+        let mut b = with_people(Some(0.0));
+        let t_prev = a.zones[0].temp_prev;
+        a.solve_timestep(&ctx, &weather, &hvac);
+        b.solve_timestep(&ctx, &weather, &hvac);
+        let (za, zb) = (&a.zones[0], &b.zones[0]);
+        // Sensible heat from the zone temperature at the end of the last step,
+        // the rest latent.
+        let q_s = 10.0 * people_sensible_per_person(120.0, t_prev);
+        assert!(
+            (za.people_heat - q_s).abs() < 1e-9,
+            "{} vs {q_s}",
+            za.people_heat
+        );
+        assert!((za.people_heat + za.people_latent - 1200.0).abs() < 1e-9);
+        assert_eq!(zb.people_latent, 0.0);
+        assert!(
+            (za.temp - zb.temp).abs() < 0.05,
+            "{} vs {}",
+            za.temp,
+            zb.temp
+        );
+        // Moisture: m = Q_l / h_g, stored in the air and diluted by
+        // infiltration over the step.
+        let m_latent = za.people_latent / psych::hg_air_fn_tdb(za.temp);
+        let rho = psych::rho_air_fn_pb_tdb_w(101_325.0, za.temp, za.humidity_ratio);
+        let expected = m_latent / (rho * za.input.volume / 3600.0 + za.infiltration_mass_flow);
+        let got = za.humidity_ratio - zb.humidity_ratio;
+        assert!(
+            (got - expected).abs() < 0.05 * expected,
+            "humidity ratio difference {got:.3e} vs {expected:.3e}"
+        );
     }
 
     #[test]

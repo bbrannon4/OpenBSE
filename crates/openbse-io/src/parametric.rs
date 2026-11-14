@@ -345,7 +345,7 @@ fn set_people_field(p: &mut openbse_envelope::PeopleInput, field: &str, value: f
         "people_per_area" => p.people_per_area = Some(value),
         "area_per_person" => p.area_per_person = Some(value),
         "activity_level" => p.activity_level = value,
-        "sensible_fraction" => p.sensible_fraction = value,
+        "sensible_fraction" => p.sensible_fraction = Some(value),
         "radiant_fraction" => p.radiant_fraction = value,
         _ => log::warn!(
             "Unknown field '{}' on people '{}' — skipping",

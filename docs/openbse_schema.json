@@ -1987,17 +1987,17 @@
 
     "ZonePeopleGain": {
       "type": "object",
-      "required": ["type", "count"],
+      "required": ["type", "count", "activity_level"],
       "description": "Zone-level occupant gain.",
       "properties": {
         "type": { "type": "string", "const": "people" },
         "count": { "type": "number", "description": "Number of people." },
-        "activity_level": { "type": "number", "default": 120.0, "description": "Total heat per person [W]." },
-        "sensible_fraction": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1, "description": "Sensible fraction of activity_level (remainder is latent)." },
+        "activity_level": { "type": "number", "description": "Total heat per person, sensible plus latent [W]. Required." },
+        "sensible_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Sensible fraction of activity_level (remainder is latent). When omitted, the sensible heat follows activity_level and the zone air temperature, as EnergyPlus autocalculates it." },
         "radiant_fraction": { "type": "number", "default": 0.3, "minimum": 0, "maximum": 1, "description": "Radiant fraction of sensible heat." },
         "schedule": { "type": "string" },
-        "sensible_gain_per_person": { "type": "number", "description": "Explicit sensible gain [W/person]; overrides activity_level x sensible_fraction." },
-        "latent_gain_per_person": { "type": "number", "description": "Explicit latent gain [W/person]; overrides activity_level x (1 - sensible_fraction)." }
+        "sensible_gain_per_person": { "type": "number", "description": "Explicit sensible gain [W/person]; overrides the sensible share of activity_level." },
+        "latent_gain_per_person": { "type": "number", "description": "Explicit latent gain [W/person]; overrides the latent remainder of activity_level." }
       }
     },
 
@@ -2080,7 +2080,7 @@
 
     "People": {
       "type": "object",
-      "required": ["name", "zones"],
+      "required": ["name", "zones", "activity_level"],
       "description": "Occupancy definition assignable to one or more zones.",
       "properties": {
         "name": { "type": "string" },
@@ -2088,10 +2088,10 @@
         "count": { "type": "number", "default": 0, "description": "Absolute number of people." },
         "people_per_area": { "type": "number", "description": "Occupant density [people/m2]." },
         "area_per_person": { "type": "number", "description": "Area per occupant [m2/person]." },
-        "activity_level": { "type": "number", "default": 120.0, "description": "Total metabolic heat [W/person], split into sensible/latent via sensible_fraction." },
-        "sensible_fraction": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1, "description": "Sensible fraction of activity_level [0-1] (0.62 seated, 0.58 office, 0.50 walking, 0.38 heavy exercise)." },
-        "sensible_gain_per_person": { "type": "number", "description": "Sensible heat gain per person [W/person]. Alternative to activity_level * sensible_fraction. Overrides activity_level when specified." },
-        "latent_gain_per_person": { "type": "number", "description": "Latent heat gain per person [W/person]. Alternative to activity_level * (1 - sensible_fraction). Overrides activity_level when specified." },
+        "activity_level": { "type": "number", "description": "Total metabolic heat [W/person], sensible plus latent. Required." },
+        "sensible_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Sensible fraction of activity_level [0-1]; the remainder is latent. When omitted, the sensible heat per person follows activity_level and the zone air temperature (EnergyPlus autocalculate): about 0.58 of 120 W at 24 C, falling as the zone warms." },
+        "sensible_gain_per_person": { "type": "number", "description": "Sensible heat gain per person [W/person]. Overrides the sensible share of activity_level when specified." },
+        "latent_gain_per_person": { "type": "number", "description": "Latent heat gain per person [W/person]. Overrides the latent remainder of activity_level when specified." },
         "radiant_fraction": { "type": "number", "default": 0.3, "minimum": 0, "maximum": 1, "description": "Fraction of heat gain that is radiant [0-1]." },
         "schedule": { "type": "string", "description": "Occupancy schedule name." }
       }

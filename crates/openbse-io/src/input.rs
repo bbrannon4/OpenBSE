@@ -6293,7 +6293,7 @@ air_loops:
             "simulation: {{}}\nweather_files: []\n\
              zones:\n- {{name: Room}}\n\
              surfaces:\n{floor}\
-             people:\n- {{name: P, zones: [Room], area_per_person: 6.0}}\n\
+             people:\n- {{name: P, zones: [Room], area_per_person: 6.0, activity_level: 120.0}}\n\
              lights:\n- {{name: L, zones: [Room], watts_per_area: 10.0}}\n\
              equipment:\n- {{name: E, zones: [Room], watts_per_area: 5.0}}\n\
              infiltration:\n- {{name: I, zones: [Room], flow_per_floor_area: 0.001}}\n"
@@ -6344,7 +6344,7 @@ air_loops:
     #[test]
     fn unknown_schedule_reference_is_severe_wherever_it_appears() {
         let result = schedule_diagnostics(
-            "people:\n- {name: P, zones: [Z], count: 1, schedule: typo_people}\n",
+            "people:\n- {name: P, zones: [Z], count: 1, activity_level: 120, schedule: typo_people}\n",
         );
         assert!(result.to_err_file().contains("typo_people"));
         assert!(result.error_count() >= 1, "{}", result.to_err_file());
@@ -6364,8 +6364,8 @@ air_loops:
     fn builtin_and_defined_schedules_are_accepted() {
         let result = schedule_diagnostics(
             "schedules:\n- {name: S, compact: {weekday: '1'}}\n\
-             people:\n- {name: P, zones: [Z], count: 1, schedule: S}\n\
-             - {name: Q, zones: [Z], count: 1, schedule: always_on}\n",
+             people:\n- {name: P, zones: [Z], count: 1, activity_level: 120, schedule: S}\n\
+             - {name: Q, zones: [Z], count: 1, activity_level: 120, schedule: always_on}\n",
         );
         assert!(!result.to_err_file().contains("not found in schedules"));
     }

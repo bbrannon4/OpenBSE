@@ -377,6 +377,7 @@ zones:
     internal_gains:
       - type: people
         count: 2
+        activity_level: 120
       - type: lights
         power: 100
       - type: equipment
