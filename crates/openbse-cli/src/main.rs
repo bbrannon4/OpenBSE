@@ -301,14 +301,26 @@ fn runs_fan_through_deadband(li: &LoopInfo) -> bool {
         && li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous
 }
 
-/// Whether the heat of a fan that runs with the coils off [W] takes a zone in
-/// its dead band over the cooling setpoint, given the load to that setpoint [W]
-/// (positive: heat it can still take). E+ `UnitarySystem`: "constant fan pushes
-/// zone above cooling set point" turns on cooling for the difference.
-fn fan_pushes_above_cooling_setpoint(fan_heat: f64, load_to_cooling_sp: f64) -> bool {
-    /// E+ `HVAC::SmallLoad` [W]
-    const SMALL_LOAD: f64 = 1.0;
-    fan_heat > 0.0 && load_to_cooling_sp >= 0.0 && fan_heat - load_to_cooling_sp > SMALL_LOAD
+/// E+ `HVAC::SmallLoad` [W]
+const SMALL_LOAD: f64 = 1.0;
+
+/// The mode a zone in its dead band is pushed into by a unit's no-load output
+/// [W] (positive heats the zone): what a fan that keeps running with the coils
+/// off supplies, its heat plus the outdoor air it draws. `to_heat` and
+/// `to_cool` are the signed loads to the setpoints (E+ `QToHeatSetPt`,
+/// `QToCoolSetPt`; in the dead band the first is negative, the second
+/// positive). As E+ `UnitarySystem::initLoadBasedControl` (DualHeatCool, zone
+/// between setpoints): "constant fan pushes zone below heating set point"
+/// turns on heating, and "above cooling set point" cooling, each for the
+/// load to that setpoint.
+fn no_load_push(off_output: f64, to_heat: f64, to_cool: f64) -> Option<HvacMode> {
+    if off_output < 0.0 && off_output - to_heat < -SMALL_LOAD {
+        Some(HvacMode::Heating)
+    } else if off_output > 0.0 && off_output - to_cool > SMALL_LOAD {
+        Some(HvacMode::Cooling)
+    } else {
+        None
+    }
 }
 
 /// Each zone's heating and cooling supply temperatures for its design flows
@@ -5994,14 +6006,22 @@ fn simulate_all_loops(
                     hvac_mode(zt, hsp, csp)
                 };
 
-                let fan_heat =
-                    zone_design_flows.get(z).copied().unwrap_or(0.0) * 1006.0 * li.supply_fan_dt;
-                let to_cool = zone_loads_to_cooling_sp.get(z).copied().unwrap_or(0.0);
-                let mode = if mode == HvacMode::Deadband
-                    && runs_fan_through_deadband(li)
-                    && fan_pushes_above_cooling_setpoint(fan_heat, to_cool)
-                {
-                    HvacMode::Cooling
+                // A fan that keeps running with the coils off still supplies
+                // the zone its heat and the minimum outdoor air; when that
+                // takes the zone out of its dead band, the unit heats or cools.
+                let mode = if mode == HvacMode::Deadband && runs_fan_through_deadband(li) {
+                    let capacity_rate = zone_design_flows.get(z).copied().unwrap_or(0.0) * 1006.0;
+                    let off_output = capacity_rate * li.supply_fan_dt
+                        + off_cycle_outdoor_air_load(
+                            li.fan_operating_mode,
+                            effective_min_oa,
+                            capacity_rate,
+                            t_outdoor,
+                            zt,
+                        );
+                    let to_heat = zone_loads_to_heating_sp.get(z).copied().unwrap_or(0.0);
+                    let to_cool = zone_loads_to_cooling_sp.get(z).copied().unwrap_or(0.0);
+                    no_load_push(off_output, to_heat, to_cool).unwrap_or(mode)
                 } else {
                     mode
                 };
@@ -6463,11 +6483,38 @@ fn simulate_all_loops(
                             0.0
                         } else {
                             let corrected_load = zone_heat_load.max(0.0);
+                            // The off-cycle output (fan heat and outdoor air
+                            // of a fan that keeps running) is supplied either
+                            // way, so the burner runs for the rest (E+
+                            // UnitarySystem: PLR = (load − off)/(on − off)).
+                            // A zone the off-cycle air pushes below its
+                            // setpoint has a negative load to it, the room it
+                            // has left.
+                            let q_off = q_fan
+                                + off_cycle_outdoor_air_load(
+                                    li.fan_operating_mode,
+                                    signals.oa_fraction.unwrap_or(effective_min_oa),
+                                    supply_flow * cp_air,
+                                    t_outdoor,
+                                    control_temp,
+                                );
+                            let to_heat = zone_loads_to_heating_sp
+                                .get(control_zone)
+                                .copied()
+                                .unwrap_or(0.0)
+                                .min(0.0);
+                            let pushed = runs_fan_through_deadband(li)
+                                && no_load_push(q_off, to_heat, f64::INFINITY)
+                                    == Some(HvacMode::Heating);
 
-                            if corrected_load > 10.0 {
-                                let adj_load = (corrected_load - q_fan).max(0.0);
-                                let adj_cap = (q_capacity - q_fan).max(1.0);
-                                (adj_load / adj_cap).clamp(0.0, 1.0)
+                            if corrected_load > 10.0 || pushed {
+                                let load = if corrected_load > 10.0 {
+                                    corrected_load
+                                } else {
+                                    to_heat
+                                };
+                                let adj_cap = (q_capacity - q_off).max(1.0);
+                                ((load - q_off) / adj_cap).clamp(0.0, 1.0)
                             } else {
                                 // Fallback: proportional zone error for transients
                                 let error = (heat_sp - control_temp).max(0.0);
@@ -6499,8 +6546,6 @@ fn simulate_all_loops(
                                 .copied()
                                 .unwrap_or(0.0)
                                 .max(0.0);
-                            let fan_pushed = runs_fan_through_deadband(li)
-                                && fan_pushes_above_cooling_setpoint(q_fan, headroom);
                             let corrected_load = zone_cool_load.max(0.0);
 
                             // Outdoor-air sensible load. With a continuous fan
@@ -6524,6 +6569,9 @@ fn simulate_all_loops(
                                 t_outdoor,
                                 control_temp,
                             );
+                            let fan_pushed = runs_fan_through_deadband(li)
+                                && no_load_push(q_fan + q_oa, f64::NEG_INFINITY, headroom)
+                                    == Some(HvacMode::Cooling);
 
                             if corrected_load > 10.0 || fan_pushed {
                                 let adj_load = corrected_load + q_fan + q_oa - headroom;
@@ -7892,12 +7940,23 @@ mod tests {
     }
 
     #[test]
-    fn continuous_fan_heat_calls_for_cooling_only_past_the_setpoint() {
-        assert!(fan_pushes_above_cooling_setpoint(450.0, 200.0));
-        assert!(!fan_pushes_above_cooling_setpoint(450.0, 600.0));
-        // A zone already needing cooling takes the ordinary path.
-        assert!(!fan_pushes_above_cooling_setpoint(450.0, -300.0));
-        assert!(!fan_pushes_above_cooling_setpoint(0.0, 0.0));
+    fn no_load_output_moves_a_dead_band_zone_only_past_a_setpoint() {
+        // A zone that can lose 800 W before its heating setpoint and take
+        // 600 W before its cooling setpoint.
+        let (to_heat, to_cool) = (-800.0, 600.0);
+        // Fan heat beyond the cooling headroom calls for cooling.
+        assert_eq!(
+            no_load_push(700.0, to_heat, to_cool),
+            Some(HvacMode::Cooling)
+        );
+        assert_eq!(no_load_push(450.0, to_heat, to_cool), None);
+        // Cold outdoor air beyond the heating headroom calls for heating.
+        assert_eq!(
+            no_load_push(-1200.0, to_heat, to_cool),
+            Some(HvacMode::Heating)
+        );
+        assert_eq!(no_load_push(-500.0, to_heat, to_cool), None);
+        assert_eq!(no_load_push(0.0, 0.0, 0.0), None);
     }
 
     #[test]
