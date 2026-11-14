@@ -57,7 +57,7 @@ $$ {#eq-check-run}
 | Plant excess | supply equipment delivers no more than the loop's demand | severe |
 | Plant reporting | each demand component reports an output at least once | severe |
 | Unphysical | NaN or infinite outputs, negative PLR or capacity, COP at or below 0 while running | severe |
-| Envelope holds | inside surface temperature beyond 200 °C, NaN states replaced | severe |
+| Envelope holds | inside surface temperature beyond 200 °C, NaN states replaced, window face solves that reach their iteration limit (@sec-window-hb) | severe |
 | Air component | $\dot m\Delta h$ across a component = its `thermal_output` | severe |
 | Air-loop mass | an air loop's terminal boxes pass the flow it supplies; a dual-duct loop's decks carry what its boxes pass | severe |
 | Plant unmet | capacity-limited loops | warning |

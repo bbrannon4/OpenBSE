@@ -594,9 +594,6 @@ pub struct SurfaceState {
     pub cos_incidence: f64,
     /// Diffuse component of transmitted solar [W]
     pub transmitted_solar_diffuse: f64,
-    /// Solar absorbed by window glazing that flows into the zone [W]
-    /// (fraction of glass absorptance × incident; adds to zone heat balance)
-    pub absorbed_solar_inside_window: f64,
     /// Outside solar absorptance
     pub solar_absorptance_outside: f64,
     /// Outside thermal absorptance (emissivity) for exterior LW radiation
@@ -609,65 +606,21 @@ pub struct SurfaceState {
     pub roughness: crate::material::Roughness,
     /// Construction U-factor [W/(m²·K)] (used for windows and simple conduction)
     pub u_factor: f64,
-    /// Glass-only conductance [W/(m²·K)] — U-factor with standard films removed.
-    /// Used for windows when applying dynamic exterior/interior film coefficients.
-    /// Pre-computed as: 1/(1/U_overall - 1/h_e_std - 1/h_i_std)
-    pub u_glass: f64,
-    /// Window SHGC
+    /// Window SHGC: the rated value of a simple glazing system, or the
+    /// nominal value computed for one described by its panes.
     pub shgc: f64,
-    /// Ratio τ_sol / SHGC: fraction of total window solar gain (SHGC × I)
-    /// that is directly transmitted to interior surfaces. The remainder
-    /// (1 − ratio) × SHGC × I is absorbed by the glass and re-emitted
-    /// inward. Computed from E+ SimpleGlazingSystem correlations or from
-    /// per-pane optical properties when available.
-    pub solar_transmittance_ratio: f64,
-    /// Glass extinction coefficient × thickness per pane (K·d) for Fresnel
-    /// angular SHGC model. Pre-computed from per-pane glass properties or
-    /// estimated from SHGC via the E+ SimpleGlazingSystem correlation.
-    pub glass_kd: f64,
-    /// Inward-flowing fraction of absorbed solar (N_i).
-    /// Used in SHGC(θ) = τ(θ) + N_i × α(θ) angular modifier computation.
-    pub glass_ni: f64,
-    /// Effective refractive index for the Fresnel angular SHGC model.
-    /// Derived from per-pane τ and ρ to match both transmittance and reflectance
-    /// at normal incidence. Falls back to 1.526 (soda-lime glass) when per-pane
-    /// properties are not provided.
-    pub glass_n: f64,
-    /// Panes of the Fresnel model (1 or 2)
-    pub glass_panes: u32,
-    /// E+ SimpleGlazingSystem angular model (LBNL-2804E curves + layer properties).
-    /// Present for SGS windows (no per-pane optical data); None for detailed windows.
-    pub sgs_model: Option<crate::solar::SgsAngularModel>,
-    // ── First-principles window gap thermal model ─────────────────────
-    /// Rated glass-only conductance [W/(m²·K)] — NFRC-derived value.
-    /// Used as an upper cap for the dynamic gap model to prevent the
-    /// window from becoming more conductive than its NFRC rating at
-    /// extreme temperatures (radiation through the gap scales as T³).
-    /// Equal to u_glass when no gap model is used.
-    pub u_glass_rated: f64,
-    /// Gap width [m] for dynamic ISO 15099 window thermal model.
-    /// When > 0, u_glass is recomputed each timestep from pane + gap
-    /// properties instead of using the fixed NFRC film-stripped value.
-    pub gap_width: f64,
-    /// Pane thickness [m] for gap thermal model.
-    pub pane_thickness: f64,
-    /// Pane thermal conductivity [W/(m·K)] for gap thermal model.
-    pub pane_conductivity: f64,
-    /// Glass emissivity for gap inter-pane radiation exchange.
-    pub gap_emissivity: f64,
-    /// Glass emissivity for interior and exterior LW radiation exchange.
-    /// Defaults to 0.84 (uncoated soda-lime glass) when not specified.
-    pub glass_emissivity: f64,
-    /// Hemispherical diffuse back-transmittance of window glazing system.
-    /// Used for interior cavity solar back-out calculation. Represents the
-    /// fraction of diffuse interior-reflected solar that transmits back
-    /// through the window to the exterior.
-    pub diffuse_back_transmittance: f64,
-    /// Hemispherical diffuse back-absorptance of window glazing system.
-    /// α_back = 1 - τ_back - ρ_back. The outward-flowing portion
-    /// (α_back × (1 - N_i)) also exits the zone and must be included
-    /// in the cavity back-out correction.
-    pub diffuse_back_absorptance: f64,
+    /// Glazing system of a window (`None` for opaque surfaces).
+    pub glazing: Option<std::sync::Arc<crate::glazing::Glazing>>,
+    /// Simple glazing equivalent of the window+blind assembly rating
+    /// (`blind_shgc`, `blind_u_factor`), used while that blind is deployed.
+    pub blind_glazing: Option<std::sync::Arc<crate::glazing::Glazing>>,
+    /// Face temperatures of the active glazing [°C], outer face first; with
+    /// a shade deployed they are followed by the shade and the gap air.
+    /// Empty until the first window solve.
+    pub window_faces: Vec<f64>,
+    /// Solar absorbed by each glass layer [W], from outdoors and from the
+    /// room's reflected diffuse.
+    pub window_layer_solar: [f64; crate::glazing::MAX_LAYERS],
     /// Cosine of tilt angle
     pub cos_tilt: f64,
     /// Sine of tilt angle
@@ -703,20 +656,12 @@ pub struct SurfaceState {
     pub q_cond_outside: f64,
 
     // ── Dynamic blind state (#104) ────────────────────────────────────────
-    /// True when a shading control is configured for this window. Distinguishes
-    /// "no blind" from a legitimately configured blackout blind whose
-    /// `blind_shgc` is 0.0 (#106).
+    /// True when a shading control is configured for this window, a blackout
+    /// blind (`blind_shgc` 0) included (#106).
     pub blind_configured: bool,
     /// True when interior blind/shade is currently deployed for this window.
     /// Updated each timestep by the blind control logic before solar gains are computed.
     pub blind_deployed: bool,
-    /// SHGC of the window+blind assembly when the blind is deployed.
-    /// Only meaningful when `blind_configured` is true; 0.0 is a valid value
-    /// (fully opaque blackout blind).
-    pub blind_shgc: f64,
-    /// U-factor [W/(m²·K)] of the window+blind assembly when deployed.
-    /// Zero falls back to the base window U-factor.
-    pub blind_u_factor: f64,
     /// Physical interior shade layer (#144), copied from the shading control.
     /// When present and deployed, the window is solved as glass + shade.
     pub shade: Option<crate::material::InteriorShade>,
@@ -724,15 +669,12 @@ pub struct SurfaceState {
     /// shade layer is down, when `temp_inside` is the shade (the face the
     /// room sees) and this is the glass behind it.
     pub temp_glass_inside: f64,
-    /// Conductance from an unshaded window's glass node to the outdoors,
-    /// 1/(1/h_e + 1/u_glass) [W/(m²·K)], from its last solve; 0 for opaque
-    /// surfaces and for windows behind a deployed shade.
+    /// Linearised conductance from an unshaded window's inner glass face to
+    /// the outdoors [W/(m²·K)], from its last solve; 0 for opaque surfaces
+    /// and for windows behind a deployed shade.
     pub window_u_out: f64,
     /// Solar absorbed by the deployed shade layer [W].
     pub shade_absorbed_solar: f64,
-    /// Solar reflected by the deployed shade and absorbed on its way back
-    /// through the glass [W].
-    pub glass_reflected_absorbed: f64,
 }
 
 #[cfg(test)]

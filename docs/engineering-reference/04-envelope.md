@@ -733,145 +733,253 @@ EnergyPlus does not.
 
 ## Windows {#sec-windows}
 
-**Source:** `material.rs::WindowConstruction`; `solar.rs` (glazing optics:
-`SgsAngularModel`, `compute_glass_angular_params`, `angular_shgc_modifier_u`,
-the Fresnel functions); `heat_balance.rs::solve_timestep` (steps 5b and 6,
-window branch), `sealed_air_gap_conductance`, `solve_window_with_shade`,
-`shade_solar`; `openbse-cli/src/main.rs::evaluate_blind_control`.
+**Source:** `glazing.rs` (gases, gap Nusselt number, layer and system optics,
+simple glazing equivalent layer, face heat balance, nominal performance);
+`material.rs::WindowConstruction::glazing`; `heat_balance.rs::solve_timestep`
+(step 5b, window solar; step 5c, reflected diffuse on windows; step 6,
+window loop), `solve_window`, `shade_solar`, `window_glazings`;
+`openbse-cli/src/main.rs::evaluate_blind_control`.
 
-A window construction is described by its NFRC U-factor $U$ (films
-included) and its normal-incidence $SHGC$. Optional data refine it:
+A window is a glazing system of one or more glass layers with a gas gap
+between each pair. Its area is subtracted from its parent surface. A
+window construction describes the glazing in one of two ways:
 
-- per-pane solar transmittance and reflectance;
-- the number of panes (one or two; anything else is a severe error);
-- the gap width;
-- the pane conductivity and thickness;
-- the glass emissivity (default 0.84);
-- a shading control.
+- **Simple glazing** (default): the NFRC U-factor $U$ (films included) and
+  the normal-incidence $SHGC$. The glazing is EnergyPlus's equivalent single
+  layer for those ratings (@sec-window-sgs).
+- **Layered glazing** (`layers`): one to four glass layers, each a glazing
+  material with its thickness, conductivity, normal-incidence solar (and
+  optionally visible) transmittance and front and back reflectance, front and
+  back emissivity and dirt factor (after EnergyPlus `WindowMaterial:Glazing`,
+  spectral average), and between each pair a gas gap of given width filled
+  with air, argon, krypton, xenon or a mixture of them by mole fraction
+  (`WindowMaterial:Gas`, `WindowMaterial:GasMixture`). The window's U-factor
+  and SHGC follow from the layers. Giving both forms, a malformed layer
+  sequence, an unknown glazing material, mixture fractions that do not add
+  up to 1, or a non-zero glass long-wave transmittance is a severe error.
 
-A window is one
-surface whose temperature is the inside glass face. Its area is subtracted
-from its parent surface.
+A construction may also carry a shading control (@sec-shades).
+
+### Simple glazing equivalent layer {#sec-window-sgs}
+
+The equivalent layer follows EnergyPlus `MaterialGlass::SetupSimpleWindowGlazingSystem`
+[@arasteh2009]. Its resistance is the U-factor less EnergyPlus's winter films,
+which depend on $U$:
+
+$$
+R_l = \frac1U - R_{i,w} - R_{o,w},\qquad
+R_{i,w} = \frac{1}{0.359073\ln U + 6.949915},\qquad
+R_{o,w} = \frac{1}{0.025342\,U + 29.163853},
+$$ {#eq-sgs-winter-films}
+
+with $R_{i,w} = 1/(1.788041\,U - 2.886625)$ for $U \ge 5.85$ and $R_l$ at
+least 0.001 m²·K/W. Its thickness is 2 mm when $1/R_l > 7$ W/(m²·K) and
+$0.05914 - 0.00714/R_l$ m otherwise, and its conductivity is $L/R_l$. The
+normal-incidence solar transmittance comes from U-dependent correlations, for
+example for low U:
+
+$$
+\tau_\text{sol} =
+\begin{cases}
+0.41040\,SHGC & SHGC \le 0.15,\\
+0.085775\,SHGC^2 + 0.963954\,SHGC - 0.084958 & \text{otherwise},
+\end{cases}
+$$ {#eq-sgs-tsol}
+
+with the high-U form for $U > 4.5$ and linear interpolation between 3.4 and
+4.5 W/(m²·K). The solar reflectance (the same on both faces) uses solar-condition
+films, cubic and linear in $\Delta = SHGC - \tau_\text{sol}$; for $U < 3.4$, for
+example:
+
+$$
+R_{i,s} = \frac{1}{199.8208\Delta^3 - 90.6397\Delta^2 + 19.7371\Delta + 6.7666},\qquad
+R_{o,s} = \frac{1}{5.7634\Delta + 20.5415},
+$$ {#eq-sgs-solar-films}
+
+with a second set for $U > 4.5$ and EnergyPlus's interpolation between. Then
+
+$$
+N = \frac{R_l/2 + R_{o,s}}{R_l + R_{o,s} + R_{i,s}},\qquad
+\rho_\text{sol} = 1 - \tau_\text{sol} - \frac{SHGC - \tau_\text{sol}}{N}.
+$$ {#eq-sgs-films}
+
+Both faces have emissivity 0.84. The layer's angular behaviour uses
+EnergyPlus's curve set A–J for the window's U/SHGC cell (@sec-window-optics).
+
+The equivalent layer solved with the films of @sec-window-hb at NFRC winter
+conditions does not in general give back $U$, because those films are not the
+correlations of @eq-sgs-winter-films. As in EnergyPlus (`CalcNominalWindowCond`,
+`CoeffAdjRatio`), a film factor $f_h \in [1, 2]$ is found by bisection that
+makes the nominal U-factor (@sec-window-nominal) match $U$ within
+0.01 W/(m²·K), and the window's inside and outside convection coefficients
+are multiplied by it through the simulation.
 
 ### Solar optics {#sec-window-optics}
 
-The solar gain of a window is split into the transmitted part, which lands
-on the zone's surfaces (@sec-interior-solar), and the absorbed-inward
-part, which heats the glass:
+The optics follow EnergyPlus `WindowManager::InitGlassOpticalCalculations` for
+layers with spectral-average properties. Each layer's transmittance and
+front and back reflectance are found at incidence angles 0°, 10°, …, 90° from
+their normal-incidence values $\tau_0$, $\rho_{f,0}$, $\rho_{b,0}$
+(`TransAndReflAtPhi`) [@ashrae2021fund]:
+
+- **Uncoated glass** ($\rho_{f,0} = \rho_{b,0}$ within 0.1 %): the refractive
+  index $n$ and absorption $\alpha d$ that reproduce $\tau_0$ and $\rho_0$ are
+  found, and each polarisation $p$ has the Fresnel interface reflectance
+  $r_p(\theta)$ and the internal transmittance $e^{-\alpha d/\cos\theta'}$, with
+  $\cos\theta' = \sqrt{1 - \sin^2\theta/n^2}$:
+  $$
+  \tau_p = \frac{(1 - r_p)^2 e^{-\alpha d/\cos\theta'}}{1 - r_p^2 e^{-2\alpha d/\cos\theta'}},\qquad
+  \rho_p = r_p\left(1 + \tau_p e^{-\alpha d/\cos\theta'}\right),
+  $$ {#eq-fresnel-layer}
+  and the layer values are the means of the two polarisations.
+- **Coated glass**: normalised clear-glass ($\tau_0 > 0.645$) or bronze-glass
+  angular distributions scale $\tau_0$ and blend $\rho_0$ toward 1.
+- **Simple glazing**: $\tau(\theta) = \tau_\text{sol}P_T(\cos\theta)$ and
+  $\rho(\theta) = \rho_\text{sol}(1 - P_R) + P_R$, where $P_T$ and $P_R$ are
+  EnergyPlus's fourth-order curves A–J for the window's U/SHGC cell, interpolated
+  between cells as EnergyPlus does.
+
+The layers are combined with their inter-reflections at each angle
+(`SystemPropertiesAtLambdaAndPhi`). Adding layer $j$ to the stack of layers
+$i \ldots j-1$:
 
 $$
-SHGC(\theta) = \tau(\theta) + N_i\,\alpha(\theta), \qquad \alpha = 1 - \tau - \rho,
-$$ {#eq-shgc-split}
+\tau_{i..j} = \frac{\tau_{i..j-1}\,\tau_j}{1 - \rho_{f,j}\,\rho_{b,i..j-1}},\qquad
+\rho_{f,i..j} = \rho_{f,i..j-1} + \frac{\tau_{i..j-1}^2\,\rho_{f,j}}{1 - \rho_{f,j}\,\rho_{b,i..j-1}},
+$$ {#eq-layer-stack}
 
-where $N_i$ is the inward-flowing fraction of the absorbed solar. Beam
-irradiance uses the values at its incidence angle $\theta$. Diffuse (sky,
-circumsolar, horizon and ground) uses hemispherical averages, computed as
-$\int_0^{\pi/2} X(\theta)\cos\theta\sin\theta\,d\theta \big/ \int_0^{\pi/2}\cos\theta\sin\theta\,d\theta$
-over 200 angles. As in EnergyPlus, a window's input data select its model:
+and the absorptance of layer $j$ in the system is
 
-1. **Simple glazing** (no pane data). This is EnergyPlus's
-   SimpleGlazingSystem model [@arasteh2009]. The normal-incidence
-   transmittance comes from the U-dependent correlations, for example for
-   low U:
+$$
+A_j = \frac{\tau_{1..j-1}\,\alpha_{f,j}}{1 - \rho_{f,j..n}\,\rho_{b,1..j-1}}
++ \frac{\tau_{1..j}\,\rho_{f,j+1..n}\,\alpha_{b,j}}{1 - \rho_{b,1..j}\,\rho_{f,j+1..n}},
+$$ {#eq-layer-abs}
 
-   $$
-   \tau_\text{sol} =
-   \begin{cases}
-   0.41040\,SHGC & SHGC \le 0.15,\\
-   0.085775\,SHGC^2 + 0.963954\,SHGC - 0.084958 & \text{otherwise},
-   \end{cases}
-   $$ {#eq-sgs-tsol}
+with $\alpha = 1 - \tau - \rho$ for the isolated layer. The same calculation
+with the layers reversed gives the back (room-side) absorptances. The system
+transmittance and each layer's absorptance are fitted as
+$\sum_{k=1}^{6} c_k\cos^k\theta$ by least squares over the ten angles
+(`W5LsqFit`), and hemispherical values are
+$\int_0^{\pi/2} X(\theta)\sin 2\theta\,d\theta$ by the trapezoidal rule over the
+same angles (`DiffuseAverage`). A dirt factor scales the outermost layer's
+transmittance.
 
-   with the high-U form for $U > 4.5$ and linear interpolation between
-   3.4 and 4.5 W/(m²·K). The layer resistance uses EnergyPlus's winter films, which depend on $U$:
+Beam irradiance $I_b$ uses the fits at its incidence angle; all diffuse
+irradiance $I_d$ (sky, circumsolar, horizon and ground) uses the hemispherical
+values. Per unit window area the room receives $\tau(\theta)I_b + \tau_dI_d$,
+which the zone's surfaces absorb (@sec-interior-solar), and glass layer $j$
+absorbs
 
-   $$
-   R_l = \frac1U - R_{i,w} - R_{o,w},\qquad
-   R_{i,w} = \frac{1}{0.359073\ln U + 6.949915},\qquad
-   R_{o,w} = \frac{1}{0.025342\,U + 29.163853},
-   $$ {#eq-sgs-winter-films}
+$$
+S_j = A_j(\theta)\,I_b + A_{j,d}\,I_d + S_{j,\text{room}},
+$$ {#eq-layer-solar}
 
-   with $R_{i,w} = 1/(1.788041\,U - 2.886625)$ for $U \ge 5.85$. The inward
-   fraction uses its solar-condition films, cubic and linear in
-   $\Delta = SHGC - \tau_\text{sol}$. For $U < 3.4$, for example:
-
-   $$
-   R_{i,s} = \frac{1}{199.8208\Delta^3 - 90.6397\Delta^2 + 19.7371\Delta + 6.7666},\qquad
-   R_{o,s} = \frac{1}{5.7634\Delta + 20.5415},
-   $$ {#eq-sgs-solar-films}
-
-   with a second set for $U > 4.5$ and interpolation between, as in EnergyPlus. Then
-
-   $$
-   N = \frac{R_l/2 + R_{o,s}}{R_l + R_{o,s} + R_{i,s}},\qquad
-   \rho_\text{sol} = 1 - \tau_\text{sol} - \frac{SHGC - \tau_\text{sol}}{N}.
-   $$ {#eq-sgs-films}
-
-   The angular dependence uses EnergyPlus's curve set A–J for the window's
-   U/SHGC bin:
-   $\tau(\theta) = \tau_\text{sol}\,P_T(\cos\theta)$ and
-   $\rho(\theta) = \rho_\text{sol}(1 - P_R + P_T) + (P_R - P_T)$, where
-   $P_T$ and $P_R$ are fourth-order polynomials in $\cos\theta$.
-2. **Fresnel** (per-pane $\tau_p$ and $\rho_p$ given). One pane, or two
-   identical panes (`num_panes`, default 2), of refractive index $n$ fitted to
-   $\rho_p$ and extinction thickness $kd$ fitted to $\tau_p$. Each pane's
-   transmittance and reflectance follow from the Fresnel reflectance
-   $r = (r_s + r_p)/2$ and internal absorption $e^{-kd/\cos\theta'}$, and two
-   panes are combined with their inter-reflections:
-
-   $$
-   \tau_2 = \frac{\tau_1^2}{1 - \rho_1^2},\qquad \rho_2 = \rho_1 + \frac{\tau_1^2\rho_1}{1 - \rho_1^2}.
-   $$ {#eq-fresnel-double}
-
-   $N_i$ is fitted so @eq-shgc-split reproduces the SHGC at normal
-   incidence.
-
-The transmitted solar then splits into beam and diffuse parts
-(@sec-interior-solar). The absorbed-inward part is
-$SHGC\cdot I - \tau\cdot I$, per unit window area.
+where $S_{j,\text{room}}$ is its share of the room's reflected diffuse
+(@sec-interior-solar). The SHGC is not an input to this split: the part of
+$S_j$ that reaches the room follows from the heat balance.
 
 ### Window heat balance {#sec-window-hb}
 
-The glass is one node, at the inside face temperature $T_g$:
+The two faces of each glass layer have their own temperature, faces
+$1 \ldots 2n$ from outdoors to the room, and all are solved together
+(EnergyPlus `WindowManager::SolveForWindowTemperatures`). Each layer's absorbed
+solar is split equally between its faces. With $k_j/L_j$ the layer's
+conductance and $\theta$ face temperatures [K]:
+
+- **Outer face.** Convection and long-wave exchange with the outdoors,
+  $$
+  h_{c,o}f_h(T_o - \theta_1) + \varepsilon_1\left(E_o - \sigma\theta_1^4\right)
+  + \frac{k_1}{L_1}(\theta_2 - \theta_1) + \frac{S_1}{2} = 0,
+  $$ {#eq-window-outer}
+  where $h_{c,o}$ is the outside convection (@sec-doe2) and $E_o$ the
+  long-wave irradiance from sky, air and ground with the view factors and the
+  sky/air split of @eq-ext-hrad.
+- **Faces across a gap** $g$ between faces $a$ and $b$,
+  $$
+  q_g = h_g(\theta_a - \theta_b) + \frac{\varepsilon_a\varepsilon_b\,\sigma\left(\theta_a^4 - \theta_b^4\right)}{1 - (1 - \varepsilon_a)(1 - \varepsilon_b)},
+  $$ {#eq-window-gap}
+  leaves face $a$ and reaches face $b$, which also exchange conduction with
+  the other face of their layer and receive their halves of its absorbed
+  solar.
+- **Inner face.** Convection to the zone air, linearised long-wave exchange
+  with the zone's surfaces (@eq-lw-linear) and the window's share of the
+  radiant internal gains $q''_{r,\text{int}}$:
+  $$
+  \frac{k_n}{L_n}(\theta_{2n-1} - \theta_{2n}) + \frac{S_n}{2} + h_{c,i}f_h(T_z - \theta_{2n})
+  + h_{r,i}(T_\text{mrt} - \theta_{2n}) + q''_{r,\text{int}} = 0,
+  $$ {#eq-window-inner}
+  with $h_{c,i}$ the ISO 15099 window inside convection (@sec-tarp), at least
+  0.1 W/(m²·K) as EnergyPlus's `LowHConvLimit`.
+
+The gap conductance is $h_g = Nu\,k/w$ for gap width $w$. The gas
+properties at the mean gap temperature follow ISO 15099 Annex B
+[@iso15099]: conductivity, viscosity and specific heat are quadratics in
+temperature, and the density is the ideal gas at $10^5$ Pa. Mixtures use
+ISO 15099's rules (eqs. 56–68) as EnergyPlus codes them
+(`WindowGasConductance`). The Nusselt number is ISO 15099 §5.3.3.3
+(`NusseltNumber`), with $Ra = Gr\,Pr$ on the gap width and $A = H/w$ for
+window height $H$:
 
 $$
-\begin{gathered}
-u_{e,g}\left(T_\text{ext} - T_g\right) + h_{c,i}(T_z - T_g) + h_{r,i}(T_\text{mrt} - T_g)
-+ q''_\text{abs,in} + q''_{r,\text{int}} = 0,\\
-u_{e,g} = \left(\frac{1}{h_e} + \frac{1}{u_g}\right)^{-1}.
-\end{gathered}
-$$ {#eq-window-node}
+Nu_{90} = \max\left(Nu_1,\; 0.242\left(\frac{Ra}{A}\right)^{0.272}\right),\qquad
+Nu_1 =
+\begin{cases}
+1 + 1.7596678\times10^{-10}Ra^{2.2984755} & Ra \le 10^4,\\
+0.028154\,Ra^{0.4134} & Ra \le 5\times10^4,\\
+0.0673838\,Ra^{1/3} & \text{otherwise}.
+\end{cases}
+$$ {#eq-gap-nu90}
 
-The terms are:
+A cavity heated from above has $Nu = 1 + (Nu_{90} - 1)\sin\gamma$ at tilt
+$\gamma$. Heated from below, $Nu$ interpolates linearly between $Nu_{60}$
+(ISO 15099 eqs. 45–47) at 60° and $Nu_{90}$ at 90°, and below 60° it is
+Hollands et al.'s correlation [@hollands1976]:
 
-- **Outside film.** $h_e = h_{c,o} + h_\text{sky} + h_\text{air} + h_\text{gnd}$
-  is the outside film, with @eq-doe2 and @eq-ext-hrad at the glass
-  emissivity. $T_\text{ext}$ is the $h$-weighted mean of outdoor air, sky
-  and ground temperature.
-- **Inside film.** $h_{c,i}$ is the window inside convection
-  (@sec-tarp), and $h_{r,i}$ and $T_\text{mrt}$ come from @eq-lw-linear at
-  the glass emissivity.
-- **Glass conductance** $u_g$:
-  - **Simple glazing** (default): $u_g = 1/R_l$ from @eq-sgs-winter-films.
-  - **Single pane** (`num_panes: 1` with pane data): $u_g = k/L$.
-  - **Gap model** (gap width and pane data):
-    $u_g = (2L/k + 1/h_\text{gap})^{-1}$, with an air gap whose
-    $h_\text{gap} = Nu\,k_\text{air}/s + h_{r,\text{gap}}$ follows ISO 15099
-    [@iso15099]. $Nu$ comes from the vertical-cavity correlations for tilt
-    ≥ 60° and from Hollands et al. [@hollands1976] for inclined gaps. The
-    result is capped at 1.05 times the film-stripped value. The model assumes
-    two panes, whatever `num_panes` is
-    ([#214](https://github.com/bbrannon4/OpenBSE/issues/214)).
+$$
+Nu = 1 + 1.44\left[1 - \frac{1708}{Ra\cos\gamma}\right]^+\left(1 - \frac{1708\,(\sin 1.8\gamma)^{1.6}}{Ra\cos\gamma}\right)
++ \left[\left(\frac{Ra\cos\gamma}{5830}\right)^{1/3} - 1\right]^+.
+$$ {#eq-gap-hollands}
 
-@eq-window-node is solved in five fixed iterations, updating $h_{c,i}$,
-$h_{r,i}$, $T_\text{mrt}$ and the gap conductance. When
-$h_{c,i} + h_{r,i} < 2$ W/(m²·K), they are floored at 0.5 and 1.5. The outside
-glass face temperature is back-calculated from the conduction through $u_g$.
+For a window facing upward the outer face is the cavity's upper face; for one
+facing downward ($\gamma > 90°$) the inner face is, and $180° - \gamma$ is
+used.
 
-Any part of $q''_\text{abs,in}$ that the node conducts outdoors is added
-directly to the zone air. The whole absorbed-inward gain therefore reaches
-the zone, as the SHGC definition implies. The glass's convection enters the
-zone air balance through $h_{c,i}A(T_g - T_z)$.
+Each iteration evaluates the gap conductances, the inside convection and the
+long-wave coefficients at the current temperatures ($\sigma\theta^4$ is
+written $(\sigma\theta^3)\,\theta$), solves the linear system, and moves the
+temperatures toward the solution: fully while the steps contract, by half
+once a step grows, and by a quarter after 25 iterations. It stops when the
+largest step is below $10^{-5}$ K, within 100 iterations; a solve that
+reaches the limit is a severe run-time error (@sec-run-checks). Each window
+is solved once per surface–air pass against the zone air and the other
+surfaces' temperatures from the previous pass, starting from its own faces
+from the previous solve, and the passes repeat until surfaces and air have
+settled (@sec-surface-hb).
+
+The room sees the inner face: its convection enters the zone air balance
+through $h_{c,i}f_hA(\theta_{2n} - T_z)$, and its long-wave exchange the
+interior exchange of @sec-lw-exchange. The outer face temperature is the
+window's outside surface temperature, and the conduction reported for a
+window is through its inner glass layer.
+
+### Nominal performance {#sec-window-nominal}
+
+A glazing's nominal U-factor and SHGC are those of EnergyPlus
+`CalcNominalWindowCond`: centre of glass, vertical, 1 m tall for the inside
+convection and 1.524 m for the gap aspect ratio, sky at the outdoor
+temperature. Winter: $T_z = 21$ °C, $T_o = -18$ °C, $h_{c,o} = 26$ W/(m²·K).
+Summer: $T_z = 24$ °C, $T_o = 32$ °C, $h_{c,o} = 15$ W/(m²·K) and 783 W/m² of
+beam at normal incidence. The inside convection is ISO 15099's vertical-plate
+correlation for dry air. With the face temperatures solved,
+
+$$
+U = \frac{1}{R_\text{tot}},\qquad
+SHGC = \tau(0) + \sum_j A_j(0)\,\frac{R_{o,j}}{R_\text{tot}},
+$$ {#eq-window-nominal}
+
+where $R_{o,j}$ is the resistance from the outdoor air to the middle of layer
+$j$ and the films and gaps use their combined radiative and convective
+coefficients. A layered glazing reports these values as its U-factor and SHGC.
 
 ### Interior shades and blinds {#sec-shades}
 
@@ -885,14 +993,15 @@ signal falls below the trigger minus the hysteresis. The signal is either:
 
 A deployed device is modelled in one of two ways:
 
-- **Assembly rating** (`blind_shgc`, `blind_u_factor`). All solar gains are
-  scaled by $SHGC_\text{blind}/SHGC$ (clamped to [0, 1]), and $u_g$ is the
-  film-stripped blind U-factor.
+- **Assembly rating** (`blind_shgc`, `blind_u_factor`, which defaults to the
+  window's U-factor). The window+blind assembly is a simple glazing system of
+  its own (@sec-window-sgs), which replaces the window's glazing in the optics
+  and the heat balance while the blind is down, as a shaded construction does
+  in EnergyPlus.
 - **Shade layer** (`shade`). The fabric's solar transmittance $\tau_{sh}$
   (with openness $o$), reflectance $\rho_{sh}$ and emissivity are given.
   Solar transmitted by the glass ($I_g$, beam $I_{g,b}$) bounces between
   glass and shade:
-
   $$
   \begin{gathered}
   I_{sh} = \frac{I_g}{1 - \rho_{sh}\rho_g},\qquad
@@ -900,41 +1009,62 @@ A deployed device is modelled in one of two ways:
   \text{shade} = \alpha_{sh}I_{sh},\qquad \text{glass} = \rho_{sh}I_{sh}\alpha_g,
   \end{gathered}
   $$ {#eq-shade-solar}
-
-  where $\rho_g$ and $\alpha_g$ are the glazing's room-side hemispherical
-  properties; the rest, $\rho_{sh}I_{sh}\tau_g$, leaves through the glass.
-  Glass, shade and gap air are then three nodes solved together, ten times
-  with updated coefficients:
-
+  where $\rho_g$ and $\alpha_g$ are the glazing's hemispherical room-side
+  reflectance and absorptance; the glass's share goes to each layer in
+  proportion to its room-side absorptance, and the rest, $\rho_{sh}I_{sh}\tau_g$,
+  leaves through the glass. The shade and the air in the gap behind it are two
+  more nodes, solved with the glass faces: the inner glass face exchanges
+  with them in place of @eq-window-inner,
   $$
   \begin{aligned}
-  u_{e,g}(T_\text{ext} - T_g) + q''_g &= h_{r,gs}(T_g - T_{sh}) + h_{cv}(T_g - T_a),\\
-  q''_{sh} &= h_{r,gs}(T_{sh} - T_g) + h_{cv}(T_{sh} - T_a)\\
-  &\quad + h_{cs}(T_{sh} - T_z) + h_{r,i}(T_{sh} - T_\text{mrt}),\\
-  h_{cv}(T_g - T_a) + h_{cv}(T_{sh} - T_a) &= h_\text{vent}(T_a - T_z),
+  \text{glass:}\quad & \tfrac{k_n}{L_n}(\theta_{2n-1} - \theta_{2n}) + \tfrac{S_n}{2} = h_{r,gs}(\theta_{2n} - T_{sh}) + h_{cv}(\theta_{2n} - T_a),\\
+  \text{shade:}\quad & q''_{sh} = h_{r,gs}(T_{sh} - \theta_{2n}) + h_{cv}(T_{sh} - T_a) + h_{cs}(T_{sh} - T_z) + h_{r,i}(T_{sh} - T_\text{mrt}),\\
+  \text{gap air:}\quad & h_{cv}(\theta_{2n} - T_a) + h_{cv}(T_{sh} - T_a) = h_\text{vent}(T_a - T_z),
   \end{aligned}
   $$ {#eq-shade-nodes}
-
   with:
+  - $q''_{sh}$ the shade's absorbed solar and the window's share of the radiant
+    internal gains;
   - $h_{r,gs} = 4\sigma\bar T^3/(1/\varepsilon_g + 1/\varepsilon_{sh} - 1)$;
   - gap convection $h_{cv} = 2h_c + 4v$ and ventilation
     $h_\text{vent} = \rho c_p v d/H$;
-  - the buoyant gap velocity $v = 0.7\sqrt{gH|T_a - T_z|/T_z}$ [@iso15099].
+  - the buoyant gap velocity $v = 0.7\sqrt{gH|T_a - T_z|/T_z}$ [@iso15099];
+  - $h_{cs}$ the window inside convection at the shade.
 
   The discharge coefficient 0.7 was calibrated against EnergyPlus interior
-  shade runs (#144). The room sees the shade as the window's inside face.
+  shade runs (#144). The room sees the shade as the window's inside face,
+  and the gap air returned to the room is a convective gain.
 
 **Comparison with EnergyPlus.**
 
-- **Simple-glazing correlations and curves.** The transmittance
-  correlations and angular curves follow
-  `MaterialGlass::SetupSimpleWindowGlazingSystem`
-  [@eplus-engref-25-2, "Simple Window Model"].
-- **Thermal model.** EnergyPlus solves two face temperatures per glass
-  layer, with each layer's absorbed solar, per-gap gas properties and the
-  full ISO 15099 gap correlations (`WindowManager::SolveForWindowTemperatures`).
-  The lumped node of @eq-window-node, the two-pane gap model and the caps are
-  deviations ([#214](https://github.com/bbrannon4/OpenBSE/issues/214)).
+- **Equivalent layer and film factor.** The thickness, conductivity, solar
+  transmittance and reflectance of the equivalent layer, the film factor, and
+  the nominal SHGC match EnergyPlus 25.2's eio output for six U/SHGC pairs
+  within rounding (`glazing.rs` tests).
+- **Layer optics and heat balance.** For one to four layers of clear and low-e
+  glass with air, argon, krypton, xenon and an argon/air mixture, the nominal
+  U-factor, SHGC and solar and visible transmittance match EnergyPlus 25.2's
+  within 0.0025. Against WINDOW 7, which integrates the measured spectra, the
+  spectral-average optics agree within 0.006 of incident solar (ASHRAE 140
+  glazings ID 15 and 23).
+- **ASHRAE 140.** Case 660's window is the layered low-e argon glazing of
+  the EnergyPlus reference model, not a U-factor and SHGC: the U-factor of
+  1.19 W/(m²·K) quoted for it is WINDOW 7's at the standard's test films,
+  while the same layers have an NFRC U-factor of 1.38 W/(m²·K).
+- **Deviations, all with the same converged solution or a closer one:**
+  - EnergyPlus stops at a mean face change of 0.02 K; this solve stops at
+    $10^{-5}$ K, so the window settles within the surface–air passes.
+  - EnergyPlus under-relaxes every step by half; this solve takes full steps
+    until a step grows, which reaches the same fixed point in fewer iterations.
+  - EnergyPlus treats the outer face as the cavity's upper face at any tilt;
+    for windows facing downward the inner face is used here.
+  - EnergyPlus solves windows inside its inside-surface iteration, with
+    long-wave written as absorbed irradiance less emission. Here they are
+    solved once per surface–air pass with linearised interior long-wave,
+    and the passes repeat to the same converged state.
+  - In the film-factor bisection EnergyPlus solves the faces with the
+    previous step's outside coefficient; here each step uses its own. The
+    U-factors differ by less than the 0.01 W/(m²·K) tolerance.
 - **Shades.** The shade layer follows `WindowMaterial:Shade` with an
   ISO 15099 vented gap, simplified to fixed air properties and one gap
   velocity.
@@ -944,8 +1074,15 @@ A deployed device is modelled in one of two ways:
 
 ## Known limitations: windows {#sec-windows-limitations}
 
-- [#214](https://github.com/bbrannon4/OpenBSE/issues/214): lumped glass node,
-  two-pane air-only gap model, ad hoc caps.
+- Frames and dividers, and EnergyPlus's edge-of-glass correction, are not
+  modelled; the whole window area is centre of glass.
+- Layer data is spectral-average; spectral data sets are not read.
+- Glass is opaque to long-wave radiation, as EnergyPlus assumes in the
+  bare-glazing balance.
+- A deployed shade does not change the window's room-side absorptance and
+  transmittance for the room's reflected diffuse.
+- Gases are limited to air, argon, krypton and xenon with ISO 15099's
+  coefficients; EnergyPlus's custom gas is not available.
 
 ## Interior solar distribution {#sec-interior-solar}
 
@@ -953,7 +1090,7 @@ A deployed device is modelled in one of two ways:
 surface and applied as $q''_\text{r}$ in @eq-inside-temp.
 
 The beam and diffuse solar transmitted by a zone's windows (@sec-window-optics)
-is distributed in four steps.
+is distributed in three steps.
 
 1. **Beam landing.** `simulation.solar_distribution` selects how the beam
    lands:
@@ -972,19 +1109,17 @@ is distributed in four steps.
    $\alpha_j S_{b,j}$, where $S_{b,j}$ is the beam landing on it and
    $\alpha_j$ its inside solar absorptance. The rest of the beam joins the
    diffuse pool.
-3. **Cavity back-out.** Part of the diffuse pool leaves the zone again
-   through the windows: their back transmittance $\tau_b$ plus the outward
-   share of their back absorptance $\alpha_b$. The pool kept is
-   $$
-   S_d = \left(S_\text{d,win} + S_b - \sum_j\alpha_jS_{b,j}\right)
-   \frac{\sum_k A_k\alpha_k}{\sum_k A_k\alpha_k + \sum_w A_w\left[\tau_b + \alpha_b(1 - N_i)\right]},
-   $$ {#eq-cavity-backout}
-   with $k$ over opaque surfaces and $w$ over windows.
-4. **Diffuse absorbed.** Every opaque surface absorbs in proportion to
-   $A_k\alpha_k$ (EnergyPlus's VMULT):
+3. **Diffuse absorbed.** The diffuse pool, transmitted diffuse plus the
+   reflected beam, $S_d = S_\text{d,win} + S_b - \sum_j\alpha_jS_{b,j}$, is
+   shared over all the zone's surfaces in proportion to $A_k\alpha_k$
+   (EnergyPlus's VMULT), windows included with
+   $\alpha_w = \tau_{d,b} + \sum_j A_{j,d,b}$, their hemispherical room-side
+   transmittance and layer absorptances (@sec-window-optics):
    $$
    Q_{\text{sol},k} = \alpha_k S_{b,k} + \frac{A_k\alpha_k}{\sum_m A_m\alpha_m}\,S_d.
    $$ {#eq-vmult}
+   A window's share transmitted back out leaves the zone; the share each of
+   its layers absorbs is that layer's $S_{j,\text{room}}$ in @eq-layer-solar.
 
 **Comparison with EnergyPlus.** FullExterior, the absorbed and reflected
 beam, the VMULT distribution and the back-out follow
@@ -992,9 +1127,6 @@ beam, the VMULT distribution and the back-out follow
 `InitIntSolarDistribution` [@eplus-engref-25-2, "Solar Distribution"]. The
 differences ([#68](https://github.com/bbrannon4/OpenBSE/issues/68)):
 
-- **Windows absorb no diffuse.** EnergyPlus includes windows in the VMULT
-  sum, and the glass absorbs its share of the reflected diffuse. OpenBSE
-  gives that share to the opaque surfaces.
 - **Fallback.** Zones that lack vertices fall back to fixed fractions or
   to the air, rather than to FullExterior.
 - **Beam projection.** The projection uses the whole window, not its
@@ -1514,7 +1646,6 @@ terms are assembled from the parts of this chapter:
   - the HVAC-related gains of @sec-zone-time;
   - exhaust-fan motor heat;
   - the gap air returned by a window shade (@sec-shades);
-  - the residual absorbed-inward window solar (@sec-window-hb);
   - transmitted solar sent to the air when a zone has no surface
     distribution (@sec-interior-solar).
 - **HVAC**, in one of three forms:

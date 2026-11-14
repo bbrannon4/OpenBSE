@@ -15,11 +15,11 @@ Last updated: 2026-10-25
 ### Building Envelope
 - Opaque constructions (layered materials with conduction transfer functions)
 - Simple constructions (U-factor + lumped thermal capacity)
-- Window constructions (U-factor + SHGC, angular model matching E+ SimpleGlazingSystem/LBNL-2804E)
-- Solar heat gains through windows (beam + diffuse, Hay-Davies anisotropic sky, angular SHGC with 28-bin mapping)
+- Window constructions: simple glazing (U-factor + SHGC, E+ SimpleGlazingSystem equivalent layer) or up to four glass layers with gas gaps (air, argon, krypton, xenon, mixtures); face temperatures of every layer from their heat balances
+- Solar heat gains through windows (beam + diffuse; E+ layer optics with angular dependence: transmitted solar and the solar absorbed in each glass layer)
 - FullExterior and FullInteriorAndExterior solar distribution with beam/diffuse split and VMULT redistribution
 - External shading (overhangs and fins with geometric beam shadow calculation, diffuse sky view factor reduction)
-- Dynamic interior shading control (solar-irradiance or zone-temperature triggers with deployment hysteresis; adjusts window SHGC and U-factor)
+- Dynamic interior shading control (solar-irradiance or zone-temperature triggers with deployment hysteresis; a blind's assembly rating as its own simple glazing, or a shade layer with its own temperature)
 - Ground-coupled floors (monthly table or Kusuda-Achenbach model, F-factor construction support)
 - Adiabatic and interzone boundary conditions
 - Surface area auto-calculation from 3D vertex coordinates

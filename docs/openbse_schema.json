@@ -76,11 +76,21 @@
       "default": [],
       "description": "Opaque constructions defined as material layers (outside to inside)."
     },
+    "glazing_materials": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/GlazingMaterial"
+      },
+      "default": [],
+      "description": "Glass layers for layered window constructions."
+    },
     "window_constructions": {
       "type": "array",
-      "items": { "$ref": "#/$defs/WindowConstruction" },
+      "items": {
+        "$ref": "#/$defs/WindowConstruction"
+      },
       "default": [],
-      "description": "Window constructions defined by U-factor and SHGC."
+      "description": "Window constructions: simple glazing (U-factor and SHGC) or glass layers and gas gaps."
     },
     "simple_constructions": {
       "type": "array",
@@ -1631,43 +1641,258 @@
 
     "WindowConstruction": {
       "type": "object",
-      "required": ["name", "u_factor", "shgc"],
-      "description": "Window construction defined by overall thermal and solar properties.",
+      "required": [
+        "name"
+      ],
+      "description": "Window construction: a simple glazing system (u_factor and shgc, modelled as EnergyPlus's equivalent single glass layer) or layered glazing (layers: glass layers and gas gaps from outside to inside, one to four glass layers), never both. A layered construction's U-factor and SHGC follow from its layers.",
       "properties": {
-        "name": { "type": "string" },
-        "u_factor": { "type": "number", "description": "Overall U-factor [W/(m2*K)]." },
-        "shgc": { "type": "number", "minimum": 0, "maximum": 1, "description": "Solar Heat Gain Coefficient [0-1]." },
-        "glass_emissivity": { "type": "number", "default": 0.84, "minimum": 0, "maximum": 1, "description": "Glass hemispherical emissivity for interior and exterior longwave radiation exchange. Defaults to 0.84 (uncoated soda-lime glass). Use lower values for low-e coatings." },
-        "pane_solar_transmittance": { "type": "number", "minimum": 0, "maximum": 1, "description": "Per-pane solar transmittance at normal incidence [0-1]. With pane_solar_reflectance, enables Fresnel-based angular SHGC modifiers (e.g. 0.834 per 3 mm clear pane)." },
-        "pane_solar_reflectance": { "type": "number", "minimum": 0, "maximum": 1, "description": "Per-pane front solar reflectance at normal incidence [0-1] (e.g. 0.075 per 3 mm clear pane). Used with pane_solar_transmittance." },
-        "num_panes": { "type": "integer", "minimum": 1, "maximum": 2, "description": "Number of glass panes with pane data (1 = single, 2 = double, the default). Anything else is a severe error; give a triple-glazed unit as U-factor and SHGC, without pane data." },
-        "gap_width": { "type": "number", "description": "Gas gap width between panes [m] (e.g. 0.012)." },
-        "pane_conductivity": { "type": "number", "description": "Pane thermal conductivity [W/(m*K)] (standard glass 1.0)." },
-        "pane_thickness": { "type": "number", "description": "Pane thickness [m] (e.g. 0.003175)." },
-        "shading_control": {
-          "type": "object",
-          "description": "Dynamic interior blind/shade control (#104). Triggers on solar irradiance or zone temperature. Either give blind_shgc (and optionally blind_u_factor) to scale the assembly, or a shade block to model the shade as its own layer, with a temperature that reaches the comfort grid (#144).",
-          "required": ["type"],
-          "properties": {
-            "type": { "type": "string", "enum": ["solar_threshold", "temperature"], "description": "Trigger type: `solar_threshold` deploys when incident beam on the glazing [W/m²] exceeds the threshold; `temperature` deploys when zone air temperature exceeds the setpoint [°C]." },
-            "threshold": { "type": "number", "description": "For solar_threshold: beam irradiance on glazing [W/m²] to deploy blind." },
-            "setpoint": { "type": "number", "description": "For temperature: zone air temperature [°C] to deploy blind." },
-            "hysteresis": { "type": "number", "default": 0.0, "description": "Dead-band below threshold/setpoint before blind retracts [same units as trigger]." },
-            "blind_shgc": { "type": "number", "minimum": 0, "maximum": 1, "description": "SHGC of window+blind assembly when deployed. Solar gains are multiplied by blind_shgc/base_shgc. Required unless a shade block is given." },
-            "blind_u_factor": { "type": "number", "description": "U-factor [W/(m²·K)] of window+blind assembly when deployed. Omit to keep the base window U-factor." },
-            "shade": {
-              "type": "object",
-              "description": "Interior shade (e.g. roller shade) modelled as a layer on the room side of the glass (#144). When deployed it absorbs part of the solar, gets warm, and the room and the comfort grid see its temperature; light through it is diffuse except the openness share. Replaces blind_shgc/blind_u_factor.",
-              "required": ["solar_transmittance", "solar_reflectance"],
-              "properties": {
-                "solar_transmittance": { "type": "number", "minimum": 0, "maximum": 1, "description": "Total solar transmittance, including the openness." },
-                "solar_reflectance": { "type": "number", "minimum": 0, "maximum": 1, "description": "Solar reflectance (both faces)." },
-                "openness": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.0, "description": "Fraction of beam passing straight through the weave as beam; part of solar_transmittance." },
-                "emissivity": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.9, "description": "Long-wave emissivity (both faces). The fabric is treated as opaque to long-wave radiation." },
-                "distance_to_glass": { "type": "number", "minimum": 0, "default": 0.05, "description": "Distance between the glass and the shade [m]; sets how freely room air circulates through the gap." }
+        "name": {
+          "type": "string"
+        },
+        "u_factor": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 7,
+          "description": "Simple glazing: NFRC U-factor including air films [W/(m2*K)]."
+        },
+        "shgc": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 1,
+          "description": "Simple glazing: solar heat gain coefficient at normal incidence [0-1]."
+        },
+        "visible_transmittance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Simple glazing: visible transmittance at normal incidence [0-1]. Optional; defaults to the solar transmittance of the equivalent layer. Only sets the reported visible transmittance."
+        },
+        "layers": {
+          "type": "array",
+          "description": "Layered glazing: glass layers and gas gaps from outside to inside, alternating and starting and ending with glass; one to four glass layers. A glass layer is {glazing: <glazing material name>}; a gap is {gas: air|argon|krypton|xenon, width: <m>} or {gas_mixture: [{gas, fraction}, ...], width: <m>} with mole fractions adding up to 1.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "glazing": {
+                "type": "string",
+                "description": "Name of a glazing material (glass layer)."
+              },
+              "gas": {
+                "type": "string",
+                "enum": [
+                  "air",
+                  "argon",
+                  "krypton",
+                  "xenon"
+                ],
+                "description": "Fill gas of a gap."
+              },
+              "gas_mixture": {
+                "type": "array",
+                "description": "Gas mixture of a gap, by mole fraction.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "gas",
+                    "fraction"
+                  ],
+                  "properties": {
+                    "gas": {
+                      "type": "string",
+                      "enum": [
+                        "air",
+                        "argon",
+                        "krypton",
+                        "xenon"
+                      ]
+                    },
+                    "fraction": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 1
+                    }
+                  }
+                }
+              },
+              "width": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "Gap width [m]."
               }
             }
           }
+        },
+        "shading_control": {
+          "type": "object",
+          "description": "Dynamic interior blind/shade control (#104). Triggers on solar irradiance or zone temperature. Either give blind_shgc (and optionally blind_u_factor) for an assembly rating, modelled as its own simple glazing system, or a shade block to model the shade as its own layer, with a temperature that reaches the comfort grid (#144).",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "solar_threshold",
+                "temperature"
+              ],
+              "description": "Trigger type: `solar_threshold` deploys when incident beam on the glazing [W/m²] exceeds the threshold; `temperature` deploys when zone air temperature exceeds the setpoint [°C]."
+            },
+            "threshold": {
+              "type": "number",
+              "description": "For solar_threshold: beam irradiance on glazing [W/m²] to deploy blind."
+            },
+            "setpoint": {
+              "type": "number",
+              "description": "For temperature: zone air temperature [°C] to deploy blind."
+            },
+            "hysteresis": {
+              "type": "number",
+              "default": 0.0,
+              "description": "Dead-band below threshold/setpoint before blind retracts [same units as trigger]."
+            },
+            "blind_shgc": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "SHGC of the window+blind assembly when deployed. The assembly is modelled as a simple glazing system of its own while the blind is down. Required unless a shade block is given."
+            },
+            "blind_u_factor": {
+              "type": "number",
+              "description": "NFRC U-factor [W/(m²·K)] of the window+blind assembly when deployed. Omit to keep the window's U-factor (rated, or nominal for layered glazing)."
+            },
+            "shade": {
+              "type": "object",
+              "description": "Interior shade (e.g. roller shade) modelled as a layer on the room side of the glass (#144). When deployed it absorbs part of the solar, gets warm, and the room and the comfort grid see its temperature; light through it is diffuse except the openness share. Replaces blind_shgc/blind_u_factor.",
+              "required": [
+                "solar_transmittance",
+                "solar_reflectance"
+              ],
+              "properties": {
+                "solar_transmittance": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "Total solar transmittance, including the openness."
+                },
+                "solar_reflectance": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "Solar reflectance (both faces)."
+                },
+                "openness": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.0,
+                  "description": "Fraction of beam passing straight through the weave as beam; part of solar_transmittance."
+                },
+                "emissivity": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.9,
+                  "description": "Long-wave emissivity (both faces). The fabric is treated as opaque to long-wave radiation."
+                },
+                "distance_to_glass": {
+                  "type": "number",
+                  "minimum": 0,
+                  "default": 0.05,
+                  "description": "Distance between the glass and the shade [m]; sets how freely room air circulates through the gap."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "GlazingMaterial": {
+      "type": "object",
+      "required": [
+        "name",
+        "thickness",
+        "solar_transmittance",
+        "solar_reflectance_front",
+        "solar_reflectance_back"
+      ],
+      "description": "Glass layer with spectral-average properties at normal incidence, after EnergyPlus WindowMaterial:Glazing (SpectralAverage). Front faces the outdoors.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "thickness": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Thickness [m]."
+        },
+        "conductivity": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 0.9,
+          "description": "Conductivity [W/(m*K)]."
+        },
+        "solar_transmittance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Solar transmittance at normal incidence."
+        },
+        "solar_reflectance_front": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Outdoor-side solar reflectance at normal incidence."
+        },
+        "solar_reflectance_back": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Room-side solar reflectance at normal incidence."
+        },
+        "visible_transmittance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Visible transmittance at normal incidence; defaults to the solar value. Only sets the reported visible transmittance."
+        },
+        "visible_reflectance_front": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Outdoor-side visible reflectance; defaults to the solar value."
+        },
+        "visible_reflectance_back": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Room-side visible reflectance; defaults to the solar value."
+        },
+        "infrared_transmittance": {
+          "type": "number",
+          "const": 0,
+          "default": 0,
+          "description": "Long-wave transmittance. Glass is modelled opaque to long-wave radiation, so only 0 is accepted."
+        },
+        "emissivity_front": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "default": 0.84,
+          "description": "Outdoor-side long-wave hemispherical emissivity."
+        },
+        "emissivity_back": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "default": 0.84,
+          "description": "Room-side long-wave hemispherical emissivity."
+        },
+        "dirt_correction_factor": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "default": 1.0,
+          "description": "Factor on transmittance for dirt, applied when the layer is a window's outermost."
         }
       }
     },

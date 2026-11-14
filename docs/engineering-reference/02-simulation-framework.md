@@ -250,8 +250,9 @@ $$
 $$ {#eq-surface-beta}
 
 with $Z_0' = Z_0$ ($Z_0 - Y_0$ for an adiabatic face) and the outside face held.
-For an unshaded window, $Z_0'$ is the glass node's conductance to the outdoors,
-$u_{e,g}$ of @eq-window-node; a window behind a deployed shade has $\beta = 0$.
+For an unshaded window, $Z_0'$ is the linearised conductance from its inner
+glass face to the outdoors through the glazing (@sec-window-hb); a window
+behind a deployed shade has $\beta = 0$.
 A massless face has $\beta \approx 1$ and a face behind heavy mass $\beta \approx 0$.
 $\beta$ is evaluated once per solve (`surface_air_response`).
 
