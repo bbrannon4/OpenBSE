@@ -74,7 +74,7 @@ serving $n$ zones, as E+ `UnitarySystem` divides the control zone's load by its
 
 $$
 x = \begin{cases}
-\dfrac{\dot Q_h - \dot Q_f}{\dot Q_\text{cap} - \dot Q_f} & \text{heating},\\[2ex]
+\dfrac{\dot Q_h - \dot Q_f - \dot Q_\text{oa}}{\dot Q_\text{cap} - \dot Q_f - \dot Q_\text{oa}} & \text{heating},\\[2ex]
 \dfrac{\dot Q_c + \dot Q_f + \dot Q_\text{oa}}{\dot Q_\text{cap} + \dot Q_f + \dot Q_\text{oa}} & \text{cooling},
 \end{cases}
 $$ {#eq-plr}
@@ -101,12 +101,22 @@ and the cycling fan of a loop with DX runs $x/\text{PLF}(x)$ of the time while a
 compressor runs (@sec-dx-cooling). Continuous fans stay at full power.
 `ContinuousNoLoadOff` fans stop in deadband.
 
-A zone in its dead band calls for cooling when the heat of a continuous fan,
-$\dot Q_f$, exceeds the load the zone can still take before its cooling setpoint,
-$Q_{\text{to},c} \ge 0$. Its load is then $\dot Q_f - Q_{\text{to},c}$, as in E+
-`UnitarySystem` ("constant fan pushes zone above cooling set point"). The heating
-side of that E+ test is not implemented: it applies when cold outdoor air makes the
-fan-only output negative.
+**No-load output.** With the coils off, a continuous fan still supplies its heat
+and its minimum outdoor air: $\dot Q_\text{off} = \dot Q_f + \dot Q_\text{oa}$,
+positive when it heats the zone. In @eq-plr it is delivered whether the coils run
+or not, so the coils make up only the rest, for heating as for cooling. A zone in
+its dead band, with signed loads to its setpoints $Q_{\text{to},h} < 0$ and
+$Q_{\text{to},c} > 0$, is pushed out of it by that output, as in E+
+`UnitarySystem::initLoadBasedControl` (DualHeatCool):
+
+- cold outdoor air with $\dot Q_\text{off} < 0$ and
+  $\dot Q_\text{off} - Q_{\text{to},h} < -1$ W ("constant fan pushes zone below
+  heating set point") turns on heating, for the load $Q_{\text{to},h}$;
+- fan heat with $\dot Q_\text{off} > 0$ and $\dot Q_\text{off} - Q_{\text{to},c} > 1$ W
+  ("above cooling set point") turns on cooling, for the load $Q_{\text{to},c}$.
+
+The mode is decided once per timestep from the design flow, the minimum
+outdoor-air fraction and the zone at the start of the timestep.
 
 **Comparison with EnergyPlus.** EnergyPlus's `AirLoopHVAC:UnitarySystem` solves
 its part-load ratio iteratively against the unit's output; @eq-plr is its closed
