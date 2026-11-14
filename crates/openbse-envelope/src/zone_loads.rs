@@ -41,17 +41,15 @@ pub struct PeopleInput {
     /// Alternative: floor area per person [m²/person] (zone floor area / this = count)
     #[serde(default)]
     pub area_per_person: Option<f64>,
-    /// Activity level [W/person] — total metabolic heat output (default 120).
-    /// This is split into sensible and latent components using `sensible_fraction`.
-    #[serde(default = "default_activity")]
+    /// Activity level [W/person]: total heat per person, sensible plus latent.
+    /// Required, as E+'s activity level schedule is.
     pub activity_level: f64,
-    /// Sensible fraction of metabolic heat [0-1] (default 0.6).
-    /// Sensible heat = activity_level × sensible_fraction.
-    /// Latent heat  = activity_level × (1 - sensible_fraction).
-    /// Typical values by activity: 0.62 seated/quiet, 0.58 moderate office,
-    /// 0.50 walking, 0.38 heavy exercise (per ASHRAE Fundamentals Ch.18).
-    #[serde(default = "default_sensible_fraction")]
-    pub sensible_fraction: f64,
+    /// Sensible fraction of the activity level [0-1]. When absent (the
+    /// default), the sensible heat per person follows the activity level and
+    /// the zone air temperature as E+ autocalculates it; the latent heat is
+    /// the remainder.
+    #[serde(default)]
+    pub sensible_fraction: Option<f64>,
     /// Fraction of gain that is radiant [0-1] (default 0.3)
     #[serde(default = "default_people_radiant")]
     pub radiant_fraction: f64,
@@ -59,21 +57,15 @@ pub struct PeopleInput {
     #[serde(default)]
     pub schedule: Option<String>,
     /// Alternative: explicit sensible gain [W/person].
-    /// When set, overrides `activity_level × sensible_fraction`.
+    /// When set, overrides the sensible share of `activity_level`.
     #[serde(default)]
     pub sensible_gain_per_person: Option<f64>,
     /// Alternative: explicit latent gain [W/person].
-    /// When set, overrides `activity_level × (1 - sensible_fraction)`.
+    /// When set, overrides the latent remainder of `activity_level`.
     #[serde(default)]
     pub latent_gain_per_person: Option<f64>,
 }
 
-fn default_activity() -> f64 {
-    120.0
-}
-fn default_sensible_fraction() -> f64 {
-    0.6
-}
 fn default_people_radiant() -> f64 {
     0.3
 }

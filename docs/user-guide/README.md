@@ -754,6 +754,7 @@ people:
   - name: Office Occupants
     zones: [Office Zones]             # Applies to all zones in the group
     people_per_area: 0.0538
+    activity_level: 120.0             # W/person; sensible heat follows zone temperature
 
 lights:
   - name: Office Lighting

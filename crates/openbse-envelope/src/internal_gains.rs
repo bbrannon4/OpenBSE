@@ -16,14 +16,15 @@ fn default_submeter() -> String {
 pub enum InternalGainInput {
     People {
         count: f64,
-        /// Activity level [W/person] — total metabolic heat output
-        #[serde(default = "default_activity")]
+        /// Activity level [W/person]: total heat per person (required, as
+        /// E+'s activity level schedule).
         activity_level: f64,
-        /// Sensible fraction of metabolic heat [0-1] (default 0.6).
-        /// Sensible heat = activity_level × sensible_fraction.
-        /// Latent heat  = activity_level × (1 - sensible_fraction).
-        #[serde(default = "default_sensible_fraction")]
-        sensible_fraction: f64,
+        /// Sensible fraction of the activity level [0-1]. When absent, the
+        /// sensible heat per person comes from the activity level and the zone
+        /// air temperature ([`people_sensible_per_person`], E+ autocalculate).
+        /// The latent heat is the remainder.
+        #[serde(default)]
+        sensible_fraction: Option<f64>,
         /// Fraction of gain that is radiant [0-1]
         #[serde(default = "default_people_radiant")]
         radiant_fraction: f64,
@@ -31,11 +32,11 @@ pub enum InternalGainInput {
         #[serde(default)]
         schedule: Option<String>,
         /// Alternative: explicit sensible gain [W/person].
-        /// When set, overrides `activity_level × sensible_fraction`.
+        /// When set, overrides the sensible share of `activity_level`.
         #[serde(default)]
         sensible_gain_per_person: Option<f64>,
         /// Alternative: explicit latent gain [W/person].
-        /// When set, overrides `activity_level × (1 - sensible_fraction)`.
+        /// When set, overrides the latent remainder of `activity_level`.
         #[serde(default)]
         latent_gain_per_person: Option<f64>,
     },
@@ -81,12 +82,6 @@ pub enum InternalGainInput {
     },
 }
 
-fn default_activity() -> f64 {
-    120.0
-}
-fn default_sensible_fraction() -> f64 {
-    0.6
-}
 fn default_people_radiant() -> f64 {
     0.3
 }
@@ -134,8 +129,33 @@ pub struct ResolvedGain {
 ///
 /// If a `ScheduleManager` is provided, schedule fractions are looked up by name.
 /// Otherwise, all gains run at 100% (backward compatible).
-pub fn resolve_gains(gains: &[InternalGainInput]) -> ResolvedGain {
-    resolve_gains_scheduled(gains, None, 1, 1, 1)
+pub fn resolve_gains(gains: &[InternalGainInput], zone_air_temp: f64) -> ResolvedGain {
+    resolve_gains_scheduled(gains, None, 1, 1, 1, zone_air_temp)
+}
+
+/// E+ `InitInternalHeatGains` coefficients for the sensible heat of one person
+/// from activity level M [W] and zone air temperature T [°C].
+const PEOPLE_SENSIBLE_C: [f64; 9] = [
+    6.4611027,
+    0.946892,
+    0.0000255737,
+    7.139322,
+    -0.0627909,
+    0.0000589271,
+    -0.198550,
+    0.000940018,
+    -0.00000149532,
+];
+
+/// Sensible heat of one person [W] at activity level `m` [W] and zone air
+/// temperature `t` [°C], held within [0, m]: the E+ correlation used when the
+/// sensible heat fraction is autocalculated (`InternalHeatGains.cc`).
+pub fn people_sensible_per_person(m: f64, t: f64) -> f64 {
+    let c = &PEOPLE_SENSIBLE_C;
+    let q = c[0]
+        + m * (c[1] + m * c[2])
+        + t * ((c[3] + m * (c[4] + m * c[5])) + t * (c[6] + m * (c[7] + m * c[8])));
+    q.clamp(0.0, m.max(0.0))
 }
 
 /// Resolve gains with schedule support.
@@ -144,12 +164,16 @@ pub fn resolve_gains(gains: &[InternalGainInput]) -> ResolvedGain {
 /// `hour` — hour of day (1-24)
 /// `day_of_week` — 1=Monday through 7=Sunday
 /// `day_of_year` — 1-365, for resolving seasonal (date-range) schedules
+/// `zone_air_temp` — the zone air temperature [°C] people's sensible heat
+/// follows when their sensible fraction is autocalculated (E+ uses the zone
+/// mean air temperature at the start of the timestep)
 pub fn resolve_gains_scheduled(
     gains: &[InternalGainInput],
     schedule_mgr: Option<&crate::schedule::ScheduleManager>,
     hour: u32,
     day_of_week: u32,
     day_of_year: u32,
+    zone_air_temp: f64,
 ) -> ResolvedGain {
     let mut result = ResolvedGain::default();
 
@@ -166,10 +190,15 @@ pub fn resolve_gains_scheduled(
             } => {
                 let frac =
                     schedule_fraction(schedule, schedule_mgr, hour, day_of_week, day_of_year);
-                let sensible_per_person =
-                    sensible_gain_per_person.unwrap_or(activity_level * sensible_fraction);
-                let latent_per_person =
-                    latent_gain_per_person.unwrap_or(activity_level * (1.0 - sensible_fraction));
+                // The activity level splits into sensible heat (a given fraction,
+                // or E+'s correlation in the zone air temperature) and latent
+                // heat, the remainder; explicit W/person values override either.
+                let split = match sensible_fraction {
+                    Some(f) => activity_level * f,
+                    None => people_sensible_per_person(*activity_level, zone_air_temp),
+                };
+                let sensible_per_person = sensible_gain_per_person.unwrap_or(split);
+                let latent_per_person = latent_gain_per_person.unwrap_or(activity_level - split);
                 let sensible = count * sensible_per_person * frac;
                 let latent = count * latent_per_person * frac;
                 result.radiative += sensible * radiant_fraction;
@@ -254,17 +283,82 @@ mod tests {
         let gains = vec![InternalGainInput::People {
             count: 10.0,
             activity_level: 120.0,
-            sensible_fraction: 0.6,
+            sensible_fraction: Some(0.6),
             radiant_fraction: 0.3,
             schedule: None,
             sensible_gain_per_person: None,
             latent_gain_per_person: None,
         }];
-        let resolved = resolve_gains(&gains);
+        let resolved = resolve_gains(&gains, 24.0);
         // 10 people × 120 W/person × 0.6 sensible = 720 W sensible
         assert_relative_eq!(resolved.total, 720.0);
         assert_relative_eq!(resolved.radiative, 216.0); // 720 × 0.3
         assert_relative_eq!(resolved.convective, 504.0); // 720 × 0.7
+    }
+
+    /// E+ `InitInternalHeatGains`, written out term by term from its
+    /// constants, independently of `people_sensible_per_person`.
+    fn eplus_sensible(m: f64, t: f64) -> f64 {
+        6.4611027 + 0.946892 * m + 0.0000255737 * m * m + 7.139322 * t - 0.0627909 * t * m
+            + 0.0000589271 * t * m * m
+            - 0.198550 * t * t
+            + 0.000940018 * t * t * m
+            - 0.00000149532 * t * t * m * m
+    }
+
+    #[test]
+    fn people_sensible_heat_is_the_eplus_correlation() {
+        for m in [70.0, 100.0, 120.0, 200.0, 300.0] {
+            for t in [16.0, 20.0, 21.0, 23.89, 26.0, 29.44, 32.0] {
+                let want = eplus_sensible(m, t).clamp(0.0, m);
+                let got = people_sensible_per_person(m, t);
+                assert!((got - want).abs() < 1e-9, "M={m} T={t}: {got} vs {want}");
+            }
+        }
+        // Values quoted in the Engineering Reference (M = 120 W).
+        for (t, q) in [(21.0, 82.7), (23.89, 70.0), (29.44, 40.8)] {
+            let got = people_sensible_per_person(120.0, t);
+            assert!((got - q).abs() < 0.05, "T={t}: {got}");
+        }
+        // Held within [0, M], as E+ does: a low activity level in a cool zone
+        // would exceed M, a light activity in a very hot zone falls below 0.
+        assert_eq!(people_sensible_per_person(10.0, 15.0), 10.0);
+        assert!(eplus_sensible(10.0, 15.0) > 10.0);
+        assert_eq!(people_sensible_per_person(80.0, 60.0), 0.0);
+        assert!(eplus_sensible(80.0, 60.0) < 0.0);
+    }
+
+    #[test]
+    fn autocalculated_people_split_the_activity_level_by_zone_temperature() {
+        let people = |sensible_fraction| InternalGainInput::People {
+            count: 10.0,
+            activity_level: 120.0,
+            sensible_fraction,
+            radiant_fraction: 0.3,
+            schedule: None,
+            sensible_gain_per_person: None,
+            latent_gain_per_person: None,
+        };
+        let mut previous = f64::INFINITY;
+        for t in [18.0, 21.0, 24.0, 27.0, 30.0] {
+            let r = resolve_gains(&[people(None)], t);
+            // Sensible plus latent is the whole activity level.
+            assert_relative_eq!(r.people_heat + r.people_latent, 1200.0, epsilon = 1e-9);
+            assert_relative_eq!(
+                r.people_heat,
+                10.0 * people_sensible_per_person(120.0, t),
+                epsilon = 1e-9
+            );
+            assert_relative_eq!(r.radiative, 0.3 * r.people_heat, epsilon = 1e-9);
+            assert!(r.people_heat < previous, "sensible falls as the zone warms");
+            previous = r.people_heat;
+        }
+        // A given fraction ignores the zone temperature.
+        for t in [18.0, 30.0] {
+            let r = resolve_gains(&[people(Some(0.6))], t);
+            assert_relative_eq!(r.people_heat, 720.0);
+            assert_relative_eq!(r.people_latent, 480.0);
+        }
     }
 
     #[test]
@@ -276,7 +370,7 @@ mod tests {
             schedule: None,
             submeter: "General".to_string(),
         }];
-        let resolved = resolve_gains(&gains);
+        let resolved = resolve_gains(&gains, 24.0);
         // 1000 total: 700 radiant, 200 to return air, 100 convective. The 200
         // bound for the return air is zone convective until an air loop's
         // return carries it.
@@ -298,7 +392,7 @@ mod tests {
             InternalGainInput::People {
                 count: 5.0,
                 activity_level: 120.0,
-                sensible_fraction: 0.6,
+                sensible_fraction: Some(0.6),
                 radiant_fraction: 0.3,
                 schedule: None,
                 sensible_gain_per_person: None,
@@ -313,7 +407,7 @@ mod tests {
                 submeter: "General".to_string(),
             },
         ];
-        let resolved = resolve_gains(&gains);
+        let resolved = resolve_gains(&gains, 24.0);
         assert_relative_eq!(resolved.total, 860.0); // 5×120×0.6=360 + 500
     }
 
@@ -347,11 +441,11 @@ mod tests {
         }];
 
         // Weekday: 50% schedule → 500W
-        let resolved = resolve_gains_scheduled(&gains, Some(&schedules), 12, 1, 1);
+        let resolved = resolve_gains_scheduled(&gains, Some(&schedules), 12, 1, 1, 24.0);
         assert_relative_eq!(resolved.total, 500.0);
 
         // Weekend: 0% schedule → 0W
-        let resolved = resolve_gains_scheduled(&gains, Some(&schedules), 12, 6, 1);
+        let resolved = resolve_gains_scheduled(&gains, Some(&schedules), 12, 6, 1, 24.0);
         assert_relative_eq!(resolved.total, 0.0);
     }
 
@@ -366,7 +460,7 @@ mod tests {
             schedule: None,
             submeter: "General".to_string(),
         }];
-        let resolved = resolve_gains(&gains);
+        let resolved = resolve_gains(&gains, 24.0);
         // 1000W total, 950W lost, 50W to zone: 15W radiant, 35W convective
         assert_relative_eq!(resolved.total, 50.0, epsilon = 1e-10);
         assert_relative_eq!(resolved.radiative, 15.0, epsilon = 1e-10);
@@ -385,7 +479,7 @@ mod tests {
             schedule: None,
             submeter: Default::default(),
         }];
-        let r = resolve_gains(&gains);
+        let r = resolve_gains(&gains, 24.0);
         assert!((r.radiative - 600.0).abs() < 1e-9);
         assert!((r.lighting_return_air - 400.0).abs() < 1e-9);
         assert!((r.radiative + r.convective - 1000.0).abs() < 1e-9);
@@ -402,7 +496,7 @@ mod tests {
             schedule: None,
             submeter: Default::default(),
         }];
-        let r = resolve_gains(&gains);
+        let r = resolve_gains(&gains, 24.0);
         assert!((r.radiative - 300.0).abs() < 1e-9);
         assert!((r.equipment_latent - 200.0).abs() < 1e-9);
         assert!((r.convective - 400.0).abs() < 1e-9);

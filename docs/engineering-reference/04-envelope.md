@@ -1312,11 +1312,13 @@ the area of its floor surfaces (@sec-zone-geometry); such a load on a zone
 with neither is a severe error. With $f$ applied:
 
 - **People.** $N$ occupants, either a count or per floor area, release
-  sensible $Q_s = N f\,q_s$ and latent $Q_l = N f\,q_l$. Here
-  $q_s = M\,\phi_s$ and $q_l = M(1-\phi_s)$ for an activity level $M$
-  (default 120 W) and sensible fraction $\phi_s$ (default 0.6), unless
-  explicit W/person values are given. Of $Q_s$, the fraction $r$
-  (default 0.3) is radiant.
+  sensible $Q_s = N f\,q_s$ and latent $Q_l = N f\,q_l$, with
+  $q_s + q_l = M$, the activity level (required, W/person). By default the
+  sensible heat per person follows $M$ and the zone air temperature $T_z$
+  at the end of the previous timestep (@eq-people-sensible), and the latent
+  heat is the remainder $q_l = M - q_s$. A given sensible fraction $\phi_s$
+  sets $q_s = M\phi_s$ instead, and explicit W/person values override
+  either. Of $Q_s$, the fraction $r$ (default 0.3) is radiant.
 - **Lights.** Power $P f$. The return-air fraction $\phi_\text{ret}$ goes
   to the return air when an air loop carries it, and otherwise stays in the
   zone air (#51, @sec-controls). The fraction $r$ (default 0.7) of the total
@@ -1329,6 +1331,21 @@ with neither is a severe error. With $f$ applied:
   Q_r = Pfr,\qquad
   Q_c = Pf(1-\phi_\text{lost}-\phi_l-r).
   $$ {#eq-equipment-gain}
+
+The default sensible heat per person is the correlation of EnergyPlus
+(`InternalHeatGains::InitInternalHeatGains`), held within $[0, M]$:
+
+$$
+\begin{aligned}
+q_s ={}& 6.4611027 + M\,(0.946892 + 2.55737\times10^{-5}M)\\
+&+ T_z\left(7.139322 + M\,(-0.0627909 + 5.89271\times10^{-5}M)\right)\\
+&+ T_z^2\left(-0.198550 + M\,(9.40018\times10^{-4} - 1.49532\times10^{-6}M)\right).
+\end{aligned}
+$$ {#eq-people-sensible}
+
+At $M$ = 120 W it gives 82.7 W at 21 °C, 70.0 W at 23.9 °C and 40.8 W at
+29.4 °C, so occupants of a set-back zone add less sensible and more latent
+heat.
 
 The convective parts enter the zone air as $\dot Q_\text{conv}$
 (@eq-zone-ode). The radiant parts are spread over the zone's surfaces
@@ -1350,9 +1367,13 @@ design levels whenever the zone's scheduled gain is non-zero
   and return-air fractions are each a fraction of the *total*, as in
   EnergyPlus; fractions that add up to more than 1 are a severe error. A
   lights `radiant_fraction` is EnergyPlus's Fraction Radiant + Fraction Visible.
-- **People sensible heat.** EnergyPlus's default sensible heat follows a
-  correlation in activity level and zone air temperature; OpenBSE's fixed
-  fraction does not.
+- **People sensible heat.** The default autocalculated sensible heat
+  (@eq-people-sensible), its limits $[0, M]$ and the latent remainder follow
+  `InitInternalHeatGains`. As there, the zone air temperature is the one at
+  the start of the timestep (EnergyPlus's mean air temperature before the
+  zone solve), and design days use the same correlation. EnergyPlus requires
+  an activity level schedule; OpenBSE requires a constant `activity_level`
+  for each people object.
 - **Missing gain types.** Gas, hot-water, steam and other equipment do not
   exist ([#223](https://github.com/bbrannon4/OpenBSE/issues/223)).
 
@@ -1408,9 +1429,8 @@ polygon areas. The volume, when not given, follows EnergyPlus
 
 ## Known limitations: gains, ground and geometry {#sec-gains-limitations}
 
-- [#223](https://github.com/bbrannon4/OpenBSE/issues/223): fixed people
-  sensible fraction; only electric equipment; `full_when_occupied`
-  granularity.
+- [#223](https://github.com/bbrannon4/OpenBSE/issues/223): only electric
+  equipment; `full_when_occupied` granularity.
 - No multidimensional ground heat transfer model.
 
 ## Zone air heat balance {#sec-zone-air-hb}
