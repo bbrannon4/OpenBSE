@@ -62,9 +62,15 @@ pub struct LoopInfo {
     pub cooling_supply_temp: f64,
     /// Capacity control method (from air loop controls)
     pub cycling: openbse_io::input::CyclingMethod,
-    /// Fan operating mode: cycling (fan cycles with coils) or continuous
-    /// (fan runs at full speed always, coils cycle ON/OFF).
+    /// Fan operating mode in force this timestep: cycling (fan cycles with
+    /// coils) or continuous (fan runs at full speed always, coils cycle
+    /// ON/OFF). The input's mode while the loop is available; cycling while a
+    /// night-cycle manager runs it.
     pub fan_operating_mode: openbse_io::input::FanOperatingMode,
+    /// Fan operating mode from the input (`controls.fan_operating_mode`).
+    pub available_fan_mode: openbse_io::input::FanOperatingMode,
+    /// Night-cycle availability manager (from the input), if any.
+    pub night_cycle: Option<openbse_io::input::NightCycleInput>,
     /// Cooling cycling degradation coefficient Cd: PLF = 1 − Cd·(1−PLR).
     pub cooling_part_load_cd: f64,
     /// Terminal box component names per zone (zone_name -> component_name).
@@ -2051,6 +2057,8 @@ mod tests {
             cooling_supply_temp: 13.0,
             cycling: CyclingMethod::OnOff,
             fan_operating_mode: FanOperatingMode::Cycling,
+            available_fan_mode: FanOperatingMode::Cycling,
+            night_cycle: None,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),

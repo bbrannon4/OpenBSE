@@ -1043,6 +1043,15 @@
         "condenser_type": { "type": "string", "enum": ["air_cooled", "water_cooled"], "default": "air_cooled", "description": "Condenser type for CRAC systems. For water_cooled, the cooling coil's plant connection provides the condenser loop." },
         "min_vav_fraction": { "type": "number", "default": 0.30, "minimum": 0, "maximum": 1, "description": "Minimum VAV box flow fraction [0-1]. Only used for VAV systems." },
         "availability_schedule": { "type": "string", "description": "Schedule name. When schedule value is 0, system is OFF." },
+        "night_cycle": {
+          "type": "object",
+          "description": "Night-cycle availability manager (EnergyPlus AvailabilityManager:NightCycle, FixedRunTime). While availability_schedule has the unit off, a zone below its heating setpoint or above its cooling setpoint by more than half the thermostat tolerance runs the unit for the cycling run time (whole timesteps); it is then held off one timestep and checked again. The fan cycles with the coils meanwhile, and outdoor air follows minimum_oa_schedule.",
+          "properties": {
+            "control": { "type": "string", "enum": ["cycle_on_any", "cycle_on_control_zone"], "default": "cycle_on_any", "description": "Which zones can cycle the unit on: any zone it serves, or its control zone (the first served zone)." },
+            "thermostat_tolerance": { "type": "number", "minimum": 0, "default": 1.0, "description": "Thermostat tolerance [K]: the unit cycles on when a zone is half of it beyond a setpoint." },
+            "cycling_run_time": { "type": "number", "minimum": 0, "default": 3600, "description": "Cycling run time [s], rounded to whole timesteps." }
+          }
+        },
         "dcv": { "type": "boolean", "default": false, "description": "Demand-controlled ventilation: recalculate the minimum OA each timestep from current occupancy x per-person OA + per-area OA (ASHRAE 62.1 VRP). Uses per_person_oa / per_area_oa on the zone terminals." },
         "equipment": {
           "type": "array",

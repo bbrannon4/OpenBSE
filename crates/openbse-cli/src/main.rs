@@ -323,6 +323,49 @@ fn no_load_push(off_output: f64, to_heat: f64, to_cool: f64) -> Option<HvacMode>
     }
 }
 
+/// Whether a loop its availability schedule has off runs this timestep under
+/// its night-cycle manager, as E+ `CalcNCycSysAvailMgr` with FixedRunTime.
+/// `timers` holds each cycling loop's stop timestep: the loop runs while the
+/// timestep is before it, is held off at it, and is checked again after.
+/// `zone_state` gives a zone's air temperature at the start of the timestep and
+/// its heating and cooling setpoints now.
+fn night_cycle_runs(
+    li: &LoopInfo,
+    timers: &mut HashMap<String, f64>,
+    step: i64,
+    timesteps_per_hour: u32,
+    zone_state: impl Fn(&str) -> Option<(f64, f64, f64)>,
+) -> bool {
+    let Some(nc) = &li.night_cycle else {
+        return false;
+    };
+    if let Some(&stop) = timers.get(&li.name) {
+        let stop = stop as i64;
+        if step < stop {
+            return true;
+        }
+        if step == stop {
+            return false;
+        }
+    }
+    let zones: &[String] = match nc.control {
+        openbse_io::input::NightCycleControl::CycleOnAny => &li.served_zones,
+        openbse_io::input::NightCycleControl::CycleOnControlZone => {
+            &li.served_zones[..li.served_zones.len().min(1)]
+        }
+    };
+    let calls = zones
+        .iter()
+        .any(|z| zone_state(z).is_some_and(|(t, heat, cool)| nc.zone_calls(t, heat, cool)));
+    if calls {
+        timers.insert(
+            li.name.clone(),
+            (step + nc.run_timesteps(timesteps_per_hour)) as f64,
+        );
+    }
+    calls
+}
+
 /// Each zone's heating and cooling supply temperatures for its design flows
 /// [°C]: those of its first loop that is not a DOAS, because that loop meets the
 /// zone's load, else its VRF indoor unit's, else its DOAS's.
@@ -979,6 +1022,8 @@ fn build_loop_infos(
                 cooling_supply_temp: al.controls.cooling_supply_temp,
                 cycling: al.controls.cycling,
                 fan_operating_mode: al.controls.fan_operating_mode,
+                available_fan_mode: al.controls.fan_operating_mode,
+                night_cycle: al.night_cycle.clone(),
                 cooling_part_load_cd: al.controls.cooling_part_load_cd,
                 terminal_boxes,
                 terminal_min_flow,
@@ -5842,61 +5887,58 @@ fn simulate_all_loops(
     for li in loop_infos.iter_mut() {
         // ── HVAC Availability Schedule & Night-Cycle Check ─────────────────
         //
-        // When the availability schedule = 0, the system is normally OFF.
-        // However, the night-cycle controller (E+ AvailabilityManager:NightCycle)
-        // will cycle the system ON if any zone temperature drops below the
-        // unoccupied heating setpoint or rises above the unoccupied cooling
-        // setpoint. This prevents zone temperatures from drifting too far during
-        // unoccupied periods while saving significant energy vs. maintaining
-        // occupied setpoints 24/7.
-        //
-        // E+ AvailabilityManager:NightCycle behavior:
-        //   - Control type: CycleOnAny (any zone triggers night-cycle)
-        //   - Thermostat tolerance: 1.0°C (zone must be 1°C beyond setpoint)
-        //   - Cycling run time: 1800s (30 min ON, then recheck)
-        //
-        // The cycling_run_time is critical: once night-cycle triggers ON, the
-        // system stays ON for the full 1800s before rechecking conditions.
-        // Without this, sub-hourly timesteps cause destructive ON/OFF
-        // oscillation where the system repeatedly heats thermal mass then
-        // lets it drain, wasting enormous energy.
+        // When the availability schedule is 0 the loop is off: no fan, no
+        // outdoor air, no heating or cooling. A night-cycle manager (E+
+        // `AvailabilityManager:NightCycle`) can run it then; see
+        // `NightCycleInput` and `night_cycle_runs`.
         let is_unoccupied = false;
-        let nightcycle_duty = 1.0_f64; // 1.0 = full operation during occupied
-        let _cycling_run_time = 1800.0_f64; // E+ default: 1800 seconds (30 min)
-        let _nightcycle_tolerance = 1.0_f64; // degrees C
-
-        if let Some(ref sched_name) = li.availability_schedule {
-            if let Some(mgr) = schedule_mgr {
-                let avail = mgr.fraction(sched_name, hour, day_of_week);
-                if avail < 0.5 {
-                    // System scheduled OFF — no night-cycle (matches E+
-                    // simplified model without AvailabilityManager:NightCycle).
-                    //
-                    // Night-cycle availability management is tracked as a
-                    // future feature in the README.
-                    nightcycle_timers.insert(li.name.clone(), 0.0);
-                    for comp_name in &li.component_names {
-                        let mut comp_outputs = HashMap::new();
-                        comp_outputs.insert("outlet_temperature".to_string(), t_outdoor);
-                        comp_outputs.insert("outlet_temp".to_string(), t_outdoor);
-                        comp_outputs.insert("outlet_humidity_ratio".to_string(), ctx.outdoor_air.w);
-                        comp_outputs.insert("outlet_w".to_string(), ctx.outdoor_air.w);
-                        comp_outputs.insert("mass_flow".to_string(), 0.0);
-                        comp_outputs.insert("outlet_enthalpy".to_string(), ctx.outdoor_air.h);
-                        comp_outputs.insert("inlet_temperature".to_string(), t_outdoor);
-                        comp_outputs.insert("inlet_humidity_ratio".to_string(), ctx.outdoor_air.w);
-                        comp_outputs.insert("inlet_enthalpy".to_string(), ctx.outdoor_air.h);
-                        comp_outputs.insert("electric_power".to_string(), 0.0);
-                        comp_outputs.insert("fuel_power".to_string(), 0.0);
-                        comp_outputs.insert("thermal_output".to_string(), 0.0);
-                        all_outputs.insert(comp_name.clone(), comp_outputs);
-                    }
-                    continue; // Skip this loop entirely
-                } else {
-                    // System is occupied/ON — clear any night-cycle timer
-                    nightcycle_timers.insert(li.name.clone(), 0.0);
-                }
+        let nightcycle_duty = 1.0_f64;
+        let available = match (&li.availability_schedule, schedule_mgr) {
+            (Some(sched_name), Some(mgr)) => mgr.fraction(sched_name, hour, day_of_week) >= 0.5,
+            _ => true,
+        };
+        let night_cycling = !available
+            && night_cycle_runs(
+                li,
+                nightcycle_timers,
+                (ctx.timestep.sim_time_s / ctx.timestep.dt).round() as i64,
+                ctx.timestep.timesteps_per_hour,
+                |z| {
+                    let t = initial_zone_temps
+                        .get(z)
+                        .or_else(|| zone_temps.get(z))
+                        .copied()?;
+                    let heat = zone_heat_sp.get(z).copied().unwrap_or(f64::NEG_INFINITY);
+                    let cool = zone_cool_sp.get(z).copied().unwrap_or(f64::INFINITY);
+                    Some((t, heat, cool))
+                },
+            );
+        if available {
+            nightcycle_timers.remove(&li.name);
+        }
+        li.fan_operating_mode = if night_cycling {
+            openbse_io::input::FanOperatingMode::Cycling
+        } else {
+            li.available_fan_mode
+        };
+        if !available && !night_cycling {
+            for comp_name in &li.component_names {
+                let mut comp_outputs = HashMap::new();
+                comp_outputs.insert("outlet_temperature".to_string(), t_outdoor);
+                comp_outputs.insert("outlet_temp".to_string(), t_outdoor);
+                comp_outputs.insert("outlet_humidity_ratio".to_string(), ctx.outdoor_air.w);
+                comp_outputs.insert("outlet_w".to_string(), ctx.outdoor_air.w);
+                comp_outputs.insert("mass_flow".to_string(), 0.0);
+                comp_outputs.insert("outlet_enthalpy".to_string(), ctx.outdoor_air.h);
+                comp_outputs.insert("inlet_temperature".to_string(), t_outdoor);
+                comp_outputs.insert("inlet_humidity_ratio".to_string(), ctx.outdoor_air.w);
+                comp_outputs.insert("inlet_enthalpy".to_string(), ctx.outdoor_air.h);
+                comp_outputs.insert("electric_power".to_string(), 0.0);
+                comp_outputs.insert("fuel_power".to_string(), 0.0);
+                comp_outputs.insert("thermal_output".to_string(), 0.0);
+                all_outputs.insert(comp_name.clone(), comp_outputs);
             }
+            continue; // Skip this loop entirely
         }
 
         // ── Minimum OA schedule (E+ MinOA_MotorizedDamper_Sched) ──────────
@@ -8031,6 +8073,38 @@ mod tests {
         assert!((coincident - 10.0).abs() < 1e-12);
     }
 
+    /// E+ `CalcNCycSysAvailMgr`, FixedRunTime at 4 timesteps an hour: a zone
+    /// half the tolerance past a setpoint runs the unit for the run time, it
+    /// is held off one timestep, then checked again.
+    #[test]
+    fn night_cycle_runs_its_run_time_then_rests_a_timestep() {
+        let mut li = make_pthp_loop(vec![]);
+        li.night_cycle = Some(
+            serde_yaml::from_str("{thermostat_tolerance: 1.0, cycling_run_time: 1800}").unwrap(),
+        );
+        let mut timers = HashMap::new();
+        // Heating setpoint 15.56 °C: 15.0 is within half the tolerance.
+        let mut temp = 15.1;
+        let mut run = |timers: &mut HashMap<String, f64>, step, temp: f64| {
+            night_cycle_runs(&li, timers, step, 4, |_| Some((temp, 15.56, 23.89)))
+        };
+        assert!(!run(&mut timers, 10, temp));
+        temp = 15.0;
+        assert!(run(&mut timers, 11, temp));
+        // Runs two timesteps whatever the zone does, then rests one.
+        assert!(run(&mut timers, 12, 20.0));
+        assert!(!run(&mut timers, 13, temp));
+        assert!(run(&mut timers, 14, temp));
+        // A zone above the cooling setpoint by more than 0.5 K calls too.
+        assert!(run(&mut HashMap::new(), 20, 24.5));
+        assert!(!run(&mut HashMap::new(), 20, 24.3));
+        // No manager: never.
+        li.night_cycle = None;
+        assert!(!night_cycle_runs(&li, &mut timers, 30, 4, |_| Some((
+            0.0, 15.0, 24.0
+        ))));
+    }
+
     #[test]
     fn no_load_output_moves_a_dead_band_zone_only_past_a_setpoint() {
         // A zone that can lose 800 W before its heating setpoint and take
@@ -8247,6 +8321,8 @@ room_air:
             cooling_supply_temp: 13.0,
             cycling: openbse_io::input::CyclingMethod::OnOff,
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
+            available_fan_mode: openbse_io::input::FanOperatingMode::Cycling,
+            night_cycle: None,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
@@ -8293,6 +8369,8 @@ room_air:
             cooling_supply_temp: 13.0,
             cycling: openbse_io::input::CyclingMethod::OnOff,
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
+            available_fan_mode: openbse_io::input::FanOperatingMode::Cycling,
+            night_cycle: None,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
@@ -9893,6 +9971,8 @@ mod tests_datacenter {
             cooling_supply_temp: 18.0,
             cycling: openbse_io::input::CyclingMethod::OnOff,
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
+            available_fan_mode: openbse_io::input::FanOperatingMode::Cycling,
+            night_cycle: None,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),

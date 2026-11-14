@@ -927,6 +927,12 @@ pub struct AirLoopInput {
     /// runs every hour. Default: None (always available).
     #[serde(default)]
     pub availability_schedule: Option<String>,
+    /// Night-cycle availability manager (E+ `AvailabilityManager:NightCycle`
+    /// with FixedRunTime): while `availability_schedule` has the unit off, it
+    /// runs the unit for `cycling_run_time` whenever a zone drifts past its
+    /// heating or cooling setpoint by half the `thermostat_tolerance`.
+    #[serde(default)]
+    pub night_cycle: Option<NightCycleInput>,
     /// Demand-controlled ventilation: modulates outdoor air based on real-time
     /// occupancy.  When `true`, the minimum OA fraction is recalculated each
     /// timestep from each zone's current occupancy schedule value × per-person
@@ -992,6 +998,76 @@ impl AirLoopInput {
 
 fn default_min_vav_fraction() -> f64 {
     0.30
+}
+
+/// Night-cycle availability manager, as EnergyPlus `AvailabilityManager:NightCycle`
+/// with Cycling Run Time Control Type `FixedRunTime`.
+///
+/// While the air loop's `availability_schedule` is off, the unit is cycled on
+/// when a zone's air (at the start of the timestep) is below its heating
+/// setpoint, or above its cooling setpoint, by more than half the thermostat
+/// tolerance. It then runs for the cycling run time (whole timesteps), is held
+/// off for one timestep, and is checked again. While cycled on the fan cycles
+/// with the coils, as E+ runs a unit whose fan operating-mode schedule is its
+/// availability schedule (how the DOE prototypes set it), and outdoor air
+/// follows `minimum_oa_schedule`.
+///
+/// ```yaml
+/// night_cycle:
+///   control: cycle_on_any
+///   thermostat_tolerance: 1.0
+///   cycling_run_time: 1800
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NightCycleInput {
+    /// Which zones can cycle the unit on (E+ Control Type): `cycle_on_any`
+    /// (default) for any zone the loop serves, `cycle_on_control_zone` for its
+    /// control zone (the first served zone).
+    #[serde(default)]
+    pub control: NightCycleControl,
+    /// Thermostat tolerance [K] (E+ default 1.0). The unit cycles on when a
+    /// zone is half of it beyond a setpoint.
+    #[serde(default = "default_night_cycle_tolerance")]
+    pub thermostat_tolerance: f64,
+    /// Cycling run time [s] (E+ default 3600), rounded to whole timesteps.
+    #[serde(default = "default_night_cycle_run_time")]
+    pub cycling_run_time: f64,
+}
+
+/// Zones a night-cycle manager watches (E+ `AvailabilityManager:NightCycle`
+/// Control Type).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NightCycleControl {
+    /// Any zone the loop serves (E+ CycleOnAny).
+    #[default]
+    CycleOnAny,
+    /// The loop's control zone, its first served zone (E+ CycleOnControlZone).
+    CycleOnControlZone,
+}
+
+fn default_night_cycle_tolerance() -> f64 {
+    1.0
+}
+
+fn default_night_cycle_run_time() -> f64 {
+    3600.0
+}
+
+impl NightCycleInput {
+    /// Timesteps a cycle runs (E+ `CyclingTimeSteps`: the run time in
+    /// timesteps, rounded).
+    pub fn run_timesteps(&self, timesteps_per_hour: u32) -> i64 {
+        ((self.cycling_run_time / 3600.0) * timesteps_per_hour as f64).round() as i64
+    }
+
+    /// Whether a zone at `temp` is far enough past its setpoints to cycle the
+    /// unit on: E+ uses half the tolerance under FixedRunTime.
+    pub fn zone_calls(&self, temp: f64, heat_sp: f64, cool_sp: f64) -> bool {
+        let tol = 0.5 * self.thermostat_tolerance;
+        temp < heat_sp - tol || temp > cool_sp + tol
+    }
 }
 
 /// Individual equipment specification.

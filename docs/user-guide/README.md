@@ -375,6 +375,21 @@ air_loops:
       - zone: West Office
 ```
 
+#### Availability and night cycle
+
+`availability_schedule` turns a loop off while the schedule is below 0.5. A
+`night_cycle` (EnergyPlus `AvailabilityManager:NightCycle`) then runs it for a
+fixed time whenever a zone drifts half the thermostat tolerance past its
+heating or cooling setpoint:
+
+```yaml
+    availability_schedule: HVAC Operation
+    night_cycle:
+      control: cycle_on_any         # or cycle_on_control_zone
+      thermostat_tolerance: 1.0     # [K]; cycles on at half of it past a setpoint
+      cycling_run_time: 1800        # [s], whole timesteps
+```
+
 #### Equipment Order (Supply Air Path)
 
 The `equipment:` list defines the supply-side airflow path. Components are connected in series — air flows through them in the order listed. The ordering convention follows the physical path air takes from outdoor air intake to supply duct:

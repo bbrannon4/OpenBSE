@@ -60,12 +60,36 @@ daylight saving or start day of week
 ## Availability {#sec-availability}
 
 A loop whose `availability_schedule` is below 0.5 for the hour is off. Its
-components report zero, and its zones float. There is no night cycle:
+components report zero, and its zones float, unless a night-cycle manager runs it.
 `unoccupied_heating_setpoint` and `unoccupied_cooling_setpoint` are read and never
 used, and the code for them is dead
-([#255](https://github.com/bbrannon4/OpenBSE/issues/255)). EnergyPlus's
-`AvailabilityManager:NightCycle`, which the DOE prototypes use, restarts the
-system when a zone leaves its setback range.
+([#255](https://github.com/bbrannon4/OpenBSE/issues/255)); a thermostat's setpoint
+schedules carry a setback (@sec-thermostats).
+
+**Night cycle.** A loop's `night_cycle` (EnergyPlus `AvailabilityManager:NightCycle`
+with FixedRunTime, `CalcNCycSysAvailMgr`) runs it while its schedule has it off.
+At each timestep, with the zone air temperatures at the start of the timestep
+$T_z$ and the setpoints now, the loop cycles on when a watched zone (any zone it
+serves, or its control zone) has
+
+$$
+T_z < T_h - \tfrac12\,\Delta T_\text{tol} \quad\text{or}\quad T_z > T_c + \tfrac12\,\Delta T_\text{tol},
+$$ {#eq-night-cycle}
+
+with $\Delta T_\text{tol}$ the thermostat tolerance (half of it under FixedRunTime,
+as E+). It then runs for the cycling run time rounded to whole timesteps,
+$n = \operatorname{round}(t_\text{run}\, N_h / 3600)$, whatever the zones do, is
+held off for the timestep after, and is checked again on the next. While it runs
+the fan cycles with the coils, as E+ runs a unit whose fan operating-mode schedule
+is its availability schedule (how the DOE prototypes set it), and outdoor air
+follows `minimum_oa_schedule`. The cycle restarts when the schedule turns the loop
+on.
+
+**Comparison with EnergyPlus.** The control types CycleOnAny and
+CycleOnControlZone and the FixedRunTime run time are E+'s; the Thermostat and
+ThermostatWithMinimumRunTime run times, the zone-fan-only types and an
+applicability schedule are not modelled. E+ restarts the run-time count at the
+start of each warmup day; OpenBSE clears it when warmup ends.
 
 ## Part-load cycling {#sec-plr}
 
