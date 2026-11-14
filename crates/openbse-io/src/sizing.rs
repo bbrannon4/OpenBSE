@@ -288,6 +288,17 @@ struct ReturnHeatPaths<'a> {
     supply_temps: &'a HashMap<String, (f64, f64)>,
 }
 
+/// The (heating, cooling) setpoints a zone is held between on a design day:
+/// the design day's own setpoint `sp` on its side, and the thermostat's other
+/// setpoint `off` beyond it (no wider than `sp` itself), else `sp` on both.
+fn design_day_dual_setpoints(is_heating_dd: bool, sp: f64, off: Option<f64>) -> (f64, f64) {
+    if is_heating_dd {
+        (sp, off.map_or(sp, |c| c.max(sp)))
+    } else {
+        (off.map_or(sp, |h| h.min(sp)), sp)
+    }
+}
+
 /// Run a single design day through the envelope with ideal HVAC holding
 /// zones at their setpoint temperature, returning per-zone loads at each hour.
 ///
@@ -297,6 +308,7 @@ fn run_single_design_day(
     dd: &DesignDayInput,
     weather_hours: &[WeatherHour],
     zone_setpoints: &HashMap<String, f64>, // setpoint to hold zone at
+    off_setpoints: &HashMap<String, f64>,  // the other side's setpoint
     zone_hourly_setpoints: &HashMap<String, Vec<f64>>, // per-zone hourly override
     oa_handled_by_hvac: &HashMap<String, bool>,
     return_paths: ReturnHeatPaths,
@@ -342,17 +354,23 @@ fn run_single_design_day(
         .map(|z| z.input.ideal_loads.clone())
         .collect();
 
+    // The zone floats between its heating and cooling setpoints, as E+ zone
+    // sizing holds the thermostat's dual setpoints: the design day sets its
+    // own side, the thermostat's setpoint the other.
     for zone in &mut env.zones {
         if zone.input.conditioned && zone.input.ideal_loads.is_none() {
             let sp = zone_setpoints
                 .get(&zone.input.name)
                 .copied()
                 .unwrap_or(21.0);
+            let off = off_setpoints.get(&zone.input.name).copied();
+            let (heating_setpoint, cooling_setpoint) =
+                design_day_dual_setpoints(is_heating_dd, sp, off);
             zone.input.ideal_loads = Some(IdealLoadsAirSystem {
                 heating_capacity: 1_000_000.0,
                 cooling_capacity: 1_000_000.0,
-                heating_setpoint: sp,
-                cooling_setpoint: sp,
+                heating_setpoint,
+                cooling_setpoint,
             });
         }
     }
@@ -792,6 +810,7 @@ fn run_zone_sizing(
                 dd,
                 &weather_hours,
                 &setpoints.heating,
+                &setpoints.cooling,
                 &setpoints.dd_heating,
                 oa_handled_by_hvac,
                 ReturnHeatPaths {
@@ -838,6 +857,7 @@ fn run_zone_sizing(
                 dd,
                 &weather_hours,
                 &setpoints.cooling,
+                &setpoints.heating,
                 &setpoints.dd_cooling,
                 oa_handled_by_hvac,
                 ReturnHeatPaths {
@@ -1593,6 +1613,32 @@ fn write_system_sizing_csv(
 
 #[cfg(test)]
 mod tests {
+    /// On a cooling design day a heating-only zone (cooling setpoint 100 °C)
+    /// floats between its heating setpoint and 100 °C instead of being held
+    /// at 100 °C from below; a zone without a thermostat holds the one
+    /// setpoint.
+    #[test]
+    fn design_day_holds_a_dual_setpoint() {
+        assert_eq!(
+            design_day_dual_setpoints(false, 100.0, Some(16.0)),
+            (16.0, 100.0)
+        );
+        assert_eq!(
+            design_day_dual_setpoints(false, 23.89, Some(21.11)),
+            (21.11, 23.89)
+        );
+        assert_eq!(
+            design_day_dual_setpoints(true, 21.11, Some(23.89)),
+            (21.11, 23.89)
+        );
+        // An off-side setpoint on the wrong side never crosses the design one.
+        assert_eq!(
+            design_day_dual_setpoints(true, 21.0, Some(18.0)),
+            (21.0, 21.0)
+        );
+        assert_eq!(design_day_dual_setpoints(false, 24.0, None), (24.0, 24.0));
+    }
+
     #[test]
     fn design_bypass_is_the_captured_exhaust_above_the_room() {
         let dc: openbse_envelope::zone::DataCenterConfig =

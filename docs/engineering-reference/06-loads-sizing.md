@@ -43,11 +43,15 @@ Each design day is run on its own copy of the envelope, all in parallel.
 The weather is described in @sec-design-days. A run has these steps:
 
 1. **Ideal loads.** Every conditioned zone without an ideal-loads system of
-   its own gets one with $10^6$ W of capacity. Both of its setpoints are
-   set to the zone thermostat's heating setpoint on a heating design day,
-   or its cooling setpoint on a cooling design day. A zone without a
-   thermostat uses 21 °C or 24 °C.
-2. **Initial state.** Zone temperatures are set to that setpoint, humidity
+   its own gets one with $10^6$ W of capacity. It holds the zone between a
+   heating and a cooling setpoint: on a heating design day the thermostat's
+   heating setpoint and, above it, its cooling setpoint; on a cooling design
+   day the thermostat's cooling setpoint and, below it, its heating setpoint.
+   A zone without a thermostat uses 21 °C and 24 °C. The zone floats between
+   the two, so a heating-only zone (cooling setpoint 100 °C) is never heated
+   toward its cooling setpoint on a cooling design day.
+2. **Initial state.** Zone temperatures are set to the design day's
+   setpoint, humidity
    ratios to 0.008 kg/kg, and the backward-difference history is reset to
    first order.
 3. **Setpoint schedules.** Two hourly overrides can replace the constant
@@ -110,6 +114,12 @@ differences are:
 - **Day type.** A design day is classed as heating or cooling by a
   substring of its `day_type` ("heat" or "winter", "cool" or "summer"). A
   day type that says neither or both is a severe error.
+- **Off-side setpoint.** EnergyPlus holds each zone between the
+  SummerDesignDay (or WinterDesignDay) values of both its setpoint
+  schedules. OpenBSE has design-day profiles for the design side only, so
+  the other side is the thermostat's constant setpoint. On a cooling design
+  day that is usually the occupied heating setpoint where EnergyPlus has the
+  setback one; zones rarely fall to either on a day of full gains.
 
 ## Generated monthly cooling design days {#sec-dd-monthly}
 
