@@ -1382,8 +1382,8 @@ interior equipment.
 
 **Sizing.** On design days, a design day's `internal_gains` mode chooses
 among no gains (`off`, the heating default), design levels at every hour
-(`full`, the cooling default), the normal schedules (`scheduled`), and
-design levels whenever the zone's scheduled gain is non-zero
+(`full`, the cooling default), the normal schedules (`scheduled`), and each
+gain at its design level in the hours its own schedule is above zero
 (`full_when_occupied`) (@sec-sizing).
 
 **Comparison with EnergyPlus.**
@@ -1481,8 +1481,6 @@ polygon areas. The volume, when not given, follows EnergyPlus
 
 ## Known limitations: gains, ground and geometry {#sec-gains-limitations}
 
-- [#223](https://github.com/bbrannon4/OpenBSE/issues/223): `full_when_occupied`
-  granularity.
 - The summary report totals propane, fuel oils, diesel, gasoline, coal,
   other fuels 1 and 2 and district cooling together as *Other Fuels*.
 - [#461](https://github.com/bbrannon4/OpenBSE/issues/461): exterior gas

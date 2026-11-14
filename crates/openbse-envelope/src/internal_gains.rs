@@ -368,7 +368,47 @@ pub fn resolve_gains_scheduled(
     zone_air_temp: f64,
     t_outdoor: f64,
 ) -> ResolvedGain {
+    resolve_gains_with(
+        gains,
+        schedule_mgr,
+        (hour, day_of_week, day_of_year),
+        ScheduleUse::AsScheduled,
+        zone_air_temp,
+        t_outdoor,
+    )
+}
+
+/// How a gain's schedule fraction scales its design level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScheduleUse {
+    /// The design level times the fraction.
+    AsScheduled,
+    /// The whole design level whenever the gain's own fraction is above
+    /// zero, and nothing when it is zero (the `full_when_occupied` sizing
+    /// mode). Each gain follows its own schedule.
+    FullWhenOn,
+}
+
+/// Resolve gains at `(hour, day_of_week, day_of_year)` with the schedule
+/// fractions applied as `schedule_use` says; see [`resolve_gains_scheduled`]
+/// for the other arguments.
+pub fn resolve_gains_with(
+    gains: &[InternalGainInput],
+    schedule_mgr: Option<&crate::schedule::ScheduleManager>,
+    (hour, day_of_week, day_of_year): (u32, u32, u32),
+    schedule_use: ScheduleUse,
+    zone_air_temp: f64,
+    t_outdoor: f64,
+) -> ResolvedGain {
     let mut result = ResolvedGain::default();
+    let fraction = |schedule: &Option<String>| {
+        let f = schedule_fraction(schedule, schedule_mgr, hour, day_of_week, day_of_year);
+        match schedule_use {
+            ScheduleUse::AsScheduled => f,
+            ScheduleUse::FullWhenOn if f > 0.0 => 1.0,
+            ScheduleUse::FullWhenOn => 0.0,
+        }
+    };
 
     for gain in gains {
         match gain {
@@ -381,8 +421,7 @@ pub fn resolve_gains_scheduled(
                 sensible_gain_per_person,
                 latent_gain_per_person,
             } => {
-                let frac =
-                    schedule_fraction(schedule, schedule_mgr, hour, day_of_week, day_of_year);
+                let frac = fraction(schedule);
                 // The activity level splits into sensible heat (a given fraction,
                 // or E+'s correlation in the zone air temperature) and latent
                 // heat, the remainder; explicit W/person values override either.
@@ -407,8 +446,7 @@ pub fn resolve_gains_scheduled(
                 schedule,
                 submeter: _,
             } => {
-                let frac =
-                    schedule_fraction(schedule, schedule_mgr, hour, day_of_week, day_of_year);
+                let frac = fraction(schedule);
                 let total = power * frac;
                 // All fractions are of the total, as in E+ `Lights` (#186).
                 let to_return_air = total * return_air_fraction;
@@ -430,8 +468,7 @@ pub fn resolve_gains_scheduled(
                 submeter: _,
                 fuel,
             } => {
-                let frac =
-                    schedule_fraction(schedule, schedule_mgr, hour, day_of_week, day_of_year);
+                let frac = fraction(schedule);
                 let total = power * frac;
                 // All fractions are of the total, as in E+'s equipment objects
                 // (#186), whatever the fuel. Only the non-lost portion enters
@@ -458,8 +495,7 @@ pub fn resolve_gains_scheduled(
                 schedule,
                 submeter: _,
             } => {
-                let frac =
-                    schedule_fraction(schedule, schedule_mgr, hour, day_of_week, day_of_year);
+                let frac = fraction(schedule);
                 let total = frac
                     * baseboard_capacity(
                         t_outdoor,
@@ -777,6 +813,105 @@ mod tests {
         assert!((r.convective - 400.0).abs() < 1e-9);
         let lost = 100.0;
         assert!((r.radiative + r.convective + r.equipment_latent + lost - 1000.0).abs() < 1e-9);
+    }
+
+    /// `full_when_occupied` sizing: each gain at its whole design level in
+    /// hours its own schedule is above zero, and off in hours it is zero, so
+    /// a gain that runs all night doesn't switch the zone's other gains on.
+    #[test]
+    fn full_when_on_follows_each_gains_own_schedule() {
+        use crate::schedule::{ScheduleInput, ScheduleManager};
+        let day = |name: &str, night: f64, daytime: f64| ScheduleInput {
+            name: name.to_string(),
+            weekday: (1..=24)
+                .map(|h| {
+                    if (9..=17).contains(&h) {
+                        daytime
+                    } else {
+                        night
+                    }
+                })
+                .collect(),
+            weekend: None,
+            saturday: None,
+            sunday: None,
+            holiday: None,
+            monday: None,
+            tuesday: None,
+            wednesday: None,
+            thursday: None,
+            friday: None,
+            compact: None,
+            seasons: None,
+        };
+        let schedules = ScheduleManager::from_inputs(vec![
+            day("occupancy", 0.0, 0.8),
+            day("lighting", 0.05, 0.9),
+            day("refrigeration", 0.5, 0.5),
+        ]);
+        let gains = vec![
+            InternalGainInput::People {
+                count: 10.0,
+                activity_level: 120.0,
+                sensible_fraction: Some(0.5),
+                radiant_fraction: 0.3,
+                schedule: Some("occupancy".to_string()),
+                sensible_gain_per_person: None,
+                latent_gain_per_person: None,
+            },
+            InternalGainInput::Lights {
+                power: 1000.0,
+                radiant_fraction: 0.7,
+                return_air_fraction: 0.0,
+                schedule: Some("lighting".to_string()),
+                submeter: "General".to_string(),
+            },
+            InternalGainInput::Equipment {
+                power: 400.0,
+                radiant_fraction: 0.0,
+                lost_fraction: 0.0,
+                latent_fraction: 0.0,
+                schedule: Some("refrigeration".to_string()),
+                submeter: "General".to_string(),
+                fuel: EquipmentFuel::Electricity,
+            },
+            InternalGainInput::Equipment {
+                power: 200.0,
+                radiant_fraction: 0.0,
+                lost_fraction: 0.0,
+                latent_fraction: 0.0,
+                schedule: Some("always_off".to_string()),
+                submeter: "General".to_string(),
+                fuel: EquipmentFuel::Electricity,
+            },
+        ];
+        let at = |hour| {
+            resolve_gains_with(
+                &gains,
+                Some(&schedules),
+                (hour, 1, 1),
+                ScheduleUse::FullWhenOn,
+                24.0,
+                0.0,
+            )
+        };
+        // Night: people off; the 5% night lighting and the refrigeration are
+        // on, so both run at their design levels.
+        let night = at(3);
+        assert_eq!(night.people_heat, 0.0);
+        assert_relative_eq!(night.lighting_power, 1000.0);
+        assert_relative_eq!(night.equipment_power.get(FuelGroup::Electricity), 400.0);
+        // Day: everything that is on runs at its design level; the gain whose
+        // schedule is always off stays off.
+        let day = at(12);
+        assert_relative_eq!(day.people_heat, 600.0);
+        assert_relative_eq!(day.lighting_power, 1000.0);
+        assert_relative_eq!(day.equipment_power.get(FuelGroup::Electricity), 400.0);
+        // As scheduled, the same hour scales each gain by its fraction.
+        let scheduled = resolve_gains_scheduled(&gains, Some(&schedules), 12, 1, 1, 24.0, 0.0);
+        assert_relative_eq!(scheduled.people_heat, 480.0);
+        assert_relative_eq!(scheduled.lighting_power, 900.0);
+        assert_relative_eq!(scheduled.equipment_power.get(FuelGroup::Electricity), 200.0);
     }
 
     fn equipment(power: f64, fuel: EquipmentFuel) -> InternalGainInput {

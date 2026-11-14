@@ -2317,14 +2317,15 @@ fn timestep_gains(
         // 100% design-level gains at all hours (cooling DDs: conservative).
         SizingInternalGains::Full => full(),
         SizingInternalGains::Scheduled => scheduled(),
-        // Design-level gains in any hour a gain's schedule is on, else none.
-        SizingInternalGains::FullWhenOccupied => {
-            if scheduled().total > 0.0 {
-                full()
-            } else {
-                internal_gains::ResolvedGain::default()
-            }
-        }
+        // Each gain at its design level in hours its own schedule is on.
+        SizingInternalGains::FullWhenOccupied => internal_gains::resolve_gains_with(
+            gains,
+            Some(schedule_manager),
+            (hour, dow, doy),
+            internal_gains::ScheduleUse::FullWhenOn,
+            zone_air_temp,
+            t_outdoor,
+        ),
     }
 }
 
@@ -7345,6 +7346,57 @@ mod tests {
         assert!((z.q_internal_rad - 440.0).abs() < 1e-9);
         assert!((z.q_internal_conv - 660.0).abs() < 1e-9);
         assert_eq!(z.equipment_latent, 0.0);
+    }
+
+    #[test]
+    fn full_when_occupied_sizing_switches_each_gain_by_its_own_schedule() {
+        use crate::internal_gains::{EquipmentFuel, FuelGroup, InternalGainInput};
+        use crate::schedule::{ScheduleInput, ScheduleManager};
+        // At 03:00 the occupancy schedule is off and the always-on equipment
+        // is on: in full_when_occupied sizing the equipment runs at its design
+        // level and the people stay away (a zone-wide switch would have put
+        // all 10 people in the zone because the equipment is on).
+        let mut env = make_simple_model();
+        let mut occupancy = ScheduleInput::always_off("occupancy");
+        occupancy.weekday = (1..=24).map(|h| if h >= 9 { 0.7 } else { 0.0 }).collect();
+        occupancy.weekend = Some(occupancy.weekday.clone());
+        env.schedule_manager = ScheduleManager::from_inputs(vec![occupancy]);
+        env.zones[0].input.internal_gains = vec![
+            InternalGainInput::People {
+                count: 10.0,
+                activity_level: 120.0,
+                sensible_fraction: Some(0.5),
+                radiant_fraction: 0.3,
+                schedule: Some("occupancy".to_string()),
+                sensible_gain_per_person: None,
+                latent_gain_per_person: None,
+            },
+            InternalGainInput::Equipment {
+                power: 500.0,
+                radiant_fraction: 0.3,
+                lost_fraction: 0.0,
+                latent_fraction: 0.0,
+                schedule: Some("always_on".to_string()),
+                submeter: "General".to_string(),
+                fuel: EquipmentFuel::Electricity,
+            },
+        ];
+        env.initialize(3600.0).unwrap();
+        let mut ctx = make_ctx();
+        ctx.is_sizing = true;
+        ctx.sizing_internal_gains = SizingInternalGains::FullWhenOccupied;
+        let hvac = ZoneHvacConditions::default();
+        for (hour, people) in [(3, 0.0), (12, 600.0)] {
+            ctx.timestep.hour = hour;
+            env.solve_timestep(&ctx, &make_weather_hour(0.0), &hvac);
+            let z = &env.zones[0];
+            assert_eq!(z.people_heat, people, "hour {hour}");
+            assert_eq!(
+                z.equipment_power.get(FuelGroup::Electricity),
+                500.0,
+                "hour {hour}"
+            );
+        }
     }
 
     #[test]

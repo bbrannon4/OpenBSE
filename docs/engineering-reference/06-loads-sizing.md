@@ -102,7 +102,9 @@ differences are:
   5 days; the EnergyPlus default minimum is 1.
 - **Gains.** EnergyPlus has no gains mode. It evaluates each schedule's
   SummerDesignDay or WinterDesignDay day schedule. OpenBSE schedules have
-  no design-day day types, so the modes stand in for them.
+  no design-day day types, so the modes stand in for them. Like EnergyPlus's
+  design-day schedules, `full_when_occupied` acts on each gain through its
+  own schedule: an all-night gain does not switch on the zone's other gains.
 - **Humidity.** The outdoor humidity is a fixed relative humidity
   ([#198](https://github.com/bbrannon4/OpenBSE/issues/198)).
 - **Day type.** A design day is classed as heating or cooling by a

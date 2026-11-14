@@ -40,10 +40,12 @@ pub enum SizingInternalGains {
     /// Gains vary hour-by-hour according to the assigned schedule profiles.
     Scheduled,
 
-    /// Full design-level gains during occupied hours (schedule fraction > 0),
-    /// zero gains during unoccupied hours (schedule fraction = 0).
-    /// A middle ground: captures peak occupied loads without inflating
-    /// unoccupied periods.
+    /// Each gain at its full design level in hours its own schedule fraction
+    /// is above zero, and off in hours it is zero. A middle ground: captures
+    /// peak occupied loads without inflating unoccupied periods. Gains switch
+    /// one by one, as EnergyPlus evaluates each object's own design-day
+    /// schedule, so equipment that runs all night does not bring the zone's
+    /// people and lights with it.
     FullWhenOccupied,
 }
 
