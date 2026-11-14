@@ -295,7 +295,7 @@ def main(idf_path, out_path):
         w(f"    - {{month: {m}, day: {d}}}   # {label}")
     w("")
     w("weather_files:")
-    w('  - "../prototype_tests/Denver-Buckley.epw"   # Denver-Aurora-Buckley TMY3, as the E+ run')
+    w('  - "../weather/USA_CO_Denver-Aurora-Buckley.AFB.724695_TMY3.epw"   # as the E+ run')
     w("")
 
     # ---- design days ----

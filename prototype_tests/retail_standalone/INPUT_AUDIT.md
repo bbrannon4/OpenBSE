@@ -3,7 +3,7 @@
 Reference: `eplus_run/in.idf`, the EnergyPlus 25.2 example file
 `ASHRAE901_RetailStandalone_STD2019_Denver.idf` with its three RunPeriods
 (January, April, July) replaced by one annual RunPeriod. Weather:
-Denver-Aurora-Buckley TMY3 (`prototype_tests/Denver-Buckley.epw`), the file the
+Denver-Aurora-Buckley TMY3 (`weather/USA_CO_Denver-Aurora-Buckley.AFB.724695_TMY3.epw`), the file the
 E+ run used. Model: `examples/doe_retail_standalone.yaml`, written by
 `retail_from_idf.py` from the IDF (rerun it after editing either):
 
