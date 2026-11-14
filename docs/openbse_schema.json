@@ -617,6 +617,8 @@
         "minimum_oa_schedule": { "type": "string", "description": "Schedule whose hourly value multiplies the minimum outdoor-air fraction (proportional minimum). Seasonal schedules are honored." },
         "economizer": { "$ref": "#/$defs/EconomizerControls" },
         "fan_operating_mode": { "$ref": "#/$defs/FanOperatingMode" },
+        "no_load_flow_fraction": { "type": "number", "minimum": 0, "maximum": 1, "default": 1.0, "description": "Supply flow with the coils off, as a fraction of design, for a fan that keeps running (E+ UnitarySystemPerformance:Multispeed No Load Supply Air Flow Rate Ratio). Below 1, or with a dx_multispeed coil, a packaged single-zone loop runs as a multi-speed unitary system: its timestep is split between the no-load, heating and cooling-speed operating points so their mixed output meets the zone load." },
+        "heating_flow_fraction": { "type": "number", "minimum": 0, "maximum": 1, "default": 1.0, "description": "Supply flow while heating, as a fraction of design (E+ Heating Speed Supply Air Flow Ratio)." },
         "cooling_sat_reset": { "$ref": "#/$defs/SatReset", "description": "Cooling supply air temperature reset (absent = fixed SAT)." },
         "heating_sat_reset": { "$ref": "#/$defs/SatReset", "description": "Heating supply air temperature reset (absent = fixed SAT)." },
         "outdoor_air_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Explicit outdoor air fraction [0-1] for CRAC/CRAH systems. Overrides minimum_damper_position when set." },
@@ -707,7 +709,19 @@
         "motor_in_airstream_fraction": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Fraction of motor waste heat entering the airstream [0-1]." },
         "air_density": { "type": "number", "exclusiveMinimum": 0, "description": "Fixed air density [kg/m3] for the fan power calculation. Default: actual fan-inlet density. Set the standard density (about 1.204 at sea level) to rate the fan at standard air, as EnergyPlus does." },
                 "vav_coefficients": { "type": "array", "items": { "type": "number" }, "minItems": 5, "maxItems": 5, "description": "VAV fan power curve coefficients [C1..C5]: power fraction = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4. Default: typical ASHRAE forward-curved centrifugal fan." },
-                "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." }
+                "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
+        "speeds": {
+          "type": "array",
+          "description": "Discrete speeds of a constant_volume or on_off fan, ascending (EnergyPlus Fan:SystemModel, Speed Control Method Discrete): each speed's flow and electric power as fractions of design. Power at a flow between two speeds is the time-weighted mix of the two, below the lowest speed in proportion to flow. Absent: power in proportion to flow.",
+          "items": {
+            "type": "object",
+            "required": ["flow_fraction", "power_fraction"],
+            "properties": {
+              "flow_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Flow as a fraction of the design flow." },
+              "power_fraction": { "type": "number", "minimum": 0, "description": "Electric power as a fraction of the design power." }
+            }
+          }
+        }
               }
     },
 
@@ -806,7 +820,7 @@
     "DxMultiSpeedCoil": {
       "type": "object",
       "required": ["type", "name", "speeds"],
-      "description": "Multi-speed DX cooling coil.",
+      "description": "Multi-speed DX cooling coil (EnergyPlus Coil:Cooling:DX:MultiSpeed). Each speed is a single-speed DX coil with its own rating and curves. In a packaged single-zone loop the unit's load control runs it speed by speed: it cycles the lowest speed (with the PLF curve) and between speeds runs part of the time at each, with the supply flow at each speed's flow_fraction.",
       "properties": {
         "type": { "type": "string", "const": "dx_multispeed" },
         "name": { "type": "string" },
@@ -818,14 +832,26 @@
             "type": "object",
             "required": ["rated_capacity", "rated_airflow"],
             "properties": {
-              "rated_capacity": { "type": "number", "description": "Total cooling capacity at rated conditions [W]." },
-              "cop": { "type": "number", "default": 3.5, "description": "COP at rated conditions." },
-              "shr": { "type": "number", "default": 0.8, "minimum": 0, "maximum": 1, "description": "Sensible heat ratio at rated conditions [0-1]." },
-              "rated_airflow": { "type": "number", "description": "Rated air flow rate [m3/s]." }
+              "rated_capacity": { "type": "number", "description": "Gross total cooling capacity at rated conditions [W]." },
+              "cop": { "type": "number", "default": 3.5, "description": "Gross COP at rated conditions." },
+              "shr": { "type": "number", "default": 0.8, "minimum": 0, "maximum": 1, "description": "Gross sensible heat ratio at rated conditions [0-1]." },
+              "rated_airflow": { "type": "number", "description": "Rated air flow rate [m3/s]." },
+              "flow_fraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Supply flow at this speed as a fraction of the unit's design flow (E+ UnitarySystemPerformance:Multispeed Cooling Speed N Supply Air Flow Ratio). Default: this speed's rated airflow over the highest speed's." },
+              "cap_ft_curve": { "type": "string", "description": "This speed's capacity curve f(entering wet-bulb, outdoor dry-bulb), where it differs from the coil's." },
+              "cap_fflow_curve": { "type": "string", "description": "This speed's capacity curve f(flow fraction of rated)." },
+              "eir_ft_curve": { "type": "string", "description": "This speed's EIR curve f(entering wet-bulb, outdoor dry-bulb)." },
+              "eir_fflow_curve": { "type": "string", "description": "This speed's EIR curve f(flow fraction of rated)." },
+              "plf_curve": { "type": "string", "description": "This speed's part-load fraction curve f(PLR)." }
             }
           }
         },
-        "setpoint": { "type": "number", "default": 13.0, "description": "Outlet air temperature setpoint [C]." }
+        "setpoint": { "type": "number", "default": 13.0, "description": "Outlet air temperature setpoint [C], used when no unit control sets the speed." },
+        "cap_ft_curve": { "type": "string", "description": "Capacity curve f(entering wet-bulb, outdoor dry-bulb) every speed uses unless it names its own." },
+        "cap_fflow_curve": { "type": "string", "description": "Capacity curve f(flow fraction of rated) for every speed." },
+        "eir_ft_curve": { "type": "string", "description": "EIR curve f(entering wet-bulb, outdoor dry-bulb) for every speed." },
+        "eir_fflow_curve": { "type": "string", "description": "EIR curve f(flow fraction of rated) for every speed." },
+        "plf_curve": { "type": "string", "description": "Part-load fraction curve f(PLR): the cycling penalty of the lowest speed (E+ Apply Part Load Fraction to Speeds Greater than 1 = No)." },
+        "autocalculate_shr": { "type": "boolean", "default": true, "description": "Sensible heat ratio by the apparatus dew point / bypass factor method each timestep, as the single-speed coil." }
       }
     },
 

@@ -5,6 +5,7 @@
 mod autosize_check;
 mod run_checks;
 mod sizing_checks;
+mod unitary;
 mod warmup;
 
 use anyhow::{Context, Result};
@@ -313,7 +314,7 @@ const SMALL_LOAD: f64 = 1.0;
 /// between setpoints): "constant fan pushes zone below heating set point"
 /// turns on heating, and "above cooling set point" cooling, each for the
 /// load to that setpoint.
-fn no_load_push(off_output: f64, to_heat: f64, to_cool: f64) -> Option<HvacMode> {
+pub(crate) fn no_load_push(off_output: f64, to_heat: f64, to_cool: f64) -> Option<HvacMode> {
     if off_output < 0.0 && off_output - to_heat < -SMALL_LOAD {
         Some(HvacMode::Heating)
     } else if off_output > 0.0 && off_output - to_cool > SMALL_LOAD {
@@ -364,6 +365,54 @@ fn night_cycle_runs(
         );
     }
     calls
+}
+
+/// A multi-speed unit's loads this timestep, from its control zone (`None`
+/// for a loop that is not one).
+#[allow(clippy::too_many_arguments)]
+fn unitary_loads(
+    li: &LoopInfo,
+    predictor_modes: &HashMap<String, HvacMode>,
+    heating_loads: &HashMap<String, f64>,
+    cooling_loads: &HashMap<String, f64>,
+    to_heating_sp: &HashMap<String, f64>,
+    to_cooling_sp: &HashMap<String, f64>,
+    initial_zone_temps: &HashMap<String, f64>,
+    zone_temps: &HashMap<String, f64>,
+    heat_sp: &HashMap<String, f64>,
+    cool_sp: &HashMap<String, f64>,
+) -> Option<unitary::UnitaryLoads> {
+    li.unitary_speeds.as_ref()?;
+    let zone = li.served_zones.first()?;
+    let get = |m: &HashMap<String, f64>| m.get(zone).copied().unwrap_or(0.0);
+    let zone_temp = initial_zone_temps
+        .get(zone)
+        .or_else(|| zone_temps.get(zone))
+        .copied()
+        .unwrap_or(21.0);
+    let hsp = heat_sp.get(zone).copied().unwrap_or(21.1);
+    let csp = cool_sp.get(zone).copied().unwrap_or(23.9);
+    let mut mode = predictor_modes
+        .get(zone)
+        .copied()
+        .unwrap_or_else(|| hvac_mode(zone_temp, hsp, csp));
+    // A zone well inside its dead band from the start of the timestep doesn't
+    // heat or cool on a stale load (as the cycling control's guard).
+    let dead_band = (csp - hsp).max(0.5);
+    if (mode == HvacMode::Heating && zone_temp > hsp + dead_band * 0.5)
+        || (mode == HvacMode::Cooling && zone_temp < csp - dead_band * 0.5)
+    {
+        mode = HvacMode::Deadband;
+    }
+    Some(unitary::UnitaryLoads {
+        mode,
+        heating_load: get(heating_loads).max(0.0),
+        cooling_load: get(cooling_loads).max(0.0),
+        to_heat: to_heating_sp.get(zone).copied().unwrap_or(0.0),
+        to_cool: to_cooling_sp.get(zone).copied().unwrap_or(0.0),
+        zone_temp,
+        control_zone_share: control_zone_flow_fraction(li),
+    })
 }
 
 /// Each zone's heating and cooling supply temperatures for its design flows
@@ -1003,6 +1052,7 @@ fn build_loop_infos(
             }
 
             let cooling_sat_reset = default_single_zone_reset(al, &system_type);
+            let unitary_speeds = unitary_speeds(al, &system_type);
             let system_type_is_doas = system_type == AirLoopSystemType::Doas;
             LoopInfo {
                 name: al.name.clone(),
@@ -1024,6 +1074,7 @@ fn build_loop_infos(
                 fan_operating_mode: al.controls.fan_operating_mode,
                 available_fan_mode: al.controls.fan_operating_mode,
                 night_cycle: al.night_cycle.clone(),
+                unitary_speeds,
                 cooling_part_load_cd: al.controls.cooling_part_load_cd,
                 terminal_boxes,
                 terminal_min_flow,
@@ -6073,7 +6124,14 @@ fn simulate_all_loops(
                 // takes the zone out of its dead band, the unit heats or cools.
                 let mode = if mode == HvacMode::Deadband && runs_fan_through_deadband(li) {
                     let capacity_rate = zone_design_flows.get(z).copied().unwrap_or(0.0) * 1006.0;
-                    let off_output = capacity_rate * li.supply_fan_dt
+                    // A multi-speed unit's fan idles at its no-load flow and power.
+                    let fan_power_share = li.unitary_speeds.as_ref().map_or(1.0, |s| {
+                        openbse_components::fan::Fan::speed_power_fraction(
+                            &s.fan_speeds,
+                            s.no_load_flow_fraction,
+                        )
+                    });
+                    let off_output = capacity_rate * li.supply_fan_dt * fan_power_share
                         + off_cycle_outdoor_air_load(
                             li.fan_operating_mode,
                             effective_min_oa,
@@ -6355,8 +6413,11 @@ fn simulate_all_loops(
         };
 
         // Run this loop's components in order (at full capacity, PLR=1.0);
-        // a dual-duct loop splits into its two decks after the fan.
+        // a dual-duct loop splits into its two decks after the fan. A
+        // multi-speed unit mixes its operating points itself (`unitary`), so
+        // its result is already time-averaged.
         let mut dd_decks: Option<(AirPort, AirPort)> = None;
+        let mut unitary_on_fraction: Option<f64> = None;
         let (mut loop_result, supply_air) = if li.system_type == AirLoopSystemType::DualDuct {
             let (outputs, decks, mixed) = simulate_dual_duct_decks(
                 graph,
@@ -6375,6 +6436,33 @@ fn simulate_all_loops(
             }
             dd_decks = Some(decks);
             (outputs, Some(mixed))
+        } else if let Some(result) = unitary_loads(
+            li,
+            &predictor_modes,
+            zone_heating_loads,
+            zone_cooling_loads,
+            zone_loads_to_heating_sp,
+            zone_loads_to_cooling_sp,
+            initial_zone_temps,
+            zone_temps,
+            active_heat_sp,
+            active_cool_sp,
+        )
+        .and_then(|loads| {
+            unitary::simulate_unitary(
+                graph,
+                ctx,
+                li,
+                &chain_components,
+                &signals,
+                zone_temps,
+                t_outdoor,
+                effective_min_oa,
+                &loads,
+            )
+        }) {
+            unitary_on_fraction = Some(result.on_fraction);
+            (result.outputs, Some(result.supply))
         } else {
             simulate_loop_components(
                 graph,
@@ -6450,7 +6538,7 @@ fn simulate_all_loops(
             li.heating_sat_reset,
             Some(openbse_io::input::SatResetConfig::SingleZone { .. })
         );
-        let loop_plr = if single_zone_sat {
+        let loop_plr = if single_zone_sat || unitary_on_fraction.is_some() {
             1.0
         } else if li.system_type == AirLoopSystemType::PszAc
             || li.system_type == AirLoopSystemType::Ptac
@@ -6691,7 +6779,7 @@ fn simulate_all_loops(
             scale_compressor_power(outputs, loop_plr, factor)
         };
 
-        if loop_plr >= 1.0 {
+        if loop_plr >= 1.0 && unitary_on_fraction.is_none() {
             // No loop cycling; a coil's own part load still cycles it.
             for (comp_name, outputs) in &mut loop_result {
                 if let Some(&(factor, _)) = compressors.get(comp_name.as_str()) {
@@ -6814,7 +6902,7 @@ fn simulate_all_loops(
         all_outputs
             .entry("__loop_plr__".to_string())
             .or_default()
-            .insert(li.name.clone(), loop_plr);
+            .insert(li.name.clone(), unitary_on_fraction.unwrap_or(loop_plr));
 
         // Collect outputs
         for (k, v) in loop_result {
@@ -7243,7 +7331,7 @@ fn simulate_all_loops(
 // applying the provided control signals. Returns per-component outputs and
 // the final air outlet state.
 
-fn simulate_loop_components(
+pub(crate) fn simulate_loop_components(
     graph: &mut SimulationGraph,
     ctx: &SimulationContext,
     component_names: &[String],
@@ -8323,6 +8411,7 @@ room_air:
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
             available_fan_mode: openbse_io::input::FanOperatingMode::Cycling,
             night_cycle: None,
+            unitary_speeds: None,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
@@ -8371,6 +8460,7 @@ room_air:
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
             available_fan_mode: openbse_io::input::FanOperatingMode::Cycling,
             night_cycle: None,
+            unitary_speeds: None,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
@@ -9609,6 +9699,48 @@ fn radiant_panel_loads(
         .collect()
 }
 
+/// Multi-speed operation of a packaged single-zone loop: when it has a
+/// multi-speed DX coil or runs its fan at less than design flow with the
+/// coils off (E+ `UnitarySystemPerformance:Multispeed`). `None` otherwise,
+/// and the loop cycles its coils at design flow.
+fn unitary_speeds(
+    al: &openbse_io::input::AirLoopInput,
+    system_type: &AirLoopSystemType,
+) -> Option<openbse_airloop::UnitarySpeeds> {
+    use openbse_io::input::EquipmentInput;
+    if *system_type != AirLoopSystemType::PszAc {
+        return None;
+    }
+    let cooling_coil = al.equipment.iter().find_map(|eq| match eq {
+        EquipmentInput::CoolingCoilMultiSpeed(c) => Some((c.name.clone(), c.flow_fractions())),
+        _ => None,
+    });
+    let no_load = al.controls.no_load_flow_fraction.unwrap_or(1.0);
+    let heating = al.controls.heating_flow_fraction.unwrap_or(1.0);
+    if cooling_coil.is_none() && no_load >= 1.0 && heating >= 1.0 {
+        return None;
+    }
+    let fan_speeds = al
+        .equipment
+        .iter()
+        .find_map(|eq| match eq {
+            EquipmentInput::Fan(f) => Some(
+                f.speeds
+                    .iter()
+                    .map(|s| (s.flow_fraction, s.power_fraction))
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .unwrap_or_default();
+    Some(openbse_airloop::UnitarySpeeds {
+        no_load_flow_fraction: no_load,
+        heating_flow_fraction: heating,
+        cooling_coil,
+        fan_speeds,
+    })
+}
+
 /// The loop's cooling SAT reset. A single-zone unit whose coils are all water
 /// coils defaults to EnergyPlus's control for it (#176): a constant-volume
 /// air handler with `SetpointManager:SingleZone:Cooling`/`:Heating`, between
@@ -9973,6 +10105,7 @@ mod tests_datacenter {
             fan_operating_mode: openbse_io::input::FanOperatingMode::Cycling,
             available_fan_mode: openbse_io::input::FanOperatingMode::Cycling,
             night_cycle: None,
+            unitary_speeds: None,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),

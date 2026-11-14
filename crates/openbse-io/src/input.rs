@@ -580,6 +580,16 @@ pub struct AirLoopControls {
     /// Continuous: fan runs at full speed always, coils cycle.
     #[serde(default)]
     pub fan_operating_mode: FanOperatingMode,
+    /// Supply flow with the coils off, as a fraction of design, for a fan that
+    /// keeps running (E+ `UnitarySystemPerformance:Multispeed` No Load Supply
+    /// Air Flow Rate Ratio). Default 1. Below 1 the unit runs as a multi-speed
+    /// unitary system (see `heating_flow_fraction`).
+    #[serde(default)]
+    pub no_load_flow_fraction: Option<f64>,
+    /// Supply flow while heating, as a fraction of design (E+ Heating Speed
+    /// Supply Air Flow Ratio). Default 1.
+    #[serde(default)]
+    pub heating_flow_fraction: Option<f64>,
     /// Cooling supply air temperature reset (optional — absent = fixed SAT)
     #[serde(default)]
     pub cooling_sat_reset: Option<SatResetConfig>,
@@ -673,6 +683,8 @@ impl Default for AirLoopControls {
             minimum_damper_position: None,
             economizer: None,
             fan_operating_mode: FanOperatingMode::default(),
+            no_load_flow_fraction: None,
+            heating_flow_fraction: None,
             cooling_sat_reset: None,
             heating_sat_reset: None,
             outdoor_air_fraction: None,
@@ -1359,6 +1371,26 @@ pub struct FanInput {
     /// Default matches typical ASHRAE forward-curved centrifugal fan.
     #[serde(default)]
     pub vav_coefficients: Option<[f64; 5]>,
+    /// Discrete speeds of a `constant_volume` or `on_off` fan, ascending
+    /// (E+ `Fan:SystemModel` with Speed Control Method Discrete): each speed's
+    /// flow and electric power as fractions of design. A unitary system runs
+    /// the fan at the flow its mode calls for (`controls.no_load_flow_fraction`,
+    /// `controls.heating_flow_fraction`, a two-speed coil's speed flow
+    /// fractions) and the power follows these points. Absent: power in
+    /// proportion to flow.
+    #[serde(default)]
+    pub speeds: Vec<FanSpeedInput>,
+}
+
+/// One discrete fan speed (E+ `Fan:SystemModel` Speed N Flow Fraction and
+/// Speed N Electric Power Fraction).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FanSpeedInput {
+    /// Flow as a fraction of the design flow [0-1]
+    pub flow_fraction: f64,
+    /// Electric power as a fraction of the design power [0-1]
+    pub power_fraction: f64,
 }
 
 fn default_fan_source() -> String {
@@ -1583,23 +1615,46 @@ fn default_dx_coil_setpoint() -> f64 {
     13.0
 }
 
-/// One speed stage for a multi-speed DX cooling coil.
+/// One speed of a multi-speed DX cooling coil (E+ `Coil:Cooling:DX:MultiSpeed`
+/// Speed N fields).
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DXSpeedInput {
-    /// Total cooling capacity at rated conditions [W]
+    /// Gross total cooling capacity at rated conditions [W]
     pub rated_capacity: f64,
-    /// COP at rated conditions
+    /// Gross COP at rated conditions
     #[serde(default = "default_cop")]
     pub cop: f64,
-    /// Sensible heat ratio at rated conditions [0-1]
+    /// Gross sensible heat ratio at rated conditions [0-1]
     #[serde(default = "default_shr")]
     pub shr: f64,
     /// Rated air flow rate [m³/s]
     pub rated_airflow: f64,
+    /// Supply flow at this speed as a fraction of the unit's design flow
+    /// (E+ `UnitarySystemPerformance:Multispeed` Cooling Speed N Supply Air
+    /// Flow Ratio). Default: this speed's rated airflow over the highest
+    /// speed's.
+    #[serde(default)]
+    pub flow_fraction: Option<f64>,
+    /// This speed's curves, where they differ from the coil's.
+    #[serde(default)]
+    pub cap_ft_curve: Option<String>,
+    #[serde(default)]
+    pub cap_fflow_curve: Option<String>,
+    #[serde(default)]
+    pub eir_ft_curve: Option<String>,
+    #[serde(default)]
+    pub eir_fflow_curve: Option<String>,
+    #[serde(default)]
+    pub plf_curve: Option<String>,
 }
 
-/// Multi-speed DX cooling coil input.
+/// Multi-speed DX cooling coil input (E+ `Coil:Cooling:DX:MultiSpeed`).
+///
+/// In a packaged single-zone loop the coil runs speed by speed under the
+/// unit's load control (E+ `UnitarySystem`): it cycles the lowest speed with
+/// that speed's PLF, and between speeds runs part of the time at each, with
+/// the supply flow at each speed's `flow_fraction`.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CoolingCoilDXMultiSpeedInput {
@@ -1611,6 +1666,41 @@ pub struct CoolingCoilDXMultiSpeedInput {
     /// Outlet temperature setpoint [°C]
     #[serde(default = "default_dx_coil_setpoint")]
     pub setpoint: f64,
+    /// Curves every speed uses unless it names its own: capacity and EIR as
+    /// functions of entering wet-bulb and outdoor dry-bulb (biquadratic) and
+    /// of the flow fraction of rated, and the part-load fraction (cycling
+    /// penalty) of the lowest speed.
+    #[serde(default)]
+    pub cap_ft_curve: Option<String>,
+    #[serde(default)]
+    pub cap_fflow_curve: Option<String>,
+    #[serde(default)]
+    pub eir_ft_curve: Option<String>,
+    #[serde(default)]
+    pub eir_fflow_curve: Option<String>,
+    #[serde(default)]
+    pub plf_curve: Option<String>,
+    /// Sensible heat ratio by the apparatus dew point / bypass factor method
+    /// each timestep (default true), as the single-speed coil.
+    #[serde(default = "default_autocalculate_shr")]
+    pub autocalculate_shr: bool,
+}
+
+impl CoolingCoilDXMultiSpeedInput {
+    /// Each speed's supply flow fraction of design: its `flow_fraction`, else
+    /// its rated airflow over the highest speed's.
+    pub fn flow_fractions(&self) -> Vec<f64> {
+        let top = self
+            .speeds
+            .last()
+            .map(|s| s.rated_airflow)
+            .filter(|&f| f > 0.0)
+            .unwrap_or(1.0);
+        self.speeds
+            .iter()
+            .map(|s| s.flow_fraction.unwrap_or(s.rated_airflow / top))
+            .collect()
+    }
 }
 
 fn default_wshp_cop_cooling() -> f64 {
@@ -3559,6 +3649,11 @@ fn build_graph_impl(
                         if let Some(coeffs) = f.vav_coefficients {
                             fan.vav_coefficients = coeffs;
                         }
+                        fan.speeds = f
+                            .speeds
+                            .iter()
+                            .map(|s| (s.flow_fraction, s.power_fraction))
+                            .collect();
                         graph.add_air_component(Box::new(fan))
                     }
                 }
@@ -3760,18 +3855,49 @@ fn build_graph_impl(
                     }
                 }
                 EquipmentInput::CoolingCoilMultiSpeed(c) => {
-                    use openbse_components::cooling_coil::{CoolingCoilDXMultiSpeed, DXSpeedStage};
+                    use openbse_components::cooling_coil::{
+                        CoolingCoilDX, CoolingCoilDXMultiSpeed,
+                    };
+                    let curve = |own: &Option<String>, coil: &Option<String>| {
+                        own.as_ref().or(coil.as_ref()).and_then(|name| {
+                            model
+                                .performance_curves
+                                .iter()
+                                .find(|pc| pc.name() == name)
+                                .cloned()
+                        })
+                    };
                     let stages = c
                         .speeds
                         .iter()
-                        .map(|s| DXSpeedStage {
-                            rated_capacity: s.rated_capacity,
-                            rated_cop: s.cop,
-                            rated_shr: s.shr,
-                            rated_airflow: s.rated_airflow,
+                        .enumerate()
+                        .map(|(i, s)| {
+                            let mut stage = CoolingCoilDX::new(
+                                &format!("{} speed {}", c.name, i + 1),
+                                s.rated_capacity,
+                                s.cop,
+                                s.shr,
+                                s.rated_airflow,
+                                c.setpoint,
+                            )
+                            .with_curves(
+                                curve(&s.cap_ft_curve, &c.cap_ft_curve),
+                                curve(&s.eir_ft_curve, &c.eir_ft_curve),
+                            )
+                            .with_fflow_curves(
+                                curve(&s.cap_fflow_curve, &c.cap_fflow_curve),
+                                curve(&s.eir_fflow_curve, &c.eir_fflow_curve),
+                            )
+                            .with_autocalculate_shr(c.autocalculate_shr);
+                            stage.dry_coil_wet_bulb_iteration = true;
+                            if let Some(plf) = curve(&s.plf_curve, &c.plf_curve) {
+                                stage = stage.with_plf_curve(plf);
+                            }
+                            stage
                         })
                         .collect();
-                    let mut coil = CoolingCoilDXMultiSpeed::new(&c.name, stages, c.setpoint);
+                    let mut coil =
+                        CoolingCoilDXMultiSpeed::from_stages(&c.name, stages, c.setpoint);
                     coil.submeter = c.submeter.clone();
                     graph.add_air_component(Box::new(coil))
                 }
@@ -5212,6 +5338,36 @@ fn validate_curve_names(model: &ModelInput, result: &mut ValidationResult) {
                         "eir_fflow_curve",
                         &c.eir_fflow_curve,
                     );
+                }
+                EquipmentInput::CoolingCoilMultiSpeed(c) => {
+                    let mut sets = vec![[
+                        &c.cap_ft_curve,
+                        &c.cap_fflow_curve,
+                        &c.eir_ft_curve,
+                        &c.eir_fflow_curve,
+                        &c.plf_curve,
+                    ]];
+                    sets.extend(c.speeds.iter().map(|s| {
+                        [
+                            &s.cap_ft_curve,
+                            &s.cap_fflow_curve,
+                            &s.eir_ft_curve,
+                            &s.eir_fflow_curve,
+                            &s.plf_curve,
+                        ]
+                    }));
+                    let fields = [
+                        "cap_ft_curve",
+                        "cap_fflow_curve",
+                        "eir_ft_curve",
+                        "eir_fflow_curve",
+                        "plf_curve",
+                    ];
+                    for set in sets {
+                        for (field, curve) in fields.iter().zip(set) {
+                            check("Cooling coil", &c.name, field, curve);
+                        }
+                    }
                 }
                 EquipmentInput::Gshp(g) => {
                     check("GSHP", &g.name, "cooling_cap_ft", &g.cooling_cap_ft);

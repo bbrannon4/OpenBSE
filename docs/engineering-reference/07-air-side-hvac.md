@@ -42,6 +42,23 @@ The default coefficients are $(0.0407599,\ 0.0880450,\ -0.0729636,\
 0.9437398,\ 0)$. An `on_off` fan uses @eq-fan-cv. It cycles through the flow
 the loop controls give it (@sec-controls).
 
+**Discrete speeds.** A constant-volume or on/off fan with `speeds` (E+
+`Fan:SystemModel`, Speed Control Method Discrete) has, for each speed $k$, a
+flow fraction $f_k$ and an electric power fraction $p_k$ of design, ascending.
+With the design power $P_d = \dot V_d\,\Delta p/\eta_t$ and the flow fraction
+$x = \dot m/(\rho\dot V_d)$,
+
+$$
+\frac{P}{P_d} = \begin{cases}
+p_1\,x/f_1 & x \le f_1,\\
+p_k + (p_{k+1} - p_k)\dfrac{x - f_k}{f_{k+1} - f_k} & f_k < x \le f_{k+1},\\
+p_N\,x/f_N & x > f_N.
+\end{cases}
+$$ {#eq-fan-speeds}
+
+Between two speeds the fan runs part of the time at each, so its power is
+linear in flow between them; below the lowest speed it cycles at that speed.
+
 **Heat to the air.** The shaft power is $\eta_mP$. All of it, plus the
 fraction $f_\text{mot}$ of the motor loss, heats the air:
 
@@ -64,6 +81,9 @@ $$ {#eq-fan-heat}
 - **Coefficients.** The EnergyPlus examples use $c_3 = -0.07292612$.
 - **On/off fans.** `Fan:OnOff` has power-ratio curves and takes the coil's
   runtime fraction. OpenBSE's on/off fan is the constant-volume fan.
+- **Discrete speeds.** @eq-fan-speeds is `Fan:SystemModel`'s discrete
+  control: power fraction at each speed, time-weighted between speeds. Its
+  continuous control (a power curve of flow) is the VAV fan here.
 
 ## ASHRAE 205 fans {#sec-fan-a205}
 
@@ -333,6 +353,34 @@ differences are ([#237](https://github.com/bbrannon4/OpenBSE/issues/237)):
   point.
 - **Condenser fan.** In EnergyPlus the single-speed coil's EIR includes the
   outdoor fan. $P_\text{cf}$ is OpenBSE's own addition.
+
+## Multi-speed DX cooling coils {#sec-dx-multispeed}
+
+**Source:** `openbse-components/src/cooling_coil.rs`
+(`CoolingCoilDXMultiSpeed`); unit control in `openbse-cli/src/unitary.rs`.
+
+A `dx_multispeed` coil (E+ `Coil:Cooling:DX:MultiSpeed`) has $N$ speeds, lowest
+capacity first. Each speed $k$ is a single-speed coil (@sec-dx-cooling) with
+its own rated capacity, SHR, COP and airflow and its curves (each speed may
+name its own, else the coil's): at full output its capacity and power follow
+@eq-dx-cap and its outlet state the bypass-factor method, as E+
+`CalcMultiSpeedDXCoilCooling` at one speed. Each speed also has a supply flow
+fraction $f_k$ of the unit's design flow (E+
+`UnitarySystemPerformance:Multispeed` Cooling Speed $k$ Supply Air Flow Ratio;
+default its rated airflow over the top speed's).
+
+A packaged single-zone unit runs the coil speed by speed (@sec-unitary-speeds):
+each speed at full output, cycling the lowest speed against off with its
+$\text{PLF}$, and between two adjacent speeds part of the time at each, with
+no cycling penalty (E+ "Apply Part Load Fraction to Speeds Greater than 1" =
+No). Outside such a unit the coil runs the lowest speed that reaches its
+setpoint, at part load, else the highest at full output.
+
+**Comparison with EnergyPlus.** Each speed's performance is the single-speed
+model above, with its differences. E+ mixes two speeds' outlet states and
+powers by the speed ratio, as the unit control here does; latent degradation,
+crankcase and basin heaters, evaporative condensers and waste heat are not
+modelled.
 
 ## Heat-pump heating coils {#sec-hp-heating}
 

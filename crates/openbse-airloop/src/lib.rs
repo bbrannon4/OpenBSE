@@ -71,6 +71,9 @@ pub struct LoopInfo {
     pub available_fan_mode: openbse_io::input::FanOperatingMode,
     /// Night-cycle availability manager (from the input), if any.
     pub night_cycle: Option<openbse_io::input::NightCycleInput>,
+    /// Multi-speed unitary operation of a packaged single-zone loop (E+
+    /// `UnitarySystem` with `UnitarySystemPerformance:Multispeed`), if any.
+    pub unitary_speeds: Option<UnitarySpeeds>,
     /// Cooling cycling degradation coefficient Cd: PLF = 1 − Cd·(1−PLR).
     pub cooling_part_load_cd: f64,
     /// Terminal box component names per zone (zone_name -> component_name).
@@ -148,6 +151,40 @@ pub struct LoopInfo {
     /// Standard air density at the site [kg/m³] (E+ `StdRhoAir`): converts
     /// supply mass flows to the volumes the zones' outdoor-air rates are in.
     pub std_air_density: f64,
+}
+
+/// How a multi-speed packaged unit runs (E+ `UnitarySystem` with
+/// `UnitarySystemPerformance:Multispeed` and a `Fan:SystemModel`): the supply
+/// flow in each operating state as a fraction of design, and the fan's power
+/// by flow.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnitarySpeeds {
+    /// Supply flow with the coils off while the fan keeps running.
+    pub no_load_flow_fraction: f64,
+    /// Supply flow while heating.
+    pub heating_flow_fraction: f64,
+    /// The multi-speed cooling coil and each speed's supply flow, lowest
+    /// first; `None` for a single-speed coil, which cools at design flow.
+    pub cooling_coil: Option<(String, Vec<f64>)>,
+    /// Supply fan speeds, (flow fraction, power fraction) of design.
+    pub fan_speeds: Vec<(f64, f64)>,
+}
+
+impl UnitarySpeeds {
+    /// Supply flow fraction at cooling speed `n` (0-based).
+    pub fn cooling_flow_fraction(&self, n: usize) -> f64 {
+        self.cooling_coil
+            .as_ref()
+            .and_then(|(_, f)| f.get(n).copied())
+            .unwrap_or(1.0)
+    }
+
+    /// Number of cooling speeds (1 for a single-speed coil).
+    pub fn cooling_speeds(&self) -> usize {
+        self.cooling_coil
+            .as_ref()
+            .map_or(1, |(_, f)| f.len().max(1))
+    }
 }
 
 /// Control role of a component in a signal builder's coil dispatch.
@@ -2059,6 +2096,7 @@ mod tests {
             fan_operating_mode: FanOperatingMode::Cycling,
             available_fan_mode: FanOperatingMode::Cycling,
             night_cycle: None,
+            unitary_speeds: None,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
