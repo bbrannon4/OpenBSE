@@ -42,10 +42,10 @@
     },
     "examples/doe_retail_standalone.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 3100,
-      "max_unmet_heating_hours_reason": "2820 h measured building-wide (any conditioned zone unmet, #165), about 10% margin; the baseline flags any change.",
-      "max_unmet_cooling_hours": 1640,
-      "max_unmet_cooling_hours_reason": "1494 h measured building-wide (any conditioned zone unmet, #165) with the zones' people and lighting gains resolved (#450), about 10% margin; the baseline flags any change."
+      "max_unmet_heating_hours": 630,
+      "max_unmet_heating_hours_reason": "574 h measured building-wide with the model transcribed from the DOE IDF (#456): about half in the entry vestibule while its heater is locked out above 7.2 C, the rest the first warm-up hour after the night setback; about 10% margin.",
+      "max_unmet_cooling_hours": 1270,
+      "max_unmet_cooling_hours_reason": "1151 h measured building-wide with the model transcribed from the DOE IDF (#456): night hours 0.2-0.5 K above the 23.89 C no-setback cooling setpoint, inside the night cycle's 0.5 K tolerance; about 10% margin."
     },
     "examples/heat_pump_rtu.yaml": {
       "tier": "fast",
