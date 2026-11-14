@@ -74,7 +74,11 @@ pub struct ModelInput {
     /// Opaque construction definitions (layers: outside to inside)
     #[serde(default)]
     pub constructions: Vec<openbse_envelope::Construction>,
-    /// Window construction definitions (U-factor + SHGC based)
+    /// Glass layer definitions for layer-by-layer window constructions
+    #[serde(default)]
+    pub glazing_materials: Vec<openbse_envelope::GlazingMaterial>,
+    /// Window construction definitions: simple glazing (U-factor and SHGC)
+    /// or glass layers and gas gaps
     #[serde(default)]
     pub window_constructions: Vec<openbse_envelope::WindowConstruction>,
     /// Simple construction definitions (U-factor + thermal capacity based)
@@ -4244,10 +4248,21 @@ pub fn build_envelope(
     // which reads zone.input.infiltration, zone.input.internal_gains, etc.
     let zones = resolve_zone_loads(model);
 
+    let glazing_materials: std::collections::HashMap<String, openbse_envelope::GlazingMaterial> =
+        model
+            .glazing_materials
+            .iter()
+            .map(|m| (m.name.clone(), m.clone()))
+            .collect();
+    let mut window_constructions = model.window_constructions.clone();
+    for w in &mut window_constructions {
+        w.resolve_layers(&glazing_materials);
+    }
+
     let mut env = openbse_envelope::BuildingEnvelope::from_input_full(
         model.materials.clone(),
         model.constructions.clone(),
-        model.window_constructions.clone(),
+        window_constructions,
         model.simple_constructions.clone(),
         model.f_factor_constructions.clone(),
         zones,
@@ -5425,16 +5440,115 @@ fn validate_materials(model: &ModelInput, result: &mut ValidationResult) {
     }
 }
 
-/// The window models have one or two panes (#214). `num_panes: 3` used to be
-/// accepted and modelled as two, with one gap.
-fn validate_window_panes(model: &ModelInput, result: &mut ValidationResult) {
+/// Window constructions are simple glazing (U-factor and SHGC) or layered
+/// glazing (`layers`), never both (#214). Layers alternate glass and gas
+/// from outside to inside, with one to four glass layers, and name glazing
+/// materials that exist. The retired pane fields are errors that point to
+/// `layers`.
+fn validate_window_constructions(model: &ModelInput, result: &mut ValidationResult) {
+    let mut names = std::collections::HashSet::new();
+    for m in &model.glazing_materials {
+        if !names.insert(m.name.as_str()) {
+            result.severe(format!("Glazing material '{}' is defined twice", m.name));
+        }
+        for p in m.problems() {
+            result.severe(format!("Glazing material '{}': {p}", m.name));
+        }
+    }
     for w in &model.window_constructions {
-        if let Some(n) = w.num_panes.filter(|n| !(1..=2).contains(n)) {
+        let name = &w.name;
+        if w.has_retired_pane_fields() {
             result.severe(format!(
-                "Window construction '{}': num_panes {n} isn't supported. Pane data models one \
-                 or two panes; give a triple-glazed unit as U-factor and SHGC, without pane data",
-                w.name
+                "Window construction '{name}': the pane fields (pane_solar_transmittance, \
+                 pane_solar_reflectance, num_panes, gap_width, pane_conductivity, \
+                 pane_thickness, glass_emissivity) are replaced by `layers`: define each pane \
+                 as a glazing material and list the panes and gas gaps from outside to inside"
             ));
+            continue;
+        }
+        if w.layers.is_empty() {
+            match (w.u_factor, w.shgc) {
+                (Some(u), Some(shgc)) => {
+                    if !(u > 0.0 && u <= 7.0) {
+                        result.severe(format!(
+                            "Window construction '{name}': u_factor {u} must lie in (0, 7] W/(m²·K)"
+                        ));
+                    }
+                    if !(0.0..1.0).contains(&shgc) {
+                        result.severe(format!(
+                            "Window construction '{name}': shgc {shgc} must lie in [0, 1)"
+                        ));
+                    }
+                    if let Some(vt) = w.visible_transmittance.filter(|v| !(0.0..=1.0).contains(v)) {
+                        result.severe(format!(
+                            "Window construction '{name}': visible_transmittance {vt} must lie \
+                             in [0, 1]"
+                        ));
+                    }
+                }
+                _ => result.severe(format!(
+                    "Window construction '{name}' needs u_factor and shgc, or layers"
+                )),
+            }
+            continue;
+        }
+        if w.u_factor.is_some() || w.shgc.is_some() || w.visible_transmittance.is_some() {
+            result.severe(format!(
+                "Window construction '{name}' has layers and u_factor, shgc or \
+                 visible_transmittance: a layered window's ratings follow from its layers, so \
+                 give one or the other"
+            ));
+        }
+        let n = w.layers.len();
+        if n % 2 == 0 {
+            result.severe(format!(
+                "Window construction '{name}': layers must alternate glass and gas, starting \
+                 and ending with glass"
+            ));
+        }
+        if n.div_ceil(2) > openbse_envelope::glazing::MAX_LAYERS {
+            result.severe(format!(
+                "Window construction '{name}' has {} glass layers; at most {} are supported",
+                n.div_ceil(2),
+                openbse_envelope::glazing::MAX_LAYERS
+            ));
+        }
+        for (i, l) in w.layers.iter().enumerate() {
+            let at = format!("Window construction '{name}' layer {}", i + 1);
+            if i % 2 == 0 {
+                match &l.glazing {
+                    Some(g) if l.gas.is_none() && l.gas_mixture.is_none() && l.width.is_none() => {
+                        if !names.contains(g.as_str()) {
+                            result.severe(format!(
+                                "{at}: glazing material '{g}' not found in glazing_materials"
+                            ));
+                        }
+                    }
+                    _ => result.severe(format!(
+                        "{at} must be a glass layer (`glazing` with a glazing material name only)"
+                    )),
+                }
+                continue;
+            }
+            if l.glazing.is_some() || l.gas.is_some() == l.gas_mixture.is_some() {
+                result.severe(format!(
+                    "{at} must be a gas gap: `gas` or `gas_mixture`, with `width`"
+                ));
+                continue;
+            }
+            if !l.width.is_some_and(|w| w > 0.0) {
+                result.severe(format!("{at}: gas gap width must be positive"));
+            }
+            if let Some(mix) = &l.gas_mixture {
+                let total: f64 = mix.iter().map(|f| f.fraction).sum();
+                if mix.is_empty() || mix.iter().any(|f| f.fraction <= 0.0) {
+                    result.severe(format!("{at}: gas_mixture fractions must be positive"));
+                } else if (total - 1.0).abs() > 1.0e-3 {
+                    result.severe(format!(
+                        "{at}: gas_mixture fractions add up to {total:.4}, not 1"
+                    ));
+                }
+            }
         }
     }
 }
@@ -5804,7 +5918,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     warn_shading_geometry_ignored(model, &mut result);
     validate_scheduled_ventilation(model, &mut result);
     validate_duct_ambients(model, &mut result);
-    validate_window_panes(model, &mut result);
+    validate_window_constructions(model, &mut result);
     validate_cosim(model, &mut result);
     validate_curve_names(model, &mut result);
 
@@ -6368,21 +6482,69 @@ air_loops:
         )
     }
 
+    fn window_errors(yaml: &str) -> usize {
+        let model: ModelInput =
+            serde_yaml::from_str(&format!("simulation: {{}}\nweather_files: []\n{yaml}")).unwrap();
+        let mut r = ValidationResult::new();
+        validate_window_constructions(&model, &mut r);
+        r.error_count()
+    }
+
+    const CLEAR: &str = "glazing_materials:\n  - {name: C, thickness: 0.003, solar_transmittance: \
+                         0.834, solar_reflectance_front: 0.075, solar_reflectance_back: 0.075}\n";
+
     #[test]
-    fn three_panes_are_severe() {
-        let model = |panes: u32| -> ModelInput {
-            serde_yaml::from_str(&format!(
-                "simulation: {{}}\nweather_files: []\nwindow_constructions:\n  - {{name: W, \
-                 u_factor: 1.0, shgc: 0.4, num_panes: {panes}}}\n"
+    fn window_constructions_are_simple_or_layered() {
+        let w = |fields: &str| {
+            window_errors(&format!(
+                "{CLEAR}window_constructions:\n  - {{name: W{fields}}}\n"
             ))
-            .unwrap()
         };
-        let errors = |panes| {
-            let mut r = ValidationResult::new();
-            validate_window_panes(&model(panes), &mut r);
-            r.error_count()
-        };
-        assert_eq!((errors(1), errors(2), errors(3)), (0, 0, 1));
+        assert_eq!(w(", u_factor: 2.0, shgc: 0.4"), 0, "simple");
+        assert_eq!(w(", u_factor: 2.0"), 1, "simple needs both");
+        assert_eq!(w(""), 1, "nothing");
+        assert_eq!(w(", layers: [{glazing: C}]"), 0, "one pane");
+        let double = ", layers: [{glazing: C}, {gas: argon, width: 0.012}, {glazing: C}]";
+        assert_eq!(w(double), 0);
+        assert_eq!(w(&format!("{double}, u_factor: 2.0")), 1, "both");
+        assert_eq!(
+            w(", layers: [{glazing: C}, {gas: air, width: 0.012}]"),
+            1,
+            "ends in gas"
+        );
+        assert_eq!(w(", layers: [{glazing: X}]"), 1, "unknown glazing");
+        assert_eq!(
+            w(", layers: [{glazing: C}, {gas: air}, {glazing: C}]"),
+            1,
+            "no width"
+        );
+        assert_eq!(
+            w(
+                ", layers: [{glazing: C}, {gas_mixture: [{gas: argon, fraction: 0.9}, \
+               {gas: air, fraction: 0.05}], width: 0.01}, {glazing: C}]"
+            ),
+            1,
+            "fractions"
+        );
+        let five = ", layers: [{glazing: C}, {gas: air, width: 0.01}, {glazing: C}, {gas: air, \
+                    width: 0.01}, {glazing: C}, {gas: air, width: 0.01}, {glazing: C}, {gas: air, \
+                    width: 0.01}, {glazing: C}]";
+        assert_eq!(w(five), 1, "five panes");
+        assert_eq!(
+            w(", u_factor: 2.0, shgc: 0.4, num_panes: 2"),
+            1,
+            "retired pane field"
+        );
+    }
+
+    #[test]
+    fn glazing_materials_are_checked() {
+        let bad = "glazing_materials:\n  - {name: G, thickness: 0.003, solar_transmittance: 0.8, \
+                   solar_reflectance_front: 0.3, solar_reflectance_back: 0.1, \
+                   infrared_transmittance: 0.1}\n";
+        // τ + ρ_front > 1, and long-wave transmittance not modelled.
+        assert_eq!(window_errors(bad), 2);
+        assert_eq!(window_errors(CLEAR), 0);
     }
 
     #[test]

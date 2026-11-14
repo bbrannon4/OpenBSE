@@ -110,7 +110,7 @@ Each model is documented, with its equations, its EnergyPlus comparison and its 
 - **Conduction** — Seem (1987) state-space conduction transfer functions as in EnergyPlus, including its longer CTF time step for massive layers, on a finer node network with nodes on the surfaces (a 20 cm concrete wall's daily flux error is under 1%, against 7–9% with EnergyPlus's network), with a lumped RC element for single-node constructions
 - **Convection** — TARP natural convection inside; DOE-2 (MoWiTT) with roughness correction outside
 - **Interior long-wave exchange** — grey-body ScriptF exchange between a zone's surfaces from their view factors
-- **Windows** — U-factor/SHGC glazing with the E+ SimpleGlazingSystem angular model (LBNL-2804E), a glass-node heat balance, and interior shades and blinds triggered by irradiance or zone temperature with hysteresis
+- **Windows** — simple glazing (U-factor, SHGC) as E+'s equivalent glass layer, or layer-by-layer glazing of up to four glass layers with air, argon, krypton, xenon or mixed gas gaps; E+ layer optics with angular dependence, the two faces of every glass layer solved from their heat balances with the ISO 15099 gap correlations, and interior shades and blinds triggered by irradiance or zone temperature with hysteresis
 - **Interior solar distribution** — FullExterior or FullInteriorAndExterior (beam projected onto the inside surfaces it reaches), with diffuse and reflected solar redistributed by area and absorptance
 - **External shading** — overhangs, fins and shading surfaces with polygon-clipped beam shadows and sky view factor reduction; solar precomputed and cached to disk
 - **Infiltration and ventilation** — E+ design-flow-rate infiltration, the ASHRAE combined model, scheduled and natural ventilation
@@ -220,7 +220,7 @@ Open gaps are tracked as [issues](https://github.com/bbrannon4/OpenBSE/issues).
 
 Planned features, known bugs, and validation tasks are tracked as [GitHub Issues](https://github.com/bbrannon4/OpenBSE/issues). Key areas:
 
-- **Envelope**: geometry import, moisture transport (HAMT), multi-layer glazing, C-factor walls, ground heat transfer models
+- **Envelope**: geometry import, moisture transport (HAMT), window frames and dividers, C-factor walls, ground heat transfer models
 - **HVAC**: water-source heat pumps on a water loop, cooling tower heat-transfer model, absorption chillers, district energy, unit ventilators, chilled beams
 - **Controls**: night cycle and unoccupied setbacks, humidity control, EMS-style programmable logic
 - **Validation**: close the remaining prototype end-use gaps against EnergyPlus; the bugs the built-in energy checks have found

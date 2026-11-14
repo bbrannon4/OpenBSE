@@ -881,25 +881,71 @@ Simple constructions are referenced by name in surface definitions, just like re
 
 ### Window Constructions
 
-Windows use a simplified U-factor/SHGC model rather than individual glass layers.
+A window construction is either a **simple glazing system**, given by its NFRC
+U-factor and SHGC, or **layered glazing**, given by its glass layers and gas
+gaps. Never both: a layered window's U-factor and SHGC follow from its layers.
 
 ```yaml
 window_constructions:
   - name: Double Pane
-    u_factor: 2.7               # [W/(m²·K)] including film coefficients
-    shgc: 0.39                  # Solar Heat Gain Coefficient [0–1]
-    glass_emissivity: 0.84      # LW emissivity [0–1], default 0.84 (clear glass)
+    u_factor: 2.7               # NFRC U-factor [W/(m²·K)] including air films
+    shgc: 0.39                  # solar heat gain coefficient at normal incidence
+    visible_transmittance: 0.6  # optional; only reported
 ```
 
-| Field | Default |
-|-------|---------|
-| `glass_emissivity` | 0.84 |
+A simple glazing system is modelled as EnergyPlus's equivalent single glass
+layer for its ratings (`WindowMaterial:SimpleGlazingSystem`).
 
-The `glass_emissivity` field controls longwave radiation exchange between the glass surface and the room interior (and exterior). The default of 0.84 is correct for uncoated soda-lime glass. Use a lower value for low-e coated windows.
+For layered glazing, define each glass type once in `glazing_materials`
+(after EnergyPlus `WindowMaterial:Glazing`, spectral average; "front" faces
+outdoors), then list the layers from outside to inside, alternating glass and
+gas. Up to four glass layers are allowed.
+
+```yaml
+glazing_materials:
+  - name: Low-e 3mm
+    thickness: 0.0032                # [m]
+    conductivity: 1.0                # [W/(m·K)], default 0.9
+    solar_transmittance: 0.452
+    solar_reflectance_front: 0.359
+    solar_reflectance_back: 0.397
+    visible_transmittance: 0.714     # visible properties are optional
+    visible_reflectance_front: 0.207
+    visible_reflectance_back: 0.148
+    emissivity_front: 0.84           # default 0.84
+    emissivity_back: 0.047           # the low-e coating faces the gap
+  - name: Clear 3mm
+    thickness: 0.003
+    conductivity: 1.0
+    solar_transmittance: 0.834
+    solar_reflectance_front: 0.075
+    solar_reflectance_back: 0.075
+
+window_constructions:
+  - name: Triple Low-e
+    layers:
+      - glazing: Low-e 3mm
+      - gas: argon                   # air, argon, krypton or xenon
+        width: 0.0127                # [m]
+      - glazing: Clear 3mm
+      - gas_mixture:                 # mole fractions adding up to 1
+          - {gas: argon, fraction: 0.9}
+          - {gas: air, fraction: 0.1}
+        width: 0.0127
+      - glazing: Clear 3mm
+```
+
+| Glazing material field | Default |
+|-------|---------|
+| `conductivity` | 0.9 W/(m·K) |
+| `visible_transmittance`, `visible_reflectance_front`, `visible_reflectance_back` | the solar values |
+| `emissivity_front`, `emissivity_back` | 0.84 |
+| `infrared_transmittance` | 0 (glass is modelled opaque to long-wave; other values are an error) |
+| `dirt_correction_factor` | 1.0 (applied when the layer is the outermost) |
 
 #### Dynamic Shading Control
 
-An optional `shading_control` block deploys an interior blind/shade based on solar irradiance or zone temperature, with deployment hysteresis. When deployed, solar gains are scaled by `blind_shgc / shgc` and (if `blind_u_factor` is given) the window U-factor switches to the blind+window assembly value. The control is evaluated once per timestep before solar gains, using the previous step's surface conditions (one-step lag, matching E+ `WindowShadingControl`).
+An optional `shading_control` block deploys an interior blind/shade based on solar irradiance or zone temperature, with deployment hysteresis. When deployed, the window+blind assembly (`blind_shgc`, and `blind_u_factor` if given) is modelled as a simple glazing system of its own in place of the window's glazing. The control is evaluated once per timestep before solar gains, using the previous step's surface conditions (one-step lag, matching E+ `WindowShadingControl`).
 
 ```yaml
 window_constructions:
@@ -920,7 +966,7 @@ window_constructions:
 | `threshold` | Trigger level; for `temperature` you may use `setpoint` instead (default 26 °C; solar default 200 W/m²) |
 | `hysteresis` | Dead-band width; blind retracts when the signal falls below `trigger − hysteresis` (default 0) |
 | `blind_shgc` | Assembly SHGC when deployed (required unless `shade` is given). `0.0` is a valid blackout blind |
-| `blind_u_factor` | Assembly U-factor [W/(m²·K)] when deployed; defaults to the base window U-factor |
+| `blind_u_factor` | Assembly U-factor [W/(m²·K)] when deployed; defaults to the window's U-factor (rated, or nominal for layered glazing) |
 
 The per-window `surface:blind_deployed` output (1 = deployed, 0 = retracted) is emitted for any window with a `shading_control`.
 

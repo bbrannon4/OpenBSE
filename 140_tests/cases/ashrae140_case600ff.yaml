@@ -62,18 +62,25 @@ simple_constructions:
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
 
+glazing_materials:
+  # Clear glass pane of the standard (WINDOW 7 CLEAR_3)
+  - name: Clear Glass
+    thickness: 0.003175
+    conductivity: 1.0
+    solar_transmittance: 0.834
+    solar_reflectance_front: 0.075
+    solar_reflectance_back: 0.075
+    emissivity_front: 0.84
+    emissivity_back: 0.84
+
 window_constructions:
   - name: Case600 Window
-    u_factor: 3.0
-    shgc: 0.769
-    pane_solar_transmittance: 0.834
-    pane_solar_reflectance: 0.075
-    # ISO 15099 first-principles gap thermal model properties
-    num_panes: 2
-    gap_width: 0.012
-    pane_conductivity: 1.0
-    pane_thickness: 0.003175
-    glass_emissivity: 0.84
+    # U-factor and SHGC follow from the layers.
+    layers:
+      - glazing: Clear Glass
+      - gas: air
+        width: 0.012
+      - glazing: Clear Glass
 
 # ─── Outputs ──────────────────────────────────────────────────────────────────
 # No heating/cooling rate outputs since there is no HVAC system.
