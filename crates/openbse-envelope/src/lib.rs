@@ -16,6 +16,7 @@ pub mod convection;
 pub mod ctf;
 pub mod diagnostics;
 pub mod geometry;
+pub mod glazing;
 pub mod ground_temp;
 pub mod hamt;
 pub mod heat_balance;
@@ -41,8 +42,8 @@ pub use heat_balance::{BuildingEnvelope, SolarDistributionMethod};
 pub use infiltration::InfiltrationInput;
 pub use internal_gains::{EquipmentFuel, FuelGroup, FuelPowers, InternalGainInput};
 pub use material::{
-    Construction, ConstructionLayer, FFactorConstruction, Material, ResolvedLayer,
-    SimpleConstruction, WindowConstruction,
+    Construction, ConstructionLayer, FFactorConstruction, GapGas, GasFraction, GlazingMaterial,
+    Material, ResolvedLayer, SimpleConstruction, WindowConstruction, WindowLayer,
 };
 pub use schedule::{day_of_week, ScheduleInput, ScheduleManager};
 pub use shading::{

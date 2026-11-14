@@ -1097,7 +1097,8 @@ fn control_temp_for(z: &openbse_envelope::zone::ZoneState) -> f64 {
 }
 
 /// Evaluate dynamic blind/shading control for every window (#104), updating
-/// `blind_configured` / `blind_deployed` / `blind_shgc` / `blind_u_factor` in place.
+/// `blind_configured` / `blind_deployed` / `shade` in place. A blind rated as an
+/// assembly is modelled by its simple glazing equivalent, built with the envelope.
 ///
 /// Runs once per timestep before solar gains, using previous-step surface
 /// conditions (one-step lag matches E+ WindowShadingControl). Shared by the
@@ -1128,17 +1129,8 @@ fn evaluate_blind_control(
         // blind with blind_shgc == 0.0 is still recognized (#106).
         if !surface.blind_configured {
             surface.blind_configured = true;
-            // A physical shade layer (#144) is modelled on its own, so the
-            // assembly-rating fields stay neutral: SHGC scaling of 1 and the
-            // base glass conductance.
+            // A physical shade layer (#144) is solved with the glass faces.
             surface.shade = ctrl.shade.clone();
-            if surface.shade.is_some() {
-                surface.blind_shgc = surface.shgc;
-                surface.blind_u_factor = 0.0;
-            } else {
-                surface.blind_shgc = ctrl.blind_shgc.unwrap_or(surface.shgc);
-                surface.blind_u_factor = ctrl.blind_u_factor.unwrap_or(surface.u_factor);
-            }
         }
         let signal = match ctrl.kind {
             ShadingControlKind::SolarThreshold => {

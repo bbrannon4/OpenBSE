@@ -311,8 +311,8 @@ fn set_window_construction_field(
     value: f64,
 ) {
     match field {
-        "u_factor" => wc.u_factor = value,
-        "shgc" => wc.shgc = value,
+        "u_factor" => wc.u_factor = Some(value),
+        "shgc" => wc.shgc = Some(value),
         _ => log::warn!(
             "Unknown field '{}' on window construction '{}' — skipping",
             field,

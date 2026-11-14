@@ -86,7 +86,6 @@ pub fn window_interior_convection(
     height: f64,
     tilt_deg: f64,
 ) -> f64 {
-    const LOW_LIMIT: f64 = 0.1; // E+ LowHConvLimit
     const G: f64 = 9.81;
     let dt = t_surface - t_air;
     let t_film_k = t_air + 273.15 + 0.25 * dt;
@@ -114,7 +113,7 @@ pub fn window_interior_convection(
     } else {
         0.58 * ra.min(1.0e11).powf(0.2)
     };
-    (nu * lambda / h).max(LOW_LIMIT)
+    (nu * lambda / h).max(LOW_H_CONV_LIMIT)
 }
 
 /// Exterior natural convection coefficient [W/(m²·K)].
@@ -171,6 +170,9 @@ pub fn wind_speed_at_height(
 ///   WMC = (δ_met / z_met)^α_met = (270/10)^0.14 = 1.5863
 ///
 /// Reference: E+ DataEnvironment.hh, HeatBalanceManager.cc.
+/// Lowest inside convection coefficient [W/(m²·K)], E+ `LowHConvLimit`.
+pub const LOW_H_CONV_LIMIT: f64 = 0.1;
+
 pub const DEFAULT_WEATHER_WIND_MOD_COEFF: f64 = 1.5863;
 
 /// Site terrain classification for wind profile calculations.

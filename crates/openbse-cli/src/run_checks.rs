@@ -14,7 +14,7 @@
 //! | Zone air | surface convection + advection + gains + HVAC = storage | severe |
 //! | Plant loop | supply equipment delivers no more than the loop demand; demand components report | severe |
 //! | Unphysical states | NaN/inf output, negative PLR or capacity, COP ≤ 0 while running | severe |
-//! | Envelope holds | surface temperatures beyond ±200 °C, NaN states replaced | severe |
+//! | Envelope holds | surface temperatures beyond ±200 °C, NaN states replaced, window face solves that hit their iteration limit | severe |
 //! | HVAC → zone | heat the air loops, VRF and radiant panels send = heat the zone receives | severe |
 //! | Air component | ṁ·Δh across each air-side component = its `thermal_output` | warning |
 //! | Plant unmet demand | capacity-limited loops (E+ "Plant Supply Side Unmet Demand Rate") | warning |
@@ -529,6 +529,15 @@ impl RunChecks {
             });
             holds(&mut push, phase, &d.nan_holds, |s, e| {
                 format!("NaN {s} replaced by its previous value") + &hold_detail(e)
+            });
+            holds(&mut push, phase, &d.window_unconverged, |s, e| {
+                format!(
+                    "Window '{s}' face temperatures did not converge within the face solve's \
+                     iteration limit"
+                ) + &format!(
+                    " in {} timesteps, first at {}, last step up to {:.2e} K at {}",
+                    e.timesteps, e.first_time, e.worst, e.worst_time
+                )
             });
             let c = &d.surface_air;
             if c.unconverged > 0 {

@@ -65,13 +65,41 @@ simple_constructions:
     solar_absorptance: 0.6
     thermal_absorptance: 0.9
 
+glazing_materials:
+  # Layers of the reference EnergyPlus model (WINDOW 7 ID 36, BESTEST Double
+  # Low-e Argon): a low-e coated outer pane and a clear inner pane.
+  - name: Low-e Glass
+    thickness: 0.00318
+    conductivity: 1.0
+    solar_transmittance: 0.452
+    solar_reflectance_front: 0.359
+    solar_reflectance_back: 0.397
+    visible_transmittance: 0.91325
+    visible_reflectance_front: 0.082
+    visible_reflectance_back: 0.082
+    emissivity_front: 0.84
+    emissivity_back: 0.047
+  - name: Clear Glass
+    thickness: 0.003048
+    conductivity: 1.0
+    solar_transmittance: 0.834
+    solar_reflectance_front: 0.075
+    solar_reflectance_back: 0.075
+    visible_transmittance: 0.91325
+    visible_reflectance_front: 0.082
+    visible_reflectance_back: 0.082
+    emissivity_front: 0.84
+    emissivity_back: 0.84
+
 window_constructions:
-  # Case 660 Window: low-E argon-filled double-pane
-  # U = 1.19 W/(m²·K), SHGC = 0.44 at normal incidence
-  # From WINDOW 7: ID 36, BESTEST Double Low-e Argon
+  # Case 660 Window: low-e argon-filled double pane. U-factor and SHGC
+  # follow from the layers.
   - name: Case660 Window
-    u_factor: 1.19
-    shgc: 0.44
+    layers:
+      - glazing: Low-e Glass
+      - gas: argon
+        width: 0.012
+      - glazing: Clear Glass
 
 # ─── No air loops needed ─────────────────────────────────────────────────────
 # Ideal loads air system handles HVAC internally in the envelope solver.
