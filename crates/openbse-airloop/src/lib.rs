@@ -71,6 +71,8 @@ pub struct LoopInfo {
     pub available_fan_mode: openbse_io::input::FanOperatingMode,
     /// Night-cycle availability manager (from the input), if any.
     pub night_cycle: Option<openbse_io::input::NightCycleInput>,
+    /// Outdoor dry-bulb [°C] above which the loop is off, if set.
+    pub high_temperature_turn_off: Option<f64>,
     /// Multi-speed unitary operation of a packaged single-zone loop (E+
     /// `UnitarySystem` with `UnitarySystemPerformance:Multispeed`), if any.
     pub unitary_speeds: Option<UnitarySpeeds>,
@@ -2096,6 +2098,7 @@ mod tests {
             fan_operating_mode: FanOperatingMode::Cycling,
             available_fan_mode: FanOperatingMode::Cycling,
             night_cycle: None,
+            high_temperature_turn_off: None,
             unitary_speeds: None,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),

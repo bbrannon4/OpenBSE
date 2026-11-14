@@ -85,6 +85,11 @@ is its availability schedule (how the DOE prototypes set it), and outdoor air
 follows `minimum_oa_schedule`. The cycle restarts when the schedule turns the loop
 on.
 
+**High-temperature turn-off.** A loop's `high_temperature_turn_off` turns it off
+while the outdoor dry-bulb is above that temperature, whatever its schedule or
+night cycle say (E+ `AvailabilityManager:HighTemperatureTurnOff` sensing the
+outdoor air node), as an entry heater locked out in mild weather.
+
 **Comparison with EnergyPlus.** The control types CycleOnAny and
 CycleOnControlZone and the FixedRunTime run time are E+'s; the Thermostat and
 ThermostatWithMinimumRunTime run times, the zone-fan-only types and an
