@@ -61,6 +61,13 @@ pub struct Fan {
     // VAV fan curve coefficients: Power = C1 + C2*PLR + C3*PLR^2 + C4*PLR^3 + C5*PLR^4
     pub vav_coefficients: [f64; 5],
 
+    /// Discrete speeds of a constant-volume or on/off fan, (flow fraction,
+    /// electric power fraction) of design, ascending, as EnergyPlus
+    /// `Fan:SystemModel` with Speed Control Method Discrete. Empty: power in
+    /// proportion to flow. See [`Fan::speed_power_fraction`].
+    #[serde(default)]
+    pub speeds: Vec<(f64, f64)>,
+
     // ─── Runtime state (not serialized) ─────────────────────────────────
     #[serde(skip)]
     pub power: f64,
@@ -90,6 +97,7 @@ impl Fan {
             motor_in_airstream_fraction,
             air_density: None,
             vav_coefficients: [1.0, 0.0, 0.0, 0.0, 0.0],
+            speeds: Vec::new(),
             power: 0.0,
             heat_to_air: 0.0,
         }
@@ -117,6 +125,7 @@ impl Fan {
             air_density: None,
             // Default VAV fan curve (typical forward-curved centrifugal)
             vav_coefficients: [0.0407598940, 0.08804497, -0.0729636, 0.9437398, 0.0],
+            speeds: Vec::new(),
             power: 0.0,
             heat_to_air: 0.0,
         }
@@ -140,6 +149,12 @@ impl Fan {
         let design_mass_flow = self.design_flow_rate * rho_air;
 
         match self.fan_type {
+            FanType::ConstantVolume | FanType::OnOff if !self.speeds.is_empty() => {
+                let design_power = design_mass_flow * self.design_pressure_rise
+                    / (self.total_efficiency * rho_air);
+                let flow_frac = mass_flow / design_mass_flow;
+                self.power = design_power * Self::speed_power_fraction(&self.speeds, flow_frac);
+            }
             FanType::ConstantVolume | FanType::OnOff => {
                 // Power = MassFlow * DeltaPress / (TotalEff * RhoAir)
                 self.power = (mass_flow * self.design_pressure_rise
@@ -171,6 +186,36 @@ impl Fan {
         let shaft_power = self.motor_efficiency * self.power;
         self.heat_to_air =
             shaft_power + (self.power - shaft_power) * self.motor_in_airstream_fraction;
+    }
+}
+
+impl Fan {
+    /// Electric power fraction of design at a flow fraction of design, for a
+    /// fan with discrete speeds (E+ `Fan:SystemModel`, Discrete): at a speed's
+    /// flow its power fraction; between two speeds the time-weighted mix of
+    /// the two (E+ runs the fan part of the time at each, so power is linear
+    /// in flow between them); below the lowest speed the fan cycles at that
+    /// speed, so power falls in proportion to flow; above the highest speed in
+    /// proportion to flow from it.
+    pub fn speed_power_fraction(speeds: &[(f64, f64)], flow_frac: f64) -> f64 {
+        let Some(&(f_lo, p_lo)) = speeds.first() else {
+            return flow_frac;
+        };
+        if flow_frac <= f_lo {
+            return if f_lo > 0.0 {
+                p_lo * flow_frac / f_lo
+            } else {
+                p_lo
+            };
+        }
+        for pair in speeds.windows(2) {
+            let ((f0, p0), (f1, p1)) = (pair[0], pair[1]);
+            if flow_frac <= f1 {
+                return p0 + (p1 - p0) * (flow_frac - f0) / (f1 - f0).max(1e-12);
+            }
+        }
+        let &(f_hi, p_hi) = speeds.last().unwrap_or(&(1.0, 1.0));
+        p_hi * flow_frac / f_hi.max(1e-12)
     }
 }
 
@@ -229,6 +274,29 @@ impl AirComponent for Fan {
     fn report_outputs(&self, out: &mut dyn FnMut(&str, f64)) {
         out("pressure_rise", self.design_pressure_rise);
         out("total_efficiency", self.total_efficiency);
+    }
+}
+
+#[cfg(test)]
+mod speed_tests {
+    use super::*;
+
+    /// The retail prototype's Fan:SystemModel: speed 1 at 0.66 flow and 0.4
+    /// power, speed 2 at full flow and power.
+    #[test]
+    fn discrete_speeds_set_power_by_flow() {
+        let s = [(0.66, 0.4), (1.0, 1.0)];
+        assert!((Fan::speed_power_fraction(&s, 0.66) - 0.4).abs() < 1e-12);
+        assert!((Fan::speed_power_fraction(&s, 1.0) - 1.0).abs() < 1e-12);
+        // Halfway between the speeds: half the time at each.
+        assert!((Fan::speed_power_fraction(&s, 0.83) - 0.7).abs() < 1e-12);
+        // Cycling at speed 1 for half the time.
+        assert!((Fan::speed_power_fraction(&s, 0.33) - 0.2).abs() < 1e-12);
+        assert!((Fan::speed_power_fraction(&[], 0.5) - 0.5).abs() < 1e-12);
+        let mut fan = Fan::constant_volume("f", 2.0, 600.0, 0.6, 0.9, 1.0);
+        fan.speeds = s.to_vec();
+        fan.calculate(0.66 * 2.0 * 1.2, 1.2);
+        assert!((fan.power - 0.4 * 2.0 * 600.0 / 0.6).abs() < 1e-9);
     }
 }
 

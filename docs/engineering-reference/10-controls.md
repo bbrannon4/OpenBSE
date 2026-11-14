@@ -158,6 +158,57 @@ part load. PSZ-AC serves several
 zones evenly, controlled by the first; E+ also controls from one zone but splits by
 design flow ([#389](https://github.com/bbrannon4/OpenBSE/issues/389)).
 
+## Multi-speed packaged units {#sec-unitary-speeds}
+
+**Source:** `openbse-cli/src/unitary.rs` (`simulate_unitary`).
+
+A PSZ-AC loop with a multi-speed DX coil (@sec-dx-multispeed), or a
+`no_load_flow_fraction` or `heating_flow_fraction` below 1, runs as E+
+`AirLoopHVAC:UnitarySystem` with `UnitarySystemPerformance:Multispeed` and a
+`Fan:SystemModel`. It has a few operating points $j$, each its components run
+at one supply flow with the coils in one state:
+
+- **off**: the coils off, at the no-load flow if the fan keeps running, no flow
+  if it cycles;
+- **heating**: the heating coil at the heating supply temperature, at the
+  heating flow;
+- **cooling speed $k$**: the DX coil at full output at speed $k$, at that
+  speed's flow.
+
+At each point the minimum outdoor air is a fixed flow (E+ `Controller:OutdoorAir`
+FixedMinimum), a larger share of a smaller supply; an open economizer keeps its
+share. The point's sensible output to the control zone is
+$\dot Q_j = s\,\dot m_jc_p(T_{\text{sup},j} - T_z)$, with $T_z$ the zone at the start of
+the timestep and $s$ the control zone's share of the supply. The timestep is
+split between two points so their time-weighted output meets the zone load $L$
+(E+ `UnitarySys::controlUnitarySystemtoLoad`):
+
+$$
+r = \frac{L - \dot Q_a}{\dot Q_b - \dot Q_a}, \qquad
+\bar X = (1 - r)\,X_a + r\,X_b,
+$$ {#eq-unitary-mix}
+
+with $r$ clamped to $[0, 1]$:
+
+- heating: $a$ off, $b$ heating;
+- cooling up to speed 1: $a$ off, $b$ speed 1, the compressor's electricity
+  taking $r/\text{PLF}(r)$ instead of $r$ (@eq-dx-rtf);
+- cooling above speed 1: $a$ and $b$ two adjacent speeds, no cycling penalty;
+- dead band: off alone.
+
+Rates and flows $X$ (power, fuel, thermal output, mass flow) mix by
+@eq-unitary-mix; each component's inlet and outlet states, and the supply air,
+mix by mass (enthalpy and humidity ratio), so $\dot m\Delta h$ of the mix is
+the mixed thermal output. A dead-band zone that the off point's output pushes
+past a setpoint is heated or cooled as in @sec-plr, with the off point's actual
+output. A fan's power follows its speeds (@eq-fan-speeds) at each point's flow.
+
+**Comparison with EnergyPlus.** EnergyPlus iterates the cycling and speed
+ratios against the unit's output; @eq-unitary-mix is the same split in closed
+form, from outputs measured at the start-of-timestep zone temperature. The
+heating coil is single-stage (one heating flow). E+'s `SingleMode` operation
+and multi-speed heating coils are not modelled.
+
 ## PSZ-AC {#sec-psz}
 
 **Source:** `build_psz_signals`.

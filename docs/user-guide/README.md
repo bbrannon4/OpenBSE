@@ -517,6 +517,43 @@ Heating coil `source` values: `electric`, `hot_water`, `gas`. For gas coils, `ef
 
 Cooling coil `source` values: `dx`, `chilled_water`.
 
+#### Multi-speed packaged units
+
+A packaged single-zone loop with a `dx_multispeed` coil (E+
+`Coil:Cooling:DX:MultiSpeed`) runs as E+'s multi-speed `UnitarySystem`: it
+cycles speed 1 against off and runs between speeds part of the time at each.
+The fan's `speeds` give its power at each flow (E+ `Fan:SystemModel`,
+Discrete), and `no_load_flow_fraction` the flow it idles at while it keeps
+running with the coils off:
+
+```yaml
+    controls:
+      fan_operating_mode: continuous
+      no_load_flow_fraction: 0.66
+    equipment:
+      - type: fan
+        name: Supply Fan
+        design_flow_rate: autosize
+        pressure_rise: 622.5
+        speeds:
+          - {flow_fraction: 0.66, power_fraction: 0.4}
+          - {flow_fraction: 1.0, power_fraction: 1.0}
+      - type: heating_coil
+        name: Furnace
+        source: gas
+        capacity: autosize
+        efficiency: 0.81
+        setpoint: 40.0
+      - type: dx_multispeed
+        name: Two-Speed DX
+        cap_ft_curve: CapFT
+        eir_ft_curve: EIRFT
+        plf_curve: PLF
+        speeds:
+          - {rated_capacity: 16210.9, shr: 0.797, cop: 3.80, rated_airflow: 1.299, flow_fraction: 0.66}
+          - {rated_capacity: 32421.9, shr: 0.797, cop: 3.80, rated_airflow: 1.949, flow_fraction: 1.0}
+```
+
 #### Heat recovery defaults
 
 | Field | Default |

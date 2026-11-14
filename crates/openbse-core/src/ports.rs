@@ -219,6 +219,16 @@ pub trait AirComponent: std::fmt::Debug {
         None
     }
 
+    /// Run a multi-speed component at one speed (0-based) at full output,
+    /// or `None` to let it pick its own speed. A unitary control that
+    /// time-averages between speeds sets it (see `CoolingCoilDXMultiSpeed`).
+    fn set_speed(&mut self, _speed: Option<usize>) {}
+
+    /// Number of discrete speeds a multi-speed component has (0 for others).
+    fn speed_count(&self) -> usize {
+        0
+    }
+
     /// Part-load ratio a compressor runs at within its own on-cycle this
     /// timestep (setpoint part load, or cycling below its lowest speed),
     /// reported with its power uncorrected for cycling. The driver combines it
