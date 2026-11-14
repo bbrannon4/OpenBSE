@@ -302,6 +302,18 @@ fn runs_fan_through_deadband(li: &LoopInfo) -> bool {
         && li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous
 }
 
+/// Whether a unit's fan runs the whole timestep, so its off-cycle air reaches
+/// the zone: a continuous fan always, one that stops with no load whenever its
+/// zone has a load the unit can meet (E+ UnitHeater with Fan Operation During
+/// No Heating = No: fan on, coil meeting the load), a cycling fan never.
+fn fan_runs_whole_timestep(mode: openbse_io::input::FanOperatingMode, zone_has_load: bool) -> bool {
+    match mode {
+        openbse_io::input::FanOperatingMode::Continuous => true,
+        openbse_io::input::FanOperatingMode::ContinuousNoLoadOff => zone_has_load,
+        openbse_io::input::FanOperatingMode::Cycling => false,
+    }
+}
+
 /// E+ `HVAC::SmallLoad` [W]
 const SMALL_LOAD: f64 = 1.0;
 
@@ -6490,7 +6502,7 @@ fn simulate_all_loops(
         // heating, pushing the zone above setpoint into deadband, where it
         // then cools and re-enters heating — the classic oscillation.
         let continuous_fan_heat_rise_pre =
-            if li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous {
+            if li.fan_operating_mode != openbse_io::input::FanOperatingMode::Cycling {
                 let fan_power: f64 = li
                     .fan_names
                     .iter()
@@ -6788,6 +6800,16 @@ fn simulate_all_loops(
             }
         }
 
+        // A unit whose fan stops only with no load (E+ UnitHeater with Fan
+        // Operation During No Heating = No, a PTAC with no no-load flow) runs
+        // its fan whenever its zone has a load it can meet, even one the fan's
+        // own heat covers with the coil off.
+        let unit_called = li
+            .served_zones
+            .first()
+            .and_then(|z| predictor_modes.get(z))
+            .is_some_and(|&m| m != HvacMode::Deadband && li.can_condition(m));
+
         if loop_plr < 1.0 {
             let is_continuous_fan = li.fan_operating_mode
                 == openbse_io::input::FanOperatingMode::Continuous
@@ -6834,7 +6856,7 @@ fn simulate_all_loops(
                     // mode (PSZ-AC), the fan also runs during deadband.
                     // For `ContinuousNoLoadOff` (PTAC Fan:OnOff with
                     // No Load Flow = 0), the fan shuts OFF during deadband.
-                    if is_no_load_off && loop_plr <= 0.001 {
+                    if is_no_load_off && !unit_called {
                         if let Some(ep) = outputs.get_mut("electric_power") {
                             *ep = 0.0;
                         }
@@ -6918,52 +6940,54 @@ fn simulate_all_loops(
             let supply_temp = supply.state.t_db;
             let supply_w = supply.state.w;
 
-            let (effective_flow, effective_supply_temp, effective_supply_w) =
-                if li.fan_operating_mode == openbse_io::input::FanOperatingMode::Continuous {
-                    // Continuous fan mode: fan runs at full speed always.
-                    // Full mass flow delivered at a weighted-average supply temp:
-                    //   ON-cycle  (PLR fraction):   T = supply_temp (coils active + fan heat)
-                    //   OFF-cycle (1-PLR fraction): T = T_zone + ΔT_fan (recirculated + fan heat)
-                    //
-                    // Average supply temp = PLR × T_supply + (1-PLR) × (T_mixed + ΔT_fan)
-                    //
-                    // During the OFF-cycle the compressor is idle but the
-                    // continuous fan keeps drawing the loop's minimum outdoor
-                    // air, so the air returned to the zone is the MIXED air
-                    // (return + OA), not pure recirculated zone air. Using zone
-                    // air here would silently drop the (1-PLR) fraction of the
-                    // outdoor-air sensible and latent load — which for a lightly
-                    // loaded cycling DX unit (low PLR) is most of the OA load,
-                    // leaving the zone too dry and the coil roughly half-sized
-                    // (ASHRAE 140-2023 §9B CE300-series). When the loop carries
-                    // no OA (oa_frac = 0, e.g. PTAC) T_mixed collapses to T_zone,
-                    // and at PLR = 1 the OFF term vanishes entirely, so neither
-                    // no-OA nor fully-modulating systems are affected.
-                    let control_zone = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
-                    let t_zone = zone_temps.get(control_zone).copied().unwrap_or(21.0);
-                    let w_zone = zone_humidity_ratios
-                        .get(control_zone)
-                        .copied()
-                        .unwrap_or(0.008);
-                    let oa_frac = signals.oa_fraction.unwrap_or(0.0).clamp(0.0, 1.0);
-                    let w_oa = signals.effective_oa_w.unwrap_or(ctx.outdoor_air.w);
-                    let t_oa = signals.effective_oa_temp.unwrap_or(t_outdoor);
-                    // The return air the fan keeps moving carries any lighting
-                    // heat back to the zone during the off-cycle (#51).
-                    let t_return = signals.return_air_temp.unwrap_or(t_zone);
-                    let t_mixed_off = (1.0 - oa_frac) * t_return + oa_frac * t_oa;
-                    let w_mixed_off = (1.0 - oa_frac) * w_zone + oa_frac * w_oa;
-                    let t_off = t_mixed_off + continuous_fan_heat_rise;
-                    let t_avg = loop_plr * supply_temp + (1.0 - loop_plr) * t_off;
-                    // Blend supply humidity ratio: ON-cycle uses coil outlet w,
-                    // OFF-cycle delivers mixed (return + OA) air undehumidified.
-                    let w_avg = loop_plr * supply_w + (1.0 - loop_plr) * w_mixed_off;
-                    (supply.mass_flow, t_avg, w_avg)
-                } else {
-                    // Cycling fan mode: PLR-scaled flow at full supply temp.
-                    // Fan cycles with coils: air only flows for PLR fraction of timestep.
-                    (supply.mass_flow * loop_plr, supply_temp, supply_w)
-                };
+            // A fan that stops only with no load runs the whole timestep once
+            // its zone has a load, so its off-cycle air reaches the zone too.
+            let fan_runs_timestep = fan_runs_whole_timestep(li.fan_operating_mode, unit_called);
+            let (effective_flow, effective_supply_temp, effective_supply_w) = if fan_runs_timestep {
+                // Continuous fan mode: fan runs at full speed always.
+                // Full mass flow delivered at a weighted-average supply temp:
+                //   ON-cycle  (PLR fraction):   T = supply_temp (coils active + fan heat)
+                //   OFF-cycle (1-PLR fraction): T = T_zone + ΔT_fan (recirculated + fan heat)
+                //
+                // Average supply temp = PLR × T_supply + (1-PLR) × (T_mixed + ΔT_fan)
+                //
+                // During the OFF-cycle the compressor is idle but the
+                // continuous fan keeps drawing the loop's minimum outdoor
+                // air, so the air returned to the zone is the MIXED air
+                // (return + OA), not pure recirculated zone air. Using zone
+                // air here would silently drop the (1-PLR) fraction of the
+                // outdoor-air sensible and latent load — which for a lightly
+                // loaded cycling DX unit (low PLR) is most of the OA load,
+                // leaving the zone too dry and the coil roughly half-sized
+                // (ASHRAE 140-2023 §9B CE300-series). When the loop carries
+                // no OA (oa_frac = 0, e.g. PTAC) T_mixed collapses to T_zone,
+                // and at PLR = 1 the OFF term vanishes entirely, so neither
+                // no-OA nor fully-modulating systems are affected.
+                let control_zone = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
+                let t_zone = zone_temps.get(control_zone).copied().unwrap_or(21.0);
+                let w_zone = zone_humidity_ratios
+                    .get(control_zone)
+                    .copied()
+                    .unwrap_or(0.008);
+                let oa_frac = signals.oa_fraction.unwrap_or(0.0).clamp(0.0, 1.0);
+                let w_oa = signals.effective_oa_w.unwrap_or(ctx.outdoor_air.w);
+                let t_oa = signals.effective_oa_temp.unwrap_or(t_outdoor);
+                // The return air the fan keeps moving carries any lighting
+                // heat back to the zone during the off-cycle (#51).
+                let t_return = signals.return_air_temp.unwrap_or(t_zone);
+                let t_mixed_off = (1.0 - oa_frac) * t_return + oa_frac * t_oa;
+                let w_mixed_off = (1.0 - oa_frac) * w_zone + oa_frac * w_oa;
+                let t_off = t_mixed_off + continuous_fan_heat_rise;
+                let t_avg = loop_plr * supply_temp + (1.0 - loop_plr) * t_off;
+                // Blend supply humidity ratio: ON-cycle uses coil outlet w,
+                // OFF-cycle delivers mixed (return + OA) air undehumidified.
+                let w_avg = loop_plr * supply_w + (1.0 - loop_plr) * w_mixed_off;
+                (supply.mass_flow, t_avg, w_avg)
+            } else {
+                // Cycling fan mode: PLR-scaled flow at full supply temp.
+                // Fan cycles with coils: air only flows for PLR fraction of timestep.
+                (supply.mass_flow * loop_plr, supply_temp, supply_w)
+            };
 
             // Share of the supply that reaches the zones this timestep (the
             // fan's runtime fraction when it cycles).
@@ -8191,6 +8215,15 @@ mod tests {
         assert!(!night_cycle_runs(&li, &mut timers, 30, 4, |_| Some((
             0.0, 15.0, 24.0
         ))));
+    }
+
+    #[test]
+    fn a_fan_that_stops_with_no_load_runs_while_there_is_one() {
+        use openbse_io::input::FanOperatingMode::*;
+        assert!(fan_runs_whole_timestep(Continuous, false));
+        assert!(fan_runs_whole_timestep(ContinuousNoLoadOff, true));
+        assert!(!fan_runs_whole_timestep(ContinuousNoLoadOff, false));
+        assert!(!fan_runs_whole_timestep(Cycling, true));
     }
 
     #[test]

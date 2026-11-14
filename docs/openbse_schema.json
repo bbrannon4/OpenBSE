@@ -636,7 +636,7 @@
       "type": "string",
       "enum": ["cycling", "continuous", "continuous_no_load_off"],
       "default": "cycling",
-      "description": "Fan operating mode. cycling = fan cycles with coils (off in deadband); continuous = fan always at full speed; continuous_no_load_off = full speed while heating/cooling, off in deadband (E+ PTAC with no-load flow = 0)."
+      "description": "Fan operating mode. cycling = fan cycles with coils (off in deadband); continuous = fan always at full speed; continuous_no_load_off = full speed for the whole timestep while the zone has a heating or cooling load the unit can meet (its coils cycling), off with no load (E+ ZoneHVAC:UnitHeater with Fan Operation During No Heating = No, a PTAC with no-load flow = 0)."
     },
 
     "SatReset": {

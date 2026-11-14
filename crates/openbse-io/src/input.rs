@@ -814,9 +814,10 @@ pub enum FanOperatingMode {
     /// Fan power = rated (always). Fan heat always delivered to zone.
     /// Use for PSZ-AC systems with Fan:ConstantVolume.
     Continuous,
-    /// Fan runs at full speed when actively heating or cooling, but
-    /// shuts OFF completely during deadband (no load).
-    /// Matches E+ PTAC with Fan:OnOff and No Load Supply Air Flow Rate = 0.
+    /// Fan runs at full speed for the whole timestep whenever its zone has a
+    /// heating or cooling load the unit can meet, its coils cycling, and stops
+    /// with no load. Matches E+ ZoneHVAC:UnitHeater with Fan Operation During
+    /// No Heating = No, and a PTAC with No Load Supply Air Flow Rate = 0.
     ContinuousNoLoadOff,
 }
 

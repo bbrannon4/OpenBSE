@@ -131,7 +131,12 @@ when the zone wants cooling), the output is 0.
 condenser fans take the cycling penalty of @eq-dx-rtf at their combined part load,
 and the cycling fan of a loop with DX runs $x/\text{PLF}(x)$ of the time while a
 compressor runs (@sec-dx-cooling). Continuous fans stay at full power.
-`ContinuousNoLoadOff` fans stop in deadband.
+A `ContinuousNoLoadOff` fan runs at full flow for the whole timestep whenever
+its zone has a load the unit can meet, its coils cycling, and its off-cycle air
+(recirculated air and outdoor air with the fan's heat) reaches the zone as a
+continuous fan's does; with no load it stops. This is E+ `ZoneHVAC:UnitHeater`
+with Fan Operation During No Heating = No (fan on, coil meeting the load, even a
+load the fan's heat alone covers) and a PTAC with no no-load flow.
 
 **No-load output.** With the coils off, a continuous fan still supplies its heat
 and its minimum outdoor air: $\dot Q_\text{off} = \dot Q_f + \dot Q_\text{oa}$,
