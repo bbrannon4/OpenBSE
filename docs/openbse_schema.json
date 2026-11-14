@@ -396,7 +396,7 @@
         "month": { "type": "integer", "minimum": 1, "maximum": 12 },
         "day": { "type": "integer", "minimum": 1, "maximum": 31 },
         "day_type": { "type": "string", "enum": ["summer", "winter", "summer_design", "winter_design", "cooling", "heating"], "description": "Design day type. Matched by substring: values containing 'summer' or 'cool' are cooling design days; 'winter' or 'heat' are heating design days." },
-        "internal_gains": { "type": "string", "enum": ["off", "full", "scheduled", "full_when_occupied"], "description": "Internal gains during this design day: off (0%), full (100% at all hours), scheduled (follow normal schedules), full_when_occupied (full when schedule > 0). Defaults by day_type: heating → off, cooling → full." },
+        "internal_gains": { "type": "string", "enum": ["off", "full", "scheduled", "full_when_occupied"], "description": "Internal gains during this design day: off (0%), full (100% at all hours), scheduled (follow normal schedules), full_when_occupied (each gain at its design level in hours its own schedule is above zero, else off). Defaults by day_type: heating → off, cooling → full." },
         "taub": { "type": "number", "description": "ASHRAE Tau solar model beam optical depth (cooling design days)." },
         "taud": { "type": "number", "description": "ASHRAE Tau solar model diffuse optical depth (cooling design days)." },
         "cooling_setpoint_schedule": { "type": "array", "items": { "type": "number" }, "minItems": 24, "maxItems": 24, "description": "Hourly cooling setpoints for this design day [C], hours 1–24. Overrides the thermostat's constant cooling setpoint during sizing (models setup/pulldown)." }

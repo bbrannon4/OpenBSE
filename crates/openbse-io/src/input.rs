@@ -2438,7 +2438,8 @@ pub struct DesignDayInput {
     /// - `off`: No internal gains (0%). Best for heating design days.
     /// - `full`: Full design-level gains at all hours (100%). Best for cooling design days.
     /// - `scheduled`: Follow normal schedules hour-by-hour.
-    /// - `full_when_occupied`: Full gains when schedule > 0, zero when unoccupied.
+    /// - `full_when_occupied`: each gain at its design level in hours its own
+    ///   schedule is above zero, else off.
     ///
     /// If omitted, defaults based on `day_type`: heating → `off`, cooling → `full`.
     #[serde(default)]
