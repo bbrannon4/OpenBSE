@@ -569,6 +569,40 @@ def main(idf_path, out_path):
         w("    astronomical_clock: true")
     w("")
 
+    # ---- daylighting ----
+    rules = idf["globalgeometryrules"][0]
+    relative_points = len(rules) < 4 or rules[3].lower() == "relative"
+    ref_points = {f[0].upper(): f for f in idf.get("daylighting:referencepoint", [])}
+    controls = idf.get("daylighting:controls", [])
+    if controls:
+        w("# Daylighting:Controls (SplitFlux) and Daylighting:ReferencePoint; the")
+        w("# reference points are zone-relative in the IDF, so the zone origin is added.")
+        w("# The glare inputs only report glare and are left out.")
+        w("daylighting_controls:")
+    for f in controls:
+        assert f[2].lower() == "splitflux" and not f[3], f[0]
+        zname, origin, _ = zones[f[1].upper()]
+        control = {"continuous": "continuous", "continuousoff": "continuous_off",
+                   "stepped": "stepped"}[f[4].lower()]
+        w(f"  - name: {f[0]}")
+        w(f"    zone: {zname}")
+        w(f"    lighting_control: {control}")
+        w(f"    minimum_input_power_fraction: {fmt(num(f, 5))}")
+        w(f"    minimum_light_output_fraction: {fmt(num(f, 6))}")
+        if control == "stepped":
+            w(f"    stepped_control_steps: {int(num(f, 7))}")
+        w("    reference_points:")
+        for k in range(13, len(f) - 2, 3):
+            rp = ref_points[f[k].upper()]
+            x, y, z = num(rp, 2), num(rp, 3), num(rp, 4)
+            if relative_points:
+                x, y, z = x + origin[0], y + origin[1], z + origin[2]
+            w(f"      - {{x: {fmt(x)}, y: {fmt(y)}, z: {fmt(z)}, "
+              f"fraction_of_zone: {fmt(num(f, k + 1))}, illuminance_setpoint: {fmt(num(f, k + 2))}}}"
+              f"   # {rp[0]}")
+    if controls:
+        w("")
+
     # ---- DHW ----
     wh = idf["waterheater:mixed"][0]
     mains = idf["site:watermainstemperature"][0]

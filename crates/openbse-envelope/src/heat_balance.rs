@@ -56,7 +56,7 @@ pub struct BuildingEnvelope {
     pub f_factor_constructions: HashMap<String, crate::material::FFactorConstruction>,
     pub zone_index: HashMap<String, usize>,
     /// Problems with the zone geometry, reported when the envelope is initialized.
-    geometry_errors: Vec<String>,
+    pub(crate) geometry_errors: Vec<String>,
     /// Ground temperature model (Kusuda-Achenbach)
     pub ground_temp_model: Option<GroundTempModel>,
     /// Schedule manager for time-varying internal gains, exhaust fans, etc.
@@ -116,6 +116,11 @@ pub struct BuildingEnvelope {
     /// Holiday dates as `(month, day)` pairs.  When the current simulation date
     /// matches any entry, schedule lookups use day_of_week = 8 (Holiday).
     pub holiday_set: std::collections::HashSet<(u32, u32)>,
+    /// Daylighting controls (E+ `Daylighting:Controls`, split flux).
+    pub daylighting: Vec<crate::daylighting::DaylightingControl>,
+    /// The timestep (day of year, hour, sub-hour, sizing) the daylighting
+    /// was last updated for.
+    pub(crate) daylighting_step: Option<(u32, u32, u32, bool)>,
     /// Per-surface CTF inside/outside heat flux [W/m²] from the last solve.
     /// Used by update_bdf_history() to shift CTF history once after HVAC convergence.
     ctf_q_last_inside: Vec<f64>,
@@ -989,7 +994,7 @@ impl BuildingEnvelope {
         // high compared to EnergyPlus.
         for zone in &zone_states {
             for (im_idx, im) in zone.input.internal_mass.iter().enumerate() {
-                let name = format!("{} IntMass {}", zone.input.name, im_idx + 1);
+                let name = crate::daylighting::internal_mass_name(&zone.input.name, im_idx + 1);
                 log::info!(
                     "Zone '{}': adding internal mass surface '{}' — {:.1} m², construction '{}'",
                     zone.input.name,
@@ -1430,6 +1435,8 @@ impl BuildingEnvelope {
             f_factor_constructions: f_factor_map,
             zone_index,
             geometry_errors,
+            daylighting: Vec::new(),
+            daylighting_step: None,
             ground_temp_model: None,
             schedule_manager: ScheduleManager::new(),
             latitude,
@@ -1983,6 +1990,7 @@ impl BuildingEnvelope {
                     dow,
                     doy,
                     z.temp_prev,
+                    z.daylight_lights_factor,
                 );
                 (gains.lighting_return_air > 0.0)
                     .then(|| (z.input.name.clone(), gains.lighting_return_air))
@@ -2007,32 +2015,25 @@ fn timestep_gains(
     dow: u32,
     doy: u32,
     zone_air_temp: f64,
+    lights_factor: f64,
 ) -> internal_gains::ResolvedGain {
+    use internal_gains::ScheduleUse;
     use openbse_core::ports::SizingInternalGains;
     let t_outdoor = ctx.outdoor_air.t_db;
-    let scheduled = || {
-        internal_gains::resolve_gains_scheduled(
+    let resolve = |manager: Option<&ScheduleManager>, schedule_use| {
+        internal_gains::resolve_gains_with(
             gains,
-            Some(schedule_manager),
-            hour,
-            dow,
-            doy,
+            manager,
+            (hour, dow, doy),
+            schedule_use,
             zone_air_temp,
             t_outdoor,
+            lights_factor,
         )
     };
+    let scheduled = || resolve(Some(schedule_manager), ScheduleUse::AsScheduled);
     // No schedule manager: every gain at its design level.
-    let full = || {
-        internal_gains::resolve_gains_scheduled(
-            gains,
-            None,
-            hour,
-            dow,
-            doy,
-            zone_air_temp,
-            t_outdoor,
-        )
-    };
+    let full = || resolve(None, ScheduleUse::AsScheduled);
     if !ctx.is_sizing {
         return scheduled();
     }
@@ -2043,14 +2044,9 @@ fn timestep_gains(
         SizingInternalGains::Full => full(),
         SizingInternalGains::Scheduled => scheduled(),
         // Each gain at its design level in hours its own schedule is on.
-        SizingInternalGains::FullWhenOccupied => internal_gains::resolve_gains_with(
-            gains,
-            Some(schedule_manager),
-            (hour, dow, doy),
-            internal_gains::ScheduleUse::FullWhenOn,
-            zone_air_temp,
-            t_outdoor,
-        ),
+        SizingInternalGains::FullWhenOccupied => {
+            resolve(Some(schedule_manager), ScheduleUse::FullWhenOn)
+        }
     }
 }
 
@@ -2126,11 +2122,13 @@ impl EnvelopeSolver for BuildingEnvelope {
             }
         }
 
-        // 3. Internal gains — mode depends on sizing context
+        // 3. Internal gains — mode depends on sizing context; daylighting
+        // dims the lights of daylit zones.
         //
         // During normal simulation: use schedules (time-varying fractions).
         // During sizing: behavior is controlled by the design day's
         // `internal_gains` mode (Off / Full / Scheduled / FullWhenOccupied).
+        self.update_daylighting(ctx, weather);
         let dow = self.schedule_day_type(ctx.timestep.month, ctx.timestep.day);
         for zone in &mut self.zones {
             let gains = timestep_gains(
@@ -2141,6 +2139,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                 dow,
                 doy,
                 zone.temp_prev,
+                zone.daylight_lights_factor,
             );
             zone.q_internal_conv = gains.convective;
             zone.q_internal_rad = gains.radiative;
@@ -4979,6 +4978,21 @@ impl EnvelopeSolver for BuildingEnvelope {
                 zone.q_infiltration_sensible,
             );
             outputs.insert("q_thermal_mass".to_string(), zone.q_thermal_mass);
+            // Daylighting (E+ "Daylighting Lighting Power Multiplier" and
+            // "Daylighting Reference Point N Illuminance").
+            for c in self
+                .daylighting
+                .iter()
+                .filter(|c| c.input.zone == zone.input.name)
+            {
+                outputs.insert(
+                    "daylighting_power_multiplier".to_string(),
+                    c.power_reduction,
+                );
+                for (k, e) in c.illuminance.iter().enumerate() {
+                    outputs.insert(format!("daylight_illuminance_{}", k + 1), *e);
+                }
+            }
             results
                 .zone_outputs
                 .insert(zone.input.name.clone(), outputs);

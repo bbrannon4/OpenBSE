@@ -641,6 +641,9 @@ pub struct GlazingOptics {
     pub rho_diffuse_front: f64,
     /// Hemispherical back (room-side) solar reflectance
     pub rho_diffuse_back: f64,
+    /// Diffuse visible reflectance from the room side (E+
+    /// `ReflectVisDiffBack`), which the daylighting inter-reflection uses.
+    pub rho_vis_diffuse_back: f64,
     /// Hemispherical front absorptance of each layer
     pub abs_diffuse: Vec<f64>,
     /// Hemispherical back (room-side) absorptance of each layer
@@ -658,6 +661,7 @@ impl GlazingOptics {
         let mut tvis = [0.0; N_PHI];
         let mut rfsol = [0.0; N_PHI];
         let mut rbsol = [0.0; N_PHI];
+        let mut rbvis = [0.0; N_PHI];
         let mut abs_f = vec![[0.0; N_PHI]; n];
         let mut abs_b = vec![[0.0; N_PHI]; n];
         // Dirt reduces the outermost layer's transmittance, from either side.
@@ -706,7 +710,9 @@ impl GlazingOptics {
                     )
                 })
                 .collect();
-            tvis[p] = system_properties(&vis).0;
+            let (tv, _, rbv, _) = system_properties(&vis);
+            tvis[p] = tv;
+            rbvis[p] = rbv;
             // Light from the room: layers in reverse, faces swapped.
             let back: Vec<(f64, f64, f64)> = (0..n)
                 .rev()
@@ -734,6 +740,7 @@ impl GlazingOptics {
             tau_vis_diffuse: diffuse_average(&tvis),
             rho_diffuse_front: diffuse_average(&rfsol),
             rho_diffuse_back: diffuse_average(&rbsol),
+            rho_vis_diffuse_back: diffuse_average(&rbvis),
             abs_diffuse: abs_f.iter().map(diffuse_average).collect(),
             abs_diffuse_back: abs_b.iter().map(diffuse_average).collect(),
         }

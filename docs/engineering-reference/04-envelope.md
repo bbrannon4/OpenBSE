@@ -1454,7 +1454,8 @@ equipment in a zone without people is a severe error. With $f$ applied:
   heat is the remainder $q_l = M - q_s$. A given sensible fraction $\phi_s$
   sets $q_s = M\phi_s$ instead, and explicit W/person values override
   either. Of $Q_s$, the fraction $r$ (default 0.3) is radiant.
-- **Lights.** Power $P f$. The return-air fraction $\phi_\text{ret}$ goes
+- **Lights.** Power $P f$, times the zone's daylighting multiplier
+  $f_\text{day}$ in a daylit zone (@sec-daylighting). The return-air fraction $\phi_\text{ret}$ goes
   to the return air when an air loop carries it, and otherwise stays in the
   zone air (#51, @sec-controls). The fraction $r$ (default 0.7) of the total
   is radiant and the remainder convective.
@@ -1560,6 +1561,123 @@ gain at its design level in the hours its own schedule is above zero
 - **Baseboard outdoor temperature.** The site dry-bulb temperature;
   EnergyPlus uses the outdoor temperature at the zone's centroid height,
   which differs by about 0.1 K per 15 m.
+
+## Daylighting {#sec-daylighting}
+
+**Source:** `openbse-envelope/src/daylighting.rs`; input
+`daylighting_controls`.
+
+A zone's `daylighting_controls` dim its lights by the daylight at one or more
+reference points, by the split-flux method of EnergyPlus
+`Daylighting:Controls` (`DaylightingManager.cc`, after DOE-2.1E). Daylight
+enters through the zone's exterior windows and skylights; each needs
+vertices.
+
+**Daylight factors.** For each hour of the day, with the sun where it is at
+the end of that hour, the illuminance at each reference point from each window
+is found for four standard skies $k$ (CIE clear, clear turbid, intermediate,
+overcast) and for the sun, and divided by the exterior horizontal illuminance
+that sky or the sun gives. The sky luminance $L_k(\theta,\varphi)$ in
+azimuth $\theta$ and altitude $\varphi$ is relative to the zenith luminance
+(E+ `DayltgSkyLuminance`); the exterior horizontal illuminance of each sky,
+$E_{h,k}=\int L_k\sin\varphi\,d\Omega$, is integrated over 18 × 8 sky
+elements and the sun's is $\sin\varphi_s$ per unit beam illuminance.
+
+- *Direct.* The window is divided into $n_x \times n_y$ elements,
+  $n = 1 + \lfloor 4w/d \rfloor$ each way (at most 40), where $w$ is the
+  edge length and $d$ the distance of the point from the window plane. An
+  element of area $\Delta A$ at distance $r$ in direction $\hat u$ from the
+  point, at incidence $\beta$ on the glass, adds
+  $$
+  \Delta E_k = L_k(\hat u)\,\frac{\Delta A\cos\beta}{r^2}\,u_z\,\tau_v(\cos\beta)
+  $$ {#eq-daylight-direct}
+  for elements above the horizon of the work plane, where $\tau_v$ is the
+  glazing's beam visible transmittance (@sec-window-optics). The sun adds
+  $\sin\varphi_s\,\tau_v(\cos\beta_s)$ when the ray from the point to the sun
+  passes through the window.
+- *Internally reflected.* The luminous flux through the window from the sky
+  and sun above the horizon goes first to the floor and lower walls, $\Phi_\downarrow$;
+  the flux from the ground (reflectance $\rho_g$, a uniform luminance
+  $\rho_g E_h/\pi$) goes to the ceiling and upper walls, $\Phi_\uparrow$
+  (16 × 10 elements over the hemisphere the window sees). The beam on the
+  window goes down. After inter-reflection the illuminance, the same at every
+  point, is
+  $$
+  E_\text{int} = \frac{(\Phi_\downarrow\rho_{fw} + \Phi_\uparrow\rho_{cw})\,A_w}{A_\text{tot}\,(1-\bar\rho)}
+  $$ {#eq-daylight-split-flux}
+  where $\Phi$ is per unit window area, $A_\text{tot}$ and $\bar\rho$ are the
+  area and area-weighted visible reflectance of the zone's walls, floors,
+  roofs, windows and doors (internal mass is left out), and $\rho_{fw}$,
+  $\rho_{cw}$ are the reflectances of the floor and lower walls and of the
+  ceiling and upper walls, leaving out the window's own base surface, with the
+  walls split at the window's centre height
+  (E+ `DayltgAveInteriorReflectance`). An opaque surface's reflectance is one
+  minus its inside layer's visible absorptance; a window's is the glazing's
+  diffuse visible back reflectance.
+
+**Timestep illuminance.** The exterior horizontal illuminance from the sky,
+$E_\text{sky}$, and from the beam, $E_\text{sun}$, come from the weather's
+diffuse horizontal and beam normal irradiance and the Perez (1990) luminous
+efficacies, with the sky clearness $\varepsilon$ and brightness $\Delta$
+(E+ `DayltgLuminousEfficacy`). The sky is a mix of two standard skies,
+weight $w$ on the first: clear and clear turbid for $\varepsilon > 3$,
+$w = \min(1, (\varepsilon-3)/3)$; clear turbid and intermediate for
+$\varepsilon > 1.2$, $w = (\varepsilon-1.2)/1.8$; otherwise intermediate and
+overcast, $w = \min(1,\max((\varepsilon-1)/0.2, (\Delta-0.05)/0.4))$. With the
+daylight factors $D$ interpolated between the hour before and this hour
+(weight on this hour: the fraction of the hour gone),
+$$
+E = D_\text{sun}E_\text{sun} + \frac{E_\text{sky}\,\bigl(D_1 w E_{h,1} + D_2(1-w)E_{h,2}\bigr)}{w E_{h,1} + (1-w)E_{h,2}}
+$$ {#eq-daylight-illuminance}
+summed over the windows (E+ `DayltgInteriorIllum`).
+
+**Lighting control.** At each reference point with setpoint $E_\text{set}$,
+the electric light needed is $f_L = \max(0, (E_\text{set}-E)/E_\text{set})$.
+Continuous dimming gives the power fraction
+$$
+f_P = \begin{cases}
+f_{P,\min} & f_L \le f_{L,\min}\\
+\dfrac{f_L + (1-f_L)f_{P,\min} - f_{L,\min}}{1-f_{L,\min}} & f_{L,\min} < f_L < 1\\
+1 & f_L \ge 1
+\end{cases}
+$$ {#eq-daylight-dimming}
+`continuous_off` sets $f_P = 0$ at and below the minimum light output, and
+`stepped` control with $n$ steps $f_P = \min(1, (\lfloor n f_L\rfloor + 1)/n)$
+(1 in the dark, 0 above the setpoint). The zone's lights are multiplied by
+$f_\text{day} = \sum_i f_{P,i}\,s_i + (1 - \sum_i s_i)$, where $s_i$ is the
+share of the lights point $i$ controls (E+ `DayltgElecLightingControl`), in the
+heat gain and the lighting meters alike, during sizing as during the run.
+Outputs `zone:daylight_illuminance_N` and
+`zone:daylighting_power_multiplier` report $E$ and $f_\text{day}$.
+
+**EnergyPlus comparison.** Retail Standalone (Denver, 16 skylights over
+Core_Retail, two reference points; `prototype_tests/retail_standalone/`):
+OpenBSE's daylight factors for the clear and overcast skies agree with E+'s
+`eplusout.dfs` to 0.1 % at both points, and the intermediate sky to 1 %. The
+exterior illuminances, clearness and brightness agree to 0.1 %. Over the year
+Core_Retail's lighting energy is 51.3 MWh against E+'s 50.6 (+1.3 %); the
+building's interior lighting 67.7 MWh against 67.0 (+1.0 %). E+ computes the
+daylight factors on its shading-calculation days with the sun's declination
+and equation of time averaged over the shading period (30 days in the
+prototype), so on a given day its sun can sit a few degrees from the actual
+sun; OpenBSE computes them each day with that day's sun, and the hours when a
+sun patch falls on a reference point differ accordingly.
+
+## Known limitations: daylighting {#sec-daylighting-limitations}
+
+- Split flux only: no DElight or illuminance maps, no glare index.
+- Exterior and interior obstructions (shading surfaces, overhangs, other
+  parts of the building) do not block or reflect daylight; shades and blinds
+  are taken as open.
+- Daylight from windows in adjacent zones through interior windows is not
+  counted; light wells, tubular daylighting devices and light shelves are not
+  modelled.
+- A window is taken as the parallelogram on three of its vertices (a
+  triangle as half of it), as E+ does; window frames and dividers are left
+  out of the interior reflectance.
+- No availability schedule (always available) and no manual stepped control
+  probability.
+- Reference points are not checked to lie inside their zone.
 
 ## Ground heat transfer {#sec-ground-ht}
 

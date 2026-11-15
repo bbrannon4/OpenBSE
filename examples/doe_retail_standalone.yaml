@@ -1276,6 +1276,19 @@ exterior_equipment:
     subcategory: Exterior Lights
     astronomical_clock: true
 
+# Daylighting:Controls (SplitFlux) and Daylighting:ReferencePoint; the
+# reference points are zone-relative in the IDF, so the zone origin is added.
+# The glare inputs only report glare and are left out.
+daylighting_controls:
+  - name: Core_Retail_DaylCtrl
+    zone: Core_Retail
+    lighting_control: continuous_off
+    minimum_input_power_fraction: 0.2
+    minimum_light_output_fraction: 0.2
+    reference_points:
+      - {x: 14.2, y: 20.2, z: 0.0, fraction_of_zone: 0.25, illuminance_setpoint: 538.0}   # Core_Retail_DaylRefPt1
+      - {x: 3.4, y: 20.2, z: 0.0, fraction_of_zone: 0.25, illuminance_setpoint: 538.0}   # Core_Retail_DaylRefPt2
+
 # WaterHeater:Mixed 'Gas Tank', stand-alone (Peak Use Flow Rate on the tank).
 # E+ draws the whole use flow from the tank and refills it with mains water;
 # use_temperature at the 82.2 °C tank limit makes every fixture take tank

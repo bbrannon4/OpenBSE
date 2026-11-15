@@ -833,6 +833,18 @@ lights:
     zones: [Office Zones]
     watts_per_area: 10.76
 
+# Daylighting dims a zone's lights by the daylight at reference points
+# (EnergyPlus Daylighting:Controls, split flux). The zone's exterior windows
+# and skylights need vertices; coordinates are the model's, in metres.
+daylighting_controls:
+  - name: Office Daylighting
+    zone: Perimeter_South
+    lighting_control: continuous_off  # continuous (default), continuous_off, stepped
+    minimum_input_power_fraction: 0.3 # default 0.3
+    minimum_light_output_fraction: 0.2 # default 0.2
+    reference_points:
+      - {x: 3.0, y: 2.0, z: 0.8, fraction_of_zone: 0.5, illuminance_setpoint: 500}
+
 thermostats:
   - name: Office Thermostat
     zones: [Office Zones]             # References zone group name

@@ -14,6 +14,7 @@ pub mod airflow_network;
 pub mod comfort_grid;
 pub mod convection;
 pub mod ctf;
+pub mod daylighting;
 pub mod diagnostics;
 pub mod geometry;
 pub mod glazing;
@@ -36,6 +37,7 @@ pub use airflow_network::{
     AirflowNetwork, AirflowNetworkConfig, CpFacade, CpModel, CpTable, LeakageClass,
     SurfaceAirflowOverride,
 };
+pub use daylighting::{DaylightingControlInput, LightingControl, ReferencePointInput};
 pub use geometry::{azimuth_to_cardinal, CardinalDirection, EnvelopeAreas, Point3D};
 pub use ground_temp::GroundTempModel;
 pub use heat_balance::{BuildingEnvelope, SolarDistributionMethod};

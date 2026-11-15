@@ -375,6 +375,7 @@ pub fn resolve_gains_scheduled(
         ScheduleUse::AsScheduled,
         zone_air_temp,
         t_outdoor,
+        1.0,
     )
 }
 
@@ -390,8 +391,9 @@ pub enum ScheduleUse {
 }
 
 /// Resolve gains at `(hour, day_of_week, day_of_year)` with the schedule
-/// fractions applied as `schedule_use` says; see [`resolve_gains_scheduled`]
-/// for the other arguments.
+/// fractions applied as `schedule_use` says and the lights' power times
+/// `lights_factor` (the zone's daylighting dimming); see
+/// [`resolve_gains_scheduled`] for the other arguments.
 pub fn resolve_gains_with(
     gains: &[InternalGainInput],
     schedule_mgr: Option<&crate::schedule::ScheduleManager>,
@@ -399,6 +401,7 @@ pub fn resolve_gains_with(
     schedule_use: ScheduleUse,
     zone_air_temp: f64,
     t_outdoor: f64,
+    lights_factor: f64,
 ) -> ResolvedGain {
     let mut result = ResolvedGain::default();
     let fraction = |schedule: &Option<String>| {
@@ -446,8 +449,7 @@ pub fn resolve_gains_with(
                 schedule,
                 submeter: _,
             } => {
-                let frac = fraction(schedule);
-                let total = power * frac;
+                let total = power * fraction(schedule) * lights_factor;
                 // All fractions are of the total, as in E+ `Lights` (#186).
                 let to_return_air = total * return_air_fraction;
                 let to_zone = total - to_return_air;
@@ -893,6 +895,7 @@ mod tests {
                 ScheduleUse::FullWhenOn,
                 24.0,
                 0.0,
+                1.0,
             )
         };
         // Night: people off; the 5% night lighting and the refrigeration are

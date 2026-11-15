@@ -1208,7 +1208,8 @@ impl OutputSnapshot {
                 | "q_surf_conv_roofs"
                 | "q_surf_conv_windows"
                 | "q_infiltration_sensible"
-                | "q_thermal_mass" => self
+                | "q_thermal_mass"
+                | "daylighting_power_multiplier" => self
                     .component_outputs
                     .iter()
                     .filter_map(|(zone, outputs)| outputs.get(variable).map(|&q| (zone.clone(), q)))
@@ -1217,6 +1218,11 @@ impl OutputSnapshot {
                     // Dynamic species variables (#89): zone:species_<name>
                     if let Some(species) = other.strip_prefix("species_") {
                         self.zone_species.get(species).cloned().unwrap_or_default()
+                    } else if other.starts_with("daylight_illuminance_") {
+                        self.component_outputs
+                            .iter()
+                            .filter_map(|(zone, o)| o.get(other).map(|&e| (zone.clone(), e)))
+                            .collect()
                     } else {
                         HashMap::new()
                     }
