@@ -388,6 +388,10 @@ impl AirComponent for VAVBox {
         self.allocated_flow = flow;
     }
 
+    fn set_min_flow_fraction(&mut self, fraction: f64) {
+        self.min_flow_fraction = fraction.clamp(0.0, 1.0);
+    }
+
     fn primary_air_flow(&self) -> Option<f64> {
         Some(self.primary_air_flow)
     }

@@ -13,7 +13,9 @@ air-loop simulation).
 **Inputs.** A box has:
 
 - a maximum primary flow $\dot m_\text{max}$ [kg/s];
-- a minimum flow fraction $f_\text{min}$;
+- a minimum flow fraction $f_\text{min}$, optionally a schedule of it
+  (`min_flow_fraction_schedule`), whose value replaces $f_\text{min}$ in the
+  run while sizing keeps the constant;
 - a reheat type (none, electric or hot water) and capacity $\dot Q_r$;
 - a maximum reheat air temperature $T_{r,\text{max}}$ (default 40 °C);
 - a maximum flow fraction during reheat $f_r$. By default it is sized to the
@@ -74,7 +76,10 @@ the limit. Without a plant loop the coil is ideal, limited by $\dot Q_r$.
 (`SingleDuct.cc`, `SimVAV`) [@eplus-engref-25-2, "Air System Distribution
 Terminals"], including E+'s autosized heating maximum flow. E+ has no default
 reheat temperature limit and recommends 35 °C when it is unknown; OpenBSE's
-default is 40 °C. The air loop allocates each box its primary flow from these same
+default is 40 °C. A scheduled minimum is E+'s Zone Minimum Air Flow Input
+Method `Scheduled`; for sizing, E+ uses the constant fraction if one is given,
+else the mean of the schedule's lowest and highest values, which the model
+states as `min_flow_fraction`. The air loop allocates each box its primary flow from these same
 rules (@sec-controls), and the box passes exactly that flow, so the loop's supply is
 the sum of its boxes' flows.
 

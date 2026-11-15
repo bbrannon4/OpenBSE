@@ -316,6 +316,10 @@ pub trait AirComponent: std::fmt::Debug {
     /// set its own flow from its control signal.
     fn set_primary_air_flow(&mut self, _flow: Option<f64>) {}
 
+    /// Set a terminal box's minimum flow fraction for this timestep (a VAV
+    /// box with a scheduled minimum). Default no-op.
+    fn set_min_flow_fraction(&mut self, _fraction: f64) {}
+
     /// Primary air flow a terminal box passed this timestep [kg/s].
     fn primary_air_flow(&self) -> Option<f64> {
         None

@@ -1055,6 +1055,7 @@ fn build_loop_infos(
             // Build terminal box map: zone_name -> component_name
             let mut terminal_boxes: HashMap<String, String> = HashMap::new();
             let mut terminal_min_flow: HashMap<String, f64> = HashMap::new();
+            let mut terminal_min_flow_schedule: HashMap<String, String> = HashMap::new();
             let mut dd_boxes: HashMap<String, openbse_components::dual_duct_box::DualDuctBox> =
                 HashMap::new();
             for zc in &al.zone_terminals {
@@ -1063,6 +1064,9 @@ fn build_loop_infos(
                         openbse_io::input::TerminalInput::VavBox(vb) => {
                             terminal_boxes.insert(zc.zone.clone(), vb.name.clone());
                             terminal_min_flow.insert(zc.zone.clone(), vb.min_flow_fraction);
+                            if let Some(sched) = &vb.min_flow_fraction_schedule {
+                                terminal_min_flow_schedule.insert(zc.zone.clone(), sched.clone());
+                            }
                         }
                         openbse_io::input::TerminalInput::PfpBox(pb) => {
                             terminal_boxes.insert(zc.zone.clone(), pb.name.clone());
@@ -1115,6 +1119,7 @@ fn build_loop_infos(
                 cooling_part_load_cd: al.controls.cooling_part_load_cd,
                 terminal_boxes,
                 terminal_min_flow,
+                terminal_min_flow_schedule,
                 terminal_heating: HashMap::new(),
                 dd_boxes,
                 dd_deck_temps: (None, None),
@@ -7115,7 +7120,13 @@ fn simulate_all_loops(
                         .get(zone_name)
                         .copied()
                         .unwrap_or(vav_max_flow * 0.3);
-                    let min_flow_frac = li.terminal_min_flow.get(zone_name).copied().unwrap_or(0.3);
+                    let min_flow_frac = openbse_airloop::terminal_min_fraction(
+                        li,
+                        zone_name,
+                        schedule_mgr,
+                        hour,
+                        day_of_week,
+                    );
                     let min_flow = vav_max_flow * min_flow_frac;
                     let mode = if zone_temp_init < heat_sp {
                         HvacMode::Heating
@@ -7203,8 +7214,10 @@ fn simulate_all_loops(
                     };
 
                     if let Some(node_idx) = graph.node_by_name(term_name) {
-                        // Set control signal on the terminal box
+                        // Set control signal (and this hour's minimum flow
+                        // fraction) on the terminal box
                         if let GraphComponent::Air(component) = graph.component_mut(node_idx) {
+                            component.set_min_flow_fraction(min_flow_frac);
                             component.set_setpoint(control_signal);
                         }
                         // Use per-zone design flow as terminal inlet. The terminal
@@ -8506,6 +8519,7 @@ room_air:
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
+            terminal_min_flow_schedule: HashMap::new(),
             terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
             dd_deck_temps: (None, None),
@@ -8556,6 +8570,7 @@ room_air:
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
+            terminal_min_flow_schedule: HashMap::new(),
             terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
             dd_deck_temps: (None, None),
@@ -10202,6 +10217,7 @@ mod tests_datacenter {
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
+            terminal_min_flow_schedule: HashMap::new(),
             terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
             dd_deck_temps: (None, None),

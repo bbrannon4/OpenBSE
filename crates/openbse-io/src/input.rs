@@ -1970,9 +1970,17 @@ pub struct VavBoxInput {
     pub submeter: String,
     /// Maximum primary air flow [kg/s]. Use `autosize` to let the engine calculate.
     pub max_air_flow: AutosizeValue,
-    /// Minimum flow fraction [0-1] (default 0.30)
+    /// Minimum flow fraction [0-1] (default 0.30). With
+    /// `min_flow_fraction_schedule` it is the design value sizing uses.
     #[serde(default = "default_min_flow_fraction")]
     pub min_flow_fraction: f64,
+    /// Schedule of the minimum flow fraction [0-1] during the run (E+ Zone
+    /// Minimum Air Flow Input Method Scheduled), e.g. operating rooms at full
+    /// air changes in surgery hours and a setback minimum otherwise. Sizing
+    /// keeps `min_flow_fraction`; E+ sizes on the mean of the schedule's
+    /// lowest and highest values when it has no constant fraction.
+    #[serde(default)]
+    pub min_flow_fraction_schedule: Option<String>,
     /// Reheat coil type: "none", "electric", "hot_water" (default: "none")
     #[serde(default = "default_reheat_type")]
     pub reheat_type: String,
