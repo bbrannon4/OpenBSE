@@ -325,6 +325,18 @@ pub struct SimulationSettings {
     #[serde(default = "default_cooling_sizing_factor")]
     pub cooling_sizing_factor: f64,
 
+    /// How far below its heating setpoint a conditioned zone must be to count
+    /// as unmet [K] (E+ `OutputControl:ReportingTolerances` Tolerance for Time
+    /// Heating Setpoint Not Met; default 0.2, E+'s default).
+    #[serde(default = "default_unmet_tolerance")]
+    pub unmet_heating_tolerance: f64,
+
+    /// How far above its cooling setpoint a conditioned zone must be to count
+    /// as unmet [K] (E+ `OutputControl:ReportingTolerances` Tolerance for Time
+    /// Cooling Setpoint Not Met; default 0.2, E+'s default).
+    #[serde(default = "default_unmet_tolerance")]
+    pub unmet_cooling_tolerance: f64,
+
     /// Solar distribution method for interior beam solar radiation.
     ///
     /// Matches EnergyPlus `Building` → `Solar Distribution` field.
@@ -442,6 +454,9 @@ fn default_heating_sizing_factor() -> f64 {
 }
 fn default_cooling_sizing_factor() -> f64 {
     1.15
+}
+fn default_unmet_tolerance() -> f64 {
+    0.2
 }
 fn default_timesteps_per_hour() -> u32 {
     1

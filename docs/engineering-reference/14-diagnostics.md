@@ -73,8 +73,9 @@ the previous timestep. Each hold is recorded, so a model can't run all year on s
 and report no errors. Beyond 2.5 times the limit, the run stops.
 
 **Unmet hours.** A conditioned zone is unmet in a timestep when its temperature is more than
-0.2 K below the heating setpoint or above the cooling setpoint the HVAC controlled to that
-timestep. Unconditioned zones are never counted. The summary counts the building: a timestep
+a tolerance below the heating setpoint or above the cooling setpoint the HVAC controlled to
+that timestep. The tolerances are `simulation.unmet_heating_tolerance` and
+`unmet_cooling_tolerance` (default 0.2 K). Unconditioned zones are never counted. The summary counts the building: a timestep
 is an unmet heating (cooling) hour if any zone is unmet heating (cooling), and an unmet load
 hour if any zone is unmet either way, however many zones are. Each zone's own hours are
 listed beside them, and its flags are the `zone:unmet_heating` and `zone:unmet_cooling`
@@ -82,8 +83,11 @@ outputs. The ASHRAE 90.1 line compares the unmet load hours with Appendix G's li
 [@ashrae901].
 
 **Comparison with EnergyPlus.** The building counts match EnergyPlus's facility "Time Setpoint
-Not Met" (any zone) with its default 0.2 K reporting tolerance, and the per-zone hours its
-zone values. EnergyPlus also reports both during occupied hours only; OpenBSE counts every
+Not Met" (any zone), and the per-zone hours its zone values (`ThermalComfort.cc`,
+`CalcThermalComfortSetpointNotMet`). The two tolerances are its
+`OutputControl:ReportingTolerances`, with its 0.2 K default; the DOE prototype models set
+0.556 K (1 °F). EnergyPlus counts a zone only while its predicted load asks for the mode
+in question, which a zone outside a setpoint by more than the tolerance does in practice. EnergyPlus also reports both during occupied hours only; OpenBSE counts every
 hour. The zone heat balance and surface temperature limit have counterparts in EnergyPlus: its zone check uses 20% of the root sum of squares of the terms, and its surface limit is the `Building` input's default of
 200 °C. Plant unmet demand matches its "Plant Supply Side Unmet Demand Rate". The tighter
 tolerances above are a deliberate choice, as these checks exist to catch modelling errors.

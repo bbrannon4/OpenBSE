@@ -2652,6 +2652,10 @@ fn main() -> Result<()> {
 
         let mut summary_report = if model.summary_report {
             let mut report = SummaryReport::new();
+            report.set_unmet_tolerances(
+                model.simulation.unmet_heating_tolerance,
+                model.simulation.unmet_cooling_tolerance,
+            );
             // Pass envelope area data for WWR reporting
             if let Some(ref env) = envelope {
                 report.set_envelope_areas(env.envelope_areas.clone());
@@ -4918,17 +4922,18 @@ fn main() -> Result<()> {
                             snapshot.zone_cooling_setpoint.insert(name.clone(), cool_sp);
 
                             // Unmet hours time-series
-                            let unmet_tol = 0.2; // matches SummaryReport tolerance
-                            let unmet_heat = if zone.temp < heat_sp - unmet_tol {
-                                1.0
-                            } else {
-                                0.0
-                            };
-                            let unmet_cool = if zone.temp > cool_sp + unmet_tol {
-                                1.0
-                            } else {
-                                0.0
-                            };
+                            let unmet_heat =
+                                if zone.temp < heat_sp - model.simulation.unmet_heating_tolerance {
+                                    1.0
+                                } else {
+                                    0.0
+                                };
+                            let unmet_cool =
+                                if zone.temp > cool_sp + model.simulation.unmet_cooling_tolerance {
+                                    1.0
+                                } else {
+                                    0.0
+                                };
                             snapshot.zone_unmet_heating.insert(name.clone(), unmet_heat);
                             snapshot.zone_unmet_cooling.insert(name.clone(), unmet_cool);
                         }

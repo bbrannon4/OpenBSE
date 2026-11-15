@@ -284,6 +284,8 @@ def main(idf_path, out_path):
     w("  solar_distribution: full_interior_and_exterior")
     w("  heating_sizing_factor: 1.2       # Sizing:Parameters")
     w("  cooling_sizing_factor: 1.2")
+    w("  unmet_heating_tolerance: 0.556   # OutputControl:ReportingTolerances (1 F)")
+    w("  unmet_cooling_tolerance: 0.556")
     w("  sizing_averaging_window: 6       # Sizing:Parameters timesteps in averaging window")
     w("  auto_cooling_design_days: false  # size on the IDF's two design days only")
     w("  # RunPeriodControl:SpecialDays (the weather year starts on a Sunday)")
