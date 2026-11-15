@@ -400,6 +400,7 @@ fn unitary_loads(
     zone_temps: &HashMap<String, f64>,
     heat_sp: &HashMap<String, f64>,
     cool_sp: &HashMap<String, f64>,
+    zone_design_flows: &HashMap<String, f64>,
 ) -> Option<unitary::UnitaryLoads> {
     li.unitary_speeds.as_ref()?;
     let zone = li.served_zones.first()?;
@@ -430,7 +431,7 @@ fn unitary_loads(
         to_heat: to_heating_sp.get(zone).copied().unwrap_or(0.0),
         to_cool: to_cooling_sp.get(zone).copied().unwrap_or(0.0),
         zone_temp,
-        control_zone_share: control_zone_flow_fraction(li),
+        control_zone_share: control_zone_flow_fraction(li, zone_design_flows),
     })
 }
 
@@ -882,12 +883,28 @@ fn ups_efficiency(
     (ups.efficiency_at_full_load * factor).clamp(0.01, 1.0)
 }
 
+/// The share of a PSZ's supply air zone `zone` receives: its design flow over
+/// the sum of the served zones' design flows, as E+ splits a unitary system's
+/// air by its terminals' maximum flows. An even split when no zone has one.
+fn psz_zone_flow_share(li: &LoopInfo, zone: &str, zone_design_flows: &HashMap<String, f64>) -> f64 {
+    let flow = |z: &str| zone_design_flows.get(z).copied().unwrap_or(0.0).max(0.0);
+    let total: f64 = li.served_zones.iter().map(|z| flow(z)).sum();
+    if total > 1e-9 {
+        flow(zone) / total
+    } else {
+        1.0 / li.served_zones.len().max(1) as f64
+    }
+}
+
 /// The share of a cycling unit's supply air its control zone (the first served
-/// zone) receives: a PSZ splits its air evenly between its zones, the other
-/// unitary types serve one zone.
-fn control_zone_flow_fraction(li: &LoopInfo) -> f64 {
+/// zone) receives (E+ UnitarySystem `ControlZoneMassFlowFrac`): a PSZ's air is
+/// split by its zones' design flows; the other unitary types serve one zone.
+fn control_zone_flow_fraction(li: &LoopInfo, zone_design_flows: &HashMap<String, f64>) -> f64 {
     match li.system_type {
-        AirLoopSystemType::PszAc => 1.0 / li.served_zones.len().max(1) as f64,
+        AirLoopSystemType::PszAc => {
+            let control = li.served_zones.first().map(|s| s.as_str()).unwrap_or("");
+            psz_zone_flow_share(li, control, zone_design_flows)
+        }
         _ => 1.0,
     }
 }
@@ -6477,6 +6494,7 @@ fn simulate_all_loops(
             zone_temps,
             active_heat_sp,
             active_cool_sp,
+            zone_design_flows,
         )
         .and_then(|loads| {
             unitary::simulate_unitary(
@@ -6605,7 +6623,8 @@ fn simulate_all_loops(
                 // PSZ splits it evenly), so the unit runs until that share meets
                 // its load: E+ UnitarySystem divides the control zone's load by
                 // ControlZoneMassFlowFrac (QZnReq = ZoneLoad / fraction).
-                let supply_flow = supply.mass_flow * control_zone_flow_fraction(li);
+                let supply_flow =
+                    supply.mass_flow * control_zone_flow_fraction(li, zone_design_flows);
 
                 // Mode-based PLR with continuous fan heat correction.
                 //
@@ -7250,10 +7269,10 @@ fn simulate_all_loops(
                 } else {
                     // No terminal box — distribute AHU supply directly
                     let (zone_flow, zone_supply_temp) = match li.system_type {
-                        AirLoopSystemType::PszAc => {
-                            let n = li.served_zones.len().max(1) as f64;
-                            (effective_flow / n, effective_supply_temp)
-                        }
+                        AirLoopSystemType::PszAc => (
+                            effective_flow * psz_zone_flow_share(li, zone_name, zone_design_flows),
+                            effective_supply_temp,
+                        ),
                         AirLoopSystemType::Doas => {
                             // The loop's delivered flow, split in the shares the
                             // controls give each zone, so supply mass is conserved.
@@ -10598,13 +10617,21 @@ mod compressor_cycling_tests {
         assert!((gshp["electric_power"] - factor * 1000.0).abs() < 1e-9);
     }
 
-    /// A PSZ's control zone gets 1/n of the air, a single-zone unit all of it.
+    /// A PSZ splits its air by its zones' design flows (E+ terminal maximum
+    /// flows, `ControlZoneMassFlowFrac`), evenly when none is known; a
+    /// single-zone unit gives its zone all of it.
     #[test]
     fn control_zone_gets_its_share_of_the_air() {
         let mut li = crate::tests::make_psz_loop(openbse_io::input::EconomizerType::NoEconomizer);
         li.served_zones = vec!["A".to_string(), "B".to_string()];
-        assert_eq!(control_zone_flow_fraction(&li), 0.5);
+        let none = HashMap::new();
+        assert_eq!(control_zone_flow_fraction(&li, &none), 0.5);
+        let flows: HashMap<String, f64> = [("A".to_string(), 0.3), ("B".to_string(), 0.1)]
+            .into_iter()
+            .collect();
+        assert!((control_zone_flow_fraction(&li, &flows) - 0.75).abs() < 1e-12);
+        assert!((psz_zone_flow_share(&li, "B", &flows) - 0.25).abs() < 1e-12);
         li.system_type = AirLoopSystemType::Ptac;
-        assert_eq!(control_zone_flow_fraction(&li), 1.0);
+        assert_eq!(control_zone_flow_fraction(&li, &flows), 1.0);
     }
 }
