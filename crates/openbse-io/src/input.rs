@@ -1829,7 +1829,8 @@ pub struct GshpInput {
     /// COP in heating mode
     #[serde(default = "default_gshp_cop_heating")]
     pub cop_heating: f64,
-    /// Supply air temperature setpoint [°C]
+    /// Supply air temperature setpoint [°C] before the controls run; on an air
+    /// loop the controls set it each timestep (heating or cooling target).
     pub outlet_temp_setpoint: f64,
     /// Rated volumetric airflow [m³/s] or `autosize`
     pub rated_airflow: AutosizeValue,

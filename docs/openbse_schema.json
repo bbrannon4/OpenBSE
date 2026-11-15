@@ -906,7 +906,7 @@
         "rated_heating_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated heating capacity [W]." },
         "cop_cooling": { "type": "number", "default": 4.5, "description": "COP in cooling mode." },
         "cop_heating": { "type": "number", "default": 4.0, "description": "COP in heating mode." },
-        "outlet_temp_setpoint": { "type": "number", "description": "Supply air temperature setpoint [C]." },
+        "outlet_temp_setpoint": { "type": "number", "description": "Supply air temperature setpoint [C] before the controls run; on an air loop the controls set it each timestep: the heating supply temperature in heating, full cooling in cooling, off in dead band." },
         "rated_airflow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Rated volumetric airflow [m3/s]." },
         "ground_temp_source": { "$ref": "#/$defs/GroundTempSource" },
         "loop_depth": { "type": "number", "default": 1.5, "description": "Ground loop burial depth [m]." },
