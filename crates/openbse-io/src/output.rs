@@ -1965,7 +1965,10 @@ pub struct SummaryReport {
     /// Each zone's own unmet heating and cooling hours.
     zone_unmet_hours: BTreeMap<String, (f64, f64)>,
     /// Tolerance for unmet hours [deg C]
-    unmet_tolerance: f64,
+    /// Unmet-hour tolerances below the heating and above the cooling
+    /// setpoint [K] (E+ `OutputControl:ReportingTolerances`).
+    unmet_heating_tolerance: f64,
+    unmet_cooling_tolerance: f64,
     /// Total timesteps processed
     total_timesteps: u64,
     /// Timestep duration [s]
@@ -2016,6 +2019,12 @@ impl Default for SummaryReport {
 }
 
 impl SummaryReport {
+    /// Set the unmet-hour tolerances [K] (E+ `OutputControl:ReportingTolerances`).
+    pub fn set_unmet_tolerances(&mut self, heating: f64, cooling: f64) {
+        self.unmet_heating_tolerance = heating;
+        self.unmet_cooling_tolerance = cooling;
+    }
+
     pub fn new() -> Self {
         Self {
             monthly: Default::default(),
@@ -2023,7 +2032,8 @@ impl SummaryReport {
             unmet_cooling_hours: 0.0,
             unmet_any_hours: 0.0,
             zone_unmet_hours: BTreeMap::new(),
-            unmet_tolerance: 0.2, // 0.2 deg C tolerance
+            unmet_heating_tolerance: 0.2,
+            unmet_cooling_tolerance: 0.2,
             total_timesteps: 0,
             dt: 3600.0,
             peak_heating: (0.0, 0, 0, 0, 0.0, 0.0, 0.0),
@@ -2365,11 +2375,11 @@ impl SummaryReport {
             let heat = snapshot
                 .zone_heating_setpoint
                 .get(zone_name)
-                .is_some_and(|&sp| zone_temp < sp - self.unmet_tolerance);
+                .is_some_and(|&sp| zone_temp < sp - self.unmet_heating_tolerance);
             let cool = snapshot
                 .zone_cooling_setpoint
                 .get(zone_name)
-                .is_some_and(|&sp| zone_temp > sp + self.unmet_tolerance);
+                .is_some_and(|&sp| zone_temp > sp + self.unmet_cooling_tolerance);
             if heat || cool {
                 let z = self.zone_unmet_hours.entry(zone_name.clone()).or_default();
                 if heat {
@@ -2588,7 +2598,11 @@ impl SummaryReport {
             "-- Unmet Hours ------------------------------------------------"
         )?;
         writeln!(w)?;
-        writeln!(w, "  Tolerance: {:.1} C", self.unmet_tolerance)?;
+        writeln!(
+            w,
+            "  Tolerance: {:.3} K below heating, {:.3} K above cooling setpoint",
+            self.unmet_heating_tolerance, self.unmet_cooling_tolerance
+        )?;
         writeln!(w)?;
         writeln!(
             w,
@@ -4284,6 +4298,23 @@ mod tests {
         report.add_snapshot(&unmet_snapshot(2, &[("Zone1", 19.9, 20.0, 27.0)]));
         assert!((report.unmet_heating_hours - 1.0).abs() < 1e-9);
         assert!((report.unmet_any_hours - 1.0).abs() < 1e-9);
+    }
+
+    /// The reporting tolerances (E+ OutputControl:ReportingTolerances) set
+    /// how far outside a setpoint counts: 0.4 K out is unmet at 0.2 K and met
+    /// at the prototypes' 0.556 K.
+    #[test]
+    fn unmet_hours_use_the_reporting_tolerances() {
+        let hours = |tol_h: f64, tol_c: f64| {
+            let mut report = SummaryReport::new();
+            report.set_unmet_tolerances(tol_h, tol_c);
+            report.add_snapshot(&unmet_snapshot(1, &[("Z", 20.6, 21.0, 24.0)]));
+            report.add_snapshot(&unmet_snapshot(2, &[("Z", 24.4, 21.0, 24.0)]));
+            (report.unmet_heating_hours, report.unmet_cooling_hours)
+        };
+        assert_eq!(hours(0.2, 0.2), (1.0, 1.0));
+        assert_eq!(hours(0.556, 0.556), (0.0, 0.0));
+        assert_eq!(hours(0.556, 0.2), (0.0, 1.0));
     }
 
     /// Unmet hours count the building once per hour however many zones are

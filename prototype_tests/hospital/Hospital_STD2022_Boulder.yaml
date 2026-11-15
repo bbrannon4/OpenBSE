@@ -8,6 +8,8 @@
 
 simulation:
   timesteps_per_hour: 6
+  unmet_heating_tolerance: 0.556   # OutputControl:ReportingTolerances (1 F)
+  unmet_cooling_tolerance: 0.556
   start_month: 1
   start_day: 1
   end_month: 12

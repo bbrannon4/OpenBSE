@@ -40,10 +40,10 @@
     },
     "examples/doe_retail_standalone.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 630,
-      "max_unmet_heating_hours_reason": "574 h measured building-wide with the model transcribed from the DOE IDF (#456): about half in the entry vestibule while its heater is locked out above 7.2 C, the rest the first warm-up hour after the night setback; about 10% margin.",
-      "max_unmet_cooling_hours": 1270,
-      "max_unmet_cooling_hours_reason": "1151 h measured building-wide with the model transcribed from the DOE IDF (#456): night hours 0.2-0.5 K above the 23.89 C no-setback cooling setpoint, inside the night cycle's 0.5 K tolerance; about 10% margin."
+      "max_unmet_heating_hours": 471,
+      "max_unmet_heating_hours_reason": "428 h measured building-wide at the IDF's 0.556 K reporting tolerance (OutputControl:ReportingTolerances); E+ 25.2 reports 459.5 h for the same IDF (facility Time Setpoint Not Met), about half in the entry vestibule while its heater is locked out above 7.2 C; about 10% margin.",
+      "max_unmet_cooling_hours": 447,
+      "max_unmet_cooling_hours_reason": "406 h measured building-wide at the IDF's 0.556 K reporting tolerance; E+ 25.2 reports 425.25 h for the same IDF, night hours above the 23.89 C no-setback cooling setpoint inside the night cycle's tolerance; about 10% margin."
     },
     "examples/heat_pump_rtu.yaml": {
       "tier": "fast",

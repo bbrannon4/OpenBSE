@@ -258,9 +258,9 @@
     "Total Electric": 210141.7,
     "Total Gas": 122546.2,
     "Total Other Fuels": 0.0,
-    "Total Unmet Hours": 1709.5,
-    "Unmet Cooling Hours": 1129.5,
-    "Unmet Heating Hours": 580.0
+    "Total Unmet Hours": 834.2,
+    "Unmet Cooling Hours": 406.2,
+    "Unmet Heating Hours": 428.0
   },
   "examples/heat_pump_rtu.yaml": {
     "Cooling (Electric)": 2246.8,
