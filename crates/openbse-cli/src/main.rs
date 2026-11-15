@@ -468,6 +468,32 @@ fn zone_design_supply_temps(
     temps
 }
 
+/// Each zone's design supply humidity ratios (heating, cooling) [kg/kg] for
+/// its design flows, from the air loop that sets its supply temperatures
+/// (`zone_design_supply_temps`); zones of other systems take the sizing default.
+fn zone_design_supply_humidity(
+    loop_infos: &[LoopInfo],
+    air_loops: &[openbse_io::input::AirLoopInput],
+) -> HashMap<String, (f64, f64)> {
+    let mut humidity = HashMap::new();
+    let (doas, others): (Vec<_>, Vec<_>) = loop_infos
+        .iter()
+        .partition(|li| li.system_type == AirLoopSystemType::Doas);
+    for li in others.iter().chain(&doas) {
+        let Some(al) = air_loops.iter().find(|al| al.name == li.name) else {
+            continue;
+        };
+        let w = (
+            al.controls.zone_heating_supply_humidity_ratio,
+            al.controls.zone_cooling_supply_humidity_ratio,
+        );
+        for zone in &li.served_zones {
+            humidity.entry(zone.clone()).or_insert(w);
+        }
+    }
+    humidity
+}
+
 /// A loop's design flow and coil loads, and the cooling coil's design inlet
 /// conditions for its capacity curve.
 #[derive(Debug, Clone, Copy, Default)]
@@ -2259,6 +2285,8 @@ fn main() -> Result<()> {
             if let Some(ref mut env) = envelope {
                 let latitude = weather_data.location.latitude;
                 let zone_supply_temps = zone_design_supply_temps(&loop_infos, &model.vrf_systems);
+                let zone_supply_humidity =
+                    zone_design_supply_humidity(&loop_infos, &model.air_loops);
                 // Zones whose lighting return-air heat goes to the return, not
                 // into the zone load (E+ `CalcZoneLeavingConditions`).
                 let return_air_zones: HashSet<String> = loop_infos
@@ -2276,6 +2304,7 @@ fn main() -> Result<()> {
                     output_dir,
                     &input_stem,
                     &zone_supply_temps,
+                    &zone_supply_humidity,
                     &return_air_zones,
                     model.simulation.heating_sizing_factor,
                     model.simulation.cooling_sizing_factor,

@@ -154,13 +154,16 @@ not an annual design condition.
 
 **Source:** `sizing.rs` (`run_zone_sizing`, `run_sizing`).
 
-**Design loads.** A zone's design heating load $Q_h$ is the largest hourly
-heating load over all heating design days times the heating sizing factor
-$f_h$ (`heating_sizing_factor`). Its design cooling load $Q_c$ is the largest
-cooling load over all cooling design days times the cooling sizing factor $f_c$
-(`cooling_sizing_factor`). The design day and hour of each are recorded. The
-factors enter here and only here: flows and capacities sized from these loads
-inherit the margin once.
+**Design loads.** For each design day, a zone's heating and cooling loads
+$Q_k$ at every timestep $k$ of the last day are averaged over the window
+(@eq-sizing-avg). The day's design load is the largest averaged load, at its
+first timestep $k^*$. Of all the heating (cooling) design days, the one whose
+design flow (below) is largest sets the zone's design heating (cooling) load,
+day and hour; if no day needs any flow, the one with the largest load does.
+The design loads $Q_h$ and $Q_c$ are those times the heating and cooling sizing
+factors $f_h$ (`heating_sizing_factor`) and $f_c$ (`cooling_sizing_factor`).
+The factors enter here and only here: flows and capacities sized from these
+loads inherit the margin once.
 
 **Zone multipliers.** A zone with multiplier $N_z$ stands for $N_z$ identical
 zones. OpenBSE simulates one instance with one instance of its air loop. All
@@ -173,28 +176,42 @@ $N_z$. Both give the same energy for a loop whose zones share a multiplier. A lo
 or VRF system serving zones with different multipliers can't be represented here
 and is a severe error ([#280](https://github.com/bbrannon4/OpenBSE/issues/280)).
 
-**Design flows.** The design flows [kg/s] are
+**Design flows.** Each timestep's load becomes the supply flow [kg/s] that
+delivers it to the zone at that timestep's air temperature $T_{z,k}$:
 
 $$
-\begin{gathered}
-\dot m_h = \max\left(\frac{Q_h}{c_p\max(T_{s,h} - T_{z,h},\ 5)},\ \dot m_\text{oa}\right),
+\dot m_{h,k} = \frac{Q_{h,k}}{c_{p,h}\max(T_{s,h} - T_{z,k},\ 5)},
 \qquad
-\dot m_c = \max\left(\frac{Q_c}{c_p\max(T_{z,c} - T_{s,c} - \Delta T_\text{fan},\ 3)},\ \dot m_\text{oa},\ \dot m_\text{min}\right),\\
-\dot m_\text{des} = \max(\dot m_h,\ \dot m_c,\ 0.01),
-\end{gathered}
-$$ {#eq-zone-design-flow}
+\dot m_{c,k} = \frac{Q_{c,k}}{c_{p,c}\max(T_{z,k} - T_{s,c} - \Delta T_\text{fan},\ 3)},
+$$ {#eq-zone-step-flow}
 
 where:
 
-- $c_p = 1005$ J/(kg·K);
-- $T_{z,h}$ and $T_{z,c}$ are the zone's heating and cooling setpoints;
+- $c_{p,h}$ and $c_{p,c}$ are the moist-air specific heats
+  $1004.84 + 1858.95\,W$ J/(kg·K) at the design supply humidity ratios
+  `zone_heating_supply_humidity_ratio` and `zone_cooling_supply_humidity_ratio`
+  of the zone's air loop (default 0.008 kg/kg each);
 - $T_{s,h}$ and $T_{s,c}$ are the heating and cooling supply temperatures of
   the zone's first loop that is not a DOAS, or of its DOAS if it has no other
   (35 °C and 13 °C with no air loop);
 - $\Delta T_\text{fan}$ is `sizing_fan_delta_t` (default 0), the supply fan's
   temperature rise;
-- $\dot m_\text{oa}$ is the zone's minimum outdoor-air flow, a floor on both
-  flows:
+- the 5 K and 3 K floors keep a supply barely warmer (cooler) than the zone
+  from sizing an unbounded flow.
+
+The flows are averaged over the same window as the loads, and the design day's
+flow is the averaged flow at $k^*$. The zone's design flows are
+
+$$
+\dot m_h = \max(f_h\,\bar{\dot m}_{h,k^*},\ \dot m_\text{oa}),
+\qquad
+\dot m_c = \max(f_c\,\bar{\dot m}_{c,k^*},\ \dot m_\text{oa},\ \dot m_\text{min}),
+\qquad
+\dot m_\text{des} = \max(\dot m_h,\ \dot m_c,\ 0.01),
+$$ {#eq-zone-design-flow}
+
+where $\dot m_\text{oa}$ is the zone's minimum outdoor-air flow, a floor on both
+flows:
 
 $$
 \dot m_\text{oa} = \rho_\text{std}\,\dot V_{\text{oa},z},
@@ -206,9 +223,9 @@ with $\dot V_{\text{oa},z}$ from @eq-zone-oa at design occupancy, per zone
 instance, and $p_\text{dd}$ the first design day's pressure. The outdoor-air load itself is not part of $Q_h$ or $Q_c$;
 it belongs to the central coil.
 
-- $\dot m_\text{min}$ is the zone's minimum design cooling flow, a floor on
-  the cooling flow only, for air-change requirements such as those of
-  operating and patient rooms:
+$\dot m_\text{min}$ is the zone's minimum design cooling flow, a floor on
+the cooling flow only, for air-change requirements such as those of
+operating and patient rooms:
 
 $$
 \dot m_\text{min} = \rho_\text{std}\,\max\left(\dot V''_\text{min} A_z,\ \dot V_\text{min}\right),
@@ -220,17 +237,42 @@ with $\dot V''_\text{min}$ the zone's `minimum_cooling_flow_per_area`
 A box's maximum flow follows $\dot m_\text{des}$, so a VAV box's minimum
 fraction applies to the raised flow.
 
+Where the setpoint holds through the averaging window, $T_{z,k}$ is the
+setpoint and the flow is the averaged load over $c_p(T_s - T_z)$. A window
+that spans a setback recovery takes the recovery steps' loads at the lower
+(higher) setpoint they were met at, so they need less flow.
+
 **Cooling flow sequence.** For each cooling design day and hour, the zone's
-cooling flow is computed in the same way from that hour's load times $f_c$,
-with the same floors $\dot m_\text{oa}$ and $\dot m_\text{min}$. This
-sequence (E+ `CoolFlowSeq`) gives the coincident flow of multizone systems
+cooling flow is the averaged flow at the hour's timestep of largest averaged
+load, times $f_c$, with the floors $\dot m_\text{oa}$ and $\dot m_\text{min}$. This sequence (E+
+`CoolFlowSeq`) gives the coincident flow of multizone systems
 (@sec-system-sizing).
 
 **Comparison with EnergyPlus.** The method follows E+ `Sizing:Zone` with the
-`DesignDay` flow method: flow from the peak load and the supply-to-zone
-temperature difference, with the minimum outdoor air as a floor
+`DesignDay` flow method and the `SupplyAirTemperature` input method: a flow per
+timestep from the load, the zone temperature and the specific heat at the design
+supply humidity (`sizeZoneSpaceEquipmentPart1`), loads and flows averaged with
+`General::MovingAvg`, the design flow taken at the peak averaged load
+(`updateZoneSizingEndDay`), the design day with the largest flow chosen
+(`updateZoneSizingEndZoneSizingCalc`), and the minimum outdoor air as a floor
 [@eplus-engref-25-2, "Zone Design Loads and Air Flow Rates"]. The
 differences are:
+
+- **Zone temperature of a step.** E+ divides each step's load by the
+  supply-to-zone difference at the zone temperature the step starts from, then
+  delivers that flow at the supply temperature against the zone's new
+  temperature, so the step after a setpoint change delivers less than its
+  load: the zone reaches the new setpoint a step or two late and the following
+  steps record the remainder. OpenBSE's sizing load holds the zone exactly at
+  each step's setpoint, and its flow uses the temperature the step ends at,
+  the one an implicit zone balance (@sec-zone-air-hb) delivers the supply
+  against, so the sized flow delivers the sized load. The loads agree where the
+  setpoint holds; after a setback recovery E+'s recorded loads run higher for a
+  step or two. On the retail prototype that makes E+'s design heating loads
+  about 2 % and its Core_Retail design cooling load about 2 % higher than
+  OpenBSE's, from the recovery alone.
+- **Flow floors.** E+ sets the flow to zero when the supply is no warmer
+  (cooler) than the zone; OpenBSE uses the 5 K and 3 K floors.
 
 - **Sizing factors.** Applied as in EnergyPlus, to the zone's design load,
   flow and flow sequence before the outdoor-air floor
