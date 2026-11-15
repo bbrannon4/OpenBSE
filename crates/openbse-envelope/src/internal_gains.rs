@@ -202,6 +202,15 @@ impl EquipmentFuel {
     }
 }
 
+impl EquipmentFuel {
+    /// The submeter end-use key of exterior equipment on this fuel:
+    /// `ext_equipment` for electricity, `ext_equipment_<fuel>` otherwise, and
+    /// `None` when unmetered.
+    pub fn exterior_end_use_key(self) -> Option<String> {
+        self.end_use_key().map(|k| format!("ext_{k}"))
+    }
+}
+
 /// The fuels the summary report totals separately. Propane, the fuel oils,
 /// diesel, gasoline, coal, other fuels 1 and 2 and district cooling share
 /// `OtherFuel`; submeters keep each one apart.

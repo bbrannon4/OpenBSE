@@ -2705,9 +2705,9 @@
       "properties": {
         "name": { "type": "string" },
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use reporting (takes precedence over subcategory)." },
-        "power": { "type": "number", "description": "Design power [W]." },
+        "power": { "type": "number", "minimum": 0, "description": "Design power [W]." },
         "schedule": { "type": "string", "description": "Fraction schedule [0-1]. Always at full power if omitted." },
-        "fuel": { "type": "string", "enum": ["electricity", "natural_gas"], "default": "electricity" },
+        "fuel": { "type": "string", "enum": ["electricity", "natural_gas", "propane", "fuel_oil_no1", "fuel_oil_no2", "diesel", "gasoline", "coal", "other_fuel1", "other_fuel2", "district_heating_water", "district_heating_steam", "district_cooling"], "default": "electricity", "description": "Fuel the equipment draws (E+ Exterior:FuelEquipment fuel use type). Its power is metered on that fuel under the exterior equipment end use: summary rows Exterior Equipment (electricity), Exterior Equipment (Gas), (District Heating Water), (District Heating Steam) and (Other Fuels); submeter end use `ext_equipment` or `ext_equipment_<fuel>`. A subcategory containing \"exterior light\" books it as exterior lighting instead." },
         "subcategory": { "type": "string", "description": "Legacy end-use subcategory label; use submeter instead." },
         "astronomical_clock": { "type": "boolean", "default": false, "description": "Only operate at night (solar altitude <= 0), like E+ Exterior:Lights AstronomicalClock." }
       }
