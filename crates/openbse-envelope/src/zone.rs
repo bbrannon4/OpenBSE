@@ -643,6 +643,19 @@ pub struct ZoneInput {
     /// No limit if None (default).
     #[serde(default)]
     pub min_relative_humidity: Option<f64>,
+    /// Lower limit on the zone's design cooling air flow, per floor area
+    /// [m³/s·m²] (E+ `Sizing:Zone` Cooling Design Air Flow Method
+    /// DesignDayWithLimit, Cooling Minimum Air Flow per Zone Floor Area): the
+    /// design flow, and every hour of the design-day flow sequence, is at least
+    /// this times the floor area. Codes set it for air-change minimums
+    /// (operating rooms, patient rooms). None (default): no limit.
+    #[serde(default)]
+    pub minimum_cooling_flow_per_area: Option<f64>,
+    /// Lower limit on the zone's design cooling air flow [m³/s] (E+
+    /// DesignDayWithLimit, Cooling Minimum Air Flow). The larger of the two
+    /// limits applies. None (default): no limit.
+    #[serde(default)]
+    pub minimum_cooling_flow: Option<f64>,
     /// Cap the zone air humidity ratio at saturation for the zone temperature,
     /// condensing out the excess (default: true, as EnergyPlus's
     /// CorrectZoneHumRat does unconditionally). Matters for a sealed zone that
@@ -935,6 +948,15 @@ impl ZoneInput {
 
     /// Design supply outdoor-air flow of one zone instance [m³/s], if it has an
     /// outdoor-air requirement.
+    /// The lower limit on the zone's design cooling air flow [m³/s], the larger
+    /// of `minimum_cooling_flow_per_area` x floor area and
+    /// `minimum_cooling_flow`; 0 without either (E+ DesignDayWithLimit,
+    /// `ZoneEquipmentManager` DesCoolMinAirFlow / DesCoolMinAirFlow2).
+    pub fn minimum_design_cooling_flow(&self) -> f64 {
+        let per_area = self.minimum_cooling_flow_per_area.unwrap_or(0.0) * self.floor_area;
+        per_area.max(self.minimum_cooling_flow.unwrap_or(0.0))
+    }
+
     pub fn design_outdoor_air_flow(&self) -> Option<f64> {
         let oa = self.outdoor_air.as_ref()?;
         Some(oa.supply_flow(self.design_people(), self.floor_area, self.volume))
@@ -1846,6 +1868,8 @@ mod tests {
             limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
+            minimum_cooling_flow_per_area: None,
+            minimum_cooling_flow: None,
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
@@ -1942,6 +1966,8 @@ mod tests {
             limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
+            minimum_cooling_flow_per_area: None,
+            minimum_cooling_flow: None,
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
@@ -2214,6 +2240,8 @@ mod tests {
             limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
+            minimum_cooling_flow_per_area: None,
+            minimum_cooling_flow: None,
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
@@ -2284,6 +2312,8 @@ mod tests {
             limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
+            minimum_cooling_flow_per_area: None,
+            minimum_cooling_flow: None,
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
@@ -2329,6 +2359,8 @@ mod tests {
             limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
+            minimum_cooling_flow_per_area: None,
+            minimum_cooling_flow: None,
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],

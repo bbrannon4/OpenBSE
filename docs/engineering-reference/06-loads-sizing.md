@@ -179,7 +179,7 @@ $$
 \begin{gathered}
 \dot m_h = \max\left(\frac{Q_h}{c_p\max(T_{s,h} - T_{z,h},\ 5)},\ \dot m_\text{oa}\right),
 \qquad
-\dot m_c = \max\left(\frac{Q_c}{c_p\max(T_{z,c} - T_{s,c} - \Delta T_\text{fan},\ 3)},\ \dot m_\text{oa}\right),\\
+\dot m_c = \max\left(\frac{Q_c}{c_p\max(T_{z,c} - T_{s,c} - \Delta T_\text{fan},\ 3)},\ \dot m_\text{oa},\ \dot m_\text{min}\right),\\
 \dot m_\text{des} = \max(\dot m_h,\ \dot m_c,\ 0.01),
 \end{gathered}
 $$ {#eq-zone-design-flow}
@@ -206,8 +206,23 @@ with $\dot V_{\text{oa},z}$ from @eq-zone-oa at design occupancy, per zone
 instance, and $p_\text{dd}$ the first design day's pressure. The outdoor-air load itself is not part of $Q_h$ or $Q_c$;
 it belongs to the central coil.
 
+- $\dot m_\text{min}$ is the zone's minimum design cooling flow, a floor on
+  the cooling flow only, for air-change requirements such as those of
+  operating and patient rooms:
+
+$$
+\dot m_\text{min} = \rho_\text{std}\,\max\left(\dot V''_\text{min} A_z,\ \dot V_\text{min}\right),
+$$ {#eq-zone-min-cool-flow}
+
+with $\dot V''_\text{min}$ the zone's `minimum_cooling_flow_per_area`
+[m³/s·m²], $A_z$ its floor area and $\dot V_\text{min}$ its
+`minimum_cooling_flow` [m³/s]; both default to none ($\dot m_\text{min} = 0$).
+A box's maximum flow follows $\dot m_\text{des}$, so a VAV box's minimum
+fraction applies to the raised flow.
+
 **Cooling flow sequence.** For each cooling design day and hour, the zone's
-cooling flow is computed in the same way from that hour's load times $f_c$. This
+cooling flow is computed in the same way from that hour's load times $f_c$,
+with the same floors $\dot m_\text{oa}$ and $\dot m_\text{min}$. This
 sequence (E+ `CoolFlowSeq`) gives the coincident flow of multizone systems
 (@sec-system-sizing).
 
@@ -227,6 +242,17 @@ differences are:
 - **Density.** EnergyPlus uses the standard density at the site's elevation
   pressure; OpenBSE uses the first design day's pressure. These agree when
   the design day gives the site pressure.
+- **Minimum cooling flow.** $\dot m_\text{min}$ is the `DesignDayWithLimit`
+  flow method, Cooling Minimum Air Flow per Zone Floor Area and Cooling
+  Minimum Air Flow (`ZoneEquipmentManager`, DesCoolMinAirFlow2 and
+  DesCoolMinAirFlow): E+ raises the final design flow and every step of the
+  final `CoolFlowSeq` to $\max(\dot V_\text{min}, \dot V''_\text{min} A_z,
+  \dot V_\text{oa})$, as here. E+ also raises each design day's own sequence,
+  but by the absolute limit only (its per-area term is not applied there); OpenBSE
+  applies both limits to every design day's sequence. E+'s Cooling Minimum Air
+  Flow Fraction (a fraction of the design flow) only sizes VAV box minimums,
+  which OpenBSE takes from `min_flow_fraction`. The default when no limit is
+  given is none, as E+'s `DesignDay` method.
 
 ## System sizing {#sec-system-sizing}
 
