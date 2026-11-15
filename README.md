@@ -152,7 +152,7 @@ A water-source heat pump (`wshp`) is rejected as a severe input error: it isn't 
 
 ### Controls
 - **Thermostats and schedules** — hourly setpoint schedules, day types including holidays, seasons, and `"value until HH:MM"` schedules
-- **PSZ-AC** — single-zone packaged unit: E+ `UnitarySystem` load control (`cycling: modulating`, the default: part-load cycling, or a modulating heating supply temperature on a continuous fan), cycling in every case (`cycling: on_off`), or proportional heating with a steady offset (`cycling: proportional`); cycling, continuous or no-load-off fans; single-zone supply-temperature reset (E+ PSZ-VAV); a multi-zone PSZ controls from its first zone
+- **PSZ-AC** — single-zone packaged unit: E+ `UnitarySystem` load control (`cycling: modulating`, the default: part-load cycling, or a modulating heating supply temperature on a continuous fan), cycling in every case (`cycling: on_off`), or proportional heating with a steady offset (`cycling: proportional`); cycling, continuous or no-load-off fans; single-zone supply-temperature reset (E+ PSZ-VAV); a multi-zone PSZ controls from its first zone and splits its air by design flow
 - **VAV** — warmest-zone supply-temperature reset (E+ `SetpointManager:Warmest`), dual-maximum boxes, ASHRAE 62.1 ventilation rate procedure, preheat
 - **DOAS** — 100% outdoor air, always on, its flow from the served zones' `outdoor_air` and its supply temperatures from the loop's controls
 - **Economizers** — fixed and differential dry-bulb and enthalpy, with high limits and compressor lockout

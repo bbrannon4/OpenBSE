@@ -105,9 +105,9 @@ loop part-load ratio from the zone load, and scale the outputs by it. From the
 supply state, with $T_\text{ref} = \min(T_h, T_z)$ in heating and
 $\max(T_c, T_z)$ in cooling, the net capacity is
 $\dot Q_\text{cap} = \dot mc_p|T_\text{sup} - T_\text{ref}|$, with $\dot m$ the control
-zone's share of the supply: all of it for a single-zone unit, $1/n$ of it for a PSZ-AC
-serving $n$ zones, as E+ `UnitarySystem` divides the control zone's load by its
-`ControlZoneMassFlowFrac`. Then
+zone's share of the supply: all of it for a single-zone unit, and for a PSZ-AC its
+design flow over the sum of its zones' design flows, as E+ `UnitarySystem` divides
+the control zone's load by its `ControlZoneMassFlowFrac`. Then
 
 $$
 x = \begin{cases}
@@ -164,9 +164,9 @@ outdoor-air fraction and the zone at the start of the timestep.
 its part-load ratio iteratively against the unit's output; @eq-plr is its closed
 form. As in EnergyPlus, a cycling fan has zero flow with no load
 (`Fan:OnOff` with a cycling UnitarySystem), and a small load is met with a small
-part load. PSZ-AC serves several
-zones evenly, controlled by the first; E+ also controls from one zone but splits by
-design flow ([#389](https://github.com/bbrannon4/OpenBSE/issues/389)).
+part load. A PSZ-AC serving several zones is controlled by the first and splits its
+supply and return air by the zones' design flows, as E+ splits a unitary system's air
+by its terminals' maximum flows.
 
 ## Multi-speed packaged units {#sec-unitary-speeds}
 
@@ -431,7 +431,5 @@ level and no ignore count.
   unoccupied setpoints unused.
 - [#388](https://github.com/bbrannon4/OpenBSE/issues/388): VAV Warmest maximum
   and no-box heating fraction are not inputs.
-- [#389](https://github.com/bbrannon4/OpenBSE/issues/389): a multi-zone PSZ splits
-  its flow evenly.
 - [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no daylight saving or
   start day of week.

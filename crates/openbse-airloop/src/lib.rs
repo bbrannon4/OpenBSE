@@ -550,15 +550,6 @@ fn zone_mode(ctx: &SignalCtx, zone: &str, zone_temp: f64, heat_sp: f64, cool_sp:
         .unwrap_or_else(|| hvac_mode(zone_temp, heat_sp, cool_sp))
 }
 
-/// A loop's total design flow [kg/s]: the sum of its zones' design flows.
-fn total_flow_for(li: &LoopInfo, zone_design_flows: &HashMap<String, f64>) -> f64 {
-    li.served_zones
-        .iter()
-        .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.5))
-        .sum::<f64>()
-        .max(0.01)
-}
-
 /// Whether a PSZ-AC unit modulates its heating supply temperature to the load
 /// (`cycling: modulating` with a continuous fan and no compressor heating
 /// coil), as an E+ UnitarySystem does with a continuous fan and a gas,
@@ -713,8 +704,11 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         // rise, up to the design supply temperature (E+ UnitarySystem load
         // control, QZnReq / ControlZoneMassFlowFrac).
         openbse_io::input::CyclingMethod::Modulating if psz_modulates_heating(li) => {
-            let share = li.served_zones.len().max(1) as f64;
-            let zone_flow = total_flow_for(li, zone_design_flows) / share;
+            let zone_flow = zone_design_flows
+                .get(control_zone)
+                .copied()
+                .unwrap_or(0.5)
+                .max(0.01);
             let cp = openbse_psychrometrics::cp_air_fn_w(
                 zone_humidity_ratios
                     .get(control_zone)
@@ -797,9 +791,12 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     // Return air temperature: stratified zones (#91), data-center zones and
     // zones whose lights heat the return air (#51) publish their return
     // temperature; well-mixed zones return at their air temperature. The
-    // supply is split evenly between the served zones, so is the return.
-    let return_air_temp = mixed_return_temp(ctx, &li.served_zones, |_| 1.0);
-    let return_w = mixed_return_w(zone_humidity_ratios, &li.served_zones, |_| 1.0).unwrap_or(0.008);
+    // supply is split by the zones' design flows (E+ terminal maximum
+    // flows), and so is the return.
+    let zone_flow = |z: &str| zone_design_flows.get(z).copied().unwrap_or(0.5);
+    let return_air_temp = mixed_return_temp(ctx, &li.served_zones, zone_flow);
+    let return_w =
+        mixed_return_w(zone_humidity_ratios, &li.served_zones, zone_flow).unwrap_or(0.008);
     // A return fan (when present) heats the return air before it mixes with
     // outdoor air. The economizer availability test still uses the pre-fan
     // return condition (the standard control-sensor location); only the

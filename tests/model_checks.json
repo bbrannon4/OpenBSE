@@ -84,16 +84,18 @@
     },
     "examples/retail_rtu.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 6070,
-      "max_unmet_heating_hours_reason": "5516 h measured building-wide with modulating (E+ UnitarySystem) control (#178), about 10% margin: nearly all in the 12 m2 Office, a zone on the Sales Area's thermostat, which the even air split over-supplies (#389).",
-      "max_unmet_cooling_hours": 1600,
-      "max_unmet_cooling_hours_reason": "1452 h measured building-wide with modulating control (#178), about 10% margin: nearly all in the 12 m2 Office (no zone control; even air split, #389). Recorded on #328."
+      "max_unmet_heating_hours": 2810,
+      "max_unmet_heating_hours_reason": "2557 h measured building-wide, about 10% margin: nearly all in the 12 m2 Office, a zone on the Sales Area's thermostat with no zone control of its own, which gets its design share of the unit's air (E+ terminal maximum flows, #389). E+ counts such a zone the same way; giving it control is a change to the example, not the engine.",
+      "max_unmet_cooling_hours": 1250,
+      "max_unmet_cooling_hours_reason": "1134 h measured building-wide, about 10% margin: nearly all in the 12 m2 Office (no zone control; its design share of the air, #389)."
     },
     "examples/roller_shade_office.yaml": {
       "tier": "fast"
     },
     "examples/simple_heating.yaml": {
-      "tier": "fast"
+      "tier": "fast",
+      "max_unmet_heating_hours": 820,
+      "max_unmet_heating_hours_reason": "744 h measured building-wide, about 10% margin: all in the Conference Room, which has its own thermostat but no zone control on the PSZ that East Office controls, and gets its design share of the air (0.20 of 1.05 kg/s, E+ terminal maximum flows, #389). Recorded on #328."
     },
     "examples/vav_a205_fan_and_chiller.yaml": {
       "tier": "fast"
