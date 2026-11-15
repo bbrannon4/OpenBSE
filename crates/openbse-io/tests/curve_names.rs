@@ -19,13 +19,15 @@ fn dx_coil_curve_names_resolve() {
     assert!(severe(model, |t| t).is_empty());
     let errs = severe(model, |t| {
         t.replacen(
-            "cap_ft_curve: DX Cool Cap fT",
-            "cap_ft_curve: DX Cool Cap ft",
+            "cap_ft_curve: PSZ-AC_Unitary_PackagecoolCapFT",
+            "cap_ft_curve: PSZ-AC_Unitary_PackagecoolCapFt",
             1,
         )
     });
     assert_eq!(errs.len(), 1, "{errs:?}");
-    assert!(errs[0].contains("Core Retail DX': cap_ft_curve 'DX Cool Cap ft'"));
+    assert!(errs[0].contains(
+        "PSZ-AC:1_Unitary_Package_CoolCoil': cap_ft_curve 'PSZ-AC_Unitary_PackagecoolCapFt'"
+    ));
 }
 
 #[test]
