@@ -124,10 +124,14 @@ with $f_h$ for hours 1–24 of 0.88, 0.92, 0.95, 0.98, 1.00, 0.98, 0.91, 0.74, 0
 0.38, 0.23, 0.13, 0.05, 0, 0, 0.06, 0.14, 0.24, 0.39, 0.50, 0.59, 0.68, 0.75, 0.82
 [@ashrae2021fund, Ch. 14], and each timestep interpolated linearly within its hour.
 
-**Heating design days** have no solar irradiance, 10/10 opaque sky cover and the given
-wind speed.
+**Sky.** Every design day has a clear sky (0/10 opaque sky cover) and no
+horizontal infrared, so its sky temperature is the Clark–Allen clear-sky value
+from the dry-bulb and dew point (@sec-sky). On the Denver heating design day
+(−17.9 °C, saturated) that is −36.8 °C, as in E+.
 
-**Cooling design days** have 1/10 sky cover and a clear-sky irradiance:
+**Heating design days** have no solar irradiance and the given wind speed.
+
+**Cooling design days** have a clear-sky irradiance:
 
 $$
 I_\text{DN} = 1080\,e^{-0.174/\sin\alpha}\ \text{W/m}^2, \qquad
@@ -152,8 +156,10 @@ and the dew point for the sky temperature both come from this.
 schedules for each. EnergyPlus's relative-humidity type is an hourly schedule, where
 the constant value here is a simplification. Its sky is the ASHRAE clear sky, or the
 ASHRAE tau model when `taub` and `taud` are given; OpenBSE accepts `taub` and `taud`
-but does not use them ([#50](https://github.com/bbrannon4/OpenBSE/issues/50)), and sky
-cover and wind direction are fixed.
+but does not use them ([#50](https://github.com/bbrannon4/OpenBSE/issues/50)). Its sky
+cover is 0, or 10 for a day with its rain indicator set, and its sky temperature comes
+from the clear-sky emissivity (`CalcSkyEmissivity`); OpenBSE has no rain indicator, so
+its design days are always clear. The wind direction is fixed at 0°.
 
 ## Solar position {#sec-solar-position}
 
