@@ -3431,6 +3431,7 @@ fn main() -> Result<()> {
                             dow,
                             ctx.outdoor_air.p_b,
                         );
+                        env.update_daylighting(&ctx, &interp_weather);
                         let lighting_return_air = env.lighting_return_air_gains(&ctx);
 
                         // ── Dynamic blind control (#104) ─────────────────────────
@@ -8209,7 +8210,7 @@ mod tests {
         let mut timers = HashMap::new();
         // Heating setpoint 15.56 °C: 15.0 is within half the tolerance.
         let mut temp = 15.1;
-        let mut run = |timers: &mut HashMap<String, f64>, step, temp: f64| {
+        let run = |timers: &mut HashMap<String, f64>, step, temp: f64| {
             night_cycle_runs(&li, timers, step, 4, |_| Some((temp, 15.56, 23.89)))
         };
         assert!(!run(&mut timers, 10, temp));

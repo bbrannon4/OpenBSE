@@ -1144,8 +1144,11 @@ pub struct ZoneState {
     pub q_internal_conv: f64,
     /// Total radiative internal gains [W]
     pub q_internal_rad: f64,
-    /// Lighting electric power [W] (scheduled)
+    /// Lighting electric power [W] (scheduled, dimmed by daylighting)
     pub lighting_power: f64,
+    /// Lighting power multiplier from the zone's daylighting controls (1
+    /// without daylighting).
+    pub daylight_lights_factor: f64,
     /// Equipment and baseboard power by fuel group [W] (scheduled)
     pub equipment_power: crate::internal_gains::FuelPowers,
     /// People sensible heat [W] (scheduled)
@@ -1409,6 +1412,7 @@ impl ZoneState {
             q_internal_conv: 0.0,
             q_internal_rad: 0.0,
             lighting_power: 0.0,
+            daylight_lights_factor: 1.0,
             equipment_power: Default::default(),
             people_heat: 0.0,
             infiltration_mass_flow: 0.0,

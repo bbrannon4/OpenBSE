@@ -485,6 +485,7 @@ fn run_single_design_day(
                 // No supply air — ideal loads handles HVAC directly. The envelope
                 // puts lighting return-air heat in the zone air when no return
                 // carries it; on loops whose return would, take it back out.
+                env.update_daylighting(&ctx, wh);
                 let mut return_heat: HashMap<String, f64> = env
                     .lighting_return_air_gains(&ctx)
                     .into_iter()

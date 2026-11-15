@@ -112,6 +112,10 @@ pub struct ModelInput {
     /// Lights definitions (assignable to zones)
     #[serde(default)]
     pub lights: Vec<openbse_envelope::LightsInput>,
+    /// Daylighting controls that dim a zone's lights (E+
+    /// `Daylighting:Controls`, split-flux method)
+    #[serde(default)]
+    pub daylighting_controls: Vec<openbse_envelope::DaylightingControlInput>,
     /// Equipment gain definitions (assignable to zones), of any fuel
     #[serde(default)]
     pub equipment: Vec<openbse_envelope::EquipmentGainInput>,
@@ -4486,6 +4490,8 @@ pub fn build_envelope(
     // Set up schedule manager from model schedules
     env.schedule_manager = openbse_envelope::ScheduleManager::from_inputs(model.schedules.clone());
 
+    env.set_daylighting(&model.daylighting_controls);
+
     // Set shading calculation mode from simulation settings
     env.shading_calculation = model.simulation.shading_calculation;
 
@@ -5486,6 +5492,65 @@ fn validate_radiant_panel_rating(model: &ModelInput, result: &mut ValidationResu
 /// One air loop must serve zones of one multiplier. The run simulates one
 /// instance of a multiplied zone with one instance of its loop, then multiplies
 /// the energy, which can't represent a loop shared unevenly.
+/// Daylighting controls: an existing zone, one control per zone, reference
+/// points sharing at most the whole zone, and fractions in E+'s ranges.
+fn validate_daylighting(model: &ModelInput, result: &mut ValidationResult) {
+    let mut seen = std::collections::HashSet::new();
+    for c in &model.daylighting_controls {
+        let ctx = format!("Daylighting control '{}'", c.name);
+        if !model.zones.iter().any(|z| z.name == c.zone) {
+            result.severe(format!("{ctx}: zone '{}' does not exist", c.zone));
+        }
+        if !seen.insert(c.zone.as_str()) {
+            result.severe(format!(
+                "{ctx}: zone '{}' already has daylighting controls; give each zone one control \
+                 with all its reference points",
+                c.zone
+            ));
+        }
+        if c.reference_points.is_empty() {
+            result.severe(format!("{ctx}: it needs at least one reference point"));
+        }
+        let share: f64 = c.reference_points.iter().map(|p| p.fraction_of_zone).sum();
+        if share > 1.0 + 1e-6 {
+            result.severe(format!(
+                "{ctx}: the reference points' fraction_of_zone add up to {share:.3}, more than 1"
+            ));
+        }
+        for p in &c.reference_points {
+            if !(p.fraction_of_zone > 0.0 && p.fraction_of_zone <= 1.0) {
+                result.severe(format!(
+                    "{ctx}: fraction_of_zone {} is outside (0, 1]",
+                    p.fraction_of_zone
+                ));
+            }
+            if p.illuminance_setpoint <= 0.0 {
+                result.severe(format!(
+                    "{ctx}: illuminance_setpoint {} lux must be above zero",
+                    p.illuminance_setpoint
+                ));
+            }
+        }
+        for (field, v) in [
+            (
+                "minimum_input_power_fraction",
+                c.minimum_input_power_fraction,
+            ),
+            (
+                "minimum_light_output_fraction",
+                c.minimum_light_output_fraction,
+            ),
+        ] {
+            if !(0.0..=0.6).contains(&v) {
+                result.severe(format!("{ctx}: {field} {v} is outside [0, 0.6]"));
+            }
+        }
+        if c.stepped_control_steps == 0 {
+            result.severe(format!("{ctx}: stepped_control_steps must be at least 1"));
+        }
+    }
+}
+
 fn validate_zone_multipliers(model: &ModelInput, result: &mut ValidationResult) {
     let multiplier = |name: &str| {
         model
@@ -6174,6 +6239,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     validate_schedules(model, &schedule_names, &builtin_schedules, &mut result);
     validate_interzone_surfaces(model, &mut result);
+    validate_daylighting(model, &mut result);
     validate_per_area_loads(model, &mut result);
     warn_shading_geometry_ignored(model, &mut result);
     validate_scheduled_ventilation(model, &mut result);
@@ -6852,6 +6918,41 @@ air_loops:
              infiltration:\n- {{name: I, zones: [Room], flow_per_floor_area: 0.001}}\n"
         ))
         .unwrap()
+    }
+
+    /// Daylighting controls need an existing zone, reference points that
+    /// share at most the whole zone, and fractions within E+'s ranges.
+    #[test]
+    fn daylighting_controls_are_validated() {
+        let floor = "- {name: F, zone: Room, type: floor, construction: C, vertices: \
+                     [{x: 0, y: 0, z: 0}, {x: 0, y: 5, z: 0}, {x: 6, y: 5, z: 0}, {x: 6, y: 0, z: 0}]}\n";
+        let mut model = per_area_model(floor);
+        let control = |yaml: &str| -> openbse_envelope::DaylightingControlInput {
+            serde_yaml::from_str(yaml).unwrap()
+        };
+        model.daylighting_controls = vec![control(
+            "{name: D, zone: Room, reference_points: [{x: 1, y: 1, z: 0.8, fraction_of_zone: 0.5}]}",
+        )];
+        let ok = validate_model(&model).to_err_file();
+        assert!(!ok.contains("Daylighting control"), "{ok}");
+        model.daylighting_controls = vec![
+            control(
+                "{name: D, zone: Nowhere, minimum_input_power_fraction: 0.8, \
+                 reference_points: [{x: 1, y: 1, z: 0.8, fraction_of_zone: 0.7}, \
+                 {x: 2, y: 1, z: 0.8, fraction_of_zone: 0.7}]}",
+            ),
+            control("{name: E, zone: Nowhere, reference_points: []}"),
+        ];
+        let errors = validate_model(&model).to_err_file();
+        for expected in [
+            "zone 'Nowhere' does not exist",
+            "add up to 1.400",
+            "minimum_input_power_fraction 0.8 is outside [0, 0.6]",
+            "already has daylighting controls",
+            "needs at least one reference point",
+        ] {
+            assert!(errors.contains(expected), "{expected}: {errors}");
+        }
     }
 
     /// A 30 m² room with 4 people and the given extra YAML.

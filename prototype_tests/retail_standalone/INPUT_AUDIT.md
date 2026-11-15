@@ -55,6 +55,7 @@ runs of the IDF with the object removed).
 | `ElectricEquipment` × 4 | matched |
 | `ZoneInfiltration:DesignFlowRate` × 6 | matched: Flow/ExteriorArea written as the design flow E+ computes (rate × the zone's ExteriorTotalSurfArea, gross outdoor walls and roofs plus each opaque door's area again, as `SurfaceGeometry.cc` counts it); values agree with `eplusout.eio` |
 | `DesignSpecification:OutdoorAir` (Flow/Area) | matched for the four packaged units; Front_Entry's (used only by E+ zone sizing) is left out, as its unit heater has no outdoor air |
+| `Daylighting:Controls` (SplitFlux, ContinuousOff, 0.2 / 0.2) and `Daylighting:ReferencePoint` × 2 in Core_Retail | matched (`daylighting_controls`); the IDF's zone-relative reference points are written in absolute coordinates (zone origin added). The glare inputs only report glare and are left out |
 | `Exterior:Lights` × 2 (AstronomicalClock) | matched |
 | `WaterHeater:Mixed` (stand-alone, 40 gal, 11.7 kW, 0.82, 1,860 W on- and off-cycle parasitic gas, losses to Back_Space) | matched; `use_temperature` at the tank limit draws the whole use flow from the tank, as a stand-alone E+ tank does |
 
@@ -78,8 +79,7 @@ runs of the IDF with the object removed).
 
 ## Gaps
 
-1. Daylighting controls in Core_Retail (`Daylighting:Controls`, SplitFlux, ContinuousOff, two reference points of 25 % each at 538 lux). OpenBSE has no daylighting model yet: E+ without it uses 10,867 kWh (16 %) more interior lighting, 1,395 kWh more cooling and 3,528 kWh less heating.
-2. Daylight saving time (above).
-3. Lights visible fraction (0.2) counted as long-wave radiant; E+ distributes it as short-wave, some of it lost through windows.
-4. Optimum-start EMS program (above).
-5. Economizer maximum outdoor-air fraction 0.75 (above).
+1. Daylight saving time (above).
+2. Lights visible fraction (0.2) counted as long-wave radiant; E+ distributes it as short-wave, some of it lost through windows.
+3. Optimum-start EMS program (above).
+4. Economizer maximum outdoor-air fraction 0.75 (above).

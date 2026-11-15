@@ -17,6 +17,7 @@ Last updated: 2026-10-25
 - Simple constructions (U-factor + lumped thermal capacity)
 - Window constructions: simple glazing (U-factor + SHGC, E+ SimpleGlazingSystem equivalent layer) or up to four glass layers with gas gaps (air, argon, krypton, xenon, mixtures); face temperatures of every layer from their heat balances
 - Solar heat gains through windows (beam + diffuse; E+ layer optics with angular dependence: transmitted solar and the solar absorbed in each glass layer)
+- Daylighting controls (E+ Daylighting:Controls split flux: daylight factors for four standard skies and the sun, Perez luminous efficacy, continuous, continuous-off and stepped dimming of a zone's lights)
 - FullExterior and FullInteriorAndExterior solar distribution with beam/diffuse split and VMULT redistribution
 - External shading (overhangs and fins with geometric beam shadow calculation, diffuse sky view factor reduction)
 - Dynamic interior shading control (solar-irradiance or zone-temperature triggers with deployment hysteresis; a blind's assembly rating as its own simple glazing, or a shade layer with its own temperature)
