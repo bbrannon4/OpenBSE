@@ -9,13 +9,13 @@ audited object by object in `INPUT_AUDIT.md`.
 
 | End use | E+ | OpenBSE | Difference |
 |---|---|---|---|
-| Heating (gas) | 93,278 | 95,627 | +2.5 % |
-| Cooling (electric) | 27,833 | 27,821 | 0.0 % |
+| Heating (gas) | 93,278 | 90,705 | −2.8 % |
+| Cooling (electric) | 27,833 | 27,758 | −0.3 % |
 | Interior lighting | 67,022 | 67,681 | +1.0 % |
 | Exterior lighting | 10,733 | 10,908 | +1.6 % |
 | Interior equipment | 53,972 | 53,971 | 0.0 % |
-| Fans | 48,547 | 49,392 | +1.7 % |
-| Water heating (gas) | 26,667 | 26,664 | 0.0 % |
+| Fans | 48,547 | 49,185 | +1.3 % |
+| Water heating (gas) | 26,667 | 26,666 | 0.0 % |
 
 Interior lighting: Core_Retail's daylighting controls dim its lights to
 51.3 MWh (E+ 50.6, +1.3 %). Its daylight factors agree with E+'s
@@ -30,16 +30,19 @@ Daylighting adds 3.2 MWh of heating and saves 1.3 MWh of cooling (E+: 3.5 and
 
 | | E+ | OpenBSE | Difference |
 |---|---|---|---|
-| PSZ-AC:1 (Back_Space) gas / cooling / fan | 17,490 / 3,300 / 4,896 | 16,483 / 3,215 / 5,109 | −5.8 % / −2.6 % / +4.4 % |
-| PSZ-AC:2 (Core_Retail) | 55,548 / 18,101 / 30,860 | 59,096 / 17,650 / 32,786 | +6.4 % / −2.5 % / +6.2 % |
-| PSZ-AC:3 (Point_Of_Sale) | 3,968 / 3,470 / 3,454 | 4,084 / 3,590 / 3,355 | +2.9 % / +3.5 % / −2.9 % |
-| PSZ-AC:4 (Front_Retail) | 5,873 / 2,963 / 6,408 | 5,827 / 2,899 / 6,220 | −0.8 % / −2.2 % / −2.9 % |
-| Unit heater (Front_Entry) gas / fan | 10,398 / 2,930 | 10,392 / 2,758 | −0.1 % / −5.9 % |
+| PSZ-AC:1 (Back_Space) gas / cooling / fan | 17,490 / 3,300 / 4,896 | 16,816 / 3,284 / 5,003 | −3.8 % / −0.5 % / +2.2 % |
+| PSZ-AC:2 (Core_Retail) | 55,548 / 18,101 / 30,860 | 53,979 / 17,956 / 31,998 | −2.8 % / −0.8 % / +3.7 % |
+| PSZ-AC:3 (Point_Of_Sale) | 3,968 / 3,470 / 3,454 | 3,772 / 3,616 / 3,303 | −4.9 % / +4.2 % / −4.4 % |
+| PSZ-AC:4 (Front_Retail) | 5,873 / 2,963 / 6,408 | 5,685 / 2,901 / 6,126 | −3.2 % / −2.1 % / −4.4 % |
+| Unit heater (Front_Entry) gas / fan | 10,398 / 2,930 | 10,453 / 2,756 | +0.5 % / −5.9 % |
 
 Zone loads agree: each zone's infiltration within 1–3 %, its sensible cooling
-from the system within 1–5 %. Core_Retail's gas is high (+6.4 %): the unit was
-already about 8 % above E+'s heating without daylighting (E+ without it, about
-52 MWh), which the undimmed lights hid. Core_Retail's design flow is 8.39 m³/s against E+'s 8.21 (+2.2 %).
+from the system within 1–5 %. During occupied winter hours the units hold
+their zones at the heating setpoint as E+'s do: with a continuous fan they
+meet the signed load to the setpoint, adding only the heat that keeps the
+cold outdoor air from taking the zone below it (Engineering Reference,
+multi-speed packaged units). The units' gas is 3–5 % below E+'s.
+Core_Retail's design flow is 8.39 m³/s against E+'s 8.21 (+2.2 %).
 Both convert each design-day timestep's load to a flow with the zone
 temperature and `cp` at the IDF's design supply humidity (0.007 kg/kg cooling,
 0.008 heating) and size on the averaged flows; E+ takes the zone temperature
@@ -72,11 +75,17 @@ sizing). The cooling design day's solar is not yet E+'s ASHRAE tau model
 
 ## Unmet hours
 
-E+ reports 1.5 occupied heating hours and none cooling. OpenBSE counts every
-hour of every conditioned zone at 0.2 K tolerance: 580 h heating, about half of
-them the entry vestibule while its heater is locked out above 7.2 °C (E+ counts
-no hours in a zone without occupants) and the rest the first hour of morning
-warm-up from the setback, before anyone arrives (E+ counts occupied hours only),
-and 1,130 h cooling, night hours 0.2–0.5 K
-above the 23.89 °C no-setback cooling setpoint, inside the night cycle's
-0.5 K tolerance (E+ counts only occupied hours, at 0.56 K).
+At the IDF's 0.556 K tolerance, counting every hour (E+ "Time Setpoint Not
+Met", not only occupied hours) [h]:
+
+| Zone | E+ heating | OpenBSE | E+ cooling | OpenBSE |
+|---|---|---|---|---|
+| Back_Space | 63.25 | 64.5 | 90.5 | 83.0 |
+| Core_Retail | 0.25 | 0 | 0 | 0 |
+| Point_Of_Sale | 34.25 | 35.2 | 259.75 | 256.5 |
+| Front_Retail | 50.25 | 51.2 | 160.5 | 132.8 |
+| Front_Entry | 382.5 | 356.5 | 0 | 0 |
+| Facility (any zone) | 459.5 | 434.0 | 425.25 | 403.2 |
+
+The entry vestibule's hours are those its heater is locked out above 7.2 °C.
+E+ reports 1.5 occupied heating hours and none cooling.
