@@ -7799,7 +7799,8 @@ fn exterior_equipment_power(
 }
 
 /// Book exterior equipment to its end use: exterior lights (a subcategory
-/// containing "exterior light"), gas equipment, or exterior equipment.
+/// containing "exterior light") or exterior equipment on its fuel, as E+
+/// meters `Exterior:FuelEquipment` under the ExteriorEquipment end use.
 fn book_exterior_equipment(
     snapshot: &mut OutputSnapshot,
     ext: &openbse_io::input::ExteriorEquipmentInput,
@@ -7810,14 +7811,18 @@ fn book_exterior_equipment(
         .as_deref()
         .map(|s| s.to_lowercase().contains("exterior light"))
         .unwrap_or(false);
-    let map = if is_ext_lights {
-        &mut snapshot.ext_lighting_power
-    } else if ext.fuel == "natural_gas" {
-        &mut snapshot.component_fuel_power
-    } else {
-        &mut snapshot.ext_equipment_power
-    };
-    *map.entry(ext.name.clone()).or_default() += power;
+    if is_ext_lights {
+        *snapshot
+            .ext_lighting_power
+            .entry(ext.name.clone())
+            .or_default() += power;
+    } else if let Some(group) = ext.fuel.group() {
+        snapshot
+            .ext_equipment_power
+            .entry(ext.name.clone())
+            .or_default()
+            .add(group, power);
+    }
 }
 
 fn add_submeter_power(
@@ -7890,10 +7895,7 @@ fn route_submeter_energy(
             })
     };
     for (comp_name, &pw) in &snapshot.component_fuel_power {
-        // Gas exterior equipment is booked with component fuel; it keeps its
-        // own meter.
-        let meter = ext_meter(comp_name).unwrap_or_else(|| meter_of(comp_name));
-        add_submeter_power(&mut sm, &meter, "heating_gas", pw);
+        add_submeter_power(&mut sm, &meter_of(comp_name), "heating_gas", pw);
     }
     for (map, end_use) in [
         (&snapshot.pump_electric_power, "pump_electric"),
@@ -7915,14 +7917,21 @@ fn route_submeter_energy(
             add_submeter_power(&mut sm, meter, "dhw_gas", fp);
         }
     }
-    for (map, end_use) in [
-        (&snapshot.ext_lighting_power, "ext_lighting"),
-        (&snapshot.ext_equipment_power, "ext_equipment"),
-    ] {
-        for (name, &pw) in map {
-            if let Some(meter) = ext_meter(name) {
-                add_submeter_power(&mut sm, &meter, end_use, pw);
-            }
+    for (name, &pw) in &snapshot.ext_lighting_power {
+        if let Some(meter) = ext_meter(name) {
+            add_submeter_power(&mut sm, &meter, "ext_lighting", pw);
+        }
+    }
+    for ext in &model.exterior_equipment {
+        let Some(pw) = snapshot.ext_equipment_power.get(&ext.name) else {
+            continue;
+        };
+        if let (Some(meter), Some(group), Some(end_use)) = (
+            ext_meter(&ext.name),
+            ext.fuel.group(),
+            ext.fuel.exterior_end_use_key(),
+        ) {
+            add_submeter_power(&mut sm, &meter, &end_use, pw.get(group));
         }
     }
     snapshot.submeter_power = sm;

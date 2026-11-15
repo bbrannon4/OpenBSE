@@ -538,7 +538,16 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
         ("building:lighting", "W", "Interior lighting power"),
         ("building:ext_lighting", "W", "Exterior lighting power"),
         ("building:equipment", "W", "Interior equipment power"),
-        ("building:ext_equipment", "W", "Exterior equipment power"),
+        (
+            "building:ext_equipment",
+            "W",
+            "Exterior electric equipment power",
+        ),
+        (
+            "building:ext_equipment_gas",
+            "W",
+            "Exterior equipment natural gas power",
+        ),
         (
             "building:total_electric",
             "W",
@@ -634,11 +643,14 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
 }
 
 /// The fuel group of a submeter end-use key: gas heating and DHW gas are
-/// natural gas, `equipment_<fuel>` follows its fuel, and the rest is electric.
+/// natural gas, `equipment_<fuel>` and `ext_equipment_<fuel>` follow their
+/// fuel, and the rest is electric.
 fn submeter_end_use_group(end_use: &str) -> FuelGroup {
     match end_use {
         "heating_gas" | "dhw_gas" => FuelGroup::NaturalGas,
         other => other
+            .strip_prefix("ext_")
+            .unwrap_or(other)
             .strip_prefix("equipment_")
             .and_then(EquipmentFuel::from_key)
             .and_then(EquipmentFuel::group)
@@ -983,7 +995,8 @@ pub struct OutputSnapshot {
     pub dhw_electric_power: HashMap<String, f64>,
     pub dhw_fuel_power: HashMap<String, f64>,
     pub ext_lighting_power: HashMap<String, f64>,
-    pub ext_equipment_power: HashMap<String, f64>,
+    /// Exterior equipment power by fuel group, per equipment [W].
+    pub ext_equipment_power: HashMap<String, FuelPowers>,
     pub pump_electric_power: HashMap<String, f64>,
     pub heat_rejection_power: HashMap<String, f64>,
     pub humidification_power: HashMap<String, f64>,
@@ -1003,6 +1016,19 @@ impl OutputSnapshot {
             .values()
             .map(|p| p.get(group))
             .sum()
+    }
+
+    /// Exterior equipment power of one fuel group [W].
+    fn ext_equipment_group(&self, group: FuelGroup) -> f64 {
+        self.ext_equipment_power
+            .values()
+            .map(|p| p.get(group))
+            .sum()
+    }
+
+    /// Interior plus exterior equipment power of one fuel group [W].
+    fn all_equipment_group(&self, group: FuelGroup) -> f64 {
+        self.zone_equipment_group(group) + self.ext_equipment_group(group)
     }
 
     /// Create a snapshot with default/zero values.
@@ -1277,7 +1303,15 @@ impl OutputSnapshot {
                         self.zone_equipment_group(FuelGroup::DistrictHeatingSteam)
                     }
                     "equipment_other_fuel" => self.zone_equipment_group(FuelGroup::OtherFuel),
-                    "ext_equipment" => self.ext_equipment_power.values().sum(),
+                    "ext_equipment" => self.ext_equipment_group(FuelGroup::Electricity),
+                    "ext_equipment_gas" => self.ext_equipment_group(FuelGroup::NaturalGas),
+                    "ext_equipment_district_heating_water" => {
+                        self.ext_equipment_group(FuelGroup::DistrictHeatingWater)
+                    }
+                    "ext_equipment_district_heating_steam" => {
+                        self.ext_equipment_group(FuelGroup::DistrictHeatingSteam)
+                    }
+                    "ext_equipment_other_fuel" => self.ext_equipment_group(FuelGroup::OtherFuel),
                     "total_electric" => {
                         // Sum EVERY generic electric component exactly once, plus
                         // every typed electric map. Bulletproof against the old
@@ -1290,23 +1324,22 @@ impl OutputSnapshot {
                             + self.dhw_electric_power.values().sum::<f64>()
                             + self.zone_lighting_power.values().sum::<f64>()
                             + self.ext_lighting_power.values().sum::<f64>()
-                            + self.zone_equipment_group(FuelGroup::Electricity)
-                            + self.ext_equipment_power.values().sum::<f64>()
+                            + self.all_equipment_group(FuelGroup::Electricity)
                     }
                     "total_gas" => {
                         // All fuel-burning components are gas heating; plus DHW
-                        // and interior equipment gas.
+                        // and interior and exterior equipment gas.
                         self.component_fuel_power.values().sum::<f64>()
                             + self.dhw_fuel_power.values().sum::<f64>()
-                            + self.zone_equipment_group(FuelGroup::NaturalGas)
+                            + self.all_equipment_group(FuelGroup::NaturalGas)
                     }
                     "total_district_heating_water" => {
-                        self.zone_equipment_group(FuelGroup::DistrictHeatingWater)
+                        self.all_equipment_group(FuelGroup::DistrictHeatingWater)
                     }
                     "total_district_heating_steam" => {
-                        self.zone_equipment_group(FuelGroup::DistrictHeatingSteam)
+                        self.all_equipment_group(FuelGroup::DistrictHeatingSteam)
                     }
-                    "total_other_fuel" => self.zone_equipment_group(FuelGroup::OtherFuel),
+                    "total_other_fuel" => self.all_equipment_group(FuelGroup::OtherFuel),
                     _ => return HashMap::new(),
                 };
                 single("Building", value)
@@ -1924,23 +1957,27 @@ struct MonthlyEnergy {
     cooling_j: f64, // Total zone cooling loads [J]
     hours: f64,     // Number of hours in data
     // Electric end uses
-    fan_elec_j: f64,             // Fan electric [J]
-    cool_elec_j: f64,            // Cooling electric (DX compressor, chiller) [J]
-    heat_elec_j: f64,            // Heating electric (electric coil, HP compressor) [J]
-    pump_elec_j: f64,            // Pump electric [J]
-    heat_rejection_elec_j: f64,  // Cooling tower fan electric [J]
-    humidification_elec_j: f64,  // Humidifier electric [J]
-    heat_recovery_elec_j: f64,   // Heat recovery electric (wheel motor, etc.) [J]
-    dhw_elec_j: f64,             // DHW electric (water heater) [J]
-    other_elec_j: f64,           // Uncategorized electric HVAC components [J]
-    lighting_j: f64,             // Interior lighting [J]
-    ext_lighting_j: f64,         // Exterior lighting [J]
-    equipment_j: f64,            // Interior electric equipment/plug loads [J]
-    equipment_gas_j: f64,        // Interior natural gas equipment [J]
-    equipment_dh_water_j: f64,   // Interior district heating water equipment [J]
-    equipment_dh_steam_j: f64,   // Interior district heating steam equipment [J]
-    equipment_other_fuel_j: f64, // Interior equipment on other fuels [J]
-    ext_equipment_j: f64,        // Exterior equipment [J]
+    fan_elec_j: f64,                 // Fan electric [J]
+    cool_elec_j: f64,                // Cooling electric (DX compressor, chiller) [J]
+    heat_elec_j: f64,                // Heating electric (electric coil, HP compressor) [J]
+    pump_elec_j: f64,                // Pump electric [J]
+    heat_rejection_elec_j: f64,      // Cooling tower fan electric [J]
+    humidification_elec_j: f64,      // Humidifier electric [J]
+    heat_recovery_elec_j: f64,       // Heat recovery electric (wheel motor, etc.) [J]
+    dhw_elec_j: f64,                 // DHW electric (water heater) [J]
+    other_elec_j: f64,               // Uncategorized electric HVAC components [J]
+    lighting_j: f64,                 // Interior lighting [J]
+    ext_lighting_j: f64,             // Exterior lighting [J]
+    equipment_j: f64,                // Interior electric equipment/plug loads [J]
+    equipment_gas_j: f64,            // Interior natural gas equipment [J]
+    equipment_dh_water_j: f64,       // Interior district heating water equipment [J]
+    equipment_dh_steam_j: f64,       // Interior district heating steam equipment [J]
+    equipment_other_fuel_j: f64,     // Interior equipment on other fuels [J]
+    ext_equipment_j: f64,            // Exterior electric equipment [J]
+    ext_equipment_gas_j: f64,        // Exterior natural gas equipment [J]
+    ext_equipment_dh_water_j: f64,   // Exterior district heating water equipment [J]
+    ext_equipment_dh_steam_j: f64,   // Exterior district heating steam equipment [J]
+    ext_equipment_other_fuel_j: f64, // Exterior equipment on other fuels [J]
     // Gas end uses
     heat_gas_j: f64, // Heating gas (boiler, gas furnace) [J]
     dhw_gas_j: f64,  // DHW gas (gas water heater) [J]
@@ -2199,10 +2236,14 @@ impl SummaryReport {
                 me.ext_lighting_j += energy;
             }
         }
-        for &pw in snapshot.ext_equipment_power.values() {
-            let energy = pw * snapshot.dt;
-            if energy.is_finite() {
-                me.ext_equipment_j += energy;
+        for pw in snapshot.ext_equipment_power.values() {
+            let pw = pw.scaled(snapshot.dt);
+            if pw.total().is_finite() {
+                me.ext_equipment_j += pw.get(FuelGroup::Electricity);
+                me.ext_equipment_gas_j += pw.get(FuelGroup::NaturalGas);
+                me.ext_equipment_dh_water_j += pw.get(FuelGroup::DistrictHeatingWater);
+                me.ext_equipment_dh_steam_j += pw.get(FuelGroup::DistrictHeatingSteam);
+                me.ext_equipment_other_fuel_j += pw.get(FuelGroup::OtherFuel);
             }
         }
         for &pw in snapshot.pump_electric_power.values() {
@@ -3241,6 +3282,24 @@ impl SummaryReport {
                 |m| m.equipment_other_fuel_j,
             ),
             make_row("Exterior Equipment", Electricity, |m| m.ext_equipment_j),
+            make_row("Exterior Equipment (Gas)", NaturalGas, |m| {
+                m.ext_equipment_gas_j
+            }),
+            make_row(
+                "Exterior Equipment (District Heating Water)",
+                DistrictHeatingWater,
+                |m| m.ext_equipment_dh_water_j,
+            ),
+            make_row(
+                "Exterior Equipment (District Heating Steam)",
+                DistrictHeatingSteam,
+                |m| m.ext_equipment_dh_steam_j,
+            ),
+            make_row(
+                "Exterior Equipment (Other Fuels)",
+                FuelGroup::OtherFuel,
+                |m| m.ext_equipment_other_fuel_j,
+            ),
             make_row("IT Equipment", Electricity, |m| m.it_equipment_j),
             make_row("Elec Distribution", Electricity, |m| m.elec_dist_j),
             make_row("Fans (Electric)", Electricity, |m| m.fan_elec_j),
@@ -4479,6 +4538,41 @@ variables:
     }
 
     #[test]
+    fn exterior_equipment_is_reported_on_its_fuel() {
+        // 800 W of gas exterior equipment and 300 W of electric for an hour:
+        // E+ meters Exterior:FuelEquipment on its fuel under the
+        // ExteriorEquipment end use, so the gas is not heating gas.
+        let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
+        let mut gas = FuelPowers::default();
+        gas.add(FuelGroup::NaturalGas, 800.0);
+        let mut elec = FuelPowers::default();
+        elec.add(FuelGroup::Electricity, 300.0);
+        snap.ext_equipment_power.insert("Fire pit".to_string(), gas);
+        snap.ext_equipment_power.insert("Sign".to_string(), elec);
+
+        let get = |spec: &str| snap.get_variable_values(spec)["Building"];
+        assert_eq!(get("building:ext_equipment"), 300.0);
+        assert_eq!(get("building:ext_equipment_gas"), 800.0);
+        assert_eq!(get("building:heating_gas"), 0.0);
+        assert_eq!(get("building:total_gas"), 800.0);
+        assert_eq!(get("building:total_electric"), 300.0);
+
+        let mut report = SummaryReport::new();
+        report.add_snapshot(&snap);
+        let rows = report.compute_enduse_rows();
+        let row = |label: &str| rows.iter().find(|r| r.label == label).unwrap().total;
+        assert!((row("Exterior Equipment") - 0.3).abs() < 1e-9);
+        assert!((row("Exterior Equipment (Gas)") - 0.8).abs() < 1e-9);
+        assert!(row("Heating (Gas)").abs() < 1e-12);
+        let totals: std::collections::HashMap<_, _> = fuel_totals(&rows)
+            .into_iter()
+            .map(|(label, _, total)| (label, total))
+            .collect();
+        assert!((totals["Total Gas"] - 0.8).abs() < 1e-9);
+        assert!((totals["Total Electric"] - 0.3).abs() < 1e-9);
+    }
+
+    #[test]
     fn submeter_totals_follow_each_end_use_fuel() {
         let mut snap = OutputSnapshot::new(1, 1, 1, 1, 3600.0);
         let uses: HashMap<String, f64> = [
@@ -4490,19 +4584,21 @@ variables:
             ("equipment_district_heating_steam", 500.0),
             ("heating_gas", 600.0),
             ("dhw_gas", 700.0),
+            ("ext_equipment", 20.0),
+            ("ext_equipment_natural_gas", 80.0),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
         .collect();
         snap.submeter_power.insert("Kitchen".to_string(), uses);
         let get = |spec: &str| snap.get_variable_values(spec)["Kitchen"];
-        assert_eq!(get("submeter:total_electric"), 300.0);
-        assert_eq!(get("submeter:total_gas"), 1600.0);
+        assert_eq!(get("submeter:total_electric"), 320.0);
+        assert_eq!(get("submeter:total_gas"), 1680.0);
         assert_eq!(get("submeter:total_district_heating_water"), 400.0);
         assert_eq!(get("submeter:total_district_heating_steam"), 500.0);
         // Gasoline is not natural gas, though its key contains "gas".
         assert_eq!(get("submeter:total_other_fuel"), 50.0);
-        assert_eq!(get("submeter:total"), 2850.0);
+        assert_eq!(get("submeter:total"), 2950.0);
         assert_eq!(get("submeter:equipment_natural_gas"), 300.0);
     }
 

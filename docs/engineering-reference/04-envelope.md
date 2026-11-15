@@ -1513,6 +1513,17 @@ for each of the first four, and groups the rest as *Other Fuels*; submeters
 keep each fuel apart (end use `equipment_<fuel>`). Baseboards are electric
 interior equipment.
 
+**Exterior equipment.** `exterior_equipment` adds no heat to any zone. Its
+power, design level times schedule fraction, is metered on its `fuel` under
+the exterior equipment end use, as EnergyPlus meters `Exterior:FuelEquipment`
+under ExteriorEquipment on its fuel (`ExteriorEnergyUse.cc`): summary rows
+Exterior Equipment (electricity), Exterior Equipment (Gas), (District
+Heating Water), (District Heating Steam) and (Other Fuels), and submeter end
+use `ext_equipment` or `ext_equipment_<fuel>`. Equipment whose subcategory
+contains "exterior light" is booked as exterior lighting (EnergyPlus
+`Exterior:Lights`). EnergyPlus's `Water` fuel type, a volume flow, is not
+modelled.
+
 **Sizing.** On design days, a design day's `internal_gains` mode chooses
 among no gains (`off`, the heating default), design levels at every hour
 (`full`, the cooling default), the normal schedules (`scheduled`), and each

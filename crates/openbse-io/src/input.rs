@@ -3309,8 +3309,9 @@ impl RadiantPanelInput {
 /// Exterior equipment definition — facility-level loads not assigned to any zone.
 ///
 /// Examples: parking lot lighting, signage, exterior landscape lighting.
-/// The power draw is added to facility electricity (or gas) consumption
-/// without contributing to any zone's internal gains.
+/// The power draw is metered on its fuel under the exterior equipment end use
+/// (exterior lighting for an "exterior light" subcategory), as E+
+/// `Exterior:FuelEquipment`, without contributing to any zone's internal gains.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExteriorEquipmentInput {
@@ -3324,9 +3325,10 @@ pub struct ExteriorEquipmentInput {
     /// Schedule name (fraction 0-1). If absent, always at full power.
     #[serde(default)]
     pub schedule: Option<String>,
-    /// Fuel type: "electricity" or "natural_gas" (default: "electricity")
-    #[serde(default = "default_exterior_fuel")]
-    pub fuel: String,
+    /// Fuel the equipment draws (E+ `Exterior:FuelEquipment` fuel use type);
+    /// sets the meter its power is booked to. `none` is not allowed.
+    #[serde(default)]
+    pub fuel: openbse_envelope::EquipmentFuel,
     /// Subcategory label for end-use reporting (legacy; use `submeter` instead)
     #[serde(default)]
     pub subcategory: Option<String>,
@@ -3334,10 +3336,6 @@ pub struct ExteriorEquipmentInput {
     /// Matches E+ Exterior:Lights AstronomicalClock control option.
     #[serde(default)]
     pub astronomical_clock: bool,
-}
-
-fn default_exterior_fuel() -> String {
-    "electricity".to_string()
 }
 
 // ─── Electrical Distribution Inputs ──────────────────────────────────────────
@@ -6071,6 +6069,20 @@ fn validate_equipment_levels(model: &ModelInput, result: &mut ValidationResult) 
             result.severe(format!(
                 "IT equipment '{name}': fuel is {}; IT equipment is electric",
                 e.fuel.key()
+            ));
+        }
+    }
+    for x in &model.exterior_equipment {
+        if x.fuel == EquipmentFuel::None {
+            result.severe(format!(
+                "Exterior equipment '{}': fuel none meters nothing; give the fuel it draws",
+                x.name
+            ));
+        }
+        if x.power < 0.0 {
+            result.severe(format!(
+                "Exterior equipment '{}': power {} W is negative",
+                x.name, x.power
             ));
         }
     }
