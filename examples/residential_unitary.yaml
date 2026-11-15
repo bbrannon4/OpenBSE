@@ -332,7 +332,7 @@ air_loops:
       heating_supply_temp: 40.0    # Gas furnace supply temp [°C]
       cooling_supply_temp: 13.0    # DX coil supply temp [°C]
       design_zone_flow: 0.35      # Design air flow per zone [kg/s]
-      cycling: proportional
+      cycling: modulating        # E+ UnitarySystem load control
     equipment:
       - type: fan
         name: Supply Fan

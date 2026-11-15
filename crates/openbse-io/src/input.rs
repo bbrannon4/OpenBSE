@@ -556,7 +556,7 @@ pub enum AirLoopSystemType {
 ///     controls:
 ///       cooling_supply_temp: 13.0
 ///       heating_supply_temp: 35.0
-///       cycling: proportional
+///       cycling: modulating
 ///       deadband: 1.0
 ///       design_zone_flow: 0.5
 ///       minimum_damper_position: 0.15
@@ -577,7 +577,7 @@ pub struct AirLoopControls {
     /// Design Supply Air Humidity Ratio; default 0.008).
     #[serde(default = "default_controls_cooling_supply_w")]
     pub cooling_supply_humidity_ratio: f64,
-    /// Capacity control method: on_off or proportional (default: proportional)
+    /// Capacity control method: modulating (default), on_off or proportional
     #[serde(default)]
     pub cycling: CyclingMethod,
     /// Deadband width [°C] around setpoints (default 1.0)
@@ -808,10 +808,18 @@ pub enum PlantResetConfig {
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum CyclingMethod {
-    /// On/off cycling — system runs at full capacity or not at all
-    OnOff,
-    /// Proportional modulation — system output varies with load
+    /// E+ load-based unitary control (default): the unit meets the zone's
+    /// load each timestep. A cycling fan, or a compressor heating coil,
+    /// runs at full output for a runtime fraction; with a continuous fan a
+    /// gas, electric or water heating coil instead modulates the supply
+    /// temperature to the one that meets the load.
     #[default]
+    Modulating,
+    /// On/off cycling: full output for a runtime fraction that meets the load.
+    OnOff,
+    /// Proportional supply-temperature control: the heating supply
+    /// temperature ramps from the setpoint to `heating_supply_temp` over a
+    /// 5 K zone error, so the zone settles below setpoint (droop).
     Proportional,
 }
 

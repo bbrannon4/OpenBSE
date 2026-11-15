@@ -319,7 +319,7 @@ air_loops:
       heating_supply_temp: 35.0
       cooling_supply_temp: 13.0
       design_zone_flow: autosize
-      cycling: proportional
+      cycling: modulating        # E+ UnitarySystem load control
     equipment:
       - type: fan
         name: RTU Supply Fan

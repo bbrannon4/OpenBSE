@@ -31,9 +31,7 @@
       "tier": "fast"
     },
     "examples/datacenter_crah.yaml": {
-      "tier": "fast",
-      "max_unmet_heating_hours": 4010,
-      "max_unmet_heating_hours_reason": "3639 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
+      "tier": "fast"
     },
     "examples/doas_fancoil.yaml": {
       "tier": "fast"
@@ -46,9 +44,7 @@
       "max_unmet_cooling_hours_reason": "406 h measured building-wide at the IDF's 0.556 K reporting tolerance; E+ 25.2 reports 425.25 h for the same IDF, night hours above the 23.89 C no-setback cooling setpoint inside the night cycle's tolerance; about 10% margin."
     },
     "examples/heat_pump_rtu.yaml": {
-      "tier": "fast",
-      "max_unmet_heating_hours": 3590,
-      "max_unmet_heating_hours_reason": "3258 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
+      "tier": "fast"
     },
     "examples/hotel_pthp.yaml": {
       "tier": "fast"
@@ -78,32 +74,26 @@
       "max_unmet_heating_hours_reason": "5417 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
     },
     "examples/residential_unitary.yaml": {
-      "tier": "fast",
-      "max_unmet_heating_hours": 3530,
-      "max_unmet_heating_hours_reason": "3203 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
+      "tier": "fast"
     },
     "examples/residential_unitary_a205.yaml": {
-      "tier": "fast",
-      "max_unmet_heating_hours": 3560,
-      "max_unmet_heating_hours_reason": "3235 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
+      "tier": "fast"
     },
     "examples/residential_unitary_rs0002.yaml": {
-      "tier": "fast",
-      "max_unmet_heating_hours": 3580,
-      "max_unmet_heating_hours_reason": "3252 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
+      "tier": "fast"
     },
     "examples/retail_rtu.yaml": {
       "tier": "fast",
-      "max_unmet_heating_hours": 8410,
-      "max_unmet_heating_hours_reason": "7642 h measured building-wide (any conditioned zone unmet, #165), about 10% margin; the baseline flags any change."
+      "max_unmet_heating_hours": 6070,
+      "max_unmet_heating_hours_reason": "5516 h measured building-wide with modulating (E+ UnitarySystem) control (#178), about 10% margin: nearly all in the 12 m2 Office, a zone on the Sales Area's thermostat, which the even air split over-supplies (#389).",
+      "max_unmet_cooling_hours": 1600,
+      "max_unmet_cooling_hours_reason": "1452 h measured building-wide with modulating control (#178), about 10% margin: nearly all in the 12 m2 Office (no zone control; even air split, #389). Recorded on #328."
     },
     "examples/roller_shade_office.yaml": {
       "tier": "fast"
     },
     "examples/simple_heating.yaml": {
-      "tier": "fast",
-      "max_unmet_heating_hours": 790,
-      "max_unmet_heating_hours_reason": "712 h measured building-wide (any conditioned zone unmet, #165), about 10% margin; the baseline flags any change."
+      "tier": "fast"
     },
     "examples/vav_a205_fan_and_chiller.yaml": {
       "tier": "fast"

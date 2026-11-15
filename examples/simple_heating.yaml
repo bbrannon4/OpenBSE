@@ -32,7 +32,7 @@ air_loops:
       heating_supply_temp: 35.0      # Design heating supply air [°C]
       cooling_supply_temp: 13.0      # Design cooling supply air [°C]
       design_zone_flow: 0.5          # Design air flow per zone [kg/s]
-      cycling: proportional
+      cycling: modulating        # E+ UnitarySystem load control
     equipment:
       - type: heating_coil
         name: Main Heating Coil

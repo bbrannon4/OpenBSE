@@ -14277,7 +14277,7 @@ air_loops:
     heating_supply_temp: 32.11
     cooling_supply_temp: 12.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
@@ -14323,7 +14323,7 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
@@ -14363,7 +14363,7 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
@@ -14403,7 +14403,7 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
@@ -14443,7 +14443,7 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
@@ -14483,7 +14483,7 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
@@ -14523,7 +14523,7 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
@@ -14563,7 +14563,7 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
@@ -14603,7 +14603,7 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
@@ -14643,7 +14643,7 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
@@ -14683,7 +14683,7 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
@@ -14723,7 +14723,7 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
@@ -14763,7 +14763,7 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
@@ -14803,7 +14803,7 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     economizer:
       economizer_type: differential_dry_bulb
     fan_operating_mode: continuous
