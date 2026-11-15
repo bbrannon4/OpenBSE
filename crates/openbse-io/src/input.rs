@@ -1251,6 +1251,12 @@ pub struct HumidifierInput {
     /// whether or not it is humidifying [W] (default 0).
     #[serde(default)]
     pub standby_power: f64,
+    /// Rated steam output [m³/s of water] (E+ `Humidifier:Steam:Electric`
+    /// Rated Capacity, water at 5.05 °C). When given, power follows
+    /// `rated_power` per kg of this capacity, as E+ does with both inputs;
+    /// when omitted, the capacity is what `rated_power` makes from 20 °C water.
+    #[serde(default)]
+    pub rated_capacity: Option<f64>,
 }
 fn default_humidifier_power() -> f64 {
     100_000.0
@@ -4026,6 +4032,10 @@ fn build_graph_impl(
                     );
                     hum.submeter = h.submeter.clone();
                     hum.standby_power = h.standby_power;
+                    if let Some(cap) = h.rated_capacity {
+                        hum.rated_capacity =
+                            openbse_components::humidifier::capacity_from_volume(cap);
+                    }
                     // Served (control) zone → driver feeds back the live zone temp
                     // for the RH→w conversion (#60).
                     hum.served_zone = air_loop.zone_terminals.first().map(|zc| zc.zone.clone());
