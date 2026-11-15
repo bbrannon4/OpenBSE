@@ -159,9 +159,16 @@ fn design_step_weather(
     wh
 }
 
+/// Opaque sky cover of every design day [tenths]: clear, as E+
+/// `SetUpDesignDay` sets it for a day without rain. With no horizontal
+/// infrared given, the sky temperature then comes from the clear-sky
+/// emissivity alone, the long-wave loss a cold clear night imposes.
+const DESIGN_DAY_SKY_COVER: f64 = 0.0;
+
 /// Generate 24 synthetic WeatherHour entries for a heating design day.
 ///
-/// Heating design days have no solar radiation and the specified wind speed.
+/// Heating design days have no solar radiation, a clear sky and the specified
+/// wind speed.
 fn generate_heating_design_weather(dd: &DesignDayInput) -> Vec<WeatherHour> {
     let mut hours = Vec::with_capacity(24);
     for h in 1..=24u32 {
@@ -179,7 +186,7 @@ fn generate_heating_design_weather(dd: &DesignDayInput) -> Vec<WeatherHour> {
             diffuse_horiz_rad: 0.0,
             wind_speed: dd.wind_speed,
             wind_direction: 0.0,
-            opaque_sky_cover: 10.0,
+            opaque_sky_cover: DESIGN_DAY_SKY_COVER,
             horiz_ir_rad: 0.0, // missing: the sky comes from the emissivity model
         };
         set_design_humidity(&mut wh, dd);
@@ -234,8 +241,8 @@ fn generate_cooling_design_weather(dd: &DesignDayInput, latitude: f64) -> Vec<We
             diffuse_horiz_rad: diffuse.max(0.0),
             wind_speed: dd.wind_speed,
             wind_direction: 0.0,
-            opaque_sky_cover: 1.0, // clear sky for cooling design
-            horiz_ir_rad: 0.0,     // missing: the sky comes from the emissivity model
+            opaque_sky_cover: DESIGN_DAY_SKY_COVER,
+            horiz_ir_rad: 0.0, // missing: the sky comes from the emissivity model
         };
         set_design_humidity(&mut wh, dd);
         hours.push(wh);
@@ -1721,6 +1728,19 @@ mod tests {
             taud: None,
             cooling_setpoint_schedule: None,
         }
+    }
+
+    #[test]
+    fn design_days_have_a_clear_sky() {
+        let heating = design_day(DesignDayHumidityType::Wetbulb, -17.9);
+        assert!(generate_heating_design_weather(&heating)
+            .iter()
+            .all(|wh| wh.opaque_sky_cover == 0.0 && wh.horiz_ir_rad == 0.0));
+        let mut cooling = heating.clone();
+        cooling.day_type = "summer".into();
+        assert!(generate_cooling_design_weather(&cooling, 39.7)
+            .iter()
+            .all(|wh| wh.opaque_sky_cover == 0.0 && wh.horiz_ir_rad == 0.0));
     }
 
     #[test]
