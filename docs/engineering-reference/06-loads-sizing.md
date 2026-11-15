@@ -339,7 +339,8 @@ none. A DOAS heats and cools its outdoor air to the loop's supply temperatures, 
 the rise of a supply fan downstream of the coils, the targets its controls run at.
 
 **Terminals.** A VAV or fan-powered box's maximum flow is its zone's design
-flow. Its reheat capacity covers the zone heating load plus reheating its
+flow. Its reheat capacity, autosized unless given (EnergyPlus water and
+electric reheat coils default to autosize), covers the zone heating load plus reheating its
 primary air at the reheat flow $\dot m_r$ from the cooling supply
 temperature to the zone:
 

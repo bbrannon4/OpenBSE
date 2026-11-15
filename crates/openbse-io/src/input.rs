@@ -716,6 +716,12 @@ fn default_controls_cooling_supply() -> f64 {
 fn default_controls_deadband() -> f64 {
     1.0
 }
+/// Terminal reheat capacity when not given: autosized, as E+ water and
+/// electric reheat coils are.
+fn default_reheat_capacity() -> AutosizeValue {
+    AutosizeValue::Autosize
+}
+
 fn default_controls_zone_flow() -> AutosizeValue {
     AutosizeValue::Value(0.5)
 }
@@ -1946,8 +1952,10 @@ pub struct VavBoxInput {
     /// Reheat coil type: "none", "electric", "hot_water" (default: "none")
     #[serde(default = "default_reheat_type")]
     pub reheat_type: String,
-    /// Reheat coil capacity [W]. Use `autosize` to let the engine calculate.
-    #[serde(default)]
+    /// Reheat coil capacity [W]; `autosize` (the default, as E+
+    /// `Coil:Heating:Water` defaults to autosize) lets the engine calculate.
+    /// Ignored when `reheat_type` is `none`.
+    #[serde(default = "default_reheat_capacity")]
     pub reheat_capacity: AutosizeValue,
     /// Maximum reheat discharge air temperature [°C] (default 40.0; E+ has no
     /// default and recommends 35 °C when unknown)
@@ -1991,8 +1999,9 @@ pub struct PfpBoxInput {
     pub min_primary_fraction: f64,
     /// Secondary fan flow rate [kg/s]. Use `autosize` to let the engine calculate.
     pub secondary_fan_flow: AutosizeValue,
-    /// Electric reheat coil capacity [W]. Use `autosize` to let the engine calculate.
-    #[serde(default)]
+    /// Electric reheat coil capacity [W]; `autosize` (the default) lets the
+    /// engine calculate.
+    #[serde(default = "default_reheat_capacity")]
     pub reheat_capacity: AutosizeValue,
     /// Primary flow fraction at or below which the secondary fan runs while
     /// cooling (E+ "Fan On Flow Fraction"; default: `min_primary_fraction`)
@@ -4063,13 +4072,19 @@ fn build_graph_impl(
                             "hot_water" | "HotWater" | "hw" => ReheatType::HotWater,
                             _ => ReheatType::None,
                         };
+                        // A box without a reheat coil has no capacity to size.
+                        let reheat_capacity = if matches!(reheat, ReheatType::None) {
+                            0.0
+                        } else {
+                            vb.reheat_capacity.to_f64()
+                        };
                         let mut box_component = VAVBox::new(
                             &vb.name,
                             &zc.zone,
                             vb.max_air_flow.to_f64(),
                             vb.min_flow_fraction,
                             reheat,
-                            vb.reheat_capacity.to_f64(),
+                            reheat_capacity,
                         );
                         box_component.submeter = vb.submeter.clone();
                         if let Some(t) = vb.max_reheat_temp {
@@ -6663,6 +6678,27 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn omitted_terminal_reheat_capacity_is_autosized() {
+        // E+ water and electric reheat coils default to autosize; an omitted
+        // capacity must not become a 0 W coil that never reheats.
+        let vav: TerminalInput = serde_yaml::from_str(
+            "{type: vav_box, name: B, max_air_flow: autosize, reheat_type: hot_water}",
+        )
+        .unwrap();
+        let pfp: TerminalInput = serde_yaml::from_str(
+            "{type: pfp_box, name: P, max_primary_flow: autosize, secondary_fan_flow: 0.2}",
+        )
+        .unwrap();
+        match (vav, pfp) {
+            (TerminalInput::VavBox(v), TerminalInput::PfpBox(p)) => {
+                assert!(v.reheat_capacity.is_autosize());
+                assert!(p.reheat_capacity.is_autosize());
+            }
+            _ => panic!("wrong terminal types"),
+        }
+    }
 
     #[test]
     fn validation_reports_reversed_window() {
