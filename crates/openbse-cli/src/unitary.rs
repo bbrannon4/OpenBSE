@@ -27,7 +27,7 @@ use openbse_core::graph::{GraphComponent, SimulationGraph};
 use openbse_core::ports::{AirPort, SimulationContext};
 use openbse_core::simulation::ControlSignals;
 
-use crate::{no_load_push, simulate_loop_components};
+use crate::{constant_fan_mode, simulate_loop_components};
 
 /// Component outputs of one loop run.
 pub type CompOutputs = HashMap<String, HashMap<String, f64>>;
@@ -342,23 +342,20 @@ pub fn simulate_unitary(
         off.output = 0.0;
     }
 
-    // A fan running in the dead band can push the zone past a setpoint, which
-    // turns on heating or cooling for the load to it (E+ "constant fan pushes
-    // zone below heating set point").
+    // A fan that keeps running supplies its no-load air whatever the coils do,
+    // so the unit meets the signed load to the setpoint of its mode, and that
+    // air can push the zone past a setpoint, turning on heating or cooling for
+    // the load to it (E+ `initLoadBasedControl`, "constant fan pushes zone
+    // below heating set point"). A heating mode whose zone needs no heat
+    // therefore adds only what keeps the zone from falling below its setpoint.
     let mut mode = loads.mode;
     let mut heating_load = loads.heating_load;
     let mut cooling_load = loads.cooling_load;
-    if mode == HvacMode::Deadband && fan_runs_off_cycle {
-        match no_load_push(off.output, loads.to_heat, loads.to_cool) {
-            Some(HvacMode::Heating) => {
-                mode = HvacMode::Heating;
-                heating_load = loads.to_heat;
-            }
-            Some(HvacMode::Cooling) => {
-                mode = HvacMode::Cooling;
-                cooling_load = -loads.to_cool;
-            }
-            _ => {}
+    if fan_runs_off_cycle {
+        heating_load = loads.to_heat;
+        cooling_load = -loads.to_cool;
+        if let Some(pushed) = constant_fan_mode(off.output, loads.to_heat, loads.to_cool) {
+            mode = pushed;
         }
     }
     if !li.can_condition(mode) {

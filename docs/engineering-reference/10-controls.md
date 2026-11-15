@@ -209,9 +209,27 @@ with $r$ clamped to $[0, 1]$:
 Rates and flows $X$ (power, fuel, thermal output, mass flow) mix by
 @eq-unitary-mix; each component's inlet and outlet states, and the supply air,
 mix by mass (enthalpy and humidity ratio), so $\dot m\Delta h$ of the mix is
-the mixed thermal output. A dead-band zone that the off point's output pushes
-past a setpoint is heated or cooled as in @sec-plr, with the off point's actual
-output. A fan's power follows its speeds (@eq-fan-speeds) at each point's flow.
+the mixed thermal output. A fan's power follows its speeds (@eq-fan-speeds) at
+each point's flow.
+
+**Continuous fan.** A fan that keeps running delivers the off point's output
+$\dot Q_\text{off}$ whatever the coils do, so the load $L$ is the signed load
+to the setpoint of the unit's mode, $Q_{\text{to},h}$ in heating and
+$Q_{\text{to},c}$ in cooling (E+ `ZoneLoad`). A heating mode whose zone needs
+no heat ($Q_{\text{to},h} < 0$, internal gains carrying it) therefore heats only
+as much as keeps the cold outdoor air from taking the zone below its setpoint,
+and none if it would not. The off point's output also moves the zone between
+modes, as E+ `UnitarySystem::initLoadBasedControl` (DualHeatCool) does in
+every zone state:
+
+- with a cooling load ($Q_{\text{to},h} < 0$, $Q_{\text{to},c} < 0$):
+  $Q_{\text{to},h} - \dot Q_\text{off} > 1$ W turns on heating for
+  $Q_{\text{to},h}$; else $Q_{\text{to},c} - \dot Q_\text{off} > 1$ W leaves no
+  load (off alone);
+- with a heating load (both positive): $\dot Q_\text{off} - Q_{\text{to},c} > 1$ W
+  turns on cooling for $Q_{\text{to},c}$; else $\dot Q_\text{off} -
+  Q_{\text{to},h} > 1$ W leaves no load;
+- in the dead band: as in @sec-plr.
 
 **Comparison with EnergyPlus.** EnergyPlus iterates the cycling and speed
 ratios against the unit's output; @eq-unitary-mix is the same split in closed

@@ -326,6 +326,43 @@ const SMALL_LOAD: f64 = 1.0;
 /// between setpoints): "constant fan pushes zone below heating set point"
 /// turns on heating, and "above cooling set point" cooling, each for the
 /// load to that setpoint.
+/// The mode a unit whose fan keeps running is put in by its no-load output
+/// [W] (positive heats the zone), from the signed loads to the setpoints
+/// (`to_heat`, `to_cool`, E+ `QToHeatSetPt`, `QToCoolSetPt`), as E+
+/// `UnitarySystem::initLoadBasedControl` does for a continuous fan and a dual
+/// setpoint, whatever the zone's state:
+///
+/// - zone needing cooling (both loads negative): the no-load air pushing it
+///   below the heating setpoint turns on heating for the load to it, and
+///   pushing it only into the dead band leaves no load;
+/// - zone needing heating (both positive): pushing it above the cooling
+///   setpoint turns on cooling, and into the dead band leaves no load;
+/// - zone in the dead band: as [`no_load_push`].
+///
+/// `None` when the no-load air leaves the zone where it is. The unit then
+/// meets the signed load of the mode it is in (E+ `ZoneLoad`).
+pub(crate) fn constant_fan_mode(off_output: f64, to_heat: f64, to_cool: f64) -> Option<HvacMode> {
+    if to_heat < 0.0 && to_cool < 0.0 {
+        if off_output < 0.0 && to_heat - off_output > SMALL_LOAD {
+            Some(HvacMode::Heating)
+        } else if off_output < 0.0 && to_cool - off_output > SMALL_LOAD {
+            Some(HvacMode::Deadband)
+        } else {
+            None
+        }
+    } else if to_heat > 0.0 && to_cool > 0.0 {
+        if off_output > 0.0 && off_output - to_cool > SMALL_LOAD {
+            Some(HvacMode::Cooling)
+        } else if off_output > 0.0 && off_output - to_heat > SMALL_LOAD {
+            Some(HvacMode::Deadband)
+        } else {
+            None
+        }
+    } else {
+        no_load_push(off_output, to_heat, to_cool)
+    }
+}
+
 pub(crate) fn no_load_push(off_output: f64, to_heat: f64, to_cool: f64) -> Option<HvacMode> {
     if off_output < 0.0 && off_output - to_heat < -SMALL_LOAD {
         Some(HvacMode::Heating)
@@ -8509,6 +8546,37 @@ mod tests {
         assert!(fan_runs_whole_timestep(ContinuousNoLoadOff, true));
         assert!(!fan_runs_whole_timestep(ContinuousNoLoadOff, false));
         assert!(!fan_runs_whole_timestep(Cycling, true));
+    }
+
+    #[test]
+    fn constant_fan_air_moves_a_loaded_zone_as_eplus() {
+        // Cooling load (zone above both setpoints): cold outdoor air that would
+        // take the zone below its heating setpoint calls for heating.
+        assert_eq!(
+            constant_fan_mode(-30_000.0, -10_000.0, -500.0),
+            Some(HvacMode::Heating)
+        );
+        // Only into the dead band: no load.
+        assert_eq!(
+            constant_fan_mode(-5_000.0, -10_000.0, -500.0),
+            Some(HvacMode::Deadband)
+        );
+        assert_eq!(constant_fan_mode(-100.0, -10_000.0, -500.0), None);
+        // Heating load: fan heat past the cooling setpoint calls for cooling.
+        assert_eq!(
+            constant_fan_mode(3_000.0, 500.0, 2_000.0),
+            Some(HvacMode::Cooling)
+        );
+        assert_eq!(
+            constant_fan_mode(1_000.0, 500.0, 2_000.0),
+            Some(HvacMode::Deadband)
+        );
+        assert_eq!(constant_fan_mode(200.0, 500.0, 2_000.0), None);
+        // Dead band: as no_load_push.
+        assert_eq!(
+            constant_fan_mode(-1_200.0, -800.0, 600.0),
+            Some(HvacMode::Heating)
+        );
     }
 
     #[test]
