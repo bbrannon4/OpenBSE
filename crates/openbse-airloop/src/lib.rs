@@ -906,6 +906,16 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
             signals.air_mass_flows.insert(name.clone(), flow);
             continue;
         }
+        // A ground-source heat pump heats and cools: it takes the active
+        // mode's coil target and is off (±99 °C) in dead band.
+        if li.component_kinds.get(name) == Some(&ComponentKind::Gshp) {
+            let sp = match mode {
+                HvacMode::Heating => heating_dat,
+                HvacMode::Cooling => cooling_coil_sp,
+                HvacMode::Deadband => 99.0,
+            };
+            signals.coil_setpoints.insert(name.clone(), sp);
+        }
         match mode {
             HvacMode::Heating => {
                 // Proportional heating DAT: ramps from setpoint toward max (40°C)
@@ -2413,6 +2423,29 @@ mod tests {
         li.dx_compressor_names.insert("Furnace".to_string());
         assert!(!psz_modulates_heating(&li));
         assert_eq!(heat_dat(&li, 1000.0), 40.0);
+    }
+
+    /// A ground-source heat pump on a PSZ takes the heating target in
+    /// heating, full cooling in cooling, and the off setpoint in dead band;
+    /// left at its input setpoint it heated only up to the cooling target.
+    #[test]
+    fn gshp_takes_each_modes_setpoint() {
+        let mut li = make_loop(
+            AirLoopSystemType::PszAc,
+            vec!["Fan".to_string(), "GSHP".to_string()],
+        );
+        li.fan_names.insert("Fan".to_string());
+        li.component_kinds
+            .insert("GSHP".to_string(), ComponentKind::Gshp);
+        li.dx_compressor_names.insert("GSHP".to_string());
+        li.heating_supply_temp = 40.0;
+        let sp = |mode, heat, cool| {
+            let f = fcu_fixture(mode, heat, cool);
+            build_psz_signals(&li, &f.ctx(0.0)).coil_setpoints["GSHP"]
+        };
+        assert_eq!(sp(HvacMode::Heating, 1000.0, 0.0), 40.0);
+        assert_eq!(sp(HvacMode::Cooling, 0.0, 1000.0), -10.0);
+        assert_eq!(sp(HvacMode::Deadband, 0.0, 0.0), 99.0);
     }
 
     fn fcu_fixture(mode: HvacMode, heat: f64, cool: f64) -> Fixture {

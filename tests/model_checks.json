@@ -69,9 +69,7 @@
       "tier": "fast"
     },
     "examples/residential_gshp.yaml": {
-      "tier": "fast",
-      "max_unmet_heating_hours": 5960,
-      "max_unmet_heating_hours_reason": "5417 h measured against the setpoints the HVAC controls to (#291, which replaced a fallback of 20/27 °C), about 10% margin; the baseline flags any change. Tracked in #165: mostly proportional heating droop (#178) and per-zone counting."
+      "tier": "fast"
     },
     "examples/residential_unitary.yaml": {
       "tier": "fast"

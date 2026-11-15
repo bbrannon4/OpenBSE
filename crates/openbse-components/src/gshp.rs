@@ -60,6 +60,10 @@ pub enum GshpMode {
     Heating,
 }
 
+/// Setpoint magnitude [°C] at and beyond which the unit is off: the ±99 °C
+/// the air-loop signal builders give a coil that should not run.
+pub const OFF_SETPOINT: f64 = 90.0;
+
 /// Ground-source heat pump component.
 ///
 /// Self-contained — no plant loop connection.  The entering water temperature
@@ -278,8 +282,12 @@ impl AirComponent for GroundSourceHeatPump {
         let t_sp = self.outlet_temp_setpoint;
         let cp = psych::cp_air_fn_w(inlet.state.w);
 
-        // Determine mode from setpoint vs inlet temp
-        let mode = if t_sp < t_in - 0.1 {
+        // Determine mode from setpoint vs inlet temp. A setpoint of ±99 °C or
+        // beyond is the signal builders' "off" (the value that parks a
+        // single-mode coil), so a dual-mode unit stays off in dead band.
+        let mode = if t_sp.abs() >= OFF_SETPOINT {
+            GshpMode::Off
+        } else if t_sp < t_in - 0.1 {
             GshpMode::Cooling
         } else if t_sp > t_in + 0.1 {
             GshpMode::Heating
@@ -635,6 +643,22 @@ mod tests {
         );
         assert!(gshp.power > 0.0);
         assert_eq!(gshp.mode, GshpMode::Cooling);
+    }
+
+    /// The builders' ±99 °C "off" setpoint turns the unit off rather than
+    /// heating toward 99 °C or cooling toward −99 °C.
+    #[test]
+    fn off_setpoint_turns_the_unit_off() {
+        let ctx = make_ctx();
+        let inlet = AirPort::new(MoistAirState::from_tdb_rh(20.0, 0.4, 101325.0), 0.5);
+        for sp in [99.0, -99.0] {
+            let mut gshp = make_gshp_cooling();
+            gshp.set_setpoint(sp);
+            let outlet = gshp.simulate_air(&inlet, &ctx);
+            assert_eq!(gshp.mode, GshpMode::Off);
+            assert_eq!(gshp.power, 0.0);
+            assert_eq!(outlet.state.t_db, inlet.state.t_db);
+        }
     }
 
     #[test]
