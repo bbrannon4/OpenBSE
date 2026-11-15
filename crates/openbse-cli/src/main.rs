@@ -3149,6 +3149,12 @@ fn main() -> Result<()> {
         // its setpoint when its equipment falls short [K], and the share of
         // their design water its coils may draw when its pumps cannot move it.
         let mut plant_supply_offset = vec![0.0_f64; model.plant_loops.len()];
+        // Each loop's supply-side (return, supply) water temperature, `None`
+        // without flow: as last solved, and as at the end of the previous
+        // timestep, which a return-temperature reset reads (E+ setpoint
+        // managers run on the last timestep's node values).
+        let mut plant_loop_temps: Vec<Option<(f64, f64)>> = vec![None; model.plant_loops.len()];
+        let mut plant_reset_temps: Vec<Option<(f64, f64)>> = vec![None; model.plant_loops.len()];
         let mut plant_flow_scale = vec![1.0_f64; model.plant_loops.len()];
 
         // ── Warmup: repeat the run period's first week until the zones settle ──
@@ -3570,6 +3576,7 @@ fn main() -> Result<()> {
                             .into_iter()
                             .map(|(zone, (mode, _))| (zone, mode))
                             .collect();
+                        plant_reset_temps.clone_from(&plant_loop_temps);
                         for hvac_iter in 0..MAX_HVAC_ITER {
                             // Each water coil gets its loop's supply water.
                             if hvac_iter == 0 {
@@ -3579,6 +3586,7 @@ fn main() -> Result<()> {
                                 let t_supply = plant_supply_setpoint(
                                     &model.plant_loops[li],
                                     interp_weather.dry_bulb,
+                                    plant_reset_temps[li],
                                 ) + plant_supply_offset[li];
                                 if let GraphComponent::Air(c) = graph.component_mut(idx) {
                                     let flow =
@@ -3792,13 +3800,21 @@ fn main() -> Result<()> {
                                         };
                                         let src = &model.plant_loops[src_idx];
                                         let src_temp = if loop_has_tower(src) {
-                                            plant_supply_setpoint(src, interp_weather.dry_bulb).max(
+                                            plant_supply_setpoint(
+                                                src,
+                                                interp_weather.dry_bulb,
+                                                plant_reset_temps[src_idx],
+                                            )
+                                            .max(
                                                 ctx.outdoor_air.t_wb()
                                                     + openbse_components::cooling_tower::MIN_APPROACH,
                                             )
                                         } else {
-                                            plant_supply_setpoint(src, interp_weather.dry_bulb)
-                                                + plant_supply_offset[src_idx]
+                                            plant_supply_setpoint(
+                                                src,
+                                                interp_weather.dry_bulb,
+                                                plant_reset_temps[src_idx],
+                                            ) + plant_supply_offset[src_idx]
                                         };
                                         if let Some(node_idx) = graph.node_by_name(&hx.name) {
                                             if let GraphComponent::Plant(component) =
@@ -3856,6 +3872,7 @@ fn main() -> Result<()> {
                                 // ── Simulate loop equipment ──────────────────────
                                 if total_load.abs() <= 0.0 {
                                     plant_supply_offset[loop_idx] = 0.0;
+                                    plant_loop_temps[loop_idx] = None;
                                 }
                                 if total_load.abs() > 0.0 {
                                     // A demand loop carries the water its coils' valves
@@ -3900,8 +3917,11 @@ fn main() -> Result<()> {
                                     // Return water: a condenser returns its design ΔT
                                     // warmer; a demand loop returns what its load did to
                                     // the water it carried.
-                                    let effective_plant_sp =
-                                        plant_supply_setpoint(plant_loop, interp_weather.dry_bulb);
+                                    let effective_plant_sp = plant_supply_setpoint(
+                                        plant_loop,
+                                        interp_weather.dry_bulb,
+                                        plant_reset_temps[loop_idx],
+                                    );
                                     let return_dt = if condenser_load > 0.0 {
                                         loop_delta_t
                                     } else {
@@ -4098,16 +4118,15 @@ fn main() -> Result<()> {
                                                     _ => None,
                                                 };
                                                 if let Some(hr_loop) = hr_loop {
-                                                    let supply_temp = hr_loop
-                                                        .setpoint_reset
-                                                        .as_ref()
-                                                        .map(|r| {
-                                                            apply_plant_reset(
-                                                                r,
-                                                                interp_weather.dry_bulb,
-                                                            )
-                                                        })
-                                                        .unwrap_or(hr_loop.design_supply_temp);
+                                                    let hr_idx = model
+                                                        .plant_loops
+                                                        .iter()
+                                                        .position(|pl| pl.name == hr_loop.name);
+                                                    let supply_temp = plant_supply_setpoint(
+                                                        hr_loop,
+                                                        interp_weather.dry_bulb,
+                                                        hr_idx.and_then(|i| plant_reset_temps[i]),
+                                                    );
                                                     let demand = air_side_loads
                                                         [hr_loop.name.as_str()]
                                                     .max(0.0);
@@ -4244,6 +4263,8 @@ fn main() -> Result<()> {
                                         }
                                     }
 
+                                    plant_loop_temps[loop_idx] = (loop_mass_flow > 0.0)
+                                        .then_some((inlet_temp, current_inlet.state.temp));
                                     // Store supply conditions for downstream loops
                                     loop_supply_conditions.insert(
                                         plant_loop.name.clone(),
@@ -10220,15 +10241,29 @@ fn load_with_pump_heat(load: f64, pump_heat: f64, loop_load: f64, condenser: boo
 
 /// A plant loop's supply setpoint this timestep [°C]: its outdoor reset, else its design
 /// supply temperature.
-fn plant_supply_setpoint(pl: &openbse_io::input::PlantLoopInput, t_outdoor: f64) -> f64 {
+/// A plant loop's supply setpoint [°C]. `last_temps` is the supply side's
+/// (return, supply) water temperature last timestep, `None` when no water
+/// flowed, for a return-temperature reset.
+fn plant_supply_setpoint(
+    pl: &openbse_io::input::PlantLoopInput,
+    t_outdoor: f64,
+    last_temps: Option<(f64, f64)>,
+) -> f64 {
     pl.setpoint_reset
         .as_ref()
-        .map_or(pl.design_supply_temp, |r| apply_plant_reset(r, t_outdoor))
+        .map_or(pl.design_supply_temp, |r| {
+            apply_plant_reset(r, t_outdoor, pl.design_supply_temp, last_temps)
+        })
 }
 
-fn apply_plant_reset(reset: &openbse_io::input::PlantResetConfig, t_outdoor: f64) -> f64 {
+fn apply_plant_reset(
+    reset: &openbse_io::input::PlantResetConfig,
+    t_outdoor: f64,
+    design_supply_temp: f64,
+    last_temps: Option<(f64, f64)>,
+) -> f64 {
     use openbse_io::input::PlantResetConfig;
-    match reset {
+    match *reset {
         PlantResetConfig::OaReset {
             sp_min,
             sp_max,
@@ -10238,6 +10273,78 @@ fn apply_plant_reset(reset: &openbse_io::input::PlantResetConfig, t_outdoor: f64
             let frac = ((t_outdoor - oa_low) / (oa_high - oa_low)).clamp(0.0, 1.0);
             sp_min + (1.0 - frac) * (sp_max - sp_min)
         }
+        PlantResetConfig::ReturnTemperature {
+            sp_min,
+            sp_max,
+            return_target,
+        } => return_temperature_setpoint(
+            sp_min,
+            sp_max,
+            return_target,
+            design_supply_temp < return_target,
+            last_temps,
+        ),
+    }
+}
+
+/// E+ `SPMReturnWaterTemp::calculate`: the supply setpoint that would bring the
+/// return water to `return_target` if the load stayed as it was, from the
+/// last (return, supply) temperatures. With no flow, or water returning on the
+/// wrong side of the supply, it holds the design end of its range (the lowest
+/// setpoint for chilled water, the highest for hot water).
+fn return_temperature_setpoint(
+    sp_min: f64,
+    sp_max: f64,
+    return_target: f64,
+    chilled: bool,
+    last_temps: Option<(f64, f64)>,
+) -> f64 {
+    let design_end = if chilled { sp_min } else { sp_max };
+    let Some((t_return, t_supply)) = last_temps else {
+        return design_end;
+    };
+    let delta_t = if chilled {
+        t_return - t_supply
+    } else {
+        t_supply - t_return
+    };
+    if delta_t < 0.0 {
+        return design_end;
+    }
+    let setpoint = if chilled {
+        return_target - delta_t
+    } else {
+        return_target + delta_t
+    };
+    setpoint.clamp(sp_min, sp_max.max(sp_min))
+}
+
+#[cfg(test)]
+mod return_reset_tests {
+    use super::return_temperature_setpoint;
+
+    #[test]
+    fn chilled_water_supply_rises_until_the_return_reaches_its_target() {
+        // E+ LargeOffice primary loop: 6.7-10.22 °C, return held at 10.2 °C.
+        let sp = |temps| return_temperature_setpoint(6.7, 10.22, 10.2, true, temps);
+        // A 1 K return-to-supply difference: supply 1 K under the target.
+        assert!((sp(Some((9.0, 8.0))) - 9.2).abs() < 1e-12);
+        // Full design difference: the supply stays at its design end.
+        assert_eq!(sp(Some((14.0, 6.7))), 6.7);
+        // Tiny difference: limited by the maximum.
+        assert!((sp(Some((8.05, 8.0))) - 10.15).abs() < 1e-9);
+        assert_eq!(sp(Some((8.0, 8.0))), 10.2);
+        // No flow, or water returning colder than it left: design end.
+        assert_eq!(sp(None), 6.7);
+        assert_eq!(sp(Some((7.0, 8.0))), 6.7);
+    }
+
+    #[test]
+    fn hot_water_supply_falls_until_the_return_reaches_its_target() {
+        let sp = |temps| return_temperature_setpoint(60.0, 82.0, 60.0, false, temps);
+        assert!((sp(Some((65.0, 75.0))) - 70.0).abs() < 1e-12);
+        assert_eq!(sp(Some((50.0, 82.0))), 82.0);
+        assert_eq!(sp(None), 82.0);
     }
 }
 

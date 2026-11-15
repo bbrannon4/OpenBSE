@@ -422,8 +422,30 @@ supply temperature directly each timestep. The stepped reset is a common buildin
 automation sequence (ASHRAE Guideline 36 trim and respond), here with one request
 level and no ignore count.
 
-**Plant.** A plant loop's reset reaches only the loop's return estimate
-(@sec-plant-loop, [#251](https://github.com/bbrannon4/OpenBSE/issues/251)).
+**Return-temperature reset.** A plant loop can instead reset its supply to hold
+a return-water temperature $T_\text{ret}^*$. Each timestep it reads the supply
+side's return and supply temperatures at the end of the last timestep
+(@eq-plant-state) and sets
+
+$$
+T_\text{sp} = \operatorname{clamp}\!\left(T_\text{ret}^* \mp (T_\text{ret} - T_\text{sup}),\ T_\text{min},\ T_\text{max}\right),
+$$ {#eq-return-reset}
+
+minus for chilled water (a loop whose design supply is below $T_\text{ret}^*$),
+plus for hot water, where for hot water $T_\text{ret} - T_\text{sup}$ is
+negative. With no flow last timestep, or water returning on the wrong side of the
+supply, the setpoint holds the design end of its range, $T_\text{min}$ for chilled
+water and $T_\text{max}$ for hot water.
+
+**Plant.** A plant loop's setpoint, reset included, reaches its coils, its
+chillers' curves and leaving-setpoint boilers (@sec-plant-loop).
+
+**Comparison with EnergyPlus.** @eq-oa-reset is `SetpointManager:OutdoorAirReset`.
+@eq-return-reset is `SetpointManager:ReturnTemperature:ChilledWater` and
+`:HotWater` (`SPMReturnWaterTemp::calculate`) with a constant target, which also
+read the last values of the loop's supply outlet and inlet nodes; the return
+temperature is the supply side's inlet, the coils' return mixed with any bypass
+or common-pipe water (@eq-plant-supply-flow). A scheduled target is not an input.
 
 ## Known limitations {#sec-controls-limitations}
 
