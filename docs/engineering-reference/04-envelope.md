@@ -541,6 +541,10 @@ vertices, else $\sqrt{A}$.
 
 ### Outside faces (DOE-2) {#sec-doe2}
 
+`simulation.outside_convection_algorithm` picks the outside-face model, as
+E+'s `SurfaceConvectionAlgorithm:Outside` does: `doe2` (the default, as in
+E+) or `tarp` (@sec-tarp-outside).
+
 Wind-exposed outside faces use the DOE-2 model (`exterior_convection_full`).
 It combines natural convection with the MoWiTT forced-convection correlation
 for smooth glass [@yazdanian1994], scaled by a roughness multiplier $R_f$:
@@ -565,6 +569,43 @@ azimuth. Surfaces with `wind_exposure: false` use $h_n$ alone.
 
 : Roughness multipliers. {#tbl-roughness}
 
+### Outside faces (TARP) {#sec-tarp-outside}
+
+With `outside_convection_algorithm: tarp` (`exterior_convection_tarp`), the
+outside coefficient is the TARP natural convection of @eq-tarp plus the forced
+convection over a finite plate of Sparrow, Ramsey and Mass [@sparrow1979; @walton1983]:
+
+$$
+h_f = 2.537\,W_f\,R_f\sqrt{\frac{P\,V}{A}},
+\qquad
+h_{c,o} = h_n + h_f,
+$$ {#eq-tarp-outside}
+
+with $W_f = 1$ windward and $0.5$ leeward (the DOE-2 windward test), $R_f$
+from @tbl-roughness, $V$ the wind at the surface, and $A$ and $P$ the gross
+area and perimeter of the face the wind flows over. A window or door uses its
+parent surface's $A$ and $P$, since it starts no new boundary layer, and its own
+roughness and height. The perimeter is $P = 2(A/H + H)$, with $H$ the length
+from the surface's first vertex to its second (its height in E+'s upper-left,
+counter-clockwise vertex order), or $\sqrt{A}$ for a polygon of more than four
+sides that is not that rectangle. A surface given without vertices takes its
+input `height`, else $\sqrt{A}$. Surfaces with `wind_exposure: false` use $h_n$
+alone.
+
+Because $h_f$ falls as $\sqrt{P/A}$, a large face sees much less forced
+convection under TARP than under DOE-2, whose MoWiTT correlation has no size.
+On the retail prototype's 1,600 m² roof on the heating design day (0.95 m/s at
+the roof), TARP gives 2.83 W/(m²·K) and DOE-2 4.77, and the roof's outside
+face runs about 2 K colder.
+
+**Comparison with EnergyPlus.** This is E+'s `TarpHcOutside`
+(`InitExtConvCoeff`, `CalcSparrowWindward`, `CalcSparrowLeeward`), with the
+same base-surface area, perimeter approximation and height rule
+(`ProcessSurfaceVertices`). On the retail prototype's heating design day the
+roof and a 29 m wall come out at 2.832 and 2.930 W/(m²·K) against E+'s 2.832
+and 2.920 (the wall's natural term, at a 0.24 K difference, depends on which
+iteration's surface temperature evaluates it).
+
 **Wind at the surface.** The weather-station wind (10 m, open country) is
 moved to the surface's centroid height $z$ with the ASHRAE power law
 [@ashrae2021fund, Ch. 24]:
@@ -586,14 +627,15 @@ $z$ is the mean height of the surface's vertices. For surfaces given
 without vertices, it is estimated from the zone height: floors 0.1 m, walls
 mid-height, roofs at the top. That ignores the floor the zone is on.
 
-**Comparison with EnergyPlus.** These match EnergyPlus's default algorithms,
-TARP inside and DOE-2 outside (`ConvectionCoefficients::CalcASHRAETARPNatural`,
-`CalcDOE2Forced`, `Windward`, `SetSurfaceWindSpeedAt`), with the same
+**Comparison with EnergyPlus.** These match EnergyPlus's TARP inside
+algorithm and its DOE-2 and TARP outside algorithms
+(`ConvectionCoefficients::CalcASHRAETARPNatural`, `CalcDOE2Forced`,
+`CalcSparrowWindward`, `Windward`, `SetSurfaceWindSpeedAt`), with the same
 roughness multipliers, windward test and wind profile
 [@eplus-engref-25-2, "Outdoor/Exterior Convection", "Interior Convection"].
 EnergyPlus's other
-algorithms (adaptive convection, ASHRAE simple, MoWiTT alone) are not
-available.
+algorithms (adaptive convection, ASHRAE simple, MoWiTT alone, per-surface
+`SurfaceProperty:ConvectionCoefficients`) are not available.
 
 ## Known limitations: surface heat balances {#sec-surface-hb-limitations}
 

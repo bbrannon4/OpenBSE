@@ -318,6 +318,61 @@ pub fn exterior_convection_full(
     hc.max(0.1)
 }
 
+/// Outside face convection model, E+ `SurfaceConvectionAlgorithm:Outside`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutsideConvectionAlgorithm {
+    /// DOE-2: TARP natural convection combined with MoWiTT forced convection
+    /// for glass, scaled by the roughness (E+ default).
+    #[default]
+    Doe2,
+    /// TARP: TARP natural convection plus Sparrow's forced convection over a
+    /// finite plate, which falls with the face's size.
+    Tarp,
+}
+
+/// TARP exterior convection coefficient [W/(m²·K)], E+ `TarpHcOutside`:
+/// `HExt = Hn + Hf`, with `Hn` the Walton natural convection
+/// (`CalcASHRAETARPNatural`, outside cosTilt) and `Hf` Sparrow's forced
+/// convection over a finite plate (`CalcSparrowWindward`):
+///
+/// `Hf = 2.537 · Rf · sqrt(P · V / A)` on the windward side, half that leeward,
+///
+/// where `face` is the gross area A [m²] and perimeter P [m] of the face the
+/// wind flows over (the parent surface for a window or door) and `wind_speed`
+/// V is at the surface's height. Windward and leeward as in DOE-2.
+///
+/// Reference: Walton (1983) NBSIR 83-2655; Sparrow, Ramsey & Mass (1979)
+/// J. Heat Transfer 101:204; E+ Engineering Reference, "TARP Algorithm".
+#[allow(clippy::too_many_arguments)]
+pub fn exterior_convection_tarp(
+    t_surface: f64,
+    t_outdoor: f64,
+    wind_speed: f64,
+    tilt_deg: f64,
+    roughness: Roughness,
+    wind_dir_deg: f64,
+    azimuth_deg: f64,
+    face: (f64, f64),
+) -> f64 {
+    let cos_tilt = tilt_deg.to_radians().cos();
+    let h_natural = calc_natural_convection(t_surface - t_outdoor, cos_tilt);
+    let (area, perimeter) = face;
+    let h_forced = if area > 0.0 && perimeter > 0.0 {
+        let windward = 2.537
+            * roughness_multiplier(roughness)
+            * (perimeter * wind_speed.max(0.0) / area).sqrt();
+        if is_windward(wind_dir_deg, azimuth_deg, cos_tilt) {
+            windward
+        } else {
+            0.5 * windward
+        }
+    } else {
+        0.0
+    };
+    h_natural + h_forced
+}
+
 /// Roughness multiplier for forced convection.
 /// Based on EnergyPlus ConvectionCoefficients.cc (DOE-2 method).
 fn roughness_multiplier(roughness: Roughness) -> f64 {
@@ -703,6 +758,53 @@ mod tests {
         let hf_smooth = 3.26 * 5.0_f64.powf(0.89);
         let hc_glass = (hn * hn + hf_smooth * hf_smooth).sqrt();
         assert_relative_eq!(h_smooth, hc_glass, max_relative = 0.01);
+    }
+
+    #[test]
+    fn tarp_reproduces_eplus_on_a_large_cold_roof_and_wall() {
+        // E+ 25.2 retail heating design day, 20:15 (local wind from 2.5 m/s at
+        // the met station, city terrain): Core_Retail_Roof (Rough, 1600.5 m²
+        // gross, eight vertices so H = sqrt(A)) at -26.006 °C under -17.9 °C
+        // air, wind 0.9521 m/s -> E+ 2.8318 W/m²K.
+        let a = 1600.483;
+        let roof = exterior_convection_tarp(
+            -26.006,
+            -17.9,
+            0.9521,
+            0.0,
+            Roughness::Rough,
+            0.0,
+            0.0,
+            (a, 4.0 * a.sqrt()),
+        );
+        assert!((roof - 2.8318).abs() < 0.002, "roof {roof}");
+        // Core_Retail_Wall_West_2 (MediumRough, 29.27 m by 6.096 m, windward)
+        // at -18.1425 °C, wind 0.7574 m/s -> E+ 2.9195 W/m²K. At a 0.24 K
+        // difference the natural term is sensitive to the surface temperature
+        // E+ evaluated it with (the previous iteration's), hence 0.015.
+        let (l, h) = (29.27, 6.096);
+        let wall = exterior_convection_tarp(
+            -18.1425,
+            -17.9,
+            0.7574,
+            90.0,
+            Roughness::MediumRough,
+            0.0,
+            270.0 + 80.0,
+            (l * h, 2.0 * (l + h)),
+        );
+        assert!((wall - 2.9195).abs() < 0.015, "wall {wall}");
+    }
+
+    #[test]
+    fn tarp_leeward_forced_term_is_half_the_windward() {
+        let face = (20.0, 18.0);
+        let calm = exterior_convection_tarp(5.0, 0.0, 0.0, 90.0, Roughness::Smooth, 0.0, 0.0, face);
+        let windward =
+            exterior_convection_tarp(5.0, 0.0, 3.0, 90.0, Roughness::Smooth, 0.0, 0.0, face);
+        let leeward =
+            exterior_convection_tarp(5.0, 0.0, 3.0, 90.0, Roughness::Smooth, 0.0, 180.0, face);
+        assert!(((leeward - calm) - 0.5 * (windward - calm)).abs() < 1e-12);
     }
 
     #[test]

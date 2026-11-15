@@ -281,6 +281,7 @@ def main(idf_path, out_path):
     w("  end_month: 12")
     w("  end_day: 31")
     w("  terrain: city                    # Building: Terrain City")
+    w("  outside_convection_algorithm: tarp   # SurfaceConvectionAlgorithm:Outside")
     w("  solar_distribution: full_interior_and_exterior")
     w("  heating_sizing_factor: 1.2       # Sizing:Parameters")
     w("  cooling_sizing_factor: 1.2")

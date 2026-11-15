@@ -162,6 +162,35 @@ impl SurfaceInput {
         }
     }
 
+    /// Gross area [m²] and perimeter [m] of this surface as a base surface for
+    /// TARP outside convection, E+ `InitExtConvCoeff`: perimeter
+    /// 2·(A/H + H) from the gross area A and the height H E+ gives the surface
+    /// (`ProcessSurfaceVertices`): the length from its first vertex to its
+    /// second, or sqrt(A) for a polygon of more than four sides that isn't
+    /// that rectangle. Without vertices, H is the input `height`, else sqrt(A).
+    pub fn sparrow_face(&self) -> (f64, f64) {
+        let area = surface_gross_area(self);
+        let height = match &self.vertices {
+            Some(v) if v.len() >= 3 => {
+                let dist = |a: &Point3D, b: &Point3D| {
+                    ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt()
+                };
+                let h = dist(&v[1], &v[0]);
+                let w = dist(&v[2], &v[1]);
+                if v.len() > 4 && (h * w - area).abs() > 0.001 {
+                    area.sqrt()
+                } else {
+                    h
+                }
+            }
+            _ => self.height.unwrap_or(area.sqrt()),
+        };
+        if area <= 0.0 || height <= 0.0 {
+            return (area, 0.0);
+        }
+        (area, 2.0 * (area / height + height))
+    }
+
     /// Resolve geometry from vertices if present.
     ///
     /// If `vertices` contains ≥3 points, computes area, azimuth, and tilt
@@ -628,6 +657,11 @@ pub struct SurfaceState {
     /// Centroid height above ground [m] for wind speed profile adjustment.
     /// Estimated from zone geometry when vertex data is not available.
     pub centroid_height: f64,
+    /// Gross area [m²] and perimeter [m] of the face the outside air flows
+    /// over, for TARP's Sparrow forced convection: the surface's own, or its
+    /// parent's for a window or door (E+ uses the base surface, as a
+    /// subsurface starts no new boundary layer).
+    pub sparrow_face: (f64, f64),
     /// Diffuse sky shading ratio [0.0-1.0]: fraction of isotropic sky diffuse
     /// radiation that reaches this surface, accounting for obstruction by
     /// shading surfaces (overhangs, fins, detached shading).
@@ -779,6 +813,44 @@ mod tests {
             height: None,
             airflow: None,
         }
+    }
+
+    #[test]
+    fn sparrow_face_follows_eplus_height_rule() {
+        let p = |x, y, z| Point3D::new(x, y, z);
+        // A 29.27 m by 6.096 m wall in upper-left, counter-clockwise order:
+        // H is the first edge, so P is the rectangle's own perimeter.
+        let mut wall = iz("w", "a", "b", 0.0, 270.0, "c");
+        wall.vertices = Some(vec![
+            p(0.0, 35.27, 6.096),
+            p(0.0, 35.27, 0.0),
+            p(0.0, 6.0, 0.0),
+            p(0.0, 6.0, 6.096),
+        ]);
+        let (a, per) = wall.sparrow_face();
+        assert!((a - 29.27 * 6.096).abs() < 1e-9);
+        assert!((per - 2.0 * (29.27 + 6.096)).abs() < 1e-9);
+        // An eight-sided roof that is not its first two edges' rectangle is
+        // taken as a square of its area (E+ `ProcessSurfaceVertices`).
+        let mut roof = iz("r", "a", "b", 0.0, 0.0, "c");
+        roof.vertices = Some(vec![
+            p(25.135, 0.0, 6.096),
+            p(25.135, -3.0, 6.096),
+            p(29.135, -3.0, 6.096),
+            p(29.135, 0.0, 6.096),
+            p(54.27, 0.0, 6.096),
+            p(54.27, 29.27, 6.096),
+            p(0.0, 29.27, 6.096),
+            p(0.0, 0.0, 6.096),
+        ]);
+        let (a, per) = roof.sparrow_face();
+        assert!((a - (54.27 * 29.27 + 12.0)).abs() < 1e-6);
+        assert!((per - 4.0 * a.sqrt()).abs() < 1e-9);
+        // Without vertices: the input height, else a square.
+        let mut plain = iz("x", "a", "b", 20.0, 0.0, "c");
+        assert!((plain.sparrow_face().1 - 4.0 * 20.0_f64.sqrt()).abs() < 1e-12);
+        plain.height = Some(2.0);
+        assert!((plain.sparrow_face().1 - 2.0 * (10.0 + 2.0)).abs() < 1e-12);
     }
 
     #[test]

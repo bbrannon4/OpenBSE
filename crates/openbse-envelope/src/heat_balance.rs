@@ -85,6 +85,8 @@ pub struct BuildingEnvelope {
     /// Site terrain for wind profile calculations.
     /// Determines wind profile exponent and boundary layer height.
     pub terrain: convection::Terrain,
+    /// Outside face convection model (E+ `SurfaceConvectionAlgorithm:Outside`).
+    pub outside_convection: convection::OutsideConvectionAlgorithm,
     /// Site elevation above sea level [m].
     /// Used for air mass correction in Perez sky model (matching E+).
     pub elevation: f64,
@@ -1249,6 +1251,7 @@ impl BuildingEnvelope {
                 cos_tilt: tilt_rad.cos(),
                 sin_tilt: tilt_rad.sin(),
                 centroid_height,
+                sparrow_face: surf_input.sparrow_face(), // a subsurface takes its parent's below
                 diffuse_sky_shading_ratio: 1.0, // Updated by compute_diffuse_shading_ratios()
                 diffuse_horizon_shading_ratio: 1.0, // Updated by compute_diffuse_shading_ratios()
                 rad_index: None,                // Set with the zone's long-wave exchange below
@@ -1324,6 +1327,27 @@ impl BuildingEnvelope {
                 .find(|s| s.input.name == *parent_name)
             {
                 parent.net_area = (parent.net_area - window_area).max(0.0);
+            }
+        }
+
+        // A window or door starts no new boundary layer outside: TARP's
+        // forced convection uses its parent surface's face.
+        let parent_faces: HashMap<&str, (f64, f64)> = surface_states
+            .iter()
+            .map(|s| (s.input.name.as_str(), s.sparrow_face))
+            .collect();
+        let sub_faces: Vec<Option<(f64, f64)>> = surface_states
+            .iter()
+            .map(|s| {
+                s.input
+                    .parent_surface
+                    .as_deref()
+                    .and_then(|p| parent_faces.get(p).copied())
+            })
+            .collect();
+        for (s, face) in surface_states.iter_mut().zip(sub_faces) {
+            if let Some(face) = face {
+                s.sparrow_face = face;
             }
         }
 
@@ -1450,6 +1474,7 @@ impl BuildingEnvelope {
             shading_calculation: shading::ShadingCalculation::default(),
             shading_polygons: Vec::new(),
             terrain: convection::Terrain::default(),
+            outside_convection: convection::OutsideConvectionAlgorithm::default(),
             elevation,
             zone_rad,
             interzone_pairs,
@@ -3129,15 +3154,32 @@ impl EnvelopeSolver for BuildingEnvelope {
                                 self.terrain.wind_exp(),
                                 self.terrain.wind_bl_height(),
                             );
-                            self.surfaces[si].h_conv_outside = convection::exterior_convection_full(
-                                self.surfaces[si].temp_outside,
-                                t_outdoor,
-                                wind_at_surface,
-                                self.surfaces[si].input.tilt,
-                                self.surfaces[si].roughness,
-                                wind_direction,
-                                self.surfaces[si].input.azimuth,
-                            );
+                            let sf = &self.surfaces[si];
+                            self.surfaces[si].h_conv_outside = match self.outside_convection {
+                                convection::OutsideConvectionAlgorithm::Doe2 => {
+                                    convection::exterior_convection_full(
+                                        sf.temp_outside,
+                                        t_outdoor,
+                                        wind_at_surface,
+                                        sf.input.tilt,
+                                        sf.roughness,
+                                        wind_direction,
+                                        sf.input.azimuth,
+                                    )
+                                }
+                                convection::OutsideConvectionAlgorithm::Tarp => {
+                                    convection::exterior_convection_tarp(
+                                        sf.temp_outside,
+                                        t_outdoor,
+                                        wind_at_surface,
+                                        sf.input.tilt,
+                                        sf.roughness,
+                                        wind_direction,
+                                        sf.input.azimuth,
+                                        sf.sparrow_face,
+                                    )
+                                }
+                            };
                         } else {
                             // NoWind: natural convection only (matches E+ NoWind surface property).
                             // Uses exterior natural convection (cosTilt NOT negated), unlike
