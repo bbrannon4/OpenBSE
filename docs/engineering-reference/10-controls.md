@@ -223,11 +223,30 @@ and multi-speed heating coils are not modelled.
 
 **Source:** `build_psz_signals`.
 
-**Coils.** In heating, the coil aims at the heating supply temperature. With
-`cycling: proportional`, it aims at
-$T_h + (T_{s,h} - T_h)\min(e/5, 1)$ from the temperature error $e$ at the start of
-the timestep, which leaves a steady offset. In cooling, the coil runs at full
-capacity. Part load comes from @sec-plr.
+**Coils.** In cooling, the coil runs at full capacity. In heating, the coil aims at
+the heating supply temperature $T_{s,h}$, except in two cases. With `cycling:
+modulating` (the default), a continuous fan and a gas, electric or water heating
+coil (no heat-pump coil), the coil aims at the supply temperature that delivers
+the control zone's load $\dot Q_h$ to its setpoint $T_h$ with that zone's share of
+the flow $\dot m_z$,
+
+$$
+T_\text{coil} = \min\left(T_h + \frac{\dot Q_h}{\dot m_z c_p(W_z)} - \Delta T_f,\ T_{s,h}\right),
+$$ {#eq-psz-modulating}
+
+less the draw-through fan rise $\Delta T_f$, and runs the whole timestep. With
+`cycling: proportional`, it aims at $T_h + (T_{s,h} - T_h)\min(e/5, 1)$ from the
+temperature error $e$ at the start of the timestep, which leaves a steady offset.
+Otherwise part load comes from @sec-plr: a cycling fan, or a heat-pump coil, runs
+the unit at full output for the fraction of the timestep that meets the load.
+
+**Comparison with EnergyPlus.** `modulating` is the load control of E+'s
+`AirLoopHVAC:UnitarySystem`: with a cycling fan (`Fan:OnOff`, fan operating mode
+0) the unit runs at full output for its part-load ratio; with a continuous fan a
+fuel, electric or water heating coil runs at part load, so the supply temperature
+meets the load ($Q_\text{ZnReq}$ over the control zone's flow fraction), while a
+single-speed heat-pump coil still cycles its compressor. `on_off` cycles in every
+case. `proportional` has no E+ counterpart.
 
 **Single-zone reset.** With a `SingleZone` supply-temperature reset (E+
 `SetpointManager:SingleZone:Heating` and `:Cooling`), the loop does not cycle. The

@@ -550,6 +550,35 @@ fn zone_mode(ctx: &SignalCtx, zone: &str, zone_temp: f64, heat_sp: f64, cool_sp:
         .unwrap_or_else(|| hvac_mode(zone_temp, heat_sp, cool_sp))
 }
 
+/// A loop's total design flow [kg/s]: the sum of its zones' design flows.
+fn total_flow_for(li: &LoopInfo, zone_design_flows: &HashMap<String, f64>) -> f64 {
+    li.served_zones
+        .iter()
+        .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.5))
+        .sum::<f64>()
+        .max(0.01)
+}
+
+/// Whether a PSZ-AC unit modulates its heating supply temperature to the load
+/// (`cycling: modulating` with a continuous fan and no compressor heating
+/// coil), as an E+ UnitarySystem does with a continuous fan and a gas,
+/// electric or water heating coil. Otherwise it runs at full output for a
+/// runtime fraction: a cycling fan cycles the whole unit, and a single-speed
+/// heat pump cycles its compressor (E+ `UnitarySystem`, `FanOpMode`).
+pub fn psz_modulates_heating(li: &LoopInfo) -> bool {
+    li.system_type == AirLoopSystemType::PszAc
+        && li.cycling == openbse_io::input::CyclingMethod::Modulating
+        && li.fan_operating_mode != openbse_io::input::FanOperatingMode::Cycling
+        && li
+            .component_names
+            .iter()
+            .any(|n| li.coil_role(n) == CoilRole::Heating && !li.dx_compressor_names.contains(n))
+        && !li
+            .component_names
+            .iter()
+            .any(|n| li.coil_role(n) == CoilRole::Heating && li.dx_compressor_names.contains(n))
+}
+
 pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     let zone_temps = ctx.zone_temps;
     let zone_heat_sp = ctx.zone_heat_sp;
@@ -678,7 +707,26 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     //   DAT ramps from setpoint to max over a 5°C error band, giving
     //   smooth modulation for systems with variable-capacity burners.
     let heating_dat = match li.cycling {
-        openbse_io::input::CyclingMethod::OnOff => li.heating_supply_temp,
+        // Modulating with a continuous fan: the coil leaving temperature that
+        // delivers the control zone's load to setpoint with the zone's share
+        // of the flow, ṁ·cp·(T_sup − T_sp) = Q, less the draw-through fan's
+        // rise, up to the design supply temperature (E+ UnitarySystem load
+        // control, QZnReq / ControlZoneMassFlowFrac).
+        openbse_io::input::CyclingMethod::Modulating if psz_modulates_heating(li) => {
+            let share = li.served_zones.len().max(1) as f64;
+            let zone_flow = total_flow_for(li, zone_design_flows) / share;
+            let cp = openbse_psychrometrics::cp_air_fn_w(
+                zone_humidity_ratios
+                    .get(control_zone)
+                    .copied()
+                    .unwrap_or(0.008),
+            );
+            let t_supply = heat_sp + zone_heat_load.max(0.0) / (zone_flow * cp).max(1e-6);
+            (t_supply - li.supply_fan_dt).min(li.heating_supply_temp)
+        }
+        openbse_io::input::CyclingMethod::Modulating | openbse_io::input::CyclingMethod::OnOff => {
+            li.heating_supply_temp
+        }
         // A heating supply temperature at or below the setpoint leaves nothing
         // to ramp (validation warns that the loop cannot heat the zone), and
         // clamping between the two would panic; hold the supply temperature.
@@ -2315,6 +2363,59 @@ mod tests {
         assert_eq!(li.coil_role("DX Cooling Coil"), CoilRole::Cooling);
         assert_eq!(li.coil_role("HW Reheat"), CoilRole::Heating);
         assert_eq!(li.coil_role("Steam Humidifier"), CoilRole::Humidifier);
+    }
+
+    /// `cycling: modulating` is E+ UnitarySystem load control: with a
+    /// continuous fan a gas or electric heating coil aims at the supply
+    /// temperature that delivers the load, ṁ·cp·(T_sup − T_sp) = Q; with a
+    /// cycling fan, or a heat-pump coil, the coil fires at the design supply
+    /// temperature and the runtime fraction meets the load.
+    #[test]
+    fn modulating_psz_heats_to_the_load_on_a_continuous_fan() {
+        use openbse_io::input::{CyclingMethod, FanOperatingMode};
+        let mut li = make_loop(
+            AirLoopSystemType::PszAc,
+            vec![
+                "Fan".to_string(),
+                "Furnace".to_string(),
+                "DX Coil".to_string(),
+            ],
+        );
+        li.fan_names.insert("Fan".to_string());
+        li.component_kinds
+            .insert("Furnace".to_string(), ComponentKind::HeatingCoil);
+        li.component_kinds
+            .insert("DX Coil".to_string(), ComponentKind::CoolingCoil);
+        li.cycling = CyclingMethod::Modulating;
+        li.heating_supply_temp = 40.0;
+        li.fan_operating_mode = FanOperatingMode::Continuous;
+        li.supply_fan_dt = 0.5;
+        let heat_dat = |li: &LoopInfo, load: f64| {
+            let f = fcu_fixture(HvacMode::Heating, load, 0.0);
+            build_psz_signals(li, &f.ctx(0.0)).coil_setpoints["Furnace"]
+        };
+        let cp = openbse_psychrometrics::cp_air_fn_w(0.008);
+        assert!(psz_modulates_heating(&li));
+        let expected = 21.0 + 1000.0 / (0.5 * cp) - 0.5;
+        assert!((heat_dat(&li, 1000.0) - expected).abs() < 1e-9);
+        // More load than the design supply temperature carries: held there.
+        assert_eq!(heat_dat(&li, 50_000.0), 40.0);
+
+        // A cycling fan cycles the whole unit at full output.
+        li.fan_operating_mode = FanOperatingMode::Cycling;
+        assert!(!psz_modulates_heating(&li));
+        assert_eq!(heat_dat(&li, 1000.0), 40.0);
+
+        // PTAC and PTHP units keep their part-load cycling.
+        li.system_type = AirLoopSystemType::Ptac;
+        assert!(!psz_modulates_heating(&li));
+        li.system_type = AirLoopSystemType::PszAc;
+
+        // A heat-pump heating coil cycles its compressor.
+        li.fan_operating_mode = FanOperatingMode::Continuous;
+        li.dx_compressor_names.insert("Furnace".to_string());
+        assert!(!psz_modulates_heating(&li));
+        assert_eq!(heat_dat(&li, 1000.0), 40.0);
     }
 
     fn fcu_fixture(mode: HvacMode, heat: f64, cool: f64) -> Fixture {

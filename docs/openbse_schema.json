@@ -577,9 +577,9 @@
 
     "CyclingMethod": {
       "type": "string",
-      "enum": ["on_off", "proportional"],
-      "default": "proportional",
-      "description": "Capacity control method. on_off = cycling compressor; proportional = modulating output."
+      "enum": ["modulating", "on_off", "proportional"],
+      "default": "modulating",
+      "description": "Capacity control method of a PSZ unit (fan coils: on_off is E+ CyclingFan, the others its variable fan). modulating = E+ load-based UnitarySystem: full output for a runtime fraction that meets the load, except that with a continuous fan a gas, electric or water heating coil modulates the supply temperature to the load instead. on_off = full output for a runtime fraction in every case. proportional = the heating supply temperature ramps from the setpoint to heating_supply_temp over a 5 K zone error, leaving the zone below setpoint (droop)."
     },
 
     "EconomizerType": {

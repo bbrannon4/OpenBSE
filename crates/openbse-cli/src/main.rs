@@ -6644,6 +6644,10 @@ fn simulate_all_loops(
                     // that mode (E+ UnitarySystem: no coil, no part load), so a
                     // heating-only unit's fan stays off when the zone is warm.
                     HvacMode::Heating | HvacMode::Cooling if !li.can_condition(mode) => 0.0,
+                    // A modulating heating coil on a continuous fan meets the
+                    // load through its supply temperature (set by the signal
+                    // builder), so it runs the whole timestep.
+                    HvacMode::Heating if openbse_airloop::psz_modulates_heating(li) => 1.0,
                     HvacMode::Heating => {
                         // Capacity reference: the colder of setpoint and zone
                         // temp. Near setpoint both are equivalent; when the
