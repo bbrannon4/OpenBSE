@@ -918,8 +918,8 @@ fn run_zone_sizing(
     let mut zone_heating_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_cooling_airflow: HashMap<String, f64> = HashMap::new();
     let mut zone_design_airflow: HashMap<String, f64> = HashMap::new();
-    // Per zone: cooling ΔT and outdoor-air floor [kg/s], to turn
-    // its hourly design-day loads into flows.
+    // Per zone: cooling ΔT and flow floor (outdoor air, minimum design
+    // cooling flow) [kg/s], to turn its hourly design-day loads into flows.
     let mut cool_flow_basis: HashMap<String, (f64, f64)> = HashMap::new();
 
     for zone in &env.zones {
@@ -957,6 +957,11 @@ fn run_zone_sizing(
         //
         // sizing_fan_delta_t (from SimulationSettings) adds the fan heat
         // temperature rise to the cooling supply temp during sizing only.
+        // The zone's minimum design cooling flow (air-change limits) is a
+        // floor on it like the outdoor air, at the same standard density, as
+        // E+ DesignDayWithLimit raises DesCoolVolFlow and every CoolFlowSeq
+        // step to max(DesCoolMinAirFlow, DesCoolMinAirFlow2, MinOA).
+        let m_cool_floor = m_oa.max(zone.input.minimum_design_cooling_flow() * rho_site);
         let t_supply_eff = cooling_supply_temp + sizing_fan_delta_t;
         let dt_cooling = (cool_sp - t_supply_eff).max(3.0);
         let m_cool = if cool_load > 0.0 {
@@ -964,7 +969,7 @@ fn run_zone_sizing(
         } else {
             0.0
         }
-        .max(m_oa);
+        .max(m_cool_floor);
 
         // Design airflow is the larger of heating and cooling
         let m_design = m_heat.max(m_cool).max(0.01); // minimum 0.01 kg/s
@@ -972,11 +977,11 @@ fn run_zone_sizing(
         zone_heating_airflow.insert(name.clone(), m_heat);
         zone_cooling_airflow.insert(name.clone(), m_cool);
         zone_design_airflow.insert(name.clone(), m_design);
-        cool_flow_basis.insert(name.clone(), (dt_cooling, m_oa));
+        cool_flow_basis.insert(name.clone(), (dt_cooling, m_cool_floor));
     }
 
     // Each cooling design day's zone cooling flows, hour by hour, with the
-    // same outdoor-air floor (E+ CoolFlowSeq).
+    // same floor (E+ CoolFlowSeq).
     let hourly_cooling_flows = |run: &DesignDayRun| -> Vec<HashMap<String, f64>> {
         run.loads
             .iter()
@@ -984,8 +989,8 @@ fn run_zone_sizing(
                 loads
                     .iter()
                     .filter_map(|(name, &(_, cl))| {
-                        let &(dt, m_oa) = cool_flow_basis.get(name)?;
-                        let flow = (cooling_sizing_factor * cl / (cp_air * dt)).max(m_oa);
+                        let &(dt, floor) = cool_flow_basis.get(name)?;
+                        let flow = (cooling_sizing_factor * cl / (cp_air * dt)).max(floor);
                         Some((name.clone(), flow))
                     })
                     .collect()

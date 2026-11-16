@@ -120,3 +120,35 @@ fn return_air_lighting_heat_sizes_the_coil_not_the_zone() {
         coil_load(&log_half)
     );
 }
+
+/// A zone's minimum design cooling flow (E+ Sizing:Zone DesignDayWithLimit)
+/// raises its cooling and design flows to the limit at standard density, and
+/// leaves the other zones alone.
+#[test]
+fn minimum_cooling_flow_limits_the_zone_design_flow() {
+    let base = example("retail_rtu.yaml");
+    let limited = base.replacen(
+        "    floor_area: 60.0     # 12 × 5\n",
+        "    floor_area: 60.0     # 12 × 5\n    minimum_cooling_flow_per_area: 0.05\n",
+        1,
+    );
+    assert_ne!(base, limited, "the test model changed");
+    let (_, a) = size_model("min_flow_base", &base);
+    let (_, b) = size_model("min_flow_limited", &limited);
+    let flow = "Cooling Airflow [kg/s]";
+    // 0.05 m³/s·m² x 60 m² at the design days' standard density
+    let rho = 83411.0 / (287.042 * 293.15);
+    let expected = 0.05 * 60.0 * rho;
+    assert!(a["Sales Area"][flow] < expected, "the limit must bind");
+    assert!(
+        (b["Sales Area"][flow] - expected).abs() < 1e-3,
+        "cooling flow {} vs limit {expected}",
+        b["Sales Area"][flow]
+    );
+    assert!(b["Sales Area"]["Design Airflow [kg/s]"] >= expected - 1e-3);
+    for (zone, row) in &a {
+        if zone != "Sales Area" {
+            assert_eq!(row[flow], b[zone][flow], "{zone} changed");
+        }
+    }
+}

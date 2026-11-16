@@ -2081,6 +2081,8 @@
         "limit_humidity_to_saturation": { "type": "boolean", "default": true, "description": "Cap zone air humidity ratio at saturation for the zone temperature (excess condenses), as EnergyPlus does. Matters for a sealed, idle zone that cools." },
         "max_relative_humidity": { "type": "number", "description": "Maximum relative humidity setpoint [%] (e.g. 60). HVAC switches to dehumidification cooling when zone RH exceeds this." },
         "min_relative_humidity": { "type": "number", "description": "Minimum relative humidity setpoint [%] (e.g. 30). Humidifier activates when zone RH falls below this." },
+        "minimum_cooling_flow_per_area": { "type": "number", "minimum": 0, "description": "Lower limit on the zone's design cooling air flow per floor area [m3/s-m2], for air-change requirements (EnergyPlus Sizing:Zone DesignDayWithLimit, Cooling Minimum Air Flow per Zone Floor Area). Raises the design flow and the design-day flow sequence; a VAV box's maximum flow follows. Default: no limit." },
+        "minimum_cooling_flow": { "type": "number", "minimum": 0, "description": "Lower limit on the zone's design cooling air flow [m3/s] (EnergyPlus DesignDayWithLimit, Cooling Minimum Air Flow). The larger of this and minimum_cooling_flow_per_area x floor area applies. Default: no limit." },
         "duct_leakage": {
           "type": "object",
           "required": ["ambient_zone"],
