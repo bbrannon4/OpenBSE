@@ -3093,20 +3093,56 @@ fn main() -> Result<()> {
                     .collect::<Vec<_>>()
             })
             .collect();
+        // The most water the coils' pumps can move [kg/s]: a decoupled loop's
+        // coils are served by its demand-side pumps alone.
         let pump_flow_limit: Vec<Option<f64>> = model
             .plant_loops
             .iter()
             .map(|pl| {
                 let rho = openbse_psychrometrics::water_rho(pl.water_conversion_temp());
+                let decoupled = loop_is_decoupled(pl);
                 pl.supply_equipment
                     .iter()
-                    .filter(|eq| matches!(eq, openbse_io::input::PlantEquipmentInput::Pump(_)))
+                    .filter(|eq| match eq {
+                        openbse_io::input::PlantEquipmentInput::Pump(p) => {
+                            !decoupled || p.loop_side == openbse_io::input::PumpLoopSide::Demand
+                        }
+                        _ => false,
+                    })
                     .filter_map(|eq| match graph.component(graph.node_by_name(eq.name())?) {
                         GraphComponent::Plant(p) => p.design_water_flow_rate(),
                         _ => None,
                     })
                     .map(|v| v * rho)
                     .reduce(f64::min)
+            })
+            .collect();
+        // Each loop's supply-side pumps, for the water its supply side carries.
+        let supply_pumps: Vec<Vec<SupplyPump>> = model
+            .plant_loops
+            .iter()
+            .map(|pl| {
+                let rho = openbse_psychrometrics::water_rho(pl.water_conversion_temp());
+                pl.supply_equipment
+                    .iter()
+                    .filter_map(|eq| match eq {
+                        openbse_io::input::PlantEquipmentInput::Pump(p)
+                            if p.loop_side == openbse_io::input::PumpLoopSide::Supply =>
+                        {
+                            let design = match graph.component(graph.node_by_name(&p.name)?) {
+                                GraphComponent::Plant(c) => c.design_water_flow_rate()?,
+                                _ => return None,
+                            };
+                            Some(SupplyPump {
+                                constant_speed: p.pump_type
+                                    == openbse_io::input::PumpTypeInput::ConstantSpeed,
+                                design_mass_flow: design * rho,
+                                num_pumps: p.num_pumps,
+                            })
+                        }
+                        _ => None,
+                    })
+                    .collect()
             })
             .collect();
         // Each loop's supply temperature below (heating) or above (cooling)
@@ -3836,12 +3872,26 @@ fn main() -> Result<()> {
                                             .copied()
                                             .unwrap_or(0.0)
                                             / (cp_water * loop_delta_t);
-                                    let loop_mass_flow =
+                                    let demand_mass_flow =
                                         if condenser_load > 0.0 || demand_flow <= 1e-9 {
                                             total_load.abs() / (cp_water * loop_delta_t)
                                         } else {
                                             demand_flow
                                         };
+                                    // The supply side carries its pumps' flow: a
+                                    // constant-speed pump moves its design flow and
+                                    // the excess bypasses the coils (a condenser
+                                    // loop keeps its design-ΔT treatment).
+                                    let decoupled = loop_is_decoupled(plant_loop);
+                                    let loop_mass_flow = if condenser_load > 0.0 {
+                                        demand_mass_flow
+                                    } else {
+                                        supply_side_flow(
+                                            &supply_pumps[loop_idx],
+                                            demand_mass_flow,
+                                            decoupled,
+                                        )
+                                    };
                                     if let Some(limit) = pump_flow_limit[loop_idx] {
                                         if coil_flow > limit && condenser_load <= 0.0 {
                                             plant_flow_scale[loop_idx] *= limit / coil_flow;
@@ -4088,12 +4138,35 @@ fn main() -> Result<()> {
                                                     }
                                                     _ => equip_load,
                                                 };
-                                                let outlet = component.simulate_plant(
-                                                    &current_inlet,
-                                                    signed_load,
-                                                    &ctx,
+                                                let demand_side_pump = matches!(
+                                                    equip,
+                                                    openbse_io::input::PlantEquipmentInput::Pump(p)
+                                                        if p.loop_side
+                                                            == openbse_io::input::PumpLoopSide::Demand
                                                 );
-                                                current_inlet = outlet;
+                                                if demand_side_pump {
+                                                    // A secondary pump moves the coils'
+                                                    // water; its heat joins the loop load
+                                                    // below.
+                                                    let demand_inlet = WaterPort::new(
+                                                        openbse_psychrometrics::FluidState::water(
+                                                            current_inlet.state.temp,
+                                                            demand_mass_flow,
+                                                        ),
+                                                    );
+                                                    component.simulate_plant(
+                                                        &demand_inlet,
+                                                        signed_load,
+                                                        &ctx,
+                                                    );
+                                                } else {
+                                                    let outlet = component.simulate_plant(
+                                                        &current_inlet,
+                                                        signed_load,
+                                                        &ctx,
+                                                    );
+                                                    current_inlet = outlet;
+                                                }
                                                 if let openbse_io::input::PlantEquipmentInput::HeatExchanger(hx) = equip {
                                                     // Heat it gave the demand side came
                                                     // out of the source loop.
@@ -4229,7 +4302,18 @@ fn main() -> Result<()> {
                                     plant_supply_offset[loop_idx] = if is_condenser {
                                         0.0
                                     } else {
-                                        -total_load.signum() * unmet / (cp_water * loop_mass_flow)
+                                        let backflow = if decoupled {
+                                            common_pipe_mixing_offset(
+                                                served_load.abs(),
+                                                demand_mass_flow,
+                                                loop_mass_flow,
+                                                cp_water,
+                                            )
+                                        } else {
+                                            0.0
+                                        };
+                                        -total_load.signum()
+                                            * (unmet / (cp_water * loop_mass_flow) + backflow)
                                     };
                                     step_plant.push((
                                         plant_loop.name.clone(),
@@ -10043,6 +10127,75 @@ fn apply_plant_sizes(
 }
 
 /// Whether a plant loop rejects heat through a cooling tower.
+/// Whether a plant loop is decoupled: a demand-side (secondary) pump moves
+/// the coils' water and the supply side runs on its own pumps' flow, the
+/// difference passing through a common pipe.
+fn loop_is_decoupled(pl: &openbse_io::input::PlantLoopInput) -> bool {
+    pl.supply_equipment.iter().any(|eq| {
+        matches!(
+            eq,
+            openbse_io::input::PlantEquipmentInput::Pump(p)
+                if p.loop_side == openbse_io::input::PumpLoopSide::Demand
+        )
+    })
+}
+
+/// A supply-side pump as the loop hydraulics see it: constant speed or not,
+/// its (bank's) design mass flow [kg/s] and the number of pumps in the bank.
+#[derive(Debug, Clone, Copy)]
+struct SupplyPump {
+    constant_speed: bool,
+    design_mass_flow: f64,
+    num_pumps: u32,
+}
+
+/// Water the supply side of a plant loop carries [kg/s] (E+ `CalcPumps` and
+/// the loop flow resolver).
+///
+/// A constant-speed pump moves its design flow whenever it runs: the coils'
+/// valves take what they need and the rest passes through the demand-side
+/// bypass (or, on a decoupled loop, the common pipe). A headered
+/// constant-speed bank runs as many pumps as the request needs, each at its
+/// share of the design flow (E+ `HeaderedPumps:ConstantSpeed`); on a decoupled
+/// loop the supply side is constant flow, so the whole bank runs. A
+/// variable-speed pump follows the request.
+fn supply_side_flow(pumps: &[SupplyPump], request: f64, decoupled: bool) -> f64 {
+    let constant_flow: f64 = pumps
+        .iter()
+        .filter(|p| p.constant_speed && p.design_mass_flow > 0.0)
+        .map(|p| {
+            let n = p.num_pumps.max(1);
+            let per_pump = p.design_mass_flow / n as f64;
+            let running = if decoupled {
+                n
+            } else {
+                ((request / per_pump - 1e-9).ceil() as u32).clamp(1, n)
+            };
+            per_pump * running as f64
+        })
+        .sum();
+    if constant_flow <= 0.0 {
+        request
+    } else if decoupled {
+        constant_flow
+    } else {
+        constant_flow.max(request)
+    }
+}
+
+/// Supply temperature the coils of a decoupled loop see above (cooling) or
+/// below (heating) the supply side's [K]: when the coils draw more than the
+/// supply side carries, return water flows back through the common pipe and
+/// mixes into their supply. `load` is the loop load magnitude [W].
+fn common_pipe_mixing_offset(load: f64, demand_flow: f64, supply_flow: f64, cp: f64) -> f64 {
+    if demand_flow <= supply_flow || demand_flow <= 0.0 {
+        return 0.0;
+    }
+    // Coil return sits load / (ṁ_d·cp) from the supply; the backflow share
+    // (ṁ_d − ṁ_s) / ṁ_d of it mixes into the coils' supply.
+    (demand_flow - supply_flow) * load / (cp * demand_flow * demand_flow)
+}
+
 fn loop_has_tower(pl: &openbse_io::input::PlantLoopInput) -> bool {
     pl.supply_equipment
         .iter()
@@ -10085,6 +10238,56 @@ fn apply_plant_reset(reset: &openbse_io::input::PlantResetConfig, t_outdoor: f64
             let frac = ((t_outdoor - oa_low) / (oa_high - oa_low)).clamp(0.0, 1.0);
             sp_min + (1.0 - frac) * (sp_max - sp_min)
         }
+    }
+}
+
+#[cfg(test)]
+mod loop_hydraulics_tests {
+    use super::{common_pipe_mixing_offset, supply_side_flow, SupplyPump};
+
+    fn pump(constant_speed: bool, design_mass_flow: f64, num_pumps: u32) -> SupplyPump {
+        SupplyPump {
+            constant_speed,
+            design_mass_flow,
+            num_pumps,
+        }
+    }
+
+    #[test]
+    fn constant_speed_pump_moves_its_design_flow_whatever_the_coils_draw() {
+        let p = [pump(true, 50.0, 1)];
+        assert_eq!(supply_side_flow(&p, 5.0, false), 50.0);
+        // Coils asking for more than the pump moves keep their request; the
+        // pump limit scales them elsewhere.
+        assert_eq!(supply_side_flow(&p, 60.0, false), 60.0);
+    }
+
+    #[test]
+    fn headered_constant_bank_stages_on_the_request_unless_decoupled() {
+        let p = [pump(true, 100.0, 2)];
+        assert_eq!(supply_side_flow(&p, 10.0, false), 50.0);
+        assert_eq!(supply_side_flow(&p, 50.0, false), 50.0);
+        assert_eq!(supply_side_flow(&p, 70.0, false), 100.0);
+        // A decoupled primary side is constant flow: the whole bank runs.
+        assert_eq!(supply_side_flow(&p, 10.0, true), 100.0);
+    }
+
+    #[test]
+    fn variable_speed_pumps_follow_the_request() {
+        let p = [pump(false, 100.0, 1)];
+        assert_eq!(supply_side_flow(&p, 12.0, false), 12.0);
+        assert_eq!(supply_side_flow(&[], 12.0, true), 12.0);
+    }
+
+    #[test]
+    fn common_pipe_backflow_warms_the_coils_supply() {
+        // Supply side carries all the coils draw: no mixing.
+        assert_eq!(common_pipe_mixing_offset(1.0e5, 10.0, 20.0, 4186.0), 0.0);
+        // Coils draw 20 kg/s against a 10 kg/s supply side: half their water is
+        // return water load/(ṁ_d·cp) warmer.
+        let rise = 1.0e5 / (20.0 * 4186.0);
+        let offset = common_pipe_mixing_offset(1.0e5, 20.0, 10.0, 4186.0);
+        assert!((offset - 0.5 * rise).abs() < 1e-12);
     }
 }
 

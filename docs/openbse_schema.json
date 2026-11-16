@@ -1195,7 +1195,7 @@
         "design_head": { "type": "number", "default": 179352.0, "description": "Design pump head [Pa]. Default ~60 ft H2O." },
         "motor_efficiency": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "Motor efficiency [0-1]." },
         "impeller_efficiency": { "type": "number", "default": 0.78, "minimum": 0, "maximum": 1, "description": "Impeller/hydraulic efficiency [0-1]. Design power = flow * head / (motor_efficiency * impeller_efficiency). The default is E+'s design shaft power per unit flow per unit head, 1.282051282 W/((m3/s)-Pa)." },
-        "num_pumps": { "type": "integer", "default": 1, "minimum": 1, "description": "Number of pumps in headered configuration. Each pump's flow = total / num_pumps." },
+        "num_pumps": { "type": "integer", "default": 1, "minimum": 1, "description": "Number of pumps in headered configuration. Each pump's flow = total / num_pumps. A constant-speed bank runs as many pumps as the coils' flow needs (all of them on a decoupled loop's supply side)." },
         "motor_heat_to_fluid_fraction": { "type": "number", "default": 0.0, "minimum": 0, "maximum": 1, "description": "Fraction of the motor losses added to the fluid [0-1] (E+ Fraction of Motor Inefficiencies to Fluid Stream). The shaft work always heats the fluid: heat = motor_efficiency * P + (1 - motor_efficiency) * P * fraction." },
         "power_curve": {
           "type": "array",
@@ -1203,6 +1203,12 @@
           "minItems": 4,
           "maxItems": 4,
           "description": "Variable-speed part-load power curve coefficients [c1, c2, c3, c4]: power_frac = c1 + c2*PLR + c3*PLR^2 + c4*PLR^3, with PLR the flow over the design flow. Default [0, 1, 0, 0], E+'s Pump:VariableSpeed default. Not allowed on a constant_speed pump."
+        },
+        "loop_side": {
+          "type": "string",
+          "enum": ["supply", "demand"],
+          "default": "supply",
+          "description": "Side of the loop the pump is on. A demand (secondary) pump moves the water the coils draw; a loop with one is a primary/secondary loop whose supply side runs on its own pumps' flow, decoupled by a common pipe, with every constant-speed supply pump running whenever the loop runs. A constant-speed supply pump moves its design flow whenever it runs, the excess bypassing the coils."
         }
       }
     },
@@ -2683,7 +2689,8 @@
           "minItems": 4,
           "maxItems": 4,
           "description": "Variable-speed part-load power curve coefficients [c1, c2, c3, c4]: power_frac = c1 + c2*PLR + c3*PLR^2 + c4*PLR^3, with PLR the flow over the design flow. Default [0, 1, 0, 0], E+'s Pump:VariableSpeed default. Not allowed on a constant_speed pump."
-        }
+        },
+        "loop_side": { "type": "string", "enum": ["supply"], "default": "supply", "description": "Plant loops only; a DHW pump is always on the supply side." }
       }
     },
 

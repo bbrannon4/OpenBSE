@@ -26,24 +26,59 @@ with $T_\text{sp}$ the supply setpoint (from the loop's outdoor reset if it has
 one) and $\delta$ the shortfall of the last pass, below. Each coil's valve takes
 the water it needs and reports its flow.
 
-**State.** The loop's flow is the sum of its coils' water flows, each times its
+**State.** The demand flow is the sum of the coils' water flows, each times its
 zone multiplier, plus each water radiant panel's load at the design difference
 $\Delta T_d$. A condenser loop, or a loop whose coils drew no water, takes its
-load at $\Delta T_d$. The water returns with what the load did to it:
+load at $\Delta T_d$:
 
 $$
-\dot m = \sum_k \dot m_{w,k} + \frac{|\dot Q_\text{panels}|}{c_{p,w}\Delta T_d}, \qquad
-T_\text{ret} = T_\text{sp} \mp \frac{|\dot Q|}{\dot m c_{p,w}},
+\dot m_d = \sum_k \dot m_{w,k} + \frac{|\dot Q_\text{panels}|}{c_{p,w}\Delta T_d}.
+$$
+
+The supply side carries its pumps' flow $\dot m_s$ (@eq-plant-supply-flow), and
+the supply units see the water returning with what the load did to it:
+
+$$
+T_\text{ret} = T_\text{sp} \mp \frac{|\dot Q|}{\dot m_s c_{p,w}},
 $$ {#eq-plant-state}
 
 with the minus sign for a heating loop, $\Delta T_d$ at least 1 K and
-$c_{p,w}$ at the loop's conversion temperature (@sec-water-properties). A
-condenser loop returns $\Delta T_d$ warmer. A loop with no load is not
+$c_{p,w}$ at the loop's conversion temperature (@sec-water-properties). When
+$\dot m_s > \dot m_d$ the excess passes the coils through the demand-side bypass
+(or a decoupled loop's common pipe), so @eq-plant-state is the coils' return
+mixed with that bypass water. A condenser loop carries its load at
+$\Delta T_d$ and returns $\Delta T_d$ warmer. A loop with no load is not
 simulated.
+
+**Supply-side flow.** A variable-speed pump follows the demand,
+$\dot m_s = \dot m_d$. A constant-speed pump moves its design flow whenever it
+runs. A headered bank of $N$ constant-speed pumps, design flow $\dot m_p$ in all,
+runs as many as the demand needs, each at its share:
+
+$$
+\dot m_s = \max\!\left(\dot m_d,\; \sum_\text{pumps} n\,\frac{\dot m_p}{N}\right),
+\qquad n = \min\!\left(\max\!\left(\left\lceil \frac{\dot m_d N}{\dot m_p}\right\rceil, 1\right), N\right).
+$$ {#eq-plant-supply-flow}
+
+**Decoupled loops.** A loop with a pump on its demand side
+(`loop_side: demand`) is a primary/secondary loop: the demand-side (secondary)
+pumps move $\dot m_d$, and the supply (primary) side is decoupled from it by a
+common pipe. Its constant-speed supply pumps are constant flow: every pump of
+the bank runs whenever the loop runs, $n = N$, and $\dot m_s$ is their flow alone.
+If the coils draw more than that, return water flows back through the common
+pipe into their supply, which then sits above (cooling) or below (heating) the
+supply side's by
+
+$$
+\delta_\text{cp} = \frac{(\dot m_d - \dot m_s)\,|\dot Q|}{c_{p,w}\,\dot m_d^2},
+$$
+
+added to the shortfall below. The flow limit then comes from the demand-side
+pumps.
 
 **Shortfall.** If the supply equipment delivers less than the load, the water
 leaves short of setpoint by
-$\delta = \mp(|\dot Q| - \dot Q_\text{del})/(\dot m c_{p,w})$, and the coils see
+$\delta = \mp(|\dot Q| - \dot Q_\text{del})/(\dot m_s c_{p,w})$, and the coils see
 that water on the next pass. Since a coil's output rises more slowly with its
 water temperature than the water's own capacity rate, the passes converge to the
 output the equipment can supply.
@@ -56,7 +91,8 @@ ratio for the rest of the timestep.
 at the inlet of the supply side, then the rest in input order. Each takes the
 outlet of the one before:
 
-- **Pumps** see the whole load and flow. Their heat (@eq-pump-heat) is in the
+- **Pumps** see the whole load. Supply-side pumps carry $\dot m_s$ and
+  demand-side pumps $\dot m_d$. Their heat (@eq-pump-heat) is in the
   water the other units receive: it comes off a heating loop's load and is added
   to a cooling or condenser loop's, as $\dot Q - \dot Q_\text{pump}$ in the
   load's sign (a condenser loop's rejection counts positive).
@@ -75,9 +111,17 @@ loop's temperature with its fluid volume and common-pipe options
 [@eplus-engref-25-2, "Plant Flow Resolver"]. OpenBSE's loop is an algebraic
 balance on the same demand-side flows: its coils' valves set the flow, limited
 by their design flows and by the pump, and the supply temperature they see falls
-when the equipment falls short. It has no water temperature history (loop
-volume, common pipe), and a constant-speed pump does not bypass its excess flow
-to the return ([#251](https://github.com/bbrannon4/OpenBSE/issues/251)). The
+when the equipment falls short. Like EnergyPlus, a constant-speed pump
+moves its design flow whenever its loop runs and the excess bypasses the coils
+(`CalcPumps` with the loop's bypass branches), and a headered constant-speed
+bank runs as many pumps as the flow request needs (`HeaderedPumps:ConstantSpeed`).
+A decoupled loop matches an EnergyPlus primary/secondary plant whose primary
+loop serves an `UncontrolledOn` ideal `HeatExchanger:FluidToFluid` sized to the
+primary flow (the DOE prototypes' form): the exchanger requests the full primary
+flow, so every primary branch pump runs whenever the primary loop does, and its
+outlets are those of a common pipe, mixing included. OpenBSE has no water
+temperature history (loop volume)
+([#251](https://github.com/bbrannon4/OpenBSE/issues/251)). The
 supply setpoint, its reset included, reaches the coils, the chillers' curves and
 leaving-setpoint boilers, as an EnergyPlus setpoint manager sets the supply
 outlet node's setpoint that they read. Pump heat enters
@@ -98,7 +142,8 @@ $$ {#eq-pump-design}
 with motor efficiency $\eta_m$ and impeller efficiency $\eta_i$ (default 0.78).
 With the flow fraction $x = \min(\dot m/(\rho_w\dot V_d), 1)$, $\rho_w$ at the entering water:
 
-- **Constant speed:** $P = P_d$ whenever the loop has a load.
+- **Constant speed:** $P = P_d$ whenever the loop has a load; it then moves its
+  design flow (@eq-plant-supply-flow).
 - **Variable speed:** $P = P_df(x)$, with $f$ the cubic
   $c_1 + c_2x + c_3x^2 + c_4x^3$, by default $f = x$.
 - **Headered ($N$ pumps):** $\lceil xN\rceil$ pumps run, each at $P_d/N$ (constant)

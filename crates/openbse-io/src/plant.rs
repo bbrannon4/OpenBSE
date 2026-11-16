@@ -338,6 +338,14 @@ pub fn validate_pumps(model: &ModelInput, result: &mut ValidationResult) {
             _ => None,
         });
     let dhw = model.dhw_systems.iter().filter_map(|d| d.pump.as_ref());
+    for p in dhw.clone() {
+        if p.loop_side == crate::input::PumpLoopSide::Demand {
+            result.push_severe(format!(
+                "DHW pump '{}': loop_side demand applies only to plant loop pumps",
+                p.name
+            ));
+        }
+    }
     for p in plant.chain(dhw) {
         if p.pump_type == PumpTypeInput::ConstantSpeed && p.power_curve.is_some() {
             result.push_severe(format!(

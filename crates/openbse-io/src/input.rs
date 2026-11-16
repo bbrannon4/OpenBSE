@@ -2274,6 +2274,24 @@ pub struct PumpInput {
     /// Default: [0, 1, 0, 0], E+'s `Pump:VariableSpeed` default.
     #[serde(default)]
     pub power_curve: Option<[f64; 4]>,
+    /// Which side of the loop the pump is on (default: `supply`). A
+    /// `demand` pump is a secondary pump: it moves the water the coils'
+    /// valves draw, and the loop's supply side is decoupled from it by a
+    /// common pipe (E+ primary/secondary loop with a demand-side pump).
+    #[serde(default)]
+    pub loop_side: PumpLoopSide,
+}
+
+/// Side of a plant loop a pump is on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PumpLoopSide {
+    /// Supply (primary) side, with the chillers and boilers.
+    #[default]
+    Supply,
+    /// Demand (secondary) side, with the coils; the supply side runs at its
+    /// own pumps' flow and the difference passes through the common pipe.
+    Demand,
 }
 
 impl PumpInput {
