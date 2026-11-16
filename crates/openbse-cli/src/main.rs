@@ -2484,10 +2484,20 @@ fn main() -> Result<()> {
                                             .find(|t| t.zones.contains(zone_name))
                                             .map(|t| t.heating_setpoint)
                                             .unwrap_or(21.0);
+                                        // Primary air at the loop's central heating
+                                        // design temperature when given (E+
+                                        // GetHeatingSATempForSizing with a central
+                                        // heating coil), else its cooling supply.
+                                        let primary_temp = model
+                                            .air_loops
+                                            .iter()
+                                            .find(|al| al.name == li.name)
+                                            .and_then(|al| al.controls.central_heating_supply_temp)
+                                            .unwrap_or(li.cooling_supply_temp);
                                         let reheat = terminal_reheat_capacity(
                                             zone_heat,
                                             comp.reheat_primary_air_flow().unwrap_or(0.0),
-                                            li.cooling_supply_temp,
+                                            primary_temp,
                                             zone_temp,
                                         );
                                         comp.set_nominal_capacity(reheat);
