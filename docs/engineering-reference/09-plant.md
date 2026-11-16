@@ -202,6 +202,22 @@ and the curves read the heat-weighted blend of the two entering temperatures.
 The blend and split are solved together. Recovery stops above an inlet high
 limit.
 
+A `heating_led` heat-recovery chiller runs for the heating loop: it takes the
+largest cooling load $\dot Q \le \dot Q_\text{req}$ with
+
+$$
+\dot Q + P(\dot Q) \le \dot Q_\text{rec,max},
+$$ {#eq-chiller-hr-led}
+
+where $\dot Q_\text{rec,max}$ is @eq-chiller-hr without its first term (the
+water's rise to its setpoint, $f_\text{hr}\dot Q_{\text{rej},r}$ and the
+receiving loop's remaining demand), found by bisection to 1 W. Its cooling and
+power are then all recovered; only a false load below the minimum unloading
+ratio reaches its condenser. With no heating demand it is off. Listed first
+on its chilled-water loop, it pre-cools the return, and the chillers after it
+meet the rest of the load, as sequential staging moves on from a unit that did
+not meet the load asked of it.
+
 **Water side.** The outlet is $T_\text{in} - \dot Q/(\dot mc_{p,w})$, limited to
 2 K below the setpoint.
 
@@ -216,6 +232,14 @@ on Condenser Entering Temperature"]. The differences are
   chilled-water setpoint.
 - EnergyPlus requires the curves.
 - OpenBSE has no air-cooled condenser fan power ratio.
+- E+ has no heating-led control of its own. The DOE 90.1 Hospital prototype
+  makes its heat-recovery chiller heating-led with an EMS program
+  (`BypassHXStatus_Prg`): it lowers the chiller's leaving setpoint by
+  $8.33\,\text{K}\times\min(1, \dot Q_\text{HW}/(\dot Q_r(1 + 1/\text{COP}_r)))$
+  below the chilled-water return, which asks for about
+  $\dot Q_\text{HW}/(1 + 1/\text{COP}_r)$ of cooling at the rated COP.
+  @eq-chiller-hr-led uses the chiller's actual power instead, so the recovered
+  heat meets the demand rather than the rated-COP estimate of it.
 
 ## ASHRAE 205 chillers {#sec-chiller-a205}
 

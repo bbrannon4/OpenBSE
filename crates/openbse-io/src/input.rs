@@ -2507,6 +2507,13 @@ pub struct ChillerHeatRecoveryInput {
     /// Heat recovery stops while the entering water is above this [C].
     #[serde(default)]
     pub inlet_high_limit: Option<f64>,
+    /// Run the chiller for the heat: it cools only as much as rejects the
+    /// heat the receiving loop can take (its remaining demand, the water's
+    /// rise to `leaving_setpoint`, `capacity_fraction`), and the chillers
+    /// after it meet the rest of the cooling load. Default false: it meets
+    /// its share of the cooling load and recovers what it can.
+    #[serde(default)]
+    pub heating_led: bool,
 }
 
 fn default_heat_recovery_capacity_fraction() -> f64 {
@@ -4249,6 +4256,7 @@ fn build_graph_impl(
                                 design_flow: hr.design_flow,
                                 capacity_fraction: hr.capacity_fraction,
                                 inlet_high_limit: hr.inlet_high_limit,
+                                heating_led: hr.heating_led,
                             });
                         if let Some(condenser_loop) = ci
                             .condenser_plant_loop

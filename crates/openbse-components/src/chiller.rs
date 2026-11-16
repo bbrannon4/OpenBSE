@@ -65,6 +65,9 @@ pub struct ChillerHeatRecovery {
     /// Heat recovery stops while the entering heat-recovery water is above
     /// this temperature [°C].
     pub inlet_high_limit: Option<f64>,
+    /// Heating-led: cool only as much as rejects the recoverable heat.
+    #[serde(default)]
+    pub heating_led: bool,
 }
 
 /// Electric chiller (air-cooled or water-cooled).
@@ -404,12 +407,11 @@ impl AirCooledChiller {
     /// and the split are solved together, which E+'s iterations converge to.
     /// Returns the operation, the heat recovered [W] and the blended
     /// temperature.
-    fn operate_with_heat_recovery(
-        &self,
-        load: f64,
-        t_cond_in: f64,
-        hr: &ChillerHeatRecovery,
-    ) -> (Operation, f64) {
+    /// Heat the heat-recovery water can take this timestep [W]: its rise to
+    /// the leaving setpoint, capped at capacity_fraction × full-load
+    /// rejection and at the receiving loop's remaining demand; none while
+    /// the entering water is above the inlet high limit.
+    fn recoverable_heat(&self, hr: &ChillerHeatRecovery) -> f64 {
         let t_hr_in = self.heat_recovery_inlet_temp;
         let to_setpoint = (self.heat_recovery_mass_flow(hr)
             * water_cp(t_hr_in)
@@ -420,14 +422,52 @@ impl AirCooledChiller {
         } else {
             self.rated_capacity
         };
-        let blocked = hr.inlet_high_limit.is_some_and(|limit| t_hr_in > limit);
-        let recoverable = if blocked {
-            0.0
-        } else {
-            to_setpoint
-                .min(hr.capacity_fraction * full_load_rejection)
-                .min(self.heat_recovery_max.max(0.0))
+        if hr.inlet_high_limit.is_some_and(|limit| t_hr_in > limit) {
+            return 0.0;
+        }
+        to_setpoint
+            .min(hr.capacity_fraction * full_load_rejection)
+            .min(self.heat_recovery_max.max(0.0))
+    }
+
+    /// Heating-led cooling load [W]: the largest load up to `load` whose
+    /// cooling plus power does not exceed the recoverable heat, so the
+    /// chiller runs for the heating loop. Below the minimum unloading ratio
+    /// the false load adds heat the loop did not ask for; it goes to the
+    /// condenser. Cooling plus power rises with load, so the load is found by
+    /// bisection.
+    fn heating_led_load(&self, load: f64, t_cond_in: f64, hr: &ChillerHeatRecovery) -> f64 {
+        let recoverable = self.recoverable_heat(hr);
+        if recoverable <= 0.0 || load <= 0.0 {
+            return 0.0;
+        }
+        let rejected = |l: f64| {
+            let op = self.operate_with_heat_recovery(l, t_cond_in, hr).0;
+            op.capacity + op.power
         };
+        if rejected(load) <= recoverable {
+            return load;
+        }
+        let (mut lo, mut hi) = (0.0, load);
+        while hi - lo > 1.0 {
+            let mid = 0.5 * (lo + hi);
+            if rejected(mid) <= recoverable {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
+    }
+
+    fn operate_with_heat_recovery(
+        &self,
+        load: f64,
+        t_cond_in: f64,
+        hr: &ChillerHeatRecovery,
+    ) -> (Operation, f64) {
+        let t_hr_in = self.heat_recovery_inlet_temp;
+        let recoverable = self.recoverable_heat(hr);
 
         let mut t_curve = if recoverable > 0.0 {
             t_hr_in
@@ -501,6 +541,12 @@ impl PlantComponent for AirCooledChiller {
         let cp_water = inlet.state.cp;
         let t_cond_in = self.condenser_temp(ctx);
         self.condenser_inlet_temp = t_cond_in;
+        let load = match (self.model, self.heat_recovery.as_ref()) {
+            (ChillerModel::Eir, Some(hr)) if hr.heating_led => {
+                self.heating_led_load(load, t_cond_in, hr)
+            }
+            _ => load,
+        };
         if load <= 0.0 {
             self.actual_capacity = 0.0;
             self.actual_cop = 0.0;
@@ -955,6 +1001,7 @@ mod tests {
             design_flow: 5.46102 / water_rho(HOT_WATER_CONVERSION_TEMP),
             capacity_fraction: 1.0,
             inlet_high_limit: None,
+            heating_led: false,
         });
         chiller.set_heat_recovery_conditions(t_hr_in, f64::INFINITY);
         chiller
@@ -1032,6 +1079,40 @@ mod tests {
         // Recovering into 38 °C water costs more power than rejecting at 21 °C.
         assert!(none.electric_power < capped.electric_power);
         assert!(capped.electric_power < free.electric_power);
+    }
+
+    #[test]
+    fn test_heating_led_cools_only_for_the_heat() {
+        // The heating loop takes 20 kW of a 60 kW cooling request's ~80 kW of
+        // rejection: a heating-led chiller cools only as much as rejects the
+        // 20 kW, recovers all of it and sends nothing to the tower; with no
+        // heating demand it stays off. The cooling-led one meets the load.
+        let inlet = WaterPort::new(FluidState::water(12.0, 4.1));
+        let led = |demand: f64| {
+            let mut c = make_heat_recovery_chiller(21.0, 38.0);
+            c.heat_recovery.as_mut().unwrap().heating_led = true;
+            c.set_heat_recovery_conditions(38.0, demand);
+            c.simulate_plant(&inlet, 60_000.0, &make_ctx(10.0));
+            c
+        };
+        let c = led(20_000.0);
+        assert!(c.actual_capacity < 60_000.0 && c.actual_capacity > 5_000.0);
+        assert_relative_eq!(c.heat_recovered, 20_000.0, max_relative = 1e-3);
+        assert_relative_eq!(
+            c.actual_capacity + c.electric_power,
+            20_000.0,
+            max_relative = 1e-3
+        );
+        // Nothing but any false load reaches the tower.
+        let half = led(40_000.0);
+        assert_relative_eq!(half.heat_recovered, 40_000.0, max_relative = 1e-3);
+        assert!(half.condenser_heat.abs() < 1e-3 * 40_000.0);
+        let off = led(0.0);
+        assert_eq!(off.actual_capacity, 0.0);
+        assert_eq!(off.electric_power, 0.0);
+        // Enough demand: the whole cooling load, as a cooling-led chiller.
+        let full = led(1.0e9);
+        assert_relative_eq!(full.actual_capacity, 60_000.0, max_relative = 1e-12);
     }
 
     #[test]

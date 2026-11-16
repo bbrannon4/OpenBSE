@@ -1171,7 +1171,8 @@
         "leaving_setpoint": { "type": "number", "description": "Leaving heat-recovery water temperature setpoint [C]." },
         "design_flow": { "type": "number", "default": 0.0, "description": "Heat-recovery water flow [m3/s]. 0 sizes it as E+ does: the design condenser flow x capacity_fraction." },
         "capacity_fraction": { "type": "number", "default": 1.0, "exclusiveMinimum": 0, "maximum": 1, "description": "Share of full-load condenser heat that can be recovered (E+ Condenser Heat Recovery Relative Capacity Fraction)." },
-        "inlet_high_limit": { "type": "number", "description": "Heat recovery stops while the entering heat-recovery water is above this temperature [C]." }
+        "inlet_high_limit": { "type": "number", "description": "Heat recovery stops while the entering heat-recovery water is above this temperature [C]." },
+        "heating_led": { "type": "boolean", "default": false, "description": "Run the chiller for the heat: it cools only as much as its cooling plus power meets what the heat-recovery water can take (its remaining demand, its rise to leaving_setpoint, capacity_fraction); the chillers after it on the loop meet the rest of the cooling. List it first on its chilled-water loop. Default false: it meets its share of the cooling load and recovers what it can." }
       }
     },
 
