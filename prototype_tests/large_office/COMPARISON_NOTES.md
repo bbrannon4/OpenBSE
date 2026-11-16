@@ -109,10 +109,11 @@ the boiler load is within 2.4%.
 
 - **Daylight saving time** ([#199](https://github.com/bbrannon4/OpenBSE/issues/199)),
   most of the heating gap.
-- **E+ data centre overcooling** (above): a deliberate difference; OpenBSE meets
-  the zone load.
-- **Chiller dispatch**: E+ runs chiller 1 alone up to 1.57 MW and both at
+- **E+ data centre overcooling** (above,
+  [#497](https://github.com/bbrannon4/OpenBSE/issues/497)): a deliberate
+  difference; OpenBSE meets the zone load.
+- **Chiller dispatch** ([#495](https://github.com/bbrannon4/OpenBSE/issues/495)): E+ runs chiller 1 alone up to 1.57 MW and both at
   uniform load above; OpenBSE stages sequentially at 0.9 part load (533 h of
   chiller 2 against E+'s 713 h).
-- **Service hot water pump**: E+ meters it under pumps (369 kWh), OpenBSE
+- **Service hot water pump** ([#496](https://github.com/bbrannon4/OpenBSE/issues/496)): E+ meters it under pumps (369 kWh), OpenBSE
   under service hot water.
