@@ -6348,12 +6348,23 @@ fn simulate_all_loops(
                         }) => (*sat_min, *sat_max),
                         _ => (4.0, 50.0),
                     };
-                    // The supply fan is downstream of the coils (draw-through),
-                    // so it reheats the air by supply_fan_dt before it reaches
-                    // the zone. Aim the coil leaving temperature that much below
-                    // the supply temperature that holds the zone, so the air
-                    // arrives at the zone at the intended temperature.
+                    // A supply fan downstream of a coil (draw-through) reheats
+                    // the air by supply_fan_dt before it reaches the zone, so
+                    // that coil aims that much below the supply temperature that
+                    // holds the zone (E+ SetpointManager:MixedAir on the coil
+                    // outlet). A fan ahead of the coil (blow-through) has
+                    // already added its heat: the coil aims at the supply
+                    // temperature itself.
                     let fan_dt = li.supply_fan_dt;
+                    let fan_after = |role| {
+                        if li.fan_downstream_of(role) {
+                            fan_dt
+                        } else {
+                            0.0
+                        }
+                    };
+                    let heat_fan_dt = fan_after(openbse_airloop::CoilRole::Heating);
+                    let cool_fan_dt = fan_after(openbse_airloop::CoilRole::Cooling);
                     let heating = q_heat >= q_cool && q_heat > 0.0;
                     // Single-zone VAV (E+ PSZ-VAV: a VAV no-reheat terminal
                     // under SetpointManager:SingleZone). A variable-speed fan
@@ -6388,11 +6399,12 @@ fn simulate_all_loops(
                         .get(zname)
                         .copied()
                         .unwrap_or(q_heat);
-                    li.heating_supply_temp = (heat_sp + to_heat / denom).clamp(smin, smax) - fan_dt;
+                    li.heating_supply_temp =
+                        (heat_sp + to_heat / denom).clamp(smin, smax) - heat_fan_dt;
                     li.cooling_supply_temp = if q_cool > 0.0 {
-                        (cool_sp - q_cool / denom).clamp(smin, smax) - fan_dt
+                        (cool_sp - q_cool / denom).clamp(smin, smax) - cool_fan_dt
                     } else {
-                        smax - fan_dt
+                        smax - cool_fan_dt
                     };
                 }
             }
