@@ -7135,8 +7135,15 @@ fn simulate_all_loops(
                         //  • If the cold deck alone can meet a cooling zone at a
                         //    flow ≥ minimum, the box modulates flow (VAV) and needs
                         //    no reheat: m_needed = net_gain / (cp·(T_set − deck)).
-                        //  • Otherwise the box sits at minimum flow and the reheat
-                        //    coil trims the deck up to the holding temperature.
+                        //  • Otherwise the box sits at minimum flow and reheats as
+                        //    E+ SimVAV does: the load to the heating setpoint plus
+                        //    warming the primary air to the zone, never below zero.
+                        //    A zone in deadband floats down on the cold minimum
+                        //    flow to its heating setpoint, where the reheat holds
+                        //    it; it is not reheated to the cooling setpoint. With
+                        //    one setpoint (no deadband) the deck is trimmed to the
+                        //    temperature that holds the zone at it, which is the
+                        //    same reheat at steady state.
                         // A constant-volume box (min fraction 1.0) always takes the
                         // reheat branch at full flow.
                         let cp = 1006.0_f64;
@@ -7153,12 +7160,35 @@ fn simulate_all_loops(
                             let frac = ((flow - min_flow) / (vav_max_flow - min_flow).max(1.0e-6))
                                 .clamp(0.0, 1.0);
                             -frac
-                        } else {
-                            // Minimum flow + reheat to hold the zone.
+                        } else if cool_sp - heat_sp < 1.0e-6 {
+                            // One setpoint, no deadband (ASHRAE 140 AE300/AE400):
+                            // trim the deck up to the temperature that holds the
+                            // zone at it, SimVAV's reheat at steady state.
                             let m_cp = (min_flow * cp).max(1.0);
                             let t_supply_target = cool_sp - net_gain / m_cp;
                             let q_reheat = min_flow * cp * (t_supply_target - supply_temp);
                             (q_reheat / reheat_cap).clamp(0.0, 1.0)
+                        } else {
+                            // Minimum flow + reheat to the heating setpoint.
+                            let load = zone_loads_to_heating_sp
+                                .get(zone_name)
+                                .copied()
+                                .unwrap_or(zone_heat_load);
+                            let reheat = graph
+                                .node_by_name(term_name)
+                                .and_then(|idx| match graph.component(idx) {
+                                    GraphComponent::Air(c) => c.reheat_for_zone_load(
+                                        load,
+                                        zone_temp_init,
+                                        supply.state.t_db,
+                                    ),
+                                    _ => None,
+                                })
+                                .unwrap_or_else(|| {
+                                    (load + min_flow * cp * (zone_temp_init - supply.state.t_db))
+                                        .max(0.0)
+                                });
+                            (reheat / reheat_cap).clamp(0.0, 1.0)
                         }
                     } else {
                         match mode {
