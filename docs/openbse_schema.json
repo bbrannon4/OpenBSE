@@ -1006,6 +1006,7 @@
         "submeter": { "type": "string", "default": "General", "description": "Submeter label for end-use energy reporting." },
         "max_air_flow": { "$ref": "#/$defs/AutosizeOrNumber", "description": "Maximum primary air flow [kg/s]." },
         "min_flow_fraction": { "type": "number", "default": 0.30, "minimum": 0, "maximum": 1, "description": "Minimum flow fraction [0-1]." },
+        "min_flow_fraction_schedule": { "type": "string", "description": "Schedule of the minimum flow fraction [0-1] during the run (EnergyPlus Zone Minimum Air Flow Input Method Scheduled). Sizing keeps min_flow_fraction; EnergyPlus sizes on the mean of the schedule's lowest and highest values when no constant fraction is given." },
         "reheat_type": { "type": "string", "enum": ["none", "electric", "hot_water"], "x-aliases": ["hw"], "default": "none", "description": "Reheat coil type." },
         "reheat_capacity": { "$ref": "#/$defs/AutosizeOrNumber", "default": "autosize", "description": "Reheat coil capacity [W]. Autosized when omitted, as E+ reheat coils are; ignored when reheat_type is none." },
         "max_reheat_temp": { "type": "number", "description": "Maximum reheat discharge air temperature [C] (default 40.0; E+ has no default and recommends 35 when unknown)." },

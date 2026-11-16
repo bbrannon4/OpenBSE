@@ -140,6 +140,9 @@ pub struct LoopInfo {
     /// the terminal-reheat control size the minimum airflow per zone (constant
     /// volume = 1.0). Empty for loops without VAV terminal boxes.
     pub terminal_min_flow: HashMap<String, f64>,
+    /// Per-zone schedule of the VAV terminal minimum flow fraction (zone_name →
+    /// schedule name), read each timestep in place of `terminal_min_flow`.
+    pub terminal_min_flow_schedule: HashMap<String, String>,
     /// Per-zone terminal heating limits from the sized boxes: the heating
     /// maximum primary flow [kg/s], the maximum reheat air temperature [°C]
     /// and the reheat capacity [W].
@@ -368,6 +371,25 @@ pub fn dual_maximum_heating_flow(
         return heat_max_flow;
     }
     (zone_load.max(0.0) / (cp * (max_reheat_temp - zone_temp))).clamp(min_flow, heat_max_flow)
+}
+
+/// A zone's VAV terminal minimum flow fraction this hour: its schedule's value
+/// when it has one (E+ Scheduled minimum), else its constant fraction, else the
+/// loop's `min_vav_fraction`.
+pub fn terminal_min_fraction(
+    li: &LoopInfo,
+    zone: &str,
+    schedule_mgr: Option<&ScheduleManager>,
+    hour: u32,
+    day_of_week: u32,
+) -> f64 {
+    if let (Some(sched), Some(mgr)) = (li.terminal_min_flow_schedule.get(zone), schedule_mgr) {
+        return mgr.fraction(sched, hour, day_of_week);
+    }
+    li.terminal_min_flow
+        .get(zone)
+        .copied()
+        .unwrap_or(li.min_vav_fraction)
 }
 
 /// Highest supply temperature the VAV Warmest reset sets [°C] (E+
@@ -1651,11 +1673,7 @@ pub fn build_vav_signals(
             let cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
             let heat_load = zone_heating_loads.get(zone_name).copied().unwrap_or(0.0);
             let net_gain = cool_load - heat_load;
-            let min_frac = li
-                .terminal_min_flow
-                .get(zone_name)
-                .copied()
-                .unwrap_or(li.min_vav_fraction);
+            let min_frac = terminal_min_fraction(li, zone_name, schedule_mgr, hour, day_of_week);
             let min_flow = design_flow * min_frac;
             let deck_dt = (cool_sp - sat_setpoint).max(0.1);
             if net_gain > 0.0 {
@@ -1665,11 +1683,8 @@ pub fn build_vav_signals(
             }
         } else {
             // Each box's own minimum, else the loop's.
-            let min_flow = design_flow
-                * li.terminal_min_flow
-                    .get(zone_name)
-                    .copied()
-                    .unwrap_or(li.min_vav_fraction);
+            let min_flow =
+                design_flow * terminal_min_fraction(li, zone_name, schedule_mgr, hour, day_of_week);
             match mode {
                 HvacMode::Cooling => {
                     let cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
@@ -2133,6 +2148,26 @@ mod tests {
     use super::*;
     use openbse_io::input::{AirLoopSystemType, CyclingMethod, EconomizerType, FanOperatingMode};
 
+    #[test]
+    fn terminal_minimum_follows_its_schedule() {
+        let mut li = make_loop(AirLoopSystemType::Vav, vec![]);
+        li.min_vav_fraction = 0.3;
+        li.terminal_min_flow.insert("OR".to_string(), 0.6);
+        li.terminal_min_flow.insert("Office".to_string(), 0.4);
+        li.terminal_min_flow_schedule
+            .insert("OR".to_string(), "OR_MinSA".to_string());
+        let mut sched = openbse_envelope::schedule::ScheduleInput::always_on("OR_MinSA");
+        sched.weekday = vec![0.2; 24];
+        let mgr = ScheduleManager::from_inputs(vec![sched]);
+        // The schedule replaces the box's design fraction during the run.
+        assert_eq!(terminal_min_fraction(&li, "OR", Some(&mgr), 3, 2), 0.2);
+        // Without one, the box's constant fraction, then the loop's.
+        assert_eq!(terminal_min_fraction(&li, "Office", Some(&mgr), 3, 2), 0.4);
+        assert_eq!(terminal_min_fraction(&li, "Other", Some(&mgr), 3, 2), 0.3);
+        // No schedule manager (sizing helpers): the design fraction.
+        assert_eq!(terminal_min_fraction(&li, "OR", None, 3, 2), 0.6);
+    }
+
     fn make_loop(system_type: AirLoopSystemType, component_names: Vec<String>) -> LoopInfo {
         LoopInfo {
             name: "test".to_string(),
@@ -2158,6 +2193,7 @@ mod tests {
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
+            terminal_min_flow_schedule: HashMap::new(),
             terminal_heating: HashMap::new(),
             min_oa_flow_mass: None,
             std_air_density: 1.204,
