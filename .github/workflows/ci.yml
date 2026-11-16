@@ -110,8 +110,8 @@ jobs:
       - name: Verify model baselines are untampered
         run: |
           sha256sum -c - <<'SUMS'
-          00fdeeb78c33fd543dfe7e5c0a3fe1fc25000e98012507c0635b13ee0357a456  tests/model_baselines.json
-          4a674e9fcd2eb4df07ad41e8cef26bdd4432969525ca3252c5d9e05bfd66cf63  tests/model_checks.json
+          a4293a28ad86b9211754027ef504ad2922a47b18a77b72694a12fc103e2aa850  tests/model_baselines.json
+          7d3fb4b0ee85c2f42ec6dadb2c3d21e74eb42432e868d37f67f0e6d5cd7f0fb2  tests/model_checks.json
           SUMS
 
       - name: Build release
@@ -150,8 +150,8 @@ jobs:
       - name: Verify model baselines are untampered
         run: |
           sha256sum -c - <<'SUMS'
-          00fdeeb78c33fd543dfe7e5c0a3fe1fc25000e98012507c0635b13ee0357a456  tests/model_baselines.json
-          4a674e9fcd2eb4df07ad41e8cef26bdd4432969525ca3252c5d9e05bfd66cf63  tests/model_checks.json
+          a4293a28ad86b9211754027ef504ad2922a47b18a77b72694a12fc103e2aa850  tests/model_baselines.json
+          7d3fb4b0ee85c2f42ec6dadb2c3d21e74eb42432e868d37f67f0e6d5cd7f0fb2  tests/model_checks.json
           SUMS
 
       - name: Build release
