@@ -629,7 +629,9 @@ An electric steam humidifier has rated power $P_r$ and steam capacity
 $\dot m_{s,r} = P_r/\Delta h_s$, with
 $\Delta h_s = h_{fg}(100\,°\text{C}) + \bar c_{p,w}(100 - 20) \approx 2.592\times10^6$
 J/kg: make-up water at 20 °C to steam at 100 °C, with $h_{fg} = 2.2565\times10^6$
-J/kg and $\bar c_{p,w}$ the mean of the water's specific heat at 20 and 100 °C. Its target humidity ratio is either
+J/kg and $\bar c_{p,w}$ the mean of the water's specific heat at 20 and 100 °C,
+unless the capacity is given (`rated_capacity`, m³/s of water converted at the
+density of 5.05 °C water); the power per kg of steam is then $P_r/\dot m_{s,r}$. Its target humidity ratio is either
 a fixed `w_setpoint`, or the humidity ratio at `min_rh_setpoint` and the
 served zone's live air temperature. Below the target,
 
@@ -651,8 +653,10 @@ air, $\dot m_sh_g(100\,°\text{C}) = \dot m(h_\text{out} - h_\text{in})$.
 `Humidifier:Steam:Electric` (`Humidifiers.cc`) [@eplus-engref-25-2,
 "Air System Humidifiers"], including the 20 °C make-up water of its rated
 capacity (`SizeHumidifier`). EnergyPlus takes the rated capacity and power as
-separate inputs and checks them against each other; OpenBSE derives the
-capacity from the power.
+separate inputs, converting the volume at `RhoH2O(InitConvTemp)`, and draws
+$P_r\dot m_s/\dot m_{s,r}$ with both as given; so does OpenBSE when
+`rated_capacity` is set. Without it, OpenBSE derives the capacity from the power
+as E+ autosizes it.
 
 ## Evaporative coolers {#sec-evap-cooler}
 
