@@ -261,6 +261,19 @@ with the fan rise $\Delta T_f$ removed, as the fan is downstream of the coils. A
 variable-speed fan first turns the flow down, between its minimum and design, with
 cooling at the coldest supply temperature (E+ PSZ-VAV).
 
+**Comparison with EnergyPlus.** An E+ `AirLoopHVAC:UnitarySystem` with
+`SingleZoneVAV` control (`SZVAVModel.cc`) places a load in its three regions by
+boundary loads that, without an air-terminal mixer, it takes from the unit's
+inlet (mixed-air) temperature rather than the zone's,
+$\dot m_\text{min}(h(T_\text{min}) - h(T_\text{inlet}))$. When an economizer
+has brought the mixed air to within a fan rise of $T_\text{min}$, both boundary
+loads fall to a few kilowatts, any real load lands in region 3, and the unit runs
+at maximum flow with its coil over-delivering. In the DOE LargeOffice basement
+data centre this holds the zone near 24 °C against its 27 °C setpoint for
+4,285 h a year, with two thirds more coil cooling (668 against 401 MWh) than OpenBSE, which meets the load
+(`prototype_tests/large_office/COMPARISON_NOTES.md`). OpenBSE does not reproduce
+that.
+
 The economizer is in @sec-economizer.
 
 ## Multi-zone VAV {#sec-vav-control}
