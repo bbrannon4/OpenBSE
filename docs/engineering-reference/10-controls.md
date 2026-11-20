@@ -292,6 +292,18 @@ maximum. A zone without a sized box takes a fraction rising to 0.5 over a 5 K
 error. The fan's flow is the total, and each box passes the flow allocated to its
 zone, so the fan and coils carry exactly what the boxes deliver.
 
+**Fixed cold deck.** With `fixed_cooling_sat` (terminal reheat), a cooling zone
+whose load needs at least its minimum flow at the deck temperature modulates
+flow with no reheat. Otherwise the box holds its minimum flow and reheats as E+
+`SimVAV` does (@eq-vav-reheat): the load to the heating setpoint plus warming
+the minimum flow to the zone, never below zero. A zone in deadband therefore
+drifts down on the cold minimum flow to its heating setpoint, where the reheat
+holds it; a constant-volume box (minimum fraction 1) always takes this branch.
+A zone with a single setpoint (heating = cooling, as the ASHRAE 140 AE300/AE400
+cases) is trimmed to the supply temperature that holds it there,
+$T_\text{set} - (\dot Q_c - \dot Q_h)/(\dot m_\text{min}c_p)$, the same reheat at
+steady state.
+
 **Outdoor air.** The minimum follows the ASHRAE 62.1 ventilation rate procedure
 [@ashrae621]:
 
