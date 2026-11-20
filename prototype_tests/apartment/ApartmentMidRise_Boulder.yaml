@@ -6,6 +6,7 @@ simulation:
   timesteps_per_hour: 4
   unmet_heating_tolerance: 0.556   # OutputControl:ReportingTolerances (1 F)
   unmet_cooling_tolerance: 0.556
+  daylight_saving_time: {start: 2nd Sunday in March, end: 1st Sunday in November}   # RunPeriodControl:DaylightSavingTime
   start_month: 1
   start_day: 1
   end_month: 12

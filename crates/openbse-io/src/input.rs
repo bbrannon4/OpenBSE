@@ -241,6 +241,15 @@ fn default_submeter() -> String {
     "General".to_string()
 }
 
+/// A daylight-saving period: E+ date strings (`2nd Sunday in March`,
+/// `Last Sunday in October`, `3/10`, `March 10`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DaylightSavingInput {
+    pub start: String,
+    pub end: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SimulationSettings {
@@ -418,6 +427,17 @@ pub struct SimulationSettings {
     /// ```
     #[serde(default)]
     pub holidays: Vec<HolidayDate>,
+
+    /// Daylight-saving period (E+ `RunPeriodControl:DaylightSavingTime`):
+    /// on every day from `start` to `end`, both inclusive, schedules are read
+    /// one clock hour later. Absent: no daylight saving. Design days are
+    /// never shifted.
+    ///
+    /// ```yaml
+    /// daylight_saving_time: {start: 2nd Sunday in March, end: 1st Sunday in November}
+    /// ```
+    #[serde(default)]
+    pub daylight_saving_time: Option<DaylightSavingInput>,
 
     /// Whether to execute parametric runs defined in the `parametrics:` section.
     ///
@@ -6397,6 +6417,14 @@ fn validate_interzone_surfaces(model: &ModelInput, result: &mut ValidationResult
 
 pub fn validate_model(model: &ModelInput) -> ValidationResult {
     let mut result = ValidationResult::new();
+
+    if let Some(dst) = &model.simulation.daylight_saving_time {
+        for (field, text) in [("start", &dst.start), ("end", &dst.end)] {
+            if let Err(e) = openbse_envelope::DstDate::parse(text) {
+                result.severe(format!("simulation.daylight_saving_time.{field}: {e}"));
+            }
+        }
+    }
 
     // ── Build lookup sets ──────────────────────────────────────────────────
 

@@ -95,9 +95,26 @@ EnergyPlus (and OpenBSE, @sec-solar-position) set to zero with the sun down.
 
 The day of the week is counted from the weather file's 1 January
 (`schedule::day_of_week`). Holidays come from the model's `simulation`
-settings and are day type 8. There is no daylight saving time, and no input
-to override the starting day of the week; EnergyPlus's DOE prototype models
-use both ([#199](https://github.com/bbrannon4/OpenBSE/issues/199)).
+settings and are day type 8.
+
+**Daylight saving time.** `simulation.daylight_saving_time` gives a start and
+an end date: a month and day, the $n$th weekday of a month, or its last weekday
+(`2nd Sunday in March`), resolved in the run year's calendar
+(`DstDate::day_of_year`). Every day from the start to the end, both inclusive,
+is a daylight-saving day, on which every schedule is read one clock hour later:
+the value for hour $h$ is the schedule's value for hour $h + 1$, and for hour 24
+the next day's hour 1, with that day's type and date (`ScheduleManager::shifted`).
+Weather, solar position and design days are never shifted.
+
+**Comparison with EnergyPlus.** This is `RunPeriodControl:DaylightSavingTime`:
+whole days from the start date to the end date are marked
+(`WeatherManager::SetDSTDateRanges`), and a schedule lookup adds the day's
+indicator to the hour (`ScheduleDetailed::getHrTsVal`, `hr + DSTIndicator`, rolling
+hour 24 to the next day). EnergyPlus also applies a period read from the weather
+file (`Use Weather File Daylight Saving Period`); OpenBSE does not read it, and
+none of the shipped weather files has one. There is no input to override the
+weather file's starting day of the week
+([#199](https://github.com/bbrannon4/OpenBSE/issues/199)).
 
 ## Design days {#sec-design-days}
 

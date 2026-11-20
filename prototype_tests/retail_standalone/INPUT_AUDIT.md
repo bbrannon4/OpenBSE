@@ -21,7 +21,7 @@ runs of the IDF with the object removed).
 | `Timestep` 4 | matched |
 | `Building` (north 0, City terrain, FullInteriorAndExterior) | matched (`terrain: city`, `solar_distribution: full_interior_and_exterior`) |
 | `RunPeriod` (Jan 1 Sunday, annual), `RunPeriodControl:SpecialDays` (10 holidays) | matched: the weather year starts on a Sunday; the holidays are the IDF's dates for that year |
-| `RunPeriodControl:DaylightSavingTime` | **gap**: OpenBSE has no daylight saving ([#199](https://github.com/bbrannon4/OpenBSE/issues/199)); E+ without it: lighting +0.9 %, heating −0.8 %, exterior lighting +2.6 % |
+| `RunPeriodControl:DaylightSavingTime` (2nd Sunday in March – 1st Sunday in November) | matched (`daylight_saving_time`) |
 | `SizingPeriod:DesignDay` × 2 | matched (dry-bulb, range, wet-bulb, pressure, wind, ASHRAE tau 0.423 / 2.020; the heating day has clearness 0) |
 | `Sizing:Parameters` 1.2 / 1.2, 6 timesteps | matched (`sizing_averaging_window: 6`) |
 | `Sizing:Zone` (12.8 / 40 °C supply, 0.008 / 0.008) | matched (loop supply temperatures) |

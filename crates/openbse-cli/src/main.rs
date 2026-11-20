@@ -1587,6 +1587,8 @@ fn main() -> Result<()> {
         let mut controllers = build_controllers(&model);
         info!("Controllers built: {} controllers", controllers.len());
 
+        // First and last day of year of daylight saving, both inclusive.
+        let mut daylight_saving_days: Option<(u32, u32)> = None;
         let mut envelope = build_envelope(
             &model,
             weather_data.location.latitude,
@@ -1625,6 +1627,23 @@ fn main() -> Result<()> {
             env.ground_temp_model = Some(ground_temp);
             env.jan1_dow = weather_data.start_day_of_week;
             env.leap_year = weather_data.leap_year;
+            // Daylight-saving days (E+ RunPeriodControl:DaylightSavingTime),
+            // resolved in the run year's calendar.
+            if let Some(dst) = &model.simulation.daylight_saving_time {
+                let resolve = |text: &str, field: &str| -> Result<u32> {
+                    openbse_envelope::DstDate::parse(text)
+                        .map_err(|e| anyhow::anyhow!("daylight_saving_time.{field}: {e}"))?
+                        .day_of_year(env.jan1_dow, env.leap_year)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "daylight_saving_time.{field}: '{text}' does not exist in the \
+                                 run year"
+                            )
+                        })
+                };
+                daylight_saving_days =
+                    Some((resolve(&dst.start, "start")?, resolve(&dst.end, "end")?));
+            }
             // Populate holiday dates from simulation settings
             env.holiday_set = model
                 .simulation
@@ -3367,6 +3386,24 @@ fn main() -> Result<()> {
             let next_weather = &weather_data.hours[next_hour_idx];
             let (month, day) = month_day_from_hour(hour_idx, &days_in_months);
             let hour = (hour_idx % 24) + 1;
+
+            // Daylight saving: on a DST day schedules read one clock hour
+            // later (E+ getHrTsVal, hr + DSTIndicator); hour 24 reads the next
+            // day's hour 1 with that day's type and date.
+            if let (Some((dst_start, dst_end)), Some(env)) =
+                (daylight_saving_days, envelope.as_mut())
+            {
+                let year_hours = weather_data.hours.len() as u32;
+                let today = (hour_idx % year_hours) / 24 + 1;
+                let (next_month, next_day) =
+                    month_day_from_hour((hour_idx + 24) % year_hours, &days_in_months);
+                let shift = openbse_envelope::DaylightSavingShift {
+                    active: openbse_envelope::in_daylight_saving(today, dst_start, dst_end),
+                    next_day_type: env.schedule_day_type(next_month, next_day),
+                    next_day_of_year: (today % 365) + 1,
+                };
+                env.schedule_manager.set_daylight_saving(shift);
+            }
 
             // Log progress every 7 simulated days
             let abs_day = hour_idx / 24;
