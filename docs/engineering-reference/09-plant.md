@@ -22,8 +22,8 @@ $$
 T_\text{sup} = T_\text{sp} + \delta,
 $$ {#eq-plant-supply}
 
-with $T_\text{sp}$ the supply setpoint (from the loop's outdoor reset if it has
-one) and $\delta$ the shortfall of the last pass, below. Each coil's valve takes
+with $T_\text{sp}$ the supply setpoint (from the loop's outdoor or
+return-temperature reset if it has one, @sec-resets) and $\delta$ the shortfall of the last pass, below. Each coil's valve takes
 the water it needs and reports its flow.
 
 **State.** The demand flow is the sum of the coils' water flows, each times its

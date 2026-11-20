@@ -800,6 +800,20 @@ pub enum PlantResetConfig {
         /// Outdoor temp threshold for sp_min [°C]
         oa_high: f64,
     },
+    /// Reset to hold a return-water temperature (E+
+    /// `SetpointManager:ReturnTemperature:ChilledWater` and `:HotWater`).
+    /// Each timestep the supply setpoint is the return target less (chilled
+    /// water) or plus (hot water) the supply side's last return-to-supply
+    /// temperature difference, within the limits. A loop whose design supply
+    /// temperature is below the return target is chilled water.
+    ReturnTemperature {
+        /// Lowest supply setpoint [°C] (chilled water: the design supply)
+        sp_min: f64,
+        /// Highest supply setpoint [°C] (hot water: the design supply)
+        sp_max: f64,
+        /// Return water temperature to hold [°C]
+        return_target: f64,
+    },
 }
 
 /// Capacity control method for an air loop.
