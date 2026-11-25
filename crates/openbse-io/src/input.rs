@@ -1299,6 +1299,21 @@ pub struct HumidifierInput {
     /// when omitted, the capacity is what `rated_power` makes from 20 °C water.
     #[serde(default)]
     pub rated_capacity: Option<f64>,
+    /// Lowest supply humidity ratio the humidifier holds [kg/kg], whether or
+    /// not a zone needs moisture (E+ SetpointManager:MultiZone:Humidity:Minimum
+    /// Minimum Setpoint Humidity Ratio, default 0.005).
+    #[serde(default = "default_humidifier_min_setpoint")]
+    pub minimum_setpoint_humidity_ratio: f64,
+    /// Highest supply humidity ratio it humidifies to [kg/kg] (E+ Maximum
+    /// Setpoint Humidity Ratio, default 0.012).
+    #[serde(default = "default_humidifier_max_setpoint")]
+    pub maximum_setpoint_humidity_ratio: f64,
+}
+fn default_humidifier_min_setpoint() -> f64 {
+    0.005
+}
+fn default_humidifier_max_setpoint() -> f64 {
+    0.012
 }
 fn default_humidifier_power() -> f64 {
     100_000.0

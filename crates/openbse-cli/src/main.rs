@@ -1183,6 +1183,17 @@ fn build_loop_infos(
                 terminal_boxes,
                 terminal_min_flow,
                 terminal_min_flow_schedule,
+                humidifier_setpoint_limits: al
+                    .equipment
+                    .iter()
+                    .find_map(|eq| match eq {
+                        openbse_io::input::EquipmentInput::Humidifier(h) => Some((
+                            h.minimum_setpoint_humidity_ratio,
+                            h.maximum_setpoint_humidity_ratio,
+                        )),
+                        _ => None,
+                    })
+                    .unwrap_or((0.005, 0.012)),
                 terminal_heating: HashMap::new(),
                 dd_boxes,
                 dd_deck_temps: (None, None),
@@ -3710,6 +3721,17 @@ fn main() -> Result<()> {
                                 &zone_humidity_ratios,
                             );
 
+                            // Each zone's moisture load line from the latest
+                            // envelope solve (the humidifier setpoint).
+                            let zone_moisture_lines: HashMap<
+                                String,
+                                openbse_envelope::zone::MoistureLoadLine,
+                            > = env
+                                .zones
+                                .iter()
+                                .map(|z| (z.input.name.clone(), z.moisture_load_line))
+                                .collect();
+
                             // Step 1: Run HVAC with current zone temps and loads
                             let (mut hvac_result, zone_supply_conditions, zone_return_flows) =
                                 simulate_all_loops(
@@ -3737,6 +3759,7 @@ fn main() -> Result<()> {
                                     &zone_humidity_ratios,
                                     &zone_max_rh,
                                     &zone_min_rh,
+                                    &zone_moisture_lines,
                                     &zone_return_temps,
                                 );
 
@@ -6183,6 +6206,7 @@ fn simulate_all_loops(
     zone_humidity_ratios: &HashMap<String, f64>,
     zone_max_rh: &HashMap<String, f64>,
     zone_min_rh: &HashMap<String, f64>,
+    zone_moisture_lines: &HashMap<String, openbse_envelope::zone::MoistureLoadLine>,
     zone_return_temps: &HashMap<String, f64>,
 ) -> (TimestepResult, ZoneSupplies, HashMap<String, f64>) {
     let w_outdoor = ctx.outdoor_air.w;
@@ -6588,6 +6612,7 @@ fn simulate_all_loops(
             zone_humidity_ratios,
             zone_max_rh,
             zone_min_rh,
+            zone_moisture_lines,
             zone_return_temps,
             predictor_modes: &predictor_modes,
             t_outdoor,
@@ -8803,6 +8828,7 @@ room_air:
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
             terminal_min_flow_schedule: HashMap::new(),
+            humidifier_setpoint_limits: (0.005, 0.012),
             terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
             dd_deck_temps: (None, None),
@@ -8855,6 +8881,7 @@ room_air:
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
             terminal_min_flow_schedule: HashMap::new(),
+            humidifier_setpoint_limits: (0.005, 0.012),
             terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
             dd_deck_temps: (None, None),
@@ -8942,6 +8969,7 @@ room_air:
             zone_humidity_ratios: &w,
             zone_max_rh: &empty,
             zone_min_rh: &empty,
+            zone_moisture_lines: &HashMap::new(),
             zone_return_temps: &empty,
             predictor_modes: &modes,
             t_outdoor: 30.0,
@@ -9157,6 +9185,7 @@ air_loops:
             zone_humidity_ratios: &zone_humidity_ratios,
             zone_max_rh: &empty_rh,
             zone_min_rh: &empty_rh,
+            zone_moisture_lines: &HashMap::new(),
             zone_return_temps: &empty_rh,
             predictor_modes: &predictor_modes,
             t_outdoor: 5.0,
@@ -9225,6 +9254,7 @@ air_loops:
             zone_humidity_ratios: &zone_humidity_ratios,
             zone_max_rh: &empty_rh,
             zone_min_rh: &empty_rh,
+            zone_moisture_lines: &HashMap::new(),
             zone_return_temps: &empty_rh,
             predictor_modes: &predictor_modes,
             t_outdoor: 30.0,
@@ -9454,6 +9484,7 @@ air_loops:
             zone_humidity_ratios: &zone_humidity_ratios,
             zone_max_rh: &empty_rh,
             zone_min_rh: &empty_rh,
+            zone_moisture_lines: &HashMap::new(),
             zone_return_temps: &empty_rh,
             predictor_modes: &predictor_modes,
             t_outdoor: 20.0,
@@ -9699,6 +9730,7 @@ air_loops:
             zone_humidity_ratios: &zone_humidity_ratios,
             zone_max_rh: &zone_max_rh,
             zone_min_rh: &empty_rh,
+            zone_moisture_lines: &HashMap::new(),
             zone_return_temps: &empty_rh,
             predictor_modes: &predictor_modes,
             t_outdoor: 20.0,
@@ -9765,6 +9797,7 @@ air_loops:
             zone_humidity_ratios: &zone_humidity_ratios,
             zone_max_rh: &zone_max_rh,
             zone_min_rh: &empty_rh,
+            zone_moisture_lines: &HashMap::new(),
             zone_return_temps: &empty_rh,
             predictor_modes: &predictor_modes,
             t_outdoor: 20.0,
@@ -10740,6 +10773,7 @@ mod tests_datacenter {
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
             terminal_min_flow_schedule: HashMap::new(),
+            humidifier_setpoint_limits: (0.005, 0.012),
             terminal_heating: HashMap::new(),
             dd_boxes: HashMap::new(),
             dd_deck_temps: (None, None),
@@ -10793,6 +10827,7 @@ mod tests_datacenter {
             zone_humidity_ratios: &zone_w,
             zone_max_rh: &zone_rh,
             zone_min_rh: &zone_rh,
+            zone_moisture_lines: &HashMap::new(),
             zone_return_temps: &dc_return,
             predictor_modes: &predictor_modes,
             t_outdoor: 0.0,
@@ -10853,6 +10888,7 @@ mod tests_datacenter {
             zone_humidity_ratios: &zone_w,
             zone_max_rh: &zone_rh,
             zone_min_rh: &zone_rh,
+            zone_moisture_lines: &HashMap::new(),
             zone_return_temps: &dc_return,
             predictor_modes: &predictor_modes,
             t_outdoor: 0.0,

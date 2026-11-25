@@ -1158,6 +1158,9 @@ pub struct ZoneState {
     /// (radiant panels, #167) hold this timestep's setpoint, which may differ
     /// from the one the solve used.
     pub ideal_load_line: IdealLoadLine,
+    /// The zone's moisture load to a humidity ratio, from the latest moisture
+    /// solve without the supply air (E+ `ZoneSysMoistureDemand`).
+    pub moisture_load_line: MoistureLoadLine,
     /// Actual HVAC heating energy rate [W] (after capacity limits)
     pub hvac_heating_rate: f64,
     /// Actual HVAC cooling energy rate [W] (after capacity limits)
@@ -1429,6 +1432,7 @@ impl ZoneState {
             ideal_heating_load: 0.0,
             load_to_heating_setpoint: 0.0,
             ideal_load_line: IdealLoadLine::default(),
+            moisture_load_line: MoistureLoadLine::default(),
             hvac_heating_rate: 0.0,
             hvac_cooling_rate: 0.0,
             q_internal_conv: 0.0,
@@ -1672,6 +1676,27 @@ pub fn mix_advective_streams(m1: f64, x1: f64, m2: f64, x2: f64) -> (f64, f64) {
     }
     let m = m1 + m2;
     (m, (m1 * x1 + m2 * x2) / m)
+}
+
+/// A zone's moisture load to a target humidity ratio from the latest moisture
+/// solve: the moisture balance of `solve_zone_humidity` without the supply air,
+/// solved for the supply's moisture. Delivering `at(W)` [kg/s] lands the zone
+/// on `W` this timestep (E+ `ZoneAirMoisturePredictorCorrector`,
+/// `OutputRequiredToHumidifyingSP`).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct MoistureLoadLine {
+    /// Moisture capacitance plus advective inflow, ρV/Δt_eff + ṁ_outdoor [kg/s].
+    pub slope: f64,
+    /// ρV/Δt_eff·W_history + ṁ_outdoor·W_outdoor + latent moisture [kg/s].
+    pub driving: f64,
+}
+
+impl MoistureLoadLine {
+    /// Moisture the supply must add to bring the zone to `w_target` [kg/s];
+    /// negative when the zone would rise above it without the supply.
+    pub fn at(&self, w_target: f64) -> f64 {
+        self.slope * w_target - self.driving
+    }
 }
 
 /// A zone's load to setpoint from the latest envelope solve, as a function of

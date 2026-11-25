@@ -933,7 +933,9 @@
         "min_rh_setpoint": { "type": "number", "default": 0.30, "minimum": 0, "maximum": 1, "description": "Minimum relative humidity setpoint [0-1]." },
         "zone_cooling_setpoint": { "type": "number", "default": 24.0, "description": "Zone cooling setpoint [C] used as the reference for the RH to humidity-ratio conversion." },
         "standby_power": { "type": "number", "default": 0.0, "minimum": 0, "description": "Electric power drawn by the controls whenever the unit is available, whether or not it is humidifying [W]." },
-        "rated_capacity": { "type": "number", "minimum": 0, "description": "Rated steam output [m3/s of water] (EnergyPlus Humidifier:Steam:Electric Rated Capacity, converted at the density of 5.05 C water). When given, power is rated_power per kg of this capacity; when omitted, the capacity is what rated_power makes from 20 C water." }
+        "rated_capacity": { "type": "number", "minimum": 0, "description": "Rated steam output [m3/s of water] (EnergyPlus Humidifier:Steam:Electric Rated Capacity, converted at the density of 5.05 C water). When given, power is rated_power per kg of this capacity; when omitted, the capacity is what rated_power makes from 20 C water." },
+        "minimum_setpoint_humidity_ratio": { "type": "number", "default": 0.005, "minimum": 0, "description": "Lowest supply humidity ratio the humidifier holds on an air loop [kg/kg], whether or not a zone needs moisture (EnergyPlus SetpointManager:MultiZone:Humidity:Minimum Minimum Setpoint Humidity Ratio)." },
+        "maximum_setpoint_humidity_ratio": { "type": "number", "default": 0.012, "minimum": 0, "description": "Highest supply humidity ratio it humidifies to on an air loop [kg/kg] (EnergyPlus Maximum Setpoint Humidity Ratio)." }
       }
     },
 
