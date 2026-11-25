@@ -1188,6 +1188,15 @@ fn build_loop_infos(
                 fixed_cooling_sat: al.controls.fixed_cooling_sat,
                 preheat_setpoint: al.controls.preheat_setpoint,
                 min_oa_flow_mass: al.controls.minimum_oa_flow.map(|v| v * std_air_density),
+                zone_exhaust: al
+                    .zone_terminals
+                    .iter()
+                    .filter_map(|zc| {
+                        let z = resolved_zones.iter().find(|z| z.name == zc.zone)?;
+                        let ex = z.exhaust_fan.as_ref()?;
+                        Some((ex.flow_rate, ex.schedule.clone()))
+                    })
+                    .collect(),
                 std_air_density,
             }
         })
@@ -8686,6 +8695,7 @@ room_air:
             fixed_cooling_sat: false,
             preheat_setpoint: None,
             min_oa_flow_mass: None,
+            zone_exhaust: Vec::new(),
             std_air_density: 1.204,
         }
     }
@@ -8737,6 +8747,7 @@ room_air:
             fixed_cooling_sat: false,
             preheat_setpoint: None,
             min_oa_flow_mass: None,
+            zone_exhaust: Vec::new(),
             std_air_density: 1.204,
         }
     }
@@ -10589,6 +10600,7 @@ mod tests_datacenter {
             fixed_cooling_sat: false,
             preheat_setpoint: None,
             min_oa_flow_mass: None,
+            zone_exhaust: Vec::new(),
             std_air_density: 1.204,
         }
     }
