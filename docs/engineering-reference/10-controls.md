@@ -82,7 +82,7 @@ as E+). It then runs for the cycling run time rounded to whole timesteps,
 $n = \operatorname{round}(t_\text{run}\, N_h / 3600)$, whatever the zones do, is
 held off for the timestep after, and is checked again on the next. While it runs
 the fan cycles with the coils, as E+ runs a unit whose fan operating-mode schedule
-is its availability schedule (how the DOE prototypes set it), and outdoor air
+is its availability schedule, and outdoor air
 follows `minimum_oa_schedule`. The cycle restarts when the schedule turns the loop
 on.
 
@@ -293,11 +293,9 @@ inlet (mixed-air) temperature rather than the zone's,
 $\dot m_\text{min}(h(T_\text{min}) - h(T_\text{inlet}))$. When an economizer
 has brought the mixed air to within a fan rise of $T_\text{min}$, both boundary
 loads fall to a few kilowatts, any real load lands in region 3, and the unit runs
-at maximum flow with its coil over-delivering. In the DOE LargeOffice basement
-data centre this holds the zone near 24 °C against its 27 °C setpoint for
-4,285 h a year, with two thirds more coil cooling (668 against 401 MWh) than OpenBSE, which meets the load
-(`prototype_tests/large_office/COMPARISON_NOTES.md`). OpenBSE does not reproduce
-that ([#497](https://github.com/bbrannon4/OpenBSE/issues/497)).
+at maximum flow with its coil over-delivering, overcooling the zone. OpenBSE's
+unit meets the load and does not reproduce that
+([#497](https://github.com/bbrannon4/OpenBSE/issues/497)).
 
 The economizer is in @sec-economizer.
 

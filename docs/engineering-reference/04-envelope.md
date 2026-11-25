@@ -594,15 +594,15 @@ alone.
 
 Because $h_f$ falls as $\sqrt{P/A}$, a large face sees much less forced
 convection under TARP than under DOE-2, whose MoWiTT correlation has no size.
-On the retail prototype's 1,600 m² roof on the heating design day (0.95 m/s at
-the roof), TARP gives 2.83 W/(m²·K) and DOE-2 4.77, and the roof's outside
-face runs about 2 K colder.
+For a 1,600 m² roof on a heating design day (0.95 m/s at the roof), TARP gives
+2.83 W/(m²·K) and DOE-2 4.77, and the roof's outside face runs about 2 K
+colder.
 
 **Comparison with EnergyPlus.** This is E+'s `TarpHcOutside`
 (`InitExtConvCoeff`, `CalcSparrowWindward`, `CalcSparrowLeeward`), with the
 same base-surface area, perimeter approximation and height rule
-(`ProcessSurfaceVertices`). On the retail prototype's heating design day the
-roof and a 29 m wall come out at 2.832 and 2.930 W/(m²·K) against E+'s 2.832
+(`ProcessSurfaceVertices`). For that roof and a 29 m wall on the same design
+day, the coefficients come out at 2.832 and 2.930 W/(m²·K) against E+'s 2.832
 and 2.920 (the wall's natural term, at a 0.24 K difference, depends on which
 iteration's surface temperature evaluates it).
 
@@ -1703,18 +1703,15 @@ heat gain and the lighting meters alike, during sizing as during the run.
 Outputs `zone:daylight_illuminance_N` and
 `zone:daylighting_power_multiplier` report $E$ and $f_\text{day}$.
 
-**EnergyPlus comparison.** Retail Standalone (Denver, 16 skylights over
-Core_Retail, two reference points; `prototype_tests/retail_standalone/`):
-OpenBSE's daylight factors for the clear and overcast skies agree with E+'s
-`eplusout.dfs` to 0.1 % at both points, and the intermediate sky to 1 %. The
-exterior illuminances, clearness and brightness agree to 0.1 %. Over the year
-Core_Retail's lighting energy is 50.7 MWh against E+'s 50.6 (+0.2 %); the
-building's interior lighting 67.06 MWh against 67.02 (+0.1 %). E+ computes the
-daylight factors on its shading-calculation days with the sun's declination
-and equation of time averaged over the shading period (30 days in the
-prototype), so on a given day its sun can sit a few degrees from the actual
-sun; OpenBSE computes them each day with that day's sun, and the hours when a
-sun patch falls on a reference point differ accordingly.
+**EnergyPlus comparison.** For a zone with 16 skylights and two reference
+points (Denver), OpenBSE's daylight factors for the clear and overcast skies
+agree with E+'s `eplusout.dfs` to 0.1 % at both points, and the intermediate
+sky to 1 %. The exterior illuminances, clearness and brightness agree to
+0.1 %. E+ computes the daylight factors on its shading-calculation days with
+the sun's declination and equation of time averaged over the shading period
+(20 days by default), so on a given day its sun can sit a few degrees from the
+actual sun; OpenBSE computes them each day with that day's sun, and the hours
+when a sun patch falls on a reference point differ accordingly.
 
 ## Known limitations: daylighting {#sec-daylighting-limitations}
 

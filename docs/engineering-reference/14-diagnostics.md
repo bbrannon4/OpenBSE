@@ -85,8 +85,7 @@ outputs. The ASHRAE 90.1 line compares the unmet load hours with Appendix G's li
 **Comparison with EnergyPlus.** The building counts match EnergyPlus's facility "Time Setpoint
 Not Met" (any zone), and the per-zone hours its zone values (`ThermalComfort.cc`,
 `CalcThermalComfortSetpointNotMet`). The two tolerances are its
-`OutputControl:ReportingTolerances`, with its 0.2 K default; the DOE prototype models set
-0.556 K (1 °F). EnergyPlus counts a zone only while its predicted load asks for the mode
+`OutputControl:ReportingTolerances`, with its 0.2 K default. EnergyPlus counts a zone only while its predicted load asks for the mode
 in question, which a zone outside a setpoint by more than the tolerance does in practice. EnergyPlus also reports both during occupied hours only; OpenBSE counts every
 hour. The zone heat balance and surface temperature limit have counterparts in EnergyPlus: its zone check uses 20% of the root sum of squares of the terms, and its surface limit is the `Building` input's default of
 200 °C. Plant unmet demand matches its "Plant Supply Side Unmet Demand Rate". The tighter

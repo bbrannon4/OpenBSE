@@ -58,8 +58,8 @@ The weather is described in @sec-design-days. A run has these steps:
    setpoint. A design day's `cooling_setpoint_schedule` sets every zone's
    cooling setpoint. A thermostat's `design_day_heating_setpoints` or
    `design_day_cooling_setpoints` set its own zones' setpoints. These
-   capture setback recovery, which E+ prototypes size on through their
-   SummerDesignDay and WinterDesignDay setpoint schedules.
+   capture setback recovery, which E+ sizes on through the SummerDesignDay
+   and WinterDesignDay days of its setpoint schedules.
 4. **Repetition.** The 24-hour sequence is repeated until it converges (at
    least 5 days, at most 25; see the comparison below) at the
    simulation timestep. Each timestep calls the envelope solve once and
@@ -271,9 +271,7 @@ differences are:
   the one an implicit zone balance (@sec-zone-air-hb) delivers the supply
   against, so the sized flow delivers the sized load. The loads agree where the
   setpoint holds; after a setback recovery E+'s recorded loads run higher for a
-  step or two. On the retail prototype that makes E+'s design heating loads
-  about 2 % and its Core_Retail design cooling load about 2 % higher than
-  OpenBSE's, from the recovery alone.
+  step or two, which can raise its design loads by a few percent.
 - **Flow floors.** E+ sets the flow to zero when the supply is no warmer
   (cooler) than the zone; OpenBSE uses the 5 K and 3 K floors.
 
@@ -446,9 +444,8 @@ with `SimAirServingZones` peak states. Differences:
 - **States are hourly.** E+ reads the state at the peak timestep.
 - **Non-coincident peak.** E+ blends each zone's return and outdoor state at that
   zone's own peak time. With a flat zone load that peak can fall at night, and a coil
-  taking mostly outdoor air is then sized on mild night air: a Hospital ER coil came
-  to 7.9 kW against an 18 kW zone load. OpenBSE takes the coil's own worst hour, at
-  or above the E+ size.
+  taking mostly outdoor air is then sized on mild night air, well below the zone's
+  load. OpenBSE takes the coil's own worst hour, at or above the E+ size.
 - **Ventilation rate procedure.** @eq-vrp-sizing follows E+ `Sizing:System` with
   VentilationRateProcedure (`ManageSystemVentilationAdjustments`), which takes the
   larger of the cooling and heating Vot; E+ uses each zone's minimum heating flow,
