@@ -24,21 +24,23 @@ Boulder weather.
 
 | End use | E+ [kWh] | OpenBSE [kWh] | Difference |
 |---|---:|---:|---:|
-| Heating (gas) | 472,503 | 447,096 | −5.4% |
-| Cooling | 589,511 | 538,890 | −8.6% |
-| Fans | 1,042,617 | 1,042,895 | 0.0% |
-| Pumps | 135,044 | 74,638 | −44.7% |
+| Heating (gas) | 472,503 | 454,881 | −3.7% |
+| Cooling | 589,511 | 531,018 | −9.9% |
+| Fans | 1,042,617 | 1,041,864 | −0.1% |
+| Pumps | 135,044 | 74,008 | −45.2% |
 | Interior lighting | 1,558,539 | 1,558,539 | 0.0% |
 | Exterior lighting | 279,583 | 279,273 | −0.1% |
-| Interior equipment | 4,076,778 | 4,076,725 | 0.0% |
+| Interior equipment | 4,076,778 | 4,076,750 | 0.0% |
 | Exterior equipment | 713,075 | 713,075 | 0.0% |
-| Service hot water | 125,133 | 125,143 | 0.0% |
+| Service hot water | 125,133 | 125,142 | 0.0% |
 
-OpenBSE values are a full run of this model (2026-11-24), the numbers the
-committed baselines in `tests/model_baselines.json` follow. E+ values are
-`eplustbl.csv` (GJ × 277.78). Every gap below was traced at component level
-with an E+ 25.2 rerun of `eplus_run/in.idf` that writes the plant and coil
-node data every timestep.
+OpenBSE values are the committed baselines in `tests/model_baselines.json`
+(2026-11-25). E+ values are `eplustbl.csv` (GJ × 277.78). Every gap below was
+traced at component level, with an E+ 25.2 rerun of `eplus_run/in.idf` that
+writes the plant and coil node data every timestep. The component figures in the
+sections below come from those tracing runs, before daylight saving time was
+modelled. Daylight saving moves cooling 1.5% and pumps 0.1%, so the comparisons
+there still hold.
 
 ## Pumps
 
@@ -107,20 +109,21 @@ E+'s 2,720.
 
 ## Heating
 
-The boiler load gap is the perimeter reheat (mid floors −22.5, bottom −3.1, top
-−2.1 MWh against E+), less the central coils (+6.4 MWh). E+ runs every schedule
-on daylight saving time from 12 March to 5 November
-(`RunPeriodControl:DaylightSavingTime`), which OpenBSE cannot yet express
-([#199](https://github.com/bbrannon4/OpenBSE/issues/199)): E+ starts the
-building an hour earlier against the clock, at 05:00 standard time, and the
-mid-floor reheat in that hour alone is 26.5 MWh, which OpenBSE never has. Within
-the daylight saving period the perimeter reheat is 15% under E+'s; outside it
-the boiler load is within 2.4%.
+Both engines run the schedules on daylight saving time from 12 March to
+5 November (`RunPeriodControl:DaylightSavingTime`, `daylight_saving_time`).
+Without it, OpenBSE's gas was 5.5% under E+'s. E+ starts the building an hour
+earlier against the clock, at 05:00 standard time, and its mid-floor reheat in
+that hour alone is 26.5 MWh. With it, gas rises 8.4 MWh to 3.7% under E+.
+
+Before daylight saving was modelled, the boiler-load gap was the perimeter
+reheat (mid floors −22.5, bottom −3.1, top −2.1 MWh against E+), less the central
+coils (+6.4 MWh). Outside the daylight saving period the boiler load was within
+2.4% of E+'s, with the reheat low and the central coils high, a split between
+the VAV supply-air temperature and the terminal reheat that is not traced
+further here.
 
 ## Open gaps
 
-- **Daylight saving time** ([#199](https://github.com/bbrannon4/OpenBSE/issues/199)),
-  most of the heating gap.
 - **E+ data centre overcooling** (above,
   [#497](https://github.com/bbrannon4/OpenBSE/issues/497)): a deliberate
   difference; OpenBSE meets the zone load.

@@ -103,14 +103,13 @@ Annual end uses against E+ are in `COMPARISON_NOTES.md`.
 
 ## Gaps: E+ inputs OpenBSE cannot express yet
 
-1. Daylight saving time (shifts every schedule an hour, 12 Mar - 5 Nov).
-2. Thermostat setpoint schedules by day type (Saturday setback at 17:00 while
+1. Thermostat setpoint schedules by day type (Saturday setback at 17:00 while
    the fans run to 18:00; `Perimeter_mid_ZN_2`'s mid-day standby hours).
    Design-day schedules are matched per thermostat.
-3. People sensible fraction autocalculated from activity and zone temperature.
-4. Lights visible fraction (short-wave, part of it lost through windows).
-5. Two-speed DX coils (data centres). OpenBSE's multi-speed DX coil has no
+2. People sensible fraction autocalculated from activity and zone temperature.
+3. Lights visible fraction (short-wave, part of it lost through windows).
+4. Two-speed DX coils (data centres). OpenBSE's multi-speed DX coil has no
    capacity or EIR curves, so the single-speed coil with the IDF's SmDX curves
    is the closer match.
-6. Water-use sensible/latent gains to zones.
-7. Non-reciprocal interzone partners (the four top-floor quirks above).
+5. Water-use sensible/latent gains to zones.
+6. Non-reciprocal interzone partners (the four top-floor quirks above).
