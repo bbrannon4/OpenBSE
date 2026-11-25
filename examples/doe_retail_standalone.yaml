@@ -24,6 +24,7 @@ simulation:
   end_month: 12
   end_day: 31
   terrain: city                    # Building: Terrain City
+  outside_convection_algorithm: tarp   # SurfaceConvectionAlgorithm:Outside
   solar_distribution: full_interior_and_exterior
   heating_sizing_factor: 1.2       # Sizing:Parameters
   cooling_sizing_factor: 1.2

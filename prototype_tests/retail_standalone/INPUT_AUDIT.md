@@ -28,7 +28,8 @@ runs of the IDF with the object removed).
 | `Sizing:System` (coincident, 12.8 / 40 °C) | matched for single-zone loops |
 | `Site:GroundTemperature:FCfactorMethod` | matched on each F-factor construction |
 | `Site:WaterMainsTemperature` (correlation 9.95 / 23.7) | matched |
-| `ShadowCalculation`, `SurfaceConvectionAlgorithm` (TARP), `HeatBalanceAlgorithm` (CTF) | OpenBSE defaults (TARP, CTF); the building is a convex box with no shading surfaces |
+| `ShadowCalculation`, `SurfaceConvectionAlgorithm:Inside` (TARP), `HeatBalanceAlgorithm` (CTF) | OpenBSE defaults (TARP inside, CTF); the building is a convex box with no shading surfaces |
+| `SurfaceConvectionAlgorithm:Outside` (TARP) | `outside_convection_algorithm: tarp` (OpenBSE's default is DOE-2, as E+'s) |
 
 ## Envelope
 

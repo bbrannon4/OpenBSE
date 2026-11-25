@@ -260,6 +260,7 @@
         "end_month": { "type": "integer", "default": 12, "minimum": 1, "maximum": 12 },
         "end_day": { "type": "integer", "default": 31, "minimum": 1, "maximum": 31 },
         "terrain": { "type": "string", "enum": ["country", "suburbs", "city", "ocean"], "default": "suburbs", "description": "Site terrain for wind profile calculations." },
+        "outside_convection_algorithm": { "type": "string", "enum": ["doe2", "tarp"], "default": "doe2", "description": "Outside face convection model, as EnergyPlus SurfaceConvectionAlgorithm:Outside. 'doe2' (default, as E+): TARP natural plus MoWiTT forced convection scaled by roughness. 'tarp': TARP natural plus Sparrow's finite-plate forced convection, 2.537 Rf sqrt(P V / A) windward and half that leeward, from the gross area and perimeter of the surface (its parent's for a window or door)." },
         "shading_calculation": { "type": "string", "enum": ["basic", "detailed"], "default": "detailed", "description": "Shading mode. 'detailed' (default) computes geometric shadows, as EnergyPlus always does. 'basic' treats every surface as fully sunlit and ignores all shading geometry." },
         "infiltration_interaction": { "type": "string", "enum": ["basic", "ashrae_combined"], "default": "basic", "description": "How infiltration combines with exhaust. 'ashrae_combined' uses sqrt(infil^2 + exhaust^2)." },
         "solar_distribution": { "type": "string", "enum": ["full_exterior", "full_interior_and_exterior"], "default": "full_exterior", "description": "Interior solar distribution method." },

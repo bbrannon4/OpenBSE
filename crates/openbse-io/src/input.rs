@@ -275,6 +275,15 @@ pub struct SimulationSettings {
     #[serde(default)]
     pub terrain: openbse_envelope::convection::Terrain,
 
+    /// Outside face convection model, E+ `SurfaceConvectionAlgorithm:Outside`.
+    ///
+    /// - `doe2` (default, as E+): TARP natural convection combined with
+    ///   MoWiTT forced convection, scaled by roughness.
+    /// - `tarp`: TARP natural convection plus Sparrow's finite-plate forced
+    ///   convection, which falls with the size of the face.
+    #[serde(default)]
+    pub outside_convection_algorithm: openbse_envelope::convection::OutsideConvectionAlgorithm,
+
     /// Controls how infiltration interacts with exhaust fans and HVAC airflows.
     ///
     /// - `basic` (default): Fixed infiltration rate, independent of exhaust/HVAC.
@@ -4666,6 +4675,7 @@ pub fn build_envelope(
 
     // Set site terrain for wind profile calculations
     env.terrain = model.simulation.terrain;
+    env.outside_convection = model.simulation.outside_convection_algorithm;
     log::info!(
         "Site terrain: {:?} (wind exp={:.2}, BL height={:.0}m)",
         env.terrain,
