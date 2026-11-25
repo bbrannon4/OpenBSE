@@ -650,6 +650,14 @@ pub struct AirLoopControls {
     /// mixed air, rather than the default frost-protection-only behavior.
     #[serde(default)]
     pub preheat_setpoint: Option<f64>,
+    /// Central heating design supply air temperature [°C] (E+ `Sizing:System`
+    /// Central Heating Design Supply Air Temperature), distinct from the zone
+    /// heating supply temperature in `heating_supply_temp`. When set, terminal
+    /// reheat coils are sized for primary air at this temperature, as E+ sizes
+    /// them on a loop with a central heating coil (`GetHeatingSATempForSizing`).
+    /// Default: the loop's `cooling_supply_temp`.
+    #[serde(default)]
+    pub central_heating_supply_temp: Option<f64>,
     /// Fixed minimum outdoor-air flow [m³/s] (optional). Models an OA controller
     /// that holds a constant outdoor-air VOLUME regardless of supply flow, so the
     /// OA fraction rises as a VAV system throttles down (E+ Controller:OutdoorAir
@@ -712,6 +720,7 @@ impl Default for AirLoopControls {
             return_fan_total_efficiency: 0.7,
             fixed_cooling_sat: false,
             preheat_setpoint: None,
+            central_heating_supply_temp: None,
             minimum_oa_flow: None,
             minimum_oa_schedule: None,
             zone_sum: ZoneSum::default(),

@@ -152,3 +152,42 @@ fn minimum_cooling_flow_limits_the_zone_design_flow() {
         }
     }
 }
+
+/// Terminal reheat sized on a loop's central heating design supply
+/// temperature (E+ GetHeatingSATempForSizing with a central heating coil):
+/// each box's capacity grows by c_p × its heating primary flow × the drop from
+/// the cooling supply temperature it was sized on before.
+#[test]
+fn central_heating_supply_temp_sizes_terminal_reheat() {
+    let base = example("vav_chw_plant.yaml");
+    let cold = base.replacen(
+        "      cooling_supply_temp: 13.0\n",
+        "      cooling_supply_temp: 13.0\n      central_heating_supply_temp: -15.0\n",
+        1,
+    );
+    assert_ne!(base, cold, "the test model changed");
+    let reheat = |log: &str| -> HashMap<String, f64> {
+        log.lines()
+            .filter_map(|l| {
+                let rest = l.split("Autosized terminal '").nth(1)?;
+                let (name, tail) = rest.split_once("' reheat capacity: ")?;
+                Some((
+                    name.to_string(),
+                    tail.split_whitespace().next()?.parse().ok()?,
+                ))
+            })
+            .collect()
+    };
+    let (log_a, _) = size_model("reheat_base", &base);
+    let (log_b, _) = size_model("reheat_cold", &cold);
+    let (a, b) = (reheat(&log_a), reheat(&log_b));
+    assert!(!a.is_empty(), "no autosized reheat in the log");
+    for (name, qa) in &a {
+        let flow = (b[name] - qa) / (1006.0 * 28.0);
+        assert!(
+            (0.01..10.0).contains(&flow),
+            "{name}: {qa} W -> {} W (primary flow {flow} kg/s)",
+            b[name]
+        );
+    }
+}

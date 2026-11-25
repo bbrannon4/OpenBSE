@@ -377,7 +377,14 @@ $$ {#eq-reheat-size}
 with $c_p = 1006$ J/(kg·K). The reheat flow $\dot m_r$ is
 $\max(f_\text{reheat}, f_\text{min})$ times the maximum flow for a VAV box,
 and the minimum primary flow for a fan-powered box. A dual-duct box's
-design flow is $\dot m_\text{des}$.
+design flow is $\dot m_\text{des}$. When the loop gives a
+`central_heating_supply_temp`, it replaces $T_{s,c}$ in @eq-reheat-size: E+
+sizes reheat for primary air at the loop's central heating design supply
+temperature when the loop has a central heating coil
+(`SimAirServingZones.cc`, `GetHeatingSATempForSizing`, case 1). E+'s other
+cases (no central heating coil: the mixed air of preheat or outdoor design air
+and return air at the design outdoor-air fraction) are not modelled; without
+the input OpenBSE keeps $T_{s,c}$.
 
 **VRF.** An autosized indoor unit's capacities are $Q_c$ and $Q_h$ of
 its zone, at least 500 W. A unit with no sizing result, such as one in a
