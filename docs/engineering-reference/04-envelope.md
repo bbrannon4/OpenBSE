@@ -254,8 +254,8 @@ differences are:
   error, the same for both (6% at 1 h, 1.3% at 15 min). The steady-state U
   stays exact (within $10^{-8}$ at steps of 5 min and longer), and the
   heat the step lets in matches the final profile's stored heat within
-  $10^{-6}$. The finer network adds about one CTF term on average; the
-  shipped models' run times change by less than their run-to-run spread.
+  $10^{-6}$. The finer network adds about one CTF term on average, with no
+  measurable effect on run time.
 
 - **Multi-step histories.** EnergyPlus (`UpdateThermalHistories`) keeps one
   master history at the start of each block of $N$ zone timesteps and
@@ -446,7 +446,7 @@ sky–air split and the ground at air temperature match
 
 - **No wet surfaces.** EnergyPlus treats wind-exposed faces as wet during
   rain ($h_{c,o} = 1000$ W/(m²·K), face at the outdoor wet-bulb); OpenBSE
-  does not ([#209](https://github.com/bbrannon4/OpenBSE/issues/209)).
+  does not ([#319](https://github.com/bbrannon4/OpenBSE/issues/319)).
 - **No surrounding-surface or ground-temperature inputs** for long-wave
   exchange.
 - **Interzone pairing.** EnergyPlus pairs interzone surfaces by name or by
@@ -639,7 +639,7 @@ algorithms (adaptive convection, ASHRAE simple, MoWiTT alone, per-surface
 
 ## Known limitations: surface heat balances {#sec-surface-hb-limitations}
 
-- [#209](https://github.com/bbrannon4/OpenBSE/issues/209): no wet surfaces in rain.
+- [#319](https://github.com/bbrannon4/OpenBSE/issues/319): no wet surfaces in rain.
 
 ## Interior long-wave exchange {#sec-lw-exchange}
 
@@ -761,7 +761,7 @@ shade counts with its own emissivity, and it absorbs the window's share.
 **Comparison with EnergyPlus.** EnergyPlus uses the approximate factors of
 @eq-approx-vf by default; polygon factors require user input
 (`ZoneProperty:UserViewFactors`). OpenBSE computes them from the geometry,
-a deliberate improvement from PR #161. `FixViewFactors`, the ScriptF
+a deliberate improvement. `FixViewFactors`, the ScriptF
 interchange (`CalcScriptF`) and the exchange (`CalcInteriorRadExchange`)
 match EnergyPlus [@eplus-engref-25-2, "Internal Long-Wave Radiation Exchange"]. OpenBSE's
 approximate rule also treats azimuths 350° and 10° as within 10°, which
@@ -769,9 +769,8 @@ EnergyPlus does not.
 
 ## Known limitations: long-wave exchange {#sec-lw-limitations}
 
-- [#52](https://github.com/bbrannon4/OpenBSE/issues/52): superseded by the
-  polygon view factors. The remaining limitation is that obstruction by third
-  surfaces is ignored in non-convex zones.
+- Polygon view factors ignore obstruction by third surfaces, so they are
+  exact only for convex zones (@sec-view-factors).
 
 ## Windows {#sec-windows}
 
@@ -1074,7 +1073,7 @@ A deployed device is modelled in one of two ways:
   - $h_{cs}$ the window inside convection at the shade.
 
   The discharge coefficient 0.7 was calibrated against EnergyPlus interior
-  shade runs (#144). The room sees the shade as the window's inside face,
+  shade runs. The room sees the shade as the window's inside face,
   and the gap air returned to the room is a convective gain.
 
 **Comparison with EnergyPlus.**
@@ -1470,8 +1469,9 @@ differences:
 - [#432](https://github.com/bbrannon4/OpenBSE/issues/432): high-rise wind
   pressure coefficients are $0.6\cos\theta$ windward and $-0.3$ leeward,
   not E+'s Akins surface-average table.
-- Scheduled ventilation lacks E+'s `ZoneVentilation:DesignFlowRate`
-  coefficients and schedule (filed for later).
+- [#319](https://github.com/bbrannon4/OpenBSE/issues/319): scheduled
+  ventilation lacks E+'s `ZoneVentilation:DesignFlowRate` coefficients and
+  schedule.
 
 ## Internal gains {#sec-internal-gains}
 
@@ -1499,7 +1499,7 @@ equipment in a zone without people is a severe error. With $f$ applied:
 - **Lights.** Power $P f$, times the zone's daylighting multiplier
   $f_\text{day}$ in a daylit zone (@sec-daylighting). The return-air fraction $\phi_\text{ret}$ goes
   to the return air when an air loop carries it, and otherwise stays in the
-  zone air (#51, @sec-controls). The fraction $r$ (default 0.7) of the total
+  zone air (@sec-controls). The fraction $r$ (default 0.7) of the total
   is radiant and the remainder convective.
 - **Equipment.** Power $P f$. The lost fraction $\phi_\text{lost}$ leaves
   the zone, the latent fraction $\phi_l$ is moisture and the fraction $r$
@@ -1786,8 +1786,6 @@ polygon areas. The volume, when not given, follows EnergyPlus
 
 - The summary report totals propane, fuel oils, diesel, gasoline, coal,
   other fuels 1 and 2 and district cooling together as *Other Fuels*.
-- [#461](https://github.com/bbrannon4/OpenBSE/issues/461): exterior gas
-  equipment is reported as heating gas.
 - No multidimensional ground heat transfer model.
 
 ## Zone air heat balance {#sec-zone-air-hb}
