@@ -196,8 +196,7 @@ EnergyPlus's headered pumps run all but one at full flow and the last at part
 load; OpenBSE runs the pumps that are on at an equal share, as parallel pumps on
 one speed signal do. The two agree for a linear curve. OpenBSE has no minimum
 flow and no continuous pump control: a pump runs only while its loop has a load,
-as an EnergyPlus `Intermittent` pump does. Pump sizing is in
-@sec-plant-sizing.
+as an EnergyPlus `Intermittent` pump does. Pump sizing is in @sec-plant-sizing.
 
 ## Boilers {#sec-boilers}
 
