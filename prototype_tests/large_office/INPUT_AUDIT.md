@@ -61,6 +61,8 @@ their geometric neighbour on the same floor.
 | Basement single-zone VAV units: 100 kW HW coils, supply limits | matched |
 | Basement single-zone VAV control (E+ PSZ-VAV: VAV no-reheat terminal, minimum 0.5 data centre / 0.3 basement, `SetpointManager:SingleZone` 15.89-29.11 / 12.89-32.11 °C, fan always on) | matched: continuous fan with a `single_zone` supply reset, which now turns the flow down before resetting the supply temperature (the units used to cycle with no reset) |
 | VAV system design flow on the coincident zone sum (`Sizing:System` Type of Zone Sum to Use) | matched: `zone_sum: coincident` (mid-floor fan 14.44 m³/s per floor against E+'s 14.14) |
+| Basement and data centre unitary systems (`AirLoopHVAC:UnitarySystem`, Fan Placement `DrawThrough`): cooling coil, heating coil, then fan | matched: equipment in E+'s order, fan last (the fan was first, so blow-through: the single-zone reset aims the coil one fan rise below the supply temperature, which left the basement data centre coil trimming 0.7 K every timestep and the zone 0.8 K under its 27 °C setpoint) |
+| Basement data centre economizer: differential dry-bulb with a 23.89 °C maximum limit | matched: `max_outdoor_temp: 23.8889` |
 
 ## Plant and DHW
 
@@ -68,6 +70,8 @@ their geometric neighbour on the same floor.
 |---|---|
 | HW loop: 82.22 °C, 27.78 K ΔT, outdoor reset 82.2 °C at -6.7 °C → 65.6 °C at 10 °C, pump impeller 0.667, leaving-setpoint-modulated boiler | matched (ΔT was 11 K, no reset) |
 | Chillers: E+ AppJ centrifugal cap/EIR-f(T) curves, 0.05608 m³/s design flow | matched (curves were different) |
+| Chilled water primary/secondary: primary loop with two constant-speed chiller branch pumps serving an `UncontrolledOn` ideal `HeatExchanger:FluidToFluid` autosized to the primary flow; secondary loop with the variable-speed pump on its demand side | matched: one decoupled loop, the secondary pump `loop_side: demand`, so the two-pump primary bank runs at full flow whenever the loop runs, as E+ runs both branch pumps (the exchanger requests the whole primary flow) |
+| Chilled water supply reset, `SetpointManager:ReturnTemperature:ChilledWater` on the primary loop: 6.7-10.22 °C, return held at 10.2 °C | matched: `setpoint_reset: return_temperature` (no reset before). The secondary loop's own return-temperature manager has no effect in E+ (its exchanger is uncontrolled) |
 | Condenser water loop | removed: E+'s chillers are air-cooled and the IDF has no condenser loop |
 | Water heater 60.1 °C in the basement; mains by the E+ correlation (9.95 / 23.7) | matched |
 
@@ -106,6 +110,7 @@ Annual end uses against E+ are in `COMPARISON_NOTES.md`.
 5. Two-speed DX coils (data centres). OpenBSE's multi-speed DX coil has no
    capacity or EIR curves, so the single-speed coil with the IDF's SmDX curves
    is the closer match.
-6. Chilled water supply reset on return temperature.
+6. Chiller load ranges: E+ runs chiller 1 alone up to 1.57 MW and both
+   (uniform load) above; OpenBSE stages sequentially at a 0.9 part load.
 7. Water-use sensible/latent gains to zones.
 8. Non-reciprocal interzone partners (the four top-floor quirks above).
