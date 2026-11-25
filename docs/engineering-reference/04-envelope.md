@@ -1708,8 +1708,8 @@ Core_Retail, two reference points; `prototype_tests/retail_standalone/`):
 OpenBSE's daylight factors for the clear and overcast skies agree with E+'s
 `eplusout.dfs` to 0.1 % at both points, and the intermediate sky to 1 %. The
 exterior illuminances, clearness and brightness agree to 0.1 %. Over the year
-Core_Retail's lighting energy is 51.3 MWh against E+'s 50.6 (+1.3 %); the
-building's interior lighting 67.7 MWh against 67.0 (+1.0 %). E+ computes the
+Core_Retail's lighting energy is 50.7 MWh against E+'s 50.6 (+0.2 %); the
+building's interior lighting 67.06 MWh against 67.02 (+0.1 %). E+ computes the
 daylight factors on its shading-calculation days with the sun's declination
 and equation of time averaged over the shading period (30 days in the
 prototype), so on a given day its sun can sit a few degrees from the actual
