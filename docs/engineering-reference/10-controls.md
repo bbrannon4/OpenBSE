@@ -257,7 +257,13 @@ T_{s,h} = \operatorname{clamp}\left(T_h + \frac{\dot Q_h}{\dot mc_p},\ T_\text{m
 T_{s,c} = \operatorname{clamp}\left(T_c - \frac{\dot Q_c}{\dot mc_p},\ T_\text{min},\ T_\text{max}\right) - \Delta T_f,
 $$ {#eq-single-zone-sat}
 
-with the fan rise $\Delta T_f$ removed, as the fan is downstream of the coils. A
+with the fan rise $\Delta T_f$ removed for a coil the fan is downstream of
+(draw-through); a coil downstream of the fan (blow-through) aims at the supply
+temperature itself, its air already carrying the fan's heat. The economizer aims
+the mixed air at the cooling supply temperature less $\Delta T_f$ wherever the
+fan sits, so with a blow-through fan it lands one fan rise below the cooling
+coil's setpoint. Both follow E+'s `SetpointManager:MixedAir`, which takes off the
+rise of a fan between its node and the reference node. A
 variable-speed fan first turns the flow down, between its minimum and design, with
 cooling at the coldest supply temperature (E+ PSZ-VAV).
 

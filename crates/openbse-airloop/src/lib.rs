@@ -229,6 +229,17 @@ impl LoopInfo {
             })
     }
 
+    /// Whether a supply fan sits downstream of the loop's first coil of this
+    /// role (draw-through), so its heat reaches the air after that coil. A fan
+    /// ahead of the coil (blow-through) has already heated the air it gets.
+    pub fn fan_downstream_of(&self, role: CoilRole) -> bool {
+        self.component_names
+            .iter()
+            .skip_while(|n| self.coil_role(n) != role)
+            .skip(1)
+            .any(|n| self.fan_names.contains(n))
+    }
+
     /// Control role for a component, dispatched on its `ComponentKind` from
     /// the loop's equipment list. Falls back to the legacy name-substring
     /// heuristic for components not in the map (e.g., hand-built test loops),
@@ -818,6 +829,14 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         Some((sat_min, sat_max)) => {
             let sat = (cool_sp - zone_cool_load / (total_flow * 1006.0)).clamp(sat_min, sat_max);
             sat - li.supply_fan_dt
+        }
+        // Under a SingleZone reset the cooling coil's setpoint already carries
+        // the fan rise when the fan is downstream of it. E+'s mixed-air
+        // setpoint is the supply setpoint less the fan's rise wherever the fan
+        // sits after the mixer, so with a blow-through fan the mixed air aims
+        // one fan rise below the coil's setpoint.
+        None if single_zone_sat && !li.fan_downstream_of(CoilRole::Cooling) => {
+            li.cooling_supply_temp - li.supply_fan_dt
         }
         None => li.cooling_supply_temp,
     };
@@ -2730,6 +2749,44 @@ mod tests {
             returns: HashMap::new(),
         };
         (li, f)
+    }
+
+    #[test]
+    fn fan_placement_is_read_per_coil() {
+        let mut li = make_loop(
+            AirLoopSystemType::PszAc,
+            vec!["Fan".into(), "Cooling Coil".into(), "Heating Coil".into()],
+        );
+        li.fan_names = ["Fan".to_string()].into_iter().collect();
+        assert!(!li.fan_downstream_of(CoilRole::Cooling));
+        assert!(!li.fan_downstream_of(CoilRole::Heating));
+        li.component_names = vec!["Cooling Coil".into(), "Heating Coil".into(), "Fan".into()];
+        assert!(li.fan_downstream_of(CoilRole::Cooling));
+        assert!(li.fan_downstream_of(CoilRole::Heating));
+    }
+
+    /// Under a SingleZone reset a blow-through fan has heated the mixed air
+    /// before the coil, so the economizer aims a fan rise below the coil's
+    /// setpoint (E+ SetpointManager:MixedAir); draw-through, the coil's
+    /// setpoint already carries the rise.
+    #[test]
+    fn single_zone_economizer_target_follows_fan_placement() {
+        let (mut li, f) = econ_loop_and_fixture(5030.0);
+        li.economizer_options.load_reset = None;
+        li.cooling_sat_reset = Some(openbse_io::input::SatResetConfig::SingleZone {
+            sat_min: 10.0,
+            sat_max: 30.0,
+        });
+        li.supply_fan_dt = 1.0;
+        li.cooling_supply_temp = 20.0; // the coil's setpoint from the reset
+        li.component_names = vec!["DX Cooling Coil".into(), "Fan".into()];
+        li.fan_names = ["Fan".to_string()].into_iter().collect();
+        // 0 °C outdoor, 25 °C return: mixed at 20 °C is 20% outdoor air.
+        let oa = build_psz_signals(&li, &f.ctx(0.0)).oa_fraction.unwrap();
+        assert!((oa - 0.2).abs() < 1e-9, "draw-through oa_fraction = {oa}");
+        li.component_names = vec!["Fan".into(), "DX Cooling Coil".into()];
+        let oa = build_psz_signals(&li, &f.ctx(0.0)).oa_fraction.unwrap();
+        assert!((oa - 0.24).abs() < 1e-9, "blow-through oa_fraction = {oa}");
     }
 
     #[test]
