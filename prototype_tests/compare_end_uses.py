@@ -208,7 +208,7 @@ eplus_hosp_gj = {
 eplus_hosp = {k: v * 277.778 for k, v in eplus_hosp_gj.items()}
 
 # Check if hospital results exist
-hosp_summary = os.path.join(os.path.dirname(__file__), 'hospital', 'Hospital_STD2022_Boulder_summary.txt')
+hosp_summary = os.path.join(os.path.dirname(__file__), 'hospital', 'Hospital_STD2022_Denver_summary.txt')
 if os.path.exists(hosp_summary):
     print('\n\nHospital results found — parsing...')
     # Parse the summary file for end-use values
@@ -264,7 +264,7 @@ if os.path.exists(hosp_summary):
 
         make_comparison_chart(
             cats_h, ev_h, ov_h,
-            'Hospital (ASHRAE 90.1-2022, Boulder) — Energy End-Use Comparison',
+            'Hospital (ASHRAE 90.1-2022, Denver) — Energy End-Use Comparison',
             'hospital/Hospital_STD2022_comparison.png',
             figsize=(14, 6)
         )
