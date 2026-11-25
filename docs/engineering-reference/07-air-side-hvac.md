@@ -631,9 +631,11 @@ $\Delta h_s = h_{fg}(100\,°\text{C}) + \bar c_{p,w}(100 - 20) \approx 2.592\tim
 J/kg: make-up water at 20 °C to steam at 100 °C, with $h_{fg} = 2.2565\times10^6$
 J/kg and $\bar c_{p,w}$ the mean of the water's specific heat at 20 and 100 °C,
 unless the capacity is given (`rated_capacity`, m³/s of water converted at the
-density of 5.05 °C water); the power per kg of steam is then $P_r/\dot m_{s,r}$. Its target humidity ratio is either
-a fixed `w_setpoint`, or the humidity ratio at `min_rh_setpoint` and the
-served zone's live air temperature. Below the target,
+density of 5.05 °C water); the power per kg of steam is then $P_r/\dot m_{s,r}$. On an air loop
+its target humidity ratio is set each timestep by the loop's controls
+(@eq-humidifier-setpoint below); a stand-alone humidifier uses a fixed
+`w_setpoint`, or the humidity ratio at `min_rh_setpoint` and the served zone's
+live air temperature. Below the target,
 
 $$
 \begin{gathered}
@@ -649,6 +651,27 @@ vapour enthalpy on the basis of @eq-enthalpy. The make-up water is
 $\dot m_s$, and the humidifier's thermal output is the enthalpy it adds to the
 air, $\dot m_sh_g(100\,°\text{C}) = \dot m(h_\text{out} - h_\text{in})$.
 
+**Supply setpoint.** On an air loop the humidifier holds
+
+$$
+W_\text{target} = \min\left(\max\left(W_\text{min},\ \max_z\left[W_{\text{sp},z} + \frac{\dot m_{w,z}(W_{\text{sp},z})}{\dot m_z}\right]\right),\ W_\text{max}\right),
+$$ {#eq-humidifier-setpoint}
+
+over the served zones with a `min_relative_humidity` whose moisture load is
+positive. $W_{\text{sp},z}$ is the humidity ratio at that RH and the zone's
+temperature, $\dot m_z$ the air the zone receives, and $\dot m_{w,z}(W)$ the
+zone's moisture load line from its latest moisture solve without the supply
+air: the moisture the supply must add for the zone to reach $W$ this timestep,
+
+$$
+\dot m_{w,z}(W) = \left(\frac{\rho V}{\Delta t_\text{eff}} + \dot m_o\right)W - \left(\frac{\rho V}{\Delta t_\text{eff}}W_\text{hist} + \dot m_oW_o + \frac{\dot Q_\text{lat}}{h_g}\right),
+$$ {#eq-moisture-load-line}
+
+with the zone's outdoor-air inflow $\dot m_o$ and latent gains. $W_\text{min}$
+and $W_\text{max}$ are the humidifier's `minimum_setpoint_humidity_ratio`
+(0.005) and `maximum_setpoint_humidity_ratio` (0.012): it holds at least
+$W_\text{min}$ whether or not a zone needs moisture.
+
 **Comparison with EnergyPlus.** @eq-humidifier matches
 `Humidifier:Steam:Electric` (`Humidifiers.cc`) [@eplus-engref-25-2,
 "Air System Humidifiers"], including the 20 °C make-up water of its rated
@@ -656,7 +679,14 @@ capacity (`SizeHumidifier`). EnergyPlus takes the rated capacity and power as
 separate inputs, converting the volume at `RhoH2O(InitConvTemp)`, and draws
 $P_r\dot m_s/\dot m_{s,r}$ with both as given; so does OpenBSE when
 `rated_capacity` is set. Without it, OpenBSE derives the capacity from the power
-as E+ autosizes it.
+as E+ autosizes it. @eq-humidifier-setpoint is
+`SetpointManager:MultiZone:Humidity:Minimum` (`SetPointManager.cc`,
+`SPMMultiZoneHum::calculate`) with its default limits, the zones' moisture
+demand from `ZoneAirMoisturePredictorCorrector`. E+ adds the load to the
+zone's current humidity ratio, OpenBSE to the setpoint's; they agree once
+the zone is at its setpoint, and OpenBSE's lands a zone below it on the
+setpoint in one timestep. A single-zone loop uses the same formula with
+its one zone (E+ `SetpointManager:SingleZone:Humidity:Minimum`).
 
 ## Evaporative coolers {#sec-evap-cooler}
 
