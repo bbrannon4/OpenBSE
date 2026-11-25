@@ -72,6 +72,7 @@ their geometric neighbour on the same floor.
 | Chillers: E+ AppJ centrifugal cap/EIR-f(T) curves, 0.05608 m³/s design flow | matched (curves were different) |
 | Chilled water primary/secondary: primary loop with two constant-speed chiller branch pumps serving an `UncontrolledOn` ideal `HeatExchanger:FluidToFluid` autosized to the primary flow; secondary loop with the variable-speed pump on its demand side | matched: one decoupled loop, the secondary pump `loop_side: demand`, so the two-pump primary bank runs at full flow whenever the loop runs, as E+ runs both branch pumps (the exchanger requests the whole primary flow) |
 | Chilled water supply reset, `SetpointManager:ReturnTemperature:ChilledWater` on the primary loop: 6.7-10.22 °C, return held at 10.2 °C | matched: `setpoint_reset: return_temperature` (no reset before). The secondary loop's own return-temperature manager has no effect in E+ (its exchanger is uncontrolled) |
+| Chiller operation, `PlantEquipmentOperation:CoolingLoad`: chiller 1 alone to 1.57 MW, both above, loop Load Distribution Scheme `UniformLoad` | matched: `operation` with those load ranges and `distribution: uniform` (the loop staged sequentially at 0.9 part load) |
 | Condenser water loop | removed: E+'s chillers are air-cooled and the IDF has no condenser loop |
 | Water heater 60.1 °C in the basement; mains by the E+ correlation (9.95 / 23.7) | matched |
 
@@ -110,7 +111,5 @@ Annual end uses against E+ are in `COMPARISON_NOTES.md`.
 5. Two-speed DX coils (data centres). OpenBSE's multi-speed DX coil has no
    capacity or EIR curves, so the single-speed coil with the IDF's SmDX curves
    is the closer match.
-6. Chiller load ranges: E+ runs chiller 1 alone up to 1.57 MW and both
-   (uniform load) above; OpenBSE stages sequentially at a 0.9 part load.
-7. Water-use sensible/latent gains to zones.
-8. Non-reciprocal interzone partners (the four top-floor quirks above).
+6. Water-use sensible/latent gains to zones.
+7. Non-reciprocal interzone partners (the four top-floor quirks above).

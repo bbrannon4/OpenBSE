@@ -4079,6 +4079,11 @@ fn main() -> Result<()> {
                                                 openbse_io::input::PlantEquipmentInput::Pump(_)
                                             )
                                         };
+                                    // A load-range operation scheme sets each unit's
+                                    // load once the pumps' heat is in (E+ range-based
+                                    // PlantEquipmentOperation and DistributePlantLoad).
+                                    let operation = plant_loop.operation.as_ref();
+                                    let mut scheme_loads: Option<HashMap<String, f64>> = None;
                                     let dispatch_order = plant_loop
                                         .supply_equipment
                                         .iter()
@@ -4115,7 +4120,19 @@ fn main() -> Result<()> {
                                             equip,
                                             openbse_io::input::PlantEquipmentInput::Pump(_)
                                         );
-                                        if !is_pump && remaining_load.abs() < 1.0 {
+                                        if let (Some(op), false, None) =
+                                            (operation, is_pump, scheme_loads.as_ref())
+                                        {
+                                            scheme_loads = Some(operation_scheme_loads(
+                                                op,
+                                                remaining_load.abs(),
+                                                &graph,
+                                            ));
+                                        }
+                                        if !is_pump
+                                            && operation.is_none()
+                                            && remaining_load.abs() < 1.0
+                                        {
                                             break;
                                         }
                                         // Sequential staging threshold guard: only start the next
@@ -4124,6 +4141,7 @@ fn main() -> Result<()> {
                                         // it is fully loaded even though delivered/rated < threshold
                                         // (e.g. derated at high condenser temp).
                                         if !is_pump
+                                            && operation.is_none()
                                             && plant_loop.staging_mode
                                                 == openbse_io::input::StagingMode::Sequential
                                             && prev_plr < plant_loop.staging_threshold
@@ -4138,6 +4156,8 @@ fn main() -> Result<()> {
                                                 let load_before = remaining_load.abs();
                                                 let equip_load = if is_pump {
                                                     total_load.abs()
+                                                } else if let Some(loads) = &scheme_loads {
+                                                    loads.get(equip_name).copied().unwrap_or(0.0)
                                                 } else if equal_split {
                                                     load_with_pump_heat(
                                                         total_load,
@@ -10240,6 +10260,38 @@ fn apply_plant_sizes(
 }
 
 /// Whether a plant loop rejects heat through a cooling tower.
+/// Each supply unit's load under a plant loop's load-range operation scheme
+/// [W]: the units of the range holding the load magnitude `demand`, shared by
+/// the scheme's distribution from their load limits. Units outside the range
+/// get no load.
+fn operation_scheme_loads(
+    op: &openbse_io::input::PlantOperationInput,
+    demand: f64,
+    graph: &SimulationGraph,
+) -> HashMap<String, f64> {
+    use openbse_io::plant::{
+        distribute_plant_load, last_load_stage, select_load_range, UnitLoadLimits,
+    };
+    let Some(i) = select_load_range(&op.load_ranges, demand) else {
+        return HashMap::new();
+    };
+    let range = &op.load_ranges[i];
+    let limits: Vec<UnitLoadLimits> = range
+        .equipment
+        .iter()
+        .map(|name| {
+            let (min, max, opt) = match graph.node_by_name(name).map(|n| graph.component(n)) {
+                Some(GraphComponent::Plant(c)) => c.load_limits(),
+                _ => (0.0, 0.0, 0.0),
+            };
+            UnitLoadLimits { min, max, opt }
+        })
+        .collect();
+    let stage_cap = (last_load_stage(&op.load_ranges) == Some(i)).then_some(range.upper);
+    let loads = distribute_plant_load(op.distribution, &limits, demand, stage_cap);
+    range.equipment.iter().cloned().zip(loads).collect()
+}
+
 /// Whether a plant loop is decoupled: a demand-side (secondary) pump moves
 /// the coils' water and the supply side runs on its own pumps' flow, the
 /// difference passing through a common pipe.

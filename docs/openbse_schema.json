@@ -1363,7 +1363,34 @@
         "design_delta_t": { "type": "number", "default": 11.0, "description": "Design supply-return temperature difference [C]." },
         "staging_mode": { "type": "string", "enum": ["sequential", "equal_split"], "default": "sequential", "description": "Staging strategy for multiple chillers/boilers. sequential = load each unit fully before starting the next; equal_split = share load equally across units." },
         "staging_threshold": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "PLR above which the next unit stages on in sequential mode [0-1]." },
-        "setpoint_reset": { "oneOf": [{ "$ref": "#/$defs/PlantSetpointReset" }, { "$ref": "#/$defs/PlantReturnTemperatureReset" }], "description": "Supply temperature reset (absent = fixed design_supply_temp)." }
+        "setpoint_reset": { "oneOf": [{ "$ref": "#/$defs/PlantSetpointReset" }, { "$ref": "#/$defs/PlantReturnTemperatureReset" }], "description": "Supply temperature reset (absent = fixed design_supply_temp)." },
+        "operation": { "$ref": "#/$defs/PlantOperation", "description": "Load-range operation scheme (EnergyPlus PlantEquipmentOperation:CoolingLoad / :HeatingLoad with the loop's Load Distribution Scheme). When given, it decides which units run and their loads, in place of staging_mode and staging_threshold." }
+      }
+    },
+
+    "PlantOperation": {
+      "type": "object",
+      "required": ["load_ranges"],
+      "description": "Plant loop load-range operation. Each timestep the loop load magnitude (pump heat included) picks the first range with lower <= load <= upper (above every range, the one with the highest upper limit, whose upper limit then caps each unit's load); its units share the load by the distribution, and units outside the range do not run.",
+      "properties": {
+        "distribution": {
+          "type": "string",
+          "enum": ["optimal", "sequential", "uniform", "uniform_plr", "sequential_uniform_plr"],
+          "default": "sequential",
+          "description": "EnergyPlus Load Distribution Scheme. sequential: each unit to its maximum in order. uniform: an equal share each up to its maximum, the remainder in order. optimal: each to its optimum part load in order, the rest shared equally up to the maximum, then in order. uniform_plr: all at one part load ratio, dropping the last units while the load is under their minimum. sequential_uniform_plr: as few units as cover the load, at one part load ratio. A unit's maximum, minimum and optimum loads are its rated capacity times its maximum, minimum and optimum part load ratios (a chiller's maximum and optimum at 1.0)."
+        },
+        "load_ranges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["lower", "upper", "equipment"],
+            "properties": {
+              "lower": { "type": "number", "minimum": 0, "description": "Lower limit of the loop load magnitude [W]." },
+              "upper": { "type": "number", "minimum": 0, "description": "Upper limit of the loop load magnitude [W]." },
+              "equipment": { "type": "array", "items": { "type": "string" }, "description": "Boilers, chillers, thermal storage or external plant on this loop that run in the range, in loading order." }
+            }
+          }
+        }
       }
     },
 

@@ -357,6 +357,50 @@ pub fn validate_pumps(model: &ModelInput, result: &mut ValidationResult) {
     }
 }
 
+/// A load-range operation scheme names units its loop supplies with and that
+/// take a load (boilers, chillers, thermal storage, external plant), over
+/// ranges with `0 <= lower <= upper`.
+pub fn validate_plant_operation(model: &ModelInput, result: &mut ValidationResult) {
+    for pl in &model.plant_loops {
+        let Some(op) = &pl.operation else { continue };
+        if op.load_ranges.is_empty() {
+            result.push_severe(format!(
+                "Plant loop '{}': operation has no load_ranges, so no unit would run",
+                pl.name
+            ));
+        }
+        for r in &op.load_ranges {
+            if !(r.lower >= 0.0 && r.lower <= r.upper) {
+                result.push_severe(format!(
+                    "Plant loop '{}': load range [{}, {}] W needs 0 <= lower <= upper",
+                    pl.name, r.lower, r.upper
+                ));
+            }
+            for name in &r.equipment {
+                let unit = pl.supply_equipment.iter().find(|eq| eq.name() == name);
+                match unit {
+                    Some(
+                        PlantEquipmentInput::Boiler(_)
+                        | PlantEquipmentInput::Chiller(_)
+                        | PlantEquipmentInput::ThermalStorage(_)
+                        | PlantEquipmentInput::ExternalPlant(_),
+                    ) => {}
+                    Some(_) => result.push_severe(format!(
+                        "Plant loop '{}': operation names '{name}', which takes no load; \
+                         list boilers, chillers, thermal storage or external plant",
+                        pl.name
+                    )),
+                    None => result.push_severe(format!(
+                        "Plant loop '{}': operation names '{name}', which is not in its \
+                         supply_equipment",
+                        pl.name
+                    )),
+                }
+            }
+        }
+    }
+}
+
 /// Check chiller inputs the parser cannot: the reformulated EIR model's
 /// requirements, the min unloading ratio and condenser heat recovery.
 pub fn validate_chiller_models(model: &ModelInput, result: &mut ValidationResult) {
@@ -754,6 +798,289 @@ impl<'a> LoopSizer<'a> {
     }
 }
 
+/// A supply unit's load limits for distribution [W]: E+ `MinLoad`,
+/// `MaxLoad` and `OptLoad` (rated capacity times the minimum, maximum and
+/// optimum part load ratios).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UnitLoadLimits {
+    pub min: f64,
+    pub max: f64,
+    pub opt: f64,
+}
+
+/// Loads below this are no load [W] (E+ `HVAC::SmallLoad`).
+const SMALL_LOAD: f64 = 1.0;
+
+/// The load range a loop load magnitude falls in (E+ `ManagePlantLoadDistribution`
+/// for range-based schemes): the first range with `lower <= load <= upper`;
+/// above that of the last stage (the range with the highest upper limit),
+/// the last stage. Returns the range's index, or `None` when no range holds
+/// the load and none runs.
+pub fn select_load_range(ranges: &[crate::input::LoadRangeInput], load: f64) -> Option<usize> {
+    let last_stage = last_load_stage(ranges)?;
+    ranges
+        .iter()
+        .enumerate()
+        .find(|(i, r)| (r.lower..=r.upper).contains(&load) || (*i == last_stage && load > r.upper))
+        .map(|(i, _)| i)
+}
+
+/// The range with the highest upper limit (E+ `EquipListNumForLastStage`).
+pub fn last_load_stage(ranges: &[crate::input::LoadRangeInput]) -> Option<usize> {
+    ranges
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.upper.total_cmp(&b.1.upper))
+        .map(|(i, _)| i)
+}
+
+/// Each unit's share of a loop load magnitude `demand` [W] under an E+ Load
+/// Distribution Scheme (`PlantCondLoopOperation.cc`, `DistributePlantLoad`).
+/// `stage_cap` is the last stage's upper limit when the range is the last
+/// stage, which caps each unit's load (`AdjustChangeInLoadForLastStageUpperRangeLimit`).
+/// A unit with no capacity limit (infinite maximum) takes what is left.
+pub fn distribute_plant_load(
+    scheme: crate::input::LoadDistribution,
+    units: &[UnitLoadLimits],
+    demand: f64,
+    stage_cap: Option<f64>,
+) -> Vec<f64> {
+    use crate::input::LoadDistribution as D;
+    let n = units.len();
+    let mut loads = vec![0.0; n];
+    let mut rem = demand.max(0.0);
+    if n == 0 || rem < SMALL_LOAD {
+        return loads;
+    }
+    let cap = |x: f64| stage_cap.map_or(x, |c| x.min(c)).max(0.0);
+    let limited = |limit: f64, rem: f64| if limit > 0.0 { limit.min(rem) } else { rem };
+    let settle = |rem: &mut f64| {
+        if *rem < SMALL_LOAD {
+            *rem = 0.0;
+        }
+    };
+    match scheme {
+        D::Sequential => {
+            for (l, u) in loads.iter_mut().zip(units) {
+                let change = cap(limited(u.max, rem));
+                *l = change;
+                rem -= change;
+                settle(&mut rem);
+            }
+        }
+        D::Optimal => {
+            for (l, u) in loads.iter_mut().zip(units) {
+                let change = cap(limited(u.opt, rem));
+                *l = change;
+                rem -= change;
+                settle(&mut rem);
+            }
+            if rem > SMALL_LOAD {
+                let divide = rem / n as f64;
+                for (l, u) in loads.iter_mut().zip(units) {
+                    let new = u.max.min(*l + divide);
+                    rem -= new - *l;
+                    *l = new;
+                    settle(&mut rem);
+                }
+            }
+            if rem > SMALL_LOAD {
+                for (l, u) in loads.iter_mut().zip(units) {
+                    let change = rem.min(u.max - *l).max(0.0);
+                    *l += change;
+                    rem -= change;
+                    settle(&mut rem);
+                }
+            }
+        }
+        D::Uniform => {
+            let share = rem / n as f64;
+            for (l, u) in loads.iter_mut().zip(units) {
+                let change = cap(if u.max > 0.0 { u.max.min(share) } else { rem });
+                *l = change;
+                rem -= change;
+                settle(&mut rem);
+            }
+            if rem > SMALL_LOAD {
+                for (l, u) in loads.iter_mut().zip(units) {
+                    let change = (u.max - *l).min(rem).max(0.0);
+                    *l += change;
+                    rem -= change;
+                    settle(&mut rem);
+                }
+            }
+        }
+        D::UniformPlr | D::SequentialUniformPlr => {
+            // Plant capacity and the largest minimum part load, accumulated in
+            // order: all units (UniformPLR), or as far as covers the load.
+            let mut accrued: Vec<(f64, f64)> = Vec::with_capacity(n);
+            let (mut capacity, mut largest_min) = (0.0_f64, 0.0_f64);
+            for u in units {
+                capacity += u.max;
+                let min_plr = if u.max < SMALL_LOAD {
+                    0.0
+                } else {
+                    u.min / u.max
+                };
+                largest_min = largest_min.max(min_plr);
+                accrued.push((capacity, largest_min));
+                if scheme == D::SequentialUniformPlr && rem <= capacity {
+                    break;
+                }
+            }
+            if scheme == D::UniformPlr {
+                // From all units on down to one, drop the last units while the
+                // load is under the remaining set's minimum.
+                for i in (0..accrued.len()).rev() {
+                    let (c, m) = accrued[i];
+                    if i == 0 || rem < m * c {
+                        capacity = c;
+                        if i == 0 {
+                            break;
+                        }
+                        continue;
+                    }
+                    break;
+                }
+            }
+            let plr = if capacity > 0.0 {
+                (rem / capacity).min(1.0)
+            } else {
+                0.0
+            };
+            for (l, u) in loads.iter_mut().zip(units) {
+                let change = cap(if u.max > 0.0 {
+                    rem.min(plr * u.max)
+                } else {
+                    rem
+                });
+                *l = change;
+                rem -= change;
+                settle(&mut rem);
+            }
+        }
+    }
+    loads
+}
+
+#[cfg(test)]
+mod load_distribution_tests {
+    use super::*;
+    use crate::input::{LoadDistribution as D, LoadRangeInput};
+
+    fn unit(cap: f64, min_plr: f64, opt_plr: f64) -> UnitLoadLimits {
+        UnitLoadLimits {
+            min: cap * min_plr,
+            max: cap,
+            opt: cap * opt_plr,
+        }
+    }
+
+    fn close(a: &[f64], b: &[f64]) {
+        assert_eq!(a.len(), b.len());
+        for (x, y) in a.iter().zip(b) {
+            assert!((x - y).abs() < 1e-6, "{a:?} != {b:?}");
+        }
+    }
+
+    #[test]
+    fn ranges_pick_the_first_holding_the_load_and_the_last_stage_above_all() {
+        let r = |lower, upper| LoadRangeInput {
+            lower,
+            upper,
+            equipment: vec![],
+        };
+        // DOE LargeOffice: chiller 1 to 1.57 MW, both above.
+        let ranges = [r(0.0, 1.57e6), r(1.57e6, 1.0e14)];
+        assert_eq!(select_load_range(&ranges, 1.0e6), Some(0));
+        assert_eq!(select_load_range(&ranges, 1.57e6), Some(0));
+        assert_eq!(select_load_range(&ranges, 2.0e6), Some(1));
+        let capped = [r(0.0, 1.0e6), r(1.0e6, 2.0e6)];
+        assert_eq!(select_load_range(&capped, 3.0e6), Some(1));
+        let gap = [r(1.0e5, 1.0e6)];
+        assert_eq!(select_load_range(&gap, 5.0e4), None);
+    }
+
+    #[test]
+    fn sequential_loads_units_in_order_to_their_maximum() {
+        let u = [unit(1000.0, 0.25, 1.0), unit(1000.0, 0.25, 1.0)];
+        close(
+            &distribute_plant_load(D::Sequential, &u, 1500.0, None),
+            &[1000.0, 500.0],
+        );
+        close(
+            &distribute_plant_load(D::Sequential, &u, 600.0, None),
+            &[600.0, 0.0],
+        );
+    }
+
+    #[test]
+    fn uniform_splits_equally_then_fills_in_order() {
+        let u = [unit(1000.0, 0.25, 1.0), unit(1000.0, 0.25, 1.0)];
+        close(
+            &distribute_plant_load(D::Uniform, &u, 1500.0, None),
+            &[750.0, 750.0],
+        );
+        let uneven = [unit(400.0, 0.0, 1.0), unit(1000.0, 0.0, 1.0)];
+        // Equal 600 each: the first takes 400; the leftover 200 goes in order.
+        close(
+            &distribute_plant_load(D::Uniform, &uneven, 1200.0, None),
+            &[400.0, 800.0],
+        );
+    }
+
+    #[test]
+    fn optimal_loads_to_the_optimum_then_shares_the_rest() {
+        let u = [unit(1000.0, 0.1, 0.6), unit(1000.0, 0.1, 0.6)];
+        // 600 + 600 at optimum, the remaining 300 split equally.
+        close(
+            &distribute_plant_load(D::Optimal, &u, 1500.0, None),
+            &[750.0, 750.0],
+        );
+        close(
+            &distribute_plant_load(D::Optimal, &u, 500.0, None),
+            &[500.0, 0.0],
+        );
+    }
+
+    #[test]
+    fn uniform_plr_runs_units_at_one_part_load() {
+        let u = [unit(1000.0, 0.25, 1.0), unit(3000.0, 0.25, 1.0)];
+        close(
+            &distribute_plant_load(D::UniformPlr, &u, 2000.0, None),
+            &[500.0, 1500.0],
+        );
+        // Under both units' minimum (0.25 × 4000) only the first runs.
+        close(
+            &distribute_plant_load(D::UniformPlr, &u, 800.0, None),
+            &[800.0, 0.0],
+        );
+    }
+
+    #[test]
+    fn sequential_uniform_plr_uses_as_few_units_as_cover_the_load() {
+        let u = [
+            unit(1000.0, 0.0, 1.0),
+            unit(1000.0, 0.0, 1.0),
+            unit(1000.0, 0.0, 1.0),
+        ];
+        close(
+            &distribute_plant_load(D::SequentialUniformPlr, &u, 1500.0, None),
+            &[750.0, 750.0, 0.0],
+        );
+    }
+
+    #[test]
+    fn last_stage_limit_caps_each_unit_and_no_load_runs_nothing() {
+        let u = [unit(1000.0, 0.0, 1.0)];
+        close(
+            &distribute_plant_load(D::Sequential, &u, 900.0, Some(500.0)),
+            &[500.0],
+        );
+        close(&distribute_plant_load(D::Uniform, &u, 0.5, None), &[0.0]);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -860,6 +1187,39 @@ plant_loops:
         assert!(err.contains("heating coil 'Preheat' uses hot_water but names no plant_loop"));
         assert!(err.contains("VAV box 'Box A' uses hot_water"), "{err}");
         assert!(err.contains("Plant loop 'HHW' has no demand"), "{err}");
+    }
+
+    #[test]
+    fn operation_scheme_names_load_taking_units_of_its_loop() {
+        let boiler =
+            "      - {type: boiler, name: Boiler, capacity: autosize, design_water_flow_rate: autosize}";
+        let with = |ranges: &str| {
+            PLANT_MODEL.replace(
+                boiler,
+                &format!(
+                    "{boiler}\n    operation: {{distribution: uniform, load_ranges: [{ranges}]}}"
+                ),
+            )
+        };
+        let mut r = ValidationResult::new();
+        validate_plant_operation(
+            &model(&with("{lower: 0, upper: 1.0e9, equipment: [Boiler]}")),
+            &mut r,
+        );
+        assert_eq!(r.error_count(), 0, "{}", r.to_err_file());
+
+        let mut r = ValidationResult::new();
+        validate_plant_operation(
+            &model(&with("{lower: 5, upper: 1, equipment: [HHW Pump, Nope]}")),
+            &mut r,
+        );
+        let err = r.to_err_file();
+        assert!(err.contains("needs 0 <= lower <= upper"), "{err}");
+        assert!(err.contains("'HHW Pump', which takes no load"), "{err}");
+        assert!(
+            err.contains("'Nope', which is not in its supply_equipment"),
+            "{err}"
+        );
     }
 
     #[test]
