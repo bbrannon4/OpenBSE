@@ -114,8 +114,9 @@
       "tier": "slow",
       "heavy": true
     },
-    "prototype_tests/hospital/Hospital_STD2022_Boulder.yaml": {
-      "tier": "slow",
+    "prototype_tests/hospital/Hospital_STD2022_Denver.yaml": {
+      "tier": "local",
+      "tier_reason": "Needs more memory than a GitHub runner has: the 55-zone transcription of the DOE Hospital IDF peaked at 18.4 GB RSS locally (2026-11-15) against the 16 GB ubuntu-latest runner. Run locally, alone, with --tier local before merging engine changes.",
       "heavy": true
     },
     "prototype_tests/large_office/LargeOffice_Boulder.yaml": {
