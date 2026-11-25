@@ -1360,7 +1360,7 @@
         "design_delta_t": { "type": "number", "default": 11.0, "description": "Design supply-return temperature difference [C]." },
         "staging_mode": { "type": "string", "enum": ["sequential", "equal_split"], "default": "sequential", "description": "Staging strategy for multiple chillers/boilers. sequential = load each unit fully before starting the next; equal_split = share load equally across units." },
         "staging_threshold": { "type": "number", "default": 0.9, "minimum": 0, "maximum": 1, "description": "PLR above which the next unit stages on in sequential mode [0-1]." },
-        "setpoint_reset": { "$ref": "#/$defs/PlantSetpointReset", "description": "Supply temperature reset (absent = fixed design_supply_temp)." }
+        "setpoint_reset": { "oneOf": [{ "$ref": "#/$defs/PlantSetpointReset" }, { "$ref": "#/$defs/PlantReturnTemperatureReset" }], "description": "Supply temperature reset (absent = fixed design_supply_temp)." }
       }
     },
 
@@ -1374,6 +1374,18 @@
         "sp_max": { "type": "number", "description": "Setpoint at oa_low [C] (CHW: warmest; HHW: coldest)." },
         "oa_low": { "type": "number", "description": "Outdoor temperature at which the setpoint is sp_max [C]." },
         "oa_high": { "type": "number", "description": "Outdoor temperature at which the setpoint is sp_min [C]." }
+      }
+    },
+
+    "PlantReturnTemperatureReset": {
+      "type": "object",
+      "required": ["type", "sp_min", "sp_max", "return_target"],
+      "description": "Plant loop supply temperature reset to hold a return-water temperature (EnergyPlus SetpointManager:ReturnTemperature:ChilledWater / :HotWater, constant target). Each timestep: setpoint = return_target - (last return - last supply) for chilled water, + (last supply - last return) for hot water, within [sp_min, sp_max]; with no flow it holds sp_min (chilled) or sp_max (hot). A loop whose design_supply_temp is below return_target is chilled water.",
+      "properties": {
+        "type": { "type": "string", "const": "return_temperature" },
+        "sp_min": { "type": "number", "description": "Lowest supply setpoint [C] (chilled water: the design supply)." },
+        "sp_max": { "type": "number", "description": "Highest supply setpoint [C] (hot water: the design supply)." },
+        "return_target": { "type": "number", "description": "Return water temperature to hold [C]." }
       }
     },
 
