@@ -532,6 +532,14 @@ impl PlantComponent for AirCooledChiller {
         self.rated_capacity
     }
 
+    /// E+ `ElectricEIRChillerSpecs::getDesignCapacities`: reference capacity
+    /// times the minimum, maximum and optimum part load ratios, the last two
+    /// at E+'s default 1.0.
+    fn load_limits(&self) -> (f64, f64, f64) {
+        let cap = self.rated_capacity;
+        (cap * self.min_plr, cap, cap)
+    }
+
     fn simulate_plant(
         &mut self,
         inlet: &WaterPort,

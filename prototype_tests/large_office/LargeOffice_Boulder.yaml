@@ -14991,6 +14991,17 @@ plant_loops:
       - 0.536462254009109
       min_x: 0.0
       max_x: 1.0
+  # PlantEquipmentOperation:CoolingLoad: chiller 1 alone to 1.57 MW, both above;
+  # CoolSys1_Supply Load Distribution Scheme UniformLoad.
+  operation:
+    distribution: uniform
+    load_ranges:
+    - lower: 0.0
+      upper: 1570096.545
+      equipment: [CHW Chiller 1]
+    - lower: 1570096.545
+      upper: 1.0e14
+      equipment: [CHW Chiller 1, CHW Chiller 2]
 thermostats:
 - name: Office Thermostat
   zones:

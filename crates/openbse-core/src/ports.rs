@@ -507,6 +507,14 @@ pub trait PlantComponent: std::fmt::Debug {
         f64::INFINITY
     }
 
+    /// Load limits for a plant operation scheme's distribution [W], as
+    /// (minimum, maximum, optimum): E+ `MinLoad`, `MaxLoad` and `OptLoad`.
+    /// Default: no minimum, the rated capacity for both the others.
+    fn load_limits(&self) -> (f64, f64, f64) {
+        let cap = self.rated_capacity();
+        (0.0, cap, cap)
+    }
+
     /// Design water flow rate for autosizing [m³/s]. Returns None if not applicable.
     fn design_water_flow_rate(&self) -> Option<f64> {
         None

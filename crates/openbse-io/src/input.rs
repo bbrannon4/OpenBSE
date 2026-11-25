@@ -2132,6 +2132,61 @@ pub struct PlantLoopInput {
     /// Setpoint reset strategy (optional — absent = fixed design_supply_temp)
     #[serde(default)]
     pub setpoint_reset: Option<PlantResetConfig>,
+    /// Load-range operation scheme (E+ `PlantEquipmentOperation:CoolingLoad`
+    /// / `:HeatingLoad` with the loop's Load Distribution Scheme). When given,
+    /// it decides which units run and their loads, in place of
+    /// `staging_mode` and `staging_threshold`.
+    #[serde(default)]
+    pub operation: Option<PlantOperationInput>,
+}
+
+/// Load-range operation of a plant loop's supply units.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlantOperationInput {
+    /// How the running units share the load (default `sequential`, E+'s
+    /// default `SequentialLoad`).
+    #[serde(default)]
+    pub distribution: LoadDistribution,
+    /// Ranges of the loop load magnitude [W], each with the units that run
+    /// in it, in priority order. The first range holding the load is used;
+    /// above every range, the one with the highest upper limit.
+    pub load_ranges: Vec<LoadRangeInput>,
+}
+
+/// One load range: the units that run while the loop load magnitude is
+/// within [lower, upper] W.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LoadRangeInput {
+    /// Lower limit of the loop load magnitude [W]
+    pub lower: f64,
+    /// Upper limit of the loop load magnitude [W]
+    pub upper: f64,
+    /// Supply units (boilers, chillers, thermal storage, external plant)
+    /// that run in this range, in loading order
+    pub equipment: Vec<String>,
+}
+
+/// E+ plant Load Distribution Scheme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoadDistribution {
+    /// Each unit to its optimum part load in order, the rest shared equally
+    /// up to their maximum, then any remainder in order (`Optimal`).
+    Optimal,
+    /// Each unit to its maximum in order (`SequentialLoad`).
+    #[default]
+    Sequential,
+    /// An equal share each, up to its maximum, the remainder in order
+    /// (`UniformLoad`).
+    Uniform,
+    /// All running units at one part load ratio, dropping the last units
+    /// while the load is under their minimum part load (`UniformPLR`).
+    UniformPlr,
+    /// As few units as cover the load, in order, at one part load ratio
+    /// (`SequentialUniformPLR`).
+    SequentialUniformPlr,
 }
 
 impl PlantLoopInput {
@@ -6665,6 +6720,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     crate::plant::validate_plant_connections(model, &mut result);
     crate::plant::validate_chiller_models(model, &mut result);
     crate::plant::validate_pumps(model, &mut result);
+    crate::plant::validate_plant_operation(model, &mut result);
     crate::plant::validate_thermal_storage(model, &mut result);
     crate::plant::validate_cooling_towers(model, &mut result);
 

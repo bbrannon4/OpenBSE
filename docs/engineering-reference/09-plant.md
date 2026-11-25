@@ -101,9 +101,38 @@ outlet of the one before:
   `staging_threshold` (default 0.9), or it was unable to meet the load asked of it.
 - **Equal split:** each boiler, chiller, thermal store or external plant gets an
   equal share of the load.
+- **Load-range operation** (`operation`): the loop load magnitude
+  $|\dot Q|$, the pumps' heat included, picks the first range with
+  $Q_\text{lo} \le |\dot Q| \le Q_\text{hi}$; above every range, the last stage
+  (the range with the highest upper limit), whose $Q_\text{hi}$ then caps each
+  unit's load. Only that range's units run, sharing $|\dot Q|$ by the
+  distribution, from each unit's maximum, minimum and optimum loads
+  $Q_\text{max,min,opt} = Q_\text{rated}\,\text{PLR}_\text{max,min,opt}$:
+  - *sequential*: each unit $\min(Q_\text{max}, Q_\text{rem})$ in order;
+  - *uniform*: each $\min(Q_\text{max}, |\dot Q|/n)$, then any remainder in order
+    up to $Q_\text{max}$;
+  - *optimal*: each $\min(Q_\text{opt}, Q_\text{rem})$ in order, then the rest
+    shared equally up to $Q_\text{max}$, then any remainder in order;
+  - *uniform PLR*: all at $\text{PLR} = \min(1, |\dot Q|/\sum Q_\text{max})$, the
+    last units dropped while $|\dot Q|$ is under the remaining set's largest
+    minimum part load times its capacity;
+  - *sequential uniform PLR*: the first units whose capacity covers $|\dot Q|$, at
+    one part load ratio.
+
+  A unit that delivers less than its share leaves the shortfall below. The
+  staging threshold does not apply.
 
 Heat recovered from a chiller on another loop (@sec-chiller) is taken off a
 heating loop's load before its boilers run.
+
+The load-range operation is EnergyPlus's range-based
+`PlantEquipmentOperation:CoolingLoad` and `:HeatingLoad` with the loop's Load
+Distribution Scheme (`PlantCondLoopOperation.cc`: range selection in
+`ManagePlantLoadDistribution`, shares in `DistributePlantLoad`, the last-stage cap
+in `AdjustChangeInLoadForLastStageUpperRangeLimit`), with the units' `MaxLoad`,
+`MinLoad` and `OptLoad` from `getDesignCapacities`. OpenBSE's chiller has no
+maximum or optimum part load input; both are E+'s default 1.0. The scheme is not
+scheduled, and other range variables (outdoor temperatures) are not inputs.
 
 **Comparison with EnergyPlus.** EnergyPlus solves a loop's flow from its demand
 side (coil control valves, limited by design flows and the pump) and tracks the

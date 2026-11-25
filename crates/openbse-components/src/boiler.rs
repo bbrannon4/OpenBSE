@@ -161,6 +161,13 @@ impl PlantComponent for Boiler {
         self.nominal_capacity
     }
 
+    /// E+ `BoilerSpecs::getDesignCapacities`: the nominal capacity times the
+    /// minimum, maximum and optimum part load ratios.
+    fn load_limits(&self) -> (f64, f64, f64) {
+        let cap = self.nominal_capacity;
+        (cap * self.min_plr, cap * self.max_plr, cap * self.opt_plr)
+    }
+
     fn simulate_plant(
         &mut self,
         inlet: &WaterPort,
