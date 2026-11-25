@@ -747,6 +747,8 @@ def psz(idf, u):
     controls:
       heating_supply_temp: 40.0          # Sizing:System / Sizing:Zone, Maximum Supply Air Temperature
       cooling_supply_temp: 12.8
+      zone_heating_supply_humidity_ratio: 0.008   # Sizing:Zone design supply humidity ratios
+      zone_cooling_supply_humidity_ratio: 0.007
       design_zone_flow: autosize
       cycling: on_off
       fan_operating_mode: continuous     # fan operating-mode schedule HVACOperationSchd
@@ -830,6 +832,8 @@ PSZ_LOOPS
     controls:
       heating_supply_temp: 40.0          # Sizing:Zone heating supply temperature
       cooling_supply_temp: 12.8
+      zone_heating_supply_humidity_ratio: 0.008   # Sizing:Zone design supply humidity ratios
+      zone_cooling_supply_humidity_ratio: 0.007
       design_zone_flow: autosize
       cycling: on_off
       fan_operating_mode: continuous_no_load_off

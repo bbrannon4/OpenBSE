@@ -577,6 +577,14 @@ pub struct AirLoopControls {
     /// Design Supply Air Humidity Ratio; default 0.008).
     #[serde(default = "default_controls_cooling_supply_w")]
     pub cooling_supply_humidity_ratio: f64,
+    /// Humidity ratio of the supply air the served zones' design heating and
+    /// cooling flows are computed with [kg/kg]: its specific heat turns each
+    /// design-day load into a flow (E+ `Sizing:Zone` Zone Heating / Cooling
+    /// Design Supply Air Humidity Ratio; default 0.008 each).
+    #[serde(default = "default_controls_cooling_supply_w")]
+    pub zone_heating_supply_humidity_ratio: f64,
+    #[serde(default = "default_controls_cooling_supply_w")]
+    pub zone_cooling_supply_humidity_ratio: f64,
     /// Capacity control method: modulating (default), on_off or proportional
     #[serde(default)]
     pub cycling: CyclingMethod,
@@ -704,6 +712,8 @@ impl Default for AirLoopControls {
             heating_supply_temp: 35.0,
             cooling_supply_temp: 13.0,
             cooling_supply_humidity_ratio: default_controls_cooling_supply_w(),
+            zone_heating_supply_humidity_ratio: default_controls_cooling_supply_w(),
+            zone_cooling_supply_humidity_ratio: default_controls_cooling_supply_w(),
             cycling: CyclingMethod::default(),
             deadband: 1.0,
             design_zone_flow: AutosizeValue::Value(0.5),

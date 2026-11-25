@@ -9,12 +9,12 @@ audited object by object in `INPUT_AUDIT.md`.
 
 | End use | E+ | OpenBSE | Difference |
 |---|---|---|---|
-| Heating (gas) | 93,278 | 95,980 | +2.9 % |
-| Cooling (electric) | 27,833 | 27,371 | −1.7 % |
+| Heating (gas) | 93,278 | 96,306 | +3.2 % |
+| Cooling (electric) | 27,833 | 27,430 | −1.4 % |
 | Interior lighting | 67,022 | 67,681 | +1.0 % |
 | Exterior lighting | 10,733 | 10,908 | +1.6 % |
 | Interior equipment | 53,972 | 53,971 | 0.0 % |
-| Fans | 48,547 | 50,039 | +3.1 % |
+| Fans | 48,547 | 49,439 | +1.8 % |
 | Water heating (gas) | 26,667 | 26,664 | 0.0 % |
 
 Interior lighting: Core_Retail's daylighting controls dim its lights to
@@ -39,12 +39,13 @@ Daylighting adds 3.2 MWh of heating and saves 1.3 MWh of cooling (E+: 3.5 and
 Zone loads agree: each zone's infiltration within 1–3 %, its sensible cooling
 from the system within 1–5 %. Core_Retail's gas is high (+6.4 %): the unit was
 already about 8 % above E+'s heating without daylighting (E+ without it, about
-52 MWh), which the undimmed lights hid. Core_Retail's fan is high mainly
-through its design flow, 8.53 m³/s against E+'s 8.21: E+ converts each design-day timestep's load to a
-flow at that timestep's zone temperature and `cp` at the design supply
-humidity, so its flow is lowest during the morning pull-down from the setup
-temperature; OpenBSE divides the peak load by the occupied-setpoint
-temperature difference.
+52 MWh), which the undimmed lights hid. Core_Retail's design flow is 8.39 m³/s against E+'s 8.21 (+2.2 %).
+Both convert each design-day timestep's load to a flow with the zone
+temperature and `cp` at the IDF's design supply humidity (0.007 kg/kg cooling,
+0.008 heating) and size on the averaged flows; E+ takes the zone temperature
+at the start of each step, OpenBSE at its end, and E+'s recorded load runs
+higher for a step or two after the morning recovery (Engineering Reference,
+zone sizing).
 
 ## Design loads (before the 1.2 sizing factor)
 
