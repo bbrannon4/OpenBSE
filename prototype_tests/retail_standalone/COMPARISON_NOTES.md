@@ -9,12 +9,12 @@ audited object by object in `INPUT_AUDIT.md`.
 
 | End use | E+ | OpenBSE | Difference |
 |---|---|---|---|
-| Heating (gas) | 93,278 | 95,882 | +2.8 % |
-| Cooling (electric) | 27,833 | 27,353 | −1.7 % |
+| Heating (gas) | 93,278 | 95,980 | +2.9 % |
+| Cooling (electric) | 27,833 | 27,371 | −1.7 % |
 | Interior lighting | 67,022 | 67,681 | +1.0 % |
 | Exterior lighting | 10,733 | 10,908 | +1.6 % |
 | Interior equipment | 53,972 | 53,971 | 0.0 % |
-| Fans | 48,547 | 50,228 | +3.5 % |
+| Fans | 48,547 | 50,039 | +3.1 % |
 | Water heating (gas) | 26,667 | 26,664 | 0.0 % |
 
 Interior lighting: Core_Retail's daylighting controls dim its lights to
@@ -50,17 +50,21 @@ temperature difference.
 
 | Zone | E+ cooling | OpenBSE | E+ heating | OpenBSE |
 |---|---|---|---|---|
-| Back_Space | 19,007 W | 18,248 W (−4.0 %) | 23,687 W | 22,080 W (−6.8 %) |
-| Core_Retail | 80,034 W | 77,440 W (−3.2 %) | 57,987 W | 52,341 W (−9.7 %) |
-| Point_Of_Sale | 12,430 W | 12,057 W (−3.0 %) | 11,568 W | 10,716 W (−7.4 %) |
-| Front_Retail | 9,791 W | 9,459 W (−3.4 %) | 11,568 W | 10,711 W (−7.4 %) |
-| Front_Entry | — | — | 36,254 W | 36,190 W (−0.2 %) |
+| Back_Space | 19,007 W | 18,058 W (−5.0 %) | 23,687 W | 22,672 W (−4.3 %) |
+| Core_Retail | 80,034 W | 77,157 W (−3.6 %) | 57,987 W | 54,508 W (−6.0 %) |
+| Point_Of_Sale | 12,430 W | 11,959 W (−3.8 %) | 11,568 W | 10,987 W (−5.0 %) |
+| Front_Retail | 9,791 W | 9,353 W (−4.5 %) | 11,568 W | 10,981 W (−5.1 %) |
+| Front_Entry | — | — | 36,254 W | 36,213 W (−0.1 %) |
 
-The design heating loads of the four retail zones are 7–10 % below E+'s
-(the heating coils, autosized from them with the 1.2 factor, still meet the
-annual heating: unmet heating hours in those zones are few). Not traced yet;
-this, the Core_Retail design flow and its gas are
-[#475](https://github.com/bbrannon4/OpenBSE/issues/475).
+The heating design day runs under a clear sky, as E+'s does (sky
+temperature −36.8 °C at −17.9 °C), which raised the heating design loads from
+7–10 % below E+'s to 4–6 %. The rest is traced in
+[#475](https://github.com/bbrannon4/OpenBSE/issues/475): the outside
+convection model (the IDF's TARP) and E+'s sizing lag after a setback
+recovery (Engineering Reference, zone sizing). The cooling design loads moved
+0.3–0.6 points lower with the clear sky's larger long-wave loss; the cooling
+design day's solar is not yet E+'s ASHRAE tau model
+([#50](https://github.com/bbrannon4/OpenBSE/issues/50)).
 
 ## Unmet hours
 
