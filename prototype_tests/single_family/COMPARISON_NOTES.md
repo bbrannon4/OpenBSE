@@ -3,113 +3,88 @@
 ## Models
 
 - **OpenBSE YAML**: `SingleFamily_CZ5B_Boulder.yaml`
-- **EnergyPlus IDF**: `SingleFamily_CZ5B_Boulder_simplified.idf` (AirflowNetwork removed, constant infiltration, no ducts)
+- **EnergyPlus IDF**: `SingleFamily_CZ5B_Boulder_simplified.idf` (AirflowNetwork removed, constant infiltration, no ducts), run with EnergyPlus 25.2 (`eplus_run/`)
 - **Original IDF**: `SingleFamily_CZ5B_Boulder.idf` (unmodified DOE prototype)
-- **Weather file**: `../Denver-Buckley.epw` (Denver-Aurora-Buckley AFB, WMO 724695, TMY3)
+- **Weather file**: `weather/USA_CO_Denver-Aurora-Buckley.AFB.724695_TMY3.epw` (Denver-Aurora-Buckley AFB, WMO 724695, TMY3), for both
 
-## Current Status (2026-03-27)
+## Annual End Uses
 
-**3 of 7 end uses PASS the 5% threshold. Heating (+15.2%) and Cooling (-10.2%) FAIL.**
+| End Use | E+ [kWh] | OpenBSE [kWh] | Diff |
+|---------|---------:|--------------:|-----:|
+| Heating (Gas) | 7,057 | 7,257 | +2.8% |
+| Cooling (Elec) | 1,840 | 1,933 | +5.0% |
+| Interior Lighting | 1,038 | 1,038 | −0.1% |
+| Exterior Lighting | 212 | 210 | −0.5% |
+| Interior Equipment (electric and gas) | 10,083 | 10,077 | −0.1% |
+| Fans (Elec) | 933 | 819 | −12.2% |
+| Pumps (Elec) | 0 | 0 | — |
+| DHW (Gas) | 2,157 | 2,203 | +2.1% |
+| **Total** | **23,320** | **23,536** | **+0.9%** |
 
-Regression from 2026-03-15 caused by commit 90733ae: angular solar fix changed beam
-solar transmission (angle-dependent Tsol), and infiltration correction raised from
-prior value to 0.0370 m³/s. Higher infiltration drives the heating increase; altered
-solar distribution shifts the cooling balance. Root cause of heating gap traced to
-outside surface temperature BC differences (see f6e0a8f).
-
-### Annual End-Use Comparison
-
-| End Use | E+ [kWh] | OpenBSE [kWh] | Diff | Status |
-|---------|----------|---------------|------|--------|
-| Heating (Gas) | 7,057 | 8,128 | +15.2% | FAIL |
-| Cooling (Elec) | 1,840 | 1,651 | -10.2% | FAIL |
-| Interior Lighting | 1,038 | 1,038 | -0.1% | PASS |
-| Exterior Lighting | 212 | 211 | -0.4% | PASS |
-| Interior Equipment | 10,083 | 10,077 | -0.1% | PASS |
-| Fans (Elec) | 933 | 893 | -4.3% | PASS |
-| Pumps (Elec) | 0 | 0 | — | — |
-| DHW (Gas) | 2,157 | 2,206 | +2.3% | PASS |
-| **Total** | **23,320** | **22,850** | **-2.0%** | |
+OpenBSE has no unmet hours. The E+ figures are from `eplus_run/eplustbl.csv`
+and the monthly ones below from `eplus_run/eplusmtr.csv` (whose heating and
+cooling totals differ from the annual table by under 0.1%).
 
 ### Monthly Heating (Gas) [kWh]
 
 | Month | E+ | OpenBSE | Diff |
-|-------|------|---------|------|
-| Jan | 1121 | 1321 | +17.8% |
-| Feb | 1107 | 1273 | +15.0% |
-| Mar | 827 | 945 | +14.3% |
-| Apr | 684 | 773 | +13.0% |
-| May | 114 | 139 | +21.9% |
+|---|---:|---:|---:|
+| Jan | 1,121 | 1,150 | +2.5% |
+| Feb | 1,107 | 1,132 | +2.2% |
+| Mar | 827 | 853 | +3.1% |
+| Apr | 684 | 704 | +3.0% |
+| May | 114 | 124 | +8.5% |
 | Jun | 1 | 1 | — |
 | Jul | 0 | 0 | — |
-| Aug | 1 | 2 | — |
-| Sep | 55 | 66 | +20.0% |
-| Oct | 703 | 794 | +12.9% |
-| Nov | 921 | 1074 | +16.6% |
-| Dec | 1518 | 1740 | +14.6% |
-| **Total** | **7,052** | **8,128** | **+15.2%** |
+| Aug | 1 | 1 | — |
+| Sep | 55 | 60 | +9.1% |
+| Oct | 703 | 732 | +4.1% |
+| Nov | 921 | 950 | +3.1% |
+| Dec | 1,518 | 1,550 | +2.1% |
+| **Total** | **7,052** | **7,257** | **+2.9%** |
 
 ### Monthly Cooling (Electric) [kWh]
 
 | Month | E+ | OpenBSE | Diff |
-|-------|------|---------|------|
-| Jan | 20 | 11 | -42.4% |
-| Feb | 25 | 14 | -42.3% |
-| Mar | 65 | 51 | -21.5% |
-| Apr | 58 | 45 | -22.7% |
-| May | 149 | 132 | -11.5% |
-| Jun | 381 | 362 | -5.1% |
-| Jul | 384 | 367 | -4.4% |
-| Aug | 364 | 340 | -6.5% |
-| Sep | 252 | 231 | -8.5% |
-| Oct | 87 | 66 | -23.6% |
-| Nov | 36 | 22 | -37.9% |
-| Dec | 18 | 10 | -45.0% |
-| **Total** | **1,840** | **1,651** | **-10.2%** |
+|---|---:|---:|---:|
+| Jan | 20 | 22 | +7.8% |
+| Feb | 25 | 26 | +4.3% |
+| Mar | 65 | 67 | +2.7% |
+| Apr | 58 | 59 | +1.9% |
+| May | 149 | 158 | +6.2% |
+| Jun | 380 | 399 | +4.9% |
+| Jul | 384 | 408 | +6.0% |
+| Aug | 364 | 386 | +5.9% |
+| Sep | 252 | 262 | +3.9% |
+| Oct | 87 | 90 | +3.4% |
+| Nov | 36 | 38 | +5.5% |
+| Dec | 18 | 19 | +4.6% |
+| **Total** | **1,838** | **1,932** | **+5.1%** |
 
 ### Monthly Fans (Electric) [kWh]
 
 | Month | E+ | OpenBSE | Diff |
-|-------|------|---------|------|
-| Jan | 70 | 83 | +18.5% |
-| Feb | 70 | 80 | +13.4% |
-| Mar | 69 | 75 | +9.0% |
-| Apr | 60 | 64 | +7.2% |
-| May | 58 | 56 | -3.1% |
-| Jun | 103 | 104 | +0.6% |
-| Jul | 104 | 105 | +0.9% |
-| Aug | 100 | 99 | -0.6% |
-| Sep | 77 | 76 | -2.0% |
-| Oct | 69 | 71 | +3.0% |
-| Nov | 65 | 73 | +12.2% |
-| Dec | 87 | 102 | +17.2% |
-| **Total** | **932** | **988** | **+5.9%** |
+|---|---:|---:|---:|
+| Jan | 70 | 52 | −26.7% |
+| Feb | 70 | 51 | −27.1% |
+| Mar | 69 | 55 | −20.2% |
+| Apr | 60 | 49 | −19.5% |
+| May | 58 | 57 | −1.3% |
+| Jun | 103 | 104 | +1.3% |
+| Jul | 104 | 106 | +2.0% |
+| Aug | 100 | 102 | +2.0% |
+| Sep | 77 | 76 | −1.1% |
+| Oct | 69 | 57 | −17.1% |
+| Nov | 65 | 50 | −23.6% |
+| Dec | 87 | 61 | −30.1% |
+| **Total** | **932** | **819** | **−12.1%** |
 
-## Key Observations
+## Observations
 
-- **Cooling gap is load-driven at low PLR**: Peak summer months (May-Jul) are within 5% after the PLF curve fix. The remaining annual gap comes from winter/shoulder months where absolute cooling loads are small (12-58 kWh/mo) but percentage errors are large (10-30%). This suggests an envelope-level difference (window SHGC, solar gain timing, or thermostat deadband) rather than equipment efficiency.
-- **Heating shoulder months**: Apr (-8.4%) and Oct (-6.8%) exceed 5% individually but the annual total passes. Same root cause — mild-weather loads are slightly lower in OpenBSE.
-- **Fans split by mode**: Fans are ~2% high in cooling-dominant months (Jun-Aug) and ~8% low in heating-dominant months. The mode-dependent split may relate to different fan runtime patterns between heating and cooling.
-- **Gas furnace has no part-load curve**: Confirmed — E+ `Coil:Heating:Fuel` uses constant efficiency × PLR with no cycling degradation.
-- **DX PLF curve**: Fixed 2026-03-15 — `main.rs` now evaluates the actual quadratic PLF curve from the YAML instead of a hardcoded Cd=0.15 linear default. Closed cooling gap from -8.5% to -6.8%.
-
-## Changes Made (2026-03-15)
-
-1. **Weather file**: Both models now use `Denver-Buckley.epw` (WMO 724695)
-2. **Exterior lighting**: Added to YAML with astronomical clock control (210.7 vs 211.5 kWh E+)
-3. **DHW water heater**: Added `Modulate` control type to engine; YAML updated to 1-gal tank, 0.97 efficiency, UA=0, matching IDF tankless
-4. **DX PLF curve**: Engine now reads the coil's PLF curve from YAML instead of hardcoded default
-5. **E+ IDF**: Added `Output:Meter` monthly objects for end-use comparison
-6. **Water heater ambient zone**: Added `ambient_zone` support to engine (references zone temperature dynamically)
-
-## Next Steps
-
-- **Fix heating regression (+15%)**: root cause traced to outside surface temperature BC
-  differences (commit f6e0a8f). The angular solar fix in 90733ae changed how beam Tsol
-  is applied; need to verify outside BC matches E+ `SurfaceProperty:OtherSideCoefficients`
-  or the standard combined radiation/convection calculation. Compare hourly outside
-  surface temps between OpenBSE and E+ for opaque walls.
-- **Fix cooling regression (-10%)**: correlated with heating gap — if outside BCs are
-  corrected, cooling should recover toward -6% as well.
-- **Fan gap (+5.9%)**: heating-mode fan runtime is higher because heating runs more;
-  fixing heating regression should bring fans in line.
+- **Gains and DHW** match within 0.5% and 2.1%.
+- **Heating** is 2–4% above E+ in every heating month, a little more in the
+  shoulder months May and September, where the loads are small.
+- **Cooling** is 2–8% above E+ month by month, 5.0% over the year, at the
+  edge of the 5% target.
+- **Fans** match E+ within 2% in the cooling months (May–September) and run
+  17–30% below it in the heating months. This gap is open.

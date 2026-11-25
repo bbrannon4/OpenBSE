@@ -553,7 +553,7 @@ exterior_equipment:
   power: 7.16294617434682     # E+ Garage-Lights_unit1 design level [W]
   subcategory: Garage-Lights   # routes to ext_lighting end use
   schedule: Interior Lighting  # E+ uses InteriorLightingHE schedule
-# DHW removed — not relevant for envelope heat balance comparison
+# No DHW: not relevant for the envelope heat balance comparison
 
 # ── Zones ─────────────────────────────────────────────────────────
 # 4 zones matching E+ simplified model:
@@ -887,10 +887,9 @@ surfaces:
   azimuth: 270.0
   tilt: 90.0
 
-# ── Inter-floor slab removed — converted to internal_mass on living_unit1
-# to match E+'s approach: thermal mass retained, no solar distribution interaction ──
+# ── Inter-floor slab: internal_mass on living_unit1, as E+ models it: thermal mass retained, no solar distribution interaction ──
 
-# ── Back door now modeled above as "Back Door" (3.717 m²) ──
+# ── The back door is modelled above as "Back Door" (3.717 m²) ──
 
 # ══════════════════════════════════════════════════════════════════
 # ── Basement zone surfaces ──
@@ -1145,13 +1144,12 @@ outputs:
 # ══════════════════════════════════════════════════════════════════
 # MISSING FUNCTIONALITY FLAGS:
 #
-# 1. EXHAUST FAN POWER: ✓ IMPLEMENTED — ExhaustFanInput now has full fan
-#    math (same as supply/return fans). Power, pressure, efficiency all modeled.
+# 1. EXHAUST FAN POWER: the exhaust fan uses the same fan math as supply and
+#    return fans (power, pressure, efficiency).
 #
 # 2. DX COIL SHR: E+ uses autosize for SHR. YAML hardcodes 0.75.
 #    The rated SHR sets the coil's bypass factor and so its latent
-#    capacity. Consider adding autosize SHR support.
-#    Future: add AirflowNetwork support to OpenBSE.
+#    capacity. OpenBSE has no autosized SHR input.
 #
 # 3. GAS EQUIPMENT: gas range, dryer and misc gas gains are equipment with
 #    fuel: natural_gas, the IDF's GasEquipment input power and fractions.
@@ -1164,7 +1162,7 @@ outputs:
 #    detailed ground coupling. We use simplified ground boundary condition.
 #
 # 6. INTERNAL MASS: IDF has InteriorFurnishings (9.9 m2 of 6" wood).
-#    Added as zone-level internal_mass property on living_unit1.
+#    Modelled as a zone-level internal_mass on living_unit1.
 #
 # 7. LATENT GAINS: equipment latent fractions (dishwasher 0.15, gas range
 #    0.06, ...) are entered as in the IDF and reach the zone moisture balance.

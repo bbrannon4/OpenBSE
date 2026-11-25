@@ -1,4 +1,4 @@
-# OpenBSE Example: Mixed-Use Data Center + Office (Issues #46 / #47 / #48)
+# OpenBSE Example: Mixed-Use Data Center + Office
 #
 # Building topology:
 #   DataHall   (1 000 m², 4 m)  — 500 kW IT load, CRAH + air-cooled chilled-water plant
@@ -7,9 +7,9 @@
 #   Office     (  300 m², 3 m)  — Standard office (people/lights/equipment), PSZ-AC
 #
 # Features demonstrated:
-#   #46  DataCenterConfig zone model — implicit hot/cold-aisle physics, ASHRAE A2
-#   #47  system_type: crah (DataHall); system_type: crac (UPS Room, PDU Room)
-#   #48  ASHRAE 90.4 PUE / MLC / ELC reporting with UPS + transformer losses
+#   - DataCenterConfig zone model — implicit hot/cold-aisle physics, ASHRAE A2
+#   - system_type: crah (DataHall); system_type: crac (UPS Room, PDU Room)
+#   - ASHRAE 90.4 PUE / MLC / ELC reporting with UPS + transformer losses
 #
 # ELC note: electrical rooms cool the power conditioning equipment (UPS, PDUs)
 # whose losses form the ELC metric. The electrical_distribution block captures

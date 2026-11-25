@@ -8,7 +8,7 @@
   by hand: every floor explicit (no zone multipliers), envelope, internal mass
   and interzone surfaces generated from the IDF by `envelope_from_idf.py`, and
   every other input checked against its IDF object in `INPUT_AUDIT.md`, which
-  also lists what OpenBSE can't yet express. The plenum zones are left out
+  also lists what OpenBSE can't express. The plenum zones are left out
   because every plenum surface in this IDF is adiabatic.
 - **Envelope check:** `LargeOffice_Boulder_ideal.yaml`, with ideal loads in place
   of the HVAC (`IDEAL_LOADS_COMPARISON.md`).
@@ -16,8 +16,8 @@
 ## Weather
 
 Both run on Denver-Aurora-Buckley AFB TMY3 (WMO 724695): E+ on
-`USA_CO_Denver-Aurora-Buckley.AFB.724695_TMY3.epw`, OpenBSE on the same file as
-`prototype_tests/Denver-Buckley.epw`. Despite the model's name, it does not use
+`USA_CO_Denver-Aurora-Buckley.AFB.724695_TMY3.epw`, OpenBSE on the same file
+in `weather/`. Despite the model's name, it does not use
 Boulder weather.
 
 ## Annual end uses
@@ -35,12 +35,11 @@ Boulder weather.
 | Service hot water | 125,133 | 125,142 | 0.0% |
 
 OpenBSE values are the committed baselines in `tests/model_baselines.json`
-(2026-11-25). E+ values are `eplustbl.csv` (GJ × 277.78). Every gap below was
+(2026-11-25). E+ values are `eplustbl.csv` (GJ × 277.78). Every gap below is
 traced at component level, with an E+ 25.2 rerun of `eplus_run/in.idf` that
 writes the plant and coil node data every timestep. The component figures in the
-sections below come from those tracing runs, before daylight saving time was
-modelled. Daylight saving moves cooling 1.5% and pumps 0.1%, so the comparisons
-there still hold.
+sections below come from tracing runs without daylight saving time. Daylight
+saving moves cooling 1.5% and pumps 0.1%, so the comparisons there hold.
 
 ## Pumps
 
@@ -62,7 +61,7 @@ draws 21.3 kW against E+'s 21.1 kW.
 `SetpointManager:ReturnTemperature:ChilledWater` holds the primary return at
 10.2 °C between 6.7 and 10.22 °C. With 111 kg/s of primary flow and about 14 kg/s
 of coil flow the primary ΔT is about 1 K, so E+'s supply is mostly at 10 °C (mean
-8.9 °C while the plant runs). The model now has the same reset (mean 8.7 °C).
+8.9 °C while the plant runs). The model has the same reset (mean 8.7 °C).
 The coils draw more water at that temperature: OpenBSE's secondary pump moves
 16.8 kg/s while it runs (E+ 13.5) and draws 1.93 kW (E+ 1.74 kW).
 
@@ -72,10 +71,11 @@ at full flow (60,507 kWh ÷ 10.54 kW; some running only part of a timestep, in
 6,908 h). Almost all of the difference is the basement data centre:
 
 - The data centre and basement units are E+ `AirLoopHVAC:UnitarySystem`s with
-  draw-through fans. The model had their fans first (blow-through); the
-  single-zone reset aims the coil one fan rise below the supply temperature, so
-  the coil trimmed 0.7 K every timestep, the chilled water never stopped and the
-  zone sat 0.8 K under its 27 °C setpoint. Fixed in the inputs.
+  draw-through fans, and the model lists their coils before their fans, as E+
+  does. With the fan first (blow-through), the single-zone reset would aim the
+  coil one fan rise below the supply temperature, so the coil would trim 0.7 K
+  every timestep, the chilled water would never stop and the zone would sit
+  0.8 K under its 27 °C setpoint.
 - E+'s single-zone VAV unit then runs the basement data centre at full fan flow
   in the high-IT months and overcools it to 23.5-24.5 °C, against its 27 °C
   setpoint: 4,285 h below 26.5 °C (mean 24.8 °C), with 314 of the coil's
@@ -100,9 +100,9 @@ data centre coil cools 401 MWh against E+'s 668 (the other coils: VAV 1,783 vs
 
 The chillers follow the IDF's operation: chiller 1 alone up to 1.57 MW, both above
 that at uniform load (`PlantEquipmentOperation:CoolingLoad`, `UniformLoad`). With
-both running, each sits at a part load of 0.62. Under the earlier sequential
-staging, chiller 1 ran at 1.0 and chiller 2 held its 0.25 minimum, false-loading.
-That cost 11 MWh of chiller electricity a year. Chiller 2 now carries 552 MWh in
+both running, each sits at a part load of 0.62. Sequential staging would run
+chiller 1 at 1.0 and hold chiller 2 at its 0.25 minimum, false-loading, at a
+cost of 11 MWh of chiller electricity a year. Chiller 2 carries 552 MWh in
 570 h, 23.5% of the cooling (E+ 651 MWh in 713 h, 23.9%). The remaining cooling
 gap is the data centre overcooling above: the chillers deliver 2,346 MWh, against
 E+'s 2,720.
@@ -111,13 +111,13 @@ E+'s 2,720.
 
 Both engines run the schedules on daylight saving time from 12 March to
 5 November (`RunPeriodControl:DaylightSavingTime`, `daylight_saving_time`).
-Without it, OpenBSE's gas was 5.5% under E+'s. E+ starts the building an hour
+Without it, OpenBSE's gas is 5.5% under E+'s. E+ starts the building an hour
 earlier against the clock, at 05:00 standard time, and its mid-floor reheat in
 that hour alone is 26.5 MWh. With it, gas rises 8.4 MWh to 3.7% under E+.
 
-Before daylight saving was modelled, the boiler-load gap was the perimeter
-reheat (mid floors −22.5, bottom −3.1, top −2.1 MWh against E+), less the central
-coils (+6.4 MWh). Outside the daylight saving period the boiler load was within
+Without daylight saving, the boiler-load gap is the perimeter reheat (mid
+floors −22.5, bottom −3.1, top −2.1 MWh against E+), less the central coils
+(+6.4 MWh). Outside the daylight saving period the boiler load is within
 2.4% of E+'s, with the reheat low and the central coils high, a split between
 the VAV supply-air temperature and the terminal reheat that is not traced
 further here.

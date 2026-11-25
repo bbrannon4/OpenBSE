@@ -1543,7 +1543,7 @@
           "items": { "$ref": "#/$defs/SectionOverride" },
           "default": [],
           "x-aliases": ["include"],
-          "description": "Section replacements from external YAML files (Level 2 — not yet implemented). 'include' is accepted as an alias."
+          "description": "Section replacements from external YAML files (Level 2, not implemented). 'include' is accepted as an alias."
         }
       }
     },
@@ -1551,7 +1551,7 @@
     "SectionOverride": {
       "type": "object",
       "required": ["file", "replaces"],
-      "description": "Replace top-level model sections with content from an external YAML file. Not yet implemented — scaffolding only.",
+      "description": "Replace top-level model sections with content from an external YAML file. Not implemented.",
       "properties": {
         "file": { "type": "string", "description": "Path to partial YAML file (relative to input file)." },
         "replaces": {
@@ -1723,7 +1723,7 @@
         "visible_absorptance": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1 },
         "roughness": { "$ref": "#/$defs/Roughness" },
         "thermal_resistance": { "type": "number", "exclusiveMinimum": 0, "description": "Thermal resistance [m2*K/W] for a no-mass material (EnergyPlus Material:NoMass). Zero thermal mass; only resistance matters." },
-        "vapor_resistance_factor": { "type": "number", "description": "Vapor resistance factor mu [-] relative to still air (HAMT moisture transport only). HAMT is not wired into the run: no effect today (#64)." },
+        "vapor_resistance_factor": { "type": "number", "description": "Vapor resistance factor mu [-] relative to still air (HAMT moisture transport only). HAMT is not wired into the run, so it has no effect." },
         "sorption_isotherm": { "type": "array", "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }, "description": "Sorption isotherm as [relative_humidity [0-1], moisture_content [kg/kg]] pairs (HAMT only)." },
         "liquid_transport_coeff": { "type": "array", "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }, "description": "Liquid transport coefficient as [moisture_content [kg/kg], D_w [m2/s]] pairs (HAMT capillary term; omitted if absent)." },
         "thermal_absorptance_inside": { "type": "number", "minimum": 0, "maximum": 1, "description": "Thermal absorptance (emissivity) of this material's face when it is a construction's inside layer [0-1]. Falls back to thermal_absorptance when absent." }
@@ -1834,7 +1834,7 @@
         },
         "shading_control": {
           "type": "object",
-          "description": "Dynamic interior blind/shade control (#104). Triggers on solar irradiance or zone temperature. Either give blind_shgc (and optionally blind_u_factor) for an assembly rating, modelled as its own simple glazing system, or a shade block to model the shade as its own layer, with a temperature that reaches the comfort grid (#144).",
+          "description": "Dynamic interior blind/shade control. Triggers on solar irradiance or zone temperature. Either give blind_shgc (and optionally blind_u_factor) for an assembly rating, modelled as its own simple glazing system, or a shade block to model the shade as its own layer, with a temperature that reaches the comfort grid.",
           "required": [
             "type"
           ],
@@ -1872,7 +1872,7 @@
             },
             "shade": {
               "type": "object",
-              "description": "Interior shade (e.g. roller shade) modelled as a layer on the room side of the glass (#144). When deployed it absorbs part of the solar, gets warm, and the room and the comfort grid see its temperature; light through it is diffuse except the openness share. Replaces blind_shgc/blind_u_factor.",
+              "description": "Interior shade (e.g. roller shade) modelled as a layer on the room side of the glass. When deployed it absorbs part of the solar, gets warm, and the room and the comfort grid see its temperature; light through it is diffuse except the openness share. Replaces blind_shgc/blind_u_factor.",
               "required": [
                 "solar_transmittance",
                 "solar_reflectance"
@@ -2177,7 +2177,7 @@
         },
         "comfort": {
           "type": "object",
-          "description": "Occupant thermal comfort parameters for PMV/PPD calculation (#102, #103). Omit to use defaults (1.2 met, 0.5 clo, 0.1 m/s).",
+          "description": "Occupant thermal comfort parameters for PMV/PPD calculation. Omit to use defaults (1.2 met, 0.5 clo, 0.1 m/s).",
           "properties": {
             "metabolic_rate": { "type": "number", "default": 1.2, "description": "Metabolic rate [met]. 1.0=seated quiet, 1.2=office work, 2.0=walking." },
             "clothing": { "type": "number", "default": 0.5, "description": "Clothing insulation [clo]. 0.5=summer light, 1.0=winter typical." },
@@ -2775,7 +2775,7 @@
         "power": { "type": "number", "minimum": 0, "description": "Design power [W]." },
         "schedule": { "type": "string", "description": "Fraction schedule [0-1]. Always at full power if omitted." },
         "fuel": { "type": "string", "enum": ["electricity", "natural_gas", "propane", "fuel_oil_no1", "fuel_oil_no2", "diesel", "gasoline", "coal", "other_fuel1", "other_fuel2", "district_heating_water", "district_heating_steam", "district_cooling"], "default": "electricity", "description": "Fuel the equipment draws (E+ Exterior:FuelEquipment fuel use type). Its power is metered on that fuel under the exterior equipment end use: summary rows Exterior Equipment (electricity), Exterior Equipment (Gas), (District Heating Water), (District Heating Steam) and (Other Fuels); submeter end use `ext_equipment` or `ext_equipment_<fuel>`. A subcategory containing \"exterior light\" books it as exterior lighting instead." },
-        "subcategory": { "type": "string", "description": "Legacy end-use subcategory label; use submeter instead." },
+        "subcategory": { "type": "string", "description": "End-use subcategory label. A subcategory containing \"exterior light\" books the equipment as exterior lighting (E+ Exterior:Lights); `submeter` takes precedence for submeter grouping." },
         "astronomical_clock": { "type": "boolean", "default": false, "description": "Only operate at night (solar altitude <= 0), like E+ Exterior:Lights AstronomicalClock." }
       }
     },
@@ -2875,7 +2875,7 @@
     "Aggregation": {
       "type": "string",
       "enum": ["mean", "sum", "min", "max"],
-      "description": "Deprecated: aggregation is now per variable. Use an `@mean|@sum|@min|@max` suffix on a variable spec instead."
+      "description": "Deprecated: aggregation is per variable. Use an `@mean|@sum|@min|@max` suffix on a variable spec instead."
     },
 
     "OutputFile": {
