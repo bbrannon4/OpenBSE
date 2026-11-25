@@ -310,10 +310,9 @@ P_c(\dot Q_c)\ \text{ or }\ P_h(\dot Q_h) & \text{otherwise},
 \end{cases}
 $$ {#eq-vrf-power}
 
-With no curves this is power proportional to PLR.
-
-where $E_{fT}$ is the EIR-f(T) curve value (above 1 costs more power). It is
-shared among the units by PLR.
+where $E_{fT}$ is the EIR-f(T) curve value (above 1 costs more power). With no
+curves this is power proportional to PLR. The power is shared among the units
+by PLR.
 
 **Supply.** Each unit's flow is the one that delivers its sensible heat at its
 fixed supply temperature, $\dot m = \dot Q_{s,i}/(c_p|T_\text{sup} - T_z|)$, at

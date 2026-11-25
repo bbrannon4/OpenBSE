@@ -109,8 +109,11 @@ differences are:
   no design-day day types, so the modes stand in for them. Like EnergyPlus's
   design-day schedules, `full_when_occupied` acts on each gain through its
   own schedule: an all-night gain does not switch on the zone's other gains.
-- **Humidity.** The outdoor humidity is a fixed relative humidity
-  ([#198](https://github.com/bbrannon4/OpenBSE/issues/198)).
+- **Humidity.** A `relative_humidity` value is held constant through the
+  day, where EnergyPlus's relative-humidity type is an hourly schedule; the
+  other humidity types give one humidity ratio for the day, as in EnergyPlus
+  (@sec-design-days). There are no humidity schedules
+  ([#297](https://github.com/bbrannon4/OpenBSE/issues/297)).
 - **Day type.** A design day is classed as heating or cooling by a
   substring of its `day_type` ("heat" or "winter", "cool" or "summer"). A
   day type that says neither or both is a severe error.
@@ -174,7 +177,7 @@ with every multiplier at 2 uses exactly twice the energy. EnergyPlus instead siz
 and runs the system for all instances and divides what reaches each zone by
 $N_z$. Both give the same energy for a loop whose zones share a multiplier. A loop
 or VRF system serving zones with different multipliers can't be represented here
-and is a severe error ([#280](https://github.com/bbrannon4/OpenBSE/issues/280)).
+and is a severe error ([#286](https://github.com/bbrannon4/OpenBSE/issues/286)).
 
 **Design flows.** Each timestep's load becomes the supply flow [kg/s] that
 delivers it to the zone at that timestep's air temperature $T_{z,k}$:
@@ -533,8 +536,9 @@ flows are both per zone instance, so no multiplier is needed in the ratio.
 
 ## Known limitations {#sec-sizing-limitations}
 
-- [#198](https://github.com/bbrannon4/OpenBSE/issues/198),
-  [#50](https://github.com/bbrannon4/OpenBSE/issues/50): design-day
-  humidity, temperature profile and sky model.
-- [#280](https://github.com/bbrannon4/OpenBSE/issues/280): a loop can't serve
+- [#50](https://github.com/bbrannon4/OpenBSE/issues/50): design-day sky
+  model.
+- [#297](https://github.com/bbrannon4/OpenBSE/issues/297): no design-day
+  temperature or humidity schedules.
+- [#286](https://github.com/bbrannon4/OpenBSE/issues/286): a loop can't serve
   zones with different multipliers.

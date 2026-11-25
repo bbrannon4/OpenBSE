@@ -53,8 +53,9 @@ but later dates keep their true day of week.
 
 **Comparison with EnergyPlus.** EnergyPlus's `ZoneControl:Thermostat` takes
 setpoint schedules, as OpenBSE's named setpoint schedules do. Schedules have no
-design-day types, so a design day's setpoints are given on the thermostat; nor
-daylight saving or start day of week
+design-day types, so a design day's setpoints are given on the thermostat.
+Daylight saving shifts every schedule as in EnergyPlus (@sec-calendar); there
+is no start-day-of-week input
 ([#199](https://github.com/bbrannon4/OpenBSE/issues/199)).
 
 ## Availability {#sec-availability}
@@ -296,7 +297,7 @@ at maximum flow with its coil over-delivering. In the DOE LargeOffice basement
 data centre this holds the zone near 24 °C against its 27 °C setpoint for
 4,285 h a year, with two thirds more coil cooling (668 against 401 MWh) than OpenBSE, which meets the load
 (`prototype_tests/large_office/COMPARISON_NOTES.md`). OpenBSE does not reproduce
-that.
+that ([#497](https://github.com/bbrannon4/OpenBSE/issues/497)).
 
 The economizer is in @sec-economizer.
 
@@ -509,9 +510,9 @@ or common-pipe water (@eq-plant-supply-flow). A scheduled target is not an input
 
 ## Known limitations {#sec-controls-limitations}
 
-- [#255](https://github.com/bbrannon4/OpenBSE/issues/255): no night cycle;
-  unoccupied setpoints unused.
+- [#255](https://github.com/bbrannon4/OpenBSE/issues/255): unoccupied
+  setpoints are read and never used.
 - [#388](https://github.com/bbrannon4/OpenBSE/issues/388): VAV Warmest maximum
   and no-box heating fraction are not inputs.
-- [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no daylight saving or
-  start day of week.
+- [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no
+  start-day-of-week input.
