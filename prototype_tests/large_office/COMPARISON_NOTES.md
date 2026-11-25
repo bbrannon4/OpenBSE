@@ -25,7 +25,7 @@ Boulder weather.
 | End use | E+ [kWh] | OpenBSE [kWh] | Difference |
 |---|---:|---:|---:|
 | Heating (gas) | 472,503 | 447,096 | −5.4% |
-| Cooling | 589,511 | 549,257 | −6.8% |
+| Cooling | 589,511 | 538,890 | −8.6% |
 | Fans | 1,042,617 | 1,042,895 | 0.0% |
 | Pumps | 135,044 | 74,638 | −44.7% |
 | Interior lighting | 1,558,539 | 1,558,539 | 0.0% |
@@ -34,7 +34,7 @@ Boulder weather.
 | Exterior equipment | 713,075 | 713,075 | 0.0% |
 | Service hot water | 125,133 | 125,143 | 0.0% |
 
-OpenBSE values are a full run of this model (2026-11-15), the numbers the
+OpenBSE values are a full run of this model (2026-11-24), the numbers the
 committed baselines in `tests/model_baselines.json` follow. E+ values are
 `eplustbl.csv` (GJ × 277.78). Every gap below was traced at component level
 with an E+ 25.2 rerun of `eplus_run/in.idf` that writes the plant and coil
@@ -94,6 +94,17 @@ over E+'s 5,740 full-flow hours OpenBSE's primary bank would draw 122 MWh (E+
 data centre coil cools 401 MWh against E+'s 668 (the other coils: VAV 1,783 vs
 1,815, basement 94 vs 107 MWh).
 
+## Chillers
+
+The chillers follow the IDF's operation: chiller 1 alone up to 1.57 MW, both above
+that at uniform load (`PlantEquipmentOperation:CoolingLoad`, `UniformLoad`). With
+both running, each sits at a part load of 0.62. Under the earlier sequential
+staging, chiller 1 ran at 1.0 and chiller 2 held its 0.25 minimum, false-loading.
+That cost 11 MWh of chiller electricity a year. Chiller 2 now carries 552 MWh in
+570 h, 23.5% of the cooling (E+ 651 MWh in 713 h, 23.9%). The remaining cooling
+gap is the data centre overcooling above: the chillers deliver 2,346 MWh, against
+E+'s 2,720.
+
 ## Heating
 
 The boiler load gap is the perimeter reheat (mid floors −22.5, bottom −3.1, top
@@ -113,6 +124,3 @@ the boiler load is within 2.4%.
 - **E+ data centre overcooling** (above,
   [#497](https://github.com/bbrannon4/OpenBSE/issues/497)): a deliberate
   difference; OpenBSE meets the zone load.
-- **Chiller dispatch** ([#495](https://github.com/bbrannon4/OpenBSE/issues/495)): E+ runs chiller 1 alone up to 1.57 MW and both at
-  uniform load above; OpenBSE stages sequentially at 0.9 part load (533 h of
-  chiller 2 against E+'s 713 h).
