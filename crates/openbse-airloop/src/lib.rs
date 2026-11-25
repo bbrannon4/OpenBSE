@@ -153,6 +153,10 @@ pub struct LoopInfo {
     /// fraction is this flow divided by the current total supply flow, so a VAV
     /// system throttling down draws a rising OA fraction (fixed OA volume).
     pub min_oa_flow_mass: Option<f64>,
+    /// Exhaust fans of the served zones: design volume flow [m³/s] and
+    /// schedule. The loop's outdoor air never falls below their scheduled
+    /// flow, as E+ Controller:OutdoorAir keeps OA ≥ the zones' exhaust.
+    pub zone_exhaust: Vec<(f64, Option<String>)>,
     /// Standard air density at the site [kg/m³] (E+ `StdRhoAir`): converts
     /// supply mass flows to the volumes the zones' outdoor-air rates are in.
     pub std_air_density: f64,
@@ -371,6 +375,36 @@ pub fn dual_maximum_heating_flow(
         return heat_max_flow;
     }
     (zone_load.max(0.0) / (cp * (max_reheat_temp - zone_temp))).clamp(min_flow, heat_max_flow)
+}
+
+/// The served zones' exhaust this hour [kg/s] at standard density, the floor
+/// on the loop's outdoor air (E+ `MixedAir.cc`: "Do not allow OA to be below
+/// Exh for controller:outside air").
+pub fn zone_exhaust_mass_flow(
+    li: &LoopInfo,
+    schedule_mgr: Option<&ScheduleManager>,
+    hour: u32,
+    day_of_week: u32,
+) -> f64 {
+    // Only a loop with an outdoor-air intake (E+ Controller:OutdoorAir) makes
+    // up its zones' exhaust; a recirculating unit leaves it to infiltration.
+    let has_outdoor_air = li.min_oa_fraction > 0.0
+        || li.min_oa_flow_mass.is_some()
+        || li.economizer_type != openbse_io::input::EconomizerType::NoEconomizer
+        || (!li.explicit_min_oa && !li.zone_oa_data.is_empty());
+    if !has_outdoor_air {
+        return 0.0;
+    }
+    li.zone_exhaust
+        .iter()
+        .map(|(flow, sched)| {
+            let f = match (sched, schedule_mgr) {
+                (Some(s), Some(mgr)) => mgr.fraction(s, hour, day_of_week),
+                _ => 1.0,
+            };
+            flow * f * li.std_air_density
+        })
+        .sum()
 }
 
 /// A zone's VAV terminal minimum flow fraction this hour: its schedule's value
@@ -695,6 +729,9 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         total_flow += zone_design_flows.get(zone_name).copied().unwrap_or(0.5);
     }
     total_flow = total_flow.max(0.01);
+    // Outdoor air at least the served zones' exhaust.
+    let exhaust = zone_exhaust_mass_flow(li, ctx.schedule_mgr, ctx.hour, ctx.day_of_week);
+    let effective_min_oa = effective_min_oa.max((exhaust / total_flow).min(1.0));
 
     // ── Part-Load Ratio (PLR) for ON/OFF Fan Cycling ──
     //
@@ -1795,6 +1832,9 @@ pub fn build_vav_signals(
     } else {
         vrp_min_oa
     };
+    // Outdoor air at least the served zones' exhaust (E+ Controller:OutdoorAir).
+    let exhaust = zone_exhaust_mass_flow(li, schedule_mgr, hour, day_of_week);
+    let vrp_min_oa = vrp_min_oa.max((exhaust / total_flow).min(1.0));
 
     // ── Return air temperature ──
     // The return stream is the mix of the zones' outlets at the box flows
@@ -2149,6 +2189,27 @@ mod tests {
     use openbse_io::input::{AirLoopSystemType, CyclingMethod, EconomizerType, FanOperatingMode};
 
     #[test]
+    fn outdoor_air_covers_the_zones_exhaust() {
+        let mut li = make_loop(AirLoopSystemType::Vav, vec![]);
+        li.std_air_density = 1.0;
+        li.min_oa_fraction = 0.2;
+        li.zone_exhaust = vec![(0.5, Some("Kitchen".to_string())), (0.2, None)];
+        let mut sched = openbse_envelope::schedule::ScheduleInput::always_on("Kitchen");
+        sched.weekday = vec![0.5; 24];
+        let mgr = ScheduleManager::from_inputs(vec![sched]);
+        let m = zone_exhaust_mass_flow(&li, Some(&mgr), 3, 2);
+        assert!((m - (0.5 * 0.5 + 0.2)).abs() < 1e-12, "{m}");
+        // A recirculating loop (no outdoor air, no economizer) makes up none.
+        li.min_oa_fraction = 0.0;
+        li.explicit_min_oa = true;
+        li.economizer_type = openbse_io::input::EconomizerType::NoEconomizer;
+        assert_eq!(zone_exhaust_mass_flow(&li, Some(&mgr), 3, 2), 0.0);
+        li.min_oa_fraction = 0.2;
+        li.zone_exhaust.clear();
+        assert_eq!(zone_exhaust_mass_flow(&li, Some(&mgr), 3, 2), 0.0);
+    }
+
+    #[test]
     fn terminal_minimum_follows_its_schedule() {
         let mut li = make_loop(AirLoopSystemType::Vav, vec![]);
         li.min_vav_fraction = 0.3;
@@ -2196,6 +2257,7 @@ mod tests {
             terminal_min_flow_schedule: HashMap::new(),
             terminal_heating: HashMap::new(),
             min_oa_flow_mass: None,
+            zone_exhaust: Vec::new(),
             std_air_density: 1.204,
             dd_boxes: HashMap::new(),
             dd_deck_temps: (None, None),

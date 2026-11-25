@@ -307,6 +307,17 @@ with $V_{oz}$ the zone requirement at the occupants $P_z(t)$ of this hour, no le
 `minimum_oa_flow` overrides it with a constant volume flow, converted to mass at the site's
 standard density, as every outdoor-air flow is (E+ `StdRhoAir`).
 
+**Exhaust.** On PSZ and VAV loops with an outdoor-air intake (a minimum outdoor
+air, a zone requirement or an economizer) the outdoor air is never less than the scheduled
+flow of the served zones' exhaust fans (at the site's standard density): the
+air a zone exhausts is made up through the loop, as E+ `Controller:OutdoorAir`
+keeps the outdoor air at least the loop's zone exhaust ("Do not allow OA to be
+below Exh", `MixedAir.cc`). E+ measures that exhaust as supply minus return
+flow; OpenBSE takes the exhaust fans' scheduled flow, which is the same for
+zones without other unbalanced flows. A loop without an intake makes up none,
+as in E+, where only `Controller:OutdoorAir` does; the zone then loses the
+exhaust to infiltration.
+
 **Comparison with EnergyPlus.** @eq-warmest and @eq-vrp follow
 `SetpointManager:Warmest` and `Controller:MechanicalVentilation` with
 `VentilationRateProcedure` [@eplus-engref-25-2, "Outdoor Air System"]. OpenBSE's
