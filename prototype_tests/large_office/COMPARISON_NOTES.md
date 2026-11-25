@@ -44,7 +44,8 @@ node data every timestep.
 
 E+'s pumps: two constant-speed chiller branch pumps, 60,507 kWh each, a
 variable-speed secondary pump, 13,330 kWh, the hot-water pump, 331 kWh, and the
-service hot water pump, 369 kWh, which OpenBSE meters under service hot water.
+service hot water pump, 369 kWh, which both engines meter under pumps (OpenBSE's
+hot-water and service hot water pumps match E+'s to 4 and 0 kWh).
 
 **Primary pumps run together.** `CoolSys1_Supply` serves an `UncontrolledOn`,
 `Ideal` `HeatExchanger:FluidToFluid` autosized to the whole primary flow
@@ -115,5 +116,3 @@ the boiler load is within 2.4%.
 - **Chiller dispatch** ([#495](https://github.com/bbrannon4/OpenBSE/issues/495)): E+ runs chiller 1 alone up to 1.57 MW and both at
   uniform load above; OpenBSE stages sequentially at 0.9 part load (533 h of
   chiller 2 against E+'s 713 h).
-- **Service hot water pump** ([#496](https://github.com/bbrannon4/OpenBSE/issues/496)): E+ meters it under pumps (369 kWh), OpenBSE
-  under service hot water.
