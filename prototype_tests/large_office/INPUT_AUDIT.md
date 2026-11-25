@@ -41,7 +41,8 @@ their geometric neighbour on the same floor.
 
 | Item | Status |
 |---|---|
-| People, lights, plug and IT equipment levels and fractions | matched (hourly gains equal outside DST) |
+| People, lights, plug and IT equipment levels and fractions | matched |
+| `RunPeriodControl:DaylightSavingTime` (2nd Sunday in March – 1st Sunday in November) | matched (`daylight_saving_time`) |
 | Data centre IT schedule | matched: monthly 0.25/0.5/0.75/1.0 seasons (was a flat 0.625) |
 | Infiltration | matched; the basement infiltration object (absent in E+) removed |
 | Exterior lights, elevators | matched |

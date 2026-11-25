@@ -287,6 +287,7 @@ def main(idf_path, out_path):
     w("  cooling_sizing_factor: 1.2")
     w("  unmet_heating_tolerance: 0.556   # OutputControl:ReportingTolerances (1 F)")
     w("  unmet_cooling_tolerance: 0.556")
+    w("  daylight_saving_time: {start: 2nd Sunday in March, end: 1st Sunday in November}   # RunPeriodControl:DaylightSavingTime")
     w("  sizing_averaging_window: 6       # Sizing:Parameters timesteps in averaging window")
     w("  auto_cooling_design_days: false  # size on the IDF's two design days only")
     w("  # RunPeriodControl:SpecialDays (the weather year starts on a Sunday)")

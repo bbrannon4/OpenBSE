@@ -47,7 +47,9 @@ pub use material::{
     Construction, ConstructionLayer, FFactorConstruction, GapGas, GasFraction, GlazingMaterial,
     Material, ResolvedLayer, SimpleConstruction, WindowConstruction, WindowLayer,
 };
-pub use schedule::{day_of_week, ScheduleInput, ScheduleManager};
+pub use schedule::{
+    day_of_week, in_daylight_saving, DaylightSavingShift, DstDate, ScheduleInput, ScheduleManager,
+};
 pub use shading::{
     FinInput, OverhangInput, ShadingCalculation, ShadingSurfaceInput, WindowShadingInput,
 };

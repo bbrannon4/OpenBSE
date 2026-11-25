@@ -293,6 +293,16 @@
             }
           }
         },
+        "daylight_saving_time": {
+          "type": "object",
+          "required": ["start", "end"],
+          "additionalProperties": false,
+          "description": "Daylight-saving period (EnergyPlus RunPeriodControl:DaylightSavingTime). On every day from start to end, both inclusive, every schedule is read one clock hour later (hour 24 reads the next day's hour 1). Absent: no daylight saving. Design days are never shifted.",
+          "properties": {
+            "start": { "type": "string", "description": "Start date: '2nd Sunday in March', 'Last Sunday in October', '3/10' or 'March 10'." },
+            "end": { "type": "string", "description": "End date, in the same forms as start." }
+          }
+        },
         "run_parametrics": { "type": "boolean", "default": true, "description": "Whether to execute parametric runs defined in the parametrics section. Set to false to run the base model only without deleting parametric definitions." }
       }
     },

@@ -40,8 +40,8 @@
       "tier": "fast",
       "max_unmet_heating_hours": 471,
       "max_unmet_heating_hours_reason": "428 h measured building-wide at the IDF's 0.556 K reporting tolerance (OutputControl:ReportingTolerances); E+ 25.2 reports 459.5 h for the same IDF (facility Time Setpoint Not Met), about half in the entry vestibule while its heater is locked out above 7.2 C; about 10% margin.",
-      "max_unmet_cooling_hours": 447,
-      "max_unmet_cooling_hours_reason": "406 h measured building-wide at the IDF's 0.556 K reporting tolerance; E+ 25.2 reports 425.25 h for the same IDF, night hours above the 23.89 C no-setback cooling setpoint inside the night cycle's tolerance; about 10% margin."
+      "max_unmet_cooling_hours": 494,
+      "max_unmet_cooling_hours_reason": "448 h measured building-wide at the IDF's 0.556 K tolerance with the IDF's daylight saving (#199), about 10% margin; E+ 25.2 reports 425.25 h for the same IDF. Night and evening hours just above the 23.89 C no-setback cooling setpoint inside the night cycle's tolerance; daylight saving ends the HVAC schedule an hour earlier in solar time, so more warm evening hours fall on the night cycle."
     },
     "examples/heat_pump_rtu.yaml": {
       "tier": "fast"
