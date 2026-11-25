@@ -4615,6 +4615,16 @@ impl EnvelopeSolver for BuildingEnvelope {
                             .copied()
                             .unwrap_or(0.0);
 
+                    // The same balance without the supply air, for the
+                    // humidifier controls (E+ moisture demand to setpoint).
+                    let cap_w = rho_air * zone.input.volume / dt_w_eff;
+                    zone.moisture_load_line = crate::zone::MoistureLoadLine {
+                        slope: cap_w + m_infil,
+                        driving: cap_w * w_prev_eff
+                            + m_infil * w_outdoor
+                            + q_latent / psych::hg_air_fn_tdb(zone.temp),
+                    };
+
                     zone.humidity_ratio = crate::zone::solve_zone_humidity(
                         rho_air,
                         zone.input.volume,

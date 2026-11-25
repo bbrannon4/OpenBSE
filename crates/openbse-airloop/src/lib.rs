@@ -143,6 +143,9 @@ pub struct LoopInfo {
     /// Per-zone schedule of the VAV terminal minimum flow fraction (zone_name →
     /// schedule name), read each timestep in place of `terminal_min_flow`.
     pub terminal_min_flow_schedule: HashMap<String, String>,
+    /// Humidifier supply humidity-ratio setpoint limits [kg/kg]: minimum and
+    /// maximum (E+ SetpointManager:MultiZone:Humidity:Minimum).
+    pub humidifier_setpoint_limits: (f64, f64),
     /// Per-zone terminal heating limits from the sized boxes: the heating
     /// maximum primary flow [kg/s], the maximum reheat air temperature [°C]
     /// and the reheat capacity [W].
@@ -418,6 +421,38 @@ pub fn zone_exhaust_mass_flow(
         .sum()
 }
 
+/// Supply humidity ratio a loop's humidifier holds [kg/kg] (E+
+/// `SetpointManager:MultiZone:Humidity:Minimum`, `SPMMultiZoneHum::calculate`):
+/// the loop's minimum setpoint, raised to what each served zone with a minimum
+/// RH needs to reach that RH this timestep, `W_sp + load(W_sp)/ṁ_zone`, with
+/// `load` the zone's moisture load line and `ṁ_zone` the air it receives;
+/// capped at the maximum setpoint.
+pub fn humidifier_supply_setpoint(
+    li: &LoopInfo,
+    ctx: &SignalCtx,
+    zone_flow: impl Fn(&str) -> f64,
+) -> f64 {
+    let (lo, hi) = li.humidifier_setpoint_limits;
+    let mut setpoint = lo;
+    for zone in &li.served_zones {
+        let (Some(&min_rh), Some(line)) =
+            (ctx.zone_min_rh.get(zone), ctx.zone_moisture_lines.get(zone))
+        else {
+            continue;
+        };
+        let t = ctx.zone_temps.get(zone).copied().unwrap_or(21.0);
+        let w_sp = openbse_psychrometrics::w_fn_tdb_rh_pb(t, min_rh / 100.0, ctx.p_b);
+        let load = line.at(w_sp);
+        let m = zone_flow(zone);
+        if load > 0.0 && m > 1.0e-6 {
+            setpoint = setpoint.max(w_sp + load / m);
+        }
+    }
+    // Always positive: a zero setpoint would hand the humidifier its own
+    // RH fallback instead of "no humidification".
+    setpoint.min(hi.max(lo)).max(f64::MIN_POSITIVE)
+}
+
 /// A zone's VAV terminal minimum flow fraction this hour: its schedule's value
 /// when it has one (E+ Scheduled minimum), else its constant fraction, else the
 /// loop's `min_vav_fraction`.
@@ -520,6 +555,9 @@ pub struct SignalCtx<'a> {
     pub zone_max_rh: &'a HashMap<String, f64>,
     /// Zone minimum relative humidity setpoints [%].
     pub zone_min_rh: &'a HashMap<String, f64>,
+    /// Each zone's moisture load line from the latest moisture solve, for the
+    /// humidifier setpoint.
+    pub zone_moisture_lines: &'a HashMap<String, openbse_envelope::zone::MoistureLoadLine>,
     /// Return-air temperature leaving each zone [°C], where it differs from
     /// the zone air: contained hot aisles (CRAC/CRAH), the return height of a
     /// stratified zone (#91), and lighting return-air heat (#51). Zones not
@@ -650,7 +688,6 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     let w_outdoor = ctx.w_outdoor;
     let zone_humidity_ratios = ctx.zone_humidity_ratios;
     let zone_max_rh = ctx.zone_max_rh;
-    let zone_min_rh = ctx.zone_min_rh;
 
     let mut signals = ControlSignals::default();
 
@@ -1022,19 +1059,10 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
                 }
             }
         }
-        // Humidification control: if zone RH < min_rh, activate humidifier
-        // by setting its w_setpoint to the target humidity ratio.
+        // Humidifier: the supply humidity its zone needs (E+ setpoint manager).
         if role == CoilRole::Humidifier {
-            if let Some(&min_rh) = zone_min_rh.get(control_zone) {
-                if zone_rh_pct < min_rh {
-                    let w_target = openbse_psychrometrics::w_fn_tdb_rh_pb(
-                        control_temp,
-                        min_rh / 100.0,
-                        ctx.p_b,
-                    );
-                    signals.coil_setpoints.insert(name.clone(), w_target);
-                }
-            }
+            let sp = humidifier_supply_setpoint(li, ctx, |_| flow);
+            signals.coil_setpoints.insert(name.clone(), sp);
         }
         signals.air_mass_flows.insert(name.clone(), flow);
     }
@@ -1451,7 +1479,6 @@ pub fn build_fcu_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     let predictor_modes = ctx.predictor_modes;
     let zone_humidity_ratios = ctx.zone_humidity_ratios;
     let zone_max_rh = ctx.zone_max_rh;
-    let zone_min_rh = ctx.zone_min_rh;
 
     let mut signals = ControlSignals::default();
 
@@ -1580,15 +1607,10 @@ pub fn build_fcu_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         if dehumidify_only_fcu && (role == CoilRole::Cooling) {
             signals.coil_setpoints.insert(name.clone(), zone_temp - 0.5);
         }
-        // Humidification control
+        // Humidifier: the supply humidity its zone needs (E+ setpoint manager).
         if role == CoilRole::Humidifier {
-            if let Some(&min_rh) = zone_min_rh.get(zone_name) {
-                if zone_rh_pct_fcu < min_rh {
-                    let w_target =
-                        openbse_psychrometrics::w_fn_tdb_rh_pb(zone_temp, min_rh / 100.0, ctx.p_b);
-                    signals.coil_setpoints.insert(name.clone(), w_target);
-                }
-            }
+            let sp = humidifier_supply_setpoint(li, ctx, |_| flow);
+            signals.coil_setpoints.insert(name.clone(), sp);
         }
         signals.air_mass_flows.insert(name.clone(), flow);
     }
@@ -1638,7 +1660,6 @@ pub fn build_vav_signals(
     let w_outdoor = ctx.w_outdoor;
     let zone_humidity_ratios = ctx.zone_humidity_ratios;
     let zone_max_rh = ctx.zone_max_rh;
-    let zone_min_rh = ctx.zone_min_rh;
     let mut signals = ControlSignals::default();
 
     // ── SetpointManager:Warmest SAT calculation ──
@@ -2009,29 +2030,12 @@ pub fn build_vav_signals(
                 .coil_setpoints
                 .insert(name.clone(), coil_target(name));
         }
-        // Humidification control: if any served zone is below min_rh, activate humidifier
+        // Humidifier: the supply humidity the served zones need (E+
+        // SetpointManager:MultiZone:Humidity:Minimum).
         if role == CoilRole::Humidifier {
-            for zone_name in &li.served_zones {
-                if let Some(&min_rh) = zone_min_rh.get(zone_name) {
-                    let zone_temp_h = zone_temps.get(zone_name).copied().unwrap_or(21.0);
-                    let zone_w_h = zone_humidity_ratios
-                        .get(zone_name)
-                        .copied()
-                        .unwrap_or(0.008);
-                    let zone_rh_h =
-                        openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp_h, zone_w_h, ctx.p_b)
-                            * 100.0;
-                    if zone_rh_h < min_rh {
-                        let w_target = openbse_psychrometrics::w_fn_tdb_rh_pb(
-                            zone_temp_h,
-                            min_rh / 100.0,
-                            ctx.p_b,
-                        );
-                        signals.coil_setpoints.insert(name.clone(), w_target);
-                        break; // Set based on first zone needing humidification
-                    }
-                }
-            }
+            let flows = &signals.zone_air_flows;
+            let sp = humidifier_supply_setpoint(li, ctx, |z| flows.get(z).copied().unwrap_or(0.0));
+            signals.coil_setpoints.insert(name.clone(), sp);
         }
         signals.air_mass_flows.insert(name.clone(), total_flow);
     }
@@ -2080,12 +2084,10 @@ fn dual_duct_zone_load(ctx: &SignalCtx, zone: &str) -> (f64, f64) {
 }
 
 pub fn build_dual_duct_signals(li: &mut LoopInfo, ctx: &SignalCtx) -> ControlSignals {
-    let zone_temps = ctx.zone_temps;
     let zone_design_flows = ctx.zone_design_flows;
     let t_outdoor = ctx.t_outdoor;
     let effective_min_oa = ctx.effective_min_oa;
     let zone_humidity_ratios = ctx.zone_humidity_ratios;
-    let zone_min_rh = ctx.zone_min_rh;
 
     let mut signals = ControlSignals::default();
     let hot_deck_temp = li.heating_supply_temp;
@@ -2158,31 +2160,14 @@ pub fn build_dual_duct_signals(li: &mut LoopInfo, ctx: &SignalCtx) -> ControlSig
     signals.mixed_air_temp = Some(mixed_air_temp);
     signals.oa_fraction = Some(effective_min_oa);
 
-    // Check RH min override for humidifier
+    // Humidifier: the supply humidity the served zones need (E+
+    // SetpointManager:MultiZone:Humidity:Minimum).
     for name in &li.component_names {
-        let role = li.coil_role(name);
-        if role == CoilRole::Humidifier {
-            for zone_name in &li.served_zones {
-                if let Some(&min_rh) = zone_min_rh.get(zone_name) {
-                    let zone_temp_h = zone_temps.get(zone_name).copied().unwrap_or(21.0);
-                    let zone_w_h = zone_humidity_ratios
-                        .get(zone_name)
-                        .copied()
-                        .unwrap_or(0.008);
-                    let zone_rh_h =
-                        openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp_h, zone_w_h, ctx.p_b)
-                            * 100.0;
-                    if zone_rh_h < min_rh {
-                        let w_target = openbse_psychrometrics::w_fn_tdb_rh_pb(
-                            zone_temp_h,
-                            min_rh / 100.0,
-                            ctx.p_b,
-                        );
-                        signals.coil_setpoints.insert(name.clone(), w_target);
-                        break;
-                    }
-                }
-            }
+        if li.coil_role(name) == CoilRole::Humidifier {
+            let sp = humidifier_supply_setpoint(li, ctx, |z| {
+                zone_design_flows.get(z).copied().unwrap_or(0.0)
+            });
+            signals.coil_setpoints.insert(name.clone(), sp);
         }
     }
 
@@ -2226,6 +2211,58 @@ mod tests {
         li.min_oa_fraction = 0.2;
         li.zone_exhaust.clear();
         assert_eq!(zone_exhaust_mass_flow(&li, Some(&mgr), 3, 2), 0.0);
+    }
+
+    #[test]
+    fn humidifier_setpoint_follows_the_zones_moisture_demand() {
+        use openbse_envelope::zone::MoistureLoadLine;
+        let mut li = make_loop(AirLoopSystemType::Vav, vec![]);
+        li.served_zones = vec!["OR".to_string(), "Corridor".to_string()];
+        li.humidifier_setpoint_limits = (0.005, 0.012);
+        let temps: HashMap<String, f64> =
+            [("OR".to_string(), 21.0), ("Corridor".to_string(), 21.0)].into();
+        let min_rh: HashMap<String, f64> = [("OR".to_string(), 30.0)].into();
+        let p_b = 82_000.0;
+        let w_sp = openbse_psychrometrics::w_fn_tdb_rh_pb(21.0, 0.30, p_b);
+        // The OR needs 0.004 kg/s of moisture to reach 30 % RH this step.
+        let line = MoistureLoadLine {
+            slope: 2.0,
+            driving: 2.0 * w_sp - 0.004,
+        };
+        let mut lines: HashMap<String, MoistureLoadLine> = [("OR".to_string(), line)].into();
+        let empty = HashMap::new();
+        let modes = HashMap::new();
+        let ctx = |lines: &HashMap<String, MoistureLoadLine>| -> f64 {
+            let c = SignalCtx {
+                zone_temps: &temps,
+                zone_start_temps: &temps,
+                zone_heat_sp: &empty,
+                zone_cool_sp: &empty,
+                zone_design_flows: &empty,
+                zone_cooling_loads: &empty,
+                zone_heating_loads: &empty,
+                zone_humidity_ratios: &empty,
+                zone_max_rh: &empty,
+                zone_min_rh: &min_rh,
+                zone_moisture_lines: lines,
+                zone_return_temps: &empty,
+                predictor_modes: &modes,
+                t_outdoor: 0.0,
+                raw_t_outdoor: 0.0,
+                w_outdoor: 0.002,
+                p_b,
+                effective_min_oa: 0.0,
+                schedule_mgr: None,
+                hour: 1,
+                day_of_week: 1,
+            };
+            humidifier_supply_setpoint(&li, &c, |_| 2.0)
+        };
+        // 2 kg/s of supply: W_sp + 0.004 / 2.
+        assert!((ctx(&lines) - (w_sp + 0.002)).abs() < 1e-12);
+        // A zone already wet enough: the loop's minimum setpoint.
+        lines.get_mut("OR").unwrap().driving = 2.0 * w_sp + 0.001;
+        assert_eq!(ctx(&lines), 0.005);
     }
 
     #[test]
@@ -2274,6 +2311,7 @@ mod tests {
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
             terminal_min_flow_schedule: HashMap::new(),
+            humidifier_setpoint_limits: (0.005, 0.012),
             terminal_heating: HashMap::new(),
             min_oa_flow_mass: None,
             zone_exhaust: Vec::new(),
@@ -2315,6 +2353,7 @@ mod tests {
         heat_loads: HashMap<String, f64>,
         modes: HashMap<String, HvacMode>,
         empty: HashMap<String, f64>,
+        moisture_lines: HashMap<String, openbse_envelope::zone::MoistureLoadLine>,
         returns: HashMap<String, f64>,
     }
 
@@ -2331,6 +2370,7 @@ mod tests {
                 zone_humidity_ratios: &self.empty,
                 zone_max_rh: &self.empty,
                 zone_min_rh: &self.empty,
+                zone_moisture_lines: &self.moisture_lines,
                 zone_return_temps: &self.returns,
                 predictor_modes: &self.modes,
                 t_outdoor,
@@ -2422,6 +2462,7 @@ mod tests {
                 .into_iter()
                 .collect(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         };
         let oa_at = |density: f64| {
@@ -2575,6 +2616,7 @@ mod tests {
             heat_loads: one("Zone1", heat),
             modes: [("Zone1".to_string(), mode)].into_iter().collect(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         }
     }
@@ -2681,6 +2723,7 @@ mod tests {
                 .into_iter()
                 .collect(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         };
         let signals = build_psz_signals(&li, &f.ctx(-5.0));
@@ -2717,6 +2760,7 @@ mod tests {
                 .into_iter()
                 .collect(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         };
         let signals = build_psz_signals(&li, &f.ctx(-5.0));
@@ -2746,6 +2790,7 @@ mod tests {
                 .into_iter()
                 .collect(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         };
         (li, f)
@@ -2847,6 +2892,7 @@ mod tests {
             heat_loads: HashMap::new(),
             modes: HashMap::new(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         };
         let signals = build_doas_signals(&li, &f.ctx(30.0));
@@ -2875,6 +2921,7 @@ mod tests {
             heat_loads: HashMap::new(),
             modes: HashMap::new(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         };
         let signals = build_doas_signals(&li, &f.ctx(30.0));
@@ -2934,6 +2981,7 @@ mod tests {
                 .map(|z| (z.to_string(), HvacMode::Deadband))
                 .collect(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         };
         // Outdoor air between the zone air (24 °C) and the mixed return.
@@ -2978,6 +3026,7 @@ mod tests {
                 .into_iter()
                 .collect(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         };
         let s = build_vav_signals(&li, &f.ctx(5.0), false);
@@ -3028,6 +3077,7 @@ mod tests {
                 heat_loads: HashMap::new(),
                 modes: [("Zone1".to_string(), mode)].into_iter().collect(),
                 empty: HashMap::new(),
+                moisture_lines: HashMap::new(),
                 returns: HashMap::new(),
             };
             let signals = build_vav_signals(&li, &f.ctx(30.0), true);
