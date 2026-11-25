@@ -112,4 +112,3 @@ HVAC energy tagged `datacenter`, MLC is not evaluated and the run warns. The hou
 - [#399](https://github.com/bbrannon4/OpenBSE/issues/399): no IT temperature or fan
   model; distribution losses heat no zone; unverified 90.4 limits; annual and hourly
   PUE differ.
-- [#62](https://github.com/bbrannon4/OpenBSE/issues/62): earlier CRAC and CRAH review.

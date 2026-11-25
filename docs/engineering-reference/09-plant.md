@@ -197,7 +197,7 @@ load; OpenBSE runs the pumps that are on at an equal share, as parallel pumps on
 one speed signal do. The two agree for a linear curve. OpenBSE has no minimum
 flow and no continuous pump control: a pump runs only while its loop has a load,
 as an EnergyPlus `Intermittent` pump does. Pump sizing is in
-@sec-plant-sizing ([#230](https://github.com/bbrannon4/OpenBSE/issues/230)).
+@sec-plant-sizing.
 
 ## Boilers {#sec-boilers}
 
@@ -460,7 +460,6 @@ temperature and a 20 °C ambient
 
 - [#251](https://github.com/bbrannon4/OpenBSE/issues/251): no loop thermal
   capacity, condenser temperature not from the tower.
-- [#230](https://github.com/bbrannon4/OpenBSE/issues/230): pump sizing basis.
 - [#252](https://github.com/bbrannon4/OpenBSE/issues/252): tower has no
   effectiveness model (size doesn't limit rejection) or water use.
 - [#253](https://github.com/bbrannon4/OpenBSE/issues/253): storage is a

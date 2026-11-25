@@ -219,7 +219,8 @@ out of reach is a warning here where E+ stops sizing.
 - Hot-water and chilled-water coils have no fouling, no `DetailedGeometry`
   model and no humidity-ratio control; a coil's water ΔT at design is its
   loop's, with no per-coil `Design Water Temperature Difference`.
-- Ducts have no inward (return-side) leakage; filed for later.
+- [#319](https://github.com/bbrannon4/OpenBSE/issues/319): ducts have no
+  inward (return-side) leakage.
 
 ## DX cooling coils {#sec-dx-cooling}
 
@@ -333,7 +334,7 @@ heat pumps in both modes.
 **Comparison with EnergyPlus.** @eq-dx-cap–@eq-dx-plr follow
 `Coil:Cooling:DX:SingleSpeed` (`DXCoils.cc`, `CalcCBF`, `CalcDoe2DXCoil`)
 [@eplus-engref-25-2, "Single-Speed Electric DX Air Cooling Coil"]. The
-differences are ([#237](https://github.com/bbrannon4/OpenBSE/issues/237)):
+differences are:
 
 - **Power.** @eq-dx-rtf is E+'s $P = \dot Q\,\text{EIR}\,\text{RTF}$
   (`CalcDoe2DXCoil`), with the PLR the unitary system gives the coil written
@@ -440,7 +441,7 @@ E+'s do.
 @eq-hp-defrost, matches EnergyPlus's timed defrost (`CalcDXHeatingCoil`)
 with a defrost EIR modifier of 1 [@eplus-engref-25-2, "Single-Speed
 Electric Heat Pump DX Air Heating Coil"]. The differences are
-([#237](https://github.com/bbrannon4/OpenBSE/issues/237)):
+([#357](https://github.com/bbrannon4/OpenBSE/issues/357)):
 
 - **Part load.** The PLF is the loop's linear $C_d$; the coil has no PLF
   curve input.
@@ -501,8 +502,6 @@ or over-deliver
   mode E+ lacks (documented above).
 - [#72](https://github.com/bbrannon4/OpenBSE/issues/72): Standard 205 DX
   coil never cycles below its minimum sequence; staging snaps.
-- [#57](https://github.com/bbrannon4/OpenBSE/issues/57): the same curve
-  conventions in VRF (@sec-zone-equipment).
 
 ## Chilled-water cooling coils {#sec-chw-coil}
 
@@ -735,4 +734,4 @@ the secondary flow ratio.
 
 - [#345](https://github.com/bbrannon4/OpenBSE/issues/345): heat-recovery
   effectiveness fixed with flow and no frost control; evaporative cooler has no
-  setpoint; humidifier capacity always derived from its power.
+  setpoint.
