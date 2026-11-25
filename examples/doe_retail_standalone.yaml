@@ -9,7 +9,7 @@
 # prototype_tests/retail_standalone/retail_from_idf.py; E+ names, vertices
 # (zone origins added) and values are kept. No zone multipliers.
 # prototype_tests/retail_standalone/INPUT_AUDIT.md lists every IDF object, how
-# it is represented here, and what OpenBSE cannot express yet.
+# it is represented here, and what OpenBSE cannot express.
 #
 # Building: one storey, 2,294 m², 6.096 m floor to roof; five zones (Back_Space,
 # Core_Retail, Point_Of_Sale, Front_Retail, Front_Entry). Four packaged

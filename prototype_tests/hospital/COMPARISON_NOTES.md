@@ -45,22 +45,22 @@ With daylight saving, the final model, E+ 22.1 base run:
   192 kW (−7 %), most zones −3 %, top-floor zones −6 to −9 %, the kitchen −30 %
   (its 3.4 m³/s exhaust; E+ sizes heating with it). Open: the heating design
   load of roof zones.
-- **Zone design flows** match E+'s `User Design Air Flow` once the
-  `DesignDayWithLimit` air-change minimums are expressed (#484).
+- **Zone design flows** match E+'s `User Design Air Flow`, with the
+  `DesignDayWithLimit` air-change minimums given as each zone's minimum
+  cooling flow.
 
 ## System
 
 - **Reheat** — the whole hot-water coil load, because the central heating
-  coils are sized to zero — is 1,206 MWh against E+'s 1,200 (+0.5 %). Before
-  the engine fixes it was 60 MWh of gas in all; the causes, in order of size:
-  air-change minimums not expressible (#484), operating-room setback schedule
-  (#485), constant-volume reheat zones reheated to the cooling setpoint on a
-  fixed cold deck (#493: ICU_Flr_2 held at 23.95 °C where E+ holds 21.00 °C),
-  terminal reheat sized from 12.8 °C instead of E+'s −15 °C central heating
-  design temperature (#494, the labs on 100 % outdoor air at −20 °C).
+  coils are sized to zero — is 1,206 MWh against E+'s 1,200 (+0.5 %). Four
+  inputs carry most of it: the air-change minimums, the operating-room setback
+  schedule, constant-volume reheat zones on a fixed cold deck reheated only to
+  their heating setpoint (as E+ `SimVAV`), and terminal reheat sized
+  for E+'s −15 °C central heating design temperature (the labs run on 100 %
+  outdoor air at −20 °C).
 - **Hot-water loop load** = boiler + heat-recovery chiller: OpenBSE 487 + 719 =
   1,206 MWh; E+ 561 + 631 = 1,192 MWh (+1.2 %). The gas gap is the split, not
-  the load: OpenBSE's heating-led chiller (#486) puts all its condenser heat
+  the load: OpenBSE's heating-led chiller puts all its condenser heat
   into the hot-water loop, while E+'s EMS approximation (setpoint lowered by
   8.33 K × the rated-COP estimate of the demand) runs the chiller harder
   (617 vs 546 MWh of cooling) yet sends 183 MWh of its condenser heat to the
@@ -76,10 +76,10 @@ With daylight saving, the final model, E+ 22.1 base run:
   218 MWh (COP 8.2 vs 7.4): OpenBSE's water-cooled chillers read the condenser
   temperature from the wet-bulb plus an approach rather than the tower loop's
   leaving water, which E+ holds at 21.1 °C (#251).
-- **Humidification.** Zone humidity ratios in the five humidistat zones now
-  match E+ (0.0057 vs 0.0055–0.0057 kg/kg medians) with #487 (rated capacity)
-  and the supply setpoint of E+'s `SetpointManager:MultiZone:Humidity:Minimum`
-  (#503). Per system: ER 49.6 vs 47.4, OR 90.1 vs 69.3,
+- **Humidification.** Zone humidity ratios in the five humidistat zones match
+  E+ (0.0057 vs 0.0055–0.0057 kg/kg medians), with the humidifiers' rated
+  capacity and the supply setpoint of E+'s
+  `SetpointManager:MultiZone:Humidity:Minimum`. Per system: ER 49.6 vs 47.4, OR 90.1 vs 69.3,
   ICU 94.6 vs 90.7, patient rooms 82.0 vs 100.4, labs 92.0 vs 71.1 MWh. The
   labs: E+ holds their supply near its 0.005 floor (mean 0.00509 kg/kg while
   humidifying) where OpenBSE holds 0.00558; open.

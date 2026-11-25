@@ -4,7 +4,7 @@
 # The west window is left bare for comparison. The shade drops when more than
 # 200 W/m² of beam falls on the glass and lifts again below 150 W/m².
 #
-# With the shade down it is modelled as its own layer (#144): it absorbs
+# With the shade down it is modelled as its own layer: it absorbs
 # part of the sun and gets warm, the room and the comfort grid see its
 # temperature instead of the glass, and only its openness lets beam through.
 # Compare a sunny winter afternoon in the Workbench's Comfort tab: the south

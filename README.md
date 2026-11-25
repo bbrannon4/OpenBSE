@@ -52,7 +52,7 @@ cargo build --release
 cargo test --workspace
 ```
 
-About 900 unit and integration tests across the 11 crates.
+About 1,000 unit and integration tests across the 11 crates.
 
 ### Run a Simulation
 
@@ -98,7 +98,7 @@ Each model is documented, with its equations, its EnergyPlus comparison and its 
 
 ### Site and weather
 - **Weather files** — EPW and TMY3 CSV, linearly interpolated within the hour; malformed or short files stop the run with an error that names the record
-- **Design days** — ASHRAE daily temperature profile with clear-sky or tau solar, and optional generated monthly cooling design days
+- **Design days** — ASHRAE daily temperature profile with clear-sky solar, any of five humidity types, and optional generated monthly cooling design days
 - **Solar position** — Spencer (1971) with the equation of time; Perez (1990) anisotropic sky diffuse (isotropic, circumsolar and horizon brightening), matching E+ `AnisoSkyViewFactors`
 - **Sky temperature** — from the weather file's horizontal infrared, as in EnergyPlus; Clark & Allen sky emissivity with an opaque-cloud correction when the file has none (design days, TMY3)
 - **Ground temperatures** — monthly table or the Kusuda-Achenbach model from weather data
@@ -108,7 +108,7 @@ Each model is documented, with its equations, its EnergyPlus comparison and its 
 - **Materials and constructions** — multi-layer opaque constructions, massless layers, simple U-factor constructions, F-factor ground floors
 - **Vertex geometry** — 3D polygon surfaces with automatic area, azimuth, tilt and zone volume; interzone surfaces; internal mass; zone multipliers
 - **Conduction** — Seem (1987) state-space conduction transfer functions as in EnergyPlus, including its longer CTF time step for massive layers, on a finer node network with nodes on the surfaces (a 20 cm concrete wall's daily flux error is under 1%, against 7–9% with EnergyPlus's network), with a lumped RC element for single-node constructions
-- **Convection** — TARP natural convection inside; DOE-2 (MoWiTT) with roughness correction outside
+- **Convection** — TARP natural convection inside, ISO 15099 on window inside faces; DOE-2 (MoWiTT) or TARP with roughness correction outside
 - **Interior long-wave exchange** — grey-body ScriptF exchange between a zone's surfaces from their view factors
 - **Windows** — simple glazing (U-factor, SHGC) as E+'s equivalent glass layer, or layer-by-layer glazing of up to four glass layers with air, argon, krypton, xenon or mixed gas gaps; E+ layer optics with angular dependence, the two faces of every glass layer solved from their heat balances with the ISO 15099 gap correlations, and interior shades and blinds triggered by irradiance or zone temperature with hysteresis
 - **Interior solar distribution** — FullExterior or FullInteriorAndExterior (beam projected onto the inside surfaces it reaches), with diffuse and reflected solar redistributed by area and absorptance
@@ -124,7 +124,7 @@ Each model is documented, with its equations, its EnergyPlus comparison and its 
 - **Heating coils** — electric, gas, hot water (UA sized on the loop's water) and air-source heat pump with defrost and supplemental heat
 - **Cooling coils** — single-speed and multi-speed DX with E+ curves, bypass-factor wet-coil model and part-load cycling penalty; chilled water; ASHRAE Standard 205 DX data
 - **Ground-source heat pump** — water-to-air heat pump on the ground temperature, with EIR curves and cycling penalty
-- **Heat recovery** — enthalpy wheel (sensible and latent) and sensible plate exchanger, with exhaust-flow ratio and economizer bypass
+- **Heat recovery** — enthalpy wheel (sensible and latent), sensible plate exchanger and runaround coil loop, with exhaust-flow ratio, supply-temperature control and economizer bypass
 - **Humidifier** — steam, including its sensible heat, standby power and water use
 - **Evaporative coolers** — direct, indirect and two-stage, with pump and fan power and water use
 - **Ducts** — conduction and leakage to an ambient zone, outdoors or ground
@@ -138,7 +138,7 @@ Each model is documented, with its equations, its EnergyPlus comparison and its 
 - **CRAC and CRAH** — data-center units with contained hot-aisle return (IT heat counted once), variable-speed airflow and dehumidification
 - **Ideal loads** — zone equipment, alone or beside other systems in other zones
 
-A water-source heat pump (`wshp`) is rejected as a severe input error: it isn't yet connected to a water loop ([#361](https://github.com/bbrannon4/OpenBSE/issues/361)).
+A water-source heat pump (`wshp`) is rejected as a severe input error: it isn't connected to a water loop ([#361](https://github.com/bbrannon4/OpenBSE/issues/361)).
 
 ### Plant
 - **Plant loops** — ordered by their dependencies (inter-loop heat exchangers, condensers), so primary/secondary/tertiary arrangements and condenser loops solve in one timestep; sequential or equal-split equipment staging
@@ -151,7 +151,8 @@ A water-source heat pump (`wshp`) is rejected as a severe input error: it isn't 
 - **Service water heating** — gas and electric storage tanks with burner cycling and losses to their zone; heat-pump water heaters with E+ curves, evaporator cooling and drying of their zone, and a backup element
 
 ### Controls
-- **Thermostats and schedules** — hourly setpoint schedules, day types including holidays, seasons, and `"value until HH:MM"` schedules
+- **Thermostats and schedules** — hourly setpoint schedules, day types including holidays, seasons, `"value until HH:MM"` schedules, and daylight saving time
+- **Availability** — availability schedules, night-cycle control (E+ `AvailabilityManager:NightCycle`) and high-temperature turn-off
 - **PSZ-AC** — single-zone packaged unit: E+ `UnitarySystem` load control (`cycling: modulating`, the default: part-load cycling, or a modulating heating supply temperature on a continuous fan), cycling in every case (`cycling: on_off`), or proportional heating with a steady offset (`cycling: proportional`); cycling, continuous or no-load-off fans; single-zone supply-temperature reset (E+ PSZ-VAV); a multi-zone PSZ controls from its first zone and splits its air by design flow
 - **VAV** — warmest-zone supply-temperature reset (E+ `SetpointManager:Warmest`), dual-maximum boxes, ASHRAE 62.1 ventilation rate procedure, preheat
 - **DOAS** — 100% outdoor air, always on, its flow from the served zones' `outdoor_air` and its supply temperatures from the loop's controls
@@ -181,7 +182,7 @@ Test cases are in [`140_tests/`](140_tests/). The building-envelope and HVAC-equ
 | Section | Cases | Gate checks passing |
 |---|---|---|
 | 7 — Building thermal envelope and fabric loads (600 and 900 series) | 27 | 63 / 63 |
-| 9A — Cooling equipment, analytical verification (CE100–CE200) | 14 | 111 / 112 |
+| 9A — Cooling equipment, analytical verification (CE100–CE200) | 14 | 112 / 112 |
 | 9B — Cooling equipment, dynamic comparative (CE300–CE545) | 20 | 231 / 231 |
 | 10 — Heating equipment, fuel-fired furnace (HE100–HE230) | 11 | 48 / 48 |
 | 11 — Air-side HVAC equipment (AE101–AE445) | 24 | 96 / 96 |
@@ -200,19 +201,23 @@ DOE prototype building models are compared with EnergyPlus, end use by end use, 
 
 | End use | EnergyPlus [kWh] | OpenBSE [kWh] | Difference |
 |---|---:|---:|---:|
-| Heating (gas) | 472,503 | 455,045 | −3.7% |
-| Cooling | 589,511 | 589,598 | 0.0% |
-| Fans | 1,042,617 | 1,038,013 | −0.4% |
-| Pumps | 135,044 | 99,962 | −26.0% |
+| Heating (gas) | 472,503 | 454,881 | −3.7% |
+| Cooling | 589,511 | 531,018 | −9.9% |
+| Fans | 1,042,617 | 1,041,864 | −0.1% |
+| Pumps | 135,044 | 74,008 | −45.2% |
 | Interior lighting | 1,558,539 | 1,558,539 | 0.0% |
 | Exterior lighting | 279,583 | 279,273 | −0.1% |
-| Interior equipment | 4,076,778 | 4,076,725 | 0.0% |
+| Interior equipment | 4,076,778 | 4,076,750 | 0.0% |
 | Exterior equipment | 713,075 | 713,075 | 0.0% |
-| Service hot water | 125,133 | 125,147 | 0.0% |
+| Service hot water | 125,133 | 125,142 | 0.0% |
 
-The pump gap is open. The inputs are checked object by object against the IDF in [`INPUT_AUDIT.md`](prototype_tests/large_office/INPUT_AUDIT.md), which also lists what OpenBSE can't yet express.
+The cooling and pump gaps come from EnergyPlus overcooling the basement data centre, a documented deviation ([#497](https://github.com/bbrannon4/OpenBSE/issues/497)); per running hour the pumps match. The inputs are checked object by object against the IDF in [`INPUT_AUDIT.md`](prototype_tests/large_office/INPUT_AUDIT.md), which also lists what OpenBSE can't express.
 
-**Hospital, Apartment and Single Family:** comparisons are in progress. Hospital heating is well below EnergyPlus.
+**Retail Standalone** ([`doe_retail_standalone.yaml`](examples/doe_retail_standalone.yaml)): every end use within 2% of EnergyPlus 25.2 (heating gas −2.0%, cooling −1.4%, fans +1.5%, interior lighting with daylighting +0.1%); see [`COMPARISON_NOTES.md`](prototype_tests/retail_standalone/COMPARISON_NOTES.md).
+
+**Hospital** ([`Hospital_STD2022_Denver.yaml`](prototype_tests/hospital/Hospital_STD2022_Denver.yaml)): total energy −2.9% against EnergyPlus. The hot-water loop load matches within 2%, but gas heating is 15% low because the heat-recovery chiller covers more of it ([#511](https://github.com/bbrannon4/OpenBSE/issues/511)), and refrigeration isn't modelled ([#509](https://github.com/bbrannon4/OpenBSE/issues/509)); see [`COMPARISON_NOTES.md`](prototype_tests/hospital/COMPARISON_NOTES.md).
+
+**Apartment and Single Family:** comparisons are in progress.
 
 Open gaps are tracked as [issues](https://github.com/bbrannon4/OpenBSE/issues).
 
@@ -222,7 +227,7 @@ Planned features, known bugs, and validation tasks are tracked as [GitHub Issues
 
 - **Envelope**: geometry import, moisture transport (HAMT), window frames and dividers, C-factor walls, ground heat transfer models
 - **HVAC**: water-source heat pumps on a water loop, cooling tower heat-transfer model, absorption chillers, district energy, unit ventilators, chilled beams
-- **Controls**: night cycle and unoccupied setbacks, humidity control, EMS-style programmable logic
+- **Controls**: unoccupied setpoints, humidity control, EMS-style programmable logic
 - **Validation**: close the remaining prototype end-use gaps against EnergyPlus; the bugs the built-in energy checks have found
 - **Infrastructure**: expanded output variables, parametric engine, results viewer, Python bindings
 

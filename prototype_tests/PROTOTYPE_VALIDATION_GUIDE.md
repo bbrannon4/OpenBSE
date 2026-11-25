@@ -25,7 +25,9 @@ Before writing any YAML, create a clean E+ reference run.
    Document every change. Typical simplifications:
    - Remove `AirflowNetwork` objects; replace with
      `ZoneInfiltration:DesignFlowRate` using the same design flow rates.
-   - Remove `Daylighting:Controls` (OpenBSE has no daylighting model).
+     (OpenBSE generates its airflow network from the geometry rather than
+     reading AFN objects, so the two networks can't be matched input by
+     input.)
    - Remove any objects that reference external preprocessors
      (Basement, Slab, Kiva) if OpenBSE cannot replicate them — but note
      the ground temperatures they produce and use
@@ -99,10 +101,11 @@ a reversed construction in the YAML for each interzone pair.
 | IDF Class | YAML Location | Check |
 |-----------|---------------|-------|
 | `Material` | `materials:` | Every field: conductivity, density, specific heat, roughness, solar absorptance, thermal absorptance. Full precision. |
-| `Material:NoMass` | `simple_constructions:` | Convert R-value to U-factor. Estimate thermal capacity. |
-| `Material:AirGap` | Include in `simple_constructions:` | Use R-value from IDF. |
+| `Material:NoMass` | `materials:` with `thermal_resistance` | R-value from the IDF; the layer is massless, as in E+. |
+| `Material:AirGap` | `materials:` with `thermal_resistance` | R-value from the IDF. |
 | `Construction` | `constructions:` | Layer order (outside to inside), material names, thicknesses. Must match IDF exactly. |
 | `WindowMaterial:SimpleGlazingSystem` | `window_constructions:` | U-factor, SHGC, visible transmittance. |
+| `WindowMaterial:Glazing`, `WindowMaterial:Gas`, `WindowMaterial:GasMixture` | `window_constructions[].layers` | Every layer's optical and thermal properties and each gap's width and gas. |
 
 ### 2.5 Internal Gains
 
@@ -111,7 +114,7 @@ a reversed construction in the YAML for each interzone pair.
 | `People` | `people:` | Zone, count, activity level (W/person), radiant fraction, schedule name |
 | `Lights` | `lights:` | Zone, power (W), radiant fraction (E+ radiant + visible), schedule name |
 | `ElectricEquipment` | `equipment:` | Zone, power (W), radiant, latent and lost fractions, schedule name |
-| `GasEquipment` | `equipment:` | Same as electric but use full gas input power (no gas equipment type yet, #223). |
+| `GasEquipment` | `equipment:` with `fuel: natural_gas` | Same fields as electric. `HotWaterEquipment`, `SteamEquipment` and `OtherEquipment` take their own `fuel`. |
 
 **Fractions:** equipment `radiant_fraction`, `latent_fraction` and
 `lost_fraction` are fractions of the total power, as in E+: copy Fraction
@@ -154,7 +157,7 @@ Radiant + Fraction Visible.
 |-----------|---------------|-------|
 | `ZoneControl:Thermostat` | `thermostats:` | Zone assignment |
 | `ThermostatSetpoint:DualSetpoint` | `thermostats[].heating/cooling_setpoint` | °C values with full precision |
-| Setpoint schedules | Check if constant or scheduled | If scheduled, use occupied/unoccupied setpoints |
+| Setpoint schedules | `thermostats[].heating_setpoint_schedule` / `cooling_setpoint_schedule` | Hourly temperatures by day type, as the IDF's schedules. Design-day setpoints go in `design_day_heating_setpoints` / `design_day_cooling_setpoints`. |
 
 ### 2.10 DHW
 
@@ -171,22 +174,29 @@ Radiant + Fraction Visible.
 | `Fan:ZoneExhaust` | `exhaust_fans:` | Zone, flow rate (m³/s) |
 | `DesignSpecification:OutdoorAir` | `air_loops[].controls.minimum_damper_position` or dedicated OA flow | OA flow rate per person or per area |
 
-### 2.12 Features Not Yet in OpenBSE
+### 2.12 Features OpenBSE Lacks
 
 If the IDF contains any of these, **stop and report to the user** before
-proceeding. Do not silently skip them:
+proceeding. Do not silently skip them. Each is an open issue; the Engineering
+Reference's Known Limitations list the rest.
 
-- `AirflowNetwork:*` (pressure-driven infiltration)
-- `Daylighting:Controls`
-- `ZoneHVAC:*` that is not FCU (e.g., PTAC, PTHP, VRF, radiant)
-- `Coil:Cooling:DX:TwoSpeed` / `MultiSpeed` / `VariableSpeed`
-- `HeatPump:*`
+- `AirflowNetwork:*` objects (OpenBSE generates its own network; see Phase 1)
+- `SurfaceProperty:ExposedFoundationPerimeter` / `Foundation:Kiva` and the
+  Slab and Basement preprocessors (note the ground temps and use the monthly
+  table instead)
+- `Construction:CfactorUndergroundWall` ([#401](https://github.com/bbrannon4/OpenBSE/issues/401))
 - `ZoneHVAC:Dehumidifier:*`
-- `SurfaceProperty:ExposedFoundationPerimeter` / `Foundation:Kiva`
-  (note the ground temps and use monthly table instead)
-- `WindowShadingControl` / interior blinds
-- Multiple air loops serving the same zone
-- Plant loop equipment not yet wired (cooling towers, ground HX)
+- Water-source heat pumps on a water loop ([#361](https://github.com/bbrannon4/OpenBSE/issues/361))
+- `Refrigeration:*` ([#509](https://github.com/bbrannon4/OpenBSE/issues/509))
+- `ElectricLoadCenter:Transformer` ([#508](https://github.com/bbrannon4/OpenBSE/issues/508))
+- Absorption chillers ([#36](https://github.com/bbrannon4/OpenBSE/issues/36)),
+  district heating and cooling ([#35](https://github.com/bbrannon4/OpenBSE/issues/35)),
+  chilled beams ([#29](https://github.com/bbrannon4/OpenBSE/issues/29)), unit
+  ventilators ([#34](https://github.com/bbrannon4/OpenBSE/issues/34))
+- EMS programs ([#17](https://github.com/bbrannon4/OpenBSE/issues/17)): transcribe
+  what each program does with OpenBSE inputs where possible
+- Multiple air loops serving the same zone, beyond the combinations in the
+  Engineering Reference (zone equipment and controls chapters)
 
 ---
 
@@ -247,7 +257,7 @@ system model:
 - Check supply air temperatures (heating DAT, cooling DAT)
 - Check fan efficiency (total efficiency = motor_eff × impeller_eff)
 - Check DX coil performance curves (biquadratic coefficients, bounds)
-- Check cycling method (on/off vs proportional) and PLF curve
+- Check cycling method (modulating, on/off or proportional) and PLF curve
 - Check sizing: are autosized capacities and airflows reasonable?
 - Check economizer settings
 - Check minimum OA fraction
@@ -320,10 +330,10 @@ results.
 ## File Organization
 
 ```
+weather/                              ← Shared weather files (EPW), used by every prototype
 prototype_tests/
   PROTOTYPE_VALIDATION_GUIDE.md       ← This file
   compare_end_uses.py                 ← Comparison charts and tables
-  Boulder.epw                         ← Shared weather file
   compare_zone_loads.py               ← Zone-level load comparison tools
   compare_zone_heatbal.py
   compare_surfaces_and_loads.py
