@@ -476,15 +476,14 @@ default is a hot-water value.
 
 - [#50](https://github.com/bbrannon4/OpenBSE/issues/50): cooling design-day
   solar is a fixed clear-sky formula; `taub` and `taud` are ignored.
-- [#195](https://github.com/bbrannon4/OpenBSE/issues/195): irradiance is held
-  constant through the hour; wind direction is not interpolated; sun-position
-  timing and the sun-up test differ from EnergyPlus.
-- [#196](https://github.com/bbrannon4/OpenBSE/issues/196): Perez model
-  details (zenith cap, horizon floor); no ground-reflectance input.
-- Design days have fixed sky cover and wind direction, and no temperature or
-  humidity schedules.
-- [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no daylight saving
-  time or start-day-of-week input.
+- [#287](https://github.com/bbrannon4/OpenBSE/issues/287): no
+  ground-reflectance input; it is fixed at 0.2.
+- [#297](https://github.com/bbrannon4/OpenBSE/issues/297): design days have
+  fixed sky cover and wind direction, and no temperature or humidity
+  schedules.
+- [#289](https://github.com/bbrannon4/OpenBSE/issues/289): only the
+  Clark–Allen sky emissivity model; no input to choose another or to ignore
+  the weather file's infrared.
+- [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no
+  start-day-of-week input.
 - No glycol properties.
-- [#201](https://github.com/bbrannon4/OpenBSE/issues/201): ground-surface
-  temperatures are interpolated rather than held per month; unused
