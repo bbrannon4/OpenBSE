@@ -146,7 +146,7 @@ moves its design flow whenever its loop runs and the excess bypasses the coils
 bank runs as many pumps as the flow request needs (`HeaderedPumps:ConstantSpeed`).
 A decoupled loop matches an EnergyPlus primary/secondary plant whose primary
 loop serves an `UncontrolledOn` ideal `HeatExchanger:FluidToFluid` sized to the
-primary flow (the DOE prototypes' form): the exchanger requests the full primary
+primary flow: the exchanger requests the full primary
 flow, so every primary branch pump runs whenever the primary loop does, and its
 outlets are those of a common pipe, mixing included. OpenBSE has no water
 temperature history (loop volume)
@@ -305,9 +305,8 @@ on Condenser Entering Temperature"]. The differences are
   chilled-water setpoint.
 - EnergyPlus requires the curves.
 - OpenBSE has no air-cooled condenser fan power ratio.
-- E+ has no heating-led control of its own. The DOE 90.1 Hospital prototype
-  makes its heat-recovery chiller heating-led with an EMS program
-  (`BypassHXStatus_Prg`): it lowers the chiller's leaving setpoint by
+- E+ has no heating-led control of its own. An E+ model can make a
+  heat-recovery chiller heating-led with an EMS program that lowers the chiller's leaving setpoint by
   $8.33\,\text{K}\times\min(1, \dot Q_\text{HW}/(\dot Q_r(1 + 1/\text{COP}_r)))$
   below the chilled-water return, which asks for about
   $\dot Q_\text{HW}/(1 + 1/\text{COP}_r)$ of cooling at the rated COP.
