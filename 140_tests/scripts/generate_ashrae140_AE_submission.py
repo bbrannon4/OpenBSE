@@ -84,18 +84,19 @@ def col(row, needle):
 
 
 # ── Detailed node-state tables (S-columns) ────────────────────────────────────
-# Outdoor-air humidity ratio [kg/kg] for each constant-condition weather point,
-# and the weather point serving each case (see gen_ae_weather.py).
-OA_W = {"AE_m29": 0.000259, "AE_155": 0.002992, "AE_269": 0.016980,
-        "AE_249": 0.004579, "AE_230": 0.015743}
+# Outdoor-air humidity ratio [kg/kg] at each normative weather file's
+# conditions, as the engine computes it (dry-bulb, the file's relative
+# humidity and pressure), and the weather file serving each case.
+OA_W = {"AE101": 0.000259, "AE103": 0.002933, "AE104": 0.016771,
+        "AE105": 0.004481, "AE106": 0.015564}
 CASE_WEATHER = {
-    "AE101": "AE_m29", "AE103": "AE_155", "AE104": "AE_269",
-    "AE201": "AE_m29", "AE203": "AE_155", "AE204": "AE_269", "AE205": "AE_249",
-    "AE206": "AE_230", "AE226": "AE_230", "AE245": "AE_249",
-    "AE301": "AE_m29", "AE303": "AE_155", "AE304": "AE_269", "AE305": "AE_249",
-    "AE306": "AE_230", "AE326": "AE_230", "AE345": "AE_249",
-    "AE401": "AE_m29", "AE403": "AE_155", "AE404": "AE_269", "AE405": "AE_249",
-    "AE406": "AE_230", "AE426": "AE_230", "AE445": "AE_249",
+    "AE101": "AE101", "AE103": "AE103", "AE104": "AE104",
+    "AE201": "AE101", "AE203": "AE103", "AE204": "AE104", "AE205": "AE105",
+    "AE206": "AE106", "AE226": "AE106", "AE245": "AE105",
+    "AE301": "AE101", "AE303": "AE103", "AE304": "AE104", "AE305": "AE105",
+    "AE306": "AE106", "AE326": "AE106", "AE345": "AE105",
+    "AE401": "AE101", "AE403": "AE103", "AE404": "AE104", "AE405": "AE105",
+    "AE406": "AE106", "AE426": "AE106", "AE445": "AE105",
 }
 RF_DT = 0.295  # return-fan air temperature rise [°C] (AE200/AE300/AE400)
 

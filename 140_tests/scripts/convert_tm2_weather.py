@@ -62,6 +62,7 @@ if __name__ == "__main__":
     # usage: convert_tm2_weather.py <normative .TM2> <output .csv>
     #   CE_a (Section 9A): CE100A, CE110A, CE165A, CE200A -> 140_tests/cases/
     #   CE_b (Section 9B): CE300 -> 140_tests/cases/
+    #   AE (Section 11): AE101, AE103, AE104, AE105, AE106 -> 140_tests/weather/
     if len(sys.argv) != 3:
         sys.exit(__doc__)
     rows = convert(sys.argv[1], sys.argv[2])

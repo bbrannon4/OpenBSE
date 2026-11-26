@@ -15,11 +15,11 @@ fn constant_volume_reheat_zone_holds_its_heating_setpoint() {
     let root = workspace_root();
     let case =
         std::fs::read_to_string(root.join("140_tests/cases/ashrae140_caseAE304.yaml")).unwrap();
-    let weather = root.join("140_tests/weather/AE_269.epw");
+    let weather = root.join("140_tests/weather/AE104.csv");
     // AE304 has one setpoint per zone; give each a 3 K deadband.
     let yaml = case
         .replace(
-            "\"../weather/AE_269.epw\"",
+            "\"../weather/AE104.csv\"",
             &format!("\"{}\"", weather.display()),
         )
         .replacen(
