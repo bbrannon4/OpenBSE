@@ -20,20 +20,22 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 CASES_DIR = os.path.join(os.path.dirname(HERE), "cases")
 
-# Infiltration: 0.2 kg/s of outdoor air (Section 10.2 heat exchange by
-# infiltration, the approach for programs without user-set convection
-# coefficients). The input is a volume flow on the zone-air density basis, so
-# the mass flow is temperature-independent; each weather file gets the volume
-# that carries 0.2 kg/s at 20 C zone air, the file's mean January-March
-# pressure and the zone humidity ratio that outdoor air brings in:
-#   rho = p / (287.042 * 293.15 * (1 + 1.607858 W)),  flow = 0.2 / rho.
+# Infiltration (Section 10.2.1.9.3): about 0.2 kg/s of outdoor air, set so the
+# zone's total effective UA is 199.953 W/K (its informative note), i.e. a
+# mass flow of 199.953 / cp with cp = 1004.84 + 1858.95 W J/(kg K), the
+# engine's moist-air specific heat. This is the Standard's approach for
+# programs without user-set convection coefficients (Section 10.2.1.9). The
+# input is a volume flow on the zone-air density basis (temperature-
+# independent mass flow); each weather file gets the volume for 20 C zone
+# air at its mean January-March pressure and humidity ratio:
+#   rho = p / (287.042 * 293.15 * (1 + 1.607858 W)),  flow = m / rho.
 # HE100W-HE140W are at 101330 Pa; HE210W averages 100026 Pa over Jan-Mar.
 INFIL_FLOW = {
-    "HE100W": 0.16613,
-    "HE120W": 0.16663,
-    "HE130W": 0.16818,
-    "HE140W": 0.16691,
-    "HE210W": 0.16870,
+    "HE100W": 0.16524,
+    "HE120W": 0.16517,
+    "HE130W": 0.16494,
+    "HE140W": 0.16513,
+    "HE210W": 0.16734,
 }
 
 # case -> dict(weather, efficiency, fan, furnace_kw, setback, draft)

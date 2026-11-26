@@ -29,7 +29,7 @@ zones:
 infiltration:
   - name: HE110 Infiltration
     zones: [HE110 Zone]
-    design_flow_rate: 0.16613
+    design_flow_rate: 0.16524
     density_basis: zone
 
 surfaces:
