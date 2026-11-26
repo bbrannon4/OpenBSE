@@ -11440,6 +11440,11 @@
     "path": "/thermostats/[name=CE530 Thermostat]/cooling_setpoint",
     "value": 25.0,
     "clause": "9.2.3 / 9.2.4 cooling set point"
+   },
+   {
+    "path": "/infiltration",
+    "value": [],
+    "clause": "9.2.3.5 infiltration 0.0 ach for the entire simulation period"
    }
   ],
   "CE540": [
@@ -11452,6 +11457,11 @@
     "path": "/thermostats/[name=CE540 Thermostat]/cooling_setpoint",
     "value": 15.0,
     "clause": "9.2.3 / 9.2.4 cooling set point"
+   },
+   {
+    "path": "/infiltration",
+    "value": [],
+    "clause": "9.2.3.5 infiltration 0.0 ach for the entire simulation period"
    }
   ],
   "CE545": [
@@ -11464,6 +11474,11 @@
     "path": "/thermostats/[name=CE545 Thermostat]/cooling_setpoint",
     "value": 35.0,
     "clause": "9.2.3 / 9.2.4 cooling set point"
+   },
+   {
+    "path": "/infiltration",
+    "value": [],
+    "clause": "9.2.3.5 infiltration 0.0 ach for the entire simulation period"
    }
   ],
   "HE100": [

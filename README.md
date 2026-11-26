@@ -188,7 +188,7 @@ Test cases are in [`140_tests/`](140_tests/). The building-envelope and HVAC-equ
 | 10 — Heating equipment, fuel-fired furnace (HE100–HE230) | 11 | 48 / 48 |
 | 11 — Air-side HVAC equipment (AE101–AE445) | 24 | 96 / 96 |
 
-The gate runs in CI on every commit. Its ranges are taken from the standard's analytical solutions and example results; how each was derived is recorded in [`acceptance_ranges_140_2023.json`](140_tests/acceptance_ranges_140_2023.json). All 550 checks pass.
+The gate runs in CI on every commit. Its ranges are taken from the standard's analytical solutions and example results; how each was derived is recorded in [`acceptance_ranges_140_2023.json`](140_tests/acceptance_ranges_140_2023.json). All 529 gated checks pass. The energy, COP and humidity results of the three dry-coil cases (CE530–CE545) are reported but not gated, because they depend on each program's start state (see [`140_tests/README.md`](140_tests/README.md)).
 
 Against the standard's software acceptance criteria (Normative Annex A3), the v0.7.0 submission's results are within range on all 114 range cases: thermal fabric low mass 21 of 21, thermal fabric high mass 19 of 19, cooling equipment 14 of 14, heating equipment 6 of 6, and air-side equipment 54 of 54. See [`140_tests/README.md`](140_tests/README.md) for the breakdown.
 

@@ -11,7 +11,7 @@ Landing inside the acceptance ranges is a separate test (`README.md`). A case ca
 | General requirements (5.1.1, Annex A1) | all 96 | 1 | 1 | 0 | 1 |
 | 7 Building thermal envelope and fabric | 27 | 8 | 8 | 0 | 0 |
 | 9.2.1–9.2.2 Space cooling, analytical (CE100–CE200) | 14 | 1 | 1 | 0 | 2 |
-| 9.2.3–9.2.4 Space cooling, comparative (CE300–CE545) | 20 | 2 | 1 | 0 | 2 |
+| 9.2.3–9.2.4 Space cooling, comparative (CE300–CE545) | 20 | 2 | 2 | 0 | 1 |
 | 10 Space heating (HE100–HE230) | 11 | 4 | 4 | 0 | 2 |
 | 11 Air-side HVAC (AE101–AE445) | 24 | 2 | 2 | 0 | 2 |
 
@@ -33,7 +33,7 @@ Machine checks: `conformance_spec.json` lists 2,523 specified values across the 
 | #532 | Section 10 circulating fan 0.355 m³/s at 200 W | 10 |
 | #519 | Thermostat schedule entries ramp within their period; Cases 640/940 use the Standard's 07:00–08:00 ramp | 7 |
 | #520 | Gas coil part-load fuel curve; Section 10 cases use the Standard's HIR(PLR) | 10 |
-| #521 | Zone air starts at the first hour's outdoor air conditions (was 21 °C / 0.008 kg/kg); CE530–CE545 keep the reference input's January infiltration (see below) | 5.1.1, 9 |
+| #521 | Zone air starts at the first hour's outdoor air conditions (was 21 °C / 0.008 kg/kg); CE530–CE545 drop the reference input's January infiltration (0.0 ach all year, 9.2.3.5) | 5.1.1, 9 |
 | #523 | Outdoor humidity ratio from the dew point (was whole-percent RH) | 9, 10, 11 |
 | #53 (existing) | `simple_constructions` layer guess tuned to 140 constructions; no 140 case uses it now | — |
 
@@ -229,10 +229,10 @@ Latent gains enter the zone moisture balance with h_fg = 2501 kJ/kg; the clause 
 | CE500 | — | 0% OA, mid gains, fan cycles, 25 °C | as specified | conforming |
 | CE510 | CE500 | high PLR gains | 21,103 / 8573 W peaks | conforming |
 | CE520, CE522, CE525 | CE500 | set point 15, 20, 35 °C | as specified | conforming |
-| CE530 | CE500 | dry coil (latent 0); infiltration 0.0 ach (9.2.3.5) | latent 0; **1 m³/s infiltration Jan 1–7** | equivalent (reference input's humidity initialisation; see below) |
-| CE540, CE545 | CE530 | set point 15, 35 °C | as CE530 | equivalent (as CE530) |
+| CE530 | CE500 | dry coil (latent 0); infiltration 0.0 ach for the entire simulation (9.2.3.5) | latent 0; no infiltration | conforming (fixed, #521; was 1 m³/s Jan 1–7 from the reference EnergyPlus input) |
+| CE540, CE545 | CE530 | set point 15, 35 °C | as CE530 | conforming (fixed, #521) |
 
-CE530–CE545: the January infiltration comes from the accompanying EnergyPlus input, where it brings zone humidity to outdoor conditions. It is not in the specification. The engine now starts every zone at the first hour's outdoor air conditions (#521), but a sealed dry-coil zone keeps its start humidity all year, so without the infiltration the result is set by one hour: CE300's 1 January 01:00 humidity ratio is 0.0030 kg/kg, against 0.0071 at the end of the first week, which the example programs' annual means (0.0055–0.0076) reflect. Tested without it: annual mean humidity ratio 0.0029 in all three cases, outside the example range, and CE530 supply and condenser fan and CE545 condenser fan energy over their ceilings through the drier coil entering conditions. The specification fixes no representative start humidity for a zone that never exchanges moisture, so the input stays, matching the Standard's own reference input, rather than widening the gate ranges to an artefact of the start hour.
+CE530–CE545: no infiltration, as Section 9.2.3.5 requires. The first week is repeated as preconditioning (5.1.1.7.2), and the zone air starts at the first hour's outdoor conditions (the Class II rule of 5.2.1.6; Class I specifies no start state). With no moisture source or sink, a dry-coil zone keeps that humidity all year: 0.0029 kg/kg from CE300's 1 January 01:00. The Standard's reference EnergyPlus input instead adds first-week January infiltration, contrary to 9.2.3.5. The example programs' humidity and energy results therefore reflect other start states, and the gate reports these cases' energy, COP and humidity without gating them (`ce_b_informative`). Coil loads and zone temperatures stay gated.
 
 ## Section 10 — Space-heating equipment (HE100–HE230)
 

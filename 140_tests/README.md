@@ -5,13 +5,13 @@
 
 **Conformance:** [`CONFORMANCE.md`](CONFORMANCE.md) checks every case against each requirement of the Standard. `conformance_spec.json` holds the specified values (2,523 across the 96 cases) and `crates/openbse-io/tests/ashrae140_conformance.rs` checks them against the parsed cases.
 
-## Current Status: 550/550 gate checks pass
+## Current Status: 529/529 gated checks pass, 21 reported
 
 | Section | Cases | Checks passing |
 |---|---|---|
 | 7 — Thermal fabric (600 and 900 series) | 27 | 63/63 |
 | 9A — Cooling equipment, analytical (CE100–CE200) | 14 | 112/112 |
-| 9B — Cooling equipment, dynamic (CE300–CE545) | 20 | 231/231 |
+| 9B — Cooling equipment, dynamic (CE300–CE545) | 20 | 210/210, plus 21 reported |
 | 10 — Heating equipment (HE100–HE230) | 11 | 48/48 |
 | 11 — Air-side equipment (AE101–AE445) | 24 | 96/96 |
 
@@ -22,11 +22,11 @@ Section 7 in detail:
 - **Free-float temperatures:** 18/18 pass (all 6 cases)
 - **960 Sun Zone temperatures:** 3/3 pass
 
-All 550 checks pass; `KNOWN_FAILURES` in `scripts/build_140_csv.py` is empty.
+All 529 gated checks pass; `KNOWN_FAILURES` in `scripts/build_140_csv.py` is empty. In CE530–CE545, the dry-coil cases, the energy, COP and humidity results are reported but not gated (`ce_b_informative` in `acceptance_ranges_140_2023.json`). With no infiltration (Section 9.2.3.5) and no moisture source, the zone keeps its start humidity all year. The Standard specifies no start state for Class I, so these results depend on each program's initialisation, and the example results the ranges come from used other start states. The coil loads and zone temperatures of these cases stay gated.
 
 `scripts/build_140_csv.py` writes the complete pass/fail matrix to `scripts/FULL_140_RESULTS.csv`. CI runs every case and this gate on each commit and keeps that file as a run artifact. The copy committed at `results/FULL_140_RESULTS.csv` is the matrix at the commit that last regenerated it. Zone temperatures (free-float maxima, minima and means, and the furnace cases' zone temperatures) are hourly integrated values, as the Standard's output forms ask: the gate averages any sub-hourly rows to the hour before taking extremes.
 
-**Tight margins to watch:** Case 960 sun-zone maximum 48.7 °C (floor 48.1), Case 680 heating 2,218 kWh (ceiling 2,286), Case 640 heating 2,641 kWh (ceiling 2,682), and the 680FF/980FF mean temperatures 0.4 K above their floors.
+**Tight margins to watch:** Case 960 sun-zone maximum 48.7 °C (floor 48.1), Case 680 heating 2,218 kWh (ceiling 2,286), Case 640 heating 2,651 kWh (ceiling 2,682), and the 680FF/980FF mean temperatures 0.4 K above their floors.
 
 ### Software acceptance criteria (Normative Annex A3)
 
