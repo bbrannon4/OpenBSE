@@ -943,7 +943,7 @@ constructions:
 
 ### Simple Constructions
 
-Simple constructions define opaque assemblies using overall thermal properties instead of individual material layers. Ideal for early design, ASHRAE 140 validation tests, and quick parametric studies.
+Simple constructions define opaque assemblies using overall thermal properties instead of individual material layers. They suit early design and quick parametric studies. The engine builds a layer structure from the U-factor and heat capacity, so use layered constructions where the order and properties of the layers are known.
 
 ```yaml
 simple_constructions:

@@ -31,29 +31,79 @@ simulation:
 weather_files:
   - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
 
-# ─── Simple Constructions ───────────────────────────────────────────────────
-# Same constructions as Case 600.
+# ─── Opaque Constructions ──────────────────────────────────────────────────
+# Layer properties of ASHRAE 140-2023 Section 7.2: the material tables for
+# Cases 600, 680, 900, 960 (common wall) and 980, numbered Tables 5-2, 5-25,
+# 5-27, 5-29 and 5-31 in 140-2017 Addendum a. Floor insulation is massless
+# ("minimum density and specific heat the program allows"). Solar
+# absorptance 0.6 and infrared emittance 0.9 on both faces (Table 5-5);
+# exterior surfaces rough (Table 5-6).
 
-simple_constructions:
+materials:
+  - name: Wood Siding
+    conductivity: 0.14
+    density: 530.0
+    specific_heat: 900.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+  - name: Fiberglass Quilt
+    conductivity: 0.04
+    density: 12.0
+    specific_heat: 840.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+  - name: Plasterboard
+    conductivity: 0.16
+    density: 950.0
+    specific_heat: 840.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+  - name: Roof Deck
+    conductivity: 0.14
+    density: 530.0
+    specific_heat: 900.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+  - name: Floor Insulation Low Mass
+    thermal_resistance: 25.075
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+  - name: Timber Flooring
+    conductivity: 0.14
+    density: 650.0
+    specific_heat: 1200.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+
+constructions:
+  # Table 5-2, outside to inside
   - name: Case600 Wall
-    u_factor: 0.559
-    thermal_capacity: 14534.0
-    solar_absorptance: 0.6
-    thermal_absorptance: 0.9
-    roughness: rough
-
+    layers:
+      - material: Wood Siding
+        thickness: 0.009
+      - material: Fiberglass Quilt
+        thickness: 0.066
+      - material: Plasterboard
+        thickness: 0.012
+  # Table 5-2, outside to inside
   - name: Case600 Roof
-    u_factor: 0.334
-    thermal_capacity: 18170.0
-    solar_absorptance: 0.6
-    thermal_absorptance: 0.9
-    roughness: rough
-
+    layers:
+      - material: Roof Deck
+        thickness: 0.019
+      - material: Fiberglass Quilt
+        thickness: 0.1118
+      - material: Plasterboard
+        thickness: 0.01
+  # Table 5-2, outside to inside
   - name: Case600 Floor
-    u_factor: 0.040
-    thermal_capacity: 19500.0
-    solar_absorptance: 0.6
-    thermal_absorptance: 0.9
+    layers:
+      - material: Floor Insulation Low Mass
+        thickness: 1.003
+      - material: Timber Flooring
+        thickness: 0.025
 
 glazing_materials:
   # Clear glass pane of the standard (WINDOW 7 CLEAR_3)
