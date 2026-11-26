@@ -88,7 +88,8 @@ v0.8.0 comes after a review of every model in the engine against EnergyPlus and 
   - normative weather for every section (#479, #530);
   - the Standard's layered constructions, glass and solar absorptance (#524, #525, #526);
   - solar distribution, night ventilation and setback schedules (#527, #528, #529, #531);
-  - the Section 10 fan (#532);
+  - the Section 10 fan (#532) and Table 10-2 envelope (#535);
+  - no infiltration in CE530–CE545, per 9.2.3.5 (#521);
   - hourly integrated peaks (#533);
   - CE_b coil curves from the normative map (#427).
 - **Workbench**: saves edit only what changed (#419), and the comfort grid reports skipped zones (#418). `--output` creates its folder (#417).
