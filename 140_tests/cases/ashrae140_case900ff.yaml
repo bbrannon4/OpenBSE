@@ -28,7 +28,7 @@
 # Vertex order: Counter-clockwise from outside (Newell convention)
 
 simulation:
-  timesteps_per_hour: 6
+  timesteps_per_hour: 4
   start_month: 1
   start_day: 1
   end_month: 12
@@ -162,10 +162,6 @@ summary_report: true
 
 zones:
   - name: Case900FF Zone
-    solar_distribution:
-      floor_fraction: 0.642
-      wall_fraction: 0.191
-      ceiling_fraction: 0.167
 
 equipment:
   - name: Internal Gains

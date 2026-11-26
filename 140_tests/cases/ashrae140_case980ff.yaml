@@ -27,6 +27,7 @@
 simulation:
   timesteps_per_hour: 4
   terrain: country
+  solar_distribution: full_interior_and_exterior
   start_month: 1
   start_day: 1
   end_month: 12
@@ -165,10 +166,6 @@ summary_report: true
 
 zones:
   - name: Case980FF Zone
-    solar_distribution:
-      floor_fraction: 0.642
-      wall_fraction: 0.191
-      ceiling_fraction: 0.167
 
 equipment:
   - name: Internal Gains

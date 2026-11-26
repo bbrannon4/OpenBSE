@@ -22,7 +22,7 @@
 # Vertex order: Counter-clockwise from outside (Newell convention)
 
 simulation:
-  timesteps_per_hour: 6
+  timesteps_per_hour: 4
   start_month: 1
   start_day: 1
   end_month: 12
@@ -170,11 +170,6 @@ zones:
   - name: Case900 Zone
     # volume: auto-calculated (129.6 m3)
     # floor_area: auto-calculated (48.0 m2)
-    # Interior solar distribution (ASHRAE 140 Section 7.2.1.13)
-    solar_distribution:
-      floor_fraction: 0.642
-      wall_fraction: 0.191
-      ceiling_fraction: 0.167
 
 equipment:
   - name: Internal Gains
