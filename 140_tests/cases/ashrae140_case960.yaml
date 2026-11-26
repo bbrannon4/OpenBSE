@@ -217,20 +217,8 @@ summary_report: true
 
 zones:
   - name: Back Zone
-    solar_distribution:
-      floor_fraction: 0.642
-      wall_fraction: 0.191
-      ceiling_fraction: 0.167
 
   - name: Sun Zone
-    # Sunspace: 2m deep with south windows at Denver (40°N).
-    # Winter (low sun): beam penetrates 2m+ → hits common wall and floor
-    # Summer (high sun): beam hits floor near south wall
-    # Annual average: ~25% floor, ~70% wall, ~5% ceiling
-    solar_distribution:
-      floor_fraction: 0.25
-      wall_fraction: 0.70
-      ceiling_fraction: 0.05
 
 # ─── Equipment, Infiltration, HVAC ────────────────────────────────────────────
 
