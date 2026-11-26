@@ -5540,6 +5540,9 @@ mod tests {
             species_generation: vec![],
             room_air: None,
             comfort: None,
+            space_type: None,
+            building_area_type: None,
+            envelope_category: None,
         }];
 
         let surfaces = vec![
@@ -5726,6 +5729,9 @@ mod tests {
             species_generation: vec![],
             room_air: None,
             comfort: None,
+            space_type: None,
+            building_area_type: None,
+            envelope_category: None,
         };
         let zones = vec![make_zone("ColdZone"), make_zone("WarmZone")];
 
@@ -6491,6 +6497,9 @@ mod tests {
             species_generation: vec![],
             room_air: None,
             comfort: None,
+            space_type: None,
+            building_area_type: None,
+            envelope_category: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -7297,6 +7306,9 @@ mod tests {
             species_generation: vec![],
             room_air: None,
             comfort: None,
+            space_type: None,
+            building_area_type: None,
+            envelope_category: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -7464,6 +7476,9 @@ mod tests {
             species_generation: vec![],
             room_air: None,
             comfort: None,
+            space_type: None,
+            building_area_type: None,
+            envelope_category: None,
         }];
         let surfaces = vec![
             SurfaceInput {
@@ -7612,6 +7627,9 @@ mod tests {
             species_generation: vec![],
             room_air: None,
             comfort: None,
+            space_type: None,
+            building_area_type: None,
+            envelope_category: None,
         }];
         let surfaces = vec![SurfaceInput {
             name: "Wall".to_string(),

@@ -178,6 +178,12 @@ pub struct ModelInput {
     #[serde(default)]
     pub climate_zone: Option<String>,
 
+    // ─── Code / standard ────────────────────────────────────────────────────
+    /// Fill lighting and constructions from a code or standard's tables at
+    /// load (see [`crate::standards`]). Explicit inputs always win.
+    #[serde(default)]
+    pub standard: Option<crate::standards::StandardSelection>,
+
     // ─── Outputs ────────────────────────────────────────────────────────────
     /// Custom output file definitions
     #[serde(default)]
@@ -6824,6 +6830,14 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
                 )
             };
             if wanted.contains(name) {
+                return;
+            }
+            if name.is_empty() {
+                result.severe(format!(
+                    "{} has no construction: give one, or add a `standard:` block with \
+                     `envelope:` to build it from a standard's tables",
+                    referrer
+                ));
                 return;
             }
             if other.contains(name) {

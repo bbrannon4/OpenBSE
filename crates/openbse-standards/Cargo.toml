@@ -1,0 +1,11 @@
+[package]
+name = "openbse-standards"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Code and standard reference data (ASHRAE 90.1 and others) and the constructions built from it"
+
+[dependencies]
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+openbse-envelope = { workspace = true }
