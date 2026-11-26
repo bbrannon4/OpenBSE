@@ -9,9 +9,10 @@ regenerates it from `140_tests/weather/725650TYCST.epw` (the same Denver TMY
 data, which IS in-repo), populating exactly the columns OpenBSE's TMY3 reader
 consumes.
 
-Fidelity: verified 2026-07-10 by running the full 30-case suite with both the
-reconstruction and the original ASHRAE file — results identical to 0.1 kWh on
-every case. Writing a TMY3 CSV (rather than pointing cases at the EPW) also
+Fidelity: the reconstruction equals the normative 725650TY.csv in every column
+the engine reads (GHI, DNI, DHI, opaque sky cover, dry-bulb, dew point, RH,
+pressure, wind direction and speed); only total sky cover, which the engine
+does not read, is left at zero. CI pins the reconstruction's hash. Writing a TMY3 CSV (rather than pointing cases at the EPW) also
 guarantees CI exercises the SAME weather-input code path as local validation:
 the TMY3 path has no horizontal-IR column, so the Berdahl-Martin sky model is
 engaged, exactly as in the validated runs.
