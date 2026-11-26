@@ -43,7 +43,16 @@ INFIL_FLOW = {
 #   draft: draft-fan power [W]; cycles with the burner (DOE-2 FURNACE-AUX-KW,
 #          EnergyPlus COIL:Gas:Heating parasitic electric load). The test's
 #          "fan energy (both fans)" is circulating fan + draft fan.
-FAN_KW = 0.2006  # circulating-fan power [kW] (SUPPLY-KW basis), ~200 W
+# Circulating fan (Section 10.2, Case HE150): 200 W at 0.355 m3/s, all of its
+# heat to the supply air. Total efficiency 0.5 with a 281.7 Pa rise gives
+# 0.355 * 281.7 / 0.5 = 200 W. The loop's design mass flow is 0.355 m3/s at
+# 20 C zone air and 101330 Pa (1.204 kg/m3); the fan converts mass to volume
+# flow at that density, so its power stays 200 W whatever the supply
+# temperature (the specified fan draw is constant).
+FAN_FLOW = 0.355  # m3/s
+FAN_DP = 281.7  # Pa
+FAN_RHO = 1.204  # kg/m3
+LOOP_FLOW = 0.4274  # kg/s
 DRAFT_FAN_W = 50.0
 CASES = {
     "HE100": dict(w="HE100W", eff=1.00, fan=None, kw=10.0, setback=False, draft=0.0),
@@ -86,12 +95,12 @@ def make_yaml(case, c):
     fan_block = ""
     if c["fan"]:
         mode = "continuous" if c["fan"] == "continuous" else "cycling"
-        # Design flow to deliver furnace capacity at ~30C supply rise.
         fan_block = f"""      - type: fan
         name: {case} Circulating Fan
         source: constant_volume
-        design_flow_rate: 0.30
-        pressure_rise: 227.0
+        design_flow_rate: {FAN_FLOW}
+        pressure_rise: {FAN_DP}
+        air_density: {FAN_RHO}
         motor_efficiency: 1.0
         impeller_efficiency: 0.5
         motor_in_airstream_fraction: 1.0
@@ -155,7 +164,7 @@ air_loops:
       cycling: on_off
       deadband: 1.0
       minimum_damper_position: 0.0
-      design_zone_flow: 0.5
+      design_zone_flow: {LOOP_FLOW}
       fan_operating_mode: {fan_mode}
     equipment:
       - type: heating_coil
