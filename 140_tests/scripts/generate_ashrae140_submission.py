@@ -158,7 +158,7 @@ def read_ff_zone_results(path: Path, zone_col_prefix: str) -> dict:
         # Find the temperature column matching zone_col_prefix
         temp_col = None
         for col in reader.fieldnames or []:
-            if zone_col_prefix in col and "zone_temperature" in col:
+            if col.startswith(f"{zone_col_prefix}:temperature"):
                 temp_col = col
                 break
         if temp_col is None:
@@ -213,15 +213,36 @@ def compute_monthly_peaks(csv_path: Path, heat_col: str, cool_col: str) -> dict:
     return monthly
 
 
+def annual_hourly_peaks(csv_path: Path) -> dict:
+    """Annual peak heating and sensible cooling loads [W] with their month, day
+    and hour, from the hourly zone results.
+
+    The Standard asks for hourly integrated peaks (Section 7.3; 140-2017
+    Addendum a 6.2.1.1.3-4). Hourly output rows are time averages of the
+    sub-hourly rates, i.e. hourly integrated loads; the summary report's peak
+    is the largest single time step and is not used.
+    """
+    heat_col, cool_col = find_zone_cols(csv_path)
+    peaks = {"peak_heat_w": 0.0, "peak_cool_w": 0.0}
+    for mo, m in compute_monthly_peaks(csv_path, heat_col, cool_col).items():
+        if m["peak_heat_w"] > peaks["peak_heat_w"]:
+            peaks.update(peak_heat_w=m["peak_heat_w"], peak_heat_month=mo,
+                         peak_heat_day=m["ph_day"], peak_heat_hour=m["ph_hour"])
+        if m["peak_cool_w"] > peaks["peak_cool_w"]:
+            peaks.update(peak_cool_w=m["peak_cool_w"], peak_cool_month=mo,
+                         peak_cool_day=m["pc_day"], peak_cool_hour=m["pc_hour"])
+    return peaks
+
+
 def find_zone_cols(csv_path: Path) -> tuple[str, str]:
     """Return (heating_rate_col, cooling_rate_col) for the first zone in a CSV."""
     with csv_path.open() as f:
         reader = csv.DictReader(f)
         heat_col = cool_col = None
         for col in (reader.fieldnames or []):
-            if "zone_heating_rate" in col and heat_col is None:
+            if col.endswith(":heating_rate [W]") and heat_col is None:
                 heat_col = col
-            if "zone_cooling_rate" in col and cool_col is None:
+            if col.endswith(":cooling_rate [W]") and cool_col is None:
                 cool_col = col
     if not heat_col or not cool_col:
         raise ValueError(f"Could not find heating/cooling columns in {csv_path}")
@@ -268,6 +289,11 @@ def main():
             continue
 
         s = parse_summary(summary_path)
+        zone_csv = results_dir / f"ashrae140_case{case.lower()}_zone_results.csv"
+        if not zone_csv.exists():
+            print(f"  WARNING: no zone results for case {case} — skipping")
+            continue
+        s.update(annual_hourly_peaks(zone_csv))
         row = CONDITIONED_ROW[case]
 
         heat_mwh = round(s.get("heating_kwh", 0.0) / 1000.0, 3)
