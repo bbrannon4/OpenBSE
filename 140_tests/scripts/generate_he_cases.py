@@ -99,12 +99,14 @@ def make_yaml(case, c):
     fan_mode = "continuous" if c["fan"] == "continuous" else "cycling"
     # Emitted only when present so the other cases' YAML stays byte-identical.
     draft_line = f"        parasitic_electric_load: {c['draft']}\n" if c["draft"] else ""
-    # Night setback (HE220/HE230): 15 C hours 1-6, 20 C otherwise (DOE-2 spec).
+    # Night setback (HE220/HE230, Section 10.2): heat below 15 C for
+    # 23:00 < time < 6:00 and below 20 C for 6:00 <= time <= 23:00, i.e.
+    # 15 C in hour-ending hours 24 and 1-6, 20 C in hours 7-23.
     heat_sp_line = "    heating_setpoint: 20.0"
     if c["setback"]:
         setback_sched = """    thermostat_schedule:
-      - {start_hour: 1, end_hour: 6, heating_setpoint: 15.0, cooling_setpoint: 99.0}
-      - {start_hour: 7, end_hour: 0, heating_setpoint: 20.0, cooling_setpoint: 99.0}
+      - {start_hour: 24, end_hour: 6, heating_setpoint: 15.0, cooling_setpoint: 99.0}
+      - {start_hour: 7, end_hour: 23, heating_setpoint: 20.0, cooling_setpoint: 99.0}
 """
     else:
         setback_sched = ""
