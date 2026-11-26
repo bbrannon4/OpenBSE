@@ -44,13 +44,16 @@ except ImportError:
 from ce_b_results import ANNUAL_ROWS, CASES, CaseOutput
 
 # Program identity for the submission header — kept identical to the Section 9a
-# submission (generate_ashrae140_CE_submission.py). Edit ORG / dates as needed.
-PROGRAM_NAME = "OpenBSE 0.7.0"
+# submission (generate_ashrae140_CE_submission.py). Version and dates come
+# from Cargo.toml and CHANGELOG.md (openbse_release.py).
+import openbse_release
+
+PROGRAM_NAME = f"OpenBSE {openbse_release.version()}"
 PROGRAM_SHORT = "OpenBSE"
 ORG_LONG = "OpenBSE"
 ORG_SHORT = "OpenBSE"
-VERSION_RELEASE_DATE = datetime.date(2026, 10, 11)
-SUBMISSION_DATE = datetime.date(2026, 10, 11)
+VERSION_RELEASE_DATE = openbse_release.release_date()
+SUBMISSION_DATE = openbse_release.submission_date()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_TEMPLATE = os.path.expanduser(

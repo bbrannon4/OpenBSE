@@ -257,12 +257,160 @@ def write_cell(ws, row, col_letter, value):
     ws[f"{col_letter}{row}"] = value
 
 
+# ── Solar, sky temperature and specific-day outputs (7.3.2-7.3.5, 7.3.8) ─────
+# Hourly output rows are time averages of the sub-hourly values, so an hourly
+# W/m² value is the hour's integrated Wh/m², and W/1000 is the hour's kWh.
+FEB1, MAY4, JUL14 = (2, 1), (5, 4), (7, 14)
+
+
+def hourly_rows(csv_path: Path) -> list[dict]:
+    with csv_path.open() as f:
+        return list(csv.DictReader(f))
+
+
+def day_rows(rows: list[dict], md: tuple[int, int]) -> list[dict]:
+    out = [r for r in rows if (int(r["Month"]), int(r["Day"])) == md]
+    if len(out) != 24 or [int(r["Hour"]) for r in out] != list(range(1, 25)):
+        raise ValueError(f"expected hours 1-24 on {md}, got {len(out)} rows")
+    return out
+
+
+def polygon_area(vertices: list[dict]) -> float:
+    """Area of a planar polygon from its vertices (Newell's method)."""
+    nx = ny = nz = 0.0
+    n = len(vertices)
+    for i in range(n):
+        a, b = vertices[i], vertices[(i + 1) % n]
+        nx += (a["y"] - b["y"]) * (a["z"] + b["z"])
+        ny += (a["z"] - b["z"]) * (a["x"] + b["x"])
+        nz += (a["x"] - b["x"]) * (a["y"] + b["y"])
+    return 0.5 * (nx * nx + ny * ny + nz * nz) ** 0.5
+
+
+def windows_on(case_yaml: Path, parent: str) -> dict[str, float]:
+    """Window name -> area [m²] for the windows in the named wall."""
+    import yaml
+
+    model = yaml.safe_load(case_yaml.read_text())
+    return {
+        s["name"]: polygon_area(s["vertices"])
+        for s in model.get("surfaces", [])
+        if s.get("type") == "window" and s.get("parent_surface") == parent
+    }
+
+
+class SolarResults:
+    """One case's hourly surface solar and sky-temperature output."""
+
+    def __init__(self, results_dir: Path, case: str):
+        self.rows = hourly_rows(results_dir / f"ashrae140_case{case}_solar_results.csv")
+        self.yaml = results_dir / f"ashrae140_case{case}.yaml"
+
+    def incident(self, surface: str, row: dict) -> float:
+        return float(row[f"{surface}:incident_solar [W/m²]"])
+
+    def transmitted(self, wall: str, row: dict, windows: dict[str, float]) -> float:
+        """Transmitted solar per unit window area [W/m²] through the wall's windows."""
+        w = sum(float(row[f"{n}:transmitted_solar [W]"]) for n in windows)
+        return w / sum(windows.values())
+
+    def annual_incident(self, surface: str) -> float:
+        return sum(self.incident(surface, r) for r in self.rows) / 1000.0
+
+    def annual_transmitted(self, wall: str) -> float:
+        win = windows_on(self.yaml, wall)
+        return sum(self.transmitted(wall, r, win) for r in self.rows) / 1000.0
+
+    def sky(self, row: dict) -> float:
+        return float(row["Site:sky_temperature [°C]"])
+
+
+def signed_load_kwh(row: dict, heat_col: str, cool_col: str) -> float:
+    """Heating (+) and sensible cooling (-) load of the hour [kWh] (Table 7-47)."""
+    return (float(row[heat_col]) - float(row[cool_col])) / 1000.0
+
+
+def fill_solar_and_sky(ws, results_dir: Path):
+    s600 = SolarResults(results_dir, "600")
+    # Annual incident unshaded solar, Case 600 (7.3.2.1), C155-C159
+    for row, surf in zip(range(155, 160), ["Roof", "North Wall", "East Wall", "South Wall", "West Wall"]):
+        ws[f"C{row}"] = round(s600.annual_incident(surf))
+    # Annual transmitted solar per window area (7.3.2.2, 7.3.3-7.3.5)
+    for row, case, wall in [(163, "600", "South Wall"), (164, "660", "South Wall"),
+                            (165, "670", "South Wall"), (166, "620", "West Wall"),
+                            (170, "610", "South Wall"), (171, "630", "West Wall")]:
+        ws[f"C{row}"] = round(SolarResults(results_dir, case).annual_transmitted(wall))
+    # Sky temperature, Case 600 (7.3.2.3), row 178
+    sky = [(s600.sky(r), r) for r in s600.rows]
+    lo, hi = min(sky, key=lambda x: x[0]), max(sky, key=lambda x: x[0])
+    ws["C178"] = round(sum(t for t, _ in sky) / len(sky), 1)
+    for (t, r), cols in [(lo, "DEFG"), (hi, "HIJK")]:
+        ws[f"{cols[0]}178"] = round(t, 1)
+        ws[f"{cols[1]}178"] = MONTH_ABBR[int(r["Month"])]
+        ws[f"{cols[2]}178"] = int(r["Day"])
+        ws[f"{cols[3]}178"] = int(r["Hour"])
+    print(f"  Solar and sky: horizontal {ws['C155'].value} kWh/m², sky mean {ws['C178'].value} °C")
+
+
+def fill_specific_days(ws, results_dir: Path):
+    """Specific-day hourly output of Table 7-47 (7.3.8), rows 230-253, 262-285, 294-317."""
+    s600 = SolarResults(results_dir, "600")
+    trans = {c: SolarResults(results_dir, c) for c in ("600", "660", "670")}
+    win = {c: windows_on(trans[c].yaml, "South Wall") for c in trans}
+    for h in range(24):
+        r = 230 + h
+        for md, cols in [(MAY4, "CDE"), (JUL14, "FGH")]:
+            row = day_rows(s600.rows, md)[h]
+            for col, surf in zip(cols, ["Roof", "South Wall", "West Wall"]):
+                ws[f"{col}{r}"] = round(s600.incident(surf, row), 1)
+        for col, md in zip("IJK", (FEB1, MAY4, JUL14)):
+            ws[f"{col}{r}"] = round(s600.sky(day_rows(s600.rows, md)[h]), 2)
+        for md, cols in [(FEB1, "LMN"), (MAY4, "OPQ"), (JUL14, "RST")]:
+            for col, c in zip(cols, ("600", "660", "670")):
+                row = day_rows(trans[c].rows, md)[h]
+                ws[f"{col}{r}"] = round(trans[c].transmitted("South Wall", row, win[c]), 1)
+
+    def loads(case):
+        csv_path = results_dir / f"ashrae140_case{case}_zone_results.csv"
+        return hourly_rows(csv_path), find_zone_cols(csv_path)
+
+    feb_cases = ["600", "640", "660", "670", "680", "685", "695", "900", "940", "980", "985", "995"]
+    jul_cases = ["600", "660", "670", "680", "685", "695", "900", "980", "985", "995"]
+    for col, case in zip("CDEFGHIJKLMN", feb_cases):
+        rows, (hc, cc) = loads(case)
+        for h, row in enumerate(day_rows(rows, FEB1)):
+            ws[f"{col}{262 + h}"] = round(signed_load_kwh(row, hc, cc), 3)
+    for col, case in zip("OPQRSTUVWX", jul_cases):
+        rows, (hc, cc) = loads(case)
+        for h, row in enumerate(day_rows(rows, JUL14)):
+            ws[f"{col}{262 + h}"] = round(signed_load_kwh(row, hc, cc), 3)
+    for col, case in zip("YZ", ["640", "940"]):
+        rows = hourly_rows(results_dir / f"ashrae140_case{case}_zone_results.csv")
+        tcol = next(k for k in rows[0] if k.endswith(":temperature [°C]"))
+        for h, row in enumerate(day_rows(rows, FEB1)):
+            ws[f"{col}{262 + h}"] = round(float(row[tcol]), 2)
+    for col, key, prefix, md in [("C", "600ff", "Case600FF Zone", FEB1),
+                                 ("D", "900ff", "Case900FF Zone", FEB1),
+                                 ("E", "650ff", "Case650FF Zone", JUL14),
+                                 ("F", "950ff", "Case950FF Zone", JUL14),
+                                 ("G", "680ff", "Case680FF Zone", FEB1),
+                                 ("H", "980ff", "Case980FF Zone", FEB1)]:
+        rows = hourly_rows(results_dir / f"ashrae140_case{key}_zone_results.csv")
+        tcol = f"{prefix}:temperature [°C]"
+        for h, row in enumerate(day_rows(rows, md)):
+            ws[f"{col}{294 + h}"] = round(float(row[tcol]), 2)
+    print("  Specific-day hourly output written")
+
+
+import openbse_release  # noqa: E402
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate ASHRAE 140 Section 7 submission file")
     parser.add_argument("--template", required=True, help="Path to Std140_TF_Output.xlsx")
     parser.add_argument("--results", default="140_tests/cases", help="Path to 140_tests/cases/ directory (where the validated output files live)")
     parser.add_argument("--output", required=True, help="Output .xlsx path")
-    parser.add_argument("--version", default="dev", help="OpenBSE version string")
+    parser.add_argument("--version", default=openbse_release.version(), help="OpenBSE version string (default: Cargo.toml)")
     args = parser.parse_args()
 
     results_dir = Path(args.results).expanduser()
@@ -275,10 +423,9 @@ def main():
     ws_bin = wb["TMPBIN"]
 
     # ── Identifying information ─────────────────────────────────────────────────
-    import datetime
     ws_a["C61"] = "OpenBSE"
     ws_a["C62"] = args.version
-    ws_a["C63"] = datetime.date.today().isoformat()
+    ws_a["C63"] = openbse_release.submission_date().isoformat()
 
     # ── Conditioned-zone annual loads & peak loads ──────────────────────────────
     print("Processing conditioned cases...")
@@ -304,13 +451,14 @@ def main():
         ws_a[f"C{row}"] = heat_mwh
         ws_a[f"D{row}"] = cool_mwh
 
+        # Zero loads are entered as 0 (7.3.1.5); a zero peak has no time.
+        ws_a[f"E{row}"] = ph_kw
+        ws_a[f"I{row}"] = pc_kw
         if ph_kw > 0:
-            ws_a[f"E{row}"] = ph_kw
             ws_a[f"F{row}"] = MONTH_ABBR.get(s.get("peak_heat_month", 0), "")
             ws_a[f"G{row}"] = s.get("peak_heat_day", "")
             ws_a[f"H{row}"] = s.get("peak_heat_hour", "")
         if pc_kw > 0:
-            ws_a[f"I{row}"] = pc_kw
             ws_a[f"J{row}"] = MONTH_ABBR.get(s.get("peak_cool_month", 0), "")
             ws_a[f"K{row}"] = s.get("peak_cool_day", "")
             ws_a[f"L{row}"] = s.get("peak_cool_hour", "")
@@ -370,16 +518,20 @@ def main():
 
             ph_kw = round(mpeaks.get("peak_heat_w", 0.0) / 1000.0, 3)
             pc_kw = round(mpeaks.get("peak_cool_w", 0.0) / 1000.0, 3)
+            ws_a[f"{ph_off}{row}"] = ph_kw   # 0 when there is no load (7.3.2.4.5)
+            ws_a[f"{pc_off}{row}"] = pc_kw
             if ph_kw > 0:
-                ws_a[f"{ph_off}{row}"] = ph_kw
                 ws_a[f"{phd_off}{row}"] = mpeaks.get("ph_day", "")
                 ws_a[f"{phh_off}{row}"] = mpeaks.get("ph_hour", "")
             if pc_kw > 0:
-                ws_a[f"{pc_off}{row}"] = pc_kw
                 ws_a[f"{pcd_off}{row}"] = mpeaks.get("pc_day", "")
                 ws_a[f"{pch_off}{row}"] = mpeaks.get("pc_hour", "")
 
         print(f"  Case {case}: monthly loads written")
+
+    print("Processing solar, sky temperature and specific-day outputs...")
+    fill_solar_and_sky(ws_a, results_dir)
+    fill_specific_days(ws_a, results_dir)
 
     # ── TMPBIN: 900FF hourly zone temperatures ───────────────────────────────────
     print("Writing 900FF hourly temperatures to TMPBIN sheet...")

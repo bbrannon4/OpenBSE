@@ -216,6 +216,7 @@ outputs:
       - "component:latent_load"
       - "component:total_load"
       - "component:outlet_temperature"
+      - "component:outlet_humidity_ratio"
   - file: "zone_results.csv"
     frequency: hourly
     variables:

@@ -25,6 +25,8 @@ try:
 except ImportError:
     sys.exit("xlrd, xlwt and xlutils are required: pip install xlrd xlwt xlutils")
 
+import openbse_release  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 CASES_DIR = os.path.join(os.path.dirname(HERE), "cases")
 DEFAULT_TEMPLATE = os.path.expanduser(
@@ -46,6 +48,8 @@ RUN_SECONDS = 2160 * 3600
 LOAD_ROW0, INPUT_ROW0, FUEL_ROW0 = 19, 35, 51    # all 11 cases
 FAN_ROW0, MEANT_ROW0, MAXT_ROW0, MINT_ROW0 = 67, 78, 86, 94
 COL = 1
+
+COUNTRY = "USA"
 
 
 def extract(case):
@@ -98,6 +102,17 @@ def main():
     rb = xlrd.open_workbook(args.template, formatting_info=True)
     wb = xl_copy(rb)
     ws = wb.get_sheet(0)
+
+    # Every report block has CODENAME / COUNTRY label rows; A3.3 asks for all
+    # report blocks completed, so fill each one.
+    rs = rb.sheet_by_index(0)
+    codename = f"OpenBSE {openbse_release.version()}"
+    for i in range(rs.nrows):
+        label = str(rs.cell_value(i, 0)).strip()
+        if label == "CODENAME:":
+            ws.write(i, COL, codename)
+        elif label == "COUNTRY:":
+            ws.write(i, COL, COUNTRY)
 
     data = {c: extract(c) for c in CASES}
     for i, case in enumerate(CASES):

@@ -1497,6 +1497,7 @@ The legacy file-wide `aggregation:` key is deprecated. If present, it still appl
 | `site:direct_normal_radiation` | W/m² | Direct normal solar radiation |
 | `site:diffuse_horizontal_radiation` | W/m² | Diffuse horizontal solar radiation |
 | `site:relative_humidity` | % | Outdoor relative humidity |
+| `site:sky_temperature` | °C | Sky temperature applied to exterior long-wave exchange |
 
 **Zone state variables:**
 | Variable | Unit | Description |

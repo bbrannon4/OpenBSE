@@ -115,6 +115,9 @@ pub struct BuildingEnvelope {
     /// Solar distribution method for interior beam solar radiation.
     /// FullExterior: all beam to floor.  FullInteriorAndExterior: geometric projection.
     pub solar_distribution_method: SolarDistributionMethod,
+    /// Sky temperature applied to exterior longwave exchange in the latest
+    /// timestep [°C] (reported as `site:sky_temperature`, ASHRAE 140 7.3.2.3).
+    pub sky_temperature: f64,
     /// Holiday dates as `(month, day)` pairs.  When the current simulation date
     /// matches any entry, schedule lookups use day_of_week = 8 (Holiday).
     pub holiday_set: std::collections::HashSet<(u32, u32)>,
@@ -1483,6 +1486,7 @@ impl BuildingEnvelope {
             airflow_network: None, // built later via build_airflow_network()
             species_transport: None,
             afn_nonconverged_count: 0,
+            sky_temperature: 0.0,
             afn_step_unconverged_iters: None,
             solar_distribution_method,
             ctf_q_last_inside: vec![0.0; n_surfaces],
@@ -2124,6 +2128,7 @@ impl EnvelopeSolver for BuildingEnvelope {
             weather.opaque_sky_cover,
             weather.horiz_ir_rad,
         );
+        self.sky_temperature = t_sky;
 
         // 2. Apply HVAC conditions from external controls (non-ideal-loads mode)
         for zone in &mut self.zones {

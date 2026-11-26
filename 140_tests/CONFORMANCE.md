@@ -12,7 +12,7 @@ Landing inside the acceptance ranges is a separate test (`README.md`). A case ca
 | 7 Building thermal envelope and fabric | 27 | 8 | 8 | 0 | 0 |
 | 9.2.1–9.2.2 Space cooling, analytical (CE100–CE200) | 14 | 1 | 1 | 0 | 2 |
 | 9.2.3–9.2.4 Space cooling, comparative (CE300–CE545) | 20 | 2 | 2 | 0 | 1 |
-| 10 Space heating (HE100–HE230) | 11 | 5 | 5 | 0 | 1 |
+| 10 Space heating (HE100–HE230) | 11 | 6 | 6 | 0 | 0 |
 | 11 Air-side HVAC (AE101–AE445) | 24 | 2 | 2 | 0 | 2 |
 
 Machine checks: `conformance_spec.json` lists 2,523 specified values across the 96 cases with their clauses; `crates/openbse-io/tests/ashrae140_conformance.rs` parses each case with the engine's input parser and checks every value, and fails if a case has no entry. Each case's weather file is hash-pinned in `.github/workflows/ci.yml`. See [CI guards](#ci-guards).
@@ -35,6 +35,8 @@ Machine checks: `conformance_spec.json` lists 2,523 specified values across the 
 | #520 | Gas coil part-load fuel curve; Section 10 cases use the Standard's HIR(PLR) | 10 |
 | #521 | Zone air starts at the first hour's outdoor air conditions (was 21 °C / 0.008 kg/kg); CE530–CE545 drop the reference input's January infiltration (0.0 ach all year, 9.2.3.5) | 5.1.1, 9 |
 | #523 | Outdoor humidity ratio from the dew point (was whole-percent RH) | 9, 10, 11 |
+| #535 | Section 10 envelope per Table 10-2 (was adiabatic surfaces) | 10 |
+| v0.8.0 | Output forms: Section 7 solar, sky-temperature and specific-day outputs (7.3.2–7.3.5, 7.3.8) and zero peaks entered as 0 (7.3.1.5); Section 11 two-zone RHcco (was 0) and outdoor-air states from the dew point; program version and dates from `Cargo.toml` and `CHANGELOG.md`; Section 10 CODENAME/COUNTRY in every block; modeling notes (Annex A2 item i) for each section | 7, 10, 11 (output) |
 | #53 (existing) | `simple_constructions` layer guess tuned to 140 constructions; no 140 case uses it now | — |
 
 ## Method and citations
@@ -103,8 +105,8 @@ Shared engine paths: conduction by CTF from layered constructions (`ctf.rs`, `tr
 | 600-25 | Annual heating, sensible cooling (MWh) | 7.3.1.1–7.3.1.2 | Annual totals | summary `Heating:` / `Cooling:` (integrated zone rates) | conforming |
 | 600-26 | Annual peaks | 7.3.1.3–7.3.1.4 | Hourly integrated peak (kW) with month/day/hour | from hourly zone results (hour-averaged rates) | fixed (#533; was single time step) |
 | 600-27 | Monthly loads and peaks (600, 900) | 7.3.2.4 | Monthly totals and hourly integrated peaks | summary monthly table; hourly zone results | conforming |
-| 600-28 | Incident and transmitted solar, sky temperature | 7.3.2.1–7.3.2.3 | Annual incident/transmitted solar; sky temperature if applied | not reported | not modelled: informative-use outputs, no acceptance range; no effect on loads |
-| 600-29 | Daily hourly output | 7.3.8 | Hourly profiles for specified days | hourly zone results available; not entered in the output template | not modelled: no acceptance range |
+| 600-28 | Incident and transmitted solar, sky temperature | 7.3.2.1–7.3.2.3, 7.3.3–7.3.5 | Annual incident unshaded solar (horizontal, N, E, S, W); transmitted solar per window area (600, 660, 670 south; 620 west; 610, 630 shaded); sky temperature mean, min and max (the program applies one) | `surface:incident_solar`, `surface:transmitted_solar` (optical transmission; absorbed-and-conducted heat excluded) and `site:sky_temperature` in each case's `solar_results.csv`; entered by `generate_ashrae140_submission.py` | conforming (fixed, v0.8.0) |
+| 600-29 | Daily hourly output | 7.3.8, Table 7-47 | Hourly integrated incident and transmitted solar, sky temperature, loads (heating +, cooling −), conditioned and free-float temperatures on Feb 1, May 4, Jul 14 from annual runs | hourly results of the annual runs; entered by `generate_ashrae140_submission.py` | conforming (fixed, v0.8.0) |
 
 ### Section 7 basic-test cases
 
@@ -310,6 +312,20 @@ Engine paths: single-zone and multizone air loops (`openbse-airloop`), electric 
 | 7.2.3 In-depth cases 195–470, 800, 810 | Not in the suite (EnergyPlus inputs for most are in `reference_idfs/`) | Diagnostic cases; no Annex A3 ranges |
 | 8 Ground-coupled slab-on-grade (GC) | Not implemented | Ground model not tested by 140 |
 | 12 Class II tests | Not implemented | — |
+
+## Submission package
+
+Normative Annex A2 forms, in `results/`, generated from the case results by `scripts/generate_ashrae140_*submission.py` and `scripts/generate_ashrae140_notes.py` (templates from the Standard's accompanying files):
+
+| Section | Output form | Modeling notes | Annex A3 test group |
+|---|---|---|---|
+| 7 | `OpenBSE_Std140_TF_Output.xlsx` | `OpenBSE_S140outNotes_7.txt` | Thermal fabric, low and high mass |
+| 9.2.1–9.2.2 | `OpenBSE_Std140_CE_a_Output.xls` | `OpenBSE_S140outNotes_9A.txt` | — (no ranges) |
+| 9.2.3–9.2.4 | `OpenBSE_Std140_CE_b_Output.xls` | `OpenBSE_S140outNotes_9B.txt` | Cooling equipment |
+| 10 | `OpenBSE_Std140_HE_Output.xls` | `OpenBSE_S140outNotes_10.txt` | Heating equipment |
+| 11 | `OpenBSE_Std140_AE_Output.xlsx` | `OpenBSE_S140outNotes_11.txt` | Air-side equipment |
+
+The notes' Block E lists the in-depth cases of 7.2.3 as omitted; the sections in [Cases and sections not run](#cases-and-sections-not-run) have no forms.
 
 ## CI guards
 

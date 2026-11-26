@@ -22,6 +22,8 @@ v0.8.0 comes after a review of every model in the engine against EnergyPlus and 
 - **Plant**: return-temperature reset (#491), load-range operation schemes with E+ load distribution (#501), heating-led heat-recovery chiller (#486), constant-speed pumps and decoupled primary/secondary loops (#490).
 - **Other inputs**: equipment on any fuel and outdoor-controlled baseboards (#462), humidifier rated capacity (#487), TARP outside convection (#504), and unmet-hour reporting tolerances (#478).
 - **ASHRAE 140 conformance record** and a spec-value test for every case, with pinned normative weather (#534).
+- **`site:sky_temperature` output**: the sky temperature applied to exterior long-wave exchange.
+- **ASHRAE 140 submission package**: every Annex A2 output form filled, including the Section 7 solar, sky-temperature, specific-day and bin outputs, plus a modeling-notes file per section (`140_tests/results/`). The forms take the program version and dates from `Cargo.toml` and `CHANGELOG.md`.
 - **Code and standard reference data** (#408, first part of #341): ASHRAE 90.1-2025 lighting power densities and envelope criteria, prescriptive and Appendix G, under `data/standards/` with a citation for every value. A `standard:` block fills each zone's lighting from its `space_type`, and each surface's construction from the table for its climate zone, when the model loads. Explicit values win, and the summary report lists every value used with its source table.
 
 ### Changed (November)
