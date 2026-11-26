@@ -46,6 +46,12 @@ CE_RANGES = _RANGES.get("ce_february_ranges_kwh", {})
 # CE500 and CE510.
 CE_B_RANGES = _RANGES.get("ce_b_ranges", {})
 
+# Section 9B results reported but not gated: {row: [metric, ...]}, with the
+# reason in "_reason" (start-state-dependent results of CE530-CE545).
+CE_B_INFORMATIVE = {
+    k: set(v) for k, v in _RANGES.get("ce_b_informative", {}).items() if not k.startswith("_")
+}
+
 # Section 10 fuel-fired furnace ranges: {case: {metric: [lo, hi]}}
 HE_RANGES = _RANGES.get("he_ranges", {})
 
@@ -404,6 +410,7 @@ def main():
 
     pass_count = 0
     fail_count = 0
+    info_count = 0
     fail_details = []
     failed_keys = set()   # (case, metric) tuples that failed
     passed_keys = set()   # (case, metric) tuples that passed
@@ -547,6 +554,11 @@ def main():
             lo, hi = ranges[metric]
             val = round(results[metric], digits)
             label = f"{period} {name}"
+            if metric in CE_B_INFORMATIVE.get(row_label, ()):
+                # Reported against the example range, never counted.
+                rows.append([row_case, label, val, lo, hi, "INFO", "", ""])
+                info_count += 1
+                continue
             status, delta = evaluate(val, lo, hi)
             key = (row_case, label)
             if status == "PASS":
@@ -657,6 +669,7 @@ def main():
     print(f"Total checks:  {total}")
     print(f"PASS:          {pass_count}  ({100 * pass_count / total:.1f}%)")
     print(f"FAIL:          {fail_count}  ({100 * fail_count / total:.1f}%)")
+    print(f"INFO:          {info_count}  (reported, not gated; see ce_b_informative)")
     print("-" * 60)
     if missing:
         print(f"Missing cases: {', '.join(missing)}")

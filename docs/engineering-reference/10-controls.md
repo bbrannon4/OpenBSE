@@ -20,8 +20,14 @@ block take effect only in HVAC-only mode, and a warning says so.
 (`ThermostatScheduleEntry`); `openbse-envelope/src/schedule.rs`.
 
 **Thermostats.** A thermostat gives a set of zones a heating and a cooling
-setpoint. A `thermostat_schedule` overrides these by hour (1–24), optionally
-within a date range. The first entry that applies wins. Named setpoint
+setpoint. A `thermostat_schedule` overrides these by hour (1–24, hour-ending),
+optionally within a date range. The first entry that applies wins. An entry
+with an end setpoint (`heating_setpoint_end`, `cooling_setpoint_end`) ramps
+linearly across its period, read at the end of each timestep: a period from
+hour 8 to hour 8 (07:00–08:00) ramping 10 → 20 °C gives 12.5, 15, 17.5 and
+20 °C at 15-minute steps, as ASHRAE 140-2023 Section 7.2 (Case 640) specifies
+for sub-hourly programs. The Standard's reference EnergyPlus input steps the
+ramp in 10-minute intervals of a `Schedule:Day:Interval`. Named setpoint
 schedules (`heating_setpoint_schedule`, `cooling_setpoint_schedule`) instead set
 each side every timestep from a schedule of temperatures, read by hour and day
 type, holidays included, as EnergyPlus `ThermostatSetpoint:DualSetpoint`; a

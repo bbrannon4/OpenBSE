@@ -85,9 +85,17 @@ its own hour's value. A step's irradiance then goes with the sun at the end of t
 step (@eq-fractional-hour). The weights add up so that a run of hours keeps its total
 energy, though each hour's own energy shifts slightly into its neighbours.
 
+**Outdoor humidity ratio.** The outdoor humidity ratio comes from the
+interpolated dew point and pressure, $W_o = W(T_{dp}, p)$ (@sec-psychrometrics),
+with a dew point above the dry-bulb taken as the dry-bulb. Weather files hold the
+dew point to 0.1 °C but relative humidity only to whole percent, so the dew
+point is the more precise moisture input; ASHRAE 140-2023 Section 11 also gives
+the dew point as the exact value. Relative humidity is used only when a file has
+no usable dew point.
+
 **Comparison with EnergyPlus.** All of this is `WeatherManager::SetupInterpolationValues`
 and its use in `ReadWeatherForDay`, including `interpolateWindDirection` and the
-outdoor humidity ratio from `PsyWFnTdbRhPb`. An annual EnergyPlus 25.2 run on the Boulder
+outdoor humidity ratio from the dew point, `PsyWFnTdpPb(OutDewPointTemp, OutBaroPress)`. An annual EnergyPlus 25.2 run on the Boulder
 weather file at $N$ = 1, 4, 5 and 6 reproduces @eq-solar-weights, apart from the steps
 EnergyPlus (and OpenBSE, @sec-solar-position) set to zero with the sun down.
 

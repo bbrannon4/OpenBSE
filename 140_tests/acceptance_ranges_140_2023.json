@@ -2290,5 +2290,35 @@
         40.4
       ]
     }
+  },
+  "ce_b_informative": {
+    "_reason": "CE530-CE545 (dry coil, sealed zone): reported, not gated. Section 9.2.3.5 sets infiltration to 0.0 ach for the entire simulation and the zone has no moisture source or sink, so its humidity ratio stays at its start value all year; for Class I the Standard specifies preconditioning (5.1.1.7.2) but no start state, and OpenBSE starts zone air at the first hour's outdoor air (as 5.2.1.6 asks of Class II). Humidity, and through the DX coil's entering wet-bulb its capacity and EIR, therefore depend on each program's initialisation; the example results these in-house ranges come from used other start states (the Standard's EnergyPlus input adds first-week January infiltration, contrary to 9.2.3.5). Coil loads and zone temperature do not depend on the start humidity and stay gated.",
+    "CE530": [
+      "cool_total",
+      "compressor",
+      "cond_fan",
+      "supply_fan",
+      "cop2",
+      "humrat",
+      "rh"
+    ],
+    "CE540": [
+      "cool_total",
+      "compressor",
+      "cond_fan",
+      "supply_fan",
+      "cop2",
+      "humrat",
+      "rh"
+    ],
+    "CE545": [
+      "cool_total",
+      "compressor",
+      "cond_fan",
+      "supply_fan",
+      "cop2",
+      "humrat",
+      "rh"
+    ]
   }
 }

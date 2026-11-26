@@ -13,7 +13,7 @@ use openbse_components::cooling_coil::CoolingCoilDX;
 use openbse_components::fan::{Fan, FanType};
 use openbse_components::heat_pump_coil::HeatPumpHeatingCoil;
 use openbse_components::heat_recovery::HeatRecovery;
-use openbse_components::heating_coil::{HeatingCoil, HotWaterRating};
+use openbse_components::heating_coil::{HeatingCoil, HotWaterRating, PartLoadFuelCurve};
 use openbse_components::pfp_box::PFPBox;
 use openbse_components::vav_box::{ReheatType, VAVBox};
 use openbse_controls::setpoint::{PlantLoopSetpoint, SetpointController};
@@ -1579,6 +1579,15 @@ pub struct HeatingCoilInput {
     /// supply air (E+ Coil:Heating:Fuel "On Cycle Parasitic Electric Load").
     #[serde(default)]
     pub parasitic_electric_load: f64,
+    /// Part-load fraction curve PLF(PLR) for `gas` coils, by name: fuel =
+    /// full-load fuel × PLR / PLF (E+ Coil:Heating:Fuel "Part Load Fraction
+    /// Correlation Curve"). PLF is floored at 0.7. Give this or `hir_curve`.
+    #[serde(default)]
+    pub plf_curve: Option<String>,
+    /// Heat input ratio curve HIR(PLR) for `gas` coils, by name: fuel =
+    /// full-load fuel × HIR, the form ASHRAE 140 Section 10 specifies.
+    #[serde(default)]
+    pub hir_curve: Option<String>,
 
     // ─── Heat pump fields (only used when source: heat_pump) ────────
     /// Rated COP for heat pump (default 3.0)
@@ -3934,6 +3943,20 @@ fn build_graph_impl(
                             let mut coil = HeatingCoil::gas(&c.name, cap, c.setpoint, c.efficiency);
                             coil.submeter = c.submeter.clone();
                             coil.parasitic_electric_load = c.parasitic_electric_load;
+                            let find = |name: &Option<String>| {
+                                name.as_ref().and_then(|n| {
+                                    model
+                                        .performance_curves
+                                        .iter()
+                                        .find(|pc| pc.name() == n)
+                                        .cloned()
+                                })
+                            };
+                            coil.part_load_fuel = find(&c.hir_curve)
+                                .map(PartLoadFuelCurve::HeatInputRatio)
+                                .or_else(|| {
+                                    find(&c.plf_curve).map(PartLoadFuelCurve::PartLoadFraction)
+                                });
                             graph.add_air_component(Box::new(coil))
                         }
                         _ => {
@@ -5554,6 +5577,8 @@ fn validate_curve_names(model: &ModelInput, result: &mut ValidationResult) {
                 EquipmentInput::HeatingCoil(c) => {
                     check("Heating coil", &c.name, "cap_ft_curve", &c.cap_ft_curve);
                     check("Heating coil", &c.name, "eir_ft_curve", &c.eir_ft_curve);
+                    check("Heating coil", &c.name, "plf_curve", &c.plf_curve);
+                    check("Heating coil", &c.name, "hir_curve", &c.hir_curve);
                 }
                 EquipmentInput::CoolingCoil(c) => {
                     check("Cooling coil", &c.name, "cap_ft_curve", &c.cap_ft_curve);
@@ -5651,6 +5676,19 @@ fn validate_curve_names(model: &ModelInput, result: &mut ValidationResult) {
             &wh.capacity_curve,
         );
         check("Water heater", &wh.name, "cop_curve", &wh.cop_curve);
+    }
+    // A gas coil takes one part-load fuel form, not both.
+    for al in &model.air_loops {
+        for eq in &al.equipment {
+            if let EquipmentInput::HeatingCoil(c) = eq {
+                if c.plf_curve.is_some() && c.hir_curve.is_some() {
+                    result.severe(format!(
+                        "Heating coil '{}': give plf_curve or hir_curve, not both",
+                        c.name
+                    ));
+                }
+            }
+        }
     }
 }
 

@@ -801,6 +801,21 @@ fn size_air_loop(
     }
 }
 
+/// Share of a component's on-cycle fuel use averaged over a timestep it runs
+/// for `on_fraction` of, having delivered `on_output` [W] while on: its own
+/// part-load fuel curve where it has one, else its runtime share.
+pub(crate) fn fuel_cycling_factor(
+    graph: &SimulationGraph,
+    name: &str,
+    on_fraction: f64,
+    on_output: f64,
+) -> f64 {
+    match graph.node_by_name(name).map(|n| graph.component(n)) {
+        Some(GraphComponent::Air(c)) => c.fuel_cycling_factor(on_fraction, on_output),
+        _ => on_fraction,
+    }
+}
+
 /// Cycling factors of a compressor that runs `loop_plr` of the time at its own
 /// on-cycle part load `coil_plr`: (time-averaged over on-cycle power, the
 /// runtime fraction of a fan cycling with it). E+ `CalcDoe2DXCoil`:
@@ -3294,7 +3309,7 @@ fn main() -> Result<()> {
 
         // ── Warmup: repeat the run period's first week until the zones settle ──
         //
-        // Without warmup, zones start at 21°C but surfaces (especially ground
+        // Without warmup, zones start at outdoor air conditions but surfaces (especially ground
         // slabs) haven't equilibrated: they cool rapidly, creating enormous heat
         // losses that persist for weeks. The repeat runs the whole timestep below,
         // so every system that sets zone conditions acts as it will in the run;
@@ -3312,6 +3327,13 @@ fn main() -> Result<()> {
         });
         let mut warmup_hour = 0_u32;
         let mut next_run_hour = start_hour;
+        // Zone air starts at the outdoor air conditions of the first warm-up
+        // hour (ASHRAE 140-2023 Section 5.1.1).
+        if let Some(ref mut env) = envelope {
+            if let Some(first) = weather_data.hours.get(warmup_start_hour as usize) {
+                env.initialize_zone_air_from_outdoor(first);
+            }
+        }
 
         // Precompute sunlit fractions for the entire simulation period (Suncast-style).
         // Uses Rayon to parallelize the expensive polygon-clipping shadow calculations
@@ -3693,6 +3715,7 @@ fn main() -> Result<()> {
                             &zone_cooling_setpoints,
                             &zone_sp_schedule,
                             hour,
+                            ctx.timestep.hour_fraction(),
                             doy,
                             &|name| env.schedule_manager.value_doy(name, hour, dow, doy),
                         );
@@ -5217,6 +5240,7 @@ fn main() -> Result<()> {
                             &zone_cooling_setpoints,
                             &zone_sp_schedule,
                             hour,
+                            ctx.timestep.hour_fraction(),
                             ctx.timestep.day_of_year(),
                             &|n| {
                                 env.schedule_manager.value_doy(
@@ -7243,8 +7267,11 @@ fn simulate_all_loops(
                             loop_plr
                         };
                     }
+                    // A burner with a part-load fuel curve departs from its
+                    // runtime share (E+ Coil:Heating:Fuel PLF curve).
+                    let on_output = outputs.get("thermal_output").copied().unwrap_or(0.0);
                     if let Some(fp) = outputs.get_mut("fuel_power") {
-                        *fp *= loop_plr;
+                        *fp *= fuel_cycling_factor(graph, comp_name, loop_plr, on_output);
                     }
                     // Thermal output and mass flow scale with PLR
                     // (time-averaged delivery to the zone).
@@ -8361,6 +8388,7 @@ impl ZoneSetpointSchedules {
         &self,
         zone: &str,
         hour: u32,
+        hour_fraction: f64,
         day_of_year: u32,
         read: &dyn Fn(&str) -> Option<f64>,
     ) -> (Option<f64>, Option<f64>) {
@@ -8369,7 +8397,8 @@ impl ZoneSetpointSchedules {
             .get(zone)
             .and_then(|entries| entries.iter().find(|e| e.applies(hour, day_of_year)))
             .map_or((None, None), |e| {
-                (Some(e.heating_setpoint), Some(e.cooling_setpoint))
+                let (h, c) = e.setpoints_at(hour, hour_fraction);
+                (Some(h), Some(c))
             });
         if let Some((h, c)) = self.named.get(zone) {
             heat = h.as_deref().and_then(read).or(heat);
@@ -8388,6 +8417,7 @@ fn scheduled_setpoints(
     cool_base: &HashMap<String, f64>,
     schedules: &ZoneSetpointSchedules,
     hour: u32,
+    hour_fraction: f64,
     day_of_year: u32,
     read: &dyn Fn(&str) -> Option<f64>,
 ) -> Option<(HashMap<String, f64>, HashMap<String, f64>)> {
@@ -8402,7 +8432,7 @@ fn scheduled_setpoints(
         .chain(schedules.named.keys())
         .collect();
     for zone in zones {
-        let (h, c) = schedules.at(zone, hour, day_of_year, read);
+        let (h, c) = schedules.at(zone, hour, hour_fraction, day_of_year, read);
         if let Some(h) = h {
             heat.insert(zone.clone(), h);
         }
@@ -8423,10 +8453,11 @@ fn controlled_setpoints(
     cool_base: &HashMap<String, f64>,
     schedules: &ZoneSetpointSchedules,
     hour: u32,
+    hour_fraction: f64,
     day_of_year: u32,
     read: &dyn Fn(&str) -> Option<f64>,
 ) -> Option<(f64, f64)> {
-    let (h, c) = schedules.at(zone, hour, day_of_year, read);
+    let (h, c) = schedules.at(zone, hour, hour_fraction, day_of_year, read);
     let heat = h.or_else(|| heat_base.get(zone).copied());
     let cool = c.or_else(|| cool_base.get(zone).copied());
     if heat.is_none() && cool.is_none() {
@@ -8469,12 +8500,12 @@ mod tests {
         let none = ZoneSetpointSchedules::default();
         // #291: a thermostat at 21/25 was compared with the 20/27 fallback.
         assert_eq!(
-            controlled_setpoints("Z", &heat, &cool, &none, 12, 100, &|_| None),
+            controlled_setpoints("Z", &heat, &cool, &none, 12, 1.0, 100, &|_| None),
             Some((21.0, 25.0))
         );
         // A zone with no control isn't compared at all.
         assert_eq!(
-            controlled_setpoints("Y", &heat, &cool, &none, 12, 100, &|_| None),
+            controlled_setpoints("Y", &heat, &cool, &none, 12, 1.0, 100, &|_| None),
             None
         );
     }
@@ -8492,11 +8523,11 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            controlled_setpoints("Z", &heat, &cool, &sched, 3, 100, &|_| None),
+            controlled_setpoints("Z", &heat, &cool, &sched, 3, 1.0, 100, &|_| None),
             Some((15.0, 30.0))
         );
         assert_eq!(
-            controlled_setpoints("Z", &heat, &cool, &sched, 12, 100, &|_| None),
+            controlled_setpoints("Z", &heat, &cool, &sched, 12, 1.0, 100, &|_| None),
             Some((21.0, 25.0))
         );
     }
@@ -8519,18 +8550,20 @@ mod tests {
                     start_day: None,
                     end_month: None,
                     end_day: None,
+                    heating_setpoint_end: None,
+                    cooling_setpoint_end: None,
                 }],
             )]),
             ..Default::default()
         };
         let none = &|_: &str| None;
-        let (h, c) = scheduled_setpoints(&heat, &cool, &schedules, 3, 10, none).unwrap();
+        let (h, c) = scheduled_setpoints(&heat, &cool, &schedules, 3, 1.0, 10, none).unwrap();
         assert_eq!((h["A"], c["A"]), (15.0, 30.0));
         assert_eq!((h["B"], c["B"]), (21.0, 25.0));
-        let (h, c) = scheduled_setpoints(&heat, &cool, &schedules, 12, 10, none).unwrap();
+        let (h, c) = scheduled_setpoints(&heat, &cool, &schedules, 12, 1.0, 10, none).unwrap();
         assert_eq!((h["A"], c["A"]), (20.0, 26.0));
         let empty = ZoneSetpointSchedules::default();
-        assert!(scheduled_setpoints(&heat, &cool, &empty, 3, 10, none).is_none());
+        assert!(scheduled_setpoints(&heat, &cool, &empty, 3, 1.0, 10, none).is_none());
     }
 
     /// A named setpoint schedule sets its side of the zone's setpoints and
@@ -8544,10 +8577,10 @@ mod tests {
             ..Default::default()
         };
         let read = &|name: &str| (name == "HTG").then_some(15.6);
-        let (h, c) = scheduled_setpoints(&heat, &cool, &schedules, 3, 10, read).unwrap();
+        let (h, c) = scheduled_setpoints(&heat, &cool, &schedules, 3, 1.0, 10, read).unwrap();
         assert_eq!((h["A"], c["A"]), (15.6, 24.0));
         assert_eq!(
-            controlled_setpoints("A", &heat, &cool, &schedules, 3, 10, read),
+            controlled_setpoints("A", &heat, &cool, &schedules, 3, 1.0, 10, read),
             Some((15.6, 24.0))
         );
     }

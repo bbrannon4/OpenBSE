@@ -9,11 +9,11 @@ Landing inside the acceptance ranges is a separate test (`README.md`). A case ca
 | Section | Cases | Deviations found | Fixed | Tracked (issue) | Equivalent / not modelled |
 |---|---|---|---|---|---|
 | General requirements (5.1.1, Annex A1) | all 96 | 1 | 1 | 0 | 1 |
-| 7 Building thermal envelope and fabric | 27 | 8 | 7 | 1 (#519) | 1 |
-| 9.2.1–9.2.2 Space cooling, analytical (CE100–CE200) | 14 | 0 | 0 | 1 (#523) | 2 |
-| 9.2.3–9.2.4 Space cooling, comparative (CE300–CE545) | 20 | 1 | 0 | 2 (#521, #523) | 1 |
-| 10 Space heating (HE100–HE230) | 11 | 4 | 3 | 1 (#520) | 2 |
-| 11 Air-side HVAC (AE101–AE445) | 24 | 1 | 1 | 1 (#523) | 2 |
+| 7 Building thermal envelope and fabric | 27 | 8 | 8 | 0 | 0 |
+| 9.2.1–9.2.2 Space cooling, analytical (CE100–CE200) | 14 | 1 | 1 | 0 | 2 |
+| 9.2.3–9.2.4 Space cooling, comparative (CE300–CE545) | 20 | 2 | 2 | 0 | 1 |
+| 10 Space heating (HE100–HE230) | 11 | 5 | 5 | 0 | 1 |
+| 11 Air-side HVAC (AE101–AE445) | 24 | 2 | 2 | 0 | 2 |
 
 Machine checks: `conformance_spec.json` lists 2,523 specified values across the 96 cases with their clauses; `crates/openbse-io/tests/ashrae140_conformance.rs` parses each case with the engine's input parser and checks every value, and fails if a case has no entry. Each case's weather file is hash-pinned in `.github/workflows/ci.yml`. See [CI guards](#ci-guards).
 
@@ -31,10 +31,10 @@ Machine checks: `conformance_spec.json` lists 2,523 specified values across the 
 | #530 | Normative weather for Sections 10 and 11; Section 10 infiltration for UA 199.953 W/K | 10, 11 |
 | #531 | HE220/HE230 setback from 23:00 | 10 |
 | #532 | Section 10 circulating fan 0.355 m³/s at 200 W | 10 |
-| #519 | Thermostat schedules cannot ramp within an hour (Case 640/940 recovery ramp) | 7 |
-| #520 | Gas furnace has no part-load fuel curve (HIR(PLR)) | 10 |
-| #521 | Zone air starts at fixed 21 °C / 0.008 kg/kg; CE530–CE545 January infiltration stands in for outdoor-air initialisation | 9 |
-| #523 | Outdoor humidity ratio taken from whole-percent RH instead of dew point | 9, 11 |
+| #519 | Thermostat schedule entries ramp within their period; Cases 640/940 use the Standard's 07:00–08:00 ramp | 7 |
+| #520 | Gas coil part-load fuel curve; Section 10 cases use the Standard's HIR(PLR) | 10 |
+| #521 | Zone air starts at the first hour's outdoor air conditions (was 21 °C / 0.008 kg/kg); CE530–CE545 drop the reference input's January infiltration (0.0 ach all year, 9.2.3.5) | 5.1.1, 9 |
+| #523 | Outdoor humidity ratio from the dew point (was whole-percent RH) | 9, 10, 11 |
 | #53 (existing) | `simple_constructions` layer guess tuned to 140 constructions; no 140 case uses it now | — |
 
 ## Method and citations
@@ -54,7 +54,7 @@ Each requirement was checked three ways: the **input** (the case YAML and weathe
 | G5 | Equivalent modelling methods | 5.1.1.5 | Equivalent inputs with a basis, applied consistently | Lines marked "equivalent" below | — | conforming |
 | G6 | Nonspecified inputs | 5.1.1.6 | Only alternative film coefficients, solar fractions, altitude air density | None used (films, solar distribution and density computed) | — | conforming |
 | G7 | Preconditioning | 5.1.1.7.2 | Apply the program's preconditioning | First week repeated until EnergyPlus warm-up tolerances are met (≤ 28 days) | `openbse-cli/src/warmup.rs` | conforming |
-| G8 | Initial zone state | 5.1.1.7.2 | Not specified for Class I (the outdoor-air start of 5.2.1.6 is for Class II) | 21 °C, 0.008 kg/kg | `HeatBalance::new` | conforming; see CE530–CE545 (#521) |
+| G8 | Initial zone state | 5.1.1.7.2 | Not specified for Class I (the outdoor-air start of 5.2.1.6 is for Class II; HVAC BESTEST Vol. 2 §1.2.2.5 for CE300–CE545) | zone air at the first warm-up hour's outdoor dry-bulb and humidity ratio | `HeatBalance::initialize_zone_air_from_outdoor` | conforming (fixed, #521) |
 | G9 | Simulation duration | 5.1.1.8 | 7, 9.2.3–9.2.4 annual; 9.2.1–9.2.2 ≥ Jan–Feb, Feb reported; 10 Jan–Mar; 11 until steady | 7, 9B Jan–Dec; 9A Jan–Mar, Feb reported; 10 Jan–Mar; 11 Jan 1–7, last hour | `simulation` block; output scripts | conforming |
 | G10 | Weather data | Annex A1; per section | The named normative file | Normative files converted field for field (W1–W5); hash-pinned | `openbse-weather::read_tmy3` | fixed for 10, 11 (#530) |
 
@@ -66,7 +66,7 @@ Each requirement was checked three ways: the **input** (the case YAML and weathe
 | W4 | HE100–HE230 | HE100W, HE120W, HE130W, HE140W, HE210W .WY2 (10.2.1.1, 10.2.2.2–10.2.2.4, 10.2.3.1.1) | `weather/HE*W.csv` (`convert_wy2_weather.py`) | identical; RH from dew point (WYEC2 has none); timestamps by record order (record 40 is mislabelled in the files). Was: BLAST-derived EPWs for HE100–HE140 (pressure 101,730 vs 101,330 Pa, RH 50% constant) | fixed (#530) |
 | W5 | AE101–AE445 | AE101, AE103–AE106 .TM2 (11.2.1.1.7; Table 11-4 ff.) | `weather/AE10x.csv` (`convert_tm2_weather.py`) | identical. Was: EPWs from the reference inputs' wet-bulb (dew point 0.2–5.8 K off, pressure 101,325 Pa) | fixed (#530) |
 
-The engine reads outdoor humidity from the RH column, which TMY files hold as whole percent, not from the dew point (#523). Effect: < 0.3% on Section 11 latent coil loads per the note to Table 11-4; similar order elsewhere.
+The engine takes the outdoor humidity ratio from the dew point and pressure, as EnergyPlus does (`WeatherHour::humidity_ratio`; fixed, #523). It used to take it from the RH column, which TMY files hold as whole percent; the change moved CE and AE coil loads and humidities by ≤ 0.2%.
 
 ## Section 7 — Building thermal envelope and fabric load tests
 
@@ -115,7 +115,7 @@ Each case is Case 600 plus the lines listed (7.2.2, Table B1-2 base cases).
 | 610 | 600 | South overhang | 7.2.2.1.1, Figure 7-3 | 1.0 m deep at roof level, full wall length; absorptance 1, IR ε 0, both sides shade, minimal thickness | `shading_surfaces` 0–8 m × 1.0 m at z 2.7; engine shading surfaces are opaque, zero-thickness, and neither reflect nor emit | conforming |
 | 620 | 600 | East/west windows | 7.2.2.1.2.1, Figure 7-4 | 6 m² east, 6 m² west, none south | vertices as specified | conforming |
 | 630 | 620, 610 | Overhang and fins on E/W windows | 7.2.2.1.3, Figures 7-5, 7-6 | 1.0 m overhang at roof level over each window; 1.0 m fins at the window edges, full wall height; properties as 610 | window `shading`: overhang depth 1.0, 0.5 m above the window head; fins depth 1.0 from ground to eave (same geometry as the accompanying EnergyPlus input) | conforming |
-| 640 | 600 | Setback | 7.2.2.1.4.1.1 | heat < 10 °C 23:00–07:00, linear ramp 07:00–08:00 reached at the end of each sub-hourly step, < 20 °C 08:00–23:00; cool > 27 °C | hours 1–7, 24 at 10 °C; hour 8 at 16.25 °C (mean of the 15-minute ramp values); hours 9–23 at 20 °C | equivalent; tracked (#519) |
+| 640 | 600 | Setback | 7.2.2.1.4.1.1 | heat < 10 °C 23:00–07:00, linear ramp 07:00–08:00 reached at the end of each sub-hourly step, < 20 °C 08:00–23:00; cool > 27 °C | hours 1–7, 24 at 10 °C; hour 8 ramps 10 → 20 °C (`heating_setpoint_end`), read at the end of each 15-minute step: 12.5, 15, 17.5, 20 °C; hours 9–23 at 20 °C | conforming (fixed, #519) |
 | 650 | 600 | Vent schedule | 7.2.2.1.5.1.1 | vent ON 18:00–07:00 (hours 19–24, 1–7), unconditional; heating off; cooling > 27 °C 07:00–18:00 only | hours 1–7, 19–24; no temperature condition; heating capacity 0; cooling set point 100 °C in vent hours | fixed (#528; was outdoor-cooler condition) |
 | 650 | 600 | Vent rate | 7.2.2.1.5.2, Table 7-16 | 1700 m³/h, altitude-corrected programs = 13.12 ach; no fan heat | 13.12 ach at outdoor density | conforming |
 | 660 | 600 | Low-e argon window | 7.2.2.1.6.1.2, Table 7-17 | outer CSR42 3.180 mm, τ 0.452, ρf 0.359, ρb 0.397, inside ε 0.047; inner clear 3.048 mm; 12.0 mm argon | as specified | conforming |
@@ -127,7 +127,7 @@ Each case is Case 600 plus the lines listed (7.2.2, Table B1-2 base cases).
 | 910 | 610, 900 | as 610, high mass | 7.2.2.2.2 | — | as specified | conforming |
 | 920 | 620, 900 | as 620, high mass | 7.2.2.2.3 | — | as specified | conforming |
 | 930 | 630, 900 | as 630, high mass | 7.2.2.2.4 | — | as specified | conforming |
-| 940 | 640, 900 | as 640, high mass | 7.2.2.2.5 | 640 schedule | 640 schedule | fixed (#529; ramp was missing); equivalent, tracked (#519) |
+| 940 | 640, 900 | as 640, high mass | 7.2.2.2.5 | 640 schedule | 640 schedule | fixed (#529, #519) |
 | 950 | 650, 900 | as 650, high mass | 7.2.2.2.6 | 650 vent | hours 1–7, 19–24, 13.12 ach | fixed (#528; hour 19 was off) |
 | 960 | 600, 900 | Two zones; common wall | 7.2.2.2.7.2, Table 7-29 | concrete 0.20 m (0.51, 1400, 1000), α 0.6, ε 0.9 | layered | fixed (#525) |
 | 960 | 600, 900 | Back zone | 7.2.2.2.7.1 | as 600 with common wall for the south wall; 0.5 ach; 200 W gains | Case 600 layers, 0.5 ach, 200 W | conforming |
@@ -143,7 +143,7 @@ Each case is Case 600 plus the lines listed (7.2.2, Table B1-2 base cases).
 | all FF | — | Free-float outputs | 7.3.6 | annual hourly integrated max, min (with date), mean zone air temperature | gate averages sub-hourly rows to the hour (`build_140_csv.py`) | conforming |
 | 900FF | 900 | Temperature bins | 7.3.7 | 1 °C bins | template post-processor from hourly temperatures | conforming |
 
-Cases 640/940: the ramp hour is an equivalent input (5.1.1.5) until thermostat schedules can vary within an hour (#519). The 16.25 °C value is the mean of the set points at the end of each 15-minute step in clause c(1).
+Cases 640/940: the ramp is the clause c(1) input itself. A thermostat schedule entry with an end set point ramps linearly across its period and is read at the end of each time step (`ThermostatScheduleEntry::setpoints_at`).
 
 ## Section 9.2.1–9.2.2 — Space-cooling equipment, analytical verification (CE100–CE200)
 
@@ -171,7 +171,7 @@ Engine paths: DX coil (`cooling_coil.rs`) with capacity and EIR tables on enteri
 | CE100-16 | Energy outputs | 9.3.1.1 | Feb compressor, indoor fan, outdoor fan, total (kWh) | `generate_ashrae140_CE_submission.py` from hourly component powers | conforming |
 | CE100-17 | Coil and zone loads | 9.3.1.2–9.3.1.3 | total/sensible/latent coil loads; zone loads (coil minus fan heat) | hourly coil loads; zone sensible = coil sensible − supply-fan heat | conforming |
 | CE100-18 | Means, extremes | 9.3.1.4 | COP = net refrigeration effect / total energy; IDB; zone W; hourly max/min | as defined | conforming |
-| CE100-19 | Outdoor humidity | 9.2.1.1, A1.2 | weather dew point / RH | engine reads RH column | tracked (#523; constant 14 °C dew point files) |
+| CE100-19 | Outdoor humidity | 9.2.1.1, A1.2 | weather dew point / RH | humidity ratio from the dew point | conforming (fixed, #523) |
 
 ### CE110–CE200
 
@@ -209,7 +209,7 @@ Latent gains enter the zone moisture balance with h_fg = 2501 kJ/kg; the clause 
 | CE300-8 | Part load | 9.2.3.10 | CDF = 1 − 0.229 (1 − PLR) | PLF curve 0.771 + 0.229 PLR | conforming |
 | CE300-9 | Fans | 9.2.3.10 | supply fan continuous (cycles from CE500), rated at standard density; condenser fan cycles | fan `air_density` standard; condenser fan with compressor | conforming |
 | CE300-10 | Outputs | 9.3.2 | annual sums, means, hourly maxima/minima (extremes after Mar 31 where stated) | `ce_b_results.py` | conforming |
-| CE300-11 | Outdoor humidity | 9.2.3.1 | weather dew point / RH | RH column | tracked (#523) |
+| CE300-11 | Outdoor humidity | 9.2.3.1 | weather dew point / RH | humidity ratio from the dew point | conforming (fixed, #523) |
 
 ### CE310–CE545
 
@@ -229,10 +229,10 @@ Latent gains enter the zone moisture balance with h_fg = 2501 kJ/kg; the clause 
 | CE500 | — | 0% OA, mid gains, fan cycles, 25 °C | as specified | conforming |
 | CE510 | CE500 | high PLR gains | 21,103 / 8573 W peaks | conforming |
 | CE520, CE522, CE525 | CE500 | set point 15, 20, 35 °C | as specified | conforming |
-| CE530 | CE500 | dry coil (latent 0); infiltration 0.0 ach (9.2.3.5) | latent 0; **1 m³/s infiltration Jan 1–7** | tracked (#521) |
-| CE540, CE545 | CE530 | set point 15, 35 °C | as CE530 | tracked (#521) |
+| CE530 | CE500 | dry coil (latent 0); infiltration 0.0 ach for the entire simulation (9.2.3.5) | latent 0; no infiltration | conforming (fixed, #521; was 1 m³/s Jan 1–7 from the reference EnergyPlus input) |
+| CE540, CE545 | CE530 | set point 15, 35 °C | as CE530 | conforming (fixed, #521) |
 
-CE530–CE545: the January infiltration comes from the accompanying EnergyPlus input, where it brings zone humidity to outdoor conditions. It is not in the specification. Removing it with the engine as it is leaves the dry-coil zone at the engine's fixed 0.008 kg/kg start value: annual mean humidity ratio falls 17% and leaves its gate range, and CE545 condenser-fan energy rises 1.3% over its ceiling. Both follow from the arbitrary start state, not from physics. The correct fix initialises zone humidity from outdoor air, as EnergyPlus does, and removes the infiltration in the same change (#521). Until then the input stays and is recorded here.
+CE530–CE545: no infiltration, as Section 9.2.3.5 requires. The first week is repeated as preconditioning (5.1.1.7.2), and the zone air starts at the first hour's outdoor conditions (the Class II rule of 5.2.1.6; Class I specifies no start state). With no moisture source or sink, a dry-coil zone keeps that humidity all year: 0.0029 kg/kg from CE300's 1 January 01:00. The Standard's reference EnergyPlus input instead adds first-week January infiltration, contrary to 9.2.3.5. The example programs' humidity and energy results therefore reflect other start states, and the gate reports these cases' energy, COP and humidity without gating them (`ce_b_informative`). Coil loads and zone temperatures stay gated.
 
 ## Section 10 — Space-heating equipment (HE100–HE230)
 
@@ -244,14 +244,14 @@ Engine paths: fuel-fired heating coil (`heating_coil.rs`): fuel = output / effic
 |---|---|---|---|---|---|
 | HE100-1 | Weather | 10.2.1.1 | HE100W.WY2 | `HE100W.csv` (W4) | fixed (#530) |
 | HE100-2 | Geometry | 10.2.1.3 | 48 m², 129.6 m³ | as specified | conforming |
-| HE100-3 | Heat-loss method | 10.2.1.7, 10.2.1.9 | programs without user-set convection coefficients use the infiltration method instead of the roof-coefficient method | the engine has no user-set coefficients; infiltration method, all surfaces adiabatic | conforming |
-| HE100-4 | Envelope | 10.2.1.9.2, Table 10-2 | near-adiabatic, no capacitance | adiabatic surfaces, heat capacity 0 | equivalent (adiabatic for near-adiabatic; Table 10-2 UA ≈ 0) |
-| HE100-5 | Infiltration | 10.2.1.9.3 | ≈ 0.2 kg/s; total effective UA 199.953 W/K | mass flow 199.953 / cp(W) (0.196–0.199 kg/s), volume for each file's mean pressure and humidity at 20 °C | fixed (#530; was 0.1657 m³/s tuned to the wrong pressure) |
+| HE100-3 | Heat-loss method | 10.2.1.7, 10.2.1.9 | programs without user-set convection coefficients use the infiltration method instead of the roof-coefficient method, complying with all of 10.2.1 except 10.2.1.4.1, 10.2.1.5, 10.2.1.7 and 10.2.1.8 | the engine has no user-set coefficients; infiltration method, envelope per Table 10-2 | conforming |
+| HE100-4 | Envelope | 10.2.1.9.2, Table 10-2 | wall 75.6 m², floor and roof 48.0 m², k 0.01 W/(m·K), t 1.00 m, U 0.01 W/(m²·K) face to face; zone above ground (10.2.1.7.1) | all six surfaces exposed to outdoors, one resistance-only layer R = 100 m²·K/W (no capacitance is specified) | conforming (fixed; was adiabatic surfaces, "equivalent", which 10.2.1.9.2 does not permit) |
+| HE100-5 | Infiltration | 10.2.1.9.3 | ≈ 0.2 kg/s; total effective UA, including residual flow through the envelope, 199.953 W/K | infiltration UA 199.953 − 1.713 (Table 10-2 envelope with films) = 198.240 W/K, as mass flow / cp(W), volume for each file's mean pressure and humidity at 20 °C | fixed (#530; envelope share subtracted with HE100-4) |
 | HE100-6 | Internal gains | 10.2.1.6 | none | none | conforming |
 | HE100-7 | System | 10.2.1.10.1 | 100% convective, sealed combustion, no pilot, no duct loss, fan heat to air, draft heat to flue | gas coil to supply air; draft fan as parasitic electric | conforming |
 | HE100-8 | Thermostat | 10.2.1.10.2 | heat < 20 °C, ideal, nonproportional | 20 °C | conforming |
 | HE100-9 | Capacity, efficiency | 10.2.1.10.3 | 10 kW, 100% | 10 000 W, 1.0 | conforming |
-| HE100-10 | Part-load curve | 10.2.1.10.4 | PLF = PLR / HIR(PLR), HIR coefficients a–d | none: fuel linear in output | tracked (#520) |
+| HE100-10 | Part-load curve | 10.2.1.10.4 | PLF = PLR / HIR(PLR), HIR coefficients a–d | `hir_curve` with the Standard's coefficients; fuel = full-load fuel × HIR at the timestep's part load | conforming (fixed, #520) |
 | HE100-11 | HHV | 10.2.1.10.5 | 38 MJ/m³ at STP | `GAS_HHV_J_PER_M3 = 38e6` (submission script) | conforming |
 | HE100-12 | Fans | 10.2.1.10.6 | 0 W | none | conforming |
 | HE100-13 | Duration and outputs | 5.1.1.8.4, 10.3 | Jan–Mar; load, input, fuel, fan energy, zone temperatures | Jan–Mar; `generate_ashrae140_HE_submission.py` | conforming |
@@ -290,7 +290,7 @@ Engine paths: single-zone and multizone air loops (`openbse-airloop`), electric 
 | AE-8 | Coils | 11.2.1.1.3 | modulate to the exact supply temperature, capacity ≥ load, cooling BF = 0 (leaving air saturated when wet) | coils sized above load; ideal leaving condition | conforming |
 | AE-9 | Duration | 5.1.1.8.5 | until steady | Jan 1–7, last hour reported | conforming |
 | AE-10 | Outputs | 11.3 | coil loads (kWh/h) and node states | `generate_ashrae140_AE_submission.py`; node-state outdoor W from the weather files as the engine computes it (#530) | conforming |
-| AE-11 | Outdoor humidity | Table 11-4 note | dew point exact (RH equivalent, < 0.3% effect) | RH column | tracked (#523) |
+| AE-11 | Outdoor humidity | Table 11-4 note | dew point exact (RH equivalent, < 0.3% effect) | humidity ratio from the dew point | conforming (fixed, #523) |
 
 ### AE cases
 

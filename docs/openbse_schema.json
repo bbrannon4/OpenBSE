@@ -770,6 +770,8 @@
         "setpoint": { "type": "number", "default": 35.0, "description": "Outlet air temperature setpoint [C]." },
         "efficiency": { "type": "number", "default": 1.0, "minimum": 0, "maximum": 1, "description": "Heating efficiency [0-1]: conversion efficiency of an electric coil (energy = heat / efficiency), burner efficiency of a gas coil. Ignored for hot_water source (boiler handles efficiency)." },
         "parasitic_electric_load": { "type": "number", "default": 0.0, "minimum": 0, "description": "On-cycle parasitic electric load [W] for gas coils (draft / inducer fan). Runs with the burner; adds no heat to the supply air." },
+        "plf_curve": { "type": "string", "description": "Gas coils: name of a top-level performance curve for the part-load fraction PLF(PLR). Fuel = full-load fuel x PLR / PLF, with PLF floored at 0.7 (E+ Coil:Heating:Fuel Part Load Fraction Correlation Curve). Give this or hir_curve; without either, fuel is proportional to output." },
+        "hir_curve": { "type": "string", "description": "Gas coils: name of a top-level performance curve for the heat input ratio HIR(PLR). Fuel = full-load fuel x HIR, i.e. PLF = PLR / HIR (the form ASHRAE 140 Section 10 specifies). Give this or plf_curve." },
         "cop": { "type": "number", "default": 3.0, "description": "Rated heating COP (heat_pump source only)." },
         "rated_airflow": { "type": "number", "default": 0.0, "description": "Rated airflow [m3/s] (heat_pump source only). 0 = derived from capacity (~500 CFM/ton)." },
         "supplemental_capacity": { "type": "number", "default": 0.0, "minimum": 0, "description": "Supplemental electric resistance capacity [W] (heat_pump source only; 0 = none)." },
@@ -1494,7 +1496,9 @@
         "start_month": { "type": "integer", "minimum": 1, "maximum": 12, "description": "Optional date-range start month. All four date fields must be given together; a range whose end precedes its start wraps across the new year." },
         "start_day": { "type": "integer", "minimum": 1, "maximum": 31, "description": "Optional date-range start day." },
         "end_month": { "type": "integer", "minimum": 1, "maximum": 12, "description": "Optional date-range end month." },
-        "end_day": { "type": "integer", "minimum": 1, "maximum": 31, "description": "Optional date-range end day." }
+        "end_day": { "type": "integer", "minimum": 1, "maximum": 31, "description": "Optional date-range end day." },
+        "heating_setpoint_end": { "type": "number", "description": "Heating setpoint at the end of the window [C]. When given, the heating setpoint ramps linearly from heating_setpoint at the window's start to this value at its end, read at the end of each timestep. Hours are hour-ending: a window from hour 8 to hour 8 runs 07:00-08:00." },
+        "cooling_setpoint_end": { "type": "number", "description": "Cooling setpoint at the end of the window [C], ramping as heating_setpoint_end does." }
       }
     },
 
