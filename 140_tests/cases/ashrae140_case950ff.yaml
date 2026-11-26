@@ -7,7 +7,7 @@
 #
 # Building: 8m (E-W) x 6m (N-S) x 2.7m height = 129.6 m3
 # Same as Case 900 except with scheduled night ventilation and no HVAC:
-#   1800-0700: 13.14 ACH mechanical ventilation (night venting)
+#   1800-0700: 13.12 ACH mechanical ventilation (night venting)
 #   0700-1800: Normal infiltration only (0.5 ACH)
 #
 # Two south-facing windows: each 3m wide x 2m tall
@@ -179,23 +179,23 @@ infiltration:
 
 # Free-float case: No HVAC system, zone temperature floats freely
 
-# Night ventilation (ASHRAE 140-2023 Section 7.2, Case 650; 140-2017
-# Addendum a 5.2.2.1.5): vent fan ON 18:00-07:00 (hours 19-24 and 1-7 in the
-# hour-ending convention, hour N = (N-1):00 to N:00), OFF 07:00-18:00, in
-# addition to the 0.5 ach infiltration. Capacity 1703.16 m3/h = 13.14 ach of
-# the 129.6 m3 zone; the engine takes air density from the weather file's
-# pressure, so no altitude adjustment applies (Table 5-16).
+# Night ventilation (ASHRAE 140-2023 Section 7.2.2.1.5): vent fan ON
+# 18:00-07:00 (hours 19-24 and 1-7 in the hour-ending convention of Section
+# 5.1.1.1, hour N = (N-1):00 to N:00), OFF 07:00-18:00, in addition to the
+# 0.5 ach infiltration. Capacity 1700 m3/h = 13.12 ach of the 129.6 m3 zone;
+# the engine takes air density from the weather file's pressure, so the
+# automatic-altitude row of Table 7-16 applies.
 ventilation:
   - name: Night Ventilation 1
     zones: [Case950FF Zone]
     start_hour: 0
     end_hour: 7
-    air_changes_per_hour: 13.14
+    air_changes_per_hour: 13.12
   - name: Night Ventilation 2
     zones: [Case950FF Zone]
     start_hour: 19
     end_hour: 24
-    air_changes_per_hour: 13.14
+    air_changes_per_hour: 13.12
 
 # ─── Surfaces with 3D Vertices ──────────────────────────────────────────────
 # Same geometry as Case 900 (same as Case 600 layout).
