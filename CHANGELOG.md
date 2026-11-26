@@ -7,7 +7,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [0.8.0] - 2026-11-26
+
+### Summary of November 2026
+
+v0.8.0 comes after a review of every model in the engine against EnergyPlus and the Engineering Reference, and an input-by-input conformance audit of the ASHRAE 140 cases. Results change for every shipped model. The bug-fixing pass (#267) closed the review's findings (#188–#264), group by group. The post-pass review (#328) and the 140 audit (#507) followed it. ASHRAE 140: 550 of 550 results inside their ranges. `140_tests/CONFORMANCE.md` records each case's requirements against its inputs, engine paths and outputs.
+
+### Added (November)
+- **Thermostat setpoint schedules** (`heating_setpoint_schedule`, `cooling_setpoint_schedule`; #469). A `thermostat_schedule` entry can now ramp across its period with `heating_setpoint_end` / `cooling_setpoint_end`, read at the end of each timestep (#519).
+- **Gas coil part-load fuel curves**: `plf_curve` (E+ Part Load Fraction Correlation Curve) or `hir_curve` (heat input ratio, as ASHRAE 140 Section 10 specifies). Both apply at the timestep's overall part load, whether the coil modulates or its loop cycles it (#520).
+- **Daylighting controls** (E+ `Daylighting:Controls`, split-flux method; #476).
+- **Layered window model**: E+ face-temperature solve, layer optics and layer-by-layer glazing (#465).
+- **Air-side controls**: night-cycle availability (#470), high-temperature turn-off (#473), multi-speed packaged units with multi-speed DX coils and fan speeds (#471), VAV minimum-flow schedules (#485), zone minimum design cooling flow (#484), daylight saving time (#505).
+- **Plant**: return-temperature reset (#491), load-range operation schemes with E+ load distribution (#501), heating-led heat-recovery chiller (#486), constant-speed pumps and decoupled primary/secondary loops (#490).
+- **Other inputs**: equipment on any fuel and outdoor-controlled baseboards (#462), humidifier rated capacity (#487), TARP outside convection (#504), and unmet-hour reporting tolerances (#478).
+- **ASHRAE 140 conformance record** and a spec-value test for every case, with pinned normative weather (#534).
+- **Code and standard reference data** (#408, first part of #341): ASHRAE 90.1-2025 lighting power densities and envelope criteria, prescriptive and Appendix G, under `data/standards/` with a citation for every value. A `standard:` block fills each zone's lighting from its `space_type`, and each surface's construction from the table for its climate zone, when the model loads. Explicit values win, and the summary report lists every value used with its source table.
+
+### Changed (November)
+- **Zone air starts at the outdoor air's temperature and humidity** in the first warmup hour (was 21 °C and 0.008 kg/kg; #521).
+- **Outdoor humidity ratio comes from the dew point**, as E+ does (was whole-percent RH; #523).
+- **PSZ cycling defaults to modulating** (E+ UnitarySystem load control; #481).
+- **People's sensible heat is E+'s autocalculated value by default** (#459).
+- **Unmet hours** count the building, not summed zone-hours, against the setpoints the HVAC controls to (#294, #424).
+- **Design days have a clear sky**, as in E+ (#488). Zone design flows follow E+'s per-timestep flow sequence (#502).
+- **Massive constructions** use E+'s CTF time step, with nodes on the surfaces (#449, #452).
+- **The mode predictor** uses the current timestep, and warmup runs the full timestep on the run's first week (#270, #272).
+- **Stricter input checks**: unknown curve names (#416), unknown schedules (#279) and malformed weather fields (#436) are errors.
+- **Prototype models**: the retail and Hospital models are transcribed object by object from their DOE IDFs (#474, #457, #513). LargeOffice_expanded is retired (#445).
+
+### Fixed (November): the bug-fixing pass (#267) and post-pass review (#328)
+- **Zones and envelope**:
+  - polyhedron zone volumes (#281, #300);
+  - multiplied zones count HVAC once (#282);
+  - one-to-one interzone pairs (#302);
+  - radiant gains weighted by area and emissivity (#307);
+  - F-factor floors as in E+ (#311);
+  - ISO 15099 window convection and E+ simple-glazing films (#312, #313);
+  - shading on by default, with transmittance-scaled shadows (#305, #316);
+  - natural ventilation coefficients (#317);
+  - converged surface–air passes (#318, #439);
+  - HAMT solver fixes (#322);
+  - per-area loads using the geometric floor area (#455).
+- **Weather and site**:
+  - E+ sub-hourly interpolation and the Perez sky (#292, #293);
+  - sky temperature from horizontal IR (#296);
+  - one water property table (#298);
+  - monthly ground temperatures (#299);
+  - design-day humidity and temperature profile (#290).
+- **Sizing**:
+  - sizing factors applied once (#326);
+  - coils sized at their design inlet (#331);
+  - pumps sized from the loop design load (#334);
+  - converged design days (#336);
+  - VRP outdoor air (#337, #344);
+  - coincident peaks and averaging windows (#441, #443);
+  - terminal reheat autosizing (#477, #494).
+- **Air side and terminals**:
+  - water-coil water sides connected (#356);
+  - DX cycling penalty at the compressor's part load (#348);
+  - VAV, dual-duct and fan-powered box flows and reheat (#354, #360, #367);
+  - fan coils, VRF and radiant panels meet the load (#369, #371, #372, #373);
+  - GSHP EIR convention (#370);
+  - outdoor air only for the zones a loop serves (#368, #412, #499);
+  - heat recovery at the coils' mixed-air setpoint (#420, #447).
+- **Plant**:
+  - pump defaults and pump heat (#374, #376);
+  - chillers and boilers follow the loop setpoint (#377);
+  - condenser false load (#378);
+  - thermal storage (#379, #380);
+  - heat exchangers (#381, #382);
+  - cooling towers (#383);
+  - Standard 205 chillers at part load (#384).
+- **Data centres, DHW and co-simulation**:
+  - CRAC/CRAH supply temperature and UPS curves (#400, #409, #410);
+  - DHW mains and tank (#285, #396);
+  - co-simulation flags, timeouts and working directory (#352, #422).
+- **AFN**: crack and orifice flows as E+ `generic_crack`, plus large-opening heights (#429, #430, #431).
+- **ASHRAE 140 inputs** (#507):
+  - normative weather for every section (#479, #530);
+  - the Standard's layered constructions, glass and solar absorptance (#524, #525, #526);
+  - solar distribution, night ventilation and setback schedules (#527, #528, #529, #531);
+  - the Section 10 fan (#532);
+  - hourly integrated peaks (#533);
+  - CE_b coil curves from the normative map (#427).
+- **Workbench**: saves edit only what changed (#419), and the comfort grid reports skipped zones (#418). `--output` creates its folder (#417).
+
+### Added (October)
 - **ASHRAE 90.1-2025 reference data and quick-start import** (#341). A model's new `standard:` block names a standard, edition, method (`prescriptive` or `appendix_g`) and climate zone. At load, zones get lights at the table LPD for their `space_type` (or the building area type), and surfaces without a `construction` get one built from the envelope tables. Explicit lights and constructions always win, and the summary report lists every value used with its table, row and printed value.
   - Data in `data/standards/ashrae_90_1/2025/`, one file per table, compiled into the binary: LPD Tables 9.5.1, 9.5.2.1-1/-2, G3.7-1/-2 and G3.8; envelope Tables 5.5-0 to 5.5-8 and G3.4-1 to G3.4-8 (opaque U, C and F-factors; fenestration U, SHGC, VT and VT/SHGC). Each table is stored as printed (I-P) and in SI (exact conversion); a test rejects malformed files and SI values that drift from their source.
   - Opaque constructions are typical layered assemblies with one no-mass insulation layer solved so the assembly, with the air films 90.1 Appendix A assumes, meets the table U-factor exactly. Slabs use the F-factor method; windows the simple glazing model.
@@ -86,7 +172,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Heating gas** goes from 70.7 to 4.8 MWh (E+ 647). The chiller recovers 62 MWh, against 653 MWh in E+, because the Hospital's hot-water load here is about 67 MWh a year against 1,194 MWh in E+. That is the known reheat gap.
   - **Effect of the small hot-water demand:** most of the chiller's condenser heat goes to 21 °C tower water, so it runs at COP 4.5 against E+'s 3.1.
   - **It also carries more CHW load** (838 against 620 MWh), since nothing here limits it the way E+'s bypass heat exchanger does.
-### Changed
+### Changed (October)
 - **An `autosize` input that nothing sizes now stops the run.** Air-side sizing runs only from `design_days`, so without them every air-side `autosize` kept the internal sentinel (−99,999): fans fell back to 0.5 kg/s and coils to 0 W, with no warning. That is how `examples/datacenter_crah.yaml` ran its data hall at thousands of degrees. After air-side and plant sizing, every field still unsized is a severe error in the `.err` file, naming the component and field and saying what would size it: design days, or an explicit value where OpenBSE does not autosize that field. Covered: component capacities and design air and water flows, `controls.design_zone_flow`, dual-duct boxes, VRF indoor units (which fell back to 3 kW) and radiant panels. Fields resolved some other way are unaffected, such as the DHW pump's design flow, which comes from the draw rates.
 - **A surface or internal mass that names an undefined construction is now an error.** It used to run with a placeholder: U = 5.0 W/m²K for opaque surfaces, U = 3.0 and SHGC = 0.7 for windows. The construction must also be the right kind. A window must name a `window_constructions` entry; other surfaces must name a `constructions`, `simple_constructions` or `f_factor_constructions` entry. No shipped model used an undefined name. A new test requires every shipped model to pass validation.
 - **Unknown keys in a model are now an error** (#127). A misspelt or unsupported key (`efficency:`, `flow_per_person:`) used to be dropped silently and the field's default used, so a typo quietly changed the model. The error names the key, its location and the accepted keys. Models that relied on stray keys being ignored need those keys removed. Five examples that had never parsed were brought up to the current schema and now run: `chiller_table_curves`, `chw_plant_condenser`, `hotel_pthp`, `hotel_radiant_panels` and `office_dual_duct`. A new test parses every shipped model with the strict parser.
@@ -98,7 +184,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fan `source` values other than `constant_volume`, `vav` and `on_off` are now an input error. Previously, values such as `variable` or `variable_volume` silently ran as constant volume.
 - Fixed examples that used ignored keys: `examples/datacenter_crah.yaml` (fan `source`, pump efficiency, unoccupied setpoint names) and `prototype_tests/large_office/LargeOffice_Boulder*.yaml` (data-center fans now actually run as VAV, which changes their results). `schema_sync` now fails on any unknown key in a repo YAML.
 
-### Fixed
+### Fixed (October)
 - **Per-area loads with an auto-calculated floor area resolved to zero.** `watts_per_area`, `people_per_area`, `area_per_person` and per-floor-area flows multiplied the zone's YAML `floor_area` before the engine computed it from the floor vertices, so a zone that left `floor_area` out got no such load. They now use the computed area. `examples/doe_retail_standalone.yaml` gains its lights (82.8 MWh) and occupants: cooling 22.1 → 46.4 MWh, gas heating 156.4 → 39.8 MWh, unmet cooling hours 2,103 → 4,227 (fixed E+ DX capacities, #165).
 - **Zone multipliers no longer double-count HVAC** (#280). A multiplier of N now scales every end use by exactly N: fans came out at about 5.8× and heating and cooling at about 3× for N = 2. Sizing is now per zone instance, so hard-sized capacities are per instance too, and a loop or VRF system serving zones with different multipliers is a severe error. Building load totals now count every instance.
 - **Material inputs are validated** (#203). A construction layer naming an undefined material, a construction with no layers, a non-positive layer thickness, and a massed material missing conductivity, density or specific heat are now severe errors. They used to drop the layer or use defaults silently. `thermal_absorptance_inside` is now honoured, and the unread `thickness` on `simple_constructions` is removed, so models that set it must drop it.
