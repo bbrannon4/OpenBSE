@@ -16,6 +16,9 @@
     "examples/1zone_uncontrolled.yaml": {
       "tier": "fast"
     },
+    "examples/ashrae_901_2025_quick_start.yaml": {
+      "tier": "fast"
+    },
     "examples/chiller_table_curves.yaml": {
       "tier": "fast",
       "max_unmet_heating_hours": 2450,

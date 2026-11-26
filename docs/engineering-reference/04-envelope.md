@@ -331,7 +331,8 @@ outside face is held at the construction's monthly ground temperatures
 
 **Comparison with EnergyPlus.** This is `Construction:FfactorGroundFloor`
 as built by `HeatBalanceManager::CreateFCfactorConstructions`. C-factor walls
-(`Construction:CfactorUndergroundWall`) don't exist.
+(`Construction:CfactorUndergroundWall`) don't exist
+([#401](https://github.com/bbrannon4/OpenBSE/issues/401)).
 
 ## Heat and moisture transfer (HAMT) {#sec-hamt}
 
@@ -1486,7 +1487,8 @@ infiltration or ventilation flows) uses the zone's stated floor area, or else
 the area of its floor surfaces (@sec-zone-geometry); such a load on a zone
 with neither is a severe error. Equipment given per person uses the zone's
 design number of people, the sum of its people counts; per-person
-equipment in a zone without people is a severe error. With $f$ applied:
+equipment in a zone without people is a severe error. A code or standard can
+supply lighting levels (@sec-standards). With $f$ applied:
 
 - **People.** $N$ occupants, either a count or per floor area, release
   sensible $Q_s = N f\,q_s$ and latent $Q_l = N f\,q_l$, with

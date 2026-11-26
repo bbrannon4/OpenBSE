@@ -52,7 +52,9 @@ pub struct SurfaceInput {
     /// Surface type
     #[serde(rename = "type")]
     pub surface_type: SurfaceType,
-    /// Construction name (opaque or window)
+    /// Construction name (opaque or window). May be omitted when the model's
+    /// `standard:` block builds the construction from the standard's tables.
+    #[serde(default)]
     pub construction: String,
     /// Gross area [m²] (auto-calculated if vertices are provided)
     #[serde(default)]

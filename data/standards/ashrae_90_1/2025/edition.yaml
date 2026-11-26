@@ -1,0 +1,83 @@
+# ANSI/ASHRAE/IES Standard 90.1-2025: what the edition defines, and the choices
+# OpenBSE makes when it applies the edition to a model.
+#
+# Values are facts transcribed from the I-P edition, with a citation. The
+# standard's text is not reproduced. `ip/` holds the tables as printed; `si/`
+# holds the same tables converted to SI (see data/standards/README.md).
+standard: ashrae_90_1
+edition: "2025"
+citation_name: ASHRAE 90.1-2025
+source_units: ip
+methods: [prescriptive, appendix_g]
+climate_zones: [0A, 0B, 1A, 1B, 2A, 2B, 3A, 3B, 3C, 4A, 4B, 4C, 5A, 5B, 5C, 6A, 6B, "7", "8"]
+envelope_categories: [nonresidential, residential, semiheated]
+
+# Air-film resistances assumed by the assembly U-factors, h·ft²·°F/Btu
+# (Normative Appendix A, Section A9.4.1).
+air_films:
+  citation: Section A9.4.1
+  exterior: 0.17
+  semiexterior: 0.46
+  interior_vertical: 0.68
+  interior_heat_flow_up: 0.61
+  interior_heat_flow_down: 0.92
+
+# Assembly classes used when the project names none. These are OpenBSE
+# choices, not requirements of the standard. The Appendix G tables list only
+# the baseline classes, so those defaults are the only valid choice there.
+defaults:
+  prescriptive:
+    envelope_category: nonresidential
+    classes:
+      roof: insulation_entirely_above_deck
+      wall_above_grade: steel_framed
+      wall_below_grade: below_grade_wall
+      floor: steel_joist
+      slab_on_grade: unheated
+      opaque_door: swinging
+      vertical_fenestration: fixed
+      skylight: all
+  appendix_g:
+    envelope_category: nonresidential
+    classes:
+      roof: insulation_entirely_above_deck
+      wall_above_grade: steel_framed
+      wall_below_grade: below_grade_wall
+      floor: steel_joist
+      slab_on_grade: unheated
+      opaque_door: swinging
+      vertical_fenestration: all
+      skylight: all
+
+# Typical assembly (data/standards/typical_assemblies.yaml) built for each
+# assembly class, and the air films its table U-factor assumes. Each class
+# follows the base assembly Appendix A describes for it (Sections A2–A7).
+assemblies:
+  roof:
+    insulation_entirely_above_deck:
+      {assembly: roof_insulation_above_deck, outside_film: exterior, inside_film: interior_heat_flow_up, citation: Section A2.2.1}
+    metal_building:
+      {assembly: roof_metal_building, outside_film: exterior, inside_film: interior_heat_flow_up, citation: Sections A2.3 and A9.4.1}
+    attic_and_other:
+      {assembly: roof_attic, outside_film: semiexterior, inside_film: interior_heat_flow_up, citation: Section A2.4.1}
+  wall_above_grade:
+    mass:
+      {assembly: wall_mass, outside_film: exterior, inside_film: interior_vertical, citation: Section A3.1.1}
+    metal_building:
+      {assembly: wall_metal_building, outside_film: exterior, inside_film: interior_vertical, citation: Sections A3.2 and A9.4.1}
+    steel_framed:
+      {assembly: wall_framed, outside_film: exterior, inside_film: interior_vertical, citation: Section A3.3.1}
+    wood_framed_and_other:
+      {assembly: wall_framed, outside_film: exterior, inside_film: interior_vertical, citation: Section A3.4.1}
+  floor:
+    mass:
+      {assembly: floor_mass, outside_film: semiexterior, inside_film: interior_heat_flow_down, citation: Section A5.2.1}
+    steel_joist:
+      {assembly: floor_steel_joist, outside_film: semiexterior, inside_film: interior_heat_flow_down, citation: Section A5.3}
+    wood_framed_and_other:
+      {assembly: floor_wood_framed, outside_film: semiexterior, inside_film: interior_heat_flow_down, citation: Section A5.4.1}
+  opaque_door:
+    swinging:
+      {assembly: door_metal, outside_film: exterior, inside_film: interior_vertical, citation: Sections A7 and A9.4.1}
+    nonswinging:
+      {assembly: door_metal, outside_film: exterior, inside_film: interior_vertical, citation: Sections A7 and A9.4.1}

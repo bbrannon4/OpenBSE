@@ -1,0 +1,271 @@
+# ASHRAE 90.1-2025 (I-P), Table 9.5.2.1-2: values as printed.
+# Values only. The standard's text and footnotes are not reproduced.
+standard: ashrae_90_1
+edition: "2025"
+table: "9.5.2.1-2"
+title: Prescriptive lighting power density, space-by-space method, building-specific space types
+kind: lighting_space_by_space
+method: prescriptive
+units: ip
+derivation: printed
+lighting:
+  - key: casino_betting_area
+    name: "Casino gaming area, betting/sportsbook/keno/bingo"
+    lpd: 0.79
+    rcr: 5
+  - key: casino_high_limit_game_area
+    name: "Casino gaming area, high-limit game area"
+    lpd: 1.62
+    rcr: 4
+  - key: casino_slot_machine_area
+    name: "Casino gaming area, slot machine/digital gaming"
+    lpd: 0.53
+    rcr: 5
+  - key: casino_table_games_area
+    name: "Casino gaming area, table games"
+    lpd: 1.06
+    rcr: 5
+  - key: convention_center_exhibit_space
+    name: "Convention center, exhibit space"
+    lpd: 0.46
+    rcr: 4
+  - key: correctional_audience_seating
+    name: "Correctional facility, audience seating area"
+    lpd: 0.53
+    rcr: 4
+  - key: correctional_classroom
+    name: "Correctional facility, classroom/lecture hall/training room"
+    lpd: 0.71
+    rcr: 4
+  - key: correctional_confinement_cells
+    name: "Correctional facility, confinement cells"
+    lpd: 0.59
+    rcr: 6
+  - key: correctional_dining
+    name: "Correctional facility, dining area"
+    lpd: 0.33
+    rcr: 6
+  - key: dormitory_living_quarters
+    name: "Dormitory, living quarters"
+    lpd: 0.43
+    rcr: 8
+  - key: visually_impaired_chapel
+    name: "Facility for the visually impaired, chapel"
+    lpd: 0.62
+    rcr: 4
+  - key: visually_impaired_corridor
+    name: "Facility for the visually impaired, corridor"
+    lpd: 0.60
+    rcr: "width <8 ft"
+  - key: visually_impaired_dining
+    name: "Facility for the visually impaired, dining"
+    lpd: 1.08
+    rcr: 4
+  - key: visually_impaired_lobby
+    name: "Facility for the visually impaired, lobby"
+    lpd: 1.27
+    rcr: 4
+  - key: visually_impaired_recreation_room
+    name: "Facility for the visually impaired, recreation room/common living room"
+    lpd: 1.06
+    rcr: 6
+  - key: visually_impaired_restroom
+    name: "Facility for the visually impaired, restroom"
+    lpd: 0.90
+    rcr: 8
+  - key: fire_station_sleeping_quarters
+    name: "Fire station, sleeping quarters"
+    lpd: 0.19
+    rcr: 6
+  - key: gymnasium_exercise_area
+    name: "Gymnasium/fitness center, exercise area"
+    lpd: 0.78
+    rcr: 4
+  - key: gymnasium_playing_area
+    name: "Gymnasium/fitness center, playing area"
+    lpd: 0.78
+    rcr: 4
+  - key: healthcare_control_room
+    name: "Health care facility, control room (MRI/CT/radiology/PET)"
+    lpd: 0.73
+    rcr: 8
+  - key: healthcare_exam_treatment_room
+    name: "Health care facility, exam/treatment room"
+    lpd: 1.26
+    rcr: 8
+  - key: healthcare_hospital_corridor
+    name: "Health care facility, hospital corridor"
+    lpd: 0.60
+    rcr: "width <8 ft"
+  - key: healthcare_imaging_room
+    name: "Health care facility, imaging room"
+    lpd: 0.88
+    rcr: 6
+  - key: healthcare_lounge
+    name: "Health care facility, lounge"
+    lpd: 0.75
+    rcr: 6
+  - key: healthcare_medical_supply_room
+    name: "Health care facility, medical supply room"
+    lpd: 0.52
+    rcr: 6
+  - key: healthcare_nursery
+    name: "Health care facility, nursery"
+    lpd: 0.84
+    rcr: 6
+  - key: healthcare_nurse_station
+    name: "Health care facility, nurse station"
+    lpd: 0.93
+    rcr: 6
+  - key: healthcare_operating_room
+    name: "Health care facility, operating room"
+    lpd: 1.99
+    rcr: 6
+  - key: healthcare_patient_room
+    name: "Health care facility, patient room"
+    lpd: 0.73
+    rcr: 6
+  - key: healthcare_physical_therapy_room
+    name: "Health care facility, physical therapy room"
+    lpd: 0.86
+    rcr: 6
+  - key: healthcare_recovery_room
+    name: "Health care facility, recovery room"
+    lpd: 1.13
+    rcr: 6
+  - key: healthcare_telemedicine
+    name: "Health care facility, telemedicine"
+    lpd: 1.11
+    rcr: 8
+  - key: library_reading_area
+    name: "Library, reading area"
+    lpd: 0.80
+    rcr: 4
+  - key: library_stacks
+    name: "Library, stacks"
+    lpd: 1.15
+    rcr: 4
+  - key: manufacturing_detailed
+    name: "Manufacturing facility, detailed manufacturing area"
+    lpd: 0.71
+    rcr: 4
+  - key: manufacturing_extra_high_bay
+    name: "Manufacturing facility, extra-high bay (>50 ft floor-to-ceiling)"
+    lpd: 1.27
+    rcr: 8
+  - key: manufacturing_high_bay
+    name: "Manufacturing facility, high bay (25 to 50 ft floor-to-ceiling)"
+    lpd: 1.15
+    rcr: 6
+  - key: manufacturing_low_bay
+    name: "Manufacturing facility, low bay (<25 ft floor-to-ceiling)"
+    lpd: 0.81
+    rcr: 3
+  - key: museum_general_exhibition
+    name: "Museum, general exhibition area"
+    lpd: 0.27
+    rcr: 6
+  - key: museum_restoration
+    name: "Museum, restoration area"
+    lpd: 1.17
+    rcr: 4
+  - key: performing_arts_dressing_room
+    name: "Performing arts theater, dressing room"
+    lpd: 0.37
+    rcr: 6
+  - key: post_office_sorting_area
+    name: "Post office, sorting area"
+    lpd: 0.67
+    rcr: 4
+  - key: religious_audience_seating
+    name: "Religious facility, audience seating area"
+    lpd: 0.61
+    rcr: 4
+  - key: religious_fellowship_hall
+    name: "Religious facility, fellowship hall"
+    lpd: 0.44
+    rcr: 4
+  - key: religious_worship_pulpit_choir
+    name: "Religious facility, worship/pulpit/choir area"
+    lpd: 0.64
+    rcr: 4
+  - key: retail_dressing_fitting_room
+    name: "Retail facility, dressing/fitting room"
+    lpd: 0.42
+    rcr: 8
+  - key: retail_hair_care
+    name: "Retail facility, hair care"
+    lpd: 0.61
+    rcr: 6
+  - key: retail_mall_concourse
+    name: "Retail facility, mall concourse"
+    lpd: 0.51
+    rcr: 4
+  - key: retail_massage
+    name: "Retail facility, massage"
+    lpd: 0.71
+    rcr: 8
+  - key: retail_nail_care
+    name: "Retail facility, nail care"
+    lpd: 0.72
+    rcr: 6
+  - key: sports_arena_class_1
+    name: "Sports arena, class I facility"
+    lpd: 2.65
+    rcr: 4
+  - key: sports_arena_class_2
+    name: "Sports arena, class II facility"
+    lpd: 1.87
+    rcr: 4
+  - key: sports_arena_class_3
+    name: "Sports arena, class III facility"
+    lpd: 1.21
+    rcr: 4
+  - key: sports_arena_class_4
+    name: "Sports arena, class IV facility"
+    lpd: 0.81
+    rcr: 4
+  - key: natatorium_class_1
+    name: "Natatorium, class I facility"
+    lpd: 2.09
+    rcr: 4
+  - key: natatorium_class_2
+    name: "Natatorium, class II facility"
+    lpd: 1.39
+    rcr: 4
+  - key: natatorium_class_3
+    name: "Natatorium, class III facility"
+    lpd: 0.93
+    rcr: 4
+  - key: natatorium_class_4
+    name: "Natatorium, class IV facility"
+    lpd: 0.56
+    rcr: 4
+  - key: transportation_airport_hangar
+    name: "Transportation facility, airport hangar"
+    lpd: 1.27
+    rcr: 4
+  - key: transportation_baggage_carousel
+    name: "Transportation facility, baggage/carousel area"
+    lpd: 0.29
+    rcr: 4
+  - key: transportation_concourse
+    name: "Transportation facility, concourse"
+    lpd: 0.46
+    rcr: 4
+  - key: transportation_passenger_loading
+    name: "Transportation facility, passenger loading area"
+    lpd: 0.71
+    rcr: 6
+  - key: transportation_ticket_counter
+    name: "Transportation facility, ticket counter"
+    lpd: 0.37
+    rcr: 4
+  - key: warehouse_bulky_palletized
+    name: "Warehouse storage area, medium-to-bulky palletized items"
+    lpd: 0.41
+    rcr: 4
+  - key: warehouse_smaller_items
+    name: "Warehouse storage area, smaller items/picking areas"
+    lpd: 0.83
+    rcr: 6
