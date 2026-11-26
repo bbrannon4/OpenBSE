@@ -79,8 +79,8 @@ thermostats:
     heating_setpoint: 20.0
     cooling_setpoint: 99.0
     thermostat_schedule:
-      - {start_hour: 1, end_hour: 6, heating_setpoint: 15.0, cooling_setpoint: 99.0}
-      - {start_hour: 7, end_hour: 0, heating_setpoint: 20.0, cooling_setpoint: 99.0}
+      - {start_hour: 24, end_hour: 6, heating_setpoint: 15.0, cooling_setpoint: 99.0}
+      - {start_hour: 7, end_hour: 23, heating_setpoint: 20.0, cooling_setpoint: 99.0}
 
 outputs:
   - file: "hvac_results.csv"
