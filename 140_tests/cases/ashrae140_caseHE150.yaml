@@ -48,7 +48,7 @@ air_loops:
       cycling: on_off
       deadband: 1.0
       minimum_damper_position: 0.0
-      design_zone_flow: 0.5
+      design_zone_flow: 0.4274
       fan_operating_mode: continuous
     equipment:
       - type: heating_coil
@@ -60,8 +60,9 @@ air_loops:
       - type: fan
         name: HE150 Circulating Fan
         source: constant_volume
-        design_flow_rate: 0.30
-        pressure_rise: 227.0
+        design_flow_rate: 0.355
+        pressure_rise: 281.7
+        air_density: 1.204
         motor_efficiency: 1.0
         impeller_efficiency: 0.5
         motor_in_airstream_fraction: 1.0

@@ -48,7 +48,7 @@ air_loops:
       cycling: on_off
       deadband: 1.0
       minimum_damper_position: 0.0
-      design_zone_flow: 0.5
+      design_zone_flow: 0.4274
       fan_operating_mode: cycling
     equipment:
       - type: heating_coil
