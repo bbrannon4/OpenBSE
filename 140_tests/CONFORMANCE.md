@@ -12,7 +12,7 @@ Landing inside the acceptance ranges is a separate test (`README.md`). A case ca
 | 7 Building thermal envelope and fabric | 27 | 8 | 8 | 0 | 0 |
 | 9.2.1–9.2.2 Space cooling, analytical (CE100–CE200) | 14 | 1 | 1 | 0 | 2 |
 | 9.2.3–9.2.4 Space cooling, comparative (CE300–CE545) | 20 | 2 | 2 | 0 | 1 |
-| 10 Space heating (HE100–HE230) | 11 | 4 | 4 | 0 | 2 |
+| 10 Space heating (HE100–HE230) | 11 | 5 | 5 | 0 | 1 |
 | 11 Air-side HVAC (AE101–AE445) | 24 | 2 | 2 | 0 | 2 |
 
 Machine checks: `conformance_spec.json` lists 2,523 specified values across the 96 cases with their clauses; `crates/openbse-io/tests/ashrae140_conformance.rs` parses each case with the engine's input parser and checks every value, and fails if a case has no entry. Each case's weather file is hash-pinned in `.github/workflows/ci.yml`. See [CI guards](#ci-guards).
@@ -244,9 +244,9 @@ Engine paths: fuel-fired heating coil (`heating_coil.rs`): fuel = output / effic
 |---|---|---|---|---|---|
 | HE100-1 | Weather | 10.2.1.1 | HE100W.WY2 | `HE100W.csv` (W4) | fixed (#530) |
 | HE100-2 | Geometry | 10.2.1.3 | 48 m², 129.6 m³ | as specified | conforming |
-| HE100-3 | Heat-loss method | 10.2.1.7, 10.2.1.9 | programs without user-set convection coefficients use the infiltration method instead of the roof-coefficient method | the engine has no user-set coefficients; infiltration method, all surfaces adiabatic | conforming |
-| HE100-4 | Envelope | 10.2.1.9.2, Table 10-2 | near-adiabatic, no capacitance | adiabatic surfaces, heat capacity 0 | equivalent (adiabatic for near-adiabatic; Table 10-2 UA ≈ 0) |
-| HE100-5 | Infiltration | 10.2.1.9.3 | ≈ 0.2 kg/s; total effective UA 199.953 W/K | mass flow 199.953 / cp(W) (0.196–0.199 kg/s), volume for each file's mean pressure and humidity at 20 °C | fixed (#530; was 0.1657 m³/s tuned to the wrong pressure) |
+| HE100-3 | Heat-loss method | 10.2.1.7, 10.2.1.9 | programs without user-set convection coefficients use the infiltration method instead of the roof-coefficient method, complying with all of 10.2.1 except 10.2.1.4.1, 10.2.1.5, 10.2.1.7 and 10.2.1.8 | the engine has no user-set coefficients; infiltration method, envelope per Table 10-2 | conforming |
+| HE100-4 | Envelope | 10.2.1.9.2, Table 10-2 | wall 75.6 m², floor and roof 48.0 m², k 0.01 W/(m·K), t 1.00 m, U 0.01 W/(m²·K) face to face; zone above ground (10.2.1.7.1) | all six surfaces exposed to outdoors, one resistance-only layer R = 100 m²·K/W (no capacitance is specified) | conforming (fixed; was adiabatic surfaces, "equivalent", which 10.2.1.9.2 does not permit) |
+| HE100-5 | Infiltration | 10.2.1.9.3 | ≈ 0.2 kg/s; total effective UA, including residual flow through the envelope, 199.953 W/K | infiltration UA 199.953 − 1.713 (Table 10-2 envelope with films) = 198.240 W/K, as mass flow / cp(W), volume for each file's mean pressure and humidity at 20 °C | fixed (#530; envelope share subtracted with HE100-4) |
 | HE100-6 | Internal gains | 10.2.1.6 | none | none | conforming |
 | HE100-7 | System | 10.2.1.10.1 | 100% convective, sealed combustion, no pilot, no duct loss, fan heat to air, draft heat to flue | gas coil to supply air; draft fan as parasitic electric | conforming |
 | HE100-8 | Thermostat | 10.2.1.10.2 | heat < 20 °C, ideal, nonproportional | 20 °C | conforming |

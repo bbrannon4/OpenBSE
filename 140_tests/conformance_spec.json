@@ -11516,6 +11516,26 @@
      -0.17624156
     ],
     "clause": "10.2.1.10.4 HIR coefficients a-d"
+   },
+   {
+    "path": "/materials/[name=HE Envelope Material]/thermal_resistance",
+    "value": 100.0,
+    "clause": "10.2.1.9.2 Table 10-2 k 0.01, t 1.00, R 100"
+   },
+   {
+    "path": "/constructions/[name=HE Envelope]/layers/0/thickness",
+    "value": 1.0,
+    "clause": "10.2.1.9.2 Table 10-2 t 1.00 m"
+   },
+   {
+    "path": "/surfaces/[name=HE100 Roof]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.9.2, 10.2.1.7.1 envelope exposed to outdoors"
+   },
+   {
+    "path": "/surfaces/[name=HE100 Floor]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.7.1 zone suspended above the ground"
    }
   ],
   "HE110": [
@@ -11553,6 +11573,26 @@
      -0.17624156
     ],
     "clause": "10.2.1.10.4 HIR coefficients a-d"
+   },
+   {
+    "path": "/materials/[name=HE Envelope Material]/thermal_resistance",
+    "value": 100.0,
+    "clause": "10.2.1.9.2 Table 10-2 k 0.01, t 1.00, R 100"
+   },
+   {
+    "path": "/constructions/[name=HE Envelope]/layers/0/thickness",
+    "value": 1.0,
+    "clause": "10.2.1.9.2 Table 10-2 t 1.00 m"
+   },
+   {
+    "path": "/surfaces/[name=HE110 Roof]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.9.2, 10.2.1.7.1 envelope exposed to outdoors"
+   },
+   {
+    "path": "/surfaces/[name=HE110 Floor]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.7.1 zone suspended above the ground"
    }
   ],
   "HE120": [
@@ -11590,6 +11630,26 @@
      -0.17624156
     ],
     "clause": "10.2.1.10.4 HIR coefficients a-d"
+   },
+   {
+    "path": "/materials/[name=HE Envelope Material]/thermal_resistance",
+    "value": 100.0,
+    "clause": "10.2.1.9.2 Table 10-2 k 0.01, t 1.00, R 100"
+   },
+   {
+    "path": "/constructions/[name=HE Envelope]/layers/0/thickness",
+    "value": 1.0,
+    "clause": "10.2.1.9.2 Table 10-2 t 1.00 m"
+   },
+   {
+    "path": "/surfaces/[name=HE120 Roof]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.9.2, 10.2.1.7.1 envelope exposed to outdoors"
+   },
+   {
+    "path": "/surfaces/[name=HE120 Floor]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.7.1 zone suspended above the ground"
    }
   ],
   "HE130": [
@@ -11627,6 +11687,26 @@
      -0.17624156
     ],
     "clause": "10.2.1.10.4 HIR coefficients a-d"
+   },
+   {
+    "path": "/materials/[name=HE Envelope Material]/thermal_resistance",
+    "value": 100.0,
+    "clause": "10.2.1.9.2 Table 10-2 k 0.01, t 1.00, R 100"
+   },
+   {
+    "path": "/constructions/[name=HE Envelope]/layers/0/thickness",
+    "value": 1.0,
+    "clause": "10.2.1.9.2 Table 10-2 t 1.00 m"
+   },
+   {
+    "path": "/surfaces/[name=HE130 Roof]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.9.2, 10.2.1.7.1 envelope exposed to outdoors"
+   },
+   {
+    "path": "/surfaces/[name=HE130 Floor]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.7.1 zone suspended above the ground"
    }
   ],
   "HE140": [
@@ -11664,6 +11744,26 @@
      -0.17624156
     ],
     "clause": "10.2.1.10.4 HIR coefficients a-d"
+   },
+   {
+    "path": "/materials/[name=HE Envelope Material]/thermal_resistance",
+    "value": 100.0,
+    "clause": "10.2.1.9.2 Table 10-2 k 0.01, t 1.00, R 100"
+   },
+   {
+    "path": "/constructions/[name=HE Envelope]/layers/0/thickness",
+    "value": 1.0,
+    "clause": "10.2.1.9.2 Table 10-2 t 1.00 m"
+   },
+   {
+    "path": "/surfaces/[name=HE140 Roof]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.9.2, 10.2.1.7.1 envelope exposed to outdoors"
+   },
+   {
+    "path": "/surfaces/[name=HE140 Floor]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.7.1 zone suspended above the ground"
    }
   ],
   "HE150": [
@@ -11721,6 +11821,26 @@
      -0.17624156
     ],
     "clause": "10.2.1.10.4 HIR coefficients a-d"
+   },
+   {
+    "path": "/materials/[name=HE Envelope Material]/thermal_resistance",
+    "value": 100.0,
+    "clause": "10.2.1.9.2 Table 10-2 k 0.01, t 1.00, R 100"
+   },
+   {
+    "path": "/constructions/[name=HE Envelope]/layers/0/thickness",
+    "value": 1.0,
+    "clause": "10.2.1.9.2 Table 10-2 t 1.00 m"
+   },
+   {
+    "path": "/surfaces/[name=HE150 Roof]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.9.2, 10.2.1.7.1 envelope exposed to outdoors"
+   },
+   {
+    "path": "/surfaces/[name=HE150 Floor]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.7.1 zone suspended above the ground"
    }
   ],
   "HE160": [
@@ -11778,6 +11898,26 @@
      -0.17624156
     ],
     "clause": "10.2.1.10.4 HIR coefficients a-d"
+   },
+   {
+    "path": "/materials/[name=HE Envelope Material]/thermal_resistance",
+    "value": 100.0,
+    "clause": "10.2.1.9.2 Table 10-2 k 0.01, t 1.00, R 100"
+   },
+   {
+    "path": "/constructions/[name=HE Envelope]/layers/0/thickness",
+    "value": 1.0,
+    "clause": "10.2.1.9.2 Table 10-2 t 1.00 m"
+   },
+   {
+    "path": "/surfaces/[name=HE160 Roof]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.9.2, 10.2.1.7.1 envelope exposed to outdoors"
+   },
+   {
+    "path": "/surfaces/[name=HE160 Floor]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.7.1 zone suspended above the ground"
    }
   ],
   "HE170": [
@@ -11840,6 +11980,26 @@
      -0.17624156
     ],
     "clause": "10.2.1.10.4 HIR coefficients a-d"
+   },
+   {
+    "path": "/materials/[name=HE Envelope Material]/thermal_resistance",
+    "value": 100.0,
+    "clause": "10.2.1.9.2 Table 10-2 k 0.01, t 1.00, R 100"
+   },
+   {
+    "path": "/constructions/[name=HE Envelope]/layers/0/thickness",
+    "value": 1.0,
+    "clause": "10.2.1.9.2 Table 10-2 t 1.00 m"
+   },
+   {
+    "path": "/surfaces/[name=HE170 Roof]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.9.2, 10.2.1.7.1 envelope exposed to outdoors"
+   },
+   {
+    "path": "/surfaces/[name=HE170 Floor]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.7.1 zone suspended above the ground"
    }
   ],
   "HE210": [
@@ -11902,6 +12062,26 @@
      -0.17624156
     ],
     "clause": "10.2.1.10.4 HIR coefficients a-d"
+   },
+   {
+    "path": "/materials/[name=HE Envelope Material]/thermal_resistance",
+    "value": 100.0,
+    "clause": "10.2.1.9.2 Table 10-2 k 0.01, t 1.00, R 100"
+   },
+   {
+    "path": "/constructions/[name=HE Envelope]/layers/0/thickness",
+    "value": 1.0,
+    "clause": "10.2.1.9.2 Table 10-2 t 1.00 m"
+   },
+   {
+    "path": "/surfaces/[name=HE210 Roof]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.9.2, 10.2.1.7.1 envelope exposed to outdoors"
+   },
+   {
+    "path": "/surfaces/[name=HE210 Floor]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.7.1 zone suspended above the ground"
    }
   ],
   "HE220": [
@@ -11989,6 +12169,26 @@
      -0.17624156
     ],
     "clause": "10.2.1.10.4 HIR coefficients a-d"
+   },
+   {
+    "path": "/materials/[name=HE Envelope Material]/thermal_resistance",
+    "value": 100.0,
+    "clause": "10.2.1.9.2 Table 10-2 k 0.01, t 1.00, R 100"
+   },
+   {
+    "path": "/constructions/[name=HE Envelope]/layers/0/thickness",
+    "value": 1.0,
+    "clause": "10.2.1.9.2 Table 10-2 t 1.00 m"
+   },
+   {
+    "path": "/surfaces/[name=HE220 Roof]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.9.2, 10.2.1.7.1 envelope exposed to outdoors"
+   },
+   {
+    "path": "/surfaces/[name=HE220 Floor]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.7.1 zone suspended above the ground"
    }
   ],
   "HE230": [
@@ -12076,6 +12276,26 @@
      -0.17624156
     ],
     "clause": "10.2.1.10.4 HIR coefficients a-d"
+   },
+   {
+    "path": "/materials/[name=HE Envelope Material]/thermal_resistance",
+    "value": 100.0,
+    "clause": "10.2.1.9.2 Table 10-2 k 0.01, t 1.00, R 100"
+   },
+   {
+    "path": "/constructions/[name=HE Envelope]/layers/0/thickness",
+    "value": 1.0,
+    "clause": "10.2.1.9.2 Table 10-2 t 1.00 m"
+   },
+   {
+    "path": "/surfaces/[name=HE230 Roof]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.9.2, 10.2.1.7.1 envelope exposed to outdoors"
+   },
+   {
+    "path": "/surfaces/[name=HE230 Floor]/boundary",
+    "value": "outdoor",
+    "clause": "10.2.1.7.1 zone suspended above the ground"
    }
   ],
   "AE101": [
