@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Summary of November 2026
 
-v0.8.0 comes after a review of every model in the engine against EnergyPlus and the Engineering Reference, and an input-by-input conformance audit of the ASHRAE 140 cases. Results change for every shipped model. The bug-fixing pass (#267) closed the review's findings (#188–#264), group by group. The post-pass review (#328) and the 140 audit (#507) followed it. ASHRAE 140: 550 of 550 results inside their ranges. `140_tests/CONFORMANCE.md` records each case's requirements against its inputs, engine paths and outputs.
+v0.8.0 comes after a review of every model in the engine against EnergyPlus and the Engineering Reference, and an input-by-input conformance audit of the ASHRAE 140 cases. Results change for every shipped model. The bug-fixing pass (#267) closed the review's findings (#188–#264), group by group. The post-pass review (#328) and the 140 audit (#507) followed it. ASHRAE 140: 529 of 529 gated results inside their ranges, plus 21 reported. The energy, COP and humidity of the dry-coil cases CE530–CE545 depend on each program's start state, so they are reported but not gated; their inputs follow Section 9.2.3.5. Annex A3: every group in range. `140_tests/CONFORMANCE.md` records each case's requirements against its inputs, engine paths and outputs.
 
 ### Added (November)
 - **Thermostat setpoint schedules** (`heating_setpoint_schedule`, `cooling_setpoint_schedule`; #469). A `thermostat_schedule` entry can now ramp across its period with `heating_setpoint_end` / `cooling_setpoint_end`, read at the end of each timestep (#519).
@@ -25,7 +25,7 @@ v0.8.0 comes after a review of every model in the engine against EnergyPlus and 
 - **Code and standard reference data** (#408, first part of #341): ASHRAE 90.1-2025 lighting power densities and envelope criteria, prescriptive and Appendix G, under `data/standards/` with a citation for every value. A `standard:` block fills each zone's lighting from its `space_type`, and each surface's construction from the table for its climate zone, when the model loads. Explicit values win, and the summary report lists every value used with its source table.
 
 ### Changed (November)
-- **Zone air starts at the outdoor air's temperature and humidity** in the first warmup hour (was 21 °C and 0.008 kg/kg; #521).
+- **Zone air starts at the outdoor air's temperature and humidity** in the first warmup hour (was 21 °C and 0.008 kg/kg; #521) CE530–CE545 drop the reference input's January infiltration (Section 9.2.3.5).
 - **Outdoor humidity ratio comes from the dew point**, as E+ does (was whole-percent RH; #523).
 - **PSZ cycling defaults to modulating** (E+ UnitarySystem load control; #481).
 - **People's sensible heat is E+'s autocalculated value by default** (#459).
