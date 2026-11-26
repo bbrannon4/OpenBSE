@@ -371,6 +371,12 @@ temperature, and held for the rest of the timestep.
 
 **Source:** `main.rs::main` (the timestep loop); `warmup.rs`.
 
+Each zone's air starts at the outdoor air's dry-bulb temperature and humidity
+ratio in the first warmup hour (`initialize_zone_air_from_outdoor`), as ASHRAE
+140-2023 asks where a program allows it and as EnergyPlus starts zone humidity
+(`ZoneAirHumRat = OutHumRat`). Surfaces keep their own start state; the warmup
+settles the two together.
+
 Before the run period, the run's first 7 days are repeated, up to 4 times
 (28 days), through the same timestep as the run itself: the HVAC iteration,
 predictor, plant loops, VRF, radiant panels, duct losses, DHW and lighting

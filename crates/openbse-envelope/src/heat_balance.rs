@@ -2223,7 +2223,7 @@ impl EnvelopeSolver for BuildingEnvelope {
         }
 
         // 4. Infiltration + scheduled ventilation + exhaust + outdoor air
-        let w_outdoor = psych::w_fn_tdb_rh_pb(t_outdoor, weather.rel_humidity / 100.0, p_b);
+        let w_outdoor = weather.humidity_ratio();
         let rho_outdoor = psych::rho_air_fn_pb_tdb_w(p_b, t_outdoor, w_outdoor);
 
         // If airflow network is active, solve the pressure network for infiltration.
@@ -3605,6 +3605,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                         let pred_mode = zone.ideal_pred_mode;
                         let (heat_sp, cool_sp) = zone.input.active_setpoints(
                             hour,
+                            ctx.timestep.hour_fraction(),
                             ctx.timestep.day_of_year(),
                             self.schedule_day_type(ctx.timestep.month, ctx.timestep.day),
                             &self.schedule_manager,
@@ -3795,6 +3796,7 @@ impl EnvelopeSolver for BuildingEnvelope {
 
                         let (heat_sp, cool_sp) = zone.input.active_setpoints(
                             hour,
+                            ctx.timestep.hour_fraction(),
                             ctx.timestep.day_of_year(),
                             self.schedule_day_type(ctx.timestep.month, ctx.timestep.day),
                             &self.schedule_manager,
@@ -4252,6 +4254,7 @@ impl EnvelopeSolver for BuildingEnvelope {
                     // Step 2: Get active setpoints (may vary by schedule)
                     let (mut heat_sp, mut cool_sp) = zone.input.active_setpoints(
                         hour,
+                        ctx.timestep.hour_fraction(),
                         ctx.timestep.day_of_year(),
                         schedule_dow,
                         schedule_manager,
@@ -5194,6 +5197,21 @@ impl BuildingEnvelope {
             zone.diag_hvac_net_kwh = 0.0;
             zone.diag_last_sim_time = -1.0;
         }
+    }
+
+    /// Start every zone's air at the outdoor air's temperature and humidity
+    /// ratio, before the warm-up repeats. ASHRAE 140-2023 Section 5.1.1 asks
+    /// for this where a program allows it; E+ does the same for zone humidity
+    /// (`ZoneAirHumRat = OutHumRat`). Surfaces keep their own start state, and
+    /// the warm-up settles the two together.
+    pub fn initialize_zone_air_from_outdoor(&mut self, weather: &WeatherHour) {
+        let w = weather.humidity_ratio();
+        for zone in &mut self.zones {
+            zone.temp = weather.dry_bulb;
+            zone.temp_no_hvac = weather.dry_bulb;
+            zone.humidity_ratio = w;
+        }
+        self.reset_bdf_history_to_current();
     }
 
     pub fn reset_bdf_history_to_current(&mut self) {

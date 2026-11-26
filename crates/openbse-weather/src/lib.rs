@@ -59,8 +59,23 @@ pub struct WeatherHour {
 impl WeatherHour {
     /// Convert to a MoistAirState for the simulation engine.
     pub fn to_air_state(&self) -> MoistAirState {
-        let w = psych::w_fn_tdb_rh_pb(self.dry_bulb, self.rel_humidity / 100.0, self.pressure);
-        MoistAirState::new(self.dry_bulb, w, self.pressure)
+        MoistAirState::new(self.dry_bulb, self.humidity_ratio(), self.pressure)
+    }
+
+    /// Outdoor humidity ratio [kg/kg], from the dew point and pressure as E+
+    /// does (`PsyWFnTdpPb(OutDewPointTemp, OutBaroPress)`).
+    ///
+    /// Weather files store relative humidity as whole percent but the dew
+    /// point to 0.1 °C, so the dew point is the more precise moisture input;
+    /// ASHRAE 140-2023 Section 11 also gives the dew point as the exact value.
+    /// A dew point above the dry-bulb is capped at the dry-bulb (saturated).
+    /// Relative humidity is the fallback only when the dew point is unusable.
+    pub fn humidity_ratio(&self) -> f64 {
+        if self.dew_point.is_finite() && self.dew_point > -90.0 {
+            psych::w_fn_tdp_pb(self.dew_point.min(self.dry_bulb), self.pressure)
+        } else {
+            psych::w_fn_tdb_rh_pb(self.dry_bulb, self.rel_humidity / 100.0, self.pressure)
+        }
     }
 
     /// The weather for timestep `sub` (1-based) of `steps` in this hour, as E+
@@ -900,6 +915,26 @@ mod tests {
             horiz_ir_rad: 300.0,
             opaque_sky_cover: 5.0,
         }
+    }
+
+    #[test]
+    fn humidity_ratio_comes_from_dew_point() {
+        // ASHRAE 140 AE103 conditions: 15.5 °C dry-bulb, -3.0 °C dew point,
+        // stored with a whole-percent RH of 28 %.
+        let mut h = hour(15.5, 0.0);
+        h.dew_point = -3.0;
+        h.rel_humidity = 28.0;
+        let w = h.humidity_ratio();
+        assert!((w - psych::w_fn_tdp_pb(-3.0, 101_325.0)).abs() < 1e-12);
+        let w_rh = psych::w_fn_tdb_rh_pb(15.5, 0.28, 101_325.0);
+        assert!((w - w_rh).abs() > 1e-5, "RH rounding should be visible");
+        assert!((h.to_air_state().w - w).abs() < 1e-15);
+        // A dew point above the dry-bulb is read as saturated air.
+        h.dew_point = 17.0;
+        assert!((h.humidity_ratio() - psych::w_fn_tdp_pb(15.5, 101_325.0)).abs() < 1e-12);
+        // An unusable dew point falls back to relative humidity.
+        h.dew_point = f64::NAN;
+        assert!((h.humidity_ratio() - w_rh).abs() < 1e-12);
     }
 
     #[test]

@@ -10,6 +10,7 @@
 //! loop's water (see [`crate::water_coil`]). Without a plant loop (allowed only
 //! in a model with no plant loops) it is an ideal coil limited by capacity.
 
+use crate::performance_curve::PerformanceCurve;
 use crate::water_coil::{HeatingDesign, HeatingUa};
 use openbse_core::ports::*;
 use openbse_psychrometrics::{self as psych, FluidState};
@@ -51,6 +52,40 @@ pub struct HotWaterRating {
 const RATED_AIR_INLET: f64 = 16.6;
 const RATED_AIR_OUTLET: f64 = 32.2;
 
+/// Lowest part-load fraction a fuel curve may give, as E+ (which warns and
+/// resets lower values to 0.7).
+const MIN_FUEL_PLF: f64 = 0.7;
+
+/// How a gas burner's fuel use departs from its output at part load.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PartLoadFuelCurve {
+    /// Part-load fraction PLF(PLR): fuel = full-load fuel × PLR / PLF, as the
+    /// E+ `Coil:Heating:Fuel` "Part Load Fraction Correlation Curve".
+    PartLoadFraction(PerformanceCurve),
+    /// Heat input ratio HIR(PLR): fuel = full-load fuel × HIR, the form
+    /// ASHRAE 140-2023 Section 10 specifies (PLF = PLR / HIR).
+    HeatInputRatio(PerformanceCurve),
+}
+
+impl PartLoadFuelCurve {
+    /// Part-load fraction at part-load ratio `plr` (0 to 1), floored at 0.7.
+    pub fn plf(&self, plr: f64) -> f64 {
+        let plr = plr.clamp(0.0, 1.0);
+        let plf = match self {
+            Self::PartLoadFraction(c) => c.evaluate_1d(plr),
+            Self::HeatInputRatio(c) => {
+                let hir = c.evaluate_1d(plr);
+                if hir > 0.0 {
+                    plr / hir
+                } else {
+                    1.0
+                }
+            }
+        };
+        plf.max(MIN_FUEL_PLF)
+    }
+}
+
 /// Heating coil component.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeatingCoil {
@@ -79,6 +114,11 @@ pub struct HeatingCoil {
     #[serde(default)]
     pub parasitic_electric_load: f64,
 
+    /// Part-load fuel curve of a gas coil, or `None` for fuel proportional
+    /// to output at every part load.
+    #[serde(default)]
+    pub part_load_fuel: Option<PartLoadFuelCurve>,
+
     // ─── Runtime state ──────────────────────────────────────────────────
     #[serde(skip)]
     pub heating_rate: f64,
@@ -102,6 +142,7 @@ impl HeatingCoil {
             rating: HotWaterRating::default(),
             water_ua: None,
             parasitic_electric_load: 0.0,
+            part_load_fuel: None,
             heating_rate: 0.0,
             energy_consumption: 0.0,
             water_inlet: None,
@@ -123,6 +164,17 @@ impl HeatingCoil {
         let mut coil = Self::new(name, HeatingCoilType::Gas, capacity, setpoint);
         coil.efficiency = burner_efficiency;
         coil
+    }
+
+    /// Part-load fraction of a gas coil delivering `output` [W]; 1.0 without
+    /// a part-load fuel curve or a capacity.
+    fn fuel_plf(&self, output: f64) -> f64 {
+        match (&self.part_load_fuel, self.coil_type) {
+            (Some(curve), HeatingCoilType::Gas) if self.nominal_capacity > 0.0 => {
+                curve.plf(output / self.nominal_capacity)
+            }
+            _ => 1.0,
+        }
     }
 
     /// Create a hot-water heating coil. It runs as an ideal coil until
@@ -249,12 +301,14 @@ impl AirComponent for HeatingCoil {
                 let outlet_t = inlet.state.t_db + q_actual / (inlet.mass_flow * cp_air);
 
                 self.heating_rate = q_actual;
-                // Gas consumption = delivered heat / burner efficiency
-                self.energy_consumption = if self.efficiency > 0.0 {
+                // Gas consumption = delivered heat / burner efficiency, over
+                // the part-load fraction at the coil's own part load.
+                let full_rate = if self.efficiency > 0.0 {
                     q_actual / self.efficiency
                 } else {
                     q_actual
                 };
+                self.energy_consumption = full_rate / self.fuel_plf(q_actual);
 
                 AirPort::new(
                     psych::MoistAirState::new(outlet_t, inlet.state.w, inlet.state.p_b),
@@ -341,6 +395,15 @@ impl AirComponent for HeatingCoil {
             HeatingCoilType::Gas => self.energy_consumption,
             _ => 0.0,
         }
+    }
+
+    fn fuel_cycling_factor(&self, on_fraction: f64, on_cycle_output: f64) -> f64 {
+        // Averaged over the timestep the burner runs at part load
+        // on_fraction × its on-cycle part load; its on-cycle fuel already
+        // carries PLF at the on-cycle part load.
+        let on_cycle = self.fuel_plf(on_cycle_output);
+        let averaged = self.fuel_plf(on_cycle_output * on_fraction);
+        on_fraction * on_cycle / averaged
     }
 
     fn thermal_output(&self) -> f64 {
@@ -601,6 +664,53 @@ mod tests {
             p_b: 101325.0,
         };
         assert!(coil.size_water_side(&design).is_some());
+    }
+
+    fn cubic(c: [f64; 4]) -> PerformanceCurve {
+        PerformanceCurve::Polynomial {
+            name: "c".into(),
+            curve_type: crate::performance_curve::CurveType::Cubic,
+            coefficients: c.to_vec(),
+            min_x: 0.0,
+            max_x: 1.0,
+            min_y: -100.0,
+            max_y: 100.0,
+            min_output: None,
+            max_output: None,
+        }
+    }
+
+    /// ASHRAE 140 Section 10 furnace: fuel = full-load fuel × HIR(PLR), both
+    /// when the coil modulates and when its loop cycles it.
+    #[test]
+    fn gas_coil_part_load_fuel_follows_hir_curve() {
+        let hir = [0.0080472574, 0.87564457, 0.29249943, -0.17624156];
+        let hir_at = |x: f64| hir[0] + hir[1] * x + hir[2] * x * x + hir[3] * x * x * x;
+        let mut coil = HeatingCoil::gas("F", 10_000.0, 50.0, 0.8);
+        coil.part_load_fuel = Some(PartLoadFuelCurve::HeatInputRatio(cubic(hir)));
+        // Modulating to 2.8 kW (PLR 0.28): fuel = 12.5 kW × HIR(0.28).
+        let cp = psych::cp_air_fn_w(0.005);
+        let flow = 2_800.0 / (cp * 30.0);
+        let inlet = AirPort::new(MoistAirState::new(20.0, 0.005, 101325.0), flow);
+        coil.simulate_air(&inlet, &make_ctx());
+        assert_relative_eq!(coil.heating_rate, 2_800.0, max_relative = 1e-9);
+        assert_relative_eq!(
+            coil.fuel_consumption(),
+            12_500.0 * hir_at(0.28),
+            max_relative = 1e-9
+        );
+        // On at full output for 28% of the step: the same averaged fuel.
+        let full = AirPort::new(MoistAirState::new(20.0, 0.005, 101325.0), 1.0);
+        coil.simulate_air(&full, &make_ctx());
+        let on = coil.heating_rate;
+        assert_relative_eq!(on, 10_000.0);
+        let averaged = coil.fuel_consumption() * coil.fuel_cycling_factor(0.28, on);
+        assert_relative_eq!(averaged, 12_500.0 * hir_at(0.28), max_relative = 1e-9);
+        // Below about 3% part load the PLF floor of 0.7 governs.
+        assert_relative_eq!(PartLoadFuelCurve::HeatInputRatio(cubic(hir)).plf(0.01), 0.7);
+        // Without a curve fuel follows runtime.
+        coil.part_load_fuel = None;
+        assert_relative_eq!(coil.fuel_cycling_factor(0.28, on), 0.28);
     }
 
     #[test]
