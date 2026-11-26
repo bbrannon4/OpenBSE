@@ -29,17 +29,17 @@ LATENT_W = 586.1
 # entering temperature (and hence the coil load) slightly.
 CASES = {
     # AE100 — fan-coil air handler (supply fan only, no return fan, no economizer)
-    "AE101": dict(w="AE_m29", sens=-2931.0, sp=21.111, econ=None, return_fan=False),
-    "AE103": dict(w="AE_155", sens=1465.0, sp=23.333, econ=None, return_fan=False),
-    "AE104": dict(w="AE_269", sens=2931.0, sp=23.889, econ=None, return_fan=False),
+    "AE101": dict(w="AE101", sens=-2931.0, sp=21.111, econ=None, return_fan=False),
+    "AE103": dict(w="AE103", sens=1465.0, sp=23.333, econ=None, return_fan=False),
+    "AE104": dict(w="AE104", sens=2931.0, sp=23.889, econ=None, return_fan=False),
     # AE200 — single-zone air handler (supply + return fans)
-    "AE201": dict(w="AE_m29", sens=-2931.0, sp=21.111, econ=None),
-    "AE203": dict(w="AE_155", sens=1465.0, sp=23.333, econ=None),
-    "AE204": dict(w="AE_269", sens=2931.0, sp=23.889, econ=None),
-    "AE205": dict(w="AE_249", sens=1465.0, sp=23.333, econ=None),
-    "AE206": dict(w="AE_230", sens=1465.0, sp=23.333, econ=None),
-    "AE226": dict(w="AE_230", sens=1465.0, sp=23.333, econ="differential_dry_bulb"),
-    "AE245": dict(w="AE_249", sens=1465.0, sp=23.333, econ="differential_enthalpy"),
+    "AE201": dict(w="AE101", sens=-2931.0, sp=21.111, econ=None),
+    "AE203": dict(w="AE103", sens=1465.0, sp=23.333, econ=None),
+    "AE204": dict(w="AE104", sens=2931.0, sp=23.889, econ=None),
+    "AE205": dict(w="AE105", sens=1465.0, sp=23.333, econ=None),
+    "AE206": dict(w="AE106", sens=1465.0, sp=23.333, econ=None),
+    "AE226": dict(w="AE106", sens=1465.0, sp=23.333, econ="differential_dry_bulb"),
+    "AE245": dict(w="AE105", sens=1465.0, sp=23.333, econ="differential_enthalpy"),
 }
 
 WALLS = [
@@ -112,7 +112,7 @@ simulation:
   end_day: 7
 
 weather_files:
-  - "../weather/{c['w']}.epw"
+  - "../weather/{c['w']}.csv"
 
 simple_constructions:
   - name: Adiabatic Wall
