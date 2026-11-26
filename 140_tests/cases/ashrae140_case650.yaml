@@ -192,24 +192,23 @@ ideal_loads:
         heating_setpoint: 20.0
         cooling_setpoint: 100.0
 
-# Scheduled night ventilation for passive cooling
-# ASHRAE 140-2023 Case 650: venting from 1800-0700 IF T_zone > T_outdoor
-# (Table B3-1a: "Ventilating fan = ON from 1800 to 0700 if zone > ambient")
-# 0700-1800: no additional ventilation (infiltration only)
-# Hours: 1-7 (midnight-7AM) and 19-24 (6PM-midnight) in E+ 1-24 convention
+# Night ventilation (ASHRAE 140-2023 Section 7.2.2.1.5): vent fan ON
+# 18:00-07:00 (hours 19-24 and 1-7 in the hour-ending convention of Section
+# 5.1.1.1, hour N = (N-1):00 to N:00), OFF 07:00-18:00, in addition to the
+# 0.5 ach infiltration. Capacity 1700 m3/h = 13.12 ach of the 129.6 m3 zone;
+# the engine takes air density from the weather file's pressure, so the
+# automatic-altitude row of Table 7-16 applies.
 ventilation:
   - name: Night Ventilation 1
     zones: [Case650 Zone]
     start_hour: 0
     end_hour: 7
     air_changes_per_hour: 13.12
-    outdoor_temp_must_be_lower: true
   - name: Night Ventilation 2
     zones: [Case650 Zone]
     start_hour: 19
     end_hour: 24
     air_changes_per_hour: 13.12
-    outdoor_temp_must_be_lower: true
 
 # ─── Surfaces with 3D Vertices ──────────────────────────────────────────────
 # Same geometry as Case 600.

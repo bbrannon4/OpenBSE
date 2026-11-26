@@ -206,15 +206,12 @@ ideal_loads:
         heating_setpoint: 20.0
         cooling_setpoint: 100.0
 
-# Scheduled night ventilation for passive cooling
-# ASHRAE 140-2023 Case 950: venting from 1800-0700 IF T_zone > T_outdoor
-# (Table B3-1a: "Ventilating fan = ON from 1800 to 0700 if zone > ambient")
-# 0700-1800: no additional ventilation (infiltration only)
-#
-# E+ IDF "Sch 2" schedule: hours 1-7 = 1.0, hour 19 = BLANK (0), hours 20-24 = 1.0
-# The hour-19 gap means no ventilation during 18:00-19:00.
-# ASHRAE 140 Case 950: "Ventilating fan = ON from 1800 to 0700 if zone > ambient"
-# NV2 starts at hour 20 (=19:00-20:00) to match E+'s hour-19 gap.
+# Night ventilation (ASHRAE 140-2023 Section 7.2.2.1.5): vent fan ON
+# 18:00-07:00 (hours 19-24 and 1-7 in the hour-ending convention of Section
+# 5.1.1.1, hour N = (N-1):00 to N:00), OFF 07:00-18:00, in addition to the
+# 0.5 ach infiltration. Capacity 1700 m3/h = 13.12 ach of the 129.6 m3 zone;
+# the engine takes air density from the weather file's pressure, so the
+# automatic-altitude row of Table 7-16 applies.
 ventilation:
   - name: Night Ventilation 1
     zones: [Case950 Zone]
@@ -223,7 +220,7 @@ ventilation:
     air_changes_per_hour: 13.12
   - name: Night Ventilation 2
     zones: [Case950 Zone]
-    start_hour: 20
+    start_hour: 19
     end_hour: 24
     air_changes_per_hour: 13.12
 
