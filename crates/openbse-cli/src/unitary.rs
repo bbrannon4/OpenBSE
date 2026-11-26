@@ -376,11 +376,27 @@ pub fn simulate_unitary(
             } else {
                 0.0
             };
-            let (o, s) = blend(
+            let (mut o, s) = blend(
                 &[(1.0 - r, &off, 1.0 - r), (r, &heat, r)],
                 &compressors,
                 ctx,
             );
+            // A burner with a part-load fuel curve departs from its runtime
+            // share (E+ Coil:Heating:Fuel PLF curve).
+            if r > 0.0 {
+                for (comp, out) in o.iter_mut() {
+                    let on_output = heat
+                        .outputs
+                        .get(comp)
+                        .and_then(|h| h.get("thermal_output"))
+                        .copied()
+                        .unwrap_or(0.0);
+                    let factor = crate::fuel_cycling_factor(graph, comp, r, on_output);
+                    if let Some(fp) = out.get_mut("fuel_power") {
+                        *fp *= factor / r;
+                    }
+                }
+            }
             (o, s, r)
         }
         HvacMode::Cooling => {

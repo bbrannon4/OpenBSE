@@ -57,6 +57,7 @@ air_loops:
         capacity: 10000.0
         efficiency: 0.8
         setpoint: 50.0
+        hir_curve: HE150 Furnace HIR
       - type: fan
         name: HE150 Circulating Fan
         source: constant_volume
@@ -68,6 +69,14 @@ air_loops:
         motor_in_airstream_fraction: 1.0
     zones:
       - zone: HE150 Zone
+
+performance_curves:
+  # Section 10.2.1.10.4: HIR(PLR) = a + b PLR + c PLR^2 + d PLR^3.
+  - name: HE150 Furnace HIR
+    curve_type: cubic
+    coefficients: [0.0080472574, 0.87564457, 0.29249943, -0.17624156]
+    min_x: 0.0
+    max_x: 1.0
 
 zone_groups:
   - name: HE150 Zone Group

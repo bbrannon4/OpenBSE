@@ -57,8 +57,17 @@ air_loops:
         capacity: 10000.0
         efficiency: 1.0
         setpoint: 50.0
+        hir_curve: HE100 Furnace HIR
     zones:
       - zone: HE100 Zone
+
+performance_curves:
+  # Section 10.2.1.10.4: HIR(PLR) = a + b PLR + c PLR^2 + d PLR^3.
+  - name: HE100 Furnace HIR
+    curve_type: cubic
+    coefficients: [0.0080472574, 0.87564457, 0.29249943, -0.17624156]
+    min_x: 0.0
+    max_x: 1.0
 
 zone_groups:
   - name: HE100 Zone Group

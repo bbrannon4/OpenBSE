@@ -28,6 +28,15 @@ pub struct TimeStep {
 }
 
 impl TimeStep {
+    /// How far through its hour this timestep ends (0 to 1].
+    pub fn hour_fraction(&self) -> f64 {
+        if self.timesteps_per_hour == 0 {
+            1.0
+        } else {
+            (self.sub_hour as f64 / self.timesteps_per_hour as f64).clamp(0.0, 1.0)
+        }
+    }
+
     /// Day of year (1-based).
     pub fn day_of_year(&self) -> u32 {
         let days_in_months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];

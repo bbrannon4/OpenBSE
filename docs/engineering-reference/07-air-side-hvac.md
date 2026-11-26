@@ -139,10 +139,18 @@ with $W$ unchanged. The coil types differ as follows:
 
 - **Electric.** The coil draws $\dot Q/\eta$ of electricity, with $\eta$
   the `efficiency` input (default 1).
-- **Gas.** The coil burns $\dot Q/\eta_b$ of fuel, with $\eta_b$ the burner
-  efficiency. An on-cycle parasitic electric load $P_\text{par}$ is drawn in
-  proportion to firing, $P_\text{par}\dot Q/\dot Q_\text{cap}$. Its heat is
-  lost with the flue gas.
+- **Gas.** The coil burns $\dot Q/(\eta_b\,\text{PLF})$ of fuel, with $\eta_b$
+  the burner efficiency and PLF its part-load fraction at part-load ratio
+  $\text{PLR} = \dot Q/\dot Q_\text{cap}$ (1 without a part-load curve). The
+  curve is given either as $\text{PLF}(\text{PLR})$ (`plf_curve`, as E+) or as
+  the heat input ratio $\text{HIR}(\text{PLR})$ (`hir_curve`, the form ASHRAE 140
+  Section 10 specifies), with $\text{PLF} = \text{PLR}/\text{HIR}$; either way
+  PLF is floored at 0.7, as in E+. When the loop cycles the coil on for a
+  fraction $f$ of the timestep at on-cycle part load $r$, the averaged fuel is
+  the on-cycle fuel times $f\,\text{PLF}(r)/\text{PLF}(f r)$, so the curve is
+  read at the timestep's overall part load $f r$. An on-cycle parasitic
+  electric load $P_\text{par}$ is drawn in proportion to firing,
+  $P_\text{par}\dot Q/\dot Q_\text{cap}$. Its heat is lost with the flue gas.
 - **Hot water.** The coil uses no energy itself. Its output is a load on its
   plant loop (@sec-plant).
 
@@ -196,8 +204,10 @@ A hot-water coil with no plant loop (allowed only in a model without plant
 loops) is an ideal coil: @eq-heating-coil with its nominal capacity.
 
 **Comparison with EnergyPlus.** The electric and gas coils match
-`Coil:Heating:Electric` and `Coil:Heating:Fuel` with no part-load fuel curve
-(`HeatingCoils.cc`). OpenBSE has no part-load curve and no off-cycle
+`Coil:Heating:Electric` and `Coil:Heating:Fuel`, including its "Part Load
+Fraction Correlation Curve" (`HeatingCoils.cc`, `CalcFuelHeatingCoil`).
+OpenBSE also takes the heat input ratio form directly, so a curve specified as
+HIR is used exactly rather than refitted as PLF. OpenBSE has no off-cycle
 parasitic fuel ([#71](https://github.com/bbrannon4/OpenBSE/issues/71)). The
 hot-water coil matches `Coil:Heating:Water` (`WaterCoils.cc`,
 `CalcSimpleHeatingCoil`, `CalcAdjustedCoilUA`), with its UA autosized at
@@ -212,8 +222,8 @@ out of reach is a warning here where E+ stops sizing.
 ## Known limitations: fans, heating coils and ducts {#sec-air-side-limitations-a}
 
 - [#71](https://github.com/bbrannon4/OpenBSE/issues/71): VAV fan density
-  and minimum flow fraction, on/off fan curves, gas-coil part-load curve and
-  off-cycle parasitics.
+  and minimum flow fraction, on/off fan curves and gas-coil off-cycle
+  parasitics.
 - [#72](https://github.com/bbrannon4/OpenBSE/issues/72): Standard 205 fan
   at fixed static pressure; stale power after a failed map query.
 - Hot-water and chilled-water coils have no fouling, no `DetailedGeometry`

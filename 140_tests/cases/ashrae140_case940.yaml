@@ -187,9 +187,8 @@ ideal_loads:
     # Setback (ASHRAE 140-2023 Section 7.2, Case 640; 140-2017 Addendum a
     # 5.2.2.1.4.1), hour-ending hours (hour N = (N-1):00 to N:00):
     #   hours 24 and 1-7 (23:00-07:00): heat below 10 C
-    #   hour 8 (07:00-08:00): set point ramps 10 -> 20 C. Schedules are hourly
-    #     (#519), so the hour holds 16.25 C, the mean of the clause (c.1)
-    #     set points at 15-minute steps (12.5, 15, 17.5, 20 C).
+    #   hour 8 (07:00-08:00): set point ramps linearly 10 -> 20 C, read at
+    #     the end of each 15-minute step (clause c.1): 12.5, 15, 17.5, 20 C.
     #   hours 9-23 (08:00-23:00): heat below 20 C; cool above 27 C always.
     thermostat_schedule:
       - start_hour: 0
@@ -198,7 +197,8 @@ ideal_loads:
         cooling_setpoint: 27.0
       - start_hour: 8
         end_hour: 8
-        heating_setpoint: 16.25
+        heating_setpoint: 10.0
+        heating_setpoint_end: 20.0
         cooling_setpoint: 27.0
       - start_hour: 9
         end_hour: 23

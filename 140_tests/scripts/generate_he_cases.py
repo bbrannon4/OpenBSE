@@ -54,6 +54,10 @@ FAN_DP = 281.7  # Pa
 FAN_RHO = 1.204  # kg/m3
 LOOP_FLOW = 0.4274  # kg/s
 DRAFT_FAN_W = 50.0
+# Section 10.2.1.10.4, part-load operation: heat input ratio coefficients
+# a, b, c, d of HIR(PLR) = a + b PLR + c PLR^2 + d PLR^3 (Henderson's
+# furnace correlation). PLF = PLR / HIR.
+HIR = (0.0080472574, 0.87564457, 0.29249943, -0.17624156)
 CASES = {
     "HE100": dict(w="HE100W", eff=1.00, fan=None, kw=10.0, setback=False, draft=0.0),
     "HE110": dict(w="HE100W", eff=0.80, fan=None, kw=10.0, setback=False, draft=0.0),
@@ -108,6 +112,9 @@ def make_yaml(case, c):
     fan_mode = "continuous" if c["fan"] == "continuous" else "cycling"
     # Emitted only when present so the other cases' YAML stays byte-identical.
     draft_line = f"        parasitic_electric_load: {c['draft']}\n" if c["draft"] else ""
+    # Part-load fuel (Section 10.2.1.10.4): fuel = full-load fuel x HIR(PLR),
+    # given as the Standard's heat input ratio curve itself.
+    hir_line = f"        hir_curve: {case} Furnace HIR\n"
     # Night setback (HE220/HE230, Section 10.2): heat below 15 C for
     # 23:00 < time < 6:00 and below 20 C for 6:00 <= time <= 23:00, i.e.
     # 15 C in hour-ending hours 24 and 1-6, 20 C in hours 7-23.
@@ -173,8 +180,16 @@ air_loops:
         capacity: {c['kw'] * 1000.0}
         efficiency: {c['eff']}
         setpoint: 50.0
-{draft_line}{fan_block}    zones:
+{hir_line}{draft_line}{fan_block}    zones:
       - zone: {z}
+
+performance_curves:
+  # Section 10.2.1.10.4: HIR(PLR) = a + b PLR + c PLR^2 + d PLR^3.
+  - name: {case} Furnace HIR
+    curve_type: cubic
+    coefficients: [{HIR[0]}, {HIR[1]}, {HIR[2]}, {HIR[3]}]
+    min_x: 0.0
+    max_x: 1.0
 
 zone_groups:
   - name: {case} Zone Group

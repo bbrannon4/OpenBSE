@@ -57,6 +57,7 @@ air_loops:
         capacity: 5000.0
         efficiency: 0.8
         setpoint: 50.0
+        hir_curve: HE230 Furnace HIR
         parasitic_electric_load: 50.0
       - type: fan
         name: HE230 Circulating Fan
@@ -69,6 +70,14 @@ air_loops:
         motor_in_airstream_fraction: 1.0
     zones:
       - zone: HE230 Zone
+
+performance_curves:
+  # Section 10.2.1.10.4: HIR(PLR) = a + b PLR + c PLR^2 + d PLR^3.
+  - name: HE230 Furnace HIR
+    curve_type: cubic
+    coefficients: [0.0080472574, 0.87564457, 0.29249943, -0.17624156]
+    min_x: 0.0
+    max_x: 1.0
 
 zone_groups:
   - name: HE230 Zone Group

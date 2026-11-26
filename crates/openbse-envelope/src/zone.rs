@@ -91,7 +91,8 @@ impl Default for IdealLoadsAirSystem {
 /// Thermostat schedule entry — defines setpoints for a time period.
 ///
 /// Used for Case 640 (thermostat setback): different setpoints at different
-/// times of day, with linear ramp between periods.
+/// times of day. An entry with an end setpoint ramps linearly across its
+/// period (Case 640/940 morning recovery).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThermostatScheduleEntry {
@@ -115,9 +116,37 @@ pub struct ThermostatScheduleEntry {
     pub end_month: Option<u32>,
     #[serde(default)]
     pub end_day: Option<u32>,
+    /// Heating setpoint reached at the end of the period [°C]. When given,
+    /// the heating setpoint ramps linearly from `heating_setpoint` at the
+    /// period's start to this value at its end, read at the end of each
+    /// timestep (ASHRAE 140-2023 Section 7.2, Case 640 clause c.1).
+    #[serde(default)]
+    pub heating_setpoint_end: Option<f64>,
+    /// Cooling setpoint reached at the end of the period [°C], ramping as
+    /// `heating_setpoint_end` does.
+    #[serde(default)]
+    pub cooling_setpoint_end: Option<f64>,
 }
 
 impl ThermostatScheduleEntry {
+    /// (Heating, cooling) setpoints at `hour_fraction` (0 to 1) through
+    /// `hour` (1-24, hour-ending): constant, or on the entry's ramp. Hours
+    /// are hour-ending, so a period from hour 8 to hour 8 runs 07:00-08:00.
+    pub fn setpoints_at(&self, hour: u32, hour_fraction: f64) -> (f64, f64) {
+        if self.heating_setpoint_end.is_none() && self.cooling_setpoint_end.is_none() {
+            return (self.heating_setpoint, self.cooling_setpoint);
+        }
+        let start = self.start_hour.max(1);
+        let span = (self.end_hour + 24 - start) % 24 + 1;
+        let into = (hour + 24 - start) % 24;
+        let f = ((into as f64 + hour_fraction.clamp(0.0, 1.0)) / span as f64).clamp(0.0, 1.0);
+        let ramp = |from: f64, to: Option<f64>| to.map_or(from, |to| from + (to - from) * f);
+        (
+            ramp(self.heating_setpoint, self.heating_setpoint_end),
+            ramp(self.cooling_setpoint, self.cooling_setpoint_end),
+        )
+    }
+
     /// Whether this entry is in force at `hour` (1-24) of day-of-year
     /// `day_of_year` (1-365).
     pub fn applies(&self, hour: u32, day_of_year: u32) -> bool {
@@ -975,11 +1004,12 @@ impl ZoneInput {
     pub fn active_setpoints(
         &self,
         hour: u32,
+        hour_fraction: f64,
         day_of_year: u32,
         day_of_week: u32,
         schedules: &crate::schedule::ScheduleManager,
     ) -> (f64, f64) {
-        let (heat, cool) = self.base_setpoints(hour, day_of_year);
+        let (heat, cool) = self.base_setpoints(hour, hour_fraction, day_of_year);
         let read = |name: &Option<String>, base: f64| {
             name.as_deref()
                 .and_then(|n| schedules.value_doy(n, hour, day_of_week, day_of_year))
@@ -991,14 +1021,14 @@ impl ZoneInput {
         )
     }
 
-    fn base_setpoints(&self, hour: u32, day_of_year: u32) -> (f64, f64) {
+    fn base_setpoints(&self, hour: u32, hour_fraction: f64, day_of_year: u32) -> (f64, f64) {
         // Check thermostat schedule first
         if let Some(entry) = self
             .thermostat_schedule
             .iter()
             .find(|e| e.applies(hour, day_of_year))
         {
-            return (entry.heating_setpoint, entry.cooling_setpoint);
+            return entry.setpoints_at(hour, hour_fraction);
         }
 
         // Fall back to ideal_loads setpoints
@@ -2253,6 +2283,8 @@ mod tests {
                 start_day: None,
                 end_month: None,
                 end_day: None,
+                heating_setpoint_end: None,
+                cooling_setpoint_end: None,
             }],
             setpoint_schedules: (None, None),
             ventilation_schedule: vec![],
@@ -2275,14 +2307,45 @@ mod tests {
         };
 
         // During night setback
-        let (h, c) = input.active_setpoints(3, 1, 1, &crate::schedule::ScheduleManager::new());
+        let (h, c) = input.active_setpoints(3, 1.0, 1, 1, &crate::schedule::ScheduleManager::new());
         assert_relative_eq!(h, 10.0);
         assert_relative_eq!(c, 99.0);
 
         // During day (falls through to ideal_loads defaults)
-        let (h, c) = input.active_setpoints(12, 1, 1, &crate::schedule::ScheduleManager::new());
+        let (h, c) =
+            input.active_setpoints(12, 1.0, 1, 1, &crate::schedule::ScheduleManager::new());
         assert_relative_eq!(h, 20.0);
         assert_relative_eq!(c, 27.0);
+    }
+
+    /// ASHRAE 140 Case 640 clause (c.1): the 07:00-08:00 heating setpoint
+    /// ramps 10 -> 20 C, read at the end of each 15-minute step.
+    #[test]
+    fn thermostat_entry_ramps_within_its_period() {
+        let entry = ThermostatScheduleEntry {
+            start_hour: 8,
+            end_hour: 8,
+            heating_setpoint: 10.0,
+            cooling_setpoint: 27.0,
+            start_month: None,
+            start_day: None,
+            end_month: None,
+            end_day: None,
+            heating_setpoint_end: Some(20.0),
+            cooling_setpoint_end: None,
+        };
+        let heat: Vec<f64> = (1..=4)
+            .map(|k| entry.setpoints_at(8, k as f64 / 4.0).0)
+            .collect();
+        assert_eq!(heat, vec![12.5, 15.0, 17.5, 20.0]);
+        assert_eq!(entry.setpoints_at(8, 0.5).1, 27.0);
+        // A two-hour ramp is halfway at the end of its first hour.
+        let two = ThermostatScheduleEntry {
+            end_hour: 9,
+            ..entry.clone()
+        };
+        assert_eq!(two.setpoints_at(8, 1.0).0, 15.0);
+        assert_eq!(two.setpoints_at(9, 1.0).0, 20.0);
     }
 
     #[test]
@@ -2297,6 +2360,8 @@ mod tests {
             start_day: Some(21),
             end_month: Some(10),
             end_day: Some(12),
+            heating_setpoint_end: None,
+            cooling_setpoint_end: None,
         };
         let doy = crate::schedule::day_of_year_from_md;
         assert!(entry.applies(23, doy(7, 1))); // summer night

@@ -191,6 +191,10 @@ STEP_0_100 = summer_day_step(0, 1)
 # the test specification (which has no infiltration); the reference EnergyPlus
 # input adds it "to get zone humidity ratio initialized", and it is kept here
 # so the dry-coil zone starts the year at the same humidity as that reference.
+# The engine starts zone air at the first hour's outdoor conditions (Section
+# 5.1.1), but a sealed dry-coil zone keeps its start humidity all year, and
+# CE300's 1 January 01:00 humidity (0.0030 kg/kg) is far below the week's end
+# (0.0071) that the Standard's example programs reach (#521).
 FIRST_WEEK = sched((1, 1, 1, 7, "1x24"), (1, 8, 12, 31, "0x24"))
 
 # ── Case table ────────────────────────────────────────────────────────────────

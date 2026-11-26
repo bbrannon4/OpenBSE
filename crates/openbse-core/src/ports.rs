@@ -244,6 +244,15 @@ pub trait AirComponent: std::fmt::Debug {
         None
     }
 
+    /// The time-averaged share of on-cycle fuel use when the component runs
+    /// for `on_fraction` of the timestep, having delivered `on_cycle_output`
+    /// [W] while on. A burner with a part-load fuel curve burns more or less
+    /// than its runtime share (E+ `Coil:Heating:Fuel` PLF curve); without one
+    /// fuel follows runtime.
+    fn fuel_cycling_factor(&self, on_fraction: f64, _on_cycle_output: f64) -> f64 {
+        on_fraction
+    }
+
     /// Design air flow rate for autosizing [m³/s]. Returns None if not applicable.
     fn design_air_flow_rate(&self) -> Option<f64> {
         None

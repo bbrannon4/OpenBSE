@@ -2170,7 +2170,7 @@
    {
     "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/0/heating_setpoint",
     "value": 10.0,
-    "clause": "7.2.2.1.4.1.1c(1) ramp hour: hourly mean of the 15-min set points (#519)"
+    "clause": "7.2.2.1.4.1.1c(1) set points; the 07:00-08:00 ramp read at the end of each time step"
    },
    {
     "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/1/start_hour",
@@ -2184,8 +2184,13 @@
    },
    {
     "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/1/heating_setpoint",
-    "value": 16.25,
-    "clause": "7.2.2.1.4.1.1c(1) ramp hour: hourly mean of the 15-min set points (#519)"
+    "value": 10.0,
+    "clause": "7.2.2.1.4.1.1c(1) set points; the 07:00-08:00 ramp read at the end of each time step"
+   },
+   {
+    "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/1/heating_setpoint_end",
+    "value": 20.0,
+    "clause": "7.2.2.1.4.1.1c(1) set points; the 07:00-08:00 ramp read at the end of each time step"
    },
    {
     "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/2/start_hour",
@@ -2200,7 +2205,7 @@
    {
     "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/2/heating_setpoint",
     "value": 20.0,
-    "clause": "7.2.2.1.4.1.1c(1) ramp hour: hourly mean of the 15-min set points (#519)"
+    "clause": "7.2.2.1.4.1.1c(1) set points; the 07:00-08:00 ramp read at the end of each time step"
    },
    {
     "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/3/start_hour",
@@ -2215,7 +2220,7 @@
    {
     "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/3/heating_setpoint",
     "value": 10.0,
-    "clause": "7.2.2.1.4.1.1c(1) ramp hour: hourly mean of the 15-min set points (#519)"
+    "clause": "7.2.2.1.4.1.1c(1) set points; the 07:00-08:00 ramp read at the end of each time step"
    }
   ],
   "650": [
@@ -7357,7 +7362,7 @@
    {
     "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/0/heating_setpoint",
     "value": 10.0,
-    "clause": "7.2.2.1.4.1.1c(1) ramp hour: hourly mean of the 15-min set points (#519)"
+    "clause": "7.2.2.1.4.1.1c(1) set points; the 07:00-08:00 ramp read at the end of each time step"
    },
    {
     "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/1/start_hour",
@@ -7371,8 +7376,13 @@
    },
    {
     "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/1/heating_setpoint",
-    "value": 16.25,
-    "clause": "7.2.2.1.4.1.1c(1) ramp hour: hourly mean of the 15-min set points (#519)"
+    "value": 10.0,
+    "clause": "7.2.2.1.4.1.1c(1) set points; the 07:00-08:00 ramp read at the end of each time step"
+   },
+   {
+    "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/1/heating_setpoint_end",
+    "value": 20.0,
+    "clause": "7.2.2.1.4.1.1c(1) set points; the 07:00-08:00 ramp read at the end of each time step"
    },
    {
     "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/2/start_hour",
@@ -7387,7 +7397,7 @@
    {
     "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/2/heating_setpoint",
     "value": 20.0,
-    "clause": "7.2.2.1.4.1.1c(1) ramp hour: hourly mean of the 15-min set points (#519)"
+    "clause": "7.2.2.1.4.1.1c(1) set points; the 07:00-08:00 ramp read at the end of each time step"
    },
    {
     "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/3/start_hour",
@@ -7402,7 +7412,7 @@
    {
     "path": "/ideal_loads/[name=Zone Ideal Loads]/thermostat_schedule/3/heating_setpoint",
     "value": 10.0,
-    "clause": "7.2.2.1.4.1.1c(1) ramp hour: hourly mean of the 15-min set points (#519)"
+    "clause": "7.2.2.1.4.1.1c(1) set points; the 07:00-08:00 ramp read at the end of each time step"
    }
   ],
   "950": [
@@ -11476,6 +11486,21 @@
     "path": "/thermostats/[name=HE100 Thermostat]/heating_setpoint",
     "value": 20.0,
     "clause": "10.2.1.10.2 thermostat 20 C"
+   },
+   {
+    "path": "/air_loops/[name=Furnace]/equipment/[name=HE100 Gas Furnace]/hir_curve",
+    "value": "HE100 Furnace HIR",
+    "clause": "10.2.1.10.4 part-load operation HIR(PLR)"
+   },
+   {
+    "path": "/performance_curves/[name=HE100 Furnace HIR]/coefficients",
+    "value": [
+     0.0080472574,
+     0.87564457,
+     0.29249943,
+     -0.17624156
+    ],
+    "clause": "10.2.1.10.4 HIR coefficients a-d"
    }
   ],
   "HE110": [
@@ -11498,6 +11523,21 @@
     "path": "/thermostats/[name=HE110 Thermostat]/heating_setpoint",
     "value": 20.0,
     "clause": "10.2.1.10.2 thermostat 20 C"
+   },
+   {
+    "path": "/air_loops/[name=Furnace]/equipment/[name=HE110 Gas Furnace]/hir_curve",
+    "value": "HE110 Furnace HIR",
+    "clause": "10.2.1.10.4 part-load operation HIR(PLR)"
+   },
+   {
+    "path": "/performance_curves/[name=HE110 Furnace HIR]/coefficients",
+    "value": [
+     0.0080472574,
+     0.87564457,
+     0.29249943,
+     -0.17624156
+    ],
+    "clause": "10.2.1.10.4 HIR coefficients a-d"
    }
   ],
   "HE120": [
@@ -11520,6 +11560,21 @@
     "path": "/thermostats/[name=HE120 Thermostat]/heating_setpoint",
     "value": 20.0,
     "clause": "10.2.1.10.2 thermostat 20 C"
+   },
+   {
+    "path": "/air_loops/[name=Furnace]/equipment/[name=HE120 Gas Furnace]/hir_curve",
+    "value": "HE120 Furnace HIR",
+    "clause": "10.2.1.10.4 part-load operation HIR(PLR)"
+   },
+   {
+    "path": "/performance_curves/[name=HE120 Furnace HIR]/coefficients",
+    "value": [
+     0.0080472574,
+     0.87564457,
+     0.29249943,
+     -0.17624156
+    ],
+    "clause": "10.2.1.10.4 HIR coefficients a-d"
    }
   ],
   "HE130": [
@@ -11542,6 +11597,21 @@
     "path": "/thermostats/[name=HE130 Thermostat]/heating_setpoint",
     "value": 20.0,
     "clause": "10.2.1.10.2 thermostat 20 C"
+   },
+   {
+    "path": "/air_loops/[name=Furnace]/equipment/[name=HE130 Gas Furnace]/hir_curve",
+    "value": "HE130 Furnace HIR",
+    "clause": "10.2.1.10.4 part-load operation HIR(PLR)"
+   },
+   {
+    "path": "/performance_curves/[name=HE130 Furnace HIR]/coefficients",
+    "value": [
+     0.0080472574,
+     0.87564457,
+     0.29249943,
+     -0.17624156
+    ],
+    "clause": "10.2.1.10.4 HIR coefficients a-d"
    }
   ],
   "HE140": [
@@ -11564,6 +11634,21 @@
     "path": "/thermostats/[name=HE140 Thermostat]/heating_setpoint",
     "value": 20.0,
     "clause": "10.2.1.10.2 thermostat 20 C"
+   },
+   {
+    "path": "/air_loops/[name=Furnace]/equipment/[name=HE140 Gas Furnace]/hir_curve",
+    "value": "HE140 Furnace HIR",
+    "clause": "10.2.1.10.4 part-load operation HIR(PLR)"
+   },
+   {
+    "path": "/performance_curves/[name=HE140 Furnace HIR]/coefficients",
+    "value": [
+     0.0080472574,
+     0.87564457,
+     0.29249943,
+     -0.17624156
+    ],
+    "clause": "10.2.1.10.4 HIR coefficients a-d"
    }
   ],
   "HE150": [
@@ -11606,6 +11691,21 @@
     "path": "/air_loops/[name=Furnace]/equipment/[name=HE150 Circulating Fan]/air_density",
     "value": 1.204,
     "clause": "10.2.2.5 circulating fan 200 W constant"
+   },
+   {
+    "path": "/air_loops/[name=Furnace]/equipment/[name=HE150 Gas Furnace]/hir_curve",
+    "value": "HE150 Furnace HIR",
+    "clause": "10.2.1.10.4 part-load operation HIR(PLR)"
+   },
+   {
+    "path": "/performance_curves/[name=HE150 Furnace HIR]/coefficients",
+    "value": [
+     0.0080472574,
+     0.87564457,
+     0.29249943,
+     -0.17624156
+    ],
+    "clause": "10.2.1.10.4 HIR coefficients a-d"
    }
   ],
   "HE160": [
@@ -11648,6 +11748,21 @@
     "path": "/air_loops/[name=Furnace]/equipment/[name=HE160 Circulating Fan]/air_density",
     "value": 1.204,
     "clause": "10.2.2.5 circulating fan 200 W constant"
+   },
+   {
+    "path": "/air_loops/[name=Furnace]/equipment/[name=HE160 Gas Furnace]/hir_curve",
+    "value": "HE160 Furnace HIR",
+    "clause": "10.2.1.10.4 part-load operation HIR(PLR)"
+   },
+   {
+    "path": "/performance_curves/[name=HE160 Furnace HIR]/coefficients",
+    "value": [
+     0.0080472574,
+     0.87564457,
+     0.29249943,
+     -0.17624156
+    ],
+    "clause": "10.2.1.10.4 HIR coefficients a-d"
    }
   ],
   "HE170": [
@@ -11695,6 +11810,21 @@
     "path": "/air_loops/[name=Furnace]/equipment/[name=HE170 Circulating Fan]/air_density",
     "value": 1.204,
     "clause": "10.2.2.5 circulating fan 200 W constant"
+   },
+   {
+    "path": "/air_loops/[name=Furnace]/equipment/[name=HE170 Gas Furnace]/hir_curve",
+    "value": "HE170 Furnace HIR",
+    "clause": "10.2.1.10.4 part-load operation HIR(PLR)"
+   },
+   {
+    "path": "/performance_curves/[name=HE170 Furnace HIR]/coefficients",
+    "value": [
+     0.0080472574,
+     0.87564457,
+     0.29249943,
+     -0.17624156
+    ],
+    "clause": "10.2.1.10.4 HIR coefficients a-d"
    }
   ],
   "HE210": [
@@ -11742,6 +11872,21 @@
     "path": "/air_loops/[name=Furnace]/equipment/[name=HE210 Circulating Fan]/air_density",
     "value": 1.204,
     "clause": "10.2.2.5 circulating fan 200 W constant"
+   },
+   {
+    "path": "/air_loops/[name=Furnace]/equipment/[name=HE210 Gas Furnace]/hir_curve",
+    "value": "HE210 Furnace HIR",
+    "clause": "10.2.1.10.4 part-load operation HIR(PLR)"
+   },
+   {
+    "path": "/performance_curves/[name=HE210 Furnace HIR]/coefficients",
+    "value": [
+     0.0080472574,
+     0.87564457,
+     0.29249943,
+     -0.17624156
+    ],
+    "clause": "10.2.1.10.4 HIR coefficients a-d"
    }
   ],
   "HE220": [
@@ -11814,6 +11959,21 @@
     "path": "/thermostats/[name=HE220 Thermostat]/thermostat_schedule/1/end_hour",
     "value": 23,
     "clause": "10.2.3.2 20 C 06:00-23:00"
+   },
+   {
+    "path": "/air_loops/[name=Furnace]/equipment/[name=HE220 Gas Furnace]/hir_curve",
+    "value": "HE220 Furnace HIR",
+    "clause": "10.2.1.10.4 part-load operation HIR(PLR)"
+   },
+   {
+    "path": "/performance_curves/[name=HE220 Furnace HIR]/coefficients",
+    "value": [
+     0.0080472574,
+     0.87564457,
+     0.29249943,
+     -0.17624156
+    ],
+    "clause": "10.2.1.10.4 HIR coefficients a-d"
    }
   ],
   "HE230": [
@@ -11886,6 +12046,21 @@
     "path": "/thermostats/[name=HE230 Thermostat]/thermostat_schedule/1/end_hour",
     "value": 23,
     "clause": "10.2.3.2 20 C 06:00-23:00"
+   },
+   {
+    "path": "/air_loops/[name=Furnace]/equipment/[name=HE230 Gas Furnace]/hir_curve",
+    "value": "HE230 Furnace HIR",
+    "clause": "10.2.1.10.4 part-load operation HIR(PLR)"
+   },
+   {
+    "path": "/performance_curves/[name=HE230 Furnace HIR]/coefficients",
+    "value": [
+     0.0080472574,
+     0.87564457,
+     0.29249943,
+     -0.17624156
+    ],
+    "clause": "10.2.1.10.4 HIR coefficients a-d"
    }
   ],
   "AE101": [
