@@ -129,7 +129,7 @@ constructions:
 glazing_materials:
   # Clear glass pane of the standard (WINDOW 7 CLEAR_3)
   - name: Clear Glass
-    thickness: 0.003175
+    thickness: 0.003048    # 3.048 mm (Section 7.2, Table 5-10)
     conductivity: 1.0
     solar_transmittance: 0.834
     solar_reflectance_front: 0.075
