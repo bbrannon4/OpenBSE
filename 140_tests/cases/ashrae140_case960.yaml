@@ -88,12 +88,12 @@ simple_constructions:
 
   # Sun Zone Wall (heavyweight): Wood Siding 9mm / Foam 61.5mm / Concrete Block 100mm
   # U = 0.556 W/(m2K), C = 145154 J/(m2K)
-  # Interior surface is concrete block with solar_absorptance = 0.75
+  # Solar absorptance 0.6, as for Case 900 (Section 7.2.2.2.7.3, Table 5-5)
   # Used for Sun Zone S/E/W exterior walls
   - name: SunZone Wall
     u_factor: 0.556
     thermal_capacity: 145154.0
-    solar_absorptance: 0.75
+    solar_absorptance: 0.6
     thermal_absorptance: 0.9
     mass_conductivity: 0.51
     mass_density: 1400.0
@@ -101,11 +101,11 @@ simple_constructions:
 
   # Sun Zone Floor (heavyweight): R-25 Insulation / Concrete Slab 80mm
   # U = 0.0396 W/(m2K), C = 112000 J/(m2K)
-  # Interior surface is concrete slab with solar_absorptance = 0.75
+  # Solar absorptance 0.6, as for Case 900 (Section 7.2.2.2.7.3, Table 5-5)
   - name: SunZone Floor
     u_factor: 0.0396
     thermal_capacity: 112000.0
-    solar_absorptance: 0.75
+    solar_absorptance: 0.6
     thermal_absorptance: 0.9
     mass_conductivity: 1.13
     mass_density: 1400.0
