@@ -359,7 +359,7 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     for section, content in SECTIONS.items():
         path = os.path.join(args.output_dir, f"OpenBSE_S140outNotes_{section}.txt")
-        with open(path, "w", encoding="latin-1", newline="\r\n") as f:
+        with open(path, "w", encoding="latin-1", newline="\n") as f:
             f.write(fill(template, content))
         print(f"wrote {path}")
 
